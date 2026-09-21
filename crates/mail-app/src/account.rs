@@ -25,8 +25,8 @@ pub fn add(
     // case, and anything deriving a login name from one gets a different answer than anything
     // deriving it from the other. A mail server that is case-sensitive about the local part
     // then rejects one of them with nothing to explain why.
-    let address = &address.to_lowercase();
-    let Some(preset) = mail_domain::presets::preset_for(address, now) else {
+    let address = address.to_lowercase();
+    let Some(preset) = mail_domain::presets::preset_for(&address, now) else {
         return Err(format!(
             "no preset for {address:?}. Manual setup is not written yet — \
              the known domains are gmail.com, googlemail.com and ntu.edu.tw."
@@ -34,8 +34,29 @@ pub fn add(
     };
 
     let account = AccountId::generate();
-    let plan_json = serde_json::to_string(&preset.plan)
-        .map_err(|e| format!("cannot encode the account plan: {e}"))?;
+
+    // The preset leaves `identities` empty on purpose: minting one needs an `IdentityId` and
+    // an `AccountId`, which would make `preset_for` impure and invent an account id no row
+    // matches. Creating the account is where both exist, so this is where the default identity
+    // is built — and without it nothing can be sent, because a draft names the identity it is
+    // from and `mail_mime::build` reads the `From` header out of it.
+    let mut plan = preset.plan;
+    let identity = Identity {
+        id: IdentityId::generate(),
+        account,
+        from: Address {
+            // No display name. Inventing one from the local part produces "B09901185", and a
+            // name the user did not choose is worse than no name: it goes out on every message.
+            name: None,
+            email: address.clone(),
+        },
+        reply_to: None,
+        signature: None,
+        default: IsDefault::Default,
+    };
+    plan.identities = vec![identity.clone()];
+    let plan_json =
+        serde_json::to_string(&plan).map_err(|e| format!("cannot encode the account plan: {e}"))?;
     let caps_json = serde_json::to_string(&preset.expected_caps)
         .map_err(|e| format!("cannot encode capabilities: {e}"))?;
 
@@ -43,9 +64,29 @@ pub fn add(
         .connection()
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at) VALUES (?1, ?2, ?3, ?4)",
-            rusqlite_params(&[&account.to_string(), address, &plan_json, &now.to_rfc3339()]),
+            rusqlite_params(&[
+                &account.to_string(),
+                &address,
+                &plan_json,
+                &now.to_rfc3339(),
+            ]),
         )
         .map_err(|e| format!("cannot save the account: {e}"))?;
+    store
+        .connection()
+        .execute(
+            "INSERT INTO identities (id, account, from_name, from_email, reply_to, signature,
+                 is_default)
+             VALUES (?1, ?2, NULL, ?3, NULL, NULL, ?4)",
+            rusqlite_params(&[
+                &identity.id.to_string(),
+                &account.to_string(),
+                &identity.from.email,
+                &serde_json::to_string(&identity.default)
+                    .map_err(|e| format!("cannot encode the identity: {e}"))?,
+            ]),
+        )
+        .map_err(|e| format!("cannot save the identity: {e}"))?;
     store
         .connection()
         .execute(
@@ -55,9 +96,9 @@ pub fn add(
         .map_err(|e| format!("cannot save capabilities: {e}"))?;
 
     let mut out = format!("added {address} as {account}\n");
-    match &preset.plan.auth {
+    match &plan.auth {
         AuthPlan::Password { username, sasl } => {
-            let login = username.resolve(address);
+            let login = username.resolve(&address);
             match std::env::var("MAILO_PASSWORD") {
                 Ok(password) if !password.is_empty() => {
                     KeyringSecrets

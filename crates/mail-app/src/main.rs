@@ -2,6 +2,7 @@
 
 mod account;
 mod cli;
+mod compose;
 mod sync;
 mod ui;
 mod view;
@@ -23,6 +24,28 @@ fn main() {
                 std::process::exit(2);
             }
         }
+    };
+
+    // `reply` takes its body from stdin, which is I/O and so does not belong in the parser.
+    // Read here, once, before anything opens the database.
+    let command = match command {
+        Some(cli::Command::Reply {
+            message,
+            scope,
+            body: _,
+        }) => {
+            let mut body = String::new();
+            if let Err(e) = std::io::Read::read_to_string(&mut std::io::stdin(), &mut body) {
+                eprintln!("cannot read the message body: {e}");
+                std::process::exit(1);
+            }
+            Some(cli::Command::Reply {
+                message,
+                scope,
+                body,
+            })
+        }
+        other => other,
     };
 
     let Some(dirs) = paths() else {

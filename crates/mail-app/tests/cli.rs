@@ -13,6 +13,8 @@ use mail_store::{SqliteStore, Store};
 mod account;
 #[path = "../src/cli.rs"]
 mod cli;
+#[path = "../src/compose.rs"]
+mod compose;
 #[path = "../src/sync.rs"]
 mod sync;
 
@@ -207,4 +209,48 @@ fn a_missing_thread_is_an_error_not_a_panic() {
     )
     .expect_err("no such thread");
     assert!(!err.is_empty());
+}
+
+#[test]
+fn the_parser_understands_the_composing_verbs() {
+    let args = |s: &str| -> Vec<String> { s.split(' ').map(str::to_owned).collect() };
+    let id = MessageId::generate().to_string();
+
+    assert!(matches!(
+        cli::parse(&args(&format!("reply {id}"))).unwrap(),
+        cli::Command::Reply {
+            scope: ReplyScope::Sender,
+            ..
+        }
+    ));
+    // `--all` rather than a second verb: one operation, a wider audience.
+    assert!(matches!(
+        cli::parse(&args(&format!("reply {id} --all"))).unwrap(),
+        cli::Command::Reply {
+            scope: ReplyScope::All,
+            ..
+        }
+    ));
+    assert!(matches!(
+        cli::parse(&args("drafts")).unwrap(),
+        cli::Command::Drafts
+    ));
+    // Mistyped input is explained, never panicked on.
+    assert!(cli::parse(&args("send not-a-uuid")).is_err());
+    assert!(cli::parse(&args("reply")).is_err());
+    assert!(cli::parse(&args(&format!("reply {id} --everyone"))).is_err());
+}
+
+#[test]
+fn usage_mentions_every_verb_the_parser_accepts() {
+    // A command that works but is undocumented is a command nobody uses.
+    let text = cli::usage();
+    for verb in [
+        "list", "show", "search", "reply", "send", "drafts", "status", "sync",
+    ] {
+        assert!(
+            text.contains(verb),
+            "usage does not mention {verb}:\n{text}"
+        );
+    }
 }

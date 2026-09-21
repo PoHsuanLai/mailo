@@ -511,3 +511,41 @@ the envelope by re-parsing the message is the exact shape of the first failure, 
 it impossible to hold one without the other.
 
 Found by reading the builder before wiring submission, not by a test.
+
+### F38 — No account had an identity, so nothing could have been sent
+
+`presets.rs` leaves `AccountPlan.identities` empty and explains why in a comment: an `Identity`
+needs an `IdentityId` and an `AccountId`, and minting either inside `preset_for` would make a
+pure lookup impure and invent an account id no row matches. The same comment says the
+account-creation flow builds the default identity and pushes it on.
+
+The account-creation flow did not. `account::add` wrote the account row, the capabilities row
+and the keyring entry, and never touched `identities` — neither the table nor the plan's copy.
+Every configured account therefore had nowhere to send from, which nothing noticed because
+nothing could send at all.
+
+The comment was not wrong when it was written; it described a contract that the other half was
+expected to honour. A contract stated in prose on one side of a boundary and forgotten on the
+other is how this happens. The nearest thing to a type-level fix would be for `Preset` to carry
+something that *cannot* be stored without an identity, which is more machinery than one call site
+justifies — so instead `account add` builds it, `tests/compose.rs` asserts a fresh account can
+reply, and the prose now sits next to the code that keeps it.
+
+No display name on the generated identity: deriving one from the local part produces "B09901185"
+on the user's own outgoing mail, and a name the user did not choose is worse than none.
+
+### F39 — Identities live in two places, and the foreign key picks the winner
+
+`identities` is a table, and `AccountPlan.identities` is a JSON copy of the same list inside
+`accounts.plan`. Both are written at account creation. Only one of them is enforced: `drafts.
+identity` is a foreign key into the table, so a draft that exists at all has a row there, while
+the plan's copy is a snapshot that nothing keeps current.
+
+`compose::identity_of` first read the plan, which is the side that can go stale. It now reads the
+table — the side the constraint guarantees — so the lookup cannot disagree with the row that
+allowed the draft to be saved in the first place. `tests/compose.rs` empties the plan's copy and
+asserts that replying and sending still work.
+
+The duplication itself is still there and is the real defect; this is the safe reading of it, not
+a fix. Collapsing it means deciding whether `AccountPlan` should carry identities at all, which
+is a question for whenever a second identity per account becomes real.

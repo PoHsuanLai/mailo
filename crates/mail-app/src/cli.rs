@@ -26,6 +26,16 @@ pub enum Command {
     AccountList,
     /// Fetch mail for every configured account, and drain the outbox.
     Sync,
+    /// Start a reply to a message. The body is read from stdin.
+    Reply {
+        message: MessageId,
+        scope: ReplyScope,
+        body: String,
+    },
+    /// Queue a draft for delivery on the next sync.
+    Send { draft: DraftId },
+    /// Every draft, and where it got to.
+    Drafts,
 }
 
 /// Parse arguments, or explain what was wrong.
@@ -71,6 +81,39 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                 .ok_or_else(|| format!("search needs something to look for\n\n{}", usage()))?;
             Ok(Command::Search { needle, limit: 20 })
         }
+        "reply" => {
+            let raw = args
+                .get(1)
+                .ok_or_else(|| format!("reply needs a message id\n\n{}", usage()))?;
+            let uuid = raw
+                .parse()
+                .map_err(|_| format!("{raw:?} is not a message id"))?;
+            // `--all` rather than a separate verb: it is the same operation with a wider
+            // audience, and two verbs would be two code paths for one question.
+            let scope = match args.get(2).map(String::as_str) {
+                None => ReplyScope::Sender,
+                Some("--all") => ReplyScope::All,
+                Some(other) => return Err(format!("unknown option {other:?}\n\n{}", usage())),
+            };
+            Ok(Command::Reply {
+                message: MessageId::from_uuid(uuid),
+                scope,
+                // Filled in by the caller, which owns stdin. Parsing stays pure.
+                body: String::new(),
+            })
+        }
+        "send" => {
+            let raw = args
+                .get(1)
+                .ok_or_else(|| format!("send needs a draft id\n\n{}", usage()))?;
+            let uuid = raw
+                .parse()
+                .map_err(|_| format!("{raw:?} is not a draft id"))?;
+            Ok(Command::Send {
+                draft: DraftId::from_uuid(uuid),
+            })
+        }
+        "drafts" => Ok(Command::Drafts),
         "status" => Ok(Command::Status),
         "sync" => Ok(Command::Sync),
         "account" => match args.get(1).map(String::as_str) {
@@ -108,6 +151,9 @@ usage: mailo <command>
   list [inbox|archive|sent|drafts|trash|spam] [limit]
   show <thread-id>
   search <words...>
+  reply <message-id> [--all]  compose a reply; the body is read from stdin
+  send <draft-id>             queue a draft for the next sync
+  drafts                      drafts and where each one got to
   status
   account [list]
   account add <address>      (set MAILO_PASSWORD for a password account)
@@ -180,6 +226,13 @@ pub fn run(store: &SqliteStore, command: &Command, now: DateTime<Utc>) -> Result
         // Dispatched in main: it needs an async runtime and the store by Arc, which would make
         // this function untestable without one.
         Command::Sync => Err("sync is dispatched before this point".to_owned()),
+        Command::Reply {
+            message,
+            scope,
+            body,
+        } => crate::compose::reply(store, *message, *scope, body, now),
+        Command::Send { draft } => crate::compose::send(store, *draft, now),
+        Command::Drafts => crate::compose::drafts(store),
         Command::AccountAdd { address } => crate::account::add(store, address, now),
         Command::AccountList => crate::account::list(store),
         Command::Status => {
