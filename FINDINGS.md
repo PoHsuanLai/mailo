@@ -1435,3 +1435,25 @@ The test took three attempts and only the third tests anything. Re-rendering the
 not re-run a memo, so the first two versions passed with the subscription reinstated — a memo
 re-runs when its *dependencies* change, which means the test has to perform the write a keystroke
 performs. It does now, and putting the subscription back fails it.
+
+### F81 — Two threads on one connection: no defect, and one measurement
+
+The last structural dimension never exercised: `SqliteStore` holds one connection behind a
+`ReentrantMutex` and the shell shares it by `Arc` between the UI thread and a sync on
+`spawn_blocking`. Every test until now used it from a single thread, so the contention that
+exists in the real program had never happened in a test.
+
+Nothing is wrong. A reader looping on the list query while a writer absorbs a thousand messages
+neither deadlocks nor starves; two concurrent writers leave exactly four hundred messages and a
+`remote_map` that agrees with them. The reentrant lock is sound here for the reason its comment
+gives — `rusqlite` needs only `&Connection`, so recursion hands out a second shared reference —
+and that reasoning holds across threads as well as within one.
+
+The measurement worth keeping: the reader completed **23 reads** while nine 200-message batches
+were written, about ten repaints a second. Reads and writes take turns for the length of a batch,
+so the list updates in steps during a sync rather than smoothly.
+
+`SqliteStore`'s own comment said "revisit when a profile says to". The profile now exists and is
+recorded next to it — and it does not say to. A pool would buy parallel reads at the price of a
+reader seeing a half-written thread summary, which is a *wrong* answer where this is a late one.
+Written down rather than acted on, so the next person has the number instead of the impulse.

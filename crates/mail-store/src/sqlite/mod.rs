@@ -17,6 +17,15 @@ use std::path::Path;
 /// One connection, not a pool. Every method takes `&self` and SQLite serializes writes anyway;
 /// a pool would buy parallel reads at the cost of having to reason about a writer and a reader
 /// disagreeing about what a thread's summary says. Revisit when a profile says to.
+///
+/// **The profile, since it now exists** (`tests/concurrency.rs`): a reader looping on the list
+/// query alongside a sync writing nine 200-message batches completed 23 reads — roughly ten
+/// repaints a second while mail is absorbing. Reads and writes take turns for the length of a
+/// batch, which is visible as a list that updates in steps during a sync rather than smoothly.
+///
+/// That is a cost, not yet a reason to change: the alternative is exactly the disagreement this
+/// comment warns about, and a second connection reading a half-written thread summary is a wrong
+/// answer where this is a late one. Revisit if batches grow or someone watches it stutter.
 #[derive(Debug)]
 pub struct SqliteStore {
     /// Behind a mutex because `rusqlite::Connection` is `Send` but **not `Sync`**, so an
