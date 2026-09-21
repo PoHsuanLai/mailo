@@ -7,7 +7,7 @@ Usage:
 POP_HOST is msa.ntu.edu.tw or ccms.ntu.edu.tw depending on the account.
 Output: spike/out/pop3.trace  (password never written)
 """
-import os, ssl, socket, sys, pathlib
+import os, re, ssl, socket, sys, pathlib
 
 HOST = os.environ.get("POP_HOST", "msa.ntu.edu.tw")
 PORT = int(os.environ.get("POP_PORT", "995"))
@@ -66,7 +66,7 @@ cmd(f"USER {USER}")
 cmd(f"PASS {PASS}", secret=True, shown="PASS <REDACTED>")
 stat = cmd("STAT")
 uidl = cmd("UIDL", multiline=True)
-cmd("LIST", multiline=True)
+cmd_list = cmd("LIST", multiline=True)
 cmd("RETR 1", multiline=True)
 cmd("QUIT")
 log.close()
@@ -74,8 +74,20 @@ log.close()
 print("\n--- spike summary -------------------------------------------")
 print(f"  STAT          {stat.strip()}")
 print(f"  UIDL support  {'yes' if not uidl.startswith('-ERR') else 'NO -- blocker'}")
-for mech in ("SASL", "PLAIN", "LOGIN", "CRAM-MD5", "STLS", "USER"):
+# TOP and PIPELINING decide whether a large first sync is minutes or seconds, so they
+# matter more than the auth mechanisms. The first version of this script omitted both.
+for mech in ("TOP", "UIDL", "PIPELINING", "RESP-CODES", "SASL", "PLAIN", "LOGIN",
+             "CRAM-MD5", "STLS", "USER"):
     print(f"  CAPA {mech:<12} {'yes' if mech in capa.upper() else 'no'}")
+sizes = sorted(int(m.group(2)) for m in re.finditer(r"^(\\d+) (\\d+)\\r?$", cmd_list, re.M))
+if sizes:
+    total = sum(sizes)
+    small = [x for x in sizes if x <= 64 * 1024]
+    print(f"\n  size distribution ({len(sizes)} messages, {total/2**20:.1f} MiB):")
+    print(f"    <=64KiB: {len(small)} msgs ({100*len(small)/len(sizes):.0f}%) "
+          f"= {100*sum(small)/total:.0f}% of bytes")
+    print(f"    top 100: {100*sum(sizes[-100:])/total:.0f}% of bytes")
+    print(f"    median={sizes[len(sizes)//2]:,}  max={sizes[-1]:,}")
 print(f"\n  UIDL shape (first lines):")
 for line in uidl.splitlines()[:4]:
     print(f"    {line}")

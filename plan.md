@@ -316,8 +316,14 @@ every message on the first Gmail sync.
 
 `SyncCursor` is **per mailbox**, not per account, and lives in a `sync_state` table keyed by
 `MailboxRef`. When the server reports a different `UIDVALIDITY`, every `remote_map` row for that
-mailbox is invalid and must be dropped and refetched — `UidValidity::Reset` is how an `Ingest`
-says so.
+mailbox is invalid — `UidValidity::Reset` is how an `Ingest` says so.
+
+**A reset is a re-map, not a refetch.** The mapping is dropped; the messages are not. Recovery
+fetches headers only, computes each [`MessageKey`], and repoints `remote_map` at the
+`MessageId`s we already hold, downloading bodies only for keys we have genuinely never seen.
+The distinction is the difference between an 8 MB reconciliation and re-downloading the whole
+mailbox, and it is not hypothetical: Dovecot's default POP3 UIDL embeds `UIDVALIDITY`, so a
+server-side configuration change invalidates every UIDL in the maildrop at once.
 
 ### Views and queries
 

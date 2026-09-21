@@ -232,7 +232,7 @@ with implicit TLS on 995.
 The host heuristic held for this account — the default `msa` worked — but only one shape has
 been tested, so `ccms` remains a guess.
 
-### F17 — the NTU mailbox is large, and POP3 has no partial fetch
+### F17 — the NTU mailbox is large (amended: it is mostly a hundred attachments)
 
 `STAT` reports **2372 messages, 267,508,676 bytes** (~255 MB). POP3 offers no server-side search
 and no partial body fetch, so a first sync means 2372 `RETR` round trips and a quarter of a
@@ -243,3 +243,89 @@ usable before it finishes. `TOP` (headers only) is worth checking for in `CAPA`.
 UIDLs are 16 hex characters whose first 8 encode the arrival index (`0000000166aaf64b`,
 `0000000266aaf64b`). They are opaque to us and stay opaque; noted only because the shape makes
 them look sequential, and nothing should ever rely on that.
+
+
+## POP3 research, 2026-09-22 — verified against our own transcript
+
+Every number below was recomputed from `spike/out/pop3.trace`, not taken on trust.
+
+### F17, amended — my spike script asked the wrong questions
+
+`CAPA` on `msa.ntu.edu.tw` actually advertises:
+
+```
+CAPA TOP UIDL RESP-CODES PIPELINING AUTH-RESP-CODE USER SASL PLAIN
+```
+
+**`TOP` and `PIPELINING` are both there.** My script only grepped for auth mechanisms, so F17
+recorded TOP as an open question when the transcript had already answered it. The script now
+checks for the capabilities that decide sync strategy, which matter more than the auth list.
+The server is Dovecot.
+
+### F18 — the 255 MB is a hundred attachments, and `LIST` tells us for free
+
+Recomputed from the transcript:
+
+| | |
+|---|---|
+| messages ≤ 64 KiB | 2137 of 2372 (90.1%) — but only **10.0% of the bytes** (26.6 MB) |
+| the 100 largest | **80.5% of the bytes** (215 MB) |
+| median / p99 / max | 11 KB / 2.8 MB / 9.9 MB |
+
+`LIST` hands us exact sizes before any `RETR`. **Size-aware ordering is a bigger lever than
+`TOP`**: fetching the ≤64 KiB band newest-first completes in under a minute and covers every
+message anyone is realistically going to open. The plan's "UIDL, diff, RETR what is new" is
+right for steady state and wrong for the first sync.
+
+### F19 — a naive first sync would mark the entire mailbox read, in their webmail
+
+Dovecot gates its seen-flag update on the `RETR` path, so **`TOP` does not set `\Seen` but
+`RETR` does**, and NTU runs `pop3_no_flag_updates` at its default. A first sync that simply
+`RETR`s 2372 messages would silently mark the user's whole mailbox as read in NTU webmail —
+user-visible, not ours to undo, and discovered by reading Dovecot's source rather than any RFC.
+
+A headers-first pass is therefore not only faster, it is the only non-destructive option.
+`TOP n 0` specifically: every documented `TOP` bug found in the wild is a failure to return the
+requested *body lines*, never wrong headers, so `TOP n 0` sits in the corner implementations get
+right.
+
+### F20 — UIDL instability is structural here, and the defence already exists
+
+These UIDLs are Dovecot's default `%08Xu%08Xv`: eight hex of IMAP UID plus eight of
+`UIDVALIDITY`. Every UIDL in the maildrop shares the suffix `66aaf64b`, so **one `UIDVALIDITY`
+change invalidates all 2372 at once** — not hypothetical, Plesk 18.0.73 shipped a changed
+`pop3_uidl_format` and caused exactly this. RFC 1939 also concedes UIDL uniqueness is not
+guaranteed, so `(account, uidl)` is not a safe primary key.
+
+Our design already defends this by deduplicating on `MessageKey`, and `SqliteStore::write_ingest`
+already re-maps rather than refetching — checked, not assumed. Only `plan.md`'s wording said
+"dropped and refetched"; corrected.
+
+### F21 — the message model has no headers-only state
+
+Headers-fetched-body-not-yet is a **normal, first-class state on POP3**, not an error. `Body`
+currently requires `raw: BlobId`, so a headers-only message is unrepresentable. Per
+`CONVENTIONS.md` §0 this wants an enum rather than an `Option` field:
+
+```rust
+pub enum Body {
+    /// Headers only. Normal during a POP3 first sync; the body has not been fetched yet.
+    Absent,
+    Present { text: Option<String>, raw: BlobId },
+}
+```
+
+Ripples into `messages.body_raw` (currently `NOT NULL`), `mail-mime`, and the fixtures.
+**Decided, not yet applied** — batched with F14/F15 for the IMAP pass.
+
+### F22 — `AccountCaps` has no POP3 side
+
+It needs `top` and `pipelining`, read after auth per F14, and both latchable to false on
+observed misbehaviour rather than only on absence from `CAPA`. A server that advertises `TOP`
+and then truncates is a documented failure mode; advertisement is a hint, behaviour is the fact.
+
+### Still unmeasured
+
+The header-pass size estimate (~7–9 MB) rests on one measured message. A short `TOP n 0` run
+over ~50 messages would turn that into a measurement and prove `TOP` works on this server in
+practice rather than by advertisement.
