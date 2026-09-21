@@ -35,7 +35,7 @@ around it and it does not change it. Four of the five errors corrected in `plan.
 | shell reading | **done** — the HTML part is parsed out of the raw blob and rendered sandboxed, with `cid:` inline images resolved; neither had ever reached the iframe (F40, F42) |
 | shell drafts, paging, sync | **done** — Drafts lists the draft table rather than an empty mailbox, "Show more" pages the list, unread badges come from `Store::count`, and a Sync button runs a pass off the UI thread |
 
-713 tests across 53 targets, plus five `#[ignore]`d live tests against servers nobody here
+738 tests across 53 targets, plus five `#[ignore]`d live tests against servers nobody here
 wrote: a capability probe against NTU's Dovecot, two submission tests against a local `aiosmtpd`
 (`scripts/live-smtpd.py`), and two sync tests against a local Twisted IMAP4 server
 (`scripts/live-imapd.py`). `fmt`, `clippy -D warnings` and `scripts/check-boundary.sh` all

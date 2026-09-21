@@ -1877,3 +1877,51 @@ What was wrong was saying so nowhere. The command now says the only address on t
 your own and points at the composer.
 
 Found in the same session as F98, doing the thing that turned it up: replying to a message.
+
+### F100 — The shell's layout had never been seen, and three things were wrong with it
+
+The window is a WebView surface owned by the compositor; under rootless XWayland an X11 grab of
+it returns `BadMatch`, and this machine has no compositor screenshot tool or nested X server. So
+the components had been *executed* in tests since F61 and nobody had ever looked at the result.
+
+There is a way, and it needed no software on the machine. `dioxus-ssr` renders the same component
+tree to HTML; inlining `STYLE` makes a self-contained page; a headless browser already installed
+screenshots it:
+
+```
+cargo test -p mail-app --bins -- --ignored render_the_shell_to_a_file
+google-chrome --headless --screenshot=shell.png --window-size=1200,800 target/shell.html
+```
+
+It is the markup and the CSS, not the running application — nothing clicks and a WebView is not a
+browser — but it is the difference between looking and guessing. Three `#[ignore]`d tests write
+`shell.html`, `shell-real.html` and `reader.html`; the second uses a fixture shaped like real
+mail, because the one it had held a single message from "Ada" with the subject "hi", a size at
+which nothing can be wrong.
+
+With six realistic rows on screen:
+
+1. **Every subject was truncated after about twenty characters** while the reader pane held six
+   hundred pixels of nothing. `.app` was `180px 380px 1fr` — the list never grew — and `.row` gave
+   a flat `140px` to the sender, so in a 380px pane the name got 37% of the width whether it was
+   `Dr. Wolfgang Amadeus Pemberton-Featherstonehaugh` or `Mum`. Now `minmax(340px, 32%)` and
+   `7fr 13fr`, so both scale and the subject always gets roughly twice the sender.
+
+2. **Every row said `Sep 22`**, including the message that had arrived an hour earlier — the least
+   useful answer available, and the same one it gave for mail from three weeks ago. `view::listed`
+   now writes the time for today, a weekday for the last week, a day and month within the year and
+   a full date beyond it. Today is a *calendar* day and not the last twenty-four hours, which is
+   two separate test cases: 00:10 this morning is today although it is fourteen hours ago, and
+   23:50 last night is not although it is fourteen hours ago as well.
+
+3. **"Load remote images" was offered above every conversation in the mailbox** — plain-text ones
+   included — because nothing asked whether anything had been blocked. An offer that is always
+   there is furniture, and this one asks the user to make network requests on a sender's behalf.
+   `sanitize` is the only thing that knows what it dropped, so `SafeHtml` now carries the count
+   and `Reading::Html` a flag. Only `http`/`https` count: a `javascript:` src is dropped too, and
+   offering to load *that* puts a button in front of a user whose only answer makes things worse.
+
+The lasting part is not the screenshots. `dioxus_ssr::render` on the existing `VirtualDom`
+harness means the shell's markup can be asserted, which it never could be — the first three such
+assertions are in `ui::render_tests`, and the one about the images button fails if the gate is
+forced open.

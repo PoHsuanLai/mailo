@@ -193,7 +193,7 @@ fn App() -> Element {
                         };
                         let who = crate::view::join_addresses(&draft.to);
                         let state = draft_state(&draft.state);
-                        let when = crate::view::stamp(draft.updated, &Local, Stamp::Day);
+                        let when = crate::view::listed(draft.updated, chrono::Utc::now(), &Local);
                         rsx! {
                             div {
                                 key: "{id}",
@@ -216,7 +216,7 @@ fn App() -> Element {
                         let id = summary.id;
                         let unread = summary.read == ReadState::Unread;
                         let who = sender(&summary);
-                        let when = crate::view::stamp(summary.last_date, &Local, Stamp::Day);
+                        let when = crate::view::listed(summary.last_date, chrono::Utc::now(), &Local);
                         let subject = summary.subject.clone();
                         let actions = hover_actions(&summary);
                         rsx! {
@@ -313,9 +313,22 @@ fn Reader(thread: ThreadId, shell: Signal<Shell>) -> Element {
         })
         .collect();
 
+    // Only when there is something to load. The offer used to sit above every conversation in
+    // the mailbox, plain-text ones included, which is how a security control turns into
+    // furniture nobody reads.
+    let anything_blocked = messages.iter().any(|(_, reading)| {
+        matches!(
+            reading,
+            Reading::Html {
+                blocked_remote: true,
+                ..
+            }
+        )
+    });
+
     rsx! {
         h1 { "{loaded.summary.subject}" }
-        if !shell.read().show_remote_images {
+        if anything_blocked && !shell.read().show_remote_images {
             button {
                 class: "images",
                 onclick: move |_| shell.write().show_remote_images = true,
@@ -334,7 +347,7 @@ fn Reader(thread: ThreadId, shell: Signal<Shell>) -> Element {
                     Reading::Text(text) => rsx! { pre { class: "text", "{text}" } },
                     // Never into the app's own document: a sandboxed frame with no
                     // allow-same-origin, so even a sanitizer bug cannot reach our DOM.
-                    Reading::Html(html) => rsx! {
+                    Reading::Html { html, .. } => rsx! {
                         iframe {
                             class: "html",
                             // No allow-same-origin: even a sanitizer bug cannot reach our DOM.
@@ -626,6 +639,145 @@ mod render_tests {
         (store, dir)
     }
 
+    /// A mailbox shaped like a real one, for looking at the layout rather than exercising it.
+    ///
+    /// The fixture above holds one message from "Ada" with the subject "hi", which is a size
+    /// nothing can be wrong at. Real mail has long subjects, long display names, CJK — this user
+    /// is in Taiwan and half their mail is Chinese — and enough rows to fill the pane.
+    fn realistic() -> (Arc<SqliteStore>, tempfile::TempDir) {
+        let (store, dir) = seeded();
+        let rows: [(&str, &str, &str, bool); 6] = [
+            (
+                "國立臺灣大學計算機及資訊網路中心",
+                "ccnoreply@ntu.edu.tw",
+                "【重要】臺大計中信箱系統維護通知：本週六 02:00 至 06:00 暫停服務",
+                false,
+            ),
+            (
+                "GitHub",
+                "notifications@github.test",
+                "[rust-lang/rust] Re: Tracking issue for `let`-chains stabilisation (#53667)",
+                false,
+            ),
+            (
+                "Dr. Wolfgang Amadeus Pemberton-Featherstonehaugh",
+                "w.pemberton@example.test",
+                "Re: Re: Re: Fwd: supervision meeting — moved to Thursday",
+                true,
+            ),
+            ("Mum", "mum@example.test", "dinner?", false),
+            (
+                "Stripe",
+                "receipts@stripe.test",
+                "Your receipt from Anthropic, PBC #2847-1932",
+                true,
+            ),
+            (
+                "arXiv cs.PL",
+                "no-reply@arxiv.test",
+                "New submissions in cs.PL: 14 papers",
+                true,
+            ),
+        ];
+        for (n, (name, email, subject, read)) in rows.iter().enumerate() {
+            // Real bytes for the first one, so the reader has an HTML part to sanitize and
+            // draw rather than falling back to text for every message in the fixture.
+            let bytes = if n == 1 {
+                format!(
+                    "From: {name} <{email}>\r\nSubject: {subject}\r\nMIME-Version: 1.0\r\n\
+                     Content-Type: text/html; charset=utf-8\r\n\r\n\
+                     <h2>Tracking issue for <code>let</code>-chains</h2>\
+                     <p>There are <b>3</b> new comments on this issue.</p>\
+                     <blockquote>Stabilisation report is up; please review.</blockquote>\
+                     <p><a href=\"https://example.test/issues/53667\">View it on GitHub</a></p>\r\n"
+                )
+                .into_bytes()
+            } else if n == 4 {
+                // A receipt with a tracking pixel, which is what a receipt actually is. This is
+                // the one message in the fixture that has something to load.
+                format!(
+                    "From: {name} <{email}>\r\nSubject: {subject}\r\nMIME-Version: 1.0\r\n\
+                     Content-Type: text/html; charset=utf-8\r\n\r\n\
+                     <p>Thanks for your payment.</p>\
+                     <img src=\"https://track.stripe.test/open/2847-1932.gif\" width=\"1\" \
+                     height=\"1\">\r\n"
+                )
+                .into_bytes()
+            } else {
+                subject.as_bytes().to_vec()
+            };
+            let raw = store.blobs().put(&store.connection(), &bytes).unwrap();
+            let message = Message {
+                id: MessageId::generate(),
+                thread: ThreadId::generate(),
+                account: ACCOUNT,
+                key: MessageKey::Rfc(format!("real{n}@example.test")),
+                // Spread over days, so the date column has more than one shape in it.
+                date: chrono::Utc::now() - chrono::TimeDelta::try_hours(n as i64 * 19).unwrap(),
+                from: Address {
+                    name: Some((*name).to_owned()),
+                    email: (*email).to_owned(),
+                },
+                reply_to: vec![],
+                to: vec![],
+                cc: vec![],
+                bcc: vec![],
+                subject: (*subject).to_owned(),
+                in_reply_to: None,
+                references: vec![],
+                rfc_message_id: Some(format!("real{n}@example.test")),
+                read: if *read {
+                    ReadState::Read
+                } else {
+                    ReadState::Unread
+                },
+                star: Star::Unstarred,
+                mailbox: MailboxRole::Inbox,
+                labels: vec![],
+                body: Body::Present {
+                    text: Some((*subject).to_owned()),
+                    raw,
+                },
+                attachments: vec![],
+            };
+            store
+                .ingest(
+                    ACCOUNT,
+                    Ingest {
+                        mailbox: MailboxRef {
+                            account: ACCOUNT,
+                            path: "INBOX".to_owned(),
+                        },
+                        validity: UidValidity::Same,
+                        cursor: Some(SyncCursor::Pop),
+                        messages: vec![Fetched {
+                            remote: RemoteRef::Pop {
+                                uidl: format!("real{n}"),
+                            },
+                            key: message.key.clone(),
+                            raw,
+                            message,
+                        }],
+                        flags: vec![],
+                        labels: vec![],
+                        gone: vec![],
+                    },
+                )
+                .unwrap();
+        }
+        (store, dir)
+    }
+
+    /// The shell's markup, rendered from the real components against a real database.
+    ///
+    /// `rebuild_in_place` proved the components *run*; it never looked at what they produced.
+    /// This does, which is the difference between "no panic" and "there is a list on the page".
+    fn markup(store: Arc<SqliteStore>) -> String {
+        let mut dom = VirtualDom::new(App).with_root_context(store);
+        dom.rebuild_in_place();
+        dioxus_ssr::render(&dom)
+    }
+
     #[tokio::test]
     async fn the_whole_app_renders() {
         // Catches what compiling cannot: a missing context, a panic inside `rsx!`, a query that
@@ -634,6 +786,175 @@ mod render_tests {
         let (store, _dir) = seeded();
         let mut dom = VirtualDom::new(App).with_root_context(store);
         dom.rebuild_in_place();
+    }
+
+    /// Write the shell to `target/shell.html`, stylesheet and all, so it can be looked at.
+    ///
+    /// `#[ignore]`d because it is a tool, not an assertion. It exists because the shell's layout
+    /// had never been seen: the desktop window is a WebView surface owned by the compositor, and
+    /// under rootless XWayland an X11 grab of it returns `BadMatch`, so there was no way from
+    /// here to a picture of it. This produces the same markup and the same stylesheet as a
+    /// static page, which any browser will render and screenshot headlessly:
+    ///
+    /// ```text
+    /// cargo test -p mail-app --bins -- --ignored render_the_shell_to_a_file
+    /// google-chrome --headless --screenshot=shell.png --window-size=1200,800 target/shell.html
+    /// ```
+    ///
+    /// It is the markup and the CSS, not the running application: nothing here clicks, and a
+    /// WebView is not a browser. It is still the difference between looking and guessing.
+    #[tokio::test]
+    #[ignore = "writes target/shell.html for a human or a headless browser to look at"]
+    async fn render_the_shell_to_a_file() {
+        let (store, _dir) = seeded();
+        let body = markup(store);
+        let page = format!(
+            "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">\n\
+             <title>mailo</title>\n<style>{STYLE}</style>\n</head>\n<body>{body}</body></html>\n"
+        );
+        let out = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/shell.html")
+            .canonicalize()
+            .unwrap_or_else(|_| {
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/shell.html")
+            });
+        std::fs::write(&out, page).unwrap();
+        println!("wrote {}", out.display());
+    }
+
+    /// Renders the reader pane on the first thread in the store.
+    ///
+    /// `App` owns its own `Shell` signal, so nothing outside it can open a conversation; the
+    /// reader is reached by rendering it directly, which is also the only way to look at the
+    /// half of the shell an empty selection never shows.
+    #[component]
+    fn ReaderHarness(thread: ThreadId) -> Element {
+        let shell = use_signal(Shell::default);
+        rsx! {
+            div { class: "app",
+                div { class: "places" }
+                div { class: "list" }
+                div { class: "reader", Reader { thread, shell } }
+            }
+        }
+    }
+
+    /// The thread whose subject contains `needle`.
+    fn thread_like(store: &SqliteStore, needle: &str) -> ThreadId {
+        store
+            .threads(
+                &Query {
+                    filter: Filter::All,
+                    sort: Sort {
+                        property: Property::Date,
+                        dir: SortDir::Desc,
+                    },
+                    page: PageReq {
+                        after: None,
+                        limit: 50,
+                    },
+                },
+                chrono::Utc::now(),
+            )
+            .unwrap()
+            .items
+            .into_iter()
+            .find(|t| t.subject.contains(needle))
+            .unwrap_or_else(|| panic!("no thread matching {needle:?} in the fixture"))
+            .id
+    }
+
+    /// The reader pane's markup for one thread.
+    fn reader_markup(store: Arc<SqliteStore>, thread: ThreadId) -> String {
+        let mut dom = VirtualDom::new_with_props(ReaderHarness, ReaderHarnessProps { thread })
+            .with_root_context(store);
+        dom.rebuild_in_place();
+        dioxus_ssr::render(&dom)
+    }
+
+    #[tokio::test]
+    async fn the_reader_does_not_offer_to_load_images_a_message_does_not_have() {
+        // The offer sat above every conversation in the mailbox — plain text included — because
+        // nothing asked whether anything had been blocked. A control that is always on screen is
+        // furniture, and this one asks the user to make network requests on a sender's behalf.
+        let (store, _dir) = realistic();
+        let thread = thread_like(&store, "rust-lang");
+        let markup = reader_markup(store, thread);
+
+        assert!(
+            markup.contains("Tracking issue"),
+            "the body is there: {markup}"
+        );
+        assert!(
+            !markup.contains("Load remote images"),
+            "offered to load images for a message that has none:\n{markup}"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_reader_offers_to_load_images_when_it_blocked_some() {
+        // And the other direction, so the gate is not simply "never".
+        let (store, _dir) = realistic();
+        let thread = thread_like(&store, "receipt");
+        let markup = reader_markup(store, thread);
+
+        assert!(
+            markup.contains("Load remote images"),
+            "a tracking pixel was blocked and nothing said so:\n{markup}"
+        );
+        assert!(
+            !markup.contains("track.stripe.test"),
+            "the blocked URL reached the document:\n{markup}"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_shell_draws_the_mail_it_holds() {
+        // `rebuild_in_place` only proved the components run. This is the first assertion in the
+        // project about what they actually put on the page.
+        let (store, _dir) = realistic();
+        let markup = markup(store);
+
+        for expected in ["Inbox", "Drafts", "Search all mail", "GitHub", "dinner?"] {
+            assert!(markup.contains(expected), "no {expected:?} in:\n{markup}");
+        }
+        // Long subjects are ellipsised by CSS, not truncated in the markup — the full text has
+        // to be there for the browser to do it and for a wider window to show more.
+        assert!(
+            markup.contains("stabilisation (#53667)"),
+            "the subject was cut short before it reached the page:\n{markup}"
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "writes target/reader.html for a human or a headless browser to look at"]
+    async fn render_the_reader_to_a_file() {
+        let (store, _dir) = realistic();
+        let thread = thread_like(&store, "rust-lang");
+        let body = reader_markup(store, thread);
+        let page = format!(
+            "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">\n\
+             <title>mailo</title>\n<style>{STYLE}</style>\n</head>\n<body>{body}</body></html>\n"
+        );
+        let out = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/reader.html");
+        std::fs::write(&out, page).unwrap();
+        println!("wrote {}", out.display());
+    }
+
+    /// The same, with a mailbox shaped like a real one. See [`render_the_shell_to_a_file`].
+    #[tokio::test]
+    #[ignore = "writes target/shell-real.html for a human or a headless browser to look at"]
+    async fn render_the_shell_with_real_mail() {
+        let (store, _dir) = realistic();
+        let body = markup(store);
+        let page = format!(
+            "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">\n\
+             <title>mailo</title>\n<style>{STYLE}</style>\n</head>\n<body>{body}</body></html>\n"
+        );
+        let out =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/shell-real.html");
+        std::fs::write(&out, page).unwrap();
+        println!("wrote {}", out.display());
     }
 
     #[tokio::test]

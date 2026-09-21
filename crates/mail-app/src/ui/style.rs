@@ -8,14 +8,14 @@ pub(super) const STYLE: &str = r#"
 :root { color-scheme: light dark; --edge: color-mix(in oklab, currentColor 15%, transparent); }
 * { box-sizing: border-box; }
 body { margin: 0; font: 14px/1.5 system-ui, sans-serif; }
-.app { display: grid; grid-template-columns: 180px 380px 1fr; height: 100vh; }
+.app { display: grid; grid-template-columns: 180px minmax(340px, 32%) minmax(0, 1fr); height: 100vh; }
 .places { display: flex; flex-direction: column; gap: 2px; padding: 12px; border-right: 1px solid var(--edge); }
 .place { text-align: left; padding: 6px 10px; border: 0; border-radius: 6px; background: none; color: inherit; font: inherit; cursor: pointer; }
 .place:hover { background: var(--edge); }
 .place.on { background: var(--edge); font-weight: 600; }
 .list { overflow-y: auto; border-right: 1px solid var(--edge); }
 .search { width: 100%; padding: 10px 12px; border: 0; border-bottom: 1px solid var(--edge); background: none; color: inherit; font: inherit; }
-.row { display: grid; grid-template-columns: 140px 1fr auto; gap: 10px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--edge); cursor: pointer; position: relative; }
+.row { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 13fr) auto; gap: 10px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--edge); cursor: pointer; position: relative; }
 .row:hover { background: var(--edge); }
 .row.unread .subject, .row.unread .who { font-weight: 650; }
 .who, .subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

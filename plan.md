@@ -1109,10 +1109,13 @@ the attribution line quoted into outgoing replies — was invisible to forty-thr
 obvious within one minute of reading `mailo list` on a machine in `+0800`. F99, a `reply` that
 offered a `send` no command could make work, came from the next minute.
 
-One thing the criterion implies that cannot be done from here: looking at the window. Under
-rootless XWayland an X11 grab of the surface returns `BadMatch`, and this machine has no
-compositor screenshot tool or nested X server, so the shell's *layout* has been reasoned about
-and never seen. Installing one is the user's call, not this repository's.
+Looking at the window turned out to be possible after all, and F100 is what it found: subjects
+truncated to twenty characters beside an empty reader, `Sep 22` on mail that arrived an hour ago,
+and "Load remote images" offered above every conversation in the mailbox. `dioxus-ssr` renders the
+same components to HTML, `STYLE` inlines, and a headless browser that was already installed takes
+the picture — see `ui::render_tests::render_the_shell_to_a_file`. It is the markup and the CSS
+rather than the running application, and the same call is what finally lets the shell's output be
+*asserted* instead of only executed.
 
 The criterion itself is not one this or any amount of work can satisfy from inside the
 repository. "Daily driver" is a judgement about using it, with real mail, over days.

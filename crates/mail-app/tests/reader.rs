@@ -127,7 +127,7 @@ fn an_html_message_reaches_the_sandbox_instead_of_falling_back_to_text() {
     // decides what the pane shows. Asking `html_of` separately tested a step the app no longer
     // takes on its own.
     match reader::render(&store, &message, policy()) {
-        view::Reading::Html(rendered) => {
+        view::Reading::Html { html: rendered, .. } => {
             assert!(rendered.contains("rich"), "{rendered}");
             assert!(
                 rendered.contains("<b>"),
@@ -199,7 +199,7 @@ Content-Type: text/html; charset=utf-8\r\n\
     assert!(stored.contains("<script>"), "the fixture should carry one");
 
     match reader::render(&store, &message, policy()) {
-        view::Reading::Html(rendered) => {
+        view::Reading::Html { html: rendered, .. } => {
             assert!(rendered.contains("hello"), "{rendered}");
             assert!(
                 !rendered.contains("<script"),
@@ -239,7 +239,7 @@ iVBORw0KGgo=\r\n\
         let message = ingest(&store, WITH_IMAGE, None);
 
         match reader::render(&store, &message, policy()) {
-            view::Reading::Html(html) => {
+            view::Reading::Html { html, .. } => {
                 assert!(html.contains("look"), "{html}");
                 assert!(
                     html.contains("data:image/png;base64,"),
@@ -276,7 +276,7 @@ iVBORw0KGgo=\r\n\
         let message = ingest(&store, raw, None);
 
         match reader::render(&store, &message, policy()) {
-            view::Reading::Html(html) => {
+            view::Reading::Html { html, .. } => {
                 assert!(!html.contains("<script"), "script survived: {html}");
                 assert!(html.contains("data:image/png;base64,"), "{html}");
             }

@@ -30,19 +30,38 @@ impl SanitizePolicy {
     };
 }
 
-/// HTML that has been through [`sanitize`]. The only kind `mail-app` will render.
+/// HTML that has been through [`sanitize`], and what had to be removed to get there.
+///
+/// The count is not bookkeeping. "Load remote images" is an offer to make network requests on
+/// the sender's behalf, and a reader that shows it on every message — including the ones with
+/// no images at all, and the plain-text ones — has trained its user to ignore the one place it
+/// matters. Only [`sanitize`] knows whether anything was actually dropped, so only it can say.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SafeHtml(String);
+pub struct SafeHtml {
+    html: String,
+    blocked_remote: u32,
+}
 
 impl SafeHtml {
     /// The sanitized markup.
     pub fn as_str(&self) -> &str {
-        &self.0
+        &self.html
+    }
+
+    /// How many remote fetches were removed.
+    ///
+    /// Zero under [`RemoteImages::Allowed`] by construction: nothing is blocked when nothing
+    /// is being blocked.
+    pub fn blocked_remote(&self) -> u32 {
+        self.blocked_remote
     }
 
     /// Wrap already-sanitized markup. Only [`sanitize`] should call this.
-    pub(crate) fn new(html: String) -> Self {
-        Self(html)
+    pub(crate) fn new(html: String, blocked_remote: u32) -> Self {
+        Self {
+            html,
+            blocked_remote,
+        }
     }
 }
 
@@ -59,6 +78,10 @@ pub fn sanitize(html: &str, policy: SanitizePolicy) -> SafeHtml {
     // `url_schemes` is global, so it cannot express "cid always, http(s) only on images and
     // only when the reader opted in". The attribute filter applies that second rule to
     // attributes ammonia has already scheme-checked.
+    // Shared with the attribute filter, which ammonia calls while cleaning. An `AtomicU32`
+    // rather than a `Cell` because the filter must be `Send + Sync`.
+    let blocked = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+    let counter = blocked.clone();
     let cleaned = ammonia::Builder::new()
         .url_schemes(HashSet::from(["http", "https", "mailto", "cid"]))
         .url_relative(ammonia::UrlRelative::Deny)
@@ -71,14 +94,28 @@ pub fn sanitize(html: &str, policy: SanitizePolicy) -> SafeHtml {
         .rm_tag_attributes("q", &["cite"])
         .attribute_filter(move |element, attribute, value| {
             if fetches_on_render(element, attribute) {
-                keep_fetched_url(value, remote)
+                let kept = keep_fetched_url(value, remote);
+                if kept.is_none() && is_remote(value) {
+                    counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                }
+                kept
             } else {
                 Some(Cow::Borrowed(value))
             }
         })
         .clean(html)
         .to_string();
-    SafeHtml::new(cleaned)
+    SafeHtml::new(cleaned, blocked.load(std::sync::atomic::Ordering::Relaxed))
+}
+
+/// Whether a dropped URL was one the reader could choose to load.
+///
+/// Only `http`/`https` are: a `javascript:` or `data:` src is not something to offer, and
+/// counting it would put the button in front of a user whose answer can only make things worse.
+fn is_remote(value: &str) -> bool {
+    ammonia::Url::parse(value)
+        .map(|url| matches!(url.scheme(), "http" | "https"))
+        .unwrap_or(false)
 }
 
 /// Attributes that cause a fetch when the document is shown.

@@ -245,3 +245,91 @@ fn policy_strips_active_content_and_gates_remote_images() {
         }
     }
 }
+
+/// What was blocked, which the caller needs to know and could not ask.
+///
+/// The reader offered "Load remote images" above every conversation in the mailbox — on
+/// plain-text mail, on mail with no images at all, on mail whose only image is its own inline
+/// part. An offer that is always there is furniture, and a security control that has become
+/// furniture is not a control. `sanitize` is the only thing that knows whether it dropped
+/// anything, so it is the only thing that can say.
+mod what_was_blocked {
+    use super::*;
+
+    fn blocked(html: &str, images: RemoteImages) -> u32 {
+        sanitize(
+            html,
+            SanitizePolicy {
+                remote_images: images,
+                version: SanitizePolicy::CURRENT.version,
+            },
+        )
+        .blocked_remote()
+    }
+
+    #[test]
+    fn a_remote_image_that_was_dropped_is_counted() {
+        assert_eq!(
+            blocked(
+                r#"<p>hi</p><img src="https://tracker.test/pixel.gif">"#,
+                RemoteImages::Blocked
+            ),
+            1
+        );
+        assert_eq!(
+            blocked(
+                r#"<img src="https://a.test/1.png"><img src="http://b.test/2.png">"#,
+                RemoteImages::Blocked
+            ),
+            2
+        );
+    }
+
+    #[test]
+    fn nothing_is_blocked_when_nothing_is_being_blocked() {
+        // Under `Allowed` the URLs are kept, so there is nothing to offer to load.
+        assert_eq!(
+            blocked(
+                r#"<img src="https://tracker.test/pixel.gif">"#,
+                RemoteImages::Allowed
+            ),
+            0
+        );
+    }
+
+    #[test]
+    fn a_message_with_no_remote_images_reports_none() {
+        // The common case, and the one that put the button in front of the user for nothing.
+        assert_eq!(blocked("<p>just words</p>", RemoteImages::Blocked), 0);
+        assert_eq!(
+            blocked(
+                r#"<a href="https://example.test">a link</a>"#,
+                RemoteImages::Blocked
+            ),
+            0,
+            "a link is a click, not a fetch"
+        );
+        assert_eq!(
+            blocked(r#"<img src="cid:logo@example">"#, RemoteImages::Blocked),
+            0,
+            "an inline part is this message's own bytes and is never blocked"
+        );
+    }
+
+    #[test]
+    fn a_url_the_reader_could_not_choose_to_load_is_not_counted() {
+        // `javascript:` and `data:` srcs are dropped too, and offering to load them would put
+        // a button in front of a user whose only possible answer makes things worse.
+        for hostile in [
+            r#"<img src="javascript:alert(1)">"#,
+            r#"<img src="data:text/html,<script>alert(1)</script>">"#,
+            r#"<img src="not a url at all">"#,
+        ] {
+            assert_eq!(
+                blocked(hostile, RemoteImages::Blocked),
+                0,
+                "counted {hostile:?} as something the reader could load"
+            );
+        }
+    }
+}

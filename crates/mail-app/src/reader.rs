@@ -26,11 +26,13 @@ pub fn render(store: &SqliteStore, message: &Message, policy: SanitizePolicy) ->
         return reading(&message.body, None, policy);
     };
     match reading(&message.body, parsed.html.as_deref(), policy) {
-        Reading::Html(sanitized) => Reading::Html(mail_mime::embed_inline(
-            &sanitized,
-            &parsed.attachments,
-            mail_mime::INLINE_BUDGET,
-        )),
+        Reading::Html {
+            html,
+            blocked_remote,
+        } => Reading::Html {
+            html: mail_mime::embed_inline(&html, &parsed.attachments, mail_mime::INLINE_BUDGET),
+            blocked_remote,
+        },
         other => other,
     }
 }

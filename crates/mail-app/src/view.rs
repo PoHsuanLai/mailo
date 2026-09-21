@@ -500,7 +500,13 @@ pub enum Reading {
     /// Plain text, to render as text.
     Text(String),
     /// Sanitized markup, for a sandboxed frame.
-    Html(String),
+    Html {
+        html: String,
+        /// Whether the sanitizer removed a remote fetch. The reader offers to load them only
+        /// when there is something to load — the offer used to appear on every message, plain
+        /// text included, which is how a security control becomes furniture.
+        blocked_remote: bool,
+    },
 }
 
 /// Decide what to show for a message body.
@@ -511,7 +517,13 @@ pub fn reading(body: &Body, html: Option<&str>, policy: SanitizePolicy) -> Readi
     match body {
         Body::Absent => Reading::NotFetched,
         Body::Present { text, .. } => match (html, text) {
-            (Some(raw), _) => Reading::Html(mail_mime::sanitize(raw, policy).as_str().to_owned()),
+            (Some(raw), _) => {
+                let safe = mail_mime::sanitize(raw, policy);
+                Reading::Html {
+                    html: safe.as_str().to_owned(),
+                    blocked_remote: safe.blocked_remote() > 0,
+                }
+            }
             (None, Some(text)) => Reading::Text(text.clone()),
             (None, None) => Reading::Text(String::new()),
         },
@@ -657,7 +669,7 @@ mod tests {
         let hostile = r#"<p>hi</p><script>alert(1)</script><img src="https://tracker.test/p.gif">"#;
 
         let blocked = reading(&body, Some(hostile), SanitizePolicy::CURRENT);
-        let Reading::Html(rendered) = blocked else {
+        let Reading::Html { html: rendered, .. } = blocked else {
             panic!("html should render as html");
         };
         assert!(rendered.contains("<p>hi</p>"), "{rendered}");
@@ -675,7 +687,7 @@ mod tests {
                 version: SanitizePolicy::CURRENT.version,
             },
         );
-        let Reading::Html(rendered) = allowed else {
+        let Reading::Html { html: rendered, .. } = allowed else {
             panic!("html should render as html");
         };
         assert!(rendered.contains("tracker.test"), "opting in must work");
@@ -1078,8 +1090,6 @@ pub enum Stamp {
     Row,
     /// A message in the reader: `2026-09-22 09:02`. Opened deliberately, so it says everything.
     Full,
-    /// A draft's last edit, or a row in the shell's list: `Sep 22`.
-    Day,
     /// The attribution line above quoted text: `Tue, 22 Sep 2026 at 09:02`.
     ///
     /// The one stamp that leaves this machine. It is written into the body of a reply, so a
@@ -1092,9 +1102,41 @@ impl Stamp {
         match self {
             Stamp::Row => "%m-%d %H:%M",
             Stamp::Full => "%Y-%m-%d %H:%M",
-            Stamp::Day => "%b %d",
             Stamp::Quote => "%a, %d %b %Y at %H:%M",
         }
+    }
+}
+
+/// How a list row writes an instant: precisely enough to be useful, briefly enough to fit.
+///
+/// The time for today, a weekday for the last week, a day and month within the year, and a full
+/// date beyond it. This is what every mail client does and for the same reason — the shell wrote
+/// `Sep 22` on a message that arrived an hour ago, which is both the least useful answer
+/// available and the same answer it gives for a message from three weeks ago.
+///
+/// `now` is a parameter for the usual reason: a function that reads the clock decides its own
+/// test's answer.
+pub fn listed<Tz: TimeZone>(instant: DateTime<Utc>, now: DateTime<Utc>, zone: &Tz) -> String
+where
+    Tz::Offset: std::fmt::Display,
+{
+    let then = instant.with_timezone(zone);
+    let today = now.with_timezone(zone);
+    // Calendar days, not elapsed hours: 23:50 yesterday is not "today" because it is within
+    // twenty-four hours, and 00:10 this morning is.
+    let days = today
+        .date_naive()
+        .signed_duration_since(then.date_naive())
+        .num_days();
+    if days == 0 {
+        then.format("%H:%M").to_string()
+    } else if (1..7).contains(&days) {
+        then.format("%a").to_string()
+    } else if then.format("%Y").to_string() == today.format("%Y").to_string() {
+        then.format("%b %d").to_string()
+    } else {
+        // A year old. The year is the only part that still says anything.
+        then.format("%Y-%m-%d").to_string()
     }
 }
 
@@ -1183,7 +1225,6 @@ mod stamps {
         // the user was having breakfast.
         assert_eq!(stamp(morning(), &taipei(), Stamp::Row), "09-22 09:02");
         assert_eq!(stamp(morning(), &taipei(), Stamp::Full), "2026-09-22 09:02");
-        assert_eq!(stamp(morning(), &taipei(), Stamp::Day), "Sep 22");
     }
 
     #[test]
@@ -1207,6 +1248,48 @@ mod stamps {
             stamp(just_after_midnight, &newyork, Stamp::Row),
             "09-21 22:15"
         );
+    }
+
+    /// The clock reads 2026-09-22 14:00 in Taipei.
+    fn now() -> DateTime<Utc> {
+        Utc.with_ymd_and_hms(2026, 9, 22, 6, 0, 0).unwrap()
+    }
+
+    #[test]
+    fn todays_mail_shows_a_time_and_older_mail_does_not() {
+        // The shell wrote "Sep 22" on a message that arrived an hour ago — the least useful
+        // answer available, and the same one it gave for a message from three weeks back.
+        let zone = taipei();
+        assert_eq!(listed(morning(), now(), &zone), "09:02");
+        // Yesterday evening in Taipei, which is a different calendar day and so not a time.
+        let yesterday = Utc.with_ymd_and_hms(2026, 9, 21, 12, 0, 0).unwrap();
+        assert_eq!(listed(yesterday, now(), &zone), "Mon");
+        // Three weeks: past the weekday window, inside the year.
+        let weeks_ago = Utc.with_ymd_and_hms(2026, 9, 1, 2, 0, 0).unwrap();
+        assert_eq!(listed(weeks_ago, now(), &zone), "Sep 01");
+        // Last year, where the year is the only part still worth printing.
+        let old = Utc.with_ymd_and_hms(2024, 11, 14, 22, 13, 0).unwrap();
+        assert_eq!(listed(old, now(), &zone), "2024-11-15");
+    }
+
+    #[test]
+    fn today_is_a_calendar_day_not_the_last_twenty_four_hours() {
+        // 00:10 this morning is today although it is fourteen hours ago; 23:50 last night is
+        // not, although it is fourteen hours ago too. Elapsed-hours arithmetic gets both wrong.
+        let zone = taipei();
+        let just_after_midnight = Utc.with_ymd_and_hms(2026, 9, 21, 16, 10, 0).unwrap();
+        assert_eq!(listed(just_after_midnight, now(), &zone), "00:10");
+        let late_last_night = Utc.with_ymd_and_hms(2026, 9, 21, 15, 50, 0).unwrap();
+        assert_eq!(listed(late_last_night, now(), &zone), "Mon");
+    }
+
+    #[test]
+    fn the_list_stamp_is_in_the_readers_zone_too() {
+        // The same instant is today in Taipei and yesterday in New York, so the two disagree
+        // about which shape to use at all — not just about the digits.
+        let newyork = chrono::FixedOffset::west_opt(5 * 3600).unwrap();
+        assert_eq!(listed(morning(), now(), &taipei()), "09:02");
+        assert_eq!(listed(morning(), now(), &newyork), "Mon");
     }
 
     #[test]
