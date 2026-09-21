@@ -289,7 +289,9 @@ a thread spans, unioned over its messages.` is useful; `/// The mailboxes.` is n
   `Op::apply` → `inverse` round-trips to the original state, and `Filter::fit` agrees with
   the SQL compiler. If either is skipped, the corresponding bug ships.
 - Protocol tests are byte transcripts. See `crates/mail-proto/tests/traces/FORMAT.md`.
-- No test touches the network. Live tests are `#[ignore]` and live in `mail-runtime`.
+- No test touches the network. Live tests are `#[ignore]`, and are run by
+  `./scripts/live-tests.sh`, which starts the servers they need from committed scripts rather
+  than trusting whatever happens to be on the port (FINDINGS F88, F90).
 
 ## 10. Verification
 

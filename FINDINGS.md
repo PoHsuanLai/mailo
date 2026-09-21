@@ -1627,3 +1627,29 @@ Worth noting what could *not* be tested and why. `presets::manual` only ever pro
 server; the test constructs that plan by hand. That is the security posture working as intended —
 there is no setting that sends a password in clear — and it means the binary's own configuration
 path can only ever be exercised against a server with a certificate a public root will sign.
+
+### F90 — Turning F88's lesson into a mechanism
+
+F88 was a result I reported without controlling what was answering the socket. The instance is
+fixed; the process that produced it — remembering to do the clean experiment — is one that fails
+whenever attention is elsewhere.
+
+So the first thing this round was to re-verify every live result from a known state: stop
+anything on the ports, start both servers from the committed scripts, run all four suites. All
+six tests pass. F88 was the only claim that did not hold, which is worth knowing precisely rather
+than hoping.
+
+The second was to stop relying on myself for it. `scripts/live-tests.sh` creates the virtualenv
+if it is missing, kills whatever holds the ports, starts both servers from the committed scripts,
+waits until each answers, runs the ignored suites and exits non-zero if any fail. The network
+probe is opt-in behind `--network`, because a suite that reaches a third party by default is one
+someone runs without meaning to.
+
+Checked the way anything else here is: reintroducing F88's exact fixture defect — the missing
+`Content-Transfer-Encoding` — makes `live_imap` and `sync_path` fail and the script exit 1, and
+restoring it returns both to green.
+
+The general shape, since this is the third time it has come up: a test is only evidence about the
+thing you believe it ran against. Transcript tests have that for free. Anything that needs a
+daemon does not, and the fix is to make the setup part of the test rather than part of the
+operator.
