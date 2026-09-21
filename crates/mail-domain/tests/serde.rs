@@ -129,7 +129,7 @@ fn message() -> Message {
         star: Star::Starred,
         mailbox: MailboxRole::Inbox,
         labels: vec![LabelId::from_uuid(uuid(3))],
-        body: Body {
+        body: Body::Present {
             text: Some("hello".to_owned()),
             raw: BlobId::from_uuid(uuid(7)),
         },
@@ -740,11 +740,11 @@ fn content_and_message_types_round_trip() {
     round_trip_each(
         "Body",
         vec![
-            Body {
+            Body::Present {
                 text: Some("hi".to_owned()),
                 raw: BlobId::from_uuid(uuid(7)),
             },
-            Body {
+            Body::Present {
                 text: None,
                 raw: BlobId::from_uuid(uuid(7)),
             },

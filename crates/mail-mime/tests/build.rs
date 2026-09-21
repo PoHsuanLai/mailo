@@ -109,7 +109,7 @@ fn parent(references: &[&str], rfc_message_id: Option<&str>) -> Message {
         star: Star::Unstarred,
         mailbox: MailboxRole::Inbox,
         labels: Vec::new(),
-        body: Body {
+        body: Body::Present {
             text: Some("original".to_owned()),
             raw: BlobId::generate(),
         },

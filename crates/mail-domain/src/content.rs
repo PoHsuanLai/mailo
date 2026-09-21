@@ -11,18 +11,50 @@ pub struct Address {
     pub email: String,
 }
 
-/// A message body.
+/// A message body, which may not have been fetched yet.
 ///
 /// Holds the *raw* bytes and no sanitized HTML. Sanitizer output is not persisted: an
 /// `ammonia` upgrade would otherwise leave every previously-ingested message sanitized under
 /// the old rules. `mail-app` sanitizes at render time and caches by policy version.
+///
+/// An enum rather than a struct with an optional `raw`, because **headers-without-body is a
+/// normal state, not an error**. A POP3 first sync fetches headers with `TOP` before any body:
+/// `RETR` marks a message read on the server, so retrieving 2372 messages to populate a list
+/// view would mark the user's entire mailbox read in their webmail. IMAP does the same thing
+/// for a different reason — envelopes first, bodies on demand.
+///
+/// Making it an `Option<BlobId>` would let a caller reach for `raw` and get `None` without
+/// having thought about which case it is in; this way the compiler asks.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Body {
-    /// The `text/plain` part, if the message had one. Used for search and for previews.
-    pub text: Option<String>,
-    /// The full raw message, content-addressed on disk. The single source of truth: every
-    /// rendering, re-parse and re-sanitize starts here.
-    pub raw: BlobId,
+#[serde(tag = "kind", content = "v", rename_all = "snake_case")]
+pub enum Body {
+    /// Headers fetched, body not yet retrieved.
+    Absent,
+    Present {
+        /// The `text/plain` part, if the message had one. Used for search and for previews.
+        text: Option<String>,
+        /// The full raw message, content-addressed on disk. The single source of truth: every
+        /// rendering, re-parse and re-sanitize starts here.
+        raw: BlobId,
+    },
+}
+
+impl Body {
+    /// The raw blob, or `None` while only headers are held.
+    pub fn raw(&self) -> Option<BlobId> {
+        match self {
+            Body::Absent => None,
+            Body::Present { raw, .. } => Some(*raw),
+        }
+    }
+
+    /// The plain-text part, or `None` when absent or not yet fetched.
+    pub fn text(&self) -> Option<&str> {
+        match self {
+            Body::Absent => None,
+            Body::Present { text, .. } => text.as_deref(),
+        }
+    }
 }
 
 /// Whether a part is offered as a download or referenced from the HTML body.

@@ -99,7 +99,9 @@ CREATE TABLE messages (
     star            TEXT NOT NULL,   -- serde(Star)
     mailbox         TEXT NOT NULL,   -- serde(MailboxRole); a message really is in one place
     body_text       TEXT,
-    body_raw        TEXT NOT NULL REFERENCES blobs(id),
+    -- NULL while only headers are held: a POP3 first sync fetches with TOP before any
+    -- RETR, because RETR marks the message read on the server.
+    body_raw        TEXT REFERENCES blobs(id),
     attachments     TEXT NOT NULL,   -- serde(Vec<Attachment>)
     UNIQUE (account, msg_key)
 );

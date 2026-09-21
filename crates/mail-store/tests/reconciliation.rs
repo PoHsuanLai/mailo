@@ -64,7 +64,7 @@ fn message(f: &Fixture, thread: ThreadId, key: &str, n: i64) -> Message {
         star: Star::Unstarred,
         mailbox: MailboxRole::Inbox,
         labels: vec![],
-        body: Body {
+        body: Body::Present {
             text: Some(format!("body {n}")),
             raw: blob(f, format!("raw {n}").as_bytes()),
         },
@@ -103,7 +103,7 @@ fn fetched(m: &Message, remote: RemoteRef) -> Fetched {
     Fetched {
         remote,
         key: m.key.clone(),
-        raw: m.body.raw,
+        raw: m.body.raw().expect("fixture has a body"),
         message: m.clone(),
     }
 }

@@ -707,7 +707,7 @@ fn thread_corpus(messages: &[Message]) -> Option<String> {
             Some(message.subject.as_str()),
             message.from.name.as_deref(),
             Some(message.from.email.as_str()),
-            message.body.text.as_deref(),
+            message.body.text(),
         ]
         .into_iter()
         .flatten()

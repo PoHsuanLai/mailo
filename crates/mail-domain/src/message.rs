@@ -206,7 +206,7 @@ impl ThreadSummary {
             // accounts in v1.
             account: newest.account,
             subject: oldest.subject.clone(),
-            snippet: snippet_of(newest.body.text.as_deref()),
+            snippet: snippet_of(newest.body.text()),
             from: newest.from.clone(),
             participants,
             recipients,

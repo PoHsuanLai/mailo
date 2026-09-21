@@ -181,8 +181,8 @@ impl SqliteStore {
                 to_json("ReadState", &m.read)?,
                 to_json("Star", &m.star)?,
                 to_json("MailboxRole", &m.mailbox)?,
-                m.body.text,
-                m.body.raw.to_string(),
+                m.body.text(),
+                m.body.raw().map(|b| b.to_string()),
                 to_json("attachments", &m.attachments)?,
             ],
         )?;

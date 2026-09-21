@@ -60,9 +60,14 @@ impl SqliteStore {
             star: json("Star", &row.get::<_, String>(13)?)?,
             mailbox: json::<MailboxRole>("MailboxRole", &row.get::<_, String>(14)?)?,
             labels,
-            body: Body {
-                text: row.get::<_, Option<String>>(15)?,
-                raw: BlobId::from_uuid(uuid("BlobId", &row.get::<_, String>(16)?)?),
+            // A NULL body_raw is headers-only, which is a normal state after a POP3 TOP
+            // pass or an IMAP envelope fetch — not a corrupt row.
+            body: match row.get::<_, Option<String>>(16)? {
+                Some(raw) => Body::Present {
+                    text: row.get::<_, Option<String>>(15)?,
+                    raw: BlobId::from_uuid(uuid("BlobId", &raw)?),
+                },
+                None => Body::Absent,
             },
             attachments: json::<Vec<Attachment>>("attachments", &row.get::<_, String>(17)?)?,
         })

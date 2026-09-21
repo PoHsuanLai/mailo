@@ -235,7 +235,7 @@ fn build(specs: &[Spec]) -> Both {
             },
             mailbox: role(s.mailbox),
             labels,
-            body: Body {
+            body: Body::Present {
                 text: Some(body),
                 raw,
             },

@@ -77,7 +77,7 @@ fn message(n: u128, date: i64) -> Message {
         star: Star::Unstarred,
         mailbox: MailboxRole::Inbox,
         labels: Vec::new(),
-        body: Body {
+        body: Body::Present {
             text: None,
             raw: BlobId::from_uuid(Uuid::from_u128(0xb000 + n)),
         },
@@ -208,7 +208,10 @@ fn derive_rolls_up_the_thread() {
     m3.star = Star::Starred;
     m3.labels = vec![LABEL_C];
     m3.attachments = vec![attachment("two.txt"), attachment("three.txt")];
-    m3.body.text = Some("  the   newest\n\nbody  ".to_owned());
+    m3.body = Body::Present {
+        text: Some("  the   newest\n\nbody  ".to_owned()),
+        raw: m3.body.raw().expect("fixture has a body"),
+    };
 
     let s = ThreadSummary::derive(THREAD, &[m1, m2, m3], Snooze::Until(at(900)), Pin::Rank(4));
 
@@ -350,7 +353,10 @@ fn derive_builds_the_snippet_from_the_newest_body() {
 
     for (name, text, expected) in cases {
         let mut newest = message(2, 200);
-        newest.body.text = text;
+        newest.body = Body::Present {
+            text,
+            raw: newest.body.raw().expect("fixture has a body"),
+        };
         let older = message(1, 100); // has no text part; must not be consulted
         let s = ThreadSummary::derive(THREAD, &[older, newest], Snooze::Inactive, Pin::Unpinned);
         assert_eq!(s.snippet, expected, "{name}");

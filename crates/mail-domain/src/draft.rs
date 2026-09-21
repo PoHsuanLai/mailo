@@ -260,7 +260,7 @@ mod tests {
             star: Star::Unstarred,
             mailbox: MailboxRole::Inbox,
             labels: Vec::new(),
-            body: Body {
+            body: Body::Present {
                 text: Some("hello".to_owned()),
                 raw: BlobId::generate(),
             },
