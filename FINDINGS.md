@@ -1094,3 +1094,39 @@ Matched on domain boundaries, not `ends_with`: `evil-office365.com` ends with `o
 Here that would only produce a misleading warning, but it is the same mistake that trusts the
 wrong host when it appears in a security decision, and it is not worth writing the weaker version
 even once.
+
+### F64 — `OAuthIssuer::Microsoft`, and two things the plan had wrong
+
+The plan predicted that adding a provider would cost "an `OAuthIssuer` variant, a preset row, and
+nothing else", and called it "the first outside test of the claim that a provider is a value
+rather than a type". The claim held: adding the variant produced exactly one compile error, in
+the endpoints table, and `Incoming::Imap`, `Outgoing::Smtp` and `ImapBackend` were untouched.
+
+Writing it corrected the plan twice.
+
+**A custom tenant domain cannot be recognised from an address.** The draft assumed a preset row
+keyed on domain, as Gmail and NTU are. But a work mailbox is `you@yourcompany.com`, and nothing
+in that string says Microsoft — only the `*.onmicrosoft.com` fallback names itself. My first
+attempt matched `office365.com`, which is not a domain anyone receives mail at. The real options
+are autodiscover or asking, and autodiscover points the client at a host the user never named, so
+it is `--microsoft`.
+
+**Submission is STARTTLS on 587.** Exchange Online does not offer implicit TLS on 465 for SMTP
+AUTH, which is the single place its shape differs from Gmail's — and the one detail that would
+have failed on first connection with everything else correct. `StartTlsRequired`, never
+opportunistic: a failure to upgrade aborts rather than sending a bearer token in cleartext.
+
+Folder roles are left empty rather than guessed. Exchange Online localises them per mailbox, so
+"Sent Items" is a guess that files mail into a folder that may not exist; `refresh_caps` (F56)
+fills them from `LIST (SPECIAL-USE)` on the first connection.
+
+### F65 — Advice that does not survive being followed
+
+`account add` told the user to re-run with a client id and printed the command to use. For a
+Microsoft account on a custom domain it dropped `--microsoft`, which is the one piece of
+information the preset table does not have — so following the instruction verbatim would fail to
+find any preset at all.
+
+Small, and the same shape as F63 one round earlier: guidance produced by the tool, never executed
+by anyone. There is now a test that parses the suggested command back and asserts it reproduces
+the account it describes.

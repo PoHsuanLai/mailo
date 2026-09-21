@@ -27,6 +27,9 @@ pub enum Command {
     AccountAdd {
         address: String,
         manual: Option<mail_domain::presets::Manual>,
+        /// The address belongs to a managed Microsoft 365 tenant on its own domain, which is
+        /// the one thing the preset table cannot work out for itself.
+        microsoft: bool,
     },
     /// Configured accounts, and what each still needs.
     AccountList,
@@ -127,9 +130,23 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                 let address = args
                     .get(2)
                     .ok_or_else(|| format!("account add needs an address\n\n{}", usage()))?;
+                let rest = &args[3..];
+                let microsoft = rest.iter().any(|a| a == "--microsoft");
+                let others: Vec<String> = rest
+                    .iter()
+                    .filter(|a| *a != "--microsoft")
+                    .cloned()
+                    .collect();
+                if microsoft && !others.is_empty() {
+                    return Err(format!(
+                        "--microsoft already knows the servers; drop the other options\n\n{}",
+                        usage()
+                    ));
+                }
                 Ok(Command::AccountAdd {
                     address: address.clone(),
-                    manual: parse_manual(&args[3..])?,
+                    manual: parse_manual(&others)?,
+                    microsoft,
                 })
             }
             None | Some("list") => Ok(Command::AccountList),
@@ -224,6 +241,8 @@ usage: mailo <command>
   account add <address>      (set MAILO_PASSWORD for a password account)
   account add <address> --imap HOST[:PORT] --smtp HOST[:PORT] [--login NAME]
                              for a server the preset table does not know
+  account add <address> --microsoft
+                             a work or school Microsoft 365 mailbox on its own domain
   sync                       fetch mail and send anything queued
 "
     .to_owned()
@@ -300,9 +319,11 @@ pub fn run(store: &SqliteStore, command: &Command, now: DateTime<Utc>) -> Result
         } => crate::compose::reply(store, *message, *scope, body, now),
         Command::Send { draft } => crate::compose::send(store, *draft, now),
         Command::Drafts => crate::compose::drafts(store),
-        Command::AccountAdd { address, manual } => {
-            crate::account::add(store, address, manual.as_ref(), now)
-        }
+        Command::AccountAdd {
+            address,
+            manual,
+            microsoft,
+        } => crate::account::add(store, address, manual.as_ref(), *microsoft, now),
         Command::AccountList => crate::account::list(store),
         Command::Status => {
             let mut out = String::new();

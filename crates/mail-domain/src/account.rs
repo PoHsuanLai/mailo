@@ -131,6 +131,13 @@ pub enum AuthPlan {
 #[serde(rename_all = "snake_case")]
 pub enum OAuthIssuer {
     Google,
+    /// The Microsoft identity platform, for managed Microsoft 365 tenants.
+    ///
+    /// Not personal Outlook.com. Basic authentication was retired there on 2024-09-16, and
+    /// recently-created personal mailboxes are reported to have SMTP client authentication
+    /// permanently off — failing even under OAuth, which is a different and worse problem than
+    /// the one this variant solves.
+    Microsoft,
 }
 
 /// How to derive the login name from the account address.

@@ -42,6 +42,16 @@ fn endpoints(issuer: OAuthIssuer) -> Endpoints {
             auth: "https://accounts.google.com/o/oauth2/v2/auth",
             token: "https://oauth2.googleapis.com/token",
         },
+        // `organizations`, not `common`. `common` also accepts personal Outlook.com accounts,
+        // and those are a worse case that this does not support: basic authentication was
+        // retired there on 2024-09-16 and recently-created personal mailboxes are reported to
+        // have SMTP client authentication permanently off, so a `common` endpoint would hand
+        // back a perfectly good token that then fails at submission with nothing to explain it.
+        // Refusing at sign-in, where the user can read the reason, is the better failure.
+        OAuthIssuer::Microsoft => Endpoints {
+            auth: "https://login.microsoftonline.com/organizations/oauth2/v2.0/authorize",
+            token: "https://login.microsoftonline.com/organizations/oauth2/v2.0/token",
+        },
     }
 }
 

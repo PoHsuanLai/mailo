@@ -273,6 +273,7 @@ mod manual_setup {
             cli::Command::AccountAdd {
                 address,
                 manual: Some(manual),
+                ..
             } => {
                 assert_eq!(address, "me@example.test");
                 assert_eq!(manual.imap_host, "imap.example.test");
@@ -401,5 +402,150 @@ mod manual_setup {
             "a manually configured account is a password account: {:?}",
             plan.auth
         );
+    }
+}
+
+/// Microsoft 365, which the address alone usually cannot reveal.
+mod microsoft {
+    use super::*;
+
+    fn args(s: &str) -> Vec<String> {
+        s.split(' ').map(str::to_owned).collect()
+    }
+
+    #[test]
+    fn a_tenant_fallback_domain_is_recognised_on_its_own() {
+        // `you@contoso.onmicrosoft.com` is the one Microsoft 365 address that names itself.
+        let preset = mail_domain::presets::preset_for("me@contoso.onmicrosoft.com", now())
+            .expect("a tenant domain is known");
+        assert!(matches!(
+            preset.plan.auth,
+            AuthPlan::OAuth {
+                issuer: OAuthIssuer::Microsoft,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn a_lookalike_tenant_domain_is_not() {
+        assert!(mail_domain::presets::preset_for("me@notonmicrosoft.com", now()).is_none());
+    }
+
+    #[test]
+    fn a_custom_tenant_domain_needs_to_be_told() {
+        // The common case, and the one nothing can infer: a work mailbox on the company's own
+        // domain. Guessing would mean autodiscover, and guessing wrong points the client at a
+        // host the user never named.
+        assert!(mail_domain::presets::preset_for("me@yourcompany.example", now()).is_none());
+
+        let parsed = cli::parse(&args("account add me@yourcompany.example --microsoft")).unwrap();
+        match parsed {
+            cli::Command::AccountAdd {
+                microsoft, manual, ..
+            } => {
+                assert!(microsoft);
+                assert!(manual.is_none(), "--microsoft supplies the servers itself");
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn microsoft_and_manual_servers_together_are_refused() {
+        // Both name the servers. Silently letting one win is how an account ends up pointed
+        // somewhere the user did not intend.
+        let err = cli::parse(&args(
+            "account add me@x.example --microsoft --imap i.example --smtp s.example",
+        ))
+        .expect_err("two sources of truth");
+        assert!(err.contains("--microsoft"), "{err}");
+    }
+
+    #[test]
+    fn the_preset_asks_for_both_protocols_and_a_refresh_token() {
+        // One scope per protocol: Microsoft grants IMAP and SMTP separately, and asking only for
+        // the first produces an account that syncs and cannot send. Without offline_access the
+        // account stops working an hour after it is added.
+        let preset = mail_domain::presets::microsoft_preset("me@yourcompany.example", now());
+        let AuthPlan::OAuth { scopes, .. } = &preset.plan.auth else {
+            panic!("microsoft is an OAuth account");
+        };
+        assert!(
+            scopes.iter().any(|s| s.contains("IMAP.AccessAsUser.All")),
+            "{scopes:?}"
+        );
+        assert!(scopes.iter().any(|s| s.contains("SMTP.Send")), "{scopes:?}");
+        assert!(scopes.iter().any(|s| s == "offline_access"), "{scopes:?}");
+    }
+
+    #[test]
+    fn submission_uses_starttls_on_587_not_implicit_tls_on_465() {
+        // The one place Microsoft's shape differs from Gmail's. Exchange Online does not offer
+        // implicit TLS on 465 for SMTP AUTH, and the upgrade is required rather than
+        // opportunistic — a failure to upgrade aborts instead of sending a bearer token in
+        // cleartext.
+        let preset = mail_domain::presets::microsoft_preset("me@yourcompany.example", now());
+        match preset.plan.outgoing {
+            Outgoing::Smtp { host, port, tls } => {
+                assert_eq!(host, "smtp.office365.com");
+                assert_eq!(port, 587);
+                assert_eq!(tls, Tls::StartTlsRequired);
+            }
+        }
+    }
+
+    #[test]
+    fn the_folder_roles_are_left_for_the_server_to_say() {
+        // Exchange Online localises folder names per mailbox. Guessing "Sent Items" files mail
+        // into a folder that may not exist; `refresh_caps` fills these in from LIST (SPECIAL-USE).
+        let preset = mail_domain::presets::microsoft_preset("me@yourcompany.example", now());
+        assert!(
+            preset.expected_caps.folders.0.is_empty(),
+            "a folder name was guessed: {:?}",
+            preset.expected_caps.folders
+        );
+    }
+}
+
+#[test]
+fn the_suggested_rerun_reproduces_the_account_it_describes() {
+    // Advice that does not work when followed is worse than none. The address alone does not
+    // identify a Microsoft tenant on a custom domain — `--microsoft` is exactly the information
+    // the preset table lacks — so a re-run without it finds no preset at all.
+    let (store, _dir, _thread) = seeded();
+    let command = cli::parse(
+        &"account add me@yourcompany.example --microsoft"
+            .split(' ')
+            .map(str::to_owned)
+            .collect::<Vec<_>>(),
+    )
+    .unwrap();
+    let out = cli::run(&store, &command, now()).expect("an OAuth account is added");
+
+    let line = out
+        .lines()
+        .find(|l| l.contains("MAILO_OAUTH_CLIENT_ID"))
+        .expect("the re-run is suggested");
+    assert!(
+        line.contains("--microsoft"),
+        "following this would fail to find a preset: {line}"
+    );
+
+    // And what it suggests actually parses back to the same account.
+    let suggested: Vec<String> = line
+        .split_whitespace()
+        .skip_while(|w| !w.starts_with("mailo"))
+        .skip(1)
+        .map(str::to_owned)
+        .collect();
+    match cli::parse(&suggested).expect("the suggestion parses") {
+        cli::Command::AccountAdd {
+            address, microsoft, ..
+        } => {
+            assert_eq!(address, "me@yourcompany.example");
+            assert!(microsoft);
+        }
+        other => panic!("{other:?}"),
     }
 }

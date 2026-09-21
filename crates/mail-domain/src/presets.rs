@@ -49,6 +49,25 @@ pub struct Preset {
 /// account actually consented, which is the address we key everything else off.
 const GMAIL_SCOPES: [&str; 2] = ["https://mail.google.com/", "email"];
 
+/// Delegated scopes for a managed Microsoft 365 mailbox.
+///
+/// One per protocol, which is the difference from Google's single `mail.google.com`: Microsoft
+/// grants IMAP and SMTP separately, and asking for only the first produces an account that syncs
+/// and cannot send. `offline_access` is what returns a refresh token — without it the account
+/// stops working an hour after it is added, which looks like a bug in the client.
+///
+/// These are the **delegated** permissions, for the authorization-code flow where the user signs
+/// in themselves. The `IMAP.AccessAsApp` family, which Microsoft's documentation surrounds with
+/// admin consent and a `New-ServicePrincipal` registration, is for client credentials — an
+/// application reaching mailboxes with nobody present. That is not this, and its requirements do
+/// not apply here.
+const MICROSOFT_SCOPES: [&str; 4] = [
+    "https://outlook.office.com/IMAP.AccessAsUser.All",
+    "https://outlook.office.com/SMTP.Send",
+    "offline_access",
+    "openid",
+];
+
 /// Gmail's special-use paths. Sent as `FolderRoles` so the first sync can address
 /// `[Gmail]/All Mail` before `LIST (SPECIAL-USE)` comes back. Gmail localises these paths
 /// for some accounts, which is one more reason the runtime overwrites them.
@@ -90,9 +109,23 @@ pub fn preset_for(address: &str, now: DateTime<Utc>) -> Option<Preset> {
         return None;
     }
     let domain = domain.to_ascii_lowercase();
+    // `contoso.onmicrosoft.com` — matched as a domain rather than a suffix, so that
+    // `notonmicrosoft.com` is not treated as a tenant.
+    if under(&domain, "onmicrosoft.com") {
+        return Some(microsoft(address, now));
+    }
 
     match domain.as_str() {
         "gmail.com" | "googlemail.com" => Some(gmail(address, now)),
+        // The tenant fallback domain, which is the only Microsoft 365 address that can be
+        // recognised from the address alone. A work or school mailbox almost always uses its
+        // organisation's own domain — `you@yourcompany.com` — and nothing about that string
+        // says Microsoft. Those are configured with `--microsoft`, because the alternative is
+        // autodiscover, and guessing wrong sends a password to a host the user never named.
+        //
+        // Personal outlook.com and hotmail.com are deliberately absent: see `OAuthIssuer::
+        // Microsoft`.
+        "onmicrosoft.com" => Some(microsoft(address, now)),
         "ntu.edu.tw" => Some(ntu(address, local, now)),
         _ => None,
     }
@@ -250,6 +283,70 @@ pub fn manual(address: &str, manual: &Manual, now: DateTime<Utc>) -> Preset {
             top: Supported::Absent,
             pipelining: Supported::Absent,
             connections: ConnectionBudget { max: 1 },
+            observed_at: now,
+        },
+    }
+}
+
+/// A managed Microsoft 365 mailbox, work or school, for an address the table cannot recognise.
+///
+/// Public because a custom tenant domain is the common case and `--microsoft` is how the user
+/// says so.
+pub fn microsoft_preset(address: &str, now: DateTime<Utc>) -> Preset {
+    microsoft(address, now)
+}
+
+/// A managed Microsoft 365 mailbox, work or school.
+///
+/// The plan's first outside test of "a provider is a value, not a type": adding this required an
+/// `OAuthIssuer` variant, an endpoints row and this function. `Incoming::Imap`, `Outgoing::Smtp`
+/// and `ImapBackend` are untouched, and the compiler found the single site that had to change.
+///
+/// Capabilities are at their cautious end rather than guessed from documentation. Exchange
+/// Online's answers vary by tenant — IMAP and POP can be disabled per mailbox, SMTP AUTH is off
+/// by default in many tenants — and `refresh_caps` replaces all of this on the first connection
+/// with what the server actually says.
+fn microsoft(address: &str, now: DateTime<Utc>) -> Preset {
+    Preset {
+        plan: AccountPlan {
+            address: address.to_owned(),
+            incoming: Incoming::Imap {
+                host: "outlook.office365.com".to_owned(),
+                port: 993,
+                tls: Tls::Implicit,
+            },
+            outgoing: Outgoing::Smtp {
+                host: "smtp.office365.com".to_owned(),
+                port: 587,
+                // The one place Microsoft differs from Gmail's shape. Port 587 is submission
+                // with a mandatory STARTTLS; Exchange Online does not offer implicit TLS on 465
+                // for SMTP AUTH. `StartTlsRequired`, never opportunistic — a failure to upgrade
+                // aborts rather than falling back to a cleartext bearer token.
+                tls: Tls::StartTlsRequired,
+            },
+            auth: AuthPlan::OAuth {
+                issuer: OAuthIssuer::Microsoft,
+                scopes: MICROSOFT_SCOPES.iter().map(|s| (*s).to_owned()).collect(),
+            },
+            identities: Vec::new(),
+        },
+        expected_caps: AccountCaps {
+            // Exchange Online has folders, not labels.
+            labels: ServerLabels::LocalOnly,
+            threads: ServerThreads::Jwz,
+            watch: WatchMode::Idle,
+            archive: ArchiveMeans::MoveToFolder("Archive".to_owned()),
+            // Left empty on purpose: the folder names are localised per mailbox, and
+            // `LIST (SPECIAL-USE)` is the only thing that knows them. Guessing "Sent Items"
+            // files mail into a folder that may not exist.
+            folders: FolderRoles(Vec::new()),
+            condstore: Condstore::Absent,
+            move_ext: MoveExt::Absent,
+            // Same rule as everywhere: never inferred, never on by default.
+            expunge: ExpungeMeans::Forbidden,
+            top: Supported::Absent,
+            pipelining: Supported::Absent,
+            connections: ConnectionBudget { max: 4 },
             observed_at: now,
         },
     }

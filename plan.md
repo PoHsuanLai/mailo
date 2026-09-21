@@ -1052,6 +1052,26 @@ Dioxus signals.
 
 ---
 
+## Microsoft accounts — the preset is written; a spike is not
+
+**Done since this section was drafted:** `OAuthIssuer::Microsoft`, the endpoints row, the preset,
+and `mailo account add <address> --microsoft` for a tenant on its own domain. Adding it required
+exactly what this section predicted — an enum variant, an endpoints row and a preset function —
+and the compiler found the single site that had to change. `Incoming::Imap`, `Outgoing::Smtp` and
+`ImapBackend` are untouched.
+
+Two corrections to the draft below, from writing it:
+
+- **A custom tenant domain cannot be recognised from the address.** `you@yourcompany.com` says
+  nothing about Microsoft, so only `*.onmicrosoft.com` is matched automatically and everything
+  else needs `--microsoft`. The alternative is autodiscover, which points the client at a host
+  the user never named.
+- **Submission is STARTTLS on 587, not implicit TLS on 465.** Exchange Online does not offer
+  implicit TLS for SMTP AUTH, which is the one place its shape differs from Gmail's.
+
+What remains is the spike, and it is unchanged: the three tenant-policy questions below are facts
+about an organisation, not about a protocol, and no amount of code answers them.
+
 ## Queued — Microsoft accounts (after phase 6)
 
 Two more accounts are wanted: a work Outlook mailbox and a school one. Both are managed

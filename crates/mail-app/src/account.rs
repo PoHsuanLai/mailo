@@ -18,6 +18,7 @@ pub fn add(
     store: &SqliteStore,
     address: &str,
     manual: Option<&mail_domain::presets::Manual>,
+    microsoft: bool,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<String, String> {
     // Normalised once, here, and used for the preset, the stored plan and the stored column
@@ -28,6 +29,8 @@ pub fn add(
     // then rejects one of them with nothing to explain why.
     let address = address.to_lowercase();
     let preset = match manual {
+        // Named explicitly, so no guessing from a domain that says nothing.
+        _ if microsoft => mail_domain::presets::microsoft_preset(&address, now),
         // Explicit servers win over the table. Someone who names a host means that host, even
         // for a domain a preset happens to cover.
         Some(manual) => mail_domain::presets::manual(&address, manual, now),
@@ -177,6 +180,11 @@ pub fn add(
                 let _ = writeln!(out, "signed in; token stored in the keyring");
             }
             _ => {
+                // Carrying the flags into the suggested command, because the address alone does
+                // not reproduce this account: `--microsoft` is precisely the information the
+                // preset table does not have, and a re-run without it fails to find any preset
+                // at all. Advice that does not work when followed is worse than none.
+                let flags = if microsoft { " --microsoft" } else { "" };
                 // The client id is deployment configuration and cannot be shipped in a source
                 // tree, so the honest thing is to say exactly what is missing and how to
                 // supply it — not to look configured and fail at first connect.
@@ -184,7 +192,7 @@ pub fn add(
                     out,
                     "this account uses OAuth ({issuer:?}) and needs a client id.\n\
                      Register an installed application with the issuer, then re-run:\n\
-                     \n  MAILO_OAUTH_CLIENT_ID=… mailo account add {address}\n\
+                     \n  MAILO_OAUTH_CLIENT_ID=… mailo account add {address}{flags}\n\
                      \nScopes it will request: {scopes:?}"
                 );
             }
@@ -303,7 +311,7 @@ mod tests {
     #[test]
     fn an_unknown_domain_says_which_are_known() {
         let (store, _dir) = store();
-        let err = add(&store, "someone@example.test", None, now()).unwrap_err();
+        let err = add(&store, "someone@example.test", None, false, now()).unwrap_err();
         assert!(err.contains("gmail.com"), "{err}");
         assert!(err.contains("ntu.edu.tw"), "{err}");
     }
@@ -316,7 +324,7 @@ mod tests {
         // With no MAILO_OAUTH_CLIENT_ID set, which is the state anyone starts in. The client
         // id is deployment configuration and cannot be shipped in a source tree, so the useful
         // thing is the exact command to run once they have one.
-        let out = add(&store, "someone@gmail.com", None, now()).unwrap();
+        let out = add(&store, "someone@gmail.com", None, false, now()).unwrap();
         assert!(out.contains("client id"), "{out}");
         assert!(
             out.contains("MAILO_OAUTH_CLIENT_ID=… mailo account add someone@gmail.com"),
@@ -333,7 +341,7 @@ mod tests {
         // NTU logs in with the local part, not the address. Getting that wrong is a failed
         // authentication with no explanation, so the CLI says which name it will use.
         let (store, _dir) = store();
-        let out = add(&store, "b09901185@ntu.edu.tw", None, now()).unwrap();
+        let out = add(&store, "b09901185@ntu.edu.tw", None, false, now()).unwrap();
         assert!(out.contains("b09901185"), "{out}");
         assert!(
             !out.contains("b09901185@ntu.edu.tw\""),
@@ -344,7 +352,7 @@ mod tests {
     #[test]
     fn adding_an_account_persists_its_plan_and_capabilities() {
         let (store, _dir) = store();
-        add(&store, "b09901185@ntu.edu.tw", None, now()).unwrap();
+        add(&store, "b09901185@ntu.edu.tw", None, false, now()).unwrap();
         let accounts: i64 = store
             .connection()
             .query_row("SELECT count(*) FROM accounts", [], |r| r.get(0))
