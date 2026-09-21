@@ -99,6 +99,10 @@ pub fn run(store: Arc<SqliteStore>, now: chrono::DateTime<chrono::Utc>) -> Resul
                 );
                 for note in report.needs_attention {
                     let _ = writeln!(out, "  needs attention: {note}");
+                    // The server's words stay; this adds what they mean, where we know.
+                    if let Some(why) = mail_proto::explain_text(&note) {
+                        let _ = writeln!(out, "    → {why}");
+                    }
                 }
             }
             Err(why) => {

@@ -5,12 +5,14 @@
 //! are byte transcripts — see `tests/traces/FORMAT.md`.
 
 pub mod backend;
+pub mod diagnose;
 pub mod imap;
 pub mod machine;
 pub mod mutf7;
 pub mod pop3;
 pub mod smtp;
 
+pub use diagnose::{explain, explain_text};
 pub use imap::{ImapAuth, ImapCommand, ImapSession, ImapTranscript, Untagged};
 pub use machine::{Backend, IoNeed, IoReady, Machine, Progress, ProtoError, ProtoOutcome, Refusal};
 pub use pop3::{ListEntry, Pop3Command, Pop3Reply, Pop3Session, UidlEntry};

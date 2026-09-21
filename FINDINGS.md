@@ -1130,3 +1130,43 @@ find any preset at all.
 Small, and the same shape as F63 one round earlier: guidance produced by the tool, never executed
 by anyone. There is now a test that parses the suggested command back and asserts it reproduces
 the account it describes.
+
+### F66 — A refusal the user cannot act on is a refusal that wastes their afternoon
+
+The excuse I gave last round was that tenant policy is "a fact about your organisation, not the
+protocol". True, and it does not follow that nothing can be done. When a tenant forbids IMAP or
+SMTP AUTH, the server says so in a documented, versioned code — and the client was relaying that
+verbatim, where it is indistinguishable from "wrong password".
+
+That distinction is the whole value. `535 5.7.139` means an administrator has switched SMTP
+client authentication off for the tenant: the credential is correct, and no amount of retyping
+it, re-adding the account or registering a new OAuth application will change anything.
+`534-5.7.9` means the account has two-factor authentication and needs an App Password, which is
+five minutes of work — but reads as "your password is wrong", which sends someone to reset a
+password that was right.
+
+`diagnose::explain` maps only codes the provider publishes. Nothing here matches on prose a
+server might reasonably reword, because a confident wrong explanation is worse than the raw text
+it replaced, and the unrecognised case — which is most of them — shows the server's own words
+unchanged.
+
+It is advice and never a decision: `Retryable` still owns whether anything is retried. A
+diagnosis that quietly altered retry behaviour would be a second policy disagreeing with the
+first, and the disagreement would surface as mail that does not send for reasons neither policy
+states.
+
+### F67 — The same substring mistake, a third time
+
+`explain_text` matched `5.7.139` with `contains`, so `5.7.1399` was diagnosed as a tenant with
+SMTP AUTH disabled. Caught by this file's own "invents no explanation" case, which is why that
+test was written before the implementation was trusted.
+
+Three appearances now, in three disguises:
+
+- `ends_with("office365.com")` treating `evil-office365.com` as Microsoft (F63)
+- `contains("io")` matching every error mentioning a `connection` (F61)
+- `contains("5.7.139")` matching `5.7.1399` (here)
+
+Each time the intent was a *token* — a domain, a word, a status code — and the implement was a
+substring. The fix is always a boundary, and the general lesson is that `contains` is the wrong
+default for anything with a grammar. Worth a convention if it appears a fourth time.
