@@ -14,6 +14,7 @@ use mail_domain::{
 use mail_proto::{Backend, ProtoOutcome};
 use mail_store::{Settle, SqliteStore, Store};
 use std::sync::Arc;
+use std::time::Duration;
 
 /// Bodies are fetched smallest band first.
 ///
@@ -32,6 +33,43 @@ pub struct SyncReport {
     pub needs_attention: Vec<String>,
 }
 
+/// How often each part of a sync runs.
+///
+/// Three intervals, not one, because a sync pass is three different questions and only the
+/// first has a push signal. Gmail's IDLE reports new mail and **nothing else** — no flag
+/// changes — and Gmail has no QRESYNC, so a client that only watches never learns that a
+/// message was read, starred or deleted somewhere else. That is not an edge case; it is every
+/// user with a phone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Schedule {
+    /// New mail: IDLE where offered, otherwise this interval.
+    pub watch: Duration,
+    /// Flag changes: a `CHANGEDSINCE` sweep where CONDSTORE is usable, else a full flag fetch.
+    pub flags: Duration,
+    /// Disappearances: the full address list, diffed against `remote_map`.
+    pub expunges: Duration,
+}
+
+impl Default for Schedule {
+    fn default() -> Self {
+        Self {
+            watch: Duration::from_secs(300),
+            // Often enough that reading mail on a phone shows up within a couple of minutes.
+            flags: Duration::from_secs(120),
+            // Rarely: it is the most expensive of the three, and a message deleted elsewhere
+            // lingering for a few minutes costs the user nothing.
+            expunges: Duration::from_secs(900),
+        }
+    }
+}
+
+/// When each part of the schedule last ran.
+#[derive(Debug, Clone, Copy, Default)]
+struct LastRun {
+    flags: Option<DateTime<Utc>>,
+    expunges: Option<DateTime<Utc>>,
+}
+
 /// Drives one account.
 pub struct AccountEngine<B: Backend> {
     plan: AccountPlan,
@@ -39,6 +77,8 @@ pub struct AccountEngine<B: Backend> {
     backend: B,
     store: Arc<SqliteStore>,
     secrets: Arc<dyn Secrets>,
+    schedule: Schedule,
+    last: LastRun,
 }
 
 impl<B: Backend> AccountEngine<B> {
@@ -55,7 +95,15 @@ impl<B: Backend> AccountEngine<B> {
             backend,
             store,
             secrets,
+            schedule: Schedule::default(),
+            last: LastRun::default(),
         }
+    }
+
+    /// Override the default intervals.
+    pub fn with_schedule(mut self, schedule: Schedule) -> Self {
+        self.schedule = schedule;
+        self
     }
 
     /// Where the incoming server lives.
@@ -197,6 +245,79 @@ impl<B: Backend> AccountEngine<B> {
         Ok(report)
     }
 
+    /// Run whichever scheduled sweeps are due.
+    ///
+    /// Separate from [`AccountEngine::sync`] because these answer different questions on
+    /// different clocks, and because both must run even when the account is idle — an idle
+    /// account is exactly the one whose mail is being read on another device.
+    pub async fn sweep(
+        &mut self,
+        mailbox: &MailboxRef,
+        transport: &mut Transport,
+        cancel: &mut Cancel,
+        now: DateTime<Utc>,
+    ) -> Result<SyncReport, RuntimeError> {
+        let mut report = SyncReport::default();
+
+        if due(self.last.flags, self.schedule.flags, now) {
+            // No modseq means a full flag fetch: either the server has no CONDSTORE, or its
+            // HIGHESTMODSEQ was seen not to advance, which Dovecot 2.0.18 did while EXISTS
+            // climbed. Trusting a frozen modseq would mean never seeing another flag change.
+            let since_modseq = self.trusted_modseq(mailbox);
+            match self
+                .run(
+                    ProtoOp::FetchFlags {
+                        mailbox: mailbox.clone(),
+                        since_modseq,
+                    },
+                    transport,
+                    cancel,
+                )
+                .await
+            {
+                Ok(ProtoOutcome::Ingested(ingest)) => {
+                    self.store.ingest(self.account, *ingest)?;
+                    self.last.flags = Some(now);
+                }
+                Ok(_) => self.last.flags = Some(now),
+                Err(RuntimeError::Cancelled) => return Ok(report),
+                Err(e) => report.needs_attention.push(e.to_string()),
+            }
+        }
+
+        if due(self.last.expunges, self.schedule.expunges, now) {
+            match self
+                .run(
+                    ProtoOp::ListRemote {
+                        mailbox: mailbox.clone(),
+                    },
+                    transport,
+                    cancel,
+                )
+                .await
+            {
+                Ok(ProtoOutcome::Ingested(ingest)) => {
+                    self.store.ingest(self.account, *ingest)?;
+                    self.last.expunges = Some(now);
+                }
+                Ok(_) => self.last.expunges = Some(now),
+                Err(RuntimeError::Cancelled) => return Ok(report),
+                Err(e) => report.needs_attention.push(e.to_string()),
+            }
+        }
+
+        Ok(report)
+    }
+
+    /// A modseq worth fetching from, or `None` to fetch every flag.
+    ///
+    /// Returns `None` today. Reading the stored cursor and checking that its `HIGHESTMODSEQ`
+    /// actually advanced needs the IMAP backend, which is not written yet — and a full flag
+    /// fetch is correct but slow, which is the right way round to be wrong.
+    fn trusted_modseq(&self, _mailbox: &MailboxRef) -> Option<u64> {
+        None
+    }
+
     /// Messages we hold headers for but no body, paired with a size where one is known.
     ///
     /// The store answers which; the backend's survey answers how big. Sizes come from POP3's
@@ -258,6 +379,21 @@ impl<B: Backend> std::fmt::Debug for AccountEngine<B> {
     }
 }
 
+/// Whether a periodic task is due.
+///
+/// Never having run counts as due, so a fresh account sweeps once immediately rather than
+/// waiting out a full interval before it can show a flag change.
+fn due(last: Option<DateTime<Utc>>, every: Duration, now: DateTime<Utc>) -> bool {
+    let Some(last) = last else {
+        return true;
+    };
+    match chrono::TimeDelta::from_std(every) {
+        Ok(delta) => now - last >= delta,
+        // An interval too large for TimeDelta is not a reason to sweep constantly.
+        Err(_) => false,
+    }
+}
+
 /// Adapts a [`Backend`] to [`mail_proto::Machine`] so one drive loop serves both.
 struct BackendMachine<'a, B: Backend> {
     backend: &'a mut B,
@@ -278,5 +414,51 @@ impl<B: Backend> mail_proto::Machine for BackendMachine<'_, B> {
 
     fn feed(&mut self, ready: mail_proto::IoReady) -> mail_proto::Progress<ProtoOutcome> {
         self.backend.feed(ready)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::TimeZone;
+
+    fn at(secs: i64) -> DateTime<Utc> {
+        Utc.timestamp_opt(1_700_000_000 + secs, 0).unwrap()
+    }
+
+    #[test]
+    fn a_task_that_has_never_run_is_due() {
+        // So a fresh account sweeps once immediately rather than waiting out a full interval
+        // before it can notice anything changed elsewhere.
+        assert!(due(None, Duration::from_secs(120), at(0)));
+    }
+
+    #[test]
+    fn a_task_is_due_exactly_on_its_interval_not_after() {
+        let last = Some(at(0));
+        assert!(!due(last, Duration::from_secs(120), at(119)));
+        assert!(due(last, Duration::from_secs(120), at(120)));
+        assert!(due(last, Duration::from_secs(120), at(121)));
+    }
+
+    #[test]
+    fn a_clock_that_went_backwards_does_not_make_everything_due() {
+        // NTP corrections and suspend/resume both do this. Sweeping constantly because the
+        // clock moved is worse than sweeping late.
+        assert!(!due(Some(at(1000)), Duration::from_secs(120), at(0)));
+    }
+
+    #[test]
+    fn the_three_intervals_are_ordered_by_what_they_cost() {
+        let s = Schedule::default();
+        assert!(
+            s.flags < s.watch,
+            "flag changes must be noticed sooner than a poll interval: reading mail on a phone \
+             should show up in a couple of minutes"
+        );
+        assert!(
+            s.expunges > s.watch,
+            "the full address list is the most expensive sweep and the least urgent"
+        );
     }
 }

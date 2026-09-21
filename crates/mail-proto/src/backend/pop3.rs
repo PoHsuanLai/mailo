@@ -233,6 +233,23 @@ impl Backend for Pop3Backend {
                 self.job = Job::Idle;
                 Progress::Done(ProtoOutcome::Applied)
             }
+            ProtoOp::FetchFlags { .. } => {
+                // POP3 has no flags on the server at all — read and starred live only here — so
+                // there is nothing to sweep for and nothing to reconcile.
+                self.job = Job::Idle;
+                Progress::Done(ProtoOutcome::Applied)
+            }
+            ProtoOp::ListRemote { mailbox } => {
+                // The expunge diff. On POP3 this is the survey: UIDL is the complete list of
+                // what the server still holds, and anything in remote_map that is missing from
+                // it was deleted elsewhere.
+                self.job = Job::Survey {
+                    mailbox: mailbox.clone(),
+                };
+                self.uidls.clear();
+                self.sizes.clear();
+                self.queue(Authenticate::First, vec![Pop3Command::Uidl])
+            }
             ProtoOp::ListFolders => {
                 // One implicit maildrop; there is nothing to list.
                 self.job = Job::Idle;

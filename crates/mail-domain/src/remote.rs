@@ -118,6 +118,28 @@ pub enum ProtoOp {
         draft: DraftId,
         raw: BlobId,
     },
+    /// Flag changes since a known point, without refetching anything else.
+    ///
+    /// The second of the three things a sync pass must do. Gmail's IDLE reports **new mail
+    /// only** — a message read or starred on another device never arrives through it — so
+    /// without a timed sweep the client never learns that anything changed elsewhere. With
+    /// `CONDSTORE` this is one `CHANGEDSINCE` fetch and costs almost nothing; without it, or
+    /// where `HIGHESTMODSEQ` is observed not to advance, it degrades to a full flag fetch on a
+    /// longer interval.
+    FetchFlags {
+        mailbox: MailboxRef,
+        /// `None` means "everything": no modseq, or one we no longer trust.
+        since_modseq: Option<u64>,
+    },
+    /// Every address the server currently holds in this mailbox.
+    ///
+    /// The third thing a sync pass must do, and the only way to find deletions without
+    /// `QRESYNC` — which Gmail does not offer. RFC 7162 says outright that a CONDSTORE-only
+    /// client "still has to issue a UID FETCH or a UID SEARCH". The caller diffs the result
+    /// against `remote_map`; what is missing was expunged elsewhere.
+    ListRemote {
+        mailbox: MailboxRef,
+    },
     Expunge {
         remotes: Vec<RemoteRef>,
     },
