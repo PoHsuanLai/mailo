@@ -5,6 +5,7 @@
 //! are byte transcripts — see `tests/traces/FORMAT.md`.
 
 pub mod machine;
+pub mod mutf7;
 pub mod pop3;
 pub mod smtp;
 
