@@ -13,5 +13,9 @@ mail-parser = "0.11"
 mail-builder = "1"
 ammonia = "4"
 
+[dev-dependencies]
+mail-domain.workspace = true
+chrono.workspace = true
+
 [lints]
 workspace = true
