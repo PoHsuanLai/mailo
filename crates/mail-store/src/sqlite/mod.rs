@@ -9,6 +9,7 @@ use crate::blob::BlobStore;
 use crate::{StoreError, migrate};
 use rusqlite::Connection;
 use std::path::Path;
+use std::sync::{Mutex, MutexGuard};
 
 /// A connection to the on-disk database, plus the blob store beside it.
 ///
@@ -17,7 +18,12 @@ use std::path::Path;
 /// disagreeing about what a thread's summary says. Revisit when a profile says to.
 #[derive(Debug)]
 pub struct SqliteStore {
-    db: Connection,
+    /// Behind a mutex because `rusqlite::Connection` is `Send` but **not `Sync`**, so an
+    /// `Arc<SqliteStore>` shared between the UI thread and a sync task would not compile
+    /// without it. SQLite serialises writes regardless, and WAL's concurrent readers are
+    /// concurrent across *connections*, so one guarded connection is honest about what is
+    /// actually happening rather than pretending at parallelism a single handle cannot give.
+    db: Mutex<Connection>,
     blobs: BlobStore,
 }
 
@@ -45,7 +51,7 @@ impl SqliteStore {
             .map_err(|e| StoreError::Db(e.to_string()))?;
         migrate::migrate(&db)?;
         Ok(Self {
-            db,
+            db: Mutex::new(db),
             blobs: BlobStore::new(blob_root.as_ref().to_path_buf()),
         })
     }
@@ -55,9 +61,15 @@ impl SqliteStore {
         &self.blobs
     }
 
-    /// The underlying connection, for the blob store and for tests.
-    pub fn connection(&self) -> &Connection {
-        &self.db
+    /// The underlying connection.
+    ///
+    /// Panics if a previous caller panicked while holding it. That is a programmer error and
+    /// not recoverable state: a poisoned connection means a half-finished transaction of
+    /// unknown shape, and carrying on would write on top of it.
+    pub fn connection(&self) -> MutexGuard<'_, Connection> {
+        self.db
+            .lock()
+            .expect("a caller panicked holding the database")
     }
 }
 
@@ -139,7 +151,9 @@ impl Store for SqliteStore {
         let limit = i64::from(query.page.limit);
         bound.push(sql::SqlValue::Int(limit + 1));
 
-        let mut stmt = self.db.prepare(&sql_text)?;
+        let db = self.connection();
+
+        let mut stmt = db.prepare(&sql_text)?;
         let mut rows = stmt.query(rusqlite::params_from_iter(bound.iter().map(|v| match v {
             sql::SqlValue::Text(t) => rusqlite::types::Value::Text(t.clone()),
             sql::SqlValue::Int(i) => rusqlite::types::Value::Integer(*i),
@@ -172,7 +186,7 @@ impl Store for SqliteStore {
             "SELECT count(*) FROM thread_summary ts WHERE {}",
             compiled.where_clause
         );
-        let n: i64 = self.db.query_row(
+        let n: i64 = self.connection().query_row(
             &sql_text,
             rusqlite::params_from_iter(compiled.params.iter().map(|v| match v {
                 sql::SqlValue::Text(t) => rusqlite::types::Value::Text(t.clone()),
@@ -192,7 +206,8 @@ impl Store for SqliteStore {
             "SELECT {} FROM messages WHERE id = ?1",
             read::MESSAGE_COLUMNS
         );
-        let mut stmt = self.db.prepare_cached(&sql_text)?;
+        let db = self.connection();
+        let mut stmt = db.prepare_cached(&sql_text)?;
         let mut rows = stmt.query(rusqlite::params![id.to_string()])?;
         match rows.next()? {
             Some(row) => self.read_message(row),
@@ -233,7 +248,8 @@ impl Store for SqliteStore {
     ) -> Result<Vec<mail_domain::RemoteRef>, StoreError> {
         // A message may have several remote addresses; any one of them can fetch the body, so
         // take the first per message rather than returning the same work several times.
-        let mut stmt = self.db.prepare_cached(
+        let db = self.connection();
+        let mut stmt = db.prepare_cached(
             "SELECT r.mailbox, r.uidvalidity, r.uid, r.uidl
              FROM messages m
              JOIN remote_map r ON r.message = m.id

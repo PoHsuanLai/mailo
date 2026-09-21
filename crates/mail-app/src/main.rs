@@ -1,6 +1,7 @@
 //! `mailo` — the command line. The Dioxus shell will call the same store methods.
 
 mod cli;
+mod ui;
 mod view;
 
 use mail_store::SqliteStore;
@@ -8,11 +9,17 @@ use mail_store::SqliteStore;
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
 
-    let command = match cli::parse(&args) {
-        Ok(command) => command,
-        Err(message) => {
-            eprintln!("{message}");
-            std::process::exit(2);
+    // No arguments opens the window; anything else is the CLI. One binary because they are one
+    // application over one store, and a separate CLI would drift from what the UI does.
+    let command = if args.is_empty() {
+        None
+    } else {
+        match cli::parse(&args) {
+            Ok(command) => Some(command),
+            Err(message) => {
+                eprintln!("{message}");
+                std::process::exit(2);
+            }
         }
     };
 
@@ -33,12 +40,15 @@ fn main() {
         }
     };
 
-    match cli::run(&store, &command, chrono::Utc::now()) {
-        Ok(output) => print!("{output}"),
-        Err(message) => {
-            eprintln!("{message}");
-            std::process::exit(1);
-        }
+    match command {
+        Some(command) => match cli::run(&store, &command, chrono::Utc::now()) {
+            Ok(output) => print!("{output}"),
+            Err(message) => {
+                eprintln!("{message}");
+                std::process::exit(1);
+            }
+        },
+        None => ui::run(std::sync::Arc::new(store)),
     }
 }
 

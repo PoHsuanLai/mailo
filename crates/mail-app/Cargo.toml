@@ -15,6 +15,7 @@ mail-store.workspace = true
 mail-mime.workspace = true
 mail-runtime.workspace = true
 chrono.workspace = true
+dioxus = { version = "0.7", features = ["desktop"] }
 
 [dev-dependencies]
 tempfile = "3"

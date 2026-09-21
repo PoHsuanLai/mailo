@@ -113,6 +113,14 @@ open to reproduce it, it is expression and it is theirs. Signs you actually copi
 identifiers, surviving comments, matching branch order, matching magic constants, matching error
 strings, the same bug.
 
+**A delegated worker in an isolated worktree cannot see gitignored files.** A git worktree
+carries tracked content only, so recorded captures under `spike/out/` — the most valuable input
+a protocol brief has — are simply absent there, and the worker writes synthetic traces instead
+without knowing better. Copy any ignored input into the worktree before starting, or the brief
+is quietly asking for guesswork. This cost the IMAP brief its real Gmail capture until the
+worker's progress log said `spike/out/imap.trace absent`, which is the second time that log has
+paid for itself.
+
 **Never put GPL, AGPL or MPL source into a model's context and ask for an equivalent.** That is
 note-and-close inverted, at volume, with nobody able to testify to independent derivation. Put the
 RFC section and our own trace fixture in the prompt instead — both are things we own or that are

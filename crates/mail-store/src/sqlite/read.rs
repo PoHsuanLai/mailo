@@ -101,8 +101,8 @@ impl SqliteStore {
     }
 
     pub(super) fn labels_of(&self, message: MessageId) -> Result<Vec<LabelId>, StoreError> {
-        let mut stmt = self
-            .db
+        let db = self.connection();
+        let mut stmt = db
             .prepare_cached("SELECT label FROM message_labels WHERE message = ?1 ORDER BY label")?;
         let rows = stmt.query_map(params![message.to_string()], |r| r.get::<_, String>(0))?;
         let mut out = Vec::new();
@@ -116,7 +116,8 @@ impl SqliteStore {
     pub(super) fn messages_of(&self, thread: ThreadId) -> Result<Vec<Message>, StoreError> {
         let sql =
             format!("SELECT {MESSAGE_COLUMNS} FROM messages WHERE thread = ?1 ORDER BY date, id");
-        let mut stmt = self.db.prepare_cached(&sql)?;
+        let db = self.connection();
+        let mut stmt = db.prepare_cached(&sql)?;
         let mut rows = stmt.query(params![thread.to_string()])?;
         let mut out = Vec::new();
         while let Some(row) = rows.next()? {
@@ -127,7 +128,8 @@ impl SqliteStore {
 
     pub(super) fn summary_of(&self, thread: ThreadId) -> Result<ThreadSummary, StoreError> {
         let sql = format!("SELECT {SUMMARY_COLUMNS} FROM thread_summary WHERE thread = ?1");
-        let mut stmt = self.db.prepare_cached(&sql)?;
+        let db = self.connection();
+        let mut stmt = db.prepare_cached(&sql)?;
         let mut rows = stmt.query(params![thread.to_string()])?;
         match rows.next()? {
             Some(row) => self.read_summary(row),

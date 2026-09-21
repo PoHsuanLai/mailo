@@ -47,21 +47,21 @@ impl SqliteStore {
     pub(super) fn write_change(&self, change: &Change) -> Result<Option<ThreadId>, StoreError> {
         let thread = match change {
             Change::MessageRead(id, state) => {
-                self.db.execute(
+                self.connection().execute(
                     "UPDATE messages SET read = ?2 WHERE id = ?1",
                     params![id.to_string(), to_json("ReadState", state)?],
                 )?;
                 self.thread_of(*id)?
             }
             Change::MessageStar(id, star) => {
-                self.db.execute(
+                self.connection().execute(
                     "UPDATE messages SET star = ?2 WHERE id = ?1",
                     params![id.to_string(), to_json("Star", star)?],
                 )?;
                 self.thread_of(*id)?
             }
             Change::MessageMailbox(id, role) => {
-                self.db.execute(
+                self.connection().execute(
                     "UPDATE messages SET mailbox = ?2 WHERE id = ?1",
                     params![id.to_string(), to_json("MailboxRole", role)?],
                 )?;
@@ -70,13 +70,13 @@ impl SqliteStore {
             Change::MessageLabel(id, label, membership) => {
                 match membership {
                     Membership::In => {
-                        self.db.execute(
+                        self.connection().execute(
                             "INSERT OR IGNORE INTO message_labels (message, label) VALUES (?1, ?2)",
                             params![id.to_string(), label.to_string()],
                         )?;
                     }
                     Membership::Out => {
-                        self.db.execute(
+                        self.connection().execute(
                             "DELETE FROM message_labels WHERE message = ?1 AND label = ?2",
                             params![id.to_string(), label.to_string()],
                         )?;
@@ -85,14 +85,14 @@ impl SqliteStore {
                 self.thread_of(*id)?
             }
             Change::ThreadSnooze(id, snooze) => {
-                self.db.execute(
+                self.connection().execute(
                     "UPDATE threads SET snooze = ?2 WHERE id = ?1",
                     params![id.to_string(), to_json("Snooze", snooze)?],
                 )?;
                 Some(*id)
             }
             Change::ThreadPin(id, pin) => {
-                self.db.execute(
+                self.connection().execute(
                     "UPDATE threads SET pin = ?2 WHERE id = ?1",
                     params![id.to_string(), to_json("Pin", pin)?],
                 )?;
@@ -104,14 +104,14 @@ impl SqliteStore {
             }
             Change::MessageDelete(id) => {
                 let thread = self.thread_of(*id)?;
-                self.db.execute(
+                self.connection().execute(
                     "DELETE FROM messages WHERE id = ?1",
                     params![id.to_string()],
                 )?;
                 thread
             }
             Change::LabelUpsert(label) => {
-                self.db.execute(
+                self.connection().execute(
                     "INSERT INTO labels (id, account, name, color, origin) VALUES (?1,?2,?3,?4,?5)
                      ON CONFLICT(id) DO UPDATE SET name=excluded.name, color=excluded.color,
                                                    origin=excluded.origin",
@@ -132,7 +132,7 @@ impl SqliteStore {
 
     fn thread_of(&self, message: MessageId) -> Result<Option<ThreadId>, StoreError> {
         let found: Option<String> = self
-            .db
+            .connection()
             .query_row(
                 "SELECT thread FROM messages WHERE id = ?1",
                 params![message.to_string()],
@@ -145,7 +145,7 @@ impl SqliteStore {
     }
 
     pub(super) fn upsert_message(&self, m: &Message) -> Result<(), StoreError> {
-        self.db.execute(
+        self.connection().execute(
             "INSERT OR IGNORE INTO threads (id, account, snooze, pin)
              VALUES (?1, ?2, '{\"kind\":\"inactive\"}', '{\"kind\":\"unpinned\"}')",
             params![m.thread.to_string(), m.account.to_string()],
@@ -156,7 +156,7 @@ impl SqliteStore {
             cc: m.cc.clone(),
             bcc: m.bcc.clone(),
         };
-        self.db.execute(
+        self.connection().execute(
             "INSERT INTO messages (id, thread, account, msg_key, date, from_name, from_email,
                  recipients, subject, in_reply_to, refs, rfc_message_id, read, star, mailbox,
                  body_text, body_raw, attachments)
@@ -187,7 +187,7 @@ impl SqliteStore {
             ],
         )?;
         for label in &m.labels {
-            self.db.execute(
+            self.connection().execute(
                 "INSERT OR IGNORE INTO message_labels (message, label) VALUES (?1, ?2)",
                 params![m.id.to_string(), label.to_string()],
             )?;
@@ -199,13 +199,13 @@ impl SqliteStore {
     pub(super) fn refresh_summary(&self, thread: ThreadId) -> Result<(), StoreError> {
         let messages = self.messages_of(thread)?;
         if messages.is_empty() {
-            self.db.execute(
+            self.connection().execute(
                 "DELETE FROM threads WHERE id = ?1",
                 params![thread.to_string()],
             )?;
             return Ok(());
         }
-        let (snooze, pin): (String, String) = self.db.query_row(
+        let (snooze, pin): (String, String) = self.connection().query_row(
             "SELECT snooze, pin FROM threads WHERE id = ?1",
             params![thread.to_string()],
             |r| Ok((r.get(0)?, r.get(1)?)),
@@ -216,7 +216,7 @@ impl SqliteStore {
             json("Snooze", &snooze)?,
             json("Pin", &pin)?,
         );
-        self.db.execute(
+        self.connection().execute(
             "INSERT INTO thread_summary (thread, account, subject, snippet, from_name, from_email,
                  participants, recipients, last_date, message_count, read, star, mailboxes,
                  labels, attachments, snooze, pin)
@@ -253,7 +253,8 @@ impl SqliteStore {
 
     /// Write a local patch, atomically, and rebuild whatever summaries it disturbed.
     pub(super) fn write_patch(&self, patch: &Patch) -> Result<(), StoreError> {
-        let tx = self.db.unchecked_transaction()?;
+        let db = self.connection();
+        let tx = db.unchecked_transaction()?;
         let mut touched = BTreeSet::new();
         for change in &patch.changes {
             if let Some(t) = self.write_change(change)? {
@@ -278,14 +279,15 @@ impl SqliteStore {
         account: AccountId,
         ingest: Ingest,
     ) -> Result<Patch, StoreError> {
-        let tx = self.db.unchecked_transaction()?;
+        let db = self.connection();
+        let tx = db.unchecked_transaction()?;
         let mut changes: Vec<Change> = Vec::new();
         let mut touched: BTreeSet<ThreadId> = BTreeSet::new();
 
         // 1. A UIDVALIDITY reset invalidates every uid for this mailbox at once. The messages
         //    stay — they are still real — but nothing may be addressed by the old uids again.
         if ingest.validity == UidValidity::Reset {
-            self.db.execute(
+            self.connection().execute(
                 "DELETE FROM remote_map WHERE account = ?1 AND mailbox = ?2",
                 params![account.to_string(), ingest.mailbox.path],
             )?;
@@ -333,12 +335,12 @@ impl SqliteStore {
         for remote in &ingest.gone {
             if let Some(id) = self.message_by_remote(account, remote)? {
                 let (acct, mailbox, uidvalidity, uid, uidl) = remote_key(account, remote);
-                self.db.execute(
+                self.connection().execute(
                     "DELETE FROM remote_map WHERE account=?1 AND mailbox=?2
                      AND uidvalidity IS ?3 AND uid IS ?4 AND uidl IS ?5",
                     params![acct, mailbox, uidvalidity, uid, uidl],
                 )?;
-                let remaining: i64 = self.db.query_row(
+                let remaining: i64 = self.connection().query_row(
                     "SELECT count(*) FROM remote_map WHERE message = ?1",
                     params![id.to_string()],
                     |r| r.get(0),
@@ -363,7 +365,7 @@ impl SqliteStore {
         }
 
         // 6. Cursor, so the next sync resumes rather than refetching.
-        self.db.execute(
+        self.connection().execute(
             "INSERT INTO sync_state (account, mailbox, cursor, synced_at)
              VALUES (?1, ?2, ?3, datetime('now'))
              ON CONFLICT(account, mailbox) DO UPDATE SET
@@ -392,7 +394,7 @@ impl SqliteStore {
         key: &mail_domain::MessageKey,
     ) -> Result<Option<MessageId>, StoreError> {
         let found: Option<String> = self
-            .db
+            .connection()
             .query_row(
                 "SELECT id FROM messages WHERE account = ?1 AND msg_key = ?2",
                 params![account.to_string(), to_json("MessageKey", key)?],
@@ -411,7 +413,7 @@ impl SqliteStore {
     ) -> Result<Option<MessageId>, StoreError> {
         let (acct, mailbox, uidvalidity, uid, uidl) = remote_key(account, remote);
         let found: Option<String> = self
-            .db
+            .connection()
             .query_row(
                 "SELECT message FROM remote_map WHERE account=?1 AND mailbox=?2
                  AND uidvalidity IS ?3 AND uid IS ?4 AND uidl IS ?5",
@@ -432,7 +434,7 @@ impl SqliteStore {
     ) -> Result<(), StoreError> {
         let (acct, mailbox, uidvalidity, uid, uidl) = remote_key(account, remote);
         // Many-to-one on purpose: one message, several mailboxes, several uids.
-        self.db.execute(
+        self.connection().execute(
             "INSERT OR REPLACE INTO remote_map
                  (account, mailbox, uidvalidity, uid, uidl, message)
              VALUES (?1,?2,?3,?4,?5,?6)",
@@ -443,7 +445,8 @@ impl SqliteStore {
 
     /// Local changes on this thread's messages that the server has not confirmed.
     fn pending_for_thread(&self, thread: ThreadId) -> Result<Vec<Change>, StoreError> {
-        let mut stmt = self.db.prepare_cached(
+        let db = self.connection();
+        let mut stmt = db.prepare_cached(
             "SELECT p.changes FROM pending_changes p
              JOIN messages m ON m.id = p.message
              WHERE m.thread = ?1

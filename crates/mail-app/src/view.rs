@@ -266,8 +266,10 @@ mod tests {
     fn consent_to_remote_images_does_not_survive_changing_what_is_shown() {
         // A remote image is a read receipt. Agreeing to load one sender's is not agreeing to
         // the next message's, so consent is revoked by opening anything else.
-        let mut shell = Shell::default();
-        shell.show_remote_images = true;
+        let mut shell = Shell {
+            show_remote_images: true,
+            ..Shell::default()
+        };
         shell.open(ThreadId::generate());
         assert!(!shell.show_remote_images);
 

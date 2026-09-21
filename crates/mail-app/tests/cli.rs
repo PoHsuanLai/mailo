@@ -36,7 +36,7 @@ fn seeded() -> (SqliteStore, tempfile::TempDir, ThreadId) {
         }
         let raw = store
             .blobs()
-            .put(store.connection(), format!("raw {i}").as_bytes())
+            .put(&store.connection(), format!("raw {i}").as_bytes())
             .unwrap();
         let message = Message {
             id: MessageId::from_uuid(uuid::Uuid::from_u128(0x9000 + i as u128)),

@@ -191,7 +191,7 @@ fn build(specs: &[Spec]) -> Both {
         // both stores must agree on the id.
         let raw = sqlite
             .blobs()
-            .put(sqlite.connection(), format!("raw {i} {body}").as_bytes())
+            .put(&sqlite.connection(), format!("raw {i} {body}").as_bytes())
             .unwrap();
         let thread = ThreadId::from_uuid(uuid::Uuid::from_u128(0x7000 + u128::from(s.thread)));
         let labels: Vec<LabelId> = [LABEL_A, LABEL_B]

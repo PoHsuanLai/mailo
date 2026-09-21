@@ -35,7 +35,8 @@ impl SqliteStore {
         messages: &[MessageId],
     ) -> Result<Vec<RemoteRef>, StoreError> {
         let mut out = Vec::new();
-        let mut stmt = self.db.prepare_cached(
+        let db = self.connection();
+        let mut stmt = db.prepare_cached(
             "SELECT mailbox, uidvalidity, uid, uidl FROM remote_map
              WHERE account = ?1 AND message = ?2",
         )?;
@@ -71,9 +72,8 @@ impl SqliteStore {
 
     fn label_names(&self, labels: &[mail_domain::LabelId]) -> Result<Vec<String>, StoreError> {
         let mut out = Vec::new();
-        let mut stmt = self
-            .db
-            .prepare_cached("SELECT name FROM labels WHERE id = ?1")?;
+        let db = self.connection();
+        let mut stmt = db.prepare_cached("SELECT name FROM labels WHERE id = ?1")?;
         for id in labels {
             let name: Option<String> = stmt.query_row(params![id.to_string()], |r| r.get(0)).ok();
             // A label we do not know is not an error: it may have been deleted between the
@@ -178,8 +178,9 @@ impl SqliteStore {
         let Some(op) = self.resolve_intent(account, &intent)? else {
             return Ok(None);
         };
-        let tx = self.db.unchecked_transaction()?;
-        self.db.execute(
+        let db = self.connection();
+        let tx = db.unchecked_transaction()?;
+        self.connection().execute(
             "INSERT INTO outbox (account, op, undo, attempts, next_attempt, created_at)
              VALUES (?1, ?2, ?3, 0, ?4, ?4)",
             params![
@@ -189,12 +190,12 @@ impl SqliteStore {
                 from_time(now),
             ],
         )?;
-        let id = OutboxId::from_i64(self.db.last_insert_rowid());
+        let id = OutboxId::from_i64(self.connection().last_insert_rowid());
         for (message, changes) in Self::pending_of(&intent) {
             if changes.is_empty() {
                 continue;
             }
-            self.db.execute(
+            self.connection().execute(
                 "INSERT OR REPLACE INTO pending_changes (message, outbox, changes)
                  VALUES (?1, ?2, ?3)",
                 params![
@@ -215,7 +216,8 @@ impl SqliteStore {
     ) -> Result<Vec<OutboxEntry>, StoreError> {
         // Insertion order, not next_attempt order. Two operations on one thread must reach the
         // server in the order the user performed them, or the result is whichever won the race.
-        let mut stmt = self.db.prepare_cached(
+        let db = self.connection();
+        let mut stmt = db.prepare_cached(
             "SELECT id, op, undo, attempts, next_attempt FROM outbox
              WHERE account = ?1 AND next_attempt <= ?2 ORDER BY id",
         )?;
@@ -249,7 +251,8 @@ impl SqliteStore {
         settle: Settle,
         now: DateTime<Utc>,
     ) -> Result<(), StoreError> {
-        let tx = self.db.unchecked_transaction()?;
+        let db = self.connection();
+        let tx = db.unchecked_transaction()?;
         match settle {
             Settle::Ok => {
                 // Confirmed. The local value and the server's now agree, so it is no longer
@@ -258,7 +261,7 @@ impl SqliteStore {
             }
             Settle::Failed { reason, retry } => match retry {
                 Retry::Now | Retry::After(_) => {
-                    let attempts: i64 = self.db.query_row(
+                    let attempts: i64 = self.connection().query_row(
                         "SELECT attempts FROM outbox WHERE id = ?1",
                         params![id.as_i64()],
                         |r| r.get(0),
@@ -268,7 +271,7 @@ impl SqliteStore {
                         _ => TimeDelta::zero(),
                     };
                     let wait = backoff(attempts as u32).max(floor);
-                    self.db.execute(
+                    self.connection().execute(
                         "UPDATE outbox SET attempts = attempts + 1, next_attempt = ?2,
                              last_error = ?3 WHERE id = ?1",
                         params![id.as_i64(), from_time(now + wait), reason],
@@ -278,7 +281,7 @@ impl SqliteStore {
                     // Keep it queued and keep it pending: the user's change is not wrong, the
                     // credential is. Park it far enough out that it is not retried in a loop,
                     // and let the runtime surface the reauth prompt.
-                    self.db.execute(
+                    self.connection().execute(
                         "UPDATE outbox SET next_attempt = ?2, last_error = ?3 WHERE id = ?1",
                         params![
                             id.as_i64(),
@@ -290,7 +293,7 @@ impl SqliteStore {
                 Retry::Fatal(_) => {
                     // The server will refuse this forever. Undo the optimistic local change,
                     // or the user is left looking at a state that will never become true.
-                    let undo: String = self.db.query_row(
+                    let undo: String = self.connection().query_row(
                         "SELECT undo FROM outbox WHERE id = ?1",
                         params![id.as_i64()],
                         |r| r.get(0),
@@ -312,11 +315,11 @@ impl SqliteStore {
     fn drop_entry(&self, id: OutboxId) -> Result<(), StoreError> {
         // pending_changes cascades on the foreign key, but be explicit: a stale pending row
         // would be silently re-applied over every future ingest.
-        self.db.execute(
+        self.connection().execute(
             "DELETE FROM pending_changes WHERE outbox = ?1",
             params![id.as_i64()],
         )?;
-        self.db
+        self.connection()
             .execute("DELETE FROM outbox WHERE id = ?1", params![id.as_i64()])?;
         Ok(())
     }

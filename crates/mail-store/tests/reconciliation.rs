@@ -35,7 +35,7 @@ fn fixture() -> Fixture {
 }
 
 fn blob(f: &Fixture, bytes: &[u8]) -> BlobId {
-    f.store.blobs().put(f.store.connection(), bytes).unwrap()
+    f.store.blobs().put(&f.store.connection(), bytes).unwrap()
 }
 
 fn message(f: &Fixture, thread: ThreadId, key: &str, n: i64) -> Message {
