@@ -690,7 +690,24 @@ IMAP for POP3 at the session level, and the four impls have unrelated `Out` type
 > change and nothing is ever deleted. Leaving a stray copy is a cosmetic failure; deleting
 > someone's mail is not, and a capability we cannot observe is not one we may gate on.
 
-- **`Pop3Backend`** — `UIDL` every poll, diff against `remote_map`, `RETR` what is new.
+- **`Pop3Backend`** — steady state is `UIDL` every poll, diff against `remote_map`, `RETR` what
+  is new. **The first sync is a different algorithm**, because the measured NTU maildrop is 2372
+  messages and 255 MB and a naive pass is both slow and destructive:
+
+  1. `CAPA`, authenticate, then `STAT` + `UIDL` + `LIST`. Two multi-line responses buy a complete
+     map of the maildrop, including an exact size per message, before fetching anything.
+  2. **Headers via `TOP n 0`, newest first, pipelined.** `RETR` sets the seen flag on Dovecot and
+     `TOP` does not, so a `RETR`-everything first sync would mark the user's entire mailbox read
+     in their webmail. This pass alone makes every message listable, threaded and searchable by
+     subject and sender.
+  3. **Bodies in size bands, newest first.** The measured distribution is extreme: 90% of
+     messages are 10% of the bytes, and the hundred largest are 80%. Fetching the ≤64 KiB band
+     first completes in about a minute and covers everything anyone is realistically going to
+     open; the long tail of attachments follows, or waits until asked for.
+  4. Checkpoint by `QUIT` and reconnect every few hundred messages. Message numbers are
+     session-scoped, so re-`UIDL` on every reconnect and key all persisted state on the UIDL.
+
+  Every pass is independently resumable, and a message is durably stored before any `DELE`.
   `SetMailbox`/`SetLabels` produce no wire traffic and confirm immediately. `WatchMode` is always
   `Poll`. `LeaveOnServer` controls `DELE`.
 - **`FakeBackend`** — fixtures to `Ingest`, no I/O, used from phase 3 onward.
@@ -744,6 +761,29 @@ instead of re-querying everything.
 
 Blobs are hash-addressed files under `~/.local/share/mailo/blobs/`; small parts may live inline.
 Raw `.eml`, unsanitized HTML, and attachments all go here.
+
+### Learning what changed elsewhere
+
+The design had no mechanism for this, and it is not an edge case — it is every user with a phone.
+
+**Gmail's IDLE never reports flag changes.** IDLE is a new-mail signal and nothing else, so a
+message read or starred on another device never arrives through it. **And Gmail has no QRESYNC**,
+only CONDSTORE, which RFC 7162 §1 is explicit about: a CONDSTORE-only client "still has to issue
+a UID FETCH or a UID SEARCH" to discover expunges. Together those mean a watch loop alone can
+never learn that a message was read, starred, or deleted somewhere else.
+
+So a sync pass is three things, not one:
+
+1. **New mail** — IDLE where offered, otherwise a poll. This is the only part IDLE gives us.
+2. **Flag changes** — a timed `UID FETCH 1:* (FLAGS) (CHANGEDSINCE <modseq>)` where
+   `Condstore::Yes`, which is cheap because the server returns only what moved. Where CONDSTORE
+   is absent or its `HIGHESTMODSEQ` is observed not to advance — Dovecot 2.0.18 returned `1`
+   forever while `EXISTS` climbed — this degrades to a full flag fetch on a longer interval.
+3. **Disappearances** — a periodic `UID SEARCH ALL` diffed against `remote_map`. Without QRESYNC
+   there is no cheaper way, and skipping it means a message deleted elsewhere stays forever.
+
+`AccountCaps.watch` therefore describes only step 1. Steps 2 and 3 have their own intervals and
+run regardless of whether IDLE is available.
 
 ### Reconciliation
 
@@ -856,7 +896,7 @@ Versions checked against crates.io on 2026-09-22.
 
 | Crate | Version | Role | Notes |
 |---|---|---|---|
-| `mail-parser` | 0.11.9 | MIME parse | Stalwart. Healthy. |
+| `mail-parser` | 0.11.9 | MIME parse | **feature `full_encoding`** — `big5`, `gbk`, `shift_jis`, `euc-kr` are gated behind it, and NTU mail is Taiwanese |
 | `mail-builder` | 1.0.0 | MIME build | 1.0, not 0.5 |
 | `ammonia` | 4.2.0 | HTML sanitize | |
 | `rusqlite` | 0.40.2 | store | features `bundled`, `fts5`. Not 0.32. |
@@ -866,13 +906,38 @@ Versions checked against crates.io on 2026-09-22.
 | `dioxus` | 0.7.10 | UI | 0.8 is alpha; stay on 0.7 |
 | `notify-rust` | 4.18 | notifications | |
 | `serde` / `uuid` / `chrono` / `thiserror` | current | domain | |
-| `io-imap` | 0.6 | IMAP sans-I/O | pimalaya. **Decide in phase 0.** |
-| `io-smtp` | 0.3 | SMTP sans-I/O | pimalaya, XOAUTH2 + PLAIN |
-| `io-oauth` | 0.3 | OAuth coroutines | 0.3, not 0.2 |
-| `imap-codec` | 1.0.0 | IMAP types | **v2 does not exist.** Fallback with `imap-next` 0.3.4 |
-| `oauth2` | 5.0.0 | Google PKCE | fallback for `io-oauth` |
-| `lettre` | 0.11.23 | SMTP | fallback for `io-smtp`; does its own I/O |
-| `async-imap` | 0.11.3 | IMAP | last resort; tokio-native, abandons sans-I/O |
+| `imap-proto` | 0.16.7 | **IMAP response parsing** | MIT/Apache, 3.5M downloads, `nom::streaming`. Ships `parser/gmail.rs` |
+| `oauth2` | 5.0.0 | Google PKCE | `default-features = false`; our runtime makes the HTTP call |
+| `chardetng` | 1.0.0 | charset detection | for headers and bodies whose declared charset is wrong |
+
+**`imap-codec` cannot parse Gmail, and the plan's fallback was not one.** `imap-types`'s
+`MessageDataItem` has fourteen variants and no catch-all, and its FETCH parser is a
+`delimited('(', separated_list1(..), ')')` — so an unrecognised attribute makes the closing
+parenthesis fail and **the entire untagged FETCH becomes a parse error**, not merely a missing
+field. `X-GM-MSGID`, `X-GM-THRID` and `X-GM-LABELS` are data items rather than headers, so there
+is no way around it, and that kills `MessageKey::Gmail` and `ServerThreads::ProviderId`. Both
+`io-imap` and `imap-next` depend on that same parser, so swapping one for the other changes the
+loop wrapper and keeps all of the parsing risk. `imap-proto` parses Gmail's extensions today.
+
+`io-imap` itself is genuinely sans-I/O and a clean architectural match for `Machine`; the
+problem is underneath it. The phase-0 decision is therefore not "io-imap or imap-next" but
+"`imap-proto` plus our own sessions" versus "fork `imap-codec` to add the Gmail data items".
+
+**Write SASL ourselves** (~60 lines). `sasl` 0.5.2 is MPL-2.0 and disqualified; `rsasl` is
+permissive and healthy but is a negotiation framework for a problem we do not have, and has no
+XOAUTH2 — the one mechanism both Gmail and Microsoft actually need.
+
+**Write modified UTF-7 ourselves** (~80 lines, no dependencies). `utf7-imap` 0.3.2 is MIT but
+unmaintained since 2022, and its decoder ends in `base64::decode(..).unwrap()` reached from a
+regex that accepts any bytes, so a mailbox named `&A-` panics the process. There is no `Result`
+anywhere in its 189 lines. A decoder whose failure mode is the whole account going offline is
+worse than none: on malformed input the correct behaviour is to treat the name as literal bytes
+and carry on. Take its MIT test vectors.
+
+**`OauthPkce` is not a `mail-proto` machine.** `oauth2` emits an `http::Request`, not bytes, and
+`IoNeed` has no variant for one. A token exchange is stateless and has nothing to replay from a
+transcript, so the purity rule buys nothing here. OAuth lives in `mail-runtime` beside the
+loopback redirect listener.
 
 **Write JWZ threading ourselves.** `mail-threading` 0.1.3 exists but has ~1,400 lifetime
 downloads, one unknown author, and no activity since June 2026. That is an unacceptable
