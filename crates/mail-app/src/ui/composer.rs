@@ -5,7 +5,7 @@
 //! does it go when the user is done"; the decisions behind it live in `crate::view`, which is
 //! free of Dioxus and tested without a window.
 
-use crate::view::{Composing, Shell};
+use crate::view::{Composing, Discarding, Shell};
 use dioxus::prelude::*;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
@@ -79,10 +79,42 @@ pub(super) fn Composer(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
                     "Close"
                 }
                 button {
-                    class: "ghost",
-                    onclick: move |_| shell.write().close_composer(),
-                    title: "Close without saving",
-                    "Discard"
+                    class: if editing.confirming_discard { "ghost danger" } else { "ghost" },
+                    onclick: move |_| {
+                        // First click asks, second deletes. `Discard` used to close the pane and
+                        // nothing else, which for a draft that had never been saved is the same
+                        // thing and for every other draft is not — a reply is written to the
+                        // store the moment it is created, so the "discarded" draft was still in
+                        // Drafts afterwards. It now removes the draft, which is why it asks.
+                        // Decided and the borrow released before anything writes back: a
+                        // `Signal` read held across a write is a panic at runtime, not a
+                        // compile error, in the version of this that used `shell.read()` inline.
+                        let decision = crate::view::discard_click(shell.read().composing.as_ref());
+                        match decision {
+                            None => {}
+                            Some(Discarding::Confirm) => {
+                                if let Some(c) = shell.write().composing.as_mut() {
+                                    c.confirming_discard = true;
+                                    c.notice = Some(
+                                        "This deletes the draft. Discard again to confirm."
+                                            .to_owned(),
+                                    );
+                                }
+                            }
+                            Some(Discarding::Delete(id)) => {
+                                let store = consume_context::<Arc<SqliteStore>>();
+                                match crate::compose::discard(&store, id) {
+                                    Err(why) => set_notice(&mut shell, Some(why)),
+                                    Ok(_) => {
+                                        shell.write().close_composer();
+                                        revision += 1;
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    title: "Delete this draft",
+                    if editing.confirming_discard { "Discard for good" } else { "Discard" }
                 }
             }
             if let Some(notice) = editing.notice.clone() {

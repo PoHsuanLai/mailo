@@ -40,6 +40,7 @@ article time { margin-left: auto; opacity: .6; }
 .composer-actions { display: flex; align-items: center; gap: 8px; }
 .composer-actions button { font: inherit; padding: 6px 14px; border: 1px solid var(--edge); border-radius: 6px; background: Canvas; color: inherit; cursor: pointer; }
 .composer-actions .primary { font-weight: 600; }
+.ghost.danger { border-color: color-mix(in oklab, #c0392b 60%, var(--edge)); color: #c0392b; font-weight: 600; }
 .ghost { font: inherit; font-size: 12px; padding: 2px 8px; border: 1px solid var(--edge); border-radius: 999px; background: none; color: inherit; cursor: pointer; }
 .notice { margin: 0; padding: 6px 8px; border-radius: 6px; background: var(--edge); font-size: 13px; }
 .hint { font-size: 12px; opacity: .6; }

@@ -142,6 +142,38 @@ pub fn save(store: &SqliteStore, draft: &Draft) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+/// Delete a draft.
+///
+/// There was no way to do this anywhere in the application. The composer's "Discard" only closed
+/// the pane without saving — which for a draft that had never been saved is the same thing, and
+/// for every other draft is not: a reply is persisted the moment it is created, and one opened
+/// from the drafts list came off disk, so "Discard" left it sitting in Drafts for ever. Drafts
+/// could be made and never unmade.
+///
+/// Returns the subject, so the caller can say what went.
+pub fn discard(store: &SqliteStore, draft: DraftId) -> Result<String, String> {
+    let draft = store.draft(draft).map_err(|e| e.to_string())?;
+    // Mid-flight. Deleting the row would leave the outbox draining something that is no longer
+    // there — and `Sending` in particular may already be on the wire, where nothing here can
+    // recall it.
+    if matches!(draft.state, SendState::Queued | SendState::Sending) {
+        return Err(
+            "that draft is queued for delivery; it cannot be discarded until the send settles"
+                .to_owned(),
+        );
+    }
+    store
+        .apply(
+            draft.account,
+            &Patch {
+                id: ChangeId::generate(),
+                changes: vec![Change::DraftDelete(draft.id)],
+            },
+        )
+        .map_err(|e| e.to_string())?;
+    Ok(draft.subject)
+}
+
 /// Start a reply to `message`, with `body` as its text.
 pub fn reply(
     store: &SqliteStore,

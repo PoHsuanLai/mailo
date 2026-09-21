@@ -46,6 +46,8 @@ pub enum Command {
     Send { draft: DraftId },
     /// Every draft, and where it got to.
     Drafts,
+    /// Delete a draft.
+    Discard { draft: DraftId },
 }
 
 /// Parse arguments, or explain what was wrong.
@@ -124,6 +126,17 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
             })
         }
         "drafts" => Ok(Command::Drafts),
+        "discard" => {
+            let raw = args
+                .get(1)
+                .ok_or_else(|| format!("discard needs a draft id\n\n{}", usage()))?;
+            let uuid = raw
+                .parse()
+                .map_err(|_| format!("{raw:?} is not a draft id"))?;
+            Ok(Command::Discard {
+                draft: DraftId::from_uuid(uuid),
+            })
+        }
         "status" => Ok(Command::Status),
         "sync" => Ok(Command::Sync),
         "account" => match args.get(1).map(String::as_str) {
@@ -237,6 +250,7 @@ usage: mailo <command>
   reply <message-id> [--all]  compose a reply; the body is read from stdin
   send <draft-id>             queue a draft for the next sync
   drafts                      drafts and where each one got to
+  discard <draft-id>          delete a draft
   status
   account [list]
   account add <address>      (set MAILO_PASSWORD for a password account)
@@ -324,6 +338,9 @@ pub fn run(store: &SqliteStore, command: &Command, now: DateTime<Utc>) -> Result
         } => crate::compose::reply(store, *message, *scope, body, now),
         Command::Send { draft } => crate::compose::send(store, *draft, now),
         Command::Drafts => crate::compose::drafts(store),
+        Command::Discard { draft } => {
+            crate::compose::discard(store, *draft).map(|subject| format!("discarded {subject:?}\n"))
+        }
         Command::AccountAdd {
             address,
             manual,

@@ -552,3 +552,24 @@ fn the_suggested_rerun_reproduces_the_account_it_describes() {
         other => panic!("{other:?}"),
     }
 }
+
+#[test]
+fn discard_is_parsed_and_needs_an_id() {
+    let parse =
+        |args: &[&str]| cli::parse(&args.iter().map(|s| (*s).to_string()).collect::<Vec<_>>());
+    let id = uuid::Uuid::new_v4();
+    assert_eq!(
+        parse(&["discard", &id.to_string()]).unwrap(),
+        cli::Command::Discard {
+            draft: DraftId::from_uuid(id)
+        }
+    );
+    assert!(parse(&["discard"]).is_err(), "no id is not a discard");
+    assert!(parse(&["discard", "not-a-uuid"]).is_err());
+    // And it is in the usage text, because a command nobody can find is not a command.
+    assert!(
+        parse(&[]).unwrap_err().contains("discard <draft-id>"),
+        "{}",
+        parse(&[]).unwrap_err()
+    );
+}

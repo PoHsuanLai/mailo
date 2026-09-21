@@ -788,6 +788,27 @@ mod render_tests {
         dom.rebuild_in_place();
     }
 
+    /// Wrap rendered markup in a self-contained page and write it to `target/`.
+    ///
+    /// Two files: the page as a light-mode desktop draws it, and the same page with
+    /// `color-scheme: dark` forced on the root. The stylesheet declares `color-scheme: light
+    /// dark` and leans on the `Canvas`/`CanvasText` system colours, so the dark rendering is not
+    /// a second stylesheet to keep in step — it is the same one, resolved the other way, which
+    /// is exactly the thing that is easy to write and never look at.
+    fn dump(name: &str, body: &str) {
+        let target = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
+        for (suffix, root) in [("", ""), ("-dark", " style=\"color-scheme: dark\"")] {
+            let page = format!(
+                "<!doctype html>\n<html lang=\"en\"{root}><head><meta charset=\"utf-8\">\n\
+                 <title>mailo</title>\n<style>{STYLE}</style>\n</head>\n\
+                 <body>{body}</body></html>\n"
+            );
+            let out = target.join(format!("{name}{suffix}.html"));
+            std::fs::write(&out, page).unwrap();
+            println!("wrote {}", out.display());
+        }
+    }
+
     /// Write the shell to `target/shell.html`, stylesheet and all, so it can be looked at.
     ///
     /// `#[ignore]`d because it is a tool, not an assertion. It exists because the shell's layout
@@ -807,19 +828,7 @@ mod render_tests {
     #[ignore = "writes target/shell.html for a human or a headless browser to look at"]
     async fn render_the_shell_to_a_file() {
         let (store, _dir) = seeded();
-        let body = markup(store);
-        let page = format!(
-            "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">\n\
-             <title>mailo</title>\n<style>{STYLE}</style>\n</head>\n<body>{body}</body></html>\n"
-        );
-        let out = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../target/shell.html")
-            .canonicalize()
-            .unwrap_or_else(|_| {
-                std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/shell.html")
-            });
-        std::fs::write(&out, page).unwrap();
-        println!("wrote {}", out.display());
+        dump("shell", &markup(store));
     }
 
     /// Renders the reader pane on the first thread in the store.
@@ -931,14 +940,7 @@ mod render_tests {
     async fn render_the_reader_to_a_file() {
         let (store, _dir) = realistic();
         let thread = thread_like(&store, "rust-lang");
-        let body = reader_markup(store, thread);
-        let page = format!(
-            "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">\n\
-             <title>mailo</title>\n<style>{STYLE}</style>\n</head>\n<body>{body}</body></html>\n"
-        );
-        let out = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/reader.html");
-        std::fs::write(&out, page).unwrap();
-        println!("wrote {}", out.display());
+        dump("reader", &reader_markup(store, thread));
     }
 
     /// The same, with a mailbox shaped like a real one. See [`render_the_shell_to_a_file`].
@@ -946,15 +948,7 @@ mod render_tests {
     #[ignore = "writes target/shell-real.html for a human or a headless browser to look at"]
     async fn render_the_shell_with_real_mail() {
         let (store, _dir) = realistic();
-        let body = markup(store);
-        let page = format!(
-            "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">\n\
-             <title>mailo</title>\n<style>{STYLE}</style>\n</head>\n<body>{body}</body></html>\n"
-        );
-        let out =
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/shell-real.html");
-        std::fs::write(&out, page).unwrap();
-        println!("wrote {}", out.display());
+        dump("shell-real", &markup(store));
     }
 
     #[tokio::test]
@@ -1000,6 +994,22 @@ mod render_tests {
             shell.write().close_composer();
         }
         rsx! { Composer { shell, revision } }
+    }
+
+    #[tokio::test]
+    #[ignore = "writes target/composer.html for a human or a headless browser to look at"]
+    async fn render_the_composer_to_a_file() {
+        // The composer is the other pane nothing has ever looked at: it only exists while a
+        // draft is open, which the shell's own signal decides, so it is reached through the
+        // harness that already exists for the hook-order test.
+        let (mut dom, _toggle, _dir) = harness(true);
+        dom.rebuild_in_place();
+        let body = format!(
+            "<div class=\"app\"><div class=\"places\"></div><div class=\"list\"></div>\
+             <div class=\"reader\">{}</div></div>",
+            dioxus_ssr::render(&dom)
+        );
+        dump("composer", &body);
     }
 
     fn harness(open: bool) -> (VirtualDom, Toggle, tempfile::TempDir) {

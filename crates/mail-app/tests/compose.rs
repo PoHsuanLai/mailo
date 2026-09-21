@@ -820,3 +820,82 @@ mod closing {
         assert_eq!(editing.body, "worth keeping");
     }
 }
+
+/// Discarding a draft, which nothing in the application could do.
+///
+/// The composer's "Discard" closed the pane without saving. For a draft that had never been
+/// saved that is the same thing; for every other draft it is not, and `Composing`'s own doc
+/// comment says which case is real: "the draft this edits — it already exists in the store
+/// before the composer opens". A reply is written to the store the moment it is created and a
+/// draft opened from the drafts list came off disk, so the discarded draft was still in Drafts
+/// afterwards, for ever. Drafts could be made and never unmade.
+mod discarding {
+    use super::*;
+
+    fn a_draft(store: &SqliteStore) -> DraftId {
+        compose::draft_reply(store, ORIGINAL, ReplyScope::Sender, "never mind", at(10))
+            .unwrap()
+            .id
+    }
+
+    #[test]
+    fn a_discarded_draft_is_gone_from_the_store() {
+        let (store, _dir) = seeded();
+        let id = a_draft(&store);
+        assert_eq!(store.drafts(ACCOUNT).unwrap().len(), 1, "it was saved");
+
+        let subject = compose::discard(&store, id).unwrap();
+
+        assert_eq!(subject, "Re: lunch on friday", "it names what went");
+        assert!(
+            store.drafts(ACCOUNT).unwrap().is_empty(),
+            "the draft outlived being discarded"
+        );
+        assert!(store.draft(id).is_err(), "and cannot be fetched by id");
+    }
+
+    #[test]
+    fn a_draft_that_is_already_on_its_way_is_not_deleted_underneath_the_outbox() {
+        // `Queued` means the next sync will pick it up, and `Sending` may already be on the
+        // wire. Deleting either leaves the outbox draining something that is not there.
+        for state in [SendState::Queued, SendState::Sending] {
+            let (store, _dir) = seeded();
+            let id = a_draft(&store);
+            let mut draft = store.draft(id).unwrap();
+            draft.state = state.clone();
+            compose::save(&store, &draft).unwrap();
+
+            let why = compose::discard(&store, id).unwrap_err();
+            assert!(why.contains("queued for delivery"), "{why}");
+            assert_eq!(
+                store.drafts(ACCOUNT).unwrap().len(),
+                1,
+                "it was deleted anyway from {state:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_draft_that_was_already_sent_can_still_be_cleared_away() {
+        // A `Sent` draft is a record of something that happened, not work in progress, and the
+        // drafts list is the only place it shows up. Refusing to remove it would make the list
+        // unclearable.
+        let (store, _dir) = seeded();
+        let id = a_draft(&store);
+        let mut draft = store.draft(id).unwrap();
+        draft.state = SendState::Sent {
+            at: at(20),
+            message: None,
+        };
+        compose::save(&store, &draft).unwrap();
+
+        compose::discard(&store, id).unwrap();
+        assert!(store.drafts(ACCOUNT).unwrap().is_empty());
+    }
+
+    #[test]
+    fn discarding_something_that_is_not_there_is_an_error_not_a_panic() {
+        let (store, _dir) = seeded();
+        assert!(compose::discard(&store, DraftId::generate()).is_err());
+    }
+}

@@ -1925,3 +1925,42 @@ The lasting part is not the screenshots. `dioxus_ssr::render` on the existing `V
 harness means the shell's markup can be asserted, which it never could be — the first three such
 assertions are in `ui::render_tests`, and the one about the images button fails if the gate is
 forced open.
+
+### F101 — "Discard" did not discard, and nothing in the application could delete a draft
+
+Found by rendering the composer, which nothing had ever looked at either: it only exists while a
+draft is open, so the page dumps from F100 had to go through the harness that already existed for
+the hook-order test.
+
+The button closed the pane without saving. For a draft that had never been saved that is the same
+thing as discarding it — and `Composing`'s own doc comment says how often that case arises:
+
+> The draft this edits. It **already exists in the store** before the composer opens.
+
+A reply is written to the store the moment `draft_reply` creates it, and a draft opened from the
+drafts list came off disk. So "Discard" closed the pane and left the draft in Drafts, permanently.
+Worse, there was no other way to remove one: not in the shell, not in the CLI. `Change::
+DraftDelete` had existed in the domain since phase 1 with no caller anywhere.
+
+`compose::discard` now deletes it, and both surfaces use it — `mailo discard <draft-id>` and the
+button. It refuses `Queued` and `Sending`, because deleting either leaves the outbox draining
+something that is no longer there and `Sending` may already be on the wire; it allows `Sent`,
+because that is a record rather than work in progress and the drafts list is the only place it
+appears, so refusing would make the list unclearable.
+
+The button now destroys something, and it sits beside Close, so it asks once first. The decision
+is `view::discard_click` returning `Confirm | Delete(id)` rather than a branch inside the click
+handler — the same reason `op_for` and `hover_actions` are values: a decision that exists only
+inside a closure attached to a DOM node cannot be tested without a DOM. Reopening the composer
+resets the confirmation, since one that survives the pane closing is a trap set for the next
+draft.
+
+Two things looked at and deliberately left alone:
+
+- **Dark mode**, now rendered by every page dump with `color-scheme: dark` forced on the root.
+  The stylesheet leans on `Canvas`/`CanvasText` rather than hard-coded colours, so it resolves
+  correctly and needed nothing. The sanitized message still renders on white inside its frame,
+  which is the sender's document and what other clients do.
+- **The composer's body box renders empty in these dumps.** That is the renderer, not the app:
+  dioxus emits `<textarea value="…">` and HTML wants the value as the element's text. A WebView
+  sets the DOM property, where it works. Recorded so the next person to look does not chase it.

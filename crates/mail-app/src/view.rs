@@ -120,6 +120,13 @@ pub struct Composing {
     pub body: String,
     /// What went wrong with the last save or send, shown inline.
     pub notice: Option<String>,
+    /// Discard has been asked for once and is waiting to be meant.
+    ///
+    /// The button sits beside Close, and it now deletes the draft rather than merely closing
+    /// the pane, so a mis-aimed click would destroy something that no longer exists anywhere
+    /// else. One extra click is the whole of the protection, which is what every client that
+    /// cannot offer undo does.
+    pub confirming_discard: bool,
 }
 
 impl Composing {
@@ -132,6 +139,7 @@ impl Composing {
             subject: draft.subject.clone(),
             body: draft.text.clone(),
             notice: None,
+            confirming_discard: false,
         }
     }
 
@@ -1107,6 +1115,32 @@ impl Stamp {
     }
 }
 
+/// What a click on Discard means, given what the composer is currently showing.
+///
+/// A value rather than a branch inside the button, for the same reason `op_for` and
+/// `hover_actions` are: the decision is the part that can be wrong, and a decision that only
+/// exists inside a closure attached to a DOM node cannot be tested without a DOM.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Discarding {
+    /// Ask first. Discard deletes the draft now, and the button sits beside Close.
+    Confirm,
+    /// Asked and meant.
+    Delete(DraftId),
+}
+
+/// Decide what a click on Discard should do.
+///
+/// `None` when there is no composer open, which the button cannot reach but the caller should
+/// not have to assume.
+pub fn discard_click(composing: Option<&Composing>) -> Option<Discarding> {
+    let composing = composing?;
+    Some(if composing.confirming_discard {
+        Discarding::Delete(composing.draft)
+    } else {
+        Discarding::Confirm
+    })
+}
+
 /// How a list row writes an instant: precisely enough to be useful, briefly enough to fit.
 ///
 /// The time for today, a weekday for the last week, a day and month within the year, and a full
@@ -1201,6 +1235,74 @@ mod badge_tests {
                 Source::Drafts => assert!(badge_filter(&place.source).is_none()),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod discarding {
+    use super::*;
+
+    fn composing() -> Composing {
+        Composing {
+            draft: DraftId::generate(),
+            to: "ada@example.test".to_owned(),
+            cc: String::new(),
+            subject: "Re: lunch".to_owned(),
+            body: "never mind".to_owned(),
+            notice: None,
+            confirming_discard: false,
+        }
+    }
+
+    #[test]
+    fn the_first_click_asks_and_the_second_deletes() {
+        // Discard now removes the draft rather than closing the pane, and it sits beside Close.
+        // One click must not be enough.
+        let mut open = composing();
+        assert_eq!(discard_click(Some(&open)), Some(Discarding::Confirm));
+        open.confirming_discard = true;
+        assert_eq!(
+            discard_click(Some(&open)),
+            Some(Discarding::Delete(open.draft))
+        );
+    }
+
+    #[test]
+    fn a_closed_composer_has_nothing_to_discard() {
+        assert_eq!(discard_click(None), None);
+    }
+
+    #[test]
+    fn reopening_the_composer_asks_again() {
+        // The flag lives on the composer, so closing and reopening resets it. A confirmation
+        // that survives the pane being closed is a trap set for the next draft.
+        let draft = Draft {
+            id: DraftId::generate(),
+            account: AccountId::generate(),
+            identity: IdentityId::generate(),
+            to: vec![],
+            cc: vec![],
+            bcc: vec![],
+            subject: "Re: lunch".to_owned(),
+            in_reply_to: None,
+            forward_of: None,
+            text: String::new(),
+            html: None,
+            attachments: vec![],
+            state: SendState::Editing,
+            updated: Utc.with_ymd_and_hms(2026, 9, 22, 0, 0, 0).unwrap(),
+        };
+        let mut shell = Shell::default();
+        shell.compose(&draft);
+        if let Some(c) = shell.composing.as_mut() {
+            c.confirming_discard = true;
+        }
+        shell.close_composer();
+        shell.compose(&draft);
+        assert_eq!(
+            discard_click(shell.composing.as_ref()),
+            Some(Discarding::Confirm)
+        );
     }
 }
 
