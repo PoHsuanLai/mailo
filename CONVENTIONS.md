@@ -199,8 +199,23 @@ representation is a migration, not a refactor.
 - **Structs:** field names as written, `snake_case`.
 - **Never `deny_unknown_fields`** on a persisted type. It turns every forward-compatible
   field addition into a hard startup failure on downgrade.
-- **Every field added after the first release** carries `#[serde(default)]`. A field without
-  it is a breaking schema change.
+- **Every field added after the first release** carries `#[serde(default)]`, *unless no safe
+  default exists*. A field without it is a breaking schema change, and sometimes that is the
+  correct one.
+
+  The exception is narrow and has to be argued in writing. `ProtoOp::Submit` gained `mail_from`
+  and `rcpt_to` (FINDINGS F37). `#[serde(default)]` would give an old row an **empty recipient
+  list**, and a submission with no recipients is a message that goes nowhere while the outbox
+  reports success — a silent loss, which is worse than the loud decode failure it replaces.
+
+  So the rule is really: default when the default is *right*. Where it is not, the field is
+  mandatory and the migration story is stated explicitly — for that change, an argument recorded
+  next to the fixture that no row of the old shape can exist, because the only writer of a stored
+  `ProtoOp` had never produced one.
+
+  If you find yourself reaching for `#[serde(default)]` to silence a decode error, check which
+  value it is about to invent. `Vec::new()` for a recipient list and `String::new()` for an
+  address are not neutral.
 - Every persisted type has a round-trip test in `tests/serde.rs`, and a **frozen fixture**
   in `crates/mail-domain/tests/fixtures/` that must continue to deserialize. Add to the
   fixtures; never edit one.

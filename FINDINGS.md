@@ -1457,3 +1457,27 @@ so the list updates in steps during a sync rather than smoothly.
 recorded next to it — and it does not say to. A pool would buy parallel reads at the price of a
 reader seeing a half-written thread summary, which is a *wrong* answer where this is a late one.
 Written down rather than acted on, so the next person has the number instead of the impulse.
+
+### F82 — The codebase disagreed with its own convention, and the convention was wrong
+
+An audit of `CONVENTIONS.md` against the code, rule by rule, because whether a project obeys its
+own stated rules is mechanically checkable and had never been checked.
+
+Most hold. No pure crate reads the clock — the only match for `Utc::now()` in `mail-domain`,
+`mail-mime` or `mail-proto` is a comment explaining why a library below `mail-runtime` must not.
+No credential reaches SQLite: nothing in `mail-store` binds a password or a token as a parameter.
+`deny_unknown_fields` appears nowhere but in a test asserting it appears nowhere.
+
+One does not. §3 says "every field added after the first release carries `#[serde(default)]`",
+and `ProtoOp::Submit`'s `mail_from` and `rcpt_to` do not — added in F37, on a type persisted as
+`outbox.op`.
+
+That was deliberate and it is still right: `#[serde(default)]` would give an old row an empty
+recipient list, and a submission with no recipients is a message that goes nowhere while the
+outbox reports success. A silent loss is worse than the loud decode failure it would replace.
+
+So the defect is in the rule, not the code. A rule with an unstated exception is worse than no
+rule: the next person either follows it and creates the silent failure, or breaks it and has no
+idea a precedent exists. §3 now says default *when the default is right*, names this case, and
+adds the test — check which value it is about to invent, because `Vec::new()` for a recipient
+list and `String::new()` for an address are not neutral.
