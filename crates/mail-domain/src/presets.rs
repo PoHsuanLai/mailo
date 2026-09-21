@@ -140,6 +140,46 @@ fn gmail(address: &str, now: DateTime<Utc>) -> Preset {
     }
 }
 
+/// Hosts where a password will not authenticate, whatever the user types.
+///
+/// Both of these providers switched off password authentication for IMAP/POP/SMTP, and both fail
+/// in the same unhelpful way: the credential is accepted by the keyring, stored, and rejected by
+/// the server at the first sync with a message that says nothing about why. Saying it at setup
+/// costs one line and saves the user diagnosing an authentication failure that is not theirs.
+///
+/// Advice, not a refusal. A tenant may have re-enabled something, an app password may exist, and
+/// the user knows their own account better than a table does — so this explains and proceeds.
+pub fn password_warning(host: &str) -> Option<&'static str> {
+    let host = host.trim().to_ascii_lowercase();
+    let host = host.rsplit_once(':').map_or(host.as_str(), |(h, _)| h);
+
+    if under(host, "office365.com") || under(host, "outlook.office.com") {
+        return Some(
+            "Microsoft 365 turned off password authentication for IMAP, POP and SMTP, so a \
+             password will be rejected however it is stored. These mailboxes need OAuth, which \
+             is queued in plan.md and not written yet.",
+        );
+    }
+    if under(host, "gmail.com") || under(host, "googlemail.com") {
+        return Some(
+            "Google stopped accepting account passwords for IMAP and SMTP. An App Password (which \
+             needs two-factor authentication switched on) still works here; the account's own \
+             password will not.",
+        );
+    }
+    None
+}
+
+/// Whether `host` is `domain` or a subdomain of it.
+///
+/// `ends_with(domain)` is the version of this that treats `evil-office365.com` as Microsoft. The
+/// dot is what makes a suffix match mean "inside that domain" rather than "spelled similarly",
+/// and getting it wrong here only produces a misleading warning — but the same mistake in a
+/// security decision is how the wrong host gets trusted.
+fn under(host: &str, domain: &str) -> bool {
+    host == domain || host.ends_with(&format!(".{domain}"))
+}
+
 /// Where a manually configured account's servers are.
 ///
 /// A separate type from [`AccountPlan`] because the caller has typed a host and maybe a port,
@@ -440,5 +480,66 @@ mod tests {
         // A quoted local part may contain `@`; the domain is what follows the last one.
         let preset = preset_for("\"odd@name\"@gmail.com", at());
         assert!(preset.is_some());
+    }
+}
+
+#[cfg(test)]
+mod password_warning_tests {
+    use super::*;
+
+    #[test]
+    fn microsoft_365_hosts_are_flagged() {
+        // The user has a work Outlook mailbox and a school one, both managed tenants. Storing a
+        // password for either produces an authentication failure at the first sync that says
+        // nothing about the cause.
+        for host in [
+            "outlook.office365.com",
+            "smtp.office365.com",
+            "outlook.office.com",
+            "OUTLOOK.OFFICE365.COM",
+            "outlook.office365.com:993",
+        ] {
+            let warning = password_warning(host).unwrap_or_else(|| panic!("{host} not flagged"));
+            assert!(warning.contains("OAuth"), "{host}: {warning}");
+        }
+    }
+
+    #[test]
+    fn google_hosts_say_an_app_password_is_the_one_that_works() {
+        // Different advice, because the outcome is different: Google still accepts an App
+        // Password, so telling the user "use OAuth" would send them to build something they do
+        // not need.
+        let warning = password_warning("imap.gmail.com").expect("flagged");
+        assert!(warning.contains("App Password"), "{warning}");
+        assert!(password_warning("smtp.googlemail.com").is_some());
+    }
+
+    #[test]
+    fn a_server_with_no_known_restriction_is_left_alone() {
+        // Advice, not a gate. Anything not known to have switched passwords off gets no warning,
+        // because inventing one teaches the user to ignore them.
+        for host in [
+            "msa.ntu.edu.tw",
+            "imap.example.com",
+            "mail.fastmail.com",
+            "",
+            "notahost",
+        ] {
+            assert_eq!(password_warning(host), None, "{host} was warned about");
+        }
+    }
+
+    #[test]
+    fn a_lookalike_domain_is_not_flagged() {
+        // Suffix matching on a hostname is how `evil-office365.com.attacker.test` gets treated
+        // as Microsoft. These must not match.
+        assert_eq!(password_warning("office365.com.example.test"), None);
+        assert_eq!(password_warning("notgmail.com.example.test"), None);
+        // `ends_with` alone treats both of these as the real thing.
+        assert_eq!(password_warning("evil-office365.com"), None);
+        assert_eq!(password_warning("notgmail.com"), None);
+        // And the genuine article still matches, bare or as a subdomain.
+        assert!(password_warning("office365.com").is_some());
+        assert!(password_warning("imap.gmail.com").is_some());
     }
 }

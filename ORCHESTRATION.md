@@ -35,7 +35,7 @@ around it and it does not change it. Four of the five errors corrected in `plan.
 | shell reading | **done** — the HTML part is parsed out of the raw blob and rendered sandboxed, with `cid:` inline images resolved; neither had ever reached the iframe (F40, F42) |
 | shell drafts, paging, sync | **done** — Drafts lists the draft table rather than an empty mailbox, "Show more" pages the list, unread badges come from `Store::count`, and a Sync button runs a pass off the UI thread |
 
-494 tests across 41 targets. `fmt`, `clippy -D warnings` and `scripts/check-boundary.sh` all
+498 tests across 42 targets. `fmt`, `clippy -D warnings` and `scripts/check-boundary.sh` all
 clean.
 
 Sending was the last thing that existed only in pieces. `SmtpBackend` was written and unit-tested
@@ -73,6 +73,12 @@ MAILO_PASSWORD='…' mailo account add you@example.com \
     --imap imap.example.com --smtp smtp.example.com [--login NAME]
 mailo sync
 ```
+
+**Not** a Microsoft 365 mailbox. Exchange Online switched off password authentication for IMAP,
+POP and SMTP, so a work or school Outlook account cannot use this path however the password is
+stored — those need `OAuthIssuer::Microsoft`, which is queued below and not written. `account
+add` says so now rather than letting the failure arrive at the first sync (F63). Google is a
+different case: an App Password still works, the account password does not.
 
 Ports default to 993 and 465, both implicit TLS. There is no STARTTLS option on purpose: an
 opportunistic upgrade is strippable by an active attacker and downgrades silently to a cleartext

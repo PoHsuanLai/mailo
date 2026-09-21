@@ -132,6 +132,13 @@ pub fn add(
                         )
                         .map_err(|e| format!("cannot save the password: {e}"))?;
                     let _ = writeln!(out, "password stored in the keyring for login {login:?}");
+                    // Said here rather than at the first sync, where it arrives as an
+                    // authentication failure with nothing to say it was never going to work.
+                    if let Some(why) =
+                        incoming_host(&plan).and_then(mail_domain::presets::password_warning)
+                    {
+                        let _ = writeln!(out, "\nwarning: {why}");
+                    }
                 }
                 _ => {
                     // Saying what is missing beats a half-configured account that fails later
@@ -268,6 +275,13 @@ pub fn list(store: &SqliteStore) -> Result<String, String> {
 }
 
 /// `rusqlite::params!` over a slice, so the call sites stay readable.
+/// The host mail arrives from, whichever protocol that is.
+fn incoming_host(plan: &AccountPlan) -> Option<&str> {
+    match &plan.incoming {
+        Incoming::Imap { host, .. } | Incoming::Pop3 { host, .. } => Some(host.as_str()),
+    }
+}
+
 fn rusqlite_params<'a>(values: &'a [&'a str]) -> impl rusqlite::Params + 'a {
     rusqlite::params_from_iter(values.iter().copied())
 }

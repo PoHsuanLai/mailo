@@ -1066,3 +1066,31 @@ bytes — get past the front door, which is where there is state to corrupt.
 disappointment, and I checked the properties can fail before believing them: a panic injected into
 `mutf7::decode` fails the totality property, and turning `IoReady::Eof` into "ask for more bytes"
 fails all three termination properties with "the session neither finished nor failed".
+
+### F63 — I advised a setup that cannot work, against my own plan
+
+`plan.md` has said since it was written that Exchange Online needs OAuth with SASL XOAUTH2. Two
+rounds ago I suggested, in as many words:
+
+```
+mailo account add you@work.example --imap outlook.office365.com --smtp smtp.office365.com
+```
+
+with `MAILO_PASSWORD` set. Microsoft switched off Basic Authentication for IMAP, POP and SMTP on
+Exchange Online, so that cannot authenticate — and the user has two managed Microsoft 365
+mailboxes, which is exactly who that advice was for.
+
+The failure mode is the reason this is worth code rather than a correction. The password is
+accepted by the keyring, stored, and rejected at the first sync by a server that says nothing
+about why. Everything up to the socket looks right, so the natural reading is that the client is
+broken.
+
+`presets::password_warning` says it at `account add`. Advice rather than a refusal: a tenant may
+have re-enabled something, and the user knows their own account better than a table does. Google
+gets different wording because the outcome differs — an App Password still works there, so
+"use OAuth" would send someone to build something they do not need.
+
+Matched on domain boundaries, not `ends_with`: `evil-office365.com` ends with `office365.com`.
+Here that would only produce a misleading warning, but it is the same mistake that trusts the
+wrong host when it appears in a security decision, and it is not worth writing the weaker version
+even once.
