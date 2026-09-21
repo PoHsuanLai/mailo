@@ -1,6 +1,7 @@
 //! `mailo` — the command line. The Dioxus shell will call the same store methods.
 
 mod cli;
+mod view;
 
 use mail_store::SqliteStore;
 
