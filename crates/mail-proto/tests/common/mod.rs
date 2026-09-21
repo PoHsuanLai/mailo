@@ -199,6 +199,7 @@ fn variant_of(e: &ProtoError) -> &'static str {
         ProtoError::AuthRejected(_) => "AuthRejected",
         ProtoError::UnexpectedEof => "UnexpectedEof",
         ProtoError::Unsupported(_) => "Unsupported",
+        ProtoError::Throttled { .. } => "Throttled",
     }
 }
 

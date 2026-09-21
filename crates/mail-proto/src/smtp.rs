@@ -478,6 +478,14 @@ fn reply_text(reply: &ServerReply) -> ReplyText {
 }
 
 fn refusal(reply: &ServerReply) -> ProtoError {
+    // 421 is "service not available, closing transmission channel", which servers use for rate
+    // limiting. Backing off is the remedy; treating it as a refusal would discard the message.
+    if reply.code == 421 {
+        return ProtoError::Throttled {
+            reason: show_reply(reply),
+            retry_after: None,
+        };
+    }
     let kind = match classify(reply.code) {
         Some(ReplyClass::Transient) => Refusal::Transient,
         _ => Refusal::Permanent,
@@ -1074,6 +1082,13 @@ fn scrub_error(err: ProtoError, sub: &Submission) -> ProtoError {
         },
         ProtoError::AuthRejected(text) => ProtoError::AuthRejected(scrub_text(text, sub)),
         ProtoError::Unsupported(text) => ProtoError::Unsupported(scrub_text(text, sub)),
+        ProtoError::Throttled {
+            reason,
+            retry_after,
+        } => ProtoError::Throttled {
+            reason: scrub_text(reason, sub),
+            retry_after,
+        },
         ProtoError::UnexpectedEof => ProtoError::UnexpectedEof,
     }
 }

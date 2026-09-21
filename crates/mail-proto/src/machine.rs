@@ -123,6 +123,18 @@ pub enum ProtoError {
     AuthRejected(String),
     #[error("connection closed unexpectedly")]
     UnexpectedEof,
+    /// The server is rate-limiting or over quota: IMAP `[LIMIT]`, `[OVERQUOTA]`, Gmail's
+    /// "too many simultaneous connections", SMTP 421.
+    ///
+    /// A distinct variant because it must **not** be fatal. Gmail caps daily IMAP transfer and
+    /// simultaneous connections and answers excess with a lockout measured in hours; treating
+    /// that as a permanent refusal would apply the undo patch and discard work that would have
+    /// succeeded tomorrow. `retry_after` is the server's hint when it gives one.
+    #[error("server is rate-limiting: {reason}")]
+    Throttled {
+        reason: String,
+        retry_after: Option<Duration>,
+    },
     /// The server lacks something the operation needs.
     #[error("server does not support {0}")]
     Unsupported(String),
@@ -149,6 +161,12 @@ impl Retryable for ProtoError {
                 text,
             }
             | ProtoError::Unsupported(text) => Retry::Fatal(text.clone()),
+            // Backing off is the entire remedy, and hammering makes the lockout longer.
+            // An hour is the floor when the server offers no hint, because Gmail's own
+            // lockouts are measured in hours.
+            ProtoError::Throttled { retry_after, .. } => {
+                Retry::After(retry_after.unwrap_or(Duration::from_secs(3600)))
+            }
             // Possibly our parser, possibly a transient truncation. Back off rather than
             // hammering, and keep the operation so a fix ships without data loss.
             ProtoError::Malformed(_) => Retry::After(Duration::from_secs(60)),

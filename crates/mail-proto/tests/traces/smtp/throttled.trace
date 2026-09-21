@@ -1,0 +1,19 @@
+# SYNTHETIC. Written from RFC 5321 section 4.2.1. Not a recording: phase-0 capture
+# against a real server has not happened yet.
+#
+# 421 is "service not available, closing transmission channel", and it is what servers return
+# when rate-limiting. It must map to Throttled, which backs off, and NOT to a refusal — a
+# refusal is fatal, and the store answers fatal by applying the undo patch and dropping the
+# outbox entry, which would discard the user's outgoing message.
+
+S: 220 smtp.example ESMTP
+C: EHLO client.example
+S: 250-smtp.example Hello
+S: 250-SIZE 35882577
+S: 250-AUTH PLAIN LOGIN XOAUTH2
+S: 250 PIPELINING
+C: AUTH PLAIN AGFkYUBleGFtcGxlLmNvbQBzM2NyM3QtcGFzc3dvcmQ=
+S: 235 2.7.0 Authentication successful
+C: MAIL FROM:<ada@example.com>
+S: 421 4.7.0 Too many messages, slow down
+FAIL Throttled

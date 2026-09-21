@@ -325,3 +325,25 @@ fn debug_does_not_contain_a_password_or_a_token() {
     assert!(rendered.contains("redacted"));
     assert_secrets_absent(&rendered);
 }
+
+/// 421 must back off rather than be treated as a refusal.
+///
+/// A refusal is fatal, and the store answers fatal by applying the undo patch and dropping the
+/// outbox entry — so misclassifying a rate limit discards the user's outgoing message. Gmail
+/// rate-limits by daily volume and by simultaneous connections, so this is ordinary behaviour
+/// rather than an edge case.
+#[test]
+fn a_rate_limit_backs_off_instead_of_discarding_the_message() {
+    use mail_domain::{Retry, Retryable};
+    let mut session = plain(SHORT, &["bob@example.com"]);
+    let err = replay(&mut session, include_str!("traces/smtp/throttled.trace")).unwrap_err();
+    assert!(
+        matches!(&err, ProtoError::Throttled { .. }),
+        "421 must be Throttled, got {err:?}"
+    );
+    assert!(
+        matches!(err.retry(), Retry::After(_)),
+        "a throttle must schedule a retry, not give up"
+    );
+    assert_secrets_absent(&format!("{err} {err:?} {session:?}"));
+}
