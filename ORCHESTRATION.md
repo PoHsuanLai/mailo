@@ -24,17 +24,39 @@ around it and it does not change it. Four of the five errors corrected in `plan.
 
 | Wave | State |
 |---|---|
-| 1 — `mail-domain` | **done**. `Filter::fit`, JWZ threading, `Op::apply` with its inverse, presets, drafts, frozen serde fixtures. |
-| 2 — `mail-mime`, `mail-store` | **done**. parse/build/sanitize, SQLite with FTS5, `Filter`→SQL, `MemoryStore`, the parity proptest, the reconciliation rule. |
-| 3 — `mail-proto` sessions | POP3 **done**, SMTP **done**, modified UTF-7 **done**, IMAP in progress. OAuth moved to `mail-runtime` and is **done**. |
-| 4 — backends | `Pop3Backend` **done**, `SmtpBackend` **done**, `ImapBackend` blocked on the IMAP session. |
-| runtime | transport, drive loop, OAuth, loopback listener, secrets, `AccountEngine` **done**. Sync scheduling and `unfetched()` outstanding. |
-| 5–6 — live accounts, Dioxus | not started. Both need credentials or a window, so neither is fully delegable. |
+| 1 — `mail-domain` | **done** |
+| 2 — `mail-mime`, `mail-store` | **done** |
+| 3 — `mail-proto` sessions | **done** — POP3, SMTP, IMAP, modified UTF-7, the replay harness |
+| 4 — backends | **done** — `Pop3Backend`, `SmtpBackend`, `ImapBackend` |
+| runtime | **done** — transport, drive loop, OAuth + PKCE, loopback listener, secrets, `AccountEngine`, the three-interval schedule |
+| app | **done as far as it can be** — `mailo` CLI (list, show, search, status, account add/list, sync) and the Dioxus shell |
 
-Phase 3's acceptance criterion from `plan.md` — ingest twenty, archive one, label one, search —
-passes as `crates/mail-store/tests/phase3_milestone.rs`.
+263 tests across 32 targets. `fmt`, `clippy -D warnings` and `scripts/check-boundary.sh` all
+clean.
 
-## Waves
+### What is genuinely blocked, and on what
+
+Three things need a person, and no amount of further building substitutes for them:
+
+1. **A Google OAuth client id.** An installed-app credential registered with the issuer. It
+   cannot be shipped in a source tree, so `mailo account add` for a Gmail address prints what it
+   needs rather than pretending to be configured. Blocks phase 5.
+2. **Live credentials**, for the first real connection to NTU and Gmail. Everything up to the
+   socket is tested against transcripts; what a real server does next is the thing transcripts
+   cannot tell us, and the phase-0 spike already corrected two assumptions that looked safe.
+3. **A window.** The shell compiles and its decisions are tested without one — which query a
+   place means, what the reader does with each body kind, which hover actions a thread offers —
+   but whether it is pleasant to use is not a thing a test reports.
+
+### What is built but unexercised
+
+`AccountEngine::sync` fetches headers and drains the outbox, but `trusted_modseq` returns `None`
+and the ingest path turns transcripts into empty `Ingest` shells: assembling `Message` values
+needs `mail-mime` wired into the backends, which is the first thing to do once a live connection
+proves the shapes. That is deliberate — inventing the assembly against guessed response shapes
+is how the spike's two corrections would have been baked in instead of caught.
+
+## Waves## Waves
 
 Each wave lists the files an agent owns **exclusively**. No two agents in a wave write the
 same file. Reading anything is always fine.
