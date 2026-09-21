@@ -1034,3 +1034,35 @@ rather than assumed.
 The pattern in both: a disjunction added to make a test tolerant of an answer the author was not
 sure of. Tolerance is the right instinct and a substring is the wrong implement — it widens the
 assertion to things that share three letters rather than to the alternatives actually meant.
+
+### F62 — The wire parsers had never seen input nobody chose
+
+I said the remaining defect classes needed "a server I didn't write", and that was half wrong. A
+*malicious or broken* server is simulable, and the code that meets one first is the parsers —
+which had no property-based testing at all. `proptest` was a dependency of `mail-domain` and
+`mail-store`; `mail-proto`, the only crate that reads bytes off a socket, had none.
+
+Every other test in that crate replays a transcript someone chose, which answers "does this work
+against a server behaving as expected". It cannot answer what a deployment asks immediately: what
+happens when the bytes are wrong — a middlebox, an old server, a TLS error page delivered on port
+143, or an attacker.
+
+Two properties, which are the ones that make a parser safe to point at the internet:
+
+1. **No input panics.** A panic in a mail client is a crash on *receiving mail*, and the sender
+   chooses when.
+2. **Every input terminates.** A machine that neither finishes nor asks for more has hung the
+   connection, and a hang is harder to diagnose than a crash because nothing is reported.
+
+Neither asserts the parse is correct — that is what the transcript tests are for. They assert the
+failure mode is a clean error rather than a crashed or wedged client.
+
+The generator mixes uniform random bytes with real protocol fragments, because uniform bytes are
+rejected at the first byte of almost every parser and test the rejection and nothing past it. The
+fragments — an unterminated literal, `{-1}`, a bare continuation, a literal announcing 999999
+bytes — get past the front door, which is where there is state to corrupt.
+
+**Nothing failed.** The parsers are sound under this, which is a result rather than a
+disappointment, and I checked the properties can fail before believing them: a panic injected into
+`mutf7::decode` fails the totality property, and turning `IoReady::Eof` into "ask for more bytes"
+fails all three termination properties with "the session neither finished nor failed".
