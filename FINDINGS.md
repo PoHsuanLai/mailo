@@ -1741,3 +1741,33 @@ not one; not nothing, because it is not that either. The line disappears when th
 
 Asserted in both directions — a refused submission reports one waiting, a delivered one reports
 none — and checked by pinning the count to zero and watching the test fail.
+
+### F95 — Every sync re-downloaded every header in the mailbox
+
+Found by doing the most ordinary thing a mail client does: syncing twice. The second pass, with
+nothing new on the server, reported `2 headers` — and the fixture holds exactly two messages.
+
+```rust
+let mut wanted = self.backend.surveyed();
+if wanted.is_empty() { wanted = self.unfetched(budget)?; }
+```
+
+The survey is *everything on the server*. That is the right answer to "what exists" and the wrong
+one to "what should I fetch", and nothing subtracted what was already stored. On POP3 this has
+always been so: one `TOP` per message per poll, which on the 2372-message maildrop this project
+was measured against is 2372 commands every five minutes, against a campus server, for mail
+already on disk. On IMAP it began when F44 taught `surveyed()` to return anything — before that
+it fell through to `unfetched` and was accidentally correct.
+
+The header pass now subtracts `Store::remote_refs`. A message whose header is stored but whose
+body is not is deliberately *not* wanted there; `fetch_bodies` asks `unfetched` for those, which
+is the question that one answers.
+
+`syncing_three_times_stores_each_message_once` had covered this ground and stayed green
+throughout, because it asked whether anything was *duplicated*. Nothing was — the work was simply
+done again and thrown away. The new assertion is on `headers_fetched` being zero when nothing has
+arrived, which is the thing that was untrue.
+
+Also verified, since the point was the daily loop: a message that appears between two syncs is
+fetched (one header, one body, not three), lands at the top of the list, and is counted unread.
+The IMAP fixture can now gain messages at runtime, which is what made that testable at all.

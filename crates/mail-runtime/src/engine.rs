@@ -520,6 +520,18 @@ impl<B: Backend> AccountEngine<B> {
         if wanted.is_empty() {
             // A protocol that cannot enumerate up front: fall back to what we already hold.
             wanted = self.unfetched(budget as u32)?;
+        } else {
+            // Minus what is already mapped. The survey is *everything on the server*, which is
+            // the right answer to "what exists" and the wrong one to "what should I fetch": it
+            // re-downloaded every header in the mailbox on every pass. On the maildrop this was
+            // measured against that is 2372 `TOP` commands every five minutes, against a campus
+            // server, for mail already on disk.
+            //
+            // A message whose header is stored but whose body is not is *not* wanted here;
+            // `fetch_bodies` asks `unfetched` for those, which is the question it answers.
+            let held: std::collections::HashSet<RemoteRef> =
+                self.store.remote_refs(mailbox)?.into_iter().collect();
+            wanted.retain(|(remote, _)| !held.contains(remote));
         }
         wanted.sort_by_key(|(_, size)| *size);
 

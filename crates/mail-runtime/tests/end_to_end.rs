@@ -477,6 +477,35 @@ mod repeated_passes {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_header_stored_once_is_not_fetched_again() {
+        // The survey is everything on the server, which answers "what exists" and not "what
+        // should I fetch". Using it directly re-downloaded every header in the maildrop on every
+        // pass — on POP3 that is one `TOP` per message per poll, against a campus server, for
+        // mail already on disk. The earlier repeat-pass test asserted nothing was *duplicated*,
+        // which stayed true the whole time.
+        let port = serve().await;
+        let mut it = fixture(port);
+        let (_tx, mut cancel) = watch::channel(false);
+
+        let first = it
+            .engine
+            .sync(&inbox(), &mut cancel, now(), 50)
+            .await
+            .unwrap();
+        assert_eq!(first.headers_fetched, 3, "the first pass fetches all three");
+
+        let second = it
+            .engine
+            .sync(&inbox(), &mut cancel, now(), 50)
+            .await
+            .unwrap();
+        assert_eq!(
+            second.headers_fetched, 0,
+            "a second pass re-fetched headers already stored"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_body_fetched_once_is_not_fetched_again() {
         // `unfetched` drives the body pass. If a stored body did not clear it, every sync would
         // redownload the whole maildrop — which on POP3 also means RETR, which sets \Seen.

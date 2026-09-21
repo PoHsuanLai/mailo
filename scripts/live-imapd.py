@@ -59,11 +59,36 @@ class Message:
     def isMultipart(self): return False
     def getSubPart(self, part): raise TypeError("not multipart")
 
+def _extra():
+    """Messages dropped into $MAILO_EXTRA_MAIL since the server started.
+
+    So a test can do what a mail server does — gain a message between two syncs — without
+    restarting anything. Each file is one RFC 5322 message; the UID is 200 + its position.
+    """
+    import os, glob
+    d = os.environ.get("MAILO_EXTRA_MAIL")
+    if not d or not os.path.isdir(d):
+        return []
+    out = []
+    for i, path in enumerate(sorted(glob.glob(os.path.join(d, "*.eml")))):
+        with open(path, "rb") as f:
+            raw = f.read()
+        # Normalise to CRLF. A file written by a shell heredoc or an editor has bare LF, and a
+        # message whose headers are not CRLF-separated parses as one long header — which reaches
+        # the client as an ENVELOPE full of empty addresses rather than as anything obviously
+        # wrong.
+        raw = raw.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+        out.append((200 + i, raw))
+    return out
+
+
 @implementer(imap4.IMailbox)
 class Mailbox:
-    def __init__(self): self.messages = [Message(u, r) for u, r in MESSAGES]
+    def __init__(self):
+        # Re-read on every SELECT, not once at startup: that is what makes new mail appear.
+        self.messages = [Message(u, r) for u, r in MESSAGES + _extra()]
     def getUIDValidity(self): return 42
-    def getUIDNext(self): return 103
+    def getUIDNext(self): return max((m.uid for m in self.messages), default=100) + 1
     def getUID(self, num): return self.messages[num - 1].uid
     def getMessageCount(self): return len(self.messages)
     def getRecentCount(self): return 0
@@ -96,7 +121,9 @@ class Mailbox:
 class Account:
     def __init__(self): self.mailbox = Mailbox()
     def listMailboxes(self, ref, wildcard): return [("INBOX", self.mailbox)]
-    def select(self, path, rw=True): return self.mailbox
+    def select(self, path, rw=True):
+        self.mailbox = Mailbox()
+        return self.mailbox
     def create(self, path): return True
     def delete(self, path): raise imap4.MailboxException("no")
     def rename(self, o, n): raise imap4.MailboxException("no")
