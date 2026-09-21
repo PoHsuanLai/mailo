@@ -963,38 +963,59 @@ Dioxus signals.
 
 ## Queued — Microsoft accounts (after phase 6)
 
-A third account is wanted. Queued rather than built now, but the shape is recorded here because
-one part of it is cheap to note today and expensive to retrofit.
+Two more accounts are wanted: a work Outlook mailbox and a school one. Both are managed
+Microsoft 365 tenants, which is a materially different case from a personal Outlook.com mailbox
+and, for us, a better one.
 
-**What determines the size of the job** is which account it is, and how old:
+**The protocol fits the design unchanged.** Exchange Online supports IMAP and SMTP over OAuth
+using SASL XOAUTH2, in exactly the encoding Gmail uses:
 
-| Case | Incoming | Outgoing | Cost |
-|---|---|---|---|
-| Outlook.com personal, older mailbox | IMAP + OAuth | SMTP + XOAUTH2 | small |
-| Outlook.com personal, mailbox created recently | IMAP + OAuth | **possibly impossible** — see below | large |
-| Microsoft 365 work/school | IMAP + OAuth, if the tenant allows it | SMTP AUTH, if the tenant allows it | depends on an admin |
+```
+base64("user=" + address + "\x01auth=Bearer " + token + "\x01\x01")
+```
 
-Basic authentication was retired for Outlook.com on 2024-09-16, so OAuth is mandatory either
-way. That part fits the existing design exactly: `AuthPlan::OAuth` gains
-`OAuthIssuer::Microsoft`, `Incoming::Imap` is unchanged, and `ImapBackend` does not care. That
-is the design working — a provider is a value, not a type.
+So the `SmtpSession` XOAUTH2 path written for Gmail works for Microsoft with no change, and the
+delegated scopes are just values in a preset:
 
-**The part that does not fit** is sending. Microsoft has been disabling SMTP client
-authentication per mailbox, and for recently-created personal accounts it is reported to be off
-with no user-facing switch, failing with `SmtpClientAuthentication is disabled for the Mailbox`
-even under OAuth. Microsoft's own guidance is ambiguous about the long-term future of IMAP and
-SMTP for personal accounts. If that holds for the account we care about, sending needs Microsoft
-Graph `sendMail`, which is REST rather than SMTP.
+| Protocol | Delegated scope |
+|---|---|
+| IMAP | `https://outlook.office.com/IMAP.AccessAsUser.All` |
+| POP | `https://outlook.office.com/POP.AccessAsUser.All` |
+| SMTP | `https://outlook.office.com/SMTP.Send` |
 
-**The design impact, recorded now:** `Outgoing` is an enum with a single `Smtp` variant, and the
-codebase never matches it with a `_` wildcard. Adding `Outgoing::Graph` therefore produces a
-compile error at every site that must change, which is the whole reason the vocabulary is enums.
-Nothing needs doing today beyond not writing code that assumes submission is always SMTP.
+plus `offline_access` for refresh tokens. In domain terms that is `OAuthIssuer::Microsoft`, a
+preset row, and nothing else: `Incoming::Imap`, `Outgoing::Smtp` and `ImapBackend` are untouched.
+This is the first outside test of the claim that a provider is a value rather than a type, and
+it passes.
 
-**Before sizing this, run a spike**, exactly as phase 0 did for Gmail and NTU — the difference
-being that it needs a registered Entra ID application first, because there is no app-password
-equivalent. Questions it must answer: does IMAP work with OAuth for this mailbox; does SMTP AUTH
-work, or is it disabled; and if the tenant is managed, what will an administrator permit.
+**The admin-consent burden does not apply to us.** Microsoft's documentation requires tenant
+admin consent *and* a `New-ServicePrincipal` registration in Exchange Online PowerShell — but
+that is for the **client credentials** flow, where an application accesses mailboxes with no user
+present, using the `IMAP.AccessAsApp` family of permissions. We are an interactive desktop
+client using the **authorization code** flow with delegated permissions, where the user signs in
+themselves. That path needs neither step.
+
+**What can still block it is tenant policy, not protocol**, and a work tenant and a school tenant
+may answer differently:
+
+1. The tenant may restrict user consent to third-party applications, in which case an
+   administrator has to approve the app once even for delegated access.
+2. IMAP and POP can be disabled per mailbox or organisation-wide (`Set-CASMailbox`).
+3. SMTP AUTH is disabled by default in many tenants and is enabled per mailbox.
+
+None of that is discoverable from documentation — it is a fact about each organisation. A small
+spike answers all three, as phase 0 did for Gmail and NTU, and it is harder only because there is
+no app-password equivalent: it needs an Entra application registration first.
+
+**If a tenant forbids the protocols outright**, the fallback is Microsoft Graph, which is REST
+rather than SMTP and is a second backend, not a preset row. `Outgoing` is an enum that the
+codebase never matches with a `_` wildcard, so adding `Outgoing::Graph` would produce a compile
+error at every site that must change — which is the reason the vocabulary is enums. Nothing needs
+doing today beyond not writing code that assumes submission is always SMTP.
+
+Personal Outlook.com is a worse case and is not planned: basic authentication was retired there
+on 2024-09-16, and recently-created personal mailboxes are reported to have SMTP client
+authentication permanently off, failing even under OAuth.
 
 ## Non-goals (v1)
 
