@@ -15,6 +15,12 @@ use std::sync::Arc;
 /// How many rows the list pane asks for at a time.
 const PAGE: u32 = 100;
 
+/// Seconds between autosaves of an open composer.
+///
+/// Long enough not to write on every keystroke, short enough that what a crash costs is a
+/// sentence rather than a letter.
+const AUTOSAVE_EVERY: u64 = 3;
+
 /// Launch the shell.
 pub fn run(store: Arc<SqliteStore>) {
     dioxus::LaunchBuilder::desktop()
@@ -353,6 +359,29 @@ fn Composer(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
     let Some(editing) = shell.read().composing.clone() else {
         return rsx! {};
     };
+    // Set by every field, cleared by a successful write. A flag rather than comparing against
+    // the stored row on a timer: the comparison would read and parse the draft every few
+    // seconds whether or not anyone had touched it.
+    let mut dirty = use_signal(|| false);
+
+    // The autosave. Close and Send both save, so what this covers is the window nothing else
+    // does: the application going away while someone is still typing.
+    use_future(move || async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(AUTOSAVE_EVERY)).await;
+            if !dirty() {
+                continue;
+            }
+            let store = use_context::<Arc<SqliteStore>>();
+            let current = shell.read().composing.clone();
+            // Failures are swallowed on purpose. The usual one is a half-typed recipient, and a
+            // timer that interrupts to complain about an address still being typed is worse than
+            // one that waits. The text stays dirty and the next tick tries again.
+            if persist(&store, current.as_ref()).is_ok() {
+                dirty.set(false);
+            }
+        }
+    });
 
     rsx! {
         div { class: "composer",
@@ -393,6 +422,7 @@ fn Composer(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
                         if let Some(c) = shell.write().composing.as_mut() {
                             c.to = e.value();
                         }
+                        dirty.set(true);
                     },
                 }
             }
@@ -403,6 +433,7 @@ fn Composer(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
                         if let Some(c) = shell.write().composing.as_mut() {
                             c.cc = e.value();
                         }
+                        dirty.set(true);
                     },
                 }
             }
@@ -413,6 +444,7 @@ fn Composer(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
                         if let Some(c) = shell.write().composing.as_mut() {
                             c.subject = e.value();
                         }
+                        dirty.set(true);
                     },
                 }
             }
@@ -423,6 +455,7 @@ fn Composer(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
                     if let Some(c) = shell.write().composing.as_mut() {
                         c.body = e.value();
                     }
+                    dirty.set(true);
                 },
             }
             div { class: "composer-actions",
@@ -436,6 +469,7 @@ fn Composer(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
                         let saved = persist(&store, current.as_ref());
                         match saved {
                             Ok(_) => {
+                                dirty.set(false);
                                 set_notice(&mut shell, Some("Saved.".to_owned()));
                                 revision += 1;
                             }

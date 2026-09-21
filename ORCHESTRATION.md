@@ -31,7 +31,7 @@ around it and it does not change it. Four of the five errors corrected in `plan.
 | runtime | **done** — transport, drive loop, OAuth + PKCE, loopback listener, secrets, `AccountEngine`, the three-interval schedule |
 | app | **done as far as it can be** — `mailo` CLI (list, show, search, reply, send, drafts, status, account add/list, sync) and the Dioxus shell |
 | sending | **done** — drafts persist, `RemoteIntent::Send` queues, the engine routes `Submit` to SMTP, end-to-end over a real socket |
-| shell compose | **done** — reply and reply-all open a composer, edits save to the draft row, Send queues through the same `compose` module the CLI uses |
+| shell compose | **done** — reply and reply-all open a composer, edits autosave to the draft row, Close saves and Discard does not, Send queues through the same `compose` module the CLI uses |
 | shell reading | **done** — the HTML part is parsed out of the raw blob and rendered sandboxed, with `cid:` inline images resolved; neither had ever reached the iframe (F40, F42) |
 | shell drafts, paging, sync | **done** — Drafts lists the draft table rather than an empty mailbox, "Show more" pages the list, unread badges come from `Store::count`, and a Sync button runs a pass off the UI thread |
 
