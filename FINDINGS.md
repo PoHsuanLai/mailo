@@ -1653,3 +1653,43 @@ The general shape, since this is the third time it has come up: a test is only e
 thing you believe it ran against. Transcript tests have that for free. Anything that needs a
 daemon does not, and the fix is to make the setup part of the test rather than part of the
 operator.
+
+### F91 — Every message fetched over IMAP carried a stray `)`
+
+Found by running the whole journey through the real binary — `sync`, `list`, `show`, `reply`,
+`send`, `sync` — as a user would, rather than testing each step on its own. `show` printed the
+message, and then a `)` on a line of its own.
+
+`Job::Fetch` handed the *entire untagged response* up as the body:
+
+```
+* 2 FETCH (UID 102 BODY[] {223}\r\n<223 bytes>)
+```
+
+So every message stored from an IMAP server had `* n FETCH (...)` prepended and the response's
+closing paren appended. A lenient MIME parser swallows the prefix without complaint, which is why
+nothing downstream objected.
+
+Two more defects rode along in the same line. The text came from `String::from_utf8_lossy`, so
+every 8-bit byte in a message became U+FFFD — a Latin-1 mail is silently mangled and the stored
+blob is wrong for ever after. And it was `trim_end`ed, which is right for protocol vocabulary and
+wrong for mail: a message may legitimately end in blank lines.
+
+`Untagged` now carries the raw bytes beside the text, and `Untagged::literal` takes exactly the
+byte count the server promised. `text` stays, because `SEARCH` results and `FETCH` attribute
+names are ASCII vocabulary.
+
+**Why the end-to-end test missed it.** `a_literal_body_survives_a_line_that_looks_like_a_tagged_
+response` asserted `contains("A1 OK not really")` — and that was true throughout. A substring
+assertion cannot see something *added*. It now compares the stored message to the fixture byte
+for byte, and reinstating the old extraction fails it. That is the same lesson as F61 arriving
+from the other direction: there, `contains` matched too much; here, it failed to notice too much.
+
+### F92 — `reply` needed a message id that nothing printed
+
+The same journey, one step later. `mailo reply <message-id>` is the documented way to answer
+mail, `list` prints thread ids, and `show` printed neither — so the sequence a user follows ended
+at a command they could not construct without opening the database by hand.
+
+`show` now prints each message's id under its header. Two lines of code, invisible to every test
+that exercised `show` and `reply` separately, and unmissable the moment they are run in order.

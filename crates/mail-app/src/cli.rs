@@ -231,7 +231,7 @@ pub fn usage() -> String {
 usage: mailo <command>
 
   list [inbox|archive|sent|drafts|trash|spam] [limit]
-  show <thread-id>
+  show <thread-id>          prints each message's id, for `reply`
   search <words...>
   reply <message-id> [--all]  compose a reply; the body is read from stdin
   send <draft-id>             queue a draft for the next sync
@@ -278,12 +278,16 @@ pub fn run(store: &SqliteStore, command: &Command, now: DateTime<Utc>) -> Result
             );
             for id in &loaded.messages {
                 let message = store.message(*id).map_err(|e| e.to_string())?;
+                // The id is here because `reply` needs one and nothing else prints it: the
+                // sequence `list` → `show` → `reply` was unusable without opening the database
+                // by hand. Found by running the three in order rather than each on its own.
                 let _ = writeln!(
                     out,
-                    "\n--- {} <{}>  {}",
+                    "\n--- {} <{}>  {}\n    {}",
                     message.from.name.as_deref().unwrap_or(""),
                     message.from.email,
-                    message.date.format("%Y-%m-%d %H:%M")
+                    message.date.format("%Y-%m-%d %H:%M"),
+                    message.id
                 );
                 match message.body.text() {
                     Some(text) => {

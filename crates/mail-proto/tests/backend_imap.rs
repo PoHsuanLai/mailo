@@ -248,3 +248,109 @@ fn submission_is_refused_here() {
         Progress::Failed(_)
     ));
 }
+
+/// A fetched body is the literal's bytes, and nothing else.
+mod literal_bodies {
+    use mail_proto::{ImapTranscript, Untagged};
+
+    fn untagged(raw: &[u8]) -> Untagged {
+        Untagged {
+            during: 0,
+            text: String::from_utf8_lossy(raw).trim_end().to_owned(),
+            raw: raw.to_vec(),
+        }
+    }
+
+    #[test]
+    fn the_closing_paren_of_the_response_is_not_part_of_the_message() {
+        // Found by reading what the CLI printed: every message fetched over IMAP carried a
+        // trailing `)`. The end-to-end tests asserted `contains`, so none of them saw it.
+        let body = b"Subject: s\r\n\r\nand a closing paren )\r\n";
+        let mut raw = format!("* 2 FETCH (UID 102 BODY[] {{{}}}\r\n", body.len()).into_bytes();
+        raw.extend_from_slice(body);
+        raw.extend_from_slice(b")\r\n");
+
+        let got = untagged(&raw)
+            .literal()
+            .expect("a literal is present")
+            .to_vec();
+        assert_eq!(got, body, "the body must be exactly the literal's bytes");
+    }
+
+    #[test]
+    fn the_fetch_header_is_not_part_of_the_message_either() {
+        let body = b"Subject: s\r\n\r\nbody\r\n";
+        let mut raw = format!("* 1 FETCH (UID 1 BODY[] {{{}}}\r\n", body.len()).into_bytes();
+        raw.extend_from_slice(body);
+        raw.extend_from_slice(b")\r\n");
+
+        let got = untagged(&raw).literal().unwrap().to_vec();
+        assert!(
+            !String::from_utf8_lossy(&got).contains("FETCH"),
+            "the response header leaked into the message: {:?}",
+            String::from_utf8_lossy(&got)
+        );
+    }
+
+    #[test]
+    fn a_body_that_is_not_utf8_survives_intact() {
+        // `Untagged::text` goes through `from_utf8_lossy`, which turns every 8-bit byte into
+        // U+FFFD. A Latin-1 message fetched that way is silently mangled — the reader shows
+        // replacement characters where the sender wrote accents, and the stored blob is wrong
+        // for ever after.
+        let mut body = b"Subject: caf\xe9\r\n\r\n".to_vec();
+        body.extend_from_slice(&[0xe9, 0xfc, 0xff, 0x00, 0x41]);
+        let mut raw = format!("* 1 FETCH (UID 1 BODY[] {{{}}}\r\n", body.len()).into_bytes();
+        raw.extend_from_slice(&body);
+        raw.extend_from_slice(b")\r\n");
+
+        let got = untagged(&raw).literal().unwrap().to_vec();
+        assert_eq!(got, body, "8-bit bytes must reach the store unchanged");
+        assert!(
+            !got.contains(&0xef),
+            "a replacement character appeared: {got:?}"
+        );
+    }
+
+    #[test]
+    fn trailing_whitespace_in_a_message_is_not_trimmed() {
+        // `text` is trimmed, which is right for protocol vocabulary and wrong for mail: a
+        // message legitimately ends with blank lines.
+        let body = b"Subject: s\r\n\r\nbody\r\n\r\n   \r\n";
+        let mut raw = format!("* 1 FETCH (UID 1 BODY[] {{{}}}\r\n", body.len()).into_bytes();
+        raw.extend_from_slice(body);
+        raw.extend_from_slice(b")\r\n");
+
+        assert_eq!(untagged(&raw).literal().unwrap(), body);
+    }
+
+    #[test]
+    fn a_response_with_no_literal_offers_no_body() {
+        // A FLAGS-only FETCH has nothing to hand up, and inventing something from its text is
+        // how the response header became a message in the first place.
+        assert!(
+            untagged(b"* 1 FETCH (UID 1 FLAGS (\\Seen))\r\n")
+                .literal()
+                .is_none()
+        );
+        assert!(untagged(b"* SEARCH 1 2 3\r\n").literal().is_none());
+        assert!(untagged(b"").literal().is_none());
+        // A truncated literal — the count promises more than arrived — is not a body.
+        assert!(
+            untagged(b"* 1 FETCH (UID 1 BODY[] {99}\r\nshort")
+                .literal()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn the_transcript_still_exposes_text_for_protocol_parsing() {
+        // `text` stays, because SEARCH results and FETCH attribute names are ASCII vocabulary
+        // and reading them as text is what the rest of this backend does.
+        let t = ImapTranscript {
+            untagged: vec![untagged(b"* SEARCH 101 102\r\n")],
+            capabilities: Vec::new(),
+        };
+        assert!(t.untagged[0].text.contains("SEARCH"));
+    }
+}

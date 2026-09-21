@@ -498,11 +498,18 @@ impl Backend for ImapBackend {
                 })))
             }
             Job::Fetch { remotes } => {
+                // The literal's bytes, not the response's text. Taking the text appended the
+                // `)` that closes the FETCH to every message and prepended `* n FETCH (...)`,
+                // which a lenient MIME parser accepts in silence; and it arrived through
+                // `from_utf8_lossy`, so every 8-bit byte in a message became U+FFFD.
+                //
+                // A `FETCH` with no literal is skipped rather than guessed at: an untagged
+                // response that is not carrying a body has no body to offer.
                 let bodies: Vec<Vec<u8>> = transcript
                     .untagged
                     .iter()
                     .filter(|u| u.text.contains("FETCH"))
-                    .map(|u| u.text.clone().into_bytes())
+                    .filter_map(|u| u.literal().map(<[u8]>::to_vec))
                     .collect();
                 Progress::Done(ProtoOutcome::Fetched {
                     items: remotes.into_iter().zip(bodies).collect(),

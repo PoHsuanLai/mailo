@@ -110,7 +110,38 @@ pub struct ImapTranscript {
 pub struct Untagged {
     /// Which queued command was outstanding when this arrived.
     pub during: usize,
+    /// The response as text, lossily, for the parts that are protocol vocabulary.
+    ///
+    /// Fine for `SEARCH`, `FETCH` attribute names and status codes — all ASCII. **Not** fine for
+    /// a message body: `from_utf8_lossy` turns every 8-bit byte into U+FFFD, and `trim_end`
+    /// eats trailing whitespace that is part of the message. Use [`Untagged::literal`] for
+    /// anything that is mail rather than protocol.
     pub text: String,
+    /// The response exactly as it arrived.
+    pub raw: Vec<u8>,
+}
+
+impl Untagged {
+    /// The bytes of this response's literal, if it has one.
+    ///
+    /// A `FETCH` carrying a body looks like `* 2 FETCH (UID 102 BODY[] {223}\r\n<223 bytes>)`:
+    /// the count is authoritative and the trailing `)` closes the *response*, not the message.
+    /// Handing the whole thing up as the body — which is what this crate used to do — appends
+    /// that paren to every message fetched over IMAP and prepends the `* 2 FETCH (...)` header,
+    /// which a lenient MIME parser then swallows without complaint.
+    pub fn literal(&self) -> Option<&[u8]> {
+        let open = self.raw.iter().rposition(|b| *b == b'{')?;
+        let close = self.raw[open..].iter().position(|b| *b == b'}')? + open;
+        let digits = std::str::from_utf8(&self.raw[open + 1..close]).ok()?;
+        let len: usize = digits.parse().ok()?;
+        // The literal begins after the CRLF that follows `{n}`.
+        let start = close + 1;
+        let start = match self.raw.get(start..start + 2) {
+            Some(b"\r\n") => start + 2,
+            _ => return None,
+        };
+        self.raw.get(start..start + len)
+    }
 }
 
 /// The credential a session authenticates with.
@@ -402,6 +433,7 @@ impl ImapSession {
     /// Record one response. Returns `Some` when the session should stop or move on.
     fn absorb(&mut self, response: &Response<'_>, raw: &[u8]) -> Option<Progress<ImapTranscript>> {
         let text = String::from_utf8_lossy(raw).trim_end().to_owned();
+        let bytes = raw.to_vec();
 
         if let Response::Capabilities(atoms) = response {
             // Replace rather than extend: a later CAPABILITY describes the session we have now,
@@ -458,7 +490,11 @@ impl ImapSession {
                     _ => 0,
                 };
                 let news = is_news(&text);
-                self.transcript.untagged.push(Untagged { during, text });
+                self.transcript.untagged.push(Untagged {
+                    during,
+                    text,
+                    raw: bytes,
+                });
 
                 // The half of IDLE's contract that was documented and not implemented. `IDLE`
                 // "parks until the server says something or the caller interrupts", and only
@@ -573,7 +609,11 @@ impl Machine for ImapSession {
                                 self.transcript.capabilities =
                                     atoms.iter().map(|c| format!("{c:?}")).collect();
                             }
-                            self.transcript.untagged.push(Untagged { during: 0, text });
+                            self.transcript.untagged.push(Untagged {
+                                during: 0,
+                                text,
+                                raw: self.buf[..used].to_vec(),
+                            });
                             self.buf.drain(..used);
                             self.issue(0)
                         }

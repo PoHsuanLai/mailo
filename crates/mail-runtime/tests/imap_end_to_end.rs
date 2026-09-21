@@ -669,9 +669,18 @@ async fn a_literal_body_survives_a_line_that_looks_like_a_tagged_response() {
                 let bytes = it.store.blobs().get(&it.store.connection(), raw).unwrap();
                 let text = String::from_utf8_lossy(&bytes);
                 if text.contains("looks like a tag") {
-                    assert!(
-                        text.contains("A1 OK not really"),
-                        "the body was truncated at the tag-shaped line:\n{text}"
+                    // Exact bytes, not `contains`. This asserted only that the tag-shaped line
+                    // survived, and it did — while the `)` closing the FETCH response was being
+                    // appended to every message fetched over IMAP. A substring assertion cannot
+                    // see something *added*, which is how that shipped.
+                    let expected = maildrop()
+                        .into_iter()
+                        .find(|(uid, _)| *uid == 102)
+                        .map(|(_, raw)| raw)
+                        .expect("the fixture has uid 102");
+                    assert_eq!(
+                        text, expected,
+                        "the stored message is not byte-for-byte what the server sent"
                     );
                     found = true;
                 }
