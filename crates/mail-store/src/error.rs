@@ -1,6 +1,6 @@
 //! Store failures.
 
-use mail_domain::{MessageId, Retry, Retryable, ThreadId};
+use mail_domain::{DraftId, MessageId, Retry, Retryable, ThreadId};
 use std::time::Duration;
 
 /// Something went wrong locally.
@@ -12,6 +12,8 @@ pub enum StoreError {
     NoThread(ThreadId),
     #[error("no such message: {0}")]
     NoMessage(MessageId),
+    #[error("no such draft: {0}")]
+    NoDraft(DraftId),
     #[error("blob {0}: {1}")]
     Blob(String, String),
     /// A stored value no longer matches its type. Almost always a missing migration or a
@@ -32,6 +34,7 @@ impl Retryable for StoreError {
             // Our own bug or our own data. Retrying re-runs the same failure forever.
             StoreError::NoThread(_)
             | StoreError::NoMessage(_)
+            | StoreError::NoDraft(_)
             | StoreError::Decode { .. }
             | StoreError::BadCursor => Retry::Fatal(self.to_string()),
             // Downgrading into an upgraded database. Stop, do not migrate backwards.

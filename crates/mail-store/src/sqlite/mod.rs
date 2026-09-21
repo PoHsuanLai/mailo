@@ -1,5 +1,6 @@
 //! The real [`Store`]: SQLite in WAL mode, with FTS5.
 
+mod draft;
 mod outbox;
 mod read;
 mod row;
@@ -80,8 +81,8 @@ impl SqliteStore {
 use crate::{OutboxEntry, Settle, Store, sql};
 use chrono::{DateTime, Utc};
 use mail_domain::{
-    AccountId, Cursor, Filter, Ingest, Message, MessageId, OutboxId, Page, Patch, Property, Query,
-    RemoteIntent, SortDir, Thread, ThreadId, ThreadSummary,
+    AccountId, Cursor, Draft, DraftId, Filter, Ingest, Message, MessageId, OutboxId, Page, Patch,
+    Property, Query, RemoteIntent, SendState, SortDir, Thread, ThreadId, ThreadSummary,
 };
 
 /// The `thread_summary` column a [`Property`] sorts on.
@@ -292,6 +293,23 @@ impl Store for SqliteStore {
             });
         }
         Ok(out)
+    }
+
+    fn draft(&self, id: DraftId) -> Result<Draft, StoreError> {
+        self.load_draft(id)
+    }
+
+    fn drafts(&self, account: AccountId) -> Result<Vec<Draft>, StoreError> {
+        self.load_drafts(account)
+    }
+
+    fn set_send_state(
+        &self,
+        id: DraftId,
+        state: &SendState,
+        now: DateTime<Utc>,
+    ) -> Result<(), StoreError> {
+        SqliteStore::set_send_state(self, id, state, now)
     }
 
     fn outbox_settle(

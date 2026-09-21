@@ -12,8 +12,8 @@ use chrono::{DateTime, SecondsFormat, TimeDelta, Utc};
 use mail_domain::{
     AccountId, Change, ChangeId, Cursor, Draft, DraftId, Filter, Ingest, Label, LabelId, MatchCtx,
     Membership, Message, MessageId, MessageKey, OutboxId, Page, Patch, Pin, Property, ProtoOp,
-    Query, RemoteIntent, RemoteRef, Retry, Snooze, SortDir, SyncCursor, Thread, ThreadId,
-    ThreadSummary, UidValidity,
+    Query, RemoteIntent, RemoteRef, Retry, SendState, Snooze, SortDir, SyncCursor, Thread,
+    ThreadId, ThreadSummary, UidValidity,
 };
 use serde::Serialize;
 
@@ -119,6 +119,43 @@ impl Store for MemoryStore {
         let summary = inner.summary_of(id).ok_or(StoreError::NoThread(id))?;
         let messages = inner.messages_of(id).into_iter().map(|m| m.id).collect();
         Ok(Thread { summary, messages })
+    }
+
+    fn draft(&self, id: DraftId) -> Result<Draft, StoreError> {
+        self.inner
+            .borrow()
+            .drafts
+            .get(&id)
+            .cloned()
+            .ok_or(StoreError::NoDraft(id))
+    }
+
+    fn drafts(&self, account: AccountId) -> Result<Vec<Draft>, StoreError> {
+        let inner = self.inner.borrow();
+        let mut out: Vec<Draft> = inner
+            .drafts
+            .values()
+            .filter(|d| d.account == account)
+            .cloned()
+            .collect();
+        // Newest first, matching SQLite's `ORDER BY updated_at DESC`. The id breaks ties so
+        // the order is total: two drafts saved in the same second must not swap between calls,
+        // or the parity test fails intermittently and for the wrong reason.
+        out.sort_by(|a, b| b.updated.cmp(&a.updated).then_with(|| a.id.cmp(&b.id)));
+        Ok(out)
+    }
+
+    fn set_send_state(
+        &self,
+        id: DraftId,
+        state: &SendState,
+        now: DateTime<Utc>,
+    ) -> Result<(), StoreError> {
+        let mut inner = self.inner.borrow_mut();
+        let draft = inner.drafts.get_mut(&id).ok_or(StoreError::NoDraft(id))?;
+        draft.state = state.clone();
+        draft.updated = now;
+        Ok(())
     }
 
     fn message(&self, id: MessageId) -> Result<Message, StoreError> {

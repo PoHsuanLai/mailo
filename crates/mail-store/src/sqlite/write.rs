@@ -125,7 +125,16 @@ impl SqliteStore {
                 )?;
                 None
             }
-            Change::DraftUpsert(_) | Change::DraftDelete(_) => None,
+            // A draft belongs to no thread, so there is no summary to refresh: `None`
+            // here means "nothing to recompute", not "nothing was written".
+            Change::DraftUpsert(draft) => {
+                self.write_draft(draft)?;
+                None
+            }
+            Change::DraftDelete(id) => {
+                self.delete_draft(*id)?;
+                None
+            }
         };
         Ok(thread)
     }

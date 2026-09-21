@@ -17,8 +17,8 @@ pub use error::StoreError;
 
 use chrono::{DateTime, Utc};
 use mail_domain::{
-    AccountId, Filter, Ingest, Message, MessageId, OutboxId, Page, Patch, ProtoOp, Query,
-    RemoteIntent, Retry, Thread, ThreadId, ThreadSummary,
+    AccountId, Draft, DraftId, Filter, Ingest, Message, MessageId, OutboxId, Page, Patch, ProtoOp,
+    Query, RemoteIntent, Retry, SendState, Thread, ThreadId, ThreadSummary,
 };
 
 /// One queued unit of remote work, with everything needed to retry or abandon it.
@@ -115,6 +115,24 @@ pub trait Store {
         account: AccountId,
         limit: u32,
     ) -> Result<Vec<mail_domain::RemoteRef>, StoreError>;
+
+    /// One draft by id.
+    fn draft(&self, id: DraftId) -> Result<Draft, StoreError>;
+
+    /// Every draft on an account, most recently touched first.
+    fn drafts(&self, account: AccountId) -> Result<Vec<Draft>, StoreError>;
+
+    /// Move a draft between send states.
+    ///
+    /// Separate from [`Store::apply`] because it is not the user's edit and must not be
+    /// undoable: "Sending…" becoming "Sent" is the world reporting what happened, and an undo
+    /// stack that could revert it would be lying about the message still being unsent.
+    fn set_send_state(
+        &self,
+        id: DraftId,
+        state: &SendState,
+        now: DateTime<Utc>,
+    ) -> Result<(), StoreError>;
 
     /// Record how a queued operation finished and act on it.
     fn outbox_settle(
