@@ -639,3 +639,51 @@ mod composer {
         );
     }
 }
+
+/// Closing the composer must not cost the user what they typed.
+mod closing {
+    use super::*;
+    use view::Composing;
+
+    /// What the Close button does: save, and only then drop the widgets.
+    fn close(store: &SqliteStore, editing: &Composing, now: DateTime<Utc>) -> Result<(), String> {
+        let base = store.draft(editing.draft).map_err(|e| e.to_string())?;
+        let edited = editing.apply_to(&base, now)?;
+        compose::save(store, &edited)
+    }
+
+    #[test]
+    fn closing_saves_what_was_typed() {
+        // The bug: Close called close_composer directly and threw away everything since the
+        // last Save, behind a comment saying that could not happen.
+        let (store, _dir) = seeded();
+        let draft = compose::draft_reply(&store, ORIGINAL, ReplyScope::Sender, "", at(10)).unwrap();
+        let mut editing = Composing::of(&draft);
+        editing.body = "a paragraph nobody clicked Save on".to_owned();
+
+        close(&store, &editing, at(11)).expect("closing saves");
+        assert!(
+            store
+                .draft(draft.id)
+                .unwrap()
+                .text
+                .contains("a paragraph nobody clicked Save on"),
+            "closing the composer lost the text"
+        );
+    }
+
+    #[test]
+    fn a_recipient_that_does_not_parse_refuses_the_close_rather_than_the_text() {
+        // Staying open is the point: a typo in the To box must not cost the paragraph.
+        let (store, _dir) = seeded();
+        let draft = compose::draft_reply(&store, ORIGINAL, ReplyScope::Sender, "", at(10)).unwrap();
+        let mut editing = Composing::of(&draft);
+        editing.body = "worth keeping".to_owned();
+        editing.to = "nonsense".to_owned();
+
+        assert!(close(&store, &editing, at(11)).is_err());
+        // Nothing was written, and the composer stays open holding the text.
+        assert_eq!(store.draft(draft.id).unwrap().text, draft.text);
+        assert_eq!(editing.body, "worth keeping");
+    }
+}

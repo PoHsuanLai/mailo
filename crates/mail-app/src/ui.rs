@@ -360,8 +360,27 @@ fn Composer(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
                 strong { "{editing.subject}" }
                 button {
                     class: "ghost",
-                    onclick: move |_| shell.write().close_composer(),
+                    onclick: move |_| {
+                        let store = use_context::<Arc<SqliteStore>>();
+                        let current = shell.read().composing.clone();
+                        match persist(&store, current.as_ref()) {
+                            Ok(_) => {
+                                shell.write().close_composer();
+                                revision += 1;
+                            }
+                            // Stay open rather than lose the text. A recipient that does not
+                            // parse must not cost the user the paragraph they just wrote, and
+                            // Discard is right there for anyone who meant to abandon it.
+                            Err(why) => set_notice(&mut shell, Some(why)),
+                        }
+                    },
                     "Close"
+                }
+                button {
+                    class: "ghost",
+                    onclick: move |_| shell.write().close_composer(),
+                    title: "Close without saving",
+                    "Discard"
                 }
             }
             if let Some(notice) = editing.notice.clone() {

@@ -338,10 +338,12 @@ impl Shell {
         self.composing = Some(Composing::of(draft));
     }
 
-    /// Close the composer, discarding whatever is in it.
+    /// Drop the composer's widgets without writing them anywhere.
     ///
-    /// Discarding is safe because every edit the composer makes is saved to the store before it
-    /// can be lost — the draft row is the document, and this struct is only the widgets.
+    /// This **loses** whatever has not been saved, so the only caller that may reach it without
+    /// saving first is an explicit Discard. Closing saves and then calls this; an earlier
+    /// version closed straight into it and quietly threw away everything typed since the last
+    /// Save, behind a comment claiming that could not happen.
     pub fn close_composer(&mut self) {
         self.composing = None;
     }

@@ -619,3 +619,23 @@ Order matters and is asserted: sanitize, then resolve. Reversed, the sanitizer w
 a `data:` URI this code produced rather than the `cid:` the sender wrote.
 
 A deviation from the plan, recorded as one.
+
+### F43 — A comment that asserted the bug could not happen
+
+`Shell::close_composer` dropped the composer's widgets, and its doc comment said discarding was
+safe "because every edit the composer makes is saved to the store before it can be lost". That
+was true of no code. The Close button called it directly, so everything typed since the last
+explicit Save was gone — a paragraph of writing, lost to the button whose label most implies
+safety.
+
+I wrote both the comment and the bug, in the same commit, and the comment is what made it hard
+to see: it reads like an invariant being documented rather than one being assumed.
+
+Close now saves and then closes, and refuses to close if the save fails — a recipient that does
+not parse must not cost the user the paragraph. Discard is a separate button for deliberate
+abandonment, and `close_composer`'s comment now says plainly that it loses unsaved work and names
+the one caller allowed to reach it without saving.
+
+The lesson is narrower than "comments lie". It is that a comment explaining why a hazard is safe
+should name the code that makes it safe, so that the claim can be checked — and if it cannot name
+one, the hazard is real.
