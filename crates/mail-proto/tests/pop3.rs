@@ -310,3 +310,31 @@ fn interrupt_finishes_the_inflight_command_then_quits() {
         ]
     );
 }
+
+/// `TOP n 0` returns headers and does not claim to be a whole message.
+///
+/// The distinction is load-bearing: `RETR` sets the seen flag on Dovecot and `TOP` does not, so
+/// a first sync over a large maildrop must use `TOP` or it marks the user's entire mailbox read
+/// in their webmail. A separate reply variant stops a caller storing headers as a full message.
+#[test]
+fn top_returns_headers_without_claiming_a_whole_message() {
+    let replies = drive(
+        vec![Pop3Command::Top(1, 2), Pop3Command::Quit],
+        include_str!("traces/pop3/top_headers_only.trace"),
+    );
+    assert_eq!(
+        replies,
+        vec![
+            Pop3Reply::Greeting("POP3 server ready".into()),
+            Pop3Reply::Headers(message(&[
+                "From: ada@example.test",
+                "Subject: headers and two lines",
+                "",
+                "Hello there",
+                // sent as "..signature follows": one leading dot removed, exactly as in RETR
+                ".signature follows",
+            ])),
+            Pop3Reply::Quit("bye".into()),
+        ]
+    );
+}

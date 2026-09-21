@@ -1,0 +1,21 @@
+# SYNTHETIC, written from RFC 1939 section 7. Not recorded from a server.
+#
+# TOP fetches headers plus a bounded number of body lines WITHOUT setting the seen flag, which
+# RETR does. A first sync over a large maildrop must use this, or it marks the user's entire
+# mailbox read in their webmail.
+#
+# The second body line is dot-stuffed: it was sent as "..signature" and is one line of content
+# beginning with a single dot. Stuffing applies only at the START of a line, which is why the
+# ".." here is at the line start and not inside the header value above.
+S: +OK POP3 server ready
+C: TOP 1 2
+S: +OK top of message follows
+S: From: ada@example.test
+S: Subject: headers and two lines
+S:
+S: Hello there
+S: ..signature follows
+S: .
+C: QUIT
+S: +OK bye
+DONE

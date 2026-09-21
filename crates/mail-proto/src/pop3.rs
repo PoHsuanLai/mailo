@@ -51,7 +51,17 @@ pub enum Pop3Command {
     /// `LIST` for the whole maildrop.
     List,
     /// `RETR` of one server message number.
+    ///
+    /// **Marks the message read on the server.** Dovecot gates its seen-flag update on this
+    /// path, so a first sync that `RETR`s a whole maildrop silently marks every message read in
+    /// the user's webmail. Prefer [`Pop3Command::Top`] for headers.
     Retr(u32),
+    /// `TOP` of one message number, returning its headers plus that many body lines.
+    ///
+    /// `Top(n, 0)` is headers only, and unlike `RETR` it does **not** set the seen flag. Every
+    /// documented `TOP` bug in the wild is a failure to return the requested *body lines*, never
+    /// wrong headers, so zero body lines sits in the corner implementations get right.
+    Top(u32, u32),
     /// `DELE` of one server message number.
     Dele(u32),
     /// `QUIT`. A `+OK` ends the session even if further commands were queued.
@@ -83,6 +93,12 @@ pub enum Pop3Reply {
     /// `RETR` payload. Dot-stuffing is removed and each line keeps its CRLF.
     /// The terminating `.` line is not included.
     Retrieved(Vec<u8>),
+    /// `TOP` payload: headers, and any body lines asked for. Dot-stuffing removed.
+    ///
+    /// Deliberately not [`Pop3Reply::Retrieved`]: headers-only is a different thing from a whole
+    /// message, and a caller that confuses them stores a truncated message as if it were
+    /// complete.
+    Headers(Vec<u8>),
     /// `DELE` was accepted. Text is the server's tail.
     Deleted(String),
     /// `QUIT` was accepted. The session is over.
@@ -470,9 +486,11 @@ fn decide_multi_body(cmd: Pop3Command, mut lines: Vec<Vec<u8>>, line: &[u8]) -> 
 
 fn shape(cmd: &Pop3Command) -> ResponseShape {
     match cmd {
-        Pop3Command::Capa | Pop3Command::Uidl | Pop3Command::List | Pop3Command::Retr(_) => {
-            ResponseShape::Multi
-        }
+        Pop3Command::Capa
+        | Pop3Command::Uidl
+        | Pop3Command::List
+        | Pop3Command::Retr(_)
+        | Pop3Command::Top(_, _) => ResponseShape::Multi,
         Pop3Command::User
         | Pop3Command::Pass
         | Pop3Command::AuthPlain
@@ -489,7 +507,11 @@ fn interpret_single(cmd: &Pop3Command, text: &str) -> Result<Pop3Reply, ProtoErr
         Pop3Command::Pass | Pop3Command::AuthPlain => Ok(Pop3Reply::Authenticated(text.to_owned())),
         Pop3Command::Dele(_) => Ok(Pop3Reply::Deleted(text.to_owned())),
         Pop3Command::Quit => Ok(Pop3Reply::Quit(text.to_owned())),
-        Pop3Command::Capa | Pop3Command::Uidl | Pop3Command::List | Pop3Command::Retr(_) => {
+        Pop3Command::Capa
+        | Pop3Command::Uidl
+        | Pop3Command::List
+        | Pop3Command::Retr(_)
+        | Pop3Command::Top(_, _) => {
             // invariant: those commands are Phase::MultiStatus, never Phase::Single
             panic!("multi-line command reached the single-line parser");
         }
@@ -516,6 +538,7 @@ fn interpret_multi(cmd: &Pop3Command, lines: &[Vec<u8>]) -> Result<Pop3Reply, Pr
             .collect::<Result<Vec<_>, _>>()
             .map(Pop3Reply::List),
         Pop3Command::Retr(_) => Ok(Pop3Reply::Retrieved(join_lines(lines))),
+        Pop3Command::Top(_, _) => Ok(Pop3Reply::Headers(join_lines(lines))),
         Pop3Command::User
         | Pop3Command::Pass
         | Pop3Command::AuthPlain
@@ -660,6 +683,12 @@ fn encode(cmd: &Pop3Command, auth: &Auth) -> Vec<u8> {
         Pop3Command::Retr(number) => {
             out.extend_from_slice(b"RETR ");
             out.extend_from_slice(number.to_string().as_bytes());
+        }
+        Pop3Command::Top(number, body_lines) => {
+            out.extend_from_slice(b"TOP ");
+            out.extend_from_slice(number.to_string().as_bytes());
+            out.push(b' ');
+            out.extend_from_slice(body_lines.to_string().as_bytes());
         }
         Pop3Command::Dele(number) => {
             out.extend_from_slice(b"DELE ");
