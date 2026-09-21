@@ -1002,3 +1002,35 @@ with the offending command quoted. This is the fourth time in this session that 
 turned out not to assert what it claimed (F41, F48, and the POP3 repeat-pass comment). Three of
 the four were found by deliberately reintroducing the bug. The fourth was found by accident,
 which is the argument for doing it deliberately every time.
+
+### F61 — A sweep for assertions that cannot fail
+
+F60 was found by accident: an over-escaped string made a *different* test fail against a correct
+command, which sent me looking for the same mistake elsewhere. Accident is not a method, and the
+property is checkable, so every assertion in the workspace was swept for the ways one can be
+vacuous.
+
+**Over-escaped literals** (four backslashes in source, two in the string): none remaining beyond
+F60's.
+
+**Vacuous iteration** — `for token in case.drop { assert!(…) }` asserts nothing when the list is
+empty. The sanitizer's 26-case table has five cases with an empty `drop` and two with an empty
+`keep`, but none with both, so every case still asserts something. Sound, and now known to be
+rather than assumed.
+
+**Tautological disjunctions**, which is where the two real findings were:
+
+- `assemble.rs` claimed to check that an unparseable `Date` falls back to the server's, and
+  asserted `all(|t| t.last_date == now() || t.last_date.timestamp() > 0)`. The second half is
+  true of every date after 1970, so it passed whatever the fallback did — including not falling
+  back at all. It now finds the one message with a bad date by subject and asserts its date
+  equals the server's exactly. Breaking the fallback now fails it; before, it did not.
+
+- `drive.rs` asserted a closed peer reports `contains("closed") || contains("io")`. `"io"` is a
+  substring of `"connection"`, so any error mentioning a connection passed — which is most of
+  them. It now names the message. Changing `UnexpectedEof`'s text to "io failure on the
+  connection" fails the new assertion and would have passed the old one.
+
+The pattern in both: a disjunction added to make a test tolerant of an answer the author was not
+sure of. Tolerance is the right instinct and a substring is the wrong implement — it widens the
+assertion to things that share three letters rather than to the alternatives actually meant.

@@ -191,12 +191,20 @@ fn malformed_headers_are_recorded_rather_than_rejected() {
 
     let threads = store.threads(&query(Filter::All), now()).unwrap();
     assert_eq!(threads.items.len(), 3, "all three are real messages");
-    // The unparseable date falls back to the server's, rather than rejecting the message.
-    assert!(
-        threads
-            .items
-            .iter()
-            .all(|t| t.last_date == now() || t.last_date.timestamp() > 0)
+
+    // The unparseable date falls back to the server's. Named exactly, against the one message
+    // that has a bad date: this read `all(|t| t.last_date == now() || t.last_date.timestamp() >
+    // 0)`, whose second half is true of every date after 1970 — so it passed whatever the
+    // fallback did, including not falling back at all.
+    let whenever = threads
+        .items
+        .iter()
+        .find(|t| t.subject == "whenever")
+        .expect("the message with the unparseable date");
+    assert_eq!(
+        whenever.last_date,
+        now(),
+        "an unparseable Date did not fall back to the server's"
     );
 }
 

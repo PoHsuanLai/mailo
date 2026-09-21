@@ -131,7 +131,13 @@ async fn a_closed_connection_ends_the_session() {
         .await
         .expect_err("the server closes without replying");
     let text = format!("{err}");
-    assert!(text.contains("closed") || text.contains("io"), "{text}");
+    // Named exactly. This read `contains("closed") || contains("io")`, and "io" is a substring
+    // of "connection" — so the disjunction passed on any error mentioning a connection at all,
+    // including ones that had nothing to do with the peer hanging up.
+    assert!(
+        text.contains("connection closed unexpectedly"),
+        "a closed peer should report EOF, not {text:?}"
+    );
 }
 
 /// Cancellation reaches a machine parked waiting for bytes, and it answers first.
