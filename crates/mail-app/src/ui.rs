@@ -54,7 +54,7 @@ fn App() -> Element {
     // indexed query, which is why the sidebar can afford to ask on every revision.
     let badges = use_memo(move || {
         let _ = revision();
-        let store = use_context::<Arc<SqliteStore>>();
+        let store = consume_context::<Arc<SqliteStore>>();
         let now = chrono::Utc::now();
         shell
             .read()
@@ -86,7 +86,7 @@ fn App() -> Element {
         if !matches!(shell.read().listing(PAGE), Listing::Drafts) {
             return Vec::new();
         }
-        let store = use_context::<Arc<SqliteStore>>();
+        let store = consume_context::<Arc<SqliteStore>>();
         accounts(&store)
             .into_iter()
             .filter_map(|account| store.drafts(account).ok())
@@ -133,7 +133,7 @@ fn App() -> Element {
                             return;
                         }
                         sync_state.set(SyncState::Running);
-                        let store = use_context::<Arc<SqliteStore>>();
+                        let store = consume_context::<Arc<SqliteStore>>();
                         spawn(async move {
                             // `spawn_blocking`, not this task: sync::run opens sockets and
                             // builds its own runtime, and `Runtime::block_on` inside an async
@@ -190,7 +190,7 @@ fn App() -> Element {
                                 key: "{id}",
                                 class: "row",
                                 onclick: move |_| {
-                                    let store = use_context::<Arc<SqliteStore>>();
+                                    let store = consume_context::<Arc<SqliteStore>>();
                                     if let Ok(draft) = store.draft(id) {
                                         shell.write().compose(&draft);
                                     }
@@ -225,7 +225,7 @@ fn App() -> Element {
                                             onclick: move |e: Event<MouseData>| {
                                                 // Without this the click also opens the thread.
                                                 e.stop_propagation();
-                                                let store = use_context::<Arc<SqliteStore>>();
+                                                let store = consume_context::<Arc<SqliteStore>>();
                                                 match reply_scope(kind) {
                                                     Some(scope) => {
                                                         match start_reply(&store, id, scope) {
@@ -354,11 +354,12 @@ fn Reader(thread: ThreadId, shell: Signal<Shell>) -> Element {
 /// draft" is how a window and a command start disagreeing about what a draft is.
 #[component]
 fn Composer(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
-    // The store is taken inside each handler rather than here: a handler runs long after this
-    // render, and the context it needs is the one live at that moment.
-    let Some(editing) = shell.read().composing.clone() else {
-        return rsx! {};
-    };
+    // Every hook first, before any early return. `use_hook` matches hooks between renders by
+    // call order, so a component that returns before reaching one leaves every hook after it at
+    // a different index on the next render. This function used to return above both hooks
+    // below, which happened to be harmless — there was no third hook to shift — but "harmless
+    // given the current body" is a property that the next hook added here would quietly end.
+    //
     // Set by every field, cleared by a successful write. A flag rather than comparing against
     // the stored row on a timer: the comparison would read and parse the draft every few
     // seconds whether or not anyone had touched it.
@@ -372,7 +373,7 @@ fn Composer(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
             if !dirty() {
                 continue;
             }
-            let store = use_context::<Arc<SqliteStore>>();
+            let store = consume_context::<Arc<SqliteStore>>();
             let current = shell.read().composing.clone();
             // Failures are swallowed on purpose. The usual one is a half-typed recipient, and a
             // timer that interrupts to complain about an address still being typed is worse than
@@ -383,6 +384,13 @@ fn Composer(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
         }
     });
 
+    // Now the early return, below every hook. `App` only renders this when something is being
+    // composed, but "only" is a claim about a caller, and the rules of hooks are not a matter
+    // of who calls what.
+    let Some(editing) = shell.read().composing.clone() else {
+        return rsx! {};
+    };
+
     rsx! {
         div { class: "composer",
             header { class: "composer-head",
@@ -390,7 +398,7 @@ fn Composer(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
                 button {
                     class: "ghost",
                     onclick: move |_| {
-                        let store = use_context::<Arc<SqliteStore>>();
+                        let store = consume_context::<Arc<SqliteStore>>();
                         let current = shell.read().composing.clone();
                         match persist(&store, current.as_ref()) {
                             Ok(_) => {
@@ -461,7 +469,7 @@ fn Composer(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
             div { class: "composer-actions",
                 button {
                     onclick: move |_| {
-                        let store = use_context::<Arc<SqliteStore>>();
+                        let store = consume_context::<Arc<SqliteStore>>();
                         // Cloned out of the signal in its own statement: the read guard ends
                         // here, so the handler can write a notice back afterwards. It also
                         // reads what is in the fields *now* rather than at last render.
@@ -481,7 +489,7 @@ fn Composer(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
                 button {
                     class: "primary",
                     onclick: move |_| {
-                        let store = use_context::<Arc<SqliteStore>>();
+                        let store = consume_context::<Arc<SqliteStore>>();
                         // Saved first, always. Sending what is in the widgets without writing
                         // it down means a failure between the two loses the user's edits.
                         let current = shell.read().composing.clone();
@@ -712,3 +720,224 @@ article time { margin-left: auto; opacity: .6; }
 .more { display: block; width: calc(100% - 24px); margin: 10px 12px; padding: 8px; font: inherit; border: 1px solid var(--edge); border-radius: 6px; background: none; color: inherit; cursor: pointer; }
 .images { font: inherit; font-size: 12px; padding: 4px 10px; border: 1px solid var(--edge); border-radius: 999px; background: none; color: inherit; cursor: pointer; margin-bottom: 8px; }
 "#;
+
+#[cfg(test)]
+mod render_tests {
+    //! The components, actually executed.
+    //!
+    //! Everything else about the shell is tested through `view.rs` and `reader.rs`, which are
+    //! free of Dioxus on purpose. That leaves the components themselves — and a component can
+    //! fail in ways those tests cannot see: a panic in `rsx!`, a context that is not there, or
+    //! a hook called somewhere the rules of hooks forbid. A `VirtualDom` runs them with no
+    //! window, which is the only part of this that ever needed one.
+
+    use super::*;
+    use dioxus_core::{NoOpMutations, VirtualDom};
+
+    const ACCOUNT: AccountId =
+        AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+
+    /// A store with one account, one message and one draft, so the panes have something to draw.
+    fn seeded() -> (Arc<SqliteStore>, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
+        let identity = IdentityId::generate();
+        {
+            let db = store.connection();
+            db.execute(
+                "INSERT INTO accounts (id, address, plan, created_at)
+                 VALUES (?1, 'me@example.test', '{}', datetime('now'))",
+                [ACCOUNT.to_string()],
+            )
+            .unwrap();
+            db.execute(
+                "INSERT INTO identities (id, account, from_name, from_email, is_default)
+                 VALUES (?1, ?2, NULL, 'me@example.test', '\"default\"')",
+                [identity.to_string(), ACCOUNT.to_string()],
+            )
+            .unwrap();
+        }
+
+        let raw = store
+            .blobs()
+            .put(
+                &store.connection(),
+                b"From: ada@example.test\r\nSubject: hi\r\n\r\nbody\r\n",
+            )
+            .unwrap();
+        let message = Message {
+            id: MessageId::generate(),
+            thread: ThreadId::generate(),
+            account: ACCOUNT,
+            key: MessageKey::Rfc("m1@example.test".to_owned()),
+            date: chrono::Utc::now(),
+            from: Address {
+                name: Some("Ada".to_owned()),
+                email: "ada@example.test".to_owned(),
+            },
+            reply_to: vec![],
+            to: vec![],
+            cc: vec![],
+            bcc: vec![],
+            subject: "hi".to_owned(),
+            in_reply_to: None,
+            references: vec![],
+            rfc_message_id: Some("m1@example.test".to_owned()),
+            read: ReadState::Unread,
+            star: Star::Unstarred,
+            mailbox: MailboxRole::Inbox,
+            labels: vec![],
+            body: Body::Present {
+                text: Some("body".to_owned()),
+                raw,
+            },
+            attachments: vec![],
+        };
+        store
+            .ingest(
+                ACCOUNT,
+                Ingest {
+                    mailbox: MailboxRef {
+                        account: ACCOUNT,
+                        path: "INBOX".to_owned(),
+                    },
+                    validity: UidValidity::Same,
+                    cursor: SyncCursor::Pop,
+                    messages: vec![Fetched {
+                        remote: RemoteRef::Pop {
+                            uidl: "u1".to_owned(),
+                        },
+                        key: message.key.clone(),
+                        raw,
+                        message,
+                    }],
+                    flags: vec![],
+                    labels: vec![],
+                    gone: vec![],
+                },
+            )
+            .unwrap();
+
+        store
+            .apply(
+                ACCOUNT,
+                &Patch {
+                    id: ChangeId::generate(),
+                    changes: vec![Change::DraftUpsert(Box::new(Draft {
+                        id: DraftId::generate(),
+                        account: ACCOUNT,
+                        identity,
+                        to: vec![Address {
+                            name: None,
+                            email: "ada@example.test".to_owned(),
+                        }],
+                        cc: vec![],
+                        bcc: vec![],
+                        subject: "Re: hi".to_owned(),
+                        in_reply_to: None,
+                        forward_of: None,
+                        text: "typing".to_owned(),
+                        html: None,
+                        attachments: vec![],
+                        state: SendState::Editing,
+                        updated: chrono::Utc::now(),
+                    }))],
+                },
+            )
+            .unwrap();
+        (store, dir)
+    }
+
+    #[tokio::test]
+    async fn the_whole_app_renders() {
+        // Catches what compiling cannot: a missing context, a panic inside `rsx!`, a query that
+        // blows up on a real database. Until this test the components had never been executed
+        // at all — every other test stops at `view.rs`.
+        let (store, _dir) = seeded();
+        let mut dom = VirtualDom::new(App).with_root_context(store);
+        dom.rebuild_in_place();
+    }
+
+    #[tokio::test]
+    async fn re_rendering_the_app_is_stable() {
+        // A second render is where hook-order mistakes surface: hooks are matched between
+        // renders by call order, so a component whose hook count changes corrupts every index
+        // after it, and the first render alone would never show it.
+        let (store, _dir) = seeded();
+        let mut dom = VirtualDom::new(App).with_root_context(store);
+        dom.rebuild_in_place();
+        for _ in 0..3 {
+            dom.mark_dirty(dioxus_core::ScopeId::APP);
+            dom.render_immediate(&mut NoOpMutations);
+        }
+    }
+
+    /// Whether the harness should have a composer open on this render.
+    ///
+    /// Shared through the root context rather than a prop, so the test can flip it *between*
+    /// renders of the same scope — which is the only way the hook-order mistake shows itself.
+    #[derive(Clone)]
+    struct Toggle(Arc<std::sync::atomic::AtomicBool>);
+
+    /// Renders `Composer`, opening or closing it according to [`Toggle`] on every render.
+    #[component]
+    fn ComposerHarness() -> Element {
+        let store = use_context::<Arc<SqliteStore>>();
+        let toggle = use_context::<Toggle>();
+        let mut shell = use_signal(Shell::default);
+        let revision = use_signal(|| 0u64);
+
+        let want_open = toggle.0.load(std::sync::atomic::Ordering::SeqCst);
+        let is_open = shell.read().composing.is_some();
+        if want_open && !is_open {
+            if let Some(draft) = store
+                .drafts(ACCOUNT)
+                .ok()
+                .and_then(|d| d.into_iter().next())
+            {
+                shell.write().compose(&draft);
+            }
+        } else if !want_open && is_open {
+            shell.write().close_composer();
+        }
+        rsx! { Composer { shell, revision } }
+    }
+
+    fn harness(open: bool) -> (VirtualDom, Toggle, tempfile::TempDir) {
+        let (store, dir) = seeded();
+        let toggle = Toggle(Arc::new(std::sync::atomic::AtomicBool::new(open)));
+        let dom = VirtualDom::new(ComposerHarness)
+            .with_root_context(store)
+            .with_root_context(toggle.clone());
+        (dom, toggle, dir)
+    }
+
+    #[tokio::test]
+    async fn the_composer_renders_with_a_draft_open() {
+        let (mut dom, _toggle, _dir) = harness(true);
+        dom.rebuild_in_place();
+    }
+
+    #[tokio::test]
+    async fn the_composer_can_be_opened_and_closed_repeatedly() {
+        // What this proves is what it says: opening and closing the composer, several times,
+        // runs the component each way round without panicking.
+        //
+        // It is deliberately *not* claiming to guard the hook-order fix in the same commit.
+        // That fix is right — `use_hook` is documented to require a stable call order, and
+        // `Composer` used to return above both of its hooks — but I checked, and this test
+        // passes with the early return put back. It has to: `use_hook` indexes from zero on
+        // every render, and since the early return preceded *every* hook in the function there
+        // was no later hook left to misalign. The rule was broken; nothing downstream of it
+        // was. Writing the assertion that could fail is how I found that out, and leaving the
+        // test here mislabelled would have been worse than not writing it.
+        let (mut dom, toggle, _dir) = harness(false);
+        dom.rebuild_in_place();
+
+        for open in [true, false, true, false] {
+            toggle.0.store(open, std::sync::atomic::Ordering::SeqCst);
+            dom.mark_dirty(dioxus_core::ScopeId::APP);
+            dom.render_immediate(&mut NoOpMutations);
+        }
+    }
+}

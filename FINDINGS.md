@@ -717,3 +717,44 @@ message.
 
 Both servers or neither. Naming only `--imap` is refused rather than completed with a guessed
 `smtp.` hostname, which is how mail leaves through a server the user never chose.
+
+### F48 — Eleven hooks called from event handlers, and one honest correction
+
+`use_context` is `use_hook(|| consume_context())` — a hook, bound by the rules of hooks.
+`consume_context` is the same lookup without the hook, and its documentation says so explicitly:
+"can be called from anywhere the Dioxus runtime is active — inside event handlers, async tasks,
+spawned futures, or other non-hook contexts". `ui.rs` called `use_context` at eleven sites, nine
+of them inside event handlers, memo closures or a spawned future. Those nine are now
+`consume_context`; the two at component tops, which are in the render path, stay as they were.
+
+The correction is to the other half of the same commit. `Composer` returned early, above both of
+its hooks, and I described that as a live bug. It is a broken rule and it is now fixed — but I
+wrote the test that would catch it, put the early return back, and watched the test pass.
+`use_hook` indexes from zero on every render, and since the early return preceded *every* hook in
+that function, there was no later hook left to misalign. The rule was broken; nothing downstream
+of it was.
+
+The fix stays, because "harmless given the current body" stops being true the moment someone adds
+a third hook below. The test stays too, renamed to claim only what it demonstrates. What does not
+stay is the assertion that it guarded a crash.
+
+This is the second time in this session that writing the failing case changed what I believed
+(the first was F41). The rule that produced both: a test that has never failed has not been shown
+to be a test, and a comment claiming a hazard is handled should name the thing that handles it.
+
+### F49 — The components had never been executed
+
+Every test of the shell stopped at `view.rs` and `reader.rs`, which are free of Dioxus on
+purpose. Nothing had ever run `App` or `Composer` — so a panic inside `rsx!`, a context that was
+not provided, or a store query that failed on a real database would all have waited for the first
+person to open the window.
+
+`VirtualDom::new(App).with_root_context(store)` runs them with no window at all. Four tests now
+render the app against a seeded database, re-render it, and open and close the composer.
+
+They need a tokio reactor, which is itself worth knowing: the composer's autosave is a
+`tokio::time::sleep` inside `use_future`, so any render that polls tasks depends on one being
+present. `dioxus-desktop` supplies it at runtime; the tests say `#[tokio::test]` for the same
+reason.
+
+The window was also launched for real against a scratch database, twice, and stayed up.
