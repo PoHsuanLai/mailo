@@ -1269,3 +1269,32 @@ is a test people learn to ignore.
 No authentication attempts were made against NTU or any other third party. A failed login against
 a university's production server risks the user's own address being rate-limited, which is not
 mine to spend.
+
+### F73 — A sync against a real IMAP server, and three bugs in my own fixture
+
+The excuse was "IMAP has no pip-installable equivalent" to `aiosmtpd`. Wrong: Twisted ships
+`IMAP4Server`, a real IMAP4rev1 implementation written by people who were not thinking about this
+client, and it installs into the same scratchpad virtualenv.
+
+The client's `LOGIN`, `SELECT`, `UID FETCH` with `ENVELOPE` and `BODYSTRUCTURE`, and literal
+handling all pass against it. The body in the fixture contains `A1 OK not really` and a stray
+`)`, which are what break a parser that scans for a tagged response or counts parentheses instead
+of honouring the literal's byte count.
+
+Every failure along the way was in the fixture I wrote, and saying so precisely matters more than
+the passing result:
+
+1. **`UID FETCH 1:*` → `BAD ... Can't iterate; last value not set`.** Twisted hands the raw
+   `MessageSet` to the mailbox and expects the *mailbox* to say what `*` means. Isolated with
+   Python's own `imaplib`, which got the identical error against the same server — so the client's
+   syntax was never in question.
+2. **An `ENVELOPE` of all-NIL addresses**, which `imap-proto` rightly refused: a 3-element address
+   is not an address. `twisted.mail.imap4.getEnvelope` looks up `from`, `to`, `date` in **lower
+   case**, and the fixture returned an uppercased dict, so every lookup silently returned `None`.
+3. The same case bug in the `names` filter.
+
+Worth recording from (2): one unparseable response failed the entire walk. Here that was correct
+— the response really was malformed — but a real server sending one odd `FETCH` would break a
+whole sync rather than skipping a message. Deliberately not changed: recovering response framing
+in the presence of literals means guessing where the next response starts, and guessing wrong
+corrupts mail rather than dropping it. Recorded as a known trade-off, not fixed on a hunch.
