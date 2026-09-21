@@ -183,22 +183,30 @@ async fn one(
             Ok(report)
         }
         Incoming::Imap { .. } => {
-            let Credential::OAuth { .. } = credential else {
-                return Err(
-                    "IMAP here expects an OAuth credential; password IMAP is not wired up"
-                        .to_owned(),
-                );
+            // Password *and* bearer token. Only Gmail needs OAuth; every other IMAP server this
+            // client will meet authenticates with `LOGIN`, and refusing one meant the IMAP path
+            // could not be used at all without registering an OAuth client.
+            let mechanism = match &credential {
+                Credential::OAuth { .. } => ImapCommand::AuthenticateXoauth2,
+                Credential::Password(_) => ImapCommand::Login,
             };
             let auth = ImapAuth {
-                username: account.address.clone(),
+                username: username_for(&account.plan),
                 credential,
                 sasl: sasl_for(&account.plan),
             };
             let backend = ImapBackend::new(
                 account.id,
                 account.caps.clone(),
-                Box::new(move |commands: Vec<ImapCommand>| {
-                    ImapSession::new(auth.clone(), commands)
+                // The factory owns authentication, so the backend never names a mechanism and
+                // never holds the credential that would decide one.
+                Box::new(move |authenticate, commands: Vec<ImapCommand>| {
+                    let mut all = Vec::new();
+                    if authenticate == Authenticate::First {
+                        all.push(mechanism.clone());
+                    }
+                    all.extend(commands);
+                    ImapSession::new(auth.clone(), all)
                 }),
             );
             let mut engine = AccountEngine::new(

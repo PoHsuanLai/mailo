@@ -7,7 +7,7 @@ mod common;
 
 use common::replay;
 use mail_domain::*;
-use mail_proto::backend::ImapBackend;
+use mail_proto::backend::{Authenticate, ImapBackend};
 use mail_proto::{
     Backend, ImapAuth, ImapCommand, ImapSession, IoReady, Machine, Progress, ProtoOutcome,
 };
@@ -36,7 +36,14 @@ fn backend(caps: AccountCaps) -> ImapBackend {
     ImapBackend::new(
         ACCOUNT,
         caps,
-        Box::new(|commands: Vec<ImapCommand>| {
+        // The factory owns authentication, which is why it and not the backend decides that
+        // this account uses XOAUTH2.
+        Box::new(|auth: Authenticate, commands: Vec<ImapCommand>| {
+            let mut all = Vec::new();
+            if auth == Authenticate::First {
+                all.push(ImapCommand::AuthenticateXoauth2);
+            }
+            all.extend(commands);
             ImapSession::new(
                 ImapAuth {
                     username: "ada@example.test".to_owned(),
@@ -47,7 +54,7 @@ fn backend(caps: AccountCaps) -> ImapBackend {
                     },
                     sasl: vec![SaslMech::XOauth2],
                 },
-                commands,
+                all,
             )
         }),
     )

@@ -639,3 +639,45 @@ the one caller allowed to reach it without saving.
 The lesson is narrower than "comments lie". It is that a comment explaining why a hazard is safe
 should name the code that makes it safe, so that the claim can be checked — and if it cannot name
 one, the hazard is real.
+
+### F44 — The IMAP sync walk threw away everything it learned
+
+`ImapBackend`'s envelope job returned `empty_ingest` — no messages, no flags, and a cursor of
+`uidvalidity: 0, uidnext: 0` — with a comment explaining that turning responses into `Message`s
+needs ids and blob storage from above this crate.
+
+That reason is true and it is about *bodies*. It is not a reason to discard the UIDs, the sizes,
+the flags or the `UIDVALIDITY`, none of which need any of those things. So an IMAP sync
+authenticated, selected the mailbox, fetched every envelope — and stored nothing, reported
+`headers_fetched: 0`, and returned `Ok`. A silent, complete no-op that looked like a clean sync
+of an empty mailbox.
+
+The transcript tests could not see it: they assert which commands the backend emits, and the
+commands were right. What was wrong was what it did with the answers, which only a server
+answering can show.
+
+The walk now fills the `Ingest`'s cursor and flags from the untagged responses and records the
+survey, which `Backend::surveyed` hands the runtime — the same seam POP3 already used, and for
+the same reason: on a first sync the store knows nothing, so "what should I fetch" cannot be
+answered by asking the store.
+
+`RFC822.SIZE` was added to the fetch items in the same change. The runtime fetches bodies
+smallest band first, and with no size every message fell in the first band, which quietly turned
+the band ordering back into arrival order.
+
+### F45 — `ImapBackend` named its own authentication, eleven times
+
+`SessionFactory` took only the commands, and the backend prepended `ImapCommand::
+AuthenticateXoauth2` at every call site. `ImapSession` has supported `LOGIN` with a password all
+along, and `ImapAuth` carries a `Credential` that may be either — but nothing could reach that
+path, because the backend had already chosen.
+
+Every IMAP server except Gmail is password IMAP, so the effect was that the entire IMAP path
+required an OAuth client registration to use at all. `mail-app` said so out loud — "password
+IMAP is not wired up" — and that read like a missing feature in the app rather than a decision
+frozen three layers down.
+
+POP3 had the shape right from the start: the factory takes `Authenticate::{First, No}` and owns
+the mechanism, "because it is the only thing holding the credential and the only thing that knows
+the mechanism". `Authenticate` now lives in `backend/mod.rs` and both protocols share it — one
+question, asked twice.

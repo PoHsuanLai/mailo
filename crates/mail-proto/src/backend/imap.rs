@@ -12,8 +12,16 @@ use mail_domain::{
 };
 
 /// Builds a session for one command walk, owning the credential so the backend never sees it.
+///
+/// Takes [`Authenticate`] for the same reason POP3's does: the factory is the only thing holding
+/// the credential and therefore the only thing that can know whether this account logs in with a
+/// password or a bearer token. This backend used to name `AUTHENTICATE XOAUTH2` itself, at eleven
+/// call sites, which meant password IMAP could not work through it at all however well the
+/// session supported `LOGIN` — and every non-Gmail server is password IMAP.
 pub type SessionFactory =
-    Box<dyn FnMut(Vec<ImapCommand>) -> Result<ImapSession, ProtoError> + Send>;
+    Box<dyn FnMut(Authenticate, Vec<ImapCommand>) -> Result<ImapSession, ProtoError> + Send>;
+
+pub use super::Authenticate;
 
 /// What the backend is in the middle of.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -35,6 +43,12 @@ pub struct ImapBackend {
     caps: AccountCaps,
     build: SessionFactory,
     session: Option<ImapSession>,
+    /// What the last envelope walk found on the server: every UID, with its size.
+    ///
+    /// Held because the runtime asks for it through [`Backend::surveyed`] after the walk, for
+    /// the same reason POP3 does — on a first sync the store knows nothing, so "what should I
+    /// fetch" cannot be answered by asking the store.
+    survey: Vec<(RemoteRef, u64)>,
     job: Job,
 }
 
@@ -45,6 +59,7 @@ impl ImapBackend {
             caps,
             build,
             session: None,
+            survey: Vec::new(),
             job: Job::Idle,
         }
     }
@@ -54,7 +69,15 @@ impl ImapBackend {
     }
 
     fn queue(&mut self, commands: Vec<ImapCommand>) -> Progress<ProtoOutcome> {
-        let session = match (self.build)(commands) {
+        self.queue_as(Authenticate::First, commands)
+    }
+
+    fn queue_as(
+        &mut self,
+        auth: Authenticate,
+        commands: Vec<ImapCommand>,
+    ) -> Progress<ProtoOutcome> {
+        let session = match (self.build)(auth, commands) {
             Ok(session) => session,
             Err(e) => return Progress::Failed(e),
         };
@@ -92,29 +115,12 @@ impl ImapBackend {
         let mailbox = mailbox_of(&remotes, self.account);
         self.job = Job::Fetch { remotes };
         self.queue(vec![
-            ImapCommand::AuthenticateXoauth2,
             Self::select(&mailbox, true),
             ImapCommand::UidFetch {
                 set,
                 items: items.to_owned(),
             },
         ])
-    }
-
-    fn empty_ingest(&self, mailbox: MailboxRef, validity: UidValidity) -> Ingest {
-        Ingest {
-            mailbox,
-            validity,
-            cursor: SyncCursor::Imap {
-                uidvalidity: 0,
-                uidnext: 0,
-                modseq: None,
-            },
-            messages: Vec::new(),
-            flags: Vec::new(),
-            labels: Vec::new(),
-            gone: Vec::new(),
-        }
     }
 }
 
@@ -126,15 +132,11 @@ impl Backend for ImapBackend {
                 // Ask, authenticate, ask again. Gmail's pre-auth list omits CONDSTORE, MOVE and
                 // SPECIAL-USE, so believing the first answer reports a far less capable server
                 // than it is — F14, measured against a real account.
-                self.queue(vec![
-                    ImapCommand::Capability,
-                    ImapCommand::AuthenticateXoauth2,
-                    ImapCommand::Capability,
-                ])
+                self.queue(vec![ImapCommand::Capability, ImapCommand::Capability])
             }
             ProtoOp::ListFolders => {
                 self.job = Job::Folders;
-                self.queue(vec![ImapCommand::AuthenticateXoauth2, ImapCommand::List])
+                self.queue(vec![ImapCommand::List])
             }
             ProtoOp::FetchEnvelopes { mailbox, since } => {
                 let set = match since {
@@ -152,13 +154,16 @@ impl Backend for ImapBackend {
                 self.job = Job::Envelopes {
                     mailbox: mailbox.clone(),
                 };
+                // `RFC822.SIZE` is not decoration: the runtime fetches bodies smallest band
+                // first, and without a size every message lands in the same band and the order
+                // is arrival order again.
                 let items = if matches!(self.caps.labels, ServerLabels::Supported) {
-                    "(UID FLAGS INTERNALDATE ENVELOPE BODYSTRUCTURE X-GM-MSGID X-GM-THRID X-GM-LABELS)"
+                    "(UID FLAGS INTERNALDATE RFC822.SIZE ENVELOPE BODYSTRUCTURE \
+                     X-GM-MSGID X-GM-THRID X-GM-LABELS)"
                 } else {
-                    "(UID FLAGS INTERNALDATE ENVELOPE BODYSTRUCTURE)"
+                    "(UID FLAGS INTERNALDATE RFC822.SIZE ENVELOPE BODYSTRUCTURE)"
                 };
                 self.queue(vec![
-                    ImapCommand::AuthenticateXoauth2,
                     Self::select(&mailbox, true),
                     ImapCommand::UidFetch {
                         set,
@@ -194,10 +199,7 @@ impl Backend for ImapBackend {
                     None => {}
                 }
                 let mailbox = mailbox_of(&remotes, self.account);
-                let mut commands = vec![
-                    ImapCommand::AuthenticateXoauth2,
-                    Self::select(&mailbox, false),
-                ];
+                let mut commands = vec![Self::select(&mailbox, false)];
                 if !add.is_empty() {
                     commands.push(ImapCommand::UidStore {
                         set: set.clone(),
@@ -225,10 +227,7 @@ impl Backend for ImapBackend {
                     return Progress::Done(ProtoOutcome::Applied);
                 };
                 let mailbox = mailbox_of(&remotes, self.account);
-                let mut commands = vec![
-                    ImapCommand::AuthenticateXoauth2,
-                    Self::select(&mailbox, false),
-                ];
+                let mut commands = vec![Self::select(&mailbox, false)];
                 if !add.is_empty() {
                     commands.push(ImapCommand::UidStore {
                         set: set.clone(),
@@ -257,7 +256,6 @@ impl Backend for ImapBackend {
                         let label = gmail_label(role);
                         self.job = Job::Applied;
                         self.queue(vec![
-                            ImapCommand::AuthenticateXoauth2,
                             Self::select(&source, false),
                             ImapCommand::UidStore {
                                 set: set.clone(),
@@ -272,10 +270,7 @@ impl Backend for ImapBackend {
                     ArchiveMeans::MoveToFolder(target) => {
                         let target = target.clone();
                         self.job = Job::Applied;
-                        let mut commands = vec![
-                            ImapCommand::AuthenticateXoauth2,
-                            Self::select(&source, false),
-                        ];
+                        let mut commands = vec![Self::select(&source, false)];
                         // COPY and stop. A move completed by \Deleted + EXPUNGE is forbidden
                         // wherever expunging is: Gmail may be set to deleteForever and we
                         // cannot read that setting, so the copy stands and a stray original is
@@ -312,7 +307,6 @@ impl Backend for ImapBackend {
                     _ => "(UID FLAGS)".to_owned(),
                 };
                 self.queue(vec![
-                    ImapCommand::AuthenticateXoauth2,
                     Self::select(&mailbox, true),
                     ImapCommand::UidFetch {
                         set: "1:*".to_owned(),
@@ -327,7 +321,6 @@ impl Backend for ImapBackend {
                 // Without QRESYNC — which Gmail does not offer — this is the only way to find
                 // what was expunged elsewhere. RFC 7162 says so outright.
                 self.queue(vec![
-                    ImapCommand::AuthenticateXoauth2,
                     Self::select(&mailbox, true),
                     ImapCommand::UidSearch {
                         criteria: "ALL".to_owned(),
@@ -336,11 +329,7 @@ impl Backend for ImapBackend {
             }
             ProtoOp::Watch { mailbox } => {
                 self.job = Job::Watching;
-                self.queue(vec![
-                    ImapCommand::AuthenticateXoauth2,
-                    Self::select(&mailbox, true),
-                    ImapCommand::Idle,
-                ])
+                self.queue(vec![Self::select(&mailbox, true), ImapCommand::Idle])
             }
             ProtoOp::Expunge { .. } => Progress::Failed(ProtoError::Unsupported(
                 "expunging is forbidden: Gmail may be configured to delete permanently, and \
@@ -410,11 +399,36 @@ impl Backend for ImapBackend {
                 Progress::Done(ProtoOutcome::Caps(Box::new(caps)))
             }
             Job::Envelopes { mailbox } | Job::Flags { mailbox } | Job::Listing { mailbox } => {
-                // The transcript's untagged responses are handed up as an Ingest shell; turning
-                // them into Messages needs ids and blob storage, which live above this crate.
-                Progress::Done(ProtoOutcome::Ingested(Box::new(
-                    self.empty_ingest(mailbox, UidValidity::Same),
-                )))
+                // No `Fetched` here, and that is not laziness: a `Fetched` needs the raw bytes,
+                // and an envelope walk deliberately does not fetch them. What this walk learns
+                // is what *exists* — every UID, its size and its flags — plus where to resume.
+                // Discarding that, which is what this did until an end-to-end test asked an
+                // IMAP server for its mail and got an empty mailbox back, leaves the runtime
+                // with nothing to fetch and no cursor to fetch it from.
+                let mailbox_path = mailbox.path.clone();
+                let seen = parse_fetches(&transcript.untagged, &mailbox_path);
+                self.survey = seen
+                    .iter()
+                    .map(|row| (row.remote.clone(), row.size))
+                    .collect();
+
+                let (uidvalidity, uidnext) = mailbox_state(&transcript.untagged);
+                Progress::Done(ProtoOutcome::Ingested(Box::new(Ingest {
+                    mailbox,
+                    validity: UidValidity::Same,
+                    cursor: SyncCursor::Imap {
+                        uidvalidity,
+                        uidnext,
+                        modseq: None,
+                    },
+                    messages: Vec::new(),
+                    flags: seen
+                        .iter()
+                        .map(|row| (row.remote.clone(), row.read, row.star))
+                        .collect(),
+                    labels: Vec::new(),
+                    gone: Vec::new(),
+                })))
             }
             Job::Fetch { remotes } => {
                 let bodies: Vec<Vec<u8>> = transcript
@@ -435,6 +449,104 @@ impl Backend for ImapBackend {
     fn caps(&self) -> &AccountCaps {
         &self.caps
     }
+
+    fn surveyed(&self) -> Vec<(RemoteRef, u64)> {
+        self.survey.clone()
+    }
+}
+
+/// One message as an envelope walk saw it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Surveyed {
+    remote: RemoteRef,
+    size: u64,
+    read: mail_domain::ReadState,
+    star: mail_domain::Star,
+}
+
+/// Pull `UID`, `RFC822.SIZE` and `FLAGS` out of untagged `FETCH` responses.
+///
+/// Text scanning rather than a typed tree, matching what the rest of this backend does with
+/// untagged responses and for the reason given on [`crate::Untagged`]: the caller needs shapes
+/// this crate has no opinion about, and a lossy translation in the middle is worse than
+/// re-reading at the edge.
+///
+/// A response with no `UID` is skipped rather than guessed at. Sequence numbers shift when
+/// anything is expunged, so a message addressed by one is a message addressed wrongly.
+fn parse_fetches(untagged: &[crate::Untagged], mailbox: &str) -> Vec<Surveyed> {
+    let mut out = Vec::new();
+    for line in untagged.iter().filter(|u| u.text.contains("FETCH")) {
+        let Some(uid) = after_atom(&line.text, "UID ").and_then(|v| v.parse::<u32>().ok()) else {
+            continue;
+        };
+        // Absent size is 0, which sorts into the first band. Fetching a small message early is
+        // the cheap mistake; treating an unknown size as enormous would defer it for ever.
+        let size = after_atom(&line.text, "RFC822.SIZE ")
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(0);
+        let flags = flag_list(&line.text);
+        out.push(Surveyed {
+            remote: RemoteRef::Imap {
+                mailbox: mailbox.to_owned(),
+                // Filled in by `mailbox_state` at the Ingest level; a per-message copy would be
+                // a second place for it to be wrong.
+                uidvalidity: 0,
+                uid,
+            },
+            size,
+            read: if flags.iter().any(|f| f.eq_ignore_ascii_case("\\Seen")) {
+                mail_domain::ReadState::Read
+            } else {
+                mail_domain::ReadState::Unread
+            },
+            star: if flags.iter().any(|f| f.eq_ignore_ascii_case("\\Flagged")) {
+                mail_domain::Star::Starred
+            } else {
+                mail_domain::Star::Unstarred
+            },
+        });
+    }
+    out
+}
+
+/// The value following `key`, up to the next space or closing paren.
+fn after_atom(text: &str, key: &str) -> Option<String> {
+    let at = text.find(key)? + key.len();
+    let rest = &text[at..];
+    let end = rest.find([' ', ')', '\r', '\n']).unwrap_or(rest.len());
+    Some(rest[..end].to_owned())
+}
+
+/// The atoms inside `FLAGS (...)`.
+fn flag_list(text: &str) -> Vec<String> {
+    let Some(at) = text.find("FLAGS (") else {
+        return Vec::new();
+    };
+    let rest = &text[at + "FLAGS (".len()..];
+    let Some(end) = rest.find(')') else {
+        return Vec::new();
+    };
+    rest[..end].split_whitespace().map(str::to_owned).collect()
+}
+
+/// `UIDVALIDITY` and `UIDNEXT` from the responses to `SELECT`/`EXAMINE`.
+///
+/// Zero when absent. A server that does not say is a server we cannot resume against, and the
+/// next pass surveys from the beginning — correct, and slow, rather than wrong and fast.
+fn mailbox_state(untagged: &[crate::Untagged]) -> (u32, u32) {
+    let find = |key: &str| -> u32 {
+        untagged
+            .iter()
+            .filter_map(|u| {
+                let at = u.text.find(key)? + key.len();
+                let rest = &u.text[at..];
+                let end = rest.find([']', ' ']).unwrap_or(rest.len());
+                rest[..end].trim().parse::<u32>().ok()
+            })
+            .next_back()
+            .unwrap_or(0)
+    };
+    (find("UIDVALIDITY "), find("UIDNEXT "))
 }
 
 /// A UID set from remote references, or `None` when none of them are IMAP.

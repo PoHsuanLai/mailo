@@ -43,19 +43,7 @@ enum Job {
 pub type SessionFactory =
     Box<dyn FnMut(Authenticate, Vec<Pop3Command>) -> Result<Pop3Session, ProtoError> + Send>;
 
-/// Whether a command walk needs an authenticated session.
-///
-/// `CAPA` is legal in the AUTHORIZATION state and RFC 2449 says the answer **may differ** once
-/// authenticated — the same trap F14 caught on Gmail's IMAP, on another protocol. So a
-/// capability read asks twice and believes the second answer, and that is the one walk that
-/// starts unauthenticated.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Authenticate {
-    /// Prepend the account's auth commands before these.
-    First,
-    /// Run these as given; the walk authenticates itself, or does not need to.
-    No,
-}
+pub use super::Authenticate;
 
 /// Drives [`Pop3Session`] on behalf of an account.
 ///
