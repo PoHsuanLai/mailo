@@ -35,7 +35,7 @@ around it and it does not change it. Four of the five errors corrected in `plan.
 | shell reading | **done** — the HTML part is parsed out of the raw blob and rendered sandboxed, with `cid:` inline images resolved; neither had ever reached the iframe (F40, F42) |
 | shell drafts, paging, sync | **done** — Drafts lists the draft table rather than an empty mailbox, "Show more" pages the list, unread badges come from `Store::count`, and a Sync button runs a pass off the UI thread |
 
-440 tests across 40 targets. `fmt`, `clippy -D warnings` and `scripts/check-boundary.sh` all
+448 tests across 40 targets. `fmt`, `clippy -D warnings` and `scripts/check-boundary.sh` all
 clean.
 
 Sending was the last thing that existed only in pieces. `SmtpBackend` was written and unit-tested
@@ -61,6 +61,26 @@ Two things, and neither is removed by building more:
 The Dioxus shell compiles and its decisions are tested without a window — which query a place
 means, what the reader does with each body kind, which hover actions a thread offers. Whether it
 is pleasant to use is not something a test reports, but nothing is blocked on that.
+
+### Phase 5 without a Google OAuth client
+
+IMAP does not need OAuth; Gmail does. The backend used to name `AUTHENTICATE XOAUTH2` itself, so
+the whole IMAP path required a client registration — that is fixed (F45), and any password IMAP
+server now works:
+
+```
+MAILO_PASSWORD='…' mailo account add you@example.com \
+    --imap imap.example.com --smtp smtp.example.com [--login NAME]
+mailo sync
+```
+
+Ports default to 993 and 465, both implicit TLS. There is no STARTTLS option on purpose: an
+opportunistic upgrade is strippable by an active attacker and downgrades silently to a cleartext
+password.
+
+`tests/imap_end_to_end.rs` drives the whole stack against a real socket, including phase 5's
+second clause — killing the connection mid-body-fetch, restarting against the same database, and
+asserting the mailbox holds each message once.
 
 ### The shortest path to a working inbox
 

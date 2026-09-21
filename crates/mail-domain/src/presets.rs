@@ -140,6 +140,81 @@ fn gmail(address: &str, now: DateTime<Utc>) -> Preset {
     }
 }
 
+/// Where a manually configured account's servers are.
+///
+/// A separate type from [`AccountPlan`] because the caller has typed a host and maybe a port,
+/// and nothing else: the auth plan, the identities and the capabilities are this module's to
+/// decide, not the command line's.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Manual {
+    pub imap_host: String,
+    pub imap_port: u16,
+    pub smtp_host: String,
+    pub smtp_port: u16,
+    /// The login name, when it is not the whole address.
+    pub login: Option<String>,
+}
+
+/// A plan for a server the preset table has never heard of.
+///
+/// Every preset here was written from a measured spike against a specific host. This one cannot
+/// be, so it assumes only what is nearly universal and safe to be wrong about:
+///
+/// - **Implicit TLS.** Never `StartTlsRequired` and never `Plaintext`. An opportunistic upgrade
+///   is strippable and a cleartext password is a cleartext password; 993 and 465 are what a
+///   server offering implicit TLS uses, and one that does not will refuse the connection rather
+///   than quietly downgrade.
+/// - **`LOGIN`-shaped auth with `PLAIN` offered.** `AuthPlan::Password`, because a manually
+///   configured account is one the user has a password for — an OAuth account needs an issuer,
+///   a client id and a scope list, none of which can be guessed from a hostname.
+/// - **Capabilities at their safe end.** Labels local, no CONDSTORE, no MOVE, and expunging
+///   forbidden. The first connection replaces these with what the server actually advertises;
+///   until then, every default is the one that does the least.
+pub fn manual(address: &str, manual: &Manual, now: DateTime<Utc>) -> Preset {
+    Preset {
+        plan: AccountPlan {
+            address: address.to_owned(),
+            incoming: Incoming::Imap {
+                host: manual.imap_host.clone(),
+                port: manual.imap_port,
+                tls: Tls::Implicit,
+            },
+            outgoing: Outgoing::Smtp {
+                host: manual.smtp_host.clone(),
+                port: manual.smtp_port,
+                tls: Tls::Implicit,
+            },
+            auth: AuthPlan::Password {
+                username: match &manual.login {
+                    Some(name) => Username::Literal(name.clone()),
+                    None => Username::SameAsAddress,
+                },
+                sasl: vec![SaslMech::Plain],
+            },
+            identities: Vec::new(),
+        },
+        expected_caps: AccountCaps {
+            labels: ServerLabels::LocalOnly,
+            threads: ServerThreads::Jwz,
+            watch: WatchMode::Poll {
+                every: std::time::Duration::from_secs(300),
+            },
+            // Not `MoveToFolder`: we do not yet know this server has an Archive folder, and
+            // archiving into one that does not exist loses the message.
+            archive: ArchiveMeans::LocalOnly,
+            folders: FolderRoles(Vec::new()),
+            condstore: Condstore::Absent,
+            move_ext: MoveExt::Absent,
+            expunge: ExpungeMeans::Forbidden,
+            // POP3 vocabulary; on IMAP the equivalent is BODY.PEEK, which is always available.
+            top: Supported::Absent,
+            pipelining: Supported::Absent,
+            connections: ConnectionBudget { max: 1 },
+            observed_at: now,
+        },
+    }
+}
+
 fn ntu(address: &str, local: &str, now: DateTime<Utc>) -> Preset {
     Preset {
         plan: AccountPlan {

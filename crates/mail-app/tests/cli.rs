@@ -254,3 +254,152 @@ fn usage_mentions_every_verb_the_parser_accepts() {
         );
     }
 }
+
+/// Manual server configuration: the only way to reach a host the preset table never heard of.
+mod manual_setup {
+    use super::*;
+
+    fn args(s: &str) -> Vec<String> {
+        s.split(' ').map(str::to_owned).collect()
+    }
+
+    #[test]
+    fn naming_both_servers_configures_an_account_the_table_does_not_know() {
+        let parsed = cli::parse(&args(
+            "account add me@example.test --imap imap.example.test --smtp smtp.example.test",
+        ))
+        .expect("manual setup parses");
+        match parsed {
+            cli::Command::AccountAdd {
+                address,
+                manual: Some(manual),
+            } => {
+                assert_eq!(address, "me@example.test");
+                assert_eq!(manual.imap_host, "imap.example.test");
+                assert_eq!(manual.smtp_host, "smtp.example.test");
+                // Implicit-TLS ports, because those are the ones that cannot be downgraded.
+                assert_eq!(manual.imap_port, 993);
+                assert_eq!(manual.smtp_port, 465);
+                assert_eq!(manual.login, None);
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_port_can_be_given_with_the_host() {
+        let parsed = cli::parse(&args(
+            "account add me@example.test --imap imap.example.test:1993 --smtp smtp.example.test:1465",
+        ))
+        .unwrap();
+        match parsed {
+            cli::Command::AccountAdd {
+                manual: Some(manual),
+                ..
+            } => {
+                assert_eq!(manual.imap_port, 1993);
+                assert_eq!(manual.smtp_port, 1465);
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_login_name_that_is_not_the_address_is_carried_through() {
+        let parsed = cli::parse(&args(
+            "account add me@example.test --imap i.example.test --smtp s.example.test --login mylogin",
+        ))
+        .unwrap();
+        match parsed {
+            cli::Command::AccountAdd {
+                manual: Some(manual),
+                ..
+            } => assert_eq!(manual.login.as_deref(), Some("mylogin")),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn half_a_configuration_is_refused_rather_than_guessed() {
+        // Defaulting the missing half to a hostname derived from the domain is how mail goes to
+        // a server the user never named.
+        let err = cli::parse(&args(
+            "account add me@example.test --imap imap.example.test",
+        ))
+        .expect_err("one server is not a configuration");
+        assert!(err.contains("--smtp"), "{err}");
+    }
+
+    #[test]
+    fn a_domain_with_no_preset_says_how_to_configure_it() {
+        let err = cli::parse(&args("account add me@nowhere.example"))
+            .ok()
+            .map(|_| String::new())
+            .unwrap_or_default();
+        // Parsing succeeds; the explanation comes from `account::add`, which needs a store.
+        assert!(err.is_empty());
+
+        let (store, _dir, _thread) = seeded();
+        let command = cli::parse(&args("account add me@nowhere.example")).unwrap();
+        let err = cli::run(&store, &command, now()).expect_err("no preset");
+        assert!(
+            err.contains("--imap"),
+            "the error must show the way out: {err}"
+        );
+        assert!(err.contains("--smtp"), "{err}");
+    }
+
+    #[test]
+    fn a_bad_port_is_explained_not_ignored() {
+        let err = cli::parse(&args(
+            "account add me@example.test --imap imap.example.test:notaport --smtp s.example.test",
+        ))
+        .expect_err("ports are numbers");
+        assert!(err.contains("port"), "{err}");
+    }
+
+    #[test]
+    fn an_unknown_option_does_not_pass_silently() {
+        let err = cli::parse(&args(
+            "account add me@example.test --imap i.example.test --smtp s.example.test --tls no",
+        ))
+        .expect_err("unknown flag");
+        assert!(err.contains("--tls"), "{err}");
+    }
+
+    #[test]
+    fn a_manual_account_is_stored_as_imap_with_implicit_tls() {
+        let (store, _dir, _thread) = seeded();
+        let command = cli::parse(&args(
+            "account add someone@nowhere.example --imap imap.nowhere.example --smtp smtp.nowhere.example",
+        ))
+        .unwrap();
+        // No MAILO_PASSWORD in the environment, so this reports what is still needed rather
+        // than failing — what matters here is the plan it wrote.
+        let _ = cli::run(&store, &command, now());
+
+        let plan: String = store
+            .connection()
+            .query_row(
+                "SELECT plan FROM accounts WHERE address = 'someone@nowhere.example'",
+                [],
+                |r| r.get(0),
+            )
+            .expect("the account was stored");
+        let plan: AccountPlan = serde_json::from_str(&plan).unwrap();
+        match plan.incoming {
+            Incoming::Imap { host, port, tls } => {
+                assert_eq!(host, "imap.nowhere.example");
+                assert_eq!(port, 993);
+                // Never StartTls and never Plaintext: an opportunistic upgrade is strippable.
+                assert_eq!(tls, Tls::Implicit);
+            }
+            other => panic!("expected IMAP, got {other:?}"),
+        }
+        assert!(
+            matches!(plan.auth, AuthPlan::Password { .. }),
+            "a manually configured account is a password account: {:?}",
+            plan.auth
+        );
+    }
+}

@@ -20,8 +20,14 @@ pub enum Command {
     Search { needle: String, limit: u32 },
     /// Unread counts per mailbox.
     Status,
-    /// Configure an account from its address, using the preset table.
-    AccountAdd { address: String },
+    /// Configure an account from its address.
+    ///
+    /// `manual` is `Some` when the user named the servers themselves, which is the only way to
+    /// reach a host the preset table has never heard of.
+    AccountAdd {
+        address: String,
+        manual: Option<mail_domain::presets::Manual>,
+    },
     /// Configured accounts, and what each still needs.
     AccountList,
     /// Fetch mail for every configured account, and drain the outbox.
@@ -121,17 +127,76 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                 let address = args
                     .get(2)
                     .ok_or_else(|| format!("account add needs an address\n\n{}", usage()))?;
-                if !address.contains('@') {
-                    return Err(format!("{address:?} is not an email address"));
-                }
                 Ok(Command::AccountAdd {
                     address: address.clone(),
+                    manual: parse_manual(&args[3..])?,
                 })
             }
             None | Some("list") => Ok(Command::AccountList),
             Some(other) => Err(format!("unknown account command {other:?}\n\n{}", usage())),
         },
         other => Err(format!("unknown command {other:?}\n\n{}", usage())),
+    }
+}
+
+/// `--imap HOST[:PORT] --smtp HOST[:PORT] [--login NAME]`, or `None` when none were given.
+///
+/// All or nothing: naming only the incoming server would leave the account unable to send, and
+/// silently defaulting the other half to a guessed hostname is how mail goes to a server the
+/// user never chose.
+fn parse_manual(args: &[String]) -> Result<Option<mail_domain::presets::Manual>, String> {
+    if args.is_empty() {
+        return Ok(None);
+    }
+    let (mut imap, mut smtp, mut login) = (None, None, None);
+    let mut rest = args.iter();
+    while let Some(flag) = rest.next() {
+        let value = rest
+            .next()
+            .ok_or_else(|| format!("{flag} needs a value\n\n{}", usage()))?;
+        match flag.as_str() {
+            "--imap" => imap = Some(host_port(value, 993)?),
+            "--smtp" => smtp = Some(host_port(value, 465)?),
+            "--login" => login = Some(value.clone()),
+            other => return Err(format!("unknown option {other:?}\n\n{}", usage())),
+        }
+    }
+    match (imap, smtp) {
+        (Some((imap_host, imap_port)), Some((smtp_host, smtp_port))) => {
+            Ok(Some(mail_domain::presets::Manual {
+                imap_host,
+                imap_port,
+                smtp_host,
+                smtp_port,
+                login,
+            }))
+        }
+        (None, None) => Err(format!(
+            "--login needs --imap and --smtp too\n\n{}",
+            usage()
+        )),
+        _ => Err(format!(
+            "manual setup needs both --imap and --smtp; an account that can \
+             only receive is not one this can configure\n\n{}",
+            usage()
+        )),
+    }
+}
+
+/// `host` or `host:port`, with `default` when no port is given.
+fn host_port(raw: &str, default: u16) -> Result<(String, u16), String> {
+    match raw.rsplit_once(':') {
+        Some((host, port)) => {
+            let port: u16 = port
+                .parse()
+                .map_err(|_| format!("{port:?} is not a port number"))?;
+            if host.is_empty() {
+                return Err(format!("{raw:?} has no hostname"));
+            }
+            Ok((host.to_owned(), port))
+        }
+        None if raw.is_empty() => Err("a server name cannot be empty".to_owned()),
+        None => Ok((raw.to_owned(), default)),
     }
 }
 
@@ -157,6 +222,8 @@ usage: mailo <command>
   status
   account [list]
   account add <address>      (set MAILO_PASSWORD for a password account)
+  account add <address> --imap HOST[:PORT] --smtp HOST[:PORT] [--login NAME]
+                             for a server the preset table does not know
   sync                       fetch mail and send anything queued
 "
     .to_owned()
@@ -233,7 +300,9 @@ pub fn run(store: &SqliteStore, command: &Command, now: DateTime<Utc>) -> Result
         } => crate::compose::reply(store, *message, *scope, body, now),
         Command::Send { draft } => crate::compose::send(store, *draft, now),
         Command::Drafts => crate::compose::drafts(store),
-        Command::AccountAdd { address } => crate::account::add(store, address, now),
+        Command::AccountAdd { address, manual } => {
+            crate::account::add(store, address, manual.as_ref(), now)
+        }
         Command::AccountList => crate::account::list(store),
         Command::Status => {
             let mut out = String::new();

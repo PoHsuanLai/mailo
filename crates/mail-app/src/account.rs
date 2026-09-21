@@ -17,6 +17,7 @@ use std::fmt::Write as _;
 pub fn add(
     store: &SqliteStore,
     address: &str,
+    manual: Option<&mail_domain::presets::Manual>,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<String, String> {
     // Normalised once, here, and used for the preset, the stored plan and the stored column
@@ -26,11 +27,22 @@ pub fn add(
     // deriving it from the other. A mail server that is case-sensitive about the local part
     // then rejects one of them with nothing to explain why.
     let address = address.to_lowercase();
-    let Some(preset) = mail_domain::presets::preset_for(&address, now) else {
-        return Err(format!(
-            "no preset for {address:?}. Manual setup is not written yet — \
-             the known domains are gmail.com, googlemail.com and ntu.edu.tw."
-        ));
+    let preset = match manual {
+        // Explicit servers win over the table. Someone who names a host means that host, even
+        // for a domain a preset happens to cover.
+        Some(manual) => mail_domain::presets::manual(&address, manual, now),
+        None => match mail_domain::presets::preset_for(&address, now) {
+            Some(preset) => preset,
+            None => {
+                return Err(format!(
+                    "no preset for {address:?}. Either it is one of the known domains \
+                     (gmail.com, googlemail.com, ntu.edu.tw), or name the servers:\n\n  \
+                     mailo account add {address} --imap imap.example.com --smtp smtp.example.com\n\n\
+                     Ports default to 993 and 465, both with implicit TLS. Add --login NAME if \
+                     the server wants something other than the whole address."
+                ));
+            }
+        },
     };
 
     let account = AccountId::generate();
@@ -277,7 +289,7 @@ mod tests {
     #[test]
     fn an_unknown_domain_says_which_are_known() {
         let (store, _dir) = store();
-        let err = add(&store, "someone@example.test", now()).unwrap_err();
+        let err = add(&store, "someone@example.test", None, now()).unwrap_err();
         assert!(err.contains("gmail.com"), "{err}");
         assert!(err.contains("ntu.edu.tw"), "{err}");
     }
@@ -290,7 +302,7 @@ mod tests {
         // With no MAILO_OAUTH_CLIENT_ID set, which is the state anyone starts in. The client
         // id is deployment configuration and cannot be shipped in a source tree, so the useful
         // thing is the exact command to run once they have one.
-        let out = add(&store, "someone@gmail.com", now()).unwrap();
+        let out = add(&store, "someone@gmail.com", None, now()).unwrap();
         assert!(out.contains("client id"), "{out}");
         assert!(
             out.contains("MAILO_OAUTH_CLIENT_ID=… mailo account add someone@gmail.com"),
@@ -307,7 +319,7 @@ mod tests {
         // NTU logs in with the local part, not the address. Getting that wrong is a failed
         // authentication with no explanation, so the CLI says which name it will use.
         let (store, _dir) = store();
-        let out = add(&store, "b09901185@ntu.edu.tw", now()).unwrap();
+        let out = add(&store, "b09901185@ntu.edu.tw", None, now()).unwrap();
         assert!(out.contains("b09901185"), "{out}");
         assert!(
             !out.contains("b09901185@ntu.edu.tw\""),
@@ -318,7 +330,7 @@ mod tests {
     #[test]
     fn adding_an_account_persists_its_plan_and_capabilities() {
         let (store, _dir) = store();
-        add(&store, "b09901185@ntu.edu.tw", now()).unwrap();
+        add(&store, "b09901185@ntu.edu.tw", None, now()).unwrap();
         let accounts: i64 = store
             .connection()
             .query_row("SELECT count(*) FROM accounts", [], |r| r.get(0))

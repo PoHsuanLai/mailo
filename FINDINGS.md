@@ -699,3 +699,21 @@ same is for there to be one.
 
 The sync line also reports what it sent, which it never had, because until recently there was
 nothing that could send.
+
+### F47 — Nothing could configure a server the preset table did not know
+
+`account add` refused any domain without a preset: "Manual setup is not written yet". Combined
+with F45 — the IMAP backend naming XOAUTH2 for itself — this meant the only reachable IMAP
+account in the entire program was Gmail, and Gmail needs an OAuth client id that cannot live in a
+source tree. Fixing F45 made password IMAP possible; without this it was still unreachable.
+
+`presets::manual` builds a plan from a hostname and nothing else, which means assuming things no
+spike has measured. Everything it assumes is chosen to be safe when wrong: implicit TLS on 993
+and 465 rather than STARTTLS, because an opportunistic upgrade is strippable and a server that
+does not offer implicit TLS refuses the connection instead of quietly falling back to cleartext;
+capabilities at their least capable, so the first real connection can only add to them; and
+`ArchiveMeans::LocalOnly`, because archiving into a folder we have not confirmed exists loses the
+message.
+
+Both servers or neither. Naming only `--imap` is refused rather than completed with a guessed
+`smtp.` hostname, which is how mail leaves through a server the user never chose.
