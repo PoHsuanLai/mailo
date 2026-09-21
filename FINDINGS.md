@@ -1507,3 +1507,43 @@ is the rule read as a target rather than a signal. Recorded so the next person s
 rather than an oversight.
 
 Verified the way a UI refactor has to be: the suite stays green, and the window still opens.
+
+### F84 — The migration that repairs data had never run on data needing repair
+
+`plan.md` asks for "a test that opens a checked-in fixture DB from each prior version and
+migrates it", under a heading calling it required from day one. It did not exist. Every test
+creates a fresh database, so each migration ran against an *empty* schema — and a migration whose
+job is to repair data has nothing to repair.
+
+That is worst for 0002. Its purpose is to collapse the duplicate `remote_map` rows every
+version-1 database accumulated (F52) and then add a unique index. Remove the `DELETE` and the
+`CREATE UNIQUE INDEX` fails, the transaction rolls back, and `migrate` returns an error — the
+application does not start, for exactly the users who have run it longest. That is the failure
+`tests/upgrade.rs` now reproduces and the suite had no way to see.
+
+The migration is correct; the test was missing. Each version is built by applying a prefix of
+`MIGRATIONS` rather than checking in a binary fixture, so what is tested cannot drift from the
+migration it represents.
+
+One thing this took two attempts to get right. The first mutation — grouping on the raw columns
+instead of `COALESCE` — did not break anything, because SQLite's `GROUP BY` treats NULLs as
+*equal* while a `UNIQUE` index treats them as *distinct*. That asymmetry is precisely what caused
+F52, and it means a dedup written the obvious way happens to work. Removing the `DELETE`
+altogether is the mutation that fails, and it is the one that matters.
+
+### F85 — The plan described an engine that was never built
+
+Auditing `plan.md` against the code, since "finish the plan" is only meaningful if the plan
+describes what exists:
+
+- The `AccountEngine` sketch carried a `caps` field. The real one has none — capabilities belong
+  to the backend, which is what discovers them, and a copy here would be a second answer to one
+  question. It also predates `schedule` and `last`, the three intervals.
+- "one WAL connection pool" — it is one connection, deliberately, and `SqliteStore`'s own comment
+  argues why.
+- `Secrets` was sketched with a `SecretError` that does not exist and without `forget`.
+- The `#[serde(default)]` rule was stated absolutely, which F82 has since shown is wrong.
+
+The table list, the crate graph and the phase structure all match. Corrected in place rather than
+appended to, because a design document that contradicts the code teaches the reader something
+false with the same confidence as the parts that are true.

@@ -811,8 +811,14 @@ between them otherwise have no defined result.
 stored account fails to deserialize and the app will not start. Required from day one:
 
 - A `schema_version` table and numbered, forward-only migration steps.
-- `#[serde(default)]` on every added field, enforced by review.
-- A test that opens a checked-in fixture DB from each prior version and migrates it.
+- `#[serde(default)]` on every added field — *unless no safe default exists*, which is a case
+  this design did not anticipate and `CONVENTIONS.md` §3 now spells out. A defaulted empty
+  recipient list would turn an old `ProtoOp::Submit` into a message that goes nowhere while the
+  outbox reports success (FINDINGS F37, F82).
+- A test that builds a database at each prior version and migrates it. `tests/upgrade.rs` does
+  this by applying a prefix of `MIGRATIONS` rather than checking in a binary fixture, so the
+  fixture cannot drift from the migration it represents. It matters most for 0002, whose whole
+  job is repairing data an empty database does not have.
 
 ---
 
@@ -822,23 +828,31 @@ Tokio. One task per account. **This crate owns every loop.**
 
 ```rust
 pub struct AccountEngine<B: Backend> {
-    plan:    AccountPlan,
-    caps:    AccountCaps,
-    backend: B,
-    store:   Arc<SqliteStore>,
-    secrets: Arc<dyn Secrets>,
+    plan:     AccountPlan,
+    account:  AccountId,
+    backend:  B,
+    store:    Arc<SqliteStore>,
+    secrets:  Arc<dyn Secrets>,
+    schedule: Schedule,
+    last:     LastRun,
 }
 ```
 
+As built, with two changes from the sketch above. There is no `caps` field: capabilities belong
+to the backend, which is what discovers them, and a second copy here would be a second answer to
+one question. `schedule` and `last` are the three intervals — new mail, flag changes,
+disappearances — which the sketch predates.
+
 One generic parameter, not five. `Store` and `Secrets` are process-wide singletons — one SQLite
-file with one WAL connection pool, one keyring — so making them type parameters (or worse,
+file with one WAL connection (not a pool; see `SqliteStore`), one keyring — so making them type parameters (or worse,
 `Box<dyn Store>` per account) misrepresents ownership. There is no `Clock` parameter; `now` is an
 argument.
 
 ```rust
 pub trait Secrets: Send + Sync {
-    fn get(&self, key: &SecretKey) -> Result<Credential, SecretError>;
-    fn put(&self, key: &SecretKey, value: &Credential) -> Result<(), SecretError>;
+    fn get(&self, key: &SecretKey) -> Result<Credential, RuntimeError>;
+    fn put(&self, key: &SecretKey, value: &Credential) -> Result<(), RuntimeError>;
+    fn forget(&self, key: &SecretKey) -> Result<(), RuntimeError>;
 }
 ```
 
