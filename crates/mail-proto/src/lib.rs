@@ -5,8 +5,10 @@
 //! are byte transcripts — see `tests/traces/FORMAT.md`.
 
 pub mod machine;
+pub mod pop3;
 
 pub use machine::{Backend, IoNeed, IoReady, Machine, Progress, ProtoError, ProtoOutcome};
+pub use pop3::{ListEntry, Pop3Command, Pop3Reply, Pop3Session, UidlEntry};
 
 #[cfg(test)]
 mod tests {

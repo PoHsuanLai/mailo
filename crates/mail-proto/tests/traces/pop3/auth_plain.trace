@@ -1,0 +1,11 @@
+# SYNTHETIC — hand-written from RFC 1939, RFC 5034 and RFC 4616, not a recording.
+# The phase-0 capture against a real server has not happened yet.
+# AUTH PLAIN carries an initial response: base64 of NUL student NUL s3cret.
+# The fixture password is the literal s3cret. It is not a credential.
+
+S: +OK POP3 server ready
+C: AUTH PLAIN AHN0dWRlbnQAczNjcmV0
+S: +OK authenticated
+C: QUIT
+S: +OK bye
+DONE

@@ -1,0 +1,11 @@
+# SYNTHETIC — hand-written from RFC 1939, not a recording.
+# The phase-0 capture against a real server has not happened yet.
+# An empty maildrop is a +OK status line and an immediate terminator.
+
+S: +OK POP3 server ready
+C: UIDL
+S: +OK
+S: .
+C: QUIT
+S: +OK bye
+DONE

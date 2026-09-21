@@ -1,0 +1,15 @@
+# SYNTHETIC — hand-written from RFC 1939, not a recording.
+# The phase-0 capture against a real server has not happened yet.
+# The whole RETR reply, including the stuffed line "..dot", arrives in one read.
+# Decoded, the payload is:
+#   +OK message follows
+#   Hello
+#   ..dot
+#   .
+
+S: +OK POP3 server ready
+C: RETR 1
+S64: K09LIG1lc3NhZ2UgZm9sbG93cw0KSGVsbG8NCi4uZG90DQouDQo=
+C: QUIT
+S: +OK bye
+DONE

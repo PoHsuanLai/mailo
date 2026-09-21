@@ -1,0 +1,6 @@
+# SYNTHETIC — hand-written from RFC 1939, not a recording.
+# The phase-0 capture against a real server has not happened yet.
+# The socket closes before the server banner.
+
+EOF
+FAIL UnexpectedEof

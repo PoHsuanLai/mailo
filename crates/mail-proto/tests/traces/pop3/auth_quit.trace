@@ -1,0 +1,18 @@
+# SYNTHETIC — hand-written from RFC 1939 and RFC 2449, not a recording.
+# The phase-0 capture against a real server has not happened yet.
+# The fixture password is the literal s3cret. It is not a credential.
+
+S: +OK POP3 server ready
+C: CAPA
+S: +OK Capability list follows
+S: USER
+S: SASL PLAIN LOGIN
+S: UIDL
+S: .
+C: USER student
+S: +OK student accepted
+C: PASS s3cret
+S: +OK maildrop ready
+C: QUIT
+S: +OK bye
+DONE

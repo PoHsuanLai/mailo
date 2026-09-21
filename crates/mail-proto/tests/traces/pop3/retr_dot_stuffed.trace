@@ -1,0 +1,20 @@
+# SYNTHETIC — hand-written from RFC 1939 §3, not a recording.
+# The phase-0 capture against a real server has not happened yet.
+# "..a line that starts with a dot" must be delivered with one leading dot,
+# and ".." as a line containing only a dot. The bare "." line is the
+# terminator and is not part of the message.
+
+S: +OK POP3 server ready
+C: RETR 1
+S: +OK 80 octets
+S: From: ada@example.test
+S: Subject: dots
+S:
+S: Hello
+S: ..a line that starts with a dot
+S: ..
+S: Bye
+S: .
+C: QUIT
+S: +OK bye
+DONE

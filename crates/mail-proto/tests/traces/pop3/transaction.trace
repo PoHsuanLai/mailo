@@ -1,0 +1,17 @@
+# SYNTHETIC — hand-written from RFC 1939, not a recording.
+# The phase-0 capture against a real server has not happened yet.
+# STAT, LIST, and DELE in one transaction, then QUIT.
+
+S: +OK POP3 server ready
+C: STAT
+S: +OK 2 320
+C: LIST
+S: +OK 2 messages (320 octets)
+S: 1 120
+S: 2 200
+S: .
+C: DELE 1
+S: +OK message 1 deleted
+C: QUIT
+S: +OK dewey POP3 server signing off
+DONE

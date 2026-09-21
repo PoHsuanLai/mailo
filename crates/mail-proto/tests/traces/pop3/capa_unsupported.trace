@@ -1,0 +1,15 @@
+# SYNTHETIC — hand-written from RFC 1939 and RFC 2449, not a recording.
+# The phase-0 capture against a real server has not happened yet.
+# Older servers answer CAPA with -ERR. That is a normal reply, not a failure.
+# The fixture password is the literal s3cret. It is not a credential.
+
+S: +OK POP3 server ready
+C: CAPA
+S: -ERR unrecognized command
+C: USER student
+S: +OK
+C: PASS s3cret
+S: +OK
+C: QUIT
+S: +OK signing off
+DONE

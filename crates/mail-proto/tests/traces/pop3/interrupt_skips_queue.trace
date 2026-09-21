@@ -1,0 +1,13 @@
+# SYNTHETIC — hand-written from RFC 1939, not a recording.
+# The phase-0 capture against a real server has not happened yet.
+# The caller queued STAT, UIDL, QUIT. Interrupt arrives while STAT is in
+# flight, so the STAT reply is still read and the next command is QUIT.
+# UIDL is not sent.
+
+S: +OK POP3 server ready
+C: STAT
+INTERRUPT
+S: +OK 2 320
+C: QUIT
+S: +OK bye
+DONE

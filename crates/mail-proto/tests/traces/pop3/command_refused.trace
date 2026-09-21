@@ -1,0 +1,9 @@
+# SYNTHETIC — hand-written from RFC 1939, not a recording.
+# The phase-0 capture against a real server has not happened yet.
+# -ERR on RETR is a refusal of that command, not an authentication failure.
+# The session stops; it does not wait for a dot terminator after -ERR.
+
+S: +OK POP3 server ready
+C: RETR 9
+S: -ERR no such message
+FAIL Refused

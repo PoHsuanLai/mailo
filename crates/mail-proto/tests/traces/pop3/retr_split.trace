@@ -1,0 +1,18 @@
+# SYNTHETIC — hand-written from RFC 1939, not a recording.
+# The phase-0 capture against a real server has not happened yet.
+# SPLIT delivers each line of the RETR response one byte at a time, including
+# the dot-stuffed body line. A machine that only accepts whole lines deadlocks.
+
+S: +OK POP3 server ready
+C: RETR 2
+SPLIT
+S: +OK 10 octets
+SPLIT
+S: Hello
+SPLIT
+S: ..dot
+SPLIT
+S: .
+C: QUIT
+S: +OK bye
+DONE

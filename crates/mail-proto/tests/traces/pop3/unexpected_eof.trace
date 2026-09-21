@@ -1,0 +1,10 @@
+# SYNTHETIC — hand-written from RFC 1939, not a recording.
+# The phase-0 capture against a real server has not happened yet.
+# The socket closes after a RETR body line and before the terminating dot.
+
+S: +OK POP3 server ready
+C: RETR 1
+S: +OK 100 octets
+S: Subject: half
+EOF
+FAIL UnexpectedEof

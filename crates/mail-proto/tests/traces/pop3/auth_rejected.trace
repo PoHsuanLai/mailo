@@ -1,0 +1,11 @@
+# SYNTHETIC — hand-written from RFC 1939, not a recording.
+# The phase-0 capture against a real server has not happened yet.
+# The fixture password is the literal s3cret. It is not a credential.
+# -ERR on PASS is an authentication rejection, not a generic refusal.
+
+S: +OK POP3 server ready
+C: USER student
+S: +OK
+C: PASS s3cret
+S: -ERR authentication failed
+FAIL AuthRejected

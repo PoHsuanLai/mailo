@@ -1,0 +1,8 @@
+# SYNTHETIC — hand-written from RFC 1939, not a recording.
+# The phase-0 capture against a real server has not happened yet.
+# A line that is neither +OK nor -ERR is malformed. It is not a panic.
+
+S: +OK POP3 server ready
+C: STAT
+S: NOPE
+FAIL Malformed
