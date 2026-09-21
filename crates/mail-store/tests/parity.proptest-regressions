@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 8c5ed2546774908e896dce7466ebe4e283c533fd136687151fff74ba556587a0 # shrinks to specs = [Spec { thread: 0, subject: [0], body: [0], from_name: None, from_local: 0, to_local: 0, read: false, star: false, mailbox: 0, labels: [false, false], date: 0 }], f = Not(From(Contains("friday")))
+cc e6ef003efca2d38a437597dc7148f26877534efcc129d02efa3e9f8a65bd381e # shrinks to specs = [Spec { thread: 0, subject: [0], body: [2], from_name: None, from_local: 0, to_local: 0, read: false, star: false, mailbox: 0, labels: [false, false], date: 0 }, Spec { thread: 0, subject: [8], body: [0], from_name: None, from_local: 0, to_local: 0, read: false, star: false, mailbox: 0, labels: [false, false], date: 392 }], f = Or([Or([Text(Contains("résumé café"))])])

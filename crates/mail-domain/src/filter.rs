@@ -106,14 +106,19 @@ pub enum Filter {
 
 /// Everything [`Filter::fit`] needs in order to decide.
 ///
-/// `body_text` is separate from the summary because a [`ThreadSummary`] does not carry body
-/// text. A caller that cannot supply it passes `None`, and [`Filter::Text`] then searches the
-/// rest of the corpus — subject, sender, participants and snippet — without it. Since the
-/// snippet is a prefix of the newest body, a `None` body loses recall but invents no match.
+/// `corpus` is the full searchable text of the thread, exactly as the store indexes it: every
+/// message's subject, sender name and address, and body — not only the newest, and not only the
+/// body. It cannot be derived from `summary`, because a [`ThreadSummary`] carries the *oldest*
+/// message's subject and the *newest* message's sender, while a thread is searchable through
+/// all of them.
+///
+/// Supplying too little here is a silent parity bug rather than an error: `fit` simply fails to
+/// match something the SQL side finds, and search quietly misses a message. A caller that has
+/// no corpus passes `None`, and [`Filter::Text`] then sees only the summary fields.
 #[derive(Debug, Clone, Copy)]
 pub struct MatchCtx<'a> {
     pub summary: &'a ThreadSummary,
-    pub body_text: Option<&'a str>,
+    pub corpus: Option<&'a str>,
     pub now: DateTime<Utc>,
 }
 
@@ -225,7 +230,7 @@ fn text_search_fits(m: &TextMatch, ctx: &MatchCtx<'_>) -> bool {
 /// sender that `summary.from` has scrolled past — and it is also what the store's per-message
 /// FTS rows hold, which is what the parity proptest compares against. The snippet is a prefix
 /// of the newest body: including it can only find what a full body search would have found,
-/// never something else, so it is safe to search when `body_text` is `None`.
+/// never something else, so it is safe to search when `corpus` is `None`.
 fn text_corpus<'a>(ctx: &MatchCtx<'a>) -> Vec<&'a str> {
     let s = ctx.summary;
     let mut fields = Vec::with_capacity(4 + 2 * s.participants.len());
@@ -238,7 +243,7 @@ fn text_corpus<'a>(ctx: &MatchCtx<'a>) -> Vec<&'a str> {
     // TODO(F1): recipients join this corpus once `ThreadSummary` carries them. Until then a
     // thread is findable by who wrote in it, never by who it was addressed to — the same gap
     // that makes `to_fits` unanswerable.
-    fields.extend(ctx.body_text);
+    fields.extend(ctx.corpus);
     fields
 }
 
@@ -314,7 +319,7 @@ fn fold_diacritic(ch: char) -> char {
 ///
 /// So `To` is unsatisfiable until the recipients reach this function: either as a field on
 /// [`ThreadSummary`] (unioned over the thread's messages, as `mailboxes` is) or as one on
-/// [`MatchCtx`] beside `body_text`. Both are frozen-interface changes. Until then the store's
+/// [`MatchCtx`] beside `corpus`. Both are frozen-interface changes. Until then the store's
 /// SQL compiler must compile `To` to a false predicate too, or the parity proptest fails and
 /// is right to.
 fn to_fits(m: &TextMatch, summary: &ThreadSummary) -> bool {

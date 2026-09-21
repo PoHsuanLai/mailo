@@ -63,9 +63,13 @@ def cmd(line, secret=False, shown=None):
     sock.sendall(wire)
     return drain(tag)
 
-caps = cmd("CAPABILITY")
+# Gmail advertises a REDUCED capability list before authentication -- no CONDSTORE, no
+# MOVE, and XLIST in place of SPECIAL-USE. Reading caps pre-auth reports a server far
+# less capable than it is, so ask again afterwards and believe the second answer.
+pre_auth = cmd("CAPABILITY")
 cmd(f'LOGIN "{USER}" "{PASS}"', secret=True, shown=f'LOGIN "{USER}" "<REDACTED>"')
-cmd('LIST "" "*"')
+caps = cmd("CAPABILITY")
+list_raw = cmd('LIST "" "*"')
 cmd('LIST (SPECIAL-USE) "" "*"')
 
 FETCH_ITEMS = "(UID FLAGS INTERNALDATE ENVELOPE BODYSTRUCTURE X-GM-MSGID X-GM-THRID X-GM-LABELS)"
@@ -95,12 +99,18 @@ def has(x):
     return "yes" if x.upper() in caps.upper() else "NO"
 
 print("\n--- spike summary -------------------------------------------")
+print(f"  caps read POST-AUTH; pre-auth list was {'identical' if pre_auth == caps else 'SMALLER (expected)'}")
 print(f"  CONDSTORE     {has('CONDSTORE')}")
 print(f"  QRESYNC       {has('QRESYNC')}")
 print(f"  MOVE          {has('MOVE')}")
 print(f"  X-GM-EXT-1    {has('X-GM-EXT-1')}")
 print(f"  IDLE          {has('IDLE')}")
-print(f"  SPECIAL-USE   {has('SPECIAL-USE')}")
+print(f"  SPECIAL-USE   {has('SPECIAL-USE')}  (XLIST: {has('XLIST')})")
+# LIST attributes are ground truth whatever CAPABILITY claims.
+roles = sorted(set(re.findall(r"\\(All|Sent|Drafts|Trash|Junk|Flagged|Important)", list_raw)))
+print(f"  LIST special-use attributes seen: {roles or 'none'}")
+utf7 = [n for n in re.findall(r'\* LIST \([^)]*\) "[^"]*" "([^"]*)"', list_raw) if "&" in n]
+print(f"  folders needing modified-UTF7 decoding: {len(utf7)}")
 uv = re.search(r"UIDVALIDITY (\d+)", inbox_raw)
 un = re.search(r"UIDNEXT (\d+)", inbox_raw)
 hm = re.search(r"HIGHESTMODSEQ (\d+)", inbox_raw)

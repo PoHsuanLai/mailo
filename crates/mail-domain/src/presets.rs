@@ -154,7 +154,10 @@ fn ntu(address: &str, local: &str, now: DateTime<Utc>) -> Preset {
                 username: Username::LocalPart,
                 // `Login` first: the spike shows the campus server offering `LOGIN`, and
                 // `Plain` is the fallback for the hosts that do not.
-                sasl: vec![SaslMech::Login, SaslMech::Plain],
+                // Measured against msa.ntu.edu.tw on 2026-09-22: CAPA advertises
+                // SASL PLAIN and USER, and does NOT offer LOGIN or CRAM-MD5.
+                // Offering LOGIN first would have failed on the first connect.
+                sasl: vec![SaslMech::Plain],
             },
             identities: Vec::new(),
         },
@@ -293,7 +296,7 @@ mod tests {
             preset.plan.auth,
             AuthPlan::Password {
                 username: Username::LocalPart,
-                sasl: vec![SaslMech::Login, SaslMech::Plain],
+                sasl: vec![SaslMech::Plain],
             }
         );
         assert_eq!(

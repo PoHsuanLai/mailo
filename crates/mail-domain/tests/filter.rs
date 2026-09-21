@@ -800,7 +800,7 @@ fn fit_decides_every_case() {
     for case in cases() {
         let ctx = MatchCtx {
             summary: &case.summary,
-            body_text: case.body,
+            corpus: case.body,
             now: case.now,
         };
         assert_eq!(
@@ -833,7 +833,7 @@ fn to_matches_thread_recipients() {
     fn ctx(sum: &ThreadSummary) -> MatchCtx<'_> {
         MatchCtx {
             summary: sum,
-            body_text: None,
+            corpus: None,
             now: now(),
         }
     }

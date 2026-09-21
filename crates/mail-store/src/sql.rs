@@ -155,11 +155,19 @@ fn stored_json<T: Serialize>(value: &T) -> String {
 /// treat `\` as an escape, so this is not doubled again in SQL.
 const LIKE: &str = concat!("LIKE ? ESCAPE '", '\\', "'");
 
+/// Match either of two columns, at least one of which may be NULL.
+///
+/// `coalesce` is load-bearing, not defensive. SQL is three-valued: `NULL LIKE ?` is NULL, and
+/// `NULL OR false` is NULL rather than false — which still excludes the row, so the bug is
+/// invisible until the clause appears under `NOT`, where `NOT NULL` is also NULL and the row
+/// disappears from *both* a filter and its negation. `Filter::fit` has no third value: an
+/// absent display name simply does not match. Found by the parity proptest on
+/// `Not(From(Contains(..)))` against a message whose sender had no display name.
 fn like_either(left: &str, right: &str, m: &TextMatch, params: &mut Vec<SqlValue>) -> String {
     let pattern = like_pattern(m);
     params.push(SqlValue::Text(pattern.clone()));
     params.push(SqlValue::Text(pattern));
-    format!("({left} {LIKE} OR {right} {LIKE})")
+    format!("(coalesce({left}, '') {LIKE} OR coalesce({right}, '') {LIKE})")
 }
 
 /// Substring or whole-value pattern. `%`, `_` and `\` in the needle are literals — a search
