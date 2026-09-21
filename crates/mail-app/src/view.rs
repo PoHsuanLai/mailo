@@ -61,6 +61,24 @@ pub fn default_places() -> Vec<Place> {
     .collect()
 }
 
+/// What a place's badge counts, or `None` when it has no badge.
+///
+/// Unread threads, and only for mail: "3 unread drafts" is not a thing, because a draft is not
+/// something that arrives and is not something anyone has failed to read yet.
+///
+/// Sent and Archive get one too. That looks odd until a filter rule files an unread message
+/// straight into Archive, at which point a badgeless Archive is a message the user never learns
+/// about.
+pub fn badge_filter(source: &Source) -> Option<Filter> {
+    match source {
+        Source::Mail(filter) => Some(Filter::And(vec![
+            filter.clone(),
+            Filter::Read(ReadState::Unread),
+        ])),
+        Source::Drafts => None,
+    }
+}
+
 /// Everything the shell is currently showing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Shell {
@@ -1043,5 +1061,47 @@ mod sync_state_tests {
     #[test]
     fn idle_says_nothing_at_all() {
         assert_eq!(SyncState::Idle.message(), None);
+    }
+}
+
+#[cfg(test)]
+mod badge_tests {
+    use super::*;
+
+    #[test]
+    fn a_mail_place_counts_its_unread_threads() {
+        let inbox = Source::Mail(Filter::InMailbox(MailboxRole::Inbox));
+        match badge_filter(&inbox) {
+            Some(Filter::And(clauses)) => {
+                assert!(clauses.contains(&Filter::InMailbox(MailboxRole::Inbox)));
+                assert!(
+                    clauses.contains(&Filter::Read(ReadState::Unread)),
+                    "the badge counted every thread, not the unread ones: {clauses:?}"
+                );
+            }
+            other => panic!("expected a conjunction, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn drafts_has_no_unread_badge() {
+        // "3 unread drafts" is not a thing: a draft did not arrive and nobody failed to read it.
+        assert_eq!(badge_filter(&Source::Drafts), None);
+    }
+
+    #[test]
+    fn every_mail_place_gets_one_including_archive() {
+        // A filter rule can file an unread message straight into Archive. A badgeless Archive is
+        // then a message the user never finds out about.
+        for place in default_places() {
+            match &place.source {
+                Source::Mail(_) => assert!(
+                    badge_filter(&place.source).is_some(),
+                    "{} has no badge",
+                    place.name
+                ),
+                Source::Drafts => assert!(badge_filter(&place.source).is_none()),
+            }
+        }
     }
 }

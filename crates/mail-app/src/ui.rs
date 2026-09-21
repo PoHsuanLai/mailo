@@ -4,7 +4,9 @@
 //! What is here is layout, event wiring, and the one thing a UI can get dangerously wrong —
 //! rendering a stranger's HTML.
 
-use crate::view::{Composing, Listing, Reading, Shell, SyncState, hover_actions, op_for, synced};
+use crate::view::{
+    Composing, Listing, Reading, Shell, SyncState, badge_filter, hover_actions, op_for, synced,
+};
 use dioxus::prelude::*;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
@@ -42,6 +44,26 @@ fn App() -> Element {
     let mut pages = use_signal(|| 1u32);
     let mut sync_state = use_signal(|| SyncState::Idle);
 
+    // One count per place, recomputed after any write. `Store::count` answers each in a single
+    // indexed query, which is why the sidebar can afford to ask on every revision.
+    let badges = use_memo(move || {
+        let _ = revision();
+        let store = use_context::<Arc<SqliteStore>>();
+        let now = chrono::Utc::now();
+        shell
+            .read()
+            .places
+            .iter()
+            .map(|place| {
+                let filter = badge_filter(&place.source)?;
+                match store.count(&filter, now) {
+                    Ok(0) | Err(_) => None,
+                    Ok(n) => Some(n),
+                }
+            })
+            .collect::<Vec<Option<u64>>>()
+    });
+
     let threads = use_memo(move || {
         let _ = revision();
         match shell.read().listing(PAGE * pages()) {
@@ -68,6 +90,14 @@ fn App() -> Element {
 
     // One more row than asked for means there is another page. Asking the store for the count
     // would be a second query answering a question this one already answers.
+    // Deliberately a growing limit rather than `Page::next`, which the store also returns.
+    // `plan.md` asks for the cursor, and the cursor is the right answer for an accumulating
+    // list — but accumulating means holding pages in a signal and rebuilding them after every
+    // archive, star and ingest, and a mixture of pages fetched at different moments is exactly
+    // the inconsistency keyset pagination exists to avoid. One query for the whole visible list
+    // is always self-consistent, costs a few thousand indexed rows at the sizes this client is
+    // for, and needs no invalidation logic at all. Revisit when a mailbox is large enough to
+    // measure, at which point the cursor is already there.
     let more = use_memo(move || threads().len() as u32 >= PAGE * pages());
 
     rsx! {
@@ -83,6 +113,9 @@ fn App() -> Element {
                             pages.set(1);
                         },
                         "{place.name}"
+                        if let Some(Some(count)) = badges().get(index).copied() {
+                            span { class: "badge", "{count}" }
+                        }
                     }
                 }
                 div { class: "spacer" }
@@ -615,6 +648,9 @@ article time { margin-left: auto; opacity: .6; }
 .ghost { font: inherit; font-size: 12px; padding: 2px 8px; border: 1px solid var(--edge); border-radius: 999px; background: none; color: inherit; cursor: pointer; }
 .notice { margin: 0; padding: 6px 8px; border-radius: 6px; background: var(--edge); font-size: 13px; }
 .hint { font-size: 12px; opacity: .6; }
+.place { display: flex; align-items: center; gap: 8px; }
+.badge { margin-left: auto; font-size: 11px; font-variant-numeric: tabular-nums; opacity: .7; }
+.place.on .badge { opacity: 1; }
 .spacer { flex: 1; }
 .sync { text-align: center; border: 1px solid var(--edge); }
 .sync:disabled { opacity: .6; cursor: default; }
