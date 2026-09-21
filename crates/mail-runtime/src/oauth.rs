@@ -31,14 +31,34 @@ const REFRESH_MARGIN: TimeDelta = match TimeDelta::try_minutes(5) {
 };
 
 /// Where an issuer's endpoints live.
-struct Endpoints {
+///
+/// Public and substitutable, which is not only a test seam. Microsoft operates sovereign clouds
+/// on different hosts — `login.microsoftonline.us` for US Government tenants — and a deployment
+/// behind an inspecting proxy may need to point somewhere else again. An issuer is a value here
+/// for the same reason a provider is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Endpoints {
+    pub auth: String,
+    pub token: String,
+}
+
+/// The published endpoints for an issuer.
+pub fn endpoints_for(issuer: OAuthIssuer) -> Endpoints {
+    let e = endpoints(issuer);
+    Endpoints {
+        auth: e.auth.to_owned(),
+        token: e.token.to_owned(),
+    }
+}
+
+struct Wellknown {
     auth: &'static str,
     token: &'static str,
 }
 
-fn endpoints(issuer: OAuthIssuer) -> Endpoints {
+fn endpoints(issuer: OAuthIssuer) -> Wellknown {
     match issuer {
-        OAuthIssuer::Google => Endpoints {
+        OAuthIssuer::Google => Wellknown {
             auth: "https://accounts.google.com/o/oauth2/v2/auth",
             token: "https://oauth2.googleapis.com/token",
         },
@@ -48,7 +68,7 @@ fn endpoints(issuer: OAuthIssuer) -> Endpoints {
         // have SMTP client authentication permanently off, so a `common` endpoint would hand
         // back a perfectly good token that then fails at submission with nothing to explain it.
         // Refusing at sign-in, where the user can read the reason, is the better failure.
-        OAuthIssuer::Microsoft => Endpoints {
+        OAuthIssuer::Microsoft => Wellknown {
             auth: "https://login.microsoftonline.com/organizations/oauth2/v2.0/authorize",
             token: "https://login.microsoftonline.com/organizations/oauth2/v2.0/token",
         },
@@ -105,6 +125,19 @@ pub struct Pending {
     client_id: String,
     issuer: OAuthIssuer,
     redirect: String,
+    /// Resolved when the request was made, not looked up again when it completes: a second
+    /// lookup is a second answer, and the code came back from whichever host was asked.
+    endpoints: Endpoints,
+}
+
+impl Pending {
+    /// Send the exchange somewhere other than the issuer's published host.
+    ///
+    /// For a sovereign cloud, a proxy, or a test that must not reach the internet.
+    pub fn with_endpoints(mut self, endpoints: Endpoints) -> Self {
+        self.endpoints = endpoints;
+        self
+    }
 }
 
 // Written by hand rather than derived, for the same reason `Credential` is: a derived Debug
@@ -166,6 +199,7 @@ pub fn begin(
             client_id: client_id.to_owned(),
             issuer,
             redirect: redirect.to_owned(),
+            endpoints: endpoints_for(issuer),
         },
     })
 }
@@ -196,10 +230,10 @@ impl Pending {
         http: &reqwest::Client,
         now: DateTime<Utc>,
     ) -> Result<Credential, RuntimeError> {
-        let ends = endpoints(self.issuer);
+        let ends = self.endpoints;
         let client = BasicClient::new(ClientId::new(self.client_id))
-            .set_auth_uri(AuthUrl::new(ends.auth.to_owned()).map_err(bad_url)?)
-            .set_token_uri(TokenUrl::new(ends.token.to_owned()).map_err(bad_url)?)
+            .set_auth_uri(AuthUrl::new(ends.auth.clone()).map_err(bad_url)?)
+            .set_token_uri(TokenUrl::new(ends.token.clone()).map_err(bad_url)?)
             .set_redirect_uri(RedirectUrl::new(self.redirect).map_err(bad_url)?);
 
         let token = client
@@ -240,10 +274,20 @@ pub async fn refresh(
     http: &reqwest::Client,
     now: DateTime<Utc>,
 ) -> Result<Credential, RuntimeError> {
-    let ends = endpoints(issuer);
+    refresh_at(&endpoints_for(issuer), client_id, refresh_token, http, now).await
+}
+
+/// The same, against endpoints the caller names.
+pub async fn refresh_at(
+    ends: &Endpoints,
+    client_id: &str,
+    refresh_token: &str,
+    http: &reqwest::Client,
+    now: DateTime<Utc>,
+) -> Result<Credential, RuntimeError> {
     let client = BasicClient::new(ClientId::new(client_id.to_owned()))
-        .set_auth_uri(AuthUrl::new(ends.auth.to_owned()).map_err(bad_url)?)
-        .set_token_uri(TokenUrl::new(ends.token.to_owned()).map_err(bad_url)?);
+        .set_auth_uri(AuthUrl::new(ends.auth.clone()).map_err(bad_url)?)
+        .set_token_uri(TokenUrl::new(ends.token.clone()).map_err(bad_url)?);
 
     let token = client
         .exchange_refresh_token(&RefreshToken::new(refresh_token.to_owned()))

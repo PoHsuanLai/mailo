@@ -1298,3 +1298,31 @@ Worth recording from (2): one unparseable response failed the entire walk. Here 
 whole sync rather than skipping a message. Deliberately not changed: recovering response framing
 in the presence of literals means guessing where the next response starts, and guessing wrong
 corrupts mail rather than dropping it. Recorded as a known trade-off, not fixed on a hunch.
+
+### F74 — The OAuth token exchange had never run
+
+`begin` was well covered: the authorize URL carries PKCE, `state` and `access_type=offline`, and
+a mismatched `state` is refused. `exchange`, `refresh` and the `send` adapter between `oauth2`
+and `reqwest` had **no tests at all** — the three functions that speak HTTP, and precisely the
+code that runs the first time anyone supplies a client id.
+
+By this point in the session that description alone was reason enough to look: every other
+never-executed path here has turned out to be broken (F44, F51, F55, F56, F69, F70).
+
+This one is not, which is worth stating as plainly as a defect would be. The exchange sends
+`grant_type=authorization_code`, the code, and a `code_verifier`, and sends **no**
+`client_secret` — an installed application has none, and offering an empty one is how a client
+gets rejected. A refresh sends `grant_type=refresh_token`. An `invalid_grant` comes back as an
+error rather than a credential. All four now run against a `TcpListener` in-process, so no
+network and no client id.
+
+The one behaviour worth the trouble: Google omits the refresh token on a repeat authorization,
+and `refresh` keeps the stored one rather than overwriting it with nothing. A client that gets
+that wrong loses the account an hour later, and the cause is invisible by then. Verified by
+replacing the fallback with `unwrap_or_default()` and watching the test fail.
+
+`Endpoints` is public and substitutable to make this testable, and that is not only a test seam:
+Microsoft runs sovereign clouds on different hosts (`login.microsoftonline.us`), and a deployment
+behind an inspecting proxy needs the same. `Pending` now carries the endpoints resolved when the
+request began, rather than looking them up again when it completes — a second lookup is a second
+answer, and the code came back from whichever host was actually asked.
