@@ -3080,11 +3080,13 @@ dependencies = [
  "dioxus",
  "mail-domain",
  "mail-mime",
+ "mail-proto",
  "mail-runtime",
  "mail-store",
  "rusqlite",
  "serde_json",
  "tempfile",
+ "tokio",
  "uuid",
 ]
 

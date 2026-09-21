@@ -13,6 +13,8 @@ use mail_store::{SqliteStore, Store};
 mod account;
 #[path = "../src/cli.rs"]
 mod cli;
+#[path = "../src/sync.rs"]
+mod sync;
 
 const ACCOUNT: AccountId =
     AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));

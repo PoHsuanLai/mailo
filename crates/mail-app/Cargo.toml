@@ -13,9 +13,11 @@ path = "src/main.rs"
 mail-domain.workspace = true
 mail-store.workspace = true
 mail-mime.workspace = true
+mail-proto.workspace = true
 mail-runtime.workspace = true
 rusqlite = { version = "0.40", features = ["bundled"] }
 serde_json = "1"
+tokio = { version = "1", features = ["rt", "macros", "time"] }
 chrono.workspace = true
 dioxus = { version = "0.7", features = ["desktop"] }
 

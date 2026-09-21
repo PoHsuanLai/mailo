@@ -24,6 +24,8 @@ pub enum Command {
     AccountAdd { address: String },
     /// Configured accounts, and what each still needs.
     AccountList,
+    /// Fetch mail for every configured account, and drain the outbox.
+    Sync,
 }
 
 /// Parse arguments, or explain what was wrong.
@@ -70,6 +72,7 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
             Ok(Command::Search { needle, limit: 20 })
         }
         "status" => Ok(Command::Status),
+        "sync" => Ok(Command::Sync),
         "account" => match args.get(1).map(String::as_str) {
             Some("add") => {
                 let address = args
@@ -108,6 +111,7 @@ usage: mailo <command>
   status
   account [list]
   account add <address>      (set MAILO_PASSWORD for a password account)
+  sync                       fetch mail and send anything queued
 "
     .to_owned()
 }
@@ -173,6 +177,9 @@ pub fn run(store: &SqliteStore, command: &Command, now: DateTime<Utc>) -> Result
             }
             Ok(render_list(&page.items))
         }
+        // Dispatched in main: it needs an async runtime and the store by Arc, which would make
+        // this function untestable without one.
+        Command::Sync => Err("sync is dispatched before this point".to_owned()),
         Command::AccountAdd { address } => crate::account::add(store, address, now),
         Command::AccountList => crate::account::list(store),
         Command::Status => {

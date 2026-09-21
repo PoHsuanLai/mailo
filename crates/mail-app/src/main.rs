@@ -2,6 +2,7 @@
 
 mod account;
 mod cli;
+mod sync;
 mod ui;
 mod view;
 
@@ -41,6 +42,20 @@ fn main() {
         }
     };
 
+    let store = std::sync::Arc::new(store);
+    // Sync needs an async runtime and the store by Arc, so it is dispatched here rather than
+    // inside cli::run, which is deliberately synchronous and testable.
+    if matches!(command, Some(cli::Command::Sync)) {
+        match sync::run(store, chrono::Utc::now()) {
+            Ok(output) => print!("{output}"),
+            Err(message) => {
+                eprintln!("{message}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+
     match command {
         Some(command) => match cli::run(&store, &command, chrono::Utc::now()) {
             Ok(output) => print!("{output}"),
@@ -49,7 +64,7 @@ fn main() {
                 std::process::exit(1);
             }
         },
-        None => ui::run(std::sync::Arc::new(store)),
+        None => ui::run(store),
     }
 }
 
