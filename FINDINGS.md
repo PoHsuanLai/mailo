@@ -1242,3 +1242,30 @@ That is the second time in this session a test written *specifically* to guard a
 exercise the bug (F60 was the first). Both were caught by the same habit — reintroduce the defect,
 watch the test fail — and in both cases the test had looked obviously correct. The habit is worth
 more than any single test it has validated.
+
+### F72 — Submission checked against a server nobody here wrote
+
+The excuse this time was "I can't authenticate". Partly true — Google and Microsoft need a client
+registration — and, again, over-generalised. `aiosmtpd` is a real SMTP server implementation, it
+supports `AUTH`, and it installs into a scratchpad virtualenv with no system changes.
+
+It accepted this client's `EHLO`, its `AUTH PLAIN` — meaning the base64 decoded to credentials a
+server written by other people recognised — its envelope commands, and its `DATA`. Both
+recipients arrived as separate `RCPT TO` commands. A wrong password came back as
+`535 5.7.8 Authentication credentials invalid` and was reported as an authentication failure
+rather than a delivery or a crash.
+
+The part worth the effort is dot-stuffing, checked by reading what the server *received*. Three
+lines that break careless clients — a line containing only `.`, a line beginning with `.`, and a
+line beginning with `..` — arrived byte for byte. Disabling `stuff_line` and re-running shows why
+it matters: the bare dot ends `DATA` early, the server reads the rest of the message as SMTP
+commands, and the exchange deadlocks. Against the fake in `submission_end_to_end.rs` that same bug
+is invisible, because the fake unstuffs whatever it is handed.
+
+`scripts/live-smtpd.py` is committed so this is repeatable, and both tests are `#[ignore]`d and
+skip when nothing is listening — a test that fails because a developer has not started a daemon
+is a test people learn to ignore.
+
+No authentication attempts were made against NTU or any other third party. A failed login against
+a university's production server risks the user's own address being rate-limited, which is not
+mine to spend.
