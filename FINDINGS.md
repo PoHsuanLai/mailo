@@ -1276,8 +1276,10 @@ The excuse was "IMAP has no pip-installable equivalent" to `aiosmtpd`. Wrong: Tw
 `IMAP4Server`, a real IMAP4rev1 implementation written by people who were not thinking about this
 client, and it installs into the same scratchpad virtualenv.
 
-The client's `LOGIN`, `SELECT`, `UID FETCH` with `ENVELOPE` and `BODYSTRUCTURE`, and literal
-handling all pass against it. The body in the fixture contains `A1 OK not really` and a stray
+The client's `LOGIN`, `SELECT`, `UID FETCH` and literal handling pass against it.
+
+**Correction (F88).** This entry originally said `ENVELOPE` and `BODYSTRUCTURE` passed too. They
+did not, and the claim did not survive being re-run from a clean server. The body in the fixture contains `A1 OK not really` and a stray
 `)`, which are what break a parser that scans for a tagged response or counts parentheses instead
 of honouring the literal's byte count.
 
@@ -1588,3 +1590,40 @@ repository, and its criterion is a judgement about using the thing with real mai
 
 Writing "done when" and leaving it is how a plan becomes a wish. Writing what happened next to it
 is the difference between a document that closes and one that is merely abandoned.
+
+### F88 — I reported a pass I could not reproduce
+
+F73 says the live IMAP test covered `ENVELOPE` and `BODYSTRUCTURE`. Re-run from a clean server
+this round, `a_real_server_accepts_login_select_and_fetch` **failed**, and had been failing: the
+fixture's messages carried no `Content-Type` and no `Content-Transfer-Encoding`, so Twisted
+rendered `BODYSTRUCTURE (NIL NIL NIL …)` and then `("text" "plain" … NIL 251 1 …)` with a NIL
+encoding, where RFC 3501 requires `body-fld-enc` to be a string. `imap-proto` was right to refuse
+both.
+
+I had restarted that server several times while editing the fixture, and reported a result from a
+run whose server state I had not pinned down. The lesson is not about IMAP: a test that talks to
+something started by hand is only evidence if you know what was answering, and "I saw it pass"
+is not that. The clean experiment — kill everything on the port, start one process from the
+committed script, run — took two minutes and settled it.
+
+Both tests pass now, against a server started that way, and the fixture is committed in the state
+that makes them pass. F73 is corrected in place rather than left with a footnote, because someone
+reading it for what is covered should not have to find this entry to learn it was wrong.
+
+### F89 — The one function the binary calls could not be run
+
+`sync::run` ties configuration, credentials, the backend, the engine and the store together, and
+reached for `KeyringSecrets` directly — so the assembly was the one thing no test could execute,
+while every layer beneath it had tests. `run_with` takes the secret store; `run` supplies the
+keyring.
+
+What that buys is the assembly itself: an account with no credential is skipped with a reason
+that names the command which fixes it, an unreachable server is reported against that account
+rather than thrown, and — against the Twisted server — a stored plan becomes a real connection
+and the user is told `2 headers, 2 bodies, 0 queued operations settled, 0 sent`.
+
+Worth noting what could *not* be tested and why. `presets::manual` only ever produces
+`Tls::Implicit`, so no configuration this program will write can reach a plaintext loopback
+server; the test constructs that plan by hand. That is the security posture working as intended —
+there is no setting that sends a password in clear — and it means the binary's own configuration
+path can only ever be exercised against a server with a certificate a public root will sign.

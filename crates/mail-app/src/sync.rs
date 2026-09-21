@@ -74,6 +74,24 @@ fn configured(store: &SqliteStore) -> Result<Vec<Configured>, String> {
 /// Accounts without one are skipped with a reason rather than failing the run: having one
 /// account that needs attention should not stop the others from fetching mail.
 pub fn run(store: Arc<SqliteStore>, now: chrono::DateTime<chrono::Utc>) -> Result<String, String> {
+    run_with(store, Arc::new(KeyringSecrets), now)
+}
+
+/// The same, with the secret store named.
+///
+/// The keyring is the only thing in this function that cannot exist in a test, and it was
+/// reached for directly — so the one function that ties configuration, credentials, the backend,
+/// the engine and the store together was the one function nothing could run. Every piece below
+/// it had tests; the assembly had none.
+///
+/// Injected rather than faked at a lower level, because what is worth testing here *is* the
+/// assembly: which credential is fetched for which purpose, what happens to an account that has
+/// none, and that a failure in one account does not stop the next.
+pub fn run_with(
+    store: Arc<SqliteStore>,
+    secrets: Arc<dyn Secrets>,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<String, String> {
     let accounts = configured(&store)?;
     if accounts.is_empty() {
         return Ok("no accounts. Add one with: mailo account add <address>\n".to_owned());
@@ -86,7 +104,7 @@ pub fn run(store: Arc<SqliteStore>, now: chrono::DateTime<chrono::Utc>) -> Resul
 
     let mut out = String::new();
     for account in accounts {
-        match runtime.block_on(one(&store, &account, now)) {
+        match runtime.block_on(one(&store, &account, secrets.clone(), now)) {
             Ok(report) => {
                 let _ = writeln!(
                     out,
@@ -116,9 +134,10 @@ pub fn run(store: Arc<SqliteStore>, now: chrono::DateTime<chrono::Utc>) -> Resul
 async fn one(
     store: &Arc<SqliteStore>,
     account: &Configured,
+    secrets: Arc<dyn Secrets>,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<SyncReport, String> {
-    let credential = KeyringSecrets
+    let credential = secrets
         .get(&SecretKey {
             account: account.id,
             purpose: SecretPurpose::IncomingPassword,
@@ -127,7 +146,6 @@ async fn one(
             "no credential stored. Run: MAILO_PASSWORD=… mailo account add <address>".to_owned()
         })?;
 
-    let secrets: Arc<dyn Secrets> = Arc::new(KeyringSecrets);
     let mailbox = MailboxRef {
         account: account.id,
         path: "INBOX".to_owned(),
