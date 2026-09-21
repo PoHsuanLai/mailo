@@ -9,7 +9,7 @@ pub mod build;
 pub mod parse;
 pub mod sanitize;
 
-pub use build::build;
+pub use build::{Disclosure, Posting, build, posting};
 pub use parse::{Parsed, ParsedPart, parse};
 pub use sanitize::{RemoteImages, SafeHtml, SanitizePolicy, sanitize};
 

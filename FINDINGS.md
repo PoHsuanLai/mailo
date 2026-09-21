@@ -474,3 +474,40 @@ labels could not express at all.
 Adopted on the type argument rather than on the product citation that came with it: grouping a
 mailbox by read state is obviously wanted whatever any particular client did, and the
 citation's subject has since shut down.
+
+
+### F36 — Drafts were accepted, reported applied, and dropped
+
+`SqliteStore::write_change` matched `Change::DraftUpsert(_) | Change::DraftDelete(_) => None`.
+`MemoryStore` inserted into a `BTreeMap`. Both satisfied `Store`; `apply` returned `Ok` in both
+cases; the composer would have shown a saved draft and lost it on the next read.
+
+The parity proptest — which exists precisely to catch two stores disagreeing — could not see it.
+It compares answers, and there was no question to ask: the `Store` trait had no `draft` method.
+An untestable divergence is not a divergence the test suite is weak on; it is one the *interface*
+hides, and the fix is at the interface. `Store` now has `draft`, `drafts` and `set_send_state`.
+
+`set_send_state` is deliberately not a `Change`. Everything in a `Patch` is invertible, because
+the undo stack replays the inverse. "Sending" becoming "Sent" is not the user's edit and must not
+be reversible: an undo that put a delivered message back into `Queued` would send it twice.
+
+### F37 — `Bcc` would have been delivered to everyone
+
+`mail_mime::build` wrote a `Bcc` header from `Draft.bcc`, and a passing test asserted it did.
+That test was right for the caller it was written for — the copy saved to `Drafts`, which only
+the sender reads, and which must keep the record of who was blind-copied. It was catastrophic
+for the caller that did not exist yet: the bytes handed to SMTP.
+
+Both halves fail silently, in opposite directions. Strip `Bcc` from the headers and forget the
+envelope, and the blind recipient simply never receives the message — no bounce, no error, and
+the sender sees a successful send. Leave it in the headers, and every ordinary recipient is told
+in confidence exactly who was copied in confidence. Nothing in either case reports a problem.
+
+The bug was reachable only because one function served two callers who want different bytes, and
+the difference was left implicit. It is now `Disclosure::{Full, HideBlind}`, an argument neither
+caller can supply by accident, and `posting()` returns the envelope and the message *together* —
+`mail_from`, `rcpt_to` (To + Cc + Bcc, deduplicated) and bytes built with `HideBlind`. Deriving
+the envelope by re-parsing the message is the exact shape of the first failure, so the type makes
+it impossible to hold one without the other.
+
+Found by reading the builder before wiring submission, not by a test.

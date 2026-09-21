@@ -6,7 +6,7 @@ use mail_domain::{
     MailboxRole, Message, MessageId, MessageKey, PendingAttachment, ReadState, SendState, Star,
     ThreadId,
 };
-use mail_mime::{MimeError, build, parse};
+use mail_mime::{Disclosure, MimeError, build, parse, posting};
 
 struct ThreadCase {
     name: &'static str,
@@ -152,8 +152,14 @@ fn reply_round_trips_threading_headers() {
         let original = parent(case.references, case.rfc_message_id);
         let draft = draft(case.pass_parent.then_some(original.id), Some(blob));
         let parent_ref = case.pass_parent.then_some(&original);
-        let raw = build(&draft, &me, parent_ref, &[(blob, bytes.clone())])
-            .unwrap_or_else(|err| panic!("{}: {err}", case.name));
+        let raw = build(
+            &draft,
+            &me,
+            parent_ref,
+            &[(blob, bytes.clone())],
+            Disclosure::Full,
+        )
+        .unwrap_or_else(|err| panic!("{}: {err}", case.name));
         let parsed = parse(&raw).unwrap_or_else(|err| panic!("{}: parse {err}", case.name));
         assert_eq!(
             parsed.in_reply_to.as_deref(),
@@ -244,12 +250,12 @@ fn build_rejects_unsendable_drafts() {
     empty.to.clear();
     empty.cc.clear();
     empty.bcc.clear();
-    let err = build(&empty, &me, None, &[]).expect_err("no recipients");
+    let err = build(&empty, &me, None, &[], Disclosure::Full).expect_err("no recipients");
     assert!(matches!(err, MimeError::NoRecipients), "{err:?}");
 
     let mut bcc_only = empty.clone();
     bcc_only.bcc.push(addr(None, "dee@example.test"));
-    let raw = build(&bcc_only, &me, None, &[]).expect("bcc alone is a recipient");
+    let raw = build(&bcc_only, &me, None, &[], Disclosure::Full).expect("bcc alone is a recipient");
     let parsed = parse(&raw).expect("bcc-only message parses");
     assert_eq!(
         parsed
@@ -261,7 +267,8 @@ fn build_rejects_unsendable_drafts() {
     );
 
     let missing = draft(Some(original.id), Some(blob));
-    let err = build(&missing, &me, Some(&original), &[]).expect_err("missing blob");
+    let err =
+        build(&missing, &me, Some(&original), &[], Disclosure::Full).expect_err("missing blob");
     assert!(
         matches!(err, MimeError::MissingPart(ref got) if got == &blob.to_string()),
         "{err:?}"
@@ -282,7 +289,14 @@ fn hostile_header_values_cannot_inject_a_header() {
     draft.bcc.clear();
     draft.attachments[0].mime = "text/plain\r\nBcc: injected@evil.test".to_owned();
     draft.attachments[0].name = "notes\r\nBcc: injected@evil.test.bin".to_owned();
-    let raw = build(&draft, &me, None, &[(blob, b"abc".to_vec())]).expect("builds");
+    let raw = build(
+        &draft,
+        &me,
+        None,
+        &[(blob, b"abc".to_vec())],
+        Disclosure::Full,
+    )
+    .expect("builds");
     let parsed = parse(&raw).expect("parses");
     assert!(
         parsed.bcc.is_empty(),
@@ -291,4 +305,127 @@ fn hostile_header_values_cannot_inject_a_header() {
     assert_eq!(parsed.to.len(), 1);
     assert_eq!(parsed.to[0].email, "a@b.test");
     assert_eq!(parsed.attachments[0].mime, "application/octet-stream");
+}
+
+/// Blind copies must reach their recipients without the other recipients learning of them.
+///
+/// The two halves of that sentence pull in opposite directions, and a client that gets either
+/// half wrong fails quietly: strip `Bcc` from the headers but not add it to the envelope and
+/// the blind recipient never receives the mail; leave it in the headers and everyone on `To`
+/// sees exactly who was copied in confidence. Nothing bounces either way.
+mod blind_copies {
+    use super::*;
+
+    #[test]
+    fn the_wire_bytes_do_not_name_blind_recipients() {
+        let me = identity();
+        let draft = draft(None, None);
+        let raw = build(&draft, &me, None, &[], Disclosure::HideBlind).expect("builds");
+        let parsed = parse(&raw).expect("parses");
+
+        assert!(
+            parsed.bcc.is_empty(),
+            "a Bcc header reached the wire: {:?}",
+            parsed.bcc
+        );
+        // Not merely absent from the parsed struct — absent from the bytes. A header the
+        // parser happens not to surface would still be delivered verbatim.
+        let text = String::from_utf8_lossy(&raw).to_lowercase();
+        assert!(!text.contains("bcc:"), "raw bytes still carry a Bcc header");
+        assert!(
+            !text.contains("dee@example.test"),
+            "the blind address appears in the transmitted bytes"
+        );
+    }
+
+    #[test]
+    fn a_stored_copy_still_records_who_was_blind_copied() {
+        // The other half of `Disclosure`. The sender's own copy must keep the record, or the
+        // Sent folder forgets who actually received the message.
+        let me = identity();
+        let draft = draft(None, None);
+        let raw = build(&draft, &me, None, &[], Disclosure::Full).expect("builds");
+        let parsed = parse(&raw).expect("parses");
+        assert_eq!(parsed.bcc.len(), 1, "the stored copy keeps Bcc");
+    }
+
+    #[test]
+    fn the_envelope_carries_every_recipient_the_headers_hide() {
+        let me = identity();
+        let draft = draft(None, None);
+        let post = posting(&draft, &me, None, &[]).expect("has recipients");
+
+        assert_eq!(post.mail_from, "me@example.test");
+        // To, Cc and Bcc alike: the envelope is how the blind copy is actually delivered.
+        assert!(post.rcpt_to.contains(&"bea@example.test".to_owned()));
+        assert!(post.rcpt_to.contains(&"cara@example.test".to_owned()));
+        assert!(
+            post.rcpt_to.contains(&"dee@example.test".to_owned()),
+            "the blind recipient would never receive this: {:?}",
+            post.rcpt_to
+        );
+        assert!(
+            !String::from_utf8_lossy(&post.message)
+                .to_lowercase()
+                .contains("bcc:"),
+            "posting must build with HideBlind"
+        );
+    }
+
+    #[test]
+    fn mail_from_is_the_identity_not_its_reply_to() {
+        // The fixture identity has `reply_to: alias@example.test`. MAIL FROM is the return
+        // path for bounces; pointing it at a list alias sends every bounce to the list.
+        let me = identity();
+        assert_eq!(me.reply_to.as_ref().unwrap().email, "alias@example.test");
+        let post = posting(&draft(None, None), &me, None, &[]).expect("has recipients");
+        assert_eq!(post.mail_from, "me@example.test");
+    }
+
+    #[test]
+    fn someone_on_both_to_and_bcc_is_delivered_to_once() {
+        let me = identity();
+        let mut draft = draft(None, None);
+        draft.bcc = vec![addr(None, "BEA@example.test")];
+        let post = posting(&draft, &me, None, &[]).expect("has recipients");
+
+        // Case-insensitively the same mailbox. Two RCPT TO lines mean two copies.
+        assert_eq!(
+            post.rcpt_to,
+            vec![
+                "bea@example.test".to_owned(),
+                "cara@example.test".to_owned()
+            ],
+            "duplicate recipient survived"
+        );
+    }
+
+    #[test]
+    fn a_blind_only_message_still_builds_and_still_has_an_envelope() {
+        // Nothing in the headers names anyone. RFC 5322 requires only Date and From, so this
+        // is a valid message — and the earlier NoRecipients guard must not reject it just
+        // because hiding Bcc left the header set empty.
+        let me = identity();
+        let mut draft = draft(None, None);
+        draft.to.clear();
+        draft.cc.clear();
+
+        let post = posting(&draft, &me, None, &[]).expect("bcc alone is still a recipient");
+        assert_eq!(post.rcpt_to, vec!["dee@example.test".to_owned()]);
+        let parsed = parse(&post.message).expect("parses");
+        assert!(parsed.to.is_empty() && parsed.cc.is_empty() && parsed.bcc.is_empty());
+    }
+
+    #[test]
+    fn a_draft_with_nobody_on_it_is_refused_rather_than_sent_into_the_void() {
+        let me = identity();
+        let mut draft = draft(None, None);
+        draft.to.clear();
+        draft.cc.clear();
+        draft.bcc.clear();
+        assert!(matches!(
+            posting(&draft, &me, None, &[]),
+            Err(MimeError::NoRecipients)
+        ));
+    }
 }
