@@ -965,3 +965,40 @@ would be the same mistake in a different place.
 
 The regression test is bounded at five seconds. Removing the news check makes the session park
 for ever, and a test that hangs blocks a run instead of reporting one.
+
+### F59 — `Append` was refused alongside `Submit`, and drafts never left the machine
+
+The IMAP backend matched `ProtoOp::Append { .. } | ProtoOp::Submit { .. }` together and answered
+"submission is a separate backend". True of `Submit`, which goes to an entirely different server
+over SMTP. False of `Append`, which uploads a message into a folder over *this* connection and is
+as much an IMAP operation as `FETCH`.
+
+So a draft composed here existed on one machine. Starting a reply at a desk and finishing it on a
+phone — which is most of what a Drafts folder is for — could not work.
+
+`APPEND` is the only command here that sends a literal, which is why it needed a phase of its
+own. The server answers `+` and only then may the bytes go; writing them ahead of the
+continuation means a server that rejected the `APPEND` line is now reading a message as though
+it were commands. A tagged reply arriving *instead* of the `+` is the ordinary case of no such
+mailbox or over quota, so `AppendPending` joins the phases that can receive one — without that it
+would have read as a desynchronised connection rather than as the server saying no.
+
+The Drafts path comes from the server's own `SPECIAL-USE` reply. An account whose capabilities
+name no Drafts folder gets `Ok(false)` and keeps the draft local: uploading into a path nobody
+confirmed is how a message lands somewhere the user will never look.
+
+### F60 — The destructive-command assertion could never fire
+
+`nothing_this_client_sends_can_destroy_mail` asserted `!upper.contains("\\\\DELETED")` — two
+literal backslashes, which no IMAP command contains. It had been vacuous since F55 added it, and
+it was the test standing guard over the one rule in `CONVENTIONS.md` whose violation destroys
+mail permanently.
+
+Found by writing a different test with the same mistake: the `APPEND` flags assertion failed
+against a command that was correct, which sent me looking for the other place I had over-escaped.
+
+Fixed, and then proved: injecting a `+FLAGS (\Deleted)` into the archive path now fails the test
+with the offending command quoted. This is the fourth time in this session that an assertion
+turned out not to assert what it claimed (F41, F48, and the POP3 repeat-pass comment). Three of
+the four were found by deliberately reintroducing the bug. The fourth was found by accident,
+which is the argument for doing it deliberately every time.

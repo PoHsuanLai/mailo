@@ -116,6 +116,16 @@ pub trait Backend {
     fn surveyed(&self) -> Vec<(RemoteRef, u64)> {
         Vec::new()
     }
+
+    /// Hand over the bytes for the next [`ProtoOp::Append`].
+    ///
+    /// Defaulted to nothing, because most backends have no folders to append into: POP3 has one
+    /// implicit maildrop and SMTP is not a store at all. A backend that ignores this will refuse
+    /// the `Append` itself, which is the honest answer rather than a silent success.
+    ///
+    /// Separate from the op for the same reason `SmtpBackend::stage` is: the op names a
+    /// `BlobId`, and resolving one means reading the blob store, which is above this crate.
+    fn stage_append(&mut self, _raw: Vec<u8>) {}
 }
 
 /// Whether a refusal may succeed if repeated.

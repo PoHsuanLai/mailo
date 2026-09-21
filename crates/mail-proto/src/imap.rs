@@ -71,6 +71,18 @@ pub enum ImapCommand {
         set: String,
         mailbox: String,
     },
+    /// `APPEND <mailbox> (<flags>) {<n>}` followed by the message itself.
+    ///
+    /// The one command here that sends a literal, which is why it needs a phase of its own: the
+    /// server answers `+` and only then may the bytes go. Writing them ahead of the
+    /// continuation is how a client corrupts the next command, because a server that rejected
+    /// the `APPEND` line is now reading a message as though it were commands.
+    Append {
+        mailbox: String,
+        /// `\\Seen`, `\\Draft` and so on. Rendered verbatim inside the parentheses.
+        flags: Vec<String>,
+        raw: Vec<u8>,
+    },
     /// `IDLE`, which parks until the server says something or the caller interrupts.
     Idle,
     Noop,
@@ -147,6 +159,13 @@ enum Phase {
         index: usize,
         tag: String,
     },
+    /// `APPEND` was sent; the server has not yet asked for the literal.
+    AppendPending {
+        index: usize,
+        tag: String,
+        /// Held until the `+` arrives, then written in one go.
+        body: Vec<u8>,
+    },
     Finished,
 }
 
@@ -206,6 +225,12 @@ impl ImapSession {
             ImapCommand::Idle => Phase::IdlePending {
                 index,
                 tag: tag.clone(),
+            },
+            // The bytes wait for the server's `+`; only the command line goes now.
+            ImapCommand::Append { raw, .. } => Phase::AppendPending {
+                index,
+                tag: tag.clone(),
+                body: raw,
             },
             _ => Phase::Running {
                 index,
@@ -269,6 +294,28 @@ impl ImapSession {
                 check_set(set)?;
                 format!("UID COPY {set} {}", quoted(&mutf7::encode(mailbox)))
             }
+            ImapCommand::Append {
+                mailbox,
+                flags,
+                raw,
+            } => {
+                for flag in flags {
+                    if forbidden(flag) {
+                        return Err(ProtoError::Malformed(
+                            "flag contains CR, LF, or NUL".to_owned(),
+                        ));
+                    }
+                }
+                // The length is of the bytes exactly as they will be written. A count that
+                // disagrees with what follows desynchronises the connection: the server reads
+                // the remainder of the message as commands, or waits for bytes never sent.
+                format!(
+                    "APPEND {} ({}) {{{}}}",
+                    quoted(&mutf7::encode(mailbox)),
+                    flags.join(" "),
+                    raw.len()
+                )
+            }
             ImapCommand::UidMove { set, mailbox } => {
                 check_set(set)?;
                 format!("UID MOVE {set} {}", quoted(&mutf7::encode(mailbox)))
@@ -299,6 +346,13 @@ impl ImapSession {
                     Phase::IdlePending { index, tag } => {
                         self.phase = Phase::Idling { index, tag };
                         return Progress::Need(vec![IoNeed::Read]);
+                    }
+                    // The server asked for the literal. Now, and not before.
+                    Phase::AppendPending { index, tag, body } => {
+                        self.phase = Phase::Running { index, tag };
+                        let mut bytes = body;
+                        bytes.extend_from_slice(b"\r\n");
+                        return Progress::Need(vec![IoNeed::Write(bytes), IoNeed::Read]);
                     }
                     // A continuation anywhere else means the server wants data we did not
                     // plan to send. Saying so beats hanging.
@@ -348,7 +402,12 @@ impl ImapSession {
                     Phase::Running { tag, .. }
                     | Phase::IdlePending { tag, .. }
                     | Phase::Idling { tag, .. }
-                    | Phase::IdleEnding { tag, .. } => tag.clone(),
+                    | Phase::IdleEnding { tag, .. }
+                    // A tagged reply while waiting for the literal's `+` is the server
+                    // refusing the APPEND — no such mailbox, over quota — which is an ordinary
+                    // command failure and must read as one rather than as a desynchronised
+                    // connection.
+                    | Phase::AppendPending { tag, .. } => tag.clone(),
                     _ => String::new(),
                 };
                 if tag != expected {
@@ -360,7 +419,8 @@ impl ImapSession {
                     Phase::Running { index, .. }
                     | Phase::IdlePending { index, .. }
                     | Phase::Idling { index, .. }
-                    | Phase::IdleEnding { index, .. } => *index,
+                    | Phase::IdleEnding { index, .. }
+                    | Phase::AppendPending { index, .. } => *index,
                     _ => 0,
                 };
                 match status {

@@ -86,6 +86,21 @@ type Present = Arc<AtomicUsize>;
 /// which would let a round-trip test pass while nothing round-tripped.
 type Flags = Arc<Mutex<std::collections::BTreeMap<u32, Vec<String>>>>;
 
+/// Messages the server was asked to store with `APPEND`, as it received them.
+type Appended = Arc<Mutex<Vec<String>>>;
+
+/// Everything a test can change about the server while the client is talking to it.
+///
+/// One handle rather than four arguments: each of these grew in separately as a test needed it,
+/// and by the fourth the session signature said nothing about what any of them were for.
+#[derive(Clone)]
+struct ServerState {
+    validity: Validity,
+    present: Present,
+    flags: Flags,
+    appended: Appended,
+}
+
 #[derive(Debug, Default)]
 struct Seen {
     commands: Vec<String>,
@@ -106,6 +121,11 @@ async fn serve_full(seen: Shared, fault: Fault) -> (u16, Validity, Present) {
 }
 
 async fn serve_flags(seen: Shared, fault: Fault) -> (u16, Validity, Present, Flags) {
+    let (port, v, p, f, _a) = serve_appending(seen, fault).await;
+    (port, v, p, f)
+}
+
+async fn serve_appending(seen: Shared, fault: Fault) -> (u16, Validity, Present, Flags, Appended) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     let faulted = Arc::new(AtomicUsize::new(0));
@@ -117,7 +137,13 @@ async fn serve_flags(seen: Shared, fault: Fault) -> (u16, Validity, Present, Fla
             .map(|(uid, _)| (*uid, vec!["\\Seen".to_owned()]))
             .collect(),
     ));
-    let (serving, showing, holding) = (validity.clone(), present.clone(), flags.clone());
+    let appended: Appended = Arc::new(Mutex::new(Vec::new()));
+    let state = ServerState {
+        validity: validity.clone(),
+        present: present.clone(),
+        flags: flags.clone(),
+        appended: appended.clone(),
+    };
     tokio::spawn(async move {
         while let Ok((sock, _)) = listener.accept().await {
             tokio::spawn(session(
@@ -125,13 +151,11 @@ async fn serve_flags(seen: Shared, fault: Fault) -> (u16, Validity, Present, Fla
                 seen.clone(),
                 fault,
                 faulted.clone(),
-                serving.clone(),
-                showing.clone(),
-                holding.clone(),
+                state.clone(),
             ));
         }
     });
-    (port, validity, present, flags)
+    (port, validity, present, flags, appended)
 }
 
 async fn session(
@@ -139,10 +163,14 @@ async fn session(
     seen: Shared,
     fault: Fault,
     faulted: Arc<AtomicUsize>,
-    validity: Validity,
-    present: Present,
-    flags: Flags,
+    state: ServerState,
 ) {
+    let ServerState {
+        validity,
+        present,
+        flags,
+        appended,
+    } = state;
     if sock
         .write_all(b"* OK [CAPABILITY IMAP4rev1] server ready\r\n")
         .await
@@ -190,6 +218,7 @@ async fn session(
                 format!(
                     "* LIST (\\HasNoChildren) \"/\" \"INBOX\"\r\n\
                      * LIST (\\HasNoChildren \\Sent) \"/\" \"Sent\"\r\n\
+                     * LIST (\\HasNoChildren \\Drafts) \"/\" \"Drafts\"\r\n\
                      {tag} OK done\r\n"
                 )
             } else if upper.starts_with("SELECT") || upper.starts_with("EXAMINE") {
@@ -233,6 +262,31 @@ async fn session(
                     .write_all(format!("* BYE\r\n{tag} OK done\r\n").as_bytes())
                     .await;
                 return;
+            } else if upper.starts_with("APPEND") {
+                // `{n}` then the bytes. The count is authoritative: read exactly that many,
+                // which is what a client desynchronising the connection gets wrong.
+                let want: usize = rest
+                    .rsplit_once('{')
+                    .and_then(|(_, n)| n.trim_end_matches('}').parse().ok())
+                    .unwrap_or(0);
+                let _ = sock.write_all(b"+ ready for literal\r\n").await;
+                while buf.len() < want + 2 {
+                    let mut chunk = [0u8; 4096];
+                    match sock.read(&mut chunk).await {
+                        Ok(0) | Err(_) => return,
+                        Ok(n) => buf.extend_from_slice(&chunk[..n]),
+                    }
+                }
+                let body = buf.drain(..want).collect::<Vec<u8>>();
+                appended
+                    .lock()
+                    .unwrap()
+                    .push(String::from_utf8_lossy(&body).to_string());
+                // The trailing CRLF after the literal.
+                if buf.starts_with(b"\r\n") {
+                    buf.drain(..2);
+                }
+                format!("{tag} OK [APPENDUID 42 103] done\r\n")
             } else if upper.starts_with("IDLE") {
                 // `+ idling`, then something to report. A real server would park here until it
                 // had news; this one has news immediately, which is the case worth testing —
@@ -1205,9 +1259,13 @@ mod archiving {
 
             for command in commands(&seen) {
                 let upper = command.to_uppercase();
+                // One backslash, not two. This read `"\\\\DELETED"` until the APPEND tests
+                // showed the same over-escaping elsewhere — two literal backslashes, which no
+                // command contains, so the assertion could never fire. A safety check that
+                // cannot fail is not a safety check.
                 assert!(
-                    !upper.contains("\\\\DELETED"),
-                    "a \\\\Deleted flag was sent: {command}"
+                    !upper.contains("\\DELETED"),
+                    "a \\Deleted flag was sent: {command}"
                 );
                 assert!(
                     !upper.starts_with("EXPUNGE") && !upper.starts_with("UID EXPUNGE"),
@@ -1449,6 +1507,142 @@ mod watching {
         assert!(
             outcome.is_ok(),
             "a parked IDLE ignored the interrupt and had to be timed out"
+        );
+    }
+}
+
+/// Uploading a draft, which `ProtoOp::Append` was written for and nothing called.
+mod appending {
+    use super::*;
+
+    fn draft() -> Draft {
+        Draft {
+            id: DraftId::generate(),
+            account: ACCOUNT,
+            identity: IdentityId::generate(),
+            to: vec![Address {
+                name: None,
+                email: "ada@example.test".to_owned(),
+            }],
+            cc: vec![],
+            bcc: vec![],
+            subject: "half a thought".to_owned(),
+            in_reply_to: None,
+            forward_of: None,
+            text: "to be continued".to_owned(),
+            html: None,
+            attachments: vec![],
+            state: SendState::Editing,
+            updated: now(),
+        }
+    }
+
+    const RAW: &[u8] = b"From: me@example.test\r\n\
+Subject: half a thought\r\n\
+\r\n\
+to be continued\r\n\
+.a line that starts with a dot\r\n";
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_draft_reaches_the_servers_drafts_folder() {
+        let seen: Shared = Arc::new(Mutex::new(Seen::default()));
+        let (port, _v, _p, _f, appended) = serve_appending(seen.clone(), Fault::None).await;
+        let mut it = engine_with(port, tempfile::tempdir().unwrap(), caps());
+        let (_tx, mut cancel) = watch::channel(false);
+
+        // The Drafts path comes from the server, not from a guess, so discovery runs first.
+        it.engine.refresh_caps(&mut cancel, now()).await.unwrap();
+
+        let uploaded = it
+            .engine
+            .upload_draft(&draft(), RAW.to_vec(), &mut cancel)
+            .await
+            .expect("the append succeeds");
+        assert!(
+            uploaded,
+            "the server named a Drafts folder and nothing used it"
+        );
+
+        let stored = appended.lock().unwrap().clone();
+        assert_eq!(
+            stored.len(),
+            1,
+            "nothing was appended: {:?}",
+            seen.lock().unwrap().commands
+        );
+        assert!(stored[0].contains("half a thought"), "{}", stored[0]);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_literal_arrives_byte_for_byte() {
+        // A literal is framed by a byte count, not by a terminator, so a body containing a line
+        // that begins with a dot — or a CRLF, or anything else — must survive untouched. A count
+        // that disagrees with what follows desynchronises the connection entirely.
+        let seen: Shared = Arc::new(Mutex::new(Seen::default()));
+        let (port, _v, _p, _f, appended) = serve_appending(seen, Fault::None).await;
+        let mut it = engine_with(port, tempfile::tempdir().unwrap(), caps());
+        let (_tx, mut cancel) = watch::channel(false);
+        it.engine.refresh_caps(&mut cancel, now()).await.unwrap();
+
+        it.engine
+            .upload_draft(&draft(), RAW.to_vec(), &mut cancel)
+            .await
+            .unwrap();
+
+        let stored = appended.lock().unwrap().clone();
+        assert_eq!(
+            stored[0].as_bytes(),
+            RAW,
+            "the literal was altered in transit"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_draft_is_marked_as_a_draft_and_already_read() {
+        // Without \\Draft the message shows up as ordinary mail in the folder; without \\Seen the
+        // user's own unfinished note arrives as unread mail on every device they own.
+        let seen: Shared = Arc::new(Mutex::new(Seen::default()));
+        let (port, _v, _p, _f, _a) = serve_appending(seen.clone(), Fault::None).await;
+        let mut it = engine_with(port, tempfile::tempdir().unwrap(), caps());
+        let (_tx, mut cancel) = watch::channel(false);
+        it.engine.refresh_caps(&mut cancel, now()).await.unwrap();
+
+        it.engine
+            .upload_draft(&draft(), RAW.to_vec(), &mut cancel)
+            .await
+            .unwrap();
+
+        let append = seen
+            .lock()
+            .unwrap()
+            .commands
+            .iter()
+            .find(|c| c.to_uppercase().starts_with("APPEND"))
+            .cloned()
+            .expect("an APPEND was sent");
+        assert!(append.contains("\\Draft"), "{append}");
+        assert!(append.contains("\\Seen"), "{append}");
+        assert!(append.contains("Drafts"), "{append}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_account_with_no_drafts_folder_says_so_rather_than_guessing() {
+        // Uploading into a path nobody confirmed is how a message lands somewhere the user will
+        // never look. `caps()` has an empty FolderRoles and no discovery has run.
+        let seen: Shared = Arc::new(Mutex::new(Seen::default()));
+        let (port, _v, _p, _f, appended) = serve_appending(seen, Fault::None).await;
+        let mut it = engine_with(port, tempfile::tempdir().unwrap(), caps());
+        let (_tx, mut cancel) = watch::channel(false);
+
+        let uploaded = it
+            .engine
+            .upload_draft(&draft(), RAW.to_vec(), &mut cancel)
+            .await
+            .expect("no folder is not an error");
+        assert!(!uploaded, "a folder was invented");
+        assert!(
+            appended.lock().unwrap().is_empty(),
+            "something was uploaded anyway"
         );
     }
 }

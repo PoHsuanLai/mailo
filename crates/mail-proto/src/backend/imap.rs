@@ -43,6 +43,11 @@ pub struct ImapBackend {
     caps: AccountCaps,
     build: SessionFactory,
     session: Option<ImapSession>,
+    /// Bytes for the next [`ProtoOp::Append`].
+    ///
+    /// Staged separately for the same reason `SmtpBackend` stages a submission: the op names a
+    /// `BlobId`, and resolving one means reading the blob store, which is above this crate.
+    staged: Option<Vec<u8>>,
     /// What the last envelope walk found on the server: every UID, with its size.
     ///
     /// Held because the runtime asks for it through [`Backend::surveyed`] after the walk, for
@@ -59,6 +64,7 @@ impl ImapBackend {
             caps,
             build,
             session: None,
+            staged: None,
             survey: Vec::new(),
             job: Job::Idle,
         }
@@ -343,9 +349,36 @@ impl Backend for ImapBackend {
                  that setting cannot be read over IMAP"
                     .to_owned(),
             )),
-            ProtoOp::Append { .. } | ProtoOp::Submit { .. } => Progress::Failed(
-                ProtoError::Unsupported("submission is a separate backend".to_owned()),
-            ),
+            ProtoOp::Append { mailbox, raw, role } => {
+                // `Append` is not submission and does not belong with it: it uploads a message
+                // into a folder over *this* connection, where `Submit` hands one to an entirely
+                // different server. Refusing them together is why a draft composed here never
+                // reached the Drafts folder on any other device.
+                //
+                // The bytes are a `BlobId` in the op and `Vec<u8>` on the command, because
+                // reading a blob is I/O: the runtime resolves it before calling.
+                self.job = Job::Applied;
+                let _ = raw;
+                let flags = match role {
+                    MailboxRole::Drafts => vec!["\\Draft".to_owned(), "\\Seen".to_owned()],
+                    // A copy of something already sent is not unread mail waiting for the user.
+                    MailboxRole::Sent => vec!["\\Seen".to_owned()],
+                    _ => Vec::new(),
+                };
+                let Some(body) = self.staged.take() else {
+                    return Progress::Failed(ProtoError::Malformed(
+                        "append was not staged: call stage() with the message bytes".to_owned(),
+                    ));
+                };
+                self.queue(vec![ImapCommand::Append {
+                    mailbox: mailbox.path,
+                    flags,
+                    raw: body,
+                }])
+            }
+            ProtoOp::Submit { .. } => Progress::Failed(ProtoError::Unsupported(
+                "submission is a separate backend".to_owned(),
+            )),
         }
     }
 
@@ -489,6 +522,10 @@ impl Backend for ImapBackend {
 
     fn surveyed(&self) -> Vec<(RemoteRef, u64)> {
         self.survey.clone()
+    }
+
+    fn stage_append(&mut self, raw: Vec<u8>) {
+        self.staged = Some(raw);
     }
 }
 

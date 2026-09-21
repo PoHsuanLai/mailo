@@ -9,8 +9,8 @@ use crate::{Cancel, RuntimeError, Secrets, Transport, drive};
 use chrono::{DateTime, Utc};
 use mail_domain::{
     AccountCaps, AccountId, AccountPlan, Condstore, Credential, FetchSince, Incoming, MailboxRef,
-    Outgoing, ProtoOp, RemoteRef, Retry, Retryable, SecretKey, SecretPurpose, SendState,
-    SyncCursor, Tls, UidValidity, WatchMode,
+    MailboxRole, Outgoing, ProtoOp, RemoteRef, Retry, Retryable, SecretKey, SecretPurpose,
+    SendState, SyncCursor, Tls, UidValidity, WatchMode,
 };
 use mail_mime::Posting;
 use mail_proto::backend::SmtpBackend;
@@ -362,6 +362,51 @@ impl<B: Backend> AccountEngine<B> {
         };
         self.store.put_caps(self.account, &caps, now)?;
         Ok(caps)
+    }
+
+    /// Upload a draft into the server's Drafts folder.
+    ///
+    /// Without this a draft exists on one machine. That is the difference between a mail client
+    /// and a mail client you can start a reply on and finish from a phone, and it is what
+    /// `ProtoOp::Append` was written for — it simply had no caller (FINDINGS F57).
+    ///
+    /// The folder comes from the server's own `SPECIAL-USE` reply where there is one. An account
+    /// whose capabilities name no Drafts folder is not an error and not a guess: uploading into
+    /// a path nobody confirmed is how a message lands somewhere the user will never look, so
+    /// this reports that there was nowhere to put it and leaves the draft local.
+    pub async fn upload_draft(
+        &mut self,
+        draft: &mail_domain::Draft,
+        raw: Vec<u8>,
+        cancel: &mut Cancel,
+    ) -> Result<bool, RuntimeError> {
+        let Some(path) = self.folder_for(MailboxRole::Drafts) else {
+            return Ok(false);
+        };
+        let _ = draft;
+        self.backend.stage_append(raw);
+        let op = ProtoOp::Append {
+            mailbox: MailboxRef {
+                account: self.account,
+                path,
+            },
+            // Resolved by the caller and carried for the record; the bytes travel staged.
+            raw: mail_domain::BlobId::generate(),
+            role: MailboxRole::Drafts,
+        };
+        self.run(op, cancel).await?;
+        Ok(true)
+    }
+
+    /// The server's path for a role, where it told us one.
+    fn folder_for(&self, role: MailboxRole) -> Option<String> {
+        self.backend
+            .caps()
+            .folders
+            .0
+            .iter()
+            .find(|(_, known)| *known == role)
+            .map(|(path, _)| path.clone())
     }
 
     /// Wait until the server has something new, or the caller interrupts.
