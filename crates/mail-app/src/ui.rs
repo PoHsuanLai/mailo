@@ -4,7 +4,9 @@
 //! What is here is layout, event wiring, and the one thing a UI can get dangerously wrong —
 //! rendering a stranger's HTML.
 
-use crate::view::{Composing, Listing, Reading, Shell, hover_actions, op_for, reading};
+use crate::view::{
+    Composing, Listing, Reading, Shell, SyncState, hover_actions, op_for, reading, synced,
+};
 use dioxus::prelude::*;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
@@ -40,6 +42,7 @@ fn App() -> Element {
     // How many pages of the list have been asked for. Reset whenever the list itself changes,
     // because "page 3" of the Inbox means nothing once the user is looking at Archive.
     let mut pages = use_signal(|| 1u32);
+    let mut sync_state = use_signal(|| SyncState::Idle);
 
     let threads = use_memo(move || {
         let _ = revision();
@@ -82,6 +85,42 @@ fn App() -> Element {
                             pages.set(1);
                         },
                         "{place.name}"
+                    }
+                }
+                div { class: "spacer" }
+                button {
+                    class: "place sync",
+                    disabled: !sync_state.read().may_start(),
+                    onclick: move |_| {
+                        if !sync_state.read().may_start() {
+                            return;
+                        }
+                        sync_state.set(SyncState::Running);
+                        let store = use_context::<Arc<SqliteStore>>();
+                        spawn(async move {
+                            // `spawn_blocking`, not this task: sync::run opens sockets and
+                            // builds its own runtime, and `Runtime::block_on` inside an async
+                            // context panics. Off the UI thread either way — a pass takes
+                            // minutes on a first sync and would freeze the window.
+                            let done = tokio::task::spawn_blocking(move || {
+                                crate::sync::run(store, chrono::Utc::now())
+                            })
+                            .await;
+                            sync_state.set(match done {
+                                Ok(result) => synced(result),
+                                // The blocking task panicked. Saying so beats a window that
+                                // sits on "Syncing…" for ever.
+                                Err(e) => synced(Err(format!("the sync pass stopped: {e}"))),
+                            });
+                            revision += 1;
+                        });
+                    },
+                    if sync_state.read().may_start() { "Sync" } else { "Syncing…" }
+                }
+                if let Some(note) = sync_state.read().message() {
+                    p {
+                        class: if sync_state.read().is_failure() { "sync-note bad" } else { "sync-note" },
+                        "{note}"
                     }
                 }
             }
@@ -568,6 +607,11 @@ article time { margin-left: auto; opacity: .6; }
 .ghost { font: inherit; font-size: 12px; padding: 2px 8px; border: 1px solid var(--edge); border-radius: 999px; background: none; color: inherit; cursor: pointer; }
 .notice { margin: 0; padding: 6px 8px; border-radius: 6px; background: var(--edge); font-size: 13px; }
 .hint { font-size: 12px; opacity: .6; }
+.spacer { flex: 1; }
+.sync { text-align: center; border: 1px solid var(--edge); }
+.sync:disabled { opacity: .6; cursor: default; }
+.sync-note { margin: 8px 2px 0; font-size: 11px; opacity: .7; white-space: pre-wrap; word-break: break-word; }
+.sync-note.bad { opacity: .95; font-weight: 600; }
 .more { display: block; width: calc(100% - 24px); margin: 10px 12px; padding: 8px; font: inherit; border: 1px solid var(--edge); border-radius: 6px; background: none; color: inherit; cursor: pointer; }
 .images { font: inherit; font-size: 12px; padding: 4px 10px; border: 1px solid var(--edge); border-radius: 999px; background: none; color: inherit; cursor: pointer; margin-bottom: 8px; }
 "#;

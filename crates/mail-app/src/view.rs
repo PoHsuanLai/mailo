@@ -412,6 +412,57 @@ pub fn reply_target(messages: &[Message]) -> Option<&Message> {
     })
 }
 
+/// Where a sync pass has got to, as the window shows it.
+///
+/// A signal the UI reads, not a channel it polls. The pass itself runs on a blocking thread
+/// because it opens sockets and a SQLite connection; what crosses back is this, and only this.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SyncState {
+    Idle,
+    Running,
+    /// Finished, with what the pass reported.
+    Done(String),
+    Failed(String),
+}
+
+impl SyncState {
+    /// Whether a new pass may start.
+    ///
+    /// Two concurrent passes on one account would fetch the same messages twice and race each
+    /// other's writes for the same rows. The button is disabled rather than queueing, because a
+    /// second sync a user asked for while the first was running is the same request, not
+    /// another one.
+    pub fn may_start(&self) -> bool {
+        !matches!(self, SyncState::Running)
+    }
+
+    /// What the status line should say, or `None` when there is nothing to report.
+    pub fn message(&self) -> Option<&str> {
+        match self {
+            SyncState::Idle => None,
+            SyncState::Running => Some("Syncing…"),
+            SyncState::Done(text) | SyncState::Failed(text) => Some(text.trim_end()),
+        }
+    }
+
+    /// Whether the message describes a failure, so the window can style it as one.
+    pub fn is_failure(&self) -> bool {
+        matches!(self, SyncState::Failed(_))
+    }
+}
+
+/// Turn a finished pass into the state to display.
+///
+/// `Ok("")` becomes `Done("Up to date.")` rather than an empty status line: a sync that
+/// reported nothing still happened, and a blank line reads as "the button did nothing".
+pub fn synced(result: Result<String, String>) -> SyncState {
+    match result {
+        Ok(text) if text.trim().is_empty() => SyncState::Done("Up to date.".to_owned()),
+        Ok(text) => SyncState::Done(text),
+        Err(why) => SyncState::Failed(why),
+    }
+}
+
 /// What the list pane should render.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Listing {
@@ -943,5 +994,54 @@ mod listing_tests {
             Listing::Threads(query) => assert_eq!(query.page.limit, 250),
             Listing::Drafts => panic!("the Inbox is not the drafts list"),
         }
+    }
+}
+
+#[cfg(test)]
+mod sync_state_tests {
+    use super::*;
+
+    #[test]
+    fn a_second_sync_cannot_start_while_one_is_running() {
+        // Two passes on one account fetch the same messages twice and race each other's writes.
+        assert!(SyncState::Idle.may_start());
+        assert!(!SyncState::Running.may_start());
+        assert!(SyncState::Done("done".to_owned()).may_start());
+        assert!(SyncState::Failed("nope".to_owned()).may_start());
+    }
+
+    #[test]
+    fn a_pass_that_reported_nothing_still_says_something() {
+        // An empty status line reads as "the button did nothing".
+        assert_eq!(
+            synced(Ok(String::new())).message(),
+            Some("Up to date."),
+            "a silent success must not look like a no-op"
+        );
+        assert_eq!(
+            synced(Ok("   \n".to_owned())).message(),
+            Some("Up to date.")
+        );
+    }
+
+    #[test]
+    fn what_the_pass_reported_is_what_is_shown() {
+        let state = synced(Ok("me@x.test: 3 headers, 3 bodies\n".to_owned()));
+        assert_eq!(state.message(), Some("me@x.test: 3 headers, 3 bodies"));
+        assert!(!state.is_failure());
+    }
+
+    #[test]
+    fn a_failure_is_shown_as_one_rather_than_swallowed() {
+        // The failure most likely here is "no credential", which is fixable — but only by
+        // someone who is told about it.
+        let state = synced(Err("no credential stored".to_owned()));
+        assert!(state.is_failure());
+        assert_eq!(state.message(), Some("no credential stored"));
+    }
+
+    #[test]
+    fn idle_says_nothing_at_all() {
+        assert_eq!(SyncState::Idle.message(), None);
     }
 }
