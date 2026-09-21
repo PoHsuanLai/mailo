@@ -10,7 +10,7 @@ use chrono::{DateTime, Utc};
 use mail_domain::{
     AccountCaps, AccountId, AccountPlan, Condstore, Credential, FetchSince, Incoming, MailboxRef,
     Outgoing, ProtoOp, RemoteRef, Retry, Retryable, SecretKey, SecretPurpose, SendState,
-    SyncCursor, Tls, UidValidity,
+    SyncCursor, Tls, UidValidity, WatchMode,
 };
 use mail_mime::Posting;
 use mail_proto::backend::SmtpBackend;
@@ -362,6 +362,45 @@ impl<B: Backend> AccountEngine<B> {
         };
         self.store.put_caps(self.account, &caps, now)?;
         Ok(caps)
+    }
+
+    /// Wait until the server has something new, or the caller interrupts.
+    ///
+    /// `IDLE` where the server offers it, which is the difference between mail appearing when it
+    /// arrives and mail appearing up to five minutes later. Where it does not, this returns
+    /// immediately and the caller falls back to its own interval — `WatchMode::Poll` is not a
+    /// worse kind of watching, it is the absence of watching, and pretending otherwise by
+    /// sleeping in here would hide the distinction from whoever has to schedule around it.
+    ///
+    /// Returns whether the server actually signalled. `false` means "no push available", so a
+    /// caller can tell "nothing happened yet" from "do not wait on me".
+    ///
+    /// Cancellation is the whole reason `IoReady::Interrupt` exists: an `IDLE` with no traffic
+    /// parks for as long as the server allows, so without a way in from outside, quitting the
+    /// application would block on a socket that is behaving perfectly.
+    pub async fn watch(
+        &mut self,
+        mailbox: &MailboxRef,
+        cancel: &mut Cancel,
+    ) -> Result<bool, RuntimeError> {
+        if !matches!(self.backend.caps().watch, WatchMode::Idle) {
+            return Ok(false);
+        }
+        match self
+            .run(
+                ProtoOp::Watch {
+                    mailbox: mailbox.clone(),
+                },
+                cancel,
+            )
+            .await
+        {
+            Ok(ProtoOutcome::Woken) => Ok(true),
+            // Any other completion is a server that answered something unexpected rather than
+            // an error worth stopping for; the caller's interval still applies.
+            Ok(_) => Ok(false),
+            Err(e) => Err(e),
+        }
     }
 
     /// Whether what we believe about the server is old enough to be worth re-asking.

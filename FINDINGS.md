@@ -923,3 +923,45 @@ This is the fourth instance this session of the same shape: a subsystem built co
 at its own boundary, and never called by anything (F44, F51, F55, F56). The unit tests all
 passed, because each one was asking the component whether it worked rather than whether anything
 used it.
+
+### F57 — An audit for uncalled subsystems, and what it found
+
+F44, F51, F55 and F56 were all the same shape: a subsystem built correctly, tested at its own
+boundary, and called by nothing. Four instances found one per round, each by accident. That is a
+mechanically checkable property, so rather than wait for a fifth, every `ProtoOp` and
+`ProtoOutcome` was swept for callers above `mail-proto`.
+
+The result:
+
+| variant | callers | verdict |
+|---|---|---|
+| `Expunge` | 0 | correct — refused by design, never sent |
+| `Append` | 0 | a real gap: a draft is never uploaded to the server's Drafts folder, so it exists on one machine only |
+| `Watch` / `Woken` | 0 | **IDLE was never used on any server that offered it** |
+
+Everything else had callers. `Applied` and `Submitted` have no dedicated handler, which is fine:
+the outbox drain treats any success as success.
+
+### F58 — `IDLE` was documented to wake on news and only ever woke on interrupt
+
+`ImapCommand::Idle`'s own doc says it "parks until the server says something or the caller
+interrupts". Only the second half was implemented. `IoReady::Interrupt` moved the session to
+`IdleEnding` and sent `DONE`; an untagged `* 3 EXISTS` announcing new mail was appended to the
+transcript and the session went on parking.
+
+So IDLE was a sleep with extra steps, and on a server that offers it — which is Gmail, and most
+of the rest — new mail would have waited for the next poll anyway. The feature the `WatchMode`
+enum exists to distinguish did not distinguish anything.
+
+The session now ends IDLE in protocol when an untagged response is news: `EXISTS` and `RECENT`
+are new mail, and `EXPUNGE` and `FETCH` are a change made elsewhere, which a watcher wants just
+as much — a message read on a phone should not wait for a poll either. `DONE` rather than
+dropping the socket, so the connection stays reusable.
+
+`AccountEngine::watch` is the caller the sweep said was missing. It returns whether the server
+actually signalled, so `WatchMode::Poll` reports "do not wait on me" rather than imitating a
+watch by sleeping — the absence of push is not a slower push, and hiding that from the scheduler
+would be the same mistake in a different place.
+
+The regression test is bounded at five seconds. Removing the news check makes the session park
+for ever, and a test that hangs blocks a run instead of reporting one.

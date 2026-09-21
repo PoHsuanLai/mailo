@@ -154,6 +154,7 @@ async fn session(
     let mut drop = maildrop();
     drop.truncate(present.load(Ordering::SeqCst));
     let mut buf = Vec::new();
+    let mut idle_tag: Option<String> = None;
     loop {
         let mut chunk = [0u8; 4096];
         let read = match sock.read(&mut chunk).await {
@@ -232,6 +233,24 @@ async fn session(
                     .write_all(format!("* BYE\r\n{tag} OK done\r\n").as_bytes())
                     .await;
                 return;
+            } else if upper.starts_with("IDLE") {
+                // `+ idling`, then something to report. A real server would park here until it
+                // had news; this one has news immediately, which is the case worth testing —
+                // the parking itself is the client's cancellation problem, covered separately.
+                //
+                // The tag is remembered, because `DONE` arrives with no tag of its own and must
+                // be answered with the IDLE's. Replying with anything else leaves the client
+                // waiting for a completion that never comes, which is what this fixture did on
+                // its first run.
+                idle_tag = Some(tag.clone());
+                let _ = sock.write_all(b"+ idling\r\n").await;
+                let _ = sock.write_all(b"* 3 EXISTS\r\n").await;
+                continue;
+            } else if tag.eq_ignore_ascii_case("DONE") {
+                match idle_tag.take() {
+                    Some(idle) => format!("{idle} OK idle done\r\n"),
+                    None => "* BAD DONE without IDLE\r\n".to_owned(),
+                }
             } else if upper.starts_with("NOOP") {
                 format!("{tag} OK done\r\n")
             } else {
@@ -1314,5 +1333,122 @@ mod discovery {
         );
 
         it.engine.refresh_caps(&mut cancel, now()).await.unwrap();
+    }
+}
+
+/// Waiting for the server to say something, which nothing had ever asked it to do.
+///
+/// `ProtoOp::Watch` and `ProtoOutcome::Woken` were both implemented and neither was reachable:
+/// no caller sent the op, no handler matched the outcome. So IDLE was never used on any server
+/// that offered it, and new mail appeared only when something ran a sync — up to a full poll
+/// interval after it arrived.
+mod watching {
+    use super::*;
+
+    fn caps_idle() -> AccountCaps {
+        AccountCaps {
+            watch: WatchMode::Idle,
+            ..caps()
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_server_offering_idle_is_waited_on() {
+        let seen: Shared = Arc::new(Mutex::new(Seen::default()));
+        let (port, _v, _p, _f) = serve_flags(seen.clone(), Fault::None).await;
+        let mut it = engine_with(port, tempfile::tempdir().unwrap(), caps_idle());
+        let (_tx, mut cancel) = watch::channel(false);
+
+        // Bounded, because the failure this guards is a wait that never ends: with the news
+        // check removed the session parks for ever, and a test that hangs blocks a run instead
+        // of reporting. Five seconds is far longer than a loopback round trip.
+        let woken = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            it.engine.watch(&inbox(), &mut cancel),
+        )
+        .await
+        .expect("IDLE never ended: the server signalled and the session kept parking")
+        .unwrap();
+        assert!(woken, "the server signalled and nothing noticed");
+
+        let sent = seen.lock().unwrap().commands.clone();
+        assert!(
+            sent.iter().any(|c| c.to_uppercase().starts_with("IDLE")),
+            "IDLE was never sent: {sent:?}"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_server_without_idle_says_so_rather_than_sleeping() {
+        // `WatchMode::Poll` is not a worse kind of watching, it is the absence of watching.
+        // Sleeping in here to imitate it would hide that from whoever schedules around it.
+        let seen: Shared = Arc::new(Mutex::new(Seen::default()));
+        let (port, _v, _p, _f) = serve_flags(seen.clone(), Fault::None).await;
+        let mut it = engine_with(port, tempfile::tempdir().unwrap(), caps());
+        let (_tx, mut cancel) = watch::channel(false);
+
+        assert!(
+            matches!(caps().watch, WatchMode::Poll { .. }),
+            "precondition"
+        );
+        let woken = it.engine.watch(&inbox(), &mut cancel).await.unwrap();
+        assert!(!woken, "a polling account claimed to have been woken");
+        assert!(
+            seen.lock().unwrap().commands.is_empty(),
+            "a connection was opened for a server with no IDLE"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_parked_watch_can_be_cancelled() {
+        // The reason `IoReady::Interrupt` exists. An IDLE with no traffic parks for as long as
+        // the server allows, so without a way in from outside, quitting would block on a socket
+        // that is behaving perfectly. This server never speaks, which is the parking case.
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut sock, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let _ = sock
+                        .write_all(b"* OK [CAPABILITY IMAP4rev1] ready\r\n")
+                        .await;
+                    // Answer the login and the select, then go quiet for ever.
+                    let mut buf = [0u8; 4096];
+                    let mut replied = 0;
+                    while let Ok(n) = sock.read(&mut buf).await {
+                        if n == 0 {
+                            return;
+                        }
+                        replied += 1;
+                        let reply = match replied {
+                            1 => "a001 OK logged in\r\n".to_owned(),
+                            2 => "* 2 EXISTS\r\na002 OK [READ-ONLY] done\r\n".to_owned(),
+                            // IDLE: acknowledge, then never speak again.
+                            _ => "+ idling\r\n".to_owned(),
+                        };
+                        if sock.write_all(reply.as_bytes()).await.is_err() {
+                            return;
+                        }
+                    }
+                });
+            }
+        });
+
+        let mut it = engine_with(port, tempfile::tempdir().unwrap(), caps_idle());
+        let (tx, mut cancel) = watch::channel(false);
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+            let _ = tx.send(true);
+        });
+
+        let outcome = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            it.engine.watch(&inbox(), &mut cancel),
+        )
+        .await;
+        assert!(
+            outcome.is_ok(),
+            "a parked IDLE ignored the interrupt and had to be timed out"
+        );
     }
 }

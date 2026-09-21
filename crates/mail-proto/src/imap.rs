@@ -383,11 +383,56 @@ impl ImapSession {
                     | Phase::IdleEnding { index, .. } => *index,
                     _ => 0,
                 };
+                let news = is_news(&text);
                 self.transcript.untagged.push(Untagged { during, text });
+
+                // The half of IDLE's contract that was documented and not implemented. `IDLE`
+                // "parks until the server says something or the caller interrupts", and only
+                // the interrupt was wired — so an `EXISTS` announcing new mail was filed away
+                // and the session went on parking. IDLE was a sleep with extra steps.
+                //
+                // Ending it in protocol, with `DONE`, rather than dropping the socket: the
+                // connection stays reusable and the server is not left wondering.
+                if news {
+                    if let Phase::Idling { index, tag } = self.phase.clone() {
+                        self.phase = Phase::IdleEnding { index, tag };
+                        return Some(Progress::Need(vec![
+                            IoNeed::Write(b"DONE\r\n".to_vec()),
+                            IoNeed::Read,
+                        ]));
+                    }
+                }
                 None
             }
         }
     }
+}
+
+/// Whether an untagged response is the server announcing something worth waking for.
+///
+/// `EXISTS` and `RECENT` are new mail; `EXPUNGE` and `FETCH` are a change made elsewhere, which
+/// a watcher wants just as much — a message read on a phone should not wait for the next poll.
+///
+/// Matched on the response text rather than the parsed shape because that is how the rest of
+/// this module treats untagged responses, and for the same reason: the caller needs shapes this
+/// crate has no opinion about.
+fn is_news(text: &str) -> bool {
+    let upper = text.trim().to_uppercase();
+    let Some(rest) = upper.strip_prefix("* ") else {
+        return false;
+    };
+    // `* <n> EXISTS`, `* <n> EXPUNGE`, `* <n> FETCH (...)`, `* <n> RECENT`.
+    let mut parts = rest.split_whitespace();
+    let Some(first) = parts.next() else {
+        return false;
+    };
+    if first.parse::<u64>().is_err() {
+        return false;
+    }
+    matches!(
+        parts.next(),
+        Some("EXISTS") | Some("RECENT") | Some("EXPUNGE") | Some("FETCH")
+    )
 }
 
 impl Machine for ImapSession {
