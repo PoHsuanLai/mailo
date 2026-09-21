@@ -219,6 +219,8 @@ async fn session(
                 } else {
                     envelopes(&drop, &tag, &flags)
                 }
+            } else if upper.starts_with("UID MOVE") || upper.starts_with("UID COPY") {
+                format!("{tag} OK done\r\n")
             } else if upper.starts_with("UID SEARCH") {
                 let uids: Vec<String> = drop.iter().map(|(uid, _)| uid.to_string()).collect();
                 format!("* SEARCH {}\r\n{tag} OK done\r\n", uids.join(" "))
@@ -1042,5 +1044,157 @@ mod round_trip {
 
         let queued = it.store.outbox_due(ACCOUNT, now()).unwrap();
         assert!(queued.is_empty(), "a settled operation is still queued");
+    }
+}
+
+/// Archiving, and the two commands that must never appear while doing it.
+///
+/// `CONVENTIONS.md` forbids `\Deleted` + `EXPUNGE`: Gmail routes expunging through a per-account
+/// setting that may be `deleteForever` and cannot be read over IMAP, so a client that completes
+/// a move that way can permanently destroy mail on an account whose owner never agreed to it.
+mod archiving {
+    use super::*;
+
+    fn caps_archiving(move_ext: MoveExt) -> AccountCaps {
+        AccountCaps {
+            archive: ArchiveMeans::MoveToFolder("Archive".to_owned()),
+            move_ext,
+            ..caps()
+        }
+    }
+
+    /// Archive the newest thread, exactly as the hover button does.
+    async fn archive(it: &mut Fixture, caps: &AccountCaps, cancel: &mut mail_runtime::Cancel) {
+        let page = it
+            .store
+            .threads(
+                &Query {
+                    filter: Filter::All,
+                    sort: Sort {
+                        property: Property::Date,
+                        dir: SortDir::Desc,
+                    },
+                    page: PageReq {
+                        after: None,
+                        limit: 10,
+                    },
+                },
+                now(),
+            )
+            .unwrap();
+        let id = page.items.first().expect("a thread").id;
+        let loaded = it.store.thread(id).unwrap();
+        let messages: Vec<Message> = loaded
+            .messages
+            .iter()
+            .filter_map(|m| it.store.message(*m).ok())
+            .collect();
+        let applied =
+            Op::Archive.apply(&Target::Threads(vec![id]), &loaded, &messages, caps, now());
+        it.store.apply(ACCOUNT, &applied.forward).unwrap();
+        if let Some(intent) = applied.remote {
+            it.store
+                .enqueue(ACCOUNT, intent, &applied.inverse, now())
+                .unwrap();
+        }
+        it.engine.drain_outbox(cancel, now()).await.unwrap();
+    }
+
+    fn commands(seen: &Shared) -> Vec<String> {
+        seen.lock().unwrap().commands.clone()
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_server_with_move_gets_uid_move() {
+        // The capability existed, was checked, and led to an empty block — so this path copied
+        // and left the original where it was, whatever the server supported.
+        let seen: Shared = Arc::new(Mutex::new(Seen::default()));
+        let (port, _v, _p, _f) = serve_flags(seen.clone(), Fault::None).await;
+        let mut it = engine_with(
+            port,
+            tempfile::tempdir().unwrap(),
+            caps_archiving(MoveExt::Supported),
+        );
+        let (_tx, mut cancel) = watch::channel(false);
+
+        it.engine
+            .sync(&inbox(), &mut cancel, now(), 200)
+            .await
+            .unwrap();
+        seen.lock().unwrap().commands.clear();
+        archive(&mut it, &caps_archiving(MoveExt::Supported), &mut cancel).await;
+
+        let sent = commands(&seen);
+        assert!(
+            sent.iter()
+                .any(|c| c.to_uppercase().starts_with("UID MOVE")),
+            "a MOVE-capable server was not sent UID MOVE: {sent:?}"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_server_without_move_copies_and_stops() {
+        let seen: Shared = Arc::new(Mutex::new(Seen::default()));
+        let (port, _v, _p, _f) = serve_flags(seen.clone(), Fault::None).await;
+        let mut it = engine_with(
+            port,
+            tempfile::tempdir().unwrap(),
+            caps_archiving(MoveExt::Absent),
+        );
+        let (_tx, mut cancel) = watch::channel(false);
+
+        it.engine
+            .sync(&inbox(), &mut cancel, now(), 200)
+            .await
+            .unwrap();
+        seen.lock().unwrap().commands.clear();
+        archive(&mut it, &caps_archiving(MoveExt::Absent), &mut cancel).await;
+
+        let sent = commands(&seen);
+        assert!(
+            sent.iter()
+                .any(|c| c.to_uppercase().starts_with("UID COPY")),
+            "{sent:?}"
+        );
+        assert!(
+            !sent
+                .iter()
+                .any(|c| c.to_uppercase().starts_with("UID MOVE")),
+            "MOVE was sent to a server that never offered it: {sent:?}"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn nothing_this_client_sends_can_destroy_mail() {
+        // The property, asserted over every command of a full working session rather than of one
+        // operation: sync, archive with MOVE, archive without it, flags, sweep. `\Deleted` and
+        // `EXPUNGE` must appear nowhere at all.
+        for move_ext in [MoveExt::Supported, MoveExt::Absent] {
+            let seen: Shared = Arc::new(Mutex::new(Seen::default()));
+            let (port, _v, _p, _f) = serve_flags(seen.clone(), Fault::None).await;
+            let caps = caps_archiving(move_ext);
+            let mut it = engine_with(port, tempfile::tempdir().unwrap(), caps.clone());
+            let (_tx, mut cancel) = watch::channel(false);
+
+            it.engine
+                .sync(&inbox(), &mut cancel, now(), 200)
+                .await
+                .unwrap();
+            archive(&mut it, &caps, &mut cancel).await;
+            let later = now() + chrono::TimeDelta::try_hours(2).unwrap();
+            it.engine.sweep(&inbox(), &mut cancel, later).await.unwrap();
+
+            for command in commands(&seen) {
+                let upper = command.to_uppercase();
+                assert!(
+                    !upper.contains("\\\\DELETED"),
+                    "a \\\\Deleted flag was sent: {command}"
+                );
+                assert!(
+                    !upper.starts_with("EXPUNGE") && !upper.starts_with("UID EXPUNGE"),
+                    "an EXPUNGE was sent: {command}"
+                );
+            }
+        }
     }
 }

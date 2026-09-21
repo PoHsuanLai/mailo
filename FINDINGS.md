@@ -865,3 +865,30 @@ An empty `* SEARCH` is allowed to expunge everything, because an emptied mailbox
 a server says. That is the one case worth being deliberate about — the opposite reading deletes a
 user's mail whenever a response fails to parse — so there is a test asserting a sweep that finds
 everything still present deletes nothing.
+
+### F55 — Archive-by-move checked for MOVE and then did nothing with it
+
+`ArchiveMeans::MoveToFolder` issued `UID COPY` and stopped. Below it sat an `if` testing
+`ExpungeMeans::Allowed` and `MoveExt::Supported` whose body was a comment and nothing else — the
+capability was read, the branch was taken, and no command came of it.
+
+So archiving on a non-Gmail server copied the message into `Archive` and left the original in the
+inbox. The comment called a stray original "a cosmetic problem rather than lost mail", and the
+first half of that is wrong: the next survey reports the message as still in the inbox, server
+truth wins once the outbox has settled and the pending row is dropped, and the user's archive
+quietly comes undone. It is the same shape as a star flipping back, with nothing left to protect
+it.
+
+`UID MOVE` (RFC 6851) is the fix, and it is worth being precise about why it is allowed here when
+`ProtoOp::Expunge` is refused outright. The prohibition is on `\Deleted` + `EXPUNGE`, because
+Gmail routes expunging through a per-account setting that may be `deleteForever` and cannot be
+read over IMAP — so a client completing a move that way can permanently destroy mail on an
+account whose owner never agreed to it. `MOVE` is atomic, names no flag, and is not that dance in
+disguise; it is the primitive the dance was always a poor imitation of.
+
+Where the server does not advertise `MOVE`, it stays `COPY` and stop. That is still the right
+trade, but the comment now says what it costs instead of calling it cosmetic.
+
+The prohibition itself is now a test rather than a convention: a full working session — sync,
+archive with MOVE, archive without, flags, sweep — is asserted to contain no `\Deleted` and no
+`EXPUNGE` anywhere in what was sent.

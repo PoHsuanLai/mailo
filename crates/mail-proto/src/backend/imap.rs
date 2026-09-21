@@ -270,22 +270,29 @@ impl Backend for ImapBackend {
                     ArchiveMeans::MoveToFolder(target) => {
                         let target = target.clone();
                         self.job = Job::Applied;
-                        let mut commands = vec![Self::select(&source, false)];
-                        // COPY and stop. A move completed by \Deleted + EXPUNGE is forbidden
-                        // wherever expunging is: Gmail may be set to deleteForever and we
-                        // cannot read that setting, so the copy stands and a stray original is
-                        // a cosmetic problem rather than lost mail.
-                        commands.push(ImapCommand::UidCopy {
-                            set,
-                            mailbox: target,
-                        });
-                        if matches!(self.caps.expunge, ExpungeMeans::Allowed)
-                            && matches!(self.caps.move_ext, MoveExt::Supported)
-                        {
-                            // Only where the server both supports MOVE and permits deletion.
-                            // Still never a manual \Deleted dance.
-                        }
-                        self.queue(commands)
+                        // `MOVE` where the server has it (RFC 6851): atomic, names no flag, and
+                        // the only way to actually move a message. It is not the `\Deleted` +
+                        // `EXPUNGE` dance in disguise — it is the primitive that dance was
+                        // always a poor imitation of, which is why it is safe here while
+                        // `ProtoOp::Expunge` stays refused.
+                        //
+                        // Without it, `COPY` and stop, and the original stays in the source
+                        // mailbox. That is not cosmetic: the next survey reports the message as
+                        // still in the inbox, server truth wins once the outbox has settled, and
+                        // the user's archive quietly comes undone. It is still the right trade —
+                        // the alternative is `\Deleted` on a server whose expunge semantics we
+                        // cannot read — but it is a known limitation, not a non-issue.
+                        let action = match self.caps.move_ext {
+                            MoveExt::Supported => ImapCommand::UidMove {
+                                set,
+                                mailbox: target,
+                            },
+                            MoveExt::Absent => ImapCommand::UidCopy {
+                                set,
+                                mailbox: target,
+                            },
+                        };
+                        self.queue(vec![Self::select(&source, false), action])
                     }
                 }
             }

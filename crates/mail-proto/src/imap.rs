@@ -60,6 +60,17 @@ pub enum ImapCommand {
         set: String,
         mailbox: String,
     },
+    /// `UID MOVE <set> <mailbox>` (RFC 6851), where the server advertises `MOVE`.
+    ///
+    /// The only safe way to actually move a message. The alternative is `COPY`, then `\Deleted`,
+    /// then `EXPUNGE` — and `EXPUNGE` is refused outright here, because Gmail may be configured
+    /// to delete permanently and that setting cannot be read over IMAP. `MOVE` is atomic and
+    /// names no flag, so it is not that dance in disguise; it is the primitive the dance was
+    /// always a poor imitation of.
+    UidMove {
+        set: String,
+        mailbox: String,
+    },
     /// `IDLE`, which parks until the server says something or the caller interrupts.
     Idle,
     Noop,
@@ -257,6 +268,10 @@ impl ImapSession {
             ImapCommand::UidCopy { set, mailbox } => {
                 check_set(set)?;
                 format!("UID COPY {set} {}", quoted(&mutf7::encode(mailbox)))
+            }
+            ImapCommand::UidMove { set, mailbox } => {
+                check_set(set)?;
+                format!("UID MOVE {set} {}", quoted(&mutf7::encode(mailbox)))
             }
         };
         Ok(format!("{tag} {body}\r\n").into_bytes())
