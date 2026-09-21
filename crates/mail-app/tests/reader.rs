@@ -217,3 +217,100 @@ Content-Type: text/html; charset=utf-8\r\n\
         other => panic!("{other:?}"),
     }
 }
+
+/// Inline images, through the real store and the real sanitizer.
+mod inline_images {
+    use super::*;
+
+    const WITH_IMAGE: &[u8] = b"From: sender@example.test\r\n\
+Subject: s\r\n\
+MIME-Version: 1.0\r\n\
+Content-Type: multipart/related; boundary=\"b1\"\r\n\
+\r\n\
+--b1\r\n\
+Content-Type: text/html; charset=utf-8\r\n\
+\r\n\
+<p>look</p><img src=\"cid:logo@example\">\r\n\
+--b1\r\n\
+Content-Type: image/png\r\n\
+Content-ID: <logo@example>\r\n\
+Content-Transfer-Encoding: base64\r\n\
+\r\n\
+iVBORw0KGgo=\r\n\
+--b1--\r\n";
+
+    #[test]
+    fn an_inline_image_is_resolved_rather_than_left_broken() {
+        // `cid:` survives sanitizing on purpose, and nothing resolved it, so every inline image
+        // in every HTML mail rendered as a broken image icon.
+        let (store, _dir) = store();
+        let message = ingest(&store, WITH_IMAGE, None);
+
+        match reader::render(&store, &message, policy()) {
+            view::Reading::Html(html) => {
+                assert!(html.contains("look"), "{html}");
+                assert!(
+                    html.contains("data:image/png;base64,"),
+                    "the inline image was not resolved: {html}"
+                );
+                assert!(!html.contains("cid:"), "{html}");
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn resolution_happens_after_sanitizing_not_before() {
+        // If the order were reversed, the sanitizer would be judging a data: URI this code
+        // produced instead of the cid: the sender wrote — and anything it strips from the
+        // document would be stripped from our substitution rather than from the message.
+        let raw = b"From: sender@example.test\r\n\
+Subject: s\r\n\
+MIME-Version: 1.0\r\n\
+Content-Type: multipart/related; boundary=\"b1\"\r\n\
+\r\n\
+--b1\r\n\
+Content-Type: text/html; charset=utf-8\r\n\
+\r\n\
+<img src=\"cid:logo@example\"><script>alert(1)</script>\r\n\
+--b1\r\n\
+Content-Type: image/png\r\n\
+Content-ID: <logo@example>\r\n\
+Content-Transfer-Encoding: base64\r\n\
+\r\n\
+iVBORw0KGgo=\r\n\
+--b1--\r\n";
+        let (store, _dir) = store();
+        let message = ingest(&store, raw, None);
+
+        match reader::render(&store, &message, policy()) {
+            view::Reading::Html(html) => {
+                assert!(!html.contains("<script"), "script survived: {html}");
+                assert!(html.contains("data:image/png;base64,"), "{html}");
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_plain_text_message_is_untouched_by_any_of_this() {
+        let (store, _dir) = store();
+        let raw = b"From: sender@example.test\r\nSubject: s\r\n\r\njust words\r\n";
+        let message = ingest(&store, raw, Some("just words"));
+        assert_eq!(
+            reader::render(&store, &message, policy()),
+            view::Reading::Text("just words".to_owned())
+        );
+    }
+
+    #[test]
+    fn a_message_with_no_body_still_says_so() {
+        let (store, _dir) = store();
+        let mut message = ingest(&store, WITH_IMAGE, None);
+        message.body = Body::Absent;
+        assert_eq!(
+            reader::render(&store, &message, policy()),
+            view::Reading::NotFetched
+        );
+    }
+}

@@ -6,10 +6,12 @@
 //! [`IoNeed`]: https://docs.rs/mail-proto
 
 pub mod build;
+pub mod inline;
 pub mod parse;
 pub mod sanitize;
 
 pub use build::{Disclosure, Posting, build, posting};
+pub use inline::{INLINE_BUDGET, embed_inline};
 pub use parse::{Parsed, ParsedPart, parse};
 pub use sanitize::{RemoteImages, SafeHtml, SanitizePolicy, sanitize};
 

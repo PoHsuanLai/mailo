@@ -587,3 +587,35 @@ asserting which one it picked — the assertion that the assertion is meaningful
 The same check, applied to the submission end-to-end tests, is what the previous commit's
 "reintroduce the bug and watch it fail" pass was for. A test that has never failed has not been
 shown to be a test.
+
+### F42 — `cid:` survived the sanitizer and then resolved to nothing
+
+The sanitizer allows `cid:` deliberately, with a comment explaining that it names this message's
+own part and is safe in both image modes. Nothing downstream resolved it. Every inline image in
+every HTML mail therefore rendered as a broken image — the sanitizer's care about the scheme
+was entirely wasted, because the scheme never meant anything.
+
+`plan.md` asks for "a custom protocol handler keyed on **`BlobId` only** — never a path", and
+that cannot work in this reader. The iframe has `sandbox=""` with no `allow-same-origin`, which
+gives the document an opaque origin; a custom scheme requested from an opaque origin is treated
+as cross-origin and refused. Making it work would mean adding `allow-same-origin`, which hands
+every future sanitizer bug direct access to the application's DOM — the single thing that iframe
+exists to prevent.
+
+So the bytes are embedded as `data:` URIs instead. This satisfies the plan's stated *reason* more
+strongly than the handler would have: the plan forbids a path-shaped handler because it is "a
+directory-traversal bug driven by untrusted mail", and this resolves nothing at request time —
+no handler, no lookup, no filesystem, and a `cid` compared only against the parts of the message
+that wrote it.
+
+The security boundary moved rather than vanished, and it is now the media type. The type declared
+in the message is attacker-controlled, and `data:text/html` in an `href` is script execution, so
+the declared type decides only *whether* to embed; what is written into the document is the
+matching entry from a four-item allowlist. `image/svg+xml` is not on it: an SVG is a document
+that can carry script, and nothing here guarantees the reference came from an `<img>`, because
+the sanitizer permits `cid:` wherever a URL is allowed.
+
+Order matters and is asserted: sanitize, then resolve. Reversed, the sanitizer would be judging
+a `data:` URI this code produced rather than the `cid:` the sender wrote.
+
+A deviation from the plan, recorded as one.

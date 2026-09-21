@@ -12,6 +12,7 @@ thiserror.workspace = true
 mail-parser = "0.11"
 mail-builder = "1"
 ammonia = "4"
+base64 = "0.22"
 
 [dev-dependencies]
 mail-domain.workspace = true

@@ -3117,6 +3117,7 @@ name = "mail-mime"
 version = "0.1.0"
 dependencies = [
  "ammonia",
+ "base64",
  "chrono",
  "mail-builder",
  "mail-domain",

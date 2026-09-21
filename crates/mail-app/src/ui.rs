@@ -4,9 +4,7 @@
 //! What is here is layout, event wiring, and the one thing a UI can get dangerously wrong —
 //! rendering a stranger's HTML.
 
-use crate::view::{
-    Composing, Listing, Reading, Shell, SyncState, hover_actions, op_for, reading, synced,
-};
+use crate::view::{Composing, Listing, Reading, Shell, SyncState, hover_actions, op_for, synced};
 use dioxus::prelude::*;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
@@ -253,13 +251,17 @@ fn Reader(thread: ThreadId, shell: Signal<Shell>) -> Element {
     // copy that is byte-for-byte what the server sent. Parsed here, once per render of a thread,
     // rather than at ingest — storing sanitized HTML would freeze today's sanitizer into every
     // row, and storing the unsanitized part would duplicate bytes we already have.
-    let messages: Vec<(Message, Option<String>)> = loaded
+    // Each message resolved all the way to what the pane should draw, before the view tree.
+    // `reading` sanitizes; `embed_inline` then resolves `cid:` inside what the sanitizer
+    // allowed, in that order, because the sanitizer must judge the message's own URLs and not
+    // a `data:` URI we substituted for one.
+    let messages: Vec<(Message, Reading)> = loaded
         .messages
         .iter()
         .filter_map(|id| store.message(*id).ok())
         .map(|message| {
-            let html = crate::reader::html_of(&store, &message);
-            (message, html)
+            let reading = crate::reader::render(&store, &message, policy);
+            (message, reading)
         })
         .collect();
 
@@ -272,14 +274,14 @@ fn Reader(thread: ThreadId, shell: Signal<Shell>) -> Element {
                 "Load remote images"
             }
         }
-        for (message, html) in messages {
+        for (message, reading) in messages {
             article { key: "{message.id}",
                 header {
                     strong { "{from_name(&message)}" }
                     span { "{address(&message)}" }
                     time { "{stamp(&message)}" }
                 }
-                match reading(&message.body, html.as_deref(), policy) {
+                match reading {
                     Reading::NotFetched => rsx! { p { class: "pending", "Body not downloaded yet." } },
                     Reading::Text(text) => rsx! { pre { class: "text", "{text}" } },
                     // Never into the app's own document: a sandboxed frame with no
