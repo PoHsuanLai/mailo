@@ -2,7 +2,16 @@
 //!
 //! Does disk I/O. Opens no sockets. The schema is `migrations/0001_initial.sql`.
 
+pub mod blob;
 pub mod error;
+pub mod memory;
+pub mod migrate;
+pub mod sql;
+pub mod sqlite;
+
+pub use memory::MemoryStore;
+pub use sql::{SqlFilter, SqlValue, compile};
+pub use sqlite::SqliteStore;
 
 pub use error::StoreError;
 
