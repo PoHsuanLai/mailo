@@ -72,20 +72,34 @@ fn maildrop() -> Vec<(&'static str, String)> {
 /// dot-stuffing on the way out, which is where a body containing a leading dot gets corrupted
 /// if either side gets it wrong.
 async fn serve() -> u16 {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let port = listener.local_addr().unwrap().port();
-    tokio::spawn(async move {
-        while let Ok((sock, _)) = listener.accept().await {
-            tokio::spawn(session(sock));
-        }
-    });
-    port
+    serve_full().await.0
 }
 
-async fn session(sock: tokio::net::TcpStream) {
+/// The server, plus a handle to how many of the three messages it still admits to holding.
+///
+/// Dropping one is how a message deleted in webmail looks from here.
+async fn serve_full() -> (u16, Present) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let present: Present = Arc::new(std::sync::atomic::AtomicUsize::new(maildrop().len()));
+    let showing = present.clone();
+    tokio::spawn(async move {
+        while let Ok((sock, _)) = listener.accept().await {
+            tokio::spawn(session(sock, showing.clone()));
+        }
+    });
+    (port, present)
+}
+
+/// How many messages remain in the maildrop. One per server, not a `static`: these tests run in
+/// parallel in one binary.
+type Present = Arc<std::sync::atomic::AtomicUsize>;
+
+async fn session(sock: tokio::net::TcpStream, present: Present) {
     let (read, mut write) = sock.into_split();
     let mut lines = BufReader::new(read).lines();
-    let drop = maildrop();
+    let mut drop = maildrop();
+    drop.truncate(present.load(std::sync::atomic::Ordering::SeqCst));
 
     let _ = write.write_all(b"+OK POP3 server ready\r\n").await;
 
@@ -349,4 +363,195 @@ async fn a_whole_sync_over_a_real_socket_lands_mail_in_the_store() {
         .query_row("SELECT count(*) FROM messages", [], |r| r.get(0))
         .unwrap();
     assert_eq!(messages, 3);
+}
+
+/// What a POP3 account does on its *second* pass, which nothing here had ever exercised.
+///
+/// One sync hides a whole class of defect: everything idempotent is trivially idempotent when
+/// it runs once.
+///
+/// These do **not** reproduce F52, and I checked rather than assumed — they pass with migration
+/// 0002 removed. The duplicate `remote_map` rows needed a repeated *ingest of the same message*,
+/// and a second POP3 pass does not do that: `unfetched` is empty once the bodies are stored, so
+/// no header ingest runs and nothing rewrites the mapping. F52 reached this protocol by a route
+/// these tests do not take, and `mail-store`'s `remote_map_identity` tests cover it directly.
+mod repeated_passes {
+    use super::*;
+
+    struct Fixture {
+        store: Arc<SqliteStore>,
+        engine: AccountEngine<Pop3Backend>,
+        _dir: tempfile::TempDir,
+    }
+
+    fn fixture(port: u16) -> Fixture {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
+        store
+            .connection()
+            .execute(
+                "INSERT INTO accounts (id, address, plan, created_at)
+                 VALUES (?1, 'me@example.test', '{}', datetime('now'))",
+                [ACCOUNT.to_string()],
+            )
+            .unwrap();
+
+        let secrets = MapSecrets::default();
+        secrets
+            .put(
+                &SecretKey {
+                    account: ACCOUNT,
+                    purpose: SecretPurpose::IncomingPassword,
+                },
+                &Credential::Password(PASSWORD.to_owned()),
+            )
+            .unwrap();
+
+        let backend = Pop3Backend::new(
+            ACCOUNT,
+            caps(),
+            Box::new(|auth, commands| {
+                let mut all = Vec::new();
+                if auth == Authenticate::First {
+                    all.push(Pop3Command::AuthPlain);
+                }
+                all.extend(commands);
+                Pop3Session::new("me", PASSWORD, all)
+            }),
+        );
+        let engine = AccountEngine::new(
+            ACCOUNT,
+            plan(port),
+            backend,
+            store.clone(),
+            Arc::new(secrets),
+        );
+        Fixture {
+            store,
+            engine,
+            _dir: dir,
+        }
+    }
+
+    fn inbox() -> MailboxRef {
+        MailboxRef {
+            account: ACCOUNT,
+            path: "INBOX".to_owned(),
+        }
+    }
+
+    fn messages(store: &SqliteStore) -> u64 {
+        store.count(&Filter::All, now()).unwrap()
+    }
+
+    fn remote_rows(store: &SqliteStore) -> i64 {
+        store
+            .connection()
+            .query_row("SELECT count(*) FROM remote_map", [], |r| r.get(0))
+            .unwrap()
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn syncing_three_times_stores_each_message_once() {
+        let port = serve().await;
+        let mut it = fixture(port);
+        let (_tx, mut cancel) = watch::channel(false);
+
+        for _ in 0..3 {
+            it.engine
+                .sync(&inbox(), &mut cancel, now(), 50)
+                .await
+                .unwrap();
+            it.engine
+                .fetch_bodies(&inbox(), &mut cancel, now(), 50)
+                .await
+                .unwrap();
+        }
+
+        assert_eq!(messages(&it.store), 3, "a repeated sync duplicated mail");
+        assert_eq!(
+            remote_rows(&it.store),
+            3,
+            "one message in one maildrop is one row"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_body_fetched_once_is_not_fetched_again() {
+        // `unfetched` drives the body pass. If a stored body did not clear it, every sync would
+        // redownload the whole maildrop — which on POP3 also means RETR, which sets \Seen.
+        let port = serve().await;
+        let mut it = fixture(port);
+        let (_tx, mut cancel) = watch::channel(false);
+
+        it.engine
+            .sync(&inbox(), &mut cancel, now(), 50)
+            .await
+            .unwrap();
+        let first = it
+            .engine
+            .fetch_bodies(&inbox(), &mut cancel, now(), 50)
+            .await
+            .unwrap();
+        assert!(first.bodies_fetched > 0, "{first:?}");
+
+        let second = it
+            .engine
+            .fetch_bodies(&inbox(), &mut cancel, now(), 50)
+            .await
+            .unwrap();
+        assert_eq!(
+            second.bodies_fetched, 0,
+            "bodies were downloaded a second time"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_message_deleted_in_webmail_disappears_here_too() {
+        // POP3's expunge diff is UIDL: the complete list of what the server still holds, and
+        // anything in remote_map missing from it was deleted elsewhere. The runtime does that
+        // diff, so this exercises the same code the IMAP sweep uses.
+        let (port, present) = serve_full().await;
+        let mut it = fixture(port);
+        let (_tx, mut cancel) = watch::channel(false);
+
+        it.engine
+            .sync(&inbox(), &mut cancel, now(), 50)
+            .await
+            .unwrap();
+        assert_eq!(messages(&it.store), 3);
+
+        // Two of the three are deleted from the maildrop.
+        present.store(1, std::sync::atomic::Ordering::SeqCst);
+
+        // The expunge interval is the longest of the three, so a sweep now would not be due.
+        let later = now() + chrono::TimeDelta::try_hours(2).unwrap();
+        it.engine.sweep(&inbox(), &mut cancel, later).await.unwrap();
+
+        assert_eq!(
+            messages(&it.store),
+            1,
+            "messages deleted on the server are still here"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_sweep_with_the_maildrop_intact_deletes_nothing() {
+        // The dangerous direction: `gone` drives deletion, so a UIDL listing this code fails to
+        // read must never look like an empty maildrop.
+        let (port, _present) = serve_full().await;
+        let mut it = fixture(port);
+        let (_tx, mut cancel) = watch::channel(false);
+
+        it.engine
+            .sync(&inbox(), &mut cancel, now(), 50)
+            .await
+            .unwrap();
+        let before = messages(&it.store);
+
+        let later = now() + chrono::TimeDelta::try_hours(2).unwrap();
+        it.engine.sweep(&inbox(), &mut cancel, later).await.unwrap();
+
+        assert_eq!(messages(&it.store), before, "a sweep deleted live mail");
+    }
 }
