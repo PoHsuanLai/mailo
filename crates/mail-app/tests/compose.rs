@@ -123,7 +123,7 @@ fn seeded() -> (SqliteStore, tempfile::TempDir) {
                     path: "INBOX".to_owned(),
                 },
                 validity: UidValidity::Same,
-                cursor: SyncCursor::Pop,
+                cursor: Some(SyncCursor::Pop),
                 messages: vec![Fetched {
                     remote: RemoteRef::Pop {
                         uidl: "u1".to_owned(),
@@ -280,7 +280,7 @@ fn follow_up(store: &SqliteStore) -> MessageId {
                     path: "INBOX".to_owned(),
                 },
                 validity: UidValidity::Same,
-                cursor: SyncCursor::Pop,
+                cursor: Some(SyncCursor::Pop),
                 messages: vec![Fetched {
                     remote: RemoteRef::Pop {
                         uidl: "u3".to_owned(),
@@ -336,7 +336,7 @@ fn headers_only(store: &SqliteStore) -> MessageId {
                     path: "INBOX".to_owned(),
                 },
                 validity: UidValidity::Same,
-                cursor: SyncCursor::Pop,
+                cursor: Some(SyncCursor::Pop),
                 messages: vec![Fetched {
                     remote: RemoteRef::Pop {
                         uidl: "u2".to_owned(),

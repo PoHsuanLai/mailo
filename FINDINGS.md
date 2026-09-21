@@ -758,3 +758,42 @@ present. `dioxus-desktop` supplies it at runtime; the tests say `#[tokio::test]`
 reason.
 
 The window was also launched for real against a scratch database, twice, and stayed up.
+
+### F50 — Every header fetch destroyed the cursor the survey had just written
+
+`Ingest.cursor` was a plain `SyncCursor`, so every ingest had to state one whether or not it knew
+anything. The runtime passed `SyncCursor::Pop` for header and body batches — on both protocols,
+because there was nothing else to pass — and `write_ingest` wrote it to `sync_state`
+unconditionally.
+
+A sync pass surveys, which records the real `UIDVALIDITY`, `UIDNEXT` and `HIGHESTMODSEQ`, and
+then fetches headers, which overwrote all three with `Pop` a few milliseconds later. So an IMAP
+account resurveyed its entire mailbox on every pass, for ever, and could never resume — and the
+CONDSTORE path could never start, because the modseq it needed had been thrown away before
+anything read it.
+
+The type was the defect. `Option<SyncCursor>` says the thing that is actually true: `None` is not
+a missing value, it is the claim *this batch learned nothing about the mailbox's position*. A
+header fetch was handed a list and collected it; it never asked the server what exists. Only a
+survey can answer that, so only a survey writes it.
+
+Widening to `Option` is backward-compatible for the frozen corpus, since `Option<T>` accepts
+`T`'s own representation — checked rather than assumed.
+
+### F51 — The CONDSTORE chain had three links and two were missing
+
+`ImapBackend` has emitted `(UID FLAGS) (CHANGEDSINCE n)` since it was written, gated on a modseq
+and the account's capabilities. `AccountEngine::trusted_modseq` returned `None` unconditionally,
+behind a comment saying the IMAP backend "is not written yet" — true when written, stale for
+several commits. And `Store` had no way to read a cursor back at all: `sync_state` had been
+written by every ingest since the store was created and read by nothing.
+
+So the flags sweep refetched every flag on every poll, on every server, regardless of what it
+supported. Correct and slow, which is the right way round to be wrong — but not what the plan
+asks for, and not what the backend was already built to do.
+
+`Store::cursor` reads it, `mailbox_state` parses `HIGHESTMODSEQ`, and `trusted_modseq` gates on
+CONDSTORE *and* a non-zero stored modseq. It deliberately does not add its own "did it advance"
+check: Dovecot 2.0.18 froze `HIGHESTMODSEQ` at 1 while `EXISTS` climbed, and the defence against
+that belongs where it already is — withdrawing the capability — not in a second, quieter rule
+that would let the two disagree.

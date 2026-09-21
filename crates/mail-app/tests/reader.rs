@@ -85,7 +85,7 @@ fn ingest(store: &SqliteStore, raw_bytes: &[u8], text: Option<&str>) -> Message 
                     path: "INBOX".to_owned(),
                 },
                 validity: UidValidity::Same,
-                cursor: SyncCursor::Pop,
+                cursor: Some(SyncCursor::Pop),
                 messages: vec![Fetched {
                     remote: RemoteRef::Pop {
                         uidl: uuid::Uuid::new_v4().to_string(),

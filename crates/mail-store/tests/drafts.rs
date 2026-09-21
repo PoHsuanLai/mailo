@@ -284,7 +284,7 @@ fn ingest_one(b: &Both) -> MessageId {
             path: "INBOX".to_owned(),
         },
         validity: UidValidity::Same,
-        cursor: SyncCursor::Pop,
+        cursor: Some(SyncCursor::Pop),
         messages: vec![Fetched {
             remote: RemoteRef::Pop {
                 uidl: "u1".to_owned(),

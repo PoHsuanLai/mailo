@@ -148,6 +148,7 @@ async fn session(
                     "* 2 EXISTS\r\n\
                      * OK [UIDVALIDITY 42] uids valid\r\n\
                      * OK [UIDNEXT 103] next\r\n\
+                     * OK [HIGHESTMODSEQ 7788] modseq\r\n\
                      {tag} OK [READ-ONLY] done\r\n"
                 )
             } else if upper.starts_with("UID FETCH") {
@@ -277,6 +278,10 @@ fn plan(port: u16) -> AccountPlan {
 }
 
 fn caps() -> AccountCaps {
+    caps_with(Condstore::Absent)
+}
+
+fn caps_with(condstore: Condstore) -> AccountCaps {
     AccountCaps {
         labels: ServerLabels::LocalOnly,
         threads: ServerThreads::Jwz,
@@ -285,7 +290,7 @@ fn caps() -> AccountCaps {
         },
         archive: ArchiveMeans::MoveToFolder("Archive".to_owned()),
         folders: FolderRoles::default(),
-        condstore: Condstore::Absent,
+        condstore,
         move_ext: MoveExt::Absent,
         expunge: ExpungeMeans::Forbidden,
         top: Supported::Absent,
@@ -303,6 +308,10 @@ struct Fixture {
 
 /// An engine wired to the server on `port`, sharing `dir` so a restart sees the same database.
 fn engine(port: u16, dir: tempfile::TempDir) -> Fixture {
+    engine_with(port, dir, caps())
+}
+
+fn engine_with(port: u16, dir: tempfile::TempDir, caps: AccountCaps) -> Fixture {
     let store = Arc::new(SqliteStore::open(dir.path().join("mail.db"), dir.path()).unwrap());
     store
         .connection()
@@ -331,7 +340,7 @@ fn engine(port: u16, dir: tempfile::TempDir) -> Fixture {
     };
     let backend = ImapBackend::new(
         ACCOUNT,
-        caps(),
+        caps,
         Box::new(move |authenticate, commands: Vec<ImapCommand>| {
             let mut all = Vec::new();
             if authenticate == Authenticate::First {
@@ -546,5 +555,94 @@ async fn killing_the_app_mid_sync_and_restarting_produces_no_duplicates() {
         count(&it.store),
         2,
         "restarting after a mid-sync death duplicated messages"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_condstore_server_gets_a_changedsince_sweep_after_the_first_pass() {
+    // The whole chain, which had three links and was missing two: the SELECT response carries
+    // HIGHESTMODSEQ, the ingest records it in the cursor, `sync_state` keeps it, and the next
+    // flags sweep reads it back and asks only for what changed. Until this test the cursor was
+    // written by every sync and read by nothing, so the sweep refetched every flag for ever.
+    let seen: Shared = Arc::new(Mutex::new(Seen::default()));
+    let port = serve(seen.clone(), Fault::None).await;
+    let mut it = engine_with(
+        port,
+        tempfile::tempdir().unwrap(),
+        caps_with(Condstore::Supported),
+    );
+    let (_tx, mut cancel) = watch::channel(false);
+
+    // First pass: nothing is known, so this must be a full sweep.
+    it.engine
+        .sync(&inbox(), &mut cancel, now(), 200)
+        .await
+        .unwrap();
+
+    // The cursor should now carry what the server said.
+    match it.store.cursor(&inbox()).unwrap() {
+        Some(SyncCursor::Imap {
+            modseq,
+            uidvalidity,
+            ..
+        }) => {
+            assert_eq!(modseq, Some(7788), "HIGHESTMODSEQ was not recorded");
+            assert_eq!(uidvalidity, 42);
+        }
+        other => panic!("no usable cursor after a sync: {other:?}"),
+    }
+
+    seen.lock().unwrap().commands.clear();
+    it.engine
+        .sweep(&inbox(), &mut cancel, now())
+        .await
+        .expect("a sweep");
+
+    let seen = seen.lock().unwrap();
+    assert!(
+        seen.commands
+            .iter()
+            .any(|c| c.to_uppercase().contains("CHANGEDSINCE 7788")),
+        "the sweep refetched every flag instead of asking what changed: {:?}",
+        seen.commands
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_server_without_condstore_is_never_sent_changedsince() {
+    // CHANGEDSINCE to a server that does not advertise CONDSTORE is a protocol error, not a
+    // graceful degradation — so the capability gate has to hold even though the cursor is there.
+    let seen: Shared = Arc::new(Mutex::new(Seen::default()));
+    let port = serve(seen.clone(), Fault::None).await;
+    let mut it = engine(port, tempfile::tempdir().unwrap());
+    let (_tx, mut cancel) = watch::channel(false);
+
+    it.engine
+        .sync(&inbox(), &mut cancel, now(), 200)
+        .await
+        .unwrap();
+    // The modseq really is on record; only the capability says not to use it.
+    assert!(matches!(
+        it.store.cursor(&inbox()).unwrap(),
+        Some(SyncCursor::Imap {
+            modseq: Some(7788),
+            ..
+        })
+    ));
+
+    seen.lock().unwrap().commands.clear();
+    it.engine
+        .sweep(&inbox(), &mut cancel, now())
+        .await
+        .expect("a sweep");
+
+    let seen = seen.lock().unwrap();
+    assert!(
+        !seen
+            .commands
+            .iter()
+            .any(|c| c.to_uppercase().contains("CHANGEDSINCE")),
+        "CHANGEDSINCE sent to a server that never offered CONDSTORE: {:?}",
+        seen.commands
     );
 }

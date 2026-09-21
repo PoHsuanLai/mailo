@@ -17,8 +17,9 @@ pub use error::StoreError;
 
 use chrono::{DateTime, Utc};
 use mail_domain::{
-    AccountId, Draft, DraftId, Filter, Ingest, Message, MessageId, OutboxId, Page, Patch, ProtoOp,
-    Query, RemoteIntent, Retry, SendState, Thread, ThreadId, ThreadSummary,
+    AccountId, Draft, DraftId, Filter, Ingest, MailboxRef, Message, MessageId, OutboxId, Page,
+    Patch, ProtoOp, Query, RemoteIntent, Retry, SendState, SyncCursor, Thread, ThreadId,
+    ThreadSummary,
 };
 
 /// One queued unit of remote work, with everything needed to retry or abandon it.
@@ -115,6 +116,12 @@ pub trait Store {
         account: AccountId,
         limit: u32,
     ) -> Result<Vec<mail_domain::RemoteRef>, StoreError>;
+
+    /// Where the last sync of this mailbox got to, if one has finished.
+    ///
+    /// Written by every [`Store::ingest`]; nothing read it back until CONDSTORE needed the
+    /// `HIGHESTMODSEQ` it had been recording all along.
+    fn cursor(&self, mailbox: &MailboxRef) -> Result<Option<SyncCursor>, StoreError>;
 
     /// One draft by id.
     fn draft(&self, id: DraftId) -> Result<Draft, StoreError>;

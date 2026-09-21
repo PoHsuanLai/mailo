@@ -8,8 +8,8 @@
 use crate::{Cancel, RuntimeError, Secrets, Transport, drive};
 use chrono::{DateTime, Utc};
 use mail_domain::{
-    AccountId, AccountPlan, Credential, FetchSince, Incoming, MailboxRef, Outgoing, ProtoOp,
-    RemoteRef, Retry, Retryable, SecretKey, SecretPurpose, SendState, SyncCursor, Tls,
+    AccountId, AccountPlan, Condstore, Credential, FetchSince, Incoming, MailboxRef, Outgoing,
+    ProtoOp, RemoteRef, Retry, Retryable, SecretKey, SecretPurpose, SendState, SyncCursor, Tls,
 };
 use mail_mime::Posting;
 use mail_proto::backend::SmtpBackend;
@@ -404,7 +404,9 @@ impl<B: Backend> AccountEngine<B> {
                         &self.store,
                         self.account,
                         mailbox.clone(),
-                        SyncCursor::Pop,
+                        // No cursor: this batch fetched a list it was handed and never asked
+                        // the server what exists.
+                        None,
                         arrivals,
                         true,
                         now,
@@ -461,7 +463,7 @@ impl<B: Backend> AccountEngine<B> {
                     &self.store,
                     self.account,
                     mailbox.clone(),
-                    SyncCursor::Pop,
+                    None,
                     arrivals,
                     false,
                     now,
@@ -537,11 +539,29 @@ impl<B: Backend> AccountEngine<B> {
 
     /// A modseq worth fetching from, or `None` to fetch every flag.
     ///
-    /// Returns `None` today. Reading the stored cursor and checking that its `HIGHESTMODSEQ`
-    /// actually advanced needs the IMAP backend, which is not written yet — and a full flag
-    /// fetch is correct but slow, which is the right way round to be wrong.
-    fn trusted_modseq(&self, _mailbox: &MailboxRef) -> Option<u64> {
-        None
+    /// Three things must all hold, and any one of them failing means a full flag fetch:
+    ///
+    /// 1. The server advertises `CONDSTORE`. Sending `CHANGEDSINCE` to one that does not is a
+    ///    protocol error, not a graceful degradation.
+    /// 2. A cursor exists for this mailbox, carrying a `HIGHESTMODSEQ` the server gave us.
+    /// 3. That modseq is non-zero. Zero is what this code records when the server said nothing,
+    ///    and `CHANGEDSINCE 0` asks for everything anyway — more slowly, over a syntax the
+    ///    server may reject.
+    ///
+    /// Deliberately *not* checking that the modseq advanced since last time. Dovecot 2.0.18
+    /// froze `HIGHESTMODSEQ` at 1 while `EXISTS` climbed, and the defence against that belongs
+    /// where it already is — withdrawing `CONDSTORE` from the account's capabilities — not in a
+    /// second, quieter rule here that would make the two disagree.
+    fn trusted_modseq(&self, mailbox: &MailboxRef) -> Option<u64> {
+        if !matches!(self.backend.caps().condstore, Condstore::Supported) {
+            return None;
+        }
+        match self.store.cursor(mailbox) {
+            Ok(Some(SyncCursor::Imap { modseq, .. })) => modseq.filter(|m| *m > 0),
+            // A POP cursor has no modseq, and a mailbox never synced has no cursor. Neither is
+            // an error: both mean "fetch every flag", which is what `None` says.
+            _ => None,
+        }
     }
 
     /// Messages we hold headers for but no body, paired with a size where one is known.

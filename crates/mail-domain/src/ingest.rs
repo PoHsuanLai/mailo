@@ -30,7 +30,19 @@ pub struct Ingest {
     pub mailbox: MailboxRef,
     /// [`UidValidity::Reset`] invalidates every `remote_map` row for this mailbox.
     pub validity: UidValidity,
-    pub cursor: SyncCursor,
+    /// Where this ingest leaves the mailbox, or `None` when it says nothing about that.
+    ///
+    /// `None` is not a missing value, it is a claim: *this batch learned nothing about the
+    /// mailbox's position*. A header or body fetch is exactly that — it was told which messages
+    /// to collect and collected them, and it never asked the server what exists or how far the
+    /// mailbox has moved. Only a survey can answer that.
+    ///
+    /// It was a plain `SyncCursor` and the runtime passed `SyncCursor::Pop` for every header
+    /// fetch on every protocol, which overwrote the real IMAP cursor a few milliseconds after
+    /// the survey wrote it. `UIDVALIDITY`, `UIDNEXT` and `HIGHESTMODSEQ` were destroyed on every
+    /// pass, so an IMAP account resurveyed its whole mailbox for ever and the CONDSTORE path
+    /// could never start.
+    pub cursor: Option<SyncCursor>,
     /// New or refetched messages.
     pub messages: Vec<Fetched>,
     /// Flag-only updates, which are far cheaper than refetching a message.

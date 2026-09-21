@@ -9,7 +9,7 @@ mod write;
 use crate::blob::BlobStore;
 use crate::{StoreError, migrate};
 use parking_lot::{ReentrantMutex, ReentrantMutexGuard};
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 use std::path::Path;
 
 /// A connection to the on-disk database, plus the blob store beside it.
@@ -81,8 +81,9 @@ impl SqliteStore {
 use crate::{OutboxEntry, Settle, Store, sql};
 use chrono::{DateTime, Utc};
 use mail_domain::{
-    AccountId, Cursor, Draft, DraftId, Filter, Ingest, Message, MessageId, OutboxId, Page, Patch,
-    Property, Query, RemoteIntent, SendState, SortDir, Thread, ThreadId, ThreadSummary,
+    AccountId, Cursor, Draft, DraftId, Filter, Ingest, MailboxRef, Message, MessageId, OutboxId,
+    Page, Patch, Property, Query, RemoteIntent, SendState, SortDir, SyncCursor, Thread, ThreadId,
+    ThreadSummary,
 };
 
 /// The `thread_summary` column a [`Property`] sorts on.
@@ -293,6 +294,20 @@ impl Store for SqliteStore {
             });
         }
         Ok(out)
+    }
+
+    fn cursor(&self, mailbox: &MailboxRef) -> Result<Option<SyncCursor>, StoreError> {
+        // `sync_state` has been written by every ingest since the store was created. Nothing
+        // had ever read it back, which is why the CONDSTORE path could never start.
+        let text: Option<String> = self
+            .connection()
+            .query_row(
+                "SELECT cursor FROM sync_state WHERE account = ?1 AND mailbox = ?2",
+                rusqlite::params![mailbox.account.to_string(), mailbox.path],
+                |r| r.get(0),
+            )
+            .optional()?;
+        text.map(|t| row::json("SyncCursor", &t)).transpose()
     }
 
     fn draft(&self, id: DraftId) -> Result<Draft, StoreError> {

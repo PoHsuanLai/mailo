@@ -87,11 +87,11 @@ fn ingest_of(mailbox: &str, messages: Vec<Fetched>) -> Ingest {
             path: mailbox.into(),
         },
         validity: UidValidity::Same,
-        cursor: SyncCursor::Imap {
+        cursor: Some(SyncCursor::Imap {
             uidvalidity: 1,
             uidnext: 100,
             modseq: None,
-        },
+        }),
         messages,
         flags: vec![],
         labels: vec![],

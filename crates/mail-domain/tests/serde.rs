@@ -365,7 +365,7 @@ fn ingest() -> Ingest {
     Ingest {
         mailbox: mailbox_ref(),
         validity: UidValidity::Reset,
-        cursor: imap_cursor(),
+        cursor: Some(imap_cursor()),
         messages: vec![Fetched {
             remote: imap_ref(),
             key: MessageKey::Gmail(18_446_744_073_709_551_615),

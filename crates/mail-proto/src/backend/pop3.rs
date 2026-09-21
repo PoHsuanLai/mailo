@@ -129,7 +129,7 @@ impl Pop3Backend {
             // POP3 has no UIDVALIDITY. A UIDL change is detected by diffing the survey against
             // remote_map, not announced by the server.
             validity: UidValidity::Same,
-            cursor: SyncCursor::Pop,
+            cursor: Some(SyncCursor::Pop),
             messages: Vec::new(),
             flags: Vec::new(),
             labels: Vec::new(),

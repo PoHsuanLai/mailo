@@ -412,15 +412,16 @@ impl Backend for ImapBackend {
                     .map(|row| (row.remote.clone(), row.size))
                     .collect();
 
-                let (uidvalidity, uidnext) = mailbox_state(&transcript.untagged);
+                let (uidvalidity, uidnext, modseq) = mailbox_state(&transcript.untagged);
                 Progress::Done(ProtoOutcome::Ingested(Box::new(Ingest {
                     mailbox,
                     validity: UidValidity::Same,
-                    cursor: SyncCursor::Imap {
+                    // A survey, so it does move the cursor.
+                    cursor: Some(SyncCursor::Imap {
                         uidvalidity,
                         uidnext,
-                        modseq: None,
-                    },
+                        modseq,
+                    }),
                     messages: Vec::new(),
                     flags: seen
                         .iter()
@@ -529,24 +530,31 @@ fn flag_list(text: &str) -> Vec<String> {
     rest[..end].split_whitespace().map(str::to_owned).collect()
 }
 
-/// `UIDVALIDITY` and `UIDNEXT` from the responses to `SELECT`/`EXAMINE`.
+/// `UIDVALIDITY`, `UIDNEXT` and `HIGHESTMODSEQ` from the responses to `SELECT`/`EXAMINE`.
 ///
-/// Zero when absent. A server that does not say is a server we cannot resume against, and the
-/// next pass surveys from the beginning — correct, and slow, rather than wrong and fast.
-fn mailbox_state(untagged: &[crate::Untagged]) -> (u32, u32) {
-    let find = |key: &str| -> u32 {
+/// Zero and `None` when absent. A server that does not say is a server we cannot resume
+/// against, and the next pass surveys from the beginning — correct and slow, rather than wrong
+/// and fast.
+///
+/// `HIGHESTMODSEQ` is `None` rather than zero when missing, because zero is a value a server
+/// could legitimately report and "did not say" is not a modseq.
+fn mailbox_state(untagged: &[crate::Untagged]) -> (u32, u32, Option<u64>) {
+    let find = |key: &str| -> Option<u64> {
         untagged
             .iter()
             .filter_map(|u| {
                 let at = u.text.find(key)? + key.len();
                 let rest = &u.text[at..];
                 let end = rest.find([']', ' ']).unwrap_or(rest.len());
-                rest[..end].trim().parse::<u32>().ok()
+                rest[..end].trim().parse::<u64>().ok()
             })
             .next_back()
-            .unwrap_or(0)
     };
-    (find("UIDVALIDITY "), find("UIDNEXT "))
+    (
+        find("UIDVALIDITY ").unwrap_or(0) as u32,
+        find("UIDNEXT ").unwrap_or(0) as u32,
+        find("HIGHESTMODSEQ "),
+    )
 }
 
 /// A UID set from remote references, or `None` when none of them are IMAP.

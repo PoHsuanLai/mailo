@@ -394,17 +394,25 @@ impl SqliteStore {
         }
 
         // 6. Cursor, so the next sync resumes rather than refetching.
-        self.connection().execute(
-            "INSERT INTO sync_state (account, mailbox, cursor, synced_at)
-             VALUES (?1, ?2, ?3, datetime('now'))
-             ON CONFLICT(account, mailbox) DO UPDATE SET
-                 cursor=excluded.cursor, synced_at=excluded.synced_at",
-            params![
-                account.to_string(),
-                ingest.mailbox.path,
-                to_json("SyncCursor", &ingest.cursor)?,
-            ],
-        )?;
+        //
+        // Only when this ingest actually knows where the mailbox got to. A header or body batch
+        // carries `None`: it was handed a list of messages and fetched them, and never asked
+        // the server what exists. Writing a cursor from one of those is how an IMAP account's
+        // `UIDVALIDITY`, `UIDNEXT` and `HIGHESTMODSEQ` were destroyed milliseconds after the
+        // survey recorded them, on every pass, for ever.
+        if let Some(cursor) = &ingest.cursor {
+            self.connection().execute(
+                "INSERT INTO sync_state (account, mailbox, cursor, synced_at)
+                 VALUES (?1, ?2, ?3, datetime('now'))
+                 ON CONFLICT(account, mailbox) DO UPDATE SET
+                     cursor=excluded.cursor, synced_at=excluded.synced_at",
+                params![
+                    account.to_string(),
+                    ingest.mailbox.path,
+                    to_json("SyncCursor", cursor)?,
+                ],
+            )?;
+        }
 
         for thread in touched {
             self.refresh_summary(thread)?;

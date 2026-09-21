@@ -10,10 +10,10 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use chrono::{DateTime, SecondsFormat, TimeDelta, Utc};
 use mail_domain::{
-    AccountId, Change, ChangeId, Cursor, Draft, DraftId, Filter, Ingest, Label, LabelId, MatchCtx,
-    Membership, Message, MessageId, MessageKey, OutboxId, Page, Patch, Pin, Property, ProtoOp,
-    Query, RemoteIntent, RemoteRef, Retry, SendState, Snooze, SortDir, SyncCursor, Thread,
-    ThreadId, ThreadSummary, UidValidity,
+    AccountId, Change, ChangeId, Cursor, Draft, DraftId, Filter, Ingest, Label, LabelId,
+    MailboxRef, MatchCtx, Membership, Message, MessageId, MessageKey, OutboxId, Page, Patch, Pin,
+    Property, ProtoOp, Query, RemoteIntent, RemoteRef, Retry, SendState, Snooze, SortDir,
+    SyncCursor, Thread, ThreadId, ThreadSummary, UidValidity,
 };
 use serde::Serialize;
 
@@ -119,6 +119,16 @@ impl Store for MemoryStore {
         let summary = inner.summary_of(id).ok_or(StoreError::NoThread(id))?;
         let messages = inner.messages_of(id).into_iter().map(|m| m.id).collect();
         Ok(Thread { summary, messages })
+    }
+
+    fn cursor(&self, mailbox: &MailboxRef) -> Result<Option<SyncCursor>, StoreError> {
+        // `sync` has held this since the store was written; nothing had ever read it back.
+        Ok(self
+            .inner
+            .borrow()
+            .sync
+            .get(&(mailbox.account, mailbox.path.clone()))
+            .cloned())
     }
 
     fn draft(&self, id: DraftId) -> Result<Draft, StoreError> {
@@ -532,10 +542,14 @@ impl Inner {
             changes.push(change.clone());
         }
 
-        let _previous = self.sync.insert(
-            (account, ingest.mailbox.path.clone()),
-            ingest.cursor.clone(),
-        );
+        // Only a survey moves the cursor. A header or body batch has `None` and must leave
+        // whatever the last survey recorded alone — overwriting it is what destroyed every
+        // IMAP account's UIDVALIDITY and HIGHESTMODSEQ on every pass.
+        if let Some(cursor) = &ingest.cursor {
+            let _previous = self
+                .sync
+                .insert((account, ingest.mailbox.path.clone()), cursor.clone());
+        }
 
         Ok(Patch {
             id: ChangeId::generate(),

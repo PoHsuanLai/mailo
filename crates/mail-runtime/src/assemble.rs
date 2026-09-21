@@ -27,7 +27,7 @@ pub fn assemble(
     store: &SqliteStore,
     account: AccountId,
     mailbox: MailboxRef,
-    cursor: SyncCursor,
+    cursor: Option<SyncCursor>,
     arrivals: Vec<Arrival>,
     fallback_date: DateTime<Utc>,
 ) -> Result<Ingest, RuntimeError> {
@@ -138,7 +138,7 @@ pub fn assemble_headers(
     store: &SqliteStore,
     account: AccountId,
     mailbox: MailboxRef,
-    cursor: SyncCursor,
+    cursor: Option<SyncCursor>,
     arrivals: Vec<Arrival>,
     fallback_date: DateTime<Utc>,
 ) -> Result<Ingest, RuntimeError> {
@@ -202,7 +202,7 @@ pub fn absorb(
     store: &SqliteStore,
     account: AccountId,
     mailbox: MailboxRef,
-    cursor: SyncCursor,
+    cursor: Option<SyncCursor>,
     arrivals: Vec<Arrival>,
     headers_only: bool,
     fallback_date: DateTime<Utc>,
