@@ -317,3 +317,83 @@ fn fetch_headers_uses_top_and_returns_raw_bytes() {
         "without TOP, refusing beats marking the message read"
     );
 }
+
+// --- submission -----------------------------------------------------------------------
+
+/// Submission is its own backend on its own connection, and the incoming one refuses it.
+#[test]
+fn smtp_backend_submits_and_reports_no_remote_copy() {
+    use mail_proto::Submission;
+    use mail_proto::backend::SmtpBackend;
+
+    let mut backend = SmtpBackend::new(
+        ACCOUNT,
+        caps(),
+        Box::new(|raw: Vec<u8>| {
+            Ok(Submission {
+                ehlo: "client.example".to_owned(),
+                host: "smtp.example".to_owned(),
+                port: 465,
+                tls: Tls::Implicit,
+                username: "ada@example.com".to_owned(),
+                credential: Credential::Password("s3cr3t-password".to_owned()),
+                sasl: vec![SaslMech::Plain],
+                mail_from: "ada@example.com".to_owned(),
+                recipients: vec!["bob@example.com".to_owned()],
+                message: raw,
+            })
+        }),
+    );
+
+    // Staging is separate because the bytes live in the blob store, which mail-proto does not
+    // know about. Submitting without staging must fail loudly rather than send nothing.
+    let unstaged = backend.begin(ProtoOp::Submit {
+        draft: DraftId::generate(),
+        raw: BlobId::generate(),
+    });
+    assert!(
+        matches!(unstaged, Progress::Failed(_)),
+        "an unstaged submission must not proceed: {unstaged:?}"
+    );
+
+    backend
+        .stage(
+            b"From: ada@example.com\r\nTo: bob@example.com\r\nSubject: hi\r\n\r\nbody\r\n".to_vec(),
+        )
+        .unwrap();
+
+    struct Sending {
+        backend: SmtpBackend,
+        op: Option<ProtoOp>,
+    }
+    impl Machine for Sending {
+        type Out = ProtoOutcome;
+        fn start(&mut self) -> Progress<ProtoOutcome> {
+            let op = self.op.take().expect("start called twice");
+            self.backend.begin(op)
+        }
+        fn feed(&mut self, ready: IoReady) -> Progress<ProtoOutcome> {
+            self.backend.feed(ready)
+        }
+    }
+
+    let mut sending = Sending {
+        backend,
+        op: Some(ProtoOp::Submit {
+            draft: DraftId::generate(),
+            raw: BlobId::generate(),
+        }),
+    };
+    let outcome = replay(
+        &mut sending,
+        include_str!("traces/smtp/submit_backend.trace"),
+    )
+    .unwrap();
+
+    // `remote: None` on purpose: SMTP says the message was accepted, not where a copy was
+    // filed. Gmail files it in Sent itself, and a client APPEND would duplicate it.
+    assert!(
+        matches!(outcome, ProtoOutcome::Submitted { remote: None }),
+        "{outcome:?}"
+    );
+}

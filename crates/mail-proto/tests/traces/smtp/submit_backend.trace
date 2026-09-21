@@ -1,0 +1,26 @@
+# SYNTHETIC. Written from RFC 5321 and RFC 4954. Not a recording.
+# One accepted submission, driven through SmtpBackend rather than the session directly.
+S: 220 smtp.example ESMTP
+C: EHLO client.example
+S: 250-smtp.example Hello
+S: 250-SIZE 35882577
+S: 250-AUTH PLAIN LOGIN
+S: 250 8BITMIME
+C: AUTH PLAIN AGFkYUBleGFtcGxlLmNvbQBzM2NyM3QtcGFzc3dvcmQ=
+S: 235 2.7.0 Authentication successful
+C: MAIL FROM:<ada@example.com>
+S: 250 2.1.0 Ok
+C: RCPT TO:<bob@example.com>
+S: 250 2.1.5 Ok
+C: DATA
+S: 354 End data with <CR><LF>.<CR><LF>
+C: From: ada@example.com
+C: To: bob@example.com
+C: Subject: hi
+C:
+C: body
+C: .
+S: 250 2.0.0 Ok: queued as ABC123
+C: QUIT
+S: 221 2.0.0 Bye
+DONE

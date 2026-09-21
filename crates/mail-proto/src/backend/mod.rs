@@ -7,5 +7,7 @@
 //! loop's single-transport shape a lie.
 
 pub mod pop3;
+pub mod smtp;
 
 pub use pop3::{Authenticate, Pop3Backend};
+pub use smtp::SmtpBackend;
