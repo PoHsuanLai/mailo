@@ -8,9 +8,10 @@
 use chrono::{DateTime, Utc};
 use mail_domain::{
     AccountCaps, AccountId, ArchiveMeans, Attachments, BlobId, Body, Change, Condstore,
-    FolderRoles, LabelId, MailboxRole, MailboxSet, Membership, Message, MessageId, MessageKey,
-    MoveExt, Op, OpKind, Patch, Pin, ReadState, RemoteIntent, ServerLabels, ServerThreads, Snooze,
-    Star, Target, Thread, ThreadId, ThreadSummary, WatchMode,
+    ConnectionBudget, ExpungeMeans, FolderRoles, LabelId, MailboxRole, MailboxSet, Membership,
+    Message, MessageId, MessageKey, MoveExt, Op, OpKind, Patch, Pin, ReadState, RemoteIntent,
+    ServerLabels, ServerThreads, Snooze, Star, Supported, Target, Thread, ThreadId, ThreadSummary,
+    WatchMode,
 };
 use mail_domain::{Address, Attachment, Inline};
 use proptest::prelude::*;
@@ -113,6 +114,10 @@ fn account_caps(archive: ArchiveMeans, labels: ServerLabels) -> AccountCaps {
         folders: FolderRoles::default(),
         condstore: Condstore::Absent,
         move_ext: MoveExt::Absent,
+        expunge: ExpungeMeans::Forbidden,
+        top: Supported::Absent,
+        pipelining: Supported::Absent,
+        connections: ConnectionBudget::default(),
         observed_at: at(0),
     }
 }

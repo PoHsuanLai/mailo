@@ -127,9 +127,12 @@ impl Username {
 pub enum SaslMech {
     Plain,
     Login,
-    CramMd5,
     XOauth2,
 }
+
+// CRAM-MD5 is deliberately absent. The NTU spike found `SASL PLAIN` only, Gmail and Microsoft
+// both want XOAUTH2, and a mechanism we cannot exercise against a real server is one we should
+// not claim to support. Add it back when an account needs it, with a trace.
 
 /// A send-as address belonging to an account.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -153,6 +156,18 @@ pub struct AccountCaps {
     pub folders: FolderRoles,
     pub condstore: Condstore,
     pub move_ext: MoveExt,
+    /// Whether `\Deleted` + `EXPUNGE` may ever be issued. See [`ExpungeMeans`].
+    #[serde(default)]
+    pub expunge: ExpungeMeans,
+    /// POP3 `TOP`: fetch headers without marking the message read.
+    #[serde(default)]
+    pub top: Supported,
+    /// POP3 `PIPELINING`: send several commands before reading replies.
+    #[serde(default)]
+    pub pipelining: Supported,
+    /// How many connections this server tolerates at once.
+    #[serde(default)]
+    pub connections: ConnectionBudget,
     /// When these were last observed. Stale caps are re-fetched on connect.
     pub observed_at: DateTime<Utc>,
 }
@@ -212,6 +227,67 @@ impl FolderRoles {
     /// The role of `path`, if it has one.
     pub fn role(&self, path: &str) -> Option<MailboxRole> {
         self.0.iter().find(|(p, _)| p == path).map(|(_, r)| *r)
+    }
+}
+
+/// Whether a capability is available.
+///
+/// Three-valued on purpose. `Absent` means the server did not advertise it; `Withdrawn` means it
+/// advertised it and then misbehaved, which is a different fact and must not be undone by the
+/// next capability refresh. Servers lie in both directions: UW IMAP advertises `UIDPLUS` and
+/// omits `APPENDUID`, and Thunderbird trusting that deleted the wrong draft.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Supported {
+    Yes,
+    #[default]
+    Absent,
+    /// Advertised, then observed not to work. Latched: never re-enabled by an advertisement.
+    Withdrawn,
+}
+
+impl Supported {
+    /// Whether the capability may be used.
+    pub fn usable(self) -> bool {
+        matches!(self, Supported::Yes)
+    }
+
+    /// Record that the capability misbehaved. Latches, so a later `CAPABILITY` cannot undo it.
+    pub fn withdraw(&mut self) {
+        *self = Supported::Withdrawn;
+    }
+}
+
+/// Whether this account may ever be told to expunge.
+///
+/// `Forbidden` is the default wherever labels are server-side, and it is not a performance
+/// choice. Gmail routes `EXPUNGE` through a per-account `expungeBehavior` whose values include
+/// `deleteForever`, and there is no capability, no `STATUS` item and no other way to read it over
+/// IMAP. On an account set that way, `\Deleted` + `EXPUNGE` destroys mail irrecoverably, and a
+/// local undo patch restores only our own row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExpungeMeans {
+    /// Never issue `EXPUNGE`. A "move" is a copy plus a label change; nothing is deleted.
+    #[default]
+    Forbidden,
+    /// The server deletes only what is flagged, and only in the selected mailbox.
+    Allowed,
+}
+
+/// How many connections a server tolerates before it starts refusing or locking the account.
+///
+/// Gmail allows roughly fifteen simultaneous IMAP connections and punishes excess with a lockout
+/// measured in hours, so this is a budget to stay under rather than a limit to discover.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConnectionBudget {
+    pub max: u8,
+}
+
+impl Default for ConnectionBudget {
+    fn default() -> Self {
+        // One to watch, one to work. Raising this needs evidence that a server tolerates it.
+        Self { max: 2 }
     }
 }
 

@@ -17,5 +17,11 @@
   "folders": [],
   "condstore": "absent",
   "move_ext": "absent",
-  "observed_at": "2026-01-03T04:05:06Z"
+  "observed_at": "2026-01-03T04:05:06Z",
+  "expunge": "forbidden",
+  "top": "yes",
+  "pipelining": "yes",
+  "connections": {
+    "max": 1
+  }
 }

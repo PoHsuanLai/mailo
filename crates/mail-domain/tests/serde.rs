@@ -83,6 +83,10 @@ fn caps() -> AccountCaps {
         ]),
         condstore: Condstore::Supported,
         move_ext: MoveExt::Supported,
+        expunge: ExpungeMeans::Forbidden,
+        top: Supported::Absent,
+        pipelining: Supported::Absent,
+        connections: ConnectionBudget::default(),
         observed_at: at(3),
     }
 }
@@ -459,12 +463,7 @@ fn account_types_round_trip() {
     );
     round_trip_each(
         "SaslMech",
-        vec![
-            SaslMech::Plain,
-            SaslMech::Login,
-            SaslMech::CramMd5,
-            SaslMech::XOauth2,
-        ],
+        vec![SaslMech::Plain, SaslMech::Login, SaslMech::XOauth2],
     );
     round_trip("OAuthIssuer", OAuthIssuer::Google);
     round_trip_each(
@@ -1069,7 +1068,7 @@ fixtures! {
         },
         auth: AuthPlan::Password {
             username: Username::Literal("login-name".to_owned()),
-            sasl: vec![SaslMech::CramMd5, SaslMech::XOauth2],
+            sasl: vec![SaslMech::Plain],
         },
         identities: vec![identity()],
     },
@@ -1082,6 +1081,10 @@ fixtures! {
         folders: FolderRoles::default(),
         condstore: Condstore::Absent,
         move_ext: MoveExt::Absent,
+        expunge: ExpungeMeans::Forbidden,
+        top: Supported::Absent,
+        pipelining: Supported::Absent,
+        connections: ConnectionBudget::default(),
         observed_at: at(3),
     },
     "identity.json" => Identity = identity(),

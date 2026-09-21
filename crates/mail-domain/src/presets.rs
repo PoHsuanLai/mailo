@@ -6,9 +6,9 @@
 //! and even then only as a table key.
 
 use crate::account::{
-    AccountCaps, AccountPlan, ArchiveMeans, AuthPlan, Condstore, FolderRoles, Incoming,
-    LeaveOnServer, MoveExt, OAuthIssuer, Outgoing, SaslMech, ServerLabels, ServerThreads, Tls,
-    Username, WatchMode,
+    AccountCaps, AccountPlan, ArchiveMeans, AuthPlan, Condstore, ConnectionBudget, ExpungeMeans,
+    FolderRoles, Incoming, LeaveOnServer, MoveExt, OAuthIssuer, Outgoing, SaslMech, ServerLabels,
+    ServerThreads, Supported, Tls, Username, WatchMode,
 };
 use crate::state::MailboxRole;
 use chrono::{DateTime, Utc};
@@ -126,6 +126,15 @@ fn gmail(address: &str, now: DateTime<Utc>) -> Preset {
             folders: gmail_folders(),
             condstore: Condstore::Supported,
             move_ext: MoveExt::Supported,
+            // Never, on any account with server-side labels: Gmail routes EXPUNGE through an
+            // expungeBehavior setting that may be `deleteForever` and cannot be read over IMAP.
+            expunge: ExpungeMeans::Forbidden,
+            // POP3 capabilities; meaningless over IMAP.
+            top: Supported::Absent,
+            pipelining: Supported::Absent,
+            // Gmail tolerates roughly fifteen simultaneous IMAP connections and punishes excess
+            // with a lockout measured in hours. Stay well under it.
+            connections: ConnectionBudget { max: 5 },
             observed_at: now,
         },
     }
@@ -173,6 +182,15 @@ fn ntu(address: &str, local: &str, now: DateTime<Utc>) -> Preset {
             folders: FolderRoles(Vec::new()),
             condstore: Condstore::Absent,
             move_ext: MoveExt::Absent,
+            // POP3 has no EXPUNGE; deletion is DELE, governed by LeaveOnServer.
+            expunge: ExpungeMeans::Forbidden,
+            // Both measured against msa.ntu.edu.tw on 2026-09-22: CAPA advertises
+            // `TOP UIDL RESP-CODES PIPELINING`. TOP is what keeps a first sync from marking the
+            // whole maildrop read, because RETR sets the seen flag and TOP does not.
+            top: Supported::Yes,
+            pipelining: Supported::Yes,
+            // One maildrop, and many POP3 servers lock it against a second session.
+            connections: ConnectionBudget { max: 1 },
             observed_at: now,
         },
     }

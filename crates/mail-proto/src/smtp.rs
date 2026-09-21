@@ -576,7 +576,8 @@ fn parse_mech(raw: &str) -> Option<SaslMech> {
     match raw.to_ascii_uppercase().as_str() {
         "PLAIN" => Some(SaslMech::Plain),
         "LOGIN" => Some(SaslMech::Login),
-        "CRAM-MD5" => Some(SaslMech::CramMd5),
+        // CRAM-MD5 is parsed as unknown on purpose: SaslMech no longer has it, since no
+        // account we target offers it and we cannot exercise it against a real server.
         "XOAUTH2" => Some(SaslMech::XOauth2),
         _ => None,
     }
@@ -864,7 +865,6 @@ fn mech_label(mech: SaslMech) -> &'static str {
     match mech {
         SaslMech::Plain => "PLAIN",
         SaslMech::Login => "LOGIN",
-        SaslMech::CramMd5 => "CRAM-MD5",
         SaslMech::XOauth2 => "XOAUTH2",
     }
 }
@@ -888,7 +888,6 @@ fn auth_command(mech: SaslMech, sub: &Submission) -> Result<(Phase, Vec<u8>), Pr
             ));
             Ok((Phase::AuthXoauth2, line))
         }
-        SaslMech::CramMd5 => Err(ProtoError::Unsupported("CRAM-MD5".into())),
     }
 }
 

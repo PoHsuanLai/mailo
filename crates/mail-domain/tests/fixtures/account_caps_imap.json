@@ -19,5 +19,11 @@
   ],
   "condstore": "supported",
   "move_ext": "supported",
-  "observed_at": "2026-01-03T04:05:06Z"
+  "observed_at": "2026-01-03T04:05:06Z",
+  "expunge": "forbidden",
+  "top": "absent",
+  "pipelining": "absent",
+  "connections": {
+    "max": 5
+  }
 }

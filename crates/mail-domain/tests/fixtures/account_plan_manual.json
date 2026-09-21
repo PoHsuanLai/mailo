@@ -25,7 +25,6 @@
         "v": "login-name"
       },
       "sasl": [
-        "cram-md5",
         "x-oauth2"
       ]
     }

@@ -23,9 +23,10 @@ pub mod threading;
 pub mod view;
 
 pub use account::{
-    AccountCaps, AccountPlan, ArchiveMeans, AuthPlan, Condstore, Credential, FolderRoles, Identity,
-    Incoming, LeaveOnServer, MoveExt, OAuthIssuer, Outgoing, SaslMech, SecretKey, SecretPurpose,
-    ServerLabels, ServerThreads, Tls, Username, WatchMode,
+    AccountCaps, AccountPlan, ArchiveMeans, AuthPlan, Condstore, ConnectionBudget, Credential,
+    ExpungeMeans, FolderRoles, Identity, Incoming, LeaveOnServer, MoveExt, OAuthIssuer, Outgoing,
+    SaslMech, SecretKey, SecretPurpose, ServerLabels, ServerThreads, Supported, Tls, Username,
+    WatchMode,
 };
 pub use content::{Address, Attachment, Body, Inline, Label};
 pub use draft::{Draft, PendingAttachment, ReplyScope, SendState};
