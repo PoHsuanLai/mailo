@@ -49,5 +49,12 @@ pub fn time(what: &str, text: &str) -> Result<DateTime<Utc>, StoreError> {
 
 /// Encode a timestamp for storage.
 pub fn from_time(at: DateTime<Utc>) -> String {
-    at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+    // Nanoseconds, and always nine digits. Fixed width is what makes the text sort in the same
+    // order as the instants, which is what the keyset pagination index relies on — chrono's
+    // serde form is variable width, where `...06.001Z` sorts BEFORE `...06Z`.
+    //
+    // Nine digits rather than three because a `DateRange` boundary inside the same millisecond
+    // would otherwise compare equal here while `Filter::fit` compares the real instants, and
+    // the two would disagree.
+    at.to_rfc3339_opts(chrono::SecondsFormat::Nanos, true)
 }

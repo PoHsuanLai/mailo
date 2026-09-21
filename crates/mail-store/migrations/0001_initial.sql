@@ -142,26 +142,33 @@ CREATE TABLE thread_summary (
 CREATE INDEX thread_summary_date  ON thread_summary(account, last_date DESC, thread DESC);
 CREATE INDEX thread_summary_unread ON thread_summary(account, read, last_date DESC);
 
+-- from_name is indexed because Filter::fit matches display names, not just addresses. Without
+-- it, searching for "Ada Lovelace" finds nothing in SQL while fit says it matches, and the
+-- parity proptest is right to fail.
+--
+-- Indexing per message also covers ThreadSummary.participants exactly: the participants of a
+-- thread ARE the senders of its messages, and the Text predicate asks whether each token
+-- appears in some message of the thread.
 CREATE VIRTUAL TABLE messages_fts USING fts5(
-    subject, from_email, body_text,
+    subject, from_name, from_email, body_text,
     content = 'messages',
     content_rowid = 'rowid',
     tokenize = 'unicode61 remove_diacritics 2'
 );
 
 CREATE TRIGGER messages_fts_ins AFTER INSERT ON messages BEGIN
-    INSERT INTO messages_fts(rowid, subject, from_email, body_text)
-    VALUES (new.rowid, new.subject, new.from_email, new.body_text);
+    INSERT INTO messages_fts(rowid, subject, from_name, from_email, body_text)
+    VALUES (new.rowid, new.subject, new.from_name, new.from_email, new.body_text);
 END;
 CREATE TRIGGER messages_fts_del AFTER DELETE ON messages BEGIN
-    INSERT INTO messages_fts(messages_fts, rowid, subject, from_email, body_text)
-    VALUES ('delete', old.rowid, old.subject, old.from_email, old.body_text);
+    INSERT INTO messages_fts(messages_fts, rowid, subject, from_name, from_email, body_text)
+    VALUES ('delete', old.rowid, old.subject, old.from_name, old.from_email, old.body_text);
 END;
 CREATE TRIGGER messages_fts_upd AFTER UPDATE ON messages BEGIN
-    INSERT INTO messages_fts(messages_fts, rowid, subject, from_email, body_text)
-    VALUES ('delete', old.rowid, old.subject, old.from_email, old.body_text);
-    INSERT INTO messages_fts(rowid, subject, from_email, body_text)
-    VALUES (new.rowid, new.subject, new.from_email, new.body_text);
+    INSERT INTO messages_fts(messages_fts, rowid, subject, from_name, from_email, body_text)
+    VALUES ('delete', old.rowid, old.subject, old.from_name, old.from_email, old.body_text);
+    INSERT INTO messages_fts(rowid, subject, from_name, from_email, body_text)
+    VALUES (new.rowid, new.subject, new.from_name, new.from_email, new.body_text);
 END;
 
 -- ---------------------------------------------------------------- sync

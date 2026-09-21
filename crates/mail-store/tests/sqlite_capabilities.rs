@@ -31,3 +31,60 @@ fn bundled_sqlite_has_fts5_and_wal() {
     // pragma is understood rather than silently ignored.
     assert!(matches!(mode.as_str(), "wal" | "memory"), "got {mode}");
 }
+
+/// The three parity hazards `sql-compile` reported, pinned against real SQLite so a later
+/// change to either side fails here rather than in a mystery proptest shrink.
+#[test]
+fn the_reported_parity_hazards_are_actually_closed() {
+    let db = rusqlite::Connection::open_in_memory().unwrap();
+    db.execute_batch(include_str!("../migrations/0001_initial.sql"))
+        .expect("schema");
+
+    // 1. Display names are searchable. fit matches them; without from_name in the index, SQL
+    //    would not, and the two would disagree.
+    let cols: i64 = db
+        .query_row(
+            "SELECT count(*) FROM pragma_table_info('messages_fts') WHERE name = 'from_name'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(cols, 1, "from_name must be indexed");
+
+    // 2. Fixed-width nanosecond timestamps sort as text in instant order. chrono's serde form
+    //    does not: ...06.001Z sorts BEFORE ...06Z, which silently inverts a range query.
+    let variable = ["2026-01-09T04:05:06Z", "2026-01-09T04:05:06.001Z"];
+    assert!(variable[1] < variable[0], "the hazard is real");
+    let fixed = [
+        "2026-01-09T04:05:06.000000000Z",
+        "2026-01-09T04:05:06.001000000Z",
+    ];
+    assert!(fixed[0] < fixed[1], "fixed width must restore the order");
+
+    // 3. Thread-corpus co-occurrence. Two tokens split across two messages of one thread must
+    //    match, because fit treats the thread as one corpus. A single `t1 AND t2` MATCH would
+    //    require both on one row and would miss this.
+    db.execute_batch(
+        "INSERT INTO messages_fts(rowid, subject, from_name, from_email, body_text)
+         VALUES (1, 'ada writes', NULL, 'a@x.test', 'first'),
+                (2, 'about lunch', NULL, 'b@x.test', 'second');",
+    )
+    .unwrap();
+    let both_on_one_row: i64 = db
+        .query_row(
+            "SELECT count(*) FROM messages_fts WHERE messages_fts MATCH '\"ada\" AND \"lunch\"'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(both_on_one_row, 0, "one MATCH cannot span two messages");
+    let per_token: i64 = db
+        .query_row(
+            "SELECT (SELECT count(*) FROM messages_fts WHERE messages_fts MATCH '\"ada\"')
+                  * (SELECT count(*) FROM messages_fts WHERE messages_fts MATCH '\"lunch\"')",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(per_token > 0, "one EXISTS per token spans the thread");
+}
