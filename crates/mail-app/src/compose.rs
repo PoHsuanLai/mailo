@@ -83,6 +83,46 @@ fn identity_of(
     })
 }
 
+/// Create and persist a reply to `message`, returning the draft.
+///
+/// The shared half of replying: the CLI formats the result as text and the shell opens a
+/// composer on it. Both go through here, so the draft a window produces and the draft a command
+/// produces are the same draft — including the quoting, which is the part most easily done two
+/// different ways.
+pub fn draft_reply(
+    store: &SqliteStore,
+    message: MessageId,
+    scope: ReplyScope,
+    body: &str,
+    now: DateTime<Utc>,
+) -> Result<Draft, String> {
+    let original = store.message(message).map_err(|e| e.to_string())?;
+    let identity = identity_of(store, original.account, None)?;
+
+    let mut draft = Draft::reply_to(&original, &identity, scope, now);
+    // `Draft::reply_to` leaves the text empty on purpose — quoting is a rendering decision, not
+    // a property of the draft — so the quoting happens here, where the renderer is.
+    draft.text = quoted(body, &original);
+    save(store, &draft)?;
+    Ok(draft)
+}
+
+/// Write a draft back to the store.
+///
+/// Used by the composer on every save. `INSERT OR REPLACE` underneath, so this is also what an
+/// autosave calls: the draft row is the document, and the widgets are only a view of it.
+pub fn save(store: &SqliteStore, draft: &Draft) -> Result<(), String> {
+    store
+        .apply(
+            draft.account,
+            &Patch {
+                id: ChangeId::generate(),
+                changes: vec![Change::DraftUpsert(Box::new(draft.clone()))],
+            },
+        )
+        .map_err(|e| e.to_string())
+}
+
 /// Start a reply to `message`, with `body` as its text.
 pub fn reply(
     store: &SqliteStore,
@@ -91,23 +131,7 @@ pub fn reply(
     body: &str,
     now: DateTime<Utc>,
 ) -> Result<String, String> {
-    let original = store.message(message).map_err(|e| e.to_string())?;
-    let identity = identity_of(store, original.account, None)?;
-
-    let mut draft = Draft::reply_to(&original, &identity, scope, now);
-    // `Draft::reply_to` leaves the text empty on purpose — quoting is a rendering decision, not
-    // a property of the draft — so the quoting happens here, where the renderer is.
-    draft.text = quoted(body, &original);
-
-    store
-        .apply(
-            original.account,
-            &Patch {
-                id: ChangeId::generate(),
-                changes: vec![Change::DraftUpsert(Box::new(draft.clone()))],
-            },
-        )
-        .map_err(|e| e.to_string())?;
+    let draft = draft_reply(store, message, scope, body, now)?;
 
     let mut out = format!("draft {}\n", draft.id);
     let _ = writeln!(out, "  to      {}", addresses(&draft.to));

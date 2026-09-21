@@ -4,7 +4,7 @@
 //! What is here is layout, event wiring, and the one thing a UI can get dangerously wrong —
 //! rendering a stranger's HTML.
 
-use crate::view::{Reading, Shell, hover_actions, op_for, reading};
+use crate::view::{Composing, Reading, Shell, hover_actions, op_for, reading};
 use dioxus::prelude::*;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
@@ -93,8 +93,27 @@ fn App() -> Element {
                                                 // Without this the click also opens the thread.
                                                 e.stop_propagation();
                                                 let store = use_context::<Arc<SqliteStore>>();
-                                                if apply_op(&store, id, kind) {
-                                                    revision += 1;
+                                                match reply_scope(kind) {
+                                                    Some(scope) => {
+                                                        match start_reply(&store, id, scope) {
+                                                            Ok(draft) => {
+                                                                shell.write().compose(&draft);
+                                                                revision += 1;
+                                                            }
+                                                            Err(why) => {
+                                                                // Nowhere else to say it yet:
+                                                                // the composer that would show
+                                                                // a notice is what failed to
+                                                                // open.
+                                                                eprintln!("reply: {why}");
+                                                            }
+                                                        }
+                                                    }
+                                                    None => {
+                                                        if apply_op(&store, id, kind) {
+                                                            revision += 1;
+                                                        }
+                                                    }
                                                 }
                                             },
                                             "{label(kind)}"
@@ -109,8 +128,11 @@ fn App() -> Element {
             section { class: "reader",
                 if let Some(thread) = shell.read().open {
                     Reader { thread, shell }
-                } else {
+                } else if shell.read().composing.is_none() {
                     p { class: "empty", "Select a conversation." }
+                }
+                if shell.read().composing.is_some() {
+                    Composer { shell, revision }
                 }
             }
         }
@@ -173,6 +195,161 @@ fn Reader(thread: ThreadId, shell: Signal<Shell>) -> Element {
             }
         }
     }
+}
+
+/// The composer pane.
+///
+/// Every field writes straight back into `Shell.composing`, and every button goes through
+/// `crate::compose`, which is the same module the CLI calls. Two code paths for "send this
+/// draft" is how a window and a command start disagreeing about what a draft is.
+#[component]
+fn Composer(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
+    // The store is taken inside each handler rather than here: a handler runs long after this
+    // render, and the context it needs is the one live at that moment.
+    let Some(editing) = shell.read().composing.clone() else {
+        return rsx! {};
+    };
+
+    rsx! {
+        div { class: "composer",
+            header { class: "composer-head",
+                strong { "{editing.subject}" }
+                button {
+                    class: "ghost",
+                    onclick: move |_| shell.write().close_composer(),
+                    "Close"
+                }
+            }
+            if let Some(notice) = editing.notice.clone() {
+                p { class: "notice", "{notice}" }
+            }
+            label { "To"
+                input {
+                    value: "{editing.to}",
+                    oninput: move |e| {
+                        if let Some(c) = shell.write().composing.as_mut() {
+                            c.to = e.value();
+                        }
+                    },
+                }
+            }
+            label { "Cc"
+                input {
+                    value: "{editing.cc}",
+                    oninput: move |e| {
+                        if let Some(c) = shell.write().composing.as_mut() {
+                            c.cc = e.value();
+                        }
+                    },
+                }
+            }
+            label { "Subject"
+                input {
+                    value: "{editing.subject}",
+                    oninput: move |e| {
+                        if let Some(c) = shell.write().composing.as_mut() {
+                            c.subject = e.value();
+                        }
+                    },
+                }
+            }
+            textarea {
+                class: "composer-body",
+                value: "{editing.body}",
+                oninput: move |e| {
+                    if let Some(c) = shell.write().composing.as_mut() {
+                        c.body = e.value();
+                    }
+                },
+            }
+            div { class: "composer-actions",
+                button {
+                    onclick: move |_| {
+                        let store = use_context::<Arc<SqliteStore>>();
+                        // Cloned out of the signal in its own statement: the read guard ends
+                        // here, so the handler can write a notice back afterwards. It also
+                        // reads what is in the fields *now* rather than at last render.
+                        let current = shell.read().composing.clone();
+                        let saved = persist(&store, current.as_ref());
+                        match saved {
+                            Ok(_) => {
+                                set_notice(&mut shell, Some("Saved.".to_owned()));
+                                revision += 1;
+                            }
+                            Err(why) => set_notice(&mut shell, Some(why)),
+                        }
+                    },
+                    "Save"
+                }
+                button {
+                    class: "primary",
+                    onclick: move |_| {
+                        let store = use_context::<Arc<SqliteStore>>();
+                        // Saved first, always. Sending what is in the widgets without writing
+                        // it down means a failure between the two loses the user's edits.
+                        let current = shell.read().composing.clone();
+                        let sent = persist(&store, current.as_ref()).and_then(|draft| {
+                            crate::compose::send(&store, draft.id, chrono::Utc::now())
+                        });
+                        match sent {
+                            Ok(_) => {
+                                shell.write().close_composer();
+                                revision += 1;
+                            }
+                            Err(why) => set_notice(&mut shell, Some(why)),
+                        }
+                    },
+                    "Send"
+                }
+                span { class: "hint", "Sending queues the message; the next sync delivers it." }
+            }
+        }
+    }
+}
+
+/// Write the composer's fields back onto the stored draft.
+///
+/// Reads the draft from the store rather than keeping a copy in the widgets, so a field the
+/// composer does not show — the identity, the Bcc list, what this replies to — is whatever the
+/// store says and not whatever was true when the composer opened.
+fn persist(store: &SqliteStore, editing: Option<&Composing>) -> Result<Draft, String> {
+    let editing = editing.ok_or_else(|| "nothing is being composed".to_owned())?;
+    let base = store.draft(editing.draft).map_err(|e| e.to_string())?;
+    let edited = editing.apply_to(&base, chrono::Utc::now())?;
+    crate::compose::save(store, &edited)?;
+    Ok(edited)
+}
+
+fn set_notice(shell: &mut Signal<Shell>, notice: Option<String>) {
+    if let Some(c) = shell.write().composing.as_mut() {
+        c.notice = notice;
+    }
+}
+
+/// Which reply a hover button means, if it is one.
+fn reply_scope(kind: OpKind) -> Option<ReplyScope> {
+    match kind {
+        OpKind::Reply => Some(ReplyScope::Sender),
+        OpKind::ReplyAll => Some(ReplyScope::All),
+        // Forward needs recipients the user has not chosen yet, and no body to quote until
+        // they do. It opens a composer too, but not this way round; not wired.
+        _ => None,
+    }
+}
+
+/// Create the draft a reply button opens.
+///
+/// Which message that answers is [`crate::view::reply_target`]'s decision, not this function's.
+fn start_reply(store: &SqliteStore, thread: ThreadId, scope: ReplyScope) -> Result<Draft, String> {
+    let loaded = store.thread(thread).map_err(|e| e.to_string())?;
+    let messages: Vec<Message> = loaded
+        .messages
+        .iter()
+        .filter_map(|id| store.message(*id).ok())
+        .collect();
+    let target = crate::view::reply_target(&messages)
+        .ok_or_else(|| "that conversation has no messages".to_owned())?;
+    crate::compose::draft_reply(store, target.id, scope, "", chrono::Utc::now())
 }
 
 fn from_name(message: &Message) -> String {
@@ -290,5 +467,17 @@ article time { margin-left: auto; opacity: .6; }
 .text { white-space: pre-wrap; word-wrap: break-word; font: inherit; margin: 0; }
 .html { width: 100%; min-height: 320px; border: 0; }
 .pending, .empty { opacity: .6; font-style: italic; }
+.composer { border-top: 2px solid var(--edge); margin-top: 16px; padding-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+.composer-head { display: flex; align-items: baseline; gap: 10px; }
+.composer-head strong { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer label { display: grid; grid-template-columns: 70px 1fr; align-items: center; gap: 8px; font-size: 12px; opacity: .75; }
+.composer input { font: inherit; padding: 6px 8px; border: 1px solid var(--edge); border-radius: 6px; background: Canvas; color: inherit; }
+.composer-body { font: inherit; min-height: 180px; padding: 8px; border: 1px solid var(--edge); border-radius: 6px; background: Canvas; color: inherit; resize: vertical; }
+.composer-actions { display: flex; align-items: center; gap: 8px; }
+.composer-actions button { font: inherit; padding: 6px 14px; border: 1px solid var(--edge); border-radius: 6px; background: Canvas; color: inherit; cursor: pointer; }
+.composer-actions .primary { font-weight: 600; }
+.ghost { font: inherit; font-size: 12px; padding: 2px 8px; border: 1px solid var(--edge); border-radius: 999px; background: none; color: inherit; cursor: pointer; }
+.notice { margin: 0; padding: 6px 8px; border-radius: 6px; background: var(--edge); font-size: 13px; }
+.hint { font-size: 12px; opacity: .6; }
 .images { font: inherit; font-size: 12px; padding: 4px 10px; border: 1px solid var(--edge); border-radius: 999px; background: none; color: inherit; cursor: pointer; margin-bottom: 8px; }
 "#;

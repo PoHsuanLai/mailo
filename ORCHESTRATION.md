@@ -31,8 +31,9 @@ around it and it does not change it. Four of the five errors corrected in `plan.
 | runtime | **done** — transport, drive loop, OAuth + PKCE, loopback listener, secrets, `AccountEngine`, the three-interval schedule |
 | app | **done as far as it can be** — `mailo` CLI (list, show, search, reply, send, drafts, status, account add/list, sync) and the Dioxus shell |
 | sending | **done** — drafts persist, `RemoteIntent::Send` queues, the engine routes `Submit` to SMTP, end-to-end over a real socket |
+| shell compose | **done** — reply and reply-all open a composer, edits save to the draft row, Send queues through the same `compose` module the CLI uses |
 
-303 tests across 37 targets. `fmt`, `clippy -D warnings` and `scripts/check-boundary.sh` all
+349 tests across 37 targets. `fmt`, `clippy -D warnings` and `scripts/check-boundary.sh` all
 clean.
 
 Sending was the last thing that existed only in pieces. `SmtpBackend` was written and unit-tested

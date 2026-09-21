@@ -11,6 +11,8 @@ use mail_store::{SqliteStore, Store};
 
 #[path = "../src/compose.rs"]
 mod compose;
+#[path = "../src/view.rs"]
+mod view;
 
 const ACCOUNT: AccountId =
     AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
@@ -218,6 +220,79 @@ fn the_reply_body_quotes_the_original_beneath_what_was_written() {
         text.contains("Ada Lovelace wrote:"),
         "no attribution line:\n{text}"
     );
+}
+
+/// A later message in the same conversation, so a thread really has two.
+///
+/// Carries `in_reply_to` and `References` like a real follow-up, but the `ThreadId` is assigned
+/// here rather than derived: the store writes the thread the caller gives it, because JWZ
+/// threading happens in `mail_runtime::assemble` on the way in. Minting a fresh id here would
+/// silently produce a one-message thread and an assertion that proves nothing — which is what
+/// the length check below exists to catch.
+fn follow_up(store: &SqliteStore) -> MessageId {
+    let id = MessageId::generate();
+    let thread = store.message(ORIGINAL).unwrap().thread;
+    let raw = store
+        .blobs()
+        .put(&store.connection(), b"raw reply")
+        .unwrap();
+    let message = Message {
+        id,
+        thread,
+        account: ACCOUNT,
+        key: MessageKey::Rfc("reply@example.test".to_owned()),
+        // Later than the original, which is what makes it the reply target.
+        date: at(3600),
+        from: Address {
+            name: Some("Ada Lovelace".to_owned()),
+            email: "ada@example.test".to_owned(),
+        },
+        reply_to: vec![],
+        to: vec![Address {
+            name: None,
+            email: "me@example.test".to_owned(),
+        }],
+        cc: vec![],
+        bcc: vec![],
+        subject: "Re: lunch on friday".to_owned(),
+        in_reply_to: Some("original@example.test".to_owned()),
+        references: vec!["original@example.test".to_owned()],
+        rfc_message_id: Some("reply@example.test".to_owned()),
+        read: ReadState::Unread,
+        star: Star::Unstarred,
+        mailbox: MailboxRole::Inbox,
+        labels: vec![],
+        body: Body::Present {
+            text: Some("one o'clock works".to_owned()),
+            raw,
+        },
+        attachments: vec![],
+    };
+    store
+        .ingest(
+            ACCOUNT,
+            Ingest {
+                mailbox: MailboxRef {
+                    account: ACCOUNT,
+                    path: "INBOX".to_owned(),
+                },
+                validity: UidValidity::Same,
+                cursor: SyncCursor::Pop,
+                messages: vec![Fetched {
+                    remote: RemoteRef::Pop {
+                        uidl: "u3".to_owned(),
+                    },
+                    key: message.key.clone(),
+                    raw,
+                    message,
+                }],
+                flags: vec![],
+                labels: vec![],
+                gone: vec![],
+            },
+        )
+        .unwrap();
+    id
 }
 
 /// A second message, headers only — the normal mid-sync state.
@@ -451,4 +526,113 @@ fn drafts_reports_what_is_waiting() {
     let draft = only_draft(&store);
     compose::send(&store, draft.id, at(20)).unwrap();
     assert!(compose::drafts(&store).unwrap().contains("queued"));
+}
+
+/// The composer's round trip, without a window.
+///
+/// The shell's `Composer` component is thin by construction — every decision it makes lives in
+/// `view.rs` and every write goes through `compose.rs`. These drive that pair the way the
+/// component does, so the part of the shell that can be wrong is covered even though the
+/// widgets are not.
+mod composer {
+    use super::*;
+    use view::Composing;
+
+    #[test]
+    fn opening_a_reply_then_editing_and_saving_keeps_everything_unshown() {
+        let (store, _dir) = seeded();
+        let draft = compose::draft_reply(&store, ORIGINAL, ReplyScope::All, "", at(10)).unwrap();
+
+        // What the composer shows, edited the way a user would.
+        let mut editing = Composing::of(&draft);
+        assert!(editing.to.contains("ada@example.test"), "{}", editing.to);
+        editing.body = format!("one o'clock suits\r\n{}", editing.body);
+        editing.subject = "Re: lunch on friday (moved)".to_owned();
+
+        let base = store.draft(editing.draft).unwrap();
+        let edited = editing.apply_to(&base, at(11)).unwrap();
+        compose::save(&store, &edited).unwrap();
+
+        let reloaded = store.draft(draft.id).unwrap();
+        assert_eq!(reloaded.subject, "Re: lunch on friday (moved)");
+        assert!(reloaded.text.starts_with("one o'clock suits"));
+        // Not shown by the composer, and therefore the things an edit most easily destroys.
+        assert_eq!(reloaded.identity, draft.identity);
+        assert_eq!(reloaded.in_reply_to, Some(ORIGINAL));
+        assert_eq!(
+            store.drafts(ACCOUNT).unwrap().len(),
+            1,
+            "a second draft was made"
+        );
+    }
+
+    #[test]
+    fn a_composed_reply_can_be_sent_and_arrives_in_the_outbox() {
+        let (store, _dir) = seeded();
+        let draft = compose::draft_reply(&store, ORIGINAL, ReplyScope::Sender, "", at(10)).unwrap();
+        let mut editing = Composing::of(&draft);
+        editing.body = "yes".to_owned();
+        // A recipient added by hand, the way the To box is actually used.
+        editing.cc = "Bea <bea@example.test>".to_owned();
+
+        let base = store.draft(editing.draft).unwrap();
+        let edited = editing.apply_to(&base, at(11)).unwrap();
+        compose::save(&store, &edited).unwrap();
+        compose::send(&store, edited.id, at(12)).unwrap();
+
+        let due = store.outbox_due(ACCOUNT, at(20)).unwrap();
+        assert_eq!(due.len(), 1);
+        let ProtoOp::Submit { rcpt_to, .. } = &due[0].op else {
+            panic!("expected a submission");
+        };
+        let mut rcpt = rcpt_to.clone();
+        rcpt.sort();
+        assert_eq!(
+            rcpt,
+            vec!["ada@example.test".to_owned(), "bea@example.test".to_owned()],
+            "the hand-typed Cc did not reach the envelope"
+        );
+    }
+
+    #[test]
+    fn a_mistyped_recipient_stops_the_save_instead_of_dropping_them() {
+        let (store, _dir) = seeded();
+        let draft = compose::draft_reply(&store, ORIGINAL, ReplyScope::Sender, "", at(10)).unwrap();
+        let mut editing = Composing::of(&draft);
+        editing.to = "ada@example.test, bea".to_owned();
+
+        let base = store.draft(editing.draft).unwrap();
+        let err = editing
+            .apply_to(&base, at(11))
+            .expect_err("\"bea\" is not an address");
+        assert!(err.starts_with("To:"), "{err}");
+
+        // And the stored draft is untouched, so nothing was half-written.
+        assert_eq!(store.draft(draft.id).unwrap().to, draft.to);
+    }
+
+    #[test]
+    fn the_reply_button_answers_the_newest_message_in_the_thread() {
+        let (store, _dir) = seeded();
+        let later = follow_up(&store);
+        let thread = store.message(later).unwrap().thread;
+
+        let messages: Vec<Message> = store
+            .thread(thread)
+            .unwrap()
+            .messages
+            .iter()
+            .filter_map(|id| store.message(*id).ok())
+            .collect();
+        assert!(
+            messages.len() >= 2,
+            "this asserts nothing unless the thread really has two messages: {}",
+            messages.len()
+        );
+        let target = view::reply_target(&messages).unwrap();
+        assert_eq!(
+            target.id, later,
+            "replied to the wrong message in the thread"
+        );
+    }
 }
