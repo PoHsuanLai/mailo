@@ -80,6 +80,12 @@ type Validity = Arc<AtomicUsize>;
 /// Dropping one is how a message deleted on another device looks from here.
 type Present = Arc<AtomicUsize>;
 
+/// Flags the server holds per UID, so a `UID STORE` can be observed on the next fetch.
+///
+/// Without this the server answered `OK stored` and then reported the original flags for ever,
+/// which would let a round-trip test pass while nothing round-tripped.
+type Flags = Arc<Mutex<std::collections::BTreeMap<u32, Vec<String>>>>;
+
 #[derive(Debug, Default)]
 struct Seen {
     commands: Vec<String>,
@@ -95,12 +101,23 @@ async fn serve(seen: Shared, fault: Fault) -> (u16, Validity) {
 }
 
 async fn serve_full(seen: Shared, fault: Fault) -> (u16, Validity, Present) {
+    let (port, validity, present, _flags) = serve_flags(seen, fault).await;
+    (port, validity, present)
+}
+
+async fn serve_flags(seen: Shared, fault: Fault) -> (u16, Validity, Present, Flags) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     let faulted = Arc::new(AtomicUsize::new(0));
     let validity: Validity = Arc::new(AtomicUsize::new(42));
     let present: Present = Arc::new(AtomicUsize::new(maildrop().len()));
-    let (serving, showing) = (validity.clone(), present.clone());
+    let flags: Flags = Arc::new(Mutex::new(
+        maildrop()
+            .iter()
+            .map(|(uid, _)| (*uid, vec!["\\Seen".to_owned()]))
+            .collect(),
+    ));
+    let (serving, showing, holding) = (validity.clone(), present.clone(), flags.clone());
     tokio::spawn(async move {
         while let Ok((sock, _)) = listener.accept().await {
             tokio::spawn(session(
@@ -110,10 +127,11 @@ async fn serve_full(seen: Shared, fault: Fault) -> (u16, Validity, Present) {
                 faulted.clone(),
                 serving.clone(),
                 showing.clone(),
+                holding.clone(),
             ));
         }
     });
-    (port, validity, present)
+    (port, validity, present, flags)
 }
 
 async fn session(
@@ -123,6 +141,7 @@ async fn session(
     faulted: Arc<AtomicUsize>,
     validity: Validity,
     present: Present,
+    flags: Flags,
 ) {
     if sock
         .write_all(b"* OK [CAPABILITY IMAP4rev1] server ready\r\n")
@@ -198,12 +217,13 @@ async fn session(
                 } else if upper.contains("BODY.PEEK[HEADER]") {
                     headers(&drop, &upper, &tag)
                 } else {
-                    envelopes(&drop, &tag)
+                    envelopes(&drop, &tag, &flags)
                 }
             } else if upper.starts_with("UID SEARCH") {
                 let uids: Vec<String> = drop.iter().map(|(uid, _)| uid.to_string()).collect();
                 format!("* SEARCH {}\r\n{tag} OK done\r\n", uids.join(" "))
             } else if upper.starts_with("UID STORE") {
+                apply_store(&rest, &flags);
                 format!("{tag} OK stored\r\n")
             } else if upper.starts_with("LOGOUT") {
                 let _ = sock
@@ -224,7 +244,42 @@ async fn session(
 }
 
 /// `UID FETCH` of envelopes: enough for the client to learn what exists.
-fn envelopes(drop: &[(u32, String)], tag: &str) -> String {
+/// Apply `UID STORE <set> (+|-)FLAGS (\Seen \Flagged)` to what the server holds.
+fn apply_store(command: &str, flags: &Flags) {
+    let upper = command.to_uppercase();
+    let adding = !upper.contains("-FLAGS");
+    let Some(open) = command.find('(') else {
+        return;
+    };
+    let Some(close) = command.rfind(')') else {
+        return;
+    };
+    let named: Vec<String> = command[open + 1..close]
+        .split_whitespace()
+        .map(str::to_owned)
+        .collect();
+
+    let uids: Vec<u32> = upper
+        .strip_prefix("UID STORE ")
+        .and_then(|rest| rest.split(' ').next())
+        .map(|set| set.split(',').filter_map(|n| n.parse().ok()).collect())
+        .unwrap_or_default();
+
+    let mut held = flags.lock().unwrap();
+    for uid in uids {
+        let entry = held.entry(uid).or_default();
+        for flag in &named {
+            let present = entry.iter().any(|f| f.eq_ignore_ascii_case(flag));
+            match (adding, present) {
+                (true, false) => entry.push(flag.clone()),
+                (false, true) => entry.retain(|f| !f.eq_ignore_ascii_case(flag)),
+                _ => {}
+            }
+        }
+    }
+}
+
+fn envelopes(drop: &[(u32, String)], tag: &str, flags: &Flags) -> String {
     let mut out = String::new();
     for (seq, (uid, raw)) in drop.iter().enumerate() {
         let subject = raw
@@ -232,8 +287,15 @@ fn envelopes(drop: &[(u32, String)], tag: &str) -> String {
             .find_map(|l| l.strip_prefix("Subject: "))
             .unwrap_or("");
         let from_email = if *uid == 101 { "ada" } else { "bob" };
+        let held = flags
+            .lock()
+            .unwrap()
+            .get(uid)
+            .cloned()
+            .unwrap_or_default()
+            .join(" ");
         out.push_str(&format!(
-            "* {} FETCH (UID {uid} FLAGS (\\Seen) INTERNALDATE \"14-Nov-2023 22:13:20 +0000\" \
+            "* {} FETCH (UID {uid} FLAGS ({held}) INTERNALDATE \"14-Nov-2023 22:13:20 +0000\" \
              ENVELOPE (\"Tue, 14 Nov 2023 22:13:20 +0000\" \"{subject}\" \
              ((NIL NIL \"{from_email}\" \"example.test\")) NIL NIL \
              ((NIL NIL \"me\" \"example.test\")) NIL NIL NIL NIL))\r\n",
@@ -819,4 +881,166 @@ async fn a_sweep_that_finds_everything_still_there_deletes_nothing() {
     it.engine.sweep(&inbox(), &mut cancel, later).await.unwrap();
 
     assert_eq!(count(&it.store), before, "a sweep deleted live mail");
+}
+
+/// A user's action, all the way to the server and back.
+///
+/// The optimistic-apply and reconciliation rules are tested in `mail-store` against synthetic
+/// `Ingest`s. This drives the same rules through the whole chain — `Op::apply`, the outbox,
+/// `resolve_intent`, the backend, a real socket, `Settle`, and the next sync's reconciliation —
+/// which is the only way to find a seam that lies between two correct halves.
+mod round_trip {
+    use super::*;
+
+    fn thread_of(store: &SqliteStore) -> (ThreadId, Vec<Message>) {
+        let page = store
+            .threads(
+                &Query {
+                    filter: Filter::All,
+                    sort: Sort {
+                        property: Property::Date,
+                        dir: SortDir::Desc,
+                    },
+                    page: PageReq {
+                        after: None,
+                        limit: 10,
+                    },
+                },
+                now(),
+            )
+            .unwrap();
+        let id = page.items.first().expect("a thread").id;
+        let loaded = store.thread(id).unwrap();
+        let messages = loaded
+            .messages
+            .iter()
+            .filter_map(|m| store.message(*m).ok())
+            .collect();
+        (id, messages)
+    }
+
+    /// Star the newest thread locally, exactly as a hover button does.
+    fn star(store: &SqliteStore, caps: &AccountCaps) -> ThreadId {
+        let (id, messages) = thread_of(store);
+        let loaded = store.thread(id).unwrap();
+        let applied = Op::SetStar(Star::Starred).apply(
+            &Target::Threads(vec![id]),
+            &loaded,
+            &messages,
+            caps,
+            now(),
+        );
+        store.apply(ACCOUNT, &applied.forward).unwrap();
+        if let Some(intent) = applied.remote {
+            store
+                .enqueue(ACCOUNT, intent, &applied.inverse, now())
+                .unwrap();
+        }
+        id
+    }
+
+    fn is_starred(store: &SqliteStore, thread: ThreadId) -> bool {
+        store
+            .thread(thread)
+            .unwrap()
+            .messages
+            .iter()
+            .filter_map(|m| store.message(*m).ok())
+            .any(|m| m.star == Star::Starred)
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn starring_reaches_the_server_and_survives_the_next_sync() {
+        let seen: Shared = Arc::new(Mutex::new(Seen::default()));
+        let (port, _validity, _present, flags) = serve_flags(seen.clone(), Fault::None).await;
+        let mut it = engine(port, tempfile::tempdir().unwrap());
+        let (_tx, mut cancel) = watch::channel(false);
+
+        it.engine
+            .sync(&inbox(), &mut cancel, now(), 200)
+            .await
+            .unwrap();
+        let thread = star(&it.store, &caps());
+        assert!(is_starred(&it.store, thread), "the optimistic apply");
+
+        // The outbox carries it to the server.
+        let report = it.engine.drain_outbox(&mut cancel, now()).await.unwrap();
+        assert_eq!(report.outbox_settled, 1, "{report:?}");
+        assert!(
+            flags
+                .lock()
+                .unwrap()
+                .values()
+                .any(|f| f.iter().any(|flag| flag == "\\Flagged")),
+            "the server was never told: {:?}",
+            seen.lock().unwrap().commands
+        );
+
+        // And the next sync, which now hears \Flagged back, leaves it starred.
+        it.engine
+            .sync(&inbox(), &mut cancel, now(), 200)
+            .await
+            .unwrap();
+        assert!(
+            is_starred(&it.store, thread),
+            "server truth un-starred what the user starred"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_star_not_yet_sent_survives_server_truth_that_contradicts_it() {
+        // The reconciliation rule, over a socket. The user stars a message; the outbox has not
+        // drained yet; a sync arrives carrying the server's older opinion. Writing that opinion
+        // straight in is how a star flips back under the user's cursor one poll after they set
+        // it — the bug the whole pending_changes mechanism exists to prevent.
+        let seen: Shared = Arc::new(Mutex::new(Seen::default()));
+        let (port, _validity, _present, _flags) = serve_flags(seen, Fault::None).await;
+        let mut it = engine(port, tempfile::tempdir().unwrap());
+        let (_tx, mut cancel) = watch::channel(false);
+
+        it.engine
+            .sync(&inbox(), &mut cancel, now(), 200)
+            .await
+            .unwrap();
+        let thread = star(&it.store, &caps());
+
+        // No drain. The server still says unstarred.
+        it.engine
+            .sync(&inbox(), &mut cancel, now(), 200)
+            .await
+            .unwrap();
+
+        assert!(
+            is_starred(&it.store, thread),
+            "an undelivered local change was overwritten by server truth"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_settled_change_stops_being_re_layered() {
+        // The other half: once the server agrees, the pending row must go. A pending change that
+        // outlived its confirmation would re-apply itself over every future ingest, so the user
+        // could never un-star the message again.
+        let seen: Shared = Arc::new(Mutex::new(Seen::default()));
+        let (port, _validity, _present, _flags) = serve_flags(seen, Fault::None).await;
+        let mut it = engine(port, tempfile::tempdir().unwrap());
+        let (_tx, mut cancel) = watch::channel(false);
+
+        it.engine
+            .sync(&inbox(), &mut cancel, now(), 200)
+            .await
+            .unwrap();
+        star(&it.store, &caps());
+        it.engine.drain_outbox(&mut cancel, now()).await.unwrap();
+
+        let pending: i64 = it
+            .store
+            .connection()
+            .query_row("SELECT count(*) FROM pending_changes", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(pending, 0, "a confirmed change is still pending");
+
+        let queued = it.store.outbox_due(ACCOUNT, now()).unwrap();
+        assert!(queued.is_empty(), "a settled operation is still queued");
+    }
 }
