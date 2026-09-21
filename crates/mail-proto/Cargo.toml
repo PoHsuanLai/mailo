@@ -9,9 +9,10 @@ rust-version.workspace = true
 mail-domain.workspace = true
 mail-mime.workspace = true
 thiserror.workspace = true
+base64 = "0.22"
 
 [lints]
 workspace = true
 
 [dev-dependencies]
-base64 = "0.22"
+chrono.workspace = true

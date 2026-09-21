@@ -1,0 +1,38 @@
+# SYNTHETIC. Written from RFC 5321, RFC 4954, and RFC 3207. Not a recording:
+# phase-0 capture against a real server has not happened yet.
+# STARTTLS is required. The server offers only LOGIN, so a client that prefers
+# PLAIN then LOGIN selects LOGIN and answers both 334 challenges.
+
+S: 220 smtp.example ESMTP ready
+C: EHLO client.example
+S: 250-smtp.example Hello
+S: 250-STARTTLS
+S: 250 PIPELINING
+C: STARTTLS
+S: 220 Ready to start TLS
+TLS
+C: EHLO client.example
+S: 250-smtp.example Hello
+S: 250-STARTTLS
+S: 250-SIZE 35882577
+S: 250 AUTH LOGIN
+C: AUTH LOGIN
+S: 334 VXNlcm5hbWU6
+C: YWRhQGV4YW1wbGUuY29t
+S: 334 UGFzc3dvcmQ6
+C: czNjcjN0LXBhc3N3b3Jk
+S: 235 2.7.0 Authentication successful
+C: MAIL FROM:<ada@example.com>
+S: 250 2.1.0 OK
+C: RCPT TO:<bob@example.com>
+S: 250 2.1.5 OK
+C: DATA
+S: 354 End data with <CR><LF>.<CR><LF>
+C: Subject: hi
+C:
+C: hi
+C: .
+S: 250 2.0.0 OK queued
+C: QUIT
+S: 221 2.0.0 Bye
+DONE

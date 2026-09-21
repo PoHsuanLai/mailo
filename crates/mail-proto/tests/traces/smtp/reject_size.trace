@@ -1,0 +1,10 @@
+# SYNTHETIC. Written from RFC 5321 and RFC 1870. Not a recording:
+# phase-0 capture against a real server has not happened yet.
+# SIZE 10 is below this message, so the client refuses before AUTH.
+
+S: 220 smtp.example ESMTP ready
+C: EHLO client.example
+S: 250-smtp.example Hello
+S: 250-SIZE 10
+S: 250 AUTH PLAIN
+FAIL Refused

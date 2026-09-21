@@ -1,0 +1,24 @@
+# SYNTHETIC. Written from RFC 5321 and RFC 6152. Not a recording:
+# phase-0 capture against a real server has not happened yet.
+# The message contains octets above 7 bits and the server advertised 8BITMIME,
+# so MAIL FROM carries BODY=8BITMIME.
+
+S: 220 smtp.example ESMTP ready
+C: EHLO client.example
+S: 250-smtp.example Hello
+S: 250-8BITMIME
+S: 250 AUTH PLAIN
+C: AUTH PLAIN AGFkYUBleGFtcGxlLmNvbQBzM2NyM3QtcGFzc3dvcmQ=
+S: 235 2.7.0 Authentication successful
+C: MAIL FROM:<ada@example.com> BODY=8BITMIME
+S: 250 2.1.0 OK
+C: RCPT TO:<bob@example.com>
+S: 250 2.1.5 OK
+C: DATA
+S: 354 go ahead
+C: café
+C: .
+S: 250 2.0.0 OK queued
+C: QUIT
+S: 221 2.0.0 Bye
+DONE

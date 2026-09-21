@@ -1,0 +1,11 @@
+# SYNTHETIC. Written from RFC 5321 and RFC 4954. Not a recording:
+# phase-0 capture against a real server has not happened yet.
+# 535 rejects the credentials. It is not a later RCPT refusal.
+
+S: 220 smtp.example ESMTP ready
+C: EHLO client.example
+S: 250-smtp.example Hello
+S: 250 AUTH PLAIN LOGIN
+C: AUTH PLAIN AGFkYUBleGFtcGxlLmNvbQBzM2NyM3QtcGFzc3dvcmQ=
+S: 535 5.7.8 Authentication credentials invalid
+FAIL AuthRejected

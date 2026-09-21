@@ -1,0 +1,35 @@
+# SYNTHETIC. Written from RFC 5321 and RFC 4954. Not a recording:
+# phase-0 capture against a real server has not happened yet.
+# Full submission. The greeting and EHLO are multi-line. AUTH PLAIN carries
+# the initial response. The body line that begins with '.' is sent stuffed.
+
+S: 220-smtp.example ESMTP
+S: 220 ready
+C: EHLO client.example
+S: 250-smtp.example Hello
+S: 250-SIZE 35882577
+S: 250-8BITMIME
+S: 250-AUTH PLAIN LOGIN XOAUTH2
+S: 250 PIPELINING
+C: AUTH PLAIN AGFkYUBleGFtcGxlLmNvbQBzM2NyM3QtcGFzc3dvcmQ=
+S: 235 2.7.0 Authentication successful
+C: MAIL FROM:<ada@example.com>
+S: 250 2.1.0 OK
+C: RCPT TO:<bob@example.com>
+S: 250 2.1.5 OK
+C: RCPT TO:<cara@example.com>
+S: 250 2.1.5 OK
+C: DATA
+S: 354 End data with <CR><LF>.<CR><LF>
+C: From: ada@example.com
+C: To: bob@example.com
+C: Subject: hello
+C:
+C: Hi.
+C: ..this starts with a dot
+C: Bye
+C: .
+S: 250 2.0.0 OK queued
+C: QUIT
+S: 221 2.0.0 Bye
+DONE

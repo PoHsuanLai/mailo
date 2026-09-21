@@ -6,9 +6,14 @@
 
 pub mod machine;
 pub mod pop3;
+pub mod smtp;
 
 pub use machine::{Backend, IoNeed, IoReady, Machine, Progress, ProtoError, ProtoOutcome};
 pub use pop3::{ListEntry, Pop3Command, Pop3Reply, Pop3Session, UidlEntry};
+pub use smtp::{
+    Advertised, EhloExtensions, RefusalKind, ReplyText, SizeLimit, SmtpReply, SmtpSession,
+    Submission, refusal_kind,
+};
 
 #[cfg(test)]
 mod tests {

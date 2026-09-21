@@ -1,0 +1,10 @@
+# SYNTHETIC. Written from RFC 5321 and RFC 6152. Not a recording:
+# phase-0 capture against a real server has not happened yet.
+# The message has octets above 7 bits and the server did not advertise
+# 8BITMIME, so the client stops before AUTH.
+
+S: 220 smtp.example ESMTP ready
+C: EHLO client.example
+S: 250-smtp.example Hello
+S: 250 AUTH PLAIN
+FAIL Unsupported

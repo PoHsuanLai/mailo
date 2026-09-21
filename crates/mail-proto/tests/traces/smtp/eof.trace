@@ -1,0 +1,6 @@
+# SYNTHETIC. Written from RFC 5321. Not a recording: phase-0 capture
+# against a real server has not happened yet.
+# The connection closes before the greeting.
+
+EOF
+FAIL UnexpectedEof

@@ -1,0 +1,27 @@
+# SYNTHETIC. Written from RFC 5321 and the XOAUTH2 initial-response format
+# (user=\x01auth=Bearer <token>\x01\x01, base64). Not a recording: phase-0
+# capture against a real server has not happened yet.
+# The credential is a bearer token and the preference list leads with PLAIN.
+# PLAIN is offered, but it does not fit a token, so the client selects XOAUTH2.
+
+S: 220 smtp.example ESMTP ready
+C: EHLO client.example
+S: 250-smtp.example Hello
+S: 250-AUTH PLAIN XOAUTH2
+S: 250 OK
+C: AUTH XOAUTH2 dXNlcj1hZGFAZXhhbXBsZS5jb20BYXV0aD1CZWFyZXIgeWEyOS5zM2NyM3QtdG9rZW4BAQ==
+S: 235 2.7.0 Accepted
+C: MAIL FROM:<ada@example.com>
+S: 250 2.1.0 OK
+C: RCPT TO:<bob@example.com>
+S: 250 2.1.5 OK
+C: DATA
+S: 354 go ahead
+C: Subject: hi
+C:
+C: hi
+C: .
+S: 250 2.0.0 OK queued
+C: QUIT
+S: 221 2.0.0 Bye
+DONE

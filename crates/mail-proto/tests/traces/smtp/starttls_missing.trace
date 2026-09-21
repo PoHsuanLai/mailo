@@ -1,0 +1,10 @@
+# SYNTHETIC. Written from RFC 3207 and RFC 5321. Not a recording:
+# phase-0 capture against a real server has not happened yet.
+# STARTTLS is required and the server did not offer it. The client must not
+# fall through to AUTH in cleartext.
+
+S: 220 smtp.example ESMTP ready
+C: EHLO client.example
+S: 250-smtp.example Hello
+S: 250 AUTH LOGIN
+FAIL Unsupported

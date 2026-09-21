@@ -1,0 +1,15 @@
+# SYNTHETIC. Written from RFC 5321. Not a recording: phase-0 capture
+# against a real server has not happened yet.
+# 550 on RCPT is a permanent refusal. Retrying will not help.
+
+S: 220 smtp.example ESMTP ready
+C: EHLO client.example
+S: 250-smtp.example Hello
+S: 250 AUTH PLAIN
+C: AUTH PLAIN AGFkYUBleGFtcGxlLmNvbQBzM2NyM3QtcGFzc3dvcmQ=
+S: 235 2.7.0 Authentication successful
+C: MAIL FROM:<ada@example.com>
+S: 250 2.1.0 OK
+C: RCPT TO:<bob@example.com>
+S: 550 5.1.1 User unknown
+FAIL Refused

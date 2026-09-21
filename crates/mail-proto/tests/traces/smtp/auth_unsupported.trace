@@ -1,0 +1,10 @@
+# SYNTHETIC. Written from RFC 5321. Not a recording: phase-0 capture
+# against a real server has not happened yet.
+# The client will only do PLAIN. The server offers LOGIN, so no AUTH command
+# is sent. The offered list stays on the session for the caller to read.
+
+S: 220 smtp.example ESMTP ready
+C: EHLO client.example
+S: 250-smtp.example Hello
+S: 250 AUTH LOGIN
+FAIL Unsupported

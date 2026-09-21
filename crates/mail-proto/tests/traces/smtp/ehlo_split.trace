@@ -1,0 +1,25 @@
+# SYNTHETIC. Written from RFC 5321. Not a recording: phase-0 capture
+# against a real server has not happened yet.
+# The whole multi-line EHLO reply arrives one byte at a time. The bytes are
+# 250-smtp.example Hello / SIZE / 8BITMIME / AUTH PLAIN LOGIN XOAUTH2 / PIPELINING.
+
+S: 220 smtp.example ESMTP ready
+C: EHLO client.example
+SPLIT
+S64: MjUwLXNtdHAuZXhhbXBsZSBIZWxsbw0KMjUwLVNJWkUgMzU4ODI1NzcNCjI1MC04QklUTUlNRQ0KMjUwLUFVVEggUExBSU4gTE9HSU4gWE9BVVRIMg0KMjUwIFBJUEVMSU5JTkcNCg==
+C: AUTH PLAIN AGFkYUBleGFtcGxlLmNvbQBzM2NyM3QtcGFzc3dvcmQ=
+S: 235 2.7.0 Authentication successful
+C: MAIL FROM:<ada@example.com>
+S: 250 2.1.0 OK
+C: RCPT TO:<bob@example.com>
+S: 250 2.1.5 OK
+C: DATA
+S: 354 go ahead
+C: Subject: hi
+C:
+C: hi
+C: .
+S: 250 2.0.0 OK queued
+C: QUIT
+S: 221 2.0.0 Bye
+DONE

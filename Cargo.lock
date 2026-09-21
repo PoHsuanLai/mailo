@@ -588,6 +588,7 @@ name = "mail-proto"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "chrono",
  "mail-domain",
  "mail-mime",
  "thiserror",

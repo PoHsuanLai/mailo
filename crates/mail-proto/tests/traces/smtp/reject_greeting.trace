@@ -1,0 +1,6 @@
+# SYNTHETIC. Written from RFC 5321. Not a recording: phase-0 capture
+# against a real server has not happened yet.
+# A 554 greeting is a permanent refusal. No EHLO is sent.
+
+S: 554 No SMTP service here
+FAIL Refused
