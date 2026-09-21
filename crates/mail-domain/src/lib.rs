@@ -45,4 +45,4 @@ pub use state::{
     Snooze, Star, Threading,
 };
 pub use threading::{ThreadInput, normalize_id, thread};
-pub use view::{Cursor, Page, PageReq, Property, Query, Sort, SortDir, View, ViewKind};
+pub use view::{Cursor, GroupKey, Page, PageReq, Property, Query, Sort, SortDir, View, ViewKind};

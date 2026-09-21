@@ -309,7 +309,7 @@ fn view() -> View {
             property: Property::Date,
             dir: SortDir::Desc,
         },
-        group_by: Some(Property::From),
+        group_by: Some(GroupKey::Property(Property::From)),
         threading: Threading::Threaded,
         shown: vec![Property::Date, Property::Subject, Property::Attachments],
         hover: vec![OpKind::Archive, OpKind::Reply, OpKind::Forward],
@@ -1177,6 +1177,30 @@ fn remote_intent_round_trips() {
             "adjacent tagging: {json}"
         );
         let back: RemoteIntent = serde_json::from_value(json).expect("deserialize");
+        assert_eq!(back, value);
+    }
+}
+
+/// Grouping is a different axis from columns, and the type has to say so.
+///
+/// `group_by: Option<Property>` could not express "group by read state" or "group by label" —
+/// two of the groupings a mail client most obviously wants — because the field was typed as the
+/// thing we had rather than the thing we needed.
+#[test]
+fn group_key_round_trips_every_variant() {
+    for value in [
+        GroupKey::Property(Property::Date),
+        GroupKey::Read,
+        GroupKey::Star,
+        GroupKey::Label(LabelId::generate()),
+        GroupKey::Mailbox,
+    ] {
+        let json = serde_json::to_value(&value).expect("serialize");
+        assert!(
+            json.get("kind").is_some(),
+            "adjacent tagging, like every other persisted enum: {json}"
+        );
+        let back: GroupKey = serde_json::from_value(json).expect("deserialize");
         assert_eq!(back, value);
     }
 }

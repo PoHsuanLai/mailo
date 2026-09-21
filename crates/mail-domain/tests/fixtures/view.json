@@ -114,7 +114,10 @@
     "property": "date",
     "dir": "desc"
   },
-  "group_by": "from",
+  "group_by": {
+    "kind": "property",
+    "v": "from"
+  },
   "threading": "threaded",
   "shown": [
     "date",

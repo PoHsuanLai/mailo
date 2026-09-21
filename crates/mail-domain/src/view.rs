@@ -30,6 +30,34 @@ pub enum Property {
     Pin,
 }
 
+/// What a view groups its rows by.
+///
+/// Deliberately not [`Property`]. Grouping and columns look like one vocabulary and are two:
+/// nobody renders a column of "unread", and nobody groups by "size". Typing `group_by` as
+/// `Option<Property>` made "group by read state" and "group by label" unrepresentable — two of
+/// the groupings a mail client most obviously wants — because the field was typed as the thing
+/// we had rather than the thing we needed.
+///
+/// That is the same mistake `Op::Reply(Compose)` was, and it is fixed the same way: split the
+/// axis rather than widen the enum that was already right for its own job. [`Property`] is
+/// unchanged and still serves `shown` and [`Sort`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "v", rename_all = "snake_case")]
+pub enum GroupKey {
+    /// Group by a displayable attribute: date, sender, size.
+    Property(Property),
+    /// Read and unread.
+    Read,
+    /// Starred and unstarred.
+    Star,
+    /// Whether a thread carries this label.
+    ///
+    /// Flat labels cannot otherwise express "show me what is and is not tagged this way".
+    Label(LabelId),
+    /// Which mailbox roles a thread spans.
+    Mailbox,
+}
+
 /// Which way a sort runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -54,7 +82,7 @@ pub struct View {
     pub kind: ViewKind,
     pub filter: Filter,
     pub sort: Sort,
-    pub group_by: Option<Property>,
+    pub group_by: Option<GroupKey>,
     pub threading: Threading,
     /// Columns, in display order.
     pub shown: Vec<Property>,

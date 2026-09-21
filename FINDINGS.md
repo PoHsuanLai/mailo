@@ -453,3 +453,24 @@ and asks again, believing the second answer.
 My own first implementation returned an empty string for a run too short to hold one UTF-16 unit
 — exactly the `&A-` that panics the crate we rejected — so the mailbox name silently vanished
 rather than falling back to literal text. Caught by the hostile-input test in the same commit.
+
+
+### F35 — `View.group_by` could not express two obvious groupings
+
+Reported by the session designing the shell, not found by a compiler: `group_by: Option<Property>`
+could not say "group by read state" or "group by label", because `Property` is
+`Date | Subject | From | Sender | Size | Attachments | Pin`.
+
+Grouping and columns look like one vocabulary and are two. Nobody renders a column of "unread",
+and nobody groups by "size". The field was typed as the thing we had rather than the thing we
+needed — the same mistake `Op::Reply(Compose)` was, and fixed the same way: split the axis
+rather than widen the enum that was already right for its own job.
+
+`View.group_by` is now `Option<GroupKey>`, where `GroupKey` is
+`Property(Property) | Read | Star | Label(LabelId) | Mailbox`. `Property` is unchanged and still
+serves `shown` and `Sort`. `Label(LabelId)` also gives "is or is not tagged this way", which flat
+labels could not express at all.
+
+Adopted on the type argument rather than on the product citation that came with it: grouping a
+mailbox by read state is obviously wanted whatever any particular client did, and the
+citation's subject has since shut down.
