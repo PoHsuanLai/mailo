@@ -36,7 +36,7 @@ const REFRESH_MARGIN: TimeDelta = match TimeDelta::try_minutes(5) {
 /// on different hosts — `login.microsoftonline.us` for US Government tenants — and a deployment
 /// behind an inspecting proxy may need to point somewhere else again. An issuer is a value here
 /// for the same reason a provider is.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Endpoints {
     pub auth: String,
     pub token: String,
@@ -310,11 +310,31 @@ fn expiry(lifetime: Option<Duration>, now: DateTime<Utc>) -> DateTime<Utc> {
     now + TimeDelta::try_seconds(seconds).unwrap_or(TimeDelta::zero())
 }
 
-/// Whether a credential should be refreshed before it is used.
-pub fn needs_refresh(credential: &Credential, now: DateTime<Utc>) -> bool {
+/// What a credential needs before it can be used.
+///
+/// A value rather than a `bool`, and returned rather than acted on: deciding is a pure function
+/// of the credential and the clock, and it carries the refresh token the decision implies so the
+/// caller cannot reach the refreshing branch without one in hand.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Freshness<'a> {
+    /// Usable as it stands. A password is always this; it does not expire on a schedule.
+    Ready,
+    /// Expired, or close enough that it would expire in the middle of an operation.
+    Expired { refresh_token: &'a str },
+}
+
+/// Whether a credential can be used as it stands.
+pub fn assess(credential: &Credential, now: DateTime<Utc>) -> Freshness<'_> {
     match credential {
-        Credential::Password(_) => false,
-        Credential::OAuth { expires_at, .. } => *expires_at - REFRESH_MARGIN <= now,
+        Credential::Password(_) => Freshness::Ready,
+        Credential::OAuth {
+            refresh,
+            expires_at,
+            ..
+        } if *expires_at - REFRESH_MARGIN <= now => Freshness::Expired {
+            refresh_token: refresh,
+        },
+        Credential::OAuth { .. } => Freshness::Ready,
     }
 }
 
@@ -407,20 +427,30 @@ mod tests {
     #[test]
     fn refresh_is_due_before_expiry_not_after() {
         let now = DateTime::from_timestamp(1_700_000_000, 0).unwrap();
-        let fresh = Credential::OAuth {
+        let oauth = |minutes: i64| Credential::OAuth {
             access: "a".into(),
-            refresh: "r".into(),
-            expires_at: now + TimeDelta::try_minutes(30).unwrap(),
+            refresh: "the-refresh-token".into(),
+            expires_at: now + TimeDelta::try_minutes(minutes).unwrap(),
         };
-        assert!(!needs_refresh(&fresh, now));
+        assert_eq!(assess(&oauth(30), now), Freshness::Ready);
         // Inside the margin: a token expiring mid-FETCH fails the whole operation.
-        let soon = Credential::OAuth {
-            access: "a".into(),
-            refresh: "r".into(),
-            expires_at: now + TimeDelta::try_minutes(2).unwrap(),
-        };
-        assert!(needs_refresh(&soon, now));
-        assert!(!needs_refresh(&Credential::Password("p".into()), now));
+        assert_eq!(
+            assess(&oauth(2), now),
+            Freshness::Expired {
+                refresh_token: "the-refresh-token"
+            }
+        );
+        // And past it, which is the state every OAuth account reached an hour after setup.
+        assert_eq!(
+            assess(&oauth(-120), now),
+            Freshness::Expired {
+                refresh_token: "the-refresh-token"
+            }
+        );
+        assert_eq!(
+            assess(&Credential::Password("p".into()), now),
+            Freshness::Ready
+        );
     }
 }
 

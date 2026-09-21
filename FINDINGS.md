@@ -1771,3 +1771,56 @@ arrived, which is the thing that was untrue.
 Also verified, since the point was the daily loop: a message that appears between two syncs is
 fetched (one header, one body, not three), lands at the top of the list, and is counted unread.
 The IMAP fixture can now gain messages at runtime, which is what made that testable at all.
+
+### F96 — An OAuth account would have stopped working an hour after it was added
+
+`oauth::needs_refresh` and `oauth::refresh` had no callers. None. `sync::one` read the credential
+out of the keyring and handed it to the backend exactly as stored, so an access token — which
+lasts about an hour — was used until it expired and then used forever afterwards, failing every
+pass with an authentication error. The refresh token that would have fixed it was sitting in the
+same keyring entry, untouched, from the moment `account add` wrote it.
+
+The second half is worse: renewing needs the client id, and nothing kept one. `account add` read
+`MAILO_OAUTH_CLIENT_ID` from the environment, used it for the browser round trip, and dropped it.
+So even a caller for `refresh` would have had nothing to call it with. `AuthPlan::OAuth` says in
+a comment that the client id "lives in runtime config, keyed by `OAuthIssuer`" — there was no
+such config. The comment described an intention.
+
+It is now `mail_runtime::signin`: a `Registration` per issuer in
+`$XDG_CONFIG_HOME/mailo/oauth.json`, written by `account add` and read once per sync run. Not a
+keyring entry, because an installed application cannot keep a secret — that is the entire reason
+for PKCE — and a client id is not one.
+
+The decision and the effect are separate on purpose. `oauth::assess` is a pure function of the
+credential and the clock returning `Freshness::Ready | Expired { refresh_token }`, so the
+refreshing branch cannot be reached without the token it needs in hand; `signin::renew` performs
+the exchange and writes the result back under both `IncomingPassword` and `OAuthRefresh`, since
+`account add` writes both and a stale copy under either is the same account failing an hour later
+by a different route. Writing back rather than only returning also means SMTP submission later in
+the same pass picks up the renewed token, because the engine reads it from the same `Secrets`.
+
+Found by asking what `needs_refresh` was for and grepping for its callers, which is the same
+sweep that found F44 and F52. Proved through the real binary rather than only in tests: an
+account pointed at a loopback IMAP port, an expired credential in the keyring, a registry whose
+endpoints override names a local token endpoint. The binary sent
+`grant_type=refresh_token&refresh_token=…&client_id=local-test-client`, wrote the renewed token
+back to the keyring with a future expiry and the original refresh token preserved, and on the
+next run did not contact the issuer at all. Then the keyring entries were cleared.
+
+### F97 — `cargo fmt` collapsed two messages into sentences with holes in them
+
+A `\`-continuation inside a string literal strips the newline *and* the next line's indentation.
+`cargo fmt` had joined two such literals into one line and kept the indentation, so what shipped
+was:
+
+```
+the server advertises LOGINDISABLED: it does not accept passwords on                          this connection, so one was not sent
+```
+
+Twenty-six spaces, in a message a person reads when their account will not log in. The second was
+the new "no OAuth client id is configured" line, which acquired fourteen the moment it was
+formatted. Both are now `concat!` of whole fragments, which `fmt` cannot rejoin, and both tests
+assert the rendered message contains no run of two spaces.
+
+Swept the whole workspace for the pattern; those were the only two. The two other hits are
+deliberate — test fixtures whose subject is exactly that whitespace is preserved.

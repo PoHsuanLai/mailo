@@ -207,10 +207,10 @@ another client requires `FETCH 1:* (FLAGS)` over the whole mailbox on every poll
 ### Auth
 
 ```text
-AuthPlan  = OAuth { issuer: OAuthIssuer, client_id: String, scopes: Vec<String> }
+AuthPlan  = OAuth { issuer: OAuthIssuer, scopes: Vec<String> }   // no client_id: see below
           | Password { username: Username, sasl: Vec<SaslMech> }
 
-OAuthIssuer = Google
+OAuthIssuer = Google | Microsoft
 Username    = SameAsAddress | LocalPart | Literal(String)
 SaslMech    = Plain | Login | CramMd5 | XOauth2       // ordered by preference
 Identity    = { id, account, from: Address, reply_to: Option<Address>,
@@ -878,6 +878,13 @@ Per-account responsibilities: connect and refresh `AccountCaps`; watch (IDLE or 
 `FetchEnvelopes` → `Ingest` → store → notify UI; drain the outbox serially with backoff driven by
 `Retry`; refresh OAuth credentials before `expires_at`; surface `NeedsReauth` to the UI.
 
+The client id an OAuth account renews with is **not** in its `AccountPlan`. It is deployment
+configuration — one per issuer per build channel, and not a secret, since an installed
+application cannot keep one — so it lives in `signin::OAuthRegistry`, a JSON file at
+`$XDG_CONFIG_HOME/mailo/oauth.json` that `account add` writes and every sync reads. Without it
+the refresh token in the keyring cannot be spent and an OAuth account works for exactly one
+token lifetime.
+
 Secrets via `keyring` (Secret Service). Tokens and passwords never touch SQLite. TLS via
 `rustls` + `tokio-rustls` + `webpki-roots`. Desktop notifications via `notify-rust`.
 
@@ -1074,6 +1081,14 @@ What is left is Gmail and Exchange specifically, and it is not code: an installe
 is registered with the issuer, not shipped in a source tree. Everything up to that point is
 exercised — the authorize URL, `state`, PKCE, the loopback redirect, and the token exchange and
 refresh against a local endpoint (`tests/oauth_exchange.rs`).
+
+Renewal was the piece that had no caller. `oauth::refresh` could exchange a refresh token from
+the day it was written and nothing ever asked it to, and the client id needed to do so was read
+from the environment at `account add` and then thrown away — so an OAuth account would have
+fetched mail for one token lifetime and failed on every pass afterwards, permanently. That is
+now `signin::OAuthRegistry` plus `signin::renew`, driven from `sync::signed_in`, and proved
+end to end through the binary against a local token endpoint: expired token in, renewed token
+in the keyring, and a second pass that does not ask the issuer again.
 
 ### 6 — Dioxus shell
 

@@ -113,7 +113,9 @@ pub enum LeaveOnServer {
 pub enum AuthPlan {
     /// The OAuth client id is deliberately absent. It is deployment configuration — it differs
     /// per build channel and is not a property of the user's account — so it lives in runtime
-    /// config, keyed by [`OAuthIssuer`], and never in a persisted `AccountPlan`.
+    /// config, keyed by [`OAuthIssuer`], and never in a persisted `AccountPlan`. That config is
+    /// `mail_runtime::signin::OAuthRegistry`; without it an expired token cannot be renewed,
+    /// which is what an OAuth account needs about once an hour.
     OAuth {
         issuer: OAuthIssuer,
         scopes: Vec<String>,

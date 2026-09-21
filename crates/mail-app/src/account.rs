@@ -5,7 +5,7 @@
 //! it still needs rather than pretending to be configured.
 
 use mail_domain::*;
-use mail_runtime::{KeyringSecrets, Loopback, Secrets};
+use mail_runtime::{KeyringSecrets, Loopback, OAuthRegistry, Registration, Secrets, signin};
 use mail_store::SqliteStore;
 use std::fmt::Write as _;
 
@@ -177,7 +177,32 @@ pub fn add(
                         &credential,
                     )
                     .map_err(|e| format!("cannot save the token: {e}"))?;
-                let _ = writeln!(out, "signed in; token stored in the keyring");
+                // Remembered, because renewing an access token an hour from now needs the
+                // same client id and nothing else will have it. Without this the account
+                // signs in, works, expires, and cannot be renewed — the environment variable
+                // that configured it is long gone by then.
+                match remember(*issuer, &client_id) {
+                    Ok(Some(path)) => {
+                        let _ = writeln!(
+                            out,
+                            "signed in; token stored in the keyring, client id in {}",
+                            path.display()
+                        );
+                    }
+                    Ok(None) => {
+                        let _ = writeln!(out, "signed in; token stored in the keyring");
+                    }
+                    // Not fatal: the account works until the token expires, and saying so is
+                    // better than discarding a sign-in the user just completed in a browser.
+                    Err(why) => {
+                        let _ = writeln!(
+                            out,
+                            "signed in; token stored in the keyring\n\
+                             warning: could not record the client id ({why}), so renewing this \
+                             sign-in will need MAILO_OAUTH_CLIENT_ID set again"
+                        );
+                    }
+                }
             }
             _ => {
                 // Carrying the flags into the suggested command, because the address alone does
@@ -193,12 +218,29 @@ pub fn add(
                     "this account uses OAuth ({issuer:?}) and needs a client id.\n\
                      Register an installed application with the issuer, then re-run:\n\
                      \n  MAILO_OAUTH_CLIENT_ID=… mailo account add {address}{flags}\n\
+                     \nIt is recorded after the first sign-in, so the variable is needed once.\n\
                      \nScopes it will request: {scopes:?}"
                 );
             }
         },
     }
     Ok(out)
+}
+
+/// Record the client id this account signed in with, so it can be renewed later.
+///
+/// Returns where it was written, or `None` when this machine has no config directory to write
+/// to — which is not a failure, just an installation that will need the variable again.
+fn remember(issuer: OAuthIssuer, client_id: &str) -> Result<Option<std::path::PathBuf>, String> {
+    let Some(path) = signin::default_path() else {
+        return Ok(None);
+    };
+    // Loaded and re-saved rather than overwritten, because a second account with a different
+    // issuer must not erase the first one's registration.
+    let mut registry = OAuthRegistry::load(&path).map_err(|e| e.to_string())?;
+    registry.set(Registration::new(issuer, client_id));
+    registry.save(&path).map_err(|e| e.to_string())?;
+    Ok(Some(path))
 }
 
 /// Run the browser sign-in and return the resulting credential.
@@ -234,9 +276,9 @@ fn authorize(
             .wait_for_code(&authorization.pending)
             .await
             .map_err(|e| e.to_string())?;
-        let http = reqwest::Client::builder()
-            .build()
-            .map_err(|e| format!("cannot build an HTTP client: {e}"))?;
+        // The shared client, which has a timeout: a token endpoint that accepts the connection
+        // and then says nothing would otherwise leave the command waiting forever.
+        let http = signin::http_client().map_err(|e| e.to_string())?;
         authorization
             .pending
             .exchange(&code, &http, now)

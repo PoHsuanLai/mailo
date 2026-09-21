@@ -7,7 +7,7 @@
 use mail_domain::*;
 use mail_proto::backend::{Authenticate, ImapBackend, Pop3Backend};
 use mail_proto::{ImapAuth, ImapCommand, ImapSession, Pop3Command, Pop3Session};
-use mail_runtime::{AccountEngine, KeyringSecrets, Secrets, SyncReport};
+use mail_runtime::{AccountEngine, KeyringSecrets, OAuthRegistry, Secrets, SyncReport, signin};
 use mail_store::SqliteStore;
 use std::fmt::Write as _;
 use std::sync::Arc;
@@ -74,7 +74,11 @@ fn configured(store: &SqliteStore) -> Result<Vec<Configured>, String> {
 /// Accounts without one are skipped with a reason rather than failing the run: having one
 /// account that needs attention should not stop the others from fetching mail.
 pub fn run(store: Arc<SqliteStore>, now: chrono::DateTime<chrono::Utc>) -> Result<String, String> {
-    run_with(store, Arc::new(KeyringSecrets), now)
+    // The registry is read once per run rather than once per account: it is deployment
+    // configuration, and an edit halfway through a run producing two different client ids is
+    // not a behaviour worth having.
+    let registry = OAuthRegistry::load_default().map_err(|e| e.to_string())?;
+    run_with(store, Arc::new(KeyringSecrets), &registry, now)
 }
 
 /// The same, with the secret store named.
@@ -90,6 +94,7 @@ pub fn run(store: Arc<SqliteStore>, now: chrono::DateTime<chrono::Utc>) -> Resul
 pub fn run_with(
     store: Arc<SqliteStore>,
     secrets: Arc<dyn Secrets>,
+    registry: &OAuthRegistry,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<String, String> {
     let accounts = configured(&store)?;
@@ -104,7 +109,7 @@ pub fn run_with(
 
     let mut out = String::new();
     for account in accounts {
-        match runtime.block_on(one(&store, &account, secrets.clone(), now)) {
+        match runtime.block_on(one(&store, &account, secrets.clone(), registry, now)) {
             Ok(report) => {
                 let _ = writeln!(
                     out,
@@ -142,13 +147,56 @@ pub fn run_with(
     Ok(out)
 }
 
+/// The credential to authenticate with, renewed first if it is an OAuth one that has expired.
+///
+/// An access token lasts about an hour. Nothing did this: the stored value went straight to the
+/// backend, so an OAuth account fetched mail until its first token expired and then failed on
+/// every pass afterwards with an authentication error — while the refresh token that would have
+/// fixed it sat unused in the same keyring entry.
+async fn signed_in(
+    account: &Configured,
+    credential: Credential,
+    secrets: &dyn Secrets,
+    registry: &OAuthRegistry,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<Credential, String> {
+    let AuthPlan::OAuth { issuer, .. } = &account.plan.auth else {
+        return Ok(credential);
+    };
+    // Checked before the client is built and before anything is sent: a password account and a
+    // still-valid token both leave here without touching the network.
+    if matches!(
+        mail_runtime::oauth::assess(&credential, now),
+        mail_runtime::oauth::Freshness::Ready
+    ) {
+        return Ok(credential);
+    }
+    let Some(registration) = registry.get(*issuer) else {
+        // The account was added with a client id that this installation no longer has, so the
+        // token cannot be renewed and saying "authentication failed" would point at the wrong
+        // thing entirely.
+        return Err(format!(
+            concat!(
+                "the sign-in has expired and no OAuth client id is configured ",
+                "for {:?}. Re-run: MAILO_OAUTH_CLIENT_ID=… mailo account add {}",
+            ),
+            issuer, account.address
+        ));
+    };
+    let http = signin::http_client().map_err(|e| e.to_string())?;
+    signin::renew(account.id, registration, credential, secrets, &http, now)
+        .await
+        .map_err(|e| format!("cannot renew the sign-in: {e}"))
+}
+
 async fn one(
     store: &Arc<SqliteStore>,
     account: &Configured,
     secrets: Arc<dyn Secrets>,
+    registry: &OAuthRegistry,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<SyncReport, String> {
-    let credential = secrets
+    let stored = secrets
         .get(&SecretKey {
             account: account.id,
             purpose: SecretPurpose::IncomingPassword,
@@ -156,6 +204,7 @@ async fn one(
         .map_err(|_| {
             "no credential stored. Run: MAILO_PASSWORD=… mailo account add <address>".to_owned()
         })?;
+    let credential = signed_in(account, stored, secrets.as_ref(), registry, now).await?;
 
     let mailbox = MailboxRef {
         account: account.id,

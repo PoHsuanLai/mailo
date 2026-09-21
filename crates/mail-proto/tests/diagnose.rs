@@ -140,6 +140,13 @@ UIDPLUS MOVE ID UNSELECT CHILDREN IDLE NAMESPACE LITERAL+\r\n";
                 let text = format!("{e}");
                 assert!(text.contains("LOGINDISABLED"), "{text}");
                 assert!(text.contains("not sent"), "{text}");
+                // It is read by a person. A `\`-continuation in the literal was collapsed by
+                // `cargo fmt` into the middle of the sentence, so this shipped with a
+                // twenty-six-space gap in it and nothing noticed.
+                assert!(
+                    !text.contains("  "),
+                    "a run of spaces in a message: {text:?}"
+                );
             }
             other => panic!("LOGIN was attempted anyway: {other:?}"),
         }

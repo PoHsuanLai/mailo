@@ -10,6 +10,7 @@ pub mod error;
 pub mod loopback;
 pub mod oauth;
 pub mod secrets;
+pub mod signin;
 pub mod transport;
 
 pub use assemble::{Arrival, absorb, assemble};
@@ -18,4 +19,5 @@ pub use engine::{AccountEngine, SyncReport};
 pub use error::RuntimeError;
 pub use loopback::Loopback;
 pub use secrets::{KeyringSecrets, MapSecrets, Secrets};
+pub use signin::{OAuthRegistry, Registration};
 pub use transport::Transport;

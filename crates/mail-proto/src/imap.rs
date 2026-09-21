@@ -289,8 +289,11 @@ impl ImapSession {
                 // one, and then reports the rejection as though the credential were wrong.
                 if has_capability(&self.transcript.capabilities, "LOGINDISABLED") {
                     return Err(ProtoError::Unsupported(
-                        "the server advertises LOGINDISABLED: it does not accept passwords on                          this connection, so one was not sent"
-                            .to_owned(),
+                        concat!(
+                            "the server advertises LOGINDISABLED: it does not accept ",
+                            "passwords on this connection, so one was not sent",
+                        )
+                        .to_owned(),
                     ));
                 }
                 let Credential::Password(password) = &self.auth.credential else {
