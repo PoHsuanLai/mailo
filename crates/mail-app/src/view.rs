@@ -11,7 +11,8 @@ use mail_mime::{RemoteImages, SanitizePolicy};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Place {
     pub name: String,
-    pub filter: Filter,
+    /// What this place lists. Not a `Filter`: see [`Source`].
+    pub source: Source,
     /// Shown as a badge. `None` until counted, which is not the same as zero.
     pub unread: Option<u64>,
 }
@@ -20,6 +21,28 @@ pub struct Place {
 ///
 /// Inbox is `Filter::InMailbox(Inbox)` rather than anything special, which is the plan's claim
 /// that a place is just a saved filter — made true here rather than asserted.
+/// Where a sidebar place gets its rows.
+///
+/// Two variants because drafts are genuinely not mail yet. A draft has no thread, no server
+/// address and no mailbox — it lives in its own table — so there is no `Filter` that selects
+/// one, and a `Drafts` place built from `Filter::InMailbox(MailboxRole::Drafts)` lists nothing,
+/// for ever, with no error. That was the state of this sidebar until the composer gave it
+/// something to show.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Source {
+    /// Threads matching a filter.
+    Mail(Filter),
+    /// The drafts table.
+    Drafts,
+}
+
+fn source_for(role: MailboxRole) -> Source {
+    match role {
+        MailboxRole::Drafts => Source::Drafts,
+        other => Source::Mail(Filter::InMailbox(other)),
+    }
+}
+
 pub fn default_places() -> Vec<Place> {
     [
         ("Inbox", MailboxRole::Inbox),
@@ -32,7 +55,7 @@ pub fn default_places() -> Vec<Place> {
     .into_iter()
     .map(|(name, role)| Place {
         name: name.to_owned(),
-        filter: Filter::InMailbox(role),
+        source: source_for(role),
         unread: None,
     })
     .collect()
@@ -239,10 +262,13 @@ impl Shell {
     pub fn query(&self, limit: u32) -> Query {
         let needle = self.search.trim();
         let filter = if needle.is_empty() {
-            self.places
-                .get(self.selected)
-                .map(|place| place.filter.clone())
-                .unwrap_or(Filter::All)
+            match self.places.get(self.selected).map(|place| &place.source) {
+                Some(Source::Mail(filter)) => filter.clone(),
+                // Reachable only if a caller asks for a query while Drafts is selected.
+                // `listing` is the method that knows the difference; this stays total rather
+                // than panicking, and `All` is the least surprising thing to show.
+                Some(Source::Drafts) | None => Filter::All,
+            }
         } else {
             Filter::Text(TextMatch::Contains(needle.to_owned()))
         };
@@ -254,6 +280,23 @@ impl Shell {
             },
             page: PageReq { after: None, limit },
         }
+    }
+
+    /// What the list pane should show.
+    ///
+    /// A search box with anything in it always means threads, even while Drafts is selected:
+    /// searching is global here, and a user who types into it is looking for a message, not
+    /// filtering the drafts they can already see.
+    pub fn listing(&self, limit: u32) -> Listing {
+        if self.search.trim().is_empty()
+            && matches!(
+                self.places.get(self.selected).map(|p| &p.source),
+                Some(Source::Drafts)
+            )
+        {
+            return Listing::Drafts;
+        }
+        Listing::Threads(self.query(limit))
     }
 
     /// Select a place, and drop any open thread that no longer belongs to the new list.
@@ -367,6 +410,14 @@ pub fn reply_target(messages: &[Message]) -> Option<&Message> {
             .cmp(&b.date)
             .then_with(|| a.id.to_string().cmp(&b.id.to_string()))
     })
+}
+
+/// What the list pane should render.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Listing {
+    Threads(Query),
+    /// The drafts table, which no `Query` can express.
+    Drafts,
 }
 
 /// What the reader should display for one message.
@@ -815,5 +866,82 @@ mod reply_target_tests {
     fn an_empty_thread_has_nothing_to_reply_to() {
         // Reachable: the messages are loaded one by one and any of them can fail to read.
         assert!(reply_target(&[]).is_none());
+    }
+}
+
+#[cfg(test)]
+mod listing_tests {
+    use super::*;
+
+    fn drafts_index(shell: &Shell) -> usize {
+        shell
+            .places
+            .iter()
+            .position(|p| p.source == Source::Drafts)
+            .expect("there is a Drafts place")
+    }
+
+    #[test]
+    fn the_drafts_place_lists_drafts_and_not_an_empty_mailbox() {
+        // The bug this replaces: Drafts was `Filter::InMailbox(MailboxRole::Drafts)`, and a
+        // draft has no thread and no mailbox, so the pane showed nothing for ever and said
+        // nothing about why.
+        let mut shell = Shell::default();
+        shell.select(drafts_index(&shell));
+        assert_eq!(shell.listing(50), Listing::Drafts);
+    }
+
+    #[test]
+    fn every_other_place_still_lists_threads() {
+        let shell = Shell::default();
+        for (index, place) in shell.places.iter().enumerate() {
+            if place.source == Source::Drafts {
+                continue;
+            }
+            let mut shell = Shell::default();
+            shell.select(index);
+            assert!(
+                matches!(shell.listing(50), Listing::Threads(_)),
+                "{} stopped listing threads",
+                place.name
+            );
+        }
+    }
+
+    #[test]
+    fn searching_while_in_drafts_searches_mail() {
+        // Search is global. Someone typing in the box is looking for a message, not filtering
+        // the handful of drafts already on screen.
+        let mut shell = Shell::default();
+        shell.select(drafts_index(&shell));
+        shell.search = "invoice".to_owned();
+
+        match shell.listing(50) {
+            Listing::Threads(query) => assert_eq!(
+                query.filter,
+                Filter::Text(TextMatch::Contains("invoice".to_owned()))
+            ),
+            Listing::Drafts => panic!("a search in Drafts must still search mail"),
+        }
+    }
+
+    #[test]
+    fn a_blank_search_box_goes_back_to_the_drafts_list() {
+        // Whitespace only is a blank box, not a search for a space.
+        let mut shell = Shell::default();
+        shell.select(drafts_index(&shell));
+        shell.search = "   ".to_owned();
+        assert_eq!(shell.listing(50), Listing::Drafts);
+    }
+
+    #[test]
+    fn the_page_limit_reaches_the_query() {
+        // "Show more" works by asking for a bigger page, so a limit that did not travel would
+        // make the button do nothing at all.
+        let shell = Shell::default();
+        match shell.listing(250) {
+            Listing::Threads(query) => assert_eq!(query.page.limit, 250),
+            Listing::Drafts => panic!("the Inbox is not the drafts list"),
+        }
     }
 }

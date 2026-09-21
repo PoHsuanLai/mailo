@@ -4,7 +4,7 @@
 //! What is here is layout, event wiring, and the one thing a UI can get dangerously wrong —
 //! rendering a stranger's HTML.
 
-use crate::view::{Composing, Reading, Shell, hover_actions, op_for, reading};
+use crate::view::{Composing, Listing, Reading, Shell, hover_actions, op_for, reading};
 use dioxus::prelude::*;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
@@ -37,14 +37,37 @@ fn App() -> Element {
     // obvious what causes a refresh.
     let mut revision = use_signal(|| 0u64);
 
+    // How many pages of the list have been asked for. Reset whenever the list itself changes,
+    // because "page 3" of the Inbox means nothing once the user is looking at Archive.
+    let mut pages = use_signal(|| 1u32);
+
     let threads = use_memo(move || {
         let _ = revision();
-        let query = shell.read().query(PAGE);
-        store
-            .threads(&query, chrono::Utc::now())
-            .map(|page| page.items)
-            .unwrap_or_default()
+        match shell.read().listing(PAGE * pages()) {
+            Listing::Threads(query) => store
+                .threads(&query, chrono::Utc::now())
+                .map(|page| page.items)
+                .unwrap_or_default(),
+            Listing::Drafts => Vec::new(),
+        }
     });
+
+    let drafts = use_memo(move || {
+        let _ = revision();
+        if !matches!(shell.read().listing(PAGE), Listing::Drafts) {
+            return Vec::new();
+        }
+        let store = use_context::<Arc<SqliteStore>>();
+        accounts(&store)
+            .into_iter()
+            .filter_map(|account| store.drafts(account).ok())
+            .flatten()
+            .collect::<Vec<_>>()
+    });
+
+    // One more row than asked for means there is another page. Asking the store for the count
+    // would be a second query answering a question this one already answers.
+    let more = use_memo(move || threads().len() as u32 >= PAGE * pages());
 
     rsx! {
         style { {STYLE} }
@@ -54,7 +77,10 @@ fn App() -> Element {
                     button {
                         key: "{place.name}",
                         class: if index == shell.read().selected { "place on" } else { "place" },
-                        onclick: move |_| shell.write().select(index),
+                        onclick: move |_| {
+                            shell.write().select(index);
+                            pages.set(1);
+                        },
                         "{place.name}"
                     }
                 }
@@ -64,10 +90,41 @@ fn App() -> Element {
                     class: "search",
                     placeholder: "Search all mail",
                     value: "{shell.read().search}",
-                    oninput: move |e| shell.write().search = e.value(),
+                    oninput: move |e| {
+                        shell.write().search = e.value();
+                        pages.set(1);
+                    },
                 }
-                if threads().is_empty() {
+                if threads().is_empty() && drafts().is_empty() {
                     p { class: "empty", "Nothing here." }
+                }
+                for draft in drafts() {
+                    {
+                        let id = draft.id;
+                        let subject = if draft.subject.is_empty() {
+                            "(no subject)".to_owned()
+                        } else {
+                            draft.subject.clone()
+                        };
+                        let who = crate::view::join_addresses(&draft.to);
+                        let state = draft_state(&draft.state);
+                        let when = draft.updated.format("%b %d").to_string();
+                        rsx! {
+                            div {
+                                key: "{id}",
+                                class: "row",
+                                onclick: move |_| {
+                                    let store = use_context::<Arc<SqliteStore>>();
+                                    if let Ok(draft) = store.draft(id) {
+                                        shell.write().compose(&draft);
+                                    }
+                                },
+                                span { class: "who", if who.is_empty() { "(no recipient)" } else { "{who}" } }
+                                span { class: "subject", "{subject}" }
+                                span { class: "when", "{state} · {when}" }
+                            }
+                        }
+                    }
                 }
                 for summary in threads() {
                     {
@@ -122,6 +179,13 @@ fn App() -> Element {
                                 }
                             }
                         }
+                    }
+                }
+                if more() {
+                    button {
+                        class: "more",
+                        onclick: move |_| pages += 1,
+                        "Show more"
                     }
                 }
             }
@@ -352,6 +416,31 @@ fn start_reply(store: &SqliteStore, thread: ThreadId, scope: ReplyScope) -> Resu
     crate::compose::draft_reply(store, target.id, scope, "", chrono::Utc::now())
 }
 
+/// Every configured account, for the places that are not scoped to one.
+fn accounts(store: &SqliteStore) -> Vec<AccountId> {
+    let db = store.connection();
+    let Ok(mut stmt) = db.prepare("SELECT id FROM accounts ORDER BY created_at") else {
+        return Vec::new();
+    };
+    let Ok(rows) = stmt.query_map([], |r| r.get::<_, String>(0)) else {
+        return Vec::new();
+    };
+    rows.filter_map(|row| row.ok())
+        .filter_map(|id| id.parse().ok())
+        .map(AccountId::from_uuid)
+        .collect()
+}
+
+fn draft_state(state: &SendState) -> &'static str {
+    match state {
+        SendState::Editing => "draft",
+        SendState::Queued => "queued",
+        SendState::Sending => "sending",
+        SendState::Failed { .. } => "failed",
+        SendState::Sent { .. } => "sent",
+    }
+}
+
 fn from_name(message: &Message) -> String {
     message.from.name.clone().unwrap_or_default()
 }
@@ -479,5 +568,6 @@ article time { margin-left: auto; opacity: .6; }
 .ghost { font: inherit; font-size: 12px; padding: 2px 8px; border: 1px solid var(--edge); border-radius: 999px; background: none; color: inherit; cursor: pointer; }
 .notice { margin: 0; padding: 6px 8px; border-radius: 6px; background: var(--edge); font-size: 13px; }
 .hint { font-size: 12px; opacity: .6; }
+.more { display: block; width: calc(100% - 24px); margin: 10px 12px; padding: 8px; font: inherit; border: 1px solid var(--edge); border-radius: 6px; background: none; color: inherit; cursor: pointer; }
 .images { font: inherit; font-size: 12px; padding: 4px 10px; border: 1px solid var(--edge); border-radius: 999px; background: none; color: inherit; cursor: pointer; margin-bottom: 8px; }
 "#;
