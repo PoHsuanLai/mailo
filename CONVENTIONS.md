@@ -95,6 +95,37 @@ nothing else can make that choice for it.
 Reserve panics for broken invariants inside our own code, and document them as caller
 contracts. Malformed input is never a panic: the bytes came from a stranger.
 
+### Borrowing from other projects
+
+This workspace is `MIT OR Apache-2.0`. Most mature mail software is not, and the licence
+determines what you may do with what you read. `docs/licensing-references.md` has the verified
+table; three buckets, not six:
+
+- **permissive** (MIT, Apache-2.0, BSD, 0BSD) — code may be copied, with attribution.
+- **weak copyleft** (MPL, LGPL) — link freely, but MPL's unit of copyleft is the *file*: paste one
+  function and that file becomes MPL, and our crate-level licence claim becomes false.
+- **strong copyleft** (GPL, AGPL, EUPL) — read for facts, never paste.
+
+**The rule for reading is note-and-close.** Read the source, reduce what you learned to a sentence
+about observable behaviour, close the file, implement from the sentence. The test: if it fits in a
+sentence about what a *server* does, it is a fact and it is yours; if you would need the source
+open to reproduce it, it is expression and it is theirs. Signs you actually copied: matching
+identifiers, surviving comments, matching branch order, matching magic constants, matching error
+strings, the same bug.
+
+**Never put GPL, AGPL or MPL source into a model's context and ask for an equivalent.** That is
+note-and-close inverted, at volume, with nobody able to testify to independent derivation. Put the
+RFC section and our own trace fixture in the prompt instead — both are things we own or that are
+BSD-licensed. This applies to every delegated brief in `ORCHESTRATION.md`.
+
+**Cite the behaviour, not the client.** `// taken from mbsync driver.c:412` in an MIT crate is a
+pointer to GPLv2 code that reads as an admission, and it does not tell the next reader the thing
+they need. Write what the server does and point at the trace that proves it. If you genuinely
+copied permissively-licensed code, attribute it properly instead — that is a different situation
+with different obligations.
+
+**A quirk without a trace is a rumour.** That is the review comment.
+
 ### Composition over accumulation
 
 Prefer iterator chains and small combinators where they read more clearly than a loop, and a
