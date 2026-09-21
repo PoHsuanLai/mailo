@@ -34,27 +34,36 @@ around it and it does not change it. Four of the five errors corrected in `plan.
 263 tests across 32 targets. `fmt`, `clippy -D warnings` and `scripts/check-boundary.sh` all
 clean.
 
-### What is genuinely blocked, and on what
+### What still needs a person
 
-Three things need a person, and no amount of further building substitutes for them:
+Two things, and neither is removed by building more:
 
-1. **A Google OAuth client id.** An installed-app credential registered with the issuer. It
-   cannot be shipped in a source tree, so `mailo account add` for a Gmail address prints what it
-   needs rather than pretending to be configured. Blocks phase 5.
-2. **Live credentials**, for the first real connection to NTU and Gmail. Everything up to the
-   socket is tested against transcripts; what a real server does next is the thing transcripts
-   cannot tell us, and the phase-0 spike already corrected two assumptions that looked safe.
-3. **A window.** The shell compiles and its decisions are tested without one — which query a
-   place means, what the reader does with each body kind, which hover actions a thread offers —
-   but whether it is pleasant to use is not a thing a test reports.
+1. **A Google OAuth client id.** The browser flow is wired: `MAILO_OAUTH_CLIENT_ID=… mailo
+   account add <address>` opens the authorize URL, catches the redirect on a loopback port,
+   validates `state`, exchanges the code and stores the credential. What cannot be supplied is
+   the client id itself — an installed-app credential registered with the issuer, which is
+   deployment configuration and cannot live in a source tree. Without one the command prints the
+   exact invocation to re-run.
+2. **Live credentials, and a first real connection.** Everything up to the socket is tested
+   against transcripts. What a real server does next is precisely what transcripts cannot say,
+   and the phase-0 spike already corrected two assumptions that looked safe.
 
-### What is built but unexercised
+The Dioxus shell compiles and its decisions are tested without a window — which query a place
+means, what the reader does with each body kind, which hover actions a thread offers. Whether it
+is pleasant to use is not something a test reports, but nothing is blocked on that.
 
-`AccountEngine::sync` fetches headers and drains the outbox, but `trusted_modseq` returns `None`
-and the ingest path turns transcripts into empty `Ingest` shells: assembling `Message` values
-needs `mail-mime` wired into the backends, which is the first thing to do once a live connection
-proves the shapes. That is deliberate — inventing the assembly against guessed response shapes
-is how the spike's two corrections would have been baked in instead of caught.
+### The shortest path to a working inbox
+
+NTU needs no OAuth registration:
+
+```
+MAILO_PASSWORD='…' mailo account add <local-part>@ntu.edu.tw
+mailo sync
+mailo list
+```
+
+`sync` surveys the maildrop, fetches headers with `TOP` so nothing is marked read, then bodies
+smallest band first, absorbing each into the store as it arrives.
 
 ## Waves## Waves
 

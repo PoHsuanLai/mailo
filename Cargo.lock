@@ -3083,6 +3083,7 @@ dependencies = [
  "mail-proto",
  "mail-runtime",
  "mail-store",
+ "reqwest",
  "rusqlite",
  "serde_json",
  "tempfile",

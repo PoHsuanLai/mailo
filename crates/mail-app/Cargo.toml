@@ -17,7 +17,8 @@ mail-proto.workspace = true
 mail-runtime.workspace = true
 rusqlite = { version = "0.40", features = ["bundled"] }
 serde_json = "1"
-tokio = { version = "1", features = ["rt", "macros", "time"] }
+tokio = { version = "1", features = ["rt", "macros", "time", "net", "io-util"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "charset", "http2"] }
 chrono.workspace = true
 dioxus = { version = "0.7", features = ["desktop"] }
 

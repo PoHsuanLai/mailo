@@ -5,7 +5,7 @@
 //! it still needs rather than pretending to be configured.
 
 use mail_domain::*;
-use mail_runtime::{KeyringSecrets, Secrets};
+use mail_runtime::{KeyringSecrets, Loopback, Secrets};
 use mail_store::SqliteStore;
 use std::fmt::Write as _;
 
@@ -89,18 +89,90 @@ pub fn add(
                 }
             }
         }
-        AuthPlan::OAuth { issuer, scopes } => {
-            let _ = writeln!(
-                out,
-                "this account uses OAuth ({issuer:?}) and needs a browser sign-in, \
-                 which is not wired into the CLI yet.\n\
-                 It also needs a client id: an installed-app credential registered with the \
-                 issuer, which cannot be shipped in the source tree.\n\
-                 Scopes: {scopes:?}"
-            );
-        }
+        AuthPlan::OAuth { issuer, scopes } => match std::env::var("MAILO_OAUTH_CLIENT_ID") {
+            Ok(client_id) if !client_id.is_empty() => {
+                let credential = authorize(*issuer, &client_id, scopes, now)?;
+                KeyringSecrets
+                    .put(
+                        &SecretKey {
+                            account,
+                            purpose: SecretPurpose::OAuthRefresh,
+                        },
+                        &credential,
+                    )
+                    .map_err(|e| format!("cannot save the token: {e}"))?;
+                // Incoming and outgoing share one OAuth credential: the scopes cover IMAP and
+                // SMTP together, and storing it twice would mean refreshing it twice.
+                KeyringSecrets
+                    .put(
+                        &SecretKey {
+                            account,
+                            purpose: SecretPurpose::IncomingPassword,
+                        },
+                        &credential,
+                    )
+                    .map_err(|e| format!("cannot save the token: {e}"))?;
+                let _ = writeln!(out, "signed in; token stored in the keyring");
+            }
+            _ => {
+                // The client id is deployment configuration and cannot be shipped in a source
+                // tree, so the honest thing is to say exactly what is missing and how to
+                // supply it — not to look configured and fail at first connect.
+                let _ = writeln!(
+                    out,
+                    "this account uses OAuth ({issuer:?}) and needs a client id.\n\
+                     Register an installed application with the issuer, then re-run:\n\
+                     \n  MAILO_OAUTH_CLIENT_ID=… mailo account add {address}\n\
+                     \nScopes it will request: {scopes:?}"
+                );
+            }
+        },
     }
     Ok(out)
+}
+
+/// Run the browser sign-in and return the resulting credential.
+///
+/// Blocking, and deliberately so: this is a one-shot setup command, the user is watching, and
+/// there is nothing else for the process to do while they sign in.
+fn authorize(
+    issuer: OAuthIssuer,
+    client_id: &str,
+    scopes: &[String],
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<Credential, String> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| format!("cannot start the async runtime: {e}"))?;
+
+    runtime.block_on(async {
+        // Bind first: the redirect URI has to name the port we actually got, and an installed
+        // application has no fixed one.
+        let listener = Loopback::bind().await.map_err(|e| e.to_string())?;
+        let authorization =
+            mail_runtime::oauth::begin(issuer, client_id, scopes, listener.redirect_uri())
+                .map_err(|e| e.to_string())?;
+
+        println!(
+            "Open this in a browser to sign in:\n\n  {}\n",
+            authorization.url
+        );
+        println!("Waiting for the redirect…");
+
+        let code = listener
+            .wait_for_code(&authorization.pending)
+            .await
+            .map_err(|e| e.to_string())?;
+        let http = reqwest::Client::builder()
+            .build()
+            .map_err(|e| format!("cannot build an HTTP client: {e}"))?;
+        authorization
+            .pending
+            .exchange(&code, &http, now)
+            .await
+            .map_err(|e| e.to_string())
+    })
 }
 
 /// Accounts, with what each one still needs.
@@ -168,13 +240,23 @@ mod tests {
     }
 
     #[test]
-    fn an_oauth_account_says_what_it_still_needs() {
+    fn an_oauth_account_without_a_client_id_says_how_to_supply_one() {
         // Rather than appearing configured and failing at first connect with something less
         // obvious. A client id cannot be shipped in the source tree, and that is worth saying.
         let (store, _dir) = store();
+        // With no MAILO_OAUTH_CLIENT_ID set, which is the state anyone starts in. The client
+        // id is deployment configuration and cannot be shipped in a source tree, so the useful
+        // thing is the exact command to run once they have one.
         let out = add(&store, "someone@gmail.com", now()).unwrap();
-        assert!(out.contains("OAuth"), "{out}");
         assert!(out.contains("client id"), "{out}");
+        assert!(
+            out.contains("MAILO_OAUTH_CLIENT_ID=… mailo account add someone@gmail.com"),
+            "it should print the command to re-run: {out}"
+        );
+        assert!(
+            out.contains("https://mail.google.com/"),
+            "and the scopes: {out}"
+        );
     }
 
     #[test]
