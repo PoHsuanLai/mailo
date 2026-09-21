@@ -76,6 +76,16 @@ pub enum ProtoOutcome {
         /// Where the sent copy landed, when the server filed one. `None` on POP3.
         remote: Option<RemoteRef>,
     },
+    /// One message's raw bytes, as the server gave them.
+    ///
+    /// Not folded into [`ProtoOutcome::Ingested`] because an `Ingest` carries fully-built
+    /// `Message` values, and a protocol machine cannot build one: a `Message` needs a
+    /// `MessageId`, a `ThreadId` and a stored `BlobId`, none of which the wire supplies. The
+    /// runtime stores the bytes, assigns the ids, and parses.
+    Fetched {
+        remote: RemoteRef,
+        raw: Vec<u8>,
+    },
     /// A watch saw activity. The runtime schedules a fetch; the machine does not do it itself.
     Woken,
 }

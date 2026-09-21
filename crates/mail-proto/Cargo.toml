@@ -21,3 +21,4 @@ workspace = true
 [dev-dependencies]
 chrono.workspace = true
 nom = "7"
+uuid = { workspace = true }

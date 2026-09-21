@@ -82,6 +82,15 @@ pub enum ProtoOp {
         mailbox: MailboxRef,
         since: FetchSince,
     },
+    /// Headers only, without marking the message read.
+    ///
+    /// POP3 `TOP n 0` and IMAP envelope fetches both do this, for the same reason: retrieving
+    /// whole messages to populate a list view is slow, and on POP3 it is also destructive —
+    /// `RETR` sets the seen flag on Dovecot and `TOP` does not, so a first sync over a large
+    /// maildrop would mark the user's entire mailbox read in their webmail.
+    FetchHeaders {
+        remote: RemoteRef,
+    },
     FetchBody {
         remote: RemoteRef,
     },
