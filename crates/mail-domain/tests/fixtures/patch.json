@@ -1,0 +1,177 @@
+{
+  "id": "0c0c0c0c-0c0c-0c0c-0c0c-0c0c0c0c0c0c",
+  "changes": [
+    {
+      "kind": "message_read",
+      "v": [
+        "05050505-0505-0505-0505-050505050505",
+        "read"
+      ]
+    },
+    {
+      "kind": "message_star",
+      "v": [
+        "05050505-0505-0505-0505-050505050505",
+        "unstarred"
+      ]
+    },
+    {
+      "kind": "message_mailbox",
+      "v": [
+        "05050505-0505-0505-0505-050505050505",
+        "archive"
+      ]
+    },
+    {
+      "kind": "message_label",
+      "v": [
+        "05050505-0505-0505-0505-050505050505",
+        "03030303-0303-0303-0303-030303030303",
+        "in"
+      ]
+    },
+    {
+      "kind": "thread_snooze",
+      "v": [
+        "06060606-0606-0606-0606-060606060606",
+        {
+          "kind": "inactive"
+        }
+      ]
+    },
+    {
+      "kind": "thread_pin",
+      "v": [
+        "06060606-0606-0606-0606-060606060606",
+        {
+          "kind": "unpinned"
+        }
+      ]
+    },
+    {
+      "kind": "message_upsert",
+      "v": {
+        "id": "05050505-0505-0505-0505-050505050505",
+        "thread": "06060606-0606-0606-0606-060606060606",
+        "account": "01010101-0101-0101-0101-010101010101",
+        "key": {
+          "kind": "rfc",
+          "v": "abc@example.test"
+        },
+        "date": "2026-01-04T04:05:06Z",
+        "from": {
+          "name": "A Name",
+          "email": "sender@example.test"
+        },
+        "to": [
+          {
+            "name": "A Name",
+            "email": "me@example.test"
+          }
+        ],
+        "cc": [
+          {
+            "name": "A Name",
+            "email": "cc@example.test"
+          }
+        ],
+        "bcc": [],
+        "subject": "Lunch",
+        "in_reply_to": "older@example.test",
+        "references": [
+          "oldest@example.test"
+        ],
+        "rfc_message_id": "abc@example.test",
+        "read": "read",
+        "star": "starred",
+        "mailbox": "inbox",
+        "labels": [
+          "03030303-0303-0303-0303-030303030303"
+        ],
+        "body": {
+          "text": "hello",
+          "raw": "07070707-0707-0707-0707-070707070707"
+        },
+        "attachments": [
+          {
+            "name": "invoice.pdf",
+            "mime": "application/pdf",
+            "size": 12345,
+            "blob": "04040404-0404-0404-0404-040404040404",
+            "inline": {
+              "kind": "embedded",
+              "v": {
+                "cid": "part1@example.test"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "kind": "message_delete",
+      "v": "08080808-0808-0808-0808-080808080808"
+    },
+    {
+      "kind": "label_upsert",
+      "v": {
+        "id": "03030303-0303-0303-0303-030303030303",
+        "account": "01010101-0101-0101-0101-010101010101",
+        "name": "Receipts",
+        "color": "#ff8800",
+        "origin": "user"
+      }
+    },
+    {
+      "kind": "draft_upsert",
+      "v": {
+        "id": "09090909-0909-0909-0909-090909090909",
+        "account": "01010101-0101-0101-0101-010101010101",
+        "identity": "02020202-0202-0202-0202-020202020202",
+        "to": [
+          {
+            "name": "A Name",
+            "email": "you@example.test"
+          }
+        ],
+        "cc": [],
+        "bcc": [
+          {
+            "name": "A Name",
+            "email": "secret@example.test"
+          }
+        ],
+        "subject": "Re: Lunch",
+        "in_reply_to": "05050505-0505-0505-0505-050505050505",
+        "forward_of": null,
+        "text": "yes",
+        "html": "<p>yes</p>",
+        "attachments": [
+          {
+            "name": "map.png",
+            "mime": "image/png",
+            "blob": "0a0a0a0a-0a0a-0a0a-0a0a-0a0a0a0a0a0a"
+          }
+        ],
+        "state": {
+          "kind": "failed",
+          "v": {
+            "reason": "550 rejected",
+            "retry": {
+              "kind": "after",
+              "v": {
+                "secs": 90,
+                "nanos": 0
+              }
+            }
+          }
+        },
+        "updated": "2026-01-05T04:05:06Z"
+      }
+    },
+    {
+      "kind": "draft_delete",
+      "v": "09090909-0909-0909-0909-090909090909"
+    }
+  ]
+}

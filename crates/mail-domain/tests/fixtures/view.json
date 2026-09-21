@@ -1,0 +1,129 @@
+{
+  "id": "0b0b0b0b-0b0b-0b0b-0b0b-0b0b0b0b0b0b",
+  "name": "Unread receipts",
+  "kind": {
+    "kind": "place_label",
+    "v": {
+      "label": "03030303-0303-0303-0303-030303030303"
+    }
+  },
+  "filter": {
+    "kind": "and",
+    "v": [
+      {
+        "kind": "all"
+      },
+      {
+        "kind": "nothing"
+      },
+      {
+        "kind": "and",
+        "v": [
+          {
+            "kind": "all"
+          },
+          {
+            "kind": "pinned"
+          }
+        ]
+      },
+      {
+        "kind": "or",
+        "v": [
+          {
+            "kind": "nothing"
+          }
+        ]
+      },
+      {
+        "kind": "not",
+        "v": {
+          "kind": "all"
+        }
+      },
+      {
+        "kind": "account",
+        "v": "01010101-0101-0101-0101-010101010101"
+      },
+      {
+        "kind": "in_mailbox",
+        "v": "spam"
+      },
+      {
+        "kind": "read",
+        "v": "unread"
+      },
+      {
+        "kind": "starred",
+        "v": "starred"
+      },
+      {
+        "kind": "has_label",
+        "v": "03030303-0303-0303-0303-030303030303"
+      },
+      {
+        "kind": "from",
+        "v": {
+          "kind": "contains",
+          "v": "sender"
+        }
+      },
+      {
+        "kind": "to",
+        "v": {
+          "kind": "exact",
+          "v": "me@example.test"
+        }
+      },
+      {
+        "kind": "subject",
+        "v": {
+          "kind": "contains",
+          "v": "lunch"
+        }
+      },
+      {
+        "kind": "text",
+        "v": {
+          "kind": "contains",
+          "v": "hello"
+        }
+      },
+      {
+        "kind": "date",
+        "v": {
+          "from": "2026-01-01T04:05:06Z",
+          "to": null
+        }
+      },
+      {
+        "kind": "has_attachment"
+      },
+      {
+        "kind": "snoozed"
+      },
+      {
+        "kind": "snooze_due"
+      },
+      {
+        "kind": "pinned"
+      }
+    ]
+  },
+  "sort": {
+    "property": "date",
+    "dir": "desc"
+  },
+  "group_by": "from",
+  "threading": "threaded",
+  "shown": [
+    "date",
+    "subject",
+    "attachments"
+  ],
+  "hover": [
+    "archive",
+    "reply",
+    "forward"
+  ]
+}

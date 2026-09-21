@@ -1,0 +1,33 @@
+{
+  "address": "b09901123@ntu.edu.tw",
+  "incoming": {
+    "kind": "pop3",
+    "v": {
+      "host": "msa.ntu.edu.tw",
+      "port": 995,
+      "tls": "implicit",
+      "leave": "keep"
+    }
+  },
+  "outgoing": {
+    "kind": "smtp",
+    "v": {
+      "host": "smtps.ntu.edu.tw",
+      "port": 465,
+      "tls": "implicit"
+    }
+  },
+  "auth": {
+    "kind": "password",
+    "v": {
+      "username": {
+        "kind": "local_part"
+      },
+      "sasl": [
+        "login",
+        "plain"
+      ]
+    }
+  },
+  "identities": []
+}

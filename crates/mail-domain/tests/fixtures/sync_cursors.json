@@ -1,0 +1,13 @@
+[
+  {
+    "kind": "imap",
+    "v": {
+      "uidvalidity": 12,
+      "uidnext": 900,
+      "modseq": 4294967296
+    }
+  },
+  {
+    "kind": "pop"
+  }
+]

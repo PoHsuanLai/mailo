@@ -1,0 +1,32 @@
+[workspace]
+resolver = "3"
+members = [
+  "crates/mail-domain",
+  "crates/mail-mime",
+  "crates/mail-proto",
+  "crates/mail-store",
+  "crates/mail-runtime",
+  "crates/mail-app",
+]
+
+[workspace.package]
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.85"
+
+[workspace.dependencies]
+mail-domain = { path = "crates/mail-domain" }
+mail-mime   = { path = "crates/mail-mime" }
+mail-proto  = { path = "crates/mail-proto" }
+mail-store  = { path = "crates/mail-store" }
+serde       = { version = "1", features = ["derive"] }
+chrono      = { version = "0.4", features = ["serde"] }
+uuid        = { version = "1", features = ["v4", "serde"] }
+thiserror   = "2"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+todo = "allow"

@@ -1,0 +1,49 @@
+{
+  "address": "me@example.test",
+  "incoming": {
+    "kind": "pop3",
+    "v": {
+      "host": "pop.example.test",
+      "port": 110,
+      "tls": "start_tls_required",
+      "leave": "delete_after_fetch"
+    }
+  },
+  "outgoing": {
+    "kind": "smtp",
+    "v": {
+      "host": "smtp.example.test",
+      "port": 587,
+      "tls": "start_tls_required"
+    }
+  },
+  "auth": {
+    "kind": "password",
+    "v": {
+      "username": {
+        "kind": "literal",
+        "v": "login-name"
+      },
+      "sasl": [
+        "cram-md5",
+        "x-oauth2"
+      ]
+    }
+  },
+  "identities": [
+    {
+      "id": "02020202-0202-0202-0202-020202020202",
+      "account": "01010101-0101-0101-0101-010101010101",
+      "from": {
+        "name": "A Name",
+        "email": "me@example.test"
+      },
+      "reply_to": {
+        "name": "A Name",
+        "email": "alias@example.test"
+      },
+      "signature": "-- me",
+      "default": "default"
+    }
+  ]
+}

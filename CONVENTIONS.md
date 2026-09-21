@@ -1,0 +1,165 @@
+# Conventions
+
+Binding on every contributor, human or agent. These exist so that work happening in parallel
+behind frozen signatures composes without integration surprises. `plan.md` says *what* we are
+building and *why*; this file says *how the code is written*.
+
+If a convention here blocks you, say so in your report. Do not quietly deviate — a silent
+deviation in a shared type is exactly the failure this file prevents.
+
+---
+
+## 1. The interface freeze
+
+`crates/mail-domain/src/**` and `crates/mail-proto/src/machine.rs` are the **frozen
+interface**. Every other crate codes against them.
+
+- **You may** fill in a `todo!()` body, add a private helper, add a test.
+- **You may not** change a public signature, add or remove a public field or enum variant,
+  or change a `#[serde]` attribute — not even one that "obviously should" change.
+
+If you believe a frozen signature is wrong, **stop and report it**. Do not work around it.
+A signature change is a coordinated edit across every agent currently running; it is cheap
+to make deliberately and expensive to discover.
+
+Empty crates carry `//! Filled in a later phase.` Leave them alone unless your brief names them.
+
+## 2. Derives
+
+Every public type derives, in this order:
+
+```rust
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+```
+
+Then, where they apply:
+
+- `Copy` — only for types that are one word or smaller (IDs, fieldless enums).
+- `Hash` — every ID newtype, and anything used as a map key.
+- `PartialOrd, Ord` — only where a total order genuinely means something. Not on enums
+  whose variant order is arbitrary.
+- `Default` — only where a default is genuinely meaningful. `ReadState::Unread` is;
+  `MailboxRole::Inbox` is not.
+
+Floats are not allowed in domain types, which is why `Eq` is always available.
+
+**Exception — secrets.** `Credential` implements `Debug` **by hand**, redacting its
+contents. Never `#[derive(Debug)]` on a type that holds a password or a token; derived
+`Debug` leaks into logs, panics, and error chains.
+
+## 3. Serde
+
+The serde form of a domain type is a **persisted schema** — `AccountPlan`, `RemoteRef`,
+`ProtoOp`, `SyncCursor`, `Patch` and `View` all round-trip through SQLite. Changing their
+representation is a migration, not a refactor.
+
+- **Enums with data: adjacently tagged.**
+  ```rust
+  #[serde(tag = "kind", content = "v", rename_all = "snake_case")]
+  ```
+  Adjacent tagging, not internal tagging: internal tagging cannot represent newtype variants
+  over non-map types (`RemoteRef::Pop(String)` would fail at runtime, not compile time).
+- **Fieldless enums:** `#[serde(rename_all = "snake_case")]`.
+- **Structs:** field names as written, `snake_case`.
+- **Never `deny_unknown_fields`** on a persisted type. It turns every forward-compatible
+  field addition into a hard startup failure on downgrade.
+- **Every field added after the first release** carries `#[serde(default)]`. A field without
+  it is a breaking schema change.
+- Every persisted type has a round-trip test in `tests/serde.rs`, and a **frozen fixture**
+  in `crates/mail-domain/tests/fixtures/` that must continue to deserialize. Add to the
+  fixtures; never edit one.
+
+## 4. `#[non_exhaustive]`
+
+On nothing, for now. This is a single-binary workspace with no external consumers, so
+`non_exhaustive` buys no compatibility and costs exhaustive matching — which is the whole
+reason the vocabulary is enums. Revisit only if a crate is ever published.
+
+## 5. Errors
+
+One error enum per crate, in `error.rs`, built with `thiserror`.
+
+```rust
+#[derive(Debug, thiserror::Error)]
+pub enum StoreError { /* ... */ }
+```
+
+Every error type implements `mail_domain::Retryable`:
+
+```rust
+pub trait Retryable {
+    fn retry(&self) -> Retry;
+}
+```
+
+This is not decoration. The outbox backoff loop, the reauth prompt, and the undo-on-fatal
+path in `mail-store` all branch on it, and there is no other source for that decision.
+
+- No `anyhow` below `mail-runtime`. Libraries return typed errors.
+- No `unwrap()` or `expect()` in non-test code, except where a comment on the same line
+  proves the invariant.
+- `panic!` is for programmer error only. Malformed mail is not programmer error: a message
+  with a broken `Date` header parses to an error value, never a panic. Assume every byte
+  from the network is hostile.
+
+## 6. Time
+
+`now: DateTime<Utc>` is an argument. There is no `Clock` trait and no call to
+`Utc::now()` anywhere below `mail-runtime` — including in tests, which should use fixed
+instants so failures are reproducible.
+
+`std::time::Duration` for configured intervals. `chrono::TimeDelta` only for arithmetic on
+`DateTime`.
+
+## 7. Naming
+
+- Enums read as values at the use site: `ReadState::Unread`, not `ReadState::IsUnread`.
+- No `bool` fields in domain state (see `plan.md` principle 6). Predicate **returns** are
+  `bool` — `Filter::fit` returns `bool`, not an enum.
+- No `get_` prefix. `fn address(&self)`, not `fn get_address(&self)`.
+- Wire vocabulary stays out of domain names. `ArchiveMeans::DropInbox`, not
+  `ArchiveMeans::GmailStyle`.
+
+## 8. Modules and files
+
+One concept per file; a file over ~400 lines wants splitting. `lib.rs` declares modules and
+re-exports the flat public surface — it holds no definitions.
+
+Public items carry a doc comment saying what they mean, not what they are. `/// The messages
+a thread spans, unioned over its messages.` is useful; `/// The mailboxes.` is not.
+
+## 9. Tests
+
+- **Unit tests** in `#[cfg(test)] mod tests` beside the code, for private behaviour.
+- **Integration tests** in `crates/<crate>/tests/<topic>.rs`, for the public surface.
+- Table-driven wherever there is more than one case: a `const CASES: &[(Input, Expected)]`
+  and one loop. A failure must name the case.
+- Property tests use `proptest`. Required in two places, both non-negotiable:
+  `Op::apply` → `inverse` round-trips to the original state, and `Filter::fit` agrees with
+  the SQL compiler. If either is skipped, the corresponding bug ships.
+- Protocol tests are byte transcripts. See `crates/mail-proto/tests/traces/FORMAT.md`.
+- No test touches the network. Live tests are `#[ignore]` and live in `mail-runtime`.
+
+## 10. Verification
+
+Before reporting work complete, all four must pass:
+
+```bash
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+./scripts/check-boundary.sh
+```
+
+The last one is the sans-I/O boundary, mechanically enforced: `mail-domain`, `mail-mime` and
+`mail-proto` must not reach `tokio`, `rusqlite`, `dioxus`, `reqwest` or `keyring`.
+
+Note that `cargo tree -p <crate> -i <dep>` **exits 101 when the dependency is absent**, which
+is the condition we want. A CI step that checks the exit status alone therefore fails exactly
+when it should pass; `scripts/check-boundary.sh` checks for output instead.
+
+**While a wave is in flight, run `cargo fmt -p <your-crate>`, not `cargo fmt --all`.** The
+`--all` form rewrites every file in the workspace, including ones another agent has open.
+`--all --check` is read-only and is fine at any time.
+
+Report honestly. A failing test reported as passing costs more than the bug did.

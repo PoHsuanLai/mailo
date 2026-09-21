@@ -1,0 +1,13 @@
+{
+  "filter": {
+    "kind": "all"
+  },
+  "sort": {
+    "property": "subject",
+    "dir": "asc"
+  },
+  "page": {
+    "after": "eyJkIjoxfQ",
+    "limit": 50
+  }
+}

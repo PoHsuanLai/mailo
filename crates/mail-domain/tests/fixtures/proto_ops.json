@@ -1,0 +1,149 @@
+[
+  {
+    "kind": "fetch_caps"
+  },
+  {
+    "kind": "list_folders"
+  },
+  {
+    "kind": "fetch_envelopes",
+    "v": {
+      "mailbox": {
+        "account": "01010101-0101-0101-0101-010101010101",
+        "path": "[Gmail]/All Mail"
+      },
+      "since": {
+        "kind": "beginning"
+      }
+    }
+  },
+  {
+    "kind": "fetch_envelopes",
+    "v": {
+      "mailbox": {
+        "account": "01010101-0101-0101-0101-010101010101",
+        "path": "[Gmail]/All Mail"
+      },
+      "since": {
+        "kind": "after",
+        "v": {
+          "cursor": {
+            "kind": "imap",
+            "v": {
+              "uidvalidity": 12,
+              "uidnext": 900,
+              "modseq": 4294967296
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "kind": "fetch_body",
+    "v": {
+      "remote": {
+        "kind": "imap",
+        "v": {
+          "mailbox": "[Gmail]/All Mail",
+          "uidvalidity": 12,
+          "uid": 4294967295
+        }
+      }
+    }
+  },
+  {
+    "kind": "set_flags",
+    "v": {
+      "remotes": [
+        {
+          "kind": "imap",
+          "v": {
+            "mailbox": "[Gmail]/All Mail",
+            "uidvalidity": 12,
+            "uid": 4294967295
+          }
+        }
+      ],
+      "read": "read",
+      "star": null
+    }
+  },
+  {
+    "kind": "set_mailbox",
+    "v": {
+      "remotes": [
+        {
+          "kind": "imap",
+          "v": {
+            "mailbox": "[Gmail]/All Mail",
+            "uidvalidity": 12,
+            "uid": 4294967295
+          }
+        }
+      ],
+      "role": "trash"
+    }
+  },
+  {
+    "kind": "set_labels",
+    "v": {
+      "remotes": [
+        {
+          "kind": "imap",
+          "v": {
+            "mailbox": "[Gmail]/All Mail",
+            "uidvalidity": 12,
+            "uid": 4294967295
+          }
+        }
+      ],
+      "add": [
+        "Receipts"
+      ],
+      "remove": [
+        "\\Inbox"
+      ]
+    }
+  },
+  {
+    "kind": "append",
+    "v": {
+      "mailbox": {
+        "account": "01010101-0101-0101-0101-010101010101",
+        "path": "[Gmail]/All Mail"
+      },
+      "raw": "07070707-0707-0707-0707-070707070707",
+      "role": "drafts"
+    }
+  },
+  {
+    "kind": "submit",
+    "v": {
+      "draft": "09090909-0909-0909-0909-090909090909",
+      "raw": "07070707-0707-0707-0707-070707070707"
+    }
+  },
+  {
+    "kind": "expunge",
+    "v": {
+      "remotes": [
+        {
+          "kind": "pop",
+          "v": {
+            "uidl": "UID-1"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "kind": "watch",
+    "v": {
+      "mailbox": {
+        "account": "01010101-0101-0101-0101-010101010101",
+        "path": "[Gmail]/All Mail"
+      }
+    }
+  }
+]

@@ -1,0 +1,83 @@
+#!/usr/bin/env python3
+"""Phase-0 spike: dump raw NTU POP3 wire bytes.
+
+Usage:
+    POP_HOST=msa.ntu.edu.tw POP_USER=<local-part> POP_PASS='...' python3 spike/pop3_dump.py
+
+POP_HOST is msa.ntu.edu.tw or ccms.ntu.edu.tw depending on the account.
+Output: spike/out/pop3.trace  (password never written)
+"""
+import os, ssl, socket, sys, pathlib
+
+HOST = os.environ.get("POP_HOST", "msa.ntu.edu.tw")
+PORT = int(os.environ.get("POP_PORT", "995"))
+USER = os.environ.get("POP_USER")
+PASS = os.environ.get("POP_PASS")
+if not USER or not PASS:
+    sys.exit("set POP_USER and POP_PASS (POP_HOST defaults to msa.ntu.edu.tw)")
+
+OUT = pathlib.Path(__file__).parent / "out"
+OUT.mkdir(exist_ok=True)
+log = open(OUT / "pop3.trace", "wb")
+
+ctx = ssl.create_default_context()
+try:
+    sock = ctx.wrap_socket(socket.create_connection((HOST, PORT), timeout=30),
+                           server_hostname=HOST)
+except ssl.SSLCertVerificationError as e:
+    print(f"!! cert verification FAILED: {e}")
+    print("!! This is a real finding -- record it. Retrying unverified to continue the spike.")
+    log.write(f"\n=== CERT VERIFICATION FAILED: {e} ===\n".encode())
+    ctx = ssl._create_unverified_context()
+    sock = ctx.wrap_socket(socket.create_connection((HOST, PORT), timeout=30),
+                           server_hostname=HOST)
+    print(f"!! peer cert subject: {sock.getpeercert()}")
+sock.settimeout(10)
+
+def record(d, data):
+    log.write(b"\n=== " + d + b" ===\n" + data); log.flush()
+
+def drain(multiline=False):
+    buf = b""
+    while True:
+        try:
+            chunk = sock.recv(65536)
+        except socket.timeout:
+            break
+        if not chunk:
+            break
+        buf += chunk
+        if not multiline and b"\r\n" in buf:
+            break
+        if multiline and (buf.endswith(b"\r\n.\r\n") or buf.startswith(b"-ERR")):
+            break
+    record(b"S->C", buf)
+    return buf.decode("utf-8", "replace")
+
+record(b"S->C greeting", sock.recv(65536))
+
+def cmd(line, multiline=False, secret=False, shown=None):
+    record(b"C->S", ((shown or line) + "\r\n").encode())
+    sock.sendall((line + "\r\n").encode())
+    return drain(multiline)
+
+capa = cmd("CAPA", multiline=True)
+cmd(f"USER {USER}")
+cmd(f"PASS {PASS}", secret=True, shown="PASS <REDACTED>")
+stat = cmd("STAT")
+uidl = cmd("UIDL", multiline=True)
+cmd("LIST", multiline=True)
+cmd("RETR 1", multiline=True)
+cmd("QUIT")
+log.close()
+
+print("\n--- spike summary -------------------------------------------")
+print(f"  STAT          {stat.strip()}")
+print(f"  UIDL support  {'yes' if not uidl.startswith('-ERR') else 'NO -- blocker'}")
+for mech in ("SASL", "PLAIN", "LOGIN", "CRAM-MD5", "STLS", "USER"):
+    print(f"  CAPA {mech:<12} {'yes' if mech in capa.upper() else 'no'}")
+print(f"\n  UIDL shape (first lines):")
+for line in uidl.splitlines()[:4]:
+    print(f"    {line}")
+print(f"\n  raw trace -> {OUT / 'pop3.trace'}")
+print("  NOTE: RETR 1 dumps a full message. Scrub before committing.")

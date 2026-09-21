@@ -1,0 +1,120 @@
+{
+  "mailbox": {
+    "account": "01010101-0101-0101-0101-010101010101",
+    "path": "[Gmail]/All Mail"
+  },
+  "validity": "reset",
+  "cursor": {
+    "kind": "imap",
+    "v": {
+      "uidvalidity": 12,
+      "uidnext": 900,
+      "modseq": 4294967296
+    }
+  },
+  "messages": [
+    {
+      "remote": {
+        "kind": "imap",
+        "v": {
+          "mailbox": "[Gmail]/All Mail",
+          "uidvalidity": 12,
+          "uid": 4294967295
+        }
+      },
+      "key": {
+        "kind": "gmail",
+        "v": 18446744073709551615
+      },
+      "raw": "07070707-0707-0707-0707-070707070707",
+      "message": {
+        "id": "05050505-0505-0505-0505-050505050505",
+        "thread": "06060606-0606-0606-0606-060606060606",
+        "account": "01010101-0101-0101-0101-010101010101",
+        "key": {
+          "kind": "rfc",
+          "v": "abc@example.test"
+        },
+        "date": "2026-01-04T04:05:06Z",
+        "from": {
+          "name": "A Name",
+          "email": "sender@example.test"
+        },
+        "to": [
+          {
+            "name": "A Name",
+            "email": "me@example.test"
+          }
+        ],
+        "cc": [
+          {
+            "name": "A Name",
+            "email": "cc@example.test"
+          }
+        ],
+        "bcc": [],
+        "subject": "Lunch",
+        "in_reply_to": "older@example.test",
+        "references": [
+          "oldest@example.test"
+        ],
+        "rfc_message_id": "abc@example.test",
+        "read": "read",
+        "star": "starred",
+        "mailbox": "inbox",
+        "labels": [
+          "03030303-0303-0303-0303-030303030303"
+        ],
+        "body": {
+          "text": "hello",
+          "raw": "07070707-0707-0707-0707-070707070707"
+        },
+        "attachments": [
+          {
+            "name": "invoice.pdf",
+            "mime": "application/pdf",
+            "size": 12345,
+            "blob": "04040404-0404-0404-0404-040404040404",
+            "inline": {
+              "kind": "embedded",
+              "v": {
+                "cid": "part1@example.test"
+              }
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "flags": [
+    [
+      {
+        "kind": "imap",
+        "v": {
+          "mailbox": "[Gmail]/All Mail",
+          "uidvalidity": 12,
+          "uid": 4294967295
+        }
+      },
+      "unread",
+      "starred"
+    ]
+  ],
+  "labels": [
+    {
+      "id": "03030303-0303-0303-0303-030303030303",
+      "account": "01010101-0101-0101-0101-010101010101",
+      "name": "Receipts",
+      "color": "#ff8800",
+      "origin": "user"
+    }
+  ],
+  "gone": [
+    {
+      "kind": "pop",
+      "v": {
+        "uidl": "UID-2"
+      }
+    }
+  ]
+}

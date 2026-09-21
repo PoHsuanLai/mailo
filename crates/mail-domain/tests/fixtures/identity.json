@@ -1,0 +1,14 @@
+{
+  "id": "02020202-0202-0202-0202-020202020202",
+  "account": "01010101-0101-0101-0101-010101010101",
+  "from": {
+    "name": "A Name",
+    "email": "me@example.test"
+  },
+  "reply_to": {
+    "name": "A Name",
+    "email": "alias@example.test"
+  },
+  "signature": "-- me",
+  "default": "default"
+}

@@ -1,0 +1,31 @@
+{
+  "address": "someone@gmail.com",
+  "incoming": {
+    "kind": "imap",
+    "v": {
+      "host": "imap.gmail.com",
+      "port": 993,
+      "tls": "implicit"
+    }
+  },
+  "outgoing": {
+    "kind": "smtp",
+    "v": {
+      "host": "smtp.gmail.com",
+      "port": 465,
+      "tls": "implicit"
+    }
+  },
+  "auth": {
+    "kind": "o_auth",
+    "v": {
+      "issuer": "google",
+      "client_id": "",
+      "scopes": [
+        "https://mail.google.com/",
+        "email"
+      ]
+    }
+  },
+  "identities": []
+}

@@ -1,0 +1,1069 @@
+# Type-driven sans-I/O mail client
+
+Dioxus desktop client. The first two accounts happen to be Gmail and NTU Webmail; those are
+**presets that fill an `AccountPlan`**, not domain types. The product object model is
+Notion-Mail-shaped: threads, flat labels, mailbox roles, views, actions. UI and sockets sit
+outside the core. An account is classified by **incoming protocol, outgoing protocol, and
+auth** — IMAP, POP3, SMTP, OAuth, password.
+
+This is a Cargo workspace. `mail-domain` is written first; the rest exist as crates so types
+never get dumped into one `lib.rs`.
+
+> Revision note: this supersedes an earlier draft. The substantive corrections are listed in
+> [Changes from the first draft](#changes-from-the-first-draft) at the end. Read that section
+> if you have the old plan in your head.
+
+---
+
+## Principles
+
+1. **Data first.** Every crate speaks `mail-domain` types. Wire identifiers stay behind
+   `RemoteRef`; wire *syntax* stays in `mail-proto`.
+2. **Sans-I/O core.** `mail-domain`, `mail-mime`, and `mail-proto` take values/bytes in and
+   emit values/bytes out. Nothing below `mail-runtime` opens a socket, reads a clock, or
+   spawns a task.
+3. **The runtime owns the loop.** Protocol code never calls "give me bytes". It returns
+   `Progress::Need(..)` and gets fed. This is what makes IDLE interruptible and traces
+   replayable.
+4. **Enums for mail vocabulary, traits for seams.** A trait earns its place only if two
+   implementations are actually swapped at that boundary.
+5. **Optimistic local apply, with an explicit reconciliation rule.** A local change is a
+   `Patch`; the server's version arrives as an `Ingest`; pending changes are re-layered on
+   top of server truth (see [Reconciliation](#reconciliation)).
+6. **No `bool` in domain *state*.** This applies to struct fields, where a named enum
+   documents meaning and forbids illegal states. It does *not* apply to predicate returns —
+   `Filter::fit` returns `bool` so that `&&`, `!`, and `Iterator::filter` keep working.
+7. **Time is an argument, not an ambient service.** Functions that need "now" take
+   `now: DateTime<Utc>`. There is no `Clock` trait.
+
+---
+
+## Workspace
+
+Workspace root: this repository.
+
+```
+mailo/
+  Cargo.toml                 # [workspace] resolver = "3"
+  crates/
+    mail-domain/             # product types, Filter, Op/Change, RemoteRef, ProtoOp, presets
+    mail-mime/               # parse / build / sanitize — pure, domain-typed
+    mail-proto/              # sans-I/O machines: sessions AND backends
+    mail-store/              # Store trait + SQLite
+    mail-runtime/            # tokio, owns the I/O loop, secrets, notify
+    mail-app/                # Dioxus 0.7 desktop binary
+```
+
+Six crates, not seven. `mail-profiles` is a lookup table over domain types — it becomes
+`mail_domain::presets`. `mail-adapters` disappears because backends are machines of the same
+shape as sessions, so they belong next to them in `mail-proto`. `mail-mime` is new and
+necessary: MIME parse/build/sanitize are pure functions with no `IoNeed`, they are not
+sessions, and **`mail-app` needs sanitization without depending on `mail-proto`**.
+
+### Dependency graph
+
+```
+mail-app      → mail-runtime, mail-domain, mail-mime
+mail-runtime  → mail-proto, mail-store, mail-mime, mail-domain
+mail-store    → mail-domain
+mail-proto    → mail-mime, mail-domain
+mail-mime     → mail-domain
+mail-domain   → serde, uuid, chrono, thiserror
+```
+
+`mail-domain`, `mail-mime`, and `mail-proto` must not depend on tokio, rusqlite, dioxus,
+keyring, or reqwest. Enforce it in CI with `cargo tree -p mail-domain -i tokio` returning
+nothing.
+
+### Root `Cargo.toml`
+
+```toml
+[workspace]
+resolver = "3"
+members = [
+  "crates/mail-domain",
+  "crates/mail-mime",
+  "crates/mail-proto",
+  "crates/mail-store",
+  "crates/mail-runtime",
+  "crates/mail-app",
+]
+
+[workspace.package]
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.85"
+
+[workspace.dependencies]
+mail-domain = { path = "crates/mail-domain" }
+mail-mime   = { path = "crates/mail-mime" }
+mail-proto  = { path = "crates/mail-proto" }
+mail-store  = { path = "crates/mail-store" }
+serde       = { version = "1", features = ["derive"] }
+chrono      = { version = "0.4", features = ["serde"] }
+uuid        = { version = "1", features = ["v4", "serde"] }
+thiserror   = { version = "2" }
+```
+
+### Type ownership
+
+| Crate | Owns |
+|---|---|
+| `mail-domain` | IDs, state enums, `Thread`/`Message`/`Draft`/`View`/`Filter`/`Op`/`Change`/`Patch`/`Ingest`/`AccountPlan`/`AccountCaps`/`RemoteRef`/`ProtoOp`/`SyncCursor`/`Retry`, preset table |
+| `mail-mime` | `Parsed`, `Built`, `SanitizePolicy`, `SafeHtml` |
+| `mail-proto` | `IoNeed`, `IoReady`, `Progress`, `Machine`, `ImapSession`, `Pop3Session`, `SmtpSession`, `OauthPkce`, `ImapBackend`, `Pop3Backend`, `FakeBackend` |
+| `mail-store` | `Store` trait, SQLite schema, migrations |
+| `mail-runtime` | `AccountEngine`, the tokio drive loop, `Secrets`, `Effect`, notifications |
+| `mail-app` | Dioxus UI. No protocol types. |
+
+`RemoteRef` and `ProtoOp` live in **`mail-domain`**, not in an adapter crate. They must, because
+`mail-store` persists them (`remote_map`, `outbox`) and `mail-store` does not depend on
+`mail-proto`. They are protocol-neutral vocabulary — "this message, over there" and "do this
+remotely" — not wire syntax. Wire syntax stays in `mail-proto`.
+
+---
+
+## `mail-domain`
+
+No traits. No sockets. No `async`.
+
+### Identifiers
+
+Newtypes over `Uuid`: `AccountId`, `ThreadId`, `MessageId`, `DraftId`, `LabelId`, `ViewId`,
+`BlobId`, `IdentityId`, `ChangeId`, `OutboxId`.
+
+### State enums
+
+```text
+MailboxRole   = Inbox | Archive | Sent | Drafts | Trash | Spam
+MailboxSet    = bitset over MailboxRole            // a thread spans several
+ReadState     = Unread | Read
+Star          = Unstarred | Starred
+Membership    = In | Out                           // label add/remove
+Attachments   = None | Present { count: u32 }      // 0 unrepresentable
+Pin           = Unpinned | Rank(i64)
+Snooze        = Inactive | Until(DateTime<Utc>)
+SortDir       = Asc | Desc
+Threading     = Threaded | Single
+LabelOrigin   = User | Provider                    // Gmail categories, IMAP folders
+IsDefault     = Default | Alternate
+Target        = Threads(Vec<ThreadId>) | Messages(Vec<MessageId>)
+```
+
+`Target` is **plural**. Bulk selection is a core mail interaction; a singular target forces N
+actions and N outbox rows for "mark 40 as read".
+
+`ThreadSummary.mailboxes` is a `MailboxSet`, not a single role. On Gmail a thread has messages
+in Inbox *and* Sent simultaneously; a single role loses that and shows the thread in the wrong
+place. Individual `Message`s still carry one `MailboxRole`.
+
+There is no `Calendar` enum in v1. Calendar is a stated non-goal and `None | Invite` is a bool
+in a costume.
+
+### Account configuration vs. discovered capability
+
+These are two different things with two different lifetimes and must not be one struct.
+
+```text
+AccountPlan = { address: String, incoming: Incoming, outgoing: Outgoing,
+                auth: AuthPlan, identities: Vec<Identity> }        // configured, persisted
+
+Incoming    = Imap { host, port, tls: Tls }
+            | Pop3 { host, port, tls: Tls, leave: LeaveOnServer }
+Outgoing    = Smtp { host, port, tls: Tls }
+Tls         = Implicit | StartTlsRequired | Plaintext
+LeaveOnServer = Keep | DeleteAfterFetch
+```
+
+`Tls` has **no opportunistic StartTLS variant**. Opportunistic StartTLS is strippable by an
+active network attacker and silently downgrades to cleartext credentials. Either the server is
+required to upgrade or you knowingly chose `Plaintext`.
+
+```text
+AccountCaps = { labels:   ServerLabels,     // Supported | LocalOnly
+                threads:  ServerThreads,    // ProviderId | Jwz
+                watch:    WatchMode,        // Idle | Poll { every: Duration }
+                archive:  ArchiveMeans,     // DropInbox | MoveToFolder(String) | LocalOnly
+                folders:  FolderRoles,
+                condstore: Condstore,       // Supported | Absent
+                move_ext:  MoveExt,         // Supported | Absent
+                observed_at: DateTime<Utc> }              // discovered, cached, refreshable
+
+FolderRoles = Vec<(String /* IMAP path */, MailboxRole)>
+```
+
+A preset supplies *expected* caps as a starting value. The runtime replaces them from
+`CAPABILITY` / `LIST (SPECIAL-USE)` on connect. Keeping discovered capabilities inside the
+persisted `AccountPlan` forces you either to ship presets that lie or to mutate the user's
+saved config on every connect.
+
+`Condstore` matters more than it looks: without it, noticing that a message was marked read in
+another client requires `FETCH 1:* (FLAGS)` over the whole mailbox on every poll. With it, one
+`CHANGEDSINCE` fetch.
+
+`ArchiveMeans::MoveToFolder` is new — generic IMAP servers archive by `MOVE`, not by dropping
+`INBOX` membership the way Gmail does.
+
+### Auth
+
+```text
+AuthPlan  = OAuth { issuer: OAuthIssuer, client_id: String, scopes: Vec<String> }
+          | Password { username: Username, sasl: Vec<SaslMech> }
+
+OAuthIssuer = Google
+Username    = SameAsAddress | LocalPart | Literal(String)
+SaslMech    = Plain | Login | CramMd5 | XOauth2       // ordered by preference
+Identity    = { id, account, from: Address, reply_to: Option<Address>,
+                signature: Option<String>, default: IsDefault }
+```
+
+`Username::Literal` exists because a login name is not always derivable from the address.
+`SaslMech` is a list because some campus servers only offer `LOGIN`.
+
+Secrets are not strings:
+
+```text
+SecretKey = { account: AccountId, purpose: SecretPurpose }
+SecretPurpose = IncomingPassword | OutgoingPassword | OAuthRefresh
+Credential = Password(String)
+           | OAuth { access: String, refresh: String, expires_at: DateTime<Utc> }
+```
+
+Incoming and outgoing may need different credentials. An OAuth credential has an expiry and a
+refresh token, and the runtime schedules refresh off `expires_at`.
+
+### Content
+
+```text
+Address     = { name: Option<String>, email: String }
+Body        = { text: Option<String>, raw: BlobId }      // sanitize at render, not at ingest
+Attachment  = { name: String, mime: String, size: u64, blob: BlobId, inline: Inline }
+Inline      = Attached | Embedded { cid: String }
+Label       = { id, account, name, color, origin: LabelOrigin }
+```
+
+`Body` stores the **raw** HTML blob and no `html_safe`. Storing sanitizer output permanently
+means an `ammonia` upgrade leaves every previously-ingested message sanitized under the old
+rules. Sanitize on render via `mail-mime`, cache the result keyed by
+`(BlobId, SanitizePolicy::VERSION)`.
+
+### Threads and messages
+
+```text
+Message      = { id, thread, account, date, from, to, cc, bcc, subject,
+                 in_reply_to, references, rfc_message_id, key: MessageKey,
+                 read: ReadState, star: Star, mailbox: MailboxRole,
+                 labels: Vec<LabelId>,
+                 body: Body, attachments: Vec<Attachment> }
+
+ThreadSummary = { id, account, subject, snippet, from, participants, last_date,
+                  message_count,
+                  read: ReadState,          // derived: Unread if any message Unread
+                  star: Star,               // derived: Starred if any message Starred
+                  mailboxes: MailboxSet,    // derived: union over messages
+                  labels: Vec<LabelId>,     // derived: union over messages
+                  attachments: Attachments,
+                  snooze: Snooze, pin: Pin }
+
+Thread        = { summary: ThreadSummary, messages: Vec<MessageId> }
+```
+
+The derivation is a named, tested function in this crate:
+
+```rust
+impl ThreadSummary {
+    pub fn derive(id: ThreadId, messages: &[Message],
+                  snooze: Snooze, pin: Pin) -> ThreadSummary;
+}
+```
+
+`snooze` and `pin` are passed through rather than derived: they are thread-level state the
+user set, and no message carries them.
+
+It must be named because `Op::apply` on a `Target::Threads` fans out to every message in the
+thread and then recomputes the summary — so applying an op needs the thread *and* its messages,
+not "a loaded row".
+
+### Message identity
+
+```text
+MessageKey = Rfc(String)        // Message-ID header, normalized
+           | Gmail(u64)         // X-GM-MSGID
+           | Synthetic([u8;32]) // blake3 of (Date, From, Subject, first 4KiB) when Message-ID absent
+```
+
+This is the deduplication key, and it is **not** `RemoteRef`. See below.
+
+### Remote references and sync
+
+```text
+RemoteRef  = Imap { mailbox: String, uidvalidity: u32, uid: u32 }
+           | Pop  { uidl: String }
+
+MailboxRef = { account: AccountId, path: String }        // "INBOX" for POP3
+
+SyncCursor = Imap { uidvalidity: u32, uidnext: u32, modseq: Option<u64> }
+           | Pop                                          // no cursor; diff UIDL each poll
+
+UidValidity = Same | Reset
+```
+
+**`RemoteRef → MessageId` is many-to-one, not a bijection.** On Gmail the same message exists
+in `INBOX` and `[Gmail]/All Mail` under *different UIDs*, and again in `[Gmail]/Sent` if you
+sent it. `remote_map` is keyed `(account, mailbox, uidvalidity, uid)` and several rows point at
+one `MessageId`. Identity comes from `MessageKey`. Building the store on a bijection duplicates
+every message on the first Gmail sync.
+
+`SyncCursor` is **per mailbox**, not per account, and lives in a `sync_state` table keyed by
+`MailboxRef`. When the server reports a different `UIDVALIDITY`, every `remote_map` row for that
+mailbox is invalid and must be dropped and refetched — `UidValidity::Reset` is how an `Ingest`
+says so.
+
+### Views and queries
+
+```text
+ViewKind  = Place { mailbox: MailboxRole } | PlaceLabel { label: LabelId } | Query
+Property  = Date | Subject | From | Sender | Size | Attachments | Pin
+View      = { id, name, kind: ViewKind, filter: Filter, sort: Sort,
+              group_by: Option<Property>, threading: Threading,
+              shown: Vec<Property>,      // columns
+              hover: Vec<OpKind> }       // hover-strip buttons
+Sort      = { property: Property, dir: SortDir }
+Query     = { filter: Filter, sort: Sort, page: PageReq }
+PageReq   = { after: Option<Cursor>, limit: u32 }
+Page<T>   = { items: Vec<T>, next: Option<Cursor> }
+```
+
+`View.hover` holds `OpKind`, not `Op` — see [Ops](#ops-and-changes). Views never go on the wire;
+they are local SQLite rows owned by this app.
+
+### Filter
+
+```text
+Filter    = All | Nothing
+          | And(Vec<Filter>) | Or(Vec<Filter>) | Not(Box<Filter>)
+          | Account(AccountId)
+          | InMailbox(MailboxRole)
+          | Read(ReadState) | Starred(Star)
+          | HasLabel(LabelId)
+          | From(TextMatch) | To(TextMatch) | Subject(TextMatch) | Text(TextMatch)
+          | Date(DateRange)
+          | HasAttachment
+          | Snoozed | SnoozeDue
+          | Pinned
+
+TextMatch = Contains(String) | Exact(String)
+DateRange = { from: Option<DateTime<Utc>>, to: Option<DateTime<Utc>> }   // half-open [from, to)
+```
+
+Three deliberate changes from a naive design:
+
+- **Full-text folds in as `Filter::Text`.** A sibling `Query.fts` field makes
+  `Or(text_match, From(x))` inexpressible.
+- **Predicates, not state mirrors.** `Snoozed`/`SnoozeDue` instead of `Snooze(Snooze)`;
+  `HasAttachment` instead of `Attachments(Present { count })`, which would have meant "exactly
+  N attachments". An enum that mirrors a state enum is rarely a useful predicate.
+- **Relative dates resolve in the UI.** `Filter` only ever holds absolute instants, so a saved
+  view means the same thing when it is reloaded.
+
+```rust
+pub struct MatchCtx<'a> {
+    pub summary: &'a ThreadSummary,
+    pub body_text: Option<&'a str>,
+    pub now: DateTime<Utc>,
+}
+
+impl Filter {
+    pub fn fit(&self, ctx: &MatchCtx<'_>) -> bool;   // bool, not a Fit enum
+}
+```
+
+**`fit` and the SQL compiler are two implementations of one semantics and will diverge.** The
+bug looks like "search misses a message" and is miserable to find. Mitigations, both required:
+
+1. `MemoryStore::threads` is implemented *by calling `fit`* — never by a second hand-written
+   matcher.
+2. A proptest in `mail-store/tests/`: generate random `Filter`s and random `ThreadSummary` +
+   body corpora, assert `fit(f, ctx) ⟺ id ∈ sqlite_query(f)` for every row.
+
+### Ops and changes
+
+```text
+OpKind = Archive | Trash | Restore | Spam | MarkRead | MarkUnread
+       | Star | Unstar | AddLabel | RemoveLabel | Snooze | Pin
+
+Op     = Archive | Trash | Restore | Spam
+       | SetRead(ReadState) | SetStar(Star)
+       | Label(LabelId, Membership)
+       | SetSnooze(Snooze) | SetPin(Pin)
+
+Action = { target: Target, op: Op }
+```
+
+**Reply, Forward, and Send are not `Op` variants.** They were, and it forced `Op::Reply(Compose)`
+into `View.hover`, where no `Compose` exists yet. The root cause was conflating "which action"
+with "that action's payload". The fix: a reply *creates a draft*, and drafts have their own
+lifecycle.
+
+```rust
+impl Draft {
+    pub fn reply_to(msg: &Message, ident: &Identity, all: ReplyScope, now: DateTime<Utc>) -> Draft;
+    pub fn forward_of(msg: &Message, ident: &Identity, now: DateTime<Utc>) -> Draft;
+}
+// ReplyScope = Sender | All
+```
+
+`OpKind` is the fieldless mirror used wherever you need "what button is this" — hover strips,
+keybindings, undo labels.
+
+Applying an op is pure and returns its own inverse:
+
+```rust
+pub struct Applied {
+    pub forward: Patch,
+    pub inverse: Patch,          // computed here, where the prior value is known
+    pub remote: Option<ProtoOp>, // None when caps say this is local-only
+}
+
+impl Op {
+    pub fn apply(&self, target: &Target, thread: &Thread, msgs: &[Message],
+                 caps: &AccountCaps, now: DateTime<Utc>) -> Applied;
+}
+```
+
+Note `inverse` is produced **at apply time, not by `Op::invert()`**. A standalone `invert` cannot
+work: the inverse of `AddLabel(x)` on a thread that already had `x` is a no-op, and the inverse
+of `Archive` depends on which mailboxes the thread was in. The prior state is only available
+here.
+
+```text
+Change = MessageRead(MessageId, ReadState)
+       | MessageStar(MessageId, Star)
+       | MessageMailbox(MessageId, MailboxRole)
+       | MessageLabel(MessageId, LabelId, Membership)
+       | ThreadSnooze(ThreadId, Snooze)
+       | ThreadPin(ThreadId, Pin)
+       | MessageUpsert(Box<Message>)
+       | MessageDelete(MessageId)
+       | LabelUpsert(Label)
+       | DraftUpsert(Box<Draft>)
+       | DraftDelete(DraftId)
+
+Patch  = { id: ChangeId, changes: Vec<Change> }
+```
+
+`Change` is **domain-level**, never a SQL row. The previous draft defined `Patch` as "local row
+mutations", which put the SQLite schema inside `mail-domain`.
+
+### Ingest — bulk facts from a sync
+
+A sync fetch is not a `Patch`. It is large, it is not invertible, and it *is* the truth rather
+than an optimistic guess. Same enum for both means a 300-line match in `Store::apply`.
+
+```text
+Ingest = { mailbox: MailboxRef,
+           validity: UidValidity,
+           cursor: SyncCursor,
+           messages: Vec<Fetched>,                        // new or refetched
+           flags: Vec<(RemoteRef, ReadState, Star)>,      // cheap flag-only sync
+           labels: Vec<Label>,
+           gone: Vec<RemoteRef> }                         // expunged on the server
+
+Fetched = { remote: RemoteRef, key: MessageKey, raw: BlobId, message: Message }
+```
+
+`gone` is the fix for a real hole: nothing in the previous plan handled a message deleted from
+another client, so it would never disappear locally.
+
+### Drafts and sending
+
+```text
+Draft     = { id: DraftId, account, identity: IdentityId,
+              to, cc, bcc, subject,
+              in_reply_to: Option<MessageId>, forward_of: Option<MessageId>,
+              text: String, html: Option<String>,
+              attachments: Vec<PendingAttachment>,
+              state: SendState, updated: DateTime<Utc> }
+
+PendingAttachment = { name: String, mime: String, blob: BlobId }
+SendState = Editing
+          | Queued
+          | Sending
+          | Failed { reason: String, retry: Retry }
+          | Sent { at: DateTime<Utc>, message: Option<MessageId> }
+```
+
+Attachments are `BlobId`, never a path: reading the file is I/O and must happen in the runtime
+*before* the pure domain op. Drafts are persisted locally and, when
+`ServerLabels::Supported`, `APPEND`ed to the Drafts folder — but local-first, so an offline
+draft is never lost.
+
+### Remote work and failure
+
+```text
+ProtoOp  = FetchCaps
+         | ListFolders
+         | FetchEnvelopes { mailbox: MailboxRef, since: FetchSince }
+         | FetchBody { remote: RemoteRef }
+         | SetFlags { remotes: Vec<RemoteRef>, read: Option<ReadState>, star: Option<Star> }
+         | SetMailbox { remotes: Vec<RemoteRef>, role: MailboxRole }
+         | SetLabels { remotes: Vec<RemoteRef>, add: Vec<String>, remove: Vec<String> }
+         | Append { mailbox: MailboxRef, raw: BlobId, role: MailboxRole }
+         | Submit { draft: DraftId, raw: BlobId }
+         | Expunge { remotes: Vec<RemoteRef> }
+         | Watch { mailbox: MailboxRef }
+
+FetchSince = Beginning | After { cursor: SyncCursor }
+
+Retry    = Now
+         | After(Duration)
+         | NeedsReauth                 // token revoked, password rejected
+         | Fatal(String)               // message gone, permanent 5xx reject
+```
+
+`Retry` is the missing piece that made the outbox undesignable: backoff has nothing to decide on
+without a retryable/fatal/needs-user split, and "reconnect this account" is a UI state that has
+to come from somewhere. Every error type in the workspace exposes `fn retry(&self) -> Retry`.
+
+### Presets (module, not a crate)
+
+`mail_domain::presets` maps a domain string to an `AccountPlan` plus *expected* `AccountCaps`.
+
+| Domain | Incoming | Outgoing | Auth |
+|---|---|---|---|
+| `gmail.com`, `googlemail.com`, Workspace | IMAP `imap.gmail.com:993` Implicit; expected caps: labels Supported, threads ProviderId, watch Idle, archive DropInbox, condstore Supported | SMTP `smtp.gmail.com:465` Implicit | OAuth `{ issuer: Google }`, `Username::SameAsAddress` |
+| `ntu.edu.tw` | POP3 `msa`/`ccms`.ntu.edu.tw:995 Implicit, `LeaveOnServer::Keep` | SMTP `smtps.ntu.edu.tw:465` Implicit | Password, `Username::LocalPart`, sasl `[Login, Plain]` |
+
+Host choice for `ntu.edu.tw` (student-id vs. name local-part) is preset logic kept next to the
+table. Nothing in the domain is named after a school or a vendor except `OAuthIssuer::Google`,
+which names an authorization server, not a mail provider.
+
+### Threading
+
+JWZ (RFC 5256) over parsed `Message-Id` / `In-Reply-To` / `References`, **written in this crate**
+— roughly 300 lines. `ServerThreads::ProviderId` lets an adapter supply `X-GM-THRID` as a hint,
+but JWZ still runs so POP3 and IMAP share one set of `ThreadId` rules. See
+[Dependencies](#dependencies) for why this is not an external crate.
+
+---
+
+## `mail-mime`
+
+Pure. `&[u8]` in, domain types out.
+
+```rust
+pub fn parse(raw: &[u8]) -> Result<Parsed, MimeError>;          // mail-parser
+pub fn build(draft: &Draft, parts: &[(BlobId, &[u8])]) -> Result<Vec<u8>, MimeError>;  // mail-builder
+pub fn sanitize(html: &str, policy: SanitizePolicy) -> SafeHtml; // ammonia
+
+pub struct SanitizePolicy { pub remote_images: RemoteImages, pub version: u32 }
+pub enum RemoteImages { Blocked, Allowed }
+```
+
+`SanitizePolicy::version` is bumped whenever the policy or the `ammonia` major changes, and it
+is part of the cache key for rendered HTML. Both `mail-proto` (parsing fetched bytes, building
+outgoing messages) and `mail-app` (rendering) depend on this crate; that is exactly why it
+cannot live inside `mail-proto`.
+
+---
+
+## `mail-proto`
+
+Depends on `mail-mime` + `mail-domain`. No sockets, no async runtime, no `std::net`, no
+`std::time::Instant`. Tests are byte transcripts in `tests/traces/`.
+
+### The one shape
+
+```rust
+pub enum Progress<T> {
+    Need(Vec<IoNeed>),
+    Done(T),
+    Failed(ProtoError),
+}
+
+pub enum IoNeed {
+    Write(Vec<u8>),
+    Read,
+    Flush,
+    OpenTls { host: String, port: u16, mode: Tls },
+    Sleep(Duration),
+    Close,
+}
+
+pub enum IoReady {
+    Bytes(Vec<u8>),
+    Eof,
+    TlsOpen,
+    Woke,
+    Interrupt,          // runtime asks the machine to wind down gracefully
+}
+
+pub trait Machine {
+    type Out;
+    fn start(&mut self) -> Progress<Self::Out>;
+    fn feed(&mut self, ready: IoReady) -> Progress<Self::Out>;
+}
+```
+
+Three things this shape buys that the previous `trait IoDrive { fn pump(&mut self, need) -> IoReady }`
+could not:
+
+- **It is implementable.** `pump` was synchronous while `TokioDrive` must `await`. The only
+  reconciliations were `block_on` inside the reactor or making the entire backend chain `async fn`
+  in trait, losing `dyn` and the generic. Returning needs to a runtime-owned loop has neither
+  problem.
+- **Completion and output exist.** The previous `Session::feed(IoReady) -> Vec<IoNeed>` had no way
+  to say "the FETCH is finished" or to hand back the envelopes.
+- **`IoReady::Interrupt` is the cancellation surface.** IMAP IDLE blocks for up to 29 minutes;
+  when the user archives a thread the runtime must inject `DONE` and reuse the connection. There
+  was previously no way to express this anywhere in the design.
+
+Partial reads are natural: `feed(Bytes(..))` with an incomplete response returns
+`Progress::Need(vec![IoNeed::Read])` again.
+
+### Machines
+
+| Machine | `Out` | Purpose |
+|---|---|---|
+| `ImapSession` | `ImapReply` | capability, auth, select, fetch, store, idle, logout |
+| `Pop3Session` | `Pop3Reply` | USER/PASS or SASL, UIDL, RETR, DELE, QUIT |
+| `SmtpSession` | `SmtpReply` | EHLO, AUTH PLAIN/LOGIN/XOAUTH2, MAIL/RCPT/DATA |
+| `OauthPkce` | `Credential` | authorize URL, redirect consumption, refresh |
+| `ImapBackend` | `ProtoOutcome` | `ProtoOp` → IMAP walk → `Ingest`/confirmation |
+| `Pop3Backend` | `ProtoOutcome` | `ProtoOp` → POP3 walk → `Ingest`/confirmation |
+| `FakeBackend` | `ProtoOutcome` | fixtures, no bytes at all |
+
+```rust
+pub enum ProtoOutcome {
+    Ingested(Ingest),
+    Caps(AccountCaps),
+    Applied,                              // flags/labels confirmed on the server
+    Submitted { remote: Option<RemoteRef> },
+    Woken,                                // IDLE saw activity; runtime schedules a fetch
+}
+
+pub trait Backend {
+    fn begin(&mut self, op: ProtoOp) -> Progress<ProtoOutcome>;
+    fn feed(&mut self, ready: IoReady) -> Progress<ProtoOutcome>;
+    fn caps(&self) -> &AccountCaps;
+}
+```
+
+Backends are machines of the same shape as sessions — that is why there is no separate
+`mail-adapters` crate and no `IoDrive` trait. A backend test is a byte transcript, identical in
+kind to a session test.
+
+There is **no `Session` trait beyond `Machine`**. `Session` was not a seam: nothing ever swaps
+IMAP for POP3 at the session level, and the four impls have unrelated `Out` types.
+
+### Backend behaviour
+
+- **`ImapBackend`** — reads `AccountCaps`. `ServerLabels::Supported` maps `LIST` results and
+  keywords (plus `X-GM-LABELS` when advertised) into labels. `ArchiveMeans::DropInbox` archives
+  by removing `INBOX` membership; `MoveToFolder` uses `MOVE` when `MoveExt::Supported`, else
+  `COPY`+`STORE \Deleted`+`EXPUNGE`. `WatchMode::Idle` uses IDLE. `Condstore::Supported` fetches
+  flags with `CHANGEDSINCE`. `\Seen` ↔ `ReadState`, `\Flagged` ↔ `Star`. Non-special folders
+  become `LabelOrigin::Provider` labels.
+- **`Pop3Backend`** — `UIDL` every poll, diff against `remote_map`, `RETR` what is new.
+  `SetMailbox`/`SetLabels` produce no wire traffic and confirm immediately. `WatchMode` is always
+  `Poll`. `LeaveOnServer` controls `DELE`.
+- **`FakeBackend`** — fixtures to `Ingest`, no I/O, used from phase 3 onward.
+
+SMTP is not a third incoming backend; it is `Outgoing`, driven by both.
+
+### Generic IMAP folders
+
+A plain IMAP account with `ServerLabels::LocalOnly` organizes by arbitrary folders
+(`Work/2024`). `MailboxRole` is a closed six-variant enum on purpose, so the rule is explicit:
+**special-use folders map to roles via `FolderRoles`; every other folder becomes a
+`LabelOrigin::Provider` label.** Moving a thread to such a label is a `SetLabels` that the
+backend translates into an IMAP `MOVE`.
+
+---
+
+## `mail-store`
+
+SQLite (WAL) via `rusqlite` with `bundled` + `fts5`. Does disk I/O. Opens no sockets.
+
+```rust
+pub trait Store {
+    fn threads(&self, q: &Query, now: DateTime<Utc>) -> Result<Page<ThreadSummary>, StoreError>;
+    fn count(&self, f: &Filter, now: DateTime<Utc>) -> Result<u64, StoreError>;
+    fn thread(&self, id: ThreadId) -> Result<Thread, StoreError>;
+    fn message(&self, id: MessageId) -> Result<Message, StoreError>;
+
+    fn apply(&self, account: AccountId, patch: &Patch) -> Result<(), StoreError>;
+    fn ingest(&self, account: AccountId, ingest: Ingest) -> Result<Patch, StoreError>;
+
+    fn enqueue(&self, op: ProtoOp, undo: &Patch) -> Result<OutboxId, StoreError>;
+    fn outbox_due(&self, now: DateTime<Utc>) -> Result<Vec<OutboxEntry>, StoreError>;
+    fn outbox_settle(&self, id: OutboxId, result: Settle) -> Result<(), StoreError>;
+}
+```
+
+`threads` is **paginated** and there is a separate `count`. Returning `Vec<ThreadSummary>` for a
+whole view is fatal at 100k threads, and it is a trait signature that propagates into every
+caller; sidebar unread badges need counts without loading rows.
+
+`ingest` returns a `Patch` describing what actually changed, so the UI can refresh precisely
+instead of re-querying everything.
+
+### Tables
+
+`accounts` (`AccountPlan` as JSON + `schema_version`), `account_caps`, `identities`, `labels`,
+`threads`, `messages`, `message_labels`, `thread_summary`, `blobs`, `views`, `drafts`,
+`remote_map` (account, mailbox, uidvalidity, uid | uidl → message_id — **many-to-one**),
+`sync_state` (`MailboxRef` → `SyncCursor`), `outbox`, `pending_changes` (message_id → outbox_id),
+`messages_fts` (FTS5 over subject, from, text body).
+
+Blobs are hash-addressed files under `~/.local/share/mailo/blobs/`; small parts may live inline.
+Raw `.eml`, unsanitized HTML, and attachments all go here.
+
+### Reconciliation
+
+The rule that makes optimistic apply safe, and the one the previous draft was missing entirely:
+
+1. A user op writes `Patch` immediately and enqueues a `ProtoOp` plus its `undo` patch.
+   `pending_changes` records which messages are affected.
+2. An `Ingest` arrives carrying server truth. For each message, the store writes the server
+   value, then **re-applies every still-pending `Change` on top of it** before committing.
+3. On `Settle::Ok`, pending rows are cleared.
+4. On `Settle::Failed(Retry::Fatal(_))` or `NeedsReauth` after the user declines, the `undo`
+   patch is applied and the UI is told.
+
+Without step 2, the next poll after starring a message flips the star back and the UI flickers.
+This is the single most common bug in optimistic mail clients.
+
+### Ordering
+
+Per account, the outbox drains **serially**. Two ops on one thread plus an `Ingest` arriving
+between them otherwise have no defined result.
+
+### Migrations
+
+`accounts` stores a serialized `AccountPlan`; the moment `AccountPlan` gains a field, every
+stored account fails to deserialize and the app will not start. Required from day one:
+
+- A `schema_version` table and numbered, forward-only migration steps.
+- `#[serde(default)]` on every added field, enforced by review.
+- A test that opens a checked-in fixture DB from each prior version and migrates it.
+
+---
+
+## `mail-runtime`
+
+Tokio. One task per account. **This crate owns every loop.**
+
+```rust
+pub struct AccountEngine<B: Backend> {
+    plan:    AccountPlan,
+    caps:    AccountCaps,
+    backend: B,
+    store:   Arc<SqliteStore>,
+    secrets: Arc<dyn Secrets>,
+}
+```
+
+One generic parameter, not five. `Store` and `Secrets` are process-wide singletons — one SQLite
+file with one WAL connection pool, one keyring — so making them type parameters (or worse,
+`Box<dyn Store>` per account) misrepresents ownership. There is no `Clock` parameter; `now` is an
+argument.
+
+```rust
+pub trait Secrets: Send + Sync {
+    fn get(&self, key: &SecretKey) -> Result<Credential, SecretError>;
+    fn put(&self, key: &SecretKey, value: &Credential) -> Result<(), SecretError>;
+}
+```
+
+The drive loop, which is the only place `await` meets a protocol machine:
+
+```rust
+loop {
+    tokio::select! {
+        ready = transport.next(needs) => match backend.feed(ready) {
+            Progress::Need(n)  => needs = n,
+            Progress::Done(o)  => { settle(o)?; break }
+            Progress::Failed(e) => { retry(e.retry())?; break }
+        },
+        cmd = commands.recv() => {
+            // user acted mid-IDLE: wind the machine down and take the new op
+            needs = match backend.feed(IoReady::Interrupt) { .. };
+        }
+    }
+}
+```
+
+Per-account responsibilities: connect and refresh `AccountCaps`; watch (IDLE or interval) →
+`FetchEnvelopes` → `Ingest` → store → notify UI; drain the outbox serially with backoff driven by
+`Retry`; refresh OAuth credentials before `expires_at`; surface `NeedsReauth` to the UI.
+
+Secrets via `keyring` (Secret Service). Tokens and passwords never touch SQLite. TLS via
+`rustls` + `tokio-rustls` + `webpki-roots`. Desktop notifications via `notify-rust`.
+
+The OAuth loopback redirect listener lives here. It must send and verify a `state` parameter in
+addition to PKCE.
+
+---
+
+## `mail-app`
+
+Dioxus 0.7 desktop (`dioxus` + `dioxus-desktop`), WebKitGTK on Fedora.
+
+- Sidebar: `View` list. Inbox is `Filter::InMailbox(Inbox)`. Badges come from `Store::count`.
+- List: `store.threads(&query, now)`, paginated, infinite-scrolled off `Page::next`.
+- Hover strip: `view.hover: Vec<OpKind>` → `Action { target, op }`.
+- Reading: raw HTML from the blob through `mail_mime::sanitize` at render time, into a
+  **sandboxed iframe** (`srcdoc`, no `allow-same-origin`). Remote images blocked by default.
+- `cid:` resolves through a custom protocol handler keyed on **`BlobId` only** — never a path.
+  A path-shaped handler is a directory-traversal bug driven by untrusted mail.
+- Compose: edits a `Draft`, autosaves through `Op`-free `Change::DraftUpsert`, sends via
+  `SendState`.
+
+Depends on `mail-runtime`, `mail-domain`, `mail-mime`. Not on `mail-proto`.
+
+---
+
+## Dependencies
+
+Versions checked against crates.io on 2026-09-22.
+
+| Crate | Version | Role | Notes |
+|---|---|---|---|
+| `mail-parser` | 0.11.9 | MIME parse | Stalwart. Healthy. |
+| `mail-builder` | 1.0.0 | MIME build | 1.0, not 0.5 |
+| `ammonia` | 4.2.0 | HTML sanitize | |
+| `rusqlite` | 0.40.2 | store | features `bundled`, `fts5`. Not 0.32. |
+| `keyring` | 4.2.0 | secrets | Not 3. |
+| `tokio` | 1 | runtime | |
+| `rustls` / `tokio-rustls` / `webpki-roots` | current | TLS | |
+| `dioxus` | 0.7.10 | UI | 0.8 is alpha; stay on 0.7 |
+| `notify-rust` | 4.18 | notifications | |
+| `serde` / `uuid` / `chrono` / `thiserror` | current | domain | |
+| `io-imap` | 0.6 | IMAP sans-I/O | pimalaya. **Decide in phase 0.** |
+| `io-smtp` | 0.3 | SMTP sans-I/O | pimalaya, XOAUTH2 + PLAIN |
+| `io-oauth` | 0.3 | OAuth coroutines | 0.3, not 0.2 |
+| `imap-codec` | 1.0.0 | IMAP types | **v2 does not exist.** Fallback with `imap-next` 0.3.4 |
+| `oauth2` | 5.0.0 | Google PKCE | fallback for `io-oauth` |
+| `lettre` | 0.11.23 | SMTP | fallback for `io-smtp`; does its own I/O |
+| `async-imap` | 0.11.3 | IMAP | last resort; tokio-native, abandons sans-I/O |
+
+**Write JWZ threading ourselves.** `mail-threading` 0.1.3 exists but has ~1,400 lifetime
+downloads, one unknown author, and no activity since June 2026. That is an unacceptable
+dependency for a core correctness algorithm that you will want to tune against your own corpus
+anyway. It is ~300 lines in `mail-domain`.
+
+**Write `Pop3Session` ourselves.** POP3 is small and no good sans-I/O crate exists. 200–400 lines.
+
+**Commit to one implementation per protocol after phase 0.** The pimalaya `io-*` trio is the
+largest schedule risk in the project: three 0.x crates, one maintainer, ~6k downloads each. The
+mitigation is real — our own `IoNeed`/`IoReady` boundary means a swap does not touch
+`mail-domain` — but that only holds if the boundary is *the* interface rather than a hedge.
+Phase 0 evaluates `io-imap` against a real Gmail connection and the decision is written down,
+with the swap cost to `imap-next` estimated.
+
+Skipped: `imap` 2.4 (unmaintained), `melib` (GPL), `email-lib` (superseded by `io-*`),
+Microsoft Graph, `io-gmail` REST (IMAP suffices for v1).
+
+---
+
+## Phases
+
+### 0 — Spike (one day, thrown away)
+
+A single dirty script, no crates, no types, deleted when done.
+
+- OAuth into Gmail with your own installed-app client id; dump `CAPABILITY`, `LIST (SPECIAL-USE) "" "*"`,
+  and `FETCH 1:5 (UID FLAGS ENVELOPE BODYSTRUCTURE X-GM-MSGID X-GM-THRID X-GM-LABELS)`.
+- Confirm the same message in `INBOX` and `[Gmail]/All Mail` under different UIDs.
+- Check whether `CONDSTORE`/`QRESYNC`/`MOVE` are advertised.
+- POP3 to `ntu.edu.tw`: `UIDL`, `LIST`, `RETR 1`, and whether it wants `LOGIN` or `PLAIN`.
+- Pump `io-imap` from tokio for ten minutes and see whether it is pleasant.
+
+**Why this is first:** the previous plan froze `RemoteRef`, `AccountCaps`, `ProtoOp`, and
+`SyncCursor` in phase 1 with zero contact with a real server, and deferred Gmail — the source of
+every hard question in this document — to the *last* substantial phase. It also asked phase 2 for
+"recorded traces" that cannot be recorded without first connecting. One day here removes both
+problems and the dumps become the phase-2 fixtures.
+
+**Done when:** raw transcripts are saved to `crates/mail-proto/tests/traces/` (credentials
+scrubbed) and the `io-imap` decision is written down.
+
+### 1 — Workspace + `mail-domain`
+
+- Root workspace with all six members; stub `lib.rs` elsewhere.
+- All types above, serde with `#[serde(default)]` discipline.
+- `Filter::fit`, `Op::apply` (returning `Applied` with its inverse), `ThreadSummary::derive`,
+  JWZ threading, the presets table.
+- Table-driven tests plus a proptest that `apply` then `inverse` round-trips to the original
+  state.
+
+**Done when:** `cargo test -p mail-domain` covers filter, derive, threading, and archive/label
+apply+invert. `cargo tree -p mail-domain -i tokio` is empty.
+
+### 2 — `mail-mime` + `mail-proto`
+
+- `parse` / `build` / `sanitize`; a reply round-trips with correct `In-Reply-To` / `References`.
+- `Pop3Session` against the phase-0 transcript.
+- `ImapSession` (or the chosen wrapper) against the phase-0 Gmail transcript.
+- `SmtpSession` AUTH PLAIN and XOAUTH2 as byte scripts.
+- `ImapBackend` / `Pop3Backend` as `Backend` machines, transcript-driven.
+
+**Done when:** proto tests pass against **zero** live servers.
+
+### 3 — `mail-store`
+
+- Schema, migrations + a fixture-DB migration test, `apply`, `ingest`, FTS, `remote_map`,
+  `sync_state`, outbox.
+- `MemoryStore` implemented via `Filter::fit`.
+- The `fit` ⟺ SQL proptest.
+- `FakeBackend` ingesting 20 fixture messages.
+
+**Done when:** a test ingests fixtures, archives one, labels one, searches, paginates, and the
+reconciliation rule is exercised by an `Ingest` that contradicts a pending change.
+
+### 4 — POP3 + SMTP live
+
+Password from keyring, POP poll, SMTP send to self, `LeaveOnServer::Keep`, local archive.
+First live preset: `ntu.edu.tw`.
+
+**Done when:** a tiny CLI lists, opens, and replies through the POP3 backend.
+
+### 5 — IMAP + OAuth live
+
+Own Google OAuth client (installed app, PKCE + `state`, loopback redirect). IDLE, `CONDSTORE`
+flag sync, `UIDVALIDITY` reset handling, expunge handling, labels. First live preset:
+`gmail.com`.
+
+**Done when:** the same CLI works through the IMAP backend, and killing the app mid-sync and
+restarting produces no duplicates.
+
+### 6 — Dioxus shell
+
+Three panes, view list, paginated list, sandboxed HTML, compose and drafts, runtime channel →
+Dioxus signals.
+
+**Done when:** it is the daily driver for both accounts on Fedora.
+
+---
+
+## Test strategy
+
+- **Domain** — table-driven unit tests plus proptests for `apply`/`inverse` round-trip and
+  `ThreadSummary::derive`.
+- **Proto** — byte transcripts in `mail-proto/tests/traces/`, recorded in phase 0, scrubbed.
+  Backends and sessions test identically because they are the same shape.
+- **Store** — tempfile SQLite; the `fit` ⟺ SQL proptest; migration tests against checked-in
+  fixture databases.
+- **Reconciliation** — a dedicated suite: pending change + contradicting `Ingest`, fatal outbox
+  failure + undo, `UIDVALIDITY` reset mid-flight.
+- **Live** — behind `#[ignore]`, in `mail-runtime`.
+
+---
+
+## Non-goals (v1)
+
+Microsoft Graph / Exchange. Calendar and invites. CardDAV (local frecency contacts from message
+history are in scope; a protocol is not). OpenPGP / S/MIME. Nested labels. Proton. Incoming
+protocols beyond IMAP and POP3. Multi-device sync of local-only state (views, pins, snoozes).
+
+Unified inbox is `Filter` without an `Account` clause. Note honestly that a conversation you are
+on from both accounts appears twice, because `ThreadId` is per account. Cross-account thread
+merging is a v2 problem.
+
+---
+
+## Risk notes
+
+- **pimalaya `io-*` are 0.x, single-maintainer, blocking-coroutine shaped.** Largest schedule
+  risk. Phase 0 decides; the `IoNeed`/`IoReady` boundary keeps `mail-domain` unaffected by a swap
+  to `imap-next` + `lettre`.
+- **Gmail's folder/label duality** is the main modelling risk and is why phase 0 exists. The
+  many-to-one `remote_map` and `MessageKey` deduplication are the defenses.
+- **`fit` vs. SQL divergence** — two implementations of one semantics. Defended by `MemoryStore`
+  reusing `fit` and by the proptest. If the proptest is ever skipped, this bug ships.
+- **Serialized `AccountPlan` in SQLite** — a field addition bricks startup without migrations.
+  Cheap to build now, expensive to retrofit after real accounts exist.
+- **POP3 has no push.** Poll interval and a later "purge server" action are product decisions,
+  not protocol types. Server quota is a fact you observe, not a type.
+- **Gmail OAuth client id is yours.** Personal use of an unverified installed-app client is fine;
+  distributing to other people is a separate Google verification problem, and restricted Gmail
+  scopes make it a real one.
+- **Untrusted HTML in WebKit.** Sanitize at render, sandboxed iframe without `allow-same-origin`,
+  remote images blocked by default, `cid:` keyed on `BlobId`. Never render mail in the app origin.
+- **TLS to campus servers.** If NTU presents a chain `webpki-roots` rejects, resist adding a
+  global "accept invalid certs" switch. If it becomes unavoidable, it is per-account, explicit in
+  `AccountPlan`, and loud in the UI.
+
+---
+
+## Changes from the first draft
+
+Recorded so the diff is reviewable rather than archaeological.
+
+**Corrected — these were wrong, not merely improvable:**
+
+1. `IoDrive` deleted. `pump(IoNeed) -> IoReady` was synchronous and could not be implemented over
+   tokio; it also had no cancellation path for IDLE. Replaced by `Progress` + a runtime-owned
+   loop + `IoReady::Interrupt`.
+2. `RemoteRef ↔ MessageId` is **not** a bijection. Gmail stores one message in several mailboxes
+   under different UIDs. `remote_map` is many-to-one; identity is `MessageKey`.
+3. `RemoteRef` and `ProtoOp` moved to `mail-domain`. The ownership table put them in
+   `mail-adapters` while the dependency graph gave `mail-store` — which persists both — no way to
+   see them.
+4. `Patch` split into `Patch`/`Change` (domain-level, invertible, optimistic) and `Ingest` (bulk
+   server truth, with `gone` for expunges). It was previously undefined and described as "row
+   mutations", putting the SQL schema inside the domain.
+5. `imap-codec` 2 does not exist (1.0.0); `rusqlite` 0.32 → 0.40, `mail-builder` 0.5 → 1.0,
+   `keyring` 3 → 4, `io-oauth` 0.2 → 0.3.
+
+**Added — missing surfaces:**
+
+6. `SyncCursor` per mailbox, `UidValidity` reset, `Condstore`, expunge/`gone`.
+7. The reconciliation rule for optimistic apply, `pending_changes`, and undo-on-fatal.
+8. `Retry` (`Now`/`After`/`NeedsReauth`/`Fatal`) so the outbox has something to decide on.
+9. Drafts as first-class (`Draft`, `SendState`, `PendingAttachment`), `Identity`, signatures.
+10. Pagination (`PageReq`/`Page`) and `Store::count`; plural `Target` for bulk selection.
+11. `AccountCaps` split from `AccountPlan`; `FolderRoles` and the generic-IMAP folder rule.
+12. `MessageKey`, `SaslMech`, `Username::Literal`, `Credential` with expiry, per-purpose
+    `SecretKey`.
+13. SQLite migrations and migration tests.
+14. Serial outbox ordering per account; OAuth `state` alongside PKCE; `cid:` keyed on `BlobId`.
+
+**Simplified:**
+
+15. `Session` trait deleted — it was not a seam and could not express completion or output.
+16. `AccountEngine<B, S, K, C, D>` → `AccountEngine<B>`; `Store`/`Secrets` are shared singletons.
+17. `Clock` trait deleted; `now` is an argument.
+18. `Fit = In | Out` → `bool`. The no-bool rule is about state fields, not predicate returns.
+19. `Op::Reply`/`Forward`/`Send` → draft constructors + `SendState`; `OpKind` added for hover
+    strips and keybindings. `Op::invert()` → `Applied { forward, inverse }`, because an inverse
+    needs the prior state.
+20. `Calendar` dropped (non-goal, and a bool in a costume). `Filter` predicates replaced state
+    mirrors: `Snoozed`/`SnoozeDue`/`HasAttachment`/`Pinned`; FTS folded in as `Filter::Text`.
+21. Seven crates → six: `mail-profiles` became `mail_domain::presets`, `mail-adapters` merged
+    into `mail-proto`, `mail-mime` added so `mail-app` can sanitize without `mail-proto`.
+22. `html_safe` no longer persisted; sanitize at render, cache by policy version.
+23. `Tls` has no opportunistic StartTLS variant.
+24. `mail-threading` dropped as a dependency; JWZ written in `mail-domain`.
+
+**Resequenced:**
+
+25. Phase 0 spike added, ahead of type design, producing both the facts and the trace fixtures.
+
+**Found while writing the interface freeze** (`crates/mail-domain/src/`, `CONVENTIONS.md`,
+`crates/mail-store/migrations/0001_initial.sql`) — these are corrections to *this* document,
+caught because the freeze has to compile:
+
+26. `Fetched.parsed: mail_mime::Parsed` was a **dependency cycle**: `Ingest` lives in
+    `mail-domain`, and `mail-mime` depends on `mail-domain`. Parsing happens in `mail-proto`,
+    so `Fetched` carries a finished domain `Message`.
+27. `ThreadSummary::derive(id, messages)` could not produce `snooze` and `pin` — they are
+    thread-level state the user set, and no message carries them. They are now arguments.
+28. `Message` had **no `labels` field**, so `ThreadSummary.labels` had nothing to union over.
+    Labels live on messages; the thread's set is the union.
+29. `Change::ThreadLabel` became `Change::MessageLabel`. A change must name a message to be
+    precisely invertible, since the thread's labels are derived.
+30. Added a materialized `thread_summary` table. Every derived field of `ThreadSummary` was
+    specified but had nowhere to live, and recomputing a list query by aggregating over
+    messages per row does not survive a real mailbox. It is a cache and can be rebuilt.

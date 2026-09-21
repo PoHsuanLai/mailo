@@ -1,0 +1,16 @@
+[
+  {
+    "kind": "imap",
+    "v": {
+      "mailbox": "[Gmail]/All Mail",
+      "uidvalidity": 12,
+      "uid": 4294967295
+    }
+  },
+  {
+    "kind": "pop",
+    "v": {
+      "uidl": "UID-1"
+    }
+  }
+]

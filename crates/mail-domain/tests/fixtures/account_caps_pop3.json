@@ -1,0 +1,21 @@
+{
+  "labels": "local_only",
+  "threads": "jwz",
+  "watch": {
+    "kind": "poll",
+    "v": {
+      "every": {
+        "secs": 300,
+        "nanos": 0
+      }
+    }
+  },
+  "archive": {
+    "kind": "move_to_folder",
+    "v": "Archive"
+  },
+  "folders": [],
+  "condstore": "absent",
+  "move_ext": "absent",
+  "observed_at": "2026-01-03T04:05:06Z"
+}

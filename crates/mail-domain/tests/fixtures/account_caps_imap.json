@@ -1,0 +1,23 @@
+{
+  "labels": "supported",
+  "threads": "provider_id",
+  "watch": {
+    "kind": "idle"
+  },
+  "archive": {
+    "kind": "drop_inbox"
+  },
+  "folders": [
+    [
+      "INBOX",
+      "inbox"
+    ],
+    [
+      "[Gmail]/All Mail",
+      "archive"
+    ]
+  ],
+  "condstore": "supported",
+  "move_ext": "supported",
+  "observed_at": "2026-01-03T04:05:06Z"
+}

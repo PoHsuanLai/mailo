@@ -1,0 +1,19 @@
+[
+  {
+    "kind": "now"
+  },
+  {
+    "kind": "after",
+    "v": {
+      "secs": 90,
+      "nanos": 0
+    }
+  },
+  {
+    "kind": "needs_reauth"
+  },
+  {
+    "kind": "fatal",
+    "v": "message gone"
+  }
+]
