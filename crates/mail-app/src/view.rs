@@ -400,6 +400,106 @@ pub fn hover_actions(summary: &ThreadSummary) -> Vec<OpKind> {
     out
 }
 
+/// What a keystroke means.
+///
+/// The shell had no keyboard at all: not a key handler anywhere in it, so moving between
+/// conversations, opening one, archiving, starring, replying and closing a half-written reply
+/// were each a mouse click and nothing else. A mail client is a thing people spend hours a day
+/// in, and this is the part of "daily driver" that does not depend on anyone's taste.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Shortcut {
+    /// Move to the next conversation and open it.
+    Next,
+    /// Move to the previous one.
+    Previous,
+    /// Close the composer if one is open, otherwise close the reader.
+    Back,
+    /// Archive the open conversation.
+    Archive,
+    /// Move it to the trash.
+    Trash,
+    /// Star it, or unstar it if it is already starred.
+    ToggleStar,
+    /// Mark it read, or unread if it is already read.
+    ToggleRead,
+    /// Reply to its newest message.
+    Reply,
+    /// Reply to everyone on it.
+    ReplyAll,
+}
+
+/// The shortcut a key press means, or `None` for a key that is not one.
+///
+/// `typing` is the whole of the safety here. A letter is a shortcut when the user is reading and
+/// a letter when they are writing, and a client that gets that wrong archives a conversation
+/// because someone typed "e" into a reply. Only `Escape` survives it — closing what you are
+/// typing in is the one thing you must be able to do from inside it.
+///
+/// Keys are named as the DOM names them, so the caller does not have to invent a second
+/// vocabulary for the same events.
+pub fn shortcut(key: &str, typing: bool) -> Option<Shortcut> {
+    if key == "Escape" {
+        return Some(Shortcut::Back);
+    }
+    if typing {
+        return None;
+    }
+    Some(match key {
+        "j" | "ArrowDown" => Shortcut::Next,
+        "k" | "ArrowUp" => Shortcut::Previous,
+        "e" => Shortcut::Archive,
+        "#" | "Delete" => Shortcut::Trash,
+        "s" => Shortcut::ToggleStar,
+        "u" => Shortcut::ToggleRead,
+        "r" => Shortcut::Reply,
+        "a" => Shortcut::ReplyAll,
+        _ => return None,
+    })
+}
+
+/// The operation a shortcut performs on this conversation, if it is one the conversation allows.
+///
+/// Resolved through [`hover_actions`] rather than by a second table, so the keyboard can reach
+/// exactly what the row's own buttons offer and nothing else — no un-archiving something that
+/// was never in the inbox, and no starring something that is already starred.
+///
+/// `None` for [`Shortcut::Reply`] and [`Shortcut::ReplyAll`], which open a composer rather than
+/// performing an operation, and for the movement keys.
+pub fn op_for_shortcut(shortcut: Shortcut, summary: &ThreadSummary) -> Option<OpKind> {
+    let offered = hover_actions(summary);
+    let wanted: &[OpKind] = match shortcut {
+        Shortcut::Archive => &[OpKind::Archive],
+        Shortcut::Trash => &[OpKind::Trash],
+        Shortcut::ToggleStar => &[OpKind::Star, OpKind::Unstar],
+        Shortcut::ToggleRead => &[OpKind::MarkRead, OpKind::MarkUnread],
+        Shortcut::Next | Shortcut::Previous | Shortcut::Back => &[],
+        Shortcut::Reply | Shortcut::ReplyAll => &[],
+    };
+    wanted.iter().copied().find(|op| offered.contains(op))
+}
+
+/// The conversation `Next` or `Previous` moves to.
+///
+/// Does not wrap. A list that jumps from the bottom back to the top loses the user's place in a
+/// way that is hard to notice and easy to act on — the next keystroke archives the wrong thing.
+/// Nothing open means the end you are coming from: the first row going down, the last going up.
+pub fn step(current: Option<ThreadId>, ids: &[ThreadId], forward: bool) -> Option<ThreadId> {
+    if ids.is_empty() {
+        return None;
+    }
+    let Some(here) = current.and_then(|id| ids.iter().position(|it| *it == id)) else {
+        // Nothing open, or something that is no longer in the list — archived out from under
+        // the selection, most often. Start from the end the movement comes from.
+        return Some(if forward { ids[0] } else { ids[ids.len() - 1] });
+    };
+    let next = if forward {
+        here.checked_add(1).filter(|i| *i < ids.len())
+    } else {
+        here.checked_sub(1)
+    };
+    Some(ids[next.unwrap_or(here)])
+}
+
 /// The `Op` a hover button performs, where it needs no payload.
 ///
 /// `None` for the ones that open a composer instead — a reply is a draft, not an operation.
@@ -1290,6 +1390,145 @@ mod badge_tests {
                 Source::Drafts => assert!(badge_filter(&place.source).is_none()),
             }
         }
+    }
+}
+
+/// The keyboard, which the shell did not have.
+#[cfg(test)]
+mod keyboard {
+    use super::*;
+
+    fn summary(read: ReadState, star: Star, mailbox: MailboxRole) -> ThreadSummary {
+        ThreadSummary {
+            id: ThreadId::generate(),
+            account: AccountId::generate(),
+            subject: "lunch".to_owned(),
+            snippet: String::new(),
+            from: Address {
+                name: None,
+                email: "ada@example.test".to_owned(),
+            },
+            participants: vec![],
+            recipients: vec![],
+            last_date: Utc.with_ymd_and_hms(2026, 9, 22, 0, 0, 0).unwrap(),
+            message_count: 1,
+            read,
+            star,
+            mailboxes: MailboxSet::only(mailbox),
+            labels: vec![],
+            attachments: Attachments::None,
+            snooze: Snooze::Inactive,
+            pin: Pin::Unpinned,
+        }
+    }
+
+    #[test]
+    fn a_letter_is_a_shortcut_while_reading_and_a_letter_while_writing() {
+        // The bug this exists to prevent: typing "e" into a reply archiving the conversation
+        // behind it.
+        assert_eq!(shortcut("e", false), Some(Shortcut::Archive));
+        assert_eq!(shortcut("e", true), None);
+        for key in ["j", "k", "s", "u", "r", "a", "#", "ArrowDown", "ArrowUp"] {
+            assert!(shortcut(key, false).is_some(), "{key} does nothing");
+            assert_eq!(shortcut(key, true), None, "{key} fired while typing");
+        }
+    }
+
+    #[test]
+    fn escape_works_from_inside_the_thing_it_closes() {
+        // The one exception, and it has to be: closing what you are typing in is not something
+        // you can be asked to reach for the mouse to do.
+        assert_eq!(shortcut("Escape", true), Some(Shortcut::Back));
+        assert_eq!(shortcut("Escape", false), Some(Shortcut::Back));
+    }
+
+    #[test]
+    fn a_key_that_is_not_a_shortcut_is_left_alone() {
+        for key in ["z", "F5", "Tab", "Shift", " ", "1"] {
+            assert_eq!(shortcut(key, false), None, "{key} was swallowed");
+        }
+    }
+
+    #[test]
+    fn star_and_read_resolve_against_what_the_thread_already_is() {
+        // Toggles, and resolved through `hover_actions` so the keyboard and the row's buttons
+        // cannot disagree about what is possible.
+        let unstarred = summary(ReadState::Unread, Star::Unstarred, MailboxRole::Inbox);
+        assert_eq!(
+            op_for_shortcut(Shortcut::ToggleStar, &unstarred),
+            Some(OpKind::Star)
+        );
+        assert_eq!(
+            op_for_shortcut(Shortcut::ToggleRead, &unstarred),
+            Some(OpKind::MarkRead)
+        );
+        let starred = summary(ReadState::Read, Star::Starred, MailboxRole::Inbox);
+        assert_eq!(
+            op_for_shortcut(Shortcut::ToggleStar, &starred),
+            Some(OpKind::Unstar)
+        );
+        assert_eq!(
+            op_for_shortcut(Shortcut::ToggleRead, &starred),
+            Some(OpKind::MarkUnread)
+        );
+    }
+
+    #[test]
+    fn a_shortcut_cannot_reach_what_the_row_would_not_offer() {
+        // Archiving something that is not in the inbox. The buttons do not offer it, so neither
+        // does the key — one table, not two.
+        let archived = summary(ReadState::Read, Star::Unstarred, MailboxRole::Archive);
+        assert_eq!(op_for_shortcut(Shortcut::Archive, &archived), None);
+        let inbox = summary(ReadState::Read, Star::Unstarred, MailboxRole::Inbox);
+        assert_eq!(
+            op_for_shortcut(Shortcut::Archive, &inbox),
+            Some(OpKind::Archive)
+        );
+        // And the ones that are not operations at all.
+        for shortcut in [Shortcut::Next, Shortcut::Back, Shortcut::Reply] {
+            assert_eq!(op_for_shortcut(shortcut, &inbox), None);
+        }
+    }
+
+    #[test]
+    fn moving_stops_at_the_ends_rather_than_wrapping() {
+        // A list that jumps from the bottom back to the top loses the user's place in a way that
+        // is hard to notice and easy to act on: the next keystroke archives the wrong thing.
+        let ids: Vec<ThreadId> = (0..3).map(|_| ThreadId::generate()).collect();
+        assert_eq!(step(Some(ids[0]), &ids, true), Some(ids[1]));
+        assert_eq!(
+            step(Some(ids[2]), &ids, true),
+            Some(ids[2]),
+            "wrapped forward"
+        );
+        assert_eq!(step(Some(ids[1]), &ids, false), Some(ids[0]));
+        assert_eq!(
+            step(Some(ids[0]), &ids, false),
+            Some(ids[0]),
+            "wrapped back"
+        );
+    }
+
+    #[test]
+    fn moving_with_nothing_open_starts_from_the_end_it_comes_from() {
+        let ids: Vec<ThreadId> = (0..3).map(|_| ThreadId::generate()).collect();
+        assert_eq!(step(None, &ids, true), Some(ids[0]));
+        assert_eq!(step(None, &ids, false), Some(ids[2]));
+        assert_eq!(
+            step(None, &[], true),
+            None,
+            "an empty list has nowhere to go"
+        );
+    }
+
+    #[test]
+    fn a_selection_that_left_the_list_does_not_strand_the_keyboard() {
+        // Archiving the open conversation removes it from an inbox listing while it is still
+        // `Shell::open`. The next keystroke has to go somewhere rather than nowhere.
+        let ids: Vec<ThreadId> = (0..2).map(|_| ThreadId::generate()).collect();
+        let gone = ThreadId::generate();
+        assert_eq!(step(Some(gone), &ids, true), Some(ids[0]));
+        assert_eq!(step(Some(gone), &ids, false), Some(ids[1]));
     }
 }
 

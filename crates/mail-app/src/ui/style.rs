@@ -8,6 +8,8 @@ pub(super) const STYLE: &str = r#"
 :root { color-scheme: light dark; --edge: color-mix(in oklab, currentColor 15%, transparent); }
 * { box-sizing: border-box; }
 body { margin: 0; font: 14px/1.5 system-ui, sans-serif; }
+/* Focusable for the keyboard, without a ring around the entire window. */
+.app:focus, .app:focus-visible { outline: none; }
 .app { display: grid; grid-template-columns: 180px minmax(340px, 32%) minmax(0, 1fr); height: 100vh; }
 .places { display: flex; flex-direction: column; gap: 2px; padding: 12px; border-right: 1px solid var(--edge); }
 .place { text-align: left; padding: 6px 10px; border: 0; border-radius: 6px; background: none; color: inherit; font: inherit; cursor: pointer; }

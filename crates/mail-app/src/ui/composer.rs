@@ -214,7 +214,11 @@ pub(super) fn Composer(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
 /// Reads the draft from the store rather than keeping a copy in the widgets, so a field the
 /// composer does not show — the identity, the Bcc list, what this replies to — is whatever the
 /// store says and not whatever was true when the composer opened.
-fn persist(store: &SqliteStore, editing: Option<&Composing>) -> Result<Draft, String> {
+/// Write what the composer holds back to the store.
+///
+/// `pub(super)` because Escape closes the composer too, and closing must save whatever is in the
+/// boxes — a second "close" that does not is how a keyboard loses a paragraph.
+pub(super) fn persist(store: &SqliteStore, editing: Option<&Composing>) -> Result<Draft, String> {
     let editing = editing.ok_or_else(|| "nothing is being composed".to_owned())?;
     let base = store.draft(editing.draft).map_err(|e| e.to_string())?;
     let edited = editing.apply_to(&base, chrono::Utc::now())?;

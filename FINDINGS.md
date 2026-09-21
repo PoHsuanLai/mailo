@@ -1987,3 +1987,50 @@ A search that matches nothing now says so and quotes the words, which are the pa
 be mistyped. An empty folder still says `Nothing here.`, because that one was right.
 
 Rendering the first run is how it was found, and the first-run page is now one of the dumps.
+
+### F103 — The shell had no keyboard, and the shell cannot run a spawned future
+
+Not one key handler anywhere in `mail-app/src/ui`. Moving between conversations, opening one,
+archiving, starring, replying and closing a half-written reply were each a mouse click and
+nothing else. A mail client is a thing people sit in for hours, and this is the part of "daily
+driver" that does not depend on anyone's taste.
+
+The decision layer is `view::shortcut`, `view::op_for_shortcut` and `view::step`, in the same
+shape as `op_for` and `hover_actions`, and it is tested:
+
+- **`typing` is the whole of the safety.** A letter is a shortcut while reading and a letter
+  while writing, and the client that confuses the two archives a conversation because someone
+  typed "e" into a reply. Every letter key is asserted dead while typing; `Escape` is asserted
+  alive, because closing what you are typing in is not something you can be asked to reach for
+  the mouse to do.
+- **Toggles resolve through `hover_actions`**, so `s` on a starred thread unstars it and `e` on
+  something that was never in the inbox does nothing — one table of what is possible, not two.
+- **Movement does not wrap.** A list that jumps from the bottom back to the top loses the user's
+  place in a way that is hard to notice and easy to act on: the next keystroke archives the wrong
+  thing. A selection that has left the list — archived out from under itself — lands at the end
+  the movement comes from rather than nowhere.
+
+Wiring it up turned over something larger: **a future spawned from a component body is never
+polled in this application.** `use_hook`'s closure runs and a `spawn` inside it never starts;
+`use_future` never runs its body at all. Both were established with prints that do not depend on
+any input reaching the window. Everything else followed from it — `document::eval` returns a
+handle that is driven by a task, so the script never ran; `MountedData::set_focus` is a future,
+so the root was never focused; and an unfocused root means keydown targets `body`, which is the
+root's *parent*, and events bubble up rather than down. `tabindex` alone does not help and
+`autofocus` does not either: that attribute is for form controls and WebKit ignores it on a div.
+
+So focus is held by a script injected with `Config::with_custom_head`, which needs nothing from
+Dioxus, and the handler is an ordinary `onkeydown`. A test asserts the two halves still name the
+same element, since they live in different files and renaming one silently turns the keyboard off.
+
+**What is not verified:** that a key press in the running window reaches this code. The
+instrument was not trustworthy — `xdotool getactivewindow` reported our window while
+`xdotool getwindowfocus` reported another, so under this compositor synthetic X key events may
+never have been delivered to the WebView at all, and every "nothing happened" in that experiment
+is equally explained by the keys not arriving. Recorded rather than dressed up: the decisions are
+tested, the wiring is argued, and the last inch is one more thing the daily-driver criterion is
+for. The spawned-future finding is *not* in that category — it stands on prints alone.
+
+It also means the Sync button, which spawns from a click handler, is worth a look by someone who
+can watch the window. Spawning from an event handler is a different path from spawning during a
+render and may well be fine; this could not settle it.

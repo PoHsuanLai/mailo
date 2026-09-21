@@ -5,8 +5,8 @@
 //! rendering a stranger's HTML.
 
 use crate::view::{
-    Listing, Reading, Shell, Stamp, SyncState, badge_filter, hover_actions, nothing_to_show,
-    op_for, synced,
+    Listing, Reading, Shell, Shortcut, Stamp, SyncState, badge_filter, hover_actions,
+    nothing_to_show, op_for, synced,
 };
 use chrono::Local;
 use dioxus::prelude::*;
@@ -23,6 +23,31 @@ mod style;
 use composer::Composer;
 use style::STYLE;
 
+/// Keep the app's root focused, so the keyboard has somewhere to land.
+///
+/// A keydown targets the focused element and bubbles *up*. `body` is that element until
+/// something focusable is clicked, and `body` is the root div's parent — so a Rust `onkeydown`
+/// on the div is never reached. `tabindex` alone does not fix it; `autofocus` does not either,
+/// being a form-control attribute WebKit ignores on a div; and focusing it from Rust needs an
+/// async task, which is the one thing that does not work here — a future spawned from a
+/// component body is never polled, so neither `spawn` nor `document::eval` nor `use_future` ever
+/// runs. Injected into the page head instead, where it needs nothing from Dioxus at all.
+const KEEP_FOCUS: &str = r#"<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const hold = () => {
+    const app = document.querySelector(".app");
+    if (app) { app.focus(); return true; }
+    return false;
+  };
+  if (!hold()) { const t = setInterval(() => { if (hold()) clearInterval(t); }, 50); }
+  // A click on anything that cannot take focus hands it back to `body`, which would silently
+  // turn the keyboard off until the next click on a button.
+  document.addEventListener("focusin", (event) => {
+    if (event.target === document.body) { hold(); }
+  });
+});
+</script>"#;
+
 /// Launch the shell.
 pub fn run(store: Arc<SqliteStore>) {
     dioxus::LaunchBuilder::desktop()
@@ -33,7 +58,8 @@ pub fn run(store: Arc<SqliteStore>) {
                         .with_title("mailo")
                         .with_inner_size(dioxus::desktop::LogicalSize::new(1200.0, 800.0)),
                 )
-                .with_menu(None),
+                .with_menu(None)
+                .with_custom_head(KEEP_FOCUS.to_owned()),
         )
         .with_context(store)
         .launch(App);
@@ -124,9 +150,89 @@ fn App() -> Element {
         nothing_to_show(accounts(&store).len(), &shell.read().search)
     });
 
+    // The keyboard.
+    //
+    // A keydown targets the focused element and bubbles *up*, `body` is that element until
+    // something focusable is clicked, and `body` is the app div's parent — so a handler on the
+    // div is simply never reached. `tabindex` alone does not fix it and `autofocus` does not
+    // either: that attribute is for form controls and WebKit ignores it on a div. Both compiled,
+    // rendered, and did nothing, which nothing in this repository could have told me.
+    //
+    // So the div is focused from JavaScript, and refocused whenever focus falls back to `body` —
+    // which is what happens after a click on anything that is not itself focusable. Written as a
+    // fire-and-forget script rather than a task with a channel because a future spawned from a
+    // component body is never polled here: `use_hook`'s closure runs, `spawn` inside it does not,
+    // and `use_future` does not run at all. Spawning works from an event handler, which is where
+    // the Sync button does it.
+    // Whether a text box has focus. A letter is a shortcut while reading and a letter while
+    // writing, and the client that confuses the two archives a conversation because someone
+    // typed "e" into a reply. The composer counts wholesale: its fields are many and focus can
+    // sit between them.
+    let mut in_a_field = use_signal(|| false);
+
+    let on_key = move |event: Event<KeyboardData>| {
+        // `Key`'s Display is the DOM key name — "e", "ArrowDown", "Escape" — which is the
+        // vocabulary `view::shortcut` is written against.
+        let typing = in_a_field() || shell.read().composing.is_some();
+        let Some(action) = crate::view::shortcut(&event.key().to_string(), typing) else {
+            return;
+        };
+        let store = consume_context::<Arc<SqliteStore>>();
+        let open = shell.read().open;
+        match action {
+            Shortcut::Next | Shortcut::Previous => {
+                let ids: Vec<ThreadId> = threads().iter().map(|t| t.id).collect();
+                if let Some(id) = crate::view::step(open, &ids, action == Shortcut::Next) {
+                    shell.write().open(id);
+                }
+            }
+            Shortcut::Back => {
+                if shell.read().composing.is_some() {
+                    // Saving first, exactly as the Close button does. A second way to close that
+                    // silently dropped the text would be worse than no keyboard.
+                    let current = shell.read().composing.clone();
+                    if composer::persist(&store, current.as_ref()).is_ok() {
+                        shell.write().close_composer();
+                        revision += 1;
+                    }
+                } else {
+                    shell.write().open = None;
+                }
+            }
+            Shortcut::Reply | Shortcut::ReplyAll => {
+                let scope = if action == Shortcut::Reply {
+                    ReplyScope::Sender
+                } else {
+                    ReplyScope::All
+                };
+                if let Some(id) = open
+                    && let Ok(draft) = start_reply(&store, id, scope)
+                {
+                    shell.write().compose(&draft);
+                    revision += 1;
+                }
+            }
+            _ => {
+                // Resolved against the open thread's own summary, so the keyboard reaches
+                // exactly what that row's buttons offer and nothing else.
+                let Some(id) = open else { return };
+                let Some(summary) = threads().iter().find(|t| t.id == id).cloned() else {
+                    return;
+                };
+                if let Some(kind) = crate::view::op_for_shortcut(action, &summary)
+                    && apply_op(&store, id, kind)
+                {
+                    revision += 1;
+                }
+            }
+        }
+    };
+
     rsx! {
         style { {STYLE} }
         div { class: "app",
+            tabindex: "0",
+            onkeydown: on_key,
             nav { class: "places",
                 for (index, place) in shell.read().places.iter().enumerate() {
                     button {
@@ -183,6 +289,8 @@ fn App() -> Element {
                 input {
                     class: "search",
                     placeholder: "Search all mail",
+                    onfocusin: move |_| in_a_field.set(true),
+                    onfocusout: move |_| in_a_field.set(false),
                     value: "{shell.read().search}",
                     oninput: move |e| {
                         shell.write().search = e.value();
@@ -978,6 +1086,29 @@ mod render_tests {
         let (store, _dir) = seeded();
         let markup = markup(store);
         assert!(!markup.contains("No account yet"), "{markup}");
+    }
+
+    #[tokio::test]
+    async fn the_root_can_hold_focus_so_the_keyboard_has_somewhere_to_land() {
+        // A keydown targets the focused element and bubbles up, so a handler on an element that
+        // can never hold focus is never called. This asserts the one half of that which markup
+        // can carry; the other half is `KEEP_FOCUS`, injected into the page head.
+        let (store, _dir) = seeded();
+        let markup = markup(store);
+        assert!(
+            markup.contains(r#"tabindex="0""#),
+            "the app root is not focusable:\n{markup}"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_focus_script_targets_the_element_that_carries_the_handler() {
+        // Two halves of one mechanism in two files: the script focuses `.app`, and `.app` is the
+        // class on the div the key handler is attached to. If either is renamed without the
+        // other the keyboard stops working silently.
+        assert!(KEEP_FOCUS.contains(".app"), "{KEEP_FOCUS}");
+        let (store, _dir) = seeded();
+        assert!(markup(store).contains(r#"class="app""#));
     }
 
     #[tokio::test]
