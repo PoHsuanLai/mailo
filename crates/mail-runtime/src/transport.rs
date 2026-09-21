@@ -38,6 +38,27 @@ pub struct Transport {
     stream: Stream,
 }
 
+/// Choose the crypto provider, once, before rustls is asked to.
+///
+/// rustls 0.23 refuses to pick when more than one provider is compiled in, and **panics** rather
+/// than returning an error. Two are compiled in here and neither is optional: this crate asks
+/// for `ring` explicitly, while `reqwest` and `keyring` pull in `aws-lc-rs`. So every TLS
+/// connection this program makes would have aborted the process on the line that built the
+/// config.
+///
+/// Nothing caught it, because every test server in this repository listens on loopback with
+/// `Tls::Plaintext` — the one setting no real account uses. The first attempt at a TLS
+/// connection to a real host found it immediately.
+///
+/// `ring`, because that is what `mail-runtime` selected in `Cargo.toml`; a competing install
+/// from elsewhere in the process is not an error, so the result is deliberately ignored.
+fn install_crypto_provider() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    });
+}
+
 impl Transport {
     /// Connect, applying `tls` before returning.
     ///
@@ -77,6 +98,9 @@ impl Transport {
     }
 
     async fn wrap(tcp: TcpStream, host: &str) -> Result<TlsStream<TcpStream>, RuntimeError> {
+        // Here rather than in `connect`, because `upgrade` builds a session too and this is
+        // the one place that touches rustls at all.
+        install_crypto_provider();
         let roots = rustls::RootCertStore {
             roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
         };

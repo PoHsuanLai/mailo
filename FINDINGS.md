@@ -1209,3 +1209,36 @@ The first fix did not work and its own test proved it. `ImapTranscript::capabili
 `contains`, which does match — and would equally match `REMOVE` for `MOVE`, or `UIDPLUS` for
 `UID`. That is the fourth appearance of F67's mistake, so it is now a rule in `CONVENTIONS.md`
 rather than a finding, and both call sites go through `imap::has_capability`.
+
+### F70 — `mailo sync` would have panicked on its first TLS connection
+
+The worst defect in this session, found on the first attempt to make a real TLS connection.
+
+rustls 0.23 refuses to choose when more than one crypto provider is compiled in, and **panics**
+rather than returning an error. Two are compiled in here and neither is removable: `mail-runtime`
+selects `ring` in its own `Cargo.toml`, while `reqwest` and `keyring` bring `aws-lc-rs`. Nothing
+called `CryptoProvider::install_default`.
+
+So every TLS connection this program exists to make — NTU on 995, Gmail on 993, Exchange on 993 —
+would have aborted the process while building the session. Not failed: aborted. The one account
+the user can connect to today would have crashed the binary on the first `mailo sync`.
+
+**518 tests passed throughout.** Every fake server in this repository listens on loopback with
+`Tls::Plaintext`, which is the one setting no real account uses, so the entire TLS path was
+unexecuted. It was not under-tested; it was untested, and the coverage of everything around it
+made that invisible.
+
+The install goes in `Transport::wrap` rather than `connect`, because `upgrade` builds a session
+too and `wrap` is the only place that touches rustls at all.
+
+### F71 — And the regression test for it was vacuous, twice in one session
+
+The first version connected to port 1, which refuses at TCP before rustls is reached. It passed
+with the fix removed. The listener now accepts and then stays silent, so the handshake fails on
+its own terms and the provider is installed on the way there — verified by removing the install
+and watching it panic.
+
+That is the second time in this session a test written *specifically* to guard a bug did not
+exercise the bug (F60 was the first). Both were caught by the same habit — reintroduce the defect,
+watch the test fail — and in both cases the test had looked obviously correct. The habit is worth
+more than any single test it has validated.
