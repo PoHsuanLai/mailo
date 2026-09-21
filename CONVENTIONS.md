@@ -9,6 +9,103 @@ deviation in a shared type is exactly the failure this file prevents.
 
 ---
 
+## 0. Design style
+
+The rules below are the general shape of the code. Everything after this section is a specific
+application of them, so when a later rule seems arbitrary, this is why it exists.
+
+### Prefer pure functions
+
+A function that takes values and returns values can be tested with a table, reasoned about in
+isolation, and reused from a context its author never imagined. One that reaches for a socket,
+a clock or a global cannot.
+
+Push effects to the edges. The layering already encodes this: `mail-domain`, `mail-mime` and
+`mail-proto` are pure and mechanically kept that way by `scripts/check-boundary.sh`;
+`mail-store` may touch the disk; only `mail-runtime` may open a socket, spawn a task or read
+the clock. When a pure crate seems to need an effect, that is a sign the effect belongs to the
+caller — `Op::apply` returns a `RemoteIntent` rather than performing one, and `Machine::feed`
+returns an `IoNeed` rather than satisfying it.
+
+Effects belong in the signature. `&mut self`, `Result`, or living in a crate permitted to do
+I/O are how a reader sees that something happens; a function that looks pure and is not is
+worse than one that is honestly imperative.
+
+### Separate data from logic
+
+Data types describe what is true. Functions describe what follows from it. Keep them apart.
+
+A struct's own `impl` should hold construction, derivation and accessors — the things that are
+*about* that value. Anything that coordinates several values, or makes a decision, reads better
+as a free function or as an `impl` on the type that owns the decision. `ThreadSummary::derive`
+belongs on `ThreadSummary` because it *is* a `ThreadSummary`; the reconciliation rule belongs
+in `mail-store` because it is about the relationship between a patch and an ingest, and lives
+on neither.
+
+Avoid the type that grows methods because it was convenient rather than because they belong.
+If half a struct's methods never touch half its fields, it is two types.
+
+### Make illegal states unrepresentable
+
+Encode invariants in types rather than checking them at runtime and hoping every caller
+remembers. This is the whole reason the domain is enums.
+
+- Newtype every identifier and every unit. `AccountId`, not `Uuid`; `BlobId`, not `String`.
+  A newtype costs nothing at runtime and makes an argument-order mistake a compile error.
+- No stringly-typed fields where a closed set exists. `MailboxRole`, not `&str`.
+- No `bool` in state (see §7). No `bool` parameters either: a call reading `send(true)` tells
+  the reader nothing, while `send(Confirm::Yes)` tells them everything.
+- Prefer an empty collection to `Option<Vec<T>>`. There is one way to say "none" and it needs
+  no unwrapping.
+- Model absence precisely. `Attachments::Present { count: u32 }` cannot represent zero
+  attachments; `Option<u32>` can, and then every caller must decide what `Some(0)` meant.
+
+### Parse, don't validate
+
+Convert untrusted input into a type that cannot be wrong, once, at the boundary — then the rest
+of the program needs no defensive checks. `mail-mime::parse` turns hostile bytes into `Parsed`;
+`Credential` cannot be logged because its `Debug` is written by hand. A validation function
+that returns `bool` and leaves the caller holding the same loose type has moved the problem,
+not solved it.
+
+A fallible constructor returns `Result`. A constructor that cannot fail returns `Self`.
+
+### Traits are seams, not decoration
+
+A trait earns its place when two implementations are genuinely swapped at that boundary —
+`Store` (SQLite and in-memory), `Backend` (IMAP, POP3 and a fake), `Secrets` (keyring and a
+map). A trait with one implementation is indirection with no payoff, and a trait invented to
+group functions that merely feel related makes the call site harder to follow.
+
+Prefer an enum to a trait for closed vocabulary. Mail is a closed protocol: `Op`, `Filter` and
+`RemoteRef` should be exhaustive in one place, so that adding a variant produces a list of
+compile errors naming every site that must be updated. A `dyn Trait` hides that list.
+
+Implement the standard traits when the semantics genuinely hold, and derive rather than
+hand-write unless a behaviour must differ. `Display` is for humans, `Debug` is for developers,
+and neither is a serialization format — that is `serde`'s job.
+
+### Errors are values, and they carry a decision
+
+See §5 for the mechanics. The principle: an error type exists so a caller can *act*, not so a
+string can be logged. Every error in this workspace answers `Retryable::retry`, because the
+outbox has to choose between backing off, prompting for reauthentication and giving up, and
+nothing else can make that choice for it.
+
+Reserve panics for broken invariants inside our own code, and document them as caller
+contracts. Malformed input is never a panic: the bytes came from a stranger.
+
+### Composition over accumulation
+
+Prefer iterator chains and small combinators where they read more clearly than a loop, and a
+plain loop where they do not — clarity wins over point-free style, every time. Prefer
+returning a new value to mutating an argument. Where a mutable accumulator really is the
+clearest expression, keep it local to the function so the mutation cannot be observed from
+outside.
+
+Keep functions short enough to hold in your head. A long function is usually several functions
+that have not been named yet, and naming them is most of the work of understanding them.
+
 ## 1. The interface freeze
 
 `crates/mail-domain/src/**` and `crates/mail-proto/src/machine.rs` are the **frozen

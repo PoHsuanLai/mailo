@@ -105,7 +105,8 @@ Every brief states all five, or the agent will invent the missing one:
 2. **Signatures you may not change.** Name them. If one is wrong, stop and report.
 3. **What done means.** The tests that must exist, and the cases they must cover.
 4. **How you are verified.** The exact command.
-5. **What to read first.** `plan.md` section, `CONVENTIONS.md` section.
+5. **What to read first.** `CONVENTIONS.md` §0 (design style) always, plus the relevant
+   `plan.md` section and any other `CONVENTIONS.md` section the brief leans on.
 
 ## Verification
 
