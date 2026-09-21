@@ -407,3 +407,49 @@ numbers", with a standing TODO to move to UIDs), and hMailServer numbered messag
 one shared per-folder container so an expunge by any session silently renumbered every other one.
 `RemoteRef::Imap` is keyed on `uid` + `uidvalidity` and never on a sequence number, so this class
 of bug is designed out. Recorded so it stays that way.
+
+
+## Found while building, 2026-09-22
+
+Each of these was caught by the compiler, by clippy, or by a test — not by review. That is the
+argument for the enum-heavy design and the four gates, so they are recorded as evidence.
+
+### F29 — `ProtoOp` could not ask for headers
+
+Clippy noticed that `Pop3Backend`'s `Headers` state was never constructed. The cause was that
+`ProtoOp` had `FetchBody` and nothing else, so the `TOP`-first strategy the research recommends
+was **unexpressible**. Added `ProtoOp::FetchHeaders`. Where `TOP` is unavailable the backend now
+refuses rather than falling back to `RETR`, because that fallback would silently mark the message
+read — the exact harm the operation exists to avoid.
+
+### F30 — a backend is one connection, not two
+
+`plan.md` described `ImapBackend` as "IMAP session **and** SMTP submit". That would put two
+sockets behind one `Machine` and make the drive loop's single-transport shape a lie. Submission
+is now its own backend; the incoming backends refuse `ProtoOp::Submit` and the runtime routes it.
+
+### F31 — `ProtoOutcome` could not return a fetched message
+
+An `Ingest` carries fully-built `Message` values, and a protocol machine cannot build one: that
+needs a `MessageId`, a `ThreadId` and a stored `BlobId`, none of which the wire supplies. Added
+`ProtoOutcome::Fetched { remote, raw }`, which also keeps the blob store out of `mail-proto`
+entirely.
+
+### F32 — a session holds its commands, so a backend would hold the password
+
+`Pop3Session::new` takes its command list at construction. A backend owning a session would
+therefore have to own the credential to build each one. Backends take a factory closure instead,
+which owns both the credential and the auth sequence; the backend never sees a password, and its
+`Debug` is hand-written so the closure cannot put one in a log.
+
+### F33 — POP3 capabilities also differ after authentication
+
+RFC 2449 permits `CAPA` to answer differently in the AUTHORIZATION and TRANSACTION states — the
+same trap F14 caught on Gmail's IMAP, on another protocol. `FetchCaps` now asks, authenticates,
+and asks again, believing the second answer.
+
+### F34 — modified UTF-7: a short run decoded to nothing
+
+My own first implementation returned an empty string for a run too short to hold one UTF-16 unit
+— exactly the `&A-` that panics the crate we rejected — so the mailbox name silently vanished
+rather than falling back to literal text. Caught by the hostile-input test in the same commit.

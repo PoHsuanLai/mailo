@@ -20,6 +20,20 @@ An agent that believes a frozen signature is wrong **stops and reports**. It doe
 around it and it does not change it. Four of the five errors corrected in `plan.md` items
 26–30 were found exactly this way — by making the freeze compile.
 
+## Status
+
+| Wave | State |
+|---|---|
+| 1 — `mail-domain` | **done**. `Filter::fit`, JWZ threading, `Op::apply` with its inverse, presets, drafts, frozen serde fixtures. |
+| 2 — `mail-mime`, `mail-store` | **done**. parse/build/sanitize, SQLite with FTS5, `Filter`→SQL, `MemoryStore`, the parity proptest, the reconciliation rule. |
+| 3 — `mail-proto` sessions | POP3 **done**, SMTP **done**, modified UTF-7 **done**, IMAP in progress. OAuth moved to `mail-runtime` and is **done**. |
+| 4 — backends | `Pop3Backend` **done**, `SmtpBackend` **done**, `ImapBackend` blocked on the IMAP session. |
+| runtime | transport, drive loop, OAuth, loopback listener, secrets, `AccountEngine` **done**. Sync scheduling and `unfetched()` outstanding. |
+| 5–6 — live accounts, Dioxus | not started. Both need credentials or a window, so neither is fully delegable. |
+
+Phase 3's acceptance criterion from `plan.md` — ingest twenty, archive one, label one, search —
+passes as `crates/mail-store/tests/phase3_milestone.rs`.
+
 ## Waves
 
 Each wave lists the files an agent owns **exclusively**. No two agents in a wave write the
