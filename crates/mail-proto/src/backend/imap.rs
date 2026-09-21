@@ -400,12 +400,9 @@ impl Backend for ImapBackend {
             )),
             Job::Caps => {
                 let mut caps = self.caps.clone();
-                let seen = |name: &str| {
-                    transcript
-                        .capabilities
-                        .iter()
-                        .any(|c| c.to_uppercase().contains(name))
-                };
+                // Whole atoms, not substrings: `contains("MOVE")` is also true of `REMOVE`
+                // and `contains("UID")` of `UIDPLUS`. See `imap::has_capability`.
+                let seen = |name: &str| crate::imap::has_capability(&transcript.capabilities, name);
                 caps.condstore = if seen("CONDSTORE") {
                     Condstore::Supported
                 } else {

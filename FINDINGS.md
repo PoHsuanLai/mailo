@@ -1170,3 +1170,42 @@ Three appearances now, in three disguises:
 Each time the intent was a *token* — a domain, a word, a status code — and the implement was a
 substring. The fix is always a boundary, and the general lesson is that `contains` is the wrong
 default for anything with a grammar. Worth a convention if it appears a fourth time.
+
+### F68 — I could have connected to a real server all along
+
+Every round I said the remaining defects needed "a server I didn't write", and never checked
+whether I could reach one. I can: an unauthenticated capability probe needs no credential, and it
+is exactly what `plan.md`'s phase 0 specifies.
+
+`msa.ntu.edu.tw:995` answers `+OK Dovecot ready.` and advertises `TOP UIDL RESP-CODES PIPELINING
+AUTH-RESP-CODE USER SASL PLAIN` — confirming the NTU preset's `top: Supported::Yes`,
+`pipelining: Supported::Yes` and `sasl: [Plain]` exactly, including its comment that the server
+"does NOT offer LOGIN or CRAM-MD5". That comment was written from a spike the user ran; this is
+the first time this session verified a preset against the thing it describes.
+
+`outlook.office365.com:993` answers `AUTH=XOAUTH2 LOGINDISABLED SASL-IR UIDPLUS MOVE ID UNSELECT
+CHILDREN IDLE NAMESPACE LITERAL+`, which checks the Microsoft preset written one round earlier
+from documentation: `WatchMode::Idle` correct, `Condstore::Absent` correct, OAuth-only confirmed.
+It also advertises `MOVE`, which the preset pessimistically calls absent — correct by design,
+since `refresh_caps` replaces a guess with what the server says.
+
+The limit was never reaching a server. It was authenticating to one, and I had generalised the
+second into the first for fifteen rounds.
+
+### F69 — `LOGINDISABLED` was ignored, so we would send a password to a server that had refused it
+
+RFC 3501 §6.2.3: a client MUST NOT issue `LOGIN` when the server advertises `LOGINDISABLED`.
+Nothing here looked at it. Exchange Online advertises it, so two of this user's three accounts
+are servers where the client would have sent a password that had already been declined — and
+then reported the rejection as though the credential were wrong, which is F63's failure mode
+arriving by a different route.
+
+Found by reading the capability line off the real server, not from the specification, which is
+the argument for the probe in F68.
+
+The first fix did not work and its own test proved it. `ImapTranscript::capabilities` holds
+`imap-proto` atoms rendered with `Debug`, so the entry is `Atom("LOGINDISABLED")` and
+`eq_ignore_ascii_case("LOGINDISABLED")` never matches. The backend's existing check used
+`contains`, which does match — and would equally match `REMOVE` for `MOVE`, or `UIDPLUS` for
+`UID`. That is the fourth appearance of F67's mistake, so it is now a rule in `CONVENTIONS.md`
+rather than a finding, and both call sites go through `imap::has_capability`.

@@ -13,7 +13,7 @@ pub mod pop3;
 pub mod smtp;
 
 pub use diagnose::{explain, explain_text};
-pub use imap::{ImapAuth, ImapCommand, ImapSession, ImapTranscript, Untagged};
+pub use imap::{ImapAuth, ImapCommand, ImapSession, ImapTranscript, Untagged, has_capability};
 pub use machine::{Backend, IoNeed, IoReady, Machine, Progress, ProtoError, ProtoOutcome, Refusal};
 pub use pop3::{ListEntry, Pop3Command, Pop3Reply, Pop3Session, UidlEntry};
 pub use smtp::{

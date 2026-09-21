@@ -248,6 +248,20 @@ impl ImapSession {
             ImapCommand::Idle => "IDLE".to_owned(),
             ImapCommand::List => "LIST \"\" \"*\"".to_owned(),
             ImapCommand::Login => {
+                // RFC 3501 §6.2.3: a client MUST NOT issue LOGIN when the server advertises
+                // LOGINDISABLED. Observed live on outlook.office365.com, which answers
+                // `AUTH=XOAUTH2 LOGINDISABLED` — so this is not a hypothetical server, it is
+                // the one two of this user's three accounts live on.
+                //
+                // The rule is worth more than protocol conformance. Without it the client sends
+                // the user's password to something that has already said it will not accept
+                // one, and then reports the rejection as though the credential were wrong.
+                if has_capability(&self.transcript.capabilities, "LOGINDISABLED") {
+                    return Err(ProtoError::Unsupported(
+                        "the server advertises LOGINDISABLED: it does not accept passwords on                          this connection, so one was not sent"
+                            .to_owned(),
+                    ));
+                }
                 let Credential::Password(password) = &self.auth.credential else {
                     return Err(ProtoError::Unsupported(
                         "LOGIN needs a password credential".to_owned(),
@@ -466,6 +480,29 @@ impl ImapSession {
             }
         }
     }
+}
+
+/// Whether the server advertised a capability, matched as a whole atom.
+///
+/// `capabilities` holds `imap-proto`'s atoms rendered with `Debug`, so an entry looks like
+/// `Atom("LOGINDISABLED")`, `Auth("XOAUTH2")` or `Imap4rev1`. Matching that with `contains` is
+/// the substring mistake this codebase has now made three times in three disguises (FINDINGS
+/// F67): `contains("MOVE")` is also true of a hypothetical `REMOVE`, and `contains("UID")` of
+/// `UIDPLUS`.
+///
+/// So the name is compared against the whole atom, with the `Debug` wrapper accounted for
+/// rather than matched through.
+pub fn has_capability(capabilities: &[String], name: &str) -> bool {
+    capabilities.iter().any(|c| {
+        let c = c.trim();
+        // `Atom("NAME")` / `Auth("NAME")` → NAME; anything else is compared as it stands.
+        let inner = c
+            .split_once('(')
+            .and_then(|(_, rest)| rest.strip_suffix(')'))
+            .map(|v| v.trim_matches('"'))
+            .unwrap_or(c);
+        inner.eq_ignore_ascii_case(name)
+    })
 }
 
 /// Whether an untagged response is the server announcing something worth waking for.

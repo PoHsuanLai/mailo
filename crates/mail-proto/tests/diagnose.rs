@@ -101,3 +101,92 @@ fn a_longer_code_is_not_read_as_a_shorter_one() {
     assert!(explain_text("535 5.7.139").is_some());
     assert!(explain_text("5.7.139 at the start").is_some());
 }
+
+/// Honouring `LOGINDISABLED`, which outlook.office365.com really does advertise.
+mod login_disabled {
+    use mail_domain::{Credential, SaslMech};
+    use mail_proto::machine::{IoReady, Machine, Progress};
+    use mail_proto::{ImapAuth, ImapCommand, ImapSession, has_capability};
+
+    /// The exact capability line outlook.office365.com sent on 2026-09-22.
+    const EXCHANGE: &[u8] = b"* CAPABILITY IMAP4 IMAP4rev1 AUTH=XOAUTH2 LOGINDISABLED SASL-IR \
+UIDPLUS MOVE ID UNSELECT CHILDREN IDLE NAMESPACE LITERAL+\r\n";
+
+    fn session(commands: Vec<ImapCommand>) -> ImapSession {
+        ImapSession::new(
+            ImapAuth {
+                username: "me@example.test".to_owned(),
+                credential: Credential::Password("pw".to_owned()),
+                sasl: vec![SaslMech::Plain],
+            },
+            commands,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn a_password_is_not_sent_to_a_server_that_said_it_will_refuse_one() {
+        // RFC 3501 §6.2.3 says a client MUST NOT issue LOGIN when this is advertised. The cost
+        // of ignoring it is not only conformance: the password goes to something that already
+        // said no, and the rejection then reads as a wrong credential.
+        let mut s = session(vec![ImapCommand::Capability, ImapCommand::Login]);
+        let _ = s.start();
+        let _ = s.feed(IoReady::Bytes(b"* OK ready\r\n".to_vec()));
+        let _ = s.feed(IoReady::Bytes(EXCHANGE.to_vec()));
+        let progress = s.feed(IoReady::Bytes(b"a001 OK done\r\n".to_vec()));
+
+        match progress {
+            Progress::Failed(e) => {
+                let text = format!("{e}");
+                assert!(text.contains("LOGINDISABLED"), "{text}");
+                assert!(text.contains("not sent"), "{text}");
+            }
+            other => panic!("LOGIN was attempted anyway: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_server_that_permits_login_still_gets_one() {
+        // The check must not refuse every password account; NTU's Dovecot advertises no such
+        // capability and is the one account that works today.
+        let mut s = session(vec![ImapCommand::Capability, ImapCommand::Login]);
+        let _ = s.start();
+        let _ = s.feed(IoReady::Bytes(b"* OK ready\r\n".to_vec()));
+        let _ = s.feed(IoReady::Bytes(
+            b"* CAPABILITY IMAP4rev1 UIDPLUS IDLE\r\n".to_vec(),
+        ));
+        let progress = s.feed(IoReady::Bytes(b"a001 OK done\r\n".to_vec()));
+        assert!(
+            matches!(progress, Progress::Need(_)),
+            "a permissive server was refused: {progress:?}"
+        );
+    }
+
+    #[test]
+    fn capabilities_match_as_whole_atoms_not_substrings() {
+        // The fourth appearance of one mistake (FINDINGS F67, F69). `imap-proto` renders atoms
+        // with Debug, so an entry is `Atom("MOVE")` — and `contains("MOVE")` is also true of
+        // `Atom("REMOVE")`, `contains("UID")` of `Atom("UIDPLUS")`.
+        let caps: Vec<String> = [
+            "Atom(\"LOGINDISABLED\")",
+            "Auth(\"XOAUTH2\")",
+            "Imap4rev1",
+            "Atom(\"UIDPLUS\")",
+            "Atom(\"MOVE\")",
+        ]
+        .iter()
+        .map(|s| (*s).to_owned())
+        .collect();
+
+        assert!(has_capability(&caps, "LOGINDISABLED"));
+        assert!(has_capability(&caps, "logindisabled"), "case-insensitive");
+        assert!(has_capability(&caps, "XOAUTH2"));
+        assert!(has_capability(&caps, "MOVE"));
+        assert!(has_capability(&caps, "IMAP4REV1"));
+
+        assert!(!has_capability(&caps, "UID"), "UIDPLUS is not UID");
+        assert!(!has_capability(&caps, "OVE"), "MOVE is not OVE");
+        assert!(!has_capability(&caps, "CONDSTORE"));
+        assert!(!has_capability(&caps, ""));
+    }
+}

@@ -299,3 +299,28 @@ when it should pass; `scripts/check-boundary.sh` checks for output instead.
 `--all --check` is read-only and is fine at any time.
 
 Report honestly. A failing test reported as passing costs more than the bug did.
+
+## Substrings are not tokens
+
+`contains`, `ends_with` and `starts_with` compare *characters*. A domain, a capability atom, a
+status code and a word are **tokens**, and matching one with a substring is a bug that passes its
+own test. This has happened four times here, in four disguises:
+
+| intended | written | matches wrongly |
+|---|---|---|
+| the domain `office365.com` | `ends_with("office365.com")` | `evil-office365.com` |
+| the word `io` in an error | `contains("io")` | every `connection` |
+| the code `5.7.139` | `contains("5.7.139")` | `5.7.1399` |
+| the capability `MOVE` | `contains("MOVE")` | `REMOVE` |
+
+Three were caught by a test, one by a test written for something else. None was caught by review.
+
+**So: when the thing being matched has a grammar, match it at its boundaries.** A domain compares
+whole labels (`host == d || host.ends_with(&format!(".{d}"))`); a status code is bounded by
+non-digits; a capability atom is compared whole (`imap::has_capability`); a word is split on
+whitespace. The helper exists in each case — use it rather than the substring that looks the
+same in the one example in front of you.
+
+The cost is asymmetric, which is why this is a rule rather than a preference. A too-narrow match
+fails visibly on input you have. A too-wide one silently does the wrong thing on input you have
+not thought of, which is the input an attacker chooses.
