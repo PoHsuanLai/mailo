@@ -1547,3 +1547,44 @@ describes what exists:
 The table list, the crate graph and the phase structure all match. Corrected in place rather than
 appended to, because a design document that contradicts the code teaches the reader something
 false with the same confidence as the parts that are true.
+
+### F86 — The plan's own required mitigations, checked
+
+Continuing F85's audit, because the plan states requirements and whether they hold is
+checkable — and F84 showed one of them had simply never been done.
+
+The two "both required" mitigations against `Filter::fit` and the SQL compiler diverging:
+
+1. **`MemoryStore::threads` implemented by calling `fit`, never a second matcher.** Holds —
+   `matching` builds a `MatchCtx` and calls `filter.fit(&ctx)`. A second hand-written matcher
+   would make the parity test compare two wrongs, which is the trap the mitigation names.
+2. **A proptest asserting `fit(f, ctx) ⟺ id ∈ sqlite_query(f)` over random filters.** Holds, and
+   the generator really does produce `Filter::Text` — which matters this round, because F75
+   rewrote exactly that clause's SQL from a correlated subquery to an uncorrelated one. The
+   change was covered by a property the plan required before either of us thought about it.
+
+Also checked and holding: attachments are `BlobId` and never a path; `Change` is domain-level and
+never a SQL row; `Tls` has no opportunistic variant.
+
+A requirement nobody re-reads is a requirement that quietly stops being true. Two of these were
+still true; the third, in F84, had never been true at all.
+
+### F87 — A design document should say what was built, including where it lost
+
+`plan.md` specified `cid:` resolution "through a custom protocol handler keyed on `BlobId` only",
+and the shell does not do that — it inlines parts as `data:` URIs, because a custom scheme
+requested from a `sandbox=""` document is refused as cross-origin and the only way to permit it
+is `allow-same-origin`, which defeats the iframe. That was decided in F42 and recorded in
+FINDINGS, which is where nobody reading the design will look.
+
+The plan now says it, with the reasoning, in the place the reader will be standing when they ask
+why. Same for the list pane, which grows a page rather than following `Page::next`.
+
+And each phase now carries what is actually true of it rather than only its criterion: phase 4's
+CLI does list, open and reply and has never authenticated to NTU; phase 5's two clauses are both
+met against servers nobody here wrote, with Gmail and Exchange outstanding for a client id that
+is registered rather than written; phase 6's shell does everything checkable from inside the
+repository, and its criterion is a judgement about using the thing with real mail over days.
+
+Writing "done when" and leaving it is how a plan becomes a wish. Writing what happened next to it
+is the difference between a document that closes and one that is merely abandoned.

@@ -891,12 +891,23 @@ addition to PKCE.
 Dioxus 0.7 desktop (`dioxus` + `dioxus-desktop`), WebKitGTK on Fedora.
 
 - Sidebar: `View` list. Inbox is `Filter::InMailbox(Inbox)`. Badges come from `Store::count`.
-- List: `store.threads(&query, now)`, paginated, infinite-scrolled off `Page::next`.
+- List: `store.threads(&query, now)`, paginated. **As built:** a "Show more" that grows the page
+  rather than following `Page::next`. One query for the visible list is always self-consistent,
+  where pages fetched at different moments are the inconsistency keyset pagination exists to
+  prevent; the cursor is there when a mailbox is large enough to measure (FINDINGS F-notes on
+  scale). Migration 0003 is what makes that page cost a page rather than a mailbox.
 - Hover strip: `view.hover: Vec<OpKind>` → `Action { target, op }`.
 - Reading: raw HTML from the blob through `mail_mime::sanitize` at render time, into a
   **sandboxed iframe** (`srcdoc`, no `allow-same-origin`). Remote images blocked by default.
-- `cid:` resolves through a custom protocol handler keyed on **`BlobId` only** — never a path.
-  A path-shaped handler is a directory-traversal bug driven by untrusted mail.
+- `cid:` **does not** resolve through a custom protocol handler, and this is the one place the
+  shell departs from this document. A custom scheme requested from a `sandbox=""` document is
+  refused as cross-origin, and the only way to permit it is `allow-same-origin` — which hands
+  every future sanitizer bug access to the application's DOM, the single thing that iframe
+  exists to prevent. The parts are inlined as `data:` URIs instead, which satisfies this
+  section's actual reason: it forbids a path-shaped handler because that is "a directory-
+  traversal bug driven by untrusted mail", and this resolves nothing at request time at all.
+  The boundary moved to the media type, which is attacker-controlled, so the type in the message
+  decides only *whether* to embed and never what is written. See FINDINGS F42.
 - Compose: edits a `Draft`, autosaves through `Op`-free `Change::DraftUpsert`, sends via
   `SendState`.
 
@@ -1034,6 +1045,14 @@ First live preset: `ntu.edu.tw`.
 
 **Done when:** a tiny CLI lists, opens, and replies through the POP3 backend.
 
+**State:** the CLI does all three — `list`, `show`, `reply`, plus `send`, `drafts` and `sync` —
+and the whole path is exercised end to end over a real socket in
+`mail-runtime/tests/end_to_end.rs`. What has not happened is a pass against NTU with a real
+password, which needs a credential this repository cannot hold. An unauthenticated probe
+(`tests/live_probe.rs`, `#[ignore]`d) does confirm the preset against the live server: `TOP`,
+`UIDL`, `PIPELINING` and `SASL PLAIN` are exactly what `msa.ntu.edu.tw` advertises, and the TLS
+handshake completes.
+
 ### 5 — IMAP + OAuth live
 
 Own Google OAuth client (installed app, PKCE + `state`, loopback redirect). IDLE, `CONDSTORE`
@@ -1043,12 +1062,34 @@ flag sync, `UIDVALIDITY` reset handling, expunge handling, labels. First live pr
 **Done when:** the same CLI works through the IMAP backend, and killing the app mid-sync and
 restarting produces no duplicates.
 
+**State:** both clauses are met against servers that are not Google's.
+`mail-runtime/tests/imap_end_to_end.rs` drives the whole stack over a real socket — including the
+restart clause, which drops the connection mid-literal, rebuilds the engine against the same
+database and asserts each message is present once — and `tests/live_imap.rs` repeats `LOGIN`,
+`SELECT` and `UID FETCH` against a Twisted `IMAP4Server`, which nobody here wrote. Password IMAP
+works; `sync::pass` is one function used by both protocols, so "the same CLI" is not a claim but
+a shared code path.
+
+What is left is Gmail and Exchange specifically, and it is not code: an installed-app client id
+is registered with the issuer, not shipped in a source tree. Everything up to that point is
+exercised — the authorize URL, `state`, PKCE, the loopback redirect, and the token exchange and
+refresh against a local endpoint (`tests/oauth_exchange.rs`).
+
 ### 6 — Dioxus shell
 
 Three panes, view list, paginated list, sandboxed HTML, compose and drafts, runtime channel →
 Dioxus signals.
 
 **Done when:** it is the daily driver for both accounts on Fedora.
+
+**State:** everything the criterion implies that can be checked without being a user has been.
+The shell composes, replies, sends, lists drafts, pages, syncs off the UI thread and renders
+sandboxed HTML with inline images; its components are executed in tests rather than only
+compiled. Scale is measured rather than assumed: search over ten thousand messages, a page of
+the list, a two-hundred-message thread, and a sync writing while the window reads.
+
+The criterion itself is not one this or any amount of work can satisfy from inside the
+repository. "Daily driver" is a judgement about using it, with real mail, over days.
 
 ---
 
