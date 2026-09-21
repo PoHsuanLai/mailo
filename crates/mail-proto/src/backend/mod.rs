@@ -6,8 +6,10 @@
 //! plus SMTP submit", which would have put two sockets behind one `Machine` and made the drive
 //! loop's single-transport shape a lie.
 
+pub mod imap;
 pub mod pop3;
 pub mod smtp;
 
+pub use imap::ImapBackend;
 pub use pop3::{Authenticate, Pop3Backend};
 pub use smtp::SmtpBackend;
