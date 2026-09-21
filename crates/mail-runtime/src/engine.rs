@@ -10,6 +10,7 @@ use chrono::{DateTime, Utc};
 use mail_domain::{
     AccountId, AccountPlan, Condstore, Credential, FetchSince, Incoming, MailboxRef, Outgoing,
     ProtoOp, RemoteRef, Retry, Retryable, SecretKey, SecretPurpose, SendState, SyncCursor, Tls,
+    UidValidity,
 };
 use mail_mime::Posting;
 use mail_proto::backend::SmtpBackend;
@@ -354,7 +355,14 @@ impl<B: Backend> AccountEngine<B> {
                 cancel,
             )
             .await?;
-        if let ProtoOutcome::Ingested(ingest) = outcome {
+        if let ProtoOutcome::Ingested(mut ingest) = outcome {
+            // The backend cannot answer this: it is sans-I/O and has never seen what we stored.
+            // It reports what the server said; comparing that against the last sync is the
+            // runtime's job, and getting it wrong means every stored UID addresses a different
+            // message than we think it does.
+            if let Some(fresh) = &ingest.cursor {
+                ingest.validity = UidValidity::between(self.store.cursor(mailbox)?.as_ref(), fresh);
+            }
             self.store.ingest(self.account, *ingest)?;
         }
 

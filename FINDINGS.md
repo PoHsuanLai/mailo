@@ -797,3 +797,47 @@ CONDSTORE *and* a non-zero stored modseq. It deliberately does not add its own "
 check: Dovecot 2.0.18 froze `HIGHESTMODSEQ` at 1 while `EXISTS` climbed, and the defence against
 that belongs where it already is — withdrawing the capability — not in a second, quieter rule
 that would let the two disagree.
+
+### F52 — `remote_map` grew a row per message per sync, on every protocol
+
+`remote_map`'s primary key is `(account, mailbox, uidvalidity, uid, uidl)`, and its own `CHECK`
+constraint guarantees that exactly one of `uid`/`uidl` is `NULL` — so **every row has a NULL in
+its key**. SQLite treats NULLs as distinct in `UNIQUE` and `PRIMARY KEY` comparisons, so no two
+rows ever conflicted, `INSERT OR REPLACE` had nothing to replace, and the table grew without
+bound: one row per message per pass, for ever.
+
+The consequences are worse than size. `refs_for` returns every address of a message, and it was
+returning the same UID three, ten, a hundred times — so a single "mark read" would send that UID
+to the server once per sync that had ever run.
+
+POP3 had the identical hole, with *two* NULLs in the key. It never showed because the POP3
+end-to-end test syncs once. Nothing in the suite had ever synced the same mailbox twice, which is
+the only thing that makes this visible and is what a real client does every five minutes.
+
+Migration 0002 collapses what has accumulated and adds a unique index over
+`COALESCE(uidvalidity, -1), COALESCE(uid, -1), COALESCE(uidl, '')`. The sentinels are outside the
+domain of real values — a UID is a positive integer, a UIDL a non-empty string — so they cannot
+collide with one. The insert names that index in an `ON CONFLICT` clause.
+
+Found by an assertion about row counts that I expected to be trivially true.
+
+### F53 — UIDVALIDITY reset could never fire
+
+`plan.md` phase 5 names "UIDVALIDITY reset handling". The store has implemented it since it was
+written: `UidValidity::Reset` drops every `remote_map` row for the mailbox. The backend reported
+`UidValidity::Same` unconditionally — I wrote that line — so the branch was unreachable.
+
+A server that restores a mailbox from backup, migrates it, or has a folder deleted and remade
+with the same name must change `UIDVALIDITY`. Every UID held then names a different message or
+none, and keeping them is not a stale cache: it is marking the wrong mail read and attaching
+bodies to the wrong headers.
+
+The backend cannot decide this — it is sans-I/O and has never seen what was stored. It reports
+what the server said; `UidValidity::between` compares that against the stored cursor in the
+runtime. Conservative in three places, because a reset refetches the whole mailbox: no stored
+cursor is a first sync, a zero on either side means the server did not say, and a POP cursor has
+no `UIDVALIDITY` at all.
+
+The same commit fixed a related mistake of mine: survey references carried `uidvalidity: 0` with
+a comment claiming it was filled in later. It was not. `remote_map` keys on that column, so every
+IMAP row was being written under a mailbox generation that never existed.

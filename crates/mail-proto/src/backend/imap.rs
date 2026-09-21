@@ -406,13 +406,15 @@ impl Backend for ImapBackend {
                 // IMAP server for its mail and got an empty mailbox back, leaves the runtime
                 // with nothing to fetch and no cursor to fetch it from.
                 let mailbox_path = mailbox.path.clone();
-                let seen = parse_fetches(&transcript.untagged, &mailbox_path);
+                // The mailbox's state first: every reference below is stamped with the
+                // UIDVALIDITY it belongs to, because a UID without one names nothing.
+                let (uidvalidity, uidnext, modseq) = mailbox_state(&transcript.untagged);
+                let seen = parse_fetches(&transcript.untagged, &mailbox_path, uidvalidity);
                 self.survey = seen
                     .iter()
                     .map(|row| (row.remote.clone(), row.size))
                     .collect();
 
-                let (uidvalidity, uidnext, modseq) = mailbox_state(&transcript.untagged);
                 Progress::Done(ProtoOutcome::Ingested(Box::new(Ingest {
                     mailbox,
                     validity: UidValidity::Same,
@@ -474,7 +476,7 @@ struct Surveyed {
 ///
 /// A response with no `UID` is skipped rather than guessed at. Sequence numbers shift when
 /// anything is expunged, so a message addressed by one is a message addressed wrongly.
-fn parse_fetches(untagged: &[crate::Untagged], mailbox: &str) -> Vec<Surveyed> {
+fn parse_fetches(untagged: &[crate::Untagged], mailbox: &str, uidvalidity: u32) -> Vec<Surveyed> {
     let mut out = Vec::new();
     for line in untagged.iter().filter(|u| u.text.contains("FETCH")) {
         let Some(uid) = after_atom(&line.text, "UID ").and_then(|v| v.parse::<u32>().ok()) else {
@@ -489,9 +491,10 @@ fn parse_fetches(untagged: &[crate::Untagged], mailbox: &str) -> Vec<Surveyed> {
         out.push(Surveyed {
             remote: RemoteRef::Imap {
                 mailbox: mailbox.to_owned(),
-                // Filled in by `mailbox_state` at the Ingest level; a per-message copy would be
-                // a second place for it to be wrong.
-                uidvalidity: 0,
+                // The mailbox's own UIDVALIDITY, not zero. `remote_map` keys on it, so a
+                // reference carrying the wrong one is a row that matches no real message — and
+                // a reference carrying zero is every mailbox's row at once.
+                uidvalidity,
                 uid,
             },
             size,

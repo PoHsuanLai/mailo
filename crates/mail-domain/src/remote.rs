@@ -61,6 +61,42 @@ pub enum UidValidity {
     Reset,
 }
 
+impl UidValidity {
+    /// Whether the mailbox the server just described is the one we hold rows for.
+    ///
+    /// `UIDVALIDITY` is IMAP's answer to "are these UIDs still the same UIDs". A server that
+    /// recreates a mailbox — restored from backup, migrated, or a folder deleted and remade with
+    /// the same name — must change it, and every UID we stored then addresses a different
+    /// message or none at all. Continuing to use them is not a stale cache; it is marking the
+    /// wrong mail read and fetching bodies onto the wrong headers.
+    ///
+    /// Deliberately conservative in three places, because [`UidValidity::Reset`] throws away
+    /// every `remote_map` row for the mailbox and makes the next sync refetch it whole:
+    ///
+    /// - No stored cursor is a first sync. There is nothing to invalidate.
+    /// - A zero on either side means the server did not say, and "did not say" is not "changed".
+    /// - A POP cursor on either side has no `UIDVALIDITY` to compare; POP3 identity is the UIDL
+    ///   and is handled by its own diff.
+    pub fn between(stored: Option<&SyncCursor>, fresh: &SyncCursor) -> UidValidity {
+        let (
+            Some(SyncCursor::Imap {
+                uidvalidity: was, ..
+            }),
+            SyncCursor::Imap {
+                uidvalidity: now, ..
+            },
+        ) = (stored, fresh)
+        else {
+            return UidValidity::Same;
+        };
+        if *was != 0 && *now != 0 && was != now {
+            UidValidity::Reset
+        } else {
+            UidValidity::Same
+        }
+    }
+}
+
 /// Where to resume a fetch.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "v", rename_all = "snake_case")]
@@ -167,4 +203,65 @@ pub enum ProtoOp {
     Watch {
         mailbox: MailboxRef,
     },
+}
+
+#[cfg(test)]
+mod uidvalidity_tests {
+    use super::*;
+
+    fn imap(uidvalidity: u32) -> SyncCursor {
+        SyncCursor::Imap {
+            uidvalidity,
+            uidnext: 10,
+            modseq: None,
+        }
+    }
+
+    #[test]
+    fn a_changed_uidvalidity_invalidates_the_mailbox() {
+        // The whole point: every stored UID now addresses a different message, or none.
+        assert_eq!(
+            UidValidity::between(Some(&imap(42)), &imap(43)),
+            UidValidity::Reset
+        );
+    }
+
+    #[test]
+    fn an_unchanged_uidvalidity_keeps_everything() {
+        assert_eq!(
+            UidValidity::between(Some(&imap(42)), &imap(42)),
+            UidValidity::Same
+        );
+    }
+
+    #[test]
+    fn a_first_sync_has_nothing_to_invalidate() {
+        assert_eq!(UidValidity::between(None, &imap(42)), UidValidity::Same);
+    }
+
+    #[test]
+    fn silence_is_not_a_change() {
+        // Zero is what this code records when the server said nothing. Treating that as a reset
+        // would refetch the entire mailbox every time a server omitted the response code.
+        assert_eq!(
+            UidValidity::between(Some(&imap(0)), &imap(42)),
+            UidValidity::Same
+        );
+        assert_eq!(
+            UidValidity::between(Some(&imap(42)), &imap(0)),
+            UidValidity::Same
+        );
+    }
+
+    #[test]
+    fn pop_has_no_uidvalidity_to_compare() {
+        assert_eq!(
+            UidValidity::between(Some(&SyncCursor::Pop), &imap(42)),
+            UidValidity::Same
+        );
+        assert_eq!(
+            UidValidity::between(Some(&imap(42)), &SyncCursor::Pop),
+            UidValidity::Same
+        );
+    }
 }

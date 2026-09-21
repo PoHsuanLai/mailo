@@ -586,3 +586,96 @@ fn a_retryable_failure_backs_off_and_stays_queued() {
     assert_eq!(later.len(), 1);
     assert_eq!(later[0].attempts, 1);
 }
+
+/// `remote_map` grew a row per message per sync, on every protocol.
+mod remote_map_identity {
+    use super::*;
+
+    #[test]
+    fn syncing_the_same_mailbox_twice_does_not_duplicate_its_rows() {
+        // SQLite treats NULLs as distinct in a PRIMARY KEY, and every remote_map row has one:
+        // the CHECK constraint guarantees exactly one of uid/uidl is NULL. So the key never
+        // conflicted, `INSERT OR REPLACE` had nothing to replace, and the table grew for ever.
+        let f = fixture();
+        let thread = ThreadId::generate();
+        let message = message(&f, thread, "m1@example.test", 1);
+
+        for _ in 0..3 {
+            f.store
+                .ingest(
+                    ACCOUNT,
+                    ingest_of("INBOX", vec![fetched(&message, imap("INBOX", 7))]),
+                )
+                .unwrap();
+        }
+
+        let rows: i64 = f
+            .store
+            .connection()
+            .query_row("SELECT count(*) FROM remote_map", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(rows, 1, "one message in one mailbox is one row");
+    }
+
+    #[test]
+    fn a_pop_maildrop_does_not_duplicate_either() {
+        // The POP3 row has *two* NULLs in its key, so it had the same hole — and the POP3
+        // end-to-end test syncs once, which is exactly why it never showed.
+        let f = fixture();
+        let thread = ThreadId::generate();
+        let message = message(&f, thread, "m2@example.test", 2);
+
+        for _ in 0..3 {
+            f.store
+                .ingest(
+                    ACCOUNT,
+                    ingest_of(
+                        "INBOX",
+                        vec![fetched(
+                            &message,
+                            RemoteRef::Pop {
+                                uidl: "UID-1".to_owned(),
+                            },
+                        )],
+                    ),
+                )
+                .unwrap();
+        }
+
+        let rows: i64 = f
+            .store
+            .connection()
+            .query_row("SELECT count(*) FROM remote_map", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(rows, 1);
+    }
+
+    #[test]
+    fn one_message_in_two_mailboxes_is_still_two_rows() {
+        // The many-to-one mapping is the point of this table: a Gmail message marked read must
+        // be marked read in INBOX *and* in All Mail. Deduplicating must not collapse that.
+        let f = fixture();
+        let thread = ThreadId::generate();
+        let message = message(&f, thread, "m3@example.test", 3);
+
+        f.store
+            .ingest(
+                ACCOUNT,
+                ingest_of("INBOX", vec![fetched(&message, imap("INBOX", 7))]),
+            )
+            .unwrap();
+        f.store
+            .ingest(
+                ACCOUNT,
+                ingest_of("All Mail", vec![fetched(&message, imap("All Mail", 91))]),
+            )
+            .unwrap();
+
+        let rows: i64 = f
+            .store
+            .connection()
+            .query_row("SELECT count(*) FROM remote_map", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(rows, 2, "the many-to-one mapping was collapsed");
+    }
+}

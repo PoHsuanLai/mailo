@@ -510,10 +510,16 @@ impl SqliteStore {
     ) -> Result<(), StoreError> {
         let (acct, mailbox, uidvalidity, uid, uidl) = remote_key(account, remote);
         // Many-to-one on purpose: one message, several mailboxes, several uids.
+        // `ON CONFLICT` naming the expression index, not `INSERT OR REPLACE` on the primary
+        // key: every row has a NULL in that key (exactly one of uid/uidl is set), SQLite treats
+        // NULLs as distinct there, and so nothing ever conflicted. See migration 0002.
         self.connection().execute(
-            "INSERT OR REPLACE INTO remote_map
+            "INSERT INTO remote_map
                  (account, mailbox, uidvalidity, uid, uidl, message)
-             VALUES (?1,?2,?3,?4,?5,?6)",
+             VALUES (?1,?2,?3,?4,?5,?6)
+             ON CONFLICT (account, mailbox, COALESCE(uidvalidity, -1),
+                          COALESCE(uid, -1), COALESCE(uidl, ''))
+             DO UPDATE SET message = excluded.message",
             params![acct, mailbox, uidvalidity, uid, uidl, message.to_string()],
         )?;
         Ok(())

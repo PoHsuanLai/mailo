@@ -69,6 +69,12 @@ enum Fault {
     DropDuringFetch,
 }
 
+/// The mailbox's `UIDVALIDITY`, which a test can change under the client.
+///
+/// One per server rather than a `static`: these tests run in parallel in one binary, and a
+/// shared one would have each test changing the mailbox out from under the others.
+type Validity = Arc<AtomicUsize>;
+
 #[derive(Debug, Default)]
 struct Seen {
     commands: Vec<String>,
@@ -78,16 +84,24 @@ type Shared = Arc<Mutex<Seen>>;
 
 /// An IMAP server on a real socket. Only as much of RFC 3501 as the client uses, but the bytes
 /// are genuine — including literals, which is where a parser that counts wrongly corrupts mail.
-async fn serve(seen: Shared, fault: Fault) -> u16 {
+async fn serve(seen: Shared, fault: Fault) -> (u16, Validity) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     let faulted = Arc::new(AtomicUsize::new(0));
+    let validity: Validity = Arc::new(AtomicUsize::new(42));
+    let serving = validity.clone();
     tokio::spawn(async move {
         while let Ok((sock, _)) = listener.accept().await {
-            tokio::spawn(session(sock, seen.clone(), fault, faulted.clone()));
+            tokio::spawn(session(
+                sock,
+                seen.clone(),
+                fault,
+                faulted.clone(),
+                serving.clone(),
+            ));
         }
     });
-    port
+    (port, validity)
 }
 
 async fn session(
@@ -95,6 +109,7 @@ async fn session(
     seen: Shared,
     fault: Fault,
     faulted: Arc<AtomicUsize>,
+    validity: Validity,
 ) {
     if sock
         .write_all(b"* OK [CAPABILITY IMAP4rev1] server ready\r\n")
@@ -144,9 +159,10 @@ async fn session(
                      {tag} OK done\r\n"
                 )
             } else if upper.starts_with("SELECT") || upper.starts_with("EXAMINE") {
+                let validity = validity.load(Ordering::SeqCst);
                 format!(
                     "* 2 EXISTS\r\n\
-                     * OK [UIDVALIDITY 42] uids valid\r\n\
+                     * OK [UIDVALIDITY {validity}] uids valid\r\n\
                      * OK [UIDNEXT 103] next\r\n\
                      * OK [HIGHESTMODSEQ 7788] modseq\r\n\
                      {tag} OK [READ-ONLY] done\r\n"
@@ -379,7 +395,7 @@ fn count(store: &SqliteStore) -> u64 {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_whole_sync_over_a_real_socket_lands_mail_in_the_store() {
     let seen: Shared = Arc::new(Mutex::new(Seen::default()));
-    let port = serve(seen.clone(), Fault::None).await;
+    let (port, _validity) = serve(seen.clone(), Fault::None).await;
     let mut it = engine(port, tempfile::tempdir().unwrap());
     let (_tx, mut cancel) = watch::channel(false);
 
@@ -418,7 +434,7 @@ async fn headers_are_peeked_so_a_sync_does_not_mark_the_mailbox_read() {
     // BODY.PEEK[HEADER], never BODY[HEADER]. Getting this wrong marks every message in the
     // user's mailbox read, on every other device, as a side effect of listing them.
     let seen: Shared = Arc::new(Mutex::new(Seen::default()));
-    let port = serve(seen.clone(), Fault::None).await;
+    let (port, _validity) = serve(seen.clone(), Fault::None).await;
     let mut it = engine(port, tempfile::tempdir().unwrap());
     let (_tx, mut cancel) = watch::channel(false);
 
@@ -460,7 +476,7 @@ async fn a_literal_body_survives_a_line_that_looks_like_a_tagged_response() {
     // The second message's body contains "A1 OK not really". A parser that scans for a tagged
     // response instead of honouring the literal's byte count truncates the message there.
     let seen: Shared = Arc::new(Mutex::new(Seen::default()));
-    let port = serve(seen, Fault::None).await;
+    let (port, _validity) = serve(seen, Fault::None).await;
     let mut it = engine(port, tempfile::tempdir().unwrap());
     let (_tx, mut cancel) = watch::channel(false);
 
@@ -517,7 +533,7 @@ async fn killing_the_app_mid_sync_and_restarting_produces_no_duplicates() {
     // the connection in the middle of a body literal, exactly as a lost network does; the engine
     // is rebuilt against the same database, and the mailbox must contain each message once.
     let seen: Shared = Arc::new(Mutex::new(Seen::default()));
-    let port = serve(seen, Fault::DropDuringFetch).await;
+    let (port, _validity) = serve(seen, Fault::DropDuringFetch).await;
     let dir = tempfile::tempdir().unwrap();
 
     let after_crash = {
@@ -565,7 +581,7 @@ async fn a_condstore_server_gets_a_changedsince_sweep_after_the_first_pass() {
     // flags sweep reads it back and asks only for what changed. Until this test the cursor was
     // written by every sync and read by nothing, so the sweep refetched every flag for ever.
     let seen: Shared = Arc::new(Mutex::new(Seen::default()));
-    let port = serve(seen.clone(), Fault::None).await;
+    let (port, _validity) = serve(seen.clone(), Fault::None).await;
     let mut it = engine_with(
         port,
         tempfile::tempdir().unwrap(),
@@ -613,7 +629,7 @@ async fn a_server_without_condstore_is_never_sent_changedsince() {
     // CHANGEDSINCE to a server that does not advertise CONDSTORE is a protocol error, not a
     // graceful degradation — so the capability gate has to hold even though the cursor is there.
     let seen: Shared = Arc::new(Mutex::new(Seen::default()));
-    let port = serve(seen.clone(), Fault::None).await;
+    let (port, _validity) = serve(seen.clone(), Fault::None).await;
     let mut it = engine(port, tempfile::tempdir().unwrap());
     let (_tx, mut cancel) = watch::channel(false);
 
@@ -645,4 +661,90 @@ async fn a_server_without_condstore_is_never_sent_changedsince() {
         "CHANGEDSINCE sent to a server that never offered CONDSTORE: {:?}",
         seen.commands
     );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_mailbox_recreated_on_the_server_invalidates_the_uids_we_stored() {
+    // `plan.md` phase 5 names "UIDVALIDITY reset handling". The store has implemented it since
+    // it was written — `UidValidity::Reset` drops every `remote_map` row for the mailbox — and
+    // the backend reported `Same` unconditionally, so it could never fire.
+    //
+    // A server that restores a mailbox from backup, migrates it, or has a folder deleted and
+    // remade with the same name MUST change UIDVALIDITY. Every UID we hold then names a
+    // different message, or none. Keeping them is not a stale cache: it is marking the wrong
+    // mail read and attaching bodies to the wrong headers.
+    let seen: Shared = Arc::new(Mutex::new(Seen::default()));
+    let (port, validity) = serve(seen, Fault::None).await;
+    let dir = tempfile::tempdir().unwrap();
+    let (_tx, mut cancel) = watch::channel(false);
+
+    let dir = {
+        let mut it = engine(port, dir);
+        it.engine
+            .sync(&inbox(), &mut cancel, now(), 200)
+            .await
+            .unwrap();
+        assert_eq!(remote_rows(&it.store), 2, "the first sync mapped both UIDs");
+        it._dir
+    };
+
+    // The mailbox is recreated on the server.
+    validity.store(99, Ordering::SeqCst);
+
+    let mut it = engine(port, dir);
+    it.engine
+        .sync(&inbox(), &mut cancel, now(), 200)
+        .await
+        .unwrap();
+
+    match it.store.cursor(&inbox()).unwrap() {
+        Some(SyncCursor::Imap { uidvalidity, .. }) => assert_eq!(uidvalidity, 99),
+        other => panic!("{other:?}"),
+    }
+    // The old rows are gone and the mailbox has been mapped afresh, rather than two generations
+    // of UID sitting on top of each other.
+    assert_eq!(
+        remote_rows(&it.store),
+        2,
+        "stale remote_map rows survived a UIDVALIDITY change"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_unchanged_uidvalidity_does_not_throw_the_mailbox_away() {
+    // The other half. Resetting on every sync would refetch the whole mailbox for ever, which
+    // is the expensive way to be wrong and just as silent.
+    let seen: Shared = Arc::new(Mutex::new(Seen::default()));
+    let (port, _validity) = serve(seen, Fault::None).await;
+    let dir = tempfile::tempdir().unwrap();
+    let (_tx, mut cancel) = watch::channel(false);
+
+    let dir = {
+        let mut it = engine(port, dir);
+        it.engine
+            .sync(&inbox(), &mut cancel, now(), 200)
+            .await
+            .unwrap();
+        it.engine
+            .fetch_bodies(&inbox(), &mut cancel, now(), 100)
+            .await
+            .unwrap();
+        it._dir
+    };
+
+    let mut it = engine(port, dir);
+    it.engine
+        .sync(&inbox(), &mut cancel, now(), 200)
+        .await
+        .unwrap();
+    assert_eq!(count(&it.store), 2, "a second sync duplicated the mailbox");
+    assert_eq!(remote_rows(&it.store), 2);
+}
+
+/// How many `remote_map` rows exist, which is what a reset clears.
+fn remote_rows(store: &SqliteStore) -> i64 {
+    store
+        .connection()
+        .query_row("SELECT count(*) FROM remote_map", [], |r| r.get(0))
+        .unwrap()
 }

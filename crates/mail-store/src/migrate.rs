@@ -11,10 +11,16 @@ use rusqlite::Connection;
 ///
 /// **Append only.** A released migration is a fact about databases that already exist on
 /// disk; editing one does not change them, it only makes this build disagree with them.
-const MIGRATIONS: &[(u32, &str)] = &[(1, include_str!("../migrations/0001_initial.sql"))];
+const MIGRATIONS: &[(u32, &str)] = &[
+    (1, include_str!("../migrations/0001_initial.sql")),
+    (
+        2,
+        include_str!("../migrations/0002_remote_map_identity.sql"),
+    ),
+];
 
 /// The schema version this build expects.
-pub const EXPECTED_VERSION: u32 = 1;
+pub const EXPECTED_VERSION: u32 = 2;
 
 /// Bring `db` up to [`EXPECTED_VERSION`], creating it if it is empty.
 ///
