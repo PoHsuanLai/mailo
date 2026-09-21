@@ -16,6 +16,8 @@ pub enum RuntimeError {
     Proto(#[from] mail_proto::ProtoError),
     #[error("store: {0}")]
     Store(#[from] mail_store::StoreError),
+    #[error("composing: {0}")]
+    Compose(#[from] mail_mime::MimeError),
     #[error("secret store: {0}")]
     Secrets(String),
     /// The machine wanted something the transport in use cannot provide.
@@ -36,6 +38,9 @@ impl Retryable for RuntimeError {
             // present a bad chain. None of those is fixed by trying again in a loop, and
             // retrying a rejected certificate is how a client teaches its user to ignore it.
             RuntimeError::Tls(why) => Retry::Fatal(why.clone()),
+            // A fact about the message, not about the network. Retrying rebuilds the same
+            // bytes and fails the same way, forever.
+            RuntimeError::Compose(e) => e.retry(),
             // Delegate: the machines already classify their own failures, including the
             // transient/permanent split and rate limiting.
             RuntimeError::Proto(e) => e.retry(),

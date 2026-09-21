@@ -24,7 +24,7 @@
 use crate::account::{AccountCaps, ArchiveMeans, ServerLabels};
 use crate::content::Label;
 use crate::draft::Draft;
-use crate::id::{ChangeId, DraftId, LabelId, MessageId, ThreadId};
+use crate::id::{BlobId, ChangeId, DraftId, LabelId, MessageId, ThreadId};
 use crate::message::{Message, Thread};
 use crate::state::{MailboxRole, Membership, Pin, ReadState, Snooze, Star};
 use chrono::{DateTime, Utc};
@@ -146,6 +146,21 @@ pub enum RemoteIntent {
         messages: Vec<MessageId>,
         add: Vec<LabelId>,
         remove: Vec<LabelId>,
+    },
+    /// Submit a composed message.
+    ///
+    /// The odd one out, and deliberately in the same queue as the rest. A send needs exactly
+    /// what a flag change needs — ordering against the user's other actions, backoff on a
+    /// transient refusal, and a record that survives a restart — and a second queue beside the
+    /// outbox would be a second implementation of all three.
+    ///
+    /// It carries no `messages`: a submission does not address an existing message, it *is*
+    /// the new one. Everything it needs was resolved when the user pressed send.
+    Send {
+        draft: DraftId,
+        raw: BlobId,
+        mail_from: String,
+        rcpt_to: Vec<String>,
     },
 }
 

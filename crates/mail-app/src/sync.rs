@@ -133,7 +133,7 @@ async fn one(
 
     match &account.plan.incoming {
         Incoming::Pop3 { .. } => {
-            let username = username_for(&account.plan, &account.address);
+            let username = username_for(&account.plan);
             let Credential::Password(password) = credential else {
                 return Err("POP3 needs a password credential".to_owned());
             };
@@ -227,18 +227,16 @@ fn auth_prelude(sasl: &[SaslMech]) -> Vec<Pop3Command> {
     }
 }
 
-fn username_for(plan: &AccountPlan, address: &str) -> String {
-    match &plan.auth {
-        AuthPlan::Password { username, .. } => username.resolve(address),
-        AuthPlan::OAuth { .. } => address.to_owned(),
-    }
+// Both live on `AccountPlan` now, because `AccountEngine` needs the same answers to
+// authenticate a submission and two derivations of "what do I log in as" is how one of them
+// keeps working while the other quietly cannot. The wrappers stay so the tests below keep
+// naming what they are testing.
+fn username_for(plan: &AccountPlan) -> String {
+    plan.username()
 }
 
 fn sasl_for(plan: &AccountPlan) -> Vec<SaslMech> {
-    match &plan.auth {
-        AuthPlan::Password { sasl, .. } => sasl.clone(),
-        AuthPlan::OAuth { .. } => vec![SaslMech::XOauth2],
-    }
+    plan.sasl()
 }
 
 #[cfg(test)]
@@ -278,9 +276,6 @@ mod tests {
             chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
         )
         .expect("ntu is a known domain");
-        assert_eq!(
-            username_for(&preset.plan, "b09901185@ntu.edu.tw"),
-            "b09901185"
-        );
+        assert_eq!(username_for(&preset.plan), "b09901185");
     }
 }

@@ -120,9 +120,24 @@ pub enum ProtoOp {
         raw: BlobId,
         role: MailboxRole,
     },
+    /// Hand one composed message to the submission server.
+    ///
+    /// Everything here is frozen at the moment the user pressed send, which is why the bytes
+    /// are a [`BlobId`] rather than a draft to re-render: a draft edited while the outbox was
+    /// backed off would otherwise send the edit, not what was sent.
     Submit {
         draft: DraftId,
+        /// The exact bytes to transmit.
         raw: BlobId,
+        /// `MAIL FROM` — the return path for bounces.
+        mail_from: String,
+        /// `RCPT TO`: `To`, `Cc` **and** `Bcc`.
+        ///
+        /// Carried here rather than re-derived from `raw`, and that is the whole point. The
+        /// transmitted headers deliberately omit `Bcc` (FINDINGS F37), so a recipient list
+        /// parsed back out of the bytes would silently drop every blind recipient — on the
+        /// retry, not on the first attempt, which is the worst way to find out.
+        rcpt_to: Vec<String>,
     },
     /// Flag changes since a known point, without refetching anything else.
     ///

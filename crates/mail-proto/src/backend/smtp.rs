@@ -7,13 +7,18 @@
 use crate::machine::{Backend, IoReady, Machine, Progress, ProtoError, ProtoOutcome};
 use crate::smtp::{SmtpSession, Submission};
 use mail_domain::{AccountCaps, AccountId, DraftId, ProtoOp};
+use mail_mime::Posting;
 
 /// Builds a session for one submission.
 ///
-/// Takes the raw message because [`Submission`] carries it, and the credential because SMTP
-/// authenticates per connection. A closure for the same reason as POP3's: the backend never
-/// holds a password and so cannot leak one.
-pub type SubmissionFactory = Box<dyn FnMut(Vec<u8>) -> Result<Submission, ProtoError> + Send>;
+/// Takes a [`Posting`] — envelope *and* bytes — rather than bytes alone. An envelope derived
+/// from the message is how a `Bcc` recipient stops being delivered to the moment the headers
+/// stop naming them (FINDINGS F37), so the two travel together and the closure supplies only
+/// what it alone knows: the host, and the credential.
+///
+/// A closure for the same reason as POP3's: the backend never holds a password and so cannot
+/// leak one.
+pub type SubmissionFactory = Box<dyn FnMut(Posting) -> Result<Submission, ProtoError> + Send>;
 
 /// Sends one message per operation.
 pub struct SmtpBackend {
@@ -28,8 +33,8 @@ pub struct SmtpBackend {
 impl SmtpBackend {
     /// A backend that submits through `build`.
     ///
-    /// `raw` is supplied by the caller rather than fetched here: the bytes live in the blob
-    /// store, which this crate deliberately knows nothing about.
+    /// The [`Posting`] is supplied by the caller rather than built here: it needs the draft,
+    /// the identity and the blob store, none of which this crate knows about.
     pub fn new(account: AccountId, caps: AccountCaps, build: SubmissionFactory) -> Self {
         Self {
             account,
@@ -45,12 +50,12 @@ impl SmtpBackend {
         self.account
     }
 
-    /// Hand over the bytes for the next [`ProtoOp::Submit`].
+    /// Hand over the envelope and bytes for the next [`ProtoOp::Submit`].
     ///
     /// `ProtoOp::Submit` names a `BlobId`, and resolving one means reading the blob store, which
-    /// is above this crate. The runtime reads the blob and calls this first.
-    pub fn stage(&mut self, raw: Vec<u8>) -> Result<(), ProtoError> {
-        let submission = (self.build)(raw)?;
+    /// is above this crate. The runtime builds the [`Posting`] and calls this first.
+    pub fn stage(&mut self, posting: Posting) -> Result<(), ProtoError> {
+        let submission = (self.build)(posting)?;
         self.session = Some(SmtpSession::new(submission));
         Ok(())
     }

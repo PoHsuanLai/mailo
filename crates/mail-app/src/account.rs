@@ -19,6 +19,13 @@ pub fn add(
     address: &str,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<String, String> {
+    // Normalised once, here, and used for the preset, the stored plan and the stored column
+    // alike. `preset_for` deliberately keeps the address exactly as typed, and the accounts
+    // table deliberately lowercases it — so without this the plan and the column disagree in
+    // case, and anything deriving a login name from one gets a different answer than anything
+    // deriving it from the other. A mail server that is case-sensitive about the local part
+    // then rejects one of them with nothing to explain why.
+    let address = &address.to_lowercase();
     let Some(preset) = mail_domain::presets::preset_for(address, now) else {
         return Err(format!(
             "no preset for {address:?}. Manual setup is not written yet — \
@@ -36,12 +43,7 @@ pub fn add(
         .connection()
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at) VALUES (?1, ?2, ?3, ?4)",
-            rusqlite_params(&[
-                &account.to_string(),
-                &address.to_lowercase(),
-                &plan_json,
-                &now.to_rfc3339(),
-            ]),
+            rusqlite_params(&[&account.to_string(), address, &plan_json, &now.to_rfc3339()]),
         )
         .map_err(|e| format!("cannot save the account: {e}"))?;
     store

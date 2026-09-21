@@ -91,10 +91,27 @@ impl SqliteStore {
         account: AccountId,
         intent: &RemoteIntent,
     ) -> Result<Option<ProtoOp>, StoreError> {
+        // A submission addresses no existing message — it *is* the new one — so it needs no
+        // `remote_map` lookup and must not be dropped by the "no remote address" rule below.
+        if let RemoteIntent::Send {
+            draft,
+            raw,
+            mail_from,
+            rcpt_to,
+        } = intent
+        {
+            return Ok(Some(ProtoOp::Submit {
+                draft: *draft,
+                raw: *raw,
+                mail_from: mail_from.clone(),
+                rcpt_to: rcpt_to.clone(),
+            }));
+        }
         let messages = match intent {
             RemoteIntent::SetFlags { messages, .. }
             | RemoteIntent::SetMailbox { messages, .. }
             | RemoteIntent::SetLabels { messages, .. } => messages,
+            RemoteIntent::Send { .. } => unreachable!("handled above"),
         };
         let remotes = self.refs_for(account, messages)?;
         if remotes.is_empty() {
@@ -117,6 +134,7 @@ impl SqliteStore {
                 add: self.label_names(add)?,
                 remove: self.label_names(remove)?,
             },
+            RemoteIntent::Send { .. } => unreachable!("handled above"),
         }))
     }
 
@@ -165,6 +183,10 @@ impl SqliteStore {
                     (*m, changes)
                 })
                 .collect(),
+            // Nothing to re-layer. `pending_changes` exists so a local edit survives the next
+            // ingest overwriting the message it applies to; a submission has no such message,
+            // and the draft's own `SendState` is not a `Change` (FINDINGS F36).
+            RemoteIntent::Send { .. } => Vec::new(),
         }
     }
 

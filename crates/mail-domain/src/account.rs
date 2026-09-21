@@ -24,6 +24,41 @@ pub struct AccountPlan {
     pub identities: Vec<Identity>,
 }
 
+impl AccountPlan {
+    /// The name to authenticate as.
+    ///
+    /// On this plan rather than on the caller because getting it wrong is an authentication
+    /// failure with no explanation attached, and because two callers deriving it separately is
+    /// how one of them keeps working while the other silently cannot log in. NTU wants the
+    /// local part; most providers want the whole address.
+    pub fn username(&self) -> String {
+        match &self.auth {
+            AuthPlan::Password { username, .. } => username.resolve(&self.address),
+            AuthPlan::OAuth { .. } => self.address.clone(),
+        }
+    }
+
+    /// Mechanisms this account will use, most preferred first.
+    pub fn sasl(&self) -> Vec<SaslMech> {
+        match &self.auth {
+            AuthPlan::Password { sasl, .. } => sasl.clone(),
+            AuthPlan::OAuth { .. } => vec![SaslMech::XOauth2],
+        }
+    }
+
+    /// The name to send in `EHLO`.
+    ///
+    /// The sender's own domain. A client has no reliable way to learn a name that resolves
+    /// back to it, and submission servers do not check: they authenticate the session instead.
+    /// `localhost` is the one answer some servers actively reject, so it is not the fallback.
+    pub fn ehlo(&self) -> String {
+        match self.address.rsplit_once('@') {
+            Some((_, domain)) if !domain.is_empty() => domain.to_owned(),
+            _ => "mailo.invalid".to_owned(),
+        }
+    }
+}
+
 /// How mail arrives.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "v", rename_all = "snake_case")]

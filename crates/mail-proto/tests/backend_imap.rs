@@ -235,6 +235,8 @@ fn submission_is_refused_here() {
         backend.begin(ProtoOp::Submit {
             draft: DraftId::generate(),
             raw: BlobId::generate(),
+            mail_from: "ada@example.com".to_owned(),
+            rcpt_to: vec!["bob@example.com".to_owned()],
         }),
         Progress::Failed(_)
     ));

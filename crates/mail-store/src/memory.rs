@@ -641,10 +641,26 @@ impl Inner {
         account: AccountId,
         intent: &RemoteIntent,
     ) -> Result<Option<ProtoOp>, StoreError> {
+        // Mirrors SqliteStore::resolve_intent: a submission addresses no existing message.
+        if let RemoteIntent::Send {
+            draft,
+            raw,
+            mail_from,
+            rcpt_to,
+        } = intent
+        {
+            return Ok(Some(ProtoOp::Submit {
+                draft: *draft,
+                raw: *raw,
+                mail_from: mail_from.clone(),
+                rcpt_to: rcpt_to.clone(),
+            }));
+        }
         let messages = match intent {
             RemoteIntent::SetFlags { messages, .. }
             | RemoteIntent::SetMailbox { messages, .. }
             | RemoteIntent::SetLabels { messages, .. } => messages,
+            RemoteIntent::Send { .. } => unreachable!("handled above"),
         };
         let remotes = self.refs_for(account, messages)?;
         if remotes.is_empty() {
@@ -665,6 +681,7 @@ impl Inner {
                 add: self.label_names(add),
                 remove: self.label_names(remove),
             },
+            RemoteIntent::Send { .. } => unreachable!("handled above"),
         }))
     }
 
@@ -916,6 +933,9 @@ fn pending_of(intent: &RemoteIntent) -> Vec<(MessageId, Vec<Change>)> {
                 (*id, changes)
             })
             .collect(),
+        // A submission re-layers nothing: it has no existing message to be overwritten by the
+        // next ingest. Matches SqliteStore.
+        RemoteIntent::Send { .. } => Vec::new(),
     }
 }
 

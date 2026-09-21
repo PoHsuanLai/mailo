@@ -251,6 +251,8 @@ fn submission_is_unsupported_not_silently_ignored() {
     let outcome = backend.begin(ProtoOp::Submit {
         draft: DraftId::generate(),
         raw: BlobId::generate(),
+        mail_from: "ada@example.com".to_owned(),
+        rcpt_to: vec!["bob@example.com".to_owned()],
     });
     assert!(matches!(outcome, Progress::Failed(_)), "{outcome:?}");
 }
@@ -323,13 +325,16 @@ fn fetch_headers_uses_top_and_returns_raw_bytes() {
 /// Submission is its own backend on its own connection, and the incoming one refuses it.
 #[test]
 fn smtp_backend_submits_and_reports_no_remote_copy() {
+    use mail_mime::Posting;
     use mail_proto::Submission;
     use mail_proto::backend::SmtpBackend;
 
     let mut backend = SmtpBackend::new(
         ACCOUNT,
         caps(),
-        Box::new(|raw: Vec<u8>| {
+        // The envelope comes from the Posting, not from the closure: the closure knows the
+        // host and the credential, and nothing about who this particular message is for.
+        Box::new(|posting: Posting| {
             Ok(Submission {
                 ehlo: "client.example".to_owned(),
                 host: "smtp.example".to_owned(),
@@ -338,9 +343,9 @@ fn smtp_backend_submits_and_reports_no_remote_copy() {
                 username: "ada@example.com".to_owned(),
                 credential: Credential::Password("s3cr3t-password".to_owned()),
                 sasl: vec![SaslMech::Plain],
-                mail_from: "ada@example.com".to_owned(),
-                recipients: vec!["bob@example.com".to_owned()],
-                message: raw,
+                mail_from: posting.mail_from,
+                recipients: posting.rcpt_to,
+                message: posting.message,
             })
         }),
     );
@@ -350,6 +355,8 @@ fn smtp_backend_submits_and_reports_no_remote_copy() {
     let unstaged = backend.begin(ProtoOp::Submit {
         draft: DraftId::generate(),
         raw: BlobId::generate(),
+        mail_from: "ada@example.com".to_owned(),
+        rcpt_to: vec!["bob@example.com".to_owned()],
     });
     assert!(
         matches!(unstaged, Progress::Failed(_)),
@@ -357,9 +364,12 @@ fn smtp_backend_submits_and_reports_no_remote_copy() {
     );
 
     backend
-        .stage(
-            b"From: ada@example.com\r\nTo: bob@example.com\r\nSubject: hi\r\n\r\nbody\r\n".to_vec(),
-        )
+        .stage(Posting {
+            mail_from: "ada@example.com".to_owned(),
+            rcpt_to: vec!["bob@example.com".to_owned()],
+            message: b"From: ada@example.com\r\nTo: bob@example.com\r\nSubject: hi\r\n\r\nbody\r\n"
+                .to_vec(),
+        })
         .unwrap();
 
     struct Sending {
@@ -382,6 +392,8 @@ fn smtp_backend_submits_and_reports_no_remote_copy() {
         op: Some(ProtoOp::Submit {
             draft: DraftId::generate(),
             raw: BlobId::generate(),
+            mail_from: "ada@example.com".to_owned(),
+            rcpt_to: vec!["bob@example.com".to_owned()],
         }),
     };
     let outcome = replay(

@@ -8,10 +8,12 @@
 use crate::{Cancel, RuntimeError, Secrets, Transport, drive};
 use chrono::{DateTime, Utc};
 use mail_domain::{
-    AccountId, AccountPlan, FetchSince, Incoming, MailboxRef, ProtoOp, RemoteRef, Retry, Retryable,
-    SyncCursor, Tls,
+    AccountId, AccountPlan, Credential, FetchSince, Incoming, MailboxRef, Outgoing, ProtoOp,
+    RemoteRef, Retry, Retryable, SecretKey, SecretPurpose, SendState, SyncCursor, Tls,
 };
-use mail_proto::{Backend, ProtoOutcome};
+use mail_mime::Posting;
+use mail_proto::backend::SmtpBackend;
+use mail_proto::{Backend, ProtoOutcome, Submission};
 use mail_store::{Settle, SqliteStore, Store};
 use std::sync::Arc;
 use std::time::Duration;
@@ -29,6 +31,8 @@ pub struct SyncReport {
     pub headers_fetched: usize,
     pub bodies_fetched: usize,
     pub outbox_settled: usize,
+    /// Messages handed to the submission server and accepted.
+    pub submitted: usize,
     /// Operations that failed in a way worth surfacing rather than retrying.
     pub needs_attention: Vec<String>,
 }
@@ -139,9 +143,107 @@ impl<B: Backend> AccountEngine<B> {
         op: ProtoOp,
         cancel: &mut Cancel,
     ) -> Result<ProtoOutcome, RuntimeError> {
+        // Submission is a different server on a different port speaking a different protocol.
+        // Sending it to the incoming backend is how `ProtoOp::Submit` got refused by POP3 as
+        // "unsupported" — a true statement about the wrong backend.
+        if matches!(op, ProtoOp::Submit { .. }) {
+            return self.submit(op, cancel).await;
+        }
         let mut transport = self.connect().await?;
         let mut step = BackendMachine {
             backend: &mut self.backend,
+            op: Some(op),
+        };
+        drive(&mut step, &mut transport, cancel).await
+    }
+
+    /// Where the submission server lives.
+    fn outgoing(&self) -> (&str, u16, Tls) {
+        match &self.plan.outgoing {
+            Outgoing::Smtp { host, port, tls } => (host, *port, *tls),
+        }
+    }
+
+    /// A backend that can submit exactly one message for this account.
+    ///
+    /// Built per submission rather than held, because it closes over the credential and a
+    /// long-lived copy of a password is a copy waiting to be logged. The closure is the only
+    /// thing that holds it; `SmtpBackend` itself never sees it.
+    fn submitter(&self) -> Result<SmtpBackend, RuntimeError> {
+        let (host, port, tls) = self.outgoing();
+        let (host, ehlo) = (host.to_owned(), self.plan.ehlo());
+        let (username, sasl) = (self.plan.username(), self.plan.sasl());
+        // Most providers authenticate submission with the same secret as retrieval, which is
+        // what `AuthPlan` means by covering both directions. A separate outgoing secret is
+        // preferred where one was stored, because a few hosts really do differ.
+        let credential = self
+            .secret(SecretPurpose::OutgoingPassword)
+            .or_else(|_| self.secret(SecretPurpose::IncomingPassword))?;
+        // The incoming backend's capabilities. They describe the *account*, not the socket:
+        // `SmtpBackend` reads none of the IMAP-shaped fields, and giving it a second, emptier
+        // set would mean two answers to one question.
+        let caps = self.backend.caps().clone();
+        Ok(SmtpBackend::new(
+            self.account,
+            caps,
+            Box::new(move |posting: Posting| {
+                Ok(Submission {
+                    ehlo: ehlo.clone(),
+                    host: host.clone(),
+                    port,
+                    tls,
+                    username: username.clone(),
+                    credential: credential.clone(),
+                    sasl: sasl.clone(),
+                    // Straight from the Posting. Re-deriving either of these from `message`
+                    // is FINDINGS F37.
+                    mail_from: posting.mail_from,
+                    recipients: posting.rcpt_to,
+                    message: posting.message,
+                })
+            }),
+        ))
+    }
+
+    fn secret(&self, purpose: SecretPurpose) -> Result<Credential, RuntimeError> {
+        self.secrets.get(&SecretKey {
+            account: self.account,
+            purpose,
+        })
+    }
+
+    /// Submit one composed message, over a connection to the outgoing server.
+    async fn submit(
+        &mut self,
+        op: ProtoOp,
+        cancel: &mut Cancel,
+    ) -> Result<ProtoOutcome, RuntimeError> {
+        let ProtoOp::Submit {
+            raw,
+            ref mail_from,
+            ref rcpt_to,
+            ..
+        } = op
+        else {
+            return Err(RuntimeError::UnsupportedIo(
+                "submit() called with something other than a submission".to_owned(),
+            ));
+        };
+        // The bytes were frozen when the user pressed send, so a draft edited while the outbox
+        // was backed off does not change what goes out.
+        let message = self.store.blobs().get(&self.store.connection(), raw)?;
+        let posting = Posting {
+            mail_from: mail_from.clone(),
+            rcpt_to: rcpt_to.clone(),
+            message,
+        };
+
+        let mut backend = self.submitter()?;
+        backend.stage(posting)?;
+        let (host, port, tls) = self.outgoing();
+        let mut transport = Transport::connect(host, port, tls).await?;
+        let mut step = BackendMachine {
+            backend: &mut backend,
             op: Some(op),
         };
         drive(&mut step, &mut transport, cancel).await
@@ -159,9 +261,29 @@ impl<B: Backend> AccountEngine<B> {
         let mut report = SyncReport::default();
         for entry in self.store.outbox_due(self.account, now)? {
             let id = entry.id;
+            // Noted before the op is consumed. A submission also has a draft whose visible
+            // state must follow what happened on the wire; nothing else in the outbox does.
+            let draft = match &entry.op {
+                ProtoOp::Submit { draft, .. } => Some(*draft),
+                _ => None,
+            };
             match self.run(entry.op, cancel).await {
                 Ok(_) => {
                     self.store.outbox_settle(id, Settle::Ok, now)?;
+                    if let Some(draft) = draft {
+                        // `message: None` — SMTP reports that the message was accepted, not
+                        // where a copy was filed. Gmail files it in Sent itself; a POP3 account
+                        // has no Sent folder at all.
+                        self.mark_draft(
+                            draft,
+                            SendState::Sent {
+                                at: now,
+                                message: None,
+                            },
+                            now,
+                        );
+                        report.submitted += 1;
+                    }
                     report.outbox_settled += 1;
                 }
                 Err(RuntimeError::Cancelled) => return Ok(report),
@@ -169,6 +291,18 @@ impl<B: Backend> AccountEngine<B> {
                     let retry = e.retry();
                     if matches!(retry, Retry::NeedsReauth | Retry::Fatal(_)) {
                         report.needs_attention.push(e.to_string());
+                    }
+                    if let Some(draft) = draft {
+                        // Carries the retry, so the composer can say "retrying" rather than
+                        // "failed" for something the outbox has not given up on.
+                        self.mark_draft(
+                            draft,
+                            SendState::Failed {
+                                reason: e.to_string(),
+                                retry: retry.clone(),
+                            },
+                            now,
+                        );
                     }
                     self.store.outbox_settle(
                         id,
@@ -185,6 +319,16 @@ impl<B: Backend> AccountEngine<B> {
             }
         }
         Ok(report)
+    }
+
+    /// Record where a draft got to, without letting that record fail the drain.
+    ///
+    /// A missing draft is not an error worth propagating: the user may have deleted it while
+    /// the outbox was backed off, and the message either was or was not accepted regardless.
+    /// Failing here would leave the outbox entry settled and the pass reporting an error about
+    /// something nobody is waiting on.
+    fn mark_draft(&self, draft: mail_domain::DraftId, state: SendState, now: DateTime<Utc>) {
+        let _ = self.store.set_send_state(draft, &state, now);
     }
 
     /// A first or incremental sync: survey, then headers, then bodies smallest band first.

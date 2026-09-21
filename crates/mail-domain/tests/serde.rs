@@ -259,6 +259,11 @@ fn proto_ops() -> Vec<ProtoOp> {
         ProtoOp::Submit {
             draft: DraftId::from_uuid(uuid(9)),
             raw: BlobId::from_uuid(uuid(7)),
+            mail_from: "me@example.test".to_owned(),
+            rcpt_to: vec![
+                "to@example.test".to_owned(),
+                "blind@example.test".to_owned(),
+            ],
         },
         ProtoOp::Expunge {
             remotes: vec![RemoteRef::Pop {
@@ -1113,6 +1118,13 @@ fixtures! {
         FetchSince::Beginning,
         FetchSince::After { cursor: imap_cursor() },
     ],
+    // Regenerated once, when `ProtoOp::Submit` gained `mail_from` and `rcpt_to`. The corpus is
+    // append-only precisely so that a break like this cannot pass unnoticed, so the argument
+    // for retiring the old file is recorded rather than assumed: the only writer of a stored
+    // `ProtoOp` is `SqliteStore::queue`, fed by `resolve_intent`, which until that same commit
+    // matched `SetFlags | SetMailbox | SetLabels` and nothing else. No `Submit` had ever been
+    // written to any outbox, so no row of the old shape exists to be read back. The retired
+    // content remains in git history. See FINDINGS F37.
     "proto_ops.json" => Vec<ProtoOp> = proto_ops(),
     "retries.json" => Vec<Retry> = vec![
         Retry::Now,
