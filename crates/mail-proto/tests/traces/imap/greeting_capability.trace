@@ -1,0 +1,10 @@
+# DERIVED from spike/out/imap.trace, captured against a real Gmail account 2026-09-22.
+# The greeting and the PRE-authentication capability list are verbatim except for the client
+# IP and connection id. Note what is NOT here: no CONDSTORE, no MOVE, no SPECIAL-USE, and
+# XLIST in their place. Gmail advertises a fuller list once authenticated, which is why
+# reading capabilities before LOGIN reports a far less capable server than Gmail is.
+S: * OK Gimap ready for requests from 203.0.113.9 abc123mb339711204a12
+C: a001 CAPABILITY
+S: * CAPABILITY IMAP4rev1 UNSELECT IDLE NAMESPACE QUOTA ID XLIST CHILDREN X-GM-EXT-1 XYZZY SASL-IR AUTH=XOAUTH2 AUTH=PLAIN AUTH=PLAIN-CLIENTTOKEN AUTH=OAUTHBEARER
+S: a001 OK Success
+DONE

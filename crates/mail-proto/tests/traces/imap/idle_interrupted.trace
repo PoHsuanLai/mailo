@@ -1,0 +1,10 @@
+# SYNTHETIC. The cancellation path the whole Progress design exists for: a user archives a
+# thread while an IDLE is outstanding, the runtime interrupts, and the session winds down in
+# protocol so the connection can be reused rather than dropped mid-command.
+S: * OK Gimap ready
+C: a001 IDLE
+S: + idling
+INTERRUPT
+C: DONE
+S: a001 OK IDLE terminated (Success)
+DONE

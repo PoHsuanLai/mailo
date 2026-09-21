@@ -14,6 +14,7 @@ base64 = "0.22"
 # catch-all, so an X-GM-* attribute makes the whole untagged FETCH a parse error. This crate
 # ships parser/gmail.rs. nom::streaming Err::Incomplete maps onto Progress::Need(Read).
 imap-proto = "0.16"
+nom = "7"
 
 [lints]
 workspace = true

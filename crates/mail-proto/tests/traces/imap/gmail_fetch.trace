@@ -1,0 +1,10 @@
+# DERIVED from spike/out/imap.trace: the FETCH shape the capture actually contains, with
+# envelope contents replaced. X-GM-MSGID is MessageKey::Gmail and X-GM-THRID is
+# ServerThreads::ProviderId, and an unrecognised attribute here is why imap-codec was rejected:
+# its parser fails the closing parenthesis and the WHOLE untagged FETCH becomes an error.
+S: * OK Gimap ready
+C: a001 UID FETCH 30048:30052 (UID FLAGS X-GM-MSGID X-GM-THRID X-GM-LABELS)
+S: * 30048 FETCH (UID 32460 FLAGS (\Seen) X-GM-MSGID 1876965017123110734 X-GM-THRID 1876965017123110734 X-GM-LABELS (\Inbox "travel"))
+S: * 30049 FETCH (UID 32461 FLAGS () X-GM-MSGID 1876965868536477501 X-GM-THRID 1876965868536477501 X-GM-LABELS ())
+S: a001 OK Success
+DONE

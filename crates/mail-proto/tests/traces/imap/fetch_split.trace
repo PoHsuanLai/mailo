@@ -1,0 +1,9 @@
+# SYNTHETIC. A real FETCH arrives across many reads; a machine that only ever sees whole
+# responses in tests deadlocks the first time one does not arrive whole. Delivered one byte at
+# a time, asserting the machine asks to read again between each.
+S: * OK Gimap ready
+C: a001 UID FETCH 1 (UID FLAGS)
+SPLIT
+S: * 1 FETCH (UID 101 FLAGS (\Seen \Flagged))
+S: a001 OK Success
+DONE

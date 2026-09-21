@@ -1,0 +1,14 @@
+# DERIVED from spike/out/imap.trace. The finding F14 recorded, as a transcript: the same
+# server answers CAPABILITY differently before and after authentication. A client that reads
+# once, before LOGIN, concludes there is no CONDSTORE — and then sees HIGHESTMODSEQ in the
+# very next SELECT, which only a CONDSTORE server sends.
+S: * OK Gimap ready for requests from 203.0.113.9 abc123mb339711204a12
+C: a001 CAPABILITY
+S: * CAPABILITY IMAP4rev1 UNSELECT IDLE NAMESPACE QUOTA ID XLIST CHILDREN X-GM-EXT-1 XYZZY SASL-IR AUTH=XOAUTH2 AUTH=PLAIN
+S: a001 OK Success
+C: a002 AUTHENTICATE XOAUTH2 dXNlcj1hZGFAZXhhbXBsZS50ZXN0AWF1dGg9QmVhcmVyIHlhMjkudG9rZW4BAQ==
+S: a002 OK ada@example.test authenticated (Success)
+C: a003 CAPABILITY
+S: * CAPABILITY IMAP4rev1 UNSELECT IDLE NAMESPACE QUOTA ID XLIST CHILDREN X-GM-EXT-1 UIDPLUS COMPRESS=DEFLATE ENABLE MOVE CONDSTORE ESEARCH UTF8=ACCEPT
+S: a003 OK Success
+DONE

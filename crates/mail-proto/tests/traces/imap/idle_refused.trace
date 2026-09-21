@@ -1,0 +1,7 @@
+# SYNTHETIC, from Mozilla bug 344205. A server that ADVERTISES IDLE and then answers NO wedged
+# Thunderbird for years: it assumed the "+" continuation and sent DONE anyway, and the server
+# answered "BAD Null command". Never send DONE if you never entered IDLE.
+S: * OK Gimap ready
+C: a001 IDLE
+S: a001 NO IDLE not supported for remote mailboxes
+FAIL Refused

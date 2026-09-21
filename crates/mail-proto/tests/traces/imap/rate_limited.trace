@@ -1,0 +1,7 @@
+# SYNTHETIC. Gmail caps daily transfer and simultaneous connections and answers excess with a
+# lockout measured in hours. This must be Throttled and not a refusal: a refusal is fatal, and
+# the store answers fatal by applying the undo patch and discarding the user's work.
+S: * OK Gimap ready
+C: a001 UID FETCH 1:* (UID)
+S: a001 NO [LIMIT] Too many simultaneous connections
+FAIL Throttled
