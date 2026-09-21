@@ -249,9 +249,16 @@ fn text_predicate(m: &TextMatch, params: &mut Vec<SqlValue>) -> String {
     }
     // `messages_fts MATCH`, not `f MATCH`: with the table aliased, SQLite resolves MATCH
     // against the real table name and reports the alias as "no such column".
-    const EXISTS: &str = "EXISTS (SELECT 1 FROM messages m \
-        JOIN messages_fts f ON f.rowid = m.rowid \
-        WHERE m.thread = ts.thread AND messages_fts MATCH ?)";
+    //
+    // **Uncorrelated on purpose.** This was `EXISTS (... WHERE m.thread = ts.thread AND
+    // messages_fts MATCH ?)`, which mentions the outer row and so runs once *per thread*: the
+    // FTS index was used, ten thousand times over, and a search of a ten-thousand-message
+    // mailbox took four and a half seconds. Without the correlation SQLite evaluates the match
+    // once, materialises the threads it hit, and probes that — the difference between a search
+    // that is linear in the mailbox and one that is quadratic.
+    const MATCHING: &str = "ts.thread IN (SELECT m.thread FROM messages_fts f \
+        JOIN messages m ON m.rowid = f.rowid \
+        WHERE messages_fts MATCH ?)";
 
     match m {
         // One EXISTS per token, ANDed at the SQL level rather than inside one MATCH.
@@ -265,7 +272,7 @@ fn text_predicate(m: &TextMatch, params: &mut Vec<SqlValue>) -> String {
             let mut clauses = Vec::with_capacity(tokens.len());
             for token in &tokens {
                 params.push(SqlValue::Text(quote_fts_token(token)));
-                clauses.push(EXISTS.to_owned());
+                clauses.push(MATCHING.to_owned());
             }
             format!("({})", clauses.join(" AND "))
         }
@@ -273,7 +280,7 @@ fn text_predicate(m: &TextMatch, params: &mut Vec<SqlValue>) -> String {
         // message's indexed text, so this stays a single MATCH.
         TextMatch::Exact(_) => {
             params.push(SqlValue::Text(fts_phrase(&tokens)));
-            format!("({EXISTS})")
+            format!("({MATCHING})")
         }
     }
 }

@@ -1,0 +1,14 @@
+-- Every page of the list was a full scan plus a temp B-tree sort of the whole mailbox.
+--
+-- `thread_summary_date` leads with `account`, and the query that draws the list does not
+-- constrain one: a unified inbox is `Filter::InMailbox(Inbox)` with no account clause, which is
+-- the shape `Filter::All`'s own documentation describes. SQLite cannot use an index whose
+-- leading column is unmentioned, so it scanned and sorted — `SCAN ts` / `USE TEMP B-TREE FOR
+-- ORDER BY` — for a page of fifty.
+--
+-- This index matches the ORDER BY exactly, so the rows come out in order and the scan stops
+-- after the page is full instead of sorting ten thousand rows to discard all but fifty.
+--
+-- The account-leading index stays: it is the right one for a query that *does* name an account,
+-- and for the unread counts that already use `thread_summary_unread`.
+CREATE INDEX thread_summary_order ON thread_summary(last_date DESC, thread DESC);

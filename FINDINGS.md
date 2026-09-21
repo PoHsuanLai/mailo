@@ -1326,3 +1326,56 @@ Microsoft runs sovereign clouds on different hosts (`login.microsoftonline.us`),
 behind an inspecting proxy needs the same. `Pending` now carries the endpoints resolved when the
 request began, rather than looking them up again when it completes — a second lookup is a second
 answer, and the code came back from whichever host was actually asked.
+
+### F75 — Search took four and a half seconds on a ten-thousand-message mailbox
+
+"I cannot judge usability" is true of taste and false of scale, and every test in this repository
+held two or three messages. That is enough to check *what* a query returns and says nothing about
+what it costs.
+
+`Filter::Text` compiled to a **correlated** subquery:
+
+```sql
+EXISTS (SELECT 1 FROM messages m JOIN messages_fts f ON f.rowid = m.rowid
+        WHERE m.thread = ts.thread AND messages_fts MATCH ?)
+```
+
+It mentions `ts.thread`, so SQLite runs it once per row of the outer query. The FTS5 index was
+used — ten thousand times. Searching a ten-thousand-message mailbox took **4.57 seconds**.
+
+Without the correlation SQLite evaluates the match once, materialises the threads it hit, and
+probes that: `ts.thread IN (SELECT m.thread FROM messages_fts f JOIN messages m ...)`. Same
+answer, same thread-as-corpus semantics, and the parity proptest agrees. **14ms**, a factor of
+325.
+
+### F76 — Every page of the list sorted the whole mailbox
+
+`EXPLAIN QUERY PLAN` on the list query: `SCAN ts` then `USE TEMP B-TREE FOR ORDER BY`. The
+existing `thread_summary_date` index leads with `account`, and the query that draws the list does
+not constrain one — a unified inbox is `Filter::InMailbox(Inbox)` with no account clause, which
+is exactly what `Filter::All`'s own documentation describes. SQLite cannot use an index whose
+leading column is unmentioned, so it scanned and sorted ten thousand rows to return fifty.
+
+Migration 0003 adds `thread_summary(last_date DESC, thread DESC)`, matching the ORDER BY, so the
+rows arrive in order and the scan stops when the page is full. Measured both ways:
+
+| | first page at 1k | first page at 10k | page 41 |
+|---|---|---|---|
+| without | 672µs | 5.18ms | 4.0ms |
+| with | 140µs | 237µs | 138µs |
+
+The point is the second column: without it, a page costs what the *mailbox* costs; with it, a
+page costs what a page costs. Page 41 matching page 1 is keyset pagination finally doing what it
+was written for.
+
+### F77 — I nearly reported the wrong cause
+
+The first run "with the index" was not: `cargo fmt` had already reformatted the `MIGRATIONS`
+list, so the edit that was meant to register migration 3 matched nothing and silently did
+nothing, while `EXPECTED_VERSION` was bumped. The migration test caught the mismatch — `left: 2,
+right: 3` — but only after I had read an improvement off a run where the index did not exist and
+was about to attribute it.
+
+The fix was to measure again, deliberately, with the index and then without. Which is the same
+habit as reintroducing a bug to see a test fail: a number is evidence of nothing until you have
+seen it move for the reason you claim.

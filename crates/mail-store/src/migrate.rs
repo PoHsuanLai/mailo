@@ -17,10 +17,11 @@ const MIGRATIONS: &[(u32, &str)] = &[
         2,
         include_str!("../migrations/0002_remote_map_identity.sql"),
     ),
+    (3, include_str!("../migrations/0003_list_order_index.sql")),
 ];
 
 /// The schema version this build expects.
-pub const EXPECTED_VERSION: u32 = 2;
+pub const EXPECTED_VERSION: u32 = 3;
 
 /// Bring `db` up to [`EXPECTED_VERSION`], creating it if it is empty.
 ///

@@ -1,0 +1,239 @@
+//! How the store behaves with a real mailbox in it.
+//!
+//! Every other test here holds two or three messages, which is enough to check *what* a query
+//! returns and says nothing about what it costs. The measured maildrop this project was designed
+//! around has 2372 messages, a long-lived account has ten times that, and a query that is
+//! quadratic in the mailbox is invisible at three rows and unusable at ten thousand.
+//!
+//! These are not benchmarks and do not assert timings — a loaded CI machine would make that
+//! flaky, which is how a performance test gets deleted. They assert the *shape*: that the cost of
+//! a page does not grow with the mailbox behind it. A linear scan shows up as a page of 50 taking
+//! materially longer at 10,000 rows than at 1,000, and that comparison is stable even on a busy
+//! machine.
+
+use chrono::{DateTime, TimeZone, Utc};
+use mail_domain::*;
+use mail_store::{SqliteStore, Store};
+use std::time::Instant;
+
+const ACCOUNT: AccountId =
+    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+
+fn at(n: i64) -> DateTime<Utc> {
+    Utc.timestamp_opt(1_700_000_000 + n * 60, 0).unwrap()
+}
+
+fn store() -> (SqliteStore, tempfile::TempDir) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = SqliteStore::in_memory(dir.path()).unwrap();
+    store
+        .connection()
+        .execute(
+            "INSERT INTO accounts (id, address, plan, created_at)
+             VALUES (?1, 'me@example.test', '{}', datetime('now'))",
+            [ACCOUNT.to_string()],
+        )
+        .unwrap();
+    (store, dir)
+}
+
+/// Fill the store with `count` messages, each its own thread, in batches.
+fn fill(store: &SqliteStore, count: i64) {
+    let raw = store
+        .blobs()
+        .put(&store.connection(), b"shared body bytes")
+        .unwrap();
+    for batch in 0..(count / 500) {
+        let mut messages = Vec::with_capacity(500);
+        for i in 0..500 {
+            let n = batch * 500 + i;
+            let key = format!("m{n}@example.test");
+            let message = Message {
+                id: MessageId::generate(),
+                thread: ThreadId::generate(),
+                account: ACCOUNT,
+                key: MessageKey::Rfc(key.clone()),
+                date: at(n),
+                from: Address {
+                    name: Some(format!("Sender {}", n % 97)),
+                    email: format!("s{}@example.test", n % 97),
+                },
+                reply_to: vec![],
+                to: vec![],
+                cc: vec![],
+                bcc: vec![],
+                subject: format!("message {n} about quarterly widgets"),
+                in_reply_to: None,
+                references: vec![],
+                rfc_message_id: Some(key.clone()),
+                read: if n % 3 == 0 {
+                    ReadState::Unread
+                } else {
+                    ReadState::Read
+                },
+                star: Star::Unstarred,
+                mailbox: MailboxRole::Inbox,
+                labels: vec![],
+                body: Body::Present {
+                    text: Some(format!("body of message {n}, mentioning widgets")),
+                    raw,
+                },
+                attachments: vec![],
+            };
+            messages.push(Fetched {
+                remote: RemoteRef::Pop { uidl: key },
+                key: message.key.clone(),
+                raw,
+                message,
+            });
+        }
+        store
+            .ingest(
+                ACCOUNT,
+                Ingest {
+                    mailbox: MailboxRef {
+                        account: ACCOUNT,
+                        path: "INBOX".to_owned(),
+                    },
+                    validity: UidValidity::Same,
+                    cursor: Some(SyncCursor::Pop),
+                    messages,
+                    flags: vec![],
+                    labels: vec![],
+                    gone: vec![],
+                },
+            )
+            .unwrap();
+    }
+}
+
+fn page(limit: u32, filter: Filter) -> Query {
+    Query {
+        filter,
+        sort: Sort {
+            property: Property::Date,
+            dir: SortDir::Desc,
+        },
+        page: PageReq { after: None, limit },
+    }
+}
+
+/// Time `f`, taking the best of three so a scheduling hiccup does not decide the result.
+fn best_of_three(mut f: impl FnMut()) -> std::time::Duration {
+    (0..3)
+        .map(|_| {
+            let start = Instant::now();
+            f();
+            start.elapsed()
+        })
+        .min()
+        .unwrap()
+}
+
+#[test]
+fn a_page_of_the_inbox_costs_the_same_at_ten_thousand_as_at_one_thousand() {
+    // The property that decides whether this is usable on a real account. `threads` is keyset
+    // paginated and ordered by an indexed column, so the first page should cost what a page
+    // costs — not what the mailbox costs.
+    let (small, _d1) = store();
+    fill(&small, 1_000);
+    let (large, _d2) = store();
+    fill(&large, 10_000);
+
+    assert_eq!(small.count(&Filter::All, at(0)).unwrap(), 1_000);
+    assert_eq!(large.count(&Filter::All, at(0)).unwrap(), 10_000);
+
+    let q = page(50, Filter::InMailbox(MailboxRole::Inbox));
+    let at_1k = best_of_three(|| {
+        small.threads(&q, at(0)).unwrap();
+    });
+    let at_10k = best_of_three(|| {
+        large.threads(&q, at(0)).unwrap();
+    });
+
+    eprintln!("first page: 1k={at_1k:?}  10k={at_10k:?}");
+    // Ten times the rows must not cost ten times the time. Four is loose enough to survive a
+    // busy machine and tight enough that a full scan — which would be ~10x — fails.
+    assert!(
+        at_10k < at_1k * 4 + std::time::Duration::from_millis(5),
+        "a page got dramatically slower with more mail behind it: 1k={at_1k:?} 10k={at_10k:?}"
+    );
+}
+
+#[test]
+fn paging_to_the_end_does_not_get_slower_as_it_goes() {
+    // Keyset pagination exists so that page 100 costs what page 1 costs. With OFFSET it would
+    // not, and the list would crawl exactly when someone is scrolling back through a year.
+    let (store, _dir) = store();
+    fill(&store, 10_000);
+
+    let mut query = page(50, Filter::All);
+    let first = best_of_three(|| {
+        store.threads(&query, at(0)).unwrap();
+    });
+
+    // Walk 40 pages in, then measure again from there.
+    let mut cursor = None;
+    for _ in 0..40 {
+        query.page.after = cursor.clone();
+        let Ok(p) = store.threads(&query, at(0)) else {
+            break;
+        };
+        if p.next.is_none() {
+            break;
+        }
+        cursor = p.next;
+    }
+    query.page.after = cursor;
+    let deep = best_of_three(|| {
+        store.threads(&query, at(0)).unwrap();
+    });
+
+    eprintln!("page 1={first:?}  page 41={deep:?}");
+    assert!(
+        deep < first * 4 + std::time::Duration::from_millis(5),
+        "paging got slower the deeper it went: first={first:?} deep={deep:?}"
+    );
+}
+
+#[test]
+fn search_stays_usable_on_a_full_mailbox() {
+    // FTS5 is an index; `LIKE '%needle%'` is not. If search ever stopped using the index this is
+    // where it shows, because every message here contains the word.
+    let (store, _dir) = store();
+    fill(&store, 10_000);
+
+    let q = page(50, Filter::Text(TextMatch::Contains("widgets".to_owned())));
+    let elapsed = best_of_three(|| {
+        store.threads(&q, at(0)).unwrap();
+    });
+    let found = store.threads(&q, at(0)).unwrap();
+
+    eprintln!("search over 10k: {elapsed:?}, {} hits", found.items.len());
+    assert_eq!(found.items.len(), 50, "the page should be full");
+    assert!(
+        elapsed < std::time::Duration::from_millis(500),
+        "search took {elapsed:?} on 10k messages"
+    );
+}
+
+#[test]
+fn an_unread_count_does_not_read_the_mailbox() {
+    // Every sidebar badge runs this on every revision. A count that scans is a count that makes
+    // the whole window pause each time a message arrives.
+    let (store, _dir) = store();
+    fill(&store, 10_000);
+
+    let filter = Filter::And(vec![
+        Filter::InMailbox(MailboxRole::Inbox),
+        Filter::Read(ReadState::Unread),
+    ]);
+    let elapsed = best_of_three(|| {
+        store.count(&filter, at(0)).unwrap();
+    });
+    eprintln!("unread count over 10k: {elapsed:?}");
+    assert!(
+        elapsed < std::time::Duration::from_millis(500),
+        "counting unread took {elapsed:?}"
+    );
+}
