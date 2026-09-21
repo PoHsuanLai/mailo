@@ -117,23 +117,34 @@ impl<B: Backend> AccountEngine<B> {
     }
 
     /// Open a connection to the incoming server.
+    ///
+    /// Public so a caller can check reachability before committing to a pass; the sync methods
+    /// each open their own, because a session spends the greeting and cannot share one.
     pub async fn connect(&self) -> Result<Transport, RuntimeError> {
         let (host, port, tls) = self.incoming();
         Transport::connect(host, port, tls).await
     }
 
-    /// Run one operation to completion.
+    /// Run one operation to completion, on a connection of its own.
+    ///
+    /// A fresh connection per operation, and that is not laziness. A session reads the server's
+    /// greeting before issuing anything, so a second session on the same socket waits forever
+    /// for a greeting that was already spent — which is exactly how this hung until an
+    /// end-to-end test sat on it for sixty seconds. The alternatives are a session that knows
+    /// whether it is resuming, which puts protocol state in the caller, or one operation per
+    /// pass, which is what batching already achieves: a sync is three connections, not one per
+    /// message.
     async fn run(
         &mut self,
         op: ProtoOp,
-        transport: &mut Transport,
         cancel: &mut Cancel,
     ) -> Result<ProtoOutcome, RuntimeError> {
+        let mut transport = self.connect().await?;
         let mut step = BackendMachine {
             backend: &mut self.backend,
             op: Some(op),
         };
-        drive(&mut step, transport, cancel).await
+        drive(&mut step, &mut transport, cancel).await
     }
 
     /// Drain the outbox, in insertion order, stopping at the first entry not yet due.
@@ -142,14 +153,13 @@ impl<B: Backend> AccountEngine<B> {
     /// the order the user performed them, or the result is whichever won the race.
     pub async fn drain_outbox(
         &mut self,
-        transport: &mut Transport,
         cancel: &mut Cancel,
         now: DateTime<Utc>,
     ) -> Result<SyncReport, RuntimeError> {
         let mut report = SyncReport::default();
         for entry in self.store.outbox_due(self.account, now)? {
             let id = entry.id;
-            match self.run(entry.op, transport, cancel).await {
+            match self.run(entry.op, cancel).await {
                 Ok(_) => {
                     self.store.outbox_settle(id, Settle::Ok, now)?;
                     report.outbox_settled += 1;
@@ -185,7 +195,6 @@ impl<B: Backend> AccountEngine<B> {
     pub async fn sync(
         &mut self,
         mailbox: &MailboxRef,
-        transport: &mut Transport,
         cancel: &mut Cancel,
         now: DateTime<Utc>,
         budget: usize,
@@ -198,7 +207,6 @@ impl<B: Backend> AccountEngine<B> {
                     mailbox: mailbox.clone(),
                     since: FetchSince::Beginning,
                 },
-                transport,
                 cancel,
             )
             .await?;
@@ -206,51 +214,67 @@ impl<B: Backend> AccountEngine<B> {
             self.store.ingest(self.account, *ingest)?;
         }
 
-        // The survey's ordering decision lives here rather than in the backend, because it is a
-        // product judgement about what the user sees first, not a protocol fact.
-        let mut wanted = self.unfetched(budget as u32)?;
+        // What to fetch comes from the SERVER'S listing, not from the store. On a first sync
+        // the store knows nothing, so asking it what is missing returns an empty list and the
+        // pass fetches nothing — silently, with no error. Only an end-to-end test caught that.
+        //
+        // The ordering decision lives here rather than in the backend, because it is a product
+        // judgement about what the user sees first, not a protocol fact.
+        let mut wanted = self.backend.surveyed();
+        if wanted.is_empty() {
+            // A protocol that cannot enumerate up front: fall back to what we already hold.
+            wanted = self.unfetched(budget as u32)?;
+        }
         wanted.sort_by_key(|(_, size)| *size);
 
         for band in BANDS {
-            for (remote, size) in wanted.iter().filter(|(_, s)| *s <= band) {
-                if report.headers_fetched + report.bodies_fetched >= budget {
-                    // A budget rather than the whole maildrop: a sync pass that runs for twenty
-                    // minutes cannot be cancelled responsively and starves the outbox.
+            let batch: Vec<RemoteRef> = wanted
+                .iter()
+                .filter(|(_, size)| *size <= band)
+                .take(budget.saturating_sub(report.headers_fetched))
+                .map(|(remote, _)| remote.clone())
+                .collect();
+            if batch.is_empty() {
+                continue;
+            }
+            // One operation for the whole band, on one connection. A per-message operation
+            // would need a connection each, because a session consumes the greeting once.
+            match self
+                .run(
+                    ProtoOp::FetchHeaders {
+                        remotes: batch.clone(),
+                    },
+                    cancel,
+                )
+                .await
+            {
+                Ok(ProtoOutcome::Fetched { items }) => {
+                    let arrivals = items
+                        .into_iter()
+                        .map(|(remote, raw)| crate::assemble::Arrival { remote, raw })
+                        .collect::<Vec<_>>();
+                    report.headers_fetched += arrivals.len();
+                    // Headers only: Body::Absent says the body has not arrived, rather than
+                    // storing an empty message that looks complete.
+                    crate::assemble::absorb(
+                        &self.store,
+                        self.account,
+                        mailbox.clone(),
+                        SyncCursor::Pop,
+                        arrivals,
+                        true,
+                        now,
+                    )?;
+                }
+                Ok(_) => {}
+                Err(RuntimeError::Cancelled) => return Ok(report),
+                Err(e) => {
+                    report.needs_attention.push(e.to_string());
                     return Ok(report);
                 }
-                let _ = size;
-                match self
-                    .run(
-                        ProtoOp::FetchHeaders {
-                            remote: remote.clone(),
-                        },
-                        transport,
-                        cancel,
-                    )
-                    .await
-                {
-                    Ok(ProtoOutcome::Fetched { remote, raw }) => {
-                        // Headers only: the body has not been fetched, and Body::Absent says so
-                        // rather than storing an empty message that looks complete.
-                        crate::assemble::absorb(
-                            &self.store,
-                            self.account,
-                            mailbox.clone(),
-                            SyncCursor::Pop,
-                            vec![crate::assemble::Arrival { remote, raw }],
-                            true,
-                            now,
-                        )?;
-                        report.headers_fetched += 1;
-                    }
-                    Ok(_) => {}
-                    Err(RuntimeError::Cancelled) => return Ok(report),
-                    Err(e) => {
-                        report.needs_attention.push(e.to_string());
-                        return Ok(report);
-                    }
-                }
             }
+            // Remove what this band covered, so a later band does not refetch it.
+            wanted.retain(|(remote, _)| !batch.contains(remote));
         }
         Ok(report)
     }
@@ -263,7 +287,6 @@ impl<B: Backend> AccountEngine<B> {
     pub async fn fetch_bodies(
         &mut self,
         mailbox: &MailboxRef,
-        transport: &mut Transport,
         cancel: &mut Cancel,
         now: DateTime<Utc>,
         budget: usize,
@@ -272,30 +295,37 @@ impl<B: Backend> AccountEngine<B> {
         let mut wanted = self.unfetched(budget as u32)?;
         wanted.sort_by_key(|(_, size)| *size);
 
-        for (remote, _) in wanted.into_iter().take(budget) {
-            match self
-                .run(ProtoOp::FetchBody { remote }, transport, cancel)
-                .await
-            {
-                Ok(ProtoOutcome::Fetched { remote, raw }) => {
-                    crate::assemble::absorb(
-                        &self.store,
-                        self.account,
-                        mailbox.clone(),
-                        SyncCursor::Pop,
-                        vec![crate::assemble::Arrival { remote, raw }],
-                        false,
-                        now,
-                    )?;
-                    report.bodies_fetched += 1;
-                }
-                Ok(_) => {}
-                Err(RuntimeError::Cancelled) => return Ok(report),
-                Err(e) => {
-                    report.needs_attention.push(e.to_string());
-                    return Ok(report);
-                }
+        let batch: Vec<RemoteRef> = wanted
+            .into_iter()
+            .take(budget)
+            .map(|(remote, _)| remote)
+            .collect();
+        if batch.is_empty() {
+            return Ok(report);
+        }
+        match self
+            .run(ProtoOp::FetchBody { remotes: batch }, cancel)
+            .await
+        {
+            Ok(ProtoOutcome::Fetched { items }) => {
+                let arrivals = items
+                    .into_iter()
+                    .map(|(remote, raw)| crate::assemble::Arrival { remote, raw })
+                    .collect::<Vec<_>>();
+                report.bodies_fetched += arrivals.len();
+                crate::assemble::absorb(
+                    &self.store,
+                    self.account,
+                    mailbox.clone(),
+                    SyncCursor::Pop,
+                    arrivals,
+                    false,
+                    now,
+                )?;
             }
+            Ok(_) => {}
+            Err(RuntimeError::Cancelled) => return Ok(report),
+            Err(e) => report.needs_attention.push(e.to_string()),
         }
         Ok(report)
     }
@@ -308,7 +338,6 @@ impl<B: Backend> AccountEngine<B> {
     pub async fn sweep(
         &mut self,
         mailbox: &MailboxRef,
-        transport: &mut Transport,
         cancel: &mut Cancel,
         now: DateTime<Utc>,
     ) -> Result<SyncReport, RuntimeError> {
@@ -325,7 +354,6 @@ impl<B: Backend> AccountEngine<B> {
                         mailbox: mailbox.clone(),
                         since_modseq,
                     },
-                    transport,
                     cancel,
                 )
                 .await
@@ -346,7 +374,6 @@ impl<B: Backend> AccountEngine<B> {
                     ProtoOp::ListRemote {
                         mailbox: mailbox.clone(),
                     },
-                    transport,
                     cancel,
                 )
                 .await

@@ -89,10 +89,16 @@ pub enum ProtoOp {
     /// `RETR` sets the seen flag on Dovecot and `TOP` does not, so a first sync over a large
     /// maildrop would mark the user's entire mailbox read in their webmail.
     FetchHeaders {
-        remote: RemoteRef,
+        /// A batch, not one message.
+        ///
+        /// A connection is authenticated once and then used for many commands. Asking for one
+        /// message per operation means either a new connection each time — 2372 of them on the
+        /// maildrop we measured, which a server will rate-limit — or a session waiting forever
+        /// for a greeting the connection already consumed. An end-to-end test found the second.
+        remotes: Vec<RemoteRef>,
     },
     FetchBody {
-        remote: RemoteRef,
+        remotes: Vec<RemoteRef>,
     },
     SetFlags {
         remotes: Vec<RemoteRef>,

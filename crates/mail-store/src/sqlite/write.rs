@@ -9,7 +9,7 @@ use super::read::Recipients;
 use super::row::{from_time, json, to_json, uuid};
 use crate::StoreError;
 use mail_domain::{
-    AccountId, Change, Ingest, Membership, Message, MessageId, Patch, RemoteRef, ThreadId,
+    AccountId, Body, Change, Ingest, Membership, Message, MessageId, Patch, RemoteRef, ThreadId,
     ThreadSummary, UidValidity,
 };
 use rusqlite::{OptionalExtension, params};
@@ -303,7 +303,27 @@ impl SqliteStore {
         for fetched in &ingest.messages {
             let existing = self.message_by_key(account, &fetched.key)?;
             let id = match existing {
-                Some(id) => id,
+                Some(id) => {
+                    // A message we already hold, arriving again. That is normal and usually a
+                    // re-map — but it is ALSO how a body arrives for something fetched
+                    // headers-first, and ignoring it outright meant the body pass could never
+                    // fill anything in. Found by an end-to-end test, not by review.
+                    if let Body::Present { .. } = fetched.message.body {
+                        let held = self.body_of(id)?;
+                        if matches!(held, Some(Body::Absent) | None) {
+                            let mut filled = fetched.message.clone();
+                            filled.id = id;
+                            // Keep the flags we already hold: the body arriving says nothing
+                            // about whether the user has read it.
+                            self.fill_body(id, &filled)?;
+                            changes.push(Change::MessageUpsert(Box::new(filled)));
+                            if let Some(t) = self.thread_of(id)? {
+                                touched.insert(t);
+                            }
+                        }
+                    }
+                    id
+                }
                 None => {
                     self.upsert_message(&fetched.message)?;
                     changes.push(Change::MessageUpsert(Box::new(fetched.message.clone())));
@@ -386,6 +406,45 @@ impl SqliteStore {
             id: mail_domain::ChangeId::generate(),
             changes,
         })
+    }
+
+    /// What body, if any, is held for this message.
+    fn body_of(&self, message: MessageId) -> Result<Option<Body>, StoreError> {
+        let held: Option<Option<String>> = self
+            .connection()
+            .query_row(
+                "SELECT body_raw FROM messages WHERE id = ?1",
+                params![message.to_string()],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(held.map(|raw| match raw {
+            Some(_) => Body::Present {
+                text: None,
+                raw: mail_domain::BlobId::generate(),
+            },
+            None => Body::Absent,
+        }))
+    }
+
+    /// Attach a body to a message we already hold, leaving its flags alone.
+    ///
+    /// Not `upsert_message`: that would also write `read` and `star` from the fetched copy,
+    /// and a body arriving says nothing about whether the user has read it.
+    fn fill_body(&self, message: MessageId, filled: &Message) -> Result<(), StoreError> {
+        let Body::Present { text, raw } = &filled.body else {
+            return Ok(());
+        };
+        self.connection().execute(
+            "UPDATE messages SET body_text = ?2, body_raw = ?3, attachments = ?4 WHERE id = ?1",
+            params![
+                message.to_string(),
+                text,
+                raw.to_string(),
+                to_json("attachments", &filled.attachments)?,
+            ],
+        )?;
+        Ok(())
     }
 
     fn message_by_key(

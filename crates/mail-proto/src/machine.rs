@@ -83,8 +83,8 @@ pub enum ProtoOutcome {
     /// `MessageId`, a `ThreadId` and a stored `BlobId`, none of which the wire supplies. The
     /// runtime stores the bytes, assigns the ids, and parses.
     Fetched {
-        remote: RemoteRef,
-        raw: Vec<u8>,
+        /// One entry per message the batch retrieved, in arrival order.
+        items: Vec<(RemoteRef, Vec<u8>)>,
     },
     /// A watch saw activity. The runtime schedules a fetch; the machine does not do it itself.
     Woken,
@@ -102,6 +102,20 @@ pub trait Backend {
 
     /// What this backend believes the server supports. Refreshed by [`ProtoOp::FetchCaps`].
     fn caps(&self) -> &AccountCaps;
+
+    /// What the last survey found: every address the server holds, with a size where the
+    /// protocol reports one.
+    ///
+    /// This exists because on a **first** sync the store knows nothing, so asking it what is
+    /// missing returns an empty list and the client fetches nothing at all — silently, with no
+    /// error, which is exactly how it behaved until an end-to-end test caught it. The server's
+    /// own listing is the only source of truth before anything has been stored.
+    ///
+    /// Empty by default: a protocol that cannot enumerate a mailbox up front has nothing to
+    /// report here, and the caller falls back to what the store knows.
+    fn surveyed(&self) -> Vec<(RemoteRef, u64)> {
+        Vec::new()
+    }
 }
 
 /// Whether a refusal may succeed if repeated.

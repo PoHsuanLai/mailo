@@ -20,13 +20,13 @@ enum Job {
     Survey {
         mailbox: MailboxRef,
     },
-    /// Headers for one message via `TOP n 0`.
+    /// Headers via `TOP n 0`, one command per message on one connection.
     Headers {
-        remote: RemoteRef,
+        remotes: Vec<RemoteRef>,
     },
-    /// A whole message via `RETR`.
+    /// Whole messages via `RETR`, one command per message on one connection.
     Body {
-        remote: RemoteRef,
+        remotes: Vec<RemoteRef>,
     },
 }
 
@@ -109,6 +109,24 @@ impl Pop3Backend {
             .collect()
     }
 
+    /// One command per message, or `None` if any of them is not in the current survey.
+    ///
+    /// All-or-nothing: message numbers are session-scoped, so a stale one addresses a different
+    /// message, and fetching the wrong message is worse than fetching none.
+    fn numbers_for(
+        &self,
+        remotes: &[RemoteRef],
+        command: impl Fn(u32) -> Pop3Command,
+    ) -> Option<Vec<Pop3Command>> {
+        remotes
+            .iter()
+            .map(|remote| match remote {
+                RemoteRef::Pop { uidl } => self.number_for(uidl).map(&command),
+                RemoteRef::Imap { .. } => None,
+            })
+            .collect()
+    }
+
     fn number_for(&self, uidl: &str) -> Option<u32> {
         self.uidls
             .iter()
@@ -179,50 +197,32 @@ impl Backend for Pop3Backend {
                     vec![Pop3Command::Stat, Pop3Command::Uidl, Pop3Command::List],
                 )
             }
-            ProtoOp::FetchHeaders { remote } => {
-                let RemoteRef::Pop { ref uidl } = remote else {
-                    return Progress::Failed(ProtoError::Unsupported(
-                        "an IMAP reference cannot be fetched over POP3".to_owned(),
-                    ));
-                };
-                let Some(number) = self.number_for(uidl) else {
-                    return Progress::Failed(ProtoError::Refused {
-                        kind: crate::machine::Refusal::Permanent,
-                        text: format!("{uidl} is not in the current survey"),
-                    });
-                };
+            ProtoOp::FetchHeaders { remotes } => {
                 if !self.caps.top.usable() {
-                    // Falling back to RETR here would silently mark the message read, which is
-                    // the exact harm this operation exists to avoid. Say so instead.
+                    // Falling back to RETR would silently mark every message read, which is the
+                    // exact harm this operation exists to avoid.
                     return Progress::Failed(ProtoError::Unsupported(
                         "TOP is unavailable, and RETR would mark the message read".to_owned(),
                     ));
                 }
-                self.job = Job::Headers {
-                    remote: remote.clone(),
-                };
-                // Zero body lines: every documented TOP bug in the wild is a failure to return
-                // the requested body LINES, never wrong headers.
-                self.queue(Authenticate::First, vec![Pop3Command::Top(number, 0)])
-            }
-            ProtoOp::FetchBody { remote } => {
-                let RemoteRef::Pop { ref uidl } = remote else {
-                    return Progress::Failed(ProtoError::Unsupported(
-                        "an IMAP reference cannot be fetched over POP3".to_owned(),
-                    ));
-                };
-                let Some(number) = self.number_for(uidl) else {
-                    // Message numbers are session-scoped, so a stale one addresses the wrong
-                    // message. Refusing is the only safe answer.
+                let Some(commands) = self.numbers_for(&remotes, |n| Pop3Command::Top(n, 0)) else {
                     return Progress::Failed(ProtoError::Refused {
                         kind: crate::machine::Refusal::Permanent,
-                        text: format!("{uidl} is not in the current survey"),
+                        text: "a message is not in the current survey".to_owned(),
                     });
                 };
-                self.job = Job::Body {
-                    remote: remote.clone(),
+                self.job = Job::Headers { remotes };
+                self.queue(Authenticate::First, commands)
+            }
+            ProtoOp::FetchBody { remotes } => {
+                let Some(commands) = self.numbers_for(&remotes, Pop3Command::Retr) else {
+                    return Progress::Failed(ProtoError::Refused {
+                        kind: crate::machine::Refusal::Permanent,
+                        text: "a message is not in the current survey".to_owned(),
+                    });
                 };
-                self.queue(Authenticate::First, vec![Pop3Command::Retr(number)])
+                self.job = Job::Body { remotes };
+                self.queue(Authenticate::First, commands)
             }
             // Everything below has no POP3 representation. Confirming immediately is correct
             // rather than a stub: the local change IS the whole change.
@@ -313,38 +313,53 @@ impl Backend for Pop3Backend {
                 }
                 Progress::Done(ProtoOutcome::Ingested(Box::new(self.empty_ingest(mailbox))))
             }
-            Job::Headers { remote } => {
-                let raw = replies.iter().find_map(|reply| match reply {
-                    Pop3Reply::Headers(bytes) => Some(bytes.clone()),
-                    _ => None,
-                });
-                match raw {
-                    Some(bytes) => Progress::Done(ProtoOutcome::Fetched { remote, raw: bytes }),
-                    None => Progress::Failed(ProtoError::Malformed(
-                        "TOP completed without headers".to_owned(),
-                    )),
-                }
+            Job::Headers { remotes } => {
+                let bodies: Vec<Vec<u8>> = replies
+                    .iter()
+                    .filter_map(|reply| match reply {
+                        Pop3Reply::Headers(bytes) => Some(bytes.clone()),
+                        _ => None,
+                    })
+                    .collect();
+                Progress::Done(ProtoOutcome::Fetched {
+                    items: remotes.into_iter().zip(bodies).collect(),
+                })
             }
-            Job::Body { remote } => {
-                let raw = replies.iter().find_map(|reply| match reply {
-                    Pop3Reply::Retrieved(bytes) => Some(bytes.clone()),
-                    _ => None,
-                });
-                match raw {
-                    // Parsing into a Message needs ids the protocol cannot supply, so the raw
-                    // bytes go back and the runtime assembles. That keeps mail-mime out of this
-                    // crate's hot path and the blob store out of its knowledge entirely.
-                    Some(bytes) => Progress::Done(ProtoOutcome::Fetched { remote, raw: bytes }),
-                    None => Progress::Failed(ProtoError::Malformed(
-                        "RETR completed without a message".to_owned(),
-                    )),
-                }
+            Job::Body { remotes } => {
+                // Parsing into a Message needs ids the protocol cannot supply, so the raw bytes
+                // go back and the runtime assembles. That keeps mail-mime out of this crate and
+                // the blob store out of its knowledge entirely.
+                let bodies: Vec<Vec<u8>> = replies
+                    .iter()
+                    .filter_map(|reply| match reply {
+                        Pop3Reply::Retrieved(bytes) => Some(bytes.clone()),
+                        _ => None,
+                    })
+                    .collect();
+                Progress::Done(ProtoOutcome::Fetched {
+                    items: remotes.into_iter().zip(bodies).collect(),
+                })
             }
         }
     }
 
     fn caps(&self) -> &AccountCaps {
         &self.caps
+    }
+
+    fn surveyed(&self) -> Vec<(RemoteRef, u64)> {
+        self.uidls
+            .iter()
+            .map(|(number, uidl)| {
+                let size = self
+                    .sizes
+                    .iter()
+                    .find(|(n, _)| n == number)
+                    .map(|(_, octets)| *octets)
+                    .unwrap_or(u64::MAX);
+                (RemoteRef::Pop { uidl: uidl.clone() }, size)
+            })
+            .collect()
     }
 }
 

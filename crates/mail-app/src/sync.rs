@@ -159,21 +159,23 @@ async fn one(
                 store.clone(),
                 secrets,
             );
-            let mut transport = engine.connect().await.map_err(|e| e.to_string())?;
+            // Reachability first, so an unreachable server reports once rather than three
+            // times as each pass opens its own connection.
+            drop(engine.connect().await.map_err(|e| e.to_string())?);
             let mut report = engine
-                .sync(&mailbox, &mut transport, &mut cancel, now, 200)
+                .sync(&mailbox, &mut cancel, now, 200)
                 .await
                 .map_err(|e| e.to_string())?;
             // Headers first, then bodies smallest-band-first behind them, so the inbox is
             // usable long before the hundred large attachments finish.
             let bodies = engine
-                .fetch_bodies(&mailbox, &mut transport, &mut cancel, now, 100)
+                .fetch_bodies(&mailbox, &mut cancel, now, 100)
                 .await
                 .map_err(|e| e.to_string())?;
             report.bodies_fetched += bodies.bodies_fetched;
             report.needs_attention.extend(bodies.needs_attention);
             let drained = engine
-                .drain_outbox(&mut transport, &mut cancel, now)
+                .drain_outbox(&mut cancel, now)
                 .await
                 .map_err(|e| e.to_string())?;
             report.outbox_settled += drained.outbox_settled;
@@ -206,9 +208,9 @@ async fn one(
                 store.clone(),
                 secrets,
             );
-            let mut transport = engine.connect().await.map_err(|e| e.to_string())?;
+            drop(engine.connect().await.map_err(|e| e.to_string())?);
             engine
-                .sync(&mailbox, &mut transport, &mut cancel, now, 200)
+                .sync(&mailbox, &mut cancel, now, 200)
                 .await
                 .map_err(|e| e.to_string())
         }

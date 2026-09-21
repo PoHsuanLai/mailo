@@ -42,14 +42,16 @@
   {
     "kind": "fetch_body",
     "v": {
-      "remote": {
-        "kind": "imap",
-        "v": {
-          "mailbox": "[Gmail]/All Mail",
-          "uidvalidity": 12,
-          "uid": 4294967295
+      "remotes": [
+        {
+          "kind": "imap",
+          "v": {
+            "mailbox": "[Gmail]/All Mail",
+            "uidvalidity": 12,
+            "uid": 4294967295
+          }
         }
-      }
+      ]
     }
   },
   {

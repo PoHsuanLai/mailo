@@ -233,9 +233,9 @@ fn local_only_operations_confirm_without_touching_the_wire() {
 fn fetching_an_unsurveyed_message_is_refused_rather_than_guessed() {
     let mut backend = backend();
     let outcome = backend.begin(ProtoOp::FetchBody {
-        remote: RemoteRef::Pop {
+        remotes: vec![RemoteRef::Pop {
             uidl: "never-seen".to_owned(),
-        },
+        }],
     });
     // Guessing a message number here would fetch a different message than the caller asked for.
     assert!(
@@ -310,7 +310,7 @@ fn fetch_headers_uses_top_and_returns_raw_bytes() {
     assert!(
         matches!(
             backend.begin(ProtoOp::FetchHeaders {
-                remote: remote.clone()
+                remotes: vec![remote.clone()]
             }),
             Progress::Failed(_)
         ),

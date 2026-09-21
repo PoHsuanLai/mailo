@@ -99,7 +99,7 @@ fn fetching_headers_uses_body_peek() {
     let mut driven = Driven {
         backend: backend(caps(ServerLabels::Supported, ArchiveMeans::DropInbox)),
         op: Some(ProtoOp::FetchHeaders {
-            remote: imap_ref("INBOX", 42),
+            remotes: vec![imap_ref("INBOX", 42)],
         }),
     };
     let outcome = replay(&mut driven, trace).unwrap();

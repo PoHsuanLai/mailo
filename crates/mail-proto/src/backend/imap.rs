@@ -24,7 +24,7 @@ enum Job {
     Envelopes { mailbox: MailboxRef },
     Flags { mailbox: MailboxRef },
     Listing { mailbox: MailboxRef },
-    Fetch { remote: RemoteRef },
+    Fetch { remotes: Vec<RemoteRef> },
     Applied,
     Watching,
 }
@@ -77,6 +77,28 @@ impl ImapBackend {
             mailbox: mailbox.path.clone(),
             read_only,
         }
+    }
+
+    /// One `UID FETCH` over a batch, on one authenticated connection.
+    ///
+    /// A batch rather than one message per operation: a connection authenticates once and then
+    /// serves many commands, and a fetch per connection would be thousands of them.
+    fn fetch(&mut self, remotes: Vec<RemoteRef>, items: &str) -> Progress<ProtoOutcome> {
+        let Some(set) = uid_set(&remotes) else {
+            return Progress::Failed(ProtoError::Unsupported(
+                "a POP reference cannot be fetched over IMAP".to_owned(),
+            ));
+        };
+        let mailbox = mailbox_of(&remotes, self.account);
+        self.job = Job::Fetch { remotes };
+        self.queue(vec![
+            ImapCommand::AuthenticateXoauth2,
+            Self::select(&mailbox, true),
+            ImapCommand::UidFetch {
+                set,
+                items: items.to_owned(),
+            },
+        ])
     }
 
     fn empty_ingest(&self, mailbox: MailboxRef, validity: UidValidity) -> Ingest {
@@ -144,60 +166,13 @@ impl Backend for ImapBackend {
                     },
                 ])
             }
-            ProtoOp::FetchHeaders { remote } => match remote {
-                RemoteRef::Imap {
-                    ref mailbox,
-                    uid,
-                    uidvalidity,
-                } => {
-                    let reference = MailboxRef {
-                        account: self.account,
-                        path: mailbox.clone(),
-                    };
-                    self.job = Job::Fetch {
-                        remote: remote.clone(),
-                    };
-                    let _ = uidvalidity;
-                    // BODY.PEEK, never BODY: the peeking form does not set \Seen. This is IMAP's
-                    // equivalent of POP3's TOP, and fetching headers with BODY would mark every
-                    // message read as a side effect of populating a list.
-                    self.queue(vec![
-                        ImapCommand::AuthenticateXoauth2,
-                        Self::select(&reference, true),
-                        ImapCommand::UidFetch {
-                            set: uid.to_string(),
-                            items: "(UID FLAGS BODY.PEEK[HEADER])".to_owned(),
-                        },
-                    ])
-                }
-                RemoteRef::Pop { .. } => Progress::Failed(ProtoError::Unsupported(
-                    "a POP reference cannot be fetched over IMAP".to_owned(),
-                )),
-            },
-            ProtoOp::FetchBody { remote } => match remote {
-                RemoteRef::Imap {
-                    ref mailbox, uid, ..
-                } => {
-                    let reference = MailboxRef {
-                        account: self.account,
-                        path: mailbox.clone(),
-                    };
-                    self.job = Job::Fetch {
-                        remote: remote.clone(),
-                    };
-                    self.queue(vec![
-                        ImapCommand::AuthenticateXoauth2,
-                        Self::select(&reference, true),
-                        ImapCommand::UidFetch {
-                            set: uid.to_string(),
-                            items: "(UID BODY.PEEK[])".to_owned(),
-                        },
-                    ])
-                }
-                RemoteRef::Pop { .. } => Progress::Failed(ProtoError::Unsupported(
-                    "a POP reference cannot be fetched over IMAP".to_owned(),
-                )),
-            },
+            ProtoOp::FetchHeaders { remotes } => {
+                // BODY.PEEK, never BODY: the peeking form does not set \Seen. This is IMAP's
+                // equivalent of POP3's TOP, and fetching headers with BODY would mark every
+                // message read as a side effect of populating a list.
+                self.fetch(remotes, "(UID FLAGS BODY.PEEK[HEADER])")
+            }
+            ProtoOp::FetchBody { remotes } => self.fetch(remotes, "(UID BODY.PEEK[])"),
             ProtoOp::SetFlags {
                 remotes,
                 read,
@@ -441,18 +416,16 @@ impl Backend for ImapBackend {
                     self.empty_ingest(mailbox, UidValidity::Same),
                 )))
             }
-            Job::Fetch { remote } => {
-                let raw = transcript
+            Job::Fetch { remotes } => {
+                let bodies: Vec<Vec<u8>> = transcript
                     .untagged
                     .iter()
-                    .find(|u| u.text.contains("FETCH"))
-                    .map(|u| u.text.clone().into_bytes());
-                match raw {
-                    Some(raw) => Progress::Done(ProtoOutcome::Fetched { remote, raw }),
-                    None => Progress::Failed(ProtoError::Malformed(
-                        "a fetch completed with no FETCH response".to_owned(),
-                    )),
-                }
+                    .filter(|u| u.text.contains("FETCH"))
+                    .map(|u| u.text.clone().into_bytes())
+                    .collect();
+                Progress::Done(ProtoOutcome::Fetched {
+                    items: remotes.into_iter().zip(bodies).collect(),
+                })
             }
             Job::Applied => Progress::Done(ProtoOutcome::Applied),
             Job::Watching => Progress::Done(ProtoOutcome::Woken),

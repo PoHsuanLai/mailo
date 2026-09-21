@@ -234,7 +234,9 @@ fn proto_ops() -> Vec<ProtoOp> {
                 cursor: imap_cursor(),
             },
         },
-        ProtoOp::FetchBody { remote: imap_ref() },
+        ProtoOp::FetchBody {
+            remotes: vec![imap_ref()],
+        },
         ProtoOp::SetFlags {
             remotes: vec![imap_ref()],
             read: Some(ReadState::Read),
