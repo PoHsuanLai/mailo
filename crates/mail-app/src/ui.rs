@@ -249,10 +249,18 @@ fn Reader(thread: ThreadId, shell: Signal<Shell>) -> Element {
         return rsx! { p { class: "empty", "That conversation is gone." } };
     };
     let policy = shell.read().policy();
-    let messages: Vec<Message> = loaded
+    // The HTML part is not a column: it lives inside the stored raw message, which is the only
+    // copy that is byte-for-byte what the server sent. Parsed here, once per render of a thread,
+    // rather than at ingest — storing sanitized HTML would freeze today's sanitizer into every
+    // row, and storing the unsanitized part would duplicate bytes we already have.
+    let messages: Vec<(Message, Option<String>)> = loaded
         .messages
         .iter()
         .filter_map(|id| store.message(*id).ok())
+        .map(|message| {
+            let html = crate::reader::html_of(&store, &message);
+            (message, html)
+        })
         .collect();
 
     rsx! {
@@ -264,16 +272,14 @@ fn Reader(thread: ThreadId, shell: Signal<Shell>) -> Element {
                 "Load remote images"
             }
         }
-        for message in messages {
+        for (message, html) in messages {
             article { key: "{message.id}",
                 header {
                     strong { "{from_name(&message)}" }
                     span { "{address(&message)}" }
                     time { "{stamp(&message)}" }
                 }
-                // The raw HTML part is not stored separately yet, so the text part is what
-                // renders. When it is, `reading` already takes it and sanitizes per policy.
-                match reading(&message.body, None, policy) {
+                match reading(&message.body, html.as_deref(), policy) {
                     Reading::NotFetched => rsx! { p { class: "pending", "Body not downloaded yet." } },
                     Reading::Text(text) => rsx! { pre { class: "text", "{text}" } },
                     // Never into the app's own document: a sandboxed frame with no

@@ -549,3 +549,41 @@ asserts that replying and sending still work.
 The duplication itself is still there and is the real defect; this is the safe reading of it, not
 a fix. Collapsing it means deciding whether `AccountPlan` should carry identities at all, which
 is a question for whenever a second identity per account becomes real.
+
+### F40 — The sandboxed iframe had never been given anything to render
+
+`ui.rs` called `reading(&message.body, None, policy)` — `None` for the HTML part, on every
+message, with a comment saying the part was not stored separately yet. It is not stored
+separately, and it does not need to be: it is inside the raw message, which is already in the
+blob store because it is the only copy that is byte-for-byte what the server sent.
+
+So every HTML message rendered as its plain-text alternative, and a message with no text
+alternative — which is most marketing mail and a good deal of ordinary mail from phones —
+rendered as nothing at all. The sandboxing, the sanitizer, the remote-image consent and the
+comment warning never to reparent the iframe were all correct and all unreachable.
+
+`reader::html_of` parses the raw bytes at render time and returns `None` for a missing blob,
+unparseable bytes, or a plain-text message alike, because the reader's response to all three is
+the same: show the text part. Rendering nothing for mail that every other client displays is
+worse than rendering it roughly.
+
+Still parsed per render rather than cached. Sanitized HTML must never be persisted — an
+`ammonia` upgrade would leave every previously-ingested row sanitized under the old rules — and
+persisting the unsanitized part would duplicate bytes the blob already holds. If a profile ever
+says this is slow, the cache belongs in memory, keyed by message and policy version.
+
+### F41 — Two tests that asserted nothing
+
+Recorded because the habit matters more than the two tests. `the_reply_button_answers_the_newest
+_message_in_the_thread` built its "thread" with `ThreadId::generate()` on the second message, so
+the thread had one message and "reply to the newest" was trivially true. It passed on the first
+run, which is what made it worth checking.
+
+The store writes the `ThreadId` the caller hands it; JWZ threading happens in
+`mail_runtime::assemble` on the way in. A fixture that mints a fresh id therefore produces a
+one-message thread silently. The test now asserts the thread really has two messages before
+asserting which one it picked — the assertion that the assertion is meaningful.
+
+The same check, applied to the submission end-to-end tests, is what the previous commit's
+"reintroduce the bug and watch it fail" pass was for. A test that has never failed has not been
+shown to be a test.

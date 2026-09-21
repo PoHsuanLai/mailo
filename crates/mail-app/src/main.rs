@@ -3,6 +3,7 @@
 mod account;
 mod cli;
 mod compose;
+mod reader;
 mod sync;
 mod ui;
 mod view;

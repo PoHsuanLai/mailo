@@ -32,8 +32,10 @@ around it and it does not change it. Four of the five errors corrected in `plan.
 | app | **done as far as it can be** — `mailo` CLI (list, show, search, reply, send, drafts, status, account add/list, sync) and the Dioxus shell |
 | sending | **done** — drafts persist, `RemoteIntent::Send` queues, the engine routes `Submit` to SMTP, end-to-end over a real socket |
 | shell compose | **done** — reply and reply-all open a composer, edits save to the draft row, Send queues through the same `compose` module the CLI uses |
+| shell reading | **done** — the HTML part is parsed out of the raw blob and rendered sandboxed; it had never reached the iframe before (F40) |
+| shell drafts, paging, sync | **done** — Drafts lists the draft table rather than an empty mailbox, "Show more" pages the list, and a Sync button runs a pass off the UI thread |
 
-349 tests across 37 targets. `fmt`, `clippy -D warnings` and `scripts/check-boundary.sh` all
+410 tests across 38 targets. `fmt`, `clippy -D warnings` and `scripts/check-boundary.sh` all
 clean.
 
 Sending was the last thing that existed only in pieces. `SmtpBackend` was written and unit-tested
