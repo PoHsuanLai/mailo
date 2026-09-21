@@ -9,7 +9,7 @@ use crate::{Cancel, RuntimeError, Secrets, Transport, drive};
 use chrono::{DateTime, Utc};
 use mail_domain::{
     AccountId, AccountPlan, FetchSince, Incoming, MailboxRef, ProtoOp, RemoteRef, Retry, Retryable,
-    Tls,
+    SyncCursor, Tls,
 };
 use mail_proto::{Backend, ProtoOutcome};
 use mail_store::{Settle, SqliteStore, Store};
@@ -187,10 +187,7 @@ impl<B: Backend> AccountEngine<B> {
         mailbox: &MailboxRef,
         transport: &mut Transport,
         cancel: &mut Cancel,
-        // Not used yet: the flag sweep and the expunge diff are timed against it, and both are
-        // still to be written. Kept in the signature so adding them is not a breaking change
-        // across every caller.
-        _now: DateTime<Utc>,
+        now: DateTime<Utc>,
         budget: usize,
     ) -> Result<SyncReport, RuntimeError> {
         let mut report = SyncReport::default();
@@ -221,6 +218,7 @@ impl<B: Backend> AccountEngine<B> {
                     // minutes cannot be cancelled responsively and starves the outbox.
                     return Ok(report);
                 }
+                let _ = size;
                 match self
                     .run(
                         ProtoOp::FetchHeaders {
@@ -231,7 +229,20 @@ impl<B: Backend> AccountEngine<B> {
                     )
                     .await
                 {
-                    Ok(ProtoOutcome::Fetched { .. }) => report.headers_fetched += 1,
+                    Ok(ProtoOutcome::Fetched { remote, raw }) => {
+                        // Headers only: the body has not been fetched, and Body::Absent says so
+                        // rather than storing an empty message that looks complete.
+                        crate::assemble::absorb(
+                            &self.store,
+                            self.account,
+                            mailbox.clone(),
+                            SyncCursor::Pop,
+                            vec![crate::assemble::Arrival { remote, raw }],
+                            true,
+                            now,
+                        )?;
+                        report.headers_fetched += 1;
+                    }
                     Ok(_) => {}
                     Err(RuntimeError::Cancelled) => return Ok(report),
                     Err(e) => {
@@ -239,7 +250,51 @@ impl<B: Backend> AccountEngine<B> {
                         return Ok(report);
                     }
                 }
-                let _ = size;
+            }
+        }
+        Ok(report)
+    }
+
+    /// Fetch bodies for messages we hold headers for, smallest band first.
+    ///
+    /// Separate from [`AccountEngine::sync`] so a caller can show a usable inbox after the
+    /// header pass and fetch bodies behind it — which is the entire reason for splitting the
+    /// two on a maildrop where ninety per cent of messages are ten per cent of the bytes.
+    pub async fn fetch_bodies(
+        &mut self,
+        mailbox: &MailboxRef,
+        transport: &mut Transport,
+        cancel: &mut Cancel,
+        now: DateTime<Utc>,
+        budget: usize,
+    ) -> Result<SyncReport, RuntimeError> {
+        let mut report = SyncReport::default();
+        let mut wanted = self.unfetched(budget as u32)?;
+        wanted.sort_by_key(|(_, size)| *size);
+
+        for (remote, _) in wanted.into_iter().take(budget) {
+            match self
+                .run(ProtoOp::FetchBody { remote }, transport, cancel)
+                .await
+            {
+                Ok(ProtoOutcome::Fetched { remote, raw }) => {
+                    crate::assemble::absorb(
+                        &self.store,
+                        self.account,
+                        mailbox.clone(),
+                        SyncCursor::Pop,
+                        vec![crate::assemble::Arrival { remote, raw }],
+                        false,
+                        now,
+                    )?;
+                    report.bodies_fetched += 1;
+                }
+                Ok(_) => {}
+                Err(RuntimeError::Cancelled) => return Ok(report),
+                Err(e) => {
+                    report.needs_attention.push(e.to_string());
+                    return Ok(report);
+                }
             }
         }
         Ok(report)

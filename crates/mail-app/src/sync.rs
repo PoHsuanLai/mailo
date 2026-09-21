@@ -164,6 +164,14 @@ async fn one(
                 .sync(&mailbox, &mut transport, &mut cancel, now, 200)
                 .await
                 .map_err(|e| e.to_string())?;
+            // Headers first, then bodies smallest-band-first behind them, so the inbox is
+            // usable long before the hundred large attachments finish.
+            let bodies = engine
+                .fetch_bodies(&mailbox, &mut transport, &mut cancel, now, 100)
+                .await
+                .map_err(|e| e.to_string())?;
+            report.bodies_fetched += bodies.bodies_fetched;
+            report.needs_attention.extend(bodies.needs_attention);
             let drained = engine
                 .drain_outbox(&mut transport, &mut cancel, now)
                 .await

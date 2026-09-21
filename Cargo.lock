@@ -3151,6 +3151,7 @@ name = "mail-runtime"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "blake3",
  "chrono",
  "keyring",
  "mail-domain",
@@ -3159,9 +3160,11 @@ dependencies = [
  "mail-store",
  "oauth2",
  "reqwest",
+ "rusqlite",
  "rustls",
  "rustls-pki-types",
  "serde_json",
+ "tempfile",
  "thiserror 2.0.20",
  "tokio",
  "tokio-rustls",

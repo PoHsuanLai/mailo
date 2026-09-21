@@ -17,6 +17,8 @@ tokio-rustls = "0.26"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 webpki-roots = "1"
 rustls-pki-types = "1"
+blake3 = "1"
+rusqlite = { version = "0.40", features = ["bundled"] }
 # default-features off: oauth2 would otherwise pull its own reqwest and make the HTTP call
 # itself. We want the call here, where the runtime already owns TLS and timeouts.
 oauth2 = { version = "5", default-features = false }
@@ -29,6 +31,7 @@ keyring = "4"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
+tempfile = "3"
 
 [lints]
 workspace = true

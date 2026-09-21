@@ -3,6 +3,7 @@
 //! Everything below returns `IoNeed` and gets fed `IoReady`. This crate owns the loop that
 //! satisfies those, which is what makes cancellation expressible at all — see [`drive`].
 
+pub mod assemble;
 pub mod drive;
 pub mod engine;
 pub mod error;
@@ -11,6 +12,7 @@ pub mod oauth;
 pub mod secrets;
 pub mod transport;
 
+pub use assemble::{Arrival, absorb, assemble};
 pub use drive::{Cancel, drive};
 pub use engine::{AccountEngine, SyncReport};
 pub use error::RuntimeError;
