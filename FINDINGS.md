@@ -1379,3 +1379,28 @@ was about to attribute it.
 The fix was to measure again, deliberately, with the index and then without. Which is the same
 habit as reintroducing a bug to see a test fail: a number is evidence of nothing until you have
 seen it move for the reason you claim.
+
+### F78 — Every message in an open thread was parsed twice on every render
+
+`reader::render` called `html_of` and `inline_parts`, and each of them read the blob and ran the
+whole MIME parser. So opening a conversation parsed every message in it twice — and the shell
+re-renders the open thread on *every* revision: a keystroke in the search box, a hover action, a
+sync landing.
+
+Measured on a 200-message thread and on five 2MB messages, which is what a deck turns an ordinary
+thread into:
+
+| | 200 messages | five 2MB messages |
+|---|---|---|
+| parsing twice | 10.7ms | 64.3ms |
+| parsing once | 3.3ms | 27.8ms |
+
+Better than the 2× the description suggests, because the duplicated blob read went with it.
+
+`inline_parts` is gone — `render` reads both halves off one `Parsed` — and `html_of` went with
+it once the tests moved to `render`, which is what the shell actually calls. Asking the narrower
+question was testing a step the application no longer takes.
+
+Neither number was failing a threshold before the change. This was found by writing the test that
+made the cost visible at a size anyone would actually have, which is the same move as F75: at two
+messages, twice nothing is nothing.

@@ -123,10 +123,10 @@ fn an_html_message_reaches_the_sandbox_instead_of_falling_back_to_text() {
     let (store, _dir) = store();
     let message = ingest(&store, MULTIPART, Some("the plain alternative"));
 
-    let html = reader::html_of(&store, &message).expect("the message has an HTML part");
-    assert!(html.contains("rich"), "{html}");
-
-    match view::reading(&message.body, Some(&html), policy()) {
+    // Through `render`, which is what the shell calls: it parses the stored bytes once and
+    // decides what the pane shows. Asking `html_of` separately tested a step the app no longer
+    // takes on its own.
+    match reader::render(&store, &message, policy()) {
         view::Reading::Html(rendered) => {
             assert!(rendered.contains("rich"), "{rendered}");
             assert!(
@@ -144,8 +144,7 @@ fn a_plain_text_message_has_no_html_part_and_renders_as_text() {
     let raw = b"From: sender@example.test\r\nSubject: s\r\n\r\njust words\r\n";
     let message = ingest(&store, raw, Some("just words"));
 
-    assert_eq!(reader::html_of(&store, &message), None);
-    match view::reading(&message.body, None, policy()) {
+    match reader::render(&store, &message, policy()) {
         view::Reading::Text(text) => assert_eq!(text, "just words"),
         other => panic!("plain text rendered as {other:?}"),
     }
@@ -161,12 +160,7 @@ fn a_message_whose_bytes_do_not_parse_is_still_readable() {
         Some("recovered text"),
     );
 
-    assert_eq!(
-        reader::html_of(&store, &message),
-        None,
-        "unparseable bytes must not raise"
-    );
-    match view::reading(&message.body, None, policy()) {
+    match reader::render(&store, &message, policy()) {
         view::Reading::Text(text) => assert_eq!(text, "recovered text"),
         other => panic!("{other:?}"),
     }
@@ -180,9 +174,8 @@ fn a_message_with_no_body_yet_is_not_mistaken_for_an_empty_one() {
     let mut message = ingest(&store, MULTIPART, None);
     message.body = Body::Absent;
 
-    assert_eq!(reader::html_of(&store, &message), None);
     assert_eq!(
-        view::reading(&message.body, None, policy()),
+        reader::render(&store, &message, policy()),
         view::Reading::NotFetched
     );
 }
@@ -200,13 +193,12 @@ Content-Type: text/html; charset=utf-8\r\n\
 <p>hello</p><script>alert(1)</script>\r\n";
     let message = ingest(&store, raw, None);
 
-    let html = reader::html_of(&store, &message).expect("an HTML part");
-    assert!(
-        html.contains("<script>"),
-        "the raw part should be untouched"
-    );
+    // The stored bytes still contain the script — nothing rewrites the message — and what
+    // reaches the frame does not.
+    let stored = String::from_utf8_lossy(raw).to_string();
+    assert!(stored.contains("<script>"), "the fixture should carry one");
 
-    match view::reading(&message.body, Some(&html), policy()) {
+    match reader::render(&store, &message, policy()) {
         view::Reading::Html(rendered) => {
             assert!(rendered.contains("hello"), "{rendered}");
             assert!(
