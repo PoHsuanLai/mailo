@@ -186,3 +186,60 @@ The two `LocalOnly` tests that the `ops` agent flagged as vacuous now discrimina
 - **F2's parity limit**, for whoever takes the `parity` brief: `mail-domain`'s fold table covers
   Latin-1, Latin Extended-A/-B and Latin Extended Additional. SQLite's is wider. Generate the
   proptest corpus from Latin + ASCII, or add a Unicode dependency.
+
+## Phase 0 — the spike, run 2026-09-22
+
+Run against a real Gmail account and `msa.ntu.edu.tw`. Transcripts are in `spike/out/`, which is
+gitignored: they contain real subjects, addresses and a full message body.
+
+### Confirmed — the claim the store is built on
+
+**One message really does have different UIDs in different mailboxes.** Five for five:
+
+```
+X-GM-MSGID 1876965017123110734:  INBOX uid=32460   All Mail uid=62603   DIFFERENT
+```
+
+`remote_map` many-to-one, identity from `MessageKey`, is correct. Had this come back `SAME`,
+the first Gmail sync would have duplicated every message in the mailbox.
+
+`UIDVALIDITY` is 1 for INBOX and 12 for All Mail — per mailbox, not per account, as designed.
+
+### F14 — capabilities must be read AFTER authentication
+
+Gmail advertises a reduced `CAPABILITY` pre-auth: `XLIST`, and no `CONDSTORE`, `MOVE` or
+`SPECIAL-USE`. The spike script asked before `LOGIN` and reported a far less capable server than
+Gmail is — `SELECT` returned `* OK [HIGHESTMODSEQ 3737642]`, which only a CONDSTORE server sends,
+and `LIST` returned `\All \Drafts \Sent \Junk \Trash \Flagged \Important`.
+
+So: `AccountCaps` discovery belongs after the auth step, not before it. The script is fixed and
+now reports both lists. **Nothing in `plan.md` said when caps are discovered; it should.**
+
+### F15 — folder names are IMAP modified UTF-7
+
+Real folders in the account include `&V4NXPpD1TvY-` and `&kc2JgZD1TvY-` (RFC 3501 §5.1.3). These
+become `LabelOrigin::Provider` labels, so without a decoder the sidebar shows mojibake. Nothing
+in the design mentions it. Encoding and decoding are both needed — a `SELECT` of a non-ASCII
+folder has to re-encode the name.
+
+### F16 — the NTU preset guessed the wrong SASL mechanism
+
+`CAPA` on `msa.ntu.edu.tw`: `SASL PLAIN`, `USER` — and **no `LOGIN`**, no `CRAM-MD5`, no `STLS`.
+The preset offered `[Login, Plain]`, so the first live connect would have failed on a mechanism
+the server does not implement. Corrected to `[Plain]`. No STLS is expected and fine: we connect
+with implicit TLS on 995.
+
+The host heuristic held for this account — the default `msa` worked — but only one shape has
+been tested, so `ccms` remains a guess.
+
+### F17 — the NTU mailbox is large, and POP3 has no partial fetch
+
+`STAT` reports **2372 messages, 267,508,676 bytes** (~255 MB). POP3 offers no server-side search
+and no partial body fetch, so a first sync means 2372 `RETR` round trips and a quarter of a
+gigabyte over the wire. `plan.md` treats POP3 as the simple case; at this size the first sync is
+a product problem — it needs to be resumable, and it should fetch newest-first so the inbox is
+usable before it finishes. `TOP` (headers only) is worth checking for in `CAPA`.
+
+UIDLs are 16 hex characters whose first 8 encode the arrival index (`0000000166aaf64b`,
+`0000000266aaf64b`). They are opaque to us and stay opaque; noted only because the shape makes
+them look sequential, and nothing should ever rely on that.
