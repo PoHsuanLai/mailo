@@ -75,6 +75,11 @@ enum Fault {
 /// shared one would have each test changing the mailbox out from under the others.
 type Validity = Arc<AtomicUsize>;
 
+/// How many messages the server still admits to having, from the front of the maildrop.
+///
+/// Dropping one is how a message deleted on another device looks from here.
+type Present = Arc<AtomicUsize>;
+
 #[derive(Debug, Default)]
 struct Seen {
     commands: Vec<String>,
@@ -85,11 +90,17 @@ type Shared = Arc<Mutex<Seen>>;
 /// An IMAP server on a real socket. Only as much of RFC 3501 as the client uses, but the bytes
 /// are genuine — including literals, which is where a parser that counts wrongly corrupts mail.
 async fn serve(seen: Shared, fault: Fault) -> (u16, Validity) {
+    let (port, validity, _present) = serve_full(seen, fault).await;
+    (port, validity)
+}
+
+async fn serve_full(seen: Shared, fault: Fault) -> (u16, Validity, Present) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     let faulted = Arc::new(AtomicUsize::new(0));
     let validity: Validity = Arc::new(AtomicUsize::new(42));
-    let serving = validity.clone();
+    let present: Present = Arc::new(AtomicUsize::new(maildrop().len()));
+    let (serving, showing) = (validity.clone(), present.clone());
     tokio::spawn(async move {
         while let Ok((sock, _)) = listener.accept().await {
             tokio::spawn(session(
@@ -98,10 +109,11 @@ async fn serve(seen: Shared, fault: Fault) -> (u16, Validity) {
                 fault,
                 faulted.clone(),
                 serving.clone(),
+                showing.clone(),
             ));
         }
     });
-    (port, validity)
+    (port, validity, present)
 }
 
 async fn session(
@@ -110,6 +122,7 @@ async fn session(
     fault: Fault,
     faulted: Arc<AtomicUsize>,
     validity: Validity,
+    present: Present,
 ) {
     if sock
         .write_all(b"* OK [CAPABILITY IMAP4rev1] server ready\r\n")
@@ -119,7 +132,8 @@ async fn session(
         return;
     }
 
-    let drop = maildrop();
+    let mut drop = maildrop();
+    drop.truncate(present.load(Ordering::SeqCst));
     let mut buf = Vec::new();
     loop {
         let mut chunk = [0u8; 4096];
@@ -186,6 +200,9 @@ async fn session(
                 } else {
                     envelopes(&drop, &tag)
                 }
+            } else if upper.starts_with("UID SEARCH") {
+                let uids: Vec<String> = drop.iter().map(|(uid, _)| uid.to_string()).collect();
+                format!("* SEARCH {}\r\n{tag} OK done\r\n", uids.join(" "))
             } else if upper.starts_with("UID STORE") {
                 format!("{tag} OK stored\r\n")
             } else if upper.starts_with("LOGOUT") {
@@ -747,4 +764,59 @@ fn remote_rows(store: &SqliteStore) -> i64 {
         .connection()
         .query_row("SELECT count(*) FROM remote_map", [], |r| r.get(0))
         .unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_message_deleted_elsewhere_disappears_here_too() {
+    // The third of the three sync intervals. Gmail has no QRESYNC and IDLE reports new mail
+    // only, so the full listing diffed against `remote_map` is the only way to learn that
+    // something was deleted on another device — RFC 7162 says as much outright.
+    //
+    // `Job::Listing` used to share the envelope arm, which parses FETCH responses. `UID SEARCH`
+    // answers `* SEARCH 101 102`, so nothing parsed, `gone` was always empty, and every sweep
+    // concluded that nothing had disappeared.
+    let seen: Shared = Arc::new(Mutex::new(Seen::default()));
+    let (port, _validity, present) = serve_full(seen, Fault::None).await;
+    let mut it = engine(port, tempfile::tempdir().unwrap());
+    let (_tx, mut cancel) = watch::channel(false);
+
+    it.engine
+        .sync(&inbox(), &mut cancel, now(), 200)
+        .await
+        .unwrap();
+    assert_eq!(count(&it.store), 2, "both messages arrived");
+
+    // One is deleted on another device.
+    present.store(1, Ordering::SeqCst);
+
+    // The expunge interval is the longest of the three, so a sweep at `now()` would not be due.
+    let later = now() + chrono::TimeDelta::try_hours(2).unwrap();
+    it.engine.sweep(&inbox(), &mut cancel, later).await.unwrap();
+
+    assert_eq!(
+        count(&it.store),
+        1,
+        "a message deleted on the server is still here"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_sweep_that_finds_everything_still_there_deletes_nothing() {
+    // The dangerous direction. `gone` drives deletion, so a listing this code fails to parse
+    // must never read as "the mailbox is empty".
+    let seen: Shared = Arc::new(Mutex::new(Seen::default()));
+    let (port, _validity, _present) = serve_full(seen, Fault::None).await;
+    let mut it = engine(port, tempfile::tempdir().unwrap());
+    let (_tx, mut cancel) = watch::channel(false);
+
+    it.engine
+        .sync(&inbox(), &mut cancel, now(), 200)
+        .await
+        .unwrap();
+    let before = count(&it.store);
+
+    let later = now() + chrono::TimeDelta::try_hours(2).unwrap();
+    it.engine.sweep(&inbox(), &mut cancel, later).await.unwrap();
+
+    assert_eq!(count(&it.store), before, "a sweep deleted live mail");
 }

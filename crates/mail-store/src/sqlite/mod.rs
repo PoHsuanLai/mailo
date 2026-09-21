@@ -82,8 +82,8 @@ use crate::{OutboxEntry, Settle, Store, sql};
 use chrono::{DateTime, Utc};
 use mail_domain::{
     AccountId, Cursor, Draft, DraftId, Filter, Ingest, MailboxRef, Message, MessageId, OutboxId,
-    Page, Patch, Property, Query, RemoteIntent, SendState, SortDir, SyncCursor, Thread, ThreadId,
-    ThreadSummary,
+    Page, Patch, Property, Query, RemoteIntent, RemoteRef, SendState, SortDir, SyncCursor, Thread,
+    ThreadId, ThreadSummary,
 };
 
 /// The `thread_summary` column a [`Property`] sorts on.
@@ -279,12 +279,12 @@ impl Store for SqliteStore {
         for row in rows {
             let (mailbox, uidvalidity, uid, uidl) = row?;
             out.push(match (uid, uidl) {
-                (Some(uid), None) => mail_domain::RemoteRef::Imap {
+                (Some(uid), None) => RemoteRef::Imap {
                     mailbox,
                     uidvalidity: uidvalidity.unwrap_or(0) as u32,
                     uid: uid as u32,
                 },
-                (None, Some(uidl)) => mail_domain::RemoteRef::Pop { uidl },
+                (None, Some(uidl)) => RemoteRef::Pop { uidl },
                 _ => {
                     return Err(StoreError::Decode {
                         what: "remote_map row".to_owned(),
@@ -308,6 +308,43 @@ impl Store for SqliteStore {
             )
             .optional()?;
         text.map(|t| row::json("SyncCursor", &t)).transpose()
+    }
+
+    fn remote_refs(&self, mailbox: &MailboxRef) -> Result<Vec<RemoteRef>, StoreError> {
+        let db = self.connection();
+        let mut stmt = db.prepare_cached(
+            "SELECT uidvalidity, uid, uidl FROM remote_map
+             WHERE account = ?1 AND mailbox = ?2",
+        )?;
+        let rows = stmt.query_map(
+            rusqlite::params![mailbox.account.to_string(), mailbox.path],
+            |r| {
+                Ok((
+                    r.get::<_, Option<i64>>(0)?,
+                    r.get::<_, Option<i64>>(1)?,
+                    r.get::<_, Option<String>>(2)?,
+                ))
+            },
+        )?;
+        let mut out = Vec::new();
+        for row in rows {
+            let (uidvalidity, uid, uidl) = row?;
+            out.push(match (uid, uidl) {
+                (Some(uid), None) => RemoteRef::Imap {
+                    mailbox: mailbox.path.clone(),
+                    uidvalidity: uidvalidity.unwrap_or(0) as u32,
+                    uid: uid as u32,
+                },
+                (None, Some(uidl)) => RemoteRef::Pop { uidl },
+                _ => {
+                    return Err(StoreError::Decode {
+                        what: "remote_map row".to_owned(),
+                        why: "row has neither a uid nor a uidl".to_owned(),
+                    });
+                }
+            });
+        }
+        Ok(out)
     }
 
     fn draft(&self, id: DraftId) -> Result<Draft, StoreError> {

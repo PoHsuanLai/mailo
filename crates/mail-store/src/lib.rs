@@ -18,7 +18,7 @@ pub use error::StoreError;
 use chrono::{DateTime, Utc};
 use mail_domain::{
     AccountId, Draft, DraftId, Filter, Ingest, MailboxRef, Message, MessageId, OutboxId, Page,
-    Patch, ProtoOp, Query, RemoteIntent, Retry, SendState, SyncCursor, Thread, ThreadId,
+    Patch, ProtoOp, Query, RemoteIntent, RemoteRef, Retry, SendState, SyncCursor, Thread, ThreadId,
     ThreadSummary,
 };
 
@@ -122,6 +122,12 @@ pub trait Store {
     /// Written by every [`Store::ingest`]; nothing read it back until CONDSTORE needed the
     /// `HIGHESTMODSEQ` it had been recording all along.
     fn cursor(&self, mailbox: &MailboxRef) -> Result<Option<SyncCursor>, StoreError>;
+
+    /// Every remote address this account holds in one mailbox.
+    ///
+    /// The other half of expunge detection: the server says what still exists, and this says
+    /// what we think exists. What is in the second and not the first is gone.
+    fn remote_refs(&self, mailbox: &MailboxRef) -> Result<Vec<RemoteRef>, StoreError>;
 
     /// One draft by id.
     fn draft(&self, id: DraftId) -> Result<Draft, StoreError>;

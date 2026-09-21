@@ -398,7 +398,34 @@ impl Backend for ImapBackend {
                 self.caps = caps.clone();
                 Progress::Done(ProtoOutcome::Caps(Box::new(caps)))
             }
-            Job::Envelopes { mailbox } | Job::Flags { mailbox } | Job::Listing { mailbox } => {
+            Job::Listing { mailbox } => {
+                // `UID SEARCH ALL` answers with `* SEARCH 101 102 …`, not with FETCH lines, so
+                // this cannot share the envelope arm — which is exactly what it used to do, and
+                // why `parse_fetches` found nothing and every expunge sweep concluded that
+                // nothing had disappeared.
+                //
+                // What exists is all this can say. Which of those we *hold* is the store's
+                // knowledge, so the runtime does the diff and fills in `gone`.
+                let (uidvalidity, uidnext, modseq) = mailbox_state(&transcript.untagged);
+                self.survey = parse_search(&transcript.untagged, &mailbox.path, uidvalidity)
+                    .into_iter()
+                    .map(|remote| (remote, 0))
+                    .collect();
+                Progress::Done(ProtoOutcome::Ingested(Box::new(Ingest {
+                    mailbox,
+                    validity: UidValidity::Same,
+                    cursor: Some(SyncCursor::Imap {
+                        uidvalidity,
+                        uidnext,
+                        modseq,
+                    }),
+                    messages: Vec::new(),
+                    flags: Vec::new(),
+                    labels: Vec::new(),
+                    gone: Vec::new(),
+                })))
+            }
+            Job::Envelopes { mailbox } | Job::Flags { mailbox } => {
                 // No `Fetched` here, and that is not laziness: a `Fetched` needs the raw bytes,
                 // and an envelope walk deliberately does not fetch them. What this walk learns
                 // is what *exists* — every UID, its size and its flags — plus where to resume.
@@ -511,6 +538,30 @@ fn parse_fetches(untagged: &[crate::Untagged], mailbox: &str, uidvalidity: u32) 
         });
     }
     out
+}
+
+/// The UIDs in an untagged `SEARCH` response.
+///
+/// `* SEARCH 101 102 103`, and `* SEARCH` alone for an empty mailbox — which is a real answer
+/// meaning "everything you hold is gone", not a parse failure, and must come back as an empty
+/// list rather than nothing at all.
+fn parse_search(untagged: &[crate::Untagged], mailbox: &str, uidvalidity: u32) -> Vec<RemoteRef> {
+    untagged
+        .iter()
+        .filter_map(|u| {
+            let rest = u.text.trim().strip_prefix("* SEARCH")?;
+            Some(
+                rest.split_whitespace()
+                    .filter_map(|n| n.parse::<u32>().ok()),
+            )
+        })
+        .flatten()
+        .map(|uid| RemoteRef::Imap {
+            mailbox: mailbox.to_owned(),
+            uidvalidity,
+            uid,
+        })
+        .collect()
 }
 
 /// The value following `key`, up to the next space or closing paren.

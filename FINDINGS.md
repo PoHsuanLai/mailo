@@ -841,3 +841,27 @@ no `UIDVALIDITY` at all.
 The same commit fixed a related mistake of mine: survey references carried `uidvalidity: 0` with
 a comment claiming it was filled in later. It was not. `remote_map` keys on that column, so every
 IMAP row was being written under a mailbox generation that never existed.
+
+### F54 — The expunge sweep asked the right question and threw the answer away
+
+`Job::Listing` shared an arm with `Job::Envelopes` and `Job::Flags`, all three running the same
+`parse_fetches`. Envelopes and flags arrive as `* n FETCH (...)`; a listing is `UID SEARCH ALL`,
+which answers `* SEARCH 101 102`. So the parser matched nothing, `gone` came back empty, and
+every expunge sweep concluded that nothing had disappeared.
+
+The third of the three sync intervals therefore ran on schedule, opened a connection, asked the
+server for the full list, and learned nothing from it — for ever. A message deleted on a phone
+stayed in the client until the database was thrown away. Gmail offers no QRESYNC and IDLE reports
+new mail only, so this listing is the *only* mechanism there is; RFC 7162 says so outright, and
+the backend's own comment quotes it.
+
+Splitting the arm is half the fix. The other half is that the backend can only report what still
+exists — what we *hold* is the store's knowledge — so `Store::remote_refs` says what is mapped in
+a mailbox and the runtime diffs the two. That diff compares addresses rather than messages: a
+message still present under another mailbox's UID keeps that row, and only the mapping in this
+mailbox goes.
+
+An empty `* SEARCH` is allowed to expunge everything, because an emptied mailbox is a real thing
+a server says. That is the one case worth being deliberate about — the opposite reading deletes a
+user's mail whenever a response fails to parse — so there is a test asserting a sweep that finds
+everything still present deletes nothing.

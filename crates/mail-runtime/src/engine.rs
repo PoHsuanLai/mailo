@@ -532,7 +532,11 @@ impl<B: Backend> AccountEngine<B> {
                 )
                 .await
             {
-                Ok(ProtoOutcome::Ingested(ingest)) => {
+                Ok(ProtoOutcome::Ingested(mut ingest)) => {
+                    // The backend can only say what still exists. What we *hold* is the store's
+                    // knowledge, so the diff happens here — and without it `gone` was always
+                    // empty and a message deleted on another device never disappeared.
+                    ingest.gone = self.vanished(mailbox)?;
                     self.store.ingest(self.account, *ingest)?;
                     self.last.expunges = Some(now);
                 }
@@ -543,6 +547,30 @@ impl<B: Backend> AccountEngine<B> {
         }
 
         Ok(report)
+    }
+
+    /// Remote addresses we hold that the server's listing no longer mentions.
+    ///
+    /// The server's answer is authoritative about existence and says nothing about identity, so
+    /// this compares addresses, not messages. A message still present under another mailbox's
+    /// UID keeps that row; only the mapping in *this* mailbox goes.
+    ///
+    /// An empty listing is a real answer — an emptied mailbox — and not a failure to parse, so
+    /// it is allowed to expunge everything. That is the one case worth being sure about, since
+    /// the alternative reading would delete a user's mail on a malformed response.
+    fn vanished(&self, mailbox: &MailboxRef) -> Result<Vec<RemoteRef>, RuntimeError> {
+        let still_there: std::collections::HashSet<RemoteRef> = self
+            .backend
+            .surveyed()
+            .into_iter()
+            .map(|(remote, _)| remote)
+            .collect();
+        Ok(self
+            .store
+            .remote_refs(mailbox)?
+            .into_iter()
+            .filter(|held| !still_there.contains(held))
+            .collect())
     }
 
     /// A modseq worth fetching from, or `None` to fetch every flag.

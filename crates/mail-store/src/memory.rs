@@ -131,6 +131,25 @@ impl Store for MemoryStore {
             .cloned())
     }
 
+    fn remote_refs(&self, mailbox: &MailboxRef) -> Result<Vec<RemoteRef>, StoreError> {
+        let inner = self.inner.borrow();
+        Ok(inner
+            .remotes
+            .iter()
+            .filter(|row| row.account == mailbox.account && row.mailbox == mailbox.path)
+            .map(|row| match (row.uid, &row.uidl) {
+                (Some(uid), None) => RemoteRef::Imap {
+                    mailbox: row.mailbox.clone(),
+                    uidvalidity: row.uidvalidity.unwrap_or(0),
+                    uid,
+                },
+                _ => RemoteRef::Pop {
+                    uidl: row.uidl.clone().unwrap_or_default(),
+                },
+            })
+            .collect())
+    }
+
     fn draft(&self, id: DraftId) -> Result<Draft, StoreError> {
         self.inner
             .borrow()
