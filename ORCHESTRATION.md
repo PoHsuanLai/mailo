@@ -35,7 +35,7 @@ around it and it does not change it. Four of the five errors corrected in `plan.
 | shell reading | **done** — the HTML part is parsed out of the raw blob and rendered sandboxed, with `cid:` inline images resolved; neither had ever reached the iframe (F40, F42) |
 | shell drafts, paging, sync | **done** — Drafts lists the draft table rather than an empty mailbox, "Show more" pages the list, unread badges come from `Store::count`, and a Sync button runs a pass off the UI thread |
 
-448 tests across 40 targets. `fmt`, `clippy -D warnings` and `scripts/check-boundary.sh` all
+454 tests across 40 targets. `fmt`, `clippy -D warnings` and `scripts/check-boundary.sh` all
 clean.
 
 Sending was the last thing that existed only in pieces. `SmtpBackend` was written and unit-tested
@@ -80,7 +80,12 @@ password.
 
 `tests/imap_end_to_end.rs` drives the whole stack against a real socket, including phase 5's
 second clause — killing the connection mid-body-fetch, restarting against the same database, and
-asserting the mailbox holds each message once.
+asserting the mailbox holds each message once. It also covers the CONDSTORE sweep: a server that
+advertises it gets `CHANGEDSINCE`, one that does not never does.
+
+What remains for phase 5 is Gmail specifically: the OAuth browser flow is wired and tested, but
+the client id is an installed-app credential registered with Google, which is deployment
+configuration and cannot live in a source tree.
 
 ### The shortest path to a working inbox
 
