@@ -237,3 +237,125 @@ fn an_unread_count_does_not_read_the_mailbox() {
         "counting unread took {elapsed:?}"
     );
 }
+
+/// How long a first sync spends writing, which is the part a user watches.
+mod ingest_throughput {
+    use super::*;
+
+    /// One batch of `count` messages, all in distinct threads.
+    fn batch(store: &SqliteStore, from: i64, count: i64, thread: Option<ThreadId>) -> Ingest {
+        let raw = store
+            .blobs()
+            .put(&store.connection(), b"shared body bytes")
+            .unwrap();
+        let mut messages = Vec::with_capacity(count as usize);
+        for i in 0..count {
+            let n = from + i;
+            let key = format!("t{n}@example.test");
+            let message = Message {
+                id: MessageId::generate(),
+                thread: thread.unwrap_or_else(ThreadId::generate),
+                account: ACCOUNT,
+                key: MessageKey::Rfc(key.clone()),
+                date: at(n),
+                from: Address {
+                    name: None,
+                    email: "sender@example.test".to_owned(),
+                },
+                reply_to: vec![],
+                to: vec![],
+                cc: vec![],
+                bcc: vec![],
+                subject: format!("subject {n}"),
+                in_reply_to: None,
+                references: vec![],
+                rfc_message_id: Some(key.clone()),
+                read: ReadState::Unread,
+                star: Star::Unstarred,
+                mailbox: MailboxRole::Inbox,
+                labels: vec![],
+                body: Body::Present {
+                    text: Some(format!("body {n}")),
+                    raw,
+                },
+                attachments: vec![],
+            };
+            messages.push(Fetched {
+                remote: RemoteRef::Pop { uidl: key },
+                key: message.key.clone(),
+                raw,
+                message,
+            });
+        }
+        Ingest {
+            mailbox: MailboxRef {
+                account: ACCOUNT,
+                path: "INBOX".to_owned(),
+            },
+            validity: UidValidity::Same,
+            cursor: Some(SyncCursor::Pop),
+            messages,
+            flags: vec![],
+            labels: vec![],
+            gone: vec![],
+        }
+    }
+
+    #[test]
+    fn a_first_sync_of_a_real_maildrop_is_not_something_you_wait_out() {
+        // 2372 is the maildrop this project was measured against. A first sync fetches in
+        // batches, so this is the store's share of that time — not the network's.
+        let (store, _dir) = store();
+        let start = Instant::now();
+        for b in 0..5 {
+            store
+                .ingest(ACCOUNT, batch(&store, b * 500, 500, None))
+                .unwrap();
+        }
+        let elapsed = start.elapsed();
+        let each = elapsed / 2_500;
+        eprintln!("2500 messages absorbed in {elapsed:?} ({each:?} each)");
+
+        assert_eq!(store.count(&Filter::All, at(0)).unwrap(), 2_500);
+        assert!(
+            elapsed < std::time::Duration::from_secs(20),
+            "absorbing a real maildrop took {elapsed:?}"
+        );
+    }
+
+    #[test]
+    fn absorbing_into_a_long_thread_does_not_get_slower_as_the_thread_grows() {
+        // `refresh_summary` reloads every message of a touched thread to recompute its summary.
+        // That is fine per ingest and quadratic if a mailing-list thread is absorbed one batch
+        // at a time — which is exactly how a sync arrives.
+        let (store, _dir) = store();
+        let thread = ThreadId::generate();
+
+        let first = {
+            let start = Instant::now();
+            store
+                .ingest(ACCOUNT, batch(&store, 0, 200, Some(thread)))
+                .unwrap();
+            start.elapsed()
+        };
+        // Nine more batches into the same thread, so it ends at 2000 messages.
+        for b in 1..9 {
+            store
+                .ingest(ACCOUNT, batch(&store, b * 200, 200, Some(thread)))
+                .unwrap();
+        }
+        let last = {
+            let start = Instant::now();
+            store
+                .ingest(ACCOUNT, batch(&store, 9 * 200, 200, Some(thread)))
+                .unwrap();
+            start.elapsed()
+        };
+
+        eprintln!("batch into an empty thread: {first:?}; into a 1800-message thread: {last:?}");
+        assert!(
+            last < first * 8 + std::time::Duration::from_millis(50),
+            "absorbing got much slower as the thread grew: first={first:?} last={last:?}"
+        );
+    }
+}

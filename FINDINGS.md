@@ -1404,3 +1404,34 @@ question was testing a step the application no longer takes.
 Neither number was failing a threshold before the change. This was found by writing the test that
 made the cost visible at a size anyone would actually have, which is the same move as F75: at two
 messages, twice nothing is nothing.
+
+### F79 — Ingest is healthy, and saying so is part of the job
+
+Measured because it is the number a user watches, not because anything suggested a problem: 2500
+messages — the maildrop this project was designed around, plus a margin — absorb in **368ms**,
+147µs each. Absorbing repeated batches into one growing thread goes from 23ms into an empty
+thread to 36ms into an 1800-message one, which is sub-linear and fine.
+
+`refresh_summary` reloads every message of a touched thread, and `write_ingest` collects touched
+threads into a `BTreeSet` so each is refreshed once per ingest rather than once per message. That
+is the difference between this result and a quadratic one, and it was already right.
+
+Recorded because "I looked and it was fine" is information. A findings file that only contains
+defects says nothing about what was examined.
+
+### F80 — Every keystroke recounted every badge
+
+`use_memo` subscribes to every signal it reads. The badge memo read `shell` — to get the sidebar's
+places, which never change after construction — and so re-ran on every write to `shell`,
+including `shell.write().search = e.value()` on each character typed.
+
+Six indexed counts per keystroke. About half a frame on a ten-thousand-message mailbox, to
+recompute numbers that could not have moved: typing in the search box changes which threads are
+*listed*, never how many are unread.
+
+The filters are now resolved once in a `use_hook`, and the memo depends on `revision` alone.
+
+The test took three attempts and only the third tests anything. Re-rendering the component does
+not re-run a memo, so the first two versions passed with the subscription reinstated — a memo
+re-runs when its *dependencies* change, which means the test has to perform the write a keystroke
+performs. It does now, and putting the subscription back fails it.

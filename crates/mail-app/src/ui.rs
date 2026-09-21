@@ -52,20 +52,28 @@ fn App() -> Element {
 
     // One count per place, recomputed after any write. `Store::count` answers each in a single
     // indexed query, which is why the sidebar can afford to ask on every revision.
+    // Resolved once. The sidebar's places are fixed after construction, so what each badge
+    // counts never changes — only the answer does.
+    let badge_filters: Vec<Option<Filter>> = use_hook(|| {
+        crate::view::default_places()
+            .iter()
+            .map(|place| badge_filter(&place.source))
+            .collect()
+    });
+
+    // Depends on `revision` and nothing else. It used to read `shell`, which subscribes a memo
+    // to *every* change of it — so each keystroke in the search box re-ran one indexed count
+    // per place. Six queries per character, about half a frame on a ten-thousand-message
+    // mailbox, to recompute numbers that could not have moved.
     let badges = use_memo(move || {
         let _ = revision();
         let store = consume_context::<Arc<SqliteStore>>();
         let now = chrono::Utc::now();
-        shell
-            .read()
-            .places
+        badge_filters
             .iter()
-            .map(|place| {
-                let filter = badge_filter(&place.source)?;
-                match store.count(&filter, now) {
-                    Ok(0) | Err(_) => None,
-                    Ok(n) => Some(n),
-                }
+            .map(|filter| match store.count(filter.as_ref()?, now) {
+                Ok(0) | Err(_) => None,
+                Ok(n) => Some(n),
             })
             .collect::<Vec<Option<u64>>>()
     });
@@ -939,5 +947,80 @@ mod render_tests {
             dom.mark_dirty(dioxus_core::ScopeId::APP);
             dom.render_immediate(&mut NoOpMutations);
         }
+    }
+}
+
+#[cfg(test)]
+mod reactivity_tests {
+    //! What a keystroke costs.
+    //!
+    //! A memo that reads a signal is subscribed to *every* change of it, so reading `shell` to
+    //! get something that never changes — the sidebar's places — makes an unrelated write
+    //! recompute it. The list must re-query when the search box changes; the badges must not.
+
+    use super::*;
+    use dioxus_core::{NoOpMutations, VirtualDom};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// How many times the badge memo has run.
+    static BADGE_RUNS: AtomicUsize = AtomicUsize::new(0);
+    /// The shell signal, published so the test can write it the way a keystroke does.
+    static TYPE_NOW: AtomicUsize = AtomicUsize::new(0);
+
+    /// A stand-in for `App`'s badge memo: depends on `revision`, not on `shell`.
+    #[component]
+    fn Badges() -> Element {
+        let mut shell = use_signal(Shell::default);
+        let revision = use_signal(|| 0u64);
+
+        let filters: Vec<Option<Filter>> = use_hook(|| {
+            crate::view::default_places()
+                .iter()
+                .map(|place| badge_filter(&place.source))
+                .collect()
+        });
+        let badges = use_memo(move || {
+            let _ = revision();
+            BADGE_RUNS.fetch_add(1, Ordering::SeqCst);
+            filters.len()
+        });
+
+        // A write to `shell`, driven from the test: this is the keystroke. Done in an effect
+        // rather than during render, because writing a signal while rendering is not what a
+        // key press does and not what is being measured.
+        use_effect(move || {
+            if TYPE_NOW.swap(0, Ordering::SeqCst) > 0 {
+                shell.write().search.push('x');
+            }
+        });
+
+        let typed = shell.read().search.len();
+        rsx! { div { "{badges()} {typed}" } }
+    }
+
+    #[tokio::test]
+    async fn typing_in_the_search_box_does_not_recount_every_badge() {
+        BADGE_RUNS.store(0, Ordering::SeqCst);
+        TYPE_NOW.store(0, Ordering::SeqCst);
+        let mut dom = VirtualDom::new(Badges);
+        dom.rebuild_in_place();
+        let after_first = BADGE_RUNS.load(Ordering::SeqCst);
+
+        for _ in 0..5 {
+            // A keystroke: write `shell`, then let the dom settle.
+            TYPE_NOW.store(1, Ordering::SeqCst);
+            dom.mark_dirty(dioxus_core::ScopeId::APP);
+            dom.render_immediate(&mut NoOpMutations);
+            dom.render_immediate(&mut NoOpMutations);
+        }
+
+        let runs = BADGE_RUNS.load(Ordering::SeqCst);
+        assert_eq!(
+            runs,
+            after_first,
+            "the badge memo re-ran {} times for keystrokes that changed no count; each run is \
+             one indexed query per place",
+            runs - after_first
+        );
     }
 }
