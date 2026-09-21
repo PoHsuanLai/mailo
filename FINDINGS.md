@@ -329,3 +329,81 @@ and then truncates is a documented failure mode; advertisement is a hint, behavi
 The header-pass size estimate (~7–9 MB) rests on one measured message. A short `TOP n 0` run
 over ~50 messages would turn that into a measurement and prove `TOP` works on this server in
 practice rather than by advertisement.
+
+## IMAP traps, 2026-09-22 — from the bug trackers, not the RFCs
+
+Sourced to Mozilla/GitHub bug numbers and vendor KBs. The researcher corrected two of its own
+earlier verdicts and withdrew a set of URLs it had cited from a *fork* rather than upstream; it
+also refused to cite a cluster of repositories it could not establish as real projects. Both are
+recorded because the discipline matters more than any single item.
+
+### F23 — a capability check is necessary but not sufficient
+
+Servers lie in both directions, and this is documented rather than folklore:
+
+- **UW IMAP** advertises `UIDPLUS` and returns a bare `OK APPEND completed` with no `[APPENDUID]`.
+  Thunderbird trusted the advertisement and **deleted the wrong draft** (Mozilla 400043).
+- **Courier at GoDaddy** returns `[APPENDUID]` while *not* advertising `UIDPLUS` — the inverse
+  lie. Thunderbird fell back to a header `SEARCH`, that server answered empty, and every save
+  produced a duplicate draft (Mozilla 460085).
+- **Oracle Messaging Server** advertises `IDLE` then answers `NO`; the client assumed the `+`
+  continuation, sent `DONE` anyway, and wedged the session (Mozilla 344205, fixed only in TB 65).
+- **Dovecot ≥1.2** sends a reduced capability list in the greeting and the full one in the tagged
+  `OK` of `LOGIN` (Mozilla 401293) — the same shape as the Gmail pre-auth bug in F14, on another
+  server entirely.
+- **iCloud** runs behind a proxy that indiscriminately injects `XAPPLEPUSHSERVICE` into
+  capability responses (isync `drv_imap.c`).
+
+**Rule:** every capability-gated path needs a fallback triggered by *behaviour*, not by the
+string. "APPEND returned OK without APPENDUID" must route to the fallback even though `UIDPLUS`
+was advertised. This generalises F22 from POP3 to the whole design: advertisement is a hint,
+behaviour is the fact, and `AccountCaps` must be latchable to false on observation.
+
+### F24 — never adopt a server-volunteered UIDNEXT across an APPEND
+
+After an `APPEND` a server volunteered `* OK [UIDNEXT 460]`; mbsync adopted it and fetched from
+460, but the appended message had actually been given 458. Result: "lost track of 1 pushed
+message" and **re-duplication on every later sync**. Snapshot `UIDNEXT` as it was *before* the
+`APPEND` and fetch from there, with `UID FETCH n:*` rather than a magic upper bound — and note
+`UID FETCH *:*` chokes DavMail/Exchange, where plain `UID FETCH *` is correct.
+
+### F25 — CONDSTORE can be advertised and useless
+
+Dovecot 2.0.18 returned `HIGHESTMODSEQ 1` forever while `EXISTS` climbed, because MODSEQ tracking
+only began once a client explicitly asked for it. **Sanity-check that HIGHESTMODSEQ advances**;
+treat frozen as "fall back to a full sync".
+
+Conversely, an oversized `VANISHED (EARLIER)` is *legal* and must not be treated as a server bug:
+given a mod-sequence below `<minmodseq>`, a server MUST report all expunged messages. This was
+litigated on the Dovecot list and the reporter conceded.
+
+Gmail advertises `CONDSTORE` but **not** `QRESYNC`, which matches our own spike.
+
+### F26 — mUTF-7 decoding must never fail hard, and never case-fold
+
+Two corrections to the F15 plan:
+
+- **`UTF8=ACCEPT` does not mean the server stopped speaking mUTF-7.** Dovecot 2.4 with
+  `mail_utf8_extensions=yes` still hands Outlook mUTF-7 folder names. The decoder is
+  mode-dependent *and* defensive.
+- **On decode failure, treat the name as literal bytes** — do not drop the connection, which is
+  what go-imap did. A folder we cannot name is a cosmetic problem; a dropped connection is not.
+- **Never case-fold mUTF-7**: its base64 alphabet is case-sensitive.
+
+This strengthens the decision in F15 to write it ourselves. The one available crate panics on
+malformed input; a decoder that cannot fail gracefully is worse than none, because the failure
+mode is the whole account going offline.
+
+### F27 — flags are not RFC-clean
+
+A flag containing `]` violates RFC 3501, and **Gmail produces them anyway**. Python's `imaplib`
+documents accepting them since 3.6 "since this improves real-world compatibility". Our atom/flag
+parser must survive `]` inside a flag rather than treating the response as malformed.
+
+### F28 — sequence numbers are a data-loss vector; we already avoid them
+
+osTicket lost mail to exactly this (their own comment: the fetcher "uses message sequence
+numbers", with a standing TODO to move to UIDs), and hMailServer numbered messages by position in
+one shared per-folder container so an expunge by any session silently renumbered every other one.
+`RemoteRef::Imap` is keyed on `uid` + `uidvalidity` and never on a sequence number, so this class
+of bug is designed out. Recorded so it stays that way.
