@@ -101,6 +101,21 @@ pub trait Store {
         now: DateTime<Utc>,
     ) -> Result<Vec<OutboxEntry>, StoreError>;
 
+    /// Remote addresses of messages we hold headers for but no body.
+    ///
+    /// `Body::Absent` is a normal state, not an error: a POP3 first sync fetches headers with
+    /// `TOP` before any `RETR`, and IMAP fetches envelopes before bodies. This is how the
+    /// runtime finds the work still outstanding after a restart, which is what makes a large
+    /// first sync resumable rather than something that starts over.
+    ///
+    /// Ordered oldest-first by the message date so a caller gets a stable list; the *fetch*
+    /// order is the caller's decision, and it is newest-first by size band.
+    fn unfetched(
+        &self,
+        account: AccountId,
+        limit: u32,
+    ) -> Result<Vec<mail_domain::RemoteRef>, StoreError>;
+
     /// Record how a queued operation finished and act on it.
     fn outbox_settle(
         &self,

@@ -226,6 +226,54 @@ impl Store for SqliteStore {
         self.due(account, now)
     }
 
+    fn unfetched(
+        &self,
+        account: AccountId,
+        limit: u32,
+    ) -> Result<Vec<mail_domain::RemoteRef>, StoreError> {
+        // A message may have several remote addresses; any one of them can fetch the body, so
+        // take the first per message rather than returning the same work several times.
+        let mut stmt = self.db.prepare_cached(
+            "SELECT r.mailbox, r.uidvalidity, r.uid, r.uidl
+             FROM messages m
+             JOIN remote_map r ON r.message = m.id
+             WHERE m.account = ?1 AND m.body_raw IS NULL
+             GROUP BY m.id
+             ORDER BY m.date
+             LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(
+            rusqlite::params![account.to_string(), i64::from(limit)],
+            |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, Option<i64>>(1)?,
+                    r.get::<_, Option<i64>>(2)?,
+                    r.get::<_, Option<String>>(3)?,
+                ))
+            },
+        )?;
+        let mut out = Vec::new();
+        for row in rows {
+            let (mailbox, uidvalidity, uid, uidl) = row?;
+            out.push(match (uid, uidl) {
+                (Some(uid), None) => mail_domain::RemoteRef::Imap {
+                    mailbox,
+                    uidvalidity: uidvalidity.unwrap_or(0) as u32,
+                    uid: uid as u32,
+                },
+                (None, Some(uidl)) => mail_domain::RemoteRef::Pop { uidl },
+                _ => {
+                    return Err(StoreError::Decode {
+                        what: "remote_map row".to_owned(),
+                        why: "row has neither a uid nor a uidl".to_owned(),
+                    });
+                }
+            });
+        }
+        Ok(out)
+    }
+
     fn outbox_settle(
         &self,
         id: OutboxId,

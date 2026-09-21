@@ -164,6 +164,44 @@ impl Store for MemoryStore {
         Ok(self.inner.borrow().outbox_due(account, now))
     }
 
+    fn unfetched(
+        &self,
+        account: AccountId,
+        limit: u32,
+    ) -> Result<Vec<mail_domain::RemoteRef>, StoreError> {
+        let inner = self.inner.borrow();
+        let mut with_dates: Vec<(chrono::DateTime<chrono::Utc>, mail_domain::RemoteRef)> = inner
+            .messages
+            .values()
+            .filter(|m| m.account == account && matches!(m.body, mail_domain::Body::Absent))
+            .filter_map(|m| {
+                inner
+                    .remotes
+                    .iter()
+                    .find(|row| row.message == m.id)
+                    .and_then(|row| {
+                        let remote = match (row.uid, row.uidl.clone()) {
+                            (Some(uid), None) => mail_domain::RemoteRef::Imap {
+                                mailbox: row.mailbox.clone(),
+                                uidvalidity: row.uidvalidity.unwrap_or(0),
+                                uid,
+                            },
+                            (_, Some(uidl)) => mail_domain::RemoteRef::Pop { uidl },
+                            // The row invariant forbids this; skipping beats inventing a ref.
+                            (None, None) => return None,
+                        };
+                        Some((m.date, remote))
+                    })
+            })
+            .collect();
+        with_dates.sort_by_key(|(date, _)| *date);
+        Ok(with_dates
+            .into_iter()
+            .map(|(_, remote)| remote)
+            .take(limit as usize)
+            .collect())
+    }
+
     fn outbox_settle(
         &self,
         id: OutboxId,

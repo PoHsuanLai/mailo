@@ -139,7 +139,10 @@ impl<B: Backend> AccountEngine<B> {
         mailbox: &MailboxRef,
         transport: &mut Transport,
         cancel: &mut Cancel,
-        now: DateTime<Utc>,
+        // Not used yet: the flag sweep and the expunge diff are timed against it, and both are
+        // still to be written. Kept in the signature so adding them is not a breaking change
+        // across every caller.
+        _now: DateTime<Utc>,
         budget: usize,
     ) -> Result<SyncReport, RuntimeError> {
         let mut report = SyncReport::default();
@@ -160,7 +163,7 @@ impl<B: Backend> AccountEngine<B> {
 
         // The survey's ordering decision lives here rather than in the backend, because it is a
         // product judgement about what the user sees first, not a protocol fact.
-        let mut wanted = self.unfetched(now)?;
+        let mut wanted = self.unfetched(budget as u32)?;
         wanted.sort_by_key(|(_, size)| *size);
 
         for band in BANDS {
@@ -194,12 +197,41 @@ impl<B: Backend> AccountEngine<B> {
         Ok(report)
     }
 
-    /// Messages we know of but have no body for.
+    /// Messages we hold headers for but no body, paired with a size where one is known.
     ///
-    /// Empty for now: wiring this to `remote_map` needs a store query that does not exist yet,
-    /// and returning nothing is honest where inventing a list would not be.
-    fn unfetched(&self, _now: DateTime<Utc>) -> Result<Vec<(RemoteRef, u64)>, RuntimeError> {
-        Ok(Vec::new())
+    /// The store answers which; the backend's survey answers how big. Sizes come from POP3's
+    /// `LIST`, which gives exact octets before any fetch — that is what makes size-banded
+    /// ordering possible, and it is a bigger lever than `TOP` on a real maildrop where 90% of
+    /// messages are 10% of the bytes.
+    ///
+    /// A message with no size lands in the last band rather than the first: fetching something
+    /// of unknown length ahead of a known-small one is the wrong bet.
+    fn unfetched(&self, limit: u32) -> Result<Vec<(RemoteRef, u64)>, RuntimeError> {
+        let sizes = self.survey_sizes();
+        Ok(self
+            .store
+            .unfetched(self.account, limit)?
+            .into_iter()
+            .map(|remote| {
+                let size = match &remote {
+                    RemoteRef::Pop { uidl } => sizes
+                        .iter()
+                        .find(|(u, _)| u == uidl)
+                        .map(|(_, size)| *size)
+                        .unwrap_or(u64::MAX),
+                    RemoteRef::Imap { .. } => u64::MAX,
+                };
+                (remote, size)
+            })
+            .collect())
+    }
+
+    /// Sizes from the backend's last survey, when it keeps them.
+    ///
+    /// Empty for backends that cannot report sizes up front, which simply means every message
+    /// falls into the last band and the pass degrades to arrival order.
+    fn survey_sizes(&self) -> Vec<(String, u64)> {
+        Vec::new()
     }
 
     /// The account's stored credential, refreshed if it is close to expiring.
