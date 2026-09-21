@@ -29,10 +29,17 @@ around it and it does not change it. Four of the five errors corrected in `plan.
 | 3 — `mail-proto` sessions | **done** — POP3, SMTP, IMAP, modified UTF-7, the replay harness |
 | 4 — backends | **done** — `Pop3Backend`, `SmtpBackend`, `ImapBackend` |
 | runtime | **done** — transport, drive loop, OAuth + PKCE, loopback listener, secrets, `AccountEngine`, the three-interval schedule |
-| app | **done as far as it can be** — `mailo` CLI (list, show, search, status, account add/list, sync) and the Dioxus shell |
+| app | **done as far as it can be** — `mailo` CLI (list, show, search, reply, send, drafts, status, account add/list, sync) and the Dioxus shell |
+| sending | **done** — drafts persist, `RemoteIntent::Send` queues, the engine routes `Submit` to SMTP, end-to-end over a real socket |
 
-263 tests across 32 targets. `fmt`, `clippy -D warnings` and `scripts/check-boundary.sh` all
+316 tests across 37 targets. `fmt`, `clippy -D warnings` and `scripts/check-boundary.sh` all
 clean.
+
+Sending was the last thing that existed only in pieces. `SmtpBackend` was written and unit-tested
+and *unreachable*: no code path put a submission in the outbox, `RemoteIntent` had no variant for
+one, the store silently discarded every draft it was given, and no account had an identity to
+send from. Four separate gaps, each invisible from inside the component that had it, and all four
+found by trying to send a message rather than by reading the code. See FINDINGS F36–F39.
 
 ### What still needs a person
 
@@ -64,6 +71,17 @@ mailo list
 
 `sync` surveys the maildrop, fetches headers with `TOP` so nothing is marked read, then bodies
 smallest band first, absorbing each into the store as it arrives.
+
+Replying is the same three steps:
+
+```
+mailo reply <message-id> [--all] <<< 'text of the reply'
+mailo send <draft-id>
+mailo sync
+```
+
+`send` freezes the bytes and queues them; it never opens a connection. The message is safe across
+a restart from the moment it is queued, and `mailo drafts` says where each one got to.
 
 ## Waves## Waves
 
