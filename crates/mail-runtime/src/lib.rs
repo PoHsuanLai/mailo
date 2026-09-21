@@ -5,11 +5,13 @@
 
 pub mod drive;
 pub mod error;
+pub mod loopback;
 pub mod oauth;
 pub mod secrets;
 pub mod transport;
 
 pub use drive::{Cancel, drive};
 pub use error::RuntimeError;
+pub use loopback::Loopback;
 pub use secrets::{KeyringSecrets, MapSecrets, Secrets};
 pub use transport::Transport;
