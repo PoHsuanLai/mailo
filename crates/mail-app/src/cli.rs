@@ -20,6 +20,10 @@ pub enum Command {
     Search { needle: String, limit: u32 },
     /// Unread counts per mailbox.
     Status,
+    /// Configure an account from its address, using the preset table.
+    AccountAdd { address: String },
+    /// Configured accounts, and what each still needs.
+    AccountList,
 }
 
 /// Parse arguments, or explain what was wrong.
@@ -66,6 +70,21 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
             Ok(Command::Search { needle, limit: 20 })
         }
         "status" => Ok(Command::Status),
+        "account" => match args.get(1).map(String::as_str) {
+            Some("add") => {
+                let address = args
+                    .get(2)
+                    .ok_or_else(|| format!("account add needs an address\n\n{}", usage()))?;
+                if !address.contains('@') {
+                    return Err(format!("{address:?} is not an email address"));
+                }
+                Ok(Command::AccountAdd {
+                    address: address.clone(),
+                })
+            }
+            None | Some("list") => Ok(Command::AccountList),
+            Some(other) => Err(format!("unknown account command {other:?}\n\n{}", usage())),
+        },
         other => Err(format!("unknown command {other:?}\n\n{}", usage())),
     }
 }
@@ -87,6 +106,8 @@ usage: mailo <command>
   show <thread-id>
   search <words...>
   status
+  account [list]
+  account add <address>      (set MAILO_PASSWORD for a password account)
 "
     .to_owned()
 }
@@ -152,6 +173,8 @@ pub fn run(store: &SqliteStore, command: &Command, now: DateTime<Utc>) -> Result
             }
             Ok(render_list(&page.items))
         }
+        Command::AccountAdd { address } => crate::account::add(store, address, now),
+        Command::AccountList => crate::account::list(store),
         Command::Status => {
             let mut out = String::new();
             for role in MailboxRole::ALL {

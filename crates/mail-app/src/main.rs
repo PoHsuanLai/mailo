@@ -1,5 +1,6 @@
 //! `mailo` — the command line. The Dioxus shell will call the same store methods.
 
+mod account;
 mod cli;
 mod ui;
 mod view;

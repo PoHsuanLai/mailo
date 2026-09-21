@@ -3082,6 +3082,8 @@ dependencies = [
  "mail-mime",
  "mail-runtime",
  "mail-store",
+ "rusqlite",
+ "serde_json",
  "tempfile",
  "uuid",
 ]
@@ -3173,6 +3175,7 @@ dependencies = [
  "blake3",
  "chrono",
  "mail-domain",
+ "parking_lot",
  "proptest",
  "rusqlite",
  "serde",

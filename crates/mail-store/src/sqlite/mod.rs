@@ -7,9 +7,9 @@ mod write;
 
 use crate::blob::BlobStore;
 use crate::{StoreError, migrate};
+use parking_lot::{ReentrantMutex, ReentrantMutexGuard};
 use rusqlite::Connection;
 use std::path::Path;
-use std::sync::{Mutex, MutexGuard};
 
 /// A connection to the on-disk database, plus the blob store beside it.
 ///
@@ -23,7 +23,13 @@ pub struct SqliteStore {
     /// without it. SQLite serialises writes regardless, and WAL's concurrent readers are
     /// concurrent across *connections*, so one guarded connection is honest about what is
     /// actually happening rather than pretending at parallelism a single handle cannot give.
-    db: Mutex<Connection>,
+    ///
+    /// **Reentrant**, and that is not an optimisation. `write_patch` takes the connection to
+    /// open a transaction and then calls `write_change`, which needs it again; with a plain
+    /// `std::sync::Mutex` that is a deadlock — the process simply stops, with no error and no
+    /// panic. A reentrant lock is sound here because `rusqlite` only ever needs `&Connection`,
+    /// so recursion hands out a second shared reference rather than aliasing a mutable one.
+    db: ReentrantMutex<Connection>,
     blobs: BlobStore,
 }
 
@@ -51,7 +57,7 @@ impl SqliteStore {
             .map_err(|e| StoreError::Db(e.to_string()))?;
         migrate::migrate(&db)?;
         Ok(Self {
-            db: Mutex::new(db),
+            db: ReentrantMutex::new(db),
             blobs: BlobStore::new(blob_root.as_ref().to_path_buf()),
         })
     }
@@ -63,13 +69,11 @@ impl SqliteStore {
 
     /// The underlying connection.
     ///
-    /// Panics if a previous caller panicked while holding it. That is a programmer error and
-    /// not recoverable state: a poisoned connection means a half-finished transaction of
-    /// unknown shape, and carrying on would write on top of it.
-    pub fn connection(&self) -> MutexGuard<'_, Connection> {
-        self.db
-            .lock()
-            .expect("a caller panicked holding the database")
+    /// Reentrant: taking it twice on one thread is normal here, because a public method opens a
+    /// transaction and then calls helpers that each need the connection again. With a plain
+    /// mutex that is a deadlock, and a deadlock has no error message.
+    pub fn connection(&self) -> ReentrantMutexGuard<'_, Connection> {
+        self.db.lock()
     }
 }
 

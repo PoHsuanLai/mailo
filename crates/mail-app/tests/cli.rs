@@ -7,6 +7,10 @@ use chrono::{TimeZone, Utc};
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 
+// Both modules are pulled in by path: cli.rs calls into account.rs, so the test crate needs
+// the same shape the binary has.
+#[path = "../src/account.rs"]
+mod account;
 #[path = "../src/cli.rs"]
 mod cli;
 

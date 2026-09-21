@@ -161,6 +161,13 @@ fn Reader(thread: ThreadId, shell: Signal<Shell>) -> Element {
                             "sandbox": "",
                             srcdoc: "{html}",
                         }
+                        // NOTE for anyone changing the reader's layout: moving this iframe to a
+                        // different parent makes the browser tear down and RELOAD the document
+                        // inside it. That re-runs the sanitizer, loses scroll position, and
+                        // re-requests anything the reader had just consented to — a second
+                        // network fetch and a silent consent reset, with nothing in the UI
+                        // saying either happened. Reading modes must restyle one container,
+                        // never reparent this node.
                     },
                 }
             }

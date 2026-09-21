@@ -88,3 +88,78 @@ fn the_reported_parity_hazards_are_actually_closed() {
         .unwrap();
     assert!(per_token > 0, "one EXISTS per token spans the thread");
 }
+
+/// A public method that opens a transaction and then calls a helper must not deadlock.
+///
+/// This is a regression test for a real bug, not a hypothetical. Guarding the connection with a
+/// plain `std::sync::Mutex` made `write_patch` — which takes the connection for a transaction
+/// and then calls `write_change`, which takes it again — hang forever. A deadlock has no error
+/// message and no panic: the process simply stops, and the only symptom was an integration test
+/// that never finished.
+#[test]
+fn nested_connection_access_does_not_deadlock() {
+    use mail_domain::*;
+    use mail_store::{SqliteStore, Store};
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = SqliteStore::in_memory(dir.path()).unwrap();
+    let account = AccountId::generate();
+    store
+        .connection()
+        .execute(
+            "INSERT INTO accounts (id, address, plan, created_at)
+             VALUES (?1, 'me@example.test', '{}', datetime('now'))",
+            [account.to_string()],
+        )
+        .unwrap();
+
+    let raw = store.blobs().put(&store.connection(), b"raw").unwrap();
+    let thread = ThreadId::generate();
+    let message = Message {
+        id: MessageId::generate(),
+        thread,
+        account,
+        key: MessageKey::Rfc("deadlock@example.test".into()),
+        date: chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
+        from: Address {
+            name: None,
+            email: "a@b.test".into(),
+        },
+        reply_to: vec![],
+        to: vec![],
+        cc: vec![],
+        bcc: vec![],
+        subject: "nested".into(),
+        in_reply_to: None,
+        references: vec![],
+        rfc_message_id: None,
+        read: ReadState::Unread,
+        star: Star::Unstarred,
+        mailbox: MailboxRole::Inbox,
+        labels: vec![],
+        body: Body::Present {
+            text: Some("body".into()),
+            raw,
+        },
+        attachments: vec![],
+    };
+
+    // write_patch -> transaction -> write_change -> connection again.
+    store
+        .apply(
+            account,
+            &Patch {
+                id: ChangeId::generate(),
+                changes: vec![Change::MessageUpsert(Box::new(message))],
+            },
+        )
+        .expect("a nested take of the connection must not hang");
+
+    // And holding one across a call that takes it again.
+    let held = store.connection();
+    let count: i64 = held
+        .query_row("SELECT count(*) FROM messages", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(count, 1);
+    drop(held);
+}
