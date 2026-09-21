@@ -681,3 +681,21 @@ POP3 had the shape right from the start: the factory takes `Authenticate::{First
 the mechanism, "because it is the only thing holding the credential and the only thing that knows
 the mechanism". `Authenticate` now lives in `backend/mod.rs` and both protocols share it — one
 question, asked twice.
+
+### F46 — The two sync branches had drifted, and one of them was half a pass
+
+`mail-app`'s `sync::one` matched on the incoming protocol and then wrote the pass out twice. The
+POP3 arm fetched envelopes, then headers, then bodies smallest band first, then drained the
+outbox. The IMAP arm fetched envelopes and returned.
+
+So an IMAP account never downloaded a message body and never sent anything it had queued — and
+reported success, because the part it did do succeeded. The two arms were written at different
+times for different reasons and nothing compared them; they are three screens apart in one file,
+which is exactly far enough not to notice.
+
+There is now one `pass` function, generic over `Backend`, and both arms call it. Phase 5 asks
+that "the **same** CLI works through the IMAP backend", and the surest way to make two paths the
+same is for there to be one.
+
+The sync line also reports what it sent, which it never had, because until recently there was
+nothing that could send.

@@ -90,11 +90,12 @@ pub fn run(store: Arc<SqliteStore>, now: chrono::DateTime<chrono::Utc>) -> Resul
             Ok(report) => {
                 let _ = writeln!(
                     out,
-                    "{}: {} headers, {} bodies, {} queued operations settled",
+                    "{}: {} headers, {} bodies, {} queued operations settled, {} sent",
                     account.address,
                     report.headers_fetched,
                     report.bodies_fetched,
-                    report.outbox_settled
+                    report.outbox_settled,
+                    report.submitted
                 );
                 for note in report.needs_attention {
                     let _ = writeln!(out, "  needs attention: {note}");
@@ -159,28 +160,7 @@ async fn one(
                 store.clone(),
                 secrets,
             );
-            // Reachability first, so an unreachable server reports once rather than three
-            // times as each pass opens its own connection.
-            drop(engine.connect().await.map_err(|e| e.to_string())?);
-            let mut report = engine
-                .sync(&mailbox, &mut cancel, now, 200)
-                .await
-                .map_err(|e| e.to_string())?;
-            // Headers first, then bodies smallest-band-first behind them, so the inbox is
-            // usable long before the hundred large attachments finish.
-            let bodies = engine
-                .fetch_bodies(&mailbox, &mut cancel, now, 100)
-                .await
-                .map_err(|e| e.to_string())?;
-            report.bodies_fetched += bodies.bodies_fetched;
-            report.needs_attention.extend(bodies.needs_attention);
-            let drained = engine
-                .drain_outbox(&mut cancel, now)
-                .await
-                .map_err(|e| e.to_string())?;
-            report.outbox_settled += drained.outbox_settled;
-            report.needs_attention.extend(drained.needs_attention);
-            Ok(report)
+            pass(&mut engine, &mailbox, &mut cancel, now).await
         }
         Incoming::Imap { .. } => {
             // Password *and* bearer token. Only Gmail needs OAuth; every other IMAP server this
@@ -216,13 +196,51 @@ async fn one(
                 store.clone(),
                 secrets,
             );
-            drop(engine.connect().await.map_err(|e| e.to_string())?);
-            engine
-                .sync(&mailbox, &mut cancel, now, 200)
-                .await
-                .map_err(|e| e.to_string())
+            pass(&mut engine, &mailbox, &mut cancel, now).await
         }
     }
+}
+
+/// One whole sync pass, whatever the protocol underneath.
+///
+/// Shared rather than written once per branch, because it was written once per branch and the
+/// two drifted: POP3 fetched headers, then bodies, then drained the outbox, while IMAP stopped
+/// after the headers. An IMAP account therefore never downloaded a message body and never sent
+/// anything it had queued, and nothing said so — the pass reported success for the part it did.
+///
+/// `plan.md` phase 5 asks that "the **same** CLI works through the IMAP backend". The surest way
+/// to make two paths the same is for there to be one.
+async fn pass<B: mail_proto::Backend>(
+    engine: &mut AccountEngine<B>,
+    mailbox: &MailboxRef,
+    cancel: &mut mail_runtime::Cancel,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<SyncReport, String> {
+    // Reachability first, so an unreachable server reports once rather than three times as each
+    // pass opens its own connection.
+    drop(engine.connect().await.map_err(|e| e.to_string())?);
+
+    let mut report = engine
+        .sync(mailbox, cancel, now, 200)
+        .await
+        .map_err(|e| e.to_string())?;
+    // Headers first, then bodies smallest-band-first behind them, so the inbox is usable long
+    // before the hundred large attachments finish.
+    let bodies = engine
+        .fetch_bodies(mailbox, cancel, now, 100)
+        .await
+        .map_err(|e| e.to_string())?;
+    report.bodies_fetched += bodies.bodies_fetched;
+    report.needs_attention.extend(bodies.needs_attention);
+
+    let drained = engine
+        .drain_outbox(cancel, now)
+        .await
+        .map_err(|e| e.to_string())?;
+    report.outbox_settled += drained.outbox_settled;
+    report.submitted += drained.submitted;
+    report.needs_attention.extend(drained.needs_attention);
+    Ok(report)
 }
 
 /// The commands that authenticate a POP3 session, given the mechanisms on offer.
