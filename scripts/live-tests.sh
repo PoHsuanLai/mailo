@@ -14,6 +14,7 @@
 set -uo pipefail
 
 IMAP_PORT=11143
+POP3_PORT=11110
 SMTP_PORT=12525
 VENV="${MAILO_VENV:-$(dirname "$0")/../.live-venv}"
 RECEIVED="${TMPDIR:-/tmp}/mailo-live-received.eml"
@@ -44,15 +45,18 @@ wait_for() {
   return 1
 }
 
-free_port "$IMAP_PORT"; free_port "$SMTP_PORT"; sleep 0.5
+free_port "$IMAP_PORT"; free_port "$SMTP_PORT"; free_port "$POP3_PORT"; sleep 0.5
 "$VENV/bin/python" "$ROOT/scripts/live-imapd.py" "$IMAP_PORT" >/dev/null 2>&1 &
 IMAP_PID=$!
 "$VENV/bin/python" "$ROOT/scripts/live-smtpd.py" "$SMTP_PORT" "$RECEIVED" >/dev/null 2>&1 &
 SMTP_PID=$!
-trap 'kill -9 "$IMAP_PID" "$SMTP_PID" 2>/dev/null' EXIT
+"$VENV/bin/python" "$ROOT/scripts/live-pop3d.py" "$POP3_PORT" >/dev/null 2>&1 &
+POP3_PID=$!
+trap 'kill -9 "$IMAP_PID" "$SMTP_PID" "$POP3_PID" 2>/dev/null' EXIT
 
 wait_for "$IMAP_PORT" || exit 1
 wait_for "$SMTP_PORT" || exit 1
+wait_for "$POP3_PORT" || exit 1
 
 fail=0
 run() {  # run <crate> <test-target>
@@ -69,6 +73,7 @@ run() {  # run <crate> <test-target>
 
 run mail-runtime live_smtp
 run mail-runtime live_imap
+run mail-runtime live_pop3
 run mail-app     sync_path
 if [ "$WITH_NETWORK" -eq 1 ]; then
   run mail-runtime live_probe

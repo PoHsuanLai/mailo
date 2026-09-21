@@ -1693,3 +1693,25 @@ at a command they could not construct without opening the database by hand.
 
 `show` now prints each message's id under its header. Two lines of code, invisible to every test
 that exercised `show` and `reply` separately, and unmissable the moment they are run in order.
+
+### F93 — POP3 does not have F91's bug, checked rather than assumed
+
+F91 found the IMAP path appending the response's closing paren to every message and running each
+body through `from_utf8_lossy`. POP3 is the protocol the first real account here will use, so the
+same questions had to be asked of it — against `twisted.mail.pop3`, not against a fake of mine.
+
+It is clean, and the fixture is built to break a careless client in the three ways POP3 can: a
+body line beginning with `.`, which the server doubles and the client must undouble *exactly*
+once; 8-bit bytes, which must not meet a UTF-8 conversion; and CRLF endings. The retrieved
+message is byte-for-byte what the server holds. `join_lines` and `unstuff` work on `Vec<u8>`
+throughout, and the only `from_utf8_lossy` in `pop3.rs` builds a snippet for an error message.
+
+`tests/live_pop3.rs` asserts that byte for byte rather than with `contains`, which is the
+assertion that let F91 through, and `TOP 0` is exercised too — it is what keeps a first sync from
+marking an entire maildrop read in the user's webmail.
+
+One detour worth recording. The first run showed every line ending as `\r\r\n` in the store, which
+looked exactly like a client bug. It was on the wire: `twisted.mail.pop3` splits a message on
+newlines and terminates each line it sends with CRLF, so a fixture written with `\r\n` is emitted
+as `\r\r\n`, and our client stored faithfully what arrived. Dumping the socket before blaming
+anything on this side took two minutes and is the F88 discipline paying for itself a second time.
