@@ -666,10 +666,30 @@ IMAP for POP3 at the session level, and the four impls have unrelated `Out` type
 
 - **`ImapBackend`** — reads `AccountCaps`. `ServerLabels::Supported` maps `LIST` results and
   keywords (plus `X-GM-LABELS` when advertised) into labels. `ArchiveMeans::DropInbox` archives
-  by removing `INBOX` membership; `MoveToFolder` uses `MOVE` when `MoveExt::Supported`, else
-  `COPY`+`STORE \Deleted`+`EXPUNGE`. `WatchMode::Idle` uses IDLE. `Condstore::Supported` fetches
+  by removing `INBOX` membership; `MoveToFolder` uses `MOVE` when `MoveExt::Supported`, and
+  otherwise **copies without expunging** — see the box below. `WatchMode::Idle` uses IDLE.
+  `Condstore::Supported` fetches
   flags with `CHANGEDSINCE`. `\Seen` ↔ `ReadState`, `\Flagged` ↔ `Star`. Non-special folders
   become `LabelOrigin::Provider` labels.
+
+> **`\Deleted` + `EXPUNGE` is forbidden on Gmail, structurally.**
+>
+> An earlier version of this plan gave `COPY` + `STORE \Deleted` + `EXPUNGE` as the archive
+> fallback whenever `MOVE` is unavailable. On Gmail that is a data-destruction path. Gmail maps
+> `EXPUNGE` through a per-account `expungeBehavior` setting which is `archive`, `trash`, or
+> **`deleteForever`** — and there is no capability, no `STATUS` item and no other way to read it
+> over IMAP, so we cannot tell which accounts are armed. On an account set to `deleteForever`
+> that sequence destroys the user's mail irrecoverably, and our `Patch` undo restores only the
+> local row.
+>
+> Worse, the fallback triggers precisely when `MOVE` is absent — which is the state F14 caught us
+> in, because Gmail does not advertise `MOVE` before authentication.
+>
+> So `AccountCaps` gains `expunge: ExpungeMeans`, defaulting to `Forbidden` for
+> `ServerLabels::Supported` accounts. Where expunging is forbidden, "move" is a copy plus a label
+> change and nothing is ever deleted. Leaving a stray copy is a cosmetic failure; deleting
+> someone's mail is not, and a capability we cannot observe is not one we may gate on.
+
 - **`Pop3Backend`** — `UIDL` every poll, diff against `remote_map`, `RETR` what is new.
   `SetMailbox`/`SetLabels` produce no wire traffic and confirm immediately. `WatchMode` is always
   `Poll`. `LeaveOnServer` controls `DELE`.

@@ -867,12 +867,17 @@ fn choose_mech(
     )))
 }
 
+/// Whether this mechanism can carry this credential.
+///
+/// `CramMd5` is absent on purpose: neither account we target offers it (the NTU spike found
+/// `SASL PLAIN` only), and a mechanism we cannot test against a real server is one we should not
+/// claim to support.
 fn compatible(mech: SaslMech, cred: &Credential) -> bool {
-    match (mech, cred) {
-        (SaslMech::Plain | SaslMech::Login, Credential::Password(_)) => true,
-        (SaslMech::XOauth2, Credential::OAuth { .. }) => true,
-        _ => false,
-    }
+    matches!(
+        (mech, cred),
+        (SaslMech::Plain | SaslMech::Login, Credential::Password(_))
+            | (SaslMech::XOauth2, Credential::OAuth { .. })
+    )
 }
 
 fn mech_label(mech: SaslMech) -> &'static str {
