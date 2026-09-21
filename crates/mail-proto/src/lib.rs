@@ -6,7 +6,7 @@
 
 pub mod machine;
 
-pub use machine::{Backend, IoNeed, IoReady, Machine, Progress, ProtoOutcome};
+pub use machine::{Backend, IoNeed, IoReady, Machine, Progress, ProtoError, ProtoOutcome};
 
 #[cfg(test)]
 mod tests {

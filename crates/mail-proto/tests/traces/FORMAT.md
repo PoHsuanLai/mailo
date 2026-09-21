@@ -31,11 +31,27 @@ are ignored. The file is UTF-8; `\r\n` is appended by the harness and must not b
 | `TLS` | Assert the machine asked for `IoNeed::OpenTls`, then feed `IoReady::TlsOpen`. |
 | `INTERRUPT` | Feed `IoReady::Interrupt`. |
 | `EXPECT <need>` | Assert the next need is `flush`, `close`, or `sleep <secs>`. |
-| `DONE <json>` | Assert the machine returned `Progress::Done`, whose output serializes to this JSON. |
+| `DONE` | Assert the machine returned `Progress::Done`. The harness hands the output back so the test asserts on it in Rust. |
 | `FAIL <variant>` | Assert `Progress::Failed` with this `ProtoError` variant name. |
 
-A trace must end in `DONE` or `FAIL`. A machine that asks for something the trace does not
-expect fails the test with both the expected and the actual need printed.
+`DONE` carries no JSON, which is a deliberate change from the first draft of this format. A
+JSON literal in the trace would have to be kept in step with the output type by hand, would not
+be checked by the compiler, and would turn a field rename into a silent mismatch across every
+transcript. `replay` returns `Ended<M::Out>` instead, and the test writes an ordinary
+assertion — type-checked, and refactored along with the type.
+
+A directive's argument follows the first colon (`S: +OK ready`, where the payload may contain
+further colons). Directives that take no colon separate on whitespace (`FAIL Refused`,
+`EXPECT sleep 5`).
+
+A trace must end in `DONE` or `FAIL`; one that simply stops is rejected, so a truncated
+transcript cannot pass by accident. A machine that asks for something the trace does not expect
+fails the test with both the expected and the actual need printed, and every panic names the
+line number it stopped at.
+
+The harness lives in `tests/common/mod.rs` and is itself tested in `tests/harness.rs` — seven of
+those tests assert that it REJECTS a bad trace. A harness that silently passes everything is
+worse than none, because it produces green suites that prove nothing.
 
 ## Rules
 
@@ -89,5 +105,5 @@ S: 2 0000000a4b2c1d3f
 S: .
 C: QUIT
 S: +OK bye
-DONE {"kind":"ingested"}
+DONE
 ```
