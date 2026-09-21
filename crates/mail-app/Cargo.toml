@@ -5,8 +5,20 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+[[bin]]
+name = "mailo"
+path = "src/main.rs"
+
 [dependencies]
 mail-domain.workspace = true
+mail-store.workspace = true
+mail-mime.workspace = true
+mail-runtime.workspace = true
+chrono.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+uuid = { workspace = true }
 
 [lints]
 workspace = true

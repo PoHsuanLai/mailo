@@ -18,6 +18,7 @@ rust-version = "1.85"
 mail-domain = { path = "crates/mail-domain" }
 mail-mime   = { path = "crates/mail-mime" }
 mail-proto  = { path = "crates/mail-proto" }
+mail-runtime = { path = "crates/mail-runtime" }
 mail-store  = { path = "crates/mail-store" }
 serde       = { version = "1", features = ["derive"] }
 chrono      = { version = "0.4", features = ["serde"] }
