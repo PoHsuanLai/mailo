@@ -4,6 +4,7 @@
 //! satisfies those, which is what makes cancellation expressible at all — see [`drive`].
 
 pub mod drive;
+pub mod engine;
 pub mod error;
 pub mod loopback;
 pub mod oauth;
@@ -11,6 +12,7 @@ pub mod secrets;
 pub mod transport;
 
 pub use drive::{Cancel, drive};
+pub use engine::{AccountEngine, SyncReport};
 pub use error::RuntimeError;
 pub use loopback::Loopback;
 pub use secrets::{KeyringSecrets, MapSecrets, Secrets};
