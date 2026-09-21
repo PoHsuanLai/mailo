@@ -4,7 +4,7 @@
 //! in, and the next command or a terminal result comes out. Commands are not pipelined.
 //! Nothing here reads a socket.
 
-use crate::machine::{IoNeed, IoReady, Machine, Progress, ProtoError};
+use crate::machine::{IoNeed, IoReady, Machine, Progress, ProtoError, Refusal};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use mail_domain::{Credential, SaslMech, Tls};
@@ -312,9 +312,10 @@ impl Machine for SmtpSession {
                     let accepted = accepted.clone();
                     return self.finish_ok(accepted, None);
                 }
-                self.fail(ProtoError::Refused(
-                    "permanent submission interrupted".into(),
-                ))
+                self.fail(ProtoError::Refused {
+                    kind: Refusal::Permanent,
+                    text: "submission interrupted".into(),
+                })
             }
         }
     }
@@ -322,34 +323,6 @@ impl Machine for SmtpSession {
 
 /// 4xx and 5xx both use [`ProtoError::Refused`]. This says which one it was.
 ///
-/// [`mail_domain::Retryable`] for [`ProtoError`] currently treats every refusal as fatal.
-/// A caller that must back off on a 4xx and give up on a 5xx reads this until that impl
-/// can see the class itself. The text of a refusal from this session starts with
-/// `transient` or `permanent`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RefusalKind {
-    /// SMTP 4xx. The same submission may succeed later.
-    Transient,
-    /// SMTP 5xx, or a local precondition that will not change on its own.
-    Permanent,
-}
-
-/// The class carried by a [`ProtoError::Refused`] raised by [`SmtpSession`].
-///
-/// `None` when `err` is not a refusal, or when its text was not produced here.
-pub fn refusal_kind(err: &ProtoError) -> Option<RefusalKind> {
-    let ProtoError::Refused(text) = err else {
-        return None;
-    };
-    if text.starts_with("transient ") {
-        Some(RefusalKind::Transient)
-    } else if text.starts_with("permanent ") {
-        Some(RefusalKind::Permanent)
-    } else {
-        None
-    }
-}
-
 // --- replies ---------------------------------------------------------------------
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -506,10 +479,13 @@ fn reply_text(reply: &ServerReply) -> ReplyText {
 
 fn refusal(reply: &ServerReply) -> ProtoError {
     let kind = match classify(reply.code) {
-        Some(ReplyClass::Transient) => "transient",
-        _ => "permanent",
+        Some(ReplyClass::Transient) => Refusal::Transient,
+        _ => Refusal::Permanent,
     };
-    ProtoError::Refused(format!("{kind} {}", show_reply(reply)))
+    ProtoError::Refused {
+        kind,
+        text: show_reply(reply),
+    }
 }
 
 fn expect_success(reply: &ServerReply) -> Result<(), ProtoError> {
@@ -810,7 +786,10 @@ fn send_mail_from(sub: &Submission) -> Result<Outcome, ProtoError> {
 
 fn send_rcpt(sub: &Submission, index: usize) -> Result<Outcome, ProtoError> {
     let Some(addr) = sub.recipients.get(index) else {
-        return Err(ProtoError::Refused("permanent no recipients".into()));
+        return Err(ProtoError::Refused {
+            kind: Refusal::Permanent,
+            text: "no recipients".into(),
+        });
     };
     Ok(continue_with(
         Phase::Rcpt(index),
@@ -823,9 +802,10 @@ fn check_transfer(ext: &EhloExtensions, message: &[u8]) -> Result<(), ProtoError
     if let SizeLimit::Limited(max) = ext.size {
         let size = transmitted_octets(message);
         if size > max {
-            return Err(ProtoError::Refused(format!(
-                "permanent message is {size} octets, above SIZE {max}"
-            )));
+            return Err(ProtoError::Refused {
+                kind: Refusal::Permanent,
+                text: format!("message is {size} octets, above SIZE {max}"),
+            });
         }
     }
     if has_high_bit(message) && ext.eight_bit_mime != Advertised::Offered {
@@ -1056,7 +1036,10 @@ fn validate(sub: &Submission) -> Result<(), ProtoError> {
 
 /// A local precondition. Permanent, so the outbox does not retry it.
 fn invalid(why: &str) -> ProtoError {
-    ProtoError::Refused(format!("permanent {why}"))
+    ProtoError::Refused {
+        kind: Refusal::Permanent,
+        text: why.to_owned(),
+    }
 }
 
 fn is_token(value: &str) -> bool {
@@ -1080,12 +1063,16 @@ fn has_break(value: &str) -> bool {
 /// Remove anything we know is a secret from an error string.
 ///
 /// Server text is forwarded to the caller. A reply that echoes a token must not carry it
-/// into a log. A leading `transient ` / `permanent ` is preserved so [`refusal_kind`] still
+/// into a log. The class is carried structurally, so redaction cannot disturb it, and
 /// works when the secret happens to contain those words.
 fn scrub_error(err: ProtoError, sub: &Submission) -> ProtoError {
     match err {
         ProtoError::Malformed(text) => ProtoError::Malformed(scrub_text(text, sub)),
-        ProtoError::Refused(text) => ProtoError::Refused(scrub_text(text, sub)),
+        // The class survives scrubbing: it is a field, not a prefix in the text.
+        ProtoError::Refused { kind, text } => ProtoError::Refused {
+            kind,
+            text: scrub_text(text, sub),
+        },
         ProtoError::AuthRejected(text) => ProtoError::AuthRejected(scrub_text(text, sub)),
         ProtoError::Unsupported(text) => ProtoError::Unsupported(scrub_text(text, sub)),
         ProtoError::UnexpectedEof => ProtoError::UnexpectedEof,
@@ -1386,11 +1373,25 @@ mod tests {
         let rendered = format!("{cleaned} {cleaned:?}");
         assert!(!rendered.contains(PASSWORD), "password survived scrubbing");
         assert!(rendered.contains("<redacted>"));
+        // The class is a field, so scrubbing the text cannot disturb it — which is the point
+        // of making it structural rather than a prefix.
         let refused = scrub_error(
-            ProtoError::Refused(format!("transient {PASSWORD} later")),
+            ProtoError::Refused {
+                kind: Refusal::Transient,
+                text: format!("{PASSWORD} later"),
+            },
             &sub,
         );
-        assert_eq!(refusal_kind(&refused), Some(RefusalKind::Transient));
+        assert!(
+            matches!(
+                &refused,
+                ProtoError::Refused {
+                    kind: Refusal::Transient,
+                    ..
+                }
+            ),
+            "{refused:?}"
+        );
         assert!(!refused.to_string().contains(PASSWORD));
     }
 
@@ -1413,7 +1414,16 @@ mod tests {
         let mut session = SmtpSession::new(sub);
         match session.start() {
             Progress::Failed(err) => {
-                assert_eq!(refusal_kind(&err), Some(RefusalKind::Permanent));
+                assert!(
+                    matches!(
+                        &err,
+                        ProtoError::Refused {
+                            kind: Refusal::Permanent,
+                            ..
+                        }
+                    ),
+                    "{err:?}"
+                );
                 let rendered = format!("{err} {err:?}");
                 assert!(!rendered.contains("eve@example.com"));
                 assert!(!rendered.contains(PASSWORD));

@@ -16,7 +16,7 @@
 //! The password is copied onto the wire for `PASS` and `AUTH PLAIN` and nowhere
 //! else. [`Debug`] prints `<redacted>`.
 
-use crate::machine::{IoNeed, IoReady, Machine, Progress, ProtoError};
+use crate::machine::{IoNeed, IoReady, Machine, Progress, ProtoError, Refusal};
 use std::collections::VecDeque;
 use std::fmt;
 
@@ -435,7 +435,10 @@ fn decide(phase: Phase, line: &[u8]) -> (Phase, Action) {
 fn decide_greeting(line: &[u8]) -> (Phase, Action) {
     let action = match status_of(line) {
         Ok(Status::Ok(text)) => Action::Next(Pop3Reply::Greeting(text)),
-        Ok(Status::Err(text)) => Action::Fail(ProtoError::Refused(bounded(&text))),
+        Ok(Status::Err(text)) => Action::Fail(ProtoError::Refused {
+            kind: Refusal::Permanent,
+            text: bounded(&text),
+        }),
         Err(err) => Action::Fail(err),
     };
     (Phase::Closed, action)
@@ -656,7 +659,10 @@ fn refused(cmd: &Pop3Command, text: String) -> ProtoError {
         Pop3Command::User | Pop3Command::Pass | Pop3Command::AuthPlain => {
             ProtoError::AuthRejected(text)
         }
-        _ => ProtoError::Refused(text),
+        _ => ProtoError::Refused {
+            kind: Refusal::Permanent,
+            text,
+        },
     }
 }
 
@@ -784,10 +790,13 @@ fn clip(text: &str, max: usize) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[allow(unused_imports)]
+    use super::{};
     use super::{
         Action, Buffer, MAX_LINE_BYTES, Phase, Pop3Command, Pop3Reply, Pop3Session, base64_encode,
         decide, interpret_stat, sasl_plain, unstuff,
     };
+    use crate::machine::Refusal;
     use crate::machine::{IoNeed, IoReady, Machine, Progress, ProtoError};
 
     #[test]
@@ -901,7 +910,13 @@ mod tests {
         assert!(matches!(garbage, Action::Fail(ProtoError::Malformed(_))));
 
         let (_, down) = decide(Phase::Greeting, b"-ERR shutting down");
-        assert!(matches!(down, Action::Fail(ProtoError::Refused(_))));
+        assert!(matches!(
+            down,
+            Action::Fail(ProtoError::Refused {
+                kind: Refusal::Permanent,
+                text: _
+            })
+        ));
     }
 
     #[test]
@@ -928,7 +943,10 @@ mod tests {
                     assert_eq!(text, "no");
                     "AuthRejected"
                 }
-                Action::Fail(ProtoError::Refused(text)) => {
+                Action::Fail(ProtoError::Refused {
+                    kind: Refusal::Permanent,
+                    text,
+                }) => {
                     assert_eq!(text, "no");
                     "Refused"
                 }

@@ -4,9 +4,7 @@ mod common;
 
 use common::replay;
 use mail_domain::{Credential, SaslMech, Tls};
-use mail_proto::{
-    Advertised, EhloExtensions, ProtoError, RefusalKind, SmtpSession, Submission, refusal_kind,
-};
+use mail_proto::{Advertised, EhloExtensions, ProtoError, Refusal, SmtpSession, Submission};
 
 const USER: &str = "ada@example.com";
 const PASSWORD: &str = "s3cr3t-password";
@@ -176,7 +174,6 @@ fn auth_rejection_is_not_a_refusal_and_keeps_the_offered_mechanisms() {
     )
     .unwrap_err();
     assert!(matches!(err, ProtoError::AuthRejected(_)));
-    assert_eq!(refusal_kind(&err), None);
     assert_eq!(
         session.extensions().auth,
         vec![SaslMech::Plain, SaslMech::Login]
@@ -192,42 +189,43 @@ fn refusals_distinguish_transient_from_permanent() {
         (
             "rcpt 450",
             include_str!("traces/smtp/reject_transient.trace"),
-            RefusalKind::Transient,
-            "transient 450",
+            Refusal::Transient,
+            "450",
         ),
         (
             "rcpt 550",
             include_str!("traces/smtp/reject_permanent.trace"),
-            RefusalKind::Permanent,
-            "permanent 550",
+            Refusal::Permanent,
+            "550",
         ),
         (
             "auth 454",
             include_str!("traces/smtp/auth_temporary.trace"),
-            RefusalKind::Transient,
-            "transient 454",
+            Refusal::Transient,
+            "454",
         ),
         (
             "greeting 554",
             include_str!("traces/smtp/reject_greeting.trace"),
-            RefusalKind::Permanent,
-            "permanent 554",
+            Refusal::Permanent,
+            "554",
         ),
         (
             "size",
             include_str!("traces/smtp/reject_size.trace"),
-            RefusalKind::Permanent,
-            "permanent message",
+            Refusal::Permanent,
+            "message",
         ),
     ];
-    for (name, trace, kind, prefix) in cases {
+    for (name, trace, want_kind, expected) in cases {
         let mut session = plain(SHORT, &["bob@example.com"]);
         let err = replay(&mut session, trace).unwrap_err();
-        assert_eq!(refusal_kind(&err), Some(kind), "{name}");
-        let ProtoError::Refused(text) = &err else {
+        let ProtoError::Refused { kind, text } = &err else {
             panic!("{name} was not a refusal");
         };
-        assert!(text.starts_with(prefix), "{name}: {text}");
+        // The class the outbox branches on: Transient backs off, Permanent undoes and gives up.
+        assert_eq!(*kind, want_kind, "{name}");
+        assert!(text.contains(expected), "{name}: {text}");
         assert_secrets_absent(&format!("{err} {err:?} {session:?}"));
     }
 }

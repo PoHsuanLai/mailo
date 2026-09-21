@@ -195,7 +195,7 @@ fn finish<T>(state: State<T>, at: &str, want_variant: Option<String>) -> Ended<T
 fn variant_of(e: &ProtoError) -> &'static str {
     match e {
         ProtoError::Malformed(_) => "Malformed",
-        ProtoError::Refused(_) => "Refused",
+        ProtoError::Refused { .. } => "Refused",
         ProtoError::AuthRejected(_) => "AuthRejected",
         ProtoError::UnexpectedEof => "UnexpectedEof",
         ProtoError::Unsupported(_) => "Unsupported",

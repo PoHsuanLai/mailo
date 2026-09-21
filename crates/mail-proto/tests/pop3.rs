@@ -4,7 +4,7 @@
 mod common;
 
 use common::replay;
-use mail_proto::{ListEntry, Pop3Command, Pop3Reply, Pop3Session, ProtoError, UidlEntry};
+use mail_proto::{ListEntry, Pop3Command, Pop3Reply, Pop3Session, ProtoError, Refusal, UidlEntry};
 
 const USER: &str = "student";
 const PASS: &str = "s3cret";
@@ -289,7 +289,18 @@ fn retr_err_is_a_refusal_and_does_not_wait_for_a_dot() {
         vec![Pop3Command::Retr(9), Pop3Command::Quit],
         include_str!("traces/pop3/command_refused.trace"),
     );
-    assert_eq!(err.to_string(), "server refused: no such message");
+    // POP3 has no transient/permanent distinction on the wire, so -ERR outside authentication
+    // is Permanent: the outbox undoes rather than retrying a command the server just rejected.
+    assert!(
+        matches!(
+            &err,
+            ProtoError::Refused {
+                kind: Refusal::Permanent,
+                text
+            } if text == "no such message"
+        ),
+        "{err:?}"
+    );
 }
 
 #[test]

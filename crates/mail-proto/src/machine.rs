@@ -94,15 +94,31 @@ pub trait Backend {
     fn caps(&self) -> &AccountCaps;
 }
 
+/// Whether a refusal may succeed if repeated.
+///
+/// Load-bearing: [`Retryable`] maps `Transient` to a delay and `Permanent` to giving up and
+/// undoing the local change, so getting this wrong either discards the user's mail or retries
+/// a hopeless operation forever.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Refusal {
+    /// SMTP 4xx, or an equivalent "try again later". Greylisting lives here.
+    Transient,
+    /// SMTP 5xx, IMAP `NO` on a malformed request, or anything that will not change on its own.
+    Permanent,
+}
+
 /// A protocol-level failure.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ProtoError {
     /// The server's response did not parse. Never a panic: every byte here is hostile.
     #[error("malformed response: {0}")]
     Malformed(String),
-    /// A well-formed refusal: IMAP `NO`, SMTP 5xx, POP3 `-ERR`.
-    #[error("server refused: {0}")]
-    Refused(String),
+    /// A well-formed refusal: IMAP `NO`, SMTP 4xx/5xx, POP3 `-ERR`.
+    ///
+    /// The class is a field rather than something encoded in `text`, because the outbox has to
+    /// branch on it and string-sniffing a prefix breaks the moment a message is reworded.
+    #[error("server refused ({kind:?}): {text}")]
+    Refused { kind: Refusal, text: String },
     #[error("authentication rejected: {0}")]
     AuthRejected(String),
     #[error("connection closed unexpectedly")]
@@ -121,7 +137,18 @@ impl Retryable for ProtoError {
             ProtoError::AuthRejected(_) => Retry::NeedsReauth,
             // The message is gone, or the server will refuse this forever. Undo the local
             // change rather than retrying into a loop.
-            ProtoError::Refused(why) | ProtoError::Unsupported(why) => Retry::Fatal(why.clone()),
+            // 4xx and its equivalents mean "not now". Greylisting is the common case and many
+            // servers do it deliberately on first contact, so treating a transient refusal as
+            // fatal would apply the undo patch and DISCARD the user's outgoing message.
+            ProtoError::Refused {
+                kind: Refusal::Transient,
+                ..
+            } => Retry::After(Duration::from_secs(60)),
+            ProtoError::Refused {
+                kind: Refusal::Permanent,
+                text,
+            }
+            | ProtoError::Unsupported(text) => Retry::Fatal(text.clone()),
             // Possibly our parser, possibly a transient truncation. Back off rather than
             // hammering, and keep the operation so a fix ships without data loss.
             ProtoError::Malformed(_) => Retry::After(Duration::from_secs(60)),

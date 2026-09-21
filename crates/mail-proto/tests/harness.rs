@@ -7,7 +7,7 @@
 mod common;
 
 use common::replay;
-use mail_proto::{IoNeed, IoReady, Machine, Progress, ProtoError};
+use mail_proto::{IoNeed, IoReady, Machine, Progress, ProtoError, Refusal};
 
 /// A deliberately simple protocol: greet, send one command, read one reply, finish.
 #[derive(Default)]
@@ -39,7 +39,10 @@ impl Machine for Echo {
                 self.step += 1;
                 match self.step {
                     1 => Progress::Need(vec![IoNeed::Write(b"HELLO\r\n".to_vec()), IoNeed::Read]),
-                    _ if line.starts_with("ERR") => Progress::Failed(ProtoError::Refused(line)),
+                    _ if line.starts_with("ERR") => Progress::Failed(ProtoError::Refused {
+                        kind: Refusal::Permanent,
+                        text: line,
+                    }),
                     _ => Progress::Done(line),
                 }
             }
@@ -88,7 +91,7 @@ fn fail_matches_the_error_variant() {
     );
     assert!(matches!(
         replay(&mut Echo::default(), trace).unwrap_err(),
-        ProtoError::Refused(_)
+        ProtoError::Refused { .. }
     ));
 }
 
