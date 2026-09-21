@@ -17,9 +17,9 @@ pub use error::StoreError;
 
 use chrono::{DateTime, Utc};
 use mail_domain::{
-    AccountId, Draft, DraftId, Filter, Ingest, MailboxRef, Message, MessageId, OutboxId, Page,
-    Patch, ProtoOp, Query, RemoteIntent, RemoteRef, Retry, SendState, SyncCursor, Thread, ThreadId,
-    ThreadSummary,
+    AccountCaps, AccountId, Draft, DraftId, Filter, Ingest, MailboxRef, Message, MessageId,
+    OutboxId, Page, Patch, ProtoOp, Query, RemoteIntent, RemoteRef, Retry, SendState, SyncCursor,
+    Thread, ThreadId, ThreadSummary,
 };
 
 /// One queued unit of remote work, with everything needed to retry or abandon it.
@@ -122,6 +122,18 @@ pub trait Store {
     /// Written by every [`Store::ingest`]; nothing read it back until CONDSTORE needed the
     /// `HIGHESTMODSEQ` it had been recording all along.
     fn cursor(&self, mailbox: &MailboxRef) -> Result<Option<SyncCursor>, StoreError>;
+
+    /// What the server turned out to support, so the next run starts from fact not guess.
+    ///
+    /// Written once at account creation from the preset's *expectation* and never updated,
+    /// until this existed. Capabilities are discovered, not configured — that is the whole
+    /// reason `AccountCaps` is a separate type from `AccountPlan`.
+    fn put_caps(
+        &self,
+        account: AccountId,
+        caps: &AccountCaps,
+        now: DateTime<Utc>,
+    ) -> Result<(), StoreError>;
 
     /// Every remote address this account holds in one mailbox.
     ///

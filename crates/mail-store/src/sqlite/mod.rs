@@ -81,9 +81,9 @@ impl SqliteStore {
 use crate::{OutboxEntry, Settle, Store, sql};
 use chrono::{DateTime, Utc};
 use mail_domain::{
-    AccountId, Cursor, Draft, DraftId, Filter, Ingest, MailboxRef, Message, MessageId, OutboxId,
-    Page, Patch, Property, Query, RemoteIntent, RemoteRef, SendState, SortDir, SyncCursor, Thread,
-    ThreadId, ThreadSummary,
+    AccountCaps, AccountId, Cursor, Draft, DraftId, Filter, Ingest, MailboxRef, Message, MessageId,
+    OutboxId, Page, Patch, Property, Query, RemoteIntent, RemoteRef, SendState, SortDir,
+    SyncCursor, Thread, ThreadId, ThreadSummary,
 };
 
 /// The `thread_summary` column a [`Property`] sorts on.
@@ -308,6 +308,25 @@ impl Store for SqliteStore {
             )
             .optional()?;
         text.map(|t| row::json("SyncCursor", &t)).transpose()
+    }
+
+    fn put_caps(
+        &self,
+        account: AccountId,
+        caps: &AccountCaps,
+        now: DateTime<Utc>,
+    ) -> Result<(), StoreError> {
+        self.connection().execute(
+            "INSERT INTO account_caps (account, caps, observed_at) VALUES (?1, ?2, ?3)
+             ON CONFLICT(account) DO UPDATE SET
+                 caps = excluded.caps, observed_at = excluded.observed_at",
+            rusqlite::params![
+                account.to_string(),
+                row::to_json("AccountCaps", caps)?,
+                row::from_time(now),
+            ],
+        )?;
+        Ok(())
     }
 
     fn remote_refs(&self, mailbox: &MailboxRef) -> Result<Vec<RemoteRef>, StoreError> {

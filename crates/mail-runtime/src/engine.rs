@@ -8,9 +8,9 @@
 use crate::{Cancel, RuntimeError, Secrets, Transport, drive};
 use chrono::{DateTime, Utc};
 use mail_domain::{
-    AccountId, AccountPlan, Condstore, Credential, FetchSince, Incoming, MailboxRef, Outgoing,
-    ProtoOp, RemoteRef, Retry, Retryable, SecretKey, SecretPurpose, SendState, SyncCursor, Tls,
-    UidValidity,
+    AccountCaps, AccountId, AccountPlan, Condstore, Credential, FetchSince, Incoming, MailboxRef,
+    Outgoing, ProtoOp, RemoteRef, Retry, Retryable, SecretKey, SecretPurpose, SendState,
+    SyncCursor, Tls, UidValidity,
 };
 use mail_mime::Posting;
 use mail_proto::backend::SmtpBackend;
@@ -330,6 +330,48 @@ impl<B: Backend> AccountEngine<B> {
     /// something nobody is waiting on.
     fn mark_draft(&self, draft: mail_domain::DraftId, state: SendState, now: DateTime<Utc>) {
         let _ = self.store.set_send_state(draft, &state, now);
+    }
+
+    /// Ask the server what it supports, and write down the answer.
+    ///
+    /// Capabilities are **discovered**, not configured — that is why `AccountCaps` is a separate
+    /// type from `AccountPlan`, and why it carries `observed_at`. Until this existed the only
+    /// writer was `account add`, storing the preset's *expectation*, and nothing ever replaced
+    /// it: every account ran for ever on a guess. CONDSTORE could not be found, `MOVE` could not
+    /// be found, and the `SPECIAL-USE` folder roles stayed empty, so three features that were
+    /// fully implemented were unreachable at once.
+    ///
+    /// Two walks, because they answer different halves. The first result is written before the
+    /// second runs: they are separate connections, and a `LIST` that fails afterwards should not
+    /// discard what `CAPABILITY` already established.
+    pub async fn refresh_caps(
+        &mut self,
+        cancel: &mut Cancel,
+        now: DateTime<Utc>,
+    ) -> Result<AccountCaps, RuntimeError> {
+        if let ProtoOutcome::Caps(caps) = self.run(ProtoOp::FetchCaps, cancel).await? {
+            self.store.put_caps(self.account, &caps, now)?;
+        }
+        // Folder roles, where the protocol has folders at all. A backend without them answers
+        // something other than `Caps`, and this falls back to what the backend already believes
+        // rather than treating it as a failure.
+        let outcome = self.run(ProtoOp::ListFolders, cancel).await?;
+        let caps = match outcome {
+            ProtoOutcome::Caps(caps) => *caps,
+            _ => self.backend.caps().clone(),
+        };
+        self.store.put_caps(self.account, &caps, now)?;
+        Ok(caps)
+    }
+
+    /// Whether what we believe about the server is old enough to be worth re-asking.
+    ///
+    /// A server gains and loses extensions across upgrades, and an account moved between
+    /// providers keeps its row. Daily is often enough to notice, and rare enough to cost
+    /// nothing; re-reading on every pass would be a wasted round trip every few minutes.
+    pub fn caps_are_stale(&self, now: DateTime<Utc>) -> bool {
+        now.signed_duration_since(self.backend.caps().observed_at)
+            > chrono::TimeDelta::try_hours(24).expect("24h is in range")
     }
 
     /// A first or incremental sync: survey, then headers, then bodies smallest band first.

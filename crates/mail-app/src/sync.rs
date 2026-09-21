@@ -220,6 +220,19 @@ async fn pass<B: mail_proto::Backend>(
     // pass opens its own connection.
     drop(engine.connect().await.map_err(|e| e.to_string())?);
 
+    // Ask what the server supports before deciding how to talk to it. Stored capabilities start
+    // as the preset's expectation, and an expectation that is never checked is a guess the
+    // client acts on for ever — CONDSTORE, MOVE and the special-use folder roles were all
+    // undiscoverable until this call existed.
+    if engine.caps_are_stale(now) {
+        match engine.refresh_caps(cancel, now).await {
+            Ok(_) => {}
+            // Not fatal. A server that refuses CAPABILITY still delivers mail, and the stored
+            // expectation is a worse answer than the truth but a better one than stopping.
+            Err(e) => return Err(format!("could not read capabilities: {e}")),
+        }
+    }
+
     let mut report = engine
         .sync(mailbox, cancel, now, 200)
         .await

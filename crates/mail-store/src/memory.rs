@@ -10,10 +10,10 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use chrono::{DateTime, SecondsFormat, TimeDelta, Utc};
 use mail_domain::{
-    AccountId, Change, ChangeId, Cursor, Draft, DraftId, Filter, Ingest, Label, LabelId,
-    MailboxRef, MatchCtx, Membership, Message, MessageId, MessageKey, OutboxId, Page, Patch, Pin,
-    Property, ProtoOp, Query, RemoteIntent, RemoteRef, Retry, SendState, Snooze, SortDir,
-    SyncCursor, Thread, ThreadId, ThreadSummary, UidValidity,
+    AccountCaps, AccountId, Change, ChangeId, Cursor, Draft, DraftId, Filter, Ingest, Label,
+    LabelId, MailboxRef, MatchCtx, Membership, Message, MessageId, MessageKey, OutboxId, Page,
+    Patch, Pin, Property, ProtoOp, Query, RemoteIntent, RemoteRef, Retry, SendState, Snooze,
+    SortDir, SyncCursor, Thread, ThreadId, ThreadSummary, UidValidity,
 };
 use serde::Serialize;
 
@@ -37,6 +37,8 @@ struct Inner {
     remotes: Vec<RemoteRow>,
     labels: BTreeMap<LabelId, Label>,
     drafts: BTreeMap<DraftId, Draft>,
+    /// What each account's server turned out to support.
+    caps: BTreeMap<AccountId, AccountCaps>,
     outbox: BTreeMap<OutboxId, OutboxRow>,
     next_outbox: i64,
     pending: Vec<PendingRow>,
@@ -85,6 +87,7 @@ impl Default for Inner {
             remotes: Vec::new(),
             labels: BTreeMap::new(),
             drafts: BTreeMap::new(),
+            caps: BTreeMap::new(),
             outbox: BTreeMap::new(),
             // SQLite rowids start at 1. Matching that keeps insertion order obvious in tests.
             next_outbox: 1,
@@ -129,6 +132,16 @@ impl Store for MemoryStore {
             .sync
             .get(&(mailbox.account, mailbox.path.clone()))
             .cloned())
+    }
+
+    fn put_caps(
+        &self,
+        account: AccountId,
+        caps: &AccountCaps,
+        _now: DateTime<Utc>,
+    ) -> Result<(), StoreError> {
+        self.inner.borrow_mut().caps.insert(account, caps.clone());
+        Ok(())
     }
 
     fn remote_refs(&self, mailbox: &MailboxRef) -> Result<Vec<RemoteRef>, StoreError> {

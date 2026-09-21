@@ -1198,3 +1198,121 @@ mod archiving {
         }
     }
 }
+
+/// Capabilities, which were stored once as a guess and never checked against the server.
+mod discovery {
+    use super::*;
+
+    fn stored_caps(store: &SqliteStore) -> AccountCaps {
+        let text: String = store
+            .connection()
+            .query_row(
+                "SELECT caps FROM account_caps WHERE account = ?1",
+                [ACCOUNT.to_string()],
+                |r| r.get(0),
+            )
+            .expect("capabilities were written");
+        serde_json::from_str(&text).expect("stored capabilities decode")
+    }
+
+    /// An engine whose stored capabilities claim the server supports nothing.
+    fn pessimistic(port: u16) -> Fixture {
+        let dir = tempfile::tempdir().unwrap();
+        let it = engine_with(port, dir, caps());
+        it.store
+            .put_caps(
+                ACCOUNT,
+                &caps(),
+                now() - chrono::TimeDelta::try_days(7).unwrap(),
+            )
+            .unwrap();
+        it
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn asking_the_server_replaces_the_guess() {
+        // The fake server advertises CONDSTORE-less IMAP4rev1 plus UIDPLUS and MOVE. The stored
+        // expectation says MOVE is absent, and nothing would ever have corrected it.
+        let seen: Shared = Arc::new(Mutex::new(Seen::default()));
+        let (port, _v, _p, _f) = serve_flags(seen.clone(), Fault::None).await;
+        let mut it = pessimistic(port);
+        let (_tx, mut cancel) = watch::channel(false);
+
+        assert_eq!(caps().move_ext, MoveExt::Absent, "precondition: the guess");
+
+        let found = it.engine.refresh_caps(&mut cancel, now()).await.unwrap();
+        assert_eq!(
+            found.move_ext,
+            MoveExt::Supported,
+            "MOVE was advertised and not noticed: {:?}",
+            seen.lock().unwrap().commands
+        );
+        // And written down, so a restart does not go back to guessing.
+        assert_eq!(stored_caps(&it.store).move_ext, MoveExt::Supported);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn capabilities_are_asked_for_after_authenticating() {
+        // Gmail's pre-auth list omits CONDSTORE, MOVE and X-GM-EXT-1. Believing the first answer
+        // reports a far less capable server than it is, so the walk asks twice and keeps the
+        // later reply.
+        let seen: Shared = Arc::new(Mutex::new(Seen::default()));
+        let (port, _v, _p, _f) = serve_flags(seen.clone(), Fault::None).await;
+        let mut it = pessimistic(port);
+        let (_tx, mut cancel) = watch::channel(false);
+
+        it.engine.refresh_caps(&mut cancel, now()).await.unwrap();
+
+        let sent = seen.lock().unwrap().commands.clone();
+        let login = sent.iter().position(|c| c == "LOGIN").expect("logged in");
+        let after = sent
+            .iter()
+            .skip(login)
+            .filter(|c| c.to_uppercase().starts_with("CAPABILITY"))
+            .count();
+        assert!(
+            after >= 1,
+            "capabilities were never asked for after authenticating: {sent:?}"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_special_use_folders_are_discovered() {
+        // The server's LIST reply marks Sent with \Sent. Without this walk FolderRoles stayed
+        // empty for every account, so archiving and filing targeted a path nobody confirmed.
+        let seen: Shared = Arc::new(Mutex::new(Seen::default()));
+        let (port, _v, _p, _f) = serve_flags(seen, Fault::None).await;
+        let mut it = pessimistic(port);
+        let (_tx, mut cancel) = watch::channel(false);
+
+        let found = it.engine.refresh_caps(&mut cancel, now()).await.unwrap();
+        assert!(
+            found
+                .folders
+                .0
+                .iter()
+                .any(|(path, role)| path == "Sent" && *role == MailboxRole::Sent),
+            "the \\Sent folder was not recognised: {:?}",
+            found.folders
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn fresh_capabilities_are_not_re_asked_every_pass() {
+        // Re-reading them on every sync would be a wasted round trip every few minutes.
+        let seen: Shared = Arc::new(Mutex::new(Seen::default()));
+        let (port, _v, _p, _f) = serve_flags(seen, Fault::None).await;
+        let mut it = engine_with(port, tempfile::tempdir().unwrap(), caps());
+        let (_tx, mut cancel) = watch::channel(false);
+
+        // `caps()` is observed at `now()`, so nothing is stale.
+        assert!(!it.engine.caps_are_stale(now()));
+        // A day later it is.
+        assert!(
+            it.engine
+                .caps_are_stale(now() + chrono::TimeDelta::try_days(2).unwrap())
+        );
+
+        it.engine.refresh_caps(&mut cancel, now()).await.unwrap();
+    }
+}

@@ -892,3 +892,34 @@ trade, but the comment now says what it costs instead of calling it cosmetic.
 The prohibition itself is now a test rather than a convention: a full working session — sync,
 archive with MOVE, archive without, flags, sweep — is asserted to contain no `\Deleted` and no
 `EXPUNGE` anywhere in what was sent.
+
+### F56 — Every account ran for ever on a guess about its server
+
+`ProtoOp::FetchCaps` was implemented, careful, and never sent. `ProtoOp::ListFolders` likewise.
+`ProtoOutcome::Caps` was constructed by the backend and matched by nothing above it. And
+`account_caps` had exactly one writer — `account add`, storing `preset.expected_caps` — and no
+updater.
+
+So what the client believed about a server was whatever a preset guessed before it had ever
+connected, permanently. Three fully-implemented features were unreachable at once because of it:
+
+- **CONDSTORE** could never be found, so the flags sweep refetched every flag for ever (F51 fixed
+  the chain; this is why the chain would still never have started).
+- **MOVE** could never be found, so archive-by-move always took the `COPY`-and-stop branch (F55).
+- **`SPECIAL-USE` folder roles** stayed empty, so `FolderRoles` was an empty list for every
+  account and filing targeted a path nobody had confirmed exists.
+
+The design was right and the wire was missing. The backend's own comment says it: "Gmail's
+pre-auth list omits CONDSTORE, MOVE and SPECIAL-USE, so believing the first answer reports a far
+less capable server than it is — F14, measured against a real account." F14 was found by
+measuring a real account, and then nothing ever asked.
+
+`AccountEngine::refresh_caps` runs both walks and persists; `sync::pass` calls it when the stored
+answer is more than a day old. Daily because a server gains and loses extensions across upgrades
+and an account moved between providers keeps its row — often enough to notice, rare enough to
+cost nothing.
+
+This is the fourth instance this session of the same shape: a subsystem built correctly, tested
+at its own boundary, and never called by anything (F44, F51, F55, F56). The unit tests all
+passed, because each one was asking the component whether it worked rather than whether anything
+used it.
