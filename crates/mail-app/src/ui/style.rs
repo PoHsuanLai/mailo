@@ -31,6 +31,9 @@ article time { margin-left: auto; opacity: .6; }
 .text { white-space: pre-wrap; word-wrap: break-word; font: inherit; margin: 0; }
 .html { width: 100%; min-height: 320px; border: 0; }
 .pending, .empty { opacity: .6; font-style: italic; }
+/* The first-run message names a command, which has to survive its own line breaks. */
+.empty { padding: 12px 12px 0; margin: 0; }
+.command { margin: 6px 12px 0; padding: 6px 8px; border: 1px solid var(--edge); border-radius: 6px; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .composer { border-top: 2px solid var(--edge); margin-top: 16px; padding-top: 12px; display: flex; flex-direction: column; gap: 8px; }
 .composer-head { display: flex; align-items: baseline; gap: 10px; }
 .composer-head strong { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -1964,3 +1964,26 @@ Two things looked at and deliberately left alone:
 - **The composer's body box renders empty in these dumps.** That is the renderer, not the app:
   dioxus emits `<textarea value="…">` and HTML wants the value as the element's text. A WebView
   sets the DOM property, where it works. Recorded so the next person to look does not chase it.
+
+### F102 — The first thing a new user sees said "Nothing here."
+
+The one state no fixture covered, because every fixture seeds an account before rendering. With
+an empty database the shell draws six folders, a Sync button, and `Nothing here.` — identical to
+a mailbox that happens to be empty. Nothing says an account has not been added, and the shell
+cannot add one: that is a terminal command. So it was not an empty state, it was a dead end.
+
+The CLI had this right from the start — `mailo sync` on an empty database says "no accounts. Add
+one with: mailo account add <address>" — which is what made the shell's version easy to miss:
+the sentence existed, in the other surface.
+
+`view::nothing_to_show(accounts, search) -> Nothing` now decides, with `NoAccount` checked before
+the search: with no account there is nothing to search, and "nothing matches" would send a new
+user hunting for a typo instead of doing the setup step they have not done. `Nothing::command()`
+is separate from `message()` so the shell can set the command in a monospace box rather than in
+the italic the rest of the pane uses — a command shown in italic prose is a command someone
+retypes wrongly.
+
+A search that matches nothing now says so and quotes the words, which are the part most likely to
+be mistyped. An empty folder still says `Nothing here.`, because that one was right.
+
+Rendering the first run is how it was found, and the first-run page is now one of the dumps.

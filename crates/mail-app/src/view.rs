@@ -1115,6 +1115,61 @@ impl Stamp {
     }
 }
 
+/// Why the list pane has nothing in it, which decides what it should say.
+///
+/// The pane said "Nothing here." in every case, including the one every new user starts in: no
+/// account configured at all. A mail client that has never been told whose mail to fetch looks
+/// exactly like a mailbox that happens to be empty, and the shell has no way to add an account
+/// — that is a terminal command — so "nothing here" was the end of the road rather than a state
+/// with a way out.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Nothing {
+    /// No account has been added yet.
+    NoAccount,
+    /// A search that matched nothing. Carries the words, because what was searched for is the
+    /// thing most likely to be mistyped.
+    NoMatch(String),
+    /// A folder with no mail in it, which is ordinary.
+    EmptyFolder,
+}
+
+/// Why the list is empty.
+pub fn nothing_to_show(accounts: usize, search: &str) -> Nothing {
+    let needle = search.trim();
+    if accounts == 0 {
+        // Checked first: with no account there is nothing to search, and "nothing matches" would
+        // send the user looking for a typo instead of for the setup step they have not done.
+        Nothing::NoAccount
+    } else if !needle.is_empty() {
+        Nothing::NoMatch(needle.to_owned())
+    } else {
+        Nothing::EmptyFolder
+    }
+}
+
+impl Nothing {
+    /// What to say.
+    pub fn message(&self) -> String {
+        match self {
+            Nothing::NoAccount => "No account yet. Add one from a terminal:".to_owned(),
+            Nothing::NoMatch(needle) => format!("Nothing matches {needle:?}."),
+            Nothing::EmptyFolder => "Nothing here.".to_owned(),
+        }
+    }
+
+    /// The command that gets the user out of this state, when there is one.
+    ///
+    /// Separate from the message so the shell can set it in a monospace face rather than in the
+    /// italic the rest of the pane uses. A command shown in italic prose is a command someone
+    /// retypes wrongly.
+    pub fn command(&self) -> Option<&'static str> {
+        match self {
+            Nothing::NoAccount => Some("mailo account add <address>"),
+            Nothing::NoMatch(_) | Nothing::EmptyFolder => None,
+        }
+    }
+}
+
 /// What a click on Discard means, given what the composer is currently showing.
 ///
 /// A value rather than a branch inside the button, for the same reason `op_for` and
@@ -1235,6 +1290,48 @@ mod badge_tests {
                 Source::Drafts => assert!(badge_filter(&place.source).is_none()),
             }
         }
+    }
+}
+
+/// Why the list pane is empty, which it never said.
+#[cfg(test)]
+mod nothing_tests {
+    use super::*;
+
+    #[test]
+    fn no_account_beats_every_other_explanation() {
+        // The first thing anyone sees. With no account there is nothing to search, so "nothing
+        // matches" would send a new user hunting for a typo instead of doing the setup step.
+        assert_eq!(nothing_to_show(0, ""), Nothing::NoAccount);
+        assert_eq!(nothing_to_show(0, "invoice"), Nothing::NoAccount);
+        assert_eq!(
+            nothing_to_show(0, "").command(),
+            Some("mailo account add <address>"),
+            "the shell cannot add an account, so it has to name what can"
+        );
+    }
+
+    #[test]
+    fn a_search_that_matched_nothing_says_what_was_searched_for() {
+        // The words are the thing most likely to be mistyped, so they go in the message.
+        assert_eq!(
+            nothing_to_show(1, "invoice"),
+            Nothing::NoMatch("invoice".to_owned())
+        );
+        assert!(nothing_to_show(1, "invoice").message().contains("invoice"));
+        assert_eq!(
+            nothing_to_show(1, "  invoice  "),
+            Nothing::NoMatch("invoice".to_owned()),
+            "whitespace is not the search"
+        );
+    }
+
+    #[test]
+    fn an_empty_folder_is_ordinary_and_says_so_briefly() {
+        assert_eq!(nothing_to_show(2, ""), Nothing::EmptyFolder);
+        assert_eq!(nothing_to_show(2, "   "), Nothing::EmptyFolder);
+        assert_eq!(nothing_to_show(2, "").message(), "Nothing here.");
+        assert_eq!(nothing_to_show(2, "").command(), None);
     }
 }
 

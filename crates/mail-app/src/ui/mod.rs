@@ -5,7 +5,8 @@
 //! rendering a stranger's HTML.
 
 use crate::view::{
-    Listing, Reading, Shell, Stamp, SyncState, badge_filter, hover_actions, op_for, synced,
+    Listing, Reading, Shell, Stamp, SyncState, badge_filter, hover_actions, nothing_to_show,
+    op_for, synced,
 };
 use chrono::Local;
 use dioxus::prelude::*;
@@ -115,6 +116,14 @@ fn App() -> Element {
     // measure, at which point the cursor is already there.
     let more = use_memo(move || threads().len() as u32 >= PAGE * pages());
 
+    // Why the pane is empty, when it is. Counted rather than assumed: the shell cannot add an
+    // account, so the first run needs to name the command that can.
+    let nothing = use_memo(move || {
+        let _ = revision();
+        let store = consume_context::<Arc<SqliteStore>>();
+        nothing_to_show(accounts(&store).len(), &shell.read().search)
+    });
+
     rsx! {
         style { {STYLE} }
         div { class: "app",
@@ -181,7 +190,10 @@ fn App() -> Element {
                     },
                 }
                 if threads().is_empty() && drafts().is_empty() {
-                    p { class: "empty", "Nothing here." }
+                    p { class: "empty", "{nothing().message()}" }
+                    if let Some(command) = nothing().command() {
+                        pre { class: "command", "{command}" }
+                    }
                 }
                 for draft in drafts() {
                     {
@@ -824,6 +836,23 @@ mod render_tests {
     ///
     /// It is the markup and the CSS, not the running application: nothing here clicks, and a
     /// WebView is not a browser. It is still the difference between looking and guessing.
+    /// A database with nothing in it: no account, no mail, no drafts.
+    ///
+    /// The first thing anyone sees, and the one state the fixtures never covered because every
+    /// one of them seeds an account before rendering.
+    fn empty() -> (Arc<SqliteStore>, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
+        (store, dir)
+    }
+
+    #[tokio::test]
+    #[ignore = "writes target/first-run.html for a human or a headless browser to look at"]
+    async fn render_the_first_run_to_a_file() {
+        let (store, _dir) = empty();
+        dump("first-run", &markup(store));
+    }
+
     #[tokio::test]
     #[ignore = "writes target/shell.html for a human or a headless browser to look at"]
     async fn render_the_shell_to_a_file() {
@@ -915,6 +944,40 @@ mod render_tests {
             !markup.contains("track.stripe.test"),
             "the blocked URL reached the document:\n{markup}"
         );
+    }
+
+    #[tokio::test]
+    async fn the_first_run_names_the_command_that_gets_you_out_of_it() {
+        // A database with no account looked exactly like an empty mailbox: six folders, a Sync
+        // button and "Nothing here." The shell cannot add an account, so that was the end of the
+        // road rather than a state with a way out.
+        let (store, _dir) = empty();
+        let markup = markup(store);
+
+        assert!(markup.contains("No account yet"), "{markup}");
+        // The angle brackets come back escaped, which is the renderer doing its job; asserting
+        // on one spelling of the escape would be asserting on dioxus rather than on the shell.
+        assert!(
+            markup.contains("mailo account add"),
+            "the command is not on the page:\n{markup}"
+        );
+        assert!(
+            markup.contains("class=\"command\""),
+            "it is not set apart from the prose, so it reads as italic advice:\n{markup}"
+        );
+        assert!(
+            !markup.contains("Nothing here"),
+            "it still says the thing that told a new user nothing:\n{markup}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_configured_account_with_an_empty_folder_is_not_told_to_add_an_account() {
+        // The other direction. `seeded()` has one account and mail in the inbox, so nothing on
+        // the page should be setup advice.
+        let (store, _dir) = seeded();
+        let markup = markup(store);
+        assert!(!markup.contains("No account yet"), "{markup}");
     }
 
     #[tokio::test]
