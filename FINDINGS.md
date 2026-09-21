@@ -1481,3 +1481,29 @@ rule: the next person either follows it and creates the silent failure, or break
 idea a precedent exists. §3 now says default *when the default is right*, names this case, and
 adds the test — check which value it is about to invent, because `Vec::new()` for a recipient
 list and `String::new()` for an address are not neutral.
+
+### F83 — The rest of the audit, and cleaning up after myself
+
+Continuing F82's pass through `CONVENTIONS.md`:
+
+- **§7, no `bool` in domain state.** One match, `Container.dead` in `threading.rs` — a private
+  field in the JWZ algorithm's own scratch structure, which is not domain state. The rule cites
+  `plan.md` principle 6 and means the vocabulary types. Holds.
+- **§7, no `get_` prefix.** No matches anywhere.
+- **§9, no test touches the network; live tests are `#[ignore]` and live in `mail-runtime`.**
+  All three — `live_probe`, `live_smtp`, `live_imap` — are exactly that. I wrote them before
+  re-reading this rule, which is a better result than the alternative but not a reason to skip
+  the check.
+- **§8, a file over ~400 lines wants splitting.** Seven are over, and the one I am responsible
+  for is `ui.rs`: it grew from roughly 290 lines to 1026 across this session, 732 of them code.
+
+So `ui.rs` became `ui/mod.rs` (501 lines of code), `ui/composer.rs` (197) and `ui/style.rs` (56).
+The composer is one concept — what is being written and where it goes — and fifty lines of CSS in
+the middle of a component tree helped nobody find either.
+
+The remaining six oversized files are left alone. `smtp.rs` at 1477 lines is one state machine
+and splitting it would put a protocol's phases in different files to satisfy a line count, which
+is the rule read as a target rather than a signal. Recorded so the next person sees a decision
+rather than an oversight.
+
+Verified the way a UI refactor has to be: the suite stays green, and the window still opens.

@@ -5,7 +5,7 @@
 //! rendering a stranger's HTML.
 
 use crate::view::{
-    Composing, Listing, Reading, Shell, SyncState, badge_filter, hover_actions, op_for, synced,
+    Listing, Reading, Shell, SyncState, badge_filter, hover_actions, op_for, synced,
 };
 use dioxus::prelude::*;
 use mail_domain::*;
@@ -15,11 +15,11 @@ use std::sync::Arc;
 /// How many rows the list pane asks for at a time.
 const PAGE: u32 = 100;
 
-/// Seconds between autosaves of an open composer.
-///
-/// Long enough not to write on every keystroke, short enough that what a crash costs is a
-/// sentence rather than a letter.
-const AUTOSAVE_EVERY: u64 = 3;
+mod composer;
+mod style;
+
+use composer::Composer;
+use style::STYLE;
 
 /// Launch the shell.
 pub fn run(store: Arc<SqliteStore>) {
@@ -360,186 +360,6 @@ fn Reader(thread: ThreadId, shell: Signal<Shell>) -> Element {
 /// Every field writes straight back into `Shell.composing`, and every button goes through
 /// `crate::compose`, which is the same module the CLI calls. Two code paths for "send this
 /// draft" is how a window and a command start disagreeing about what a draft is.
-#[component]
-fn Composer(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
-    // Every hook first, before any early return. `use_hook` matches hooks between renders by
-    // call order, so a component that returns before reaching one leaves every hook after it at
-    // a different index on the next render. This function used to return above both hooks
-    // below, which happened to be harmless — there was no third hook to shift — but "harmless
-    // given the current body" is a property that the next hook added here would quietly end.
-    //
-    // Set by every field, cleared by a successful write. A flag rather than comparing against
-    // the stored row on a timer: the comparison would read and parse the draft every few
-    // seconds whether or not anyone had touched it.
-    let mut dirty = use_signal(|| false);
-
-    // The autosave. Close and Send both save, so what this covers is the window nothing else
-    // does: the application going away while someone is still typing.
-    use_future(move || async move {
-        loop {
-            tokio::time::sleep(std::time::Duration::from_secs(AUTOSAVE_EVERY)).await;
-            if !dirty() {
-                continue;
-            }
-            let store = consume_context::<Arc<SqliteStore>>();
-            let current = shell.read().composing.clone();
-            // Failures are swallowed on purpose. The usual one is a half-typed recipient, and a
-            // timer that interrupts to complain about an address still being typed is worse than
-            // one that waits. The text stays dirty and the next tick tries again.
-            if persist(&store, current.as_ref()).is_ok() {
-                dirty.set(false);
-            }
-        }
-    });
-
-    // Now the early return, below every hook. `App` only renders this when something is being
-    // composed, but "only" is a claim about a caller, and the rules of hooks are not a matter
-    // of who calls what.
-    let Some(editing) = shell.read().composing.clone() else {
-        return rsx! {};
-    };
-
-    rsx! {
-        div { class: "composer",
-            header { class: "composer-head",
-                strong { "{editing.subject}" }
-                button {
-                    class: "ghost",
-                    onclick: move |_| {
-                        let store = consume_context::<Arc<SqliteStore>>();
-                        let current = shell.read().composing.clone();
-                        match persist(&store, current.as_ref()) {
-                            Ok(_) => {
-                                shell.write().close_composer();
-                                revision += 1;
-                            }
-                            // Stay open rather than lose the text. A recipient that does not
-                            // parse must not cost the user the paragraph they just wrote, and
-                            // Discard is right there for anyone who meant to abandon it.
-                            Err(why) => set_notice(&mut shell, Some(why)),
-                        }
-                    },
-                    "Close"
-                }
-                button {
-                    class: "ghost",
-                    onclick: move |_| shell.write().close_composer(),
-                    title: "Close without saving",
-                    "Discard"
-                }
-            }
-            if let Some(notice) = editing.notice.clone() {
-                p { class: "notice", "{notice}" }
-            }
-            label { "To"
-                input {
-                    value: "{editing.to}",
-                    oninput: move |e| {
-                        if let Some(c) = shell.write().composing.as_mut() {
-                            c.to = e.value();
-                        }
-                        dirty.set(true);
-                    },
-                }
-            }
-            label { "Cc"
-                input {
-                    value: "{editing.cc}",
-                    oninput: move |e| {
-                        if let Some(c) = shell.write().composing.as_mut() {
-                            c.cc = e.value();
-                        }
-                        dirty.set(true);
-                    },
-                }
-            }
-            label { "Subject"
-                input {
-                    value: "{editing.subject}",
-                    oninput: move |e| {
-                        if let Some(c) = shell.write().composing.as_mut() {
-                            c.subject = e.value();
-                        }
-                        dirty.set(true);
-                    },
-                }
-            }
-            textarea {
-                class: "composer-body",
-                value: "{editing.body}",
-                oninput: move |e| {
-                    if let Some(c) = shell.write().composing.as_mut() {
-                        c.body = e.value();
-                    }
-                    dirty.set(true);
-                },
-            }
-            div { class: "composer-actions",
-                button {
-                    onclick: move |_| {
-                        let store = consume_context::<Arc<SqliteStore>>();
-                        // Cloned out of the signal in its own statement: the read guard ends
-                        // here, so the handler can write a notice back afterwards. It also
-                        // reads what is in the fields *now* rather than at last render.
-                        let current = shell.read().composing.clone();
-                        let saved = persist(&store, current.as_ref());
-                        match saved {
-                            Ok(_) => {
-                                dirty.set(false);
-                                set_notice(&mut shell, Some("Saved.".to_owned()));
-                                revision += 1;
-                            }
-                            Err(why) => set_notice(&mut shell, Some(why)),
-                        }
-                    },
-                    "Save"
-                }
-                button {
-                    class: "primary",
-                    onclick: move |_| {
-                        let store = consume_context::<Arc<SqliteStore>>();
-                        // Saved first, always. Sending what is in the widgets without writing
-                        // it down means a failure between the two loses the user's edits.
-                        let current = shell.read().composing.clone();
-                        let sent = persist(&store, current.as_ref()).and_then(|draft| {
-                            crate::compose::send(&store, draft.id, chrono::Utc::now())
-                        });
-                        match sent {
-                            Ok(_) => {
-                                shell.write().close_composer();
-                                revision += 1;
-                            }
-                            Err(why) => set_notice(&mut shell, Some(why)),
-                        }
-                    },
-                    "Send"
-                }
-                span { class: "hint", "Sending queues the message; the next sync delivers it." }
-            }
-        }
-    }
-}
-
-/// Write the composer's fields back onto the stored draft.
-///
-/// Reads the draft from the store rather than keeping a copy in the widgets, so a field the
-/// composer does not show — the identity, the Bcc list, what this replies to — is whatever the
-/// store says and not whatever was true when the composer opened.
-fn persist(store: &SqliteStore, editing: Option<&Composing>) -> Result<Draft, String> {
-    let editing = editing.ok_or_else(|| "nothing is being composed".to_owned())?;
-    let base = store.draft(editing.draft).map_err(|e| e.to_string())?;
-    let edited = editing.apply_to(&base, chrono::Utc::now())?;
-    crate::compose::save(store, &edited)?;
-    Ok(edited)
-}
-
-fn set_notice(shell: &mut Signal<Shell>, notice: Option<String>) {
-    if let Some(c) = shell.write().composing.as_mut() {
-        c.notice = notice;
-    }
-}
-
-/// Which reply a hover button means, if it is one.
 fn reply_scope(kind: OpKind) -> Option<ReplyScope> {
     match kind {
         OpKind::Reply => Some(ReplyScope::Sender),
@@ -677,57 +497,6 @@ fn label(kind: OpKind) -> &'static str {
         OpKind::Forward => "Forward",
     }
 }
-
-const STYLE: &str = r#"
-:root { color-scheme: light dark; --edge: color-mix(in oklab, currentColor 15%, transparent); }
-* { box-sizing: border-box; }
-body { margin: 0; font: 14px/1.5 system-ui, sans-serif; }
-.app { display: grid; grid-template-columns: 180px 380px 1fr; height: 100vh; }
-.places { display: flex; flex-direction: column; gap: 2px; padding: 12px; border-right: 1px solid var(--edge); }
-.place { text-align: left; padding: 6px 10px; border: 0; border-radius: 6px; background: none; color: inherit; font: inherit; cursor: pointer; }
-.place:hover { background: var(--edge); }
-.place.on { background: var(--edge); font-weight: 600; }
-.list { overflow-y: auto; border-right: 1px solid var(--edge); }
-.search { width: 100%; padding: 10px 12px; border: 0; border-bottom: 1px solid var(--edge); background: none; color: inherit; font: inherit; }
-.row { display: grid; grid-template-columns: 140px 1fr auto; gap: 10px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--edge); cursor: pointer; position: relative; }
-.row:hover { background: var(--edge); }
-.row.unread .subject, .row.unread .who { font-weight: 650; }
-.who, .subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.when { opacity: .6; font-variant-numeric: tabular-nums; }
-.hover { display: none; position: absolute; right: 8px; gap: 4px; }
-.row:hover .hover { display: flex; }
-.hover button { font: inherit; font-size: 12px; padding: 2px 8px; border: 1px solid var(--edge); border-radius: 999px; background: Canvas; color: inherit; cursor: pointer; }
-.reader { overflow-y: auto; padding: 20px 24px; }
-.reader h1 { font-size: 20px; margin: 0 0 12px; }
-article { border-top: 1px solid var(--edge); padding: 14px 0; }
-article header { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; margin-bottom: 8px; }
-article time { margin-left: auto; opacity: .6; }
-.text { white-space: pre-wrap; word-wrap: break-word; font: inherit; margin: 0; }
-.html { width: 100%; min-height: 320px; border: 0; }
-.pending, .empty { opacity: .6; font-style: italic; }
-.composer { border-top: 2px solid var(--edge); margin-top: 16px; padding-top: 12px; display: flex; flex-direction: column; gap: 8px; }
-.composer-head { display: flex; align-items: baseline; gap: 10px; }
-.composer-head strong { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.composer label { display: grid; grid-template-columns: 70px 1fr; align-items: center; gap: 8px; font-size: 12px; opacity: .75; }
-.composer input { font: inherit; padding: 6px 8px; border: 1px solid var(--edge); border-radius: 6px; background: Canvas; color: inherit; }
-.composer-body { font: inherit; min-height: 180px; padding: 8px; border: 1px solid var(--edge); border-radius: 6px; background: Canvas; color: inherit; resize: vertical; }
-.composer-actions { display: flex; align-items: center; gap: 8px; }
-.composer-actions button { font: inherit; padding: 6px 14px; border: 1px solid var(--edge); border-radius: 6px; background: Canvas; color: inherit; cursor: pointer; }
-.composer-actions .primary { font-weight: 600; }
-.ghost { font: inherit; font-size: 12px; padding: 2px 8px; border: 1px solid var(--edge); border-radius: 999px; background: none; color: inherit; cursor: pointer; }
-.notice { margin: 0; padding: 6px 8px; border-radius: 6px; background: var(--edge); font-size: 13px; }
-.hint { font-size: 12px; opacity: .6; }
-.place { display: flex; align-items: center; gap: 8px; }
-.badge { margin-left: auto; font-size: 11px; font-variant-numeric: tabular-nums; opacity: .7; }
-.place.on .badge { opacity: 1; }
-.spacer { flex: 1; }
-.sync { text-align: center; border: 1px solid var(--edge); }
-.sync:disabled { opacity: .6; cursor: default; }
-.sync-note { margin: 8px 2px 0; font-size: 11px; opacity: .7; white-space: pre-wrap; word-break: break-word; }
-.sync-note.bad { opacity: .95; font-weight: 600; }
-.more { display: block; width: calc(100% - 24px); margin: 10px 12px; padding: 8px; font: inherit; border: 1px solid var(--edge); border-radius: 6px; background: none; color: inherit; cursor: pointer; }
-.images { font: inherit; font-size: 12px; padding: 4px 10px; border: 1px solid var(--edge); border-radius: 999px; background: none; color: inherit; cursor: pointer; margin-bottom: 8px; }
-"#;
 
 #[cfg(test)]
 mod render_tests {
