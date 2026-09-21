@@ -225,6 +225,71 @@ fn the_reply_body_quotes_the_original_beneath_what_was_written() {
     );
 }
 
+#[test]
+fn a_reply_with_nobody_to_send_it_to_says_so_rather_than_offering_to_send_it() {
+    // Replying to something you sent yourself. `Draft::reply_to` drops your own address, which
+    // is right, and the command then printed "send it with: mailo send <id>" for a draft whose
+    // send fails with "cannot build a message with no recipients" — and the CLI has no command
+    // that adds one, so the advice could not be followed at all.
+    let (store, _dir) = seeded();
+    let own = own_message(&store);
+
+    let out = compose::reply(&store, own, ReplyScope::Sender, "to myself", at(10)).unwrap();
+
+    assert!(out.contains("nobody to send this to"), "{out}");
+    assert!(
+        !out.contains("mailo send"),
+        "it still offers a send that cannot work: {out}"
+    );
+}
+
+#[test]
+fn the_attribution_line_is_in_the_senders_zone_not_utc() {
+    // This line leaves the machine. It is written into the body of a reply, so a wrong time is
+    // wrong in the recipient's mailbox permanently and no later fix reaches it — and it was
+    // wrong, because every date in this application was rendered straight off its `DateTime
+    // <Utc>`. The original here is 22:13 UTC on Tuesday the 14th, which in Taipei is 06:13 on
+    // Wednesday the 15th: a different hour, a different day and a different weekday, so an
+    // assertion on it cannot pass by accident.
+    let (store, _dir) = seeded();
+    let taipei = chrono::FixedOffset::east_opt(8 * 3600).unwrap();
+    compose::draft_reply_in(
+        &store,
+        ORIGINAL,
+        ReplyScope::Sender,
+        "one o'clock suits",
+        at(10),
+        &taipei,
+    )
+    .unwrap();
+
+    let text = only_draft(&store).text;
+    assert!(
+        text.contains("On Wed, 15 Nov 2023 at 06:13, Ada Lovelace wrote:"),
+        "the attribution line is not in the sender's zone:\n{text}"
+    );
+
+    // And the same reply written by someone on UTC says what UTC says, so this is a conversion
+    // and not eight hours added somewhere.
+    let (store, _dir) = seeded();
+    compose::draft_reply_in(
+        &store,
+        ORIGINAL,
+        ReplyScope::Sender,
+        "one o'clock suits",
+        at(10),
+        &Utc,
+    )
+    .unwrap();
+    assert!(
+        only_draft(&store)
+            .text
+            .contains("On Tue, 14 Nov 2023 at 22:13, Ada Lovelace wrote:"),
+        "{}",
+        only_draft(&store).text
+    );
+}
+
 /// A later message in the same conversation, so a thread really has two.
 ///
 /// Carries `in_reply_to` and `References` like a real follow-up, but the `ThreadId` is assigned
@@ -284,6 +349,74 @@ fn follow_up(store: &SqliteStore) -> MessageId {
                 messages: vec![Fetched {
                     remote: RemoteRef::Pop {
                         uidl: "u3".to_owned(),
+                    },
+                    key: message.key.clone(),
+                    raw,
+                    message,
+                }],
+                flags: vec![],
+                labels: vec![],
+                gone: vec![],
+            },
+        )
+        .unwrap();
+    id
+}
+
+/// A message this account sent, so a reply to it has nowhere to go.
+///
+/// `From` is the identity's own address and there is no other recipient, which is the shape
+/// `Draft::reply_to` deliberately empties: replying to yourself addresses nobody.
+fn own_message(store: &SqliteStore) -> MessageId {
+    let id = MessageId::generate();
+    let raw = store
+        .blobs()
+        .put(&store.connection(), b"raw to self")
+        .unwrap();
+    let message = Message {
+        id,
+        thread: ThreadId::generate(),
+        account: ACCOUNT,
+        key: MessageKey::Rfc("mine@example.test".to_owned()),
+        date: at(7),
+        from: Address {
+            name: None,
+            email: "me@example.test".to_owned(),
+        },
+        reply_to: vec![],
+        to: vec![Address {
+            name: None,
+            email: "me@example.test".to_owned(),
+        }],
+        cc: vec![],
+        bcc: vec![],
+        subject: "a note to myself".to_owned(),
+        in_reply_to: None,
+        references: vec![],
+        rfc_message_id: Some("mine@example.test".to_owned()),
+        read: ReadState::Read,
+        star: Star::Unstarred,
+        mailbox: MailboxRole::Inbox,
+        labels: vec![],
+        body: Body::Present {
+            text: Some("remember the milk".to_owned()),
+            raw,
+        },
+        attachments: vec![],
+    };
+    store
+        .ingest(
+            ACCOUNT,
+            Ingest {
+                mailbox: MailboxRef {
+                    account: ACCOUNT,
+                    path: "INBOX".to_owned(),
+                },
+                validity: UidValidity::Same,
+                cursor: Some(SyncCursor::Pop),
+                messages: vec![Fetched {
+                    remote: RemoteRef::Pop {
+                        uidl: "u-self".to_owned(),
                     },
                     key: message.key.clone(),
                     raw,

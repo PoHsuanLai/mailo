@@ -1824,3 +1824,56 @@ assert the rendered message contains no run of two spaces.
 
 Swept the whole workspace for the pattern; those were the only two. The two other hits are
 deliberate — test fixtures whose subject is exactly that whitespace is preserved.
+
+### F98 — Every date in the application was shown in UTC, including in mail sent to other people
+
+Found by running the program as a person on this machine, which is `Asia/Taipei`, `+0800`. A
+message the fixture stamped `09:02 +0800` appeared in `mailo list` as `01:02`. At the moment this
+was found the clock read 07:25 on the 22nd, UTC read 23:25 on the 21st, and every row, every
+header in the reader and every draft in the shell was dated the 21st.
+
+Six sites, each formatting a `DateTime<Utc>` directly:
+
+| where | pattern |
+| --- | --- |
+| `cli.rs` list rows | `%m-%d %H:%M` |
+| `cli.rs` `show` | `%Y-%m-%d %H:%M` |
+| `ui/mod.rs` thread rows | `%b %d` |
+| `ui/mod.rs` draft rows | `%b %d` |
+| `ui/mod.rs` reader header | `%Y-%m-%d %H:%M` |
+| `compose.rs` quote attribution | `%a, %d %b %Y at %H:%M` |
+
+The last one is the serious one. It is not displayed — it is *written into the body of a reply*,
+so `On Tue, 22 Sep 2026 at 01:02, Grace Hopper wrote:` went out over SMTP quoting a message Grace
+wrote at 09:02, into her mailbox, permanently. Confirmed on the wire against the local
+`aiosmtpd` fixture before the fix, and after it the same reply reads `On Tue, 22 Sep 2026 at
+09:02`.
+
+It is now `view::Stamp` — an enum of the four places an instant appears — and `view::stamp`,
+which takes the zone as a parameter. A parameter and not `Local` read from inside, because a
+function that asks the machine what zone it is in can only be tested against whatever that
+machine is set to, and on a runner set to UTC that is the bug passing. `compose::draft_reply`
+keeps its signature and delegates to `draft_reply_in`, which names the zone, in the same shape as
+`sync::run`/`run_with` and `oauth::refresh`/`refresh_at`.
+
+The tests use `FixedOffset` for `+08:00` and `-05:00` and assert both directions — a zone behind
+UTC must roll the date *back*, which a fix that only ever added hours would get wrong — plus a
+UTC case that must be unchanged. The original in the compose fixture is 22:13 on Tuesday the 14th
+in UTC and 06:13 on Wednesday the 15th in Taipei, so the attribution assertion differs in hour,
+day *and* weekday and cannot pass by accident. Reverting the one line makes it fail.
+
+Why nothing caught it: every test formatted the instant the same way the code did, or asserted
+that a date was merely present. Six sites, forty-three view tests, and none of them ever asked
+what time it was where the user is.
+
+### F99 — The CLI offered a send that could not work
+
+`mailo reply` on a message you sent yourself prints an empty `to`, then `send it with: mailo send
+<id>`. That command fails with `cannot build a message with no recipients`, and the CLI has no
+command that adds a recipient — so the advice was not merely useless, it was unfollowable.
+
+`Draft::reply_to` dropping your own address is right; a reply to yourself has nobody to go to.
+What was wrong was saying so nowhere. The command now says the only address on the original was
+your own and points at the composer.
+
+Found in the same session as F98, doing the thing that turned it up: replying to a message.

@@ -5,7 +5,7 @@
 //! and queue them", never "open a connection". A send that depended on the network being up at
 //! the moment the user pressed the key would lose the message on a train.
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local, Utc};
 use mail_domain::*;
 use mail_mime::posting;
 use mail_store::{SqliteStore, Store};
@@ -96,13 +96,32 @@ pub fn draft_reply(
     body: &str,
     now: DateTime<Utc>,
 ) -> Result<Draft, String> {
+    draft_reply_in(store, message, scope, body, now, &Local)
+}
+
+/// The same, with the zone the attribution line is written in named.
+///
+/// Named rather than read from the machine, because the attribution line leaves this machine:
+/// a test that let `Local` decide would assert whatever zone the test runner happens to be in,
+/// and on a runner set to UTC that is the bug passing.
+pub fn draft_reply_in<Tz: chrono::TimeZone>(
+    store: &SqliteStore,
+    message: MessageId,
+    scope: ReplyScope,
+    body: &str,
+    now: DateTime<Utc>,
+    zone: &Tz,
+) -> Result<Draft, String>
+where
+    Tz::Offset: std::fmt::Display,
+{
     let original = store.message(message).map_err(|e| e.to_string())?;
     let identity = identity_of(store, original.account, None)?;
 
     let mut draft = Draft::reply_to(&original, &identity, scope, now);
     // `Draft::reply_to` leaves the text empty on purpose — quoting is a rendering decision, not
     // a property of the draft — so the quoting happens here, where the renderer is.
-    draft.text = quoted(body, &original);
+    draft.text = quoted(body, &original, zone);
     save(store, &draft)?;
     Ok(draft)
 }
@@ -139,7 +158,19 @@ pub fn reply(
         let _ = writeln!(out, "  cc      {}", addresses(&draft.cc));
     }
     let _ = writeln!(out, "  subject {}", draft.subject);
-    let _ = writeln!(out, "\nsend it with: mailo send {}", draft.id);
+    if draft.to.is_empty() && draft.cc.is_empty() {
+        // `Draft::reply_to` drops your own address from the recipients, which is right — a reply
+        // to something you sent has nobody left to go to. Saying "send it with: …" anyway meant
+        // the next command failed with "cannot build a message with no recipients", and the CLI
+        // has no way to add one, so the advice was not merely useless but unfollowable.
+        let _ = writeln!(
+            out,
+            "\nnobody to send this to: the only address on the original was your own. \
+             Open it in the composer to add a recipient."
+        );
+    } else {
+        let _ = writeln!(out, "\nsend it with: mailo send {}", draft.id);
+    }
     Ok(out)
 }
 
@@ -147,13 +178,18 @@ pub fn reply(
 ///
 /// Plain `>` quoting and nothing cleverer: this is the one format every mail client in the
 /// world renders correctly, including the ones that predate HTML mail.
-fn quoted(body: &str, original: &Message) -> String {
+fn quoted<Tz: chrono::TimeZone>(body: &str, original: &Message, zone: &Tz) -> String
+where
+    Tz::Offset: std::fmt::Display,
+{
     let who = original
         .from
         .name
         .clone()
         .unwrap_or_else(|| original.from.email.clone());
-    let when = original.date.format("%a, %d %b %Y at %H:%M");
+    // In the sender's own zone. Quoted in UTC this said "at 01:02" for a message written at
+    // 09:02, in a line the recipient reads and cannot correct.
+    let when = crate::view::stamp(original.date, zone, crate::view::Stamp::Quote);
     let mut out = String::new();
     if !body.is_empty() {
         out.push_str(body.trim_end());

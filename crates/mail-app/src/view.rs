@@ -4,6 +4,7 @@
 //! open and what the reader should do with a body are all decisions that can be wrong, and none
 //! of them needs a window to be wrong in. The rendering layer reads this and draws it.
 
+use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::*;
 use mail_mime::{RemoteImages, SanitizePolicy};
 
@@ -1066,6 +1067,59 @@ mod sync_state_tests {
     }
 }
 
+/// Where an instant appears, and therefore how much of it is written.
+///
+/// An enum rather than a format string at each call site, because the call sites disagreed
+/// about the pattern and agreed about the bug.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stamp {
+    /// A row in a list: `09-22 09:02`. The year is omitted; the column is narrow and the
+    /// question a list answers is "when today".
+    Row,
+    /// A message in the reader: `2026-09-22 09:02`. Opened deliberately, so it says everything.
+    Full,
+    /// A draft's last edit, or a row in the shell's list: `Sep 22`.
+    Day,
+    /// The attribution line above quoted text: `Tue, 22 Sep 2026 at 09:02`.
+    ///
+    /// The one stamp that leaves this machine. It is written into the body of a reply, so a
+    /// wrong one is wrong in someone else's mailbox, permanently, and no later fix reaches it.
+    Quote,
+}
+
+impl Stamp {
+    fn pattern(self) -> &'static str {
+        match self {
+            Stamp::Row => "%m-%d %H:%M",
+            Stamp::Full => "%Y-%m-%d %H:%M",
+            Stamp::Day => "%b %d",
+            Stamp::Quote => "%a, %d %b %Y at %H:%M",
+        }
+    }
+}
+
+/// Write an instant the way the person reading it keeps time.
+///
+/// Every instant is stored in UTC, which is the only sane way to keep one, and every instant a
+/// person reads is in their own zone. Nothing converted between the two: the list, the reader
+/// and the drafts pane each formatted the `DateTime<Utc>` directly. On this machine —
+/// `Asia/Taipei`, `+0800` — mail that arrived at 09:02 was shown as 01:02, and every message
+/// that arrived after 16:00 was filed under the previous day. At the moment this was found the
+/// clock read 07:25 on the 22nd and the whole application was showing the 21st.
+///
+/// The zone is a parameter and not `Local` read from inside, because a function that reads the
+/// machine's zone can only be tested against whatever that machine is set to — which on a
+/// machine set to UTC is the bug passing.
+pub fn stamp<Tz: TimeZone>(instant: DateTime<Utc>, zone: &Tz, stamp: Stamp) -> String
+where
+    Tz::Offset: std::fmt::Display,
+{
+    instant
+        .with_timezone(zone)
+        .format(stamp.pattern())
+        .to_string()
+}
+
 #[cfg(test)]
 mod badge_tests {
     use super::*;
@@ -1105,5 +1159,60 @@ mod badge_tests {
                 Source::Drafts => assert!(badge_filter(&place.source).is_none()),
             }
         }
+    }
+}
+
+/// Dates, which were shown in UTC everywhere.
+#[cfg(test)]
+mod stamps {
+    use super::*;
+    use chrono::FixedOffset;
+
+    fn taipei() -> FixedOffset {
+        FixedOffset::east_opt(8 * 3600).unwrap()
+    }
+
+    /// 2026-09-22 09:02 in Taipei, which is 01:02 the same day in UTC.
+    fn morning() -> DateTime<Utc> {
+        Utc.with_ymd_and_hms(2026, 9, 22, 1, 2, 0).unwrap()
+    }
+
+    #[test]
+    fn an_instant_is_written_in_the_readers_zone_not_in_utc() {
+        // The whole finding in one line: this read "09-22 01:02" for mail that arrived while
+        // the user was having breakfast.
+        assert_eq!(stamp(morning(), &taipei(), Stamp::Row), "09-22 09:02");
+        assert_eq!(stamp(morning(), &taipei(), Stamp::Full), "2026-09-22 09:02");
+        assert_eq!(stamp(morning(), &taipei(), Stamp::Day), "Sep 22");
+    }
+
+    #[test]
+    fn an_evening_message_is_not_filed_under_tomorrow() {
+        // 23:30 UTC is 07:30 the next morning in Taipei. Shown as UTC, every message that
+        // arrived after 16:00 local carried the previous day's date — which is precisely the
+        // state the application was in when this was found: the clock read the 22nd and every
+        // row said the 21st.
+        let evening = Utc.with_ymd_and_hms(2026, 9, 21, 23, 30, 0).unwrap();
+        assert_eq!(stamp(evening, &taipei(), Stamp::Row), "09-22 07:30");
+        assert_eq!(stamp(evening, &Utc, Stamp::Row), "09-21 23:30");
+    }
+
+    #[test]
+    fn a_zone_behind_utc_rolls_the_other_way() {
+        // Not "add eight hours somewhere". New York is five behind, so the same instant is the
+        // day before, and a client that only ever shifted forward would be wrong here.
+        let newyork = FixedOffset::west_opt(5 * 3600).unwrap();
+        let just_after_midnight = Utc.with_ymd_and_hms(2026, 9, 22, 3, 15, 0).unwrap();
+        assert_eq!(
+            stamp(just_after_midnight, &newyork, Stamp::Row),
+            "09-21 22:15"
+        );
+    }
+
+    #[test]
+    fn utc_is_left_alone() {
+        // Someone whose machine is on UTC must see what was stored — this is the case that
+        // made the bug invisible, because it is the one every test machine is in.
+        assert_eq!(stamp(morning(), &Utc, Stamp::Full), "2026-09-22 01:02");
     }
 }

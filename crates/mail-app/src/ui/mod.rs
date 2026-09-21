@@ -5,8 +5,9 @@
 //! rendering a stranger's HTML.
 
 use crate::view::{
-    Listing, Reading, Shell, SyncState, badge_filter, hover_actions, op_for, synced,
+    Listing, Reading, Shell, Stamp, SyncState, badge_filter, hover_actions, op_for, synced,
 };
+use chrono::Local;
 use dioxus::prelude::*;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
@@ -192,7 +193,7 @@ fn App() -> Element {
                         };
                         let who = crate::view::join_addresses(&draft.to);
                         let state = draft_state(&draft.state);
-                        let when = draft.updated.format("%b %d").to_string();
+                        let when = crate::view::stamp(draft.updated, &Local, Stamp::Day);
                         rsx! {
                             div {
                                 key: "{id}",
@@ -215,7 +216,7 @@ fn App() -> Element {
                         let id = summary.id;
                         let unread = summary.read == ReadState::Unread;
                         let who = sender(&summary);
-                        let when = summary.last_date.format("%b %d").to_string();
+                        let when = crate::view::stamp(summary.last_date, &Local, Stamp::Day);
                         let subject = summary.subject.clone();
                         let actions = hover_actions(&summary);
                         rsx! {
@@ -468,7 +469,7 @@ fn address(message: &Message) -> String {
 }
 
 fn stamp(message: &Message) -> String {
-    message.date.format("%Y-%m-%d %H:%M").to_string()
+    crate::view::stamp(message.date, &Local, Stamp::Full)
 }
 
 fn sender(summary: &ThreadSummary) -> String {

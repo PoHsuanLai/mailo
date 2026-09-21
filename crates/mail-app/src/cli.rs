@@ -4,7 +4,8 @@
 //! CLI can list, open and reply", and a CLI can be driven from a test where a window cannot.
 //! The UI will call the same `Store` methods.
 
-use chrono::{DateTime, Utc};
+use crate::view::Stamp;
+use chrono::{DateTime, Local, Utc};
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 use std::fmt::Write as _;
@@ -286,7 +287,7 @@ pub fn run(store: &SqliteStore, command: &Command, now: DateTime<Utc>) -> Result
                     "\n--- {} <{}>  {}\n    {}",
                     message.from.name.as_deref().unwrap_or(""),
                     message.from.email,
-                    message.date.format("%Y-%m-%d %H:%M"),
+                    crate::view::stamp(message.date, &Local, Stamp::Full),
                     message.id
                 );
                 match message.body.text() {
@@ -384,7 +385,7 @@ fn render_list(items: &[ThreadSummary]) -> String {
             } else {
                 " "
             },
-            summary.last_date.format("%m-%d %H:%M"),
+            crate::view::stamp(summary.last_date, &Local, Stamp::Row),
             summary.from.name.as_deref().unwrap_or(&summary.from.email),
             summary.subject,
             summary.id

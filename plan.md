@@ -1103,6 +1103,17 @@ sandboxed HTML with inline images; its components are executed in tests rather t
 compiled. Scale is measured rather than assumed: search over ten thousand messages, a page of
 the list, a two-hundred-message thread, and a sync writing while the window reads.
 
+Running it as a person still finds things the tests do not, which is the argument for the
+criterion rather than against it. F98 — every date in the application rendered in UTC, including
+the attribution line quoted into outgoing replies — was invisible to forty-three view tests and
+obvious within one minute of reading `mailo list` on a machine in `+0800`. F99, a `reply` that
+offered a `send` no command could make work, came from the next minute.
+
+One thing the criterion implies that cannot be done from here: looking at the window. Under
+rootless XWayland an X11 grab of the surface returns `BadMatch`, and this machine has no
+compositor screenshot tool or nested X server, so the shell's *layout* has been reasoned about
+and never seen. Installing one is the user's call, not this repository's.
+
 The criterion itself is not one this or any amount of work can satisfy from inside the
 repository. "Daily driver" is a judgement about using it, with real mail, over days.
 
