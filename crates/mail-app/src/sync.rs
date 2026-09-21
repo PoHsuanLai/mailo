@@ -115,6 +115,17 @@ pub fn run_with(
                     report.outbox_settled,
                     report.submitted
                 );
+                // Said plainly, because the alternative is what this used to do: someone runs
+                // `send` and then `sync`, reads "0 sent", and has no reason to think their mail
+                // is still sitting here. It is not an error — it will be retried — but silence
+                // reads as success.
+                if report.still_queued > 0 {
+                    let _ = writeln!(
+                        out,
+                        "  {} still queued; run sync again to retry, or `mailo drafts` to see why",
+                        report.still_queued
+                    );
+                }
                 for note in report.needs_attention {
                     let _ = writeln!(out, "  needs attention: {note}");
                     // The server's words stay; this adds what they mean, where we know.
@@ -274,6 +285,7 @@ async fn pass<B: mail_proto::Backend>(
         .map_err(|e| e.to_string())?;
     report.outbox_settled += drained.outbox_settled;
     report.submitted += drained.submitted;
+    report.still_queued = drained.still_queued;
     report.needs_attention.extend(drained.needs_attention);
     Ok(report)
 }

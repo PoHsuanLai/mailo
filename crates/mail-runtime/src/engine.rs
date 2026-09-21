@@ -36,6 +36,13 @@ pub struct SyncReport {
     pub submitted: usize,
     /// Operations that failed in a way worth surfacing rather than retrying.
     pub needs_attention: Vec<String>,
+    /// Still queued when the pass ended, waiting on a retry.
+    ///
+    /// Separate from `needs_attention` because it is not trouble: a refused connection backs off
+    /// and tries again, and interrupting the user about it would train them to ignore the
+    /// warnings that matter. But it is not *nothing* either — someone who has just run `send`
+    /// and then `sync` will otherwise read "0 sent" as success and believe their mail has gone.
+    pub still_queued: usize,
 }
 
 /// How often each part of a sync runs.
@@ -319,6 +326,17 @@ impl<B: Backend> AccountEngine<B> {
                 }
             }
         }
+        // Whatever is left, however it got there: a failure that backed off, or an entry whose
+        // turn had not come. Counted after the loop rather than inside it, so a `break` on the
+        // first failure does not undercount the rest.
+        report.still_queued = self
+            .store
+            .outbox_due(
+                self.account,
+                now + chrono::TimeDelta::try_days(365).unwrap_or_default(),
+            )
+            .map(|due| due.len())
+            .unwrap_or(0);
         Ok(report)
     }
 

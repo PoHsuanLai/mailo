@@ -1715,3 +1715,29 @@ looked exactly like a client bug. It was on the wire: `twisted.mail.pop3` splits
 newlines and terminates each line it sends with CRLF, so a fixture written with `\r\n` is emitted
 as `\r\r\n`, and our client stored faithfully what arrived. Dumping the socket before blaming
 anything on this side took two minutes and is the F88 discipline paying for itself a second time.
+
+### F94 — A send that did not go said nothing
+
+Found the same way as F91: running the commands in order and reading what they printed. `mailo
+send` queued a reply, the SMTP server was not listening, and `mailo sync` answered
+
+```
+ada@example.test: 2 headers, 0 bodies, 0 queued operations settled, 0 sent
+```
+
+Nothing wrong, on a line that looks like a report of success. The draft was marked `failed` in
+the store, but only `mailo drafts` shows that, and nobody runs it after a sync that did not
+complain.
+
+The cause is a reasonable rule applied one step too far. `drain_outbox` adds to
+`needs_attention` only for `NeedsReauth` and `Fatal`, because a refused connection backs off and
+retries — and interrupting someone about a laptop lid would train them to ignore the warnings
+that matter. But silence is not the only alternative to an alarm. Someone who has just typed
+`send` and then `sync` reads "0 sent" as "there was nothing to send".
+
+`SyncReport::still_queued` counts what remains after the pass, and the CLI says so plainly: `1
+still queued; run sync again to retry, or mailo drafts to see why`. Not an error, because it is
+not one; not nothing, because it is not that either. The line disappears when the message goes.
+
+Asserted in both directions — a refused submission reports one waiting, a delivered one reports
+none — and checked by pinning the count to zero and watching the test fail.

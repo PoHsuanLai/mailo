@@ -354,6 +354,10 @@ async fn a_queued_message_reaches_the_submission_server() {
 
     assert_eq!(report.submitted, 1, "nothing was submitted: {report:?}");
     assert_eq!(report.outbox_settled, 1);
+    assert_eq!(
+        report.still_queued, 0,
+        "a delivered message must not still be reported as waiting"
+    );
     assert!(
         report.needs_attention.is_empty(),
         "{:?}",
@@ -479,6 +483,13 @@ async fn a_submission_that_cannot_connect_is_retried_not_lost() {
     let report = it.engine.drain_outbox(&mut cancel, now()).await.unwrap();
     assert_eq!(report.submitted, 0);
     assert_eq!(report.outbox_settled, 0, "nothing was settled");
+    // And the pass says so. A refused connection is a retry rather than trouble, so it never
+    // reaches `needs_attention` — which meant someone who ran `send` and then `sync` read
+    // "0 sent" and had no reason to think their mail was still sitting here.
+    assert_eq!(
+        report.still_queued, 1,
+        "a message that did not go must be counted as still waiting"
+    );
 
     let still_queued = it
         .store
