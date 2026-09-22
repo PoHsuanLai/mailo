@@ -2205,3 +2205,48 @@ A side lesson, cheap and annoying: two runs reported nothing because a listener 
 round still held port 18081 and was writing to a log file that had since been deleted. The
 evidence looked like silence and was someone else's success. `ss -ltnp` names the holder; it is
 worth asking before believing an empty file.
+
+### F109 — The two journeys a mail client is for, run in the live application
+
+No defect this round. Three things that had been argued from tests became things that were
+watched happening, in the program as it ships, against a real database and a real IMAP server.
+
+**New mail arrives when you press Sync.** Two rows in the list, one message waiting on the
+server, the button clicked from inside the page:
+
+```
+/before|rows-2|button-Sync|disabled-false
+/during|note-ada@example.test: 1 headers, 1 bodies, 0 queued operations settled, 0 sent
+/after|rows-3|note-…1 headers, 1 bodies…
+stored 2 → 3, and the new subject is at the top of the list
+```
+
+The button spawns a task from a click handler, that task runs, the pass fetches, the store gains
+the message, `revision` bumps, and the list redraws. Every link in that chain had a test; none of
+them had been seen joined up.
+
+**Replying works from the keyboard.** `j` then `r`:
+
+```
+/start|rows-3
+/composer|open|subject-Re: arrived while the window was open|to-Carol Shaw <carol@example.test>
+/after-escape|composer-closed
+drafts: "Re: arrived while the window was open" | "typed into the live composer"
+```
+
+The composer opens addressed to the right person with the right subject, typing in the body
+reaches the shell's state, and `Escape` closes it *and saves* — which is the semantics F103
+argued for and could not demonstrate. The typed text is in the drafts table afterwards.
+
+Two process notes, both old lessons re-learned:
+
+- The first four attempts at this reported nothing, for four different reasons, all mine: a
+  listener from the previous round holding the port; `rm` on a log file the listener already had
+  open, so it wrote to a deleted inode; a `const say` declared twice, which killed the whole
+  script silently; and a fixture whose UIDs churn when a file is added while it is running. Only
+  the last is about the program. **The fix was to stop typing sequences at a prompt and write the
+  run as a script**, which is exactly what `scripts/live-tests.sh` exists for and what F88 already
+  taught. Ad-hoc is where the errors live.
+- A parse error in an injected script is invisible: nothing runs, including whatever would have
+  reported the error. A separate first `<script>` that only installs an error listener turns
+  silence into `SyntaxError: Cannot declare a const variable twice`.

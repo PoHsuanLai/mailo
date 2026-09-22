@@ -1109,9 +1109,12 @@ the attribution line quoted into outgoing replies — was invisible to forty-thr
 obvious within one minute of reading `mailo list` on a machine in `+0800`. F99, a `reply` that
 offered a `send` no command could make work, came from the next minute.
 
-The shell renders, its root holds focus, and a key press in the running window moves mail: `j`
-opens a conversation and `e` archives it, measured from inside the live page against a real
-database (F108). What remains of the criterion is the criterion: days of real mail.
+The shell renders, its root holds focus, and the two journeys a mail client is for have been
+watched happening in it: `j` opens a conversation and `e` archives it (F108); pressing Sync
+fetches a message that was waiting on the server and the list grows from two rows to three; `j`
+then `r` opens a composer addressed to the right person, and `Escape` closes it with what was
+typed saved as a draft (F109). All from inside the live page, against a real database and a real
+IMAP server. What remains of the criterion is the criterion: days of real mail.
 
 The shell now has a keyboard (F103) — j/k to move, e to archive, s and u to toggle, r and a to
 reply, Escape to close — and F104 closed the part F103 could not verify: `VirtualDom::handle_event`
