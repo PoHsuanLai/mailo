@@ -38,6 +38,22 @@ pub fn wake(store: &SqliteStore, thread: ThreadId, now: DateTime<Utc>) -> Result
     Ok("back in the inbox\n".to_owned())
 }
 
+/// Pin a conversation, or unpin it if it is already pinned.
+///
+/// Here rather than in a module of its own because pin and snooze are the same shape: thread
+/// level, local by construction, and needing a payload that `op_for` cannot supply.
+pub fn pin(store: &SqliteStore, thread: ThreadId, now: DateTime<Utc>) -> Result<String, String> {
+    let loaded = store.thread(thread).map_err(|e| e.to_string())?;
+    let op = crate::view::pin_op(&loaded.summary, now);
+    let pinned = matches!(op, Op::SetPin(mail_domain::Pin::Rank(_)));
+    apply(store, thread, op, now)?;
+    Ok(if pinned {
+        "pinned\n".to_owned()
+    } else {
+        "unpinned\n".to_owned()
+    })
+}
+
 /// Apply `Op::SetSnooze` to a thread.
 ///
 /// Through `Op::apply` and `Store::apply` like every other operation, so the change is recorded
@@ -50,6 +66,12 @@ fn set(
     snooze: Snooze,
     now: DateTime<Utc>,
 ) -> Result<(), String> {
+    apply(store, thread, Op::SetSnooze(snooze), now)
+}
+
+/// Apply a thread-level op through `Op::apply` and `Store::apply`, like every other operation,
+/// so the change is recorded with its inverse and can be undone.
+fn apply(store: &SqliteStore, thread: ThreadId, op: Op, now: DateTime<Utc>) -> Result<(), String> {
     let loaded = store.thread(thread).map_err(|e| e.to_string())?;
     let messages: Vec<Message> = loaded
         .messages
@@ -61,7 +83,7 @@ fn set(
         .map(|m| m.account)
         .ok_or_else(|| "that conversation has no messages".to_owned())?;
 
-    let applied = Op::SetSnooze(snooze).apply(
+    let applied = op.apply(
         &Target::Threads(vec![thread]),
         &loaded,
         &messages,

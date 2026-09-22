@@ -48,6 +48,10 @@ pub enum Command {
     Drafts,
     /// Delete a draft.
     Discard { draft: DraftId },
+    /// Pin a conversation, or unpin it if it is already pinned.
+    Pin { thread: ThreadId },
+    /// Conversations kept in view.
+    ListPinned { limit: u32 },
     /// Conversations that are put off, and not yet due.
     ListSnoozed { limit: u32 },
     /// Put a conversation off until later.
@@ -87,6 +91,11 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
             // any of them is in, which is what `filter.rs` means by predicates over mirrors.
             if matches!(args.get(1).map(String::as_str), Some("snoozed")) {
                 return Ok(Command::ListSnoozed {
+                    limit: parse_limit(args.get(2))?,
+                });
+            }
+            if matches!(args.get(1).map(String::as_str), Some("pinned")) {
+                return Ok(Command::ListPinned {
                     limit: parse_limit(args.get(2))?,
                 });
             }
@@ -185,6 +194,17 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                 to,
                 // Filled in by the caller, which owns stdin. Parsing stays pure.
                 body: String::new(),
+            })
+        }
+        "pin" => {
+            let raw = args
+                .get(1)
+                .ok_or_else(|| format!("pin needs a thread id\n\n{}", usage()))?;
+            let uuid = raw
+                .parse()
+                .map_err(|_| format!("{raw:?} is not a thread id"))?;
+            Ok(Command::Pin {
+                thread: ThreadId::from_uuid(uuid),
             })
         }
         "snooze" => {
@@ -375,7 +395,7 @@ pub fn usage() -> String {
     "\
 usage: mailo <command>
 
-  list [inbox|archive|sent|drafts|trash|spam|snoozed] [limit]
+  list [inbox|archive|sent|drafts|trash|spam|snoozed|pinned] [limit]
   show <thread-id>          prints each message's id, for `reply`
   search <words...>
   reply <message-id> [--all]  compose a reply; the body is read from stdin
@@ -385,6 +405,7 @@ usage: mailo <command>
   snooze <thread-id> <when>   put it off: later, tonight, tomorrow, weekend,
                              monday…sunday, +2h, +3d, or a date like 2026-09-25
   wake <thread-id>            bring a snoozed conversation back now
+  pin <thread-id>             keep it in view, or unpin it again
   attachments <message-id>    what is attached to a message
   save <message-id> <n> [dir] write one of them out (default: here)
   drafts                      drafts and where each one got to
@@ -491,6 +512,16 @@ pub fn run(store: &SqliteStore, command: &Command, now: DateTime<Utc>) -> Result
             }
             Ok(render_list(&page.items))
         }
+        Command::ListPinned { limit } => {
+            let page = store
+                .threads(&list_query(Filter::Pinned, *limit), now)
+                .map_err(|e| e.to_string())?;
+            if page.items.is_empty() {
+                return Ok("nothing is pinned\n".to_owned());
+            }
+            Ok(render_list(&page.items))
+        }
+        Command::Pin { thread } => crate::snooze::pin(store, *thread, now),
         Command::Snooze { thread, when } => crate::snooze::snooze(store, *thread, when, now),
         Command::Wake { thread } => crate::snooze::wake(store, *thread, now),
         Command::Attachments { message } => crate::attach::list(store, *message),

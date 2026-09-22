@@ -66,6 +66,19 @@ fn source_for(role: MailboxRole) -> Source {
     }
 }
 
+/// What a click on the pin does to a conversation, given what it is now.
+///
+/// A toggle, and the rank is the moment it was pinned, so the most recently pinned sits first
+/// when they are ordered by it. `Op::SetPin` needs a payload, which is why `op_for` cannot
+/// produce it and this can: the current state decides the direction and the clock decides the
+/// rank.
+pub fn pin_op(summary: &ThreadSummary, now: DateTime<Utc>) -> Op {
+    match summary.pin {
+        Pin::Rank(_) => Op::SetPin(Pin::Unpinned),
+        Pin::Unpinned => Op::SetPin(Pin::Rank(now.timestamp())),
+    }
+}
+
 /// Snoozed, and not yet due.
 ///
 /// `SnoozeDue` implies `Snoozed`, so "away" is the difference between them rather than a state
@@ -101,6 +114,14 @@ pub fn default_places() -> Vec<Place> {
         .iter()
         .position(|p| p.name == "Drafts")
         .map_or(places.len(), |i| i + 1);
+    places.insert(
+        at,
+        Place {
+            name: "Pinned".to_owned(),
+            source: Source::Mail(Filter::Pinned),
+            unread: None,
+        },
+    );
     places.insert(
         at,
         Place {
@@ -449,8 +470,9 @@ pub fn hover_actions(summary: &ThreadSummary) -> Vec<OpKind> {
         Star::Unstarred => OpKind::Star,
         Star::Starred => OpKind::Unstar,
     });
-    // Always offered. A forward does not depend on where the conversation is or what state it is
-    // in — it is the message being passed on, and it was reachable from nowhere until now.
+    // Both always offered. Neither depends on where the conversation is or what state it is in:
+    // a forward is the message being passed on, and a pin is a note to yourself about it.
+    out.push(OpKind::Pin);
     out.push(OpKind::Forward);
     out
 }
@@ -483,6 +505,8 @@ pub enum Shortcut {
     ReplyAll,
     /// Forward it, with no recipients chosen yet.
     Forward,
+    /// Pin it, or unpin it if it is already pinned.
+    TogglePin,
 }
 
 /// The shortcut a key press means, or `None` for a key that is not one.
@@ -511,6 +535,7 @@ pub fn shortcut(key: &str, typing: bool) -> Option<Shortcut> {
         "r" => Shortcut::Reply,
         "a" => Shortcut::ReplyAll,
         "f" => Shortcut::Forward,
+        "p" => Shortcut::TogglePin,
         _ => return None,
     })
 }
@@ -531,7 +556,9 @@ pub fn op_for_shortcut(shortcut: Shortcut, summary: &ThreadSummary) -> Option<Op
         Shortcut::ToggleStar => &[OpKind::Star, OpKind::Unstar],
         Shortcut::ToggleRead => &[OpKind::MarkRead, OpKind::MarkUnread],
         Shortcut::Next | Shortcut::Previous | Shortcut::Back => &[],
-        Shortcut::Reply | Shortcut::ReplyAll | Shortcut::Forward => &[],
+        // Both open or carry rather than performing a payload-free operation. `TogglePin` needs
+        // the clock as well as the state, so it goes through `pin_op` instead.
+        Shortcut::Reply | Shortcut::ReplyAll | Shortcut::Forward | Shortcut::TogglePin => &[],
     };
     wanted.iter().copied().find(|op| offered.contains(op))
 }
@@ -1627,6 +1654,41 @@ mod keyboard {
             None,
             "a forward opens a composer rather than performing an operation"
         );
+    }
+
+    #[test]
+    fn p_pins_and_unpins_and_the_rank_is_the_clock() {
+        let now = Utc.with_ymd_and_hms(2026, 9, 22, 6, 0, 0).unwrap();
+        assert_eq!(shortcut("p", false), Some(Shortcut::TogglePin));
+        assert_eq!(shortcut("p", true), None, "fired while typing");
+
+        let unpinned = summary(ReadState::Read, Star::Unstarred, MailboxRole::Inbox);
+        assert_eq!(
+            pin_op(&unpinned, now),
+            Op::SetPin(Pin::Rank(now.timestamp()))
+        );
+        let mut pinned = unpinned.clone();
+        pinned.pin = Pin::Rank(1);
+        assert_eq!(pin_op(&pinned, now), Op::SetPin(Pin::Unpinned));
+        // Not an operation `op_for` can produce: the payload comes from the state and the clock.
+        assert_eq!(op_for(OpKind::Pin), None);
+        assert_eq!(op_for_shortcut(Shortcut::TogglePin, &unpinned), None);
+    }
+
+    #[test]
+    fn pin_is_offered_on_every_conversation() {
+        for mailbox in [
+            MailboxRole::Inbox,
+            MailboxRole::Archive,
+            MailboxRole::Trash,
+            MailboxRole::Sent,
+        ] {
+            let summary = summary(ReadState::Read, Star::Unstarred, mailbox);
+            assert!(
+                hover_actions(&summary).contains(&OpKind::Pin),
+                "{mailbox:?}"
+            );
+        }
     }
 
     #[test]

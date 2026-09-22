@@ -213,3 +213,64 @@ mod one_definition {
         );
     }
 }
+
+/// Pinning, the other thread-level state that nothing could set.
+mod pinning {
+    use super::*;
+
+    #[test]
+    fn pinning_is_a_toggle_and_the_rank_is_when() {
+        let (store, _dir, thread) = seeded();
+        assert_eq!(snooze::pin(&store, thread, now()).unwrap(), "pinned\n");
+        assert_eq!(listed(&store, Filter::Pinned, now()), vec![thread]);
+
+        let summary = store.thread(thread).unwrap().summary;
+        assert_eq!(
+            summary.pin,
+            Pin::Rank(now().timestamp()),
+            "the rank is the moment it was pinned, so the newest sorts first"
+        );
+
+        assert_eq!(snooze::pin(&store, thread, now()).unwrap(), "unpinned\n");
+        assert!(listed(&store, Filter::Pinned, now()).is_empty());
+    }
+
+    #[test]
+    fn a_pinned_conversation_stays_in_the_inbox() {
+        // Unlike snoozing, which takes it away. A pin is a note to yourself about a conversation
+        // you are still dealing with, not a change of where it lives.
+        let (store, _dir, thread) = seeded();
+        snooze::pin(&store, thread, now()).unwrap();
+        assert_eq!(listed(&store, inbox(), now()), vec![thread]);
+        assert_eq!(
+            listed(&store, Filter::InMailbox(MailboxRole::Inbox), now()),
+            vec![thread]
+        );
+    }
+
+    #[test]
+    fn pinning_and_snoozing_are_independent() {
+        // Both are thread-level and neither is a mailbox, so a conversation can be put off *and*
+        // kept in view — and the one that is away must still be away.
+        let (store, _dir, thread) = seeded();
+        snooze::pin(&store, thread, now()).unwrap();
+        snooze::snooze(&store, thread, "tomorrow", now()).unwrap();
+
+        assert_eq!(listed(&store, Filter::Pinned, now()), vec![thread]);
+        assert_eq!(listed(&store, view::pending_snooze(), now()), vec![thread]);
+        assert!(
+            listed(&store, inbox(), now()).is_empty(),
+            "pinning brought a snoozed conversation back"
+        );
+    }
+
+    #[test]
+    fn the_sidebar_offers_somewhere_to_find_a_pinned_conversation() {
+        let places = view::default_places();
+        let pinned = places
+            .iter()
+            .find(|p| p.name == "Pinned")
+            .expect("no Pinned place");
+        assert_eq!(pinned.source, view::Source::Mail(Filter::Pinned));
+    }
+}

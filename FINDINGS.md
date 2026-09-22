@@ -2499,3 +2499,36 @@ inbox are the same filter.
 
 Found by running `mailo snooze` and then `mailo list` — the two commands anyone would type in
 that order, which is the whole of the technique.
+
+### F117 — Pin, and the sort that could not carry it
+
+The last of the three `op_for` returns `None` cases that had no surface. `Op::SetPin` and
+`Filter::Pinned` had been in the domain and answerable since phase 1; nothing could set one.
+
+`view::pin_op` resolves the payload — the direction from the conversation's current state, the
+rank from the clock, so the most recently pinned sorts first among pins. `mailo pin <thread>`
+toggles, `mailo list pinned` lists, a Pinned place sits in the sidebar, and `p` does it from the
+keyboard. Unlike snoozing, a pinned conversation **stays in the inbox**: a pin is a note to
+yourself about something you are still dealing with, not a change of where it lives. The two are
+independent, and a conversation that is pinned *and* snoozed is still away — asserted, because
+"pinning brought it back" is the obvious way to get that wrong.
+
+**What this deliberately does not do is put pinned conversations at the top of the inbox**, which
+is what the word means in most clients. `Sort` carries one property, and `Property::Pin` maps to
+`ts.pin` — the *JSON text* of the value. That orders `{"kind":"rank",…}` before
+`{"kind":"unpinned"}` by accident of spelling, ranks lexicographically so 10 sorts before 9, and
+breaks ties on thread id rather than date. Sorting the inbox by it would put pins first and
+scramble everything else.
+
+Doing it properly means a multi-key `Sort`, which reaches the SQL builder, the keyset cursor
+encoding and the `fit` ⟺ SQL parity proptest — the machinery migration 0003 was carefully built
+around. That is a larger change than a pin is worth today, so the honest version shipped instead:
+a place that holds them, which is expressible exactly and does what it says.
+
+`Property::Pin` is unused outside a serde round-trip test. It is left alone and recorded here, so
+that whoever wants pins-on-top finds the sharp edge before standing on it rather than after.
+
+That leaves labels as the only modelled-and-unreachable operation: `Op::Label(LabelId,
+Membership)` can be applied and `X-GM-LABELS` can be written to Gmail, but nothing ever reads
+labels back — the envelope walk discarded them (F113) and `Ingest.labels` has always been empty.
+Reading them is the work, and verifying it needs an account on a server that has them.

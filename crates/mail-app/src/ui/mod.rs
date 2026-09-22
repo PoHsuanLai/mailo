@@ -232,6 +232,13 @@ fn App() -> Element {
                     shell.write().open = None;
                 }
             }
+            Shortcut::TogglePin => {
+                if let Some(id) = open
+                    && apply_op(&store, id, OpKind::Pin)
+                {
+                    revision += 1;
+                }
+            }
             Shortcut::Reply | Shortcut::ReplyAll | Shortcut::Forward => {
                 let what = match action {
                     Shortcut::Reply => Composes::Reply(ReplyScope::Sender),
@@ -632,10 +639,21 @@ fn from_name(message: &Message) -> String {
 /// A free function rather than a closure so it can be called from several handlers, and so the
 /// store it needs is an argument rather than a capture.
 fn apply_op(store: &SqliteStore, thread: ThreadId, kind: OpKind) -> bool {
-    let Some(op) = op_for(kind) else {
-        // Reply, label and snooze open something rather than acting. Not wired yet, and doing
-        // nothing beats doing the wrong thing silently.
-        return false;
+    // `Pin` needs a payload `op_for` cannot supply — the direction comes from the conversation's
+    // current state and the rank from the clock — so it is resolved here, where both are in
+    // reach. Label and snooze still open something rather than acting; snooze has a vocabulary
+    // (`mailo snooze <thread> tomorrow`) and no picker in the window yet.
+    let op = match kind {
+        OpKind::Pin => {
+            let Ok(loaded) = store.thread(thread) else {
+                return false;
+            };
+            crate::view::pin_op(&loaded.summary, chrono::Utc::now())
+        }
+        other => match op_for(other) {
+            Some(op) => op,
+            None => return false,
+        },
     };
     let Ok(loaded) = store.thread(thread) else {
         return false;
