@@ -1146,6 +1146,145 @@ seam it uses is kept out of release builds by `cfg(debug_assertions)`.
 The criterion itself is not one this or any amount of work can satisfy from inside the
 repository. "Daily driver" is a judgement about using it, with real mail, over days.
 
+### 7 — The surface that is missing
+
+Phases 1–5 built everything under the window and phase 6 built the window. Neither asked what a
+person can *do* in it that is not reading, and the answer turned out to be: less than it looks.
+
+Four of the five items below are the same shape as F128, F131 and F136 — a capability that is
+modelled, stored, tested and unreachable. That shape has now appeared four times here, and it is
+worth naming as the characteristic failure of a typed design rather than an accident: the
+compiler proves the data is right and proves nothing about whether anything asks for it. A type
+with no caller compiles, tests green, and reads from inside the repository exactly like a
+feature.
+
+**7a — Write a new message.** `Draft` carries `to`, `cc`, `bcc`, `subject`, `text`, `html` and
+`identity`; `Composer` edits one and autosaves it; `compose::send` sends one. There is no way to
+*make* one that is not a reply or a forward — `compose.rs` has `draft_reply` and `draft_forward`
+and nothing else. Mail can only be written to someone who has written first, which is the
+difference between a mail client and a mail reader, and it is the largest hole in the product.
+Needs `compose::draft_new`, a New control with `c` in the keymap, and `mailo compose --to`.
+
+The one decision is which account a new message leaves from, because unlike a reply there is no
+message to infer it from. The account behind the selected place, changeable in the composer:
+with two accounts configured a silent default is a message sent from the wrong address, which is
+not a failure the sender sees.
+
+**7b — Attach a file.** `Draft.attachments: Vec<PendingAttachment>` exists, `mail_mime::build`
+assembles multipart from it, `sqlite/draft.rs` persists it, and nothing in `mail-app` has ever
+constructed one. The worst of the four, because the send path looks like it supports attachments
+right until someone needs one. Needs a file chooser, the bytes into a blob, and a size said out
+loud before the server refuses the message rather than after.
+
+**7c — Save an attachment.** Small, and mostly the same dialog as 7b. The reader already lists
+names and sizes and `attach::save` already writes safely — refusing to overwrite, and sanitising
+a name that arrived from a stranger. Today the pane prints the `mailo save` command for the user
+to run, which was the honest thing to do before there was a dialog and is furniture after.
+
+**7d — Labels, both directions.** `label:` searches, sync ingests, `Op::Label` applies locally
+and `X-GM-LABELS` carries it to Gmail. `OpKind::AddLabel` renders a button captioned "Label"
+that opens nothing. Needs a chooser over `Shell::labels`, which is already refilled on every
+revision.
+
+**7e — Snooze from the window.** The Snoozed place lists correctly and the vocabulary —
+"tomorrow", "next week" — is already parsed for the CLI. Nothing in the window can snooze a
+conversation.
+
+IDLE is the sixth gap and is not here; it is a long-lived connection and belongs with the rest of
+the concurrency work in phase 8.
+
+**Done when:** a message can be written, addressed, given a file and sent without touching the
+command line, and the window can label and snooze what it lists. Verified the way phase 6's
+journeys were — through `VirtualDom::handle_event` against a real store, and through
+`scripts/live-window.sh` against the real binary.
+
+### 8 — Concurrency, and the frame budget
+
+The argument for doing this in Rust at all, cashed in. It is deliberately after phase 7, because
+a client that cannot write a message does not need to write it faster.
+
+**What is true today**, read rather than assumed:
+
+- `SqliteStore` holds one `Connection` behind a `ReentrantMutex` (`sqlite/mod.rs:42`), so every
+  read waits behind every write *inside this process*. The comment above the pragmas says WAL
+  "lets a reader run while a writer commits, which is what keeps the UI responsive during a
+  sync". That is true of SQLite and false of this struct: with one connection, WAL only buys
+  concurrency against a separate `mailo sync` process. The single case the comment names is the
+  single case it does not cover.
+- Rendering does I/O on the render thread. Every `use_memo` — the thread list, six badge counts,
+  the label index, drafts — reads the store synchronously, and `Reader` additionally reads a blob
+  and runs the whole MIME parse, sanitize and inline-embed per message. `reader.rs` already
+  records the consequence: the open thread re-renders on every keystroke in the search box.
+- Sync is strictly sequential: a `new_current_thread` runtime, `for account in accounts` with a
+  `block_on` each (`sync.rs:163`), and within an account each mailbox does sync, then sweep, then
+  bodies. Gmail's pass blocks NTU's entirely.
+
+**The principle.** The sans-I/O core was argued for as a testing and boundary discipline. It is
+also the concurrency story, and that is the larger dividend: a pure function has no shared
+mutable state, so it parallelises without locks and caches without invalidation. The only things
+in this application that need synchronising are the store and the sockets. Everything else —
+`Filter::fit`, `ThreadSummary::derive`, MIME parse, sanitize, the protocol machines — is a value
+going in and a value coming out.
+
+**8a — Measure first.** A bench against a real database, not a fixture: the list query, the badge
+sweep, one thread render, one search keystroke. CONVENTIONS says scale is measured rather than
+assumed, and every lever below is a guess about where the milliseconds are until this exists.
+Nothing after 8b is committed to before the numbers arrive.
+
+**8b — A reader connection per thread.** One writer, N readers, so WAL delivers what its own
+comment already claims. This is the only item here scheduled ahead of its measurement, because it
+is not an optimisation: it is the removal of a lock that should never have been the design, and
+it is the precondition for everything else being worth doing.
+
+**8c — Reads off the render thread.** `use_memo` → `use_resource`, with cancellation, so a query
+superseded by the next keystroke is dropped rather than awaited.
+
+**8d — Cache the pure render.** `reader::render` is `(BlobId, SanitizePolicy) → Reading`. Blobs
+are content-addressed — `BlobStore::put` dedupes by hash — so the key is immutable by
+construction and **the cache can never need invalidating**. That is the functional design paying
+rent: in a client with a mutable message object this cache would be a bug farm, and here it is a
+map. Bounded by bytes, outside the store.
+
+**8e — Speculative render.** Once 8d exists, precompute the rows around the cursor while the user
+reads, so opening a conversation costs a lookup. Other clients parse on open; this parses before
+open. The same idea points the body backfill at what is visible instead of at arrival order.
+This is the item that produces a feeling the alternatives do not have, and it is worth nothing
+until 8b, 8c and 8d are in.
+
+**8f — Parallel sync.** Accounts are independent by construction: `AccountId` partitions every
+table. One task per account on a multi-thread runtime fetches both at once. Within an account,
+mailboxes are independent too, and because `ImapBackend` is a sans-I/O *value*, four of them is
+four values and four sockets with nothing shared to protect — the concrete payoff of "the runtime
+owns the loop". Gmail permits fifteen connections.
+
+The caveat is the reason this is not free: more connections is more ways to be throttled, and
+`Retry::After` is honoured per account rather than per connection (F130). A shared limiter comes
+first, or this turns a working client into a rate-limited one.
+
+**8g — IDLE.** `AccountEngine::watch` has handled IDLE since phase 3 and has no caller outside
+tests; F128 chose the poll loop deliberately and `sync.rs:114` says so. Last, because it converts
+"up to five minutes late" into "instant", which is the smallest user-visible win on this list and
+the one with the most failure modes — a connection held open for hours, through sleep, network
+changes and a server that drops it silently.
+
+**Not a database problem.** Asked and answered, so it is not asked again. The contention above is
+reader-versus-writer inside one process, caused by one connection behind a mutex; the writers
+themselves are a batched ingest, single-row UI patches and a rare outbox, and two of them only
+meet when a terminal `sync` overlaps the window, which `busy_timeout` already covers. Turso was
+considered and is disqualified on its own documentation rather than on taste — under MVCC
+"indexes cannot be created and databases with indexes cannot be used", the whole database is
+loaded into memory on first access, and the project is beta with MVCC experimental; its
+full-text search is Tantivy behind `fts_match` rather than FTS5, so the CJK bigram work would be
+rewritten. Worth revisiting if MVCC stabilises with indexes, since it is pure Rust and
+file-format compatible. SurrealDB is a worse fit for a structural reason: SurrealQL replaces the
+SQL layer, and with it the `fit` ⟺ SQL proptest that is the only thing keeping `MemoryStore` and
+`SqliteStore` from silently disagreeing. A mail archive also wants the most durable file format
+available, which is the one already in use.
+
+**Done when:** the bench from 8a is re-run and says what changed; typing in the search box with a
+large thread open drops no frames; a sync pass fetches both accounts at once; and opening a
+conversation the user was about to open is a lookup.
+
 ---
 
 ## Test strategy

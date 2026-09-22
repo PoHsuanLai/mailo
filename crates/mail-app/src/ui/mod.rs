@@ -175,6 +175,12 @@ fn App() -> Element {
         if shell.peek().labels != known {
             shell.write().labels = known;
         }
+        // The same shape for the same reason: the From row needs the list, and an account added
+        // in a terminal should reach the open window without a restart.
+        let sending = crate::compose::sending_accounts(&store);
+        if shell.peek().accounts != sending {
+            shell.write().accounts = sending;
+        }
     });
 
     let threads = use_memo(move || {
@@ -275,6 +281,23 @@ fn App() -> Element {
                     && apply_op(&store, id, OpKind::Pin)
                 {
                     revision += 1;
+                }
+            }
+            Shortcut::Compose => {
+                // The only shortcut that does not consult the conversation under the cursor, and
+                // so the only one that does anything in an empty mailbox.
+                // Cloned out and the guard dropped before anything writes back. The same
+                // hazard the composer's handlers document, caught here by the borrow checker
+                // rather than at runtime.
+                let known = shell.peek().accounts.clone();
+                match start_new(&store, &known) {
+                    Ok(draft) => {
+                        shell.write().compose(&draft);
+                        revision += 1;
+                    }
+                    // Nowhere to put it: the composer that would show a notice is what failed
+                    // to open. Same bind as the reply buttons, and the same answer.
+                    Err(why) => eprintln!("compose: {why}"),
                 }
             }
             Shortcut::Reply | Shortcut::ReplyAll | Shortcut::Forward => {
@@ -394,6 +417,22 @@ fn App() -> Element {
                             span { class: "badge", "{count}" }
                         }
                     }
+                }
+                button {
+                    class: "place compose",
+                    onclick: move |_| {
+                        let store = consume_context::<Arc<SqliteStore>>();
+                        let known = shell.peek().accounts.clone();
+                        match start_new(&store, &known) {
+                            Ok(draft) => {
+                                shell.write().compose(&draft);
+                                revision += 1;
+                            }
+                            Err(why) => eprintln!("compose: {why}"),
+                        }
+                    },
+                    title: "Write a new message (c)",
+                    "New"
                 }
                 div { class: "spacer" }
                 button {
@@ -681,6 +720,22 @@ fn composes(kind: OpKind) -> Option<Composes> {
 ///
 /// Which message that answers is [`crate::view::reply_target`]'s decision, not this function's.
 /// Open a composer on the newest message of `thread`, replying or forwarding.
+/// Begin a message that answers nothing.
+///
+/// `known` is the shell's own list, so the common case — one account — asks the store nothing
+/// and the multi-account case picks a default the user can see and change in the From row.
+/// Empty only before the first `use_effect` has run or before an account exists, and the store
+/// is asked then, because a window that has just been opened should still be able to write.
+fn start_new(store: &SqliteStore, known: &[(String, AccountId)]) -> Result<Draft, String> {
+    let account = match known.first() {
+        Some((_, id)) => *id,
+        None => crate::compose::account_for(store, None)?,
+    };
+    // No recipients and no subject: there is no original to take either from, and a guess is
+    // something the sender has to notice and undo. Saved anyway, so closing the window keeps it.
+    crate::compose::draft_new(store, account, &[], "", "", chrono::Utc::now())
+}
+
 fn start_composing(store: &SqliteStore, thread: ThreadId, what: Composes) -> Result<Draft, String> {
     match what {
         Composes::Reply(scope) => start_reply(store, thread, scope),
@@ -1824,6 +1879,46 @@ mod render_tests {
             "the message being carried is not in it:\n{}",
             made.text
         );
+    }
+
+    #[tokio::test]
+    async fn c_writes_to_someone_who_has_not_written_first() {
+        // Phase 7a through the real tree. Everything else the keyboard does acts on the
+        // conversation under the cursor; this one has no conversation, which is why it is also
+        // the only shortcut that does anything at all in an empty mailbox.
+        dispatching();
+        let (store, _dir) = realistic();
+        let mut dom = VirtualDom::new(App).with_root_context(store.clone());
+        dom.rebuild_in_place();
+        let before = store.drafts(ACCOUNT).unwrap().len();
+
+        // No `j` first, deliberately: nothing is open and nothing needs to be.
+        press(&mut dom, "c", INSIDE_THE_SHELL);
+
+        let drafts = store.drafts(ACCOUNT).unwrap();
+        assert_eq!(drafts.len(), before + 1, "`c` opened nothing");
+        let made = drafts
+            .iter()
+            .max_by_key(|d| d.updated)
+            .expect("the draft just written");
+        assert_eq!(
+            made.in_reply_to, None,
+            "a new message must not answer anything"
+        );
+        assert_eq!(made.forward_of, None, "nor carry anything");
+        assert!(
+            made.to.is_empty(),
+            "there is no original to take a recipient from, and a guess is one the sender has \
+             to notice and undo"
+        );
+        assert!(made.subject.is_empty(), "{:?}", made.subject);
+    }
+
+    #[tokio::test]
+    async fn the_sidebar_offers_a_way_to_write() {
+        // The button, for anyone who does not know the key.
+        let (store, _dir) = realistic();
+        assert!(markup(store).contains(">New<"));
     }
 
     #[tokio::test]

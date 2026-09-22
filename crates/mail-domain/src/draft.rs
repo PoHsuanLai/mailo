@@ -156,6 +156,34 @@ impl Draft {
             updated: now,
         }
     }
+
+    /// A message that answers nothing.
+    ///
+    /// Everything empty but the identity it leaves from. A new message has no original to take
+    /// recipients, a subject or a thread from, and there is no answer to any of them that is
+    /// not a guess the sender would have to notice and undo.
+    ///
+    /// `in_reply_to` and `forward_of` are both `None`, which is the whole difference: this is
+    /// the one draft that starts a conversation instead of joining one, so `mail-mime` writes
+    /// neither `In-Reply-To` nor `References` and the recipient's client threads it as new.
+    pub fn blank(identity: &crate::account::Identity, now: DateTime<Utc>) -> Draft {
+        Draft {
+            id: DraftId::generate(),
+            account: identity.account,
+            identity: identity.id,
+            to: Vec::new(),
+            cc: Vec::new(),
+            bcc: Vec::new(),
+            subject: String::new(),
+            in_reply_to: None,
+            forward_of: None,
+            text: String::new(),
+            html: None,
+            attachments: Vec::new(),
+            state: SendState::Editing,
+            updated: now,
+        }
+    }
 }
 
 /// `subject` with `prefix` prepended, unless it already carries one of `existing`.

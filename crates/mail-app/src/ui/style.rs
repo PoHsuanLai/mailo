@@ -15,6 +15,8 @@ body { margin: 0; font: 14px/1.5 system-ui, sans-serif; }
 .place { text-align: left; padding: 6px 10px; border: 0; border-radius: 6px; background: none; color: inherit; font: inherit; cursor: pointer; }
 .place:hover { background: var(--edge); }
 .place.on { background: var(--edge); font-weight: 600; }
+/* Set apart from the places above it: those choose what to look at, this one writes. */
+.place.compose { margin-top: 10px; font-weight: 600; border: 1px solid var(--edge); }
 .list { overflow-y: auto; border-right: 1px solid var(--edge); }
 .search { width: 100%; padding: 10px 12px; border: 0; border-bottom: 1px solid var(--edge); background: none; color: inherit; font: inherit; }
 .row { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 13fr) auto; gap: 10px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--edge); cursor: pointer; position: relative; }

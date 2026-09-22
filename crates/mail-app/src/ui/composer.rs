@@ -120,6 +120,56 @@ pub(super) fn Composer(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
             if let Some(notice) = editing.notice.clone() {
                 p { class: "notice", "{notice}" }
             }
+            // Only when there is a choice to make. One account is not a decision, and a row
+            // that always says the same thing is furniture — the same rule the reader's "Load
+            // remote images" offer had to learn.
+            if shell.read().accounts.len() > 1 {
+                label { "From"
+                    select {
+                        onchange: move |e: Event<FormData>| {
+                            let Some(picked) = shell
+                                .read()
+                                .accounts
+                                .iter()
+                                .find(|(address, _)| *address == e.value())
+                                .map(|(_, id)| *id)
+                            else {
+                                return;
+                            };
+                            let store = consume_context::<Arc<SqliteStore>>();
+                            // Saved first. The account moves on the stored row, and anything in
+                            // the boxes that has not been written yet would be read back over.
+                            let current = shell.read().composing.clone();
+                            let moved = persist(&store, current.as_ref()).and_then(|draft| {
+                                crate::compose::move_draft_to(
+                                    &store,
+                                    draft.id,
+                                    picked,
+                                    chrono::Utc::now(),
+                                )
+                            });
+                            match moved {
+                                Ok(draft) => {
+                                    if let Some(c) = shell.write().composing.as_mut() {
+                                        c.from = draft.account;
+                                        c.notice = None;
+                                    }
+                                    revision += 1;
+                                }
+                                Err(why) => set_notice(&mut shell, Some(why)),
+                            }
+                        },
+                        for (address, id) in shell.read().accounts.clone() {
+                            option {
+                                key: "{id}",
+                                value: "{address}",
+                                selected: id == editing.from,
+                                "{address}"
+                            }
+                        }
+                    }
+                }
+            }
             label { "To"
                 input {
                     value: "{editing.to}",

@@ -81,6 +81,13 @@ pub enum Command {
         to: Vec<Address>,
         body: String,
     },
+    /// A message that answers nothing. `from` names the sending account when there is a choice.
+    Compose {
+        from: Option<String>,
+        to: Vec<Address>,
+        subject: String,
+        body: String,
+    },
 }
 
 /// Parse arguments, or explain what was wrong.
@@ -198,6 +205,44 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
             Ok(Command::Forward {
                 message: MessageId::from_uuid(uuid),
                 to,
+                // Filled in by the caller, which owns stdin. Parsing stays pure.
+                body: String::new(),
+            })
+        }
+        "compose" => {
+            // A flag loop rather than fixed positions: three options, two of them optional, and
+            // the order someone types them in is not something to have an opinion about.
+            let mut from = None;
+            let mut to = Vec::new();
+            let mut subject = String::new();
+            let mut rest = args[1..].iter();
+            while let Some(flag) = rest.next() {
+                let missing = format!("{flag} needs a value\n\n{}", usage());
+                match flag.as_str() {
+                    "--from" => {
+                        from = Some(rest.next().ok_or(missing)?.clone());
+                    }
+                    "--to" => {
+                        to = crate::view::parse_addresses(rest.next().ok_or(missing)?)?;
+                    }
+                    "--subject" => {
+                        subject = rest.next().ok_or(missing)?.clone();
+                    }
+                    other => return Err(format!("unknown option {other:?}\n\n{}", usage())),
+                }
+            }
+            if to.is_empty() {
+                // The F99 dead end once more: a draft with nobody to send it to is one no
+                // command can finish.
+                return Err(format!(
+                    "compose needs recipients: mailo compose --to someone@example.com\n\n{}",
+                    usage()
+                ));
+            }
+            Ok(Command::Compose {
+                from,
+                to,
+                subject,
                 // Filled in by the caller, which owns stdin. Parsing stays pure.
                 body: String::new(),
             })
@@ -431,6 +476,8 @@ usage: mailo <command>
   reply <message-id> [--all]  compose a reply; the body is read from stdin
   forward <message-id> --to a@b[,c@d]
                              forward it; the covering note is read from stdin
+  compose --to a@b[,c@d] [--subject S] [--from address]
+                             a new message; the body is read from stdin
   send <draft-id>             queue a draft for the next sync
   snooze <thread-id> <when>   put it off: later, tonight, tomorrow, weekend,
                              monday…sunday, +2h, +3d, or a date like 2026-09-25
@@ -572,6 +619,12 @@ pub fn run(store: &SqliteStore, command: &Command, now: DateTime<Utc>) -> Result
         Command::Forward { message, to, body } => {
             crate::compose::forward(store, *message, to, body, now)
         }
+        Command::Compose {
+            from,
+            to,
+            subject,
+            body,
+        } => crate::compose::new_message(store, from.as_deref(), to, subject, body, now),
         Command::Discard { draft } => {
             crate::compose::discard(store, *draft).map(|subject| format!("discarded {subject:?}\n"))
         }

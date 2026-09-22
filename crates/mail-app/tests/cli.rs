@@ -653,3 +653,96 @@ mod forwarding {
         assert!(usage.contains("forward <message-id> --to"), "{usage}");
     }
 }
+
+/// `compose` — phase 7a's command line half.
+mod composing {
+    use super::*;
+
+    fn parse(args: &[&str]) -> Result<cli::Command, String> {
+        cli::parse(&args.iter().map(|s| (*s).to_string()).collect::<Vec<_>>())
+    }
+
+    #[test]
+    fn a_new_message_needs_somewhere_to_go() {
+        // The same F99 dead end `forward` has: no command adds a recipient to an existing draft,
+        // so a `compose` without `--to` would leave one that can never be sent.
+        let err = parse(&["compose"]).unwrap_err();
+        assert!(err.contains("--to"), "{err}");
+        assert!(
+            parse(&["compose", "--to"]).is_err(),
+            "no address after --to"
+        );
+        assert!(parse(&["compose", "--to", ""]).is_err(), "an empty list");
+    }
+
+    #[test]
+    fn the_options_may_come_in_any_order() {
+        // A flag loop rather than fixed positions, so this is the property worth pinning: three
+        // options, two optional, and no opinion about the order someone types them in.
+        let one = parse(&[
+            "compose",
+            "--to",
+            "kim@elsewhere.test",
+            "--subject",
+            "dinner",
+            "--from",
+            "me@example.test",
+        ])
+        .expect("all three, one order");
+        let other = parse(&[
+            "compose",
+            "--from",
+            "me@example.test",
+            "--subject",
+            "dinner",
+            "--to",
+            "kim@elsewhere.test",
+        ])
+        .expect("all three, another order");
+        assert_eq!(one, other);
+
+        match one {
+            cli::Command::Compose {
+                from,
+                to,
+                subject,
+                body,
+            } => {
+                assert_eq!(from.as_deref(), Some("me@example.test"));
+                assert_eq!(to.len(), 1);
+                assert_eq!(to[0].email, "kim@elsewhere.test");
+                assert_eq!(subject, "dinner");
+                // Read by the caller, which owns stdin; parsing stays pure.
+                assert!(body.is_empty());
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_sender_and_the_subject_are_both_optional() {
+        let parsed = parse(&["compose", "--to", "kim@elsewhere.test"]).expect("just recipients");
+        match parsed {
+            cli::Command::Compose { from, subject, .. } => {
+                // `None`, not a guess: with one account `compose` picks it, and with several it
+                // asks rather than sending from the wrong address.
+                assert_eq!(from, None);
+                assert!(subject.is_empty());
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_option_nobody_recognises_is_refused_rather_than_ignored() {
+        let err =
+            parse(&["compose", "--to", "kim@elsewhere.test", "--bcc", "x@y.test"]).unwrap_err();
+        assert!(err.contains("--bcc"), "{err}");
+    }
+
+    #[test]
+    fn the_usage_mentions_it() {
+        // A command nothing names is one nobody finds.
+        assert!(cli::usage().contains("compose --to"), "{}", cli::usage());
+    }
+}

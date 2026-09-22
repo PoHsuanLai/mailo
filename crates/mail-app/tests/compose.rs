@@ -1152,3 +1152,261 @@ mod signatures {
         assert!(!only_draft(&store).text.contains("-- "));
     }
 }
+
+/// Writing to someone who has not written first — `plan.md` phase 7a.
+///
+/// The gap this closes was not a bug in any function: every function worked. `Draft` carried
+/// every field, `Composer` edited one, `send` sent one, and there was no way to *make* one that
+/// was not a reply or a forward, so mail could only be answered and never begun. The tests below
+/// are written against that sentence rather than against the new code, which is why the first
+/// one sends to an address that appears nowhere in the seeded store.
+mod writing_to_someone_new {
+    use super::*;
+
+    fn stranger() -> Vec<Address> {
+        vec![Address {
+            name: None,
+            // Deliberately not `ada@example.test`: nobody at this address has ever written to
+            // us, so no reply or forward could reach it and only 7a can.
+            email: "kim@elsewhere.test".to_owned(),
+        }]
+    }
+
+    #[test]
+    fn a_message_can_be_written_to_someone_who_never_wrote_first() {
+        let (store, _dir) = seeded();
+        let draft = compose::draft_new(
+            &store,
+            ACCOUNT,
+            &stranger(),
+            "dinner on saturday",
+            "are you free?",
+            at(10),
+        )
+        .expect("a new message needs no original");
+
+        compose::send(&store, draft.id, at(20)).expect("send queues");
+        let due = store.outbox_due(ACCOUNT, at(30)).unwrap();
+        assert_eq!(due.len(), 1, "nothing was queued");
+        match &due[0].op {
+            ProtoOp::Submit {
+                mail_from, rcpt_to, ..
+            } => {
+                assert_eq!(mail_from, "me@example.test");
+                assert_eq!(rcpt_to, &vec!["kim@elsewhere.test".to_owned()]);
+            }
+            other => panic!("expected a submission, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn it_starts_a_thread_rather_than_joining_one() {
+        // The difference between this and a reply, on the wire. A new message that carried
+        // `In-Reply-To` would be filed by the recipient's client under a conversation they have
+        // never seen, which is the one way this can go wrong invisibly to the sender.
+        let (store, _dir) = seeded();
+        let draft = compose::draft_new(&store, ACCOUNT, &stranger(), "hello", "", at(10)).unwrap();
+        assert_eq!(draft.in_reply_to, None);
+        assert_eq!(draft.forward_of, None);
+
+        compose::send(&store, draft.id, at(20)).unwrap();
+        let due = store.outbox_due(ACCOUNT, at(30)).unwrap();
+        let ProtoOp::Submit { raw, .. } = &due[0].op else {
+            panic!("expected a submission");
+        };
+        let bytes = store.blobs().get(&store.connection(), *raw).unwrap();
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(
+            !text.contains("In-Reply-To:"),
+            "a message that answers nothing claimed to answer something:\n{text}"
+        );
+        assert!(!text.contains("References:"), "{text}");
+        // And it is a real message regardless. Read as header lines rather than as substrings
+        // of the whole blob: `To: <kim@elsewhere.test>` is how the builder writes an address,
+        // and a `contains` that happened to be right about the angle brackets would still be
+        // matching a body that quoted the word.
+        let header = |name: &str| -> Option<String> {
+            text.lines()
+                .take_while(|line| !line.is_empty())
+                .find_map(|line| line.strip_prefix(name)?.trim().to_owned().into())
+        };
+        assert_eq!(
+            header("To:").as_deref(),
+            Some("<kim@elsewhere.test>"),
+            "{text}"
+        );
+        assert_eq!(header("Subject:").as_deref(), Some("hello"), "{text}");
+    }
+
+    #[test]
+    fn what_the_command_prints_names_the_draft_and_how_to_send_it() {
+        // The F99 rule: a command that leaves a draft behind has to say what will finish it.
+        let (store, _dir) = seeded();
+        let out = compose::new_message(
+            &store,
+            None,
+            &stranger(),
+            "dinner on saturday",
+            "are you free?",
+            at(10),
+        )
+        .expect("one account needs no --from");
+        let draft = only_draft(&store);
+        assert!(out.contains(&draft.id.to_string()), "{out}");
+        assert!(out.contains("kim@elsewhere.test"), "{out}");
+        assert!(out.contains("dinner on saturday"), "{out}");
+        assert!(out.contains(&format!("mailo send {}", draft.id)), "{out}");
+    }
+
+    #[test]
+    fn a_message_with_no_subject_says_so_rather_than_printing_a_blank() {
+        let (store, _dir) = seeded();
+        let out = compose::new_message(&store, None, &stranger(), "", "", at(10)).unwrap();
+        assert!(out.contains("(none)"), "{out}");
+    }
+
+    #[test]
+    fn the_subject_is_left_exactly_as_written() {
+        // No `Re:`, no `Fwd:`. Both constructors prefix, and reusing either one here would have
+        // been the obvious shortcut and the wrong message.
+        let (store, _dir) = seeded();
+        let draft =
+            compose::draft_new(&store, ACCOUNT, &stranger(), "Re: lunch", "", at(10)).unwrap();
+        assert_eq!(draft.subject, "Re: lunch", "the subject was rewritten");
+    }
+
+    #[test]
+    fn the_signature_is_carried_but_nothing_is_quoted() {
+        let (store, _dir) = seeded();
+        store
+            .connection()
+            .execute(
+                "UPDATE identities SET signature = 'Ada' WHERE id = ?1",
+                rusqlite::params![IDENTITY.to_string()],
+            )
+            .unwrap();
+        let draft =
+            compose::draft_new(&store, ACCOUNT, &stranger(), "hello", "hi there", at(10)).unwrap();
+        assert!(draft.text.contains("hi there"), "{:?}", draft.text);
+        assert!(draft.text.contains("\r\n-- \r\nAda"), "{:?}", draft.text);
+        // There is no original, so there is nothing to quote and no attribution line to write.
+        assert!(!draft.text.contains('>'), "{:?}", draft.text);
+        assert!(!draft.text.contains("wrote:"), "{:?}", draft.text);
+    }
+}
+
+/// Which account a new message leaves from — the one free choice in the application.
+mod choosing_the_sender {
+    use super::*;
+
+    const SECOND: AccountId =
+        AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a2"));
+    const SECOND_IDENTITY: IdentityId =
+        IdentityId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b2"));
+
+    /// Add a second sending account, as someone with a work address and a personal one has.
+    fn also(store: &SqliteStore) {
+        let mut plan = mail_domain::presets::preset_for("me@ntu.edu.tw", at(0))
+            .unwrap()
+            .plan;
+        plan.address = "work@example.test".to_owned();
+        let db = store.connection();
+        db.execute(
+            "INSERT INTO accounts (id, address, plan, created_at)
+             VALUES (?1, 'work@example.test', ?2, datetime('now', '+1 second'))",
+            rusqlite::params![SECOND.to_string(), serde_json::to_string(&plan).unwrap()],
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO identities (id, account, from_name, from_email, is_default)
+             VALUES (?1, ?2, NULL, 'work@example.test', '\"default\"')",
+            rusqlite::params![SECOND_IDENTITY.to_string(), SECOND.to_string()],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn one_account_needs_no_question() {
+        let (store, _dir) = seeded();
+        assert_eq!(compose::account_for(&store, None), Ok(ACCOUNT));
+    }
+
+    #[test]
+    fn two_accounts_and_no_answer_is_refused_rather_than_guessed() {
+        // The failure this prevents is silent: a message that goes out from the wrong address
+        // looks fine to the sender and wrong to everyone who receives it.
+        let (store, _dir) = seeded();
+        also(&store);
+        let refused = compose::account_for(&store, None).expect_err("a guess is not an answer");
+        assert!(refused.contains("--from"), "{refused}");
+        assert!(refused.contains("me@example.test"), "{refused}");
+        assert!(refused.contains("work@example.test"), "{refused}");
+    }
+
+    #[test]
+    fn an_address_that_was_named_is_used() {
+        let (store, _dir) = seeded();
+        also(&store);
+        assert_eq!(
+            compose::account_for(&store, Some("work@example.test")),
+            Ok(SECOND)
+        );
+        // Addresses are not case sensitive, and nobody types their own the same way twice.
+        assert_eq!(
+            compose::account_for(&store, Some("WORK@example.test")),
+            Ok(SECOND)
+        );
+    }
+
+    #[test]
+    fn an_address_that_is_not_here_says_which_ones_are() {
+        let (store, _dir) = seeded();
+        also(&store);
+        let refused = compose::account_for(&store, Some("nobody@example.test"))
+            .expect_err("that is not an account");
+        assert!(refused.contains("work@example.test"), "{refused}");
+    }
+
+    #[test]
+    fn changing_the_account_moves_the_identity_with_it() {
+        // Both columns or neither. `identity` is a foreign key into the *new* account's
+        // identities, so moving one without the other leaves a draft that cannot be sent — and
+        // the failure would arrive at Send, long after the choice was made.
+        let (store, _dir) = seeded();
+        also(&store);
+        let draft = compose::draft_new(&store, ACCOUNT, &[], "", "", at(10)).unwrap();
+        assert_eq!(draft.identity, IDENTITY);
+
+        let moved = compose::move_draft_to(&store, draft.id, SECOND, at(11)).expect("it moves");
+        assert_eq!(moved.account, SECOND);
+        assert_eq!(
+            moved.identity, SECOND_IDENTITY,
+            "the draft kept an identity belonging to the account it left"
+        );
+
+        // And it is the stored row that moved, not just the value returned.
+        let reread = store.draft(draft.id).unwrap();
+        assert_eq!(reread.account, SECOND);
+        assert_eq!(reread.identity, SECOND_IDENTITY);
+    }
+
+    #[test]
+    fn moving_to_an_account_with_no_identity_leaves_the_draft_alone() {
+        let (store, _dir) = seeded();
+        also(&store);
+        store
+            .connection()
+            .execute(
+                "DELETE FROM identities WHERE account = ?1",
+                rusqlite::params![SECOND.to_string()],
+            )
+            .unwrap();
+        let draft = compose::draft_new(&store, ACCOUNT, &[], "", "", at(10)).unwrap();
+
+        compose::move_draft_to(&store, draft.id, SECOND, at(11))
+            .expect_err("an account with no identity cannot send");
+        let reread = store.draft(draft.id).unwrap();
+        assert_eq!(reread.account, ACCOUNT, "the draft was moved anyway");
+        assert_eq!(reread.identity, IDENTITY);
+    }
+}

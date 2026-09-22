@@ -49,6 +49,24 @@ fn main() {
                 body,
             })
         }
+        Some(cli::Command::Compose {
+            from,
+            to,
+            subject,
+            body: _,
+        }) => {
+            let mut body = String::new();
+            if let Err(e) = std::io::Read::read_to_string(&mut std::io::stdin(), &mut body) {
+                eprintln!("cannot read the message body: {e}");
+                std::process::exit(1);
+            }
+            Some(cli::Command::Compose {
+                from,
+                to,
+                subject,
+                body,
+            })
+        }
         Some(cli::Command::Forward {
             message,
             to,

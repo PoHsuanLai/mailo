@@ -171,6 +171,137 @@ where
     Ok(draft)
 }
 
+/// Every account that can send, as `(address, id)`, oldest first.
+///
+/// Oldest first rather than alphabetical so the list does not reorder itself when an account is
+/// added — a picker whose first entry moves is a picker that sends from the wrong address.
+pub fn sending_accounts(store: &SqliteStore) -> Vec<(String, AccountId)> {
+    let db = store.connection();
+    let Ok(mut stmt) = db.prepare("SELECT address, id FROM accounts ORDER BY created_at") else {
+        return Vec::new();
+    };
+    let Ok(rows) = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+    else {
+        return Vec::new();
+    };
+    rows.filter_map(|row| row.ok())
+        .filter_map(|(address, id)| Some((address, AccountId::from_uuid(id.parse().ok()?))))
+        .collect()
+}
+
+/// Which account a new message leaves from.
+///
+/// `wanted` is what the user said, matched on the address. With nothing said and one account
+/// configured the answer is obvious; with nothing said and several, this refuses and lists them.
+///
+/// Refusing is the point. A reply inherits its account from the message it answers, so this is
+/// the only place in the application where the sending address is a free choice — and a silent
+/// default is a message that goes out from the wrong address, which is not a failure the sender
+/// sees until someone replies to it.
+pub fn account_for(store: &SqliteStore, wanted: Option<&str>) -> Result<AccountId, String> {
+    let accounts = sending_accounts(store);
+    if accounts.is_empty() {
+        return Err("no accounts. Add one with: mailo account add <address>".to_owned());
+    }
+    match wanted {
+        Some(address) => accounts
+            .iter()
+            .find(|(had, _)| had.eq_ignore_ascii_case(address))
+            .map(|(_, id)| *id)
+            .ok_or_else(|| {
+                let known: Vec<&str> = accounts.iter().map(|(a, _)| a.as_str()).collect();
+                format!("no account {address}. This one has: {}", known.join(", "))
+            }),
+        None if accounts.len() == 1 => Ok(accounts[0].1),
+        None => {
+            let known: Vec<&str> = accounts.iter().map(|(a, _)| a.as_str()).collect();
+            Err(format!(
+                "which account should this be sent from? Say --from <address>: {}",
+                known.join(", ")
+            ))
+        }
+    }
+}
+
+/// Create and persist a message that answers nothing, returning the draft.
+///
+/// The gap phase 7 opened with: `Draft` has carried every field a new message needs since phase
+/// 1, `Composer` has edited one since phase 6 and `send` has sent one since phase 4, and there
+/// was no way to *make* one that was not a reply or a forward. Mail could only be written to
+/// someone who had written first.
+///
+/// Shaped like [`draft_reply`] deliberately — persisted immediately, returned whole — so the
+/// composer opens on a draft that already exists and Discard has something to delete.
+pub fn draft_new(
+    store: &SqliteStore,
+    account: AccountId,
+    to: &[Address],
+    subject: &str,
+    body: &str,
+    now: DateTime<Utc>,
+) -> Result<Draft, String> {
+    let identity = identity_of(store, account, None)?;
+    let mut draft = Draft::blank(&identity, now);
+    draft.to = to.to_vec();
+    draft.subject = subject.to_owned();
+    // The signature, and nothing else. There is no original to quote and no header block to
+    // write, which is the whole difference between this and the other two.
+    draft.text = signed(body, &identity);
+    save(store, &draft)?;
+    Ok(draft)
+}
+
+/// Send this draft from a different account.
+///
+/// Both columns move together. `identity` is a foreign key into the *new* account's identities,
+/// so writing one without the other leaves a draft that `identity_of` cannot resolve and nothing
+/// can send — and the failure would arrive at Send, long after the choice was made. The identity
+/// is therefore looked up before anything is written, so an account that has none leaves the
+/// draft exactly where it was.
+pub fn move_draft_to(
+    store: &SqliteStore,
+    draft: DraftId,
+    account: AccountId,
+    now: DateTime<Utc>,
+) -> Result<Draft, String> {
+    let mut draft = store.draft(draft).map_err(|e| e.to_string())?;
+    if draft.account == account {
+        return Ok(draft);
+    }
+    let identity = identity_of(store, account, None)?;
+    draft.account = account;
+    draft.identity = identity.id;
+    draft.updated = now;
+    save(store, &draft)?;
+    Ok(draft)
+}
+
+/// Start a new message, as the CLI reports it.
+pub fn new_message(
+    store: &SqliteStore,
+    from: Option<&str>,
+    to: &[Address],
+    subject: &str,
+    body: &str,
+    now: DateTime<Utc>,
+) -> Result<String, String> {
+    let account = account_for(store, from)?;
+    let draft = draft_new(store, account, to, subject, body, now)?;
+    let mut out = format!("draft {}\n", draft.id);
+    let _ = writeln!(out, "  to      {}", addresses(&draft.to));
+    let _ = writeln!(
+        out,
+        "  subject {}",
+        if draft.subject.is_empty() {
+            "(none)"
+        } else {
+            &draft.subject
+        }
+    );
+    let _ = writeln!(out, "\nsend it with: mailo send {}", draft.id);
+    Ok(out)
+}
+
 /// The forward body: what the user wrote, then the original beneath a header block.
 ///
 /// Not `>`-quoted. A forward is the message itself being passed on rather than answered, and

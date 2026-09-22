@@ -172,6 +172,12 @@ pub struct Shell {
     /// sits beside it. A user who opens a reply and then clicks another thread should still
     /// have their half-written reply when they come back, which a mode would have thrown away.
     pub composing: Option<Composing>,
+    /// Every account that can send, as `(address, id)`, for the composer's From row.
+    ///
+    /// Beside `labels` and filled the same way, because it answers the same kind of question:
+    /// something the shell needs to know about the world that is a list of values rather than a
+    /// connection, so `query` and `apply_to` stay pure functions of what is on screen.
+    pub accounts: Vec<(String, AccountId)>,
     /// Every label name the store knows, and which label bears it.
     ///
     /// Data rather than a connection, so `query` stays a pure function of the shell: `label:` is
@@ -194,6 +200,12 @@ pub struct Shell {
 pub struct Composing {
     /// The draft this edits. It already exists in the store before the composer opens.
     pub draft: DraftId,
+    /// The account this leaves from.
+    ///
+    /// Held here so the From row can show it and change it. A reply takes it from the message
+    /// it answers and it is never in doubt; a new message is the one case where the sender
+    /// chooses, and the choice has to be visible or it is not a choice.
+    pub from: AccountId,
     pub to: String,
     pub cc: String,
     pub subject: String,
@@ -214,6 +226,7 @@ impl Composing {
     pub fn of(draft: &Draft) -> Self {
         Self {
             draft: draft.id,
+            from: draft.account,
             to: join_addresses(&draft.to),
             cc: join_addresses(&draft.cc),
             subject: draft.subject.clone(),
@@ -356,6 +369,7 @@ impl Default for Shell {
             open: None,
             show_remote_images: false,
             composing: None,
+            accounts: Vec::new(),
             labels: Vec::new(),
         }
     }
@@ -515,6 +529,11 @@ pub enum Shortcut {
     Forward,
     /// Pin it, or unpin it if it is already pinned.
     TogglePin,
+    /// Start a message that answers nothing.
+    ///
+    /// The one shortcut here that does not act on the conversation under the cursor, which is
+    /// why it is also the one that works with an empty mailbox.
+    Compose,
 }
 
 /// The shortcut a key press means, or `None` for a key that is not one.
@@ -544,6 +563,7 @@ pub fn shortcut(key: &str, typing: bool) -> Option<Shortcut> {
         "a" => Shortcut::ReplyAll,
         "f" => Shortcut::Forward,
         "p" => Shortcut::TogglePin,
+        "c" => Shortcut::Compose,
         _ => return None,
     })
 }
@@ -565,8 +585,13 @@ pub fn op_for_shortcut(shortcut: Shortcut, summary: &ThreadSummary) -> Option<Op
         Shortcut::ToggleRead => &[OpKind::MarkRead, OpKind::MarkUnread],
         Shortcut::Next | Shortcut::Previous | Shortcut::Back => &[],
         // Both open or carry rather than performing a payload-free operation. `TogglePin` needs
-        // the clock as well as the state, so it goes through `pin_op` instead.
-        Shortcut::Reply | Shortcut::ReplyAll | Shortcut::Forward | Shortcut::TogglePin => &[],
+        // the clock as well as the state, so it goes through `pin_op` instead. `Compose` is not
+        // about this conversation at all — it is the one shortcut with no `summary` to consult.
+        Shortcut::Reply
+        | Shortcut::ReplyAll
+        | Shortcut::Forward
+        | Shortcut::TogglePin
+        | Shortcut::Compose => &[],
     };
     wanted.iter().copied().find(|op| offered.contains(op))
 }
@@ -2259,6 +2284,7 @@ mod discarding {
     fn composing() -> Composing {
         Composing {
             draft: DraftId::generate(),
+            from: AccountId::generate(),
             to: "ada@example.test".to_owned(),
             cc: String::new(),
             subject: "Re: lunch".to_owned(),
