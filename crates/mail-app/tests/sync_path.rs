@@ -822,7 +822,7 @@ mod a_server_asking_to_be_left_alone {
 /// What an account with no credential is told to do about it.
 ///
 /// This is the first thing a new user reads, and it was one sentence for every account: "Run:
-/// MAILO_PASSWORD=… mailo account add <address>". For the NTU account that is exactly right. For
+/// MAILO_PASSWORD=… mailo account add <address>". For a password account that is exactly right. For
 /// a Gmail account it is advice that cannot work — Google turned off password authentication for
 /// IMAP in May 2022 — and following it means a failed sign-in against Google with a password
 /// that was never going to be accepted. `mailo account add` prints the right thing for that
@@ -962,7 +962,7 @@ mod capabilities_the_window_reads {
 /// Accounts are independent by construction: `AccountId` partitions every table, and two accounts
 /// are two conversations with two servers that have never heard of each other. Run one after
 /// another, a pass spends the *sum* of their waiting, and almost all of a pass is waiting — so a
-/// slow Gmail backfill held up an NTU poll that had nothing to do with it.
+/// slow Gmail backfill held up another account's poll that had nothing to do with it.
 mod both_accounts_at_once {
     use super::*;
     use std::sync::{Arc as StdArc, Mutex as StdMutex};

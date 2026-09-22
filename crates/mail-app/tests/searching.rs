@@ -359,7 +359,7 @@ mod labels {
 
     #[test]
     fn the_same_name_on_two_accounts_means_either() {
-        // `UNIQUE (account, name)`, so "travel" on the Gmail account and "travel" on the NTU one
+        // `UNIQUE (account, name)`, so "travel" on the Gmail account and "travel" on the work one
         // are two labels. Someone typing `label:travel` means the word — taking the first
         // silently searched one mailbox, which is a wrong answer that looks like an empty one.
         assert_eq!(

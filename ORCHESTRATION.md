@@ -36,7 +36,7 @@ around it and it does not change it. Four of the five errors corrected in `plan.
 | shell drafts, paging, sync | **done** — Drafts lists the draft table rather than an empty mailbox, "Show more" pages the list, unread badges come from `Store::count`, and a Sync button runs a pass off the UI thread |
 
 1136 tests across 59 targets, plus five `#[ignore]`d live tests against servers nobody here
-wrote: a capability probe against NTU's Dovecot, two submission tests against a local `aiosmtpd`
+wrote: a capability probe against a campus Dovecot, two submission tests against a local `aiosmtpd`
 (`scripts/live-smtpd.py`), and two sync tests against a local Twisted IMAP4 server
 (`scripts/live-imapd.py`). `fmt`, `clippy -D warnings` and `scripts/check-boundary.sh` all
 clean.
@@ -133,10 +133,10 @@ configuration and cannot live in a source tree.
 
 ### The shortest path to a working inbox
 
-NTU needs no OAuth registration:
+A password account on a POP3 server needs no OAuth registration:
 
 ```
-MAILO_PASSWORD='…' mailo account add <local-part>@ntu.edu.tw
+MAILO_PASSWORD='…' mailo account add me@example.edu --pop3 pop.example.edu --smtp smtp.example.edu
 mailo sync
 mailo list
 ```

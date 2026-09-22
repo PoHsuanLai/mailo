@@ -286,7 +286,7 @@ mod manual_setup {
         match parsed {
             cli::Command::AccountAdd {
                 address,
-                manual: Some(manual),
+                manual: Some(cli::Setup::Imap(manual)),
                 ..
             } => {
                 assert_eq!(address, "me@example.test");
@@ -309,7 +309,7 @@ mod manual_setup {
         .unwrap();
         match parsed {
             cli::Command::AccountAdd {
-                manual: Some(manual),
+                manual: Some(cli::Setup::Imap(manual)),
                 ..
             } => {
                 assert_eq!(manual.imap_port, 1993);
@@ -327,7 +327,7 @@ mod manual_setup {
         .unwrap();
         match parsed {
             cli::Command::AccountAdd {
-                manual: Some(manual),
+                manual: Some(cli::Setup::Imap(manual)),
                 ..
             } => assert_eq!(manual.login.as_deref(), Some("mylogin")),
             other => panic!("{other:?}"),
@@ -380,6 +380,71 @@ mod manual_setup {
         ))
         .expect_err("unknown flag");
         assert!(err.contains("--tls"), "{err}");
+    }
+
+    #[test]
+    fn a_server_that_offers_only_pop3_is_named_with_pop3() {
+        let parsed = cli::parse(&args(
+            "account add s1234567@example.edu --pop3 pop.example.edu --smtp smtp.example.edu --login s1234567",
+        ))
+        .unwrap();
+        match parsed {
+            cli::Command::AccountAdd {
+                manual: Some(cli::Setup::Pop3(manual)),
+                ..
+            } => {
+                assert_eq!(manual.pop3_host, "pop.example.edu");
+                // The implicit-TLS port, as for IMAP.
+                assert_eq!(manual.pop3_port, 995);
+                assert_eq!(manual.smtp_port, 465);
+                assert_eq!(manual.login.as_deref(), Some("s1234567"));
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn imap_and_pop3_together_are_refused() {
+        // Two incoming servers is two sources of truth for one mailbox.
+        let err = cli::parse(&args(
+            "account add me@example.test --imap i.example.test --pop3 p.example.test --smtp s.example.test",
+        ))
+        .expect_err("one incoming server");
+        assert!(err.contains("POP3"), "{err}");
+    }
+
+    #[test]
+    fn a_pop3_account_is_stored_keeping_mail_on_the_server() {
+        let (store, _dir, _thread) = seeded();
+        let command = cli::parse(&args(
+            "account add someone@example.edu --pop3 pop.example.edu:1995 --smtp smtp.example.edu",
+        ))
+        .unwrap();
+        let _ = cli::run(&store, &command, now());
+
+        let plan: String = store
+            .connection()
+            .query_row(
+                "SELECT plan FROM accounts WHERE address = 'someone@example.edu'",
+                [],
+                |r| r.get(0),
+            )
+            .expect("the account was stored");
+        let plan: AccountPlan = serde_json::from_str(&plan).unwrap();
+        match plan.incoming {
+            Incoming::Pop3 {
+                host,
+                port,
+                tls,
+                leave,
+            } => {
+                assert_eq!((host.as_str(), port), ("pop.example.edu", 1995));
+                assert_eq!(tls, Tls::Implicit);
+                // Delete-after-fetch would make this client the only copy of the mail.
+                assert_eq!(leave, LeaveOnServer::Keep);
+            }
+            other => panic!("expected POP3, got {other:?}"),
+        }
     }
 
     #[test]

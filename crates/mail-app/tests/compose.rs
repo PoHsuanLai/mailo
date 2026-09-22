@@ -55,9 +55,18 @@ fn seeded() -> (SqliteStore, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let store = SqliteStore::in_memory(dir.path()).unwrap();
 
-    let mut plan = mail_domain::presets::preset_for("me@ntu.edu.tw", at(0))
-        .expect("ntu is a known domain")
-        .plan;
+    let mut plan = mail_domain::presets::manual_pop3(
+        "me@example.edu",
+        &mail_domain::presets::ManualPop3 {
+            pop3_host: "pop.example.edu".to_owned(),
+            pop3_port: 995,
+            smtp_host: "smtp.example.edu".to_owned(),
+            smtp_port: 465,
+            login: None,
+        },
+        at(0),
+    )
+    .plan;
     plan.address = "me@example.test".to_owned();
     plan.identities = vec![identity()];
 
@@ -621,9 +630,18 @@ fn an_account_with_no_identity_says_so_instead_of_inventing_a_sender() {
     // stop and say what is wrong.
     let dir = tempfile::tempdir().unwrap();
     let store = SqliteStore::in_memory(dir.path()).unwrap();
-    let plan = mail_domain::presets::preset_for("me@ntu.edu.tw", at(0))
-        .unwrap()
-        .plan;
+    let plan = mail_domain::presets::manual_pop3(
+        "me@example.edu",
+        &mail_domain::presets::ManualPop3 {
+            pop3_host: "pop.example.edu".to_owned(),
+            pop3_port: 995,
+            smtp_host: "smtp.example.edu".to_owned(),
+            smtp_port: 465,
+            login: None,
+        },
+        at(0),
+    )
+    .plan;
     store
         .connection()
         .execute(
@@ -1311,9 +1329,18 @@ mod choosing_the_sender {
 
     /// Add a second sending account, as someone with a work address and a personal one has.
     fn also(store: &SqliteStore) {
-        let mut plan = mail_domain::presets::preset_for("me@ntu.edu.tw", at(0))
-            .unwrap()
-            .plan;
+        let mut plan = mail_domain::presets::manual_pop3(
+            "me@example.edu",
+            &mail_domain::presets::ManualPop3 {
+                pop3_host: "pop.example.edu".to_owned(),
+                pop3_port: 995,
+                smtp_host: "smtp.example.edu".to_owned(),
+                smtp_port: 465,
+                login: None,
+            },
+            at(0),
+        )
+        .plan;
         plan.address = "work@example.test".to_owned();
         let db = store.connection();
         db.execute(

@@ -498,7 +498,7 @@ mod gmail_labels {
 
     #[test]
     fn a_server_without_labels_is_not_asked_for_them() {
-        // F113's condition: ask for what is read, and only that. A Dovecot or NTU account has
+        // F113's condition: ask for what is read, and only that. A Dovecot account has
         // no X-GM-LABELS and must not be sent an attribute it will reject.
         let trace = concat!(
             "S: * OK ready\n",

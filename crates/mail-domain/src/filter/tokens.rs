@@ -78,7 +78,7 @@ struct Tokens {
     out: Vec<String>,
     word: String,
     /// Ideographs or kana, held apart from `word`: a run ends at the first character that is not
-    /// one, including an ordinary letter, so `NTU臺大` is `ntu` and then the Chinese run.
+    /// one, including an ordinary letter, so `Q3報告` is `q3` and then the Chinese run.
     run: Vec<char>,
 }
 
@@ -104,12 +104,12 @@ impl Tokens {
         }
     }
 
-    /// A run contributes overlapping bigrams: `臺大計中` is `臺大`, `大計`, `計中`.
+    /// A run contributes overlapping bigrams: `電子郵件` is `電子`, `子郵`, `郵件`.
     ///
     /// Bigrams rather than single characters because a one-character query is almost never what
-    /// anyone means in Chinese, and separate characters ANDed would match any message with 臺 and
-    /// 大 anywhere in it. Overlapping, so a needle starting mid-word still matches: `大計` is a
-    /// token of `臺大計中`. A run of one is that character, so an isolated ideograph is findable.
+    /// anyone means in Chinese, and separate characters ANDed would match any message with 電 and
+    /// 子 anywhere in it. Overlapping, so a needle starting mid-word still matches: `子郵` is a
+    /// token of `電子郵件`. A run of one is that character, so an isolated ideograph is findable.
     fn end_run(&mut self) {
         match self.run.as_slice() {
             [] => {}

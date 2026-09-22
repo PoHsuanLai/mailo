@@ -1017,9 +1017,19 @@ fn presets_round_trip_and_carry_the_given_instant() {
     round_trip("preset/gmail/caps", gmail.expected_caps.clone());
     assert_eq!(gmail.expected_caps.observed_at, at(3));
 
-    let ntu = mail_domain::presets::preset_for("b09901123@ntu.edu.tw", at(3)).expect("ntu preset");
-    round_trip("preset/ntu/plan", ntu.plan);
-    round_trip("preset/ntu/caps", ntu.expected_caps);
+    let manual = mail_domain::presets::manual_pop3(
+        "s1234567@example.edu",
+        &mail_domain::presets::ManualPop3 {
+            pop3_host: "pop.example.edu".to_owned(),
+            pop3_port: 995,
+            smtp_host: "smtp.example.edu".to_owned(),
+            smtp_port: 465,
+            login: Some("s1234567".to_owned()),
+        },
+        at(3),
+    );
+    round_trip("preset/manual_pop3/plan", manual.plan);
+    round_trip("preset/manual_pop3/caps", manual.expected_caps);
 }
 
 // ---------------------------------------------------------------------------------------
@@ -1094,8 +1104,26 @@ fn fixture_dir() -> std::path::PathBuf {
 fixtures! {
     "account_plan_gmail.json" => AccountPlan = presets::preset_for("someone@gmail.com", at(3))
         .expect("gmail preset").plan,
-    "account_plan_ntu.json" => AccountPlan = presets::preset_for("b09901123@ntu.edu.tw", at(3))
-        .expect("ntu preset").plan,
+    // A POP3 account that logs in with the local part of its address.
+    "account_plan_local_part.json" => AccountPlan = AccountPlan {
+        address: "s1234567@example.edu".to_owned(),
+        incoming: Incoming::Pop3 {
+            host: "pop.example.edu".to_owned(),
+            port: 995,
+            tls: Tls::Implicit,
+            leave: LeaveOnServer::Keep,
+        },
+        outgoing: Outgoing::Smtp {
+            host: "smtp.example.edu".to_owned(),
+            port: 465,
+            tls: Tls::Implicit,
+        },
+        auth: AuthPlan::Password {
+            username: Username::LocalPart,
+            sasl: vec![SaslMech::Login, SaslMech::Plain],
+        },
+        identities: Vec::new(),
+    },
     "account_plan_manual.json" => AccountPlan = AccountPlan {
         address: "me@example.test".to_owned(),
         incoming: Incoming::Pop3 {

@@ -29,8 +29,8 @@ impl AccountPlan {
     ///
     /// On this plan rather than on the caller because getting it wrong is an authentication
     /// failure with no explanation attached, and because two callers deriving it separately is
-    /// how one of them keeps working while the other silently cannot log in. NTU wants the
-    /// local part; most providers want the whole address.
+    /// how one of them keeps working while the other silently cannot log in. Some campus
+    /// servers want the local part; most providers want the whole address.
     pub fn username(&self) -> String {
         match &self.auth {
             AuthPlan::Password { username, .. } => username.resolve(&self.address),
@@ -174,7 +174,7 @@ pub enum SaslMech {
     XOauth2,
 }
 
-// CRAM-MD5 is deliberately absent. The NTU spike found `SASL PLAIN` only, Gmail and Microsoft
+// CRAM-MD5 is deliberately absent. The POP3 spike found `SASL PLAIN` only, Gmail and Microsoft
 // both want XOAUTH2, and a mechanism we cannot exercise against a real server is one we should
 // not claim to support. Add it back when an account needs it, with a trace.
 

@@ -1,6 +1,6 @@
 # Type-driven sans-I/O mail client
 
-Dioxus desktop client. The first two accounts happen to be Gmail and NTU Webmail; those are
+Dioxus desktop client. The first two accounts happen to be Gmail and a campus POP3 mailbox; those are
 **presets that fill an `AccountPlan`**, not domain types. The product object model is
 Notion-Mail-shaped: threads, flat labels, mailbox roles, views, actions. UI and sockets sit
 outside the core. An account is classified by **incoming protocol, outgoing protocol, and
@@ -538,10 +538,10 @@ to come from somewhere. Every error type in the workspace exposes `fn retry(&sel
 | Domain | Incoming | Outgoing | Auth |
 |---|---|---|---|
 | `gmail.com`, `googlemail.com`, Workspace | IMAP `imap.gmail.com:993` Implicit; expected caps: labels Supported, threads ProviderId, watch Idle, archive DropInbox, condstore Supported | SMTP `smtp.gmail.com:465` Implicit | OAuth `{ issuer: Google }`, `Username::SameAsAddress` |
-| `ntu.edu.tw` | POP3 `msa`/`ccms`.ntu.edu.tw:995 Implicit, `LeaveOnServer::Keep` | SMTP `smtps.ntu.edu.tw:465` Implicit | Password, `Username::LocalPart`, sasl `[Login, Plain]` |
+| anything else | `--imap` or `--pop3` HOST, `--smtp` HOST, named by the user; POP3 `LeaveOnServer::Keep` | SMTP, Implicit | Password, `Username::SameAsAddress` or `--login` |
 
-Host choice for `ntu.edu.tw` (student-id vs. name local-part) is preset logic kept next to the
-table. Nothing in the domain is named after a school or a vendor except `OAuthIssuer::Google`,
+No preset names an institution: a server that is not a public provider is configured by naming
+its hosts. Nothing in the domain is named after a school or a vendor except `OAuthIssuer::Google`,
 which names an authorization server, not a mail provider.
 
 ### Threading
@@ -691,7 +691,7 @@ IMAP for POP3 at the session level, and the four impls have unrelated `Out` type
 > someone's mail is not, and a capability we cannot observe is not one we may gate on.
 
 - **`Pop3Backend`** — steady state is `UIDL` every poll, diff against `remote_map`, `RETR` what
-  is new. **The first sync is a different algorithm**, because the measured NTU maildrop is 2372
+  is new. **The first sync is a different algorithm**, because the measured campus maildrop is 2372
   messages and 255 MB and a naive pass is both slow and destructive:
 
   1. `CAPA`, authenticate, then `STAT` + `UIDL` + `LIST`. Two multi-line responses buy a complete
@@ -928,7 +928,7 @@ Versions checked against crates.io on 2026-09-22.
 
 | Crate | Version | Role | Notes |
 |---|---|---|---|
-| `mail-parser` | 0.11.9 | MIME parse | **feature `full_encoding`** — `big5`, `gbk`, `shift_jis`, `euc-kr` are gated behind it, and NTU mail is Taiwanese |
+| `mail-parser` | 0.11.9 | MIME parse | **feature `full_encoding`** — `big5`, `gbk`, `shift_jis`, `euc-kr` are gated behind it, and the campus mail is Taiwanese |
 | `mail-builder` | 1.0.0 | MIME build | 1.0, not 0.5 |
 | `ammonia` | 4.2.0 | HTML sanitize | |
 | `rusqlite` | 0.40.2 | store | features `bundled`, `fts5`. Not 0.32. |
@@ -1000,7 +1000,7 @@ A single dirty script, no crates, no types, deleted when done.
   and `FETCH 1:5 (UID FLAGS ENVELOPE BODYSTRUCTURE X-GM-MSGID X-GM-THRID X-GM-LABELS)`.
 - Confirm the same message in `INBOX` and `[Gmail]/All Mail` under different UIDs.
 - Check whether `CONDSTORE`/`QRESYNC`/`MOVE` are advertised.
-- POP3 to `ntu.edu.tw`: `UIDL`, `LIST`, `RETR 1`, and whether it wants `LOGIN` or `PLAIN`.
+- POP3 to the campus server: `UIDL`, `LIST`, `RETR 1`, and whether it wants `LOGIN` or `PLAIN`.
 - Pump `io-imap` from tokio for ten minutes and see whether it is pleasant.
 
 **Why this is first:** the previous plan froze `RemoteRef`, `AccountCaps`, `ProtoOp`, and
@@ -1048,16 +1048,16 @@ reconciliation rule is exercised by an `Ingest` that contradicts a pending chang
 ### 4 — POP3 + SMTP live
 
 Password from keyring, POP poll, SMTP send to self, `LeaveOnServer::Keep`, local archive.
-First live preset: `ntu.edu.tw`.
+First live account: a campus POP3 server.
 
 **Done when:** a tiny CLI lists, opens, and replies through the POP3 backend.
 
 **State:** the CLI does all three — `list`, `show`, `reply`, plus `send`, `drafts` and `sync` —
 and the whole path is exercised end to end over a real socket in
-`mail-runtime/tests/end_to_end.rs`. What has not happened is a pass against NTU with a real
+`mail-runtime/tests/end_to_end.rs`. What has not happened is a pass against a real POP3 server with a real
 password, which needs a credential this repository cannot hold. An unauthenticated probe
-(`tests/live_probe.rs`, `#[ignore]`d) does confirm the preset against the live server: `TOP`,
-`UIDL`, `PIPELINING` and `SASL PLAIN` are exactly what `msa.ntu.edu.tw` advertises, and the TLS
+(`tests/live_probe.rs`, `#[ignore]`d) does confirm the plan against a live server: `TOP`,
+`UIDL`, `PIPELINING` and `SASL PLAIN` are exactly what the campus server advertises, and the TLS
 handshake completes.
 
 ### 5 — IMAP + OAuth live
@@ -1236,7 +1236,7 @@ a client that cannot write a message does not need to write it faster.
   records the consequence: the open thread re-renders on every keystroke in the search box.
 - Sync is strictly sequential: a `new_current_thread` runtime, `for account in accounts` with a
   `block_on` each (`sync.rs:163`), and within an account each mailbox does sync, then sweep, then
-  bodies. Gmail's pass blocks NTU's entirely.
+  bodies. Gmail's pass blocks the other account's entirely.
 
 **The principle.** The sans-I/O core was argued for as a testing and boundary discipline. It is
 also the concurrency story, and that is the larger dividend: a pure function has no shared
@@ -1450,10 +1450,9 @@ silently omitted when not (a receipt is a request, never a precondition). Expose
 size the server knows up front. `DATA` remains the path whenever it is not offered. Pipelined with
 the `RCPT`s where `PIPELINING` is also offered.
 
-**9.9 — NTU: verify `ccms`.** `spike/out/` now holds `msa` transcripts only. Without credentials:
-probe `ccms.ntu.edu.tw:995` for its greeting and `CAPA` and compare with `msa`'s; find NTU's own
-documentation of which accounts live where. With credentials, which only the user has: a login on
-a non-student address. The first two are done here; the third is reported, not faked.
+**9.9 — Dropped.** Was: verify an institution's second POP3 host for its own preset. No preset
+names an institution; such a server is configured with `mailo account add --pop3 HOST --smtp
+HOST`, which carries no host guess to verify.
 
 **Delegation.** 9.1, 9.4, 9.7 and 9.8 are self-contained and go to Grok with a brief each; 9.2,
 9.3, 9.5 and 9.6 cross crates or change frozen types, so the freeze is written here first and
@@ -1537,7 +1536,7 @@ may answer differently:
 3. SMTP AUTH is disabled by default in many tenants and is enabled per mailbox.
 
 None of that is discoverable from documentation — it is a fact about each organisation. A small
-spike answers all three, as phase 0 did for Gmail and NTU, and it is harder only because there is
+spike answers all three, as phase 0 did for Gmail and the campus server, and it is harder only because there is
 no app-password equivalent: it needs an Entra application registration first.
 
 **If a tenant forbids the protocols outright**, the fallback is Microsoft Graph, which is REST
@@ -1580,7 +1579,7 @@ merging is a v2 problem.
   scopes make it a real one.
 - **Untrusted HTML in WebKit.** Sanitize at render, sandboxed iframe without `allow-same-origin`,
   remote images blocked by default, `cid:` keyed on `BlobId`. Never render mail in the app origin.
-- **TLS to campus servers.** If NTU presents a chain `webpki-roots` rejects, resist adding a
+- **TLS to campus servers.** If a campus server presents a chain `webpki-roots` rejects, resist adding a
   global "accept invalid certs" switch. If it becomes unavoidable, it is per-account, explicit in
   `AccountPlan`, and loud in the UI.
 

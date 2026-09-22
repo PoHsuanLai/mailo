@@ -193,7 +193,7 @@ fn mail_that_predates_the_segmented_index_is_findable_afterwards() {
                  recipients, subject, in_reply_to, refs, rfc_message_id, read, star, mailbox,
                  body_text, body_raw, attachments)
              VALUES (?1, ?2, ?3, '\"k2\"', '2023-01-02T00:00:00Z', NULL, 'c@d.test', '{}',
-                 '【重要】臺大計中信箱系統維護', NULL, '[]', NULL, '\"read\"', '\"unstarred\"',
+                 '【重要】校園郵件信箱系統維護', NULL, '[]', NULL, '\"read\"', '\"unstarred\"',
                  '\"inbox\"', 'lunch on friday', NULL, '[]')",
             rusqlite::params![uuid::Uuid::new_v4().to_string(), thread, account],
         )
@@ -222,7 +222,7 @@ fn mail_that_predates_the_segmented_index_is_findable_afterwards() {
         1,
         "English mail already on disk stopped being findable"
     );
-    assert_eq!(hits("臺大"), 1, "old Chinese mail was not reindexed");
+    assert_eq!(hits("校園"), 1, "old Chinese mail was not reindexed");
     assert_eq!(hits("維護"), 1);
     assert_eq!(
         hits("臺北"),

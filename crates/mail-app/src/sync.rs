@@ -201,7 +201,7 @@ fn run_all(
     // Accounts are independent by construction: `AccountId` partitions every table, and two
     // accounts are two conversations with two different servers. Run one after another, a pass
     // spends the *sum* of their waiting, and almost all of a pass is waiting — so a slow Gmail
-    // backfill used to hold up an NTU poll that had nothing to do with it.
+    // backfill used to hold up another account's poll that had nothing to do with it.
     //
     // Concurrent rather than parallel, and deliberately: these futures are joined, not spawned,
     // so they share one thread and interleave at their `await` points. What overlaps is the
@@ -761,7 +761,7 @@ mod tests {
 
     #[test]
     fn the_auth_prelude_prefers_sasl_but_falls_back() {
-        // NTU offers PLAIN only; some older servers offer neither and only understand USER/PASS.
+        // Many servers offer PLAIN only; some older servers offer neither and only understand USER/PASS.
         assert_eq!(
             auth_prelude(&[SaslMech::Plain]),
             vec![Pop3Command::AuthPlain]
@@ -775,11 +775,17 @@ mod tests {
     #[test]
     fn a_password_login_resolves_to_the_local_part_where_the_preset_says_so() {
         // Getting this wrong is an authentication failure with no explanation.
-        let preset = mail_domain::presets::preset_for(
-            "b09901185@ntu.edu.tw",
+        let preset = mail_domain::presets::manual_pop3(
+            "s1234567@example.edu",
+            &mail_domain::presets::ManualPop3 {
+                pop3_host: "pop.example.edu".to_owned(),
+                pop3_port: 995,
+                smtp_host: "smtp.example.edu".to_owned(),
+                smtp_port: 465,
+                login: Some("s1234567".to_owned()),
+            },
             chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
-        )
-        .expect("ntu is a known domain");
-        assert_eq!(username_for(&preset.plan), "b09901185");
+        );
+        assert_eq!(username_for(&preset.plan), "s1234567");
     }
 }

@@ -85,9 +85,9 @@ thread's *root* is.
 corpus is append-only mechanically rather than by convention — better than what the brief asked
 for. F8–F11 above.
 
-**The NTU host heuristic is still a guess.** One or two ASCII letters then 7–9 digits, or 7–9
-digits alone, → `msa`; anything else → `ccms`. `spike/out/` is empty, so nothing has checked it.
-When the guess is wrong the symptom is a POP3 login failure on first connect, not data loss.
+**The campus host heuristic was a guess.** A local part shaped like a student id went to one
+host and anything else to another; `spike/out/` was empty, so nothing had checked it. See F142:
+the heuristic is gone, with the preset.
 
 ## Deferred deliberately
 
@@ -182,8 +182,7 @@ The two `LocalOnly` tests that the `ops` agent flagged as vacuous now discrimina
 
 ## Still open
 
-- **The NTU host heuristic** is verified for the two hosts it knows and misses a third — see
-  F142, which needs a decision.
+- ~~**The campus host heuristic.**~~ Closed by F142: no preset names an institution.
 - ~~**F2's parity limit.**~~ Closed in phase 9.3. Measured first: 1017 BMP code points
   tokenized differently on the two sides — marks the domain kept inside a word and SQLite split
   on (Hebrew points, Arabic harakat, Indic signs), compatibility folds only SQLite made (`µ`,
@@ -193,7 +192,7 @@ The two `LocalOnly` tests that the `ops` agent flagged as vacuous now discrimina
 
 ## Phase 0 — the spike, run 2026-09-22
 
-Run against a real Gmail account and `msa.ntu.edu.tw`. Transcripts are in `spike/out/`, which is
+Run against a real Gmail account and a campus POP3 server. Transcripts are in `spike/out/`, which is
 gitignored: they contain real subjects, addresses and a full message body.
 
 ### Confirmed — the claim the store is built on
@@ -226,17 +225,17 @@ become `LabelOrigin::Provider` labels, so without a decoder the sidebar shows mo
 in the design mentions it. Encoding and decoding are both needed — a `SELECT` of a non-ASCII
 folder has to re-encode the name.
 
-### F16 — the NTU preset guessed the wrong SASL mechanism
+### F16 — the campus preset guessed the wrong SASL mechanism
 
-`CAPA` on `msa.ntu.edu.tw`: `SASL PLAIN`, `USER` — and **no `LOGIN`**, no `CRAM-MD5`, no `STLS`.
+`CAPA` on the campus server: `SASL PLAIN`, `USER` — and **no `LOGIN`**, no `CRAM-MD5`, no `STLS`.
 The preset offered `[Login, Plain]`, so the first live connect would have failed on a mechanism
 the server does not implement. Corrected to `[Plain]`. No STLS is expected and fine: we connect
 with implicit TLS on 995.
 
-The host heuristic held for this account — the default `msa` worked — but only one shape has
-been tested, so `ccms` remains a guess.
+The host heuristic held for this account — the default host worked — but only one shape had
+been tested, so the other host remained a guess.
 
-### F17 — the NTU mailbox is large (amended: it is mostly a hundred attachments)
+### F17 — the campus mailbox is large (amended: it is mostly a hundred attachments)
 
 `STAT` reports **2372 messages, 267,508,676 bytes** (~255 MB). POP3 offers no server-side search
 and no partial body fetch, so a first sync means 2372 `RETR` round trips and a quarter of a
@@ -255,7 +254,7 @@ Every number below was recomputed from `spike/out/pop3.trace`, not taken on trus
 
 ### F17, amended — my spike script asked the wrong questions
 
-`CAPA` on `msa.ntu.edu.tw` actually advertises:
+`CAPA` on the campus server actually advertises:
 
 ```
 CAPA TOP UIDL RESP-CODES PIPELINING AUTH-RESP-CODE USER SASL PLAIN
@@ -284,8 +283,8 @@ right for steady state and wrong for the first sync.
 ### F19 — a naive first sync would mark the entire mailbox read, in their webmail
 
 Dovecot gates its seen-flag update on the `RETR` path, so **`TOP` does not set `\Seen` but
-`RETR` does**, and NTU runs `pop3_no_flag_updates` at its default. A first sync that simply
-`RETR`s 2372 messages would silently mark the user's whole mailbox as read in NTU webmail —
+`RETR` does**, and the campus server runs `pop3_no_flag_updates` at its default. A first sync that simply
+`RETR`s 2372 messages would silently mark the user's whole mailbox as read in the campus webmail —
 user-visible, not ours to undo, and discovered by reading Dovecot's source rather than any RFC.
 
 A headers-first pass is therefore not only faster, it is the only non-destructive option.
@@ -535,7 +534,7 @@ something that *cannot* be stored without an identity, which is more machinery t
 justifies — so instead `account add` builds it, `tests/compose.rs` asserts a fresh account can
 reply, and the prose now sits next to the code that keeps it.
 
-No display name on the generated identity: deriving one from the local part produces "B09901185"
+No display name on the generated identity: deriving one from the local part produces "S1234567"
 on the user's own outgoing mail, and a name the user did not choose is worse than none.
 
 ### F39 — Identities live in two places, and the foreign key picks the winner
@@ -1109,7 +1108,7 @@ the endpoints table, and `Incoming::Imap`, `Outgoing::Smtp` and `ImapBackend` we
 Writing it corrected the plan twice.
 
 **A custom tenant domain cannot be recognised from an address.** The draft assumed a preset row
-keyed on domain, as Gmail and NTU are. But a work mailbox is `you@yourcompany.com`, and nothing
+keyed on domain, as Gmail and the campus server were. But a work mailbox is `you@yourcompany.com`, and nothing
 in that string says Microsoft — only the `*.onmicrosoft.com` fallback names itself. My first
 attempt matched `office365.com`, which is not a domain anyone receives mail at. The real options
 are autodiscover or asking, and autodiscover points the client at a host the user never named, so
@@ -1181,8 +1180,8 @@ Every round I said the remaining defects needed "a server I didn't write", and n
 whether I could reach one. I can: an unauthenticated capability probe needs no credential, and it
 is exactly what `plan.md`'s phase 0 specifies.
 
-`msa.ntu.edu.tw:995` answers `+OK Dovecot ready.` and advertises `TOP UIDL RESP-CODES PIPELINING
-AUTH-RESP-CODE USER SASL PLAIN` — confirming the NTU preset's `top: Supported::Yes`,
+The campus server on 995 answers `+OK Dovecot ready.` and advertises `TOP UIDL RESP-CODES PIPELINING
+AUTH-RESP-CODE USER SASL PLAIN` — confirming the campus preset's `top: Supported::Yes`,
 `pipelining: Supported::Yes` and `sasl: [Plain]` exactly, including its comment that the server
 "does NOT offer LOGIN or CRAM-MD5". That comment was written from a spike the user ran; this is
 the first time this session verified a preset against the thing it describes.
@@ -1223,7 +1222,7 @@ rather than returning an error. Two are compiled in here and neither is removabl
 selects `ring` in its own `Cargo.toml`, while `reqwest` and `keyring` bring `aws-lc-rs`. Nothing
 called `CryptoProvider::install_default`.
 
-So every TLS connection this program exists to make — NTU on 995, Gmail on 993, Exchange on 993 —
+So every TLS connection this program exists to make — POP3 on 995, Gmail on 993, Exchange on 993 —
 would have aborted the process while building the session. Not failed: aborted. The one account
 the user can connect to today would have crashed the binary on the first `mailo sync`.
 
@@ -1270,7 +1269,7 @@ is invisible, because the fake unstuffs whatever it is handed.
 skip when nothing is listening — a test that fails because a developer has not started a daemon
 is a test people learn to ignore.
 
-No authentication attempts were made against NTU or any other third party. A failed login against
+No authentication attempts were made against the campus server or any other third party. A failed login against
 a university's production server risks the user's own address being rate-limited, which is not
 mine to spend.
 
@@ -1587,7 +1586,7 @@ The plan now says it, with the reasoning, in the place the reader will be standi
 why. Same for the list pane, which grows a page rather than following `Page::next`.
 
 And each phase now carries what is actually true of it rather than only its criterion: phase 4's
-CLI does list, open and reply and has never authenticated to NTU; phase 5's two clauses are both
+CLI does list, open and reply and has never authenticated to the campus server; phase 5's two clauses are both
 met against servers nobody here wrote, with Gmail and Exchange outstanding for a client id that
 is registered rather than written; phase 6's shell does everything checkable from inside the
 repository, and its criterion is a judgement about using the thing with real mail over days.
@@ -2731,7 +2730,7 @@ writes the same hashes and reuses them.
 
 ### F123 — Every test in the project used one account
 
-The user this was written for has an NTU mailbox, a Gmail one and two Microsoft 365 tenants. Every
+The user this was written for has a campus POP3 mailbox, a Gmail one and two Microsoft 365 tenants. Every
 suite in the repository — nine of them touching the store — creates exactly one account. Two
 accounts was not an edge case that had been decided against; it was a case nobody had looked at.
 
@@ -2754,7 +2753,7 @@ All seven passed first time, which is the answer: the store's multi-account beha
 What was *not* sound was above it.
 
 **`label:travel` searched one account.** `labels_named` took the first label with that name and
-`Filter::HasLabel` takes one id, so with "travel" on both the Gmail and the NTU account the term
+`Filter::HasLabel` takes one id, so with "travel" on both the Gmail and the campus account the term
 matched whichever account was created first — a wrong answer that looks exactly like an empty
 one, which is the worst kind. The resolver returns every match now and the parser builds
 `Or([HasLabel(a), HasLabel(b)])`, because someone who types a word means the word. A name nothing
@@ -2808,18 +2807,18 @@ Whitespace is not a signature: a file of blank lines, or `< /dev/null`, is store
 ### F125 — Full-text search cannot find a Chinese word
 
 The next assumption after F123's "one account" and F124's "nothing set on the identity": every
-message in every test is in English. This user is at NTU in Taipei and a large part of their mail
+message in every test is in English. This user is at a university in Taipei and a large part of their mail
 is Chinese.
 
-Measured against one real-shaped message — an NTU computer centre notice, subject in an RFC 2047
+Measured against one real-shaped message — a campus IT notice, subject in an RFC 2047
 encoded word, body in UTF-8:
 
 ```
-subject as stored: "【重要】臺大計中信箱系統維護"
+subject as stored: "【重要】校園郵件信箱系統維護"
 
-  search "臺大計中信箱系統維護"        -> 1 hit     the whole run
-  search "臺大"                       -> 0 hits    NTU
-  search "計中"                       -> 0 hits    computer centre
+  search "校園郵件信箱系統維護"        -> 1 hit     the whole run
+  search "校園"                       -> 0 hits    campus
+  search "郵件"                       -> 0 hits    mail
   search "維護"                       -> 0 hits    maintenance
   search "暫停服務"                   -> 0 hits    service suspended
 ```
@@ -2830,14 +2829,14 @@ that finds it is all fourteen characters of it. For a mailbox that is substantia
 text search does not work.
 
 What *does* work, and is worth knowing: the field clauses are `LIKE '%needle%'` on a column rather
-than FTS, so `subject:臺大`, `from:` and `to:` find Chinese correctly. The query language added in
+than FTS, so `subject:校園`, `from:` and `to:` find Chinese correctly. The query language added in
 F118 gave this user a working search path by accident.
 
 The obvious fixes were checked rather than assumed, and the two obvious ones do not work:
 
 - **`trigram`, SQLite's substring tokenizer.** It answers queries of three characters or more.
-  Chinese words are overwhelmingly *two* characters — 臺大, 維護, 服務 — so it fails on the
-  common case. Measured directly: a trigram index finds `臺大計` and does not find `臺大`.
+  Chinese words are overwhelmingly *two* characters — 校園, 維護, 服務 — so it fails on the
+  common case. Measured directly: a trigram index finds `校園郵` and does not find `校園`.
 - **Transforming the text before it is indexed**, by segmenting CJK runs into per-character or
   bigram tokens. `messages_fts` is an external-content table populated by SQL triggers straight
   from the `messages` columns. Rust never touches the indexed text, so there is nowhere to put
@@ -2864,9 +2863,9 @@ fail the day the index learns to segment, which is the day this file should chan
 F125's fix, which the previous round described and declined to start. Declining was the wrong
 call: it is a defined change with a proptest for a safety net, and "large" is not "someone else's".
 
-**The rule.** A run of ideographs or kana becomes its overlapping bigrams: `臺大計中` is `臺大`,
-`大計`, `計中`. Bigrams rather than single characters because separate characters ANDed would
-match any message containing 臺 and 大 anywhere — the looseness that is acceptable between two
+**The rule.** A run of ideographs or kana becomes its overlapping bigrams: `校園郵件` is `校園`,
+`園郵`, `郵件`. Bigrams rather than single characters because separate characters ANDed would
+match any message containing 校 and 園 anywhere — the looseness that is acceptable between two
 English words and useless between two halves of one Chinese word. Overlapping, so a needle
 starting mid-word still matches. A run of one character is that character, so an isolated
 ideograph stays findable. Hangul is deliberately excluded: Korean is written with spaces and
@@ -2899,19 +2898,19 @@ Three things this turned up, none of which review would have:
   builds a version-3 database by hand, with English and Chinese in it, and asserts both are
   findable after the upgrade.
 
-Through the real binary, against an NTU notice with an RFC 2047 subject and a base64 body:
+Through the real binary, against a campus notice with an RFC 2047 subject and a base64 body:
 
 ```
-search 臺大      →  【重要】臺大計中信箱系統維護
-search 計中      →  【重要】臺大計中信箱系統維護
-search 維護      →  【重要】臺大計中信箱系統維護
-search 暫停服務  →  【重要】臺大計中信箱系統維護     (in the body)
+search 校園      →  【重要】校園郵件信箱系統維護
+search 郵件      →  【重要】校園郵件信箱系統維護
+search 維護      →  【重要】校園郵件信箱系統維護
+search 暫停服務  →  【重要】校園郵件信箱系統維護     (in the body)
 search lunch     →  lunch on friday                  (English is unaffected)
 search 臺北      →  nothing matches "臺北"
 ```
 
 `臺北` is the assertion that matters as much as the others: bigrams must not become a substring
-match on everything. `大臺`, `計維` and `維計中` are checked too — reversed, and one character
+match on everything. `園校`, `件維` and `維郵件` are checked too — reversed, and one character
 from each end of the run.
 
 Search over ten thousand messages is 47 ms, inside the same budget as before.
@@ -2974,7 +2973,7 @@ F107 suspected as much; a test now settles it — `a_future_started_when_a_compo
 **The rule the whole thing turns on is what happens when the credential is wrong.** Five minutes
 is 288 attempts a day. With a password the server has already refused, that is 288 *failed
 logins* a day against the user's own mail server, which is how an account gets locked — the exact
-hazard that has kept every experiment in this project pointed at a fixture rather than at NTU.
+hazard that has kept every experiment in this project pointed at a fixture rather than at a real server.
 Backing off is not enough: half-hourly is still 48 a day. `view::next_sync` returns
 `NextSync::Wait` for a rejected sign-in, the loop stops, and the Sync button still works, so
 someone who has fixed the credential is one click from finding out.
@@ -3116,7 +3115,7 @@ script now.
 Phase 6's criterion is living with it, which is not something that can be done from inside the
 repository. What *is* inside it is the on-ramp: whether someone who sits down to start using this
 can get from an address to mail arriving. So the on-ramp was walked, with two real addresses —
-one Gmail, one NTU — against a clean data directory.
+one Gmail, one campus POP3 — against a clean data directory.
 
 `mailo account add` gets it right. It knows the Gmail account is OAuth and says so. Then:
 
@@ -3127,7 +3126,7 @@ you@university.edu:     no credential stored. Run: MAILO_PASSWORD=… mailo acco
 ```
 
 One hardcoded sentence for every account, ignoring the `AuthPlan` sitting in the row it just
-read. For NTU it is exactly right. For Gmail it is advice that **cannot** work — Google stopped
+read. For the campus account it is exactly right. For Gmail it is advice that **cannot** work — Google stopped
 accepting passwords for IMAP in May 2022 — and someone who follows it makes a failed sign-in
 against Google with a credential that was never going to be accepted. That is the hazard this
 whole project has been careful about, and the client was printing instructions for it. The
@@ -3338,7 +3337,7 @@ never been computed: two independent faults, each of which alone would have prod
 silence.
 
 The user's own accounts say what this cost. Gmail is recorded as `archive: drop_inbox`,
-`labels: supported`; NTU, being POP3, is `local_only` for both. So archiving a Gmail conversation
+`labels: supported`; the campus account, being POP3, is `local_only` for both. So archiving a Gmail conversation
 in mailo left it in the inbox on the phone and brought it back here on the next full sync, and
 mail read here stayed bold everywhere else. `SetFlags` is emitted whatever the capabilities say,
 so read and star were lost purely to the dropped field.
@@ -3518,30 +3517,31 @@ the surface deliberately unpresented — screen locked, or the window occluded �
 surface that works on this machine and is untrusted on one that showed F140, and no amount of
 correct code behind it changes that.
 
-### F142 — NTU has three mail systems, and an address cannot say which one it is on
+### F142 — A campus can run several mail systems, and an address cannot say which one it is on
 
-Phase 9.9, 2026-09-23. The preset picks `msa` for a local part shaped like a student id and
-`ccms` for anything else. Checked against NTU's own documentation and the servers themselves
-(greeting, `CAPA` and `EHLO` only; no credentials sent):
+Phase 9.9, 2026-09-23. The campus preset picked one of two POP3 hosts from the shape of the local
+part: one for a student id, the other for anything else. Checked against the institution's own
+documentation and the servers themselves (greeting, `CAPA` and `EHLO` only; no credentials sent),
+there were three systems, not two:
 
-| | `msa.ntu.edu.tw` | `ccms.ntu.edu.tw` | `mail.ntu.edu.tw` |
+| | host A | host B | host C |
 |---|---|---|---|
-| Who, per the Computing Center | students enrolled 2020 on; alumni with id usernames | alumni and hospital staff with name usernames | staff, faculty, units, and students enrolled 2019 or earlier |
+| Who | students enrolled recently; alumni with id usernames | alumni and affiliated staff with name usernames | staff, faculty, units, and earlier students |
 | POP3 | 995 TLS, Dovecot, `SASL PLAIN` | 995 TLS, Dovecot, identical `CAPA` | 995 TLS, Exchange, `SASL PLAIN` |
-| Submission | `smtps` 465 | `smtps` 465 | 587 `STARTTLS`, `AUTH GSSAPI NTLM LOGIN` — **no `PLAIN`** |
+| Submission | 465 implicit TLS | 465 implicit TLS | 587 `STARTTLS`, `AUTH GSSAPI NTLM LOGIN` — **no `PLAIN`** |
 | Login name | local part | local part | the full address |
 
-The `msa`/`ccms` rule is right for the two systems it knows about. The third is the one most
-people with an `@ntu.edu.tw` address are on, and the rule sends every one of them somewhere they
-cannot log in. Nor can the address decide it: `b07…` is on `msa` after graduating and on Exchange
-while still enrolled, and a professor's name-shaped local part looks exactly like an alumnus's.
-
-Sources: <https://jsc.cc.ntu.edu.tw/ntucc/email/mailsoftwaresetup.html> (`msa`/`ccms`), and the
-Computing Center's *Outlook 2024 設定 Exchange 信箱（POP 類型）*, 2025-05-15 (`mail.ntu.edu.tw`).
+The two-host rule was right for the two systems it knew about. The third is the one most people
+with an address there are on, and the rule sent every one of them somewhere they could not log
+in. Nor can the address decide it: the same id is on one system while enrolled and another after
+graduating, and a professor's name-shaped local part looks exactly like an alumnus's.
 
 The Exchange submission server is also the first real server seen here that offers `SMTPUTF8`,
 `DSN`, `CHUNKING` and `BINARYMIME` — phase 9.4, 9.7 and 9.8 have somewhere to be tried.
 
-**Status: open, needs a decision.** Either setup tries the candidates in turn with the user's
-password (all three are `*.ntu.edu.tw` behind one certificate), or it asks which kind of account
-this is. Not decided here: it is a question about what the setup screen should do.
+**Status: closed by removing the preset.** An institution's mail layout is not general protocol,
+and this is an open-source client: no preset names one. A server outside the provider table is
+configured by naming its hosts — `mailo account add ADDRESS --imap HOST --smtp HOST`, or `--pop3
+HOST` for one that offers only POP3 (`presets::manual_pop3`: implicit TLS, mail left on the
+server, `CAPA` read before anything is fetched) — plus `--login` where the login is not the
+address.

@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
-"""Phase-0 spike: dump raw NTU POP3 wire bytes.
+"""Phase-0 spike: dump raw POP3 wire bytes from a real server.
 
 Usage:
-    POP_HOST=msa.ntu.edu.tw POP_USER=<local-part> POP_PASS='...' python3 spike/pop3_dump.py
+    POP_HOST=pop.example.edu POP_USER=<local-part> POP_PASS='...' python3 spike/pop3_dump.py
 
-POP_HOST is msa.ntu.edu.tw or ccms.ntu.edu.tw depending on the account.
+POP_HOST is required; POP_PORT defaults to 995 (implicit TLS).
 Output: spike/out/pop3.trace  (password never written)
 """
 import os, re, ssl, socket, sys, pathlib
 
-HOST = os.environ.get("POP_HOST", "msa.ntu.edu.tw")
+HOST = os.environ.get("POP_HOST")
 PORT = int(os.environ.get("POP_PORT", "995"))
 USER = os.environ.get("POP_USER")
 PASS = os.environ.get("POP_PASS")
-if not USER or not PASS:
-    sys.exit("set POP_USER and POP_PASS (POP_HOST defaults to msa.ntu.edu.tw)")
+if not HOST or not USER or not PASS:
+    sys.exit("set POP_HOST, POP_USER and POP_PASS")
 
 OUT = pathlib.Path(__file__).parent / "out"
 OUT.mkdir(exist_ok=True)

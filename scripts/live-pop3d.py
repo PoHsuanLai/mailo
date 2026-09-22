@@ -1,4 +1,4 @@
-"""A real POP3 server (Twisted), for running the journey the NTU account will take.
+"""A real POP3 server (Twisted), for running the journey a POP3 account will take.
 
     ./venv/bin/python scripts/live-pop3d.py 11110
     # then point an account's plan at 127.0.0.1:11110 with tls=plaintext

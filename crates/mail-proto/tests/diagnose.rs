@@ -154,8 +154,8 @@ UIDPLUS MOVE ID UNSELECT CHILDREN IDLE NAMESPACE LITERAL+\r\n";
 
     #[test]
     fn a_server_that_permits_login_still_gets_one() {
-        // The check must not refuse every password account; NTU's Dovecot advertises no such
-        // capability and is the one account that works today.
+        // The check must not refuse every password account; a stock Dovecot advertises no such
+        // capability, and its accounts work.
         let mut s = session(vec![ImapCommand::Capability, ImapCommand::Login]);
         let _ = s.start();
         let _ = s.feed(IoReady::Bytes(b"* OK ready\r\n".to_vec()));

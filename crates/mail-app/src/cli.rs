@@ -27,7 +27,7 @@ pub enum Command {
     /// reach a host the preset table has never heard of.
     AccountAdd {
         address: String,
-        manual: Option<mail_domain::presets::Manual>,
+        manual: Option<Setup>,
         /// The address belongs to a managed Microsoft 365 tenant on its own domain, which is
         /// the one thing the preset table cannot work out for itself.
         microsoft: bool,
@@ -467,16 +467,26 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
     }
 }
 
-/// `--imap HOST[:PORT] --smtp HOST[:PORT] [--login NAME]`, or `None` when none were given.
+/// Servers the user named, for an address the preset table does not cover.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Setup {
+    /// `--imap`: mail is read where it lies, in folders.
+    Imap(mail_domain::presets::Manual),
+    /// `--pop3`: mail is downloaded from one mailbox, and left there.
+    Pop3(mail_domain::presets::ManualPop3),
+}
+
+/// `--imap HOST[:PORT] | --pop3 HOST[:PORT]`, then `--smtp HOST[:PORT] [--login NAME]`, or `None`
+/// when none were given.
 ///
 /// All or nothing: naming only the incoming server would leave the account unable to send, and
 /// silently defaulting the other half to a guessed hostname is how mail goes to a server the
 /// user never chose.
-fn parse_manual(args: &[String]) -> Result<Option<mail_domain::presets::Manual>, String> {
+fn parse_manual(args: &[String]) -> Result<Option<Setup>, String> {
     if args.is_empty() {
         return Ok(None);
     }
-    let (mut imap, mut smtp, mut login) = (None, None, None);
+    let (mut imap, mut pop3, mut smtp, mut login) = (None, None, None, None);
     let mut rest = args.iter();
     while let Some(flag) = rest.next() {
         let value = rest
@@ -484,28 +494,44 @@ fn parse_manual(args: &[String]) -> Result<Option<mail_domain::presets::Manual>,
             .ok_or_else(|| format!("{flag} needs a value\n\n{}", usage()))?;
         match flag.as_str() {
             "--imap" => imap = Some(host_port(value, 993)?),
+            "--pop3" => pop3 = Some(host_port(value, 995)?),
             "--smtp" => smtp = Some(host_port(value, 465)?),
             "--login" => login = Some(value.clone()),
             other => return Err(format!("unknown option {other:?}\n\n{}", usage())),
         }
     }
-    match (imap, smtp) {
-        (Some((imap_host, imap_port)), Some((smtp_host, smtp_port))) => {
-            Ok(Some(mail_domain::presets::Manual {
+    if imap.is_some() && pop3.is_some() {
+        return Err(format!(
+            "an account reads mail over IMAP or over POP3, not both; pick one\n\n{}",
+            usage()
+        ));
+    }
+    match (imap, pop3, smtp) {
+        (Some((imap_host, imap_port)), None, Some((smtp_host, smtp_port))) => {
+            Ok(Some(Setup::Imap(mail_domain::presets::Manual {
                 imap_host,
                 imap_port,
                 smtp_host,
                 smtp_port,
                 login,
-            }))
+            })))
         }
-        (None, None) => Err(format!(
-            "--login needs --imap and --smtp too\n\n{}",
+        (None, Some((pop3_host, pop3_port)), Some((smtp_host, smtp_port))) => {
+            Ok(Some(Setup::Pop3(mail_domain::presets::ManualPop3 {
+                pop3_host,
+                pop3_port,
+                smtp_host,
+                smtp_port,
+                login,
+            })))
+        }
+        (None, None, None) => Err(format!(
+            "--login needs --imap (or --pop3) and --smtp too\n\n{}",
             usage()
         )),
         _ => Err(format!(
-            "manual setup needs both --imap and --smtp; an account that can \
-             only receive is not one this can configure\n\n{}",
+            "manual setup needs --smtp and one of --imap or --pop3; an account that \
+             can only receive, or only send, is not one this can configure\n\n{}",
             usage()
         )),
     }
@@ -570,6 +596,8 @@ usage: mailo <command>
   account add <address>      (set MAILO_PASSWORD for a password account)
   account add <address> --imap HOST[:PORT] --smtp HOST[:PORT] [--login NAME]
                              for a server the preset table does not know
+  account add <address> --pop3 HOST[:PORT] --smtp HOST[:PORT] [--login NAME]
+                             the same, for a server that offers only POP3
   account add <address> --microsoft
                              a work or school Microsoft 365 mailbox on its own domain
   sync                       fetch mail and send anything queued
@@ -817,7 +845,7 @@ fn account_named(store: &SqliteStore, address: &str) -> Result<AccountId, String
 /// Every label with this name, across every configured account.
 ///
 /// All of them, not the first. `UNIQUE (account, name)` means "travel" on the Gmail account and
-/// "travel" on the NTU one are two different labels, and a user who types `label:travel` means
+/// "travel" on the work one are two different labels, and a user who types `label:travel` means
 /// the word rather than one account's row. Taking the first silently searched one mailbox — a
 /// wrong answer that looks like an empty one, which is the worst kind.
 fn labels_named(store: &SqliteStore, name: &str) -> Vec<mail_domain::LabelId> {

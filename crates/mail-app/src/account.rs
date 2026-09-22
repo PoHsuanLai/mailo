@@ -17,7 +17,7 @@ use std::fmt::Write as _;
 pub fn add(
     store: &SqliteStore,
     address: &str,
-    manual: Option<&mail_domain::presets::Manual>,
+    manual: Option<&crate::cli::Setup>,
     microsoft: bool,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<String, String> {
@@ -33,15 +33,21 @@ pub fn add(
         _ if microsoft => mail_domain::presets::microsoft_preset(&address, now),
         // Explicit servers win over the table. Someone who names a host means that host, even
         // for a domain a preset happens to cover.
-        Some(manual) => mail_domain::presets::manual(&address, manual, now),
+        Some(crate::cli::Setup::Imap(manual)) => {
+            mail_domain::presets::manual(&address, manual, now)
+        }
+        Some(crate::cli::Setup::Pop3(manual)) => {
+            mail_domain::presets::manual_pop3(&address, manual, now)
+        }
         None => match mail_domain::presets::preset_for(&address, now) {
             Some(preset) => preset,
             None => {
                 return Err(format!(
                     "no preset for {address:?}. Either it is one of the known domains \
-                     (gmail.com, googlemail.com, ntu.edu.tw), or name the servers:\n\n  \
+                     (gmail.com, googlemail.com), or name the servers:\n\n  \
                      mailo account add {address} --imap imap.example.com --smtp smtp.example.com\n\n\
-                     Ports default to 993 and 465, both with implicit TLS. Add --login NAME if \
+                     Ports default to 993 and 465, both with implicit TLS. A server that offers \
+                     only POP3 takes --pop3 in place of --imap (port 995). Add --login NAME if \
                      the server wants something other than the whole address."
                 ));
             }
@@ -83,7 +89,7 @@ pub fn add(
         id: IdentityId::generate(),
         account,
         from: Address {
-            // No display name. Inventing one from the local part produces "B09901185", and a
+            // No display name. Inventing one from the local part produces "S1234567", and a
             // name the user did not choose is worse than no name: it goes out on every message.
             name: None,
             email: address.clone(),
@@ -492,6 +498,17 @@ mod tests {
         (store, dir)
     }
 
+    /// A campus server that offers only POP3, and logs in with a student number.
+    fn pop3() -> crate::cli::Setup {
+        crate::cli::Setup::Pop3(mail_domain::presets::ManualPop3 {
+            pop3_host: "pop.example.edu".to_owned(),
+            pop3_port: 995,
+            smtp_host: "smtp.example.edu".to_owned(),
+            smtp_port: 465,
+            login: Some("s1234567".to_owned()),
+        })
+    }
+
     /// Re-running `account add` is the documented way to supply a client id or a password —
     /// every message this program prints about a missing credential says to do exactly that.
     /// It used to fail on the second run with `UNIQUE constraint failed: accounts.address`,
@@ -587,7 +604,10 @@ mod tests {
         let (store, _dir) = store();
         let err = add(&store, "someone@example.test", None, false, now()).unwrap_err();
         assert!(err.contains("gmail.com"), "{err}");
-        assert!(err.contains("ntu.edu.tw"), "{err}");
+        assert!(
+            err.contains("--pop3"),
+            "and how to name a POP3-only server: {err}"
+        );
     }
 
     #[test]
@@ -622,21 +642,22 @@ mod tests {
 
     #[test]
     fn a_password_account_names_the_login_it_resolved() {
-        // NTU logs in with the local part, not the address. Getting that wrong is a failed
-        // authentication with no explanation, so the CLI says which name it will use.
+        // Some servers log in with a student or staff number, not the address. Getting that
+        // wrong is a failed authentication with no explanation, so the CLI says which name it
+        // will use.
         let (store, _dir) = store();
-        let out = add(&store, "b09901185@ntu.edu.tw", None, false, now()).unwrap();
-        assert!(out.contains("b09901185"), "{out}");
+        let out = add(&store, "s1234567@example.edu", Some(&pop3()), false, now()).unwrap();
+        assert!(out.contains("s1234567"), "{out}");
         assert!(
-            !out.contains("b09901185@ntu.edu.tw\""),
-            "the login is the local part: {out}"
+            !out.contains("s1234567@example.edu\""),
+            "the login is the one named: {out}"
         );
     }
 
     #[test]
     fn adding_an_account_persists_its_plan_and_capabilities() {
         let (store, _dir) = store();
-        add(&store, "b09901185@ntu.edu.tw", None, false, now()).unwrap();
+        add(&store, "s1234567@example.edu", Some(&pop3()), false, now()).unwrap();
         let accounts: i64 = store
             .connection()
             .query_row("SELECT count(*) FROM accounts", [], |r| r.get(0))

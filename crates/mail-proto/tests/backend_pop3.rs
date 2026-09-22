@@ -96,7 +96,7 @@ fn run(op: ProtoOp, trace: &str) -> (ProtoOutcome, Pop3Backend) {
 #[test]
 fn fetch_caps_learns_top_and_pipelining() {
     let trace = concat!(
-        "# DERIVED from spike/out/pop3.trace: the CAPA msa.ntu.edu.tw actually returns.\n",
+        "# DERIVED from spike/out/pop3.trace: the CAPA a campus Dovecot actually returns.\n",
         "# Asked twice, because RFC 2449 permits the answer to differ once authenticated —\n",
         "# the same trap F14 caught on Gmail's IMAP. Here the second answer adds nothing, but\n",
         "# the second is the one believed.\n",

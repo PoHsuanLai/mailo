@@ -87,7 +87,7 @@ traces/
 `pop3/uidl.trace`:
 
 ```
-# NTU POP3, recorded 2026-09-22, addresses scrubbed.
+# A campus POP3 server, recorded 2026-09-22, addresses scrubbed.
 # Note the server sends no CAPA response to an unauthenticated session -- that is real,
 # not a recording error, and Pop3Session must cope with it.
 S: +OK POP3 server ready

@@ -22,7 +22,7 @@ fn store() -> (SqliteStore, tempfile::TempDir) {
         .connection()
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@ntu.edu.tw', '{}', datetime('now'))",
+             VALUES (?1, 'me@example.edu', '{}', datetime('now'))",
             [ACCOUNT.to_string()],
         )
         .unwrap();
@@ -53,10 +53,10 @@ fn found(store: &SqliteStore, needle: &str) -> usize {
 /// Ingest one Chinese message and return the store it is in.
 fn with_chinese_mail() -> (SqliteStore, tempfile::TempDir) {
     let (store, dir) = store();
-    let raw = "From: ccnoreply@ntu.edu.tw\r\n\
-               To: me@ntu.edu.tw\r\n\
-               Subject: =?UTF-8?B?44CQ6YeN6KaB44CR6Ie65aSn6KiI5Lit5L+h566x57O757Wx57at6K23?=\r\n\
-               Message-ID: <cjk@ntu.edu.tw>\r\n\
+    let raw = "From: noreply@example.edu\r\n\
+               To: me@example.edu\r\n\
+               Subject: =?UTF-8?B?44CQ6YeN6KaB44CR5qCh5ZyS6YO15Lu25L+h566x57O757Wx57at6K23?=\r\n\
+               Message-ID: <cjk@example.edu>\r\n\
                MIME-Version: 1.0\r\n\
                Content-Type: text/plain; charset=utf-8\r\n\
                Content-Transfer-Encoding: 8bit\r\n\
@@ -126,7 +126,7 @@ fn an_encoded_word_subject_is_decoded_on_the_way_in() {
             now(),
         )
         .unwrap();
-    assert_eq!(listed.items[0].subject, "【重要】臺大計中信箱系統維護");
+    assert_eq!(listed.items[0].subject, "【重要】校園郵件信箱系統維護");
 }
 
 #[test]
@@ -134,7 +134,7 @@ fn a_field_clause_finds_part_of_a_chinese_phrase() {
     // `LIKE '%needle%'` on the column, so substring matching works and Chinese is findable
     // through `subject:`, `from:` and `to:` — which is the whole of what works today.
     let (store, _dir) = with_chinese_mail();
-    assert_eq!(subject_hits(&store, "臺大"), 1);
+    assert_eq!(subject_hits(&store, "校園"), 1);
     assert_eq!(subject_hits(&store, "維護"), 1);
     assert_eq!(subject_hits(&store, "系統維護"), 1);
     // In the body rather than the subject, so not by this clause — which is correct.
@@ -150,11 +150,11 @@ fn full_text_finds_part_of_a_chinese_phrase() {
     // This test used to assert the opposite, and was written to fail the day this changed.
     let (store, _dir) = with_chinese_mail();
     assert_eq!(
-        found(&store, "臺大計中信箱系統維護"),
+        found(&store, "校園郵件信箱系統維護"),
         1,
         "the whole run still matches"
     );
-    for part in ["臺大", "計中", "維護", "系統維護", "信箱系統"] {
+    for part in ["校園", "郵件", "維護", "系統維護", "信箱系統"] {
         assert_eq!(found(&store, part), 1, "{part} is not findable");
     }
     assert_eq!(
@@ -167,10 +167,10 @@ fn full_text_finds_part_of_a_chinese_phrase() {
 
 #[test]
 fn a_chinese_phrase_that_is_not_there_is_not_found() {
-    // The other half, and the one bigrams could get wrong: `大臺` is `臺大` backwards, and
-    // `計維` takes one character from each end of the subject. Neither is a bigram of it.
+    // The other half, and the one bigrams could get wrong: `園校` is `校園` backwards, and
+    // `件維` takes one character from each end of the subject. Neither is a bigram of it.
     let (store, _dir) = with_chinese_mail();
-    for absent in ["大臺", "計維", "維計中", "臺北"] {
+    for absent in ["園校", "件維", "維郵件", "臺北"] {
         assert_eq!(found(&store, absent), 0, "{absent} matched and should not");
     }
 }
@@ -180,7 +180,7 @@ fn english_is_unaffected() {
     // The tokeniser is right for languages that put spaces between words, which is why it was
     // chosen. Whatever fixes CJK must not cost this.
     let (store, _dir) = with_chinese_mail();
-    assert_eq!(found(&store, "ccnoreply"), 1, "the sender is still a word");
+    assert_eq!(found(&store, "noreply"), 1, "the sender is still a word");
 }
 
 #[test]
@@ -190,7 +190,7 @@ fn what_can_be_found_in_a_chinese_message() {
 
     // The field clauses are `LIKE '%needle%'` on a column, not FTS — so they are substring
     // matching and should not have the tokeniser's problem at all.
-    for needle in ["臺大", "維護", "服務"] {
+    for needle in ["校園", "維護", "服務"] {
         let hits = store
             .threads(
                 &Query {
@@ -213,9 +213,9 @@ fn what_can_be_found_in_a_chinese_message() {
     }
 
     for needle in [
-        "臺大計中信箱系統維護", // the whole subject run
-        "臺大",                 // a word inside it
-        "計中",
+        "校園郵件信箱系統維護", // the whole subject run
+        "校園",                 // a word inside it
+        "郵件",
         "維護",
         "本週六凌晨兩點至六點暫停服務",
         "暫停服務",

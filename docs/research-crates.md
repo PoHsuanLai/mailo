@@ -280,7 +280,7 @@ New dependencies: `base64` (already needed for IMAP literals and MIME), and for 
 
 One real caveat worth writing into the plan: **CRAM-MD5 sends a password-derived MAC over the
 wire and is strictly worse than PLAIN inside TLS.** Our `Tls` enum has no plaintext-by-accident
-path, so PLAIN-inside-TLS is always available. The spike (F16) found `msa.ntu.edu.tw` offers
+path, so PLAIN-inside-TLS is always available. The spike (F16) found the campus POP3 server offers
 `SASL PLAIN` and `USER` only — no LOGIN, no CRAM-MD5. Gmail wants XOAUTH2. **Neither of our
 two real accounts needs CRAM-MD5.** Consider dropping `SaslMech::CramMd5` from v1 entirely
 and adding it when a server demands it; that is the cheapest correct answer.
@@ -379,8 +379,8 @@ shift_jis, big5, euc-jp, euc-kr, iso-2022-jp, gbk, gb18030,
 x-mac-cyrillic, x-user-defined, iso-2022-kr, hz-gb-2312
 ```
 
-**`big5` is in that list.** Our second account is `ntu.edu.tw` — a Taiwanese university, whose
-2,372-message mailbox (F17) will contain Big5 mail. With default features those bodies decode
+**`big5` is in that list.** Our second account is a campus POP3 mailbox in Taiwan, whose
+2,372-message maildrop (F17) will contain Big5 mail. With default features those bodies decode
 to mojibake with no error. One-word fix, but it has to be written down.
 
 ### 6b. Mislabelled charsets — **ADOPT `chardetng` 1.0.0**
@@ -460,7 +460,7 @@ writing `Pop3Session` and `ImapSession`. Decide it alongside the IMAP decision, 
 | `imap-proto` | 0.16.7 | MIT OR Apache-2.0 | 5,800 lines of battle-tested nom parsers for BODYSTRUCTURE, ENVELOPE, CONDSTORE, QRESYNC, UIDPLUS **and the Gmail extensions**; `nom`-only, streaming, borrowed output; fits `Progress::Need(Read)` exactly. Writing a correct BODYSTRUCTURE parser is weeks. |
 | `oauth2` | 5.0.0 | MIT OR Apache-2.0 | 51M downloads; PKCE, CSRF state, token/refresh/error handling done right; `default-features = false` keeps the HTTP call ours. Getting OAuth error semantics subtly wrong is a silent-reauth-loop bug. |
 | `chardetng` | 1.0.0 | Apache-2.0 OR MIT | Firefox's charset detector. Statistical detection is not something to reimplement. |
-| `mail-parser` feature `full_encoding` | 0.11.9 | Apache-2.0 OR MIT | Not a new crate — a feature flag we are currently missing, and Big5 at NTU depends on it. |
+| `mail-parser` feature `full_encoding` | 0.11.9 | Apache-2.0 OR MIT | Not a new crate — a feature flag we are currently missing, and Big5 mail depends on it. |
 | `blake3` | 1.8.7 | CC0-1.0 OR Apache-2.0 OR Apache-2.0-WITH-LLVM-exception | Keep. Apache-2.0 option satisfies our licence. |
 
 **WRITE OURSELVES**

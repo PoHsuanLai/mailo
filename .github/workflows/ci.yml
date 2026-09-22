@@ -77,7 +77,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      # Local servers only. `--network` would also run the probe against NTU's public server,
+      # Local servers only. `--network` would also run the CAPA probe against a real server,
       # which is someone else's machine and not something CI should reach for on every push.
       - name: Live protocol tests
         run: ./scripts/live-tests.sh

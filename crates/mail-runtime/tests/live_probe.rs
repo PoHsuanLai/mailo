@@ -12,27 +12,44 @@
 //! cargo test -p mail-runtime --test live_probe -- --ignored --nocapture
 //! ```
 //!
+//! with the server named in the environment:
+//!
+//! ```text
+//! MAILO_LIVE_POP3=pop.example.edu[:995] cargo test -p mail-runtime --test live_probe -- --ignored --nocapture
+//! ```
+//!
 //! No credentials and no mailbox access: `CAPA` is answered before any authentication, which is
-//! what makes this safe to keep. It sends one command and disconnects. If NTU ever objects, or
-//! the host moves, delete it — the fake-server tests are what the suite actually depends on.
+//! what makes this safe to keep. It sends one command and disconnects. With no server named it
+//! skips — the fake-server tests are what the suite actually depends on.
 
 use mail_domain::Tls;
 use mail_proto::{Pop3Command, Pop3Session};
 use mail_runtime::{Transport, drive};
 use tokio::sync::watch;
 
-/// The host the NTU preset names for student and staff ids.
-const HOST: &str = "msa.ntu.edu.tw";
-const PORT: u16 = 995;
+/// `HOST[:PORT]` of a POP3 server with implicit TLS; 995 when no port is given.
+const SERVER: &str = "MAILO_LIVE_POP3";
 
 #[tokio::test]
 #[ignore = "reaches a third-party server; run deliberately with --ignored"]
-async fn the_ntu_preset_describes_the_server_it_claims_to() {
-    let mut transport = match Transport::connect(HOST, PORT, Tls::Implicit).await {
+async fn a_real_pop3_server_accepts_what_this_client_sends() {
+    let Ok(server) = std::env::var(SERVER) else {
+        eprintln!("skipping: set {SERVER}=HOST[:PORT] to name a POP3 server");
+        return;
+    };
+    let (host, port) = match server.rsplit_once(':') {
+        Some((host, port)) => (
+            host.to_owned(),
+            port.parse()
+                .unwrap_or_else(|_| panic!("{SERVER}: {port:?} is not a port")),
+        ),
+        None => (server.clone(), 995),
+    };
+    let mut transport = match Transport::connect(&host, port, Tls::Implicit).await {
         Ok(t) => t,
         // A test that fails because someone is on a train is a test people learn to ignore.
         Err(e) => {
-            eprintln!("skipping: {HOST}:{PORT} unreachable ({e})");
+            eprintln!("skipping: {host}:{port} unreachable ({e})");
             return;
         }
     };
@@ -44,7 +61,7 @@ async fn the_ntu_preset_describes_the_server_it_claims_to() {
 
     let replies = drive(&mut session, &mut transport, &mut cancel)
         .await
-        .expect("a real Dovecot accepts the bytes this client renders");
+        .expect("a real server accepts the bytes this client renders");
 
     let advertised: Vec<String> = replies
         .iter()
@@ -55,26 +72,19 @@ async fn the_ntu_preset_describes_the_server_it_claims_to() {
         .flatten()
         .map(|a| a.to_uppercase())
         .collect();
-    eprintln!("{HOST} advertises: {advertised:?}");
+    eprintln!("{host} advertises: {advertised:?}");
 
     let has = |name: &str| advertised.iter().any(|a| a == name || a.starts_with(name));
 
-    // The preset's `top: Supported::Yes` is the load-bearing one: `RETR` sets `\Seen` and `TOP`
-    // does not, so a first sync without it marks the user's entire maildrop read in their
-    // webmail. If this ever stops being advertised, the preset is wrong and so is the sync.
-    assert!(has("TOP"), "the NTU preset claims TOP: {advertised:?}");
     assert!(
         has("UIDL"),
         "UIDL is how POP3 identity works at all: {advertised:?}"
     );
+    // `RETR` sets `\Seen` on servers that also serve IMAP, and `TOP` does not, so without `TOP`
+    // a first sync would mark the user's whole maildrop read in their webmail. The backend
+    // refuses rather than do that; this says in advance whether it will have to.
     assert!(
-        has("PIPELINING"),
-        "the preset claims pipelining: {advertised:?}"
-    );
-    // `sasl: vec![SaslMech::Plain]`, and the preset's comment that LOGIN is *not* offered —
-    // which is why the auth prelude must not try it first.
-    assert!(
-        has("SASL"),
-        "the preset authenticates with SASL PLAIN: {advertised:?}"
+        has("TOP"),
+        "without TOP this client will not fetch headers: {advertised:?}"
     );
 }

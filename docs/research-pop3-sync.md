@@ -1,9 +1,9 @@
-# POP3 first-sync research — 2372 messages, 255 MB, `msa.ntu.edu.tw`
+# POP3 first-sync research — 2372 messages, 255 MB, one campus Dovecot
 
 Researcher notes for F17. Written 2026-09-22.
 
 Everything below distinguishes **[RFC]** (guaranteed by RFC 1939 / 2449 / 5034),
-**[MEASURED]** (from `spike/out/pop3.trace`, our own run against `msa.ntu.edu.tw` on
+**[MEASURED]** (from `spike/out/pop3.trace`, our own run against a campus POP3 server on
 2026-09-22), and **[PRACTICE]** (what servers and mature clients actually do, cited).
 
 ---
@@ -77,7 +77,7 @@ Extrapolating ~2–4 KB of headers per message, a full `TOP n 0` pass over all 2
 roughly **7–9 MB**, i.e. ~3 % of the maildrop. *(Caveat: one sample. The estimate is
 order-of-magnitude, not a measurement.)*
 
-Network: TCP connect to `msa.ntu.edu.tw:995` measured at **15–38 ms** (3 samples; ICMP
+Network: TCP connect to the server's port 995 measured at **15–38 ms** (3 samples; ICMP
 is blocked, TCP is not). So ~15 ms RTT. 2372 strictly-serial round trips ≈ **36 s of
 pure latency** before a single byte of payload is counted. This is why PIPELINING is
 not a micro-optimisation for the header pass — without it, the header pass is
@@ -121,9 +121,9 @@ fetchmail relies on exactly this: its manual says fetchmail uses TOP rather than
 specifically *to avoid marking messages seen*, and lists the conditions under which it
 falls back to RETR (`fetchall` set; or `keep` set with `uidl` unset).
 
-**This matters for us as a product fact, not a protocol fact.** `msa.ntu.edu.tw` is
+**This matters for us as a product fact, not a protocol fact.** The server is
 Dovecot with `pop3_no_flag_updates` at its default (`no`), so **every `RETR` we issue
-sets `\Seen` on the server-side mailbox**, visible in NTU webmail and any IMAP client.
+sets `\Seen` on the server-side mailbox**, visible in the campus webmail and any IMAP client.
 A naive "RETR everything on first sync" marks the user's entire 2372-message mailbox
 as read in their webmail. A TOP-first design does not, until the user actually opens a
 message. That is a user-visible reason to prefer TOP that has nothing to do with
@@ -164,7 +164,7 @@ Thunderbird's headers-only mode has also produced a run of data-loss bugs
 (bugzilla 261668, 314310, 1930847: "messages get incorrectly deleted", "mails
 disappear", "prevents message download"), all of which are about the *interaction of
 headers-only with deletion and size filters*. That is a strong argument for our
-`LeaveOnServer::Keep` default on NTU: headers-only plus never-delete has no way to lose
+`LeaveOnServer::Keep` default for POP3: headers-only plus never-delete has no way to lose
 mail, whereas headers-only plus delete is the configuration that has repeatedly eaten
 people's inboxes.
 
@@ -476,7 +476,7 @@ The same §8 note is the reason some servers cripple TOP:
 > the optional TOP command, since it could be used as an alternate mechanism to
 > download entire messages.
 
-Not a risk here (NTU is `LeaveOnServer::Keep` and advertises TOP), but it is the
+Not a risk here (this account is `LeaveOnServer::Keep` and the server advertises TOP), but it is the
 structural reason TOP is sometimes absent, which is worth knowing when the next preset
 is written.
 
@@ -503,7 +503,7 @@ sometimes lengthy responses, and there is an advantage in sending new commands w
 still receiving the response to an earlier command (for example, sending RETR and/or
 DELE commands while processing a UIDL reply)."
 
-**[MEASURED]** `PIPELINING` is advertised by `msa.ntu.edu.tw`.
+**[MEASURED]** `PIPELINING` is advertised by the server.
 
 ### Is it safe in practice?
 
@@ -602,7 +602,7 @@ place a user ever sees a spinner.
 Pipeline within band A; do not pipeline band C.
 
 **Pass 4 — `DELE` and `QUIT`, only if `LeaveOnServer::DeleteAfterFetch`.**
-Not applicable to NTU (`Keep`). When it is: durable local write **first**, then `DELE`,
+Not applicable to this account (`Keep`). When it is: durable local write **first**, then `DELE`,
 then `QUIT`.
 
 ### Checkpointing across sessions
@@ -682,11 +682,11 @@ good reminder of why a real index matters at this size.
   estimate for the header pass rests on it. A second spike run doing `TOP n 0` for 50
   messages and summing would turn the estimate into a measurement, and would also prove
   TOP works on this server for real rather than by advertisement.
-- **Whether NTU's Dovecot sets `pop3_lock_session`.** Two concurrent sessions would tell
+- **Whether the server's Dovecot sets `pop3_lock_session`.** Two concurrent sessions would tell
   us; I did not try, because probing a lock on a live personal maildrop is not a thing to
   do casually.
-- **The `ccms.ntu.edu.tw` host.** Still untested, still a guess (F16). Its CAPA may
-  differ; nothing here should assume both NTU hosts are the same Dovecot build.
+- **The institution's second host.** Still untested, still a guess (F16). Its CAPA may
+  differ; nothing here should assume both hosts are the same Dovecot build.
 - **Effective throughput.** I measured RTT (~15 ms) but not bandwidth. The wall-clock
   claims above are latency arithmetic plus byte counts, not an end-to-end timing.
 
@@ -729,4 +729,4 @@ Clients (facts read, no code copied; licences noted):
 
 Measurements from this project:
 - `spike/out/pop3.trace` (gitignored) — CAPA, STAT, full UIDL, full LIST, one RETR.
-- TCP connect to `msa.ntu.edu.tw:995`: 15–38 ms over 3 samples, 2026-09-22.
+- TCP connect to the server's port 995: 15–38 ms over 3 samples, 2026-09-22.

@@ -10,7 +10,7 @@
 # from the committed scripts, waits until they answer, and only then runs anything.
 #
 #   ./scripts/live-tests.sh            # local servers only
-#   ./scripts/live-tests.sh --network  # also the probe against NTU's public server
+#   ./scripts/live-tests.sh --network  # also the CAPA probe against MAILO_LIVE_POP3
 set -uo pipefail
 
 IMAP_PORT=11143
@@ -78,7 +78,7 @@ run mail-app     sync_path
 if [ "$WITH_NETWORK" -eq 1 ]; then
   run mail-runtime live_probe
 else
-  echo "live_probe      skipped (pass --network to include it; it reaches NTU)"
+  echo "live_probe      skipped (pass --network to include it; and set MAILO_LIVE_POP3 to the server it reaches)"
 fi
 
 exit "$fail"

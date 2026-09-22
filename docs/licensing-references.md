@@ -341,7 +341,7 @@ Gmail session with credentials redacted. That infrastructure is the provenance s
 needs one convention added.
 
 **Proposal: a standard provenance header on every trace.** The format already supports `#`
-comments and the FORMAT.md example already uses them informally ("NTU POP3, recorded 2026-09-22,
+comments and the FORMAT.md example already uses them informally ("A campus POP3 server, recorded 2026-09-22,
 addresses scrubbed"). Make it structured and required:
 
 ```

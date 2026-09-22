@@ -83,21 +83,12 @@ fn gmail_folders() -> FolderRoles {
 }
 
 /// How often to poll a server with no `IDLE`. Five minutes: often enough to feel live,
-/// rare enough not to look like abuse to a campus server.
-const NTU_POLL_EVERY: Duration = Duration::from_secs(5 * 60);
-
-/// NTU's two POP3 front ends. Separated into constants because a live spike is running
-/// against them now and either host, or the rule that picks between them, may need to change
-/// without touching anything else in this file.
-const NTU_MSA_HOST: &str = "msa.ntu.edu.tw";
-const NTU_CCMS_HOST: &str = "ccms.ntu.edu.tw";
-const NTU_SMTP_HOST: &str = "smtps.ntu.edu.tw";
+/// rare enough not to look like abuse to a small institution's server.
+const POLL_EVERY: Duration = Duration::from_secs(5 * 60);
 
 /// Look up configuration for an address.
 ///
-/// Returns `None` for an unknown domain, which the UI turns into a manual setup form. Some
-/// domains need the local part as well: `ntu.edu.tw` picks between `msa` and `ccms` from the
-/// shape of the local part, which is preset logic and belongs here rather than in a type.
+/// Returns `None` for an unknown domain, which the UI turns into a manual setup form.
 ///
 /// The domain is matched case-insensitively (ASCII: mail domains are IDNA-encoded by the
 /// time they reach us). An address with no `@`, or with an empty local part or domain, has no
@@ -126,7 +117,6 @@ pub fn preset_for(address: &str, now: DateTime<Utc>) -> Option<Preset> {
         // Personal outlook.com and hotmail.com are deliberately absent: see `OAuthIssuer::
         // Microsoft`.
         "onmicrosoft.com" => Some(microsoft(address, now)),
-        "ntu.edu.tw" => Some(ntu(address, local, now)),
         _ => None,
     }
 }
@@ -288,6 +278,76 @@ pub fn manual(address: &str, manual: &Manual, now: DateTime<Utc>) -> Preset {
     }
 }
 
+/// [`Manual`], for a server that receives over POP3 instead of IMAP.
+///
+/// A sibling rather than a field on [`Manual`], whose fields are named for IMAP and are part of
+/// the frozen interface.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManualPop3 {
+    pub pop3_host: String,
+    pub pop3_port: u16,
+    pub smtp_host: String,
+    pub smtp_port: u16,
+    /// The login name, when it is not the whole address.
+    pub login: Option<String>,
+}
+
+/// A plan for a POP3 server the preset table has never heard of.
+///
+/// The same assumptions as [`manual`], plus two that only POP3 needs:
+///
+/// - **Mail stays on the server.** [`LeaveOnServer::Keep`], always. With delete-after-fetch this
+///   client becomes the only copy of the user's mail, and a first sync interrupted halfway loses
+///   whatever it had already deleted.
+/// - **Capabilities are asked for before anything else.** `expected_caps` is dated at the epoch,
+///   so the first pass counts it as stale and reads `CAPA` before fetching. The field that
+///   matters is `TOP`: without it headers cannot be fetched without `RETR`, which marks mail
+///   read on the server, and the backend refuses rather than do that. Assuming `TOP` would be a
+///   guess; asking costs one round trip.
+pub fn manual_pop3(address: &str, manual: &ManualPop3, _now: DateTime<Utc>) -> Preset {
+    Preset {
+        plan: AccountPlan {
+            address: address.to_owned(),
+            incoming: Incoming::Pop3 {
+                host: manual.pop3_host.clone(),
+                port: manual.pop3_port,
+                tls: Tls::Implicit,
+                leave: LeaveOnServer::Keep,
+            },
+            outgoing: Outgoing::Smtp {
+                host: manual.smtp_host.clone(),
+                port: manual.smtp_port,
+                tls: Tls::Implicit,
+            },
+            auth: AuthPlan::Password {
+                username: match &manual.login {
+                    Some(name) => Username::Literal(name.clone()),
+                    None => Username::SameAsAddress,
+                },
+                sasl: vec![SaslMech::Plain],
+            },
+            identities: Vec::new(),
+        },
+        expected_caps: AccountCaps {
+            // POP3 has no keywords and no folders at all, so every one of these is local.
+            labels: ServerLabels::LocalOnly,
+            threads: ServerThreads::Jwz,
+            watch: WatchMode::Poll { every: POLL_EVERY },
+            archive: ArchiveMeans::LocalOnly,
+            folders: FolderRoles(Vec::new()),
+            condstore: Condstore::Absent,
+            move_ext: MoveExt::Absent,
+            // POP3 has no EXPUNGE; deletion is DELE, governed by LeaveOnServer.
+            expunge: ExpungeMeans::Forbidden,
+            top: Supported::Absent,
+            pipelining: Supported::Absent,
+            // One maildrop, and many POP3 servers lock it against a second session.
+            connections: ConnectionBudget { max: 1 },
+            observed_at: DateTime::<Utc>::UNIX_EPOCH,
+        },
+    }
+}
+
 /// A managed Microsoft 365 mailbox, work or school, for an address the table cannot recognise.
 ///
 /// Public because a custom tenant domain is the common case and `--microsoft` is how the user
@@ -352,102 +412,6 @@ fn microsoft(address: &str, now: DateTime<Utc>) -> Preset {
     }
 }
 
-fn ntu(address: &str, local: &str, now: DateTime<Utc>) -> Preset {
-    Preset {
-        plan: AccountPlan {
-            address: address.to_owned(),
-            incoming: Incoming::Pop3 {
-                host: ntu_pop_host(local).to_owned(),
-                port: 995,
-                tls: Tls::Implicit,
-                // Keep, always. POP3 with `DeleteAfterFetch` makes this client the only copy
-                // of the user's mail, and a first sync that is interrupted halfway then loses
-                // whatever it had already deleted.
-                leave: LeaveOnServer::Keep,
-            },
-            outgoing: Outgoing::Smtp {
-                host: NTU_SMTP_HOST.to_owned(),
-                port: 465,
-                tls: Tls::Implicit,
-            },
-            auth: AuthPlan::Password {
-                // `user@ntu.edu.tw` logs in as `user`.
-                username: Username::LocalPart,
-                // `Login` first: the spike shows the campus server offering `LOGIN`, and
-                // `Plain` is the fallback for the hosts that do not.
-                // Measured against msa.ntu.edu.tw on 2026-09-22: CAPA advertises
-                // SASL PLAIN and USER, and does NOT offer LOGIN or CRAM-MD5.
-                // Offering LOGIN first would have failed on the first connect.
-                sasl: vec![SaslMech::Plain],
-            },
-            identities: Vec::new(),
-        },
-        expected_caps: AccountCaps {
-            // POP3 has no keywords and no folders at all, so every one of these is local.
-            labels: ServerLabels::LocalOnly,
-            threads: ServerThreads::Jwz,
-            watch: WatchMode::Poll {
-                every: NTU_POLL_EVERY,
-            },
-            archive: ArchiveMeans::LocalOnly,
-            // POP3 exposes one implicit maildrop, so there is no path-to-role table to fill.
-            folders: FolderRoles(Vec::new()),
-            condstore: Condstore::Absent,
-            move_ext: MoveExt::Absent,
-            // POP3 has no EXPUNGE; deletion is DELE, governed by LeaveOnServer.
-            expunge: ExpungeMeans::Forbidden,
-            // Both measured against msa.ntu.edu.tw on 2026-09-22: CAPA advertises
-            // `TOP UIDL RESP-CODES PIPELINING`. TOP is what keeps a first sync from marking the
-            // whole maildrop read, because RETR sets the seen flag and TOP does not.
-            top: Supported::Yes,
-            pipelining: Supported::Yes,
-            // One maildrop, and many POP3 servers lock it against a second session.
-            connections: ConnectionBudget { max: 1 },
-            observed_at: now,
-        },
-    }
-}
-
-/// Which NTU POP3 front end serves this local part.
-///
-/// **The heuristic:** a local part shaped like an NTU student/staff id — one or two ASCII
-/// letters followed by seven to nine ASCII digits (`b09901123`, `r10922001`, `d08944002`), or
-/// all digits — is served by [`NTU_MSA_HOST`]. Anything else is treated as a name-shaped
-/// account (`chenyuting`, `y.t.chen`, `prof-lin`) and served by [`NTU_CCMS_HOST`].
-///
-/// This is a guess about an account-naming convention, not a protocol fact, and a live spike
-/// is checking it right now. It is one predicate and two constants on purpose: if the spike
-/// says the split runs the other way, or that one host serves everyone, the correction is
-/// this function alone. When the guess is wrong the symptom is a POP3 login failure on the
-/// first connect, not silent data loss — and the setup UI can still offer the other host.
-///
-/// Matching is ASCII-only and case-insensitive; NTU ids are ASCII by construction.
-fn ntu_pop_host(local: &str) -> &'static str {
-    if looks_like_ntu_id(local) {
-        NTU_MSA_HOST
-    } else {
-        NTU_CCMS_HOST
-    }
-}
-
-/// Whether a local part has the shape of an NTU id. See [`ntu_pop_host`].
-///
-/// The `local[letters..]` slice below is a byte index built from a *character* count. That is
-/// sound only because `is_ascii_alphabetic` accepts nothing wider than one byte. Widening the
-/// predicate to `is_alphabetic` would make it panic on a non-ASCII local part — which is
-/// attacker-supplied — so keep it ASCII, or switch to `char_indices`.
-fn looks_like_ntu_id(local: &str) -> bool {
-    let letters = local
-        .chars()
-        .take_while(|c| c.is_ascii_alphabetic())
-        .count();
-    if letters > 2 {
-        return false;
-    }
-    let digits = &local[letters..];
-    (7..=9).contains(&digits.len()) && digits.chars().all(|c| c.is_ascii_digit())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -487,69 +451,35 @@ mod tests {
         }
     }
 
+    /// A POP3 server named by hand keeps mail on the server, and asks what it can do first.
     #[test]
-    fn ntu_host_selection() {
-        const CASES: &[(&str, &str)] = &[
-            ("b09901123@ntu.edu.tw", NTU_MSA_HOST),
-            ("r10922001@ntu.edu.tw", NTU_MSA_HOST),
-            ("d08944002@ntu.edu.tw", NTU_MSA_HOST),
-            ("B09901123@NTU.EDU.TW", NTU_MSA_HOST),
-            ("123456789@ntu.edu.tw", NTU_MSA_HOST),
-            ("chenyuting@ntu.edu.tw", NTU_CCMS_HOST),
-            ("y.t.chen@ntu.edu.tw", NTU_CCMS_HOST),
-            ("prof-lin@ntu.edu.tw", NTU_CCMS_HOST),
-            ("b099@ntu.edu.tw", NTU_CCMS_HOST),
-            ("abc09901123@ntu.edu.tw", NTU_CCMS_HOST),
-        ];
-        for (address, expected) in CASES {
-            let preset = preset_for(address, at()).unwrap_or_else(|| panic!("{address}"));
-            let Incoming::Pop3 {
-                host,
-                port,
-                tls,
-                leave,
-            } = preset.plan.incoming
-            else {
-                panic!("{address}: expected POP3");
-            };
-            assert_eq!(host, *expected, "{address}");
-            assert_eq!(port, 995, "{address}");
-            assert_eq!(tls, Tls::Implicit, "{address}");
-            assert_eq!(leave, LeaveOnServer::Keep, "{address}");
-        }
-    }
-
-    #[test]
-    fn ntu_auth_and_caps() {
-        let preset = preset_for("b09901123@ntu.edu.tw", at()).expect("ntu preset");
-        assert_eq!(
-            preset.plan.auth,
-            AuthPlan::Password {
-                username: Username::LocalPart,
-                sasl: vec![SaslMech::Plain],
-            }
+    fn a_manual_pop3_server_keeps_mail_and_asks_before_fetching() {
+        let preset = manual_pop3(
+            "someone@example.edu",
+            &ManualPop3 {
+                pop3_host: "pop.example.edu".to_owned(),
+                pop3_port: 995,
+                smtp_host: "smtp.example.edu".to_owned(),
+                smtp_port: 465,
+                login: Some("someone".to_owned()),
+            },
+            at(),
         );
         assert_eq!(
-            preset.plan.outgoing,
-            Outgoing::Smtp {
-                host: NTU_SMTP_HOST.to_owned(),
-                port: 465,
+            preset.plan.incoming,
+            Incoming::Pop3 {
+                host: "pop.example.edu".to_owned(),
+                port: 995,
                 tls: Tls::Implicit,
+                leave: LeaveOnServer::Keep,
             }
         );
-        assert_eq!(preset.expected_caps.archive, ArchiveMeans::LocalOnly);
-        assert_eq!(preset.expected_caps.labels, ServerLabels::LocalOnly);
-        assert_eq!(preset.expected_caps.threads, ServerThreads::Jwz);
-        assert_eq!(
-            preset.expected_caps.watch,
-            WatchMode::Poll {
-                every: NTU_POLL_EVERY
-            }
+        assert_eq!(preset.plan.username(), "someone");
+        assert!(
+            (at() - preset.expected_caps.observed_at) > chrono::TimeDelta::try_days(1).unwrap(),
+            "expected capabilities must read as stale, so CAPA runs before the first fetch"
         );
-        assert_eq!(preset.expected_caps.condstore, Condstore::Absent);
-        assert_eq!(preset.expected_caps.move_ext, MoveExt::Absent);
-        assert!(preset.expected_caps.folders.0.is_empty());
-        assert!(preset.plan.identities.is_empty());
+        assert_eq!(preset.expected_caps.top, Supported::Absent, "not assumed");
     }
 
     #[test]
@@ -616,7 +546,7 @@ mod password_warning_tests {
         // Advice, not a gate. Anything not known to have switched passwords off gets no warning,
         // because inventing one teaches the user to ignore them.
         for host in [
-            "msa.ntu.edu.tw",
+            "pop.example.edu",
             "imap.example.com",
             "mail.fastmail.com",
             "",

@@ -1,9 +1,9 @@
 {
-  "address": "b09901123@ntu.edu.tw",
+  "address": "s1234567@example.edu",
   "incoming": {
     "kind": "pop3",
     "v": {
-      "host": "msa.ntu.edu.tw",
+      "host": "pop.example.edu",
       "port": 995,
       "tls": "implicit",
       "leave": "keep"
@@ -12,7 +12,7 @@
   "outgoing": {
     "kind": "smtp",
     "v": {
-      "host": "smtps.ntu.edu.tw",
+      "host": "smtp.example.edu",
       "port": 465,
       "tls": "implicit"
     }

@@ -1,7 +1,7 @@
 //! Two accounts in one database, which is what this client is for and what nothing tested.
 //!
-//! Every other suite here creates exactly one account. The user this was written for has an
-//! NTU mailbox, a Gmail one and two Microsoft 365 tenants, so "two accounts" is the ordinary
+//! Every other suite here creates exactly one account. The user this was written for has a
+//! campus POP3 mailbox, a Gmail one and two Microsoft 365 tenants, so "two accounts" is the ordinary
 //! case and not an edge one — and the things that can go wrong with it are the ones that only
 //! appear with two: a thread merged across accounts, an operation reaching the wrong copy, a
 //! label name meaning two different labels, a count that adds up the wrong mailboxes.
@@ -21,7 +21,7 @@ fn now() -> DateTime<Utc> {
 fn store() -> (SqliteStore, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let store = SqliteStore::in_memory(dir.path()).unwrap();
-    for (id, address) in [(A, "me@ntu.edu.tw"), (B, "me@gmail.test")] {
+    for (id, address) in [(A, "me@example.edu"), (B, "me@gmail.test")] {
         store
             .connection()
             .execute(
@@ -91,7 +91,7 @@ fn the_inbox_with_no_account_clause_holds_both() {
         &store,
         A,
         "u1",
-        "From: a@ntu.edu.tw\nSubject: from NTU\nMessage-ID: <n1@x.test>\n\nhi\n",
+        "From: a@example.edu\nSubject: from campus\nMessage-ID: <n1@x.test>\n\nhi\n",
     );
     deliver(
         &store,
@@ -105,7 +105,7 @@ fn the_inbox_with_no_account_clause_holds_both() {
         .map(|t| t.subject)
         .collect();
     assert_eq!(subjects.len(), 2, "{subjects:?}");
-    assert!(subjects.iter().any(|s| s == "from NTU"));
+    assert!(subjects.iter().any(|s| s == "from campus"));
     assert!(subjects.iter().any(|s| s == "from Gmail"));
 }
 
@@ -116,7 +116,7 @@ fn an_account_clause_narrows_to_that_account() {
         &store,
         A,
         "u1",
-        "From: a@ntu.edu.tw\nSubject: from NTU\nMessage-ID: <n1@x.test>\n\nhi\n",
+        "From: a@example.edu\nSubject: from campus\nMessage-ID: <n1@x.test>\n\nhi\n",
     );
     deliver(
         &store,
@@ -127,7 +127,7 @@ fn an_account_clause_narrows_to_that_account() {
 
     let only_a = listed(&store, Filter::Account(A));
     assert_eq!(only_a.len(), 1);
-    assert_eq!(only_a[0].subject, "from NTU");
+    assert_eq!(only_a[0].subject, "from campus");
     assert_eq!(only_a[0].account, A);
 }
 
@@ -228,7 +228,7 @@ fn archiving_one_accounts_copy_leaves_the_others_alone() {
 
 #[test]
 fn one_label_name_on_two_accounts_is_two_labels() {
-    // `UNIQUE (account, name)`, so "travel" on the Gmail account and "travel" on the NTU one are
+    // `UNIQUE (account, name)`, so "travel" on the Gmail account and "travel" on the campus one are
     // different labels — and a message on one must not acquire the other's.
     let (store, _dir) = store();
     for account in [A, B] {
@@ -265,7 +265,7 @@ fn an_unread_count_counts_one_account_or_both_as_asked() {
         &store,
         A,
         "u1",
-        "From: a@ntu.edu.tw\nSubject: one\nMessage-ID: <n1@x.test>\n\nhi\n",
+        "From: a@example.edu\nSubject: one\nMessage-ID: <n1@x.test>\n\nhi\n",
     );
     deliver(
         &store,
