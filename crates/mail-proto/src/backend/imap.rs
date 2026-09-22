@@ -8,7 +8,8 @@ use crate::machine::{Backend, IoReady, Machine, Progress, ProtoError, ProtoOutco
 use crate::mutf7;
 use mail_domain::{
     AccountCaps, AccountId, ArchiveMeans, Condstore, ExpungeMeans, FetchSince, FolderRoles, Ingest,
-    MailboxRef, MailboxRole, MoveExt, ProtoOp, RemoteRef, ServerLabels, SyncCursor, UidValidity,
+    MailboxRef, MailboxRole, MoveExt, ProtoOp, RemoteRef, Resync, ServerLabels, SyncCursor,
+    UidValidity,
 };
 
 /// Builds a session for one command walk, owning the credential so the backend never sees it.
@@ -32,6 +33,7 @@ enum Job {
     Envelopes { mailbox: MailboxRef },
     Flags { mailbox: MailboxRef },
     Listing { mailbox: MailboxRef },
+    Resyncing { mailbox: MailboxRef, since: Resync },
     Fetch { remotes: Vec<RemoteRef> },
     Applied,
     Watching,
@@ -105,6 +107,7 @@ impl ImapBackend {
         ImapCommand::Select {
             mailbox: mailbox.path.clone(),
             read_only,
+            qresync: None,
         }
     }
 
@@ -328,7 +331,7 @@ impl Backend for ImapBackend {
                     mailbox: mailbox.clone(),
                 };
                 let items = match (since_modseq, self.caps.condstore) {
-                    (Some(modseq), Condstore::Supported) => {
+                    (Some(modseq), condstore) if condstore.changedsince() => {
                         format!("(UID FLAGS) (CHANGEDSINCE {modseq})")
                     }
                     // No modseq, or none we trust: a full flag fetch is slow and correct, which
@@ -345,7 +348,27 @@ impl Backend for ImapBackend {
                     },
                 ])
             }
-            ProtoOp::ListRemote { mailbox } => {
+            ProtoOp::ListRemote {
+                mailbox,
+                since: Some(since),
+            } if self.caps.condstore == Condstore::Qresync => {
+                // The server says what vanished, so nothing needs listing. `ENABLE` first and
+                // on this connection: QRESYNC is per session, and a `SELECT` carrying the
+                // parameter without it is a protocol error.
+                self.job = Job::Resyncing {
+                    mailbox: mailbox.clone(),
+                    since,
+                };
+                self.queue(vec![
+                    ImapCommand::Enable("QRESYNC".to_owned()),
+                    ImapCommand::Select {
+                        mailbox: mailbox.path.clone(),
+                        read_only: true,
+                        qresync: Some(since),
+                    },
+                ])
+            }
+            ProtoOp::ListRemote { mailbox, .. } => {
                 self.job = Job::Listing {
                     mailbox: mailbox.clone(),
                 };
@@ -421,10 +444,12 @@ impl Backend for ImapBackend {
                 // Whole atoms, not substrings: `contains("MOVE")` is also true of `REMOVE`
                 // and `contains("UID")` of `UIDPLUS`. See `imap::has_capability`.
                 let seen = |name: &str| crate::imap::has_capability(&transcript.capabilities, name);
-                caps.condstore = if seen("CONDSTORE") {
-                    Condstore::Supported
-                } else {
-                    Condstore::Absent
+                // QRESYNC implies CONDSTORE (RFC 7162 §3.2.3), but a server listing one without
+                // the other is misconfigured, and the lesser claim is the safe one to believe.
+                caps.condstore = match (seen("CONDSTORE"), seen("QRESYNC")) {
+                    (true, true) => Condstore::Qresync,
+                    (true, false) => Condstore::Supported,
+                    (false, _) => Condstore::Absent,
                 };
                 caps.move_ext = if seen("MOVE") {
                     MoveExt::Supported
@@ -480,6 +505,46 @@ impl Backend for ImapBackend {
                     label_names: Vec::new(),
                     gone: Vec::new(),
                 })))
+            }
+            Job::Resyncing { mailbox, since } => {
+                let (uidvalidity, uidnext, modseq) = mailbox_state(&transcript.untagged);
+                let nothing = Ingest {
+                    mailbox: mailbox.clone(),
+                    validity: UidValidity::Same,
+                    cursor: None,
+                    messages: Vec::new(),
+                    flags: Vec::new(),
+                    labels: Vec::new(),
+                    label_names: Vec::new(),
+                    gone: Vec::new(),
+                };
+                // A different UIDVALIDITY and the server ignores the parameter (RFC 7162
+                // §3.2.5.2): the mailbox was renumbered, nothing here describes the UIDs held,
+                // and the sync pass is what notices a renumbering. Report nothing and leave the
+                // cursor where it was, so the next sweep does not resume from a mailbox that no
+                // longer exists.
+                if uidvalidity != since.uidvalidity {
+                    return Progress::Done(ProtoOutcome::Resynced {
+                        ingest: Box::new(nothing),
+                        vanished: Vec::new(),
+                    });
+                }
+                let changed = parse_fetches(&transcript.untagged, &mailbox.path, uidvalidity);
+                Progress::Done(ProtoOutcome::Resynced {
+                    ingest: Box::new(Ingest {
+                        cursor: Some(SyncCursor::Imap {
+                            uidvalidity,
+                            uidnext,
+                            modseq,
+                        }),
+                        flags: changed
+                            .into_iter()
+                            .map(|row| (row.remote, row.read, row.star))
+                            .collect(),
+                        ..nothing
+                    }),
+                    vanished: parse_vanished(&transcript.untagged),
+                })
             }
             Job::Envelopes { mailbox } | Job::Flags { mailbox } => {
                 // No `Fetched` here, and that is not laziness: a `Fetched` needs the raw bytes,
@@ -728,6 +793,30 @@ fn parse_search(untagged: &[crate::Untagged], mailbox: &str, uidvalidity: u32) -
             uid,
         })
         .collect()
+}
+
+/// UID ranges from every `VANISHED` response, `(EARLIER)` or not, as `(first, last)`.
+///
+/// A range the server wrote backwards, `9:3`, is the same range (RFC 3501 §9 `seq-range`). A
+/// malformed response never gets here — `imap-proto` rejects it and the session fails — but an
+/// element that does not parse is skipped rather than guessed at all the same: this list can
+/// only ever remove held mail, and the error to make is the one that removes less.
+fn parse_vanished(untagged: &[crate::Untagged]) -> Vec<(u32, u32)> {
+    let mut out = Vec::new();
+    for line in untagged {
+        let Some(rest) = line.text.trim().strip_prefix("* VANISHED") else {
+            continue;
+        };
+        let rest = rest.trim_start();
+        let set = rest.strip_prefix("(EARLIER)").unwrap_or(rest).trim();
+        for element in set.split(',') {
+            let (lo, hi) = element.split_once(':').unwrap_or((element, element));
+            if let (Ok(lo), Ok(hi)) = (lo.trim().parse::<u32>(), hi.trim().parse::<u32>()) {
+                out.push((lo.min(hi), lo.max(hi)));
+            }
+        }
+    }
+    out
 }
 
 /// The value following `key`, up to the next space or closing paren.

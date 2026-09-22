@@ -9,7 +9,7 @@ use crate::{Cancel, RuntimeError, Secrets, Transport, drive};
 use chrono::{DateTime, Utc};
 use mail_domain::{
     AccountCaps, AccountId, AccountPlan, Condstore, Credential, FetchSince, Incoming, MailboxRef,
-    MailboxRole, Outgoing, ProtoOp, RemoteRef, Retry, Retryable, SecretKey, SecretPurpose,
+    MailboxRole, Outgoing, ProtoOp, RemoteRef, Resync, Retry, Retryable, SecretKey, SecretPurpose,
     SendState, SyncCursor, Tls, UidValidity, WatchMode,
 };
 use mail_mime::Posting;
@@ -774,15 +774,45 @@ impl<B: Backend> AccountEngine<B> {
         }
 
         if due(self.last.expunges, self.schedule.expunges, now) {
+            let since = self.resync_from(mailbox);
             match self
                 .run(
                     ProtoOp::ListRemote {
                         mailbox: mailbox.clone(),
+                        since,
                     },
                     cancel,
                 )
                 .await
             {
+                Ok(ProtoOutcome::Resynced {
+                    mut ingest,
+                    vanished,
+                }) => {
+                    // The server named what vanished, so there is no listing to diff — and
+                    // diffing anyway would find every message missing from a response that
+                    // lists none. Only UIDs held here can be gone; the ranges are as wide as the
+                    // server cared to make them.
+                    ingest.gone = self
+                        .store
+                        .remote_refs(mailbox)?
+                        .into_iter()
+                        .filter(|held| match (held, since) {
+                            (
+                                RemoteRef::Imap {
+                                    uidvalidity, uid, ..
+                                },
+                                Some(since),
+                            ) => {
+                                *uidvalidity == since.uidvalidity
+                                    && vanished.iter().any(|&(lo, hi)| (lo..=hi).contains(uid))
+                            }
+                            _ => false,
+                        })
+                        .collect();
+                    self.store.ingest(self.account, *ingest)?;
+                    self.last.expunges = Some(now);
+                }
                 Ok(ProtoOutcome::Ingested(mut ingest)) => {
                     // The backend can only say what still exists. What we *hold* is the store's
                     // knowledge, so the diff happens here — and without it `gone` was always
@@ -824,6 +854,24 @@ impl<B: Backend> AccountEngine<B> {
             .collect())
     }
 
+    /// The state to `QRESYNC` from, or `None` for a full listing.
+    ///
+    /// The same trust as [`Self::trusted_modseq`] — a modseq the server gave us and nobody has
+    /// withdrawn — plus the server offering `QRESYNC`, and the UIDVALIDITY the modseq belongs to.
+    fn resync_from(&self, mailbox: &MailboxRef) -> Option<Resync> {
+        if self.backend.caps().condstore != Condstore::Qresync {
+            return None;
+        }
+        let modseq = self.trusted_modseq(mailbox)?;
+        match self.store.cursor(mailbox) {
+            Ok(Some(SyncCursor::Imap { uidvalidity, .. })) => Some(Resync {
+                uidvalidity,
+                modseq,
+            }),
+            _ => None,
+        }
+    }
+
     /// A modseq worth fetching from, or `None` to fetch every flag.
     ///
     /// Three things must all hold, and any one of them failing means a full flag fetch:
@@ -840,7 +888,7 @@ impl<B: Backend> AccountEngine<B> {
     /// where it already is — withdrawing `CONDSTORE` from the account's capabilities — not in a
     /// second, quieter rule here that would make the two disagree.
     fn trusted_modseq(&self, mailbox: &MailboxRef) -> Option<u64> {
-        if !matches!(self.backend.caps().condstore, Condstore::Supported) {
+        if !self.backend.caps().condstore.changedsince() {
             return None;
         }
         match self.store.cursor(mailbox) {

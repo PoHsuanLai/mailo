@@ -541,7 +541,10 @@ fn account_types_round_trip() {
         FolderRoles(vec![("INBOX".to_owned(), MailboxRole::Inbox)]),
     );
     round_trip("FolderRoles/empty", FolderRoles::default());
-    round_trip_each("Condstore", vec![Condstore::Supported, Condstore::Absent]);
+    round_trip_each(
+        "Condstore",
+        vec![Condstore::Supported, Condstore::Qresync, Condstore::Absent],
+    );
     round_trip_each("MoveExt", vec![MoveExt::Supported, MoveExt::Absent]);
     round_trip("AccountCaps", caps());
 

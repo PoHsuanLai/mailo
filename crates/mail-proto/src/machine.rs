@@ -99,6 +99,20 @@ pub enum ProtoOutcome {
     },
     /// A watch saw activity. The runtime schedules a fetch; the machine does not do it itself.
     Woken,
+    /// A `QRESYNC` select: what changed, and what the server says was expunged.
+    ///
+    /// Not [`ProtoOutcome::Ingested`], because the caller must treat it differently and getting
+    /// that wrong is catastrophic. After a full listing the caller diffs what it holds against
+    /// what the server listed; this lists nothing, so the same diff would conclude that every
+    /// message in the mailbox had been deleted.
+    ///
+    /// `vanished` is UID ranges exactly as the server sent them, not expanded: a server may
+    /// report `1:4294967295`, and only the caller knows which of those UIDs it ever held.
+    /// `ingest.gone` is empty; the caller fills it.
+    Resynced {
+        ingest: Box<Ingest>,
+        vanished: Vec<(u32, u32)>,
+    },
 }
 
 /// Turns a [`ProtoOp`] into a walk of the relevant session, then into domain values.

@@ -527,3 +527,161 @@ mod gmail_labels {
         }
     }
 }
+
+fn qresync_caps() -> AccountCaps {
+    AccountCaps {
+        condstore: Condstore::Qresync,
+        ..caps(ServerLabels::LocalOnly, ArchiveMeans::LocalOnly)
+    }
+}
+
+fn resync(uidvalidity: u32, modseq: u64) -> ProtoOp {
+    ProtoOp::ListRemote {
+        mailbox: inbox(),
+        since: Some(Resync {
+            uidvalidity,
+            modseq,
+        }),
+    }
+}
+
+/// With QRESYNC, one `SELECT` says what was expunged, and nothing is listed.
+///
+/// The server half is RFC 7162 §3.2.5.2's own example, plus a range written backwards, which is
+/// legal and means the same range.
+#[test]
+fn a_qresync_sweep_asks_the_server_what_vanished() {
+    let trace = concat!(
+        "S: * OK Dovecot ready\n",
+        "C: a001 AUTHENTICATE XOAUTH2 dXNlcj1hZGFAZXhhbXBsZS50ZXN0AWF1dGg9QmVhcmVyIHlhMjkudG9rZW4BAQ==\n",
+        "S: a001 OK authenticated\n",
+        "C: a002 ENABLE QRESYNC\n",
+        "S: * ENABLED QRESYNC\n",
+        "S: a002 OK Enabled\n",
+        "C: a003 EXAMINE \"INBOX\" (QRESYNC (67890007 20050715194045000))\n",
+        "S: * 314 EXISTS\n",
+        "S: * OK [UIDVALIDITY 67890007] UIDVALIDITY\n",
+        "S: * OK [UIDNEXT 567] Predicted next UID\n",
+        "S: * OK [HIGHESTMODSEQ 20050715194045319] Highest\n",
+        "S: * VANISHED (EARLIER) 41,43:116,118,120:211,540:214\n",
+        "S: * 49 FETCH (UID 117 FLAGS (\\Seen \\Answered) MODSEQ (20050715194045301))\n",
+        "S: a003 OK [READ-ONLY] Examine completed\n",
+        "DONE\n"
+    );
+    let mut driven = Driven {
+        backend: backend(qresync_caps()),
+        op: Some(resync(67_890_007, 20_050_715_194_045_000)),
+    };
+    let ProtoOutcome::Resynced { ingest, vanished } = replay(&mut driven, trace).unwrap() else {
+        panic!("a QRESYNC select is not a listing, and must not come back as one");
+    };
+    assert_eq!(
+        vanished,
+        [(41, 41), (43, 116), (118, 118), (120, 211), (214, 540)]
+    );
+    assert!(ingest.gone.is_empty(), "the caller fills this, from what it holds");
+    assert_eq!(
+        ingest.cursor,
+        Some(SyncCursor::Imap {
+            uidvalidity: 67_890_007,
+            uidnext: 567,
+            modseq: Some(20_050_715_194_045_319),
+        })
+    );
+    assert_eq!(
+        ingest.flags,
+        [(
+            RemoteRef::Imap {
+                mailbox: "INBOX".to_owned(),
+                uidvalidity: 67_890_007,
+                uid: 117,
+            },
+            ReadState::Read,
+            Star::Unstarred,
+        )]
+    );
+}
+
+/// A renumbered mailbox: the server ignores QRESYNC, so nothing it says is about our UIDs.
+#[test]
+fn a_qresync_sweep_after_a_renumbering_reports_nothing() {
+    let trace = concat!(
+        "S: * OK Dovecot ready\n",
+        "C: a001 AUTHENTICATE XOAUTH2 dXNlcj1hZGFAZXhhbXBsZS50ZXN0AWF1dGg9QmVhcmVyIHlhMjkudG9rZW4BAQ==\n",
+        "S: a001 OK authenticated\n",
+        "C: a002 ENABLE QRESYNC\n",
+        "S: * ENABLED QRESYNC\n",
+        "S: a002 OK Enabled\n",
+        "C: a003 EXAMINE \"INBOX\" (QRESYNC (67890007 20050715194045000))\n",
+        "S: * OK [UIDVALIDITY 99] UIDVALIDITY\n",
+        "S: * OK [HIGHESTMODSEQ 5] Highest\n",
+        "S: * VANISHED (EARLIER) 1:4294967295\n",
+        "S: a003 OK [READ-ONLY] Examine completed\n",
+        "DONE\n"
+    );
+    let mut driven = Driven {
+        backend: backend(qresync_caps()),
+        op: Some(resync(67_890_007, 20_050_715_194_045_000)),
+    };
+    let ProtoOutcome::Resynced { ingest, vanished } = replay(&mut driven, trace).unwrap() else {
+        panic!("expected a resync");
+    };
+    assert!(vanished.is_empty());
+    assert_eq!(ingest.cursor, None, "the cursor stays on the mailbox we know");
+}
+
+/// Gmail offers CONDSTORE without QRESYNC: a `since` changes nothing, and the sweep lists.
+#[test]
+fn without_qresync_the_sweep_still_lists_every_uid() {
+    let trace = concat!(
+        "S: * OK Gimap ready\n",
+        "C: a001 AUTHENTICATE XOAUTH2 dXNlcj1hZGFAZXhhbXBsZS50ZXN0AWF1dGg9QmVhcmVyIHlhMjkudG9rZW4BAQ==\n",
+        "S: a001 OK authenticated\n",
+        "C: a002 EXAMINE \"INBOX\"\n",
+        "S: * OK [UIDVALIDITY 1] UIDs valid\n",
+        "S: a002 OK [READ-ONLY] EXAMINE completed\n",
+        "C: a003 UID SEARCH ALL\n",
+        "S: * SEARCH 7 9\n",
+        "S: a003 OK Success\n",
+        "DONE\n"
+    );
+    let mut driven = Driven {
+        backend: backend(caps(ServerLabels::Supported, ArchiveMeans::DropInbox)),
+        op: Some(resync(1, 3_737_642)),
+    };
+    assert!(matches!(
+        replay(&mut driven, trace).unwrap(),
+        ProtoOutcome::Ingested(_)
+    ));
+}
+
+/// Believed only together: QRESYNC without CONDSTORE is a misconfigured server.
+#[test]
+fn qresync_is_believed_only_alongside_condstore() {
+    for (advertised, expected) in [
+        ("IMAP4rev1 CONDSTORE QRESYNC", Condstore::Qresync),
+        ("IMAP4rev1 CONDSTORE", Condstore::Supported),
+        ("IMAP4rev1 QRESYNC", Condstore::Absent),
+    ] {
+        let trace = format!(
+            "S: * OK ready\n\
+             C: a001 AUTHENTICATE XOAUTH2 dXNlcj1hZGFAZXhhbXBsZS50ZXN0AWF1dGg9QmVhcmVyIHlhMjkudG9rZW4BAQ==\n\
+             S: a001 OK authenticated\n\
+             C: a002 CAPABILITY\n\
+             S: * CAPABILITY {advertised}\n\
+             S: a002 OK done\n\
+             C: a003 CAPABILITY\n\
+             S: * CAPABILITY {advertised}\n\
+             S: a003 OK done\n\
+             DONE\n"
+        );
+        let mut driven = Driven {
+            backend: backend(caps(ServerLabels::LocalOnly, ArchiveMeans::LocalOnly)),
+            op: Some(ProtoOp::FetchCaps),
+        };
+        let ProtoOutcome::Caps(found) = replay(&mut driven, &trace).unwrap() else {
+            panic!("expected caps");
+        };
+        assert_eq!(found.condstore, expected, "{advertised}");
+    }
+}

@@ -97,6 +97,13 @@ impl UidValidity {
     }
 }
 
+/// A mailbox state the server can resynchronise from: `SELECT … (QRESYNC (uidvalidity modseq))`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Resync {
+    pub uidvalidity: u32,
+    pub modseq: u64,
+}
+
 /// Where to resume a fetch.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "v", rename_all = "snake_case")]
@@ -188,14 +195,19 @@ pub enum ProtoOp {
         /// `None` means "everything": no modseq, or one we no longer trust.
         since_modseq: Option<u64>,
     },
-    /// Every address the server currently holds in this mailbox.
+    /// What was expunged from this mailbox elsewhere.
     ///
-    /// The third thing a sync pass must do, and the only way to find deletions without
-    /// `QRESYNC` — which Gmail does not offer. RFC 7162 says outright that a CONDSTORE-only
-    /// client "still has to issue a UID FETCH or a UID SEARCH". The caller diffs the result
-    /// against `remote_map`; what is missing was expunged elsewhere.
+    /// The third thing a sync pass must do. Without `QRESYNC` — Gmail does not offer it — the
+    /// only way is to list every UID the server holds, and RFC 7162 says outright that a
+    /// CONDSTORE-only client "still has to issue a UID FETCH or a UID SEARCH"; the caller diffs
+    /// that listing against `remote_map`. With `since`, and a server that has `QRESYNC`, the
+    /// server names what vanished itself and there is no listing to diff.
     ListRemote {
         mailbox: MailboxRef,
+        /// Where the caller's knowledge of this mailbox stands, for `QRESYNC`. `None` asks for
+        /// the full listing, which is always correct and is what every server without it gets.
+        #[serde(default)]
+        since: Option<Resync>,
     },
     Expunge {
         remotes: Vec<RemoteRef>,

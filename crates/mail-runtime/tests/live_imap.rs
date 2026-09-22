@@ -54,6 +54,7 @@ async fn a_real_server_accepts_login_select_and_fetch() {
         ImapCommand::Select {
             mailbox: "INBOX".to_owned(),
             read_only: true,
+            qresync: None,
         },
         ImapCommand::UidFetch {
             set: "1:*".to_owned(),
@@ -94,6 +95,7 @@ async fn a_literal_body_survives_a_server_that_frames_it_its_own_way() {
         ImapCommand::Select {
             mailbox: "INBOX".to_owned(),
             read_only: true,
+            qresync: None,
         },
         ImapCommand::UidFetch {
             set: "102".to_owned(),

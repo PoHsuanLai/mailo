@@ -228,7 +228,7 @@ impl Backend for Pop3Backend {
                 self.job = Job::Idle;
                 Progress::Done(ProtoOutcome::Applied)
             }
-            ProtoOp::ListRemote { mailbox } => {
+            ProtoOp::ListRemote { mailbox, .. } => {
                 // The expunge diff. On POP3 this is the survey: UIDL is the complete list of
                 // what the server still holds, and anything in remote_map that is missing from
                 // it was deleted elsewhere.

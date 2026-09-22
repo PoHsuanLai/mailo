@@ -38,7 +38,7 @@ pub use id::{
 pub use ingest::{Fetched, Ingest};
 pub use message::{Message, MessageKey, Thread, ThreadSummary};
 pub use op::{Action, Applied, Change, Op, OpKind, Patch, RemoteIntent, Target};
-pub use remote::{FetchSince, MailboxRef, ProtoOp, RemoteRef, SyncCursor, UidValidity};
+pub use remote::{FetchSince, MailboxRef, ProtoOp, RemoteRef, Resync, SyncCursor, UidValidity};
 pub use retry::{Retry, Retryable};
 pub use state::{
     Attachments, IsDefault, LabelOrigin, MailboxRole, MailboxSet, Membership, Pin, ReadState,

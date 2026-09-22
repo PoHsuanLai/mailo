@@ -36,10 +36,15 @@ pub enum ImapCommand {
     Login,
     /// `LIST "" "*"`, which is how folders and their special-use attributes are discovered.
     List,
+    /// `ENABLE <capability>` (RFC 5161). Per connection, after authentication, before any
+    /// command that relies on it.
+    Enable(String),
     /// `SELECT`, or `EXAMINE` when read-only.
     Select {
         mailbox: String,
         read_only: bool,
+        /// `(QRESYNC (<uidvalidity> <modseq>))`, only after `ENABLE QRESYNC` succeeded.
+        qresync: Option<mail_domain::Resync>,
     },
     /// `UID FETCH <set> <items>`.
     UidFetch {
@@ -322,13 +327,21 @@ impl ImapSession {
                 ));
                 format!("AUTHENTICATE XOAUTH2 {initial}")
             }
-            ImapCommand::Select { mailbox, read_only } => format!(
-                "{} {}",
-                if *read_only { "EXAMINE" } else { "SELECT" },
+            ImapCommand::Enable(capability) => format!("ENABLE {capability}"),
+            ImapCommand::Select {
+                mailbox,
+                read_only,
+                qresync,
+            } => {
+                let verb = if *read_only { "EXAMINE" } else { "SELECT" };
                 // The wire name is modified UTF-7, and it is the identity: decode only for
                 // display, never for addressing.
-                quoted(&mutf7::encode(mailbox))
-            ),
+                let name = quoted(&mutf7::encode(mailbox));
+                match qresync {
+                    Some(r) => format!("{verb} {name} (QRESYNC ({} {}))", r.uidvalidity, r.modseq),
+                    None => format!("{verb} {name}"),
+                }
+            }
             ImapCommand::UidFetch { set, items } => {
                 check_set(set)?;
                 format!("UID FETCH {set} {items}")

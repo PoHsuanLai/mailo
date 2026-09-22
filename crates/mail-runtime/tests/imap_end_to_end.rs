@@ -221,13 +221,31 @@ async fn session(
                      * LIST (\\HasNoChildren \\Drafts) \"/\" \"Drafts\"\r\n\
                      {tag} OK done\r\n"
                 )
+            } else if upper.starts_with("ENABLE") {
+                format!("* ENABLED QRESYNC\r\n{tag} OK enabled\r\n")
             } else if upper.starts_with("SELECT") || upper.starts_with("EXAMINE") {
                 let validity = validity.load(Ordering::SeqCst);
+                // Asked to resynchronise, a QRESYNC server says what went: here, whatever has
+                // been taken out of the maildrop, and then a range far above any UID it ever
+                // issued, because servers do send those and only held UIDs may be acted on.
+                let vanished = if upper.contains("(QRESYNC") {
+                    let gone: Vec<String> = maildrop()
+                        .iter()
+                        .map(|(uid, _)| *uid)
+                        .filter(|uid| !drop.iter().any(|(held, _)| held == uid))
+                        .map(|uid| uid.to_string())
+                        .chain(["200:4294967295".to_owned()])
+                        .collect();
+                    format!("* VANISHED (EARLIER) {}\r\n", gone.join(","))
+                } else {
+                    String::new()
+                };
                 format!(
                     "* 2 EXISTS\r\n\
                      * OK [UIDVALIDITY {validity}] uids valid\r\n\
                      * OK [UIDNEXT 103] next\r\n\
                      * OK [HIGHESTMODSEQ 7788] modseq\r\n\
+                     {vanished}\
                      {tag} OK [READ-ONLY] done\r\n"
                 )
             } else if upper.starts_with("UID FETCH") {
@@ -967,6 +985,74 @@ async fn a_sweep_that_finds_everything_still_there_deletes_nothing() {
     it.engine.sweep(&inbox(), &mut cancel, later).await.unwrap();
 
     assert_eq!(count(&it.store), before, "a sweep deleted live mail");
+}
+
+/// With QRESYNC the server names what was expunged: one `SELECT`, and no listing to diff.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_qresync_server_says_what_was_deleted_elsewhere() {
+    let seen: Shared = Arc::new(Mutex::new(Seen::default()));
+    let (port, _validity, present) = serve_full(seen.clone(), Fault::None).await;
+    let mut it = engine_with(
+        port,
+        tempfile::tempdir().unwrap(),
+        caps_with(Condstore::Qresync),
+    );
+    let (_tx, mut cancel) = watch::channel(false);
+
+    it.engine
+        .sync(&inbox(), &mut cancel, now(), 200)
+        .await
+        .unwrap();
+    assert_eq!(count(&it.store), 2);
+
+    present.store(1, Ordering::SeqCst);
+    seen.lock().unwrap().commands.clear();
+    let later = now() + chrono::TimeDelta::try_hours(2).unwrap();
+    it.engine.sweep(&inbox(), &mut cancel, later).await.unwrap();
+
+    assert_eq!(
+        count(&it.store),
+        1,
+        "the message the server named is still here"
+    );
+    let commands = seen.lock().unwrap().commands.clone();
+    assert!(
+        commands.iter().any(|c| c == "ENABLE QRESYNC"),
+        "{commands:?}"
+    );
+    assert!(
+        commands
+            .iter()
+            .any(|c| c == "EXAMINE \"INBOX\" (QRESYNC (42 7788))"),
+        "{commands:?}"
+    );
+    assert!(
+        !commands.iter().any(|c| c.starts_with("UID SEARCH")),
+        "a QRESYNC server was still asked to list every UID: {commands:?}"
+    );
+}
+
+/// The dangerous direction again, for QRESYNC: a resync that lists nothing is not an empty
+/// mailbox, and a vanished range covering UIDs never held removes nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_qresync_sweep_that_names_nothing_held_deletes_nothing() {
+    let seen: Shared = Arc::new(Mutex::new(Seen::default()));
+    let (port, _validity, _present) = serve_full(seen, Fault::None).await;
+    let mut it = engine_with(
+        port,
+        tempfile::tempdir().unwrap(),
+        caps_with(Condstore::Qresync),
+    );
+    let (_tx, mut cancel) = watch::channel(false);
+
+    it.engine
+        .sync(&inbox(), &mut cancel, now(), 200)
+        .await
+        .unwrap();
+    let later = now() + chrono::TimeDelta::try_hours(2).unwrap();
+    it.engine.sweep(&inbox(), &mut cancel, later).await.unwrap();
+
+    assert_eq!(count(&it.store), 2, "a resync deleted live mail");
 }
 
 /// A user's action, all the way to the server and back.

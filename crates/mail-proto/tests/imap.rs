@@ -348,6 +348,7 @@ mod a_refused_login {
                 ImapCommand::Select {
                     mailbox: "Archive".to_owned(),
                     read_only: false,
+                    qresync: None,
                 },
             ],
         )

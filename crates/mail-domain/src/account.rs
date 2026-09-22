@@ -335,15 +335,28 @@ impl Default for ConnectionBudget {
     }
 }
 
-/// Whether `CONDSTORE` is available.
+/// Whether `CONDSTORE` is available, and `QRESYNC` on top of it.
 ///
-/// Without it, noticing that a message was marked read in another client means
+/// Without `CONDSTORE`, noticing that a message was marked read in another client means
 /// `FETCH 1:* (FLAGS)` across the whole mailbox on every poll. With it, one `CHANGEDSINCE`.
+///
+/// `QRESYNC` (RFC 7162, and it requires `CONDSTORE`) goes further: one `SELECT` returns what
+/// changed *and* what was expunged since a known modseq, where otherwise finding deletions means
+/// listing every UID in the mailbox. A level rather than a second flag because it is one: a
+/// server cannot offer `QRESYNC` without `CONDSTORE`. Gmail offers `CONDSTORE` only.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Condstore {
     Supported,
+    Qresync,
     Absent,
+}
+
+impl Condstore {
+    /// Whether `CHANGEDSINCE` may be sent: true at either level.
+    pub fn changedsince(self) -> bool {
+        matches!(self, Condstore::Supported | Condstore::Qresync)
+    }
 }
 
 /// Whether the `MOVE` extension is available, or a copy/store/expunge dance is needed.
