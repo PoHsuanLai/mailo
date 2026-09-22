@@ -13,7 +13,7 @@ pub mod secrets;
 pub mod signin;
 pub mod transport;
 
-pub use assemble::{Arrival, absorb, assemble};
+pub use assemble::{Arrival, Destination, absorb, absorb_into, assemble};
 pub use drive::{Cancel, drive};
 pub use engine::{AccountEngine, SyncReport};
 pub use error::RuntimeError;

@@ -447,3 +447,74 @@ mod renewing_an_expired_sign_in {
         assert!(out.contains("ada@example.test"), "{out}");
     }
 }
+
+/// Which mailboxes a pass fetches.
+mod folders {
+    use super::*;
+
+    fn caps_with(folders: Vec<(String, MailboxRole)>) -> AccountCaps {
+        let mut caps = caps();
+        caps.folders = FolderRoles(folders);
+        caps
+    }
+
+    fn paths(store: &Arc<SqliteStore>, caps: AccountCaps) -> Vec<String> {
+        store
+            .connection()
+            .execute(
+                "UPDATE account_caps SET caps = ?1 WHERE account = ?2",
+                rusqlite::params![serde_json::to_string(&caps).unwrap(), ACCOUNT.to_string()],
+            )
+            .unwrap();
+        // Through the same function the pass uses, rather than a copy of its rules — the
+        // mistake F116 was about.
+        sync::mailboxes_by_account(store)
+            .unwrap()
+            .into_iter()
+            .next()
+            .expect("one account")
+            .1
+    }
+
+    #[test]
+    fn a_server_with_no_folder_roles_gets_the_inbox_alone() {
+        // POP3, and any IMAP server that answered no `LIST (SPECIAL-USE)` flags. This is what
+        // happened before more than one mailbox was ever fetched, and it must keep happening.
+        let (store, _dir) = configured(1, caps());
+        assert_eq!(paths(&store, caps_with(vec![])), vec!["INBOX".to_owned()]);
+    }
+
+    #[test]
+    fn sent_is_fetched_where_the_server_names_one() {
+        let (store, _dir) = configured(1, caps());
+        let found = paths(
+            &store,
+            caps_with(vec![
+                ("[Gmail]/Sent Mail".to_owned(), MailboxRole::Sent),
+                ("[Gmail]/All Mail".to_owned(), MailboxRole::Archive),
+                ("[Gmail]/Spam".to_owned(), MailboxRole::Spam),
+                ("[Gmail]/Drafts".to_owned(), MailboxRole::Drafts),
+            ]),
+        );
+        assert_eq!(
+            found,
+            vec!["INBOX".to_owned(), "[Gmail]/Sent Mail".to_owned()],
+            "Archive, Spam and Drafts are deliberately not fetched — see `to_sync`"
+        );
+        assert_eq!(found[0], "INBOX", "the inbox is fetched first and always");
+    }
+
+    #[test]
+    fn a_server_that_calls_its_inbox_sent_does_not_get_it_twice() {
+        // Defensive: a server is free to flag INBOX with a special use, and fetching the same
+        // mailbox twice in one pass would double every count in the report.
+        let (store, _dir) = configured(1, caps());
+        assert_eq!(
+            paths(
+                &store,
+                caps_with(vec![("INBOX".to_owned(), MailboxRole::Sent)])
+            ),
+            vec!["INBOX".to_owned()]
+        );
+    }
+}

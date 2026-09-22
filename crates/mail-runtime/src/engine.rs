@@ -564,10 +564,13 @@ impl<B: Backend> AccountEngine<B> {
                     report.headers_fetched += arrivals.len();
                     // Headers only: Body::Absent says the body has not arrived, rather than
                     // storing an empty message that looks complete.
-                    crate::assemble::absorb(
+                    crate::assemble::absorb_into(
                         &self.store,
                         self.account,
-                        mailbox.clone(),
+                        crate::assemble::Destination {
+                            mailbox: mailbox.clone(),
+                            role: self.role_of(mailbox),
+                        },
                         // No cursor: this batch fetched a list it was handed and never asked
                         // the server what exists.
                         None,
@@ -623,10 +626,13 @@ impl<B: Backend> AccountEngine<B> {
                     .map(|(remote, raw)| crate::assemble::Arrival { remote, raw })
                     .collect::<Vec<_>>();
                 report.bodies_fetched += arrivals.len();
-                crate::assemble::absorb(
+                crate::assemble::absorb_into(
                     &self.store,
                     self.account,
-                    mailbox.clone(),
+                    crate::assemble::Destination {
+                        mailbox: mailbox.clone(),
+                        role: self.role_of(mailbox),
+                    },
                     None,
                     arrivals,
                     false,
@@ -638,6 +644,24 @@ impl<B: Backend> AccountEngine<B> {
             Err(e) => report.needs_attention.push(e.to_string()),
         }
         Ok(report)
+    }
+
+    /// Which role a folder serves on this account.
+    ///
+    /// From the capabilities the last `LIST (SPECIAL-USE)` wrote down, falling back to `Inbox`:
+    /// a server that answers no folder roles has one mailbox as far as this client is concerned,
+    /// and POP3 has exactly one by construction. `INBOX` is matched case-insensitively because
+    /// RFC 3501 says that name is, and a server that spells it `Inbox` is not describing a
+    /// different mailbox.
+    fn role_of(&self, mailbox: &MailboxRef) -> MailboxRole {
+        if mailbox.path.eq_ignore_ascii_case("INBOX") {
+            return MailboxRole::Inbox;
+        }
+        self.backend
+            .caps()
+            .folders
+            .role(&mailbox.path)
+            .unwrap_or(MailboxRole::Inbox)
     }
 
     /// Run whichever scheduled sweeps are due.

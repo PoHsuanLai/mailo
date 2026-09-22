@@ -1069,6 +1069,11 @@ flag sync, `UIDVALIDITY` reset handling, expunge handling, labels. First live pr
 **Done when:** the same CLI works through the IMAP backend, and killing the app mid-sync and
 restarting produces no duplicates.
 
+**Folders.** A pass fetches `INBOX` and `Sent`, not everything the server lists — see FINDINGS
+F127. `Archive` waits on a message carrying a set of mailboxes rather than one, because on Gmail
+the same message is in INBOX *and* in All Mail and a pass over All Mail would mark inbox mail
+archived. `mailo account list` says which folders an account fetches.
+
 **State:** both clauses are met against servers that are not Google's.
 `mail-runtime/tests/imap_end_to_end.rs` drives the whole stack over a real socket — including the
 restart clause, which drops the connection mid-literal, rebuilds the engine against the same

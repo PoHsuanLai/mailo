@@ -27,6 +27,7 @@ pub fn assemble(
     store: &SqliteStore,
     account: AccountId,
     mailbox: MailboxRef,
+    role: MailboxRole,
     cursor: Option<SyncCursor>,
     arrivals: Vec<Arrival>,
     fallback_date: DateTime<Utc>,
@@ -103,7 +104,7 @@ pub fn assemble(
             rfc_message_id: fields.rfc_message_id.clone(),
             read: ReadState::Unread,
             star: Star::Unstarred,
-            mailbox: MailboxRole::Inbox,
+            mailbox: role,
             labels: Vec::new(),
             body: Body::Present {
                 text: fields.text.clone(),
@@ -139,11 +140,20 @@ pub fn assemble_headers(
     store: &SqliteStore,
     account: AccountId,
     mailbox: MailboxRef,
+    role: MailboxRole,
     cursor: Option<SyncCursor>,
     arrivals: Vec<Arrival>,
     fallback_date: DateTime<Utc>,
 ) -> Result<Ingest, RuntimeError> {
-    let mut ingest = assemble(store, account, mailbox, cursor, arrivals, fallback_date)?;
+    let mut ingest = assemble(
+        store,
+        account,
+        mailbox,
+        role,
+        cursor,
+        arrivals,
+        fallback_date,
+    )?;
     for fetched in &mut ingest.messages {
         fetched.message.body = Body::Absent;
     }
@@ -208,10 +218,66 @@ pub fn absorb(
     headers_only: bool,
     fallback_date: DateTime<Utc>,
 ) -> Result<Patch, RuntimeError> {
+    absorb_into(
+        store,
+        account,
+        Destination {
+            mailbox,
+            role: MailboxRole::Inbox,
+        },
+        cursor,
+        arrivals,
+        headers_only,
+        fallback_date,
+    )
+}
+
+/// Where a batch of mail is being absorbed: the mailbox, and what that mailbox is *for*.
+///
+/// One value rather than two arguments because they are one fact — a folder and its role are
+/// never chosen independently — and because seven arguments is where this function was already.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Destination {
+    pub mailbox: MailboxRef,
+    pub role: MailboxRole,
+}
+
+/// The same, told which role the mailbox serves.
+///
+/// Every absorbed message used to be `MailboxRole::Inbox` whatever folder it came from, which
+/// was invisible while only `INBOX` was ever synced. The moment a second folder is fetched it
+/// stops being invisible: mail from Sent would be listed in the inbox and archiving it would be
+/// the only way to make it go away.
+pub fn absorb_into(
+    store: &SqliteStore,
+    account: AccountId,
+    into: Destination,
+    cursor: Option<SyncCursor>,
+    arrivals: Vec<Arrival>,
+    headers_only: bool,
+    fallback_date: DateTime<Utc>,
+) -> Result<Patch, RuntimeError> {
+    let Destination { mailbox, role } = into;
     let ingest = if headers_only {
-        assemble_headers(store, account, mailbox, cursor, arrivals, fallback_date)?
+        assemble_headers(
+            store,
+            account,
+            mailbox,
+            role,
+            cursor,
+            arrivals,
+            fallback_date,
+        )?
     } else {
-        assemble(store, account, mailbox, cursor, arrivals, fallback_date)?
+        assemble(
+            store,
+            account,
+            mailbox,
+            role,
+            cursor,
+            arrivals,
+            fallback_date,
+        )?
     };
     store.ingest(account, ingest).map_err(RuntimeError::Store)
 }

@@ -206,10 +206,7 @@ async fn one(
         })?;
     let credential = signed_in(account, stored, secrets.as_ref(), registry, now).await?;
 
-    let mailbox = MailboxRef {
-        account: account.id,
-        path: "INBOX".to_owned(),
-    };
+    let mailboxes = to_sync(account);
     // Nothing cancels a one-shot CLI sync, but the loop requires a receiver, and wiring a real
     // one here is what lets the same engine serve the UI unchanged.
     let (_tx, mut cancel) = watch::channel(false);
@@ -242,7 +239,7 @@ async fn one(
                 store.clone(),
                 secrets,
             );
-            pass(&mut engine, &mailbox, &mut cancel, now).await
+            pass(&mut engine, &mailboxes, &mut cancel, now).await
         }
         Incoming::Imap { .. } => {
             // Password *and* bearer token. Only Gmail needs OAuth; every other IMAP server this
@@ -278,7 +275,7 @@ async fn one(
                 store.clone(),
                 secrets,
             );
-            pass(&mut engine, &mailbox, &mut cancel, now).await
+            pass(&mut engine, &mailboxes, &mut cancel, now).await
         }
     }
 }
@@ -294,7 +291,7 @@ async fn one(
 /// to make two paths the same is for there to be one.
 async fn pass<B: mail_proto::Backend>(
     engine: &mut AccountEngine<B>,
-    mailbox: &MailboxRef,
+    mailboxes: &[MailboxRef],
     cancel: &mut mail_runtime::Cancel,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<SyncReport, String> {
@@ -315,18 +312,37 @@ async fn pass<B: mail_proto::Backend>(
         }
     }
 
-    let mut report = engine
-        .sync(mailbox, cancel, now, 200)
-        .await
-        .map_err(|e| e.to_string())?;
-    // Headers first, then bodies smallest-band-first behind them, so the inbox is usable long
-    // before the hundred large attachments finish.
-    let bodies = engine
-        .fetch_bodies(mailbox, cancel, now, 100)
-        .await
-        .map_err(|e| e.to_string())?;
-    report.bodies_fetched += bodies.bodies_fetched;
-    report.needs_attention.extend(bodies.needs_attention);
+    // The inbox first and in full, then the other folders: a first sync of a large Archive must
+    // not be what stands between the user and their new mail. `to_sync` puts them in that order
+    // and a failure in a later one does not lose what the earlier ones fetched.
+    let mut report = SyncReport::default();
+    for mailbox in mailboxes {
+        let one = match engine.sync(mailbox, cancel, now, 200).await {
+            Ok(report) => report,
+            // Named, because "cannot select" on a folder the server listed is worth seeing and
+            // is not a reason to abandon the mail already in hand.
+            Err(e) => {
+                report
+                    .needs_attention
+                    .push(format!("{}: {e}", mailbox.path));
+                continue;
+            }
+        };
+        report.headers_fetched += one.headers_fetched;
+        report.needs_attention.extend(one.needs_attention);
+
+        // Headers first, then bodies smallest-band-first behind them, so the inbox is usable
+        // long before the hundred large attachments finish.
+        match engine.fetch_bodies(mailbox, cancel, now, 100).await {
+            Ok(bodies) => {
+                report.bodies_fetched += bodies.bodies_fetched;
+                report.needs_attention.extend(bodies.needs_attention);
+            }
+            Err(e) => report
+                .needs_attention
+                .push(format!("{}: {e}", mailbox.path)),
+        }
+    }
 
     let drained = engine
         .drain_outbox(cancel, now)
@@ -337,6 +353,58 @@ async fn pass<B: mail_proto::Backend>(
     report.still_queued = drained.still_queued;
     report.needs_attention.extend(drained.needs_attention);
     Ok(report)
+}
+
+/// The mailboxes the next pass would fetch, per account, by address.
+///
+/// Reported by `mailo account list`, because "why is my Sent folder empty" is a question a user
+/// asks and the answer is a fact this client knows: only these folders are fetched. Exposed
+/// rather than duplicated so a test can ask the code rather than restate its rules —
+/// CONVENTIONS §"An assertion that was already true proves nothing", second half.
+pub fn mailboxes_by_account(store: &SqliteStore) -> Result<Vec<(String, Vec<String>)>, String> {
+    Ok(configured(store)?
+        .into_iter()
+        .map(|account| {
+            let paths = to_sync(&account).into_iter().map(|m| m.path).collect();
+            (account.address, paths)
+        })
+        .collect())
+}
+
+/// Which mailboxes a pass should fetch, in the order it should fetch them.
+///
+/// The inbox first and always, then `Sent` where the server named one.
+///
+/// Only the inbox was ever fetched, which nothing said and nothing tested: a user who sends mail
+/// from their phone opened Sent and found only what this client had sent, and mail archived
+/// elsewhere vanished from the inbox without appearing in Archive. `Spam` is deliberately not
+/// here — downloading the spam folder to populate a place nobody opens costs a first sync twice
+/// over — and neither is `Drafts`, whose server copies are other clients' half-written mail and
+/// would collide with this one's outbox.
+///
+/// POP3 has one mailbox by construction, and a server that answered no roles gets the inbox
+/// alone, which is what happened before this existed.
+fn to_sync(account: &Configured) -> Vec<MailboxRef> {
+    let mut out = vec![MailboxRef {
+        account: account.id,
+        path: "INBOX".to_owned(),
+    }];
+    // `Sent` and not `Archive`, which is not safe yet. On Gmail the same message is in INBOX
+    // *and* in All Mail, and `Message.mailbox` is one role: a pass over All Mail would mark a
+    // message that is in the inbox as archived and it would leave the list. That needs the
+    // message to carry a set of mailboxes rather than one, which is a domain change and not a
+    // sync one. A message in Sent is not also in the inbox, so Sent is safe today.
+    for role in [MailboxRole::Sent] {
+        if let Some(path) = account.caps.folders.path(role)
+            && !path.eq_ignore_ascii_case("INBOX")
+        {
+            out.push(MailboxRef {
+                account: account.id,
+                path: path.to_owned(),
+            });
+        }
+    }
+    out
 }
 
 /// The commands that authenticate a POP3 session, given the mechanisms on offer.

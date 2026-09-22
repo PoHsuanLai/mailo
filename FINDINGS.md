@@ -2911,3 +2911,45 @@ match on everything. `大臺`, `計維` and `維計中` are checked too — reve
 from each end of the run.
 
 Search over ten thousand messages is 47 ms, inside the same budget as before.
+
+### F127 — Only the inbox was ever fetched, and nothing said so
+
+The next assumption after "one account" and "one identity": one mailbox. `sync::one` built
+`MailboxRef { path: "INBOX" }` and that was every folder this client had ever looked at.
+
+For an IMAP account that means: mail sent from a phone or from webmail never appears in **Sent**,
+which shows only what this client sent; mail archived elsewhere vanishes from the inbox and turns
+up nowhere. Neither `plan.md` nor `ORCHESTRATION.md` mentioned it. POP3 has one mailbox by
+construction, so this only ever bit the IMAP accounts — which are the Gmail one and the two
+Microsoft tenants.
+
+Two things had to change. `absorb` hard-coded `mailbox: MailboxRole::Inbox` for every message
+whatever folder it came from — invisible while one folder was synced, and the *first* thing to go
+wrong when a second is, because mail the user sent would be listed among the mail they received.
+It now takes a `Destination`: the mailbox and what that mailbox is for. And a pass loops over the
+mailboxes rather than assuming one, inbox first and in full, with a failure on a later folder
+reported by name rather than losing the mail the earlier ones fetched.
+
+**`Archive` is deliberately not fetched, and finding out why is the useful part of this round.**
+A test asserting that a message in INBOX and in All Mail — the ordinary Gmail case — ends up in
+both places *failed*: it is stored once, correctly, and keeps the role of whichever folder saw it
+first. `Message.mailbox` is one role, so it cannot be in two. A pass over All Mail would
+therefore mark inbox mail as archived and the user's inbox would empty itself. Fetching Sent is
+safe because a message in Sent is not also in the inbox.
+
+Making Archive safe means a message carrying a set of mailboxes rather than one, which is a
+domain change and not a sync one. The limitation is now a test — `a_message_in_two_folders_is_
+stored_once_and_keeps_the_first_role` — so it is written down somewhere that fails if the model
+changes underneath it.
+
+`Spam` and `Drafts` are absent for their own reasons: downloading the spam folder to populate a
+place nobody opens costs a first sync twice over, and the server's drafts are other clients'
+half-written mail, which would collide with this one's outbox.
+
+And because "why is my Sent folder empty" is a question a user asks, `mailo account list` now
+answers it:
+
+```
+someone@gmail.com            no credential stored
+                             syncs INBOX, [Gmail]/Sent Mail
+```

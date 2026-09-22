@@ -297,6 +297,11 @@ pub fn list(store: &SqliteStore) -> Result<String, String> {
         .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
         .map_err(|e| e.to_string())?;
 
+    // Which folders each account fetches, so `account list` can answer "why is my Sent folder
+    // empty" without the user having to guess. A store that cannot answer is not an error here:
+    // this command's job is to list accounts.
+    let folders = crate::sync::mailboxes_by_account(store).unwrap_or_default();
+
     let mut out = String::new();
     for row in rows {
         let (id, address) = row.map_err(|e| e.to_string())?;
@@ -317,6 +322,9 @@ pub fn list(store: &SqliteStore) -> Result<String, String> {
                 "no credential stored"
             }
         );
+        if let Some((_, paths)) = folders.iter().find(|(a, _)| *a == address) {
+            let _ = writeln!(out, "{:<28} syncs {}", "", paths.join(", "));
+        }
     }
     if out.is_empty() {
         out.push_str("no accounts. Add one with: mailo account add <address>\n");
