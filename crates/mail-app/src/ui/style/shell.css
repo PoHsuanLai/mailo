@@ -1,0 +1,17 @@
+/* Focusable for the keyboard, without a ring around the entire window. */
+.app:focus, .app:focus-visible { outline: none; }
+.app { display: grid; grid-template-columns: 180px minmax(340px, 32%) minmax(0, 1fr); height: 100vh; }
+.places { display: flex; flex-direction: column; gap: 2px; padding: 12px; border-right: 1px solid var(--edge); }
+.place { text-align: left; padding: 6px 10px; border: 0; border-radius: 6px; background: none; color: inherit; font: inherit; cursor: pointer; }
+.place:hover { background: var(--edge); }
+.place.on { background: var(--edge); font-weight: 600; }
+/* Set apart from the places above it: those choose what to look at, this one writes. */
+.place.compose { margin-top: 10px; font-weight: 600; border: 1px solid var(--edge); }
+.place { display: flex; align-items: center; gap: 8px; }
+.badge { margin-left: auto; font-size: 11px; font-variant-numeric: tabular-nums; opacity: .7; }
+.place.on .badge { opacity: 1; }
+.spacer { flex: 1; }
+.sync { text-align: center; border: 1px solid var(--edge); }
+.sync:disabled { opacity: .6; cursor: default; }
+.sync-note { margin: 8px 2px 0; font-size: 11px; opacity: .7; white-space: pre-wrap; word-break: break-word; }
+.sync-note.bad { opacity: .95; font-weight: 600; }

@@ -1,0 +1,9 @@
+.composer { border-top: 2px solid var(--edge); margin-top: 16px; padding-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+.composer-head { display: flex; align-items: baseline; gap: 10px; }
+.composer-head strong { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer label { display: grid; grid-template-columns: 70px 1fr; align-items: center; gap: 8px; font-size: 12px; opacity: .75; }
+.composer input { font: inherit; padding: 6px 8px; border: 1px solid var(--edge); border-radius: 6px; background: Canvas; color: inherit; }
+.composer-body { font: inherit; min-height: 180px; padding: 8px; border: 1px solid var(--edge); border-radius: 6px; background: Canvas; color: inherit; resize: vertical; }
+.composer-actions { display: flex; align-items: center; gap: 8px; }
+.composer-actions button { font: inherit; padding: 6px 14px; border: 1px solid var(--edge); border-radius: 6px; background: Canvas; color: inherit; cursor: pointer; }
+.composer-actions .primary { font-weight: 600; }

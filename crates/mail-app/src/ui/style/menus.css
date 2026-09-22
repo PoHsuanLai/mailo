@@ -1,0 +1,5 @@
+/* The label menu, under the row whose button opened it. */
+.labels { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 4px 2px; }
+.labels .label { padding: 3px 9px; border: 1px solid var(--edge); border-radius: 999px; background: none; color: inherit; font: inherit; font-size: 0.85em; cursor: pointer; }
+.labels .label:hover { background: var(--edge); }
+.labels .label.on { background: var(--edge); font-weight: 600; }
