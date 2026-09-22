@@ -28,3 +28,11 @@
   --accent-ink: #0B142A;
   --accent-soft: #1E2A44;
   --seal: #7FA6E6;
+
+  /* The same six, in the dark accent of each hue. See `tokens.css`. */
+  --swatch-postmark: #7FA6E6;
+  --swatch-graphite: #D5DBCE;
+  --swatch-pine: #5FB68C;
+  --swatch-indigo: #9AA0F0;
+  --swatch-oxblood: #D9736F;
+  --swatch-vermilion: #E9684B;

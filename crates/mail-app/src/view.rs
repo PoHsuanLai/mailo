@@ -7,6 +7,8 @@
 use chrono::{DateTime, Datelike, TimeDelta, TimeZone, Timelike, Utc, Weekday};
 use mail_domain::*;
 use mail_mime::{RemoteImages, SanitizePolicy};
+use serde::de::Deserializer;
+use serde::{Deserialize, Serialize};
 
 /// An entry in the sidebar.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -154,10 +156,8 @@ pub fn badge_filter(source: &Source) -> Option<Filter> {
 }
 
 /// One of six decoration hues. Only the four accent custom properties change with it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-// The window opens on `Postmark`. The other hues are the picker's vocabulary, and a binary
-// has no external caller to keep them alive until that picker exists. Tests construct each one.
-#[cfg_attr(not(test), allow(dead_code))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Copy, Hash, Default)]
+#[serde(rename_all = "snake_case")]
 pub enum Accent {
     /// Ink blue on sage, the pairing a real postmark is printed in.
     #[default]
@@ -176,8 +176,6 @@ pub enum Accent {
 
 impl Accent {
     /// Every hue, in the order a picker offers them.
-    // See the allowance on the enum: nothing outside the tests walks the list yet.
-    #[cfg_attr(not(test), allow(dead_code))]
     pub const ALL: [Accent; 6] = [
         Accent::Postmark,
         Accent::Graphite,
@@ -200,8 +198,6 @@ impl Accent {
     }
 
     /// What a picker calls it: "Postmark", "Graphite", "Pine", "Indigo", "Oxblood", "Vermilion".
-    // See the allowance on the enum: the picker is who will show this.
-    #[cfg_attr(not(test), allow(dead_code))]
     pub fn label(self) -> &'static str {
         match self {
             Accent::Postmark => "Postmark",
@@ -214,8 +210,6 @@ impl Accent {
     }
 
     /// The hue a stored word names, or [`None`] for a word that is not one.
-    // See the allowance on the enum: nothing stores a hue yet, so nothing parses one.
-    #[cfg_attr(not(test), allow(dead_code))]
     pub fn parse(word: &str) -> Option<Accent> {
         Self::ALL.into_iter().find(|hue| hue.slug() == word)
     }
@@ -226,10 +220,8 @@ impl Accent {
 /// Three states and not a bool: "follow the desktop" is a different choice from "light",
 /// and a client that cannot express it either ignores the desktop or cannot be overridden
 /// when the desktop is wrong.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-// The window opens on `System`. `Light` and `Dark` are real choices the picker will construct;
-// until then a binary reports them unused.
-#[cfg_attr(not(test), allow(dead_code))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Copy, Hash, Default)]
+#[serde(rename_all = "snake_case")]
 pub enum Theme {
     /// Follow the desktop. No `data-theme`, so `prefers-color-scheme` decides.
     #[default]
@@ -251,15 +243,59 @@ impl Theme {
             Theme::Dark => Some("dark"),
         }
     }
+
+    /// What a picker calls it.
+    pub fn label(self) -> &'static str {
+        match self {
+            Theme::System => "System",
+            Theme::Light => "Light",
+            Theme::Dark => "Dark",
+        }
+    }
+
+    /// The palette a stored word names, or [`None`] for a word that is not one.
+    pub fn parse(word: &str) -> Option<Theme> {
+        match word {
+            "system" => Some(Theme::System),
+            "light" => Some(Theme::Light),
+            "dark" => Some(Theme::Dark),
+            _ => None,
+        }
+    }
 }
 
 /// How the window looks, as data.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+///
+/// A missing field is the first-run value. An unknown word for one field is that field's
+/// default, not a failure of the whole value: a hue this build does not know must not throw
+/// away the palette stored beside it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Copy, Hash, Default)]
+#[serde(default)]
 pub struct Appearance {
     /// Which palette the window resolves to.
+    #[serde(deserialize_with = "de_theme")]
     pub theme: Theme,
     /// The decoration hue. Only the four accent custom properties change with it.
+    #[serde(deserialize_with = "de_accent")]
     pub accent: Accent,
+}
+
+/// A stored accent. Anything that is not one of the six slugs is [`Accent::default`].
+fn de_accent<'de, D>(deserializer: D) -> Result<Accent, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let word = String::deserialize(deserializer)?;
+    Ok(Accent::parse(&word).unwrap_or_default())
+}
+
+/// A stored theme. Anything that is not `system`, `light` or `dark` is [`Theme::default`].
+fn de_theme<'de, D>(deserializer: D) -> Result<Theme, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let word = String::deserialize(deserializer)?;
+    Ok(Theme::parse(&word).unwrap_or_default())
 }
 
 /// Everything the shell is currently showing.
@@ -304,8 +340,9 @@ pub struct Shell {
     pub labels: Vec<(String, LabelId)>,
     /// How the window looks.
     ///
-    /// A choice, held like every other one: the window reads it rather than deciding. Nothing
-    /// persists it yet, so a freshly built shell is [`Appearance::default`].
+    /// A choice, held like every other one: the window reads it rather than deciding.
+    /// Remembered in the config directory, not in the mail database; a shell built with no
+    /// stored choice is [`Appearance::default`].
     pub appearance: Appearance,
 }
 
@@ -2687,6 +2724,21 @@ mod appearance {
         ];
         for &(theme, attribute) in CASES {
             assert_eq!(theme.attribute(), attribute, "{theme:?}");
+        }
+    }
+
+    #[test]
+    fn a_stored_theme_word_parses_or_does_not() {
+        const CASES: &[(&str, Option<Theme>)] = &[
+            ("system", Some(Theme::System)),
+            ("light", Some(Theme::Light)),
+            ("dark", Some(Theme::Dark)),
+            ("", None),
+            ("sepia", None),
+            ("Dark", None),
+        ];
+        for &(word, expect) in CASES {
+            assert_eq!(Theme::parse(word), expect, "{word:?}");
         }
     }
 }

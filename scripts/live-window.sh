@@ -37,7 +37,9 @@ listener=$!
 sleep 1
 
 # `GDK_BACKEND` unset deliberately: forcing x11 is what broke this before.
-env -u GDK_BACKEND XDG_DATA_HOME="$work" MAILO_PROBE="$(cat "$probe")" \
+# `XDG_CONFIG_HOME` too, and just as deliberately: the window remembers its appearance there, and
+# a probe that clicks the picker must not rewrite the look of the person running this.
+env -u GDK_BACKEND XDG_DATA_HOME="$work" XDG_CONFIG_HOME="$work/config" MAILO_PROBE="$(cat "$probe")" \
     "$root/target/debug/mailo" > "$work/app.log" 2>&1 &
 app=$!
 sleep 12

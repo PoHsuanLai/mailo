@@ -268,6 +268,42 @@ mod tests {
     }
 
     #[test]
+    fn each_swatch_is_its_hues_accent() {
+        // Resolved apart from the accent block. A swatch written as `var(--accent)` would
+        // equal the hue only when that hue is the one selected, which is the case this
+        // exists to forbid.
+        let mut failures = Vec::new();
+        for &(state, overlay) in THEMES {
+            let mut palette = declared(STYLE, ":root");
+            if let Some(selector) = overlay {
+                palette.extend(declared(STYLE, selector));
+            }
+            for accent in Accent::ALL {
+                let slug = accent.slug();
+                let swatch = format!("--swatch-{slug}");
+                let block = declared(STYLE, &accent_selector(overlay, slug));
+                let swatch_hex = literal(&palette, &swatch);
+                let accent_hex = literal(&block, "--accent");
+                match (swatch_hex, accent_hex) {
+                    (Ok(swatch_hex), Ok(accent_hex)) if swatch_hex == accent_hex => {}
+                    (Ok(swatch_hex), Ok(accent_hex)) => failures.push(format!(
+                        "{state} {slug}: {swatch} is {swatch_hex}, its --accent is {accent_hex}"
+                    )),
+                    (swatch_hex, accent_hex) => {
+                        if let Err(reason) = &swatch_hex {
+                            failures.push(format!("{state} {slug}: {reason}"));
+                        }
+                        if let Err(reason) = &accent_hex {
+                            failures.push(format!("{state} {slug}: {reason}"));
+                        }
+                    }
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    #[test]
     fn the_decoration_follows_the_dark_palette() {
         // The one-line `color-scheme` rule means `:root[data-theme="dark"]` is the wrong
         // anchor: it occurs before the palette, so the assertion would hold with the files

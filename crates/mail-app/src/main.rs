@@ -1,6 +1,7 @@
 //! `mailo` — the command line. The Dioxus shell will call the same store methods.
 
 mod account;
+mod appearance;
 mod attach;
 mod cli;
 mod compose;
@@ -232,7 +233,13 @@ fn main() {
                 std::process::exit(1);
             }
         },
-        None => ui::run(store),
+        None => {
+            let look = appearance::config_dir()
+                .as_deref()
+                .map(appearance::load)
+                .unwrap_or_default();
+            ui::run(store, look);
+        }
     }
 }
 

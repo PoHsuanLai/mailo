@@ -66,6 +66,16 @@
   --accent-ink: #F4F8FF;
   --accent-soft: #DCE5F3;
   --seal: #23508F;
+
+  /* Each swatch is that hue's own light `--accent`, not the live one: a swatch has to
+     show its hue while another hue is selected. `each_swatch_is_its_hues_accent` checks
+     this copy against `accents.css`. */
+  --swatch-postmark: #23508F;
+  --swatch-graphite: #2E342C;
+  --swatch-pine: #1F6349;
+  --swatch-indigo: #3A3D96;
+  --swatch-oxblood: #8E2F31;
+  --swatch-vermilion: #C0402A;
 }
 
 :root[data-theme="light"] { color-scheme: light; }

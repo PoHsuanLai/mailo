@@ -11,6 +11,19 @@
 .badge { margin-left: auto; font-size: 11px; font-variant-numeric: tabular-nums; color: var(--ink-faint); }
 .place.on .badge { color: var(--ink-dim); }
 .spacer { flex: 1; }
+.appearance { display: flex; flex-direction: column; gap: var(--pad-sm); margin-bottom: var(--pad-sm); }
+.theme-choice { display: flex; padding: 2px; border: 1px solid var(--hairline); border-radius: var(--radius-pill); background: var(--paper-raised); }
+.theme-choice button { flex: 1; margin: 0; padding: 2px 0; border: 0; border-radius: var(--radius-pill); background: none; color: var(--ink-dim); font: inherit; font-size: 11px; line-height: 1.2; cursor: pointer; }
+.theme-choice button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+.accent-choice { display: flex; gap: 6px; flex-wrap: wrap; }
+.swatch { width: 18px; height: 18px; padding: 0; border: 1px solid var(--hairline); border-radius: var(--radius-pill); cursor: pointer; }
+.swatch[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--paper-sunken), 0 0 0 4px var(--ink); }
+.swatch[data-hue="postmark"] { background: var(--swatch-postmark); }
+.swatch[data-hue="graphite"] { background: var(--swatch-graphite); }
+.swatch[data-hue="pine"] { background: var(--swatch-pine); }
+.swatch[data-hue="indigo"] { background: var(--swatch-indigo); }
+.swatch[data-hue="oxblood"] { background: var(--swatch-oxblood); }
+.swatch[data-hue="vermilion"] { background: var(--swatch-vermilion); }
 .sync { text-align: center; border: 1px solid var(--hairline); border-radius: var(--radius); background: var(--paper-raised); color: var(--ink); }
 .sync:disabled { opacity: .6; cursor: default; }
 .sync-note { margin: 8px 2px 0; font-size: 11px; color: var(--ink-dim); white-space: pre-wrap; word-break: break-word; }

@@ -57,18 +57,20 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 </script>"#;
 
-/// A script that stamps the appearance onto `<html>` before the stylesheet is first applied.
+/// The statements that stamp `look` onto `<html>`.
 ///
-/// It goes in the custom head, which is inserted before `</head>` and therefore runs ahead
-/// of the interpreter module, so the first frame is already in the right palette. Values go
-/// through `serde_json::to_string`, the same as `NOTHING_MOUNTED`: an attribute written into
-/// a `<script>` is an injection site even when it can only be one of six words.
-fn appearance_head(look: Appearance) -> String {
+/// System deletes `data-theme` rather than setting it: the attribute's absence is what
+/// lets `prefers-color-scheme` decide, including after a click that leaves Light or Dark.
+/// [`appearance_head`] wraps this in `<script>` and a click evals it as it stands, so the
+/// first frame and a later change cannot say different things. Values go through
+/// `serde_json::to_string`: an attribute written into a script is an injection site even
+/// when it can only be one of six words.
+pub(super) fn appearance_script(look: Appearance) -> String {
     let quote = |word: &str| {
         serde_json::to_string(word).expect("a &str always serializes") // `&str` serialization cannot fail
     };
     let accent = quote(look.accent.slug());
-    let body = match look.theme.attribute() {
+    match look.theme.attribute() {
         Some(theme) => {
             let theme = quote(theme);
             format!(
@@ -76,9 +78,19 @@ fn appearance_head(look: Appearance) -> String {
                  document.documentElement.dataset.theme = {theme};"
             )
         }
-        None => format!("document.documentElement.dataset.accent = {accent};"),
-    };
-    format!("<script>\n{body}\n</script>")
+        None => format!(
+            "document.documentElement.dataset.accent = {accent};\n\
+             delete document.documentElement.dataset.theme;"
+        ),
+    }
+}
+
+/// A script that stamps the appearance onto `<html>` before the stylesheet is first applied.
+///
+/// It goes in the custom head, which is inserted before `</head>` and therefore runs ahead
+/// of the interpreter module, so the first frame is already in the right palette.
+fn appearance_head(look: Appearance) -> String {
+    format!("<script>\n{}\n</script>", appearance_script(look))
 }
 
 /// Extra markup for the head, from `$MAILO_PROBE`, in debug builds only.
@@ -105,8 +117,8 @@ fn probe() -> &'static str {
     ""
 }
 
-/// Launch the shell.
-pub fn run(store: Arc<SqliteStore>) {
+/// Launch the shell, already wearing `look`.
+pub fn run(store: Arc<SqliteStore>, look: Appearance) {
     dioxus::LaunchBuilder::desktop()
         .with_cfg(
             dioxus::desktop::Config::new()
@@ -118,13 +130,14 @@ pub fn run(store: Arc<SqliteStore>) {
                 .with_menu(None)
                 .with_custom_head(format!(
                     "{}<script>window.__mailo_nothing_mounted = {};</script>{KEEP_FOCUS}{}",
-                    appearance_head(Appearance::default()),
+                    appearance_head(look),
                     serde_json::to_string(NOTHING_MOUNTED)
                         .unwrap_or_else(|_| "\"The interface did not start.\"".to_owned()),
                     probe()
                 )),
         )
         .with_context(store)
+        .with_context(look)
         .launch(App);
 }
 
@@ -132,13 +145,18 @@ pub fn run(store: Arc<SqliteStore>) {
 mod tests {
     use super::Appearance;
     use super::appearance_head;
+    use super::appearance_script;
     use crate::view::{Accent, Theme};
 
     #[test]
     fn the_default_appearance_is_stamped_exactly() {
+        // The delete is deliberate. System used to omit `dataset.theme` entirely, which is
+        // right on first paint and wrong after a click that leaves Light or Dark: the head
+        // and the click share [`appearance_script`], so both remove the attribute.
         assert_eq!(
             appearance_head(Appearance::default()),
-            "<script>\ndocument.documentElement.dataset.accent = \"postmark\";\n</script>"
+            "<script>\ndocument.documentElement.dataset.accent = \"postmark\";\n\
+             delete document.documentElement.dataset.theme;\n</script>"
         );
     }
 
@@ -156,16 +174,61 @@ mod tests {
 
     #[test]
     fn system_writes_no_theme_dataset() {
-        // Absence is the property: an exact string can grow a comment that names the attribute
-        // and still set it. `Theme::System` must not mention `dataset.theme` at all, or the
-        // stylesheet's `prefers-color-scheme` guard is unreachable.
+        // Absence is the property. System deletes the attribute so a previous Light or Dark
+        // cannot linger, and it must not assign `dataset.theme` or the stylesheet's
+        // `prefers-color-scheme` guard is unreachable.
         let head = appearance_head(Appearance {
             theme: Theme::System,
             accent: Accent::Vermilion,
         });
         assert!(
-            !head.contains("dataset.theme"),
+            head.contains("delete document.documentElement.dataset.theme"),
+            "a system theme left a previous data-theme in place: {head}"
+        );
+        assert!(
+            !head.contains("dataset.theme ="),
             "a system theme set data-theme, so the desktop can no longer decide: {head}"
+        );
+    }
+
+    #[test]
+    fn appearance_script_is_exact() {
+        const CASES: &[(Appearance, &str)] = &[
+            (
+                Appearance {
+                    theme: Theme::Dark,
+                    accent: Accent::Pine,
+                },
+                "document.documentElement.dataset.accent = \"pine\";\n\
+                 document.documentElement.dataset.theme = \"dark\";",
+            ),
+            (
+                Appearance {
+                    theme: Theme::System,
+                    accent: Accent::Graphite,
+                },
+                "document.documentElement.dataset.accent = \"graphite\";\n\
+                 delete document.documentElement.dataset.theme;",
+            ),
+        ];
+        for &(look, script) in CASES {
+            assert_eq!(appearance_script(look), script, "{look:?}");
+        }
+    }
+
+    #[test]
+    fn system_deletes_the_theme_and_does_not_set_it() {
+        let script = appearance_script(Appearance {
+            theme: Theme::System,
+            accent: Accent::Graphite,
+        });
+        assert!(
+            script.contains("delete document.documentElement.dataset.theme"),
+            "{script}"
+        );
+        assert!(
+            !script.contains("dataset.theme ="),
+            "system set data-theme: {script}"
         );
     }
 }

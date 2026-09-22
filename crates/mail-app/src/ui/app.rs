@@ -5,7 +5,9 @@ use super::ops::{Composes, apply_op, start_composing, start_new};
 use super::reading::Reader;
 use super::sidebar::Places;
 use super::style::STYLE;
-use crate::view::{Listing, Shell, Shortcut, SyncState, badge_filter, nothing_to_show, synced};
+use crate::view::{
+    Appearance, Listing, Shell, Shortcut, SyncState, badge_filter, nothing_to_show, synced,
+};
 use dioxus::prelude::*;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
@@ -17,7 +19,12 @@ pub(super) fn App() -> Element {
     // makes goes through a `use_resource` that takes its own clone for a blocking thread, or
     // through the first-frame fallback beside it, which asks the context where it stands. A
     // handle held here is a handle that invites a query back onto the thread that draws.
-    let mut shell = use_signal(Shell::default);
+    // The launched look, when `main` provided one. A test that builds `App` with only the
+    // store keeps the first-run appearance.
+    let mut shell = use_signal(|| Shell {
+        appearance: try_consume_context::<Appearance>().unwrap_or_default(),
+        ..Shell::default()
+    });
     // Bumped after any write, to re-run the queries. Explicit rather than implicit so it is
     // obvious what causes a refresh.
     let mut revision = use_signal(|| 0u64);
