@@ -2068,3 +2068,20 @@ in a new place: an assertion about a *quantity* that was already satisfied befor
 What remains unverified about the keyboard is now only what happens between a physical key and
 the WebView — the layer F103's experiment could not address either. Everything from the event
 reaching the document down to the row leaving the inbox is tested.
+
+### F105 — Two more assertions that were already true
+
+Applying the rule F104 produced, as a sweep over every `assert!` using `>`, `<`, `is_empty`,
+`is_some` or negation. Most are sound — `explain(...).is_some()` tests a function whose default
+answer is `None`, and a `before > 0` guard placed to keep a *later* assertion honest is exactly
+right. Two were not:
+
+- `a_whole_sync_over_a_real_socket_lands_mail_in_the_store` asserted `headers_fetched > 0` and
+  `bodies_fetched > 0` against a fixture holding exactly two messages. That is true of a pass
+  that fetched the same header eight times as well as of one that did its job — the precise shape
+  F95 hid behind for the entire life of the project. Both are exact counts now.
+- `phase3_milestone` asserted `unread_inbox > 0 && unread_inbox < 20`. Almost any wrong answer
+  satisfies a range that wide. It now checks the same filter through `count` and through
+  `threads` and requires them to agree, which is a claim a wrong answer cannot accidentally
+  meet — and it is a better test than a magic number, because it compares two implementations of
+  one question rather than one implementation against a constant copied out of a fixture.

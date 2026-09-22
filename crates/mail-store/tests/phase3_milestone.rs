@@ -324,7 +324,31 @@ fn ingest_twenty_archive_one_label_one_and_search() {
             now(),
         )
         .unwrap();
-    assert!(unread_inbox > 0 && unread_inbox < 20, "got {unread_inbox}");
+    // Not a range. "More than none and fewer than twenty" is satisfied by almost any wrong
+    // answer, and an assertion that a wrong answer satisfies is not one — CONVENTIONS §"An
+    // assertion that was already true proves nothing". Checked against the other path to the
+    // same question instead: `count` and `threads` must agree about one filter, which is a
+    // claim a wrong answer cannot accidentally meet.
+    let listed = f
+        .store
+        .threads(
+            &query(Filter::And(vec![
+                Filter::InMailbox(MailboxRole::Inbox),
+                Filter::Read(ReadState::Unread),
+            ])),
+            now(),
+        )
+        .unwrap()
+        .items
+        .len();
+    assert!(
+        unread_inbox > 0,
+        "the fixture has no unread inbox mail to count"
+    );
+    assert_eq!(
+        unread_inbox as usize, listed,
+        "count() and threads() disagree about the same filter"
+    );
 
     // --- pagination --------------------------------------------------------------------
     let mut page = Query {

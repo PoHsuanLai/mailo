@@ -558,14 +558,16 @@ async fn a_whole_sync_over_a_real_socket_lands_mail_in_the_store() {
         .sync(&inbox(), &mut cancel, now(), 200)
         .await
         .expect("a sync over IMAP");
-    assert!(report.headers_fetched > 0, "{report:?}");
+    // The fixture holds exactly two, and `> 0` is true of a pass that fetched the same header
+    // eight times as well as of one that did its job — which is the shape F95 hid behind.
+    assert_eq!(report.headers_fetched, 2, "{report:?}");
 
     let bodies = it
         .engine
         .fetch_bodies(&inbox(), &mut cancel, now(), 100)
         .await
         .expect("bodies");
-    assert!(bodies.bodies_fetched > 0, "{bodies:?}");
+    assert_eq!(bodies.bodies_fetched, 2, "{bodies:?}");
 
     assert_eq!(count(&it.store), 2, "both messages should have landed");
 
