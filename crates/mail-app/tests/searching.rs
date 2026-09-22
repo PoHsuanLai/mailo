@@ -13,6 +13,9 @@ use mail_store::{SqliteStore, Store};
 #[allow(dead_code)]
 #[path = "../src/query.rs"]
 mod query;
+#[allow(dead_code)]
+#[path = "../src/view.rs"]
+mod view;
 
 const ACCOUNT: AccountId =
     AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
@@ -22,7 +25,7 @@ fn taipei() -> chrono::FixedOffset {
 }
 
 fn parse(input: &str) -> Filter {
-    query::parse(input, &taipei())
+    query::parse_with(input, &taipei(), &|_| Vec::new())
 }
 
 mod what_it_builds {
@@ -381,5 +384,233 @@ mod labels {
             query::parse_with("label:travel is:unread", &taipei(), &with(vec![A])),
             Filter::And(vec![Filter::HasLabel(A), Filter::Read(ReadState::Unread)])
         );
+    }
+}
+
+/// The same search, typed into the window instead of the terminal.
+///
+/// `label:` is the one term that needs the store, and it arrives as a resolver so the parser can
+/// stay pure. `mailo search` passes one. The window called `query::parse`, which passes a
+/// resolver that knows no names at all — so every `label:` typed there resolved to nothing,
+/// became text by the unknown-term rule, and full-text searched for the literal string
+/// "label:travel". No results, no error, and the same query working in the terminal.
+mod typed_into_the_window {
+    use super::*;
+
+    fn label(n: u8) -> LabelId {
+        LabelId::from_uuid(uuid::Uuid::from_bytes([n; 16]))
+    }
+
+    fn shell_searching(needle: &str, known: Vec<(String, LabelId)>) -> Filter {
+        let mut shell = view::Shell {
+            labels: known,
+            ..Default::default()
+        };
+        shell.search = needle.to_owned();
+        shell.query(50).filter
+    }
+
+    #[test]
+    fn a_label_the_window_knows_about_selects_by_it() {
+        let travel = label(7);
+        let filter = shell_searching("label:travel", vec![("travel".to_owned(), travel)]);
+        assert_eq!(
+            filter,
+            Filter::HasLabel(travel),
+            "the window searched for the words instead of the label"
+        );
+    }
+
+    /// The word can name a label on each account, and someone typing it means the word.
+    #[test]
+    fn the_same_word_on_two_accounts_matches_both() {
+        let (work, home) = (label(1), label(2));
+        let filter = shell_searching(
+            "label:travel",
+            vec![
+                ("travel".to_owned(), work),
+                ("travel".to_owned(), home),
+                ("receipts".to_owned(), label(3)),
+            ],
+        );
+        match filter {
+            Filter::Or(any) => assert_eq!(
+                any,
+                vec![Filter::HasLabel(work), Filter::HasLabel(home)],
+                "one account's label was dropped"
+            ),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// The rule that must survive the fix: a name nothing bears is still text, because a search
+    /// box has to keep working while a word is half-typed.
+    #[test]
+    fn a_name_nothing_bears_is_still_text() {
+        let filter = shell_searching("label:trav", vec![("travel".to_owned(), label(7))]);
+        assert!(
+            !matches!(filter, Filter::HasLabel(_)),
+            "a half-typed name should not select a label: {filter:?}"
+        );
+    }
+
+    /// And the rest of the vocabulary must keep working beside it.
+    #[test]
+    fn a_label_term_composes_with_the_others() {
+        let travel = label(7);
+        let filter = shell_searching(
+            "label:travel is:unread",
+            vec![("travel".to_owned(), travel)],
+        );
+        match filter {
+            Filter::And(all) => assert!(
+                all.contains(&Filter::HasLabel(travel)),
+                "the label was lost once another term joined it: {all:?}"
+            ),
+            other => panic!("{other:?}"),
+        }
+    }
+}
+
+/// And the same thing with a real store behind it.
+///
+/// The pure half above would pass just as well with a field nobody ever fills — which is the
+/// failure this project keeps finding, a capability modelled and unreachable. So this seeds a
+/// label the way a Gmail sync does, builds the index the window builds, and asks for the mail.
+mod a_label_typed_into_the_window_finds_the_mail {
+    use super::*;
+
+    fn now() -> DateTime<Utc> {
+        Utc.with_ymd_and_hms(2026, 9, 22, 6, 0, 0).unwrap()
+    }
+
+    /// Two messages, one of them labelled `travel` by the server.
+    fn seeded() -> (SqliteStore, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SqliteStore::in_memory(dir.path()).unwrap();
+        store
+            .connection()
+            .execute(
+                "INSERT INTO accounts (id, address, plan, created_at)
+                 VALUES (?1, 'me@example.test', '{}', datetime('now'))",
+                [ACCOUNT.to_string()],
+            )
+            .unwrap();
+
+        for (n, subject) in ["flight to taipei", "the invoice"].iter().enumerate() {
+            let raw = format!(
+                "From: ada@example.test\r\nTo: me@example.test\r\nSubject: {subject}\r\n\
+                 Date: Tue, 22 Sep 2026 09:00:00 +0800\r\n\
+                 Message-ID: <m{n}@example.test>\r\n\r\nbody\r\n"
+            );
+            absorb(
+                &store,
+                ACCOUNT,
+                MailboxRef {
+                    account: ACCOUNT,
+                    path: "INBOX".to_owned(),
+                },
+                Some(SyncCursor::Pop),
+                vec![Arrival {
+                    remote: RemoteRef::Pop {
+                        uidl: format!("u{n}"),
+                    },
+                    raw: raw.into_bytes(),
+                }],
+                false,
+                now(),
+            )
+            .unwrap();
+        }
+        // What a Gmail sync reports: the complete label set for one message.
+        store
+            .ingest(
+                ACCOUNT,
+                Ingest {
+                    mailbox: MailboxRef {
+                        account: ACCOUNT,
+                        path: "INBOX".to_owned(),
+                    },
+                    validity: UidValidity::Same,
+                    cursor: None,
+                    messages: vec![],
+                    flags: vec![],
+                    labels: vec![],
+                    label_names: vec![(
+                        RemoteRef::Pop {
+                            uidl: "u0".to_owned(),
+                        },
+                        vec!["travel".to_owned()],
+                    )],
+                    gone: vec![],
+                },
+            )
+            .unwrap();
+        (store, dir)
+    }
+
+    fn subjects(store: &SqliteStore, typed: &str) -> Vec<String> {
+        let shell = view::Shell {
+            search: typed.to_owned(),
+            labels: query::known_labels(store),
+            ..Default::default()
+        };
+        store
+            .threads(&shell.query(50), now())
+            .unwrap()
+            .items
+            .into_iter()
+            .map(|t| t.subject)
+            .collect()
+    }
+
+    #[test]
+    fn it_returns_the_labelled_message_and_only_that_one() {
+        let (store, _dir) = seeded();
+        assert_eq!(subjects(&store, "label:travel"), vec!["flight to taipei"]);
+    }
+
+    /// Not the same as "the query was wrong": a label that exists and has no mail must look
+    /// different from a label nothing knows. Both show nothing, so this pins the one that must
+    /// still find mail.
+    #[test]
+    fn a_name_nothing_bears_finds_nothing_rather_than_everything() {
+        let (store, _dir) = seeded();
+        assert!(subjects(&store, "label:nosuch").is_empty());
+    }
+
+    /// The index has to survive the sync that creates it, which is the whole point of rebuilding
+    /// it on each revision rather than once at startup.
+    #[test]
+    fn a_label_that_did_not_exist_at_startup_is_found_once_it_does() {
+        let (store, _dir) = seeded();
+        let at_startup = query::known_labels(&store);
+        assert!(!at_startup.iter().any(|(name, _)| name == "receipts"));
+
+        store
+            .ingest(
+                ACCOUNT,
+                Ingest {
+                    mailbox: MailboxRef {
+                        account: ACCOUNT,
+                        path: "INBOX".to_owned(),
+                    },
+                    validity: UidValidity::Same,
+                    cursor: None,
+                    messages: vec![],
+                    flags: vec![],
+                    labels: vec![],
+                    label_names: vec![(
+                        RemoteRef::Pop {
+                            uidl: "u1".to_owned(),
+                        },
+                        vec!["receipts".to_owned()],
+                    )],
+                    gone: vec![],
+                },
+            )
+            .unwrap();
+
+        assert_eq!(subjects(&store, "label:receipts"), vec!["the invoice"]);
     }
 }

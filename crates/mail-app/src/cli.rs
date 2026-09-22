@@ -665,26 +665,9 @@ fn account_named(store: &SqliteStore, address: &str) -> Result<AccountId, String
 /// the word rather than one account's row. Taking the first silently searched one mailbox — a
 /// wrong answer that looks like an empty one, which is the worst kind.
 fn labels_named(store: &SqliteStore, name: &str) -> Vec<mail_domain::LabelId> {
-    let accounts: Vec<AccountId> = {
-        let db = store.connection();
-        let Ok(mut stmt) = db.prepare("SELECT id FROM accounts ORDER BY created_at") else {
-            return Vec::new();
-        };
-        let Ok(rows) = stmt.query_map([], |r| r.get::<_, String>(0)) else {
-            return Vec::new();
-        };
-        rows.filter_map(Result::ok)
-            .filter_map(|id| id.parse().ok())
-            .map(AccountId::from_uuid)
-            .collect()
-    };
-    accounts
-        .into_iter()
-        .filter_map(|account| store.labels(account).ok())
-        .flatten()
-        .filter(|l| l.name.eq_ignore_ascii_case(name))
-        .map(|l| l.id)
-        .collect()
+    // Shared with the window's search box, which is the point: the two had separate answers to
+    // "which label is called this", and one of them was "none, ever".
+    crate::query::named(&crate::query::known_labels(store))(name)
 }
 
 fn render_list(items: &[ThreadSummary]) -> String {

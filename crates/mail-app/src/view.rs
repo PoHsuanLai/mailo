@@ -172,6 +172,13 @@ pub struct Shell {
     /// sits beside it. A user who opens a reply and then clicks another thread should still
     /// have their half-written reply when they come back, which a mode would have thrown away.
     pub composing: Option<Composing>,
+    /// Every label name the store knows, and which label bears it.
+    ///
+    /// Data rather than a connection, so `query` stays a pure function of the shell: `label:` is
+    /// the one search term that needs the world, and the world arrives as a list. A name can
+    /// appear more than once — `UNIQUE (account, name)` is per account, so "travel" on two
+    /// accounts is two labels and someone typing the word means both.
+    pub labels: Vec<(String, LabelId)>,
 }
 
 /// A message being edited, as the widgets hold it.
@@ -349,6 +356,7 @@ impl Default for Shell {
             open: None,
             show_remote_images: false,
             composing: None,
+            labels: Vec::new(),
         }
     }
 }
@@ -370,7 +378,7 @@ impl Shell {
                 Some(Source::Drafts) | None => Filter::All,
             }
         } else {
-            crate::query::parse(needle, &chrono::Local)
+            crate::query::parse_with(needle, &chrono::Local, &crate::query::named(&self.labels))
         };
         Query {
             filter,

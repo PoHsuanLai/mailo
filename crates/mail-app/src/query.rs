@@ -30,17 +30,63 @@
 use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 use mail_domain::{DateRange, Filter, LabelId, MailboxRole, ReadState, Star, TextMatch};
 
+/// Every label name in the store, with the label that bears it.
+///
+/// The other half of `label:`, kept next to the parser it feeds rather than at each surface,
+/// because that is where the two drifted: `mailo search` passed a resolver and the window passed
+/// `parse`, whose resolver knows no names. `label:travel` therefore worked in the terminal and,
+/// in the window, became a full-text search for the literal string — no results and no error.
+///
+/// A name can appear more than once: `UNIQUE (account, name)` is per account, so the same word
+/// on two accounts is two labels, and someone typing it means both.
+pub fn known_labels(store: &mail_store::SqliteStore) -> Vec<(String, LabelId)> {
+    let accounts: Vec<mail_domain::AccountId> = {
+        let db = store.connection();
+        let Ok(mut stmt) = db.prepare("SELECT id FROM accounts ORDER BY created_at") else {
+            return Vec::new();
+        };
+        let Ok(rows) = stmt.query_map([], |r| r.get::<_, String>(0)) else {
+            return Vec::new();
+        };
+        rows.filter_map(Result::ok)
+            .filter_map(|id| id.parse().ok())
+            .map(mail_domain::AccountId::from_uuid)
+            .collect()
+    };
+    accounts
+        .into_iter()
+        .filter_map(|account| store.labels(account).ok())
+        .flatten()
+        .map(|l| (l.name, l.id))
+        .collect()
+}
+
+/// Resolve one name against [`known_labels`], for [`parse_with`].
+///
+/// Case-insensitive, because nobody types `label:Travel` to mean something other than
+/// `label:travel`.
+pub fn named<'a>(index: &'a [(String, LabelId)]) -> impl Fn(&str) -> Vec<LabelId> + 'a {
+    move |name| {
+        index
+            .iter()
+            .filter(|(known, _)| known.eq_ignore_ascii_case(name))
+            .map(|(_, id)| *id)
+            .collect()
+    }
+}
+
 /// Turn a search line into a filter.
 ///
 /// Never fails. A search box that rejects what is typed while it is being typed is unusable, so
 /// a term nobody recognises — `frm:ada`, a stray colon, an unparseable date — is searched for as
 /// text rather than refused. The cost of that choice is a search that finds nothing rather than
 /// one that explains itself, which is the right way round while the user is still typing.
-pub fn parse<Tz: TimeZone>(input: &str, zone: &Tz) -> Filter {
-    parse_with(input, zone, &|_| Vec::new())
-}
-
-/// The same, with a way to resolve a label name to the labels that bear it.
+///
+/// `label` resolves a name to the labels that bear it; [`named`] builds one from
+/// [`known_labels`]. There is deliberately no convenience wrapper that passes an empty resolver.
+/// One existed, the window used it, and `label:travel` there quietly became a full-text search
+/// for the literal string while the same query worked in the terminal. A caller that has no
+/// index has to write `&|_| Vec::new()` and see itself do it.
 ///
 /// `label:` needs the store and the rest of this does not, so the lookup arrives as a function
 /// rather than a connection: the parser stays pure and testable, and the one term that needs the
