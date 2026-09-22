@@ -26,6 +26,15 @@ use std::time::Duration;
 /// opens. Fetching in arrival order would spend that minute on one attachment.
 const BANDS: [u64; 3] = [64 * 1024, 1024 * 1024, u64::MAX];
 
+/// Put `wanted` in fetch order: smallest band first, and within a band the order it came in.
+///
+/// Stable on purpose. Callers pass messages newest first, and a sort that broke ties by size
+/// would undo that inside every band — a 3 KB newsletter from 2019 ahead of this morning's 4 KB
+/// reply, on a first sync the user is watching.
+fn by_band(wanted: &mut [(RemoteRef, u64)]) {
+    wanted.sort_by_key(|(_, size)| BANDS.iter().position(|&band| *size <= band));
+}
+
 /// What a sync pass did, for the caller to log or show.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct SyncReport {
@@ -553,7 +562,8 @@ impl<B: Backend> AccountEngine<B> {
         // judgement about what the user sees first, not a protocol fact.
         let mut wanted = self.backend.surveyed();
         if wanted.is_empty() {
-            // A protocol that cannot enumerate up front: fall back to what we already hold.
+            // A protocol that cannot enumerate up front: fall back to what we already hold,
+            // which the store hands back newest first.
             wanted = self.unfetched(budget as u32)?;
         } else {
             // Minus what is already mapped. The survey is *everything on the server*, which is
@@ -567,8 +577,11 @@ impl<B: Backend> AccountEngine<B> {
             let held: std::collections::HashSet<RemoteRef> =
                 self.store.remote_refs(mailbox)?.into_iter().collect();
             wanted.retain(|(remote, _)| !held.contains(remote));
+            // The survey is in server order, oldest first: POP3 message numbers and IMAP UIDs
+            // both count up as mail arrives. Nothing else is known before the headers are.
+            wanted.reverse();
         }
-        wanted.sort_by_key(|(_, size)| *size);
+        by_band(&mut wanted);
 
         for band in BANDS {
             let batch: Vec<RemoteRef> = wanted
@@ -662,7 +675,7 @@ impl<B: Backend> AccountEngine<B> {
     ) -> Result<SyncReport, RuntimeError> {
         let mut report = SyncReport::default();
         let mut wanted = self.unfetched(budget as u32)?;
-        wanted.sort_by_key(|(_, size)| *size);
+        by_band(&mut wanted);
 
         let batch: Vec<RemoteRef> = wanted
             .into_iter()
@@ -848,31 +861,19 @@ impl<B: Backend> AccountEngine<B> {
     /// A message with no size lands in the last band rather than the first: fetching something
     /// of unknown length ahead of a known-small one is the wrong bet.
     fn unfetched(&self, limit: u32) -> Result<Vec<(RemoteRef, u64)>, RuntimeError> {
-        let sizes = self.survey_sizes();
+        // Sizes from this session's survey. A message it did not cover — no survey yet, or a
+        // protocol that cannot take one — is "size unknown" and sorts into the last band.
+        let sizes: std::collections::HashMap<RemoteRef, u64> =
+            self.backend.surveyed().into_iter().collect();
         Ok(self
             .store
             .unfetched(self.account, limit)?
             .into_iter()
             .map(|remote| {
-                let size = match &remote {
-                    RemoteRef::Pop { uidl } => sizes
-                        .iter()
-                        .find(|(u, _)| u == uidl)
-                        .map(|(_, size)| *size)
-                        .unwrap_or(u64::MAX),
-                    RemoteRef::Imap { .. } => u64::MAX,
-                };
+                let size = sizes.get(&remote).copied().unwrap_or(u64::MAX);
                 (remote, size)
             })
             .collect())
-    }
-
-    /// Sizes from the backend's last survey, when it keeps them.
-    ///
-    /// Empty for backends that cannot report sizes up front, which simply means every message
-    /// falls into the last band and the pass degrades to arrival order.
-    fn survey_sizes(&self) -> Vec<(String, u64)> {
-        Vec::new()
     }
 
     /// The account's stored credential, refreshed if it is close to expiring.
@@ -944,6 +945,48 @@ mod tests {
 
     fn at(secs: i64) -> DateTime<Utc> {
         Utc.timestamp_opt(1_700_000_000 + secs, 0).unwrap()
+    }
+
+    fn pop(uidl: &str, size: u64) -> (RemoteRef, u64) {
+        (
+            RemoteRef::Pop {
+                uidl: uidl.to_owned(),
+            },
+            size,
+        )
+    }
+
+    fn uidls(wanted: &[(RemoteRef, u64)]) -> Vec<&str> {
+        wanted
+            .iter()
+            .map(|(remote, _)| match remote {
+                RemoteRef::Pop { uidl } => uidl.as_str(),
+                RemoteRef::Imap { .. } => unreachable!(),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_band_keeps_the_order_it_was_given() {
+        // Newest first in, newest first out, even where the newer message is the larger.
+        let mut wanted = vec![pop("new", 4_000), pop("old", 3_000)];
+        by_band(&mut wanted);
+        assert_eq!(uidls(&wanted), ["new", "old"]);
+    }
+
+    #[test]
+    fn a_smaller_band_comes_first_however_old() {
+        let mut wanted = vec![
+            pop("new-huge", 5 * 1024 * 1024),
+            pop("new-medium", 200 * 1024),
+            pop("old-small", 1_000),
+            pop("unknown", u64::MAX),
+        ];
+        by_band(&mut wanted);
+        assert_eq!(
+            uidls(&wanted),
+            ["old-small", "new-medium", "new-huge", "unknown"]
+        );
     }
 
     #[test]

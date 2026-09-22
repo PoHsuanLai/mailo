@@ -426,7 +426,7 @@ impl Store for SqliteStore {
              JOIN remote_map r ON r.message = m.id
              WHERE m.account = ?1 AND m.body_raw IS NULL
              GROUP BY m.id
-             ORDER BY m.date
+             ORDER BY m.date DESC
              LIMIT ?2",
         )?;
         let rows = stmt.query_map(

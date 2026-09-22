@@ -109,8 +109,10 @@ pub trait Store {
     /// runtime finds the work still outstanding after a restart, which is what makes a large
     /// first sync resumable rather than something that starts over.
     ///
-    /// Ordered oldest-first by the message date so a caller gets a stable list; the *fetch*
-    /// order is the caller's decision, and it is newest-first by size band.
+    /// Newest first by the message date, and the order is part of the contract: `limit` cuts
+    /// the list here, so whatever the caller would rather fetch first has to survive the cut.
+    /// This was oldest-first, which under a budget meant the body pass worked through the
+    /// maildrop from 2004 onwards and the mail that arrived this morning waited for all of it.
     fn unfetched(
         &self,
         account: AccountId,

@@ -79,26 +79,45 @@ async fn serve() -> u16 {
 ///
 /// Dropping one is how a message deleted in webmail looks from here.
 async fn serve_full() -> (u16, Present) {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let port = listener.local_addr().unwrap().port();
-    let present: Present = Arc::new(std::sync::atomic::AtomicUsize::new(maildrop().len()));
-    let showing = present.clone();
-    tokio::spawn(async move {
-        while let Ok((sock, _)) = listener.accept().await {
-            tokio::spawn(session(sock, showing.clone()));
-        }
-    });
+    let (port, present, _) = serve_maildrop(maildrop()).await;
     (port, present)
 }
+
+/// A server holding `drop`, and the log of every `TOP` and `RETR` it is sent, in order.
+async fn serve_maildrop(drop: Vec<(&'static str, String)>) -> (u16, Present, Heard) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let present: Present = Arc::new(std::sync::atomic::AtomicUsize::new(drop.len()));
+    let heard = Heard::default();
+    let (showing, hearing) = (present.clone(), heard.clone());
+    tokio::spawn(async move {
+        while let Ok((sock, _)) = listener.accept().await {
+            tokio::spawn(session(
+                sock,
+                showing.clone(),
+                drop.clone(),
+                hearing.clone(),
+            ));
+        }
+    });
+    (port, present, heard)
+}
+
+/// Fetch commands as the server received them: `"TOP 3"`, `"RETR 1"`.
+type Heard = Arc<std::sync::Mutex<Vec<String>>>;
 
 /// How many messages remain in the maildrop. One per server, not a `static`: these tests run in
 /// parallel in one binary.
 type Present = Arc<std::sync::atomic::AtomicUsize>;
 
-async fn session(sock: tokio::net::TcpStream, present: Present) {
+async fn session(
+    sock: tokio::net::TcpStream,
+    present: Present,
+    mut drop: Vec<(&'static str, String)>,
+    heard: Heard,
+) {
     let (read, mut write) = sock.into_split();
     let mut lines = BufReader::new(read).lines();
-    let mut drop = maildrop();
     drop.truncate(present.load(std::sync::atomic::Ordering::SeqCst));
 
     let _ = write.write_all(b"+OK POP3 server ready\r\n").await;
@@ -133,6 +152,7 @@ async fn session(sock: tokio::net::TcpStream, present: Present) {
                 out
             }
             "TOP" | "RETR" => {
+                heard.lock().unwrap().push(format!("{verb} {arg}"));
                 let index: usize = arg.parse().unwrap_or(0);
                 match drop.get(index.wrapping_sub(1)) {
                     Some((_, message)) => {
@@ -583,4 +603,97 @@ mod repeated_passes {
 
         assert_eq!(messages(&it.store), before, "a sweep deleted live mail");
     }
+}
+
+/// A message dated in `year`, padded to about `size` bytes.
+fn dated(year: u32, subject: &str, size: usize) -> String {
+    let head = format!(
+        "From: someone@example.test\r\n\
+         Subject: {subject}\r\n\
+         Date: Mon, 1 Jan {year} 00:00:00 +0000\r\n\
+         Message-ID: <{subject}@example.test>\r\n\
+         \r\n"
+    );
+    let body = "x".repeat(size.saturating_sub(head.len() + 2));
+    format!("{head}{body}\r\n")
+}
+
+/// The first sync fetches the newest mail first within each size band, headers and bodies both.
+///
+/// Message numbers count up as mail arrives, so the server's own order is oldest first, and a
+/// 2372-message maildrop fetched that way shows the user 2004 for the first minute. The large
+/// message is the newest of all and still waits for the small ones: bands come first.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_first_sync_fetches_the_newest_mail_first_within_each_band() {
+    let (port, _, heard) = serve_maildrop(vec![
+        ("uidl-2020", dated(2020, "oldest", 1_000)),
+        ("uidl-2021", dated(2021, "older", 1_000)),
+        ("uidl-2022", dated(2022, "newer", 1_000)),
+        ("uidl-2023", dated(2023, "newest-and-large", 200 * 1024)),
+    ])
+    .await;
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
+    store
+        .connection()
+        .execute(
+            "INSERT INTO accounts (id, address, plan, created_at)
+             VALUES (?1, 'me@example.test', '{}', datetime('now'))",
+            [ACCOUNT.to_string()],
+        )
+        .unwrap();
+    let secrets = MapSecrets::default();
+    secrets
+        .put(
+            &SecretKey {
+                account: ACCOUNT,
+                purpose: SecretPurpose::IncomingPassword,
+            },
+            &Credential::Password(PASSWORD.to_owned()),
+        )
+        .unwrap();
+    let backend = Pop3Backend::new(
+        ACCOUNT,
+        caps(),
+        Box::new(|auth, commands| {
+            let mut all = Vec::new();
+            if auth == Authenticate::First {
+                all.push(Pop3Command::AuthPlain);
+            }
+            all.extend(commands);
+            Pop3Session::new("me", PASSWORD, all)
+        }),
+    );
+    let mut engine = AccountEngine::new(
+        ACCOUNT,
+        plan(port),
+        backend,
+        store.clone(),
+        Arc::new(secrets),
+    );
+    let mailbox = MailboxRef {
+        account: ACCOUNT,
+        path: "INBOX".to_owned(),
+    };
+    let (_tx, mut cancel) = watch::channel(false);
+
+    let headers = engine.sync(&mailbox, &mut cancel, now(), 50).await.unwrap();
+    assert_eq!(headers.headers_fetched, 4, "{:?}", headers.needs_attention);
+    let bodies = engine
+        .fetch_bodies(&mailbox, &mut cancel, now(), 50)
+        .await
+        .unwrap();
+    assert_eq!(bodies.bodies_fetched, 4, "{:?}", bodies.needs_attention);
+
+    let heard = heard.lock().unwrap().clone();
+    let fetched = |verb: &str| -> Vec<String> {
+        heard
+            .iter()
+            .filter_map(|line| line.strip_prefix(verb))
+            .map(|rest| rest.split_whitespace().next().unwrap_or("").to_owned())
+            .collect()
+    };
+    assert_eq!(fetched("TOP "), ["3", "2", "1", "4"], "{heard:?}");
+    assert_eq!(fetched("RETR "), ["3", "2", "1", "4"], "{heard:?}");
 }

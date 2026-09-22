@@ -273,7 +273,7 @@ impl Store for MemoryStore {
                     })
             })
             .collect();
-        with_dates.sort_by_key(|(date, _)| *date);
+        with_dates.sort_by_key(|(date, _)| std::cmp::Reverse(*date));
         Ok(with_dates
             .into_iter()
             .map(|(_, remote)| remote)
