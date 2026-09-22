@@ -53,6 +53,22 @@ fn now() -> DateTime<Utc> {
 /// clear. A loopback test server has no certificate a public root would sign, so this is the one
 /// place that shape is constructed by hand.
 fn configured(port: u16, caps: AccountCaps) -> (Arc<SqliteStore>, tempfile::TempDir) {
+    configured_with(
+        port,
+        caps,
+        AuthPlan::Password {
+            username: Username::SameAsAddress,
+            sasl: vec![SaslMech::Plain],
+        },
+    )
+}
+
+/// The same, with the account's authentication spelled out.
+fn configured_with(
+    port: u16,
+    caps: AccountCaps,
+    auth: AuthPlan,
+) -> (Arc<SqliteStore>, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
     let plan = AccountPlan {
@@ -67,10 +83,7 @@ fn configured(port: u16, caps: AccountCaps) -> (Arc<SqliteStore>, tempfile::Temp
             port: 1,
             tls: Tls::Plaintext,
         },
-        auth: AuthPlan::Password {
-            username: Username::SameAsAddress,
-            sasl: vec![SaslMech::Plain],
-        },
+        auth,
         identities: Vec::new(),
     };
     {
@@ -782,5 +795,105 @@ mod a_server_asking_to_be_left_alone {
             ),
             other => panic!("a rate limit is not something to give up over: {other:?}"),
         }
+    }
+}
+
+/// What an account with no credential is told to do about it.
+///
+/// This is the first thing a new user reads, and it was one sentence for every account: "Run:
+/// MAILO_PASSWORD=… mailo account add <address>". For the NTU account that is exactly right. For
+/// a Gmail account it is advice that cannot work — Google turned off password authentication for
+/// IMAP in May 2022 — and following it means a failed sign-in against Google with a password
+/// that was never going to be accepted. `mailo account add` prints the right thing for that
+/// account; `mailo sync` contradicted it, and sync is the command someone runs second.
+mod an_account_with_nothing_stored {
+    use super::*;
+
+    fn told(auth: AuthPlan) -> String {
+        let (store, _dir) = configured_with(1, caps(), auth);
+        sync::run_with(
+            store,
+            Arc::new(MapSecrets::default()),
+            &OAuthRegistry::default(),
+            now(),
+        )
+        .unwrap()
+        .text
+    }
+
+    #[test]
+    fn a_password_account_is_told_about_the_password() {
+        let out = told(AuthPlan::Password {
+            username: Username::SameAsAddress,
+            sasl: vec![SaslMech::Plain],
+        });
+        assert!(out.contains("MAILO_PASSWORD"), "{out}");
+        // The address, not the word "<address>": advice that has to be edited before it can be
+        // run is advice someone gets wrong at the point they are least able to tell.
+        assert!(out.contains("mailo account add ada@example.test"), "{out}");
+        assert!(!out.contains("<address>"), "{out}");
+    }
+
+    #[test]
+    fn an_oauth_account_is_not_sent_to_find_a_password() {
+        let out = told(AuthPlan::OAuth {
+            issuer: OAuthIssuer::Google,
+            scopes: vec!["https://mail.google.com/".to_owned()],
+        });
+        assert!(
+            !out.contains("MAILO_PASSWORD"),
+            "a Google account was told to set a password, which Google has not accepted since \
+             2022: {out}"
+        );
+        assert!(out.contains("MAILO_OAUTH_CLIENT_ID"), "{out}");
+        assert!(out.contains("mailo account add ada@example.test"), "{out}");
+    }
+
+    /// `mailo account list` is the third surface, and it has to agree with the other two.
+    ///
+    /// It reads the real keyring for the stored credential, which is safe here and only here:
+    /// the account ids are generated per test and nothing of theirs exists, so this is a read of
+    /// a key that is not present. It writes nothing, so there is nothing to clear afterwards.
+    #[test]
+    fn the_account_listing_says_the_same_thing_in_fewer_words() {
+        let (oauth, _a) = configured_with(
+            1,
+            caps(),
+            AuthPlan::OAuth {
+                issuer: OAuthIssuer::Google,
+                scopes: vec!["https://mail.google.com/".to_owned()],
+            },
+        );
+        let listed = account::list(&oauth).unwrap();
+        assert!(
+            listed.contains("not signed in"),
+            "an OAuth account was told a credential was missing, which reads as \"find a \
+             password\": {listed}"
+        );
+
+        let (password, _b) = configured_with(
+            1,
+            caps(),
+            AuthPlan::Password {
+                username: Username::SameAsAddress,
+                sasl: vec![SaslMech::Plain],
+            },
+        );
+        let listed = account::list(&password).unwrap();
+        assert!(listed.contains("no credential stored"), "{listed}");
+    }
+
+    /// Microsoft needs `--microsoft` to reproduce the account, and an instruction that does not
+    /// work when followed is worse than none.
+    #[test]
+    fn a_microsoft_account_keeps_the_flag_that_makes_the_command_work() {
+        let out = told(AuthPlan::OAuth {
+            issuer: OAuthIssuer::Microsoft,
+            scopes: vec!["https://outlook.office.com/IMAP.AccessAsUser.All".to_owned()],
+        });
+        assert!(
+            out.contains("mailo account add ada@example.test --microsoft"),
+            "{out}"
+        );
     }
 }

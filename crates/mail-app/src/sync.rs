@@ -84,6 +84,20 @@ pub struct Ran {
     pub hold: Option<std::time::Duration>,
 }
 
+/// How each configured account signs in, by address.
+///
+/// Beside `mailboxes_by_account` and for the same reason: `account list` should be able to say
+/// what an account is waiting for without deciding it for itself. Two surfaces answering that
+/// question separately is how `sync` came to tell a Google account to find a password.
+pub fn auth_by_account(
+    store: &SqliteStore,
+) -> Result<std::collections::HashMap<String, AuthPlan>, String> {
+    Ok(configured(store)?
+        .into_iter()
+        .map(|account| (account.address, account.plan.auth))
+        .collect())
+}
+
 /// How often a background sync should run, from the accounts' own capabilities.
 ///
 /// The shortest interval any account asks for, so an account that wants IDLE-like freshness is
@@ -247,9 +261,7 @@ async fn one(
             account: account.id,
             purpose: SecretPurpose::IncomingPassword,
         })
-        .map_err(|_| {
-            "no credential stored. Run: MAILO_PASSWORD=… mailo account add <address>".to_owned()
-        })?;
+        .map_err(|_| crate::view::no_credential(&account.address, &account.plan.auth))?;
     let credential = signed_in(account, stored, secrets.as_ref(), registry, now).await?;
 
     let mailboxes = to_sync(account);

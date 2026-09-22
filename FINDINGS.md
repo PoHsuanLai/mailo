@@ -3106,3 +3106,48 @@ setting a variable otherwise buys.
 
 The technique had been rebuilt from scratch three times and thrown away each round. It is a
 script now.
+
+### F132 — `sync` told a Gmail account to go and find a password
+
+Phase 6's criterion is living with it, which is not something that can be done from inside the
+repository. What *is* inside it is the on-ramp: whether someone who sits down to start using this
+can get from an address to mail arriving. So the on-ramp was walked, with two real addresses —
+one Gmail, one NTU — against a clean data directory.
+
+`mailo account add` gets it right. It knows the Gmail account is OAuth and says so. Then:
+
+```
+$ mailo sync
+you@gmail.com: no credential stored. Run: MAILO_PASSWORD=… mailo account add <address>
+you@university.edu:     no credential stored. Run: MAILO_PASSWORD=… mailo account add <address>
+```
+
+One hardcoded sentence for every account, ignoring the `AuthPlan` sitting in the row it just
+read. For NTU it is exactly right. For Gmail it is advice that **cannot** work — Google stopped
+accepting passwords for IMAP in May 2022 — and someone who follows it makes a failed sign-in
+against Google with a credential that was never going to be accepted. That is the hazard this
+whole project has been careful about, and the client was printing instructions for it. The
+command that got it right and the command that got it wrong disagreed one line apart.
+
+`view::no_credential(address, auth)` is the one definition now, and `sync` uses it. It also names
+the account instead of the literal `<address>`: advice that has to be edited before it can be run
+is advice someone gets wrong at the point they are least equipped to notice. `--microsoft` is
+carried into the suggested command, because the address alone does not reproduce a managed-tenant
+account.
+
+`mailo account list` was the third surface, saying "no credential stored" for the OAuth account —
+milder, but it still reads as *find a password*. It says "not signed in" now, from
+`sync::auth_by_account`, so all three agree.
+
+And the instruction that was left for the user to research is now written down. "Register an
+installed application with the issuer" meant: a Google Cloud OAuth client ID of type "Desktop
+app", with this address added as a test user while the consent screen is in Testing — the step
+most people miss — or, for Microsoft, an Entra app registration with a public-client redirect. It
+names the product and the credential type rather than a path through a menu, because console
+navigation is rewritten far more often than either.
+
+The `\`-continuation hazard from F97 turned up twice more while writing these strings: `cargo
+fmt` folded the continuations and the indentation went into the message, so the user would have
+read "needs a client&nbsp;&nbsp;&nbsp;&nbsp;id". Both messages are `concat!` of whole lines now,
+which formatting cannot reach. Note that `concat!` hides inline format captures from the
+compiler, so the arguments have to be named.

@@ -216,10 +216,12 @@ pub fn add(
                 let _ = writeln!(
                     out,
                     "this account uses OAuth ({issuer:?}) and needs a client id.\n\
-                     Register an installed application with the issuer, then re-run:\n\
+                     \n{}\n\
+                     \nThen re-run:\n\
                      \n  MAILO_OAUTH_CLIENT_ID=… mailo account add {address}{flags}\n\
                      \nIt is recorded after the first sign-in, so the variable is needed once.\n\
-                     \nScopes it will request: {scopes:?}"
+                     \nScopes it will request: {scopes:?}",
+                    where_to_get_one(*issuer)
                 );
             }
         },
@@ -301,6 +303,7 @@ pub fn list(store: &SqliteStore) -> Result<String, String> {
     // empty" without the user having to guess. A store that cannot answer is not an error here:
     // this command's job is to list accounts.
     let folders = crate::sync::mailboxes_by_account(store).unwrap_or_default();
+    let plans = crate::sync::auth_by_account(store).unwrap_or_default();
 
     let mut out = String::new();
     for row in rows {
@@ -313,14 +316,17 @@ pub fn list(store: &SqliteStore) -> Result<String, String> {
                 purpose: SecretPurpose::IncomingPassword,
             })
             .is_ok();
+        // What is missing depends on how the account signs in, and `sync` says so at length.
+        // Saying "no credential stored" for an OAuth account reads as "find a password", which
+        // is the one thing that will not work — the same contradiction, one line shorter.
+        let waiting_on = match plans.get(&address) {
+            Some(AuthPlan::OAuth { .. }) => "not signed in",
+            _ => "no credential stored",
+        };
         let _ = writeln!(
             out,
             "{address:<28} {}",
-            if has_password {
-                "ready"
-            } else {
-                "no credential stored"
-            }
+            if has_password { "ready" } else { waiting_on }
         );
         if let Some((_, paths)) = folders.iter().find(|(a, _)| *a == address) {
             let _ = writeln!(out, "{:<28} syncs {}", "", paths.join(", "));
@@ -333,6 +339,34 @@ pub fn list(store: &SqliteStore) -> Result<String, String> {
 }
 
 /// `rusqlite::params!` over a slice, so the call sites stay readable.
+/// Where an installed-application client id comes from, per issuer.
+///
+/// Named rather than left as "register an installed application with the issuer", which is a
+/// research task standing between someone and their own mail. A client id is the one thing this
+/// program cannot supply — it is registered against the user's account with the issuer, and
+/// shipping one in a source tree would mean every user of this client shared an identity and a
+/// quota.
+///
+/// Deliberately names the durable things — the product, the credential type, the consent
+/// requirement — and not a path through a menu, because console navigation is rewritten far more
+/// often than any of those.
+fn where_to_get_one(issuer: OAuthIssuer) -> &'static str {
+    match issuer {
+        OAuthIssuer::Google => concat!(
+            "Create one in the Google Cloud console (console.cloud.google.com) as an OAuth ",
+            "client ID of application type \"Desktop app\". While its consent screen is still ",
+            "in Testing, the address above has to be listed as a test user or the sign-in is ",
+            "refused — that is the step most people miss."
+        ),
+        OAuthIssuer::Microsoft => concat!(
+            "Register an application in the Microsoft Entra admin centre (entra.microsoft.com) ",
+            "under App registrations, with a redirect URI of type \"Public client/native\". A ",
+            "managed tenant may also require an administrator to consent to the scopes below ",
+            "before any sign-in succeeds."
+        ),
+    }
+}
+
 /// The host mail arrives from, whichever protocol that is.
 fn incoming_host(plan: &AccountPlan) -> Option<&str> {
     match &plan.incoming {

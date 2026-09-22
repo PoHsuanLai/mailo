@@ -1449,6 +1449,43 @@ pub enum Passed {
     Throttled { wait: std::time::Duration },
 }
 
+/// What to tell someone whose account has no credential stored yet.
+///
+/// Per account, because the answer differs and getting it wrong is not a matter of tone. Every
+/// account used to be told to set `MAILO_PASSWORD`. For a password account that is right. For a
+/// Google one it is advice that cannot work — Google stopped accepting passwords for IMAP in May
+/// 2022 — and following it means a failed sign-in against Google with a credential that was
+/// never going to be accepted, which is the hazard this whole project has been careful about.
+/// `mailo account add` already said the right thing; `mailo sync` contradicted it, and sync is
+/// the command someone runs second.
+///
+/// `microsoft` carries `--microsoft` into the command, because the address alone does not
+/// reproduce a managed-tenant account: that flag is exactly what the preset table cannot work
+/// out, and a re-run without it finds no preset at all.
+pub fn no_credential(address: &str, auth: &AuthPlan) -> String {
+    match auth {
+        AuthPlan::OAuth { issuer, .. } => {
+            let flag = match issuer {
+                OAuthIssuer::Microsoft => " --microsoft",
+                OAuthIssuer::Google => "",
+            };
+            format!(
+                concat!(
+                    "not signed in yet. This account uses OAuth ({issuer:?}), which needs a ",
+                    "client id registered with the issuer — a password will not work. Run:\n",
+                    "    MAILO_OAUTH_CLIENT_ID=… mailo account add {address}{flag}"
+                ),
+                issuer = issuer,
+                address = address,
+                flag = flag,
+            )
+        }
+        AuthPlan::Password { .. } => {
+            format!("no credential stored. Run:\n    MAILO_PASSWORD=… mailo account add {address}")
+        }
+    }
+}
+
 /// When a background sync should run again.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NextSync {
