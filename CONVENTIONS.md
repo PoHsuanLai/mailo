@@ -342,6 +342,23 @@ The cost is asymmetric, which is why this is a rule rather than a preference. A 
 fails visibly on input you have. A too-wide one silently does the wrong thing on input you have
 not thought of, which is the input an attacker chooses.
 
+**But a narrow match only fails visibly when you have the input.** An IMAP `NO` to a sign-in was
+classified by searching its text for `[AUTHENTICATIONFAILED]` and `invalid credentials` — the
+two wordings to hand, Dovecot's and Gmail's. Exchange, Courier, UW-imapd and Zimbra all answer a
+wrong password with a bare `NO LOGIN failed.`, so on those servers the refusal came out
+`Refusal::Permanent`, `retry()` said `Fatal` instead of `NeedsReauth`, and the poll loop treated
+the pass as a success and came back in five minutes — 288 failed sign-ins a day against the
+user's own mail server. Every test passed, because every test used a wording that was in the
+table.
+
+So before reaching for the text at all, ask **what the protocol already told you.** Here the
+answer was sitting one field away: a `NO` is a reply to a *command*, and a `NO` to `LOGIN` or
+`AUTHENTICATE` is a rejected credential whatever words follow it. POP3 in this repo had always
+done it that way and SMTP classifies on the reply code; only IMAP read the prose. Prose is the
+part of a protocol the RFC does not pin down, so it is the last thing to branch on and never the
+first — and if you must, enumerate real servers' wordings in a test rather than the one in front
+of you.
+
 ## Run it the way its user would, before concluding anything about it
 
 A failure that reproduces only through your own harness is a fact about the harness.

@@ -276,3 +276,99 @@ mod unreadable_responses {
         );
     }
 }
+
+/// How a `NO` to a login is classified, across servers that word it differently.
+///
+/// This decides whether the client keeps trying. `Retry::NeedsReauth` stops the poll loop and
+/// asks the user to fix the credential; anything else is retried on a timer. A wrong password
+/// retried every five minutes is 288 failed logins a day against the user's own mail server,
+/// which is how an account gets locked out — so the classification has to hold for servers that
+/// never learned Dovecot's vocabulary, not just for the two whose wording was to hand.
+mod a_refused_login {
+    use super::*;
+    use mail_domain::{Retry, Retryable};
+
+    fn refusing_with(text: &str) -> ProtoError {
+        let auth = ImapAuth {
+            username: "ada@example.test".to_owned(),
+            credential: Credential::Password("wrong".to_owned()),
+            sasl: vec![SaslMech::Plain],
+        };
+        let mut s = ImapSession::new(auth, vec![ImapCommand::Login]).unwrap();
+        match replay(
+            &mut s,
+            &format!(
+                "S: * OK ready\n\
+                 C: a001 LOGIN \"ada@example.test\" \"wrong\"\n\
+                 S: {text}\n\
+                 FAIL\n"
+            ),
+        ) {
+            common::Ended::Failed(e) => e,
+            other => panic!("{text:?} should have failed the session: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn every_servers_wording_means_the_credential_must_be_fixed() {
+        // Left to right: Dovecot, Gmail, Exchange/Office 365, Courier and UW-imapd, Zimbra,
+        // Cyrus. Only the first two say anything a substring search for "AUTHENTICATIONFAILED"
+        // or "invalid credentials" would find.
+        for text in [
+            "a001 NO [AUTHENTICATIONFAILED] Authentication failed.",
+            "a001 NO [AUTHENTICATIONFAILED] Invalid credentials (Failure)",
+            "a001 NO LOGIN failed.",
+            "a001 NO Login failed.",
+            "a001 NO LOGIN failed",
+            "a001 NO Login incorrect",
+        ] {
+            let err = refusing_with(text);
+            assert!(
+                matches!(err.retry(), Retry::NeedsReauth),
+                "{text:?} was classified {err:?}, so the client would keep trying the same \
+                 password on a timer"
+            );
+        }
+    }
+
+    /// The other direction, which is what keeps the rule honest: a refusal that is not about the
+    /// credential must not be reported as one, or every ordinary rejection sends the user off to
+    /// re-run `account add` for nothing.
+    #[test]
+    fn a_refusal_that_is_not_about_the_credential_is_not_one() {
+        let auth = ImapAuth {
+            username: "ada@example.test".to_owned(),
+            credential: Credential::Password("right".to_owned()),
+            sasl: vec![SaslMech::Plain],
+        };
+        let mut s = ImapSession::new(
+            auth,
+            vec![
+                ImapCommand::Login,
+                ImapCommand::Select {
+                    mailbox: "Archive".to_owned(),
+                    read_only: false,
+                },
+            ],
+        )
+        .unwrap();
+        let err = match replay(
+            &mut s,
+            concat!(
+                "S: * OK ready\n",
+                "C: a001 LOGIN \"ada@example.test\" \"right\"\n",
+                "S: a001 OK LOGIN completed\n",
+                "C: a002 SELECT \"Archive\"\n",
+                "S: a002 NO Mailbox does not exist\n",
+                "FAIL Refused\n",
+            ),
+        ) {
+            common::Ended::Failed(e) => e,
+            other => panic!("{other:?}"),
+        };
+        assert!(
+            !matches!(err.retry(), Retry::NeedsReauth),
+            "a missing mailbox was blamed on the password: {err:?}"
+        );
+    }
+}

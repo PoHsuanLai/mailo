@@ -484,7 +484,10 @@ impl ImapSession {
                         self.buf.drain(..raw.len());
                         Some(self.issue(index + 1))
                     }
-                    imap_proto::Status::No => Some(self.fail(classify(&text))),
+                    imap_proto::Status::No => {
+                        let refused = self.commands.get(index);
+                        Some(self.fail(classify(&text, refused)))
+                    }
                     _ => Some(self.fail(ProtoError::Malformed(format!("BAD: {text}")))),
                 }
             }
@@ -638,8 +641,19 @@ impl Machine for ImapSession {
 }
 
 /// An IMAP `NO` classified into something the outbox can act on.
-fn classify(text: &str) -> ProtoError {
+///
+/// `refused` is the command the server said `NO` to, and for a sign-in it decides the answer on
+/// its own. Reading the prose instead only works on servers that word it the way Dovecot and
+/// Gmail do: Exchange, Courier, UW-imapd and Zimbra all answer a wrong password with plain
+/// `NO LOGIN failed.`, which matches none of the phrases below. That used to come out
+/// `Refusal::Permanent`, so `retry()` said `Fatal` rather than `NeedsReauth`, the sync pass
+/// never raised `needs_reauth`, and the poll loop treated the pass as a success and came back in
+/// five minutes — 288 failed sign-ins a day against the user's own mail server, which is how an
+/// account gets locked. A `NO` to a sign-in is a rejected credential whatever the wording.
+fn classify(text: &str, refused: Option<&ImapCommand>) -> ProtoError {
     let upper = text.to_ascii_uppercase();
+    // Checked before the command, because a server refusing a sign-in for rate limiting wants
+    // backing off and not a new password — and it is the one thing that says so in the text.
     if upper.contains("[LIMIT]") || upper.contains("[OVERQUOTA]") || upper.contains("TOO MANY") {
         // Backing off is the remedy and hammering lengthens the lockout.
         return ProtoError::Throttled {
@@ -647,8 +661,14 @@ fn classify(text: &str) -> ProtoError {
             retry_after: None,
         };
     }
-    if upper.contains("[AUTHENTICATIONFAILED]")
-        || upper.contains("AUTHENTICATE")
+    let signing_in = matches!(
+        refused,
+        Some(ImapCommand::Login | ImapCommand::AuthenticateXoauth2)
+    );
+    if signing_in
+        || upper.contains("[AUTHENTICATIONFAILED]")
+        || upper.contains("[EXPIRED]")
+        || upper.contains("[AUTHORIZATIONFAILED]")
         || upper.contains("INVALID CREDENTIALS")
     {
         return ProtoError::AuthRejected(text.to_owned());

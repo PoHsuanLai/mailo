@@ -581,3 +581,123 @@ mod polling {
         );
     }
 }
+
+/// What a pass reports when the server refuses the credential.
+///
+/// The poll loop stops on this rather than backing off, because five minutes is 288 attempts a
+/// day and 288 failed logins a day against the user's own mail server is how an account gets
+/// locked. That rule is only worth anything if the classification actually fires — so this drives
+/// a real pass against a server that says no, rather than trusting the chain by reading it.
+mod a_refused_sign_in {
+    use super::*;
+    use std::io::{Read, Write};
+
+    /// An IMAP server that greets, then refuses whatever it is asked to log in with.
+    ///
+    /// It words the refusal the way Exchange, Courier and UW-imapd do — a bare `NO LOGIN
+    /// failed.`, with none of the response codes Dovecot and Gmail send. Picking the wording
+    /// that already worked would have made this test agree with itself.
+    fn serve_refusing() -> u16 {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for sock in listener.incoming() {
+                let Ok(mut sock) = sock else { continue };
+                let _ = sock.write_all(b"* OK [CAPABILITY IMAP4rev1] ready\r\n");
+                let mut buf = [0u8; 4096];
+                while let Ok(n) = sock.read(&mut buf) {
+                    if n == 0 {
+                        break;
+                    }
+                    let text = String::from_utf8_lossy(&buf[..n]).to_string();
+                    for line in text.lines() {
+                        let Some(tag) = line.split_whitespace().next() else {
+                            continue;
+                        };
+                        let upper = line.to_uppercase();
+                        let reply = if upper.contains("CAPABILITY") {
+                            format!("* CAPABILITY IMAP4rev1\r\n{tag} OK done\r\n")
+                        } else if upper.contains("LOGOUT") {
+                            format!("* BYE\r\n{tag} OK done\r\n")
+                        } else {
+                            format!("{tag} NO LOGIN failed.\r\n")
+                        };
+                        let _ = sock.write_all(reply.as_bytes());
+                    }
+                }
+            }
+        });
+        port
+    }
+
+    #[test]
+    fn the_pass_says_the_credential_was_rejected() {
+        let (store, _dir) = configured(serve_refusing(), caps());
+        let secrets = MapSecrets::default();
+        with_password(&secrets, "definitely-not-the-password");
+
+        let ran =
+            sync::run_with(store, Arc::new(secrets), &OAuthRegistry::default(), now()).unwrap();
+
+        assert!(
+            ran.rejected,
+            "a refused sign-in was not reported as one: {}",
+            ran.text
+        );
+        // And the user is told, in the text as well as in the flag.
+        assert!(
+            ran.text.to_lowercase().contains("login failed"),
+            "the server's own words should reach the user: {}",
+            ran.text
+        );
+    }
+
+    /// The control, and the half that matters more: a server that is merely *down* must not be
+    /// classified as a refusal. If it were, one flaky minute of network would stop the loop until
+    /// the user next noticed, and the stored credential was never the problem.
+    #[test]
+    fn a_server_that_is_simply_down_is_not_a_refusal() {
+        let (store, _dir) = configured(1, caps()); // port 1 refuses the connection
+        let secrets = MapSecrets::default();
+        with_password(&secrets, "the-right-password");
+
+        let ran =
+            sync::run_with(store, Arc::new(secrets), &OAuthRegistry::default(), now()).unwrap();
+
+        assert!(
+            !ran.rejected,
+            "an unreachable server was blamed on the credential: {}",
+            ran.text
+        );
+        match view::next_sync(
+            view::Passed::Transient,
+            3,
+            std::time::Duration::from_secs(300),
+        ) {
+            view::NextSync::After(_) => {}
+            other => panic!("it would have given up on a server being down: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn and_the_loop_stops_rather_than_backing_off() {
+        // The two halves joined: the classification the pass produces, fed to the decision the
+        // loop makes. Either alone proves nothing about what the client does to a mail server.
+        let (store, _dir) = configured(serve_refusing(), caps());
+        let secrets = MapSecrets::default();
+        with_password(&secrets, "wrong");
+
+        let ran =
+            sync::run_with(store, Arc::new(secrets), &OAuthRegistry::default(), now()).unwrap();
+        let passed = if ran.rejected {
+            view::Passed::Rejected
+        } else {
+            view::Passed::Fine
+        };
+
+        match view::next_sync(passed, 1, std::time::Duration::from_secs(300)) {
+            view::NextSync::Wait(why) => assert!(why.contains("rejected"), "{why}"),
+            other => panic!("it would have tried again: {other:?}"),
+        }
+    }
+}

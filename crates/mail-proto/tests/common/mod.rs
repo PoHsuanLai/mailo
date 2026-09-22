@@ -184,14 +184,19 @@ fn finish<T>(state: State<T>, at: &str, want_variant: Option<String>) -> Ended<T
             panic!("{at}: expected the machine to complete, but it failed: {e}")
         }
         (State::Finished(Ended::Failed(e)), Some(want)) => {
-            let got = variant_of(&e);
-            assert_eq!(got, want, "{at}: wrong failure variant ({e})");
+            // A bare `FAIL` says only that the session must not survive this, leaving which
+            // error it is to the test. That is what a test *about* the classification needs:
+            // naming the variant in the trace would make the transcript assert the answer.
+            if !want.is_empty() {
+                let got = variant_of(&e);
+                assert_eq!(got, want, "{at}: wrong failure variant ({e})");
+            }
             Ended::Failed(e)
         }
     }
 }
 
-/// The variant name of a `ProtoError`, for `FAIL <variant>`.
+/// The variant name of a `ProtoError`, for `FAIL <variant>`. `FAIL` alone accepts any failure.
 fn variant_of(e: &ProtoError) -> &'static str {
     match e {
         ProtoError::Malformed(_) => "Malformed",
