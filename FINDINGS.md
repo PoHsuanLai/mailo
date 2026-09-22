@@ -3352,56 +3352,60 @@ defaults only for an account nothing has connected to yet, and enqueues `applied
 gained an `account_caps` row, because `account add` always writes one and a fixture without it is
 a state the application cannot reach, which is F133's lesson applied a second time.
 
-### F140 — In the real window, a future is polled once and never again
+### F140 — The window may stop running after its first render
 
 Found by phase 8c, which moved the thread list and the badge counts onto blocking threads behind
-`use_resource` — 1382 tests passed and `scripts/live-window.sh` showed an empty mailbox.
+`use_resource`: 1382 tests passed and `scripts/live-window.sh` showed an empty mailbox. 8c is
+reverted. What the investigation found is larger than 8c and is not yet resolved.
 
-The instrumentation, run against the real binary under both X and Wayland:
+**What is established, against the real binary, under Wayland and under X.**
+
+A click reaches its handler and the signal is written:
 
 ```
-PROBE: list resource started; tokio handle = Ok("MultiThread")
-PROBE: poll loop started
-PROBE: label effect ran
-PROBE: list resource started; tokio handle = Ok("MultiThread")
+PROBE: sync clicked
+PROBE: sync state set to Running
 ```
 
-and nothing else, ever. There *is* a multi-threaded tokio runtime. `use_effect` runs.
-`use_future` and `use_resource` bodies start. What never happens is the second poll: the
-`spawn_blocking` join never completes, and a plain `tokio::time::sleep(1s)` in a `use_future`
-added for the experiment printed not one of its twelve ticks in fourteen seconds. A wake that
-arrives from another thread does not bring the future back.
+and the button's label — `if may_start() { "Sync" } else { "Syncing…" }` — stays `Sync` for every
+one of fifty samples taken 100 ms apart. The DOM is read directly, so this is not about painting:
+the text never changes. `scripts/live-window/sync.js` is that probe.
 
-**This is not a fact about phase 8c. It is a fact about two things already recorded as done.**
+The committed `probe.js` says the same thing about the search box. Typing `label:travel`, then
+`label:nosuchlabel`, then clearing it, the list reports the identical two subjects at all four
+stages. Searching does not filter, and a query that matches nothing does not empty it.
 
-*F128's poll loop does not run.* It is a `use_future` whose first statement is a two-second
-sleep. The sleep never returns, so the first pass never happens and neither does any pass after
-it. Mail still arrives only when the user presses Sync — which is the exact sentence F128 was
-written to delete, and the finding says "a window left open all day fetched nothing".
+Futures stop too. `use_future` and `use_resource` bodies start — once — and a `tokio::time::sleep`
+loop added for the experiment printed one tick of twelve in fourteen seconds. There is a
+multi-threaded tokio runtime and `use_effect` runs; what does not happen is the *next* poll.
 
-*The composer's autosave does not fire.* Three seconds of `tokio::time::sleep` in a `use_future`,
-covering "the application going away while someone is still typing" — the one window nothing else
-covers.
+**What is not established: whose bug it is.** `crates/mail-app/examples/rerender.rs` is the same
+experiment with no `mail-app` code in it — one signal, one timer, one button — and it ticks
+exactly once, under both `dioxus::launch` and `LaunchBuilder::desktop()`. So this is not something
+about how this project uses signals or futures.
 
-And pressing Sync does not visibly do anything either: `scripts/live-window/sync.js` clicks the
-button and reads its label six times over nine seconds, and it says `Sync` every time, never
-`Syncing…`.
+That leaves two explanations and no way to choose between them from a terminal. Either
+dioxus-desktop's run loop stops driving the `VirtualDom` after the first wake, or a compositor is
+throttling a surface that is created and never presented — the window is launched from a shell
+into a session nothing brings it to the front of. The second would mean the user's own visible
+window is fine and only the harness is blind; the first would mean the window is a static
+snapshot of the moment it opened.
 
-**Why the tests did not catch it.** F128 was careful about this and still missed it: it added
-`a_future_started_when_a_component_mounts_does_run`, which passes, because it runs under
-`#[tokio::test]` where tokio drives its own timers and wakes its own tasks. The test proves a
-property of the harness. The window has a different executor, and that is where the property is
-false. The plan's own earlier note — "a future spawned from a component body is never polled
-here" — was closer to right than the finding that superseded it; the truth is narrower and worse,
-because it runs *once*, which is exactly enough to look alive.
+**If it is the first**, two things already recorded as done are not done. F128's poll loop is a
+`use_future` whose first statement is a two-second sleep, so no pass ever runs and mail arrives
+only when Sync is pressed — the sentence F128 exists to delete. And the composer's three-second
+autosave never fires, covering the one window nothing else covers.
 
-**Status: found, evidenced, not fixed.** The fix is not a smaller change to the code that is
-there — it is a different mechanism for background work in this window, and choosing one needs to
-start from why the wake is lost rather than from a guess. Phase 8c is blocked behind it, because
-there is no point moving work off the render thread until something off the render thread can
-report back. It is now the first item of phase 8.
+**Why the tests could not see it.** F128 added
+`a_future_started_when_a_component_mounts_does_run`, which passes, under `#[tokio::test]`, where
+tokio drives its own timers and wakes its own tasks. It is a property of the harness. Phase 6's
+window journeys are asserted through `VirtualDom::handle_event` against a real store, which
+exercises the component tree without the desktop runtime underneath it — the half that works.
 
-**What is safe meanwhile**: nothing in the window relies on a timer for correctness — every read
-is a synchronous `use_memo`, which is why the list has always drawn. The cost of that is what
-phase 8a measured, and it is affordable at today's mailbox: 0.85 ms for a search keystroke and
-7.8 ms when a sync lands, against 15.3 ms and 13.4 ms at ten thousand messages.
+**And the harness did not fail.** `scripts/live-window.sh` exits non-zero only when the page
+reports *nothing*. It reported four stages showing an identical list, which is the evidence of the
+bug, and the script said nothing was wrong. Printing what a page reported is not the same as
+checking it — `CONVENTIONS.md`, "an assertion that was already true", in a shell script.
+
+**Status: open, and it needs somebody to look at the window.** Ten seconds of a person's time
+settles it: open `mailo`, type in the search box, and see whether the list narrows.

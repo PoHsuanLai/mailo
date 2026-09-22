@@ -324,7 +324,11 @@ fn what_one_frame_of_the_window_costs() {
     println!("  label index           {}", ms(labels));
     println!("  drafts                {}", ms(drafts));
     println!("  reader ({:>3} messages) {}", messages.len(), ms(reader));
-    println!("  search {needle:?}{}{}", " ".repeat(14usize.saturating_sub(needle.len())), ms(search));
+    println!(
+        "  search {needle:?}{}{}",
+        " ".repeat(14usize.saturating_sub(needle.len())),
+        ms(search)
+    );
 
     // Two different totals, because these do not all happen at the same moments and adding them
     // together was the first thing this file got wrong.
@@ -336,10 +340,16 @@ fn what_one_frame_of_the_window_costs() {
     let keystroke = search + reader;
     // A sync landing bumps `revision`, which re-runs all of it at once.
     let revision = list + badges + labels + drafts + reader;
-    println!("\n  a keystroke, reading    {}  ({:.1} frames at 60 Hz)",
-        ms(keystroke), keystroke.as_secs_f64() / (1.0 / 60.0));
-    println!("  a sync landing          {}  ({:.1} frames at 60 Hz)\n",
-        ms(revision), revision.as_secs_f64() / (1.0 / 60.0));
+    println!(
+        "\n  a keystroke, reading    {}  ({:.1} frames at 60 Hz)",
+        ms(keystroke),
+        keystroke.as_secs_f64() / (1.0 / 60.0)
+    );
+    println!(
+        "  a sync landing          {}  ({:.1} frames at 60 Hz)\n",
+        ms(revision),
+        revision.as_secs_f64() / (1.0 / 60.0)
+    );
 }
 
 /// The one thing here that is a check rather than a measurement.

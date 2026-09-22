@@ -40,10 +40,24 @@ sleep 1
 env -u GDK_BACKEND XDG_DATA_HOME="$work" MAILO_PROBE="$(cat "$probe")" \
     "$root/target/debug/mailo" > "$work/app.log" 2>&1 &
 app=$!
-sleep 9
+sleep 12
 
 echo "--- what the page reported ---"
 cat "$work/report.log"
+
+# Printing what the page said is not the same as checking it. This script used to exit 0 as long
+# as *something* was reported, and it did exactly that while every stage showed an identical list
+# — which is the evidence of F140, printed and passed over. If the list never changes across a
+# search and a clear, the window is not responding to what is typed into it.
+if [ "$probe" = "$here/live-window/probe.js" ]; then
+    distinct="$(grep -o '"subjects": \[[^]]*\]' "$work/report.log" | sort -u | wc -l)"
+    if [ "$distinct" -le 1 ]; then
+        echo >&2
+        echo "the list was identical at every stage: typing into the search box changed" >&2
+        echo "nothing, so the window is not re-rendering. See FINDINGS F140." >&2
+        exit 1
+    fi
+fi
 # The window's own stderr, always. It used to be printed only when the page reported nothing,
 # which is the case where it is least useful: a page that reports the *wrong* thing is exactly
 # when you want to see what the process was saying while it did so.
