@@ -16,6 +16,7 @@ mail-mime.workspace = true
 mail-proto.workspace = true
 mail-runtime.workspace = true
 rusqlite = { version = "0.40", features = ["bundled"] }
+serde.workspace = true
 serde_json = "1"
 tokio = { version = "1", features = ["rt", "macros", "time", "net", "io-util"] }
 # For `join_all` only: one pass over several accounts is several independent conversations with

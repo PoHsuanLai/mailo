@@ -40,12 +40,27 @@ cargo build --release
 ./target/release/mailo account add you@gmail.com      # see the help for OAuth and manual hosts
 ./target/release/mailo watch                          # fetch continuously
 ./target/release/mailo                                # no arguments opens the window
+
+./target/release/mailo ping                           # reach the daemon, starting one if needed
+./target/release/mailo daemon --stop
 ```
 
 `mailo` with no arguments opens the desktop window; anything else is the command line. One binary,
 one store — a separate CLI would drift from what the window does.
 
 Run `./target/release/mailo` with an unknown command to print the full list.
+
+### The daemon is a prototype
+
+`mailo ping` starts a background daemon on demand and talks to it over a Unix socket — the
+`ssh-agent` pattern, so nothing has to be installed or enabled first. What is finished is the
+*transport*: where the socket lives on each platform, how a client tells a live daemon from a
+socket file left by a dead one, and a versioned line protocol. What is not finished is the point
+of having one — holding IDLE connections in the daemon rather than in `mailo watch`.
+
+The platform rules live in `ipc::endpoint_on`, which takes the environment as arguments rather
+than reading it, so the macOS and Windows answers are tested from Linux. Windows named pipes are
+named and refused rather than silently falling back to something that is not a pipe.
 
 ### Known: the window does not re-render
 

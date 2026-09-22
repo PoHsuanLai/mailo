@@ -3105,6 +3105,7 @@ dependencies = [
  "mail-store",
  "reqwest",
  "rusqlite",
+ "serde",
  "serde_json",
  "tempfile",
  "tokio",

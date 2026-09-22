@@ -92,6 +92,10 @@ pub enum Command {
     Attached { draft: DraftId },
     /// Keep fetching until stopped.
     Watch,
+    /// Run the daemon, or stop the one that is running.
+    Daemon { stop: bool },
+    /// Reach the daemon, starting one if none is listening.
+    Ping,
     /// A message that answers nothing. `from` names the sending account when there is a choice.
     Compose {
         from: Option<String>,
@@ -221,6 +225,12 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
             })
         }
         "watch" => Ok(Command::Watch),
+        "daemon" => match args.get(1).map(String::as_str) {
+            None => Ok(Command::Daemon { stop: false }),
+            Some("--stop") => Ok(Command::Daemon { stop: true }),
+            Some(other) => Err(format!("unknown option {other:?}\n\n{}", usage())),
+        },
+        "ping" => Ok(Command::Ping),
         "attach" => {
             let raw = args
                 .get(1)
@@ -565,6 +575,8 @@ usage: mailo <command>
   sync                       fetch mail and send anything queued
   watch                      keep fetching until stopped; uses IDLE where the
                              server offers it, and polls where it does not
+  daemon [--stop]            run the background daemon, or stop it
+  ping                       reach the daemon, starting one if none is running
 "
     .to_owned()
 }
@@ -650,6 +662,9 @@ pub fn run(store: &SqliteStore, command: &Command, now: DateTime<Utc>) -> Result
         // this function untestable without one.
         Command::Sync => Err("sync is dispatched before this point".to_owned()),
         Command::Watch => Err("watch is dispatched before this point".to_owned()),
+        Command::Daemon { .. } | Command::Ping => {
+            Err("the daemon commands are dispatched before this point".to_owned())
+        }
         Command::Reply {
             message,
             scope,

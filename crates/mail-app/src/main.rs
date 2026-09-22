@@ -4,6 +4,7 @@ mod account;
 mod attach;
 mod cli;
 mod compose;
+mod ipc;
 mod query;
 mod reader;
 mod snooze;
@@ -129,6 +130,62 @@ fn main() {
         }
         return;
     }
+    // The daemon and the clients that reach it. Dispatched here with `sync` and `watch` because
+    // they need the store by `Arc` and an exit code, neither of which `cli::run` has.
+    match &command {
+        Some(cli::Command::Daemon { stop: false }) => match ipc::daemon::serve(
+            store,
+            std::sync::Arc::new(|store| match sync::run(store, chrono::Utc::now()) {
+                Ok(ran) => print!("{}", ran.text),
+                Err(why) => eprintln!("{why}"),
+            }),
+        ) {
+            Ok(out) => {
+                print!("{out}");
+                return;
+            }
+            Err(message) => {
+                eprintln!("{message}");
+                std::process::exit(1);
+            }
+        },
+        Some(cli::Command::Daemon { stop: true }) => {
+            // Never starts one in order to stop it, which is why this is `connect` and not
+            // `reach`: "there was nothing to stop" is a success, not a reason to spawn a daemon
+            // and immediately ask it to leave.
+            match ipc::client::connect() {
+                Ok(None) => println!("no daemon is running"),
+                Ok(Some(mut daemon)) => match daemon.ask(ipc::wire::Request::Shutdown) {
+                    Ok(ipc::wire::Response::Stopping) => println!("stopped"),
+                    Ok(other) => println!("{other:?}"),
+                    Err(why) => {
+                        eprintln!("{why}");
+                        std::process::exit(1);
+                    }
+                },
+                Err(why) => {
+                    eprintln!("{why}");
+                    std::process::exit(1);
+                }
+            }
+            return;
+        }
+        Some(cli::Command::Ping) => {
+            match ipc::client::reach().and_then(|mut d| d.ask(ipc::wire::Request::Ping)) {
+                Ok(ipc::wire::Response::Pong { pid, version }) => {
+                    println!("daemon {version} answering, pid {pid}");
+                }
+                Ok(other) => println!("{other:?}"),
+                Err(why) => {
+                    eprintln!("{why}");
+                    std::process::exit(1);
+                }
+            }
+            return;
+        }
+        _ => {}
+    }
+
     // `watch` is `sync` that does not stop. It prints as it goes rather than at the end, because
     // "at the end" is when the user presses Ctrl-C.
     if matches!(command, Some(cli::Command::Watch)) {
