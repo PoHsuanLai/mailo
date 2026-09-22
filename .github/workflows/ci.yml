@@ -77,6 +77,27 @@ jobs:
       - name: Live protocol tests
         run: ./scripts/live-tests.sh
 
+  # The one crate here that claims to be cross-platform, built and tested where it claims to
+  # work. `latchkey` decides where a per-user agent lives on macOS and Windows, and a claim like
+  # that checked only on Linux is a claim rather than a fact — its rules are pure functions and
+  # tested everywhere, but the lock and the named pipe are the kernel's and have to be met.
+  #
+  # Only this crate: the rest of the workspace needs webkit2gtk and is Linux-only on purpose.
+  portable:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Tests
+        run: cargo test -p latchkey
+      - name: Clippy
+        run: cargo clippy -p latchkey --all-targets -- -D warnings
+
   # Dependency licences. The allow-list in deny.toml is the machine-readable half of
   # docs/licensing-references.md: a dependency whose licence is not on it fails here rather than
   # being noticed later by somebody reading Cargo.lock.

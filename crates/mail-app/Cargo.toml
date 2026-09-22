@@ -10,6 +10,7 @@ name = "mailo"
 path = "src/main.rs"
 
 [dependencies]
+latchkey.workspace = true
 mail-domain.workspace = true
 mail-store.workspace = true
 mail-mime.workspace = true

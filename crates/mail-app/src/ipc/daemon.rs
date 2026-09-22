@@ -21,13 +21,23 @@ use std::sync::Arc;
 /// hands work to a thread, so a slow client cannot hold the door; concurrency belongs in the
 /// sync engine, which already has it, rather than in the doorman.
 pub fn serve(store: Arc<SqliteStore>, pass: Pass) -> Result<String, String> {
-    let crate::ipc::Endpoint::Socket(path) = crate::ipc::endpoint()? else {
-        return Err("named pipes are not implemented yet; this build is Unix only".to_owned());
-    };
+    let agent = crate::ipc::agent()?;
     // The lock inside this value is what makes "one daemon per user" true, and dropping it is
-    // what removes the socket, so it is held for the whole of `serve`.
-    let listening = crate::ipc::bind(&path)?;
-    println!("listening on {}", path.display());
+    // what removes the socket, so it is held for the whole of `serve`. `Err(AlreadyRunning)` is
+    // the answer to "should I start?", and it is a kernel fact rather than a guess about a file.
+    let listening = agent.listen().map_err(|e| match e {
+        // Said in this program's words. `latchkey` has to call it an agent because it does not
+        // know what it is holding the door for; here it is a daemon, and the remedy is a command
+        // the reader can type.
+        latchkey::Error::AlreadyRunning => {
+            "a mailo daemon is already running; `mailo daemon --stop` will stop it".to_owned()
+        }
+        other => other.to_string(),
+    })?;
+    match agent.socket() {
+        Some(path) => println!("listening on {}", path.display()),
+        None => println!("listening on {}", agent.address().endpoint),
+    }
 
     for connection in listening.incoming() {
         let mut stream = match connection {
@@ -38,7 +48,7 @@ pub fn serve(store: Arc<SqliteStore>, pass: Pass) -> Result<String, String> {
             }
         };
         let mut line = String::new();
-        if BufReader::new(&stream).read_line(&mut line).is_err() || line.is_empty() {
+        if BufReader::new(&mut stream).read_line(&mut line).is_err() || line.is_empty() {
             continue;
         }
         let request = match crate::ipc::wire::parse::<crate::ipc::wire::Request>(&line) {
@@ -92,7 +102,7 @@ pub fn serve(store: Arc<SqliteStore>, pass: Pass) -> Result<String, String> {
 }
 
 fn answer(
-    stream: &mut std::os::unix::net::UnixStream,
+    stream: &mut latchkey::Stream,
     response: crate::ipc::wire::Response,
 ) -> Result<(), String> {
     let text = crate::ipc::wire::line(response)?;

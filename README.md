@@ -11,7 +11,14 @@ mail-store    → mail-domain                              SQLite, FTS5, the out
 mail-proto    → mail-mime, mail-domain                   sans-I/O protocol machines
 mail-mime     → mail-domain                              parse, build, sanitize
 mail-domain   → serde, uuid, chrono, thiserror           the vocabulary
+
+latchkey      → interprocess                             find this user's agent, or start one
 ```
+
+[`crates/latchkey`](crates/latchkey) is not about mail and is written to be taken away: it is
+the per-user daemon lifecycle — where the socket goes on each platform, who is allowed to be
+behind it, and how a client starts one — with no mail in it at all. It is here because this
+project needed it and nothing on crates.io does it.
 
 ## How it is put together
 
@@ -52,15 +59,15 @@ Run `./target/release/mailo` with an unknown command to print the full list.
 
 ### The daemon is a prototype
 
-`mailo ping` starts a background daemon on demand and talks to it over a Unix socket — the
-`ssh-agent` pattern, so nothing has to be installed or enabled first. What is finished is the
-*transport*: where the socket lives on each platform, how a client tells a live daemon from a
-socket file left by a dead one, and a versioned line protocol. What is not finished is the point
-of having one — holding IDLE connections in the daemon rather than in `mailo watch`.
+`mailo ping` starts a background daemon on demand and talks to it — the `ssh-agent` pattern, so
+nothing has to be installed or enabled first. What is finished is the *transport*: `latchkey`
+decides where it lives and who is allowed to be it, and `ipc::wire` is a versioned line protocol
+on top. What is not finished is the point of having one — holding IDLE connections in the daemon
+rather than in `mailo watch`.
 
-The platform rules live in `ipc::endpoint_on`, which takes the environment as arguments rather
-than reading it, so the macOS and Windows answers are tested from Linux. Windows named pipes are
-named and refused rather than silently falling back to something that is not a pipe.
+One agent per user is enforced by an advisory file lock rather than by looking at the socket,
+which is not a detail: the first version asked the socket, and asking the socket cannot be done
+without a race in either direction. `latchkey`'s README has the two of them written out.
 
 ### Known: the window does not re-render
 

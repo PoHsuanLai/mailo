@@ -7,6 +7,7 @@ members = [
   "crates/mail-store",
   "crates/mail-runtime",
   "crates/mail-app",
+  "crates/latchkey",
 ]
 
 [workspace.package]
@@ -19,6 +20,7 @@ license = "MIT OR Apache-2.0"
 rust-version = "1.89"
 
 [workspace.dependencies]
+latchkey    = { path = "crates/latchkey" }
 mail-domain = { path = "crates/mail-domain" }
 mail-mime   = { path = "crates/mail-mime" }
 mail-proto  = { path = "crates/mail-proto" }

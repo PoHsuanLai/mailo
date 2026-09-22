@@ -1,0 +1,106 @@
+# latchkey
+
+Find this user's background agent, or start one. One logic, three platforms.
+
+A *latchkey* is the key to your own front door: it lets you in, and it tells you whether anyone
+is already home.
+
+```rust
+let agent = latchkey::Agent::new("mailo")?;
+
+// In the agent process:
+let door = agent.listen()?;              // or Err(Error::AlreadyRunning)
+for client in door.incoming() {
+    let mut client = client?;            // Read + Write, and that is all you need to know
+}
+
+// In the client process:
+let mut agent = agent.connect_or_start(
+    || latchkey::spawn(&["daemon"]),     // how to launch one; yours to decide
+    Duration::from_secs(5),
+)?;
+```
+
+## What it does
+
+The transport half of this problem is solved. [`interprocess`] already unifies Unix domain
+sockets and Windows named pipes behind one `Read + Write` stream, and this crate is built on it
+rather than beside it.
+
+What is *not* solved anywhere, and what everyone who needs it writes again, is the lifecycle
+around that stream:
+
+- **Where does the socket go**, per platform, without exceeding `sun_path`?
+- **Is one already running**, and can that be answered without a race?
+- **Who starts it**, and how long does a client wait?
+- **What is left behind** when it is killed rather than asked to stop?
+
+Those four are what this crate decides, and nothing else. There is no message framing, no
+protocol version, no request type: those differ per application, and a crate that chose them for
+you would be one you fought.
+
+## Guarantees
+
+- **One agent per user**, enforced by an advisory file lock rather than by looking at the socket.
+- **A killed agent locks nobody out.** The kernel releases the lock with the process — under
+  `SIGKILL`, under a power cut — so there is no stale state to reap and no timeout after which a
+  lock is assumed dead.
+- **A client never deletes anything.** Knocking and tidying are different jobs.
+- **Every platform rule is a pure function**, so the macOS and Windows answers are tested from
+  whatever machine runs `cargo test`.
+
+## Why a lock and not a look
+
+The obvious way to find out whether an agent is running is to look at its socket: is the file
+there, and does anything answer on it? That reads correctly and is wrong under concurrency, in
+two ways that are easy to write and hard to see.
+
+*A client that tidies races every other client.* Between a failed connect and the `remove_file`
+it does on the strength of it, another client's agent can bind — and the tidying client then
+deletes a working agent's door. Two people running the same command at the same moment on a cold
+machine is all it takes.
+
+*An agent that clears races every other agent.* Connect, fail, remove, bind: four steps, and two
+agents can interleave at every one of them. Both clear, both bind, and the second unlinks the
+first's socket out from under it. The first is then listening on an inode nothing can reach —
+invisible, holding no clients, and never exiting.
+
+Both come from the same mistake: inferring liveness from a file. A socket that refuses
+connections only *suggests* nobody is home. An advisory lock *is* the answer, because the kernel
+does the arbitration.
+
+## Where it looks
+
+| | endpoint | lock |
+|---|---|---|
+| Linux | `$XDG_RUNTIME_DIR/<name>/agent.sock`, else `$HOME/.cache/…` | beside it |
+| macOS | `$TMPDIR/<name>/agent.sock`, else `~/Library/Caches/…` | beside it |
+| Windows | a named pipe, `<name>-<user>` | `%LOCALAPPDATA%\<name>\agent.lock` |
+
+macOS gets `TMPDIR` because it has no `XDG_RUNTIME_DIR` and its `TMPDIR` is per-user and private;
+`/tmp` would put the socket where every other account can see it. Windows gets the user in the
+pipe name because that namespace is machine-wide, and without it two people signed in to one box
+would be one agent.
+
+`sun_path` is 108 bytes on Linux and 104 on macOS. The limit is not advisory — a longer path is
+silently truncated by some libcs and refused by others — so exceeding it is an error with all
+three numbers in it rather than a socket bound somewhere nobody asked for.
+
+## Why not just use systemd
+
+You should, where you can. systemd socket activation and launchd's `Sockets` key are both better
+than this: the init system binds the socket at login and starts your process on the first
+connection, so there is no stale socket, no spawn race and no timeout to pick.
+
+The catch is that they are three different answers and the third does not exist. A tool installed
+by `cargo install`, by `brew`, or by a shell script has no installation step in which to write a
+unit file, and has to work anyway — in a container, over ssh, on a colleague's laptop, on the Mac
+someone tries it on next. This crate is that case: demand-start, nothing enabled, and a per-user
+agent that a unit file can later be layered *on top of*, to start at login rather than to work at
+all.
+
+## Licence
+
+MIT OR Apache-2.0.
+
+[`interprocess`]: https://crates.io/crates/interprocess
