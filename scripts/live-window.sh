@@ -14,6 +14,11 @@
 # screen locked.
 #
 # Usage: scripts/live-window.sh [probe.js]
+#
+# The seeded store contains mail. To look at a different state — an account added but not signed
+# in, say — build it by running `mailo account add` against the directory rather than writing the
+# rows: a hand-made one of those omitted `account_caps`, which `account add` always writes, and
+# produced a first-run screen no user could ever see.
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"

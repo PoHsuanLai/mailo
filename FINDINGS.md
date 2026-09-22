@@ -3151,3 +3151,39 @@ fmt` folded the continuations and the indentation went into the message, so the 
 read "needs a client&nbsp;&nbsp;&nbsp;&nbsp;id". Both messages are `concat!` of whole lines now,
 which formatting cannot reach. Note that `concat!` hides inline format captures from the
 compiler, so the arguments have to be named.
+
+### F133 — The window's first run, checked, and a fixture that lied
+
+F132 fixed three surfaces. The fourth is the one a new user actually looks at: the window, opened
+after `mailo account add` and before a client id exists — which is where someone will sit for as
+long as it takes them to register one. `scripts/live-window.sh` exists to answer that, so it was
+asked.
+
+The first answer was alarming. The list said "Nothing here." and the sidebar said
+**"you@gmail.com: no capabilities recorded. Something has gone wrong with setup."**
+Nothing had gone wrong: the account had been added exactly as instructed, and the user was off
+doing the thing they were told to do.
+
+It is not a defect, and the reason matters more than the finding would have. That state was
+invented by the fixture. `seed_unsigned` wrote an `accounts` row by hand and left `account_caps`
+empty; `mailo account add` always writes capabilities from the preset, as the store it produced
+confirms. The guard is correct and fires only on a genuinely corrupt row. Checking what the real
+command produces, before reporting, is the whole of the difference between this paragraph and a
+wrong finding — the third time this project has caught a fixture restating the thing under test.
+
+Run against a store `account add` actually made, the window is right:
+
+```
+list          Nothing here.
+sidebar       you@gmail.com: not signed in yet. This account uses OAuth (Google),
+              which needs a client id registered with the issuer — a password will not work. Run:
+                  MAILO_OAUTH_CLIENT_ID=… mailo account add you@gmail.com
+              you@university.edu: no credential stored. Run:
+                  MAILO_PASSWORD=… mailo account add you@university.edu
+```
+
+F132's fix reaches the window for free, because the window and the CLI both read `sync::run`.
+That is what one definition buys, and it is the answer to the question F131 and F132 both asked.
+
+The lying fixture is deleted rather than kept, and `seed_live.rs` and `live-window.sh` both now
+say that a store in some other state is made by running the command, not by writing the rows.
