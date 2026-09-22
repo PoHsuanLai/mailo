@@ -899,3 +899,133 @@ mod discarding {
         assert!(compose::discard(&store, DraftId::generate()).is_err());
     }
 }
+
+/// Forwarding, which the domain modelled and nothing could reach.
+///
+/// `Draft::forward_of` has existed and been tested in `mail-domain` since phase 1, and no surface
+/// in the application called it. A mail client that cannot forward is not one.
+mod forwarding {
+    use super::*;
+
+    fn taipei() -> chrono::FixedOffset {
+        chrono::FixedOffset::east_opt(8 * 3600).unwrap()
+    }
+
+    fn to() -> Vec<Address> {
+        vec![Address {
+            name: Some("Bea".to_owned()),
+            email: "bea@example.test".to_owned(),
+        }]
+    }
+
+    #[test]
+    fn a_forward_carries_the_original_beneath_a_header_block() {
+        let (store, _dir) = seeded();
+        compose::draft_forward_in(
+            &store,
+            ORIGINAL,
+            &to(),
+            "thought you should see this",
+            at(10),
+            &taipei(),
+        )
+        .unwrap();
+
+        let draft = only_draft(&store);
+        assert_eq!(draft.subject, "Fwd: lunch on friday");
+        assert_eq!(draft.to, to(), "a forward goes where it is told");
+        assert_eq!(draft.forward_of, Some(ORIGINAL));
+        assert_eq!(draft.in_reply_to, None, "a forward answers nothing");
+
+        let text = &draft.text;
+        // What was written, then the block, then the message — in that order.
+        let note = text.find("thought you should see this").expect("the note");
+        let block = text
+            .find("---------- Forwarded message ----------")
+            .expect("block");
+        let body = text
+            .find("Shall we say one o'clock?")
+            .expect("the original text");
+        assert!(note < block && block < body, "out of order:\n{text}");
+
+        // The headers a recipient needs to judge it, in the sender's zone: the original is
+        // 22:13 on Tuesday the 14th in UTC and 06:13 on Wednesday the 15th in Taipei.
+        assert!(
+            text.contains("From: Ada Lovelace <ada@example.test>"),
+            "{text}"
+        );
+        assert!(text.contains("Date: Wed, 15 Nov 2023 at 06:13"), "{text}");
+        assert!(text.contains("Subject: lunch on friday"), "{text}");
+        assert!(
+            text.contains("To: me@example.test, bea@example.test"),
+            "{text}"
+        );
+        assert!(text.contains("Cc: cara@example.test"), "{text}");
+    }
+
+    #[test]
+    fn what_the_command_prints_names_the_draft_and_how_to_send_it() {
+        // The CLI-facing half, which is also the one that decides the zone: `forward` defaults
+        // to `Local` where `draft_forward_in` is told. Asserted on the text a person reads.
+        let (store, _dir) = seeded();
+        let out = compose::forward(&store, ORIGINAL, &to(), "fyi", at(10)).unwrap();
+
+        assert!(out.contains("Fwd: lunch on friday"), "{out}");
+        assert!(out.contains("Bea <bea@example.test>"), "{out}");
+        let draft = only_draft(&store);
+        assert!(
+            out.contains(&format!("mailo send {}", draft.id)),
+            "it does not say how to send it: {out}"
+        );
+        // No double-space check here, unlike the prose messages of F97: this output is an
+        // aligned table — `  to      …` — and the runs of spaces are the alignment.
+        assert!(
+            out.contains("  to      "),
+            "the columns are not aligned: {out:?}"
+        );
+    }
+
+    #[test]
+    fn the_original_is_carried_rather_than_quoted() {
+        // A forward passes the message on; it does not answer it. Every client writes it
+        // unmarked beneath a header block, and a recipient who sees "> " reads it as a reply.
+        let (store, _dir) = seeded();
+        compose::draft_forward_in(&store, ORIGINAL, &to(), "", at(10), &taipei()).unwrap();
+        let text = only_draft(&store).text;
+        assert!(
+            !text.contains("> Shall we say one o'clock?"),
+            "the original was quoted like a reply:\n{text}"
+        );
+        assert!(text.contains("Shall we say one o'clock?"), "{text}");
+    }
+
+    #[test]
+    fn a_forward_with_no_body_yet_still_carries_the_message() {
+        // What the shell's Forward button produces: a draft with no note and no recipients, for
+        // the user to fill in. The message must already be in it, or there is nothing to send.
+        let (store, _dir) = seeded();
+        let draft =
+            compose::draft_forward_in(&store, ORIGINAL, &[], "", at(10), &taipei()).unwrap();
+        assert!(draft.to.is_empty());
+        assert!(
+            draft
+                .text
+                .contains("---------- Forwarded message ----------")
+        );
+        assert!(draft.text.contains("Shall we say one o'clock?"));
+    }
+
+    #[test]
+    fn a_message_whose_body_never_arrived_forwards_its_headers_and_nothing_else() {
+        // Mid-sync. Quoting the word "None" is what this avoids — the same case `quoted` has.
+        let (store, _dir) = seeded();
+        let id = headers_only(&store);
+        let draft = compose::draft_forward_in(&store, id, &to(), "", at(10), &taipei()).unwrap();
+        assert!(
+            draft
+                .text
+                .contains("---------- Forwarded message ----------")
+        );
+        assert!(!draft.text.contains("None"), "{}", draft.text);
+    }
+}

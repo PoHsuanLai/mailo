@@ -48,6 +48,15 @@ pub enum Command {
     Drafts,
     /// Delete a draft.
     Discard { draft: DraftId },
+    /// Forward a message. The covering note is read from stdin.
+    ///
+    /// Recipients are given on the command line because a forward has none of its own: nothing
+    /// in the original says who it should go to next, and guessing would be inventing one.
+    Forward {
+        message: MessageId,
+        to: Vec<Address>,
+        body: String,
+    },
 }
 
 /// Parse arguments, or explain what was wrong.
@@ -123,6 +132,38 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                 .map_err(|_| format!("{raw:?} is not a draft id"))?;
             Ok(Command::Send {
                 draft: DraftId::from_uuid(uuid),
+            })
+        }
+        "forward" => {
+            let raw = args
+                .get(1)
+                .ok_or_else(|| format!("forward needs a message id\n\n{}", usage()))?;
+            let uuid = raw
+                .parse()
+                .map_err(|_| format!("{raw:?} is not a message id"))?;
+            let to = match (args.get(2).map(String::as_str), args.get(3)) {
+                (Some("--to"), Some(list)) => crate::view::parse_addresses(list)?,
+                (Some("--to"), None) => {
+                    return Err(format!("--to needs an address\n\n{}", usage()));
+                }
+                (None, _) => {
+                    // A forward with nobody to send it to is the F99 dead end again: a draft the
+                    // CLI cannot finish and no command can repair.
+                    return Err(format!(
+                        "forward needs recipients: mailo forward {raw} --to someone@example.com\n\n{}",
+                        usage()
+                    ));
+                }
+                (Some(other), _) => return Err(format!("unknown option {other:?}\n\n{}", usage())),
+            };
+            if to.is_empty() {
+                return Err("--to had no addresses in it".to_owned());
+            }
+            Ok(Command::Forward {
+                message: MessageId::from_uuid(uuid),
+                to,
+                // Filled in by the caller, which owns stdin. Parsing stays pure.
+                body: String::new(),
             })
         }
         "drafts" => Ok(Command::Drafts),
@@ -248,6 +289,8 @@ usage: mailo <command>
   show <thread-id>          prints each message's id, for `reply`
   search <words...>
   reply <message-id> [--all]  compose a reply; the body is read from stdin
+  forward <message-id> --to a@b[,c@d]
+                             forward it; the covering note is read from stdin
   send <draft-id>             queue a draft for the next sync
   drafts                      drafts and where each one got to
   discard <draft-id>          delete a draft
@@ -338,6 +381,9 @@ pub fn run(store: &SqliteStore, command: &Command, now: DateTime<Utc>) -> Result
         } => crate::compose::reply(store, *message, *scope, body, now),
         Command::Send { draft } => crate::compose::send(store, *draft, now),
         Command::Drafts => crate::compose::drafts(store),
+        Command::Forward { message, to, body } => {
+            crate::compose::forward(store, *message, to, body, now)
+        }
         Command::Discard { draft } => {
             crate::compose::discard(store, *draft).map(|subject| format!("discarded {subject:?}\n"))
         }

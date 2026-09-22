@@ -2250,3 +2250,54 @@ Two process notes, both old lessons re-learned:
 - A parse error in an injected script is invisible: nothing runs, including whatever would have
   reported the error. A separate first `<script>` that only installs an error listener turns
   silence into `SyntaxError: Cannot declare a const variable twice`.
+
+### F110 — Forwarding was modelled and reachable from nowhere
+
+`Draft::forward_of` has existed in `mail-domain` since phase 1, with its own tests for the `Fwd:`
+prefix and for starting with no recipients. Nothing in `mail-app` ever called it. There was no
+`forward` command, no button, no key. A mail client that cannot forward a message is not one, and
+this one had the hard half written and the reachable half missing.
+
+The missing half is the same one `Draft::reply_to` leaves to its caller: what the carried message
+looks like. `compose::forwarded` writes the block every client writes —
+
+```
+---------- Forwarded message ----------
+From: Bob <bob@example.test>
+Date: Wed, 15 Nov 2023 at 07:13
+Subject: a tricky body
+To: me@example.test
+```
+
+— and then the original text *unmarked*. Not `>`-quoted: a forward passes the message on rather
+than answering it, and a recipient who sees `> ` reads it as a reply. `To` and `Cc` are omitted
+when empty rather than written as blank headers. The date is in the sender's zone, like every
+other date since F98.
+
+Recipients are a parameter, not a guess. Nothing in the original says who a forward should go to,
+which is why `Draft::forward_of` leaves them empty — so `mailo forward <id>` without `--to` is
+refused with the command that would work, rather than producing the F99 dead end: a draft the CLI
+cannot finish and no command can repair. That also gives the CLI its first way to name recipients,
+which F99 recorded as missing.
+
+In the shell it is a row button and the `f` key, through a new `Composes` enum rather than a
+third `ReplyScope` — a forward is not a reply with a different audience. Offered on every
+conversation, because carrying a message does not depend on which folder it is in.
+
+Proved on the wire, not only in tests. Through the real binary against the local `aiosmtpd`:
+
+```
+Subject: Fwd: a tricky body
+To: "Bea" <bea@example.test>
+
+have a look at this
+
+---------- Forwarded message ----------
+From: Bob <bob@example.test>
+Date: Wed, 15 Nov 2023 at 07:13
+...
+```
+
+One small thing the tests taught: the F97 "no run of two spaces" rule is about prose. The CLI's
+draft summary is an aligned table and its runs of spaces are the alignment, so that assertion
+belongs on sentences and not on everything a command prints.

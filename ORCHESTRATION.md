@@ -148,6 +148,7 @@ Replying is the same three steps:
 
 ```
 mailo reply <message-id> [--all] <<< 'text of the reply'
+mailo forward <message-id> --to 'Bea <bea@example.com>' <<< 'have a look at this'
 mailo send <draft-id>
 mailo sync
 ```

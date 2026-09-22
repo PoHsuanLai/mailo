@@ -13,6 +13,7 @@ use mail_store::{SqliteStore, Store};
 mod account;
 #[path = "../src/cli.rs"]
 mod cli;
+#[allow(dead_code)]
 #[path = "../src/compose.rs"]
 mod compose;
 #[path = "../src/sync.rs"]
@@ -572,4 +573,73 @@ fn discard_is_parsed_and_needs_an_id() {
         "{}",
         parse(&[]).unwrap_err()
     );
+}
+
+/// `mailo forward`, and the recipients it insists on.
+mod forwarding {
+    use super::*;
+
+    fn parse(args: &[&str]) -> Result<cli::Command, String> {
+        cli::parse(&args.iter().map(|s| (*s).to_string()).collect::<Vec<_>>())
+    }
+
+    #[test]
+    fn a_forward_needs_somewhere_to_go() {
+        // A forward has no recipients of its own, and the CLI has no command that adds one to an
+        // existing draft — so a forward without `--to` is the F99 dead end again: a draft that
+        // cannot be sent and cannot be repaired.
+        let id = uuid::Uuid::new_v4().to_string();
+        let err = parse(&["forward", &id]).unwrap_err();
+        assert!(err.contains("--to"), "{err}");
+        assert!(
+            err.contains(&id),
+            "the message it names is the one asked for: {err}"
+        );
+        assert!(
+            parse(&["forward", &id, "--to"]).is_err(),
+            "no address after --to"
+        );
+        assert!(
+            parse(&["forward", &id, "--to", ""]).is_err(),
+            "an empty list"
+        );
+        assert!(parse(&["forward"]).is_err(), "no message id at all");
+    }
+
+    #[test]
+    fn recipients_are_parsed_the_way_the_composer_parses_them() {
+        let id = uuid::Uuid::new_v4();
+        let cmd = parse(&[
+            "forward",
+            &id.to_string(),
+            "--to",
+            "Bea <bea@example.test>, cara@example.test",
+        ])
+        .unwrap();
+        match cmd {
+            cli::Command::Forward { message, to, body } => {
+                assert_eq!(message, MessageId::from_uuid(id));
+                assert_eq!(
+                    to.iter().map(|a| a.email.as_str()).collect::<Vec<_>>(),
+                    vec!["bea@example.test", "cara@example.test"]
+                );
+                assert_eq!(to[0].name.as_deref(), Some("Bea"), "display names survive");
+                assert!(body.is_empty(), "the body comes from stdin, not the parser");
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_mistyped_recipient_is_refused_rather_than_carried_into_a_draft() {
+        let id = uuid::Uuid::new_v4().to_string();
+        assert!(parse(&["forward", &id, "--to", "not-an-address"]).is_err());
+    }
+
+    #[test]
+    fn it_is_in_the_usage_text() {
+        // A command nobody can find is not a command.
+        let usage = parse(&[]).unwrap_err();
+        assert!(usage.contains("forward <message-id> --to"), "{usage}");
+    }
 }

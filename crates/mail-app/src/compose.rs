@@ -126,6 +126,114 @@ where
     Ok(draft)
 }
 
+/// Create and persist a forward of `message`, addressed to `to`.
+///
+/// Forwarding was modelled and unreachable: `Draft::forward_of` has existed and been tested in
+/// `mail-domain` since phase 1, and no surface in the application called it. A mail client that
+/// cannot forward is not one, and the shape was already there — what was missing is the half
+/// `Draft::reply_to` also leaves to the caller, the rendering of the message being carried.
+///
+/// Recipients are a parameter rather than derived: a forward is *to* someone, and there is no
+/// answer in the original that is not a guess. `Draft::forward_of` leaves them empty for that
+/// reason and this fills them in from what the user said.
+pub fn draft_forward(
+    store: &SqliteStore,
+    message: MessageId,
+    to: &[Address],
+    body: &str,
+    now: DateTime<Utc>,
+) -> Result<Draft, String> {
+    draft_forward_in(store, message, to, body, now, &Local)
+}
+
+/// The same, with the zone the forwarded header block is written in named.
+///
+/// Named for the reason [`draft_reply_in`] names it: the block leaves this machine, and a
+/// function that reads the machine's zone can only be tested against whatever that machine is.
+pub fn draft_forward_in<Tz: chrono::TimeZone>(
+    store: &SqliteStore,
+    message: MessageId,
+    to: &[Address],
+    body: &str,
+    now: DateTime<Utc>,
+    zone: &Tz,
+) -> Result<Draft, String>
+where
+    Tz::Offset: std::fmt::Display,
+{
+    let original = store.message(message).map_err(|e| e.to_string())?;
+    let identity = identity_of(store, original.account, None)?;
+
+    let mut draft = Draft::forward_of(&original, &identity, now);
+    draft.to = to.to_vec();
+    draft.text = forwarded(body, &original, zone);
+    save(store, &draft)?;
+    Ok(draft)
+}
+
+/// The forward body: what the user wrote, then the original beneath a header block.
+///
+/// Not `>`-quoted. A forward is the message itself being passed on rather than answered, and
+/// every client in the world writes it this way — headers first, then the text as it was — so a
+/// recipient can see who sent it and when without taking our word for it.
+fn forwarded<Tz: chrono::TimeZone>(body: &str, original: &Message, zone: &Tz) -> String
+where
+    Tz::Offset: std::fmt::Display,
+{
+    let mut out = String::new();
+    if !body.is_empty() {
+        out.push_str(body.trim_end());
+        out.push_str("\r\n");
+    }
+    out.push_str("\r\n---------- Forwarded message ----------\r\n");
+    let _ = write!(
+        out,
+        "From: {}\r\n",
+        addresses(std::slice::from_ref(&original.from))
+    );
+    let _ = write!(
+        out,
+        "Date: {}\r\n",
+        crate::view::stamp(original.date, zone, crate::view::Stamp::Quote)
+    );
+    let _ = write!(out, "Subject: {}\r\n", original.subject);
+    // `To` and `Cc` as they were. Omitted when empty rather than written as a blank header,
+    // which is what a header block copied from a message with no recipients would otherwise say.
+    if !original.to.is_empty() {
+        let _ = write!(out, "To: {}\r\n", addresses(&original.to));
+    }
+    if !original.cc.is_empty() {
+        let _ = write!(out, "Cc: {}\r\n", addresses(&original.cc));
+    }
+    out.push_str("\r\n");
+    if let Body::Present {
+        text: Some(text), ..
+    } = &original.body
+    {
+        for line in text.lines() {
+            out.push_str(line);
+            out.push_str("\r\n");
+        }
+    }
+    out
+}
+
+/// Forward a message, as the CLI reports it.
+pub fn forward(
+    store: &SqliteStore,
+    message: MessageId,
+    to: &[Address],
+    body: &str,
+    now: DateTime<Utc>,
+) -> Result<String, String> {
+    let draft = draft_forward(store, message, to, body, now)?;
+    let mut out = format!("draft {}\n", draft.id);
+    let _ = writeln!(out, "  to      {}", addresses(&draft.to));
+    let _ = writeln!(out, "  subject {}", draft.subject);
+    let _ = writeln!(out, "\nsend it with: mailo send {}", draft.id);
+    Ok(out)
+}
+
 /// Write a draft back to the store.
 ///
 /// Used by the composer on every save. `INSERT OR REPLACE` underneath, so this is also what an

@@ -232,14 +232,14 @@ fn App() -> Element {
                     shell.write().open = None;
                 }
             }
-            Shortcut::Reply | Shortcut::ReplyAll => {
-                let scope = if action == Shortcut::Reply {
-                    ReplyScope::Sender
-                } else {
-                    ReplyScope::All
+            Shortcut::Reply | Shortcut::ReplyAll | Shortcut::Forward => {
+                let what = match action {
+                    Shortcut::Reply => Composes::Reply(ReplyScope::Sender),
+                    Shortcut::ReplyAll => Composes::Reply(ReplyScope::All),
+                    _ => Composes::Forward,
                 };
                 if let Some(id) = open
-                    && let Ok(draft) = start_reply(&store, id, scope)
+                    && let Ok(draft) = start_composing(&store, id, what)
                 {
                     shell.write().compose(&draft);
                     revision += 1;
@@ -388,9 +388,9 @@ fn App() -> Element {
                                                 // Without this the click also opens the thread.
                                                 e.stop_propagation();
                                                 let store = consume_context::<Arc<SqliteStore>>();
-                                                match reply_scope(kind) {
-                                                    Some(scope) => {
-                                                        match start_reply(&store, id, scope) {
+                                                match composes(kind) {
+                                                    Some(what) => {
+                                                        match start_composing(&store, id, what) {
                                                             Ok(draft) => {
                                                                 shell.write().compose(&draft);
                                                                 revision += 1;
@@ -527,12 +527,22 @@ fn Reader(thread: ThreadId, shell: Signal<Shell>) -> Element {
 /// Every field writes straight back into `Shell.composing`, and every button goes through
 /// `crate::compose`, which is the same module the CLI calls. Two code paths for "send this
 /// draft" is how a window and a command start disagreeing about what a draft is.
-fn reply_scope(kind: OpKind) -> Option<ReplyScope> {
+/// What opening a composer on this action means.
+///
+/// Three of the row's buttons open a composer rather than performing an operation. A forward is
+/// not a reply with a different audience — it carries the message rather than answering it, and
+/// it starts with no recipients — so it is a variant here rather than a third `ReplyScope`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Composes {
+    Reply(ReplyScope),
+    Forward,
+}
+
+fn composes(kind: OpKind) -> Option<Composes> {
     match kind {
-        OpKind::Reply => Some(ReplyScope::Sender),
-        OpKind::ReplyAll => Some(ReplyScope::All),
-        // Forward needs recipients the user has not chosen yet, and no body to quote until
-        // they do. It opens a composer too, but not this way round; not wired.
+        OpKind::Reply => Some(Composes::Reply(ReplyScope::Sender)),
+        OpKind::ReplyAll => Some(Composes::Reply(ReplyScope::All)),
+        OpKind::Forward => Some(Composes::Forward),
         _ => None,
     }
 }
@@ -540,6 +550,26 @@ fn reply_scope(kind: OpKind) -> Option<ReplyScope> {
 /// Create the draft a reply button opens.
 ///
 /// Which message that answers is [`crate::view::reply_target`]'s decision, not this function's.
+/// Open a composer on the newest message of `thread`, replying or forwarding.
+fn start_composing(store: &SqliteStore, thread: ThreadId, what: Composes) -> Result<Draft, String> {
+    match what {
+        Composes::Reply(scope) => start_reply(store, thread, scope),
+        Composes::Forward => {
+            let loaded = store.thread(thread).map_err(|e| e.to_string())?;
+            let messages: Vec<Message> = loaded
+                .messages
+                .iter()
+                .filter_map(|id| store.message(*id).ok())
+                .collect();
+            let target = crate::view::reply_target(&messages)
+                .ok_or_else(|| "that conversation has no message to forward".to_owned())?;
+            // No recipients: a forward has none of its own and the composer is where the user
+            // names them. The draft is saved regardless, so closing the window does not lose it.
+            crate::compose::draft_forward(store, target.id, &[], "", chrono::Utc::now())
+        }
+    }
+}
+
 fn start_reply(store: &SqliteStore, thread: ThreadId, scope: ReplyScope) -> Result<Draft, String> {
     let loaded = store.thread(thread).map_err(|e| e.to_string())?;
     let messages: Vec<Message> = loaded
@@ -1348,6 +1378,45 @@ mod render_tests {
             before - 1,
             "a keystroke did not reach the store: {before} conversations before, {after} after"
         );
+    }
+
+    #[tokio::test]
+    async fn f_opens_a_forward_of_the_open_conversation() {
+        // Forwarding was modelled in `mail-domain` and reachable from no surface at all. This is
+        // the shell's half: `j` to open a conversation, `f` to carry it somewhere else.
+        dispatching();
+        let (store, _dir) = realistic();
+        let mut dom = VirtualDom::new(App).with_root_context(store.clone());
+        dom.rebuild_in_place();
+        let before = store.drafts(ACCOUNT).unwrap().len();
+
+        press(&mut dom, "j", INSIDE_THE_SHELL);
+        press(&mut dom, "f", INSIDE_THE_SHELL);
+
+        let drafts = store.drafts(ACCOUNT).unwrap();
+        assert_eq!(drafts.len(), before + 1, "`f` opened nothing");
+        let made = drafts
+            .iter()
+            .find(|d| d.forward_of.is_some())
+            .expect("a forward, not a reply");
+        assert!(made.subject.starts_with("Fwd: "), "{}", made.subject);
+        assert!(
+            made.to.is_empty(),
+            "a forward starts with nobody on it; the composer is where they are named"
+        );
+        assert!(
+            made.text
+                .contains("---------- Forwarded message ----------"),
+            "the message being carried is not in it:\n{}",
+            made.text
+        );
+    }
+
+    #[tokio::test]
+    async fn the_rows_offer_a_way_to_forward() {
+        // The button, for anyone who does not know the key.
+        let (store, _dir) = realistic();
+        assert!(markup(store).contains("Forward"));
     }
 
     #[tokio::test]

@@ -397,6 +397,9 @@ pub fn hover_actions(summary: &ThreadSummary) -> Vec<OpKind> {
         Star::Unstarred => OpKind::Star,
         Star::Starred => OpKind::Unstar,
     });
+    // Always offered. A forward does not depend on where the conversation is or what state it is
+    // in — it is the message being passed on, and it was reachable from nowhere until now.
+    out.push(OpKind::Forward);
     out
 }
 
@@ -426,6 +429,8 @@ pub enum Shortcut {
     Reply,
     /// Reply to everyone on it.
     ReplyAll,
+    /// Forward it, with no recipients chosen yet.
+    Forward,
 }
 
 /// The shortcut a key press means, or `None` for a key that is not one.
@@ -453,6 +458,7 @@ pub fn shortcut(key: &str, typing: bool) -> Option<Shortcut> {
         "u" => Shortcut::ToggleRead,
         "r" => Shortcut::Reply,
         "a" => Shortcut::ReplyAll,
+        "f" => Shortcut::Forward,
         _ => return None,
     })
 }
@@ -473,7 +479,7 @@ pub fn op_for_shortcut(shortcut: Shortcut, summary: &ThreadSummary) -> Option<Op
         Shortcut::ToggleStar => &[OpKind::Star, OpKind::Unstar],
         Shortcut::ToggleRead => &[OpKind::MarkRead, OpKind::MarkUnread],
         Shortcut::Next | Shortcut::Previous | Shortcut::Back => &[],
-        Shortcut::Reply | Shortcut::ReplyAll => &[],
+        Shortcut::Reply | Shortcut::ReplyAll | Shortcut::Forward => &[],
     };
     wanted.iter().copied().find(|op| offered.contains(op))
 }
@@ -1470,6 +1476,36 @@ mod keyboard {
         assert_eq!(
             op_for_shortcut(Shortcut::ToggleRead, &starred),
             Some(OpKind::MarkUnread)
+        );
+    }
+
+    #[test]
+    fn forward_is_offered_on_every_conversation() {
+        // It does not depend on where the conversation is or what state it is in: a forward
+        // carries the message. It was reachable from nowhere before this.
+        for mailbox in [
+            MailboxRole::Inbox,
+            MailboxRole::Archive,
+            MailboxRole::Trash,
+            MailboxRole::Sent,
+        ] {
+            let summary = summary(ReadState::Read, Star::Unstarred, mailbox);
+            assert!(
+                hover_actions(&summary).contains(&OpKind::Forward),
+                "no Forward on a conversation in {mailbox:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn f_forwards_and_is_not_an_operation() {
+        assert_eq!(shortcut("f", false), Some(Shortcut::Forward));
+        assert_eq!(shortcut("f", true), None, "fired while typing");
+        let inbox = summary(ReadState::Read, Star::Unstarred, MailboxRole::Inbox);
+        assert_eq!(
+            op_for_shortcut(Shortcut::Forward, &inbox),
+            None,
+            "a forward opens a composer rather than performing an operation"
         );
     }
 
