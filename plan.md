@@ -1337,7 +1337,7 @@ available, which is the one already in use.
 large thread open drops no frames; a sync pass fetches both accounts at once; and opening a
 conversation the user was about to open is a lookup.
 
-**State: four of seven, and the other three are blocked rather than skipped.**
+**State: five of seven, and the other two are blocked rather than skipped.**
 
 Done. *8a* measured, and corrected this section twice — the reader was cheap where the plan
 called it the thing that stutters, and the first totals wrongly charged the badge counts to every
@@ -1350,10 +1350,21 @@ the key: dropping the policy from it serves a read receipt nobody granted. *8f* 
 accounts in one pass, asserted as an overlap of two connection windows rather than a threshold in
 milliseconds.
 
-Blocked on 8z. *8c* — reads off the render thread — was built, passed 1382 tests, and showed an
-empty mailbox in the real window, which is how F140 was found: a `use_resource` never resolves
-when nothing polls the dom. *8e* — speculative render — is 8c's continuation and waits on the
-same answer. *8g* — IDLE — would replace a poll loop that does not currently run.
+*8g* found the one door F140 does not close. IDLE needs a process whose job is to stay open, the
+window was meant to be that, and it is not — so `mailo watch` is. It passes, then waits the way
+each server prefers: `watch` where IDLE is offered, a sleep where it is not. That is
+`AccountEngine::watch`'s first caller outside a test since phase 3.
+
+Blocked on 8z, and deliberately left so. *8c* — reads off the render thread — was built, passed
+1382 tests, and showed an empty mailbox in the real window, which is how F140 was found: a
+`use_resource` never resolves when nothing polls the dom. *8e* — speculative render — is 8c's
+continuation.
+
+Writing either of them again now would mean shipping code whose only purpose is to be ready for a
+runtime that does not currently run, verified by tests that pass for the same reason F128's did.
+That is the shape this project has found four times — `watch`, the label resolver, `sweep`,
+`PendingAttachment` — and choosing it knowingly, to make a checklist look finished, would be
+worse than the four times it happened by accident.
 
 The measurements, for whoever picks this up: on the real mailbox a keystroke costs 0.88 ms and a
 sync landing 5.1 ms; at ten thousand messages, 15.3 ms and 13.4 ms. Nothing here is urgent at
