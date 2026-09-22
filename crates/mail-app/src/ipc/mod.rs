@@ -160,33 +160,115 @@ pub fn endpoint() -> Result<Endpoint, String> {
     )
 }
 
-/// Listen for clients, replacing a socket left behind by a dead daemon.
+/// Listening, and the proof that we are the only one doing so.
+///
+/// The listener and the lock are one object because their lifetimes are one fact: while this
+/// value exists, this user has exactly one mailo daemon, and when it goes away the socket goes
+/// with it.
+#[cfg(unix)]
+#[derive(Debug)]
+pub struct Listening {
+    listener: std::os::unix::net::UnixListener,
+    socket: std::path::PathBuf,
+    /// Never read. Held open because dropping it releases the lock, which is the entire point.
+    _lock: std::fs::File,
+}
+
+#[cfg(unix)]
+impl Listening {
+    pub fn incoming(&self) -> std::os::unix::net::Incoming<'_> {
+        self.listener.incoming()
+    }
+}
+
+#[cfg(unix)]
+impl Drop for Listening {
+    /// Unlink first, release second.
+    ///
+    /// Field drops run after this body, so the lock is still held while the socket is removed. A
+    /// daemon waiting on the lock therefore never sees the moment where it is free and the old
+    /// socket is still on disk.
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.socket);
+    }
+}
+
+/// The file whose lock means "this user's daemon is running".
+///
+/// Beside the socket rather than inside it: a socket cannot be locked, and the lock has to
+/// survive the socket being replaced.
+#[cfg(unix)]
+fn lock_beside(socket: &std::path::Path) -> std::path::PathBuf {
+    socket.with_extension("lock")
+}
+
+/// Listen for clients, refusing if this user already has a daemon.
 ///
 /// The parent directory is created `0700` where the platform supports it: the socket's
 /// permissions are the whole of the authentication here, and a mail daemon that any local
 /// process could talk to would be a mail daemon that any local process could read mail from.
+///
+/// # Why a lock file and not a connection attempt
+///
+/// This used to ask "is anything answering on the socket?" and clear the file when nothing was.
+/// That reads correctly and is wrong under concurrency: between one daemon's failed connect and
+/// its `remove_file`, another daemon can bind, and the first then deletes a working daemon's
+/// door. Two clients running `mailo ping` at the same moment on a cold machine is all it takes.
+///
+/// An advisory lock has no such window, because the kernel does the arbitration rather than this
+/// code. It also answers the stale question exactly, instead of by inference: a lock is released
+/// when the holding *process* dies, including under `SIGKILL` where no destructor runs, so a
+/// lock that can be taken proves there is no daemon — where a socket that refuses connections
+/// only suggests it.
+///
+/// The lock file itself is never removed. Unlinking it would reintroduce the race in a worse
+/// form, since a second daemon could be holding the lock on the very inode being deleted and
+/// a third would then lock a fresh file and see no conflict. It is empty, it lives in the
+/// runtime directory, and leaving it there costs an inode.
 #[cfg(unix)]
-pub fn bind(path: &std::path::Path) -> Result<std::os::unix::net::UnixListener, String> {
+pub fn bind(path: &std::path::Path) -> Result<Listening, String> {
     use std::os::unix::fs::PermissionsExt as _;
 
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
         let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
     }
-    // A socket that is already answering means a daemon is already running, and taking its
-    // address would be two daemons fetching the same mail twice. Checked by *connecting*,
-    // because the file existing says nothing about whether anyone is behind it.
-    if path.exists() {
-        if std::os::unix::net::UnixStream::connect(path).is_ok() {
+
+    let guard = lock_beside(path);
+    let lock = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(&guard)
+        .map_err(|e| format!("cannot open {}: {e}", guard.display()))?;
+    let _ = std::fs::set_permissions(&guard, std::fs::Permissions::from_mode(0o600));
+    match lock.try_lock() {
+        Ok(()) => {}
+        Err(std::fs::TryLockError::WouldBlock) => {
+            // Two daemons on one mailbox would fetch everything twice and race each other's
+            // writes into the same SQLite file.
             return Err(format!(
                 "a daemon is already listening on {}",
                 path.display()
             ));
         }
+        Err(std::fs::TryLockError::Error(e)) => {
+            return Err(format!("cannot lock {}: {e}", guard.display()));
+        }
+    }
+
+    // Past the lock, so any socket still here was left by a process that is gone: no live daemon
+    // could be behind it, because a live daemon would still hold the lock.
+    if path.exists() {
         std::fs::remove_file(path).map_err(|e| format!("cannot clear {}: {e}", path.display()))?;
     }
     let listener = std::os::unix::net::UnixListener::bind(path)
         .map_err(|e| format!("cannot listen on {}: {e}", path.display()))?;
     let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
-    Ok(listener)
+    Ok(Listening {
+        listener,
+        socket: path.to_path_buf(),
+        _lock: lock,
+    })
 }

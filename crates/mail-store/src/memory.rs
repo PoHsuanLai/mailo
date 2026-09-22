@@ -453,18 +453,17 @@ impl Inner {
             .by_key
             .get(&message.account)
             .and_then(|map| map.get(&message.key))
+            && *other != message.id
         {
-            if *other != message.id {
-                return Err(StoreError::Db(format!(
-                    "message key already maps to {other}"
-                )));
-            }
+            return Err(StoreError::Db(format!(
+                "message key already maps to {other}"
+            )));
         }
         let previous = self.messages.remove(&message.id);
-        if let Some(prev) = &previous {
-            if let Some(map) = self.by_key.get_mut(&prev.account) {
-                map.remove(&prev.key);
-            }
+        if let Some(prev) = &previous
+            && let Some(map) = self.by_key.get_mut(&prev.account)
+        {
+            map.remove(&prev.key);
         }
         self.threads.entry(message.thread).or_insert(ThreadState {
             snooze: Snooze::Inactive,
@@ -477,10 +476,11 @@ impl Inner {
         self.accounts.insert(message.account);
         let old_thread = previous.map(|prev| prev.thread);
         self.messages.insert(message.id, message.clone());
-        if let Some(old) = old_thread {
-            if old != message.thread && !self.has_messages(old) {
-                self.threads.remove(&old);
-            }
+        if let Some(old) = old_thread
+            && old != message.thread
+            && !self.has_messages(old)
+        {
+            self.threads.remove(&old);
         }
         Ok(())
     }

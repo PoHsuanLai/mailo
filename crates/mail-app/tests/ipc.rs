@@ -225,10 +225,10 @@ mod finding_it {
 
     /// A listener that answers one `Ping` and then goes away.
     fn a_daemon_at(path: &Path) -> std::thread::JoinHandle<()> {
-        let listener = ipc::bind(path).expect("the socket binds");
+        let listening = ipc::bind(path).expect("the socket binds");
         std::thread::spawn(move || {
             use std::io::{BufRead, BufReader, Write};
-            if let Some(Ok(mut stream)) = listener.incoming().next() {
+            if let Some(Ok(mut stream)) = listening.incoming().next() {
                 let mut line = String::new();
                 let _ = BufReader::new(&stream).read_line(&mut line);
                 let reply = ipc::wire::line(ipc::wire::Response::Pong {
@@ -258,8 +258,9 @@ mod finding_it {
         // connection attempt can tell the difference.
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("daemon.sock");
-        let listener = ipc::bind(&path).unwrap();
-        drop(listener); // the daemon dies, the file stays
+        // A *raw* listener, because `ipc::bind`'s guard unlinks on the way out and a killed
+        // process runs no destructors. This is the residue of `kill -9`, not of an exit.
+        drop(std::os::unix::net::UnixListener::bind(&path).unwrap());
         assert!(path.exists(), "the stale file is the whole point");
 
         assert!(
@@ -326,8 +327,9 @@ mod finding_it {
 
     #[test]
     fn binding_over_a_live_daemon_is_refused() {
-        // Two daemons on one mailbox would fetch everything twice and race each other's writes.
-        // The check is a *connection*, because the file existing proves nothing.
+        // Two daemons on one mailbox would fetch everything twice and race each other's writes
+        // into the same SQLite file. What refuses the second is the lock, not the file: see
+        // `a_second_daemon_is_refused_by_the_lock_and_not_by_the_socket`.
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("daemon.sock");
         let _first = ipc::bind(&path).expect("the first one binds");
@@ -336,13 +338,76 @@ mod finding_it {
     }
 
     #[test]
-    fn binding_over_a_stale_socket_succeeds() {
-        // The other half of the same rule: after a crash the file is still there, and refusing
-        // to start because of it would mean a daemon that never comes back.
+    fn a_second_daemon_is_refused_by_the_lock_and_not_by_the_socket() {
+        // The distinction is the whole of the fix. Asking the *socket* whether a daemon is
+        // there means connecting, failing, and clearing the file — three steps with two windows
+        // in them. Asking the *lock* is one step the kernel arbitrates.
+        //
+        // Demonstrated by taking the socket away from underneath a running daemon: the file is
+        // gone, so any check that reads the filesystem would say the coast is clear, and the
+        // second daemon must still be refused.
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("daemon.sock");
-        drop(ipc::bind(&path).unwrap());
+        let _first = ipc::bind(&path).expect("the first one binds");
+        std::fs::remove_file(&path).unwrap();
+        assert!(!path.exists(), "the socket is gone and the daemon is not");
+
+        let refused = ipc::bind(&path).expect_err("the lock outlives the socket");
+        assert!(refused.contains("already listening"), "{refused}");
+    }
+
+    #[test]
+    fn the_lock_is_released_when_the_daemon_leaves() {
+        // The other half: a daemon that has stopped must not lock its successor out. This is the
+        // ordinary exit; the `kill -9` case is the same mechanism, because the kernel drops the
+        // lock with the process whether or not any destructor ran.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("daemon.sock");
+        drop(ipc::bind(&path).expect("the first one binds"));
+        ipc::bind(&path).expect("the lock went with it");
+    }
+
+    #[test]
+    fn leaving_by_the_front_door_takes_the_socket_with_it() {
+        // A socket left behind is what the next client mistakes for a daemon. Nothing else in
+        // the process has to remember to do this — it is the guard's `Drop`, so every ordinary
+        // exit path is covered by construction rather than by care.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("daemon.sock");
+        let listening = ipc::bind(&path).unwrap();
+        assert!(path.exists());
+        drop(listening);
+        assert!(!path.exists(), "the socket outlived the daemon");
+    }
+
+    #[test]
+    fn binding_over_a_stale_socket_succeeds() {
+        // After a crash the file is still there, and refusing to start because of it would mean
+        // a daemon that never comes back. Past the lock it is known stale rather than guessed
+        // to be: a live daemon would still be holding the lock.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("daemon.sock");
+        drop(std::os::unix::net::UnixListener::bind(&path).unwrap());
         assert!(path.exists());
         ipc::bind(&path).expect("a stale socket is cleared, not obeyed");
+    }
+
+    #[test]
+    fn a_client_never_clears_a_socket_it_did_not_bind() {
+        // The race that this replaced: a client that connects, fails, and *tidies* can delete a
+        // socket another client's daemon bound in between — two people running `mailo ping` at
+        // the same moment on a cold machine is all it takes. The window cannot be hit on demand,
+        // so what is asserted is the rule that removes it: a client leaves the filesystem
+        // exactly as it found it, and clearing is `bind`'s job, under the lock.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("daemon.sock");
+        drop(std::os::unix::net::UnixListener::bind(&path).unwrap());
+
+        client::connect_or_start(&path, || Ok(()), Duration::from_millis(200))
+            .expect_err("nothing ever listened");
+        assert!(
+            path.exists(),
+            "the client deleted a socket that was not its own to delete"
+        );
     }
 }

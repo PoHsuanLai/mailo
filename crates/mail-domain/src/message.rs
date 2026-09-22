@@ -49,7 +49,12 @@ mod hex32 {
             )));
         }
         let mut out = [0u8; 32];
-        for (slot, pair) in out.iter_mut().zip(raw.chunks_exact(2)) {
+        // `as_chunks` rather than `chunks_exact`: the length is already known to be 64, so the
+        // remainder is provably empty and the pair arrives as a `[u8; 2]` instead of a slice
+        // that might not be two long.
+        let (pairs, rest) = raw.as_chunks::<2>();
+        debug_assert!(rest.is_empty(), "64 is even");
+        for (slot, pair) in out.iter_mut().zip(pairs) {
             let text = std::str::from_utf8(pair).map_err(D::Error::custom)?;
             *slot = u8::from_str_radix(text, 16).map_err(D::Error::custom)?;
         }

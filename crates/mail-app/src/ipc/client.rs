@@ -7,8 +7,9 @@
 //!
 //! The awkward case is not "no daemon". It is a socket *file* with nothing behind it: the
 //! process was killed, the machine lost power, and what is left looks exactly like a daemon
-//! until you try to talk to it. Only a connection attempt can tell the difference, which is why
-//! [`connect_or_start`] tries before it tidies.
+//! until you try to talk to it. A client tells the difference by connecting, and then does
+//! nothing about it — clearing the file is [`super::bind`]'s job, under a lock, because a
+//! client that tidies races every other client that is doing the same.
 
 use super::wire::{self, Mismatch, Request, Response};
 use super::{Endpoint, endpoint};
@@ -111,12 +112,13 @@ pub fn connect_or_start(
         return Ok(live);
     }
 
-    // Only now, having *failed to connect*, is the file known to be stale. Removing it before
-    // trying would delete a working daemon's door.
-    if path.exists() {
-        let _ = std::fs::remove_file(path);
-    }
-
+    // Nothing is removed here, deliberately. Clearing the socket on a failed connect looks
+    // tidy and is a race: between this client's failed connect and its `remove_file`, another
+    // client's daemon can bind, and this one would then delete a working daemon's door. Two
+    // people running `mailo ping` at the same moment on a cold machine is all it takes.
+    //
+    // Only `ipc::bind` clears a socket, and it does so holding the lock that proves no daemon
+    // owns it. A client's job is to knock, not to tidy.
     start()?;
 
     let deadline = Instant::now() + wait;

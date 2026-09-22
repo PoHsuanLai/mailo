@@ -369,13 +369,13 @@ fn take_reply(buf: &[u8]) -> Result<Option<(ServerReply, usize)>, ProtoError> {
     let mut expected: Option<u16> = None;
     while let Some(rel) = buf[pos..].windows(2).position(|w| w == b"\r\n") {
         let parsed = parse_line(&buf[pos..pos + rel])?;
-        if let Some(prev) = expected {
-            if prev != parsed.code {
-                return Err(ProtoError::Malformed(format!(
-                    "reply code changed from {prev} to {}",
-                    parsed.code
-                )));
-            }
+        if let Some(prev) = expected
+            && prev != parsed.code
+        {
+            return Err(ProtoError::Malformed(format!(
+                "reply code changed from {prev} to {}",
+                parsed.code
+            )));
         }
         expected = Some(parsed.code);
         let last = parsed.last;

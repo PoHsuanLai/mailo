@@ -514,14 +514,12 @@ impl ImapSession {
                 //
                 // Ending it in protocol, with `DONE`, rather than dropping the socket: the
                 // connection stays reusable and the server is not left wondering.
-                if news {
-                    if let Phase::Idling { index, tag } = self.phase.clone() {
-                        self.phase = Phase::IdleEnding { index, tag };
-                        return Some(Progress::Need(vec![
-                            IoNeed::Write(b"DONE\r\n".to_vec()),
-                            IoNeed::Read,
-                        ]));
-                    }
+                if news && let Phase::Idling { index, tag } = self.phase.clone() {
+                    self.phase = Phase::IdleEnding { index, tag };
+                    return Some(Progress::Need(vec![
+                        IoNeed::Write(b"DONE\r\n".to_vec()),
+                        IoNeed::Read,
+                    ]));
                 }
                 None
             }

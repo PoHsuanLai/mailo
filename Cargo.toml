@@ -12,7 +12,11 @@ members = [
 [workspace.package]
 edition = "2024"
 license = "MIT OR Apache-2.0"
-rust-version = "1.85"
+# 1.85 is what the 2024 edition needs; 1.89 is what `std::fs::File::try_lock` needs, and the
+# daemon's "one per user" rule is built on it (`mail_app::ipc::bind`). The alternative was a
+# dependency — `fs4` or `rustix` — for a two-line call that std now has, on a release from
+# August 2025. Raised deliberately rather than by drift.
+rust-version = "1.89"
 
 [workspace.dependencies]
 mail-domain = { path = "crates/mail-domain" }

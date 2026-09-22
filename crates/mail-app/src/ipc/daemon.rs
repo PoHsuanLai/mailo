@@ -24,15 +24,12 @@ pub fn serve(store: Arc<SqliteStore>, pass: Pass) -> Result<String, String> {
     let crate::ipc::Endpoint::Socket(path) = crate::ipc::endpoint()? else {
         return Err("named pipes are not implemented yet; this build is Unix only".to_owned());
     };
-    let listener = crate::ipc::bind(&path)?;
+    // The lock inside this value is what makes "one daemon per user" true, and dropping it is
+    // what removes the socket, so it is held for the whole of `serve`.
+    let listening = crate::ipc::bind(&path)?;
     println!("listening on {}", path.display());
 
-    // The socket outlives the process unless something removes it, and a file left behind is
-    // what the next client mistakes for a daemon. Removed on the way out of every ordinary exit;
-    // a kill -9 still leaves one, which is why `connect_or_start` tries before it tidies.
-    let _tidy = Tidy(path.clone());
-
-    for connection in listener.incoming() {
+    for connection in listening.incoming() {
         let mut stream = match connection {
             Ok(stream) => stream,
             Err(e) => {
@@ -103,13 +100,4 @@ fn answer(
         .write_all(text.as_bytes())
         .map_err(|e| e.to_string())?;
     stream.flush().map_err(|e| e.to_string())
-}
-
-/// Removes the socket when the daemon leaves by any ordinary route.
-struct Tidy(std::path::PathBuf);
-
-impl Drop for Tidy {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.0);
-    }
 }
