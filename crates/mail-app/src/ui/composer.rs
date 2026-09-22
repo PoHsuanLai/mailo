@@ -402,3 +402,38 @@ fn set_notice(shell: &mut Signal<Shell>, notice: Option<String>) {
         c.notice = notice;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::dioxus_core::{self, NoOpMutations};
+    use crate::ui::fixtures::harness;
+
+    #[tokio::test]
+    async fn the_composer_renders_with_a_draft_open() {
+        let (mut dom, _toggle, _dir) = harness(true);
+        dom.rebuild_in_place();
+    }
+
+    #[tokio::test]
+    async fn the_composer_can_be_opened_and_closed_repeatedly() {
+        // What this proves is what it says: opening and closing the composer, several times,
+        // runs the component each way round without panicking.
+        //
+        // It is deliberately *not* claiming to guard the hook-order fix in the same commit.
+        // That fix is right — `use_hook` is documented to require a stable call order, and
+        // `Composer` used to return above both of its hooks — but I checked, and this test
+        // passes with the early return put back. It has to: `use_hook` indexes from zero on
+        // every render, and since the early return preceded *every* hook in the function there
+        // was no later hook left to misalign. The rule was broken; nothing downstream of it
+        // was. Writing the assertion that could fail is how I found that out, and leaving the
+        // test here mislabelled would have been worse than not writing it.
+        let (mut dom, toggle, _dir) = harness(false);
+        dom.rebuild_in_place();
+
+        for open in [true, false, true, false] {
+            toggle.0.store(open, std::sync::atomic::Ordering::SeqCst);
+            dom.mark_dirty(dioxus_core::ScopeId::APP);
+            dom.render_immediate(&mut NoOpMutations);
+        }
+    }
+}

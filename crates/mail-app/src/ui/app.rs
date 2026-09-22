@@ -1,0 +1,1435 @@
+use super::composer::{self, Composer};
+use super::data::{PAGE, accounts, count_badges, list_for, warm_the_first_screenful};
+use super::ops::{Composes, apply_label, apply_op, composes, start_composing, start_new};
+use super::reading::Reader;
+use super::style::STYLE;
+use super::text::{draft_state, label, sender};
+use crate::view::{
+    Listing, Shell, Shortcut, SyncState, badge_filter, hover_actions, nothing_to_show, synced,
+};
+use chrono::Local;
+use dioxus::prelude::*;
+use mail_domain::*;
+use mail_store::{SqliteStore, Store};
+use std::sync::Arc;
+
+#[component]
+pub(super) fn App() -> Element {
+    // No store handle in the component body any more. Since phase 8c every read this component
+    // makes goes through a `use_resource` that takes its own clone for a blocking thread, or
+    // through the first-frame fallback beside it, which asks the context where it stands. A
+    // handle held here is a handle that invites a query back onto the thread that draws.
+    let mut shell = use_signal(Shell::default);
+    // Bumped after any write, to re-run the queries. Explicit rather than implicit so it is
+    // obvious what causes a refresh.
+    let mut revision = use_signal(|| 0u64);
+
+    // How many pages of the list have been asked for. Reset whenever the list itself changes,
+    // because "page 3" of the Inbox means nothing once the user is looking at Archive.
+    let mut pages = use_signal(|| 1u32);
+    let mut sync_state = use_signal(|| SyncState::Idle);
+
+    // One count per place, recomputed after any write. `Store::count` answers each in a single
+    // indexed query, which is why the sidebar can afford to ask on every revision.
+    // Resolved once. The sidebar's places are fixed after construction, so what each badge
+    // counts never changes — only the answer does.
+    // Render the first screenful before anybody asks for it — phase 8e.
+    //
+    // An ordinary `std::thread`, not a task: it writes into the render cache, which is a `Mutex`
+    // and not a signal, so it needs nothing to poll it and nothing to notice when it finishes.
+    // That is the whole reason this part of phase 8 works while F140 stands — every other way of
+    // leaving the render thread has to find its way back onto one.
+    //
+    // `use_hook` runs its closure at mount, which is established: the note above the keyboard
+    // says so, and it is `spawn` inside it that does not run.
+    //
+    // Opening a conversation then costs a hash lookup. Other clients parse, sanitize and embed
+    // when you click; this has already done it.
+    use_hook(|| {
+        let store = consume_context::<Arc<SqliteStore>>();
+        std::thread::spawn(move || {
+            warm_the_first_screenful(&store);
+        });
+    });
+
+    // Behind an `Arc` because two closures want it: the blocking count and the first-frame
+    // fallback beside it. The places are fixed after construction, so this is read-only either
+    // way and sharing it is cheaper than deciding which one owns it.
+    let badge_filters: Arc<Vec<Option<Filter>>> = use_hook(|| {
+        Arc::new(
+            crate::view::default_places()
+                .iter()
+                .map(|place| badge_filter(&place.source))
+                .collect(),
+        )
+    });
+
+    // Depends on `revision` and nothing else. It used to read `shell`, which subscribes a memo
+    // to *every* change of it — so each keystroke in the search box re-ran one indexed count
+    // per place. Six queries per character, about half a frame on a ten-thousand-message
+    // mailbox, to recompute numbers that could not have moved.
+    //
+    // Phase 8a measured these as the largest single cost of a frame at every mailbox size tried
+    // — 4.7 ms on the real store, 12 ms at ten thousand messages — so phase 8c moves them off
+    // the thread that draws. What arrives late is a number beside a place name, which is the
+    // right thing to make late: a badge that appears a moment after the list is a badge that
+    // appeared, while a list that appears a moment after the keystroke is a window that stutters.
+    let for_the_task = badge_filters.clone();
+    let counted: Resource<Vec<Option<u64>>> = use_resource(move || {
+        let _ = revision();
+        let store = consume_context::<Arc<SqliteStore>>();
+        let filters = for_the_task.clone();
+        async move {
+            tokio::task::spawn_blocking(move || count_badges(&store, &filters))
+                .await
+                .unwrap_or_default()
+        }
+    });
+    // And the answer for the very first frame, computed here because there is not one yet.
+    //
+    // This is what phase 8c got wrong the first time. A bare resource is empty until it
+    // resolves, so the window opened on an empty mailbox — and under F140 it stays empty, since
+    // nothing ever polls the task. Falling back to the synchronous answer costs one query on the
+    // first frame and nothing afterwards: once the resource has a value it keeps it across
+    // restarts, so a search never drops back to computing on this thread.
+    let badges = use_memo(move || match counted.read().as_ref() {
+        Some(counts) => counts.clone(),
+        None => {
+            let store = consume_context::<Arc<SqliteStore>>();
+            count_badges(&store, &badge_filters)
+        }
+    });
+
+    // The label names the search box can resolve. Re-read after every write, because a sync
+    // that ingests a new Gmail label should make `label:` find it without a restart — and
+    // written back only when it has actually changed, so an unrelated revision does not
+    // invalidate the list below.
+    use_effect(move || {
+        let _ = revision();
+        let store = consume_context::<Arc<SqliteStore>>();
+        let known = crate::query::known_labels(&store);
+        if shell.peek().labels != known {
+            shell.write().labels = known;
+        }
+        // The same shape for the same reason: the From row needs the list, and an account added
+        // in a terminal should reach the open window without a restart.
+        let sending = crate::compose::sending_accounts(&store);
+        if shell.peek().accounts != sending {
+            shell.write().accounts = sending;
+        }
+    });
+
+    // The list, by the same rule as the badges: computed here the first time, off the thread
+    // afterwards.
+    //
+    // The first attempt at phase 8c was a bare `use_resource`, and a bare resource is empty
+    // until it resolves — so the window opened on an empty mailbox, and under F140 stayed that
+    // way because nothing ever polled the task. This keeps the synchronous answer for the frame
+    // that has no other one. `use_resource` does not clear its value when it restarts, so after
+    // the first frame a keystroke shows the previous list for a moment rather than a blank pane,
+    // and never falls back to querying on this thread.
+    let listing_now = move || shell.read().listing(PAGE * pages());
+    let queried: Resource<Vec<ThreadSummary>> = use_resource(move || {
+        let _ = revision();
+        let listing = listing_now();
+        let store = consume_context::<Arc<SqliteStore>>();
+        async move {
+            tokio::task::spawn_blocking(move || list_for(&store, listing))
+                .await
+                .unwrap_or_default()
+        }
+    });
+    let threads = use_memo(move || match queried.read().as_ref() {
+        Some(items) => items.clone(),
+        None => {
+            let store = consume_context::<Arc<SqliteStore>>();
+            list_for(&store, listing_now())
+        }
+    });
+
+    let drafts = use_memo(move || {
+        let _ = revision();
+        if !matches!(shell.read().listing(PAGE), Listing::Drafts) {
+            return Vec::new();
+        }
+        let store = consume_context::<Arc<SqliteStore>>();
+        accounts(&store)
+            .into_iter()
+            .filter_map(|account| store.drafts(account).ok())
+            .flatten()
+            .collect::<Vec<_>>()
+    });
+
+    // One more row than asked for means there is another page. Asking the store for the count
+    // would be a second query answering a question this one already answers.
+    // Deliberately a growing limit rather than `Page::next`, which the store also returns.
+    // `plan.md` asks for the cursor, and the cursor is the right answer for an accumulating
+    // list — but accumulating means holding pages in a signal and rebuilding them after every
+    // archive, star and ingest, and a mixture of pages fetched at different moments is exactly
+    // the inconsistency keyset pagination exists to avoid. One query for the whole visible list
+    // is always self-consistent, costs a few thousand indexed rows at the sizes this client is
+    // for, and needs no invalidation logic at all. Revisit when a mailbox is large enough to
+    // measure, at which point the cursor is already there.
+    let more = use_memo(move || threads().len() as u32 >= PAGE * pages());
+
+    // Why the pane is empty, when it is. Counted rather than assumed: the shell cannot add an
+    // account, so the first run needs to name the command that can.
+    let nothing = use_memo(move || {
+        let _ = revision();
+        let store = consume_context::<Arc<SqliteStore>>();
+        nothing_to_show(accounts(&store).len(), &shell.read().search)
+    });
+
+    // The keyboard.
+    //
+    // A keydown targets the focused element and bubbles *up*, `body` is that element until
+    // something focusable is clicked, and `body` is the app div's parent — so a handler on the
+    // div is simply never reached. `tabindex` alone does not fix it and `autofocus` does not
+    // either: that attribute is for form controls and WebKit ignores it on a div. Both compiled,
+    // rendered, and did nothing, which nothing in this repository could have told me.
+    //
+    // So the div is focused from JavaScript, and refocused whenever focus falls back to `body` —
+    // which is what happens after a click on anything that is not itself focusable. Written as a
+    // fire-and-forget script rather than a task with a channel because a future spawned from a
+    // component body is never polled here: `use_hook`'s closure runs, `spawn` inside it does not,
+    // and `use_future` does not run at all. Spawning works from an event handler, which is where
+    // the Sync button does it.
+    // Whether a text box has focus. A letter is a shortcut while reading and a letter while
+    // writing, and the client that confuses the two archives a conversation because someone
+    // typed "e" into a reply. The composer counts wholesale: its fields are many and focus can
+    // sit between them.
+    let mut in_a_field = use_signal(|| false);
+
+    let on_key = move |event: Event<KeyboardData>| {
+        // `Key`'s Display is the DOM key name — "e", "ArrowDown", "Escape" — which is the
+        // vocabulary `view::shortcut` is written against.
+        let typing = in_a_field() || shell.read().composing.is_some();
+        let Some(action) = crate::view::shortcut(&event.key().to_string(), typing) else {
+            return;
+        };
+        let store = consume_context::<Arc<SqliteStore>>();
+        let open = shell.read().open;
+        match action {
+            Shortcut::Next | Shortcut::Previous => {
+                let ids: Vec<ThreadId> = threads().iter().map(|t| t.id).collect();
+                if let Some(id) = crate::view::step(open, &ids, action == Shortcut::Next) {
+                    shell.write().open(id);
+                }
+            }
+            Shortcut::Back => {
+                if shell.read().composing.is_some() {
+                    // Saving first, exactly as the Close button does. A second way to close that
+                    // silently dropped the text would be worse than no keyboard.
+                    let current = shell.read().composing.clone();
+                    if composer::persist(&store, current.as_ref()).is_ok() {
+                        shell.write().close_composer();
+                        revision += 1;
+                    }
+                } else {
+                    shell.write().open = None;
+                }
+            }
+            Shortcut::TogglePin => {
+                if let Some(id) = open
+                    && apply_op(&store, id, OpKind::Pin)
+                {
+                    revision += 1;
+                }
+            }
+            Shortcut::Compose => {
+                // The only shortcut that does not consult the conversation under the cursor, and
+                // so the only one that does anything in an empty mailbox.
+                // Cloned out and the guard dropped before anything writes back. The same
+                // hazard the composer's handlers document, caught here by the borrow checker
+                // rather than at runtime.
+                let known = shell.peek().accounts.clone();
+                match start_new(&store, &known) {
+                    Ok(draft) => {
+                        shell.write().compose(&draft);
+                        revision += 1;
+                    }
+                    // Nowhere to put it: the composer that would show a notice is what failed
+                    // to open. Same bind as the reply buttons, and the same answer.
+                    Err(why) => eprintln!("compose: {why}"),
+                }
+            }
+            Shortcut::Reply | Shortcut::ReplyAll | Shortcut::Forward => {
+                let what = match action {
+                    Shortcut::Reply => Composes::Reply(ReplyScope::Sender),
+                    Shortcut::ReplyAll => Composes::Reply(ReplyScope::All),
+                    _ => Composes::Forward,
+                };
+                if let Some(id) = open
+                    && let Ok(draft) = start_composing(&store, id, what)
+                {
+                    shell.write().compose(&draft);
+                    revision += 1;
+                }
+            }
+            _ => {
+                // Resolved against the open thread's own summary, so the keyboard reaches
+                // exactly what that row's buttons offer and nothing else.
+                let Some(id) = open else { return };
+                let Some(summary) = threads().iter().find(|t| t.id == id).cloned() else {
+                    return;
+                };
+                if let Some(kind) = crate::view::op_for_shortcut(action, &summary)
+                    && apply_op(&store, id, kind)
+                {
+                    revision += 1;
+                }
+            }
+        }
+    };
+
+    // Mail that only arrives when you press a button is mail you miss. `AccountEngine::watch`
+    // has existed since phase 3 and nothing called it; this is the poll half of it, which is
+    // what every account's `WatchMode::Poll` already asks for.
+    //
+    // The decision of *when* is `view::next_sync`, not here — in particular the rule that a
+    // rejected credential stops the loop rather than slowing it. Five minutes is 288 attempts a
+    // day, and 288 failed logins a day against the user's own mail server is how an account gets
+    // locked.
+    let _poll = use_future(move || async move {
+        let mut failures = 0u32;
+        let interval = {
+            let store = consume_context::<Arc<SqliteStore>>();
+            crate::sync::poll_interval(&store)
+        };
+        // A beat before the first pass, so opening the window is not also a network round trip
+        // competing with the first paint.
+        let mut wait = std::time::Duration::from_secs(2);
+        loop {
+            tokio::time::sleep(wait).await;
+
+            // Never two at once: a pass the user started is the same request, and two passes on
+            // one account race each other's writes for the same rows.
+            if !sync_state.read().may_start() {
+                wait = interval;
+                continue;
+            }
+            sync_state.set(SyncState::Running);
+            let store = consume_context::<Arc<SqliteStore>>();
+            let done =
+                tokio::task::spawn_blocking(move || crate::sync::run(store, chrono::Utc::now()))
+                    .await;
+
+            // Order matters: a pass can both be refused and be told to slow down, and only one
+            // of the two is worth stopping the loop for.
+            let passed = match &done {
+                Ok(Ok(ran)) if ran.rejected => crate::view::Passed::Rejected,
+                Ok(Ok(ran)) => match ran.hold {
+                    Some(wait) => crate::view::Passed::Throttled { wait },
+                    None => crate::view::Passed::Fine,
+                },
+                // A pass that could not run at all, and a task that panicked, are both worth
+                // trying again: a laptop lid is the usual cause of the first.
+                Ok(Err(_)) | Err(_) => crate::view::Passed::Transient,
+            };
+            failures = match passed {
+                // Being asked to wait is not a failure, and counting it as one would double a
+                // wait the server had already named.
+                crate::view::Passed::Fine | crate::view::Passed::Throttled { .. } => 0,
+                _ => failures.saturating_add(1),
+            };
+            sync_state.set(match done {
+                Ok(result) => synced(result.map(|ran| ran.text)),
+                Err(e) => synced(Err(format!("the sync pass stopped: {e}"))),
+            });
+            revision += 1;
+
+            match crate::view::next_sync(passed, failures, interval) {
+                crate::view::NextSync::After(next) => wait = next,
+                crate::view::NextSync::Wait(why) => {
+                    // Said once and then nothing more. The Sync button still works, so a user
+                    // who has fixed the credential is one click from finding out.
+                    sync_state.set(SyncState::Failed(why));
+                    revision += 1;
+                    return;
+                }
+            }
+        }
+    });
+
+    rsx! {
+        style { {STYLE} }
+        div { class: "app",
+            tabindex: "0",
+            onkeydown: on_key,
+            nav { class: "places",
+                for (index, place) in shell.read().places.iter().enumerate() {
+                    button {
+                        key: "{place.name}",
+                        class: if index == shell.read().selected { "place on" } else { "place" },
+                        onclick: move |_| {
+                            shell.write().select(index);
+                            pages.set(1);
+                        },
+                        "{place.name}"
+                        if let Some(Some(count)) = badges().get(index).copied() {
+                            span { class: "badge", "{count}" }
+                        }
+                    }
+                }
+                button {
+                    class: "place compose",
+                    onclick: move |_| {
+                        let store = consume_context::<Arc<SqliteStore>>();
+                        let known = shell.peek().accounts.clone();
+                        match start_new(&store, &known) {
+                            Ok(draft) => {
+                                shell.write().compose(&draft);
+                                revision += 1;
+                            }
+                            Err(why) => eprintln!("compose: {why}"),
+                        }
+                    },
+                    title: "Write a new message (c)",
+                    "New"
+                }
+                div { class: "spacer" }
+                button {
+                    class: "place sync",
+                    disabled: !sync_state.read().may_start(),
+                    onclick: move |_| {
+                        if !sync_state.read().may_start() {
+                            return;
+                        }
+                        sync_state.set(SyncState::Running);
+                        let store = consume_context::<Arc<SqliteStore>>();
+                        spawn(async move {
+                            // `spawn_blocking`, not this task: sync::run opens sockets and
+                            // builds its own runtime, and `Runtime::block_on` inside an async
+                            // context panics. Off the UI thread either way — a pass takes
+                            // minutes on a first sync and would freeze the window.
+                            let done = tokio::task::spawn_blocking(move || {
+                                crate::sync::run(store, chrono::Utc::now())
+                            })
+                            .await;
+                            sync_state.set(match done {
+                                Ok(result) => synced(result.map(|ran| ran.text)),
+                                // The blocking task panicked. Saying so beats a window that
+                                // sits on "Syncing…" for ever.
+                                Err(e) => synced(Err(format!("the sync pass stopped: {e}"))),
+                            });
+                            revision += 1;
+                        });
+                    },
+                    if sync_state.read().may_start() { "Sync" } else { "Syncing…" }
+                }
+                if let Some(note) = sync_state.read().message() {
+                    p {
+                        class: if sync_state.read().is_failure() { "sync-note bad" } else { "sync-note" },
+                        "{note}"
+                    }
+                }
+            }
+            section { class: "list",
+                input {
+                    class: "search",
+                    placeholder: "Search all mail",
+                    onfocusin: move |_| in_a_field.set(true),
+                    onfocusout: move |_| in_a_field.set(false),
+                    value: "{shell.read().search}",
+                    oninput: move |e| {
+                        shell.write().search = e.value();
+                        pages.set(1);
+                    },
+                }
+                if threads().is_empty() && drafts().is_empty() {
+                    p { class: "empty", "{nothing().message()}" }
+                    if let Some(command) = nothing().command() {
+                        pre { class: "command", "{command}" }
+                    }
+                }
+                for draft in drafts() {
+                    {
+                        let id = draft.id;
+                        let subject = if draft.subject.is_empty() {
+                            "(no subject)".to_owned()
+                        } else {
+                            draft.subject.clone()
+                        };
+                        let who = crate::view::join_addresses(&draft.to);
+                        let state = draft_state(&draft.state);
+                        let when = crate::view::listed(draft.updated, chrono::Utc::now(), &Local);
+                        rsx! {
+                            div {
+                                key: "{id}",
+                                class: "row",
+                                onclick: move |_| {
+                                    let store = consume_context::<Arc<SqliteStore>>();
+                                    if let Ok(draft) = store.draft(id) {
+                                        shell.write().compose(&draft);
+                                    }
+                                },
+                                span { class: "who", if who.is_empty() { "(no recipient)" } else { "{who}" } }
+                                span { class: "subject", "{subject}" }
+                                span { class: "when", "{state} · {when}" }
+                            }
+                        }
+                    }
+                }
+                for summary in threads() {
+                    {
+                        let id = summary.id;
+                        let unread = summary.read == ReadState::Unread;
+                        let who = sender(&summary);
+                        let when = crate::view::listed(summary.last_date, chrono::Utc::now(), &Local);
+                        let subject = summary.subject.clone();
+                        let actions = hover_actions(&summary);
+                        rsx! {
+                            div {
+                                key: "{id}",
+                                class: if unread { "row unread" } else { "row" },
+                                onclick: move |_| shell.write().open(id),
+                                span { class: "who", "{who}" }
+                                span { class: "subject", "{subject}" }
+                                span { class: "when", "{when}" }
+                                span { class: "hover",
+                                    for kind in actions {
+                                        button {
+                                            key: "{kind:?}",
+                                            onclick: move |e: Event<MouseData>| {
+                                                // Without this the click also opens the thread.
+                                                e.stop_propagation();
+                                                let store = consume_context::<Arc<SqliteStore>>();
+                                                // A label needs a payload no button can
+                                                // carry, so this one opens a menu instead of
+                                                // performing anything.
+                                                if kind == OpKind::AddLabel {
+                                                    let already =
+                                                        shell.peek().labelling == Some(id);
+                                                    shell.write().labelling =
+                                                        if already { None } else { Some(id) };
+                                                    return;
+                                                }
+                                                // Snooze needs a time, which is the same shape
+                                                // of payload as a label and gets the same
+                                                // answer: a menu rather than a guess.
+                                                if kind == OpKind::Snooze {
+                                                    let already =
+                                                        shell.peek().snoozing == Some(id);
+                                                    shell.write().snoozing =
+                                                        if already { None } else { Some(id) };
+                                                    return;
+                                                }
+                                                match composes(kind) {
+                                                    Some(what) => {
+                                                        match start_composing(&store, id, what) {
+                                                            Ok(draft) => {
+                                                                shell.write().compose(&draft);
+                                                                revision += 1;
+                                                            }
+                                                            Err(why) => {
+                                                                // Nowhere else to say it yet:
+                                                                // the composer that would show
+                                                                // a notice is what failed to
+                                                                // open.
+                                                                eprintln!("reply: {why}");
+                                                            }
+                                                        }
+                                                    }
+                                                    None => {
+                                                        if apply_op(&store, id, kind) {
+                                                            revision += 1;
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                            "{label(kind)}"
+                                        }
+                                    }
+                                }
+                                if shell.read().snoozing == Some(id) {
+                                    div { class: "labels",
+                                        onclick: move |e: Event<MouseData>| e.stop_propagation(),
+                                        for (says, phrase) in crate::view::snooze_choices() {
+                                            button {
+                                                key: "{phrase}",
+                                                class: "label",
+                                                onclick: move |e: Event<MouseData>| {
+                                                    e.stop_propagation();
+                                                    let store =
+                                                        consume_context::<Arc<SqliteStore>>();
+                                                    match crate::snooze::snooze(
+                                                        &store,
+                                                        id,
+                                                        phrase,
+                                                        chrono::Utc::now(),
+                                                    ) {
+                                                        Ok(_) => {
+                                                            shell.write().snoozing = None;
+                                                            revision += 1;
+                                                        }
+                                                        // The vocabulary is fixed and the clock
+                                                        // is the only other input, so this is
+                                                        // "the year 262143 has no tomorrow".
+                                                        Err(why) => eprintln!("snooze: {why}"),
+                                                    }
+                                                },
+                                                "{says}"
+                                            }
+                                        }
+                                    }
+                                }
+                                if shell.read().labelling == Some(id) {
+                                    div { class: "labels",
+                                        // Stops a click in the menu from also opening the
+                                        // conversation underneath it.
+                                        onclick: move |e: Event<MouseData>| e.stop_propagation(),
+                                        if shell.read().labels.is_empty() {
+                                            // Said rather than shown as an empty box: on a
+                                            // fresh account there are no labels yet, and a menu
+                                            // with nothing in it reads as something broken.
+                                            p { class: "hint", "No labels yet. They arrive with the first sync." }
+                                        }
+                                        for choice in crate::view::label_menu(&shell.read().labels, &summary) {
+                                            button {
+                                                key: "{choice.id}",
+                                                class: if choice.membership == Membership::In {
+                                                    "label on"
+                                                } else {
+                                                    "label"
+                                                },
+                                                onclick: {
+                                                    let wanted = choice.toggled();
+                                                    let which = choice.id;
+                                                    move |e: Event<MouseData>| {
+                                                        e.stop_propagation();
+                                                        let store =
+                                                            consume_context::<Arc<SqliteStore>>();
+                                                        if apply_label(&store, id, which, wanted) {
+                                                            revision += 1;
+                                                        }
+                                                    }
+                                                },
+                                                if choice.membership == Membership::In { "✓ " }
+                                                "{choice.name}"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                if more() {
+                    button {
+                        class: "more",
+                        onclick: move |_| pages += 1,
+                        "Show more"
+                    }
+                }
+            }
+            section { class: "reader",
+                if let Some(thread) = shell.read().open {
+                    Reader { thread, shell }
+                } else if shell.read().composing.is_none() {
+                    p { class: "empty", "Select a conversation." }
+                }
+                if shell.read().composing.is_some() {
+                    Composer { shell, revision }
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::launch::KEEP_FOCUS;
+    use super::super::ops::apply_label;
+    use super::App;
+    use crate::ui::fixtures::{
+        ACCOUNT, FakeKey, INSIDE_THE_SHELL, Typed, dispatching, empty, inbox_query, markup, press,
+        realistic, seeded,
+    };
+    use dioxus::prelude::*;
+    use dioxus_core::{NoOpMutations, VirtualDom};
+    use mail_domain::*;
+    use mail_store::{SqliteStore, Store};
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn the_whole_app_renders() {
+        // Catches what compiling cannot: a missing context, a panic inside `rsx!`, a query that
+        // blows up on a real database. Until this test the components had never been executed
+        // at all — every other test stops at `view.rs`.
+        let (store, _dir) = seeded();
+        let mut dom = VirtualDom::new(App).with_root_context(store);
+        dom.rebuild_in_place();
+    }
+
+    #[tokio::test]
+    async fn the_first_run_names_the_command_that_gets_you_out_of_it() {
+        // A database with no account looked exactly like an empty mailbox: six folders, a Sync
+        // button and "Nothing here." The shell cannot add an account, so that was the end of the
+        // road rather than a state with a way out.
+        let (store, _dir) = empty();
+        let markup = markup(store);
+
+        assert!(markup.contains("No account yet"), "{markup}");
+        // The angle brackets come back escaped, which is the renderer doing its job; asserting
+        // on one spelling of the escape would be asserting on dioxus rather than on the shell.
+        assert!(
+            markup.contains("mailo account add"),
+            "the command is not on the page:\n{markup}"
+        );
+        assert!(
+            markup.contains("class=\"command\""),
+            "it is not set apart from the prose, so it reads as italic advice:\n{markup}"
+        );
+        assert!(
+            !markup.contains("Nothing here"),
+            "it still says the thing that told a new user nothing:\n{markup}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_configured_account_with_an_empty_folder_is_not_told_to_add_an_account() {
+        // The other direction. `seeded()` has one account and mail in the inbox, so nothing on
+        // the page should be setup advice.
+        let (store, _dir) = seeded();
+        let markup = markup(store);
+        assert!(!markup.contains("No account yet"), "{markup}");
+    }
+
+    /// Whether a task spawned from inside an event handler ever runs.
+    ///
+    /// F103 established that a future spawned from a *component body* is never polled here, and
+    /// left the other half open: the Sync button spawns from a click handler, which is a
+    /// different path. Left open it is a question about whether the one button that fetches mail
+    /// works at all, so it is worth a component that exists only to ask it.
+    static SPAWN_RAN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+    #[component]
+    fn SpawnProbe() -> Element {
+        rsx! {
+            div {
+                onkeydown: move |_| {
+                    spawn(async {
+                        SPAWN_RAN.store(true, std::sync::atomic::Ordering::SeqCst);
+                    });
+                },
+            }
+        }
+    }
+
+    /// Records which `ElementId` each dynamic attribute landed on.
+    ///
+    /// The one thing a test needs in order to drive the real `App` rather than a stand-in:
+    /// `handle_event` addresses an element by id, and nothing else in the harness says which id
+    /// is which. Static attributes live in the template and never appear here, so an element is
+    /// found by an attribute the component computes — `value` on the search box.
+    use dioxus_core::ElementId;
+
+    #[derive(Default)]
+    struct WhereThingsWent {
+        attrs: Vec<(String, String, dioxus_core::ElementId)>,
+    }
+
+    impl WhereThingsWent {
+        /// The element a dynamic `name` attribute was set on, where its value matched.
+        fn with_attr(&self, name: &str, matching: impl Fn(&str) -> bool) -> Vec<ElementId> {
+            self.attrs
+                .iter()
+                .filter(|(n, v, _)| n == name && matching(v))
+                .map(|(_, _, id)| *id)
+                .collect()
+        }
+    }
+
+    impl dioxus_core::WriteMutations for WhereThingsWent {
+        fn set_attribute(
+            &mut self,
+            name: &'static str,
+            _ns: Option<&'static str>,
+            value: &dioxus_core::AttributeValue,
+            id: ElementId,
+        ) {
+            let rendered = match value {
+                dioxus_core::AttributeValue::Text(t) => t.clone(),
+                other => format!("{other:?}"),
+            };
+            self.attrs.push((name.to_owned(), rendered, id));
+        }
+
+        fn append_children(&mut self, _: ElementId, _: usize) {}
+        fn assign_node_id(&mut self, _: &'static [u8], _: ElementId) {}
+        fn create_placeholder(&mut self, _: ElementId) {}
+        fn create_text_node(&mut self, _: &str, _: ElementId) {}
+        fn load_template(&mut self, _: dioxus_core::Template, _: usize, _: ElementId) {}
+        fn replace_node_with(&mut self, _: ElementId, _: usize) {}
+        fn replace_placeholder_with_nodes(&mut self, _: &'static [u8], _: usize) {}
+        fn insert_nodes_after(&mut self, _: ElementId, _: usize) {}
+        fn insert_nodes_before(&mut self, _: ElementId, _: usize) {}
+        fn set_node_text(&mut self, _: &str, _: ElementId) {}
+        fn create_event_listener(&mut self, _: &'static str, _: ElementId) {}
+        fn remove_event_listener(&mut self, _: &'static str, _: ElementId) {}
+        fn remove_node(&mut self, _: ElementId) {}
+        fn push_root(&mut self, _: ElementId) {}
+    }
+
+    /// Typing into the real window's search box, and reading what the list pane then shows.
+    ///
+    /// `label:` is the one search term whose answer depends on state the component loads from
+    /// the store. A test that sets `Shell::search` directly would build that state itself and
+    /// prove nothing about whether `App` ever does — which is exactly how this shipped broken:
+    /// the window passed a resolver that knew no label names, so `label:travel` quietly became a
+    /// full-text search for the literal string while the same query worked in the terminal.
+    mod searching_in_the_window {
+        use super::*;
+
+        fn labelled() -> (Arc<SqliteStore>, tempfile::TempDir) {
+            let (store, dir) = seeded();
+            // The way a Gmail sync reports it: the complete label set for one remote message.
+            // Writing `labels` and `message_labels` by hand looked equivalent and was not —
+            // `Filter::HasLabel` reads `thread_summary.labels`, a materialized union that only
+            // the ingest path rewrites, so the rows were there and no search could see them.
+            store
+                .ingest(
+                    ACCOUNT,
+                    Ingest {
+                        mailbox: MailboxRef {
+                            account: ACCOUNT,
+                            path: "INBOX".to_owned(),
+                        },
+                        validity: UidValidity::Same,
+                        cursor: None,
+                        messages: vec![],
+                        flags: vec![],
+                        labels: vec![],
+                        label_names: vec![(
+                            RemoteRef::Pop {
+                                uidl: "u1".to_owned(),
+                            },
+                            vec!["travel".to_owned()],
+                        )],
+                        gone: vec![],
+                    },
+                )
+                .unwrap();
+            (store, dir)
+        }
+
+        /// Mount `App`, type `typed` into its search box, and return the rendered page.
+        async fn typing(store: Arc<SqliteStore>, typed: &str) -> String {
+            dispatching();
+            let mut dom = VirtualDom::new(App).with_root_context(store);
+            let mut seen = WhereThingsWent::default();
+            dom.rebuild(&mut seen);
+            // Let the mount-time effects run: the label index is one of them, and the whole
+            // question is whether it is there by the time someone types.
+            tokio::time::timeout(std::time::Duration::from_millis(500), dom.wait_for_work())
+                .await
+                .ok();
+            dom.render_immediate(&mut NoOpMutations);
+
+            // The search box is the only element whose `value` the component computes; the
+            // composer's inputs exist only once a draft is open, and none is.
+            let boxes = seen.with_attr("value", |_| true);
+            assert_eq!(
+                boxes.len(),
+                1,
+                "expected exactly one dynamic value attribute, found {boxes:?}"
+            );
+            #[allow(deprecated)]
+            dom.handle_event(
+                "input",
+                std::rc::Rc::new(PlatformEventData::new(Box::new(Typed(typed.to_owned())))),
+                boxes[0],
+                true,
+            );
+            settle(&mut dom).await;
+            dioxus_ssr::render(&dom)
+        }
+
+        /// The subjects the list pane is showing.
+        ///
+        /// Read from the subject cells rather than searched for in the page: the stylesheet is
+        /// in the markup, and `page.contains("hi")` is true of `white-space` and `this`. That is
+        /// the substring rule in `CONVENTIONS.md`, caught here by a test of its own making.
+        fn listed(page: &str) -> Vec<String> {
+            page.split(r#"<span class="subject">"#)
+                .skip(1)
+                .filter_map(|rest| rest.split_once("</span>"))
+                .map(|(subject, _)| subject.to_owned())
+                .collect()
+        }
+
+        #[tokio::test]
+        async fn a_label_name_finds_the_conversation_that_bears_it() {
+            let (store, _dir) = labelled();
+            let page = typing(store, "label:travel").await;
+            assert_eq!(
+                listed(&page),
+                vec!["hi"],
+                "the window searched for the words instead of the label"
+            );
+        }
+
+        /// The control. Without it the test above would pass on a window that ignores the search
+        /// box entirely and shows the Inbox whatever is typed.
+        #[tokio::test]
+        async fn a_label_nothing_bears_finds_nothing() {
+            let (store, _dir) = labelled();
+            let page = typing(store, "label:nosuchlabel").await;
+            assert!(
+                listed(&page).is_empty(),
+                "a search that matches nothing still showed {:?}",
+                listed(&page)
+            );
+        }
+
+        /// And the box itself still shows what was typed, so this is a search and not a filter
+        /// that silently rewrites the query.
+        #[tokio::test]
+        async fn the_box_keeps_what_was_typed() {
+            let (store, _dir) = labelled();
+            let page = typing(store, "label:travel").await;
+            assert!(
+                page.contains(
+                    r#"class="search" placeholder="Search all mail" value="label:travel""#
+                ),
+                "the search box lost the text:\n{page}"
+            );
+        }
+    }
+
+    static MOUNTED_SPAWN_RAN: std::sync::atomic::AtomicBool =
+        std::sync::atomic::AtomicBool::new(false);
+
+    #[component]
+    fn MountedSpawnProbe() -> Element {
+        let _ = use_future(move || async move {
+            MOUNTED_SPAWN_RAN.store(true, std::sync::atomic::Ordering::SeqCst);
+        });
+        rsx! { div {} }
+    }
+
+    #[tokio::test]
+    async fn a_future_started_when_a_component_mounts_does_run() {
+        // F103 concluded it does not, from prints taken under the broken launch F107 found. If
+        // that conclusion was an artefact then a periodic sync can be an ordinary `use_future`,
+        // and if it was not then it has to be driven some other way. Worth knowing before
+        // building on either answer.
+        MOUNTED_SPAWN_RAN.store(false, std::sync::atomic::Ordering::SeqCst);
+        let mut dom = VirtualDom::new(MountedSpawnProbe);
+        dom.rebuild_in_place();
+        tokio::time::timeout(std::time::Duration::from_millis(500), dom.wait_for_work())
+            .await
+            .ok();
+        dom.render_immediate(&mut NoOpMutations);
+        assert!(
+            MOUNTED_SPAWN_RAN.load(std::sync::atomic::Ordering::SeqCst),
+            "a future started at mount never ran"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_task_spawned_from_an_event_handler_does_run() {
+        use dioxus_core::ElementId;
+
+        dispatching();
+        SPAWN_RAN.store(false, std::sync::atomic::Ordering::SeqCst);
+        let mut dom = VirtualDom::new(SpawnProbe);
+        dom.rebuild_in_place();
+        #[allow(deprecated)]
+        dom.handle_event(
+            "keydown",
+            std::rc::Rc::new(PlatformEventData::new(Box::new(FakeKey("j")))),
+            ElementId(1),
+            true,
+        );
+        // One turn of the loop, which is what a spawned task needs to be picked up.
+        tokio::time::timeout(std::time::Duration::from_millis(500), dom.wait_for_work())
+            .await
+            .ok();
+        dom.render_immediate(&mut NoOpMutations);
+
+        assert!(
+            SPAWN_RAN.load(std::sync::atomic::Ordering::SeqCst),
+            "a task spawned from a click handler never ran — which is how the Sync button works"
+        );
+    }
+
+    /// Let the off-thread reads finish and fold their answers back into the tree.
+    ///
+    /// Since phase 8c the list and the badges are computed on a blocking thread and delivered
+    /// through a `use_resource`, which keeps its previous value while it recomputes — so one
+    /// render after a keystroke shows what was on screen *before* it. That is the right
+    /// behaviour in a window, where a blank pane between keystrokes is worse than a stale one,
+    /// and the wrong thing to assert against.
+    ///
+    /// Bounded, and it stops as soon as the tree has nothing left to do: a bare `wait_for_work`
+    /// on a settled tree never returns.
+    async fn settle(dom: &mut VirtualDom) {
+        for _ in 0..16 {
+            if tokio::time::timeout(std::time::Duration::from_millis(20), dom.wait_for_work())
+                .await
+                .is_err()
+            {
+                break;
+            }
+            dom.render_immediate(&mut NoOpMutations);
+        }
+        dom.render_immediate(&mut NoOpMutations);
+    }
+
+    #[tokio::test]
+    async fn a_keystroke_reaches_the_store() {
+        // The half of F103 that could not be checked by pressing keys at the window: whether a
+        // keydown delivered to the shell reaches the handler, the decision, and the database.
+        // `j` opens the first conversation and `e` archives it.
+        dispatching();
+        let (store, _dir) = realistic();
+        let mut dom = VirtualDom::new(App).with_root_context(store.clone());
+        dom.rebuild_in_place();
+
+        let before = store
+            .threads(&inbox_query(), chrono::Utc::now())
+            .unwrap()
+            .items
+            .len();
+        assert!(before > 1, "the fixture should have something to move");
+
+        press(&mut dom, "j", INSIDE_THE_SHELL);
+        press(&mut dom, "e", INSIDE_THE_SHELL);
+
+        let after = store
+            .threads(&inbox_query(), chrono::Utc::now())
+            .unwrap()
+            .items
+            .len();
+        assert_eq!(
+            after,
+            before - 1,
+            "a keystroke did not reach the store: {before} conversations before, {after} after"
+        );
+    }
+
+    #[tokio::test]
+    async fn f_opens_a_forward_of_the_open_conversation() {
+        // Forwarding was modelled in `mail-domain` and reachable from no surface at all. This is
+        // the shell's half: `j` to open a conversation, `f` to carry it somewhere else.
+        dispatching();
+        let (store, _dir) = realistic();
+        let mut dom = VirtualDom::new(App).with_root_context(store.clone());
+        dom.rebuild_in_place();
+        let before = store.drafts(ACCOUNT).unwrap().len();
+
+        press(&mut dom, "j", INSIDE_THE_SHELL);
+        press(&mut dom, "f", INSIDE_THE_SHELL);
+
+        let drafts = store.drafts(ACCOUNT).unwrap();
+        assert_eq!(drafts.len(), before + 1, "`f` opened nothing");
+        let made = drafts
+            .iter()
+            .find(|d| d.forward_of.is_some())
+            .expect("a forward, not a reply");
+        assert!(made.subject.starts_with("Fwd: "), "{}", made.subject);
+        assert!(
+            made.to.is_empty(),
+            "a forward starts with nobody on it; the composer is where they are named"
+        );
+        assert!(
+            made.text
+                .contains("---------- Forwarded message ----------"),
+            "the message being carried is not in it:\n{}",
+            made.text
+        );
+    }
+
+    #[tokio::test]
+    async fn c_writes_to_someone_who_has_not_written_first() {
+        // Phase 7a through the real tree. Everything else the keyboard does acts on the
+        // conversation under the cursor; this one has no conversation, which is why it is also
+        // the only shortcut that does anything at all in an empty mailbox.
+        dispatching();
+        let (store, _dir) = realistic();
+        let mut dom = VirtualDom::new(App).with_root_context(store.clone());
+        dom.rebuild_in_place();
+        let before = store.drafts(ACCOUNT).unwrap().len();
+
+        // No `j` first, deliberately: nothing is open and nothing needs to be.
+        press(&mut dom, "c", INSIDE_THE_SHELL);
+
+        let drafts = store.drafts(ACCOUNT).unwrap();
+        assert_eq!(drafts.len(), before + 1, "`c` opened nothing");
+        let made = drafts
+            .iter()
+            .max_by_key(|d| d.updated)
+            .expect("the draft just written");
+        assert_eq!(
+            made.in_reply_to, None,
+            "a new message must not answer anything"
+        );
+        assert_eq!(made.forward_of, None, "nor carry anything");
+        assert!(
+            made.to.is_empty(),
+            "there is no original to take a recipient from, and a guess is one the sender has \
+             to notice and undo"
+        );
+        assert!(made.subject.is_empty(), "{:?}", made.subject);
+    }
+
+    /// Putting a conversation off, from the window — `plan.md` phase 7e.
+    ///
+    /// The Snoozed place has listed correctly since the place existed and the vocabulary has
+    /// been parsed since the CLI learned it. Nothing in the window could snooze anything.
+    mod putting_it_off {
+        use super::*;
+
+        #[tokio::test]
+        async fn the_rows_offer_a_way_to_snooze() {
+            let (store, _dir) = realistic();
+            assert!(markup(store).contains(">Snooze<"));
+        }
+
+        #[test]
+        fn snoozing_takes_it_out_of_the_inbox_and_the_snoozed_place_has_it() {
+            let (store, _dir) = realistic();
+            // The *place's* filter, not a bare `InMailbox`: hiding a snoozed conversation is
+            // what `place_filter` is for, and asserting against the bare one would be asking
+            // whether snoozing archives things, which it does not.
+            let place = Query {
+                filter: crate::view::place_filter(MailboxRole::Inbox),
+                ..inbox_query()
+            };
+            let before = store.threads(&place, chrono::Utc::now()).unwrap();
+            let thread = before.items[0].id;
+
+            crate::snooze::snooze(&store, thread, "tomorrow", chrono::Utc::now())
+                .expect("tomorrow is a time");
+
+            let after = store.threads(&place, chrono::Utc::now()).unwrap();
+            assert!(
+                !after.items.iter().any(|t| t.id == thread),
+                "a snoozed conversation is still in the inbox"
+            );
+            let asleep = store
+                .threads(
+                    &Query {
+                        filter: crate::view::pending_snooze(),
+                        ..inbox_query()
+                    },
+                    chrono::Utc::now(),
+                )
+                .unwrap();
+            assert!(asleep.items.iter().any(|t| t.id == thread), "{asleep:?}");
+        }
+
+        #[test]
+        fn every_phrase_the_menu_offers_is_one_the_parser_accepts() {
+            // The menu's phrases are the command line's, so a button that said something the
+            // parser had never heard of would be a button that does nothing. Checked rather
+            // than assumed, because the two lists are written in different files.
+            let now = chrono::Utc::now();
+            for (says, phrase) in crate::view::snooze_choices() {
+                let at = crate::view::snooze_until(phrase, now, &chrono::Local)
+                    .unwrap_or_else(|why| panic!("{says:?} means {phrase:?}, which is not: {why}"));
+                assert!(at > now, "{says:?} is not in the future");
+            }
+        }
+    }
+
+    /// Labels, in both directions — `plan.md` phase 7d.
+    ///
+    /// `label:` has searched since F131 and sync has ingested Gmail's labels since F136, and the
+    /// row's own "Label" button opened nothing: `OpKind::AddLabel` has no `Op` because
+    /// `Op::Label` carries a payload, and `op_for` correctly returned `None` for it. Correctly,
+    /// and then nothing else happened.
+    mod naming_a_conversation {
+        use super::*;
+
+        fn a_label(store: &SqliteStore, name: &str) -> LabelId {
+            let id = LabelId::generate();
+            store
+                .connection()
+                .execute(
+                    "INSERT INTO labels (id, account, name, origin)
+                     VALUES (?1, ?2, ?3, '\"provider\"')",
+                    rusqlite::params![id.to_string(), ACCOUNT.to_string(), name],
+                )
+                .unwrap();
+            id
+        }
+
+        #[test]
+        fn a_label_can_be_put_on_and_taken_off_again() {
+            let (store, _dir) = realistic();
+            let travel = a_label(&store, "travel");
+            let thread = store
+                .threads(&inbox_query(), chrono::Utc::now())
+                .unwrap()
+                .items[0]
+                .id;
+
+            assert!(apply_label(&store, thread, travel, Membership::In));
+            assert!(
+                store
+                    .thread(thread)
+                    .unwrap()
+                    .summary
+                    .labels
+                    .contains(&travel),
+                "the label never landed"
+            );
+
+            assert!(apply_label(&store, thread, travel, Membership::Out));
+            assert!(
+                !store
+                    .thread(thread)
+                    .unwrap()
+                    .summary
+                    .labels
+                    .contains(&travel),
+                "the label would not come off"
+            );
+        }
+
+        #[test]
+        fn labelling_a_gmail_conversation_reaches_gmail() {
+            // Under `ServerLabels::Supported` a label is the server's, not ours. The fixture's
+            // capabilities are the real account's, so this is the path the user's mail takes.
+            let (store, _dir) = realistic();
+            let travel = a_label(&store, "travel");
+            let thread = store
+                .threads(&inbox_query(), chrono::Utc::now())
+                .unwrap()
+                .items[0]
+                .id;
+
+            apply_label(&store, thread, travel, Membership::In);
+
+            let queued = store.outbox_due(ACCOUNT, chrono::Utc::now()).unwrap();
+            assert!(
+                queued.iter().any(|entry| matches!(
+                    &entry.op,
+                    ProtoOp::SetLabels { add, .. } if add.iter().any(|name| name == "travel")
+                )),
+                "the label stopped at this machine: {:?}",
+                queued.iter().map(|e| &e.op).collect::<Vec<_>>()
+            );
+        }
+
+        #[tokio::test]
+        async fn the_menu_opens_from_the_row_and_lists_what_there_is() {
+            dispatching();
+            let (store, _dir) = realistic();
+            a_label(&store, "travel");
+            let mut dom = VirtualDom::new(App).with_root_context(store.clone());
+            dom.rebuild_in_place();
+            // The effect that fills `Shell::labels` runs on a revision; one render settles it.
+            dom.render_immediate(&mut NoOpMutations);
+
+            let page = dioxus_ssr::render(&dom);
+            assert!(
+                page.contains(">Label<"),
+                "the rows offer no way to label anything:\n{page}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn the_composer_offers_a_way_to_attach_a_file() {
+        // Phase 7b's window half. `PendingAttachment` was modelled, persisted and assembled into
+        // multipart, and no surface could make one — so what this asserts is the existence of
+        // the control, which is the whole of what was missing.
+        dispatching();
+        let (store, _dir) = realistic();
+        let mut dom = VirtualDom::new(App).with_root_context(store.clone());
+        dom.rebuild_in_place();
+        press(&mut dom, "c", INSIDE_THE_SHELL);
+
+        let page = dioxus_ssr::render(&dom);
+        assert!(
+            page.contains(r#"type="file""#),
+            "the composer has no way to attach anything:\n{page}"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_sidebar_offers_a_way_to_write() {
+        // The button, for anyone who does not know the key.
+        let (store, _dir) = realistic();
+        assert!(markup(store).contains(">New<"));
+    }
+
+    #[tokio::test]
+    async fn the_rows_offer_a_way_to_forward() {
+        // The button, for anyone who does not know the key.
+        let (store, _dir) = realistic();
+        assert!(markup(store).contains("Forward"));
+    }
+
+    #[tokio::test]
+    async fn a_letter_typed_into_a_reply_is_not_a_shortcut() {
+        // The failure the whole `typing` guard exists for, through the real tree rather than
+        // only against the pure function: open a conversation, start a reply, and then "e" is a
+        // letter someone is writing rather than Archive.
+        dispatching();
+        let (store, _dir) = realistic();
+        let mut dom = VirtualDom::new(App).with_root_context(store.clone());
+        dom.rebuild_in_place();
+
+        let drafts_before = store.drafts(ACCOUNT).unwrap().len();
+        press(&mut dom, "j", INSIDE_THE_SHELL);
+        press(&mut dom, "r", INSIDE_THE_SHELL);
+        // Counted across the keystroke, not merely "more than none": `realistic()` seeds a
+        // draft of its own, so `drafts > 0` would have been true whatever `r` did.
+        assert_eq!(
+            store.drafts(ACCOUNT).unwrap().len(),
+            drafts_before + 1,
+            "`r` did not open a reply, so the rest of this proves nothing"
+        );
+
+        let before = store
+            .threads(&inbox_query(), chrono::Utc::now())
+            .unwrap()
+            .items
+            .len();
+        press(&mut dom, "e", INSIDE_THE_SHELL);
+
+        assert_eq!(
+            store
+                .threads(&inbox_query(), chrono::Utc::now())
+                .unwrap()
+                .items
+                .len(),
+            before,
+            "an \"e\" typed into a reply archived the conversation behind it"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_root_can_hold_focus_so_the_keyboard_has_somewhere_to_land() {
+        // A keydown targets the focused element and bubbles up, so a handler on an element that
+        // can never hold focus is never called. This asserts the one half of that which markup
+        // can carry; the other half is `KEEP_FOCUS`, injected into the page head.
+        let (store, _dir) = seeded();
+        let markup = markup(store);
+        assert!(
+            markup.contains(r#"tabindex="0""#),
+            "the app root is not focusable:\n{markup}"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_focus_script_targets_the_element_that_carries_the_handler() {
+        // Two halves of one mechanism in two files: the script focuses `.app`, and `.app` is the
+        // class on the div the key handler is attached to. If either is renamed without the
+        // other the keyboard stops working silently.
+        assert!(KEEP_FOCUS.contains(".app"), "{KEEP_FOCUS}");
+        let (store, _dir) = seeded();
+        assert!(markup(store).contains(r#"class="app""#));
+    }
+
+    #[tokio::test]
+    async fn the_shell_draws_the_mail_it_holds() {
+        // `rebuild_in_place` only proved the components run. This is the first assertion in the
+        // project about what they actually put on the page.
+        let (store, _dir) = realistic();
+        let markup = markup(store);
+
+        for expected in ["Inbox", "Drafts", "Search all mail", "GitHub", "dinner?"] {
+            assert!(markup.contains(expected), "no {expected:?} in:\n{markup}");
+        }
+        // Long subjects are ellipsised by CSS, not truncated in the markup — the full text has
+        // to be there for the browser to do it and for a wider window to show more.
+        assert!(
+            markup.contains("stabilisation (#53667)"),
+            "the subject was cut short before it reached the page:\n{markup}"
+        );
+    }
+
+    #[tokio::test]
+    async fn re_rendering_the_app_is_stable() {
+        // A second render is where hook-order mistakes surface: hooks are matched between
+        // renders by call order, so a component whose hook count changes corrupts every index
+        // after it, and the first render alone would never show it.
+        let (store, _dir) = seeded();
+        let mut dom = VirtualDom::new(App).with_root_context(store);
+        dom.rebuild_in_place();
+        for _ in 0..3 {
+            dom.mark_dirty(dioxus_core::ScopeId::APP);
+            dom.render_immediate(&mut NoOpMutations);
+        }
+    }
+}
+
+#[cfg(test)]
+mod reactivity_tests {
+    //! What a keystroke costs.
+    //!
+    //! A memo that reads a signal is subscribed to *every* change of it, so reading `shell` to
+    //! get something that never changes — the sidebar's places — makes an unrelated write
+    //! recompute it. The list must re-query when the search box changes; the badges must not.
+
+    use super::*;
+    use dioxus_core::{NoOpMutations, VirtualDom};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// How many times the badge memo has run.
+    static BADGE_RUNS: AtomicUsize = AtomicUsize::new(0);
+    /// The shell signal, published so the test can write it the way a keystroke does.
+    static TYPE_NOW: AtomicUsize = AtomicUsize::new(0);
+
+    /// A stand-in for `App`'s badge memo: depends on `revision`, not on `shell`.
+    #[component]
+    fn Badges() -> Element {
+        let mut shell = use_signal(Shell::default);
+        let revision = use_signal(|| 0u64);
+
+        let filters: Vec<Option<Filter>> = use_hook(|| {
+            crate::view::default_places()
+                .iter()
+                .map(|place| badge_filter(&place.source))
+                .collect()
+        });
+        let badges = use_memo(move || {
+            let _ = revision();
+            BADGE_RUNS.fetch_add(1, Ordering::SeqCst);
+            filters.len()
+        });
+
+        // A write to `shell`, driven from the test: this is the keystroke. Done in an effect
+        // rather than during render, because writing a signal while rendering is not what a
+        // key press does and not what is being measured.
+        use_effect(move || {
+            if TYPE_NOW.swap(0, Ordering::SeqCst) > 0 {
+                shell.write().search.push('x');
+            }
+        });
+
+        let typed = shell.read().search.len();
+        rsx! { div { "{badges()} {typed}" } }
+    }
+
+    #[tokio::test]
+    async fn typing_in_the_search_box_does_not_recount_every_badge() {
+        BADGE_RUNS.store(0, Ordering::SeqCst);
+        TYPE_NOW.store(0, Ordering::SeqCst);
+        let mut dom = VirtualDom::new(Badges);
+        dom.rebuild_in_place();
+        let after_first = BADGE_RUNS.load(Ordering::SeqCst);
+
+        for _ in 0..5 {
+            // A keystroke: write `shell`, then let the dom settle.
+            TYPE_NOW.store(1, Ordering::SeqCst);
+            dom.mark_dirty(dioxus_core::ScopeId::APP);
+            dom.render_immediate(&mut NoOpMutations);
+            dom.render_immediate(&mut NoOpMutations);
+        }
+
+        let runs = BADGE_RUNS.load(Ordering::SeqCst);
+        assert_eq!(
+            runs,
+            after_first,
+            "the badge memo re-ran {} times for keystrokes that changed no count; each run is \
+             one indexed query per place",
+            runs - after_first
+        );
+    }
+}
