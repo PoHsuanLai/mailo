@@ -2532,3 +2532,47 @@ That leaves labels as the only modelled-and-unreachable operation: `Op::Label(La
 Membership)` can be applied and `X-GM-LABELS` can be written to Gmail, but nothing ever reads
 labels back — the envelope walk discarded them (F113) and `Ingest.labels` has always been empty.
 Reading them is the work, and verifying it needs an account on a server that has them.
+
+### F118 — A whole query algebra, reachable through one word
+
+The largest instance of the shape this project keeps turning up. `mail-domain` has had
+`From`, `To`, `Subject`, `Date`, `HasAttachment`, `Read`, `Starred`, `Pinned`, `Snoozed`,
+`InMailbox` and `And`/`Or`/`Not` over all of them since phase 1 — every one of them proptested
+against the SQL that answers it, in `mail-store/tests/parity.rs`. Every search the application
+could make was `Filter::Text(Contains(the whole line))`.
+
+On a maildrop of 2372 messages, "from Bob about the invoice, some time last year" is a question
+the store could already answer and nobody could ask.
+
+`query::parse` is the missing sentence. The vocabulary is the one every mail client uses, because
+the point is to be guessable rather than clever:
+
+```
+from:ada  to:bob  subject:lunch     is:unread is:read is:starred is:pinned is:snoozed
+in:inbox  in:archive  in:sent       has:attachment
+before:2026-01-01  after:2025-12-25 -from:newsletter      "an exact phrase"
+```
+
+Terms join with `And` — each word you add finds less, which is what everyone expects. `Or` is
+deliberately absent: it reads ambiguously beside `-` and nobody types it.
+
+Three decisions worth the words:
+
+- **An unknown term is searched for, not refused.** A box that rejects what is typed while it is
+  being typed is unusable, so `frm:ada` becomes text and finds nothing. What it must never do is
+  become `Filter::All` and show the whole mailbox as though it had matched — asserted.
+- **Dates are read in the reader's zone.** Midnight on the 22nd in Taipei is 16:00 on the 21st in
+  UTC; read as UTC, `after:2026-09-22` would include eight hours of somebody else's day.
+  `before` is exclusive and `after` inclusive, matching `DateRange`'s own `>= from` and `< to`:
+  a day named is a whole day, and "before the 25th" must not include it.
+- **One parser, both surfaces.** The shell's box and `mailo search` call it, so `from:ada` means
+  one thing — F116's lesson, applied before rather than after.
+
+Tested in two halves, because a filter that parses and does not select is worse than no filter:
+what the parser builds, and what the store returns for it against real ingested mail. And through
+the binary: `from:billing`, `-from:billing`, `subject:invoice is:unread`, `after:2026-01-01`,
+`before:2026-01-01` each return what they should, and `frm:billing` finds nothing.
+
+`label:` is absent on purpose. Nothing populates labels — the envelope walk discarded Gmail's
+(F113) and `Ingest.labels` has always been empty — so the term would parse, select nothing, and
+look like a bug in search rather than the gap it is.

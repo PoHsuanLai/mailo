@@ -10,6 +10,9 @@ use mail_domain::*;
 use mail_runtime::{Arrival, absorb};
 use mail_store::{SqliteStore, Store};
 
+#[allow(dead_code)]
+#[path = "../src/query.rs"]
+mod query;
 #[path = "../src/snooze.rs"]
 mod snooze;
 #[allow(dead_code)]

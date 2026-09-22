@@ -4,6 +4,7 @@ mod account;
 mod attach;
 mod cli;
 mod compose;
+mod query;
 mod reader;
 mod snooze;
 mod sync;

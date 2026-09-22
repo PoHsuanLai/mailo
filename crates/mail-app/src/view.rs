@@ -370,7 +370,7 @@ impl Shell {
                 Some(Source::Drafts) | None => Filter::All,
             }
         } else {
-            Filter::Text(TextMatch::Contains(needle.to_owned()))
+            crate::query::parse(needle, &chrono::Local)
         };
         Query {
             filter,

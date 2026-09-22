@@ -28,6 +28,9 @@ mod cli;
 #[path = "../src/compose.rs"]
 mod compose;
 #[allow(dead_code)]
+#[path = "../src/query.rs"]
+mod query;
+#[allow(dead_code)]
 #[path = "../src/snooze.rs"]
 mod snooze;
 #[path = "../src/sync.rs"]

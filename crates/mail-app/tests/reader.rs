@@ -11,6 +11,9 @@ use mail_mime::{RemoteImages, SanitizePolicy};
 use mail_store::{SqliteStore, Store};
 
 #[allow(dead_code)]
+#[path = "../src/query.rs"]
+mod query;
+#[allow(dead_code)]
 #[path = "../src/view.rs"]
 mod view;
 

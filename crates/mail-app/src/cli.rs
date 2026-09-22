@@ -397,7 +397,9 @@ usage: mailo <command>
 
   list [inbox|archive|sent|drafts|trash|spam|snoozed|pinned] [limit]
   show <thread-id>          prints each message's id, for `reply`
-  search <words...>
+  search <words...>          from:ada to:bob subject:lunch is:unread is:starred
+                             in:archive has:attachment before:2026-01-01
+                             after:2025-12-25 -from:newsletter, or a quoted phrase
   reply <message-id> [--all]  compose a reply; the body is read from stdin
   forward <message-id> --to a@b[,c@d]
                              forward it; the covering note is read from stdin
@@ -484,7 +486,8 @@ pub fn run(store: &SqliteStore, command: &Command, now: DateTime<Utc>) -> Result
         Command::Search { needle, limit } => {
             let page = store
                 .threads(
-                    &list_query(Filter::Text(TextMatch::Contains(needle.clone())), *limit),
+                    // The same parser the shell's box uses, so `from:ada` means one thing.
+                    &list_query(crate::query::parse(needle, &chrono::Local), *limit),
                     now,
                 )
                 .map_err(|e| e.to_string())?;

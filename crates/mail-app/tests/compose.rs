@@ -11,6 +11,9 @@ use mail_store::{SqliteStore, Store};
 
 #[path = "../src/compose.rs"]
 mod compose;
+#[allow(dead_code)]
+#[path = "../src/query.rs"]
+mod query;
 // Only the composer's half of `view` is used here; the rest belongs to the window, which this
 // test deliberately does not build.
 #[allow(dead_code)]

@@ -151,6 +151,8 @@ mailo reply <message-id> [--all] <<< 'text of the reply'
 mailo forward <message-id> --to 'Bea <bea@example.com>' <<< 'have a look at this'
 mailo snooze <thread-id> tomorrow     # later, tonight, weekend, +2h, 2026-09-25
 mailo wake <thread-id>
+mailo search from:ada subject:lunch is:unread   # also to: in: has:attachment
+mailo search after:2026-01-01 -from:newsletter
 mailo list snoozed
 mailo pin <thread-id>                 # toggles; `mailo list pinned` lists them
 mailo attachments <message-id>
