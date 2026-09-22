@@ -48,6 +48,12 @@ pub enum Command {
     Drafts,
     /// Delete a draft.
     Discard { draft: DraftId },
+    /// Conversations that are put off, and not yet due.
+    ListSnoozed { limit: u32 },
+    /// Put a conversation off until later.
+    Snooze { thread: ThreadId, when: String },
+    /// Bring a snoozed conversation back now.
+    Wake { thread: ThreadId },
     /// The attachments on a message.
     Attachments { message: MessageId },
     /// Write one attachment to a directory.
@@ -77,6 +83,13 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
     };
     match verb {
         "list" => {
+            // Not a `MailboxRole`: "snoozed" is a predicate over threads rather than a folder
+            // any of them is in, which is what `filter.rs` means by predicates over mirrors.
+            if matches!(args.get(1).map(String::as_str), Some("snoozed")) {
+                return Ok(Command::ListSnoozed {
+                    limit: parse_limit(args.get(2))?,
+                });
+            }
             let mailbox = match args.get(1).map(String::as_str) {
                 None | Some("inbox") => MailboxRole::Inbox,
                 Some("archive") => MailboxRole::Archive,
@@ -172,6 +185,38 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                 to,
                 // Filled in by the caller, which owns stdin. Parsing stays pure.
                 body: String::new(),
+            })
+        }
+        "snooze" => {
+            let raw = args
+                .get(1)
+                .ok_or_else(|| format!("snooze needs a thread id\n\n{}", usage()))?;
+            let uuid = raw
+                .parse()
+                .map_err(|_| format!("{raw:?} is not a thread id"))?;
+            // The rest of the line, joined: "next tuesday" and "2026-09-25 14:30" are two words
+            // and quoting them would be a thing to remember for no reason.
+            let when = args[2..].join(" ");
+            if when.trim().is_empty() {
+                return Err(format!(
+                    "snooze needs a time: mailo snooze {raw} tomorrow\n\n{}",
+                    usage()
+                ));
+            }
+            Ok(Command::Snooze {
+                thread: ThreadId::from_uuid(uuid),
+                when,
+            })
+        }
+        "wake" => {
+            let raw = args
+                .get(1)
+                .ok_or_else(|| format!("wake needs a thread id\n\n{}", usage()))?;
+            let uuid = raw
+                .parse()
+                .map_err(|_| format!("{raw:?} is not a thread id"))?;
+            Ok(Command::Wake {
+                thread: ThreadId::from_uuid(uuid),
             })
         }
         "attachments" => {
@@ -330,13 +375,16 @@ pub fn usage() -> String {
     "\
 usage: mailo <command>
 
-  list [inbox|archive|sent|drafts|trash|spam] [limit]
+  list [inbox|archive|sent|drafts|trash|spam|snoozed] [limit]
   show <thread-id>          prints each message's id, for `reply`
   search <words...>
   reply <message-id> [--all]  compose a reply; the body is read from stdin
   forward <message-id> --to a@b[,c@d]
                              forward it; the covering note is read from stdin
   send <draft-id>             queue a draft for the next sync
+  snooze <thread-id> <when>   put it off: later, tonight, tomorrow, weekend,
+                             monday…sunday, +2h, +3d, or a date like 2026-09-25
+  wake <thread-id>            bring a snoozed conversation back now
   attachments <message-id>    what is attached to a message
   save <message-id> <n> [dir] write one of them out (default: here)
   drafts                      drafts and where each one got to
@@ -360,8 +408,14 @@ usage: mailo <command>
 pub fn run(store: &SqliteStore, command: &Command, now: DateTime<Utc>) -> Result<String, String> {
     match command {
         Command::List { mailbox, limit } => {
+            // `view::place_filter`, not `Filter::InMailbox`: the shell and the command list the
+            // same mailbox, and two spellings of "the inbox" is how one of them keeps showing
+            // what the other has put away.
             let page = store
-                .threads(&list_query(Filter::InMailbox(*mailbox), *limit), now)
+                .threads(
+                    &list_query(crate::view::place_filter(*mailbox), *limit),
+                    now,
+                )
                 .map_err(|e| e.to_string())?;
             if page.items.is_empty() {
                 return Ok(format!("no threads in {}\n", role_name(*mailbox)));
@@ -428,6 +482,17 @@ pub fn run(store: &SqliteStore, command: &Command, now: DateTime<Utc>) -> Result
         } => crate::compose::reply(store, *message, *scope, body, now),
         Command::Send { draft } => crate::compose::send(store, *draft, now),
         Command::Drafts => crate::compose::drafts(store),
+        Command::ListSnoozed { limit } => {
+            let page = store
+                .threads(&list_query(crate::view::pending_snooze(), *limit), now)
+                .map_err(|e| e.to_string())?;
+            if page.items.is_empty() {
+                return Ok("nothing is snoozed\n".to_owned());
+            }
+            Ok(render_list(&page.items))
+        }
+        Command::Snooze { thread, when } => crate::snooze::snooze(store, *thread, when, now),
+        Command::Wake { thread } => crate::snooze::wake(store, *thread, now),
         Command::Attachments { message } => crate::attach::list(store, *message),
         Command::Save {
             message,

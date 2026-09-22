@@ -5,6 +5,7 @@ mod attach;
 mod cli;
 mod compose;
 mod reader;
+mod snooze;
 mod sync;
 mod ui;
 mod view;

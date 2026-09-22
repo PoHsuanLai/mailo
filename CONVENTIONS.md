@@ -373,6 +373,12 @@ conversations in the inbox, not `is_empty()`. Where the "before" is awkward to c
 exact value the action must produce.
 
 The tell is an assertion that could be moved *above* the line that does the work and still pass.
+
+A fixture can be vacuous the same way. A test that spells out the value under test — the filter,
+the query, the format string — and then asserts against its own copy agrees with itself whatever
+the program does. Five tests of snoozing passed while `mailo list` ignored the feature entirely,
+because each built the inbox filter itself instead of asking for it. **Ask the program for the
+thing you are testing.** If the test has to restate it, the restatement is what is being tested.
 When one can, it is not testing that line. Ask it of every new assertion that uses `>`, `<`,
 `is_empty`, `is_some`, `contains` or `!` — those are where a condition wide enough to be
 accidentally satisfied hides.

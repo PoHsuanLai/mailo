@@ -2445,3 +2445,57 @@ Two other things were looked at in the same pass and found sound, recorded so th
 skip them: the outbox backoff is `1s, 2s, 4s …` capped at an hour with `attempts.min(12)`, so it
 cannot overflow or park a message for a century; and `Retry::Fatal` applies the undo patch rather
 than leaving the user looking at a local state that will never become true.
+
+### F115 — Snooze was modelled, queryable, and impossible to set
+
+`Op::SetSnooze` has been in the domain since phase 1. `Filter::Snoozed` and `Filter::SnoozeDue`
+have been answerable by SQLite for as long, with `SnoozeDue` deliberately resolved against `now`
+at query time rather than frozen in at apply time. Nothing could set one: `op_for` returns `None`
+for `OpKind::Snooze` because the op needs a payload, and no surface supplied it.
+
+The payload is a time, and the interesting half is which times a person actually names.
+`view::snooze_until` takes `later`, `tonight`, `tomorrow`, `weekend`, `monday`…`sunday`, `+90m`,
+`+2h`, `+3d`, `2026-09-25` and `2026-09-25 14:30` — in the reader's zone and against a `now` the
+caller supplies, for the reason every date in this project is: a function that reads the clock
+decides its own test's answer, and one that assumes UTC sends "tomorrow morning" to the middle of
+tonight for anyone east of Greenwich. "Tuesday" said on a Tuesday afternoon means the next one,
+not an hour that has passed; "tonight" after seven means tomorrow evening. A property test asserts
+every phrase resolves to something later than now — a snooze into the past is due the instant it
+is made, so the conversation never leaves and the feature silently does nothing.
+
+Nothing runs when a snooze expires and nothing needs to. The conversation returns to the inbox on
+the stroke whether the client was awake or not, which is the right design for something that may
+be asleep for a week — and it is the existing `SnoozeDue` design, not a new one.
+
+`mailo snooze <thread> <when>`, `mailo wake <thread>`, `mailo list snoozed`, and a Snoozed place
+in the sidebar next to Drafts, where a conversation that was put off is looked for.
+
+### F116 — Two spellings of "the inbox", and only one of them learned
+
+The feature above was finished, tested at every layer, and did not work. `mailo list` still
+showed the snoozed conversation.
+
+The shell asked `view::source_for`; the CLI's `list` built `Filter::InMailbox(role)` of its own.
+Two definitions of the same place, and the day the inbox learned to hide a snoozed conversation
+only one of them learned it.
+
+Five tests passed over it, because **the test spelled the filter out itself**:
+
+```rust
+fn inbox() -> Filter {
+    Filter::And(vec![InMailbox(Inbox), Not(pending_snooze())])   // written here
+}
+```
+
+which tests the filter the test wrote, not the one the program uses. It is the vacuity rule of
+CONVENTIONS §"An assertion that was already true proves nothing" in a new disguise — not an
+assertion that is already true, but a *fixture* that restates the thing under test and therefore
+agrees with it whatever the program does. The tell is the same: it could not distinguish a
+working program from a broken one.
+
+`view::place_filter(role)` is the single definition now, and both surfaces call it. The test asks
+for it rather than restating it, and a new one asserts the sidebar's Inbox and the command's
+inbox are the same filter.
+
+Found by running `mailo snooze` and then `mailo list` — the two commands anyone would type in
+that order, which is the whole of the technique.

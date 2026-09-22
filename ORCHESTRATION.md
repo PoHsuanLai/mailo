@@ -149,6 +149,9 @@ Replying is the same three steps:
 ```
 mailo reply <message-id> [--all] <<< 'text of the reply'
 mailo forward <message-id> --to 'Bea <bea@example.com>' <<< 'have a look at this'
+mailo snooze <thread-id> tomorrow     # later, tonight, weekend, +2h, 2026-09-25
+mailo wake <thread-id>
+mailo list snoozed
 mailo attachments <message-id>
 mailo save <message-id> 0 ~/Downloads
 mailo send <draft-id>
