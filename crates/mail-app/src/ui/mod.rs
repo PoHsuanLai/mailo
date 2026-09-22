@@ -1388,15 +1388,15 @@ mod render_tests {
     /// A mailbox shaped like a real one, for looking at the layout rather than exercising it.
     ///
     /// The fixture above holds one message from "Ada" with the subject "hi", which is a size
-    /// nothing can be wrong at. Real mail has long subjects, long display names, CJK — this user
-    /// is in Taiwan and half their mail is Chinese — and enough rows to fill the pane.
+    /// nothing can be wrong at. Real mail has long subjects, long display names, CJK text that
+    /// has no spaces to break at, and enough rows to fill the pane.
     fn realistic() -> (Arc<SqliteStore>, tempfile::TempDir) {
         let (store, dir) = seeded();
         let rows: [(&str, &str, &str, bool); 6] = [
             (
-                "國立臺灣大學計算機及資訊網路中心",
-                "ccnoreply@ntu.edu.tw",
-                "【重要】臺大計中信箱系統維護通知：本週六 02:00 至 06:00 暫停服務",
+                "校園資訊網路中心",
+                "noreply@example.edu",
+                "【重要】校園郵件信箱系統維護通知：本週六 02:00 至 06:00 暫停服務",
                 false,
             ),
             (

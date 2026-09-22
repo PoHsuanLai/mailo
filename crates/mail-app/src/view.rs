@@ -739,8 +739,8 @@ impl LabelChoice {
 ///
 /// `known` is the shell's own index, so this stays a pure function of what is on screen. Names
 /// are not unique — `UNIQUE (account, name)` is per account, so "travel" on two accounts is two
-/// labels — and both are listed rather than merged, because giving a Gmail conversation the NTU
-/// account's "travel" is not something this menu can do and not something it should imply.
+/// labels — and both are listed rather than merged, because giving a conversation on one account
+/// the other account's "travel" is not something this menu can do and not something it should imply.
 ///
 /// Sorted by name, with the ones already on the conversation first: the common act is taking a
 /// label off the thing you are looking at, and it should not be a search.
@@ -1735,7 +1735,7 @@ const BACKOFF_CEILING: std::time::Duration = std::time::Duration::from_secs(30 *
 /// attempts a day; with a password the server has already refused, that is two hundred and
 /// eighty-eight *failed logins* a day against the user's own mail server — which is how an
 /// account gets locked, and the reason every experiment in this project has been run against a
-/// fixture rather than against NTU. A loop must stop and say so, not back off and continue.
+/// fixture rather than against a real server. A loop must stop and say so, not back off and continue.
 ///
 /// `Throttled` is the other rule with a cost. The server named a wait, so that wait is honoured in
 /// full — [`BACKOFF_CEILING`] deliberately does not apply, since Gmail's limits are measured in
