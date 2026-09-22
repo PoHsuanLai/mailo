@@ -103,7 +103,7 @@ fn main() {
     // inside cli::run, which is deliberately synchronous and testable.
     if matches!(command, Some(cli::Command::Sync)) {
         match sync::run(store, chrono::Utc::now()) {
-            Ok(output) => print!("{output}"),
+            Ok(ran) => print!("{}", ran.text),
             Err(message) => {
                 eprintln!("{message}");
                 std::process::exit(1);

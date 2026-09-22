@@ -1423,6 +1423,70 @@ impl Nothing {
     }
 }
 
+/// How a pass ended, as far as deciding when to try again is concerned.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Passed {
+    /// It worked.
+    Fine,
+    /// It failed in a way that trying again might fix: a refused connection, a timeout, a
+    /// server that was restarting.
+    Transient,
+    /// The server rejected the credential. Trying again cannot help and *costs* something.
+    Rejected,
+}
+
+/// When a background sync should run again.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NextSync {
+    /// Wait this long, then go.
+    After(std::time::Duration),
+    /// Do not go. The user has to act, and the reason is worth saying.
+    Wait(String),
+}
+
+/// The longest a failing loop is allowed to sleep.
+///
+/// Half an hour. Long enough that a server which is down for the afternoon is not being asked
+/// every five minutes, short enough that mail is not an hour stale once it comes back.
+const BACKOFF_CEILING: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+
+/// When to sync next, given how the last pass went and how many have failed in a row.
+///
+/// The rule that matters is `Rejected`. A poll every five minutes is two hundred and eighty-eight
+/// attempts a day; with a password the server has already refused, that is two hundred and
+/// eighty-eight *failed logins* a day against the user's own mail server — which is how an
+/// account gets locked, and the reason every experiment in this project has been run against a
+/// fixture rather than against NTU. A loop must stop and say so, not back off and continue.
+///
+/// Everything else doubles from the interval and stops at [`BACKOFF_CEILING`], so a server that
+/// is down is asked less and less rather than steadily.
+pub fn next_sync(
+    passed: Passed,
+    consecutive_failures: u32,
+    interval: std::time::Duration,
+) -> NextSync {
+    match passed {
+        Passed::Fine => NextSync::After(interval),
+        Passed::Rejected => NextSync::Wait(
+            "the server rejected the sign-in. Nothing will be fetched until it is fixed: \
+             re-run `mailo account add` for this address."
+                .to_owned(),
+        ),
+        Passed::Transient => {
+            // Saturating on purpose: a machine left asleep for a week comes back to a shift
+            // count that would otherwise wrap and produce a *short* wait.
+            let doubling = 1u32
+                .checked_shl(consecutive_failures.saturating_sub(1).min(16))
+                .unwrap_or(u32::MAX);
+            let wait = interval
+                .saturating_mul(doubling)
+                .min(BACKOFF_CEILING)
+                .max(interval);
+            NextSync::After(wait)
+        }
+    }
+}
+
 /// What a click on Discard means, given what the composer is currently showing.
 ///
 /// A value rather than a branch inside the button, for the same reason `op_for` and
@@ -2000,6 +2064,86 @@ mod snoozing {
             "nor is backwards"
         );
         assert!(snooze_until("", now(), &taipei()).is_err());
+    }
+}
+
+/// When a background sync tries again.
+#[cfg(test)]
+mod polling {
+    use super::*;
+    use std::time::Duration;
+
+    const EVERY: Duration = Duration::from_secs(300);
+
+    #[test]
+    fn a_rejected_sign_in_stops_the_loop_rather_than_slowing_it() {
+        // The rule this function exists for. Five minutes is 288 attempts a day; with a
+        // credential the server has already refused, that is 288 failed logins a day against the
+        // user's own mail server. Backing off is not enough — even half-hourly is 48 a day, and
+        // a locked account is a worse outcome than stale mail.
+        for failures in [1, 2, 5, 100] {
+            match next_sync(Passed::Rejected, failures, EVERY) {
+                NextSync::Wait(why) => {
+                    assert!(why.contains("rejected"), "{why}");
+                    assert!(
+                        why.contains("mailo account add"),
+                        "it says how to fix it: {why}"
+                    );
+                }
+                other => panic!("a rejected sign-in scheduled {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn a_good_pass_goes_again_at_the_interval() {
+        assert_eq!(next_sync(Passed::Fine, 0, EVERY), NextSync::After(EVERY));
+        // And a run of failures is forgotten once one succeeds.
+        assert_eq!(next_sync(Passed::Fine, 9, EVERY), NextSync::After(EVERY));
+    }
+
+    #[test]
+    fn a_transient_failure_backs_off_and_stops_at_the_ceiling() {
+        let after = |n| match next_sync(Passed::Transient, n, EVERY) {
+            NextSync::After(d) => d,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(
+            after(1),
+            EVERY,
+            "the first failure waits the ordinary interval"
+        );
+        assert_eq!(after(2), EVERY * 2);
+        assert_eq!(after(3), EVERY * 4);
+        // Doubling from five minutes reaches half an hour at the fourth failure and stays.
+        assert_eq!(after(4), BACKOFF_CEILING);
+        assert_eq!(after(20), BACKOFF_CEILING, "it grows without bound");
+    }
+
+    #[test]
+    fn a_machine_asleep_for_a_week_does_not_come_back_to_a_short_wait() {
+        // `1 << n` wraps, and a wrapped shift produces a *smaller* number — which would turn a
+        // long outage into the fastest polling the client ever does.
+        for failures in [31, 32, 33, 64, 1000, u32::MAX] {
+            assert_eq!(
+                next_sync(Passed::Transient, failures, EVERY),
+                NextSync::After(BACKOFF_CEILING),
+                "{failures} failures scheduled something short"
+            );
+        }
+    }
+
+    #[test]
+    fn a_long_configured_interval_is_never_shortened_by_the_ceiling() {
+        // A POP3 account may be told to poll hourly. The ceiling is a cap on *backoff*, not a
+        // new interval — clamping to it would make a failing account poll more often than a
+        // working one.
+        let hourly = Duration::from_secs(3600);
+        assert_eq!(next_sync(Passed::Fine, 0, hourly), NextSync::After(hourly));
+        assert_eq!(
+            next_sync(Passed::Transient, 3, hourly),
+            NextSync::After(hourly)
+        );
     }
 }
 

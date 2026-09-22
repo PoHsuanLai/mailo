@@ -138,6 +138,7 @@ fn an_account_with_no_credential_is_skipped_with_a_reason() {
         &OAuthRegistry::default(),
         now(),
     )
+    .map(|ran| ran.text)
     .expect("a missing credential is not a failure of the run");
 
     assert!(out.contains("ada@example.test"), "{out}");
@@ -156,6 +157,7 @@ fn an_unreachable_server_is_reported_per_account_not_thrown() {
     with_password(&secrets, "s3cr3t-pass");
 
     let out = sync::run_with(store, Arc::new(secrets), &OAuthRegistry::default(), now())
+        .map(|ran| ran.text)
         .expect("an unreachable server is reported, not returned as an error");
     assert!(out.contains("ada@example.test"), "{out}");
     assert!(
@@ -174,7 +176,8 @@ fn no_accounts_explains_how_to_add_one() {
         &OAuthRegistry::default(),
         now(),
     )
-    .unwrap();
+    .unwrap()
+    .text;
     assert!(out.contains("mailo account add"), "{out}");
 }
 
@@ -198,6 +201,7 @@ async fn a_whole_pass_against_a_real_server_lands_mail_and_says_what_it_did() {
     })
     .await
     .expect("the pass did not panic")
+    .map(|ran| ran.text)
     .expect("a reachable server with a good credential syncs");
 
     eprintln!("{out}");
@@ -437,7 +441,9 @@ mod renewing_an_expired_sign_in {
         let secrets: Arc<dyn Secrets> = Arc::new(MapSecrets::default());
         secrets.put(&key(), &token(-120)).unwrap();
 
-        let out = sync::run_with(store, secrets, &OAuthRegistry::default(), now()).unwrap();
+        let out = sync::run_with(store, secrets, &OAuthRegistry::default(), now())
+            .unwrap()
+            .text;
 
         assert!(out.contains("no OAuth client id is configured"), "{out}");
         // Read by a person, and `cargo fmt` collapses a `\`-continuation in a literal into a
@@ -515,6 +521,63 @@ mod folders {
                 caps_with(vec![("INBOX".to_owned(), MailboxRole::Sent)])
             ),
             vec!["INBOX".to_owned()]
+        );
+    }
+}
+
+/// How often the background loop runs.
+mod polling {
+    use super::*;
+
+    fn with_watch(store: &Arc<SqliteStore>, watch: WatchMode) {
+        let mut caps = caps();
+        caps.watch = watch;
+        store
+            .connection()
+            .execute(
+                "UPDATE account_caps SET caps = ?1 WHERE account = ?2",
+                rusqlite::params![serde_json::to_string(&caps).unwrap(), ACCOUNT.to_string()],
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn the_interval_comes_from_the_account_rather_than_a_constant() {
+        let (store, _dir) = configured(1, caps());
+        with_watch(
+            &store,
+            WatchMode::Poll {
+                every: std::time::Duration::from_secs(90),
+            },
+        );
+        assert_eq!(
+            sync::poll_interval(&store),
+            std::time::Duration::from_secs(90)
+        );
+    }
+
+    #[test]
+    fn an_idle_capable_account_is_polled_like_any_other_until_idle_is_held() {
+        // `WatchMode::Idle` means the server offers a long-lived connection this loop does not
+        // hold. Treating it as "no polling needed" would mean an IMAP account never syncing.
+        let (store, _dir) = configured(1, caps());
+        with_watch(&store, WatchMode::Idle);
+        assert_eq!(
+            sync::poll_interval(&store),
+            std::time::Duration::from_secs(300),
+            "an IDLE account fell through to no polling at all"
+        );
+    }
+
+    #[test]
+    fn a_database_with_no_accounts_still_answers() {
+        // The loop starts before anything is configured, and asking an empty store must not be
+        // an error it has to handle.
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
+        assert_eq!(
+            sync::poll_interval(&store),
+            std::time::Duration::from_secs(300)
         );
     }
 }

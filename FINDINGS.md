@@ -2953,3 +2953,55 @@ answers it:
 someone@gmail.com            no credential stored
                              syncs INBOX, [Gmail]/Sent Mail
 ```
+
+### F128 — Mail only arrived when you pressed a button
+
+`AccountEngine::watch` has existed since phase 3 — IDLE where the server offers it, a poll
+interval where it does not — and nothing ever called it. There was no timer anywhere in the
+shell. A window left open all day fetched nothing; mail arrived when the user pressed Sync and at
+no other time. For something meant to sit on a second monitor, that is the difference between a
+mail client and a mail viewer.
+
+The loop is an ordinary `use_future`, which is worth saying because F103 concluded that a future
+started at mount never runs. That conclusion was taken under the broken launch F107 found, and
+F107 suspected as much; a test now settles it — `a_future_started_when_a_component_mounts_does_run`
+— before anything was built on the answer.
+
+**The rule the whole thing turns on is what happens when the credential is wrong.** Five minutes
+is 288 attempts a day. With a password the server has already refused, that is 288 *failed
+logins* a day against the user's own mail server, which is how an account gets locked — the exact
+hazard that has kept every experiment in this project pointed at a fixture rather than at NTU.
+Backing off is not enough: half-hourly is still 48 a day. `view::next_sync` returns
+`NextSync::Wait` for a rejected sign-in, the loop stops, and the Sync button still works, so
+someone who has fixed the credential is one click from finding out.
+
+That classification has to survive the trip. By the time a failure reaches the user it is prose,
+and prose is not something a loop can safely decide on — so `SyncReport` gained `needs_reauth`,
+set where the error is still a typed `Retryable`, and `sync::run` returns a `Ran` that carries it
+beside the text.
+
+Everything else doubles from the account's own interval and stops at half an hour. Four rules,
+each a test:
+
+- A rejected sign-in stops the loop at any failure count, and says how to fix it.
+- A good pass goes again at the interval, and forgets the failures before it.
+- A transient failure doubles: 5, 10, 20, then the ceiling.
+- **A machine asleep for a week does not come back to a short wait.** `1 << n` wraps, and a
+  wrapped shift produces a *smaller* number — which would turn a long outage into the fastest
+  polling the client ever does. Checked at 31, 32, 33, 64, 1000 and `u32::MAX`.
+- A long configured interval is never *shortened* by the ceiling: an hourly POP3 account must not
+  poll more often when it is failing than when it is working.
+
+The interval is the shortest any account asks for, read from `WatchMode::Poll` rather than
+written down twice. An `Idle` account is polled like any other until something actually holds an
+IDLE connection, because treating "IDLE is available" as "no polling needed" would mean an IMAP
+account never syncing at all.
+
+Watched in the live window, with the interval turned down and nobody touching anything:
+
+```
+stored before the window opens: 0
+  /rows-2|note-ada@example.test: 0 headers, 0 bodies, 0
+  /rows-2|note-ada@example.test: 2 headers, 2 bodies, 0
+stored after 12s with nobody pressing anything: 2
+```

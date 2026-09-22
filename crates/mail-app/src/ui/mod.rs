@@ -268,6 +268,68 @@ fn App() -> Element {
         }
     };
 
+    // Mail that only arrives when you press a button is mail you miss. `AccountEngine::watch`
+    // has existed since phase 3 and nothing called it; this is the poll half of it, which is
+    // what every account's `WatchMode::Poll` already asks for.
+    //
+    // The decision of *when* is `view::next_sync`, not here — in particular the rule that a
+    // rejected credential stops the loop rather than slowing it. Five minutes is 288 attempts a
+    // day, and 288 failed logins a day against the user's own mail server is how an account gets
+    // locked.
+    let _poll = use_future(move || async move {
+        let mut failures = 0u32;
+        let interval = {
+            let store = consume_context::<Arc<SqliteStore>>();
+            crate::sync::poll_interval(&store)
+        };
+        // A beat before the first pass, so opening the window is not also a network round trip
+        // competing with the first paint.
+        let mut wait = std::time::Duration::from_secs(2);
+        loop {
+            tokio::time::sleep(wait).await;
+
+            // Never two at once: a pass the user started is the same request, and two passes on
+            // one account race each other's writes for the same rows.
+            if !sync_state.read().may_start() {
+                wait = interval;
+                continue;
+            }
+            sync_state.set(SyncState::Running);
+            let store = consume_context::<Arc<SqliteStore>>();
+            let done =
+                tokio::task::spawn_blocking(move || crate::sync::run(store, chrono::Utc::now()))
+                    .await;
+
+            let passed = match &done {
+                Ok(Ok(ran)) if ran.rejected => crate::view::Passed::Rejected,
+                Ok(Ok(_)) => crate::view::Passed::Fine,
+                // A pass that could not run at all, and a task that panicked, are both worth
+                // trying again: a laptop lid is the usual cause of the first.
+                Ok(Err(_)) | Err(_) => crate::view::Passed::Transient,
+            };
+            failures = match passed {
+                crate::view::Passed::Fine => 0,
+                _ => failures.saturating_add(1),
+            };
+            sync_state.set(match done {
+                Ok(result) => synced(result.map(|ran| ran.text)),
+                Err(e) => synced(Err(format!("the sync pass stopped: {e}"))),
+            });
+            revision += 1;
+
+            match crate::view::next_sync(passed, failures, interval) {
+                crate::view::NextSync::After(next) => wait = next,
+                crate::view::NextSync::Wait(why) => {
+                    // Said once and then nothing more. The Sync button still works, so a user
+                    // who has fixed the credential is one click from finding out.
+                    sync_state.set(SyncState::Failed(why));
+                    revision += 1;
+                    return;
+                }
+            }
+        }
+    });
+
     rsx! {
         style { {STYLE} }
         div { class: "app",
@@ -308,7 +370,7 @@ fn App() -> Element {
                             })
                             .await;
                             sync_state.set(match done {
-                                Ok(result) => synced(result),
+                                Ok(result) => synced(result.map(|ran| ran.text)),
                                 // The blocking task panicked. Saying so beats a window that
                                 // sits on "Syncing…" for ever.
                                 Err(e) => synced(Err(format!("the sync pass stopped: {e}"))),
@@ -1353,6 +1415,36 @@ mod render_tests {
                 },
             }
         }
+    }
+
+    static MOUNTED_SPAWN_RAN: std::sync::atomic::AtomicBool =
+        std::sync::atomic::AtomicBool::new(false);
+
+    #[component]
+    fn MountedSpawnProbe() -> Element {
+        let _ = use_future(move || async move {
+            MOUNTED_SPAWN_RAN.store(true, std::sync::atomic::Ordering::SeqCst);
+        });
+        rsx! { div {} }
+    }
+
+    #[tokio::test]
+    async fn a_future_started_when_a_component_mounts_does_run() {
+        // F103 concluded it does not, from prints taken under the broken launch F107 found. If
+        // that conclusion was an artefact then a periodic sync can be an ordinary `use_future`,
+        // and if it was not then it has to be driven some other way. Worth knowing before
+        // building on either answer.
+        MOUNTED_SPAWN_RAN.store(false, std::sync::atomic::Ordering::SeqCst);
+        let mut dom = VirtualDom::new(MountedSpawnProbe);
+        dom.rebuild_in_place();
+        tokio::time::timeout(std::time::Duration::from_millis(500), dom.wait_for_work())
+            .await
+            .ok();
+        dom.render_immediate(&mut NoOpMutations);
+        assert!(
+            MOUNTED_SPAWN_RAN.load(std::sync::atomic::Ordering::SeqCst),
+            "a future started at mount never ran"
+        );
     }
 
     #[tokio::test]

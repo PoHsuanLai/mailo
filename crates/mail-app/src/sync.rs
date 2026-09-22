@@ -73,7 +73,37 @@ fn configured(store: &SqliteStore) -> Result<Vec<Configured>, String> {
 ///
 /// Accounts without one are skipped with a reason rather than failing the run: having one
 /// account that needs attention should not stop the others from fetching mail.
-pub fn run(store: Arc<SqliteStore>, now: chrono::DateTime<chrono::Utc>) -> Result<String, String> {
+/// What a run reported: the lines a person reads, and the one fact a loop must act on.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Ran {
+    pub text: String,
+    /// Some account's credential was rejected. A poll loop must stop on this rather than back
+    /// off: see `view::next_sync`.
+    pub rejected: bool,
+}
+
+/// How often a background sync should run, from the accounts' own capabilities.
+///
+/// The shortest interval any account asks for, so an account that wants IDLE-like freshness is
+/// not held to another's hourly poll. Five minutes when nothing says otherwise, which is what
+/// every preset in the table already carries.
+pub fn poll_interval(store: &SqliteStore) -> std::time::Duration {
+    let default = std::time::Duration::from_secs(300);
+    configured(store)
+        .ok()
+        .into_iter()
+        .flatten()
+        .filter_map(|a| match a.caps.watch {
+            WatchMode::Poll { every } => Some(every),
+            // IDLE is a long-lived connection this loop does not hold. Until it does, an account
+            // that supports it is polled like any other.
+            WatchMode::Idle => None,
+        })
+        .min()
+        .unwrap_or(default)
+}
+
+pub fn run(store: Arc<SqliteStore>, now: chrono::DateTime<chrono::Utc>) -> Result<Ran, String> {
     // The registry is read once per run rather than once per account: it is deployment
     // configuration, and an edit halfway through a run producing two different client ids is
     // not a behaviour worth having.
@@ -96,10 +126,13 @@ pub fn run_with(
     secrets: Arc<dyn Secrets>,
     registry: &OAuthRegistry,
     now: chrono::DateTime<chrono::Utc>,
-) -> Result<String, String> {
+) -> Result<Ran, String> {
     let accounts = configured(&store)?;
     if accounts.is_empty() {
-        return Ok("no accounts. Add one with: mailo account add <address>\n".to_owned());
+        return Ok(Ran {
+            text: "no accounts. Add one with: mailo account add <address>\n".to_owned(),
+            rejected: false,
+        });
     }
 
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -108,9 +141,11 @@ pub fn run_with(
         .map_err(|e| format!("cannot start the async runtime: {e}"))?;
 
     let mut out = String::new();
+    let mut rejected = false;
     for account in accounts {
         match runtime.block_on(one(&store, &account, secrets.clone(), registry, now)) {
             Ok(report) => {
+                rejected |= report.needs_reauth;
                 let _ = writeln!(
                     out,
                     "{}: {} headers, {} bodies, {} queued operations settled, {} sent",
@@ -144,7 +179,10 @@ pub fn run_with(
             }
         }
     }
-    Ok(out)
+    Ok(Ran {
+        text: out,
+        rejected,
+    })
 }
 
 /// The credential to authenticate with, renewed first if it is an OAuth one that has expired.
@@ -322,6 +360,9 @@ async fn pass<B: mail_proto::Backend>(
             // Named, because "cannot select" on a folder the server listed is worth seeing and
             // is not a reason to abandon the mail already in hand.
             Err(e) => {
+                // Classified while the error is still typed. By the time it reaches the user it
+                // is prose, and prose is not something a loop can safely decide on.
+                report.needs_reauth |= matches!(e.retry(), mail_domain::Retry::NeedsReauth);
                 report
                     .needs_attention
                     .push(format!("{}: {e}", mailbox.path));
@@ -338,9 +379,12 @@ async fn pass<B: mail_proto::Backend>(
                 report.bodies_fetched += bodies.bodies_fetched;
                 report.needs_attention.extend(bodies.needs_attention);
             }
-            Err(e) => report
-                .needs_attention
-                .push(format!("{}: {e}", mailbox.path)),
+            Err(e) => {
+                report.needs_reauth |= matches!(e.retry(), mail_domain::Retry::NeedsReauth);
+                report
+                    .needs_attention
+                    .push(format!("{}: {e}", mailbox.path));
+            }
         }
     }
 
@@ -441,7 +485,8 @@ mod tests {
             store,
             chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
         )
-        .unwrap();
+        .unwrap()
+        .text;
         assert!(out.contains("mailo account add"), "{out}");
     }
 

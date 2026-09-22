@@ -25,6 +25,7 @@ mod query;
 #[allow(dead_code)]
 #[path = "../src/snooze.rs"]
 mod snooze;
+#[allow(dead_code)]
 #[path = "../src/sync.rs"]
 mod sync;
 #[allow(dead_code)]

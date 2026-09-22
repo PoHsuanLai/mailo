@@ -43,6 +43,13 @@ pub struct SyncReport {
     /// warnings that matter. But it is not *nothing* either — someone who has just run `send`
     /// and then `sync` will otherwise read "0 sent" as success and believe their mail has gone.
     pub still_queued: usize,
+    /// The server rejected the credential, on any account in this pass.
+    ///
+    /// Separate from `needs_attention`, which is prose for a person, because something has to
+    /// *act* on it: a rejected password retried every five minutes is two hundred and eighty
+    /// failed logins a day against the user's own mail server, which is how an account gets
+    /// locked. A poll loop must stop on this and wait for the user, not back off and continue.
+    pub needs_reauth: bool,
 }
 
 /// How often each part of a sync runs.
@@ -300,6 +307,7 @@ impl<B: Backend> AccountEngine<B> {
                     if matches!(retry, Retry::NeedsReauth | Retry::Fatal(_)) {
                         report.needs_attention.push(e.to_string());
                     }
+                    report.needs_reauth |= matches!(retry, Retry::NeedsReauth);
                     if let Some(draft) = draft {
                         // Carries the retry, so the composer can say "retrying" rather than
                         // "failed" for something the outbox has not given up on.
