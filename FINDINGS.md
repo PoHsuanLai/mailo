@@ -3457,6 +3457,59 @@ desktop runtime underneath it: the half that works. And `scripts/live-window.sh`
 as the page reported *something*, so it printed four stages showing an identical list and called
 that a pass. It now fails when the list does not change across a search.
 
-**Status: open, upstream.** The next step is a minimal report against dioxus or tao —
-`crates/mail-app/examples/rerender.rs` is already that reproduction — and, until it is answered,
-the command line is the surface that works.
+**Status: open, upstream, and not reproducing.** The next step is a minimal report against dioxus
+or tao — `crates/mail-app/examples/rerender.rs` is already that reproduction — and, until it is
+answered, the command line is the surface that works. But see **F141**: on the same four versions
+this window now re-renders, so the report cannot be written from a reproduction that no longer
+reproduces, and the first thing to find is which part of the environment this was ever about.
+
+### F141 — The window re-renders here, on the versions F140 was filed against
+
+F140 is titled "may stop running", and the hedge turns out to be load-bearing. Driving the real
+binary today, the window re-renders correctly, and nothing about the dependency set has moved:
+`dioxus-desktop 0.7.10`, `dioxus-interpreter-js 0.7.10`, `tao 0.34.8`, `wry 0.53.5` — the same
+four versions F140 recorded.
+
+`scripts/live-window.sh` with its own probe now exits 0, with four distinct lists across four
+stages: both subjects, then `label:travel` leaving one, then `label:nosuchlabel` leaving none,
+then clearing restoring both. That is the exact check the script was taught to fail on, passing.
+
+**What was being tested, and why it needed a second probe.** Reading `dioxus-desktop` 0.7.10
+offers a candidate F140 did not consider. `WebviewInstance::poll_vdom` returns at its first line
+while `poll_edits_flushed` is pending, and that flag clears only when the page acknowledges the
+last batch of edits — which `dioxus-interpreter-js`'s `rafEdits` does from inside a
+`requestAnimationFrame` callback, except on the `headless` branch taken when the window is
+invisible. On that reading a surface the compositor never presents gets no frame callbacks, so
+the acknowledgement never arrives and the dom is never polled again. It fits every number F140
+recorded, including the thirty-eight clicks: a DOM event reaches Rust over a synchronous
+`XMLHttpRequest` on wry's custom protocol and never touches the event loop at all.
+
+F140 used those thirty-eight clicks to rule out a compositor throttling a window nobody brings to
+the front. That argument refutes *event* throttling. It does not touch frame-callback starvation,
+which is a different mechanism on a different channel — and frame callbacks are what `rafEdits`
+waits on.
+
+So `scripts/live-window/frames.js` counts frames and types, in one run, because the two
+explanations differ in what they predict happens *together*: frames stalling alongside a frozen
+list points at the rAF path, frames ticking through a frozen list points at the waker, and both
+healthy points at neither. It reported both healthy — `raf_ticks` 3, 59, 116, 173 across 2.8 s,
+about 63 a second, while the list changed at every stage, with `visibility` visible and
+`hasFocus` true throughout.
+
+**What this establishes, and what it does not.** It establishes that F140 is not a property of
+these versions, because these versions work here. It does not adjudicate between the two
+mechanisms at all: the run never entered the failing state, so it tested nothing about it.
+Measuring frames on a machine where the window already works cannot distinguish hypotheses about
+why it sometimes does not — every one of them survives.
+
+The variable is the environment, and the honest reading is that the status of F140 was never
+"broken" but "broken under conditions nobody had pinned down". Worth noting that
+`scripts/live-window.sh` advertises working with the screen locked, and launches the binary
+backgrounded from a shell with no window manager attending it — which is a plausible way to get a
+surface that is never presented, and would be the first thing to vary deliberately.
+
+**Status: F140 does not reproduce; both open.** What would settle it is a run of `frames.js` with
+the surface deliberately unpresented — screen locked, or the window occluded — looking for
+`raf_ticks` to stop climbing and the list to freeze in the same run. Until then the shell is a
+surface that works on this machine and is untrusted on one that showed F140, and no amount of
+correct code behind it changes that.
