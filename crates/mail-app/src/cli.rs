@@ -34,6 +34,12 @@ pub enum Command {
     },
     /// Configured accounts, and what each still needs.
     AccountList,
+    /// Set or clear the signature on an account. The text is read from stdin.
+    Signature {
+        address: String,
+        clear: bool,
+        text: String,
+    },
     /// Fetch mail for every configured account, and drain the outbox.
     Sync,
     /// Start a reply to a message. The body is read from stdin.
@@ -289,6 +295,28 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
             })
         }
         "status" => Ok(Command::Status),
+        "signature" => {
+            let address = args
+                .get(1)
+                .ok_or_else(|| {
+                    format!(
+                        "signature needs an address: mailo signature you@example.com\n\n{}",
+                        usage()
+                    )
+                })?
+                .to_lowercase();
+            let clear = match args.get(2).map(String::as_str) {
+                None => false,
+                Some("--clear") => true,
+                Some(other) => return Err(format!("unknown option {other:?}\n\n{}", usage())),
+            };
+            Ok(Command::Signature {
+                address,
+                clear,
+                // Filled in by the caller, which owns stdin. Parsing stays pure.
+                text: String::new(),
+            })
+        }
         "sync" => Ok(Command::Sync),
         "account" => match args.get(1).map(String::as_str) {
             Some("add") => {
@@ -414,6 +442,8 @@ usage: mailo <command>
   discard <draft-id>          delete a draft
   status
   account [list]
+  signature <address> [--clear]
+                             set it from stdin, or take it off
   account add <address>      (set MAILO_PASSWORD for a password account)
   account add <address> --imap HOST[:PORT] --smtp HOST[:PORT] [--login NAME]
                              for a server the preset table does not know
@@ -551,6 +581,18 @@ pub fn run(store: &SqliteStore, command: &Command, now: DateTime<Utc>) -> Result
             microsoft,
         } => crate::account::add(store, address, manual.as_ref(), *microsoft, now),
         Command::AccountList => crate::account::list(store),
+        Command::Signature {
+            address,
+            clear,
+            text,
+        } => {
+            let account = account_named(store, address)?;
+            crate::compose::set_signature(
+                store,
+                account,
+                if *clear { None } else { Some(text.as_str()) },
+            )
+        }
         Command::Status => {
             let mut out = String::new();
             for role in MailboxRole::ALL {
@@ -593,6 +635,27 @@ fn list_query(filter: Filter, limit: u32) -> Query {
         },
         page: PageReq { after: None, limit },
     }
+}
+
+/// The account whose address is `address`.
+///
+/// By address because that is what the user knows: an account id is a uuid nothing prints except
+/// `account list`, and asking someone to copy one to set a signature is asking them not to.
+fn account_named(store: &SqliteStore, address: &str) -> Result<AccountId, String> {
+    let db = store.connection();
+    let found: Option<String> = db
+        .query_row(
+            "SELECT id FROM accounts WHERE address = ?1",
+            [address.to_lowercase()],
+            |r| r.get(0),
+        )
+        .ok();
+    let id = found.ok_or_else(|| {
+        format!("no account for {address:?}. `mailo account list` says which there are.")
+    })?;
+    id.parse()
+        .map(AccountId::from_uuid)
+        .map_err(|_| "that account's id is unreadable".to_owned())
 }
 
 /// Every label with this name, across every configured account.

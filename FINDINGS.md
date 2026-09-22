@@ -2756,3 +2756,47 @@ one, which is the worst kind. The resolver returns every match now and the parse
 `Or([HasLabel(a), HasLabel(b)])`, because someone who types a word means the word. A name nothing
 bears still becomes text rather than `Filter::Nothing`, so it reads as a typo rather than as a
 label with no mail.
+
+### F124 — Every message this client had sent went out unsigned
+
+Following the seam F123 opened — *what does every test quietly assume?* — to the next assumption:
+one identity per account, with nothing set on it.
+
+`Identity.signature` has been a column since phase 1 and is loaded into the struct on every
+`identity_of`. Nothing has ever read it. No sending path appended one, no composer showed one,
+and no command could set one, so the field was decoration on a struct.
+
+`compose::signed` puts it beneath what was written, and `mailo signature <address>` sets it from
+stdin (`--clear` takes it off). Three decisions:
+
+- **At compose time, not at send.** Like the quoted material beside it, so the user can see it,
+  edit it, or delete it for one message. A signature that cannot be removed from a particular
+  reply is worse than none.
+- **Above the quote, below the body.** Which is where every client puts it and where a reader
+  expects it.
+- **The delimiter is `"-- "` — two hyphens, a space, and nothing else.** RFC 3676 §4.3 names that
+  exact string and every client that trims a signature when quoting looks for it; `--` without
+  the trailing space is a different line and gets quoted back at people for the rest of the
+  thread. An account with no signature must not gain a bare `-- ` either, since other clients
+  read it as "everything below is a signature" and hide it.
+
+On the wire, through the real binary against the local `aiosmtpd`:
+
+```
+one o'clock suits
+
+--=20
+Ada Lovelace
+Analytical Engines Ltd
+
+On Wed, 15 Nov 2023 at 07:13, Bob wrote:
+```
+
+`--=20` is the delimiter in quoted-printable, and it is the *right* answer rather than a
+surprising one: a trailing space at the end of a line is exactly what transport strips, so it has
+to be encoded or the delimiter arrives as `--` and stops being one. `mail-builder` did that
+without being asked, which is worth knowing the next time a whitespace-significant line is added
+to an outgoing message.
+
+Whitespace is not a signature: a file of blank lines, or `< /dev/null`, is stored as NULL so that
+"has one" is a single question rather than two that can disagree.

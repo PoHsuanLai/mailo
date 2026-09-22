@@ -121,7 +121,7 @@ where
     let mut draft = Draft::reply_to(&original, &identity, scope, now);
     // `Draft::reply_to` leaves the text empty on purpose — quoting is a rendering decision, not
     // a property of the draft — so the quoting happens here, where the renderer is.
-    draft.text = quoted(body, &original, zone);
+    draft.text = quoted(&signed(body, &identity), &original, zone);
     save(store, &draft)?;
     Ok(draft)
 }
@@ -166,7 +166,7 @@ where
 
     let mut draft = Draft::forward_of(&original, &identity, now);
     draft.to = to.to_vec();
-    draft.text = forwarded(body, &original, zone);
+    draft.text = forwarded(&signed(body, &identity), &original, zone);
     save(store, &draft)?;
     Ok(draft)
 }
@@ -312,6 +312,63 @@ pub fn reply(
         let _ = writeln!(out, "\nsend it with: mailo send {}", draft.id);
     }
     Ok(out)
+}
+
+/// Put the identity's signature beneath what was written.
+///
+/// `Identity.signature` has been a column since phase 1 and nothing has ever read it: no sending
+/// path appended one, no composer showed one, and no command could set one. Every message this
+/// client has sent went out unsigned.
+///
+/// Appended at compose time rather than at send, like the quoted material beside it, so the user
+/// can see it, edit it, or take it off for one message. A signature the user cannot delete from
+/// a particular reply is worse than none.
+///
+/// The delimiter is `"-- "` on its own line — two hyphens, a space, and nothing else. RFC 3676
+/// §4.3 names that exact string, and every client that trims a signature when quoting looks for
+/// it; `--` without the trailing space is a different line and gets quoted back at people for
+/// the rest of the thread.
+fn signed(body: &str, identity: &Identity) -> String {
+    let Some(signature) = identity.signature.as_deref().map(str::trim_end) else {
+        return body.to_owned();
+    };
+    if signature.is_empty() {
+        return body.to_owned();
+    }
+    let mut out = String::new();
+    if !body.is_empty() {
+        out.push_str(body.trim_end());
+        out.push_str("\r\n");
+    }
+    out.push_str("\r\n-- \r\n");
+    for line in signature.lines() {
+        out.push_str(line);
+        out.push_str("\r\n");
+    }
+    out
+}
+
+/// Set or clear the signature on an account's default identity.
+pub fn set_signature(
+    store: &SqliteStore,
+    account: AccountId,
+    signature: Option<&str>,
+) -> Result<String, String> {
+    let identity = identity_of(store, account, None)?;
+    // An empty string is not a signature: stored as NULL, so "has one" is a single question
+    // rather than two that can disagree.
+    let trimmed = signature.map(str::trim_end).filter(|s| !s.is_empty());
+    store
+        .connection()
+        .execute(
+            "UPDATE identities SET signature = ?2 WHERE id = ?1",
+            rusqlite::params![identity.id.to_string(), trimmed],
+        )
+        .map_err(|e| e.to_string())?;
+    Ok(match trimmed {
+        Some(_) => format!("signature set for {}\n", identity.from.email),
+        None => format!("signature cleared for {}\n", identity.from.email),
+    })
 }
 
 /// The reply body, with the original quoted beneath an attribution line.

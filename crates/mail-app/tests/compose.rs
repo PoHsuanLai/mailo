@@ -1036,3 +1036,119 @@ mod forwarding {
         assert!(!draft.text.contains("None"), "{}", draft.text);
     }
 }
+
+/// Signatures, which were a column nothing read.
+///
+/// `Identity.signature` has existed since phase 1. No sending path appended one, no composer
+/// showed one, and no command could set one — every message this client had ever sent went out
+/// unsigned.
+mod signatures {
+    use super::*;
+
+    fn set(store: &SqliteStore, text: Option<&str>) {
+        compose::set_signature(store, ACCOUNT, text).unwrap();
+    }
+
+    #[test]
+    fn a_reply_carries_the_signature_beneath_what_was_written() {
+        let (store, _dir) = seeded();
+        set(&store, Some("Ada Lovelace\nAnalytical Engines Ltd"));
+
+        compose::reply(
+            &store,
+            ORIGINAL,
+            ReplyScope::Sender,
+            "one o'clock suits",
+            at(10),
+        )
+        .unwrap();
+        let text = only_draft(&store).text;
+
+        let written = text.find("one o'clock suits").expect("what was written");
+        let delimiter = text.find("\r\n-- \r\n").expect("the signature delimiter");
+        let sig = text.find("Analytical Engines").expect("the signature");
+        let quote = text.find("Ada Lovelace wrote:").expect("the attribution");
+        assert!(written < delimiter, "the signature came first:\n{text}");
+        assert!(delimiter < sig && sig < quote, "out of order:\n{text}");
+    }
+
+    #[test]
+    fn the_delimiter_is_dash_dash_space_exactly() {
+        // RFC 3676 §4.3 names that string, and every client that trims a signature when quoting
+        // looks for it. `--` without the trailing space is a different line and gets quoted back
+        // at people for the rest of the thread.
+        let (store, _dir) = seeded();
+        set(&store, Some("Ada"));
+        compose::reply(&store, ORIGINAL, ReplyScope::Sender, "hi", at(10)).unwrap();
+
+        let text = only_draft(&store).text;
+        assert!(text.contains("\r\n-- \r\n"), "{text:?}");
+        assert!(
+            !text.contains("\r\n--\r\n"),
+            "the trailing space is missing: {text:?}"
+        );
+    }
+
+    #[test]
+    fn a_forward_is_signed_too() {
+        let (store, _dir) = seeded();
+        set(&store, Some("Ada"));
+        compose::draft_forward(
+            &store,
+            ORIGINAL,
+            &[Address {
+                name: None,
+                email: "bea@example.test".to_owned(),
+            }],
+            "passing this on",
+            at(10),
+        )
+        .unwrap();
+
+        let text = only_draft(&store).text;
+        let note = text.find("passing this on").unwrap();
+        let delimiter = text.find("\r\n-- \r\n").unwrap();
+        let block = text.find("---------- Forwarded message").unwrap();
+        assert!(
+            note < delimiter && delimiter < block,
+            "out of order:\n{text}"
+        );
+    }
+
+    #[test]
+    fn no_signature_means_no_delimiter() {
+        // An account that has not set one must not gain a bare `-- ` line, which other clients
+        // read as "everything below is a signature" and hide.
+        let (store, _dir) = seeded();
+        compose::reply(&store, ORIGINAL, ReplyScope::Sender, "hi", at(10)).unwrap();
+        assert!(
+            !only_draft(&store).text.contains("-- "),
+            "{}",
+            only_draft(&store).text
+        );
+    }
+
+    #[test]
+    fn whitespace_is_not_a_signature() {
+        // `mailo signature you@x < /dev/null` and a file of blank lines are both "take it off".
+        let (store, _dir) = seeded();
+        set(&store, Some("   \n\n  "));
+        compose::reply(&store, ORIGINAL, ReplyScope::Sender, "hi", at(10)).unwrap();
+        assert!(
+            !only_draft(&store).text.contains("-- "),
+            "{}",
+            only_draft(&store).text
+        );
+    }
+
+    #[test]
+    fn clearing_it_takes_it_off_the_next_reply() {
+        let (store, _dir) = seeded();
+        set(&store, Some("Ada"));
+        let out = compose::set_signature(&store, ACCOUNT, None).unwrap();
+        assert!(out.contains("cleared"), "{out}");
+
+        compose::reply(&store, ORIGINAL, ReplyScope::Sender, "hi", at(10)).unwrap();
+        assert!(!only_draft(&store).text.contains("-- "));
+    }
+}

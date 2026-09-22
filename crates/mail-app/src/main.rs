@@ -61,6 +61,23 @@ fn main() {
             }
             Some(cli::Command::Forward { message, to, body })
         }
+        // `signature` takes its text from stdin too, unless it is being cleared.
+        Some(cli::Command::Signature {
+            address,
+            clear: false,
+            text: _,
+        }) => {
+            let mut text = String::new();
+            if let Err(e) = std::io::Read::read_to_string(&mut std::io::stdin(), &mut text) {
+                eprintln!("cannot read the signature: {e}");
+                std::process::exit(1);
+            }
+            Some(cli::Command::Signature {
+                address,
+                clear: false,
+                text,
+            })
+        }
         other => other,
     };
 
