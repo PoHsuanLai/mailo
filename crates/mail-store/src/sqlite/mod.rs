@@ -63,8 +63,22 @@ impl SqliteStore {
         // WAL lets a reader run while a writer commits, which is what keeps the UI responsive
         // during a sync. NORMAL trades a fsync per commit for the small risk of losing the
         // last transaction on power loss — acceptable, because the server still has the mail.
-        db.execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;")
-            .map_err(|e| StoreError::Db(e.to_string()))?;
+        //
+        // `busy_timeout` is what happens when two *writers* meet, which WAL does not help with:
+        // SQLite serialises them, and the second either waits or is told "database is locked".
+        // Two writers is not an edge case here — `mailo sync` in a terminal while the window is
+        // open is an ordinary thing to do, and so is a scheduled sync overlapping a manual one.
+        //
+        // Five seconds against transactions that are one fetch batch long, which the scale
+        // tests measure in milliseconds. Written down rather than inherited: `rusqlite` happens
+        // to default to the same five seconds, and a default that nothing names is a behaviour
+        // nobody notices changing.
+        db.execute_batch(
+            "PRAGMA journal_mode = WAL;
+             PRAGMA synchronous = NORMAL;
+             PRAGMA busy_timeout = 5000;",
+        )
+        .map_err(|e| StoreError::Db(e.to_string()))?;
         migrate::migrate(&db)?;
         Ok(Self {
             db: ReentrantMutex::new(db),

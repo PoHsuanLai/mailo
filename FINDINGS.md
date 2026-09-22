@@ -2691,3 +2691,36 @@ passing, which is the right signature: the re-layer is what the first two are ab
 
 No defect. The value is that the rule is now checked for labels rather than reasoned about, and
 the next person to add an ingest path has two more examples of what it has to satisfy.
+
+### F122 — Two writers, and a five-second decision nobody had made
+
+`mailo sync` in a terminal while the window is open is an ordinary thing to do, and so is a
+scheduled sync overlapping a manual one. WAL is what makes a *reader* concurrent with a writer,
+and does nothing for two writers: SQLite serialises them, and the second either waits or is told
+`database is locked`.
+
+Nothing in this codebase set `busy_timeout`, so the question was what the default is. Probed by
+holding a write transaction open on one connection and writing from another:
+
+```
+the second write was refused after 5.00397673s: database is locked
+```
+
+Five seconds, then a plain error. That is `rusqlite`'s default rather than SQLite's — SQLite's own
+default is **zero**, an immediate failure — so the behaviour was right by inheritance.
+
+Right by inheritance is the shape of F121 one layer down: a default that nothing names is a
+behaviour nobody notices changing. It is set explicitly now, with the reason beside it, and
+asserted on both the file and in-memory paths because they are opened by different code. The
+`journal_mode` and `synchronous` pragmas are asserted too — a database that fell back to `delete`
+journalling would block every read behind every write, which is the shape of "the window freezes
+while it syncs" and would not otherwise fail any test.
+
+Five seconds is the right number against transactions that are one fetch batch long, which the
+scale tests measure in milliseconds.
+
+Two other things were checked in the same pass and found sound. `write_ingest` is one transaction
+from the UIDVALIDITY reset to the cursor, so a failure halfway rolls back rather than leaving a
+cursor advanced past messages that were never stored — which would be lost mail. And a rolled-back
+ingest leaves its blobs behind, which is not a leak: blobs are content-addressed, so the retry
+writes the same hashes and reuses them.
