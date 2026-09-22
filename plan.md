@@ -1251,15 +1251,18 @@ on the render thread matters more than what the store costs, and the badges matt
 reader. `8d` and `8e` stay in the plan because a cache of a pure function is still free and still
 correct — but they are no longer where the milliseconds are, and they are not first.
 
-**8z — Whether the window runs at all, which is now first.** F140: a click reaches its handler
-and writes its signal, and the label the signal controls never changes; typing into the search
-box does not filter the list; a `use_future` timer ticks once and stops. It reproduces in
-`examples/rerender.rs`, which contains no `mail-app` code, so it is not about how this project
-uses signals. What is not known is whether dioxus-desktop stops driving the `VirtualDom` after
-the first wake, or whether a compositor is throttling a window that is launched from a shell and
-never brought to the front. Nothing else in this phase is worth doing until that is answered,
-because moving work off the render thread is pointless if nothing off it can report back — and
-if it is the first explanation, F128's poll loop and the composer's autosave have never run.
+**8z — The window does not re-render, and it is first.** F140, and it is settled rather than
+suspected: a hidden element clicked by the page reaches its Rust handler thirty-eight times in
+twelve seconds while the component renders twice and a tokio timer ticks not at all. The event
+loop is alive and dispatching; the dom is never polled again. `dioxus-desktop/src/waker.rs` shows
+why — waking the dom sends `UserWindowEvent::Poll` through tao's `EventLoopProxy`, that event is
+the only thing that calls `poll_vdom`, and the send result is discarded.
+
+It reproduces in `examples/rerender.rs` with no `mail-app` code in it, and it cannot be worked
+around from application code: the proxy is `pub(crate)`. So this item is not an implementation
+task. It is a report to file upstream, and until it is answered the rest of this phase is mostly
+theatre — there is no point moving work off the render thread when the render thread has stopped
+rendering. What that costs today is written up in FINDINGS F140.
 
 **8b — A reader connection per thread.** One writer, N readers, so WAL delivers what its own
 comment already claims. This is the only item here scheduled ahead of its measurement, because it

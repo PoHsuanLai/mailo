@@ -3407,31 +3407,56 @@ reports *nothing*. It reported four stages showing an identical list, which is t
 bug, and the script said nothing was wrong. Printing what a page reported is not the same as
 checking it — `CONVENTIONS.md`, "an assertion that was already true", in a shell script.
 
-**Narrowed further.** Instrumenting `App` itself finishes the picture: the body runs twice —
-mount, and once more — and then a click on Sync reaches its handler and writes its signal, and
-*no render follows the write*. Events still arrive. Renders stop.
+**Settled.** A hidden element, clicked by the page every 250 ms, reaches its Rust handler
+**thirty-eight times** in twelve seconds — and in the same run the tokio timer ticks **zero**
+times and the component renders **twice**. The event loop is alive and dispatching. It simply
+never polls the `VirtualDom` again.
 
-The minimal reproduction rules out every explanation that sits below dioxus. Three unrelated wake
-sources — a tokio timer, a channel written from an ordinary OS thread, and the page itself
-calling back through `dioxus::document::eval` — all deliver exactly one wake between them and
-then nothing, so it is neither the time driver nor the webview. `with_focused` and
-`with_always_on_top` change nothing, which is the compositor-throttling theory's best test and it
-fails. `dioxus::launch` behaves the same as `LaunchBuilder::desktop()`. dioxus 0.7.10 is the
-latest stable; 0.8 is an alpha, which is not something to put under a mail client to chase a
-symptom.
+That pair of numbers rules out the explanation that looked most likely at first. A compositor
+throttling a surface that nobody brings to the front does not deliver thirty-eight clicks. The
+window is not asleep; the dom is.
 
-So the balance of evidence is that the desktop runtime stops re-rendering after startup, and not
-that a compositor is throttling an unpresented surface. It is still not proof: every one of these
-measurements was taken on a window launched from a shell into a session that never brings it to
-the front, and the one measurement that would settle it is a person typing into a window they can
-see.
+`dioxus-desktop/src/waker.rs` names the mechanism exactly:
 
-**Status: open.** Not fixable from inside this repository — there is no arrangement of our own
-code that makes a runtime re-render. What the project can do, and has done, is stop pretending
-otherwise: `scripts/live-window.sh` now fails when the list does not change across a search, and
-the parts of phase 8 that do not need the window to be alive carry on without it.
+```rust
+impl ArcWake for DomHandle {
+    fn wake_by_ref(arc_self: &Arc<Self>) {
+        _ = arc_self.proxy.send_event(UserWindowEvent::Poll(arc_self.id));
+    }
+}
+```
 
-**If it is confirmed**, the window is a static snapshot of the moment it opened, and everything
-phase 7 added to it — the New button, the label and snooze menus, the attach control — is correct
-code behind a surface that cannot show the result. The command line is unaffected, and so is
-every test.
+Waking the dom sends a `Poll` through tao's `EventLoopProxy`, and `launch.rs` turns that event —
+and only that event — into `app.poll_vdom(id)`. Handling a DOM event does not poll it. So when
+those proxy events are not delivered, every future stalls and every signal write goes unrendered.
+The send result is discarded, so nothing reports the failure.
+
+Instrumenting `App` shows the same shape in the product: the body runs twice, a click on Sync
+reaches its handler and writes its signal, and no render follows the write.
+
+**Not fixable from inside this repository.** The proxy is a `pub(crate)` field of
+`SharedContext`, so application code cannot ask for a poll; and there is no arrangement of our own
+signals or futures that makes a runtime re-render. Tried and ruled out: `dioxus::launch` against
+`LaunchBuilder::desktop()`, `with_focused` and `with_always_on_top`, three unrelated wake sources
+(a tokio timer, a channel written from an OS thread, `document::eval`), and a page-driven DOM
+heartbeat. dioxus 0.7.10 is the latest stable; 0.8 is an alpha, which is not something to put
+under a mail client to chase a symptom.
+
+**What it costs.** The window is a static snapshot of the moment it opened. F128's poll loop never
+runs a pass, so mail arrives only when Sync is pressed — and pressing Sync does not visibly do
+anything either, though the pass itself runs. The composer's three-second autosave never fires.
+Everything phase 7 added — the New button, the label and snooze menus, the attach control — is
+correct code that updates the database without updating the screen. The command line is
+unaffected, and so is every test.
+
+**Why nothing caught it.** F128 added `a_future_started_when_a_component_mounts_does_run`, which
+passes under `#[tokio::test]`, where tokio drives its own timers and wakes its own tasks — a
+property of the harness, not of the window. Phase 6's journeys go through
+`VirtualDom::handle_event` against a real store, which exercises the component tree without the
+desktop runtime underneath it: the half that works. And `scripts/live-window.sh` exited 0 as long
+as the page reported *something*, so it printed four stages showing an identical list and called
+that a pass. It now fails when the list does not change across a search.
+
+**Status: open, upstream.** The next step is a minimal report against dioxus or tao —
+`crates/mail-app/examples/rerender.rs` is already that reproduction — and, until it is answered,
+the command line is the surface that works.

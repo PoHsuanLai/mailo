@@ -1,39 +1,54 @@
-//! Which wakes reach a dioxus desktop window, and which do not — the minimal case behind F140.
+//! Why the window stops after its first render — the whole of F140, with no `mail-app` code.
 //!
 //! ```text
 //! cargo run -p mail-app --example rerender
 //! ```
 //!
-//! Expected: twenty ticks from each of three drivers, half a second apart, and a window counting
-//! up with them.
+//! Expected: twenty ticks from each of three drivers, and a window counting up with them.
 //!
-//! Observed, from a shell in this project's development session: **one** wake in total, across
-//! all three, and then silence. A tokio timer, a wake sent from an ordinary OS thread through a
-//! channel, and the page itself calling back through `dioxus::document::eval` all stop the same
-//! way, which rules out the time driver and rules out the webview. Adding `with_focused` and
-//! `with_always_on_top` changes nothing, and so does `dioxus::launch` in place of
-//! `LaunchBuilder::desktop()`.
+//! Observed: **one** wake in total across all three, then silence — while the hidden
+//! `#heartbeat` element, clicked by the page every 250 ms, reaches its Rust handler *thirty-eight
+//! times*. The loop is alive and dispatching events. It simply never polls the `VirtualDom`
+//! again, so the timer that came ready long ago is never resumed and the component never
+//! re-renders.
 //!
-//! In `mail-app` the same instrumentation shows the shape of it: `App` runs twice, a click on
-//! Sync reaches its handler and writes its signal — and no render follows the write. Events
-//! still arrive; renders stop. No `mail-app` code takes part in the reproduction below.
+//! That pair of numbers is the finding. It rules out the explanation that looked most likely at
+//! first — a compositor throttling a surface nobody brings to the front — because a throttled
+//! event loop does not handle thirty-eight clicks.
+//!
+//! `dioxus-desktop/src/waker.rs` names the mechanism: waking the dom sends
+//! `UserWindowEvent::Poll` through tao's `EventLoopProxy`, and `launch.rs` turns that event into
+//! `app.poll_vdom(id)`. Nothing else polls it — handling a DOM event does not. So when those
+//! proxy events are not delivered, every future stalls and every signal write goes unrendered,
+//! and the send result is discarded (`_ = arc_self.proxy.send_event(..)`) so nothing says so.
+//!
+//! There is no way out from application code: the proxy lives in a `pub(crate)` field.
+//!
+//! What it costs `mail-app`: the five-minute poll loop never runs a pass, the composer's autosave
+//! never fires, and every button updates the database without updating the screen.
+
 use dioxus::prelude::*;
 
+/// A hidden element the page clicks on a timer.
+///
+/// dioxus re-polls the `VirtualDom` when `EventLoopProxy::send_event` delivers a `Poll` event
+/// (see `dioxus-desktop/src/waker.rs`). If those never arrive, nothing after the first wake is
+/// ever polled. A real DOM event *does* get through — a click reaches its handler — so this
+/// drives the loop through the one door that is known to open.
+const HEARTBEAT: &str = r#"<script>
+document.addEventListener("DOMContentLoaded", () => {
+  setInterval(() => {
+    const beat = document.getElementById("heartbeat");
+    if (beat) { beat.click(); }
+  }, 250);
+});
+</script>"#;
+
 fn main() {
-    // Asked to be presented: if the stall is a compositor throttling a surface nobody ever
-    // brings to the front, a window that is focused and on top does not stall.
     dioxus::LaunchBuilder::desktop()
-        .with_cfg(
-            dioxus::desktop::Config::new().with_window(
-                dioxus::desktop::WindowBuilder::new()
-                    .with_title("rerender")
-                    .with_always_on_top(true)
-                    .with_focused(true),
-            ),
-        )
+        .with_cfg(dioxus::desktop::Config::new().with_custom_head(HEARTBEAT.to_owned()))
         .launch(app);
 }
-
 fn app() -> Element {
     let mut timer = use_signal(|| 0);
     let mut channel = use_signal(|| 0);
@@ -85,5 +100,10 @@ fn app() -> Element {
         }
     });
 
-    rsx! { div { "timer {timer} channel {channel} page {from_page}" } }
+    rsx! {
+        div { "timer {timer} channel {channel} page {from_page}" }
+        // Clicked by the page every 250 ms. The handler does nothing: what matters is that
+        // handling an event makes dioxus poll the VirtualDom afterwards.
+        div { id: "heartbeat", onclick: move |_| { eprintln!("BEAT-CLICK"); }, style: "display:none" }
+    }
 }
