@@ -1291,3 +1291,61 @@ mod watching {
         assert!(cli::usage().contains("watch"), "{}", cli::usage());
     }
 }
+
+/// Downloading a part is IMAP's, and a message with no such account says so rather than trying.
+#[test]
+fn fetching_a_part_of_a_pop3_message_is_refused_before_anything_is_sent() {
+    let (store, _dir) = configured(1, caps());
+    // Repoint the account at POP3: the one fact under test.
+    let plan: String = store
+        .connection()
+        .query_row("SELECT plan FROM accounts", [], |r| r.get(0))
+        .unwrap();
+    let mut plan: AccountPlan = serde_json::from_str(&plan).unwrap();
+    plan.incoming = Incoming::Pop3 {
+        host: "127.0.0.1".to_owned(),
+        port: 1,
+        tls: Tls::Plaintext,
+        leave: LeaveOnServer::Keep,
+    };
+    store
+        .connection()
+        .execute(
+            "UPDATE accounts SET plan = ?1",
+            [serde_json::to_string(&plan).unwrap()],
+        )
+        .unwrap();
+    mail_runtime::absorb(
+        &store,
+        ACCOUNT,
+        MailboxRef {
+            account: ACCOUNT,
+            path: "INBOX".to_owned(),
+        },
+        None,
+        vec![mail_runtime::Arrival {
+            remote: RemoteRef::Pop {
+                uidl: "u1".to_owned(),
+            },
+            raw: b"From: a@example.test\r\nSubject: s\r\n\r\nbody\r\n".to_vec(),
+        }],
+        false,
+        now(),
+    )
+    .unwrap();
+    let id: String = store
+        .connection()
+        .query_row("SELECT id FROM messages", [], |r| r.get(0))
+        .unwrap();
+
+    let err = sync::fetch_part_with(
+        &store,
+        Arc::new(MapSecrets::default()),
+        &OAuthRegistry::default(),
+        MessageId::from_uuid(id.parse().unwrap()),
+        "2",
+        now(),
+    )
+    .unwrap_err();
+    assert!(err.contains("only IMAP"), "{err}");
+}

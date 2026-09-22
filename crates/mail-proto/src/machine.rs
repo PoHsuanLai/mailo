@@ -113,6 +113,17 @@ pub enum ProtoOutcome {
         ingest: Box<Ingest>,
         vanished: Vec<(u32, u32)>,
     },
+    /// Each message's MIME tree, for [`ProtoOp::FetchStructure`]. A message the server
+    /// described in a way that cannot be rebuilt — a multipart with no boundary — is left out,
+    /// and the caller fetches it whole.
+    ///
+    /// [`ProtoOp::FetchStructure`]: mail_domain::ProtoOp::FetchStructure
+    Structures(Vec<(RemoteRef, mail_domain::PartTree)>),
+    /// The sections asked for, by name, as the server sent them: still transfer-encoded.
+    Sections {
+        remote: RemoteRef,
+        parts: Vec<(String, Vec<u8>)>,
+    },
 }
 
 /// Turns a [`ProtoOp`] into a walk of the relevant session, then into domain values.

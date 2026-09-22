@@ -29,7 +29,7 @@ impl SqliteStore {
     ///
     /// Several per message is normal and correct: a Gmail message marked read must be marked
     /// read in INBOX *and* in All Mail, or the next sync reports it unread again.
-    fn refs_for(
+    pub(super) fn refs_for(
         &self,
         account: AccountId,
         messages: &[MessageId],

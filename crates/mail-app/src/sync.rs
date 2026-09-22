@@ -338,42 +338,114 @@ async fn one(
             drive(&mut engine, account, &mailboxes, &mut cancel, now, mode).await
         }
         Incoming::Imap { .. } => {
-            // Password *and* bearer token. Only Gmail needs OAuth; every other IMAP server this
-            // client will meet authenticates with `LOGIN`, and refusing one meant the IMAP path
-            // could not be used at all without registering an OAuth client.
-            let mechanism = match &credential {
-                Credential::OAuth { .. } => ImapCommand::AuthenticateXoauth2,
-                Credential::Password(_) => ImapCommand::Login,
-            };
-            let auth = ImapAuth {
-                username: username_for(&account.plan),
-                credential,
-                sasl: sasl_for(&account.plan),
-            };
-            let backend = ImapBackend::new(
-                account.id,
-                account.caps.clone(),
-                // The factory owns authentication, so the backend never names a mechanism and
-                // never holds the credential that would decide one.
-                Box::new(move |authenticate, commands: Vec<ImapCommand>| {
-                    let mut all = Vec::new();
-                    if authenticate == Authenticate::First {
-                        all.push(mechanism.clone());
-                    }
-                    all.extend(commands);
-                    ImapSession::new(auth.clone(), all)
-                }),
-            );
-            let mut engine = AccountEngine::new(
-                account.id,
-                account.plan.clone(),
-                backend,
-                store.clone(),
-                secrets,
-            );
+            let mut engine = imap_engine(store, account, credential, secrets);
             drive(&mut engine, account, &mailboxes, &mut cancel, now, mode).await
         }
     }
+}
+
+/// An engine for an IMAP account, signed in with `credential`.
+fn imap_engine(
+    store: &Arc<SqliteStore>,
+    account: &Configured,
+    credential: Credential,
+    secrets: Arc<dyn Secrets>,
+) -> AccountEngine<ImapBackend> {
+    // Password *and* bearer token. Only Gmail needs OAuth; every other IMAP server this client
+    // will meet authenticates with `LOGIN`, and refusing one meant the IMAP path could not be
+    // used at all without registering an OAuth client.
+    let mechanism = match &credential {
+        Credential::OAuth { .. } => ImapCommand::AuthenticateXoauth2,
+        Credential::Password(_) => ImapCommand::Login,
+    };
+    let auth = ImapAuth {
+        username: username_for(&account.plan),
+        credential,
+        sasl: sasl_for(&account.plan),
+    };
+    let backend = ImapBackend::new(
+        account.id,
+        account.caps.clone(),
+        // The factory owns authentication, so the backend never names a mechanism and never
+        // holds the credential that would decide one.
+        Box::new(move |authenticate, commands: Vec<ImapCommand>| {
+            let mut all = Vec::new();
+            if authenticate == Authenticate::First {
+                all.push(mechanism.clone());
+            }
+            all.extend(commands);
+            ImapSession::new(auth.clone(), all)
+        }),
+    );
+    AccountEngine::new(
+        account.id,
+        account.plan.clone(),
+        backend,
+        store.clone(),
+        secrets,
+    )
+}
+
+/// Download one attachment a sync left on the server, and record it as held.
+///
+/// Blocking, with a runtime of its own, for the same reason [`run`] has one: its callers are a
+/// command and a click handler, not async code.
+#[allow(dead_code)] // Called from `main` and the window, which the test binaries do not include.
+pub fn fetch_part(
+    store: &Arc<SqliteStore>,
+    message: mail_domain::MessageId,
+    section: &str,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<(), String> {
+    let registry = OAuthRegistry::load_default().map_err(|e| e.to_string())?;
+    fetch_part_with(
+        store,
+        Arc::new(KeyringSecrets),
+        &registry,
+        message,
+        section,
+        now,
+    )
+}
+
+/// The same, with the secret store named, so a test can run it.
+pub fn fetch_part_with(
+    store: &Arc<SqliteStore>,
+    secrets: Arc<dyn Secrets>,
+    registry: &OAuthRegistry,
+    message: mail_domain::MessageId,
+    section: &str,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<(), String> {
+    use mail_store::Store as _;
+    let owner = store.message(message).map_err(|e| e.to_string())?.account;
+    let account = configured(store)?
+        .into_iter()
+        .find(|a| a.id == owner)
+        .ok_or_else(|| "the account this message belongs to is no longer configured".to_owned())?;
+    if !matches!(account.plan.incoming, Incoming::Imap { .. }) {
+        return Err("only IMAP leaves attachments on the server".to_owned());
+    }
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| format!("cannot start the async runtime: {e}"))?;
+    runtime.block_on(async {
+        let stored = secrets
+            .get(&SecretKey {
+                account: account.id,
+                purpose: SecretPurpose::IncomingPassword,
+            })
+            .map_err(|_| crate::view::no_credential(&account.address, &account.plan.auth))?;
+        let credential = signed_in(&account, stored, secrets.as_ref(), registry, now).await?;
+        let (_tx, mut cancel) = watch::channel(false);
+        let mut engine = imap_engine(store, &account, credential, secrets.clone());
+        engine
+            .fetch_part(message, section, &mut cancel)
+            .await
+            .map(|_| ())
+            .map_err(|e| format!("cannot download the attachment: {e}"))
+    })
 }
 
 /// What one account's pass did, as the user reads it.

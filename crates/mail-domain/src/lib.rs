@@ -15,6 +15,7 @@ pub mod id;
 pub mod ingest;
 pub mod message;
 pub mod op;
+pub mod parts;
 pub mod presets;
 pub mod remote;
 pub mod retry;
@@ -28,7 +29,7 @@ pub use account::{
     SaslMech, SecretKey, SecretPurpose, ServerLabels, ServerThreads, Supported, Tls, Username,
     WatchMode,
 };
-pub use content::{Address, Attachment, Body, Inline, Label};
+pub use content::{Address, Attachment, Body, Inline, Label, PartContent};
 pub use draft::{Draft, PendingAttachment, ReplyScope, SendState};
 pub use filter::{DateRange, Filter, MatchCtx, TextMatch};
 pub use id::{
@@ -38,6 +39,7 @@ pub use id::{
 pub use ingest::{Fetched, Ingest};
 pub use message::{Message, MessageKey, Thread, ThreadSummary};
 pub use op::{Action, Applied, Change, Op, OpKind, Patch, RemoteIntent, Target};
+pub use parts::PartTree;
 pub use remote::{FetchSince, MailboxRef, ProtoOp, RemoteRef, Resync, SyncCursor, UidValidity};
 pub use retry::{Retry, Retryable};
 pub use state::{

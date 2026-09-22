@@ -140,7 +140,8 @@ fn every_part_is_still_reachable_afterwards() {
     assert_eq!(message.attachments[0].name, "f0");
     assert_eq!(message.attachments[999].name, "f999");
     assert_eq!(
-        message.attachments[0].blob, message.attachments[999].blob,
+        message.attachments[0].blob(),
+        message.attachments[999].blob(),
         "identical bytes share a blob"
     );
 }

@@ -13,7 +13,7 @@ use mail_domain::{
     ServerLabels, ServerThreads, Snooze, Star, Supported, Target, Thread, ThreadId, ThreadSummary,
     WatchMode,
 };
-use mail_domain::{Address, Attachment, Inline};
+use mail_domain::{Address, Attachment, Inline, PartContent};
 use proptest::prelude::*;
 use std::time::Duration;
 use uuid::Uuid;
@@ -91,7 +91,7 @@ fn attachment(name: &str) -> Attachment {
         name: name.to_owned(),
         mime: "text/plain".to_owned(),
         size: 3,
-        blob: BlobId::from_uuid(Uuid::from_u128(0xf00d)),
+        content: PartContent::Held(BlobId::from_uuid(Uuid::from_u128(0xf00d))),
         inline: Inline::Attached,
     }
 }

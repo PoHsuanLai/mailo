@@ -14,6 +14,18 @@ pub struct ParsedPart {
     pub mime: String,
     pub bytes: Vec<u8>,
     pub inline: Inline,
+    /// Left on the server when the message was fetched, so `bytes` is empty. Only ever set by
+    /// [`parse_reconstructed`]; [`parse`] reads no marker and sets `None`.
+    pub remote: Option<RemotePart>,
+}
+
+/// Where a part left on the server is, and how big it is there.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemotePart {
+    /// The IMAP section: `"2"`, `"1.3"`.
+    pub section: String,
+    /// Size on the server, before transfer decoding.
+    pub octets: u64,
 }
 
 /// Everything a message's bytes say about it.
@@ -52,6 +64,26 @@ pub struct Parsed {
 /// a mislabelled charset, an 8-bit header. Those are facts to record, not errors. Reserve
 /// [`MimeError::Unparseable`] for bytes that are not a message at all.
 pub fn parse(raw: &[u8]) -> Result<Parsed, MimeError> {
+    parse_as(raw, Markers::Ignore)
+}
+
+/// Parse a message [`crate::reconstruct`] rebuilt, reading which parts it left on the server.
+///
+/// Only for bytes that function wrote. It removes any marker the server's copy carried, so the
+/// markers in its output are its own; the same markers in a message straight off the wire are
+/// the sender's, and [`parse`] is what that gets.
+pub fn parse_reconstructed(raw: &[u8]) -> Result<Parsed, MimeError> {
+    parse_as(raw, Markers::Trust)
+}
+
+/// Whether the reconstruction markers mean anything in these bytes.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Markers {
+    Ignore,
+    Trust,
+}
+
+fn parse_as(raw: &[u8], markers: Markers) -> Result<Parsed, MimeError> {
     // A header is `name ":" value`. Bytes with no colon are not a message; the parser
     // will otherwise treat a run of NULs as a header name and hand back an empty shell.
     if !raw.contains(&b':') {
@@ -66,15 +98,15 @@ pub fn parse(raw: &[u8]) -> Result<Parsed, MimeError> {
     if message.parts.is_empty() {
         return Err(not_a_message());
     }
-    Ok(assemble(&message))
+    Ok(assemble(&message, markers))
 }
 
 fn not_a_message() -> MimeError {
     MimeError::Unparseable("no RFC 5322 header was found".to_owned())
 }
 
-fn assemble(message: &Message<'_>) -> Parsed {
-    let (text, html, attachments) = bodies(message);
+fn assemble(message: &Message<'_>, markers: Markers) -> Parsed {
+    let (text, html, attachments) = bodies(message, markers);
     Parsed {
         rfc_message_id: first_id(message, HeaderName::MessageId),
         date: message_date(message),
@@ -185,7 +217,10 @@ fn last_id(message: &Message<'_>, name: HeaderName<'static>) -> Option<String> {
 /// `text/html` part it filed as an attachment is lifted back when we have no body of that
 /// kind and the part is not `Content-Disposition: attachment` — `multipart/related` does
 /// this to a root part that is not first. An attached `.html` file stays an attachment.
-fn bodies(message: &Message<'_>) -> (Option<String>, Option<String>, Vec<ParsedPart>) {
+fn bodies(
+    message: &Message<'_>,
+    markers: Markers,
+) -> (Option<String>, Option<String>, Vec<ParsedPart>) {
     let mut text = part_text(message.text_bodies());
     let mut html = part_html(message.html_bodies());
     let mut attachments = Vec::new();
@@ -207,9 +242,28 @@ fn bodies(message: &Message<'_>) -> (Option<String>, Option<String>, Vec<ParsedP
             mime: part_mime(part),
             bytes: part.contents().to_vec(),
             inline: part_inline(part),
+            remote: match markers {
+                Markers::Trust => remote_part(part),
+                Markers::Ignore => None,
+            },
         });
     }
     (text, html, attachments)
+}
+
+/// The reconstruction markers on `part`, when it carries both and they parse.
+fn remote_part(part: &mail_parser::MessagePart<'_>) -> Option<RemotePart> {
+    let field = |name: &str| {
+        part.headers()
+            .iter()
+            .find(|h| h.name.as_str().eq_ignore_ascii_case(name))
+            .and_then(|h| h.value.as_text())
+            .map(|v| v.trim().to_owned())
+    };
+    Some(RemotePart {
+        section: field(crate::reconstruct::REMOTE_SECTION)?,
+        octets: field(crate::reconstruct::REMOTE_OCTETS)?.parse().ok()?,
+    })
 }
 
 fn part_text<'a>(

@@ -8,8 +8,8 @@ use crate::machine::{Backend, IoReady, Machine, Progress, ProtoError, ProtoOutco
 use crate::mutf7;
 use mail_domain::{
     AccountCaps, AccountId, ArchiveMeans, Condstore, ExpungeMeans, FetchSince, FolderRoles, Ingest,
-    MailboxRef, MailboxRole, MoveExt, ProtoOp, RemoteRef, Resync, ServerLabels, SyncCursor,
-    UidValidity,
+    MailboxRef, MailboxRole, MoveExt, PartTree, ProtoOp, RemoteRef, Resync, ServerLabels,
+    SyncCursor, UidValidity,
 };
 
 /// Builds a session for one command walk, owning the credential so the backend never sees it.
@@ -35,6 +35,8 @@ enum Job {
     Listing { mailbox: MailboxRef },
     Resyncing { mailbox: MailboxRef, since: Resync },
     Fetch { remotes: Vec<RemoteRef> },
+    Structure { remotes: Vec<RemoteRef> },
+    Sections { remote: RemoteRef },
     Applied,
     Watching,
 }
@@ -205,6 +207,28 @@ impl Backend for ImapBackend {
                 self.fetch(remotes, "(UID FLAGS BODY.PEEK[HEADER])")
             }
             ProtoOp::FetchBody { remotes } => self.fetch(remotes, "(UID BODY.PEEK[])"),
+            ProtoOp::FetchStructure { remotes } => {
+                let progress = self.fetch(remotes.clone(), "(UID BODYSTRUCTURE)");
+                self.job = Job::Structure { remotes };
+                progress
+            }
+            ProtoOp::FetchSections { remote, sections } => {
+                // Each name goes into the command line, so each is checked against the grammar
+                // rather than trusted: they come from a stored row, which came from a server.
+                if sections.is_empty() || !sections.iter().all(|s| is_section(s)) {
+                    return Progress::Failed(ProtoError::Malformed(format!(
+                        "not a section list: {sections:?}"
+                    )));
+                }
+                let items = sections
+                    .iter()
+                    .map(|s| format!("BODY.PEEK[{s}]"))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                let progress = self.fetch(vec![remote.clone()], &format!("(UID {items})"));
+                self.job = Job::Sections { remote };
+                progress
+            }
             ProtoOp::SetFlags {
                 remotes,
                 read,
@@ -618,6 +642,41 @@ impl Backend for ImapBackend {
                     flags,
                 })
             }
+            Job::Structure { remotes } => {
+                let mut out = Vec::new();
+                for (uid, attrs) in typed_fetches(&transcript.untagged) {
+                    let Some(remote) = remotes.iter().find(|r| uid_of(r) == Some(uid)) else {
+                        continue;
+                    };
+                    let tree = attrs.iter().find_map(|a| match a {
+                        imap_proto::AttributeValue::BodyStructure(body) => part_tree(body, &[]),
+                        _ => None,
+                    });
+                    if let Some(tree) = tree {
+                        out.push((remote.clone(), tree));
+                    }
+                }
+                Progress::Done(ProtoOutcome::Structures(out))
+            }
+            Job::Sections { remote } => {
+                let mut parts = Vec::new();
+                for (_, attrs) in typed_fetches(&transcript.untagged) {
+                    for attr in attrs {
+                        if let imap_proto::AttributeValue::BodySection {
+                            section: Some(path),
+                            data,
+                            ..
+                        } = attr
+                        {
+                            parts.push((
+                                section_name(&path),
+                                data.map(|d| d.into_owned()).unwrap_or_default(),
+                            ));
+                        }
+                    }
+                }
+                Progress::Done(ProtoOutcome::Sections { remote, parts })
+            }
             Job::Applied => Progress::Done(ProtoOutcome::Applied),
             Job::Watching => Progress::Done(ProtoOutcome::Woken),
         }
@@ -793,6 +852,136 @@ fn parse_search(untagged: &[crate::Untagged], mailbox: &str, uidvalidity: u32) -
             uid,
         })
         .collect()
+}
+
+/// Every untagged `FETCH`, parsed properly, as `(uid, attributes)`.
+///
+/// The text-scanning helpers below are enough for flags and sizes. They are not enough for a
+/// `BODYSTRUCTURE`, which nests, quotes and carries literals, or for several `BODY[...]`
+/// literals in one response, so these go through `imap-proto` from the response's own bytes.
+/// A response it cannot parse is skipped: the message it described is fetched whole instead.
+fn typed_fetches(
+    untagged: &[crate::Untagged],
+) -> Vec<(u32, Vec<imap_proto::AttributeValue<'static>>)> {
+    untagged
+        .iter()
+        .filter_map(|u| match imap_proto::parser::parse_response(&u.raw) {
+            Ok((_, imap_proto::Response::Fetch(_, attrs))) => {
+                let uid = attrs.iter().find_map(|a| match a {
+                    imap_proto::AttributeValue::Uid(uid) => Some(*uid),
+                    _ => None,
+                })?;
+                Some((uid, attrs.into_iter().map(|a| a.into_owned()).collect()))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+fn uid_of(remote: &RemoteRef) -> Option<u32> {
+    match remote {
+        RemoteRef::Imap { uid, .. } => Some(*uid),
+        RemoteRef::Pop { .. } => None,
+    }
+}
+
+/// A `BODYSTRUCTURE` as a [`PartTree`], or `None` if it cannot be rebuilt from its parts.
+///
+/// `path` is the section of `body` as numbers. The root of a multipart has the empty section;
+/// a root that is not multipart is section `1` (RFC 3501 §6.4.5).
+fn part_tree(body: &imap_proto::BodyStructure<'_>, path: &[u32]) -> Option<PartTree> {
+    use imap_proto::BodyStructure as B;
+    let section = |path: &[u32]| {
+        if path.is_empty() {
+            "1".to_owned()
+        } else {
+            path.iter()
+                .map(u32::to_string)
+                .collect::<Vec<_>>()
+                .join(".")
+        }
+    };
+    match body {
+        B::Multipart { common, bodies, .. } => {
+            // Without its boundary a multipart cannot be written back out, and one that is
+            // unusable makes the whole tree so.
+            let boundary = common
+                .ty
+                .params
+                .iter()
+                .flatten()
+                .find(|(k, _)| k.eq_ignore_ascii_case("boundary"))
+                .map(|(_, v)| v.to_string())?;
+            let parts = bodies
+                .iter()
+                .enumerate()
+                .map(|(i, child)| {
+                    let mut child_path = path.to_vec();
+                    child_path.push(i as u32 + 1);
+                    part_tree(child, &child_path)
+                })
+                .collect::<Option<Vec<_>>>()?;
+            Some(PartTree::Multipart {
+                section: if path.is_empty() {
+                    String::new()
+                } else {
+                    section(path)
+                },
+                subtype: common.ty.subtype.to_ascii_lowercase(),
+                boundary,
+                parts,
+            })
+        }
+        B::Basic { common, other, .. }
+        | B::Text { common, other, .. }
+        | B::Message { common, other, .. } => Some(PartTree::Leaf {
+            section: section(path),
+            mime: format!("{}/{}", common.ty.ty, common.ty.subtype).to_ascii_lowercase(),
+            octets: u64::from(other.octets),
+            attachment: common
+                .disposition
+                .as_ref()
+                .is_some_and(|d| d.ty.eq_ignore_ascii_case("attachment")),
+        }),
+    }
+}
+
+/// Whether `s` is a section this client asks for: `HEADER`, or dotted part numbers with an
+/// optional `.MIME`. Nothing else may reach the command line.
+fn is_section(s: &str) -> bool {
+    if s == "HEADER" {
+        return true;
+    }
+    let numbers = s.strip_suffix(".MIME").unwrap_or(s);
+    !numbers.is_empty()
+        && numbers.split('.').all(|n| {
+            !n.is_empty() && n.len() <= 9 && n.bytes().all(|b| b.is_ascii_digit()) && n != "0"
+        })
+}
+
+/// The name a section was asked for by, from the name the server answered with.
+fn section_name(path: &imap_proto::SectionPath) -> String {
+    use imap_proto::{MessageSection as M, SectionPath as P};
+    let word = |m: &M| match m {
+        M::Header => "HEADER",
+        M::Mime => "MIME",
+        M::Text => "TEXT",
+    };
+    match path {
+        P::Full(m) => word(m).to_owned(),
+        P::Part(numbers, rest) => {
+            let mut name = numbers
+                .iter()
+                .map(u32::to_string)
+                .collect::<Vec<_>>()
+                .join(".");
+            if let Some(m) = rest {
+                name.push('.');
+                name.push_str(word(m));
+            }
+            name
+        }
+    }
 }
 
 /// UID ranges from every `VANISHED` response, `(EARLIER)` or not, as `(first, last)`.

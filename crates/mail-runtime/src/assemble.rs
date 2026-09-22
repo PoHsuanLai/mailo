@@ -32,11 +32,46 @@ pub fn assemble(
     arrivals: Vec<Arrival>,
     fallback_date: DateTime<Utc>,
 ) -> Result<Ingest, RuntimeError> {
+    assemble_as(
+        store,
+        account,
+        Destination { mailbox, role },
+        cursor,
+        arrivals,
+        Provenance::Wire,
+        fallback_date,
+    )
+}
+
+/// Where a batch of bytes came from, which decides what in them may be believed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Provenance {
+    /// Straight from a server: every byte is the sender's.
+    Wire,
+    /// Rebuilt by [`mail_mime::reconstruct`] from sections, with its own markers on the parts
+    /// it left on the server. Only this runtime makes these, so only it says so.
+    Rebuilt,
+}
+
+fn assemble_as(
+    store: &SqliteStore,
+    account: AccountId,
+    into: Destination,
+    cursor: Option<SyncCursor>,
+    arrivals: Vec<Arrival>,
+    provenance: Provenance,
+    fallback_date: DateTime<Utc>,
+) -> Result<Ingest, RuntimeError> {
+    let Destination { mailbox, role } = into;
     let mut parsed = Vec::new();
     for arrival in arrivals {
+        let fields = match provenance {
+            Provenance::Wire => mail_mime::parse(&arrival.raw),
+            Provenance::Rebuilt => mail_mime::parse_reconstructed(&arrival.raw),
+        };
         // A message we cannot parse is skipped, not fatal. One malformed message in a maildrop
         // of two thousand must not stop the other 1999 arriving.
-        let Ok(fields) = mail_mime::parse(&arrival.raw) else {
+        let Ok(fields) = fields else {
             continue;
         };
         let blob = store
@@ -73,15 +108,29 @@ pub fn assemble(
             .attachments
             .iter()
             .map(|part| {
-                let stored = store
-                    .blobs()
-                    .put(&store.connection(), &part.bytes)
-                    .map_err(RuntimeError::Store)?;
+                // Left on the server: nothing to store, and its size is the server's figure.
+                let (content, size) = match &part.remote {
+                    Some(remote) => (
+                        PartContent::Remote {
+                            section: remote.section.clone(),
+                        },
+                        remote.octets,
+                    ),
+                    None => (
+                        PartContent::Held(
+                            store
+                                .blobs()
+                                .put(&store.connection(), &part.bytes)
+                                .map_err(RuntimeError::Store)?,
+                        ),
+                        part.bytes.len() as u64,
+                    ),
+                };
                 Ok(Attachment {
                     name: part.name.clone(),
                     mime: part.mime.clone(),
-                    size: part.bytes.len() as u64,
-                    blob: stored,
+                    size,
+                    content,
                     inline: part.inline.clone(),
                 })
             })
@@ -279,5 +328,28 @@ pub fn absorb_into(
             fallback_date,
         )?
     };
+    store.ingest(account, ingest).map_err(RuntimeError::Store)
+}
+
+/// Absorb messages rebuilt from their sections, reading which parts were left on the server.
+///
+/// A separate entry point rather than a flag on [`Arrival`], so that a caller holding bytes off
+/// the wire has no way to ask for them to be believed.
+pub fn absorb_rebuilt_into(
+    store: &SqliteStore,
+    account: AccountId,
+    into: Destination,
+    arrivals: Vec<Arrival>,
+    fallback_date: DateTime<Utc>,
+) -> Result<Patch, RuntimeError> {
+    let ingest = assemble_as(
+        store,
+        account,
+        into,
+        None,
+        arrivals,
+        Provenance::Rebuilt,
+        fallback_date,
+    )?;
     store.ingest(account, ingest).map_err(RuntimeError::Store)
 }

@@ -163,6 +163,43 @@ impl Store for MemoryStore {
             .collect())
     }
 
+    fn remotes_of(&self, message: MessageId) -> Result<Vec<RemoteRef>, StoreError> {
+        let inner = self.inner.borrow();
+        if !inner.messages.contains_key(&message) {
+            return Err(StoreError::NoMessage(message));
+        }
+        Ok(inner
+            .remotes
+            .iter()
+            .filter(|row| row.message == message)
+            .map(|row| match (row.uid, &row.uidl) {
+                (Some(uid), None) => RemoteRef::Imap {
+                    mailbox: row.mailbox.clone(),
+                    uidvalidity: row.uidvalidity.unwrap_or(0),
+                    uid,
+                },
+                _ => RemoteRef::Pop {
+                    uidl: row.uidl.clone().unwrap_or_default(),
+                },
+            })
+            .collect())
+    }
+
+    fn hold_part(
+        &self,
+        message: MessageId,
+        section: &str,
+        blob: mail_domain::BlobId,
+        size: u64,
+    ) -> Result<(), StoreError> {
+        let mut inner = self.inner.borrow_mut();
+        let stored = inner
+            .messages
+            .get_mut(&message)
+            .ok_or(StoreError::NoMessage(message))?;
+        crate::sqlite::held(&mut stored.attachments, message, section, blob, size)
+    }
+
     fn draft(&self, id: DraftId) -> Result<Draft, StoreError> {
         self.inner
             .borrow()

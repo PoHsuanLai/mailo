@@ -849,3 +849,67 @@ mod labels {
         );
     }
 }
+
+/// An attachment left on the server, and the moment it arrives.
+mod remote_parts {
+    use super::*;
+
+    fn with_remote_pdf(f: &Fixture) -> Message {
+        let mut m = message(f, ThreadId::generate(), "big@example.test", 1);
+        m.attachments = vec![Attachment {
+            name: "report.pdf".into(),
+            mime: "application/pdf".into(),
+            size: 12_000_000,
+            content: PartContent::Remote {
+                section: "2".into(),
+            },
+            inline: Inline::Attached,
+        }];
+        f.store
+            .ingest(
+                ACCOUNT,
+                ingest_of("INBOX", vec![fetched(&m, imap("INBOX", 7))]),
+            )
+            .unwrap();
+        m
+    }
+
+    #[test]
+    fn a_remote_part_is_stored_as_remote_and_found_by_its_address() {
+        let f = fixture();
+        let m = with_remote_pdf(&f);
+        let stored = f.store.message(m.id).unwrap();
+        assert_eq!(stored.attachments[0].blob(), None);
+        assert_eq!(f.store.remotes_of(m.id).unwrap(), [imap("INBOX", 7)]);
+    }
+
+    #[test]
+    fn holding_a_part_records_its_blob_and_its_real_size() {
+        let f = fixture();
+        let m = with_remote_pdf(&f);
+        let pdf = blob(&f, b"%PDF-1.4");
+        f.store.hold_part(m.id, "2", pdf, 8).unwrap();
+
+        let stored = f.store.message(m.id).unwrap();
+        assert_eq!(stored.attachments[0].content, PartContent::Held(pdf));
+        assert_eq!(
+            stored.attachments[0].size, 8,
+            "the server's estimate is replaced"
+        );
+    }
+
+    #[test]
+    fn holding_a_section_the_message_does_not_have_is_an_error() {
+        let f = fixture();
+        let m = with_remote_pdf(&f);
+        let pdf = blob(&f, b"%PDF-1.4");
+        let err = f.store.hold_part(m.id, "3", pdf, 8).unwrap_err();
+        assert!(
+            matches!(err, mail_store::StoreError::NoPart { .. }),
+            "{err}"
+        );
+        // And a part already held is not held twice.
+        f.store.hold_part(m.id, "2", pdf, 8).unwrap();
+        assert!(f.store.hold_part(m.id, "2", pdf, 8).is_err());
+    }
+}

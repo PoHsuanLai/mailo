@@ -17,7 +17,7 @@ pub use error::StoreError;
 
 use chrono::{DateTime, Utc};
 use mail_domain::{
-    AccountCaps, AccountId, Draft, DraftId, Filter, Ingest, MailboxRef, Message, MessageId,
+    AccountCaps, AccountId, BlobId, Draft, DraftId, Filter, Ingest, MailboxRef, Message, MessageId,
     OutboxId, Page, Patch, ProtoOp, Query, RemoteIntent, RemoteRef, Retry, SendState, SyncCursor,
     Thread, ThreadId, ThreadSummary,
 };
@@ -142,6 +142,26 @@ pub trait Store {
     /// The other half of expunge detection: the server says what still exists, and this says
     /// what we think exists. What is in the second and not the first is gone.
     fn remote_refs(&self, mailbox: &MailboxRef) -> Result<Vec<RemoteRef>, StoreError>;
+
+    /// Every server address `message` is known by, in any mailbox.
+    ///
+    /// What fetching part of a message needs: the message is ours, the part is on the server,
+    /// and any of its addresses can fetch it.
+    fn remotes_of(&self, message: MessageId) -> Result<Vec<RemoteRef>, StoreError>;
+
+    /// The attachment of `message` left on the server as `section` has arrived: it is `blob`,
+    /// `size` bytes decoded.
+    ///
+    /// The bytes are already in the blob store; this records where. A section the message has
+    /// no remote part for is [`StoreError::NoPart`], not a silent success, because the caller
+    /// fetched something in order to put it there.
+    fn hold_part(
+        &self,
+        message: MessageId,
+        section: &str,
+        blob: BlobId,
+        size: u64,
+    ) -> Result<(), StoreError>;
 
     /// One draft by id.
     fn draft(&self, id: DraftId) -> Result<Draft, StoreError>;

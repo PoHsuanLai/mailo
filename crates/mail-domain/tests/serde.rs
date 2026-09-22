@@ -106,7 +106,7 @@ fn attachment() -> Attachment {
         name: "invoice.pdf".to_owned(),
         mime: "application/pdf".to_owned(),
         size: 12_345,
-        blob: BlobId::from_uuid(uuid(4)),
+        content: PartContent::Held(BlobId::from_uuid(uuid(4))),
         inline: Inline::Embedded {
             cid: "part1@example.test".to_owned(),
         },
@@ -426,6 +426,37 @@ fn round_trip_each<T: Serialize + DeserializeOwned + PartialEq + Debug>(
     for (i, value) in values.into_iter().enumerate() {
         round_trip(&format!("{label}[{i}]"), value);
     }
+}
+
+/// An attachment still on the server round-trips, and so does one stored.
+#[test]
+fn attachment_content_round_trips() {
+    round_trip("held", attachment());
+    round_trip(
+        "remote",
+        Attachment {
+            content: PartContent::Remote {
+                section: "1.3".to_owned(),
+            },
+            ..attachment()
+        },
+    );
+}
+
+/// Rows written before parts could be remote carry a bare `blob`, and are every attachment
+/// already on disk. They must read as held, unchanged.
+#[test]
+fn an_attachment_row_from_before_remote_parts_still_reads() {
+    let old = r#"{"name":"invoice.pdf","mime":"application/pdf","size":12345,
+        "blob":"04040404-0404-0404-0404-040404040404",
+        "inline":{"kind":"attached"}}"#;
+    let read: Attachment = serde_json::from_str(old).expect("an old row must still parse");
+    assert_eq!(read.content, PartContent::Held(BlobId::from_uuid(uuid(4))));
+    assert_eq!(
+        serde_json::to_value(&read).unwrap()["blob"],
+        "04040404-0404-0404-0404-040404040404",
+        "and a held part is still written the old way"
+    );
 }
 
 #[test]

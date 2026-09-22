@@ -9,7 +9,8 @@ use common::replay;
 use mail_domain::*;
 use mail_proto::backend::{Authenticate, ImapBackend};
 use mail_proto::{
-    Backend, ImapAuth, ImapCommand, ImapSession, IoReady, Machine, Progress, ProtoOutcome,
+    Backend, ImapAuth, ImapCommand, ImapSession, IoReady, Machine, Progress, ProtoError,
+    ProtoOutcome,
 };
 
 const ACCOUNT: AccountId =
@@ -689,5 +690,128 @@ fn qresync_is_believed_only_alongside_condstore() {
             panic!("expected caps");
         };
         assert_eq!(found.condstore, expected, "{advertised}");
+    }
+}
+
+/// Large-message fetching: the structure first, then only the sections worth downloading.
+mod parts {
+    use super::*;
+
+    const AUTH: &str = "C: a001 AUTHENTICATE XOAUTH2 dXNlcj1hZGFAZXhhbXBsZS50ZXN0AWF1dGg9QmVhcmVyIHlhMjkudG9rZW4BAQ==\n";
+
+    /// A report with a plain and an HTML body, and a nine-megabyte PDF beside them.
+    #[test]
+    fn a_structure_becomes_a_tree_with_sections_and_sizes() {
+        let trace = format!(
+            "S: * OK ready\n\
+             {AUTH}\
+             S: a001 OK authenticated\n\
+             C: a002 EXAMINE \"INBOX\"\n\
+             S: a002 OK [READ-ONLY] done\n\
+             C: a003 UID FETCH 7 (UID BODYSTRUCTURE)\n\
+             S: * 1 FETCH (UID 7 BODYSTRUCTURE (((\"TEXT\" \"PLAIN\" (\"CHARSET\" \"utf-8\") NIL NIL \"7BIT\" 120 4 NIL NIL NIL)(\"TEXT\" \"HTML\" (\"CHARSET\" \"utf-8\") NIL NIL \"QUOTED-PRINTABLE\" 900 20 NIL NIL NIL) \"ALTERNATIVE\" (\"BOUNDARY\" \"alt-b\") NIL NIL)(\"APPLICATION\" \"PDF\" (\"NAME\" \"report.pdf\") NIL NIL \"BASE64\" 9437184 NIL (\"ATTACHMENT\" (\"FILENAME\" \"report.pdf\")) NIL) \"MIXED\" (\"BOUNDARY\" \"mix-b\") NIL NIL))\n\
+             S: a003 OK done\n\
+             DONE\n"
+        );
+        let mut driven = Driven {
+            backend: backend(caps(ServerLabels::LocalOnly, ArchiveMeans::LocalOnly)),
+            op: Some(ProtoOp::FetchStructure {
+                remotes: vec![imap_ref("INBOX", 7)],
+            }),
+        };
+        let ProtoOutcome::Structures(found) = replay(&mut driven, &trace).unwrap() else {
+            panic!("expected structures");
+        };
+        let leaf = |section: &str, mime: &str, octets: u64, attachment: bool| PartTree::Leaf {
+            section: section.to_owned(),
+            mime: mime.to_owned(),
+            octets,
+            attachment,
+        };
+        assert_eq!(
+            found,
+            [(
+                imap_ref("INBOX", 7),
+                PartTree::Multipart {
+                    section: String::new(),
+                    subtype: "mixed".to_owned(),
+                    boundary: "mix-b".to_owned(),
+                    parts: vec![
+                        PartTree::Multipart {
+                            section: "1".to_owned(),
+                            subtype: "alternative".to_owned(),
+                            boundary: "alt-b".to_owned(),
+                            parts: vec![
+                                leaf("1.1", "text/plain", 120, false),
+                                leaf("1.2", "text/html", 900, false),
+                            ],
+                        },
+                        leaf("2", "application/pdf", 9_437_184, true),
+                    ],
+                }
+            )]
+        );
+    }
+
+    /// Several literals in one response, each paired with the section it answers.
+    #[test]
+    fn sections_come_back_by_name() {
+        let trace = format!(
+            "S: * OK ready\n\
+             {AUTH}\
+             S: a001 OK authenticated\n\
+             C: a002 EXAMINE \"INBOX\"\n\
+             S: a002 OK [READ-ONLY] done\n\
+             C: a003 UID FETCH 7 (UID BODY.PEEK[HEADER] BODY.PEEK[2.MIME] BODY.PEEK[1.1])\n\
+             S: * 1 FETCH (UID 7 BODY[HEADER] {{12}}\n\
+             S: Subject: x\n\
+             S:  BODY[2.MIME] {{7}}\n\
+             S: X: yy\n\
+             S:  BODY[1.1] NIL)\n\
+             S: a003 OK done\n\
+             DONE\n"
+        );
+        let mut driven = Driven {
+            backend: backend(caps(ServerLabels::LocalOnly, ArchiveMeans::LocalOnly)),
+            op: Some(ProtoOp::FetchSections {
+                remote: imap_ref("INBOX", 7),
+                sections: vec!["HEADER".into(), "2.MIME".into(), "1.1".into()],
+            }),
+        };
+        let ProtoOutcome::Sections { parts, .. } = replay(&mut driven, &trace).unwrap() else {
+            panic!("expected sections");
+        };
+        assert_eq!(
+            parts,
+            [
+                ("HEADER".to_owned(), b"Subject: x\r\n".to_vec()),
+                ("2.MIME".to_owned(), b"X: yy\r\n".to_vec()),
+                ("1.1".to_owned(), Vec::new()),
+            ]
+        );
+    }
+
+    /// A section name is checked before it reaches the command line, not escaped after.
+    #[test]
+    fn a_section_that_is_not_one_is_refused_before_anything_is_sent() {
+        for bad in [
+            "1] BODY[",
+            "TEXT",
+            "0",
+            "1..2",
+            "",
+            "1.MIME.MIME",
+            "2 FLAGS",
+        ] {
+            let mut b = backend(caps(ServerLabels::LocalOnly, ArchiveMeans::LocalOnly));
+            let progress = b.begin(ProtoOp::FetchSections {
+                remote: imap_ref("INBOX", 7),
+                sections: vec![bad.to_owned()],
+            });
+            assert!(
+                matches!(progress, Progress::Failed(ProtoError::Malformed(_))),
+                "{bad:?} was not refused: {progress:?}"
+            );
+        }
     }
 }

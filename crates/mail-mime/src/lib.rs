@@ -8,11 +8,13 @@
 pub mod build;
 pub mod inline;
 pub mod parse;
+pub mod reconstruct;
 pub mod sanitize;
 
 pub use build::{Disclosure, Posting, build, posting};
 pub use inline::{INLINE_BUDGET, embed_inline};
-pub use parse::{Parsed, ParsedPart, parse};
+pub use parse::{Parsed, ParsedPart, RemotePart, parse, parse_reconstructed};
+pub use reconstruct::{decode_part, reconstruct, sections_for};
 pub use sanitize::{RemoteImages, SafeHtml, SanitizePolicy, sanitize};
 
 /// Something in the message, or in what we were asked to build, did not hold together.

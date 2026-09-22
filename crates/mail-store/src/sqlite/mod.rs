@@ -127,6 +127,27 @@ impl SqliteStore {
     }
 }
 
+/// Mark the remote part `section` of `attachments` as held in `blob`. Shared by both stores so
+/// "which attachment is that section" has one answer.
+pub(crate) fn held(
+    attachments: &mut [mail_domain::Attachment],
+    message: MessageId,
+    section: &str,
+    blob: mail_domain::BlobId,
+    size: u64,
+) -> Result<(), StoreError> {
+    let part = attachments
+        .iter_mut()
+        .find(|a| matches!(&a.content, mail_domain::PartContent::Remote { section: s } if s == section))
+        .ok_or_else(|| StoreError::NoPart {
+            message,
+            section: section.to_owned(),
+        })?;
+    part.content = mail_domain::PartContent::Held(blob);
+    part.size = size;
+    Ok(())
+}
+
 /// Fill `messages.fts_text` for rows that predate migration 0004, or that a later one cleared.
 ///
 /// The migration could not: segmenting a run of ideographs into bigrams is not something SQL can
@@ -489,6 +510,30 @@ impl Store for SqliteStore {
                 account.to_string(),
                 row::to_json("AccountCaps", caps)?,
                 row::from_time(now),
+            ],
+        )?;
+        Ok(())
+    }
+
+    fn remotes_of(&self, message: MessageId) -> Result<Vec<RemoteRef>, StoreError> {
+        let account = self.message(message)?.account;
+        self.refs_for(account, &[message])
+    }
+
+    fn hold_part(
+        &self,
+        message: MessageId,
+        section: &str,
+        blob: mail_domain::BlobId,
+        size: u64,
+    ) -> Result<(), StoreError> {
+        let mut attachments = self.message(message)?.attachments;
+        held(&mut attachments, message, section, blob, size)?;
+        self.connection().execute(
+            "UPDATE messages SET attachments = ?2 WHERE id = ?1",
+            rusqlite::params![
+                message.to_string(),
+                row::to_json("attachments", &attachments)?
             ],
         )?;
         Ok(())

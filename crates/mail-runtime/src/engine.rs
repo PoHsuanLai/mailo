@@ -8,9 +8,9 @@
 use crate::{Cancel, RuntimeError, Secrets, Transport, drive};
 use chrono::{DateTime, Utc};
 use mail_domain::{
-    AccountCaps, AccountId, AccountPlan, Condstore, Credential, FetchSince, Incoming, MailboxRef,
-    MailboxRole, Outgoing, ProtoOp, RemoteRef, Resync, Retry, Retryable, SecretKey, SecretPurpose,
-    SendState, SyncCursor, Tls, UidValidity, WatchMode,
+    AccountCaps, AccountId, AccountPlan, BlobId, Condstore, Credential, FetchSince, Incoming,
+    MailboxRef, MailboxRole, MessageId, Outgoing, PartTree, ProtoOp, RemoteRef, Resync, Retry,
+    Retryable, SecretKey, SecretPurpose, SendState, SyncCursor, Tls, UidValidity, WatchMode,
 };
 use mail_mime::Posting;
 use mail_proto::backend::SmtpBackend;
@@ -31,6 +31,32 @@ const BANDS: [u64; 3] = [64 * 1024, 1024 * 1024, u64::MAX];
 /// Stable on purpose. Callers pass messages newest first, and a sort that broke ties by size
 /// would undo that inside every band — a 3 KB newsletter from 2019 ahead of this morning's 4 KB
 /// reply, on a first sync the user is watching.
+/// Above this, a large IMAP message is fetched as its text, and its attachments wait on the server
+/// until someone opens one.
+///
+/// The second band's edge. Below it `BODY.PEEK[]` is a single round trip and F113's measurement
+/// stands — asking for structure costs more than it saves. Above it, one attachment is most of
+/// the bytes, and the structure is a few hundred.
+const PARTED_ABOVE: u64 = BANDS[1];
+
+/// Which leaves of a large message to download with it.
+///
+/// Every part that could be the body — text, not declared an attachment — whatever its size,
+/// because the reader needs it and a stand-in could be taken for it. And anything small enough
+/// for the first band, which is mostly inline images: fetching one later costs a round trip to
+/// save a few kilobytes.
+fn keep_now(node: &PartTree) -> bool {
+    match node {
+        PartTree::Leaf {
+            mime,
+            octets,
+            attachment,
+            ..
+        } => (!attachment && mime.starts_with("text/")) || *octets <= BANDS[0],
+        PartTree::Multipart { .. } => true,
+    }
+}
+
 fn by_band(wanted: &mut [(RemoteRef, u64)]) {
     wanted.sort_by_key(|(_, size)| BANDS.iter().position(|&band| *size <= band));
 }
@@ -677,11 +703,26 @@ impl<B: Backend> AccountEngine<B> {
         let mut wanted = self.unfetched(budget as u32)?;
         by_band(&mut wanted);
 
-        let batch: Vec<RemoteRef> = wanted
-            .into_iter()
-            .take(budget)
-            .map(|(remote, _)| remote)
-            .collect();
+        // A size of `u64::MAX` is "unknown", not "enormous": no survey this session. Those are
+        // fetched whole, as everything was before large messages were fetched by part.
+        let (parted, whole): (Vec<_>, Vec<_>) =
+            wanted.into_iter().take(budget).partition(|(remote, size)| {
+                matches!(remote, RemoteRef::Imap { .. })
+                    && *size != u64::MAX
+                    && *size > PARTED_ABOVE
+            });
+        let mut batch: Vec<RemoteRef> = whole.into_iter().map(|(remote, _)| remote).collect();
+        if !parted.is_empty() {
+            let parted = parted.into_iter().map(|(remote, _)| remote).collect();
+            match self
+                .fetch_parted(parted, mailbox, cancel, now, &mut report)
+                .await
+            {
+                Ok(leftover) => batch.extend(leftover),
+                Err(RuntimeError::Cancelled) => return Ok(report),
+                Err(e) => return Err(e),
+            }
+        }
         if batch.is_empty() {
             return Ok(report);
         }
@@ -715,6 +756,136 @@ impl<B: Backend> AccountEngine<B> {
             Err(e) => report.needs_attention.push(e.to_string()),
         }
         Ok(report)
+    }
+
+    /// Fetch large messages as their text and structure, leaving attachments on the server.
+    ///
+    /// Returns what could not be done that way, for the caller to fetch whole — which is always
+    /// correct, only slower. That covers a server that fails to produce a structure (F112 is one
+    /// that crashed doing it), a message that is not multipart and so has nothing to leave
+    /// behind, and any section that did not come back.
+    async fn fetch_parted(
+        &mut self,
+        remotes: Vec<RemoteRef>,
+        mailbox: &MailboxRef,
+        cancel: &mut Cancel,
+        now: DateTime<Utc>,
+        report: &mut SyncReport,
+    ) -> Result<Vec<RemoteRef>, RuntimeError> {
+        let trees = match self
+            .run(
+                ProtoOp::FetchStructure {
+                    remotes: remotes.clone(),
+                },
+                cancel,
+            )
+            .await
+        {
+            Ok(ProtoOutcome::Structures(trees)) => trees,
+            Err(RuntimeError::Cancelled) => return Err(RuntimeError::Cancelled),
+            Ok(_) | Err(_) => return Ok(remotes),
+        };
+        let mut whole: Vec<RemoteRef> = remotes
+            .into_iter()
+            .filter(|r| !trees.iter().any(|(described, _)| described == r))
+            .collect();
+        for (remote, tree) in trees {
+            let Some(sections) = mail_mime::sections_for(&tree, &keep_now) else {
+                whole.push(remote);
+                continue;
+            };
+            let parts = match self
+                .run(
+                    ProtoOp::FetchSections {
+                        remote: remote.clone(),
+                        sections,
+                    },
+                    cancel,
+                )
+                .await
+            {
+                Ok(ProtoOutcome::Sections { parts, .. }) => parts,
+                Err(RuntimeError::Cancelled) => return Err(RuntimeError::Cancelled),
+                Ok(_) | Err(_) => {
+                    whole.push(remote);
+                    continue;
+                }
+            };
+            let fetched: std::collections::HashMap<String, Vec<u8>> = parts.into_iter().collect();
+            let Some(raw) = mail_mime::reconstruct(&tree, &fetched) else {
+                whole.push(remote);
+                continue;
+            };
+            crate::assemble::absorb_rebuilt_into(
+                &self.store,
+                self.account,
+                crate::assemble::Destination {
+                    mailbox: mailbox.clone(),
+                    role: self.role_of(mailbox),
+                },
+                vec![crate::assemble::Arrival { remote, raw }],
+                now,
+            )?;
+            report.bodies_fetched += 1;
+        }
+        Ok(whole)
+    }
+
+    /// Download one attachment a sync left on the server, and record it as held.
+    ///
+    /// The one place a part is fetched on its own: when the user opens or saves it. Its headers
+    /// come with it, because they say how the bytes are encoded.
+    pub async fn fetch_part(
+        &mut self,
+        message: MessageId,
+        section: &str,
+        cancel: &mut Cancel,
+    ) -> Result<BlobId, RuntimeError> {
+        let remote = self
+            .store
+            .remotes_of(message)?
+            .into_iter()
+            .find(|r| matches!(r, RemoteRef::Imap { .. }))
+            .ok_or_else(|| {
+                RuntimeError::Proto(mail_proto::ProtoError::Unsupported(
+                    "fetching part of a message that has no IMAP address".to_owned(),
+                ))
+            })?;
+        let header = format!("{section}.MIME");
+        let outcome = self
+            .run(
+                ProtoOp::FetchSections {
+                    remote,
+                    sections: vec![header.clone(), section.to_owned()],
+                },
+                cancel,
+            )
+            .await?;
+        let ProtoOutcome::Sections { parts, .. } = outcome else {
+            return Err(RuntimeError::Proto(mail_proto::ProtoError::Malformed(
+                "a section fetch answered with something else".to_owned(),
+            )));
+        };
+        let find = |name: &str| {
+            parts
+                .iter()
+                .find(|(s, _)| s == name)
+                .map(|(_, bytes)| bytes.as_slice())
+        };
+        let (Some(mime), Some(content)) = (find(&header), find(section)) else {
+            return Err(RuntimeError::Proto(mail_proto::ProtoError::Malformed(
+                format!("the server did not send section {section} and its headers"),
+            )));
+        };
+        let bytes = mail_mime::decode_part(mime, content);
+        let blob = self
+            .store
+            .blobs()
+            .put(&self.store.connection(), &bytes)
+            .map_err(RuntimeError::Store)?;
+        self.store
+            .hold_part(message, section, blob, bytes.len() as u64)?;
+        Ok(blob)
     }
 
     /// Which role a folder serves on this account.

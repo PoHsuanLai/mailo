@@ -212,6 +212,19 @@ pub enum ProtoOp {
     Expunge {
         remotes: Vec<RemoteRef>,
     },
+    /// The MIME structure of each message, and none of its content: IMAP `BODYSTRUCTURE`.
+    ///
+    /// Asked only about messages large enough for the answer to pay for itself. F113 took this
+    /// out of the envelope walk because nothing read it and it cost eleven times the response;
+    /// here the code that reads it exists, and it decides which megabytes not to download.
+    FetchStructure {
+        remotes: Vec<RemoteRef>,
+    },
+    /// Named sections of one message: `HEADER`, `2.MIME`, `2.1`. IMAP only.
+    FetchSections {
+        remote: RemoteRef,
+        sections: Vec<String>,
+    },
     Watch {
         mailbox: MailboxRef,
     },

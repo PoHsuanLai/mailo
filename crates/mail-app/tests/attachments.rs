@@ -64,7 +64,7 @@ fn with_attachment(store: &SqliteStore, claimed: &str, bytes: &[u8]) -> MessageI
             name: claimed.to_owned(),
             mime: "application/pdf".to_owned(),
             size: bytes.len() as u64,
-            blob,
+            content: PartContent::Held(blob),
             inline: Inline::Attached,
         }],
     };
@@ -440,5 +440,87 @@ mod where_it_goes {
         let two = attach::save(&store, message, 0, &into).unwrap();
         assert_ne!(one, two, "the second save replaced the first");
         assert!(one.exists() && two.exists());
+    }
+}
+
+/// An attachment a sync left on the server: downloaded when saved, and only then.
+mod left_on_the_server {
+    use super::*;
+
+    /// The fixture's message, with its one attachment turned into a part still on the server.
+    fn with_remote_part(store: &SqliteStore) -> MessageId {
+        let id = with_attachment(store, "report.pdf", b"unused");
+        store
+            .connection()
+            .execute(
+                r#"UPDATE messages SET attachments = '[{"name":"report.pdf","mime":"application/pdf","size":900,"remote_section":"2","inline":{"kind":"attached"}}]' WHERE id = ?1"#,
+                [id.to_string()],
+            )
+            .unwrap();
+        id
+    }
+
+    #[test]
+    fn saving_downloads_the_part_first_and_then_writes_it() {
+        let (store, _dir) = store();
+        let id = with_remote_part(&store);
+        let out = tempfile::tempdir().unwrap();
+
+        let mut asked = Vec::new();
+        let said = attach::fetch_and_save(&store, id, 0, out.path(), |section| {
+            asked.push(section.to_owned());
+            // What the network half does: store the bytes, record the part as held.
+            let blob = store
+                .blobs()
+                .put(&store.connection(), b"%PDF-1.4")
+                .map_err(|e| e.to_string())?;
+            store
+                .hold_part(id, section, blob, 8)
+                .map_err(|e| e.to_string())
+        })
+        .unwrap();
+
+        assert_eq!(asked, ["2"]);
+        let path = out.path().join("report.pdf");
+        assert_eq!(said, format!("Saved to {}", path.display()));
+        assert_eq!(std::fs::read(&path).unwrap(), b"%PDF-1.4");
+    }
+
+    #[test]
+    fn a_part_already_here_is_not_downloaded_again() {
+        let (store, _dir) = store();
+        let id = with_attachment(&store, "report.pdf", b"held");
+        let out = tempfile::tempdir().unwrap();
+        attach::fetch_and_save(&store, id, 0, out.path(), |_| {
+            panic!("a held part must not touch the network")
+        })
+        .unwrap();
+        assert_eq!(
+            std::fs::read(out.path().join("report.pdf")).unwrap(),
+            b"held"
+        );
+    }
+
+    #[test]
+    fn a_failed_download_writes_nothing_and_says_why() {
+        let (store, _dir) = store();
+        let id = with_remote_part(&store);
+        let out = tempfile::tempdir().unwrap();
+        let err = attach::fetch_and_save(&store, id, 0, out.path(), |_| {
+            Err("cannot download the attachment: connection refused".to_owned())
+        })
+        .unwrap_err();
+        assert!(err.contains("connection refused"), "{err}");
+        assert_eq!(std::fs::read_dir(out.path()).unwrap().count(), 0);
+    }
+
+    /// `save` alone never reaches for the network, so a remote part is a clear refusal from it.
+    #[test]
+    fn plain_save_says_the_part_is_still_on_the_server() {
+        let (store, _dir) = store();
+        let id = with_remote_part(&store);
+        let out = tempfile::tempdir().unwrap();
+        let err = attach::save(&store, id, 0, out.path()).unwrap_err();
+        assert!(err.contains("still on the server"), "{err}");
     }
 }

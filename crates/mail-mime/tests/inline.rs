@@ -11,6 +11,7 @@ fn part(cid: &str, mime: &str, bytes: &[u8]) -> ParsedPart {
         inline: Inline::Embedded {
             cid: cid.to_owned(),
         },
+        remote: None,
     }
 }
 

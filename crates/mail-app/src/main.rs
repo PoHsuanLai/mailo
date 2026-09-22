@@ -130,6 +130,25 @@ fn main() {
         }
         return;
     }
+    // Saving an attachment may have to download it first — a large IMAP message's attachments
+    // stay on the server until asked for — and that needs the store by `Arc`, like sync.
+    if let Some(cli::Command::Save {
+        message,
+        index,
+        dir,
+    }) = &command
+    {
+        let download =
+            |section: &str| sync::fetch_part(&store, *message, section, chrono::Utc::now());
+        match attach::fetch_and_save(&store, *message, *index, dir, download) {
+            Ok(said) => println!("{said}"),
+            Err(message) => {
+                eprintln!("{message}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
     // The daemon and the clients that reach it. Dispatched here with `sync` and `watch` because
     // they need the store by `Arc` and an exit code, neither of which `cli::run` has.
     match &command {

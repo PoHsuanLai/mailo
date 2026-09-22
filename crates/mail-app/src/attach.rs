@@ -158,15 +158,51 @@ pub fn save(
         )
     })?;
 
+    let Some(blob) = attachment.blob() else {
+        return Err(format!(
+            "{} is still on the server; it downloads when opened",
+            attachment.name
+        ));
+    };
     let bytes = store
         .blobs()
-        .get(&store.connection(), attachment.blob)
+        .get(&store.connection(), blob)
         .map_err(|e| format!("cannot read the attachment: {e}"))?;
 
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let path = free_path(dir, &safe_name(&attachment.name));
     std::fs::write(&path, &bytes).map_err(|e| format!("{}: {e}", path.display()))?;
     Ok(path)
+}
+
+/// [`save`], downloading the attachment first if a sync left it on the server.
+///
+/// `download` fetches one section of `message` and records it held; the application passes
+/// [`crate::sync::fetch_part`]. Taken as a parameter because this file is compiled into tests
+/// that have no network and no `sync` module, and because it makes "remote, then saved" a thing
+/// a test can check without a server.
+///
+/// Blocking and network-bound for a part that is still remote, so the UI calls it off the
+/// render thread. The answer is a sentence, shown to the user as it is.
+pub fn fetch_and_save(
+    store: &SqliteStore,
+    message: MessageId,
+    index: usize,
+    dir: &Path,
+    download: impl FnOnce(&str) -> Result<(), String>,
+) -> Result<String, String> {
+    let stored = store.message(message).map_err(|e| e.to_string())?;
+    let attachment = stored.attachments.get(index).ok_or_else(|| {
+        format!(
+            "that message has {} attachment(s); there is no number {index}",
+            stored.attachments.len()
+        )
+    })?;
+    if let mail_domain::PartContent::Remote { section } = &attachment.content {
+        download(section)?;
+    }
+    let path = save(store, message, index, dir)?;
+    Ok(format!("Saved to {}", path.display()))
 }
 
 /// A path in `dir` that nothing is using yet.

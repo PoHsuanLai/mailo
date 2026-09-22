@@ -222,6 +222,13 @@ impl Backend for Pop3Backend {
                 self.job = Job::Idle;
                 Progress::Done(ProtoOutcome::Applied)
             }
+            ProtoOp::FetchStructure { .. } | ProtoOp::FetchSections { .. } => {
+                // `TOP` takes a line count, not a part: a POP3 message comes whole or not at
+                // all, so a large one is simply a large download.
+                Progress::Failed(ProtoError::Unsupported(
+                    "fetching part of a message over POP3".to_owned(),
+                ))
+            }
             ProtoOp::FetchFlags { .. } => {
                 // POP3 has no flags on the server at all — read and starred live only here — so
                 // there is nothing to sweep for and nothing to reconcile.
