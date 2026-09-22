@@ -5,7 +5,7 @@
 //! rendering a stranger's HTML.
 
 use crate::view::{
-    Listing, Reading, Shell, Shortcut, Stamp, SyncState, badge_filter, hover_actions,
+    Appearance, Listing, Reading, Shell, Shortcut, Stamp, SyncState, badge_filter, hover_actions,
     nothing_to_show, op_for, synced,
 };
 use chrono::Local;
@@ -77,6 +77,30 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 </script>"#;
 
+/// A script that stamps the appearance onto `<html>` before the stylesheet is first applied.
+///
+/// It goes in the custom head, which is inserted before `</head>` and therefore runs ahead
+/// of the interpreter module, so the first frame is already in the right palette. Values go
+/// through `serde_json::to_string`, the same as `NOTHING_MOUNTED`: an attribute written into
+/// a `<script>` is an injection site even when it can only be one of six words.
+fn appearance_head(look: Appearance) -> String {
+    let quote = |word: &str| {
+        serde_json::to_string(word).expect("a &str always serializes") // `&str` serialization cannot fail
+    };
+    let accent = quote(look.accent.slug());
+    let body = match look.theme.attribute() {
+        Some(theme) => {
+            let theme = quote(theme);
+            format!(
+                "document.documentElement.dataset.accent = {accent};\n\
+                 document.documentElement.dataset.theme = {theme};"
+            )
+        }
+        None => format!("document.documentElement.dataset.accent = {accent};"),
+    };
+    format!("<script>\n{body}\n</script>")
+}
+
 /// Extra markup for the head, from `$MAILO_PROBE`, in debug builds only.
 ///
 /// How this application is verified the way its user runs it. The window has no scripting seam
@@ -113,7 +137,8 @@ pub fn run(store: Arc<SqliteStore>) {
                 )
                 .with_menu(None)
                 .with_custom_head(format!(
-                    "<script>window.__mailo_nothing_mounted = {};</script>{KEEP_FOCUS}{}",
+                    "{}<script>window.__mailo_nothing_mounted = {};</script>{KEEP_FOCUS}{}",
+                    appearance_head(Appearance::default()),
                     serde_json::to_string(NOTHING_MOUNTED)
                         .unwrap_or_else(|_| "\"The interface did not start.\"".to_owned()),
                     probe()
@@ -1210,6 +1235,7 @@ mod render_tests {
     //! window, which is the only part of this that ever needed one.
 
     use super::*;
+    use crate::view::{Accent, Theme};
     use dioxus_core::{NoOpMutations, VirtualDom};
 
     const ACCOUNT: AccountId =
@@ -1511,14 +1537,22 @@ mod render_tests {
 
     /// Wrap rendered markup in a self-contained page and write it to `target/`.
     ///
-    /// Two files: the page as a light-mode desktop draws it, and the same page with
-    /// `color-scheme: dark` forced on the root. The stylesheet declares `color-scheme: light
-    /// dark` and leans on the `Canvas`/`CanvasText` system colours, so the dark rendering is not
-    /// a second stylesheet to keep in step — it is the same one, resolved the other way, which
-    /// is exactly the thing that is easy to write and never look at.
+    /// Two files. `<name>.html` sets `data-accent` and leaves `data-theme` unset, which is the
+    /// desktop-decides path: the stylesheet's `prefers-color-scheme` guard is reachable only
+    /// while that attribute is absent. `<name>-dark.html` sets `data-theme` as well. Every
+    /// colour is a token now, in three theme states, so the dark file has to name the state.
+    /// `color-scheme` on the root used to be enough, when the stylesheet leaned on `Canvas` and
+    /// `CanvasText`; it no longer answers to that, and a dark file that does not ask renders light.
     fn dump(name: &str, body: &str) {
         let target = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
-        for (suffix, root) in [("", ""), ("-dark", " style=\"color-scheme: dark\"")] {
+        let accent = Accent::default().slug();
+        let plain = format!(" data-accent=\"{accent}\"");
+        // `Dark` is the variant that names an attribute. `System` is the one that does not.
+        let dark = Theme::Dark
+            .attribute()
+            .expect("Theme::Dark names a data-theme value");
+        let forced = format!(" data-theme=\"{dark}\"{plain}");
+        for (suffix, root) in [("", plain.as_str()), ("-dark", forced.as_str())] {
             let page = format!(
                 "<!doctype html>\n<html lang=\"en\"{root}><head><meta charset=\"utf-8\">\n\
                  <title>mailo</title>\n<style>{STYLE}</style>\n</head>\n\
@@ -2625,6 +2659,41 @@ mod render_tests {
                 limit: 50,
             },
         }
+    }
+
+    #[test]
+    fn the_default_appearance_is_stamped_exactly() {
+        assert_eq!(
+            appearance_head(Appearance::default()),
+            "<script>\ndocument.documentElement.dataset.accent = \"postmark\";\n</script>"
+        );
+    }
+
+    #[test]
+    fn a_dark_pine_window_is_stamped_exactly() {
+        assert_eq!(
+            appearance_head(Appearance {
+                theme: Theme::Dark,
+                accent: Accent::Pine,
+            }),
+            "<script>\ndocument.documentElement.dataset.accent = \"pine\";\n\
+             document.documentElement.dataset.theme = \"dark\";\n</script>"
+        );
+    }
+
+    #[test]
+    fn system_writes_no_theme_dataset() {
+        // Absence is the property: an exact string can grow a comment that names the attribute
+        // and still set it. `Theme::System` must not mention `dataset.theme` at all, or the
+        // stylesheet's `prefers-color-scheme` guard is unreachable.
+        let head = appearance_head(Appearance {
+            theme: Theme::System,
+            accent: Accent::Vermilion,
+        });
+        assert!(
+            !head.contains("dataset.theme"),
+            "a system theme set data-theme, so the desktop can no longer decide: {head}"
+        );
     }
 
     #[tokio::test]

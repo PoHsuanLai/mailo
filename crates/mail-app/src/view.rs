@@ -153,6 +153,115 @@ pub fn badge_filter(source: &Source) -> Option<Filter> {
     }
 }
 
+/// One of six decoration hues. Only the four accent custom properties change with it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+// The window opens on `Postmark`. The other hues are the picker's vocabulary, and a binary
+// has no external caller to keep them alive until that picker exists. Tests construct each one.
+#[cfg_attr(not(test), allow(dead_code))]
+pub enum Accent {
+    /// Ink blue on sage, the pairing a real postmark is printed in.
+    #[default]
+    Postmark,
+    /// No hue. The chrome goes monochrome, and the only colour left is a label's own.
+    Graphite,
+    /// Harmonises with the paper rather than contrasting with it. The quietest.
+    Pine,
+    /// A blue with no green in it.
+    Indigo,
+    /// Red without orange in it.
+    Oxblood,
+    /// The original hue, kept so the others have something to be unlike.
+    Vermilion,
+}
+
+impl Accent {
+    /// Every hue, in the order a picker offers them.
+    // See the allowance on the enum: nothing outside the tests walks the list yet.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub const ALL: [Accent; 6] = [
+        Accent::Postmark,
+        Accent::Graphite,
+        Accent::Pine,
+        Accent::Indigo,
+        Accent::Oxblood,
+        Accent::Vermilion,
+    ];
+
+    /// The `data-accent` value. `accents.css` is written against exactly these.
+    pub fn slug(self) -> &'static str {
+        match self {
+            Accent::Postmark => "postmark",
+            Accent::Graphite => "graphite",
+            Accent::Pine => "pine",
+            Accent::Indigo => "indigo",
+            Accent::Oxblood => "oxblood",
+            Accent::Vermilion => "vermilion",
+        }
+    }
+
+    /// What a picker calls it: "Postmark", "Graphite", "Pine", "Indigo", "Oxblood", "Vermilion".
+    // See the allowance on the enum: the picker is who will show this.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn label(self) -> &'static str {
+        match self {
+            Accent::Postmark => "Postmark",
+            Accent::Graphite => "Graphite",
+            Accent::Pine => "Pine",
+            Accent::Indigo => "Indigo",
+            Accent::Oxblood => "Oxblood",
+            Accent::Vermilion => "Vermilion",
+        }
+    }
+
+    /// The hue a stored word names, or [`None`] for a word that is not one.
+    // See the allowance on the enum: nothing stores a hue yet, so nothing parses one.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn parse(word: &str) -> Option<Accent> {
+        Self::ALL.into_iter().find(|hue| hue.slug() == word)
+    }
+}
+
+/// Which palette the window resolves to.
+///
+/// Three states and not a bool: "follow the desktop" is a different choice from "light",
+/// and a client that cannot express it either ignores the desktop or cannot be overridden
+/// when the desktop is wrong.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+// The window opens on `System`. `Light` and `Dark` are real choices the picker will construct;
+// until then a binary reports them unused.
+#[cfg_attr(not(test), allow(dead_code))]
+pub enum Theme {
+    /// Follow the desktop. No `data-theme`, so `prefers-color-scheme` decides.
+    #[default]
+    System,
+    /// The light palette, even when the desktop is dark.
+    Light,
+    /// The dark palette, even when the desktop is light.
+    Dark,
+}
+
+impl Theme {
+    /// The `data-theme` attribute, or [`None`] when the desktop decides.
+    ///
+    /// [`None`] is what makes the stylesheet's `prefers-color-scheme` guard reachable.
+    pub fn attribute(self) -> Option<&'static str> {
+        match self {
+            Theme::System => None,
+            Theme::Light => Some("light"),
+            Theme::Dark => Some("dark"),
+        }
+    }
+}
+
+/// How the window looks, as data.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct Appearance {
+    /// Which palette the window resolves to.
+    pub theme: Theme,
+    /// The decoration hue. Only the four accent custom properties change with it.
+    pub accent: Accent,
+}
+
 /// Everything the shell is currently showing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Shell {
@@ -193,6 +302,11 @@ pub struct Shell {
     /// appear more than once — `UNIQUE (account, name)` is per account, so "travel" on two
     /// accounts is two labels and someone typing the word means both.
     pub labels: Vec<(String, LabelId)>,
+    /// How the window looks.
+    ///
+    /// A choice, held like every other one: the window reads it rather than deciding. Nothing
+    /// persists it yet, so a freshly built shell is [`Appearance::default`].
+    pub appearance: Appearance,
 }
 
 /// A message being edited, as the widgets hold it.
@@ -389,6 +503,7 @@ impl Default for Shell {
             snoozing: None,
             accounts: Vec::new(),
             labels: Vec::new(),
+            appearance: Appearance::default(),
         }
     }
 }
@@ -2523,5 +2638,55 @@ mod stamps {
         // Someone whose machine is on UTC must see what was stored — this is the case that
         // made the bug invisible, because it is the one every test machine is in.
         assert_eq!(stamp(morning(), &Utc, Stamp::Full), "2026-09-22 01:02");
+    }
+}
+
+/// Which palette, and which decoration hue.
+#[cfg(test)]
+mod appearance {
+    use super::*;
+
+    #[test]
+    fn every_slug_parses_back_to_its_hue() {
+        for accent in Accent::ALL {
+            assert_eq!(
+                Accent::parse(accent.slug()),
+                Some(accent),
+                "slug {}",
+                accent.slug()
+            );
+        }
+    }
+
+    #[test]
+    fn the_hues_have_distinct_slugs_and_labels() {
+        use std::collections::BTreeSet;
+        let slugs: BTreeSet<&str> = Accent::ALL.iter().map(|accent| accent.slug()).collect();
+        let labels: BTreeSet<&str> = Accent::ALL.iter().map(|accent| accent.label()).collect();
+        assert_eq!(slugs.len(), Accent::ALL.len(), "slugs {slugs:?}");
+        assert_eq!(labels.len(), Accent::ALL.len(), "labels {labels:?}");
+    }
+
+    #[test]
+    fn a_word_that_is_not_a_hue_parses_to_none() {
+        // Case matters: the slugs are lower case, so a label is not a slug. A leading space is
+        // not a slug either — parsing does not trim, because a stored word is either exact or
+        // it is not one of these.
+        const CASES: &[&str] = &["", "rose", "Postmark", " pine"];
+        for &word in CASES {
+            assert_eq!(Accent::parse(word), None, "{word:?}");
+        }
+    }
+
+    #[test]
+    fn the_theme_attribute_is_none_light_or_dark() {
+        const CASES: &[(Theme, Option<&str>)] = &[
+            (Theme::System, None),
+            (Theme::Light, Some("light")),
+            (Theme::Dark, Some("dark")),
+        ];
+        for &(theme, attribute) in CASES {
+            assert_eq!(theme.attribute(), attribute, "{theme:?}");
+        }
     }
 }

@@ -51,15 +51,7 @@ mod tests {
     use std::collections::{BTreeMap, BTreeSet};
 
     use super::{STYLE, contrast};
-
-    const SLUGS: &[&str] = &[
-        "postmark",
-        "graphite",
-        "pine",
-        "indigo",
-        "oxblood",
-        "vermilion",
-    ];
+    use crate::view::Accent;
 
     const ACCENT_KEYS: &[&str] = &["--accent", "--accent-ink", "--accent-soft", "--seal"];
 
@@ -256,7 +248,8 @@ mod tests {
     fn an_accent_declares_exactly_the_four() {
         let expect: BTreeSet<&str> = ACCENT_KEYS.iter().copied().collect();
         let mut failures = Vec::new();
-        for slug in SLUGS {
+        for accent in Accent::ALL {
+            let slug = accent.slug();
             for selector in [
                 format!(r#":root[data-accent="{slug}"]"#),
                 format!(r#":root:not([data-theme="light"])[data-accent="{slug}"]"#),
@@ -330,7 +323,8 @@ mod tests {
     fn every_pair_is_legible() {
         let mut failures = Vec::new();
         for &(state, overlay) in THEMES {
-            for slug in SLUGS {
+            for accent in Accent::ALL {
+                let slug = accent.slug();
                 let tokens = resolved(overlay, &accent_selector(overlay, slug));
                 for &(fore, back, need) in PAIRS {
                     let fore_hex = literal(&tokens, fore);
