@@ -9,7 +9,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 mod fold;
-use fold::DIACRITIC_FOLD;
+mod tokens;
+pub use tokens::search_tokens;
 
 /// How a text clause matches.
 ///
@@ -202,7 +203,7 @@ fn address_fits(m: &TextMatch, addr: &Address) -> bool {
 /// read beside the SQL compiler, not beside [`text_fits`].
 fn text_search_fits(m: &TextMatch, ctx: &MatchCtx<'_>) -> bool {
     let (TextMatch::Contains(raw) | TextMatch::Exact(raw)) = m;
-    let needle = fts_tokens(raw);
+    let needle = search_tokens(raw);
     // No terms, no query. Not vacuously true: FTS5 cannot express an empty MATCH, so a
     // vacuous truth here would be a divergence the SQL side could not reproduce.
     if needle.is_empty() {
@@ -212,12 +213,12 @@ fn text_search_fits(m: &TextMatch, ctx: &MatchCtx<'_>) -> bool {
     match m {
         // Co-occurrence, not adjacency, and not confined to one field: `a AND b` in FTS5.
         TextMatch::Contains(_) => {
-            let haystack: Vec<String> = fields.iter().flat_map(|f| fts_tokens(f)).collect();
+            let haystack: Vec<String> = fields.iter().flat_map(|f| search_tokens(f)).collect();
             needle.iter().all(|token| haystack.contains(token))
         }
         // Adjacency within one field: `"a b"` in FTS5.
         TextMatch::Exact(_) => fields.iter().any(|f| {
-            fts_tokens(f)
+            search_tokens(f)
                 .windows(needle.len())
                 .any(|run| run == needle.as_slice())
         }),
@@ -253,108 +254,6 @@ fn push_address<'a>(fields: &mut Vec<&'a str>, addr: &'a Address) {
     fields.push(addr.email.as_str());
     if let Some(name) = addr.name.as_deref() {
         fields.push(name);
-    }
-}
-
-/// Split `text` into full-text tokens the way SQLite's `unicode61 remove_diacritics 2`
-/// tokenizer does: fold case, strip diacritics, and split on everything that is not
-/// alphanumeric. `"Résumé, v2 (final)"` becomes `["resume", "v2", "final"]`.
-///
-/// **Known parity limit.** Diacritic folding covers Latin-1 Supplement, Latin Extended-A and -B
-/// and Latin Extended Additional — that is, the Latin letters that decompose to an ASCII base —
-/// plus loose combining marks. SQLite's table is larger. Letters with no ASCII base are left
-/// alone by both (`ø`, `æ`, `ß`, `ł`, `đ` are not "an accented o/a/s/l/d"), and non-Latin
-/// scripts are tokenized and case-folded but not otherwise normalized. Widening this needs a
-/// Unicode table `mail-domain` does not currently depend on; until then the parity proptest
-/// should generate from those ranges, and a wider corpus is a known-failing case, not a
-/// surprise.
-fn fts_tokens(text: &str) -> Vec<String> {
-    let mut tokens = Vec::new();
-    let mut current = String::new();
-    // A run of ideographs or kana, held separately: it ends at the first character that is not
-    // one, including an ordinary letter, so `NTU臺大` is `ntu` and then the Chinese run.
-    let mut run: Vec<char> = Vec::new();
-    let flush = |current: &mut String, run: &mut Vec<char>, tokens: &mut Vec<String>| {
-        if !current.is_empty() {
-            tokens.push(std::mem::take(current));
-        }
-        bigrams(run, tokens);
-        run.clear();
-    };
-    for ch in text.chars().flat_map(char::to_lowercase) {
-        // Dropped, not treated as a separator, so decomposed `e` + U+0301 is one token.
-        if is_combining_mark(ch) {
-            continue;
-        }
-        let ch = fold_diacritic(ch);
-        if is_scriptio_continua(ch) {
-            if !current.is_empty() {
-                tokens.push(std::mem::take(&mut current));
-            }
-            run.push(ch);
-        } else if ch.is_alphanumeric() {
-            bigrams(&run, &mut tokens);
-            run.clear();
-            current.push(ch);
-        } else {
-            flush(&mut current, &mut run, &mut tokens);
-        }
-    }
-    flush(&mut current, &mut run, &mut tokens);
-    tokens
-}
-
-/// Whether `ch` belongs to a script written without spaces between words.
-///
-/// CJK ideographs and the Japanese kana. **Not Hangul**: Korean is written with spaces, so it
-/// tokenizes correctly already and bigramming it would only lose precision.
-fn is_scriptio_continua(ch: char) -> bool {
-    matches!(ch,
-        '\u{3040}'..='\u{30ff}'   // Hiragana and Katakana
-        | '\u{3400}'..='\u{4dbf}' // CJK Unified Ideographs Extension A
-        | '\u{4e00}'..='\u{9fff}' // CJK Unified Ideographs
-        | '\u{f900}'..='\u{faff}' // CJK Compatibility Ideographs
-    )
-}
-
-/// The tokens a run of such characters contributes: overlapping bigrams.
-///
-/// `臺大計中` becomes `臺大`, `大計`, `計中`. Bigrams rather than single characters because a
-/// query of one character is almost never what anyone means in Chinese, and because separate
-/// characters ANDed would match any message containing 臺 and 大 anywhere — the same looseness
-/// that is acceptable for two English words and useless for two halves of one Chinese word.
-/// Overlapping, so a needle that starts mid-word still matches: `大計` is a token of `臺大計中`.
-///
-/// A run of one character is that character, so an isolated ideograph is still findable.
-fn bigrams(run: &[char], out: &mut Vec<String>) {
-    match run.len() {
-        0 => {}
-        1 => out.push(run[0].to_string()),
-        _ => {
-            for pair in run.windows(2) {
-                out.push(pair.iter().collect());
-            }
-        }
-    }
-}
-
-fn is_combining_mark(ch: char) -> bool {
-    matches!(ch,
-        '\u{0300}'..='\u{036f}'
-        | '\u{1ab0}'..='\u{1aff}'
-        | '\u{1dc0}'..='\u{1dff}'
-        | '\u{20d0}'..='\u{20f0}'
-        | '\u{fe20}'..='\u{fe2f}')
-}
-
-/// The unaccented form of `ch`, or `ch` where it has none.
-fn fold_diacritic(ch: char) -> char {
-    if ch.is_ascii() {
-        return ch;
-    }
-    match DIACRITIC_FOLD.binary_search_by_key(&ch, |&(accented, _)| accented) {
-        Ok(i) => DIACRITIC_FOLD[i].1,
-        Err(_) => ch,
     }
 }
 

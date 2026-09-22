@@ -4,10 +4,10 @@
 //! nobody reports as a bug because nobody knows the message was there. This is the only thing
 //! standing between that and a release.
 //!
-//! The corpus is deliberately Latin and ASCII. `mail-domain`'s diacritic fold table covers
-//! Latin-1, Latin Extended-A/-B and Latin Extended Additional; SQLite's `unicode61` table is
-//! wider. Generating arbitrary Unicode would fail on that known, documented gap rather than on a
-//! real divergence.
+//! The corpus reaches past Latin on purpose. Both sides tokenize with the same function now, and
+//! `tests/fold_table.rs` proves SQLite leaves its tokens alone for every code point; the words
+//! below are the cases that proof is about — folds across scripts, marks that join a word and
+//! marks that end one — exercised end to end through both implementations.
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::*;
@@ -30,11 +30,38 @@ fn now() -> DateTime<Utc> {
     at(5_000)
 }
 
-/// Latin + ASCII words, including accented forms, so `Filter::Text`'s diacritic folding is
-/// exercised without leaving the range both sides agree on.
+/// Words chosen in pairs that search must treat alike, or must not: accented and plain Latin,
+/// final and medial sigma, a long s, a decomposed accent, pointed and unpointed Hebrew, Cyrillic
+/// case, and Chinese that has to be split into bigrams to be found at all.
 const WORDS: &[&str] = &[
-    "lunch", "friday", "résumé", "resume", "ada", "lovelace", "invoice", "50%", "café", "meeting",
-    "Ünicode", "plain", "re", "fwd",
+    "lunch",
+    "friday",
+    "résumé",
+    "resume",
+    "ada",
+    "lovelace",
+    "invoice",
+    "50%",
+    "café",
+    "meeting",
+    "Ünicode",
+    "plain",
+    "re",
+    "fwd",
+    "σοφίας",
+    "ΣΟΦΙΑΣ",
+    "ſtraße",
+    "strasse",
+    "e\u{301}te",
+    "ête",
+    "שָׁלוֹם",
+    "שלום",
+    "Москва",
+    "москва",
+    "臺大計中",
+    "計中",
+    "µs",
+    "μs",
 ];
 
 #[derive(Debug, Clone)]

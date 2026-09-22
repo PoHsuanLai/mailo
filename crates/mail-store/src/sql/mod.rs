@@ -6,8 +6,11 @@
 //! filters and corpora. If that test is ever skipped or weakened, the bug ships.
 
 use chrono::{DateTime, SecondsFormat, Utc};
-use mail_domain::{Address, DateRange, Filter, MailboxRole, TextMatch};
+use mail_domain::{DateRange, Filter, MailboxRole, TextMatch};
 use serde::Serialize;
+
+mod fts;
+pub(crate) use fts::message_index;
 
 /// A bound parameter. Deliberately not `String`: binding is the only thing standing between a
 /// subject line and SQL injection, so values never reach the query text.
@@ -89,7 +92,7 @@ fn predicate(filter: &Filter, now: DateTime<Utc>, params: &mut Vec<SqlValue>) ->
             params.push(SqlValue::Text(like_pattern(m)));
             format!("(ts.subject {LIKE})")
         }
-        Filter::Text(m) => text_predicate(m, params),
+        Filter::Text(m) => fts::predicate(m, params),
         Filter::Date(range) => date_predicate(range, params),
         // `Attachments::None` is `{"kind":"none"}`; `Present` carries a count under `v`.
         Filter::HasAttachment => {
@@ -236,204 +239,4 @@ fn snooze_due(now: DateTime<Utc>, params: &mut Vec<SqlValue>) -> String {
         FROM (SELECT rtrim(json_extract(ts.snooze, '$.v'), 'Z') AS t)
     ) <= ?)"#
         .to_owned()
-}
-
-fn text_predicate(m: &TextMatch, params: &mut Vec<SqlValue>) -> String {
-    let raw = match m {
-        TextMatch::Contains(needle) | TextMatch::Exact(needle) => needle,
-    };
-    let tokens = fts_tokens(raw);
-    // An empty MATCH is a syntax error in FTS5, and `fit` agrees: no tokens, no match.
-    if tokens.is_empty() {
-        return "(1=0)".to_owned();
-    }
-    // `messages_fts MATCH`, not `f MATCH`: with the table aliased, SQLite resolves MATCH
-    // against the real table name and reports the alias as "no such column".
-    //
-    // **Uncorrelated on purpose.** This was `EXISTS (... WHERE m.thread = ts.thread AND
-    // messages_fts MATCH ?)`, which mentions the outer row and so runs once *per thread*: the
-    // FTS index was used, ten thousand times over, and a search of a ten-thousand-message
-    // mailbox took four and a half seconds. Without the correlation SQLite evaluates the match
-    // once, materialises the threads it hit, and probes that — the difference between a search
-    // that is linear in the mailbox and one that is quadratic.
-    const MATCHING: &str = "ts.thread IN (SELECT m.thread FROM messages_fts f \
-        JOIN messages m ON m.rowid = f.rowid \
-        WHERE messages_fts MATCH ?)";
-
-    match m {
-        // One EXISTS per token, ANDed at the SQL level rather than inside one MATCH.
-        //
-        // `t1 AND t2` inside a single MATCH requires both tokens on the SAME message row, but
-        // `Filter::fit` treats the whole thread as one corpus: a conversation with "ada" in
-        // the first message and "lunch" in the reply matches `fit`. Splitting the tokens into
-        // separate correlated EXISTS asks "does each token appear SOMEWHERE in this thread",
-        // which is the same question `fit` answers.
-        TextMatch::Contains(_) => {
-            let mut clauses = Vec::with_capacity(tokens.len());
-            for token in &tokens {
-                params.push(SqlValue::Text(quote_fts_token(token)));
-                clauses.push(MATCHING.to_owned());
-            }
-            format!("({})", clauses.join(" AND "))
-        }
-        // A phrase must be adjacent and in order, which only means anything within one
-        // message's indexed text, so this stays a single MATCH.
-        TextMatch::Exact(_) => {
-            params.push(SqlValue::Text(fts_phrase(&tokens)));
-            format!("({MATCHING})")
-        }
-    }
-}
-
-/// The text to store for the full-text index: exactly the tokens a query will ask for.
-///
-/// The index used to read the message columns directly, and `unicode61` made one token of an
-/// unbroken run of ideographs — so a Chinese subject was one word and only typing all of it
-/// found anything (FINDINGS F125). Segmenting the text is the fix, and a tokenizer cannot be
-/// asked to do it, so this writes the tokens out separated by spaces and lets `unicode61` find
-/// exactly them again.
-///
-/// Built from [`fts_tokens`], not beside it: the index and the query are then the same function
-/// by construction rather than by two pieces of code agreeing.
-pub(crate) fn indexable(fields: &[Option<&str>]) -> String {
-    let mut tokens = Vec::new();
-    for field in fields.iter().flatten() {
-        tokens.extend(fts_tokens(field));
-    }
-    tokens.join(" ")
-}
-
-/// The indexed text of one message: every field [`Filter::Text`] searches, in one place.
-///
-/// Three writers need this — insert, body arrival, and the backfill — and they used to list the
-/// fields separately, which is how a field gets added to two of them. `To` and `Cc` are here
-/// because a thread is found by who it was addressed to as well as by who wrote it; `Bcc` is
-/// not, for the reason `ThreadSummary::recipients` gives.
-pub(crate) fn message_index(
-    subject: &str,
-    from: &Address,
-    to: &[Address],
-    cc: &[Address],
-    body: Option<&str>,
-) -> String {
-    let mut fields = vec![
-        Some(subject),
-        from.name.as_deref(),
-        Some(from.email.as_str()),
-    ];
-    for addr in to.iter().chain(cc) {
-        fields.push(addr.name.as_deref());
-        fields.push(Some(addr.email.as_str()));
-    }
-    fields.push(body);
-    indexable(&fields)
-}
-
-/// Alphanumeric runs, with combining marks dropped rather than used as separators.
-///
-/// That is how `unicode61 remove_diacritics 2` tokenizes a decomposed letter (`e` + U+0301
-/// stays one token) and how [`mail_domain::Filter`]'s full-text matcher splits the needle.
-/// Case and diacritics are left for FTS5: the same tokenizer folds the query and the index.
-fn fts_tokens(text: &str) -> Vec<String> {
-    let mut tokens = Vec::new();
-    let mut current = String::new();
-    // A run of ideographs or kana, held separately. Mirrors `mail_domain`'s tokenizer, which the
-    // `fit` ⟺ SQL proptest requires to agree with this one exactly.
-    let mut run: Vec<char> = Vec::new();
-    for ch in text.chars() {
-        if is_combining_mark(ch) {
-            continue;
-        }
-        if is_scriptio_continua(ch) {
-            if !current.is_empty() {
-                tokens.push(std::mem::take(&mut current));
-            }
-            run.push(ch);
-        } else if ch.is_alphanumeric() {
-            bigrams(&run, &mut tokens);
-            run.clear();
-            current.push(ch);
-        } else {
-            if !current.is_empty() {
-                tokens.push(std::mem::take(&mut current));
-            }
-            bigrams(&run, &mut tokens);
-            run.clear();
-        }
-    }
-    if !current.is_empty() {
-        tokens.push(current);
-    }
-    bigrams(&run, &mut tokens);
-    tokens
-}
-
-/// Whether `ch` belongs to a script written without spaces between words.
-///
-/// CJK ideographs and the Japanese kana. **Not Hangul**: Korean is written with spaces.
-fn is_scriptio_continua(ch: char) -> bool {
-    matches!(ch,
-        '\u{3040}'..='\u{30ff}'
-        | '\u{3400}'..='\u{4dbf}'
-        | '\u{4e00}'..='\u{9fff}'
-        | '\u{f900}'..='\u{faff}'
-    )
-}
-
-/// The tokens a run of such characters contributes: overlapping bigrams, or the character
-/// itself when the run is one long. See `mail_domain::filter` for why.
-fn bigrams(run: &[char], out: &mut Vec<String>) {
-    match run.len() {
-        0 => {}
-        1 => out.push(run[0].to_string()),
-        _ => {
-            for pair in run.windows(2) {
-                out.push(pair.iter().collect());
-            }
-        }
-    }
-}
-
-fn is_combining_mark(ch: char) -> bool {
-    matches!(
-        ch,
-        '\u{0300}'..='\u{036f}'
-            | '\u{1ab0}'..='\u{1aff}'
-            | '\u{1dc0}'..='\u{1dff}'
-            | '\u{20d0}'..='\u{20f0}'
-            | '\u{fe20}'..='\u{fe2f}'
-    )
-}
-
-/// One FTS5 token, quoted, so `OR`, `NEAR`, `*`, `^` and `-` in the needle are data.
-/// An internal `"` is doubled, which is how FTS5 escapes a quote inside a phrase.
-fn quote_fts_token(token: &str) -> String {
-    let mut out = String::with_capacity(token.len() + 2);
-    out.push('"');
-    for ch in token.chars() {
-        if ch == '"' {
-            out.push('"');
-        }
-        out.push(ch);
-    }
-    out.push('"');
-    out
-}
-
-/// A phrase: the tokens, in order, inside one pair of quotes. `"t1 t2"`, not `"t1" AND "t2"`.
-fn fts_phrase(tokens: &[String]) -> String {
-    let mut out = String::from("\"");
-    for (i, token) in tokens.iter().enumerate() {
-        if i > 0 {
-            out.push(' ');
-        }
-        for ch in token.chars() {
-            if ch == '"' {
-                out.push('"');
-            }
-            out.push(ch);
-        }
-    }
-    out.push('"');
-    out
 }

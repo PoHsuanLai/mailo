@@ -127,7 +127,7 @@ impl SqliteStore {
     }
 }
 
-/// Fill `messages.fts_text` for rows that predate migration 0004, or that 0005 cleared.
+/// Fill `messages.fts_text` for rows that predate migration 0004, or that a later one cleared.
 ///
 /// The migration could not: segmenting a run of ideographs into bigrams is not something SQL can
 /// express, and the whole point of that migration is that the indexed text is no longer the

@@ -183,9 +183,12 @@ The two `LocalOnly` tests that the `ops` agent flagged as vacuous now discrimina
 ## Still open
 
 - **The NTU host heuristic is unverified.** `spike/out/` is empty.
-- **F2's parity limit**, for whoever takes the `parity` brief: `mail-domain`'s fold table covers
-  Latin-1, Latin Extended-A/-B and Latin Extended Additional. SQLite's is wider. Generate the
-  proptest corpus from Latin + ASCII, or add a Unicode dependency.
+- ~~**F2's parity limit.**~~ Closed in phase 9.3. Measured first: 1017 BMP code points
+  tokenized differently on the two sides — marks the domain kept inside a word and SQLite split
+  on (Hebrew points, Arabic harakat, Indic signs), compatibility folds only SQLite made (`µ`,
+  `ſ`, `ς`, `ϐ`), and letters newer than SQLite's tables. The store no longer has a tokenizer of
+  its own: it indexes and queries with `search_tokens`, whose fold table is generated from SQLite,
+  and `tests/fold_table.rs` checks all 1.1 million code points in two seconds.
 
 ## Phase 0 — the spike, run 2026-09-22
 
