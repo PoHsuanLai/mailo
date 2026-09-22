@@ -2412,3 +2412,36 @@ BODYSTRUCTURE (("text" "plain" ("charset" "utf-8") NIL NIL "7bit" 82 … (9543 b
 ```
 
 which says what happened. A week ago it would have been nine thousand decimal integers.
+
+### F114 — Looking for an amplification in the part walk, and not finding one
+
+A mail client takes input from strangers, so a small message that makes it do a large amount of
+work is a denial of service anyone can post. `parse::bodies` copies every part's bytes with
+`part.contents().to_vec()` and has no cap on how many parts it will take, and `assemble` then
+writes each one to a blob — so the shape was worth measuring rather than assuming.
+
+Measured, on a multipart message whose every part is a distinct attachment:
+
+| parts | message | ingest | blob rows |
+| --- | --- | --- | --- |
+| 1 000 | 111 kB | 45 ms | 1 001 |
+| 10 000 | 1.1 MB | 400 ms | 10 001 |
+
+Linear, at about 40 µs a part, which is the property that matters: the work is bounded by the
+size of the message, so the worst a sender can do is send a big message. A deliberately hostile
+25 MB message — Gmail's limit — would carry perhaps 230 000 parts and take some seconds, once.
+
+And the obvious flood costs nothing at all. Ten thousand parts with *identical* contents produce
+**two** blob rows: the raw message and one shared part. The blob store is content-addressed, so
+repetition — which is what a cheap attack is made of — collapses. Each of the ten thousand is
+still a separate attachment with its own name; only the bytes are shared.
+
+No defect, so nothing changed. The measurements are assertions now, because "we checked once" is
+worth nothing later: a change that made attachment handling quadratic, or that gave every part
+its own copy of the bytes, would fail `ten_thousand_parts_cost_ten_thousand_blobs_and_no_more` or
+`ten_thousand_identical_parts_cost_one_blob`.
+
+Two other things were looked at in the same pass and found sound, recorded so the next sweep can
+skip them: the outbox backoff is `1s, 2s, 4s …` capped at an hour with `attempts.min(12)`, so it
+cannot overflow or park a message for a century; and `Retry::Fatal` applies the undo patch rather
+than leaving the user looking at a local state that will never become true.
