@@ -579,7 +579,10 @@ fn a_qresync_sweep_asks_the_server_what_vanished() {
         vanished,
         [(41, 41), (43, 116), (118, 118), (120, 211), (214, 540)]
     );
-    assert!(ingest.gone.is_empty(), "the caller fills this, from what it holds");
+    assert!(
+        ingest.gone.is_empty(),
+        "the caller fills this, from what it holds"
+    );
     assert_eq!(
         ingest.cursor,
         Some(SyncCursor::Imap {
@@ -627,7 +630,10 @@ fn a_qresync_sweep_after_a_renumbering_reports_nothing() {
         panic!("expected a resync");
     };
     assert!(vanished.is_empty());
-    assert_eq!(ingest.cursor, None, "the cursor stays on the mailbox we know");
+    assert_eq!(
+        ingest.cursor, None,
+        "the cursor stays on the mailbox we know"
+    );
 }
 
 /// Gmail offers CONDSTORE without QRESYNC: a `since` changes nothing, and the sweep lists.
