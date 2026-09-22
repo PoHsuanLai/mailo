@@ -13,4 +13,6 @@ pub(in crate::ui) use dom::{
     FakeKey, INSIDE_THE_SHELL, Typed, dispatching, harness, markup, press, reader_markup,
     thread_like,
 };
-pub(in crate::ui) use store::{ACCOUNT, empty, gmail_caps, inbox_query, realistic, seeded};
+pub(in crate::ui) use store::{
+    ACCOUNT, empty, gmail_caps, held_and_remote, inbox_query, realistic, seeded,
+};

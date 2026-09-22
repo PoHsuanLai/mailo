@@ -1,4 +1,4 @@
-use super::text::{address, attached, from_name, stamp};
+use super::text::{Kept, address, attachment_rows, from_name, stamp};
 use crate::view::{Reading, Shell};
 use dioxus::prelude::*;
 use mail_domain::*;
@@ -11,6 +11,9 @@ pub(super) fn Reader(thread: ThreadId, shell: Signal<Shell>) -> Element {
     // Where the last attachment went, or why it did not. Cleared by opening another
     // conversation, because this component is rebuilt for each one.
     let mut saved = use_signal(|| None::<String>);
+    // Which attachment is being fetched, if one is. That part's button stays disabled until
+    // the fetch ends, so a second click cannot start a second download of it.
+    let mut downloading = use_signal(|| None::<(MessageId, usize)>);
     let Ok(loaded) = store.thread(thread) else {
         return rsx! { p { class: "empty", "That conversation is gone." } };
     };
@@ -67,37 +70,95 @@ pub(super) fn Reader(thread: ThreadId, shell: Signal<Shell>) -> Element {
                     span { "{address(&message)}" }
                     time { "{stamp(&message)}" }
                 }
-                // What is attached, if anything. Named and sized but not saved from here: a
-                // file dialog is the one piece this pane cannot do, and a list that tells the
-                // user a file exists — and what `mailo save` will call it — beats a message
-                // that looks like it has nothing in it.
-                if !attached(&message).is_empty() {
+                // What is attached, if anything. Save writes a part that is already here;
+                // Download fetches one still on the server and then writes it. The name is
+                // the one the file will be written under. There is no file chooser: it lands
+                // in the downloads directory, and the notice says where.
+                if !attachment_rows(&message).is_empty() {
                     ul { class: "attachments",
-                        for (index, item) in attached(&message) {
-                            li { key: "{index}",
+                        for row in attachment_rows(&message) {
+                            li { key: "{row.index}",
                                 span { class: "paperclip", "📎" }
-                                span { class: "name", "{item.0}" }
-                                span { class: "size", "{item.1}" }
+                                span { class: "name", "{row.name}" }
+                                span { class: "size", "{row.size}" }
                                 button {
                                     class: "ghost",
+                                    disabled: downloading() == Some((message.id, row.index)),
                                     onclick: {
                                         let id = message.id;
-                                        move |_| {
-                                            let store = consume_context::<Arc<SqliteStore>>();
-                                            let where_to = crate::attach::downloads_dir();
-                                            saved.set(Some(
-                                                match crate::attach::save(
-                                                    &store, id, index, &where_to,
-                                                ) {
-                                                    Ok(path) => {
-                                                        format!("Saved to {}", path.display())
-                                                    }
-                                                    Err(why) => why,
-                                                },
-                                            ));
+                                        let index = row.index;
+                                        let name = row.name.clone();
+                                        let kept = row.kept;
+                                        move |_| match kept {
+                                            Kept::Here => {
+                                                let store = consume_context::<Arc<SqliteStore>>();
+                                                let where_to = crate::attach::downloads_dir();
+                                                saved.set(Some(
+                                                    match crate::attach::save(
+                                                        &store, id, index, &where_to,
+                                                    ) {
+                                                        Ok(path) => {
+                                                            format!("Saved to {}", path.display())
+                                                        }
+                                                        Err(why) => why,
+                                                    },
+                                                ));
+                                            }
+                                            Kept::OnServer => {
+                                                if downloading() == Some((id, index)) {
+                                                    return;
+                                                }
+                                                saved.set(Some(format!("Downloading {name}…")));
+                                                downloading.set(Some((id, index)));
+                                                // Cloned out of the context into the blocking
+                                                // thread: the fetch outlives this click, and
+                                                // `fetch_part` holds the store for the whole
+                                                // download.
+                                                let store_arc =
+                                                    consume_context::<Arc<SqliteStore>>();
+                                                let dir = crate::attach::downloads_dir();
+                                                spawn(async move {
+                                                    // `spawn_blocking`, not this task:
+                                                    // `fetch_part` opens sockets and builds its
+                                                    // own runtime, and `Runtime::block_on`
+                                                    // inside an async context panics.
+                                                    let done = tokio::task::spawn_blocking(move || {
+                                                        crate::attach::fetch_and_save(
+                                                            &store_arc,
+                                                            id,
+                                                            index,
+                                                            &dir,
+                                                            |section| {
+                                                                crate::sync::fetch_part(
+                                                                    &store_arc,
+                                                                    id,
+                                                                    section,
+                                                                    chrono::Utc::now(),
+                                                                )
+                                                            },
+                                                        )
+                                                    })
+                                                    .await;
+                                                    let sentence = match done {
+                                                        Ok(Ok(sentence) | Err(sentence)) => sentence,
+                                                        Err(error) => format!(
+                                                            "The download stopped before it finished: {error}"
+                                                        ),
+                                                    };
+                                                    saved.set(Some(sentence));
+                                                    downloading.set(None);
+                                                });
+                                            }
                                         }
                                     },
-                                    "Save"
+                                    if downloading() == Some((message.id, row.index)) {
+                                        "Downloading…"
+                                    } else {
+                                        match row.kept {
+                                            Kept::Here => "Save",
+                                            Kept::OnServer => "Download",
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -132,7 +193,7 @@ pub(super) fn Reader(thread: ThreadId, shell: Signal<Shell>) -> Element {
 
 #[cfg(test)]
 mod tests {
-    use crate::ui::fixtures::{reader_markup, realistic, thread_like};
+    use crate::ui::fixtures::{held_and_remote, reader_markup, realistic, thread_like};
 
     #[tokio::test]
     async fn the_reader_does_not_offer_to_load_images_a_message_does_not_have() {
@@ -167,6 +228,45 @@ mod tests {
         assert!(
             !markup.contains("track.stripe.test"),
             "the blocked URL reached the document:\n{markup}"
+        );
+    }
+
+    /// The `<li>` elements of the attachment list, each as rendered.
+    ///
+    /// Taken from that list alone. A `contains("Download")` over the whole page would pass for
+    /// any screen that mentioned the word.
+    fn attachment_items(markup: &str) -> Vec<&str> {
+        let Some((_, rest)) = markup.split_once(r#"<ul class="attachments">"#) else {
+            panic!("the reader drew no attachment list:\n{markup}");
+        };
+        let Some((list, _)) = rest.split_once("</ul>") else {
+            panic!("the attachment list was not closed:\n{markup}");
+        };
+        let mut items = Vec::new();
+        let mut rest = list;
+        while let Some(at) = rest.find("<li>") {
+            let from = &rest[at..];
+            let Some(close) = from.find("</li>") else {
+                panic!("an attachment row was not closed:\n{markup}");
+            };
+            items.push(&from[..close + "</li>".len()]);
+            rest = &from[close + "</li>".len()..];
+        }
+        items
+    }
+
+    #[tokio::test]
+    async fn a_held_part_offers_save_and_a_remote_part_offers_download() {
+        let (store, _dir) = held_and_remote();
+        let thread = thread_like(&store, "quarterly");
+        let markup = reader_markup(store, thread);
+        assert_eq!(
+            attachment_items(&markup),
+            [
+                r#"<li><span class="paperclip">📎</span><span class="name">notes.txt</span><span class="size">1.5 kB</span><button class="ghost">Save</button></li>"#,
+                r#"<li><span class="paperclip">📎</span><span class="name">report.pdf</span><span class="size">up to 5.0 MB</span><button class="ghost">Download</button></li>"#,
+            ],
+            "the rows are not Save for the held part and Download for the remote one:\n{markup}"
         );
     }
 }

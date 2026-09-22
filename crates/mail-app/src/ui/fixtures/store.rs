@@ -304,6 +304,87 @@ pub(in crate::ui) fn empty() -> (Arc<SqliteStore>, tempfile::TempDir) {
     (store, dir)
 }
 
+/// A message with one attachment already stored and one still on the server.
+///
+/// Save and Download are different actions, and a mailbox of held parts cannot show that.
+pub(in crate::ui) fn held_and_remote() -> (Arc<SqliteStore>, tempfile::TempDir) {
+    let (store, dir) = seeded();
+    let bytes = b"From: ada@example.test\r\nSubject: quarterly figures\r\n\r\nsee attached\r\n";
+    let raw = store.blobs().put(&store.connection(), bytes).unwrap();
+    let notes = store.blobs().put(&store.connection(), b"notes").unwrap();
+    let message = Message {
+        id: MessageId::generate(),
+        thread: ThreadId::generate(),
+        account: ACCOUNT,
+        key: MessageKey::Rfc("quarterly@example.test".to_owned()),
+        date: chrono::Utc::now(),
+        from: Address {
+            name: Some("Ada".to_owned()),
+            email: "ada@example.test".to_owned(),
+        },
+        reply_to: vec![],
+        to: vec![],
+        cc: vec![],
+        bcc: vec![],
+        subject: "quarterly figures".to_owned(),
+        in_reply_to: None,
+        references: vec![],
+        rfc_message_id: Some("quarterly@example.test".to_owned()),
+        read: ReadState::Unread,
+        star: Star::Unstarred,
+        mailbox: MailboxRole::Inbox,
+        labels: vec![],
+        body: Body::Present {
+            text: Some("see attached".to_owned()),
+            raw,
+        },
+        attachments: vec![
+            Attachment {
+                name: "notes.txt".to_owned(),
+                mime: "text/plain".to_owned(),
+                size: 1536,
+                content: PartContent::Held(notes),
+                inline: Inline::Attached,
+            },
+            Attachment {
+                name: "report.pdf".to_owned(),
+                mime: "application/pdf".to_owned(),
+                size: 5 * 1024 * 1024,
+                content: PartContent::Remote {
+                    section: "2".to_owned(),
+                },
+                inline: Inline::Attached,
+            },
+        ],
+    };
+    store
+        .ingest(
+            ACCOUNT,
+            Ingest {
+                mailbox: MailboxRef {
+                    account: ACCOUNT,
+                    path: "INBOX".to_owned(),
+                },
+                validity: UidValidity::Same,
+                cursor: Some(SyncCursor::Pop),
+                messages: vec![Fetched {
+                    remote: RemoteRef::Pop {
+                        uidl: "quarterly".to_owned(),
+                    },
+                    key: message.key.clone(),
+                    raw,
+                    message,
+                }],
+                flags: vec![],
+                labels: vec![],
+                label_names: Vec::new(),
+                gone: vec![],
+            },
+        )
+        .unwrap();
+    (store, dir)
+}
+
 pub(in crate::ui) fn inbox_query() -> Query {
     Query {
         filter: Filter::InMailbox(MailboxRole::Inbox),
