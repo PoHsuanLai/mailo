@@ -47,6 +47,8 @@ pub struct EhloExtensions {
     pub size: SizeLimit,
     /// `8BITMIME`.
     pub eight_bit_mime: Advertised,
+    /// `SMTPUTF8` (RFC 6531): the server accepts a UTF-8 envelope.
+    pub smtputf8: Advertised,
 }
 
 /// A complete SMTP reply, reduced to its status code and text.
@@ -149,6 +151,13 @@ pub struct SmtpSession {
     buf: Vec<u8>,
     extensions: EhloExtensions,
     mechanism: Option<SaslMech>,
+    /// Wire form of the envelope, chosen at the `EHLO` that precedes `AUTH`.
+    ///
+    /// Absent until then. The pre-TLS `EHLO` does not set it: the extensions
+    /// that decide the encoding are the ones still in force once TLS is up,
+    /// which is also when the transfer checks run. `MAIL FROM` and `RCPT TO`
+    /// both read this, so the parameter and the address bytes are one decision.
+    envelope: Option<PreparedEnvelope>,
 }
 
 impl fmt::Debug for SmtpSession {
@@ -158,6 +167,7 @@ impl fmt::Debug for SmtpSession {
             .field("phase", &self.phase)
             .field("extensions", &self.extensions)
             .field("mechanism", &self.mechanism)
+            .field("envelope", &self.envelope)
             .finish()
     }
 }
@@ -171,6 +181,7 @@ impl SmtpSession {
             buf: Vec::new(),
             extensions: EhloExtensions::default(),
             mechanism: None,
+            envelope: None,
         }
     }
 
@@ -219,6 +230,7 @@ impl SmtpSession {
             &self.submission,
             &self.extensions,
             self.mechanism,
+            self.envelope.as_ref(),
         ) {
             Ok(outcome) => outcome,
             Err(err) => return self.fail(err),
@@ -232,9 +244,16 @@ impl SmtpSession {
                 next,
                 mechanism,
                 needs,
+                envelope,
             } => {
                 if let Some(mech) = mechanism {
                     self.mechanism = Some(mech);
+                }
+                // `None` leaves a decision already stored. RCPT and DATA also
+                // come back as Continue, and clearing here would make the next
+                // recipient forget the form chosen at EHLO.
+                if let Some(envelope) = envelope {
+                    self.envelope = Some(envelope);
                 }
                 self.phase = next;
                 Progress::Need(needs)
@@ -560,6 +579,9 @@ fn apply_ehlo_line(ext: &mut EhloExtensions, line: &str) {
         }
         "STARTTLS" => ext.starttls = Advertised::Offered,
         "8BITMIME" => ext.eight_bit_mime = Advertised::Offered,
+        // The keyword alone. A parameter, were a server to send one, is not
+        // part of the token and must not hide the extension.
+        "SMTPUTF8" => ext.smtputf8 = Advertised::Offered,
         "SIZE" => match parts.next() {
             Some(number) => match number.parse::<u64>() {
                 Ok(limit) => ext.size = SizeLimit::Limited(limit),
@@ -599,6 +621,9 @@ enum Outcome {
         next: Phase,
         mechanism: Option<SaslMech>,
         needs: Vec<IoNeed>,
+        /// Set by the submitting `EHLO`. Later steps pass `None` so applying
+        /// them does not discard the decision `MAIL FROM` is waiting to use.
+        envelope: Option<PreparedEnvelope>,
     },
     Done(SmtpReply),
 }
@@ -609,6 +634,7 @@ fn decide(
     sub: &Submission,
     ext: &EhloExtensions,
     mech: Option<SaslMech>,
+    envelope: Option<&PreparedEnvelope>,
 ) -> Result<Outcome, ProtoError> {
     match phase {
         Phase::Greeting => on_greeting(reply, sub),
@@ -623,9 +649,9 @@ fn decide(
         | Phase::AuthLoginPass
         | Phase::AuthLoginSent
         | Phase::AuthXoauth2
-        | Phase::AuthXoauth2Sent => on_auth(phase, reply, sub),
-        Phase::MailFrom => on_mail_from(reply, sub),
-        Phase::Rcpt(index) => on_rcpt(*index, reply, sub),
+        | Phase::AuthXoauth2Sent => on_auth(phase, reply, sub, envelope),
+        Phase::MailFrom => on_mail_from(reply, envelope),
+        Phase::Rcpt(index) => on_rcpt(*index, reply, envelope),
         Phase::Data => on_data(reply, sub),
         Phase::Body => on_body(reply),
         Phase::Quit(accepted) => on_quit(accepted, reply, ext, mech),
@@ -655,9 +681,17 @@ fn on_ehlo(
         return Ok(continue_with(Phase::StartTls, vec![cmd("STARTTLS")], None));
     }
     check_transfer(ext, &sub.message)?;
+    // Same moment as the transfer checks: the extensions are final, and no
+    // envelope command has been written, so a refusal never becomes MAIL FROM.
+    let envelope = prepare_envelope(ext, &sub.mail_from, &sub.recipients)?;
     let mech = choose_mech(&ext.auth, &sub.sasl, &sub.credential)?;
     let (next, command) = auth_command(mech, sub)?;
-    Ok(continue_with(next, vec![command], Some(mech)))
+    Ok(continue_with_envelope(
+        next,
+        vec![command],
+        Some(mech),
+        Some(envelope),
+    ))
 }
 
 fn on_starttls(reply: &ServerReply, sub: &Submission) -> Result<Outcome, ProtoError> {
@@ -670,10 +704,16 @@ fn on_starttls(reply: &ServerReply, sub: &Submission) -> Result<Outcome, ProtoEr
             port: sub.port,
             mode: sub.tls,
         }],
+        envelope: None,
     })
 }
 
-fn on_auth(phase: &Phase, reply: &ServerReply, sub: &Submission) -> Result<Outcome, ProtoError> {
+fn on_auth(
+    phase: &Phase,
+    reply: &ServerReply,
+    sub: &Submission,
+    envelope: Option<&PreparedEnvelope>,
+) -> Result<Outcome, ProtoError> {
     match phase {
         Phase::AuthPlain => {
             if reply.code == 334 {
@@ -681,9 +721,9 @@ fn on_auth(phase: &Phase, reply: &ServerReply, sub: &Submission) -> Result<Outco
                 let line = cmd(&b64(&plain_raw(&sub.username, pass)));
                 return Ok(continue_with(Phase::AuthPlainSent, vec![line], None));
             }
-            finish_auth(reply, sub)
+            finish_auth(reply, sub, envelope)
         }
-        Phase::AuthPlainSent => finish_auth(reply, sub),
+        Phase::AuthPlainSent => finish_auth(reply, sub, envelope),
         Phase::AuthXoauth2 => {
             if reply.code == 334 {
                 // The server rejected the bearer token and is waiting for an empty line
@@ -691,9 +731,9 @@ fn on_auth(phase: &Phase, reply: &ServerReply, sub: &Submission) -> Result<Outco
                 // would put it on the wire twice.
                 return Ok(continue_with(Phase::AuthXoauth2Sent, vec![cmd("")], None));
             }
-            finish_auth(reply, sub)
+            finish_auth(reply, sub, envelope)
         }
-        Phase::AuthXoauth2Sent => finish_auth(reply, sub),
+        Phase::AuthXoauth2Sent => finish_auth(reply, sub, envelope),
         Phase::AuthLoginUser => {
             if reply.code != 334 {
                 return Err(auth_negative(reply));
@@ -709,31 +749,43 @@ fn on_auth(phase: &Phase, reply: &ServerReply, sub: &Submission) -> Result<Outco
             let line = cmd(&b64(pass.as_bytes()));
             Ok(continue_with(Phase::AuthLoginSent, vec![line], None))
         }
-        Phase::AuthLoginSent => finish_auth(reply, sub),
+        Phase::AuthLoginSent => finish_auth(reply, sub, envelope),
         _ => Err(ProtoError::Malformed(
             "authentication reply in a non-auth state".into(),
         )),
     }
 }
 
-fn finish_auth(reply: &ServerReply, sub: &Submission) -> Result<Outcome, ProtoError> {
+fn finish_auth(
+    reply: &ServerReply,
+    sub: &Submission,
+    envelope: Option<&PreparedEnvelope>,
+) -> Result<Outcome, ProtoError> {
     if is_success(reply.code) {
-        send_mail_from(sub)
+        send_mail_from(sub, envelope)
     } else {
         Err(auth_negative(reply))
     }
 }
 
-fn on_mail_from(reply: &ServerReply, sub: &Submission) -> Result<Outcome, ProtoError> {
+fn on_mail_from(
+    reply: &ServerReply,
+    envelope: Option<&PreparedEnvelope>,
+) -> Result<Outcome, ProtoError> {
     expect_success(reply)?;
-    send_rcpt(sub, 0)
+    send_rcpt(require_envelope(envelope)?, 0)
 }
 
-fn on_rcpt(index: usize, reply: &ServerReply, sub: &Submission) -> Result<Outcome, ProtoError> {
+fn on_rcpt(
+    index: usize,
+    reply: &ServerReply,
+    envelope: Option<&PreparedEnvelope>,
+) -> Result<Outcome, ProtoError> {
     expect_success(reply)?;
+    let envelope = require_envelope(envelope)?;
     let next = index + 1;
-    if next < sub.recipients.len() {
-        send_rcpt(sub, next)
+    if next < envelope.recipients.len() {
+        send_rcpt(envelope, next)
     } else {
         Ok(continue_with(Phase::Data, vec![cmd("DATA")], None))
     }
@@ -775,26 +827,36 @@ fn on_quit(
 }
 
 fn continue_with(next: Phase, commands: Vec<Vec<u8>>, mechanism: Option<SaslMech>) -> Outcome {
+    continue_with_envelope(next, commands, mechanism, None)
+}
+
+fn continue_with_envelope(
+    next: Phase,
+    commands: Vec<Vec<u8>>,
+    mechanism: Option<SaslMech>,
+    envelope: Option<PreparedEnvelope>,
+) -> Outcome {
     let mut needs: Vec<_> = commands.into_iter().map(IoNeed::Write).collect();
     needs.push(IoNeed::Read);
     Outcome::Continue {
         next,
         mechanism,
         needs,
+        envelope,
     }
 }
 
-fn send_mail_from(sub: &Submission) -> Result<Outcome, ProtoError> {
-    let line = if has_high_bit(&sub.message) {
-        format!("MAIL FROM:<{}> BODY=8BITMIME", sub.mail_from)
-    } else {
-        format!("MAIL FROM:<{}>", sub.mail_from)
-    };
+fn send_mail_from(
+    sub: &Submission,
+    envelope: Option<&PreparedEnvelope>,
+) -> Result<Outcome, ProtoError> {
+    let envelope = require_envelope(envelope)?;
+    let line = mail_from_command(envelope, &sub.message);
     Ok(continue_with(Phase::MailFrom, vec![cmd(&line)], None))
 }
 
-fn send_rcpt(sub: &Submission, index: usize) -> Result<Outcome, ProtoError> {
-    let Some(addr) = sub.recipients.get(index) else {
+fn send_rcpt(envelope: &PreparedEnvelope, index: usize) -> Result<Outcome, ProtoError> {
+    let Some(addr) = envelope.recipients.get(index) else {
         return Err(ProtoError::Refused {
             kind: Refusal::Permanent,
             text: "no recipients".into(),
@@ -805,6 +867,14 @@ fn send_rcpt(sub: &Submission, index: usize) -> Result<Outcome, ProtoError> {
         vec![cmd(&format!("RCPT TO:<{addr}>"))],
         None,
     ))
+}
+
+/// The envelope was prepared at `EHLO`, which is before `AUTH` and therefore
+/// before either envelope command. Reaching those commands without one means
+/// the phase machine skipped that step.
+fn require_envelope(envelope: Option<&PreparedEnvelope>) -> Result<&PreparedEnvelope, ProtoError> {
+    envelope
+        .ok_or_else(|| ProtoError::Malformed("envelope was not prepared before MAIL FROM".into()))
 }
 
 fn check_transfer(ext: &EhloExtensions, message: &[u8]) -> Result<(), ProtoError> {
@@ -821,6 +891,126 @@ fn check_transfer(ext: &EhloExtensions, message: &[u8]) -> Result<(), ProtoError
         return Err(ProtoError::Unsupported("8BITMIME".into()));
     }
     Ok(())
+}
+
+/// Whether `MAIL FROM` carries the `SMTPUTF8` parameter.
+///
+/// An ASCII envelope omits it even when the server offered the extension.
+/// Adding it would change bytes that servers already accept.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Utf8Parameter {
+    Omit,
+    Send,
+}
+
+/// Envelope addresses in the form they will be written.
+///
+/// Fixed once, at the `EHLO` that precedes submission, and then used for both
+/// `MAIL FROM` and every `RCPT TO`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PreparedEnvelope {
+    mail_from: String,
+    recipients: Vec<String>,
+    utf8: Utf8Parameter,
+}
+
+/// Choose the wire form of the envelope before `MAIL FROM` is written.
+///
+/// ASCII addresses are copied unchanged. A non-ASCII address is sent as UTF-8,
+/// with the parameter, only when the server offered `SMTPUTF8`. Otherwise the
+/// domain — everything after the last `@` — becomes an A-label. A non-ASCII
+/// local part has no such encoding, and neither does a domain IDNA rejects:
+/// both are [`ProtoError::Unsupported`] naming the address.
+fn prepare_envelope(
+    ext: &EhloExtensions,
+    mail_from: &str,
+    recipients: &[String],
+) -> Result<PreparedEnvelope, ProtoError> {
+    if !envelope_is_ascii(mail_from, recipients) && ext.smtputf8 != Advertised::Offered {
+        return Ok(PreparedEnvelope {
+            mail_from: encode_without_smtputf8(mail_from)?,
+            recipients: recipients
+                .iter()
+                .map(|addr| encode_without_smtputf8(addr))
+                .collect::<Result<Vec<_>, _>>()?,
+            utf8: Utf8Parameter::Omit,
+        });
+    }
+    // One non-ASCII address puts the parameter on the whole transaction.
+    // RFC 6531 attaches `SMTPUTF8` to `MAIL FROM`, not to each recipient.
+    let utf8 = if envelope_is_ascii(mail_from, recipients) {
+        Utf8Parameter::Omit
+    } else {
+        Utf8Parameter::Send
+    };
+    Ok(PreparedEnvelope {
+        mail_from: mail_from.to_owned(),
+        recipients: recipients.to_vec(),
+        utf8,
+    })
+}
+
+/// True when every envelope address is ASCII.
+///
+/// The check is on the whole address. A match against a fragment would treat
+/// an ASCII domain as permission to send a non-ASCII local part.
+fn envelope_is_ascii(mail_from: &str, recipients: &[String]) -> bool {
+    mail_from.is_ascii() && recipients.iter().all(|addr| addr.is_ascii())
+}
+
+/// `MAIL FROM`, without CRLF.
+///
+/// `BODY=8BITMIME` stays in front of `SMTPUTF8` when both apply, so an 8-bit
+/// internationalised submission is still the command this client already sends
+/// for an 8-bit body, with the UTF-8 parameter added after it.
+fn mail_from_command(envelope: &PreparedEnvelope, message: &[u8]) -> String {
+    let mut line = format!("MAIL FROM:<{}>", envelope.mail_from);
+    if has_high_bit(message) {
+        line.push_str(" BODY=8BITMIME");
+    }
+    if envelope.utf8 == Utf8Parameter::Send {
+        line.push_str(" SMTPUTF8");
+    }
+    line
+}
+
+/// Rewrite one address for a server that did not offer `SMTPUTF8`.
+///
+/// An address with no `@` has no domain to encode. ASCII is already safe to
+/// send; anything else is the same refusal as a non-ASCII local part.
+fn encode_without_smtputf8(addr: &str) -> Result<String, ProtoError> {
+    let Some((local, domain)) = split_mailbox(addr) else {
+        if addr.is_ascii() {
+            return Ok(addr.to_owned());
+        }
+        return Err(local_part_needs_smtputf8(addr));
+    };
+    if !local.is_ascii() {
+        return Err(local_part_needs_smtputf8(addr));
+    }
+    let ascii = idna::domain_to_ascii(domain).map_err(|_| domain_not_idna(addr))?;
+    Ok(format!("{local}@{ascii}"))
+}
+
+/// Split `local@domain` at the last `@`.
+///
+/// The domain is what IDNA applies to, and a stray `@` earlier in the local
+/// part must not be read as the start of that domain.
+fn split_mailbox(addr: &str) -> Option<(&str, &str)> {
+    let at = addr.rfind('@')?;
+    Some((&addr[..at], &addr[at + 1..]))
+}
+
+fn local_part_needs_smtputf8(addr: &str) -> ProtoError {
+    ProtoError::Unsupported(format!(
+        "SMTPUTF8, which {addr} needs: its local part is not ASCII"
+    ))
+}
+
+fn domain_not_idna(addr: &str) -> ProtoError {
+    ProtoError::Unsupported(format!(
+        "the address {addr}, whose domain is not valid IDNA"
+    ))
 }
 
 fn choose_mech(
@@ -1266,6 +1456,116 @@ mod tests {
         assert_eq!(ext.size, SizeLimit::Limited(100));
         assert_eq!(ext.starttls, Advertised::Offered);
         assert_eq!(ext.eight_bit_mime, Advertised::Offered);
+        assert_eq!(ext.smtputf8, Advertised::Absent);
+    }
+
+    #[test]
+    fn ehlo_smtputf8_is_recognised_without_regard_to_case() {
+        let offered = parse_ehlo(&ServerReply {
+            code: 250,
+            lines: vec!["hello".into(), "Smtputf8".into(), "SMTPUTF8 ignored".into()],
+        });
+        assert_eq!(offered.smtputf8, Advertised::Offered);
+        let absent = parse_ehlo(&ServerReply {
+            code: 250,
+            lines: vec!["8BITMIME".into()],
+        });
+        assert_eq!(absent.smtputf8, Advertised::Absent);
+    }
+
+    #[test]
+    fn envelope_decision_is_ascii_utf8_or_an_a_label() {
+        let offered = EhloExtensions {
+            smtputf8: Advertised::Offered,
+            ..EhloExtensions::default()
+        };
+        let absent = EhloExtensions::default();
+        let cases: &[(&str, &EhloExtensions, &str, &[&str], PreparedEnvelope)] = &[
+            (
+                "ascii stays byte for byte even when the extension is offered",
+                &offered,
+                "Ada@Example.COM",
+                &["bob@example.com"],
+                PreparedEnvelope {
+                    mail_from: "Ada@Example.COM".into(),
+                    recipients: vec!["bob@example.com".into()],
+                    utf8: Utf8Parameter::Omit,
+                },
+            ),
+            (
+                "a utf-8 address is sent unchanged when SMTPUTF8 is offered",
+                &offered,
+                "用户@例子.广告",
+                &["bob@example.com"],
+                PreparedEnvelope {
+                    mail_from: "用户@例子.广告".into(),
+                    recipients: vec!["bob@example.com".into()],
+                    utf8: Utf8Parameter::Send,
+                },
+            ),
+            (
+                "one utf-8 recipient puts the parameter on the whole transaction",
+                &offered,
+                "ada@example.com",
+                &["bob@bücher.example"],
+                PreparedEnvelope {
+                    mail_from: "ada@example.com".into(),
+                    recipients: vec!["bob@bücher.example".into()],
+                    utf8: Utf8Parameter::Send,
+                },
+            ),
+            (
+                "a utf-8 domain becomes an A-label, split at the last @",
+                &absent,
+                "ann@bob@bücher.example",
+                &["cara@例子.广告"],
+                PreparedEnvelope {
+                    mail_from: "ann@bob@xn--bcher-kva.example".into(),
+                    recipients: vec!["cara@xn--fsqu00a.xn--4rr70v".into()],
+                    utf8: Utf8Parameter::Omit,
+                },
+            ),
+        ];
+        for (name, ext, mail_from, recipients, expect) in cases {
+            let got = prepare_envelope(
+                ext,
+                mail_from,
+                &recipients
+                    .iter()
+                    .map(|addr| (*addr).to_owned())
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap_or_else(|err| panic!("{name}: {err}"));
+            assert_eq!(&got, expect, "{name}");
+        }
+
+        let local =
+            prepare_envelope(&absent, "jörg@example.com", &["bob@example.com".into()]).unwrap_err();
+        assert_eq!(
+            local.to_string(),
+            "server does not support SMTPUTF8, which jörg@example.com needs: its local part is not ASCII"
+        );
+        // U+11C3A is disallowed by IDNA. The local part is ASCII, so the
+        // refusal is the domain and not the local-part case. An all-ASCII
+        // address is not put through IDNA: that path stays byte-for-byte.
+        let rejected = "ada@\u{11C3A}";
+        let domain = prepare_envelope(&absent, rejected, &["bob@example.com".into()]).unwrap_err();
+        assert_eq!(
+            domain.to_string(),
+            format!(
+                "server does not support the address {rejected}, whose domain is not valid IDNA"
+            )
+        );
+
+        let both = PreparedEnvelope {
+            mail_from: "用户@例子.广告".into(),
+            recipients: vec!["bob@example.com".into()],
+            utf8: Utf8Parameter::Send,
+        };
+        assert_eq!(
+            mail_from_command(&both, "café".as_bytes()),
+            "MAIL FROM:<用户@例子.广告> BODY=8BITMIME SMTPUTF8"
+        );
     }
 
     #[test]
@@ -1371,7 +1671,7 @@ mod tests {
             code: 334,
             lines: vec!["eyJzdGF0dXMiOiI0MDAifQ==".into()],
         };
-        let outcome = on_auth(&Phase::AuthXoauth2, &reply, &sub).expect("challenge");
+        let outcome = on_auth(&Phase::AuthXoauth2, &reply, &sub, None).expect("challenge");
         let Outcome::Continue { next, needs, .. } = outcome else {
             panic!("challenge ended the session");
         };

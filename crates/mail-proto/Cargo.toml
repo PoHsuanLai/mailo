@@ -10,6 +10,9 @@ mail-domain.workspace = true
 mail-mime.workspace = true
 thiserror.workspace = true
 base64 = "0.22"
+# A-labels for an envelope domain when the server did not list SMTPUTF8 (RFC 6531).
+# The major is already locked at 1.1.0 by the `url` crate; this calls `idna::domain_to_ascii`.
+idna = "1"
 # IMAP response parsing. Chosen over imap-codec because imap-types::MessageDataItem has no
 # catch-all, so an X-GM-* attribute makes the whole untagged FETCH a parse error. This crate
 # ships parser/gmail.rs. nom::streaming Err::Incomplete maps onto Progress::Need(Read).

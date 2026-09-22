@@ -73,6 +73,49 @@ fn plain(message: &str, recipients: &[&str]) -> SmtpSession {
     )
 }
 
+fn envelope(mail_from: &str, recipients: &[&str], message: &str) -> SmtpSession {
+    SmtpSession::new(Submission {
+        ehlo: "client.example".into(),
+        host: "smtp.example".into(),
+        port: 465,
+        tls: Tls::Implicit,
+        username: USER.into(),
+        credential: password(),
+        sasl: vec![SaslMech::Plain],
+        mail_from: mail_from.into(),
+        recipients: recipients.iter().map(|addr| (*addr).to_owned()).collect(),
+        message: message.as_bytes().to_vec(),
+    })
+}
+
+/// ASCII envelope, server lists `SMTPUTF8` in mixed case.
+///
+/// `MAIL FROM` must not gain the parameter: the addresses are ASCII, and the
+/// command has to stay the one an older server already accepts.
+const ASCII_SMTPUTF8: &str = "\
+S: 220 smtp.example ESMTP ready
+C: EHLO client.example
+S: 250-smtp.example Hello
+S: 250-Smtputf8
+S: 250 AUTH PLAIN
+C: AUTH PLAIN AGFkYUBleGFtcGxlLmNvbQBzM2NyM3QtcGFzc3dvcmQ=
+S: 235 2.7.0 Authentication successful
+C: MAIL FROM:<ada@example.com>
+S: 250 2.1.0 OK
+C: RCPT TO:<bob@example.com>
+S: 250 2.1.5 OK
+C: DATA
+S: 354 go ahead
+C: Subject: hi
+C:
+C: hi
+C: .
+S: 250 2.0.0 OK queued
+C: QUIT
+S: 221 2.0.0 Bye
+DONE
+";
+
 fn assert_secrets_absent(rendered: &str) {
     for secret in [PASSWORD, TOKEN, REFRESH, PLAIN_B64, PASS_B64, XOAUTH_B64] {
         assert!(
@@ -161,6 +204,7 @@ fn ehlo_split_byte_by_byte_still_submits() {
             starttls: Advertised::Absent,
             size: mail_proto::SizeLimit::Limited(35_882_577),
             eight_bit_mime: Advertised::Offered,
+            smtputf8: Advertised::Absent,
         }
     );
 }
@@ -346,4 +390,136 @@ fn a_rate_limit_backs_off_instead_of_discarding_the_message() {
         "a throttle must schedule a retry, not give up"
     );
     assert_secrets_absent(&format!("{err} {err:?} {session:?}"));
+}
+
+#[test]
+fn ehlo_parses_smtputf8() {
+    let mut session = plain(SHORT, &["bob@example.com"]);
+    let reply = replay(&mut session, ASCII_SMTPUTF8).unwrap();
+    assert_eq!(reply.extensions.smtputf8, Advertised::Offered);
+}
+
+#[test]
+fn an_ascii_submission_omits_smtputf8_even_when_the_server_offers_it() {
+    let mut session = plain(SHORT, &["bob@example.com"]);
+    let reply = replay(&mut session, ASCII_SMTPUTF8).unwrap();
+    // The trace's MAIL FROM line is the assertion that the parameter is absent.
+    // This guards the other half: the omission is not because parsing missed it.
+    assert_eq!(reply.extensions.smtputf8, Advertised::Offered);
+}
+
+#[test]
+fn a_utf8_address_is_sent_raw_when_smtputf8_is_offered() {
+    let mut session = envelope("用户@例子.广告", &["收件人@例子.广告"], "hi\r\n");
+    let reply = replay(
+        &mut session,
+        "\
+S: 220 smtp.example ESMTP ready
+C: EHLO client.example
+S: 250-smtp.example Hello
+S: 250-SMTPUTF8
+S: 250 AUTH PLAIN
+C: AUTH PLAIN AGFkYUBleGFtcGxlLmNvbQBzM2NyM3QtcGFzc3dvcmQ=
+S: 235 2.7.0 Authentication successful
+C: MAIL FROM:<用户@例子.广告> SMTPUTF8
+S: 250 2.1.0 OK
+C: RCPT TO:<收件人@例子.广告>
+S: 250 2.1.5 OK
+C: DATA
+S: 354 go ahead
+C: hi
+C: .
+S: 250 2.0.0 OK queued
+C: QUIT
+S: 221 2.0.0 Bye
+DONE
+",
+    )
+    .unwrap();
+    assert_eq!(reply.extensions.smtputf8, Advertised::Offered);
+}
+
+#[test]
+fn a_utf8_domain_is_rewritten_to_an_a_label_without_smtputf8() {
+    let mut session = envelope("ada@bücher.example", &["bob@例子.广告"], "hi\r\n");
+    let reply = replay(
+        &mut session,
+        "\
+S: 220 smtp.example ESMTP ready
+C: EHLO client.example
+S: 250-smtp.example Hello
+S: 250 AUTH PLAIN
+C: AUTH PLAIN AGFkYUBleGFtcGxlLmNvbQBzM2NyM3QtcGFzc3dvcmQ=
+S: 235 2.7.0 Authentication successful
+C: MAIL FROM:<ada@xn--bcher-kva.example>
+S: 250 2.1.0 OK
+C: RCPT TO:<bob@xn--fsqu00a.xn--4rr70v>
+S: 250 2.1.5 OK
+C: DATA
+S: 354 go ahead
+C: hi
+C: .
+S: 250 2.0.0 OK queued
+C: QUIT
+S: 221 2.0.0 Bye
+DONE
+",
+    )
+    .unwrap();
+    assert_eq!(reply.extensions.smtputf8, Advertised::Absent);
+}
+
+#[test]
+fn a_utf8_local_part_is_unsupported_without_smtputf8_and_mail_from_is_not_sent() {
+    // The transcript stops at EHLO. A MAIL FROM, or even AUTH, would still be
+    // a write the trace does not expect, so the refusal is before either.
+    let mut session = envelope("jörg@example.com", &["bob@example.com"], "hi\r\n");
+    let err = replay(
+        &mut session,
+        "\
+S: 220 smtp.example ESMTP ready
+C: EHLO client.example
+S: 250-smtp.example Hello
+S: 250 AUTH PLAIN
+FAIL Unsupported
+",
+    )
+    .unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "server does not support SMTPUTF8, which jörg@example.com needs: its local part is not ASCII"
+    );
+}
+
+#[test]
+fn eight_bit_body_and_utf8_address_declare_both_parameters() {
+    let mut session = envelope("用户@例子.广告", &["bob@例子.广告"], "café\r\n");
+    let reply = replay(
+        &mut session,
+        "\
+S: 220 smtp.example ESMTP ready
+C: EHLO client.example
+S: 250-smtp.example Hello
+S: 250-8BITMIME
+S: 250-SMTPUTF8
+S: 250 AUTH PLAIN
+C: AUTH PLAIN AGFkYUBleGFtcGxlLmNvbQBzM2NyM3QtcGFzc3dvcmQ=
+S: 235 2.7.0 Authentication successful
+C: MAIL FROM:<用户@例子.广告> BODY=8BITMIME SMTPUTF8
+S: 250 2.1.0 OK
+C: RCPT TO:<bob@例子.广告>
+S: 250 2.1.5 OK
+C: DATA
+S: 354 go ahead
+C: café
+C: .
+S: 250 2.0.0 OK queued
+C: QUIT
+S: 221 2.0.0 Bye
+DONE
+",
+    )
+    .unwrap();
+    assert_eq!(reply.extensions.smtputf8, Advertised::Offered);
+    assert_eq!(reply.extensions.eight_bit_mime, Advertised::Offered);
 }
