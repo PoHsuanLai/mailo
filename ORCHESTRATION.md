@@ -82,6 +82,24 @@ in the mount point on the default backend, 0 with `GDK_BACKEND=x11`. FINDINGS F1
 The Dioxus CLI (`dx serve`) is the usual way to develop a Dioxus application and is worth having,
 but it is not needed to run this one.
 
+### Watching the shell from inside
+
+There is no way to screenshot the window here and its stderr says nothing, but the page can
+report to a listener on loopback. Add to the script in `ui::KEEP_FOCUS`:
+
+```js
+const say = (what) => fetch("http://127.0.0.1:18081/" + encodeURIComponent(what));
+setTimeout(() => say("rows-" + document.querySelectorAll(".row").length), 6000);
+```
+
+and run anything that logs the paths it is asked for. The page can also press its own keys —
+`app.dispatchEvent(new KeyboardEvent("keydown", { key: "j", bubbles: true }))` — which is how
+F108 verified the keyboard without any input tooling. Take the lines out again afterwards; they
+are a probe, not a feature.
+
+Check `ss -ltnp` before trusting an empty log. A listener from an earlier session holding the
+port looks exactly like nothing happening.
+
 ### Phase 5 without a Google OAuth client
 
 IMAP does not need OAuth; Gmail does. The backend used to name `AUTHENTICATE XOAUTH2` itself, so

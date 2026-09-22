@@ -2173,3 +2173,35 @@ fact about the harness until you have run the thing the way its user would. F88 
 mistake in the other direction — a pass I could not reproduce. This was a catastrophic failure
 I reported at length, in a commit message, in the plan and in the project's own documentation,
 and it was my `env`.
+
+### F108 — The keyboard, verified in the running application
+
+The last inch. F104 proved everything from a dispatched event down to the database; F107 proved
+the root holds focus in a live window. What was never joined up was a key press in the real
+WebView producing a change in the real store.
+
+It can be, and it needs no input tooling at all — the page can press its own keys. A few lines in
+`with_custom_head`, an account pointed at the local IMAP fixture, and a listener in a scratch
+directory:
+
+```
+/before|rows-2|focus-app
+/after-j|rows-2|reader-a tricky body
+/after-e|rows-1
+inbox before: 2 → after: 1
+```
+
+The list draws two real rows from the database; the root has focus; `j` opens a conversation and
+the reader shows its subject; `e` archives it, the list drops to one row, and the store agrees.
+That is the whole chain — WebView keydown, focus, handler, `view::shortcut`, `op_for_shortcut`,
+`apply_op`, SQLite, re-render — end to end in the program as it ships.
+
+Two things made this reachable that were not before. The shell renders when it is not launched
+with `GDK_BACKEND=x11` (F107). And `dispatchEvent(new KeyboardEvent(...))` from inside the page
+sidesteps the whole question of whether a synthetic X event reaches a Wayland WebView, which is
+what three rounds of `xdotool` were really stuck on — the wrong layer for the question.
+
+A side lesson, cheap and annoying: two runs reported nothing because a listener from the previous
+round still held port 18081 and was writing to a log file that had since been deleted. The
+evidence looked like silence and was someone else's success. `ss -ltnp` names the holder; it is
+worth asking before believing an empty file.
