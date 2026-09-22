@@ -33,9 +33,26 @@ MESSAGES = [
 
 @implementer(imap4.IMessage)
 class Message:
-    def __init__(self, uid, raw):
+    """One message, single-part or multipart.
+
+    Multipart matters more than it looks: every message this fixture served was `text/plain`,
+    so the live IMAP tests had never carried an attachment or an HTML alternative — which is
+    most real mail. Twisted builds BODYSTRUCTURE by walking `isMultipart`/`getSubPart`, and a
+    server that answers "not multipart" to a multipart message raises inside the response and
+    drops the connection mid-FETCH. The client then reports "connection closed unexpectedly",
+    which looks exactly like a client bug and is not one.
+
+    Parsing is `email.parser`, because the structure has to agree with the bytes on the wire and
+    hand-rolling that agreement is how a fixture starts lying about what it sent.
+    """
+
+    def __init__(self, uid, raw, parsed=None):
         self.uid, self.raw = uid, raw
         self.headers_raw, _, self.body_raw = raw.partition(b"\r\n\r\n")
+        if parsed is None:
+            from email.parser import BytesParser
+            parsed = BytesParser().parsebytes(raw)
+        self.parsed = parsed
     def getUID(self): return self.uid
     def getFlags(self): return ["\\Seen"]
     def getInternalDate(self): return b"14-Nov-2023 22:13:20 +0000"
@@ -56,8 +73,18 @@ class Message:
         return out
     def getBodyFile(self): return BytesIO(self.body_raw)
     def getSize(self): return len(self.raw)
-    def isMultipart(self): return False
-    def getSubPart(self, part): raise TypeError("not multipart")
+
+    def isMultipart(self):
+        return self.parsed.is_multipart()
+
+    def getSubPart(self, part):
+        if not self.parsed.is_multipart():
+            raise TypeError("not multipart")
+        sub = self.parsed.get_payload()[part]
+        # The part's own bytes, headers and all, so its size and structure are what a client
+        # fetching it would actually receive.
+        raw = sub.as_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+        return Message(self.uid, raw, parsed=sub)
 
 def _extra():
     """Messages dropped into $MAILO_EXTRA_MAIL since the server started.

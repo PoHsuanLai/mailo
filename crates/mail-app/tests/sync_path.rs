@@ -19,6 +19,9 @@ use std::sync::Arc;
 #[path = "../src/account.rs"]
 mod account;
 #[allow(dead_code)]
+#[path = "../src/attach.rs"]
+mod attach;
+#[allow(dead_code)]
 #[path = "../src/cli.rs"]
 mod cli;
 #[allow(dead_code)]

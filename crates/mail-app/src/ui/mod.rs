@@ -495,6 +495,22 @@ fn Reader(thread: ThreadId, shell: Signal<Shell>) -> Element {
                     span { "{address(&message)}" }
                     time { "{stamp(&message)}" }
                 }
+                // What is attached, if anything. Named and sized but not saved from here: a
+                // file dialog is the one piece this pane cannot do, and a list that tells the
+                // user a file exists — and what `mailo save` will call it — beats a message
+                // that looks like it has nothing in it.
+                if !attached(&message).is_empty() {
+                    ul { class: "attachments",
+                        for (index, item) in attached(&message) {
+                            li { key: "{index}",
+                                span { class: "paperclip", "📎" }
+                                span { class: "name", "{item.0}" }
+                                span { class: "size", "{item.1}" }
+                            }
+                        }
+                    }
+                    p { class: "hint", "mailo save {message.id} <number>" }
+                }
                 match reading {
                     Reading::NotFetched => rsx! { p { class: "pending", "Body not downloaded yet." } },
                     Reading::Text(text) => rsx! { pre { class: "text", "{text}" } },
@@ -658,6 +674,27 @@ fn apply_op(store: &SqliteStore, thread: ThreadId, kind: OpKind) -> bool {
         chrono::Utc::now(),
     );
     store.apply(account, &applied.forward).is_ok()
+}
+
+/// Each attachment as the name it would be written under and a readable size.
+///
+/// The name is `attach::safe_name`, not the claim: showing `../../escape.pdf` would describe
+/// something that does not happen, and the pane and the command must agree.
+fn attached(message: &Message) -> Vec<(usize, (String, String))> {
+    message
+        .attachments
+        .iter()
+        .enumerate()
+        .map(|(index, a)| {
+            (
+                index,
+                (
+                    crate::attach::safe_name(&a.name),
+                    crate::attach::human_size(a.size),
+                ),
+            )
+        })
+        .collect()
 }
 
 fn address(message: &Message) -> String {

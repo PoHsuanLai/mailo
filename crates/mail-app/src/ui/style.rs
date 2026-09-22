@@ -32,6 +32,10 @@ article header { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap
 article time { margin-left: auto; opacity: .6; }
 .text { white-space: pre-wrap; word-wrap: break-word; font: inherit; margin: 0; }
 .html { width: 100%; min-height: 320px; border: 0; }
+.attachments { list-style: none; margin: 0 0 10px; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.attachments li { display: flex; align-items: baseline; gap: 6px; padding: 4px 10px; border: 1px solid var(--edge); border-radius: 999px; font-size: 12px; }
+.attachments .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 22em; }
+.attachments .size { opacity: .6; font-variant-numeric: tabular-nums; }
 .pending, .empty { opacity: .6; font-style: italic; }
 /* The first-run message names a command, which has to survive its own line breaks. */
 .empty { padding: 12px 12px 0; margin: 0; }

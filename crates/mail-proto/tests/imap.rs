@@ -220,3 +220,59 @@ fn debug_does_not_leak_the_bearer_token() {
     assert!(!rendered.contains("1//refresh"), "{rendered}");
     assert!(rendered.contains("redacted"));
 }
+
+/// What a response that does not parse tells the person reading the error.
+mod unreadable_responses {
+    use super::*;
+    use mail_proto::machine::{IoReady, Machine, Progress};
+
+    fn started(commands: Vec<ImapCommand>) -> ImapSession {
+        let mut s = session(commands);
+        let _ = s.start();
+        let _ = s.feed(IoReady::Bytes(b"* OK ready\r\n".to_vec()));
+        s
+    }
+
+    #[test]
+    fn a_malformed_response_is_quoted_as_text_not_as_numbers() {
+        // It used to print `nom`'s `Error { input: [42, 32, 49, ...] }` — five hundred decimal
+        // integers where the answer is one line of IMAP. That is the only diagnostic the field
+        // ever sees, and nobody can read it.
+        let mut session = started(vec![ImapCommand::Capability]);
+        let progress = session.feed(IoReady::Bytes(
+            b"* 1 FETCH (BODYSTRUCTURE ((\"text\" \"plain\") (\"text\" \"html\") \"alternative\"))\r\n".to_vec(),
+        ));
+
+        let text = match progress {
+            Progress::Failed(e) => format!("{e}"),
+            other => panic!("that response should not parse: {other:?}"),
+        };
+        assert!(text.contains("BODYSTRUCTURE"), "{text}");
+        assert!(text.contains("alternative"), "{text}");
+        assert!(
+            !text.contains("[42,") && !text.contains("input:"),
+            "still printing nom's byte array: {text}"
+        );
+        // Line breaks are escaped rather than printed, so one error stays one line.
+        assert!(!text.contains('\n'), "{text}");
+    }
+
+    #[test]
+    fn a_very_long_response_is_cut_rather_than_dumped() {
+        let mut session = started(vec![ImapCommand::Capability]);
+        let mut junk = b"* 1 FETCH (BODYSTRUCTURE ".to_vec();
+        junk.extend(std::iter::repeat_n(b'x', 5000));
+        junk.extend_from_slice(b"\r\n");
+        let progress = session.feed(IoReady::Bytes(junk));
+
+        let text = match progress {
+            Progress::Failed(e) => format!("{e}"),
+            other => panic!("{other:?}"),
+        };
+        assert!(text.len() < 600, "the error is {} characters", text.len());
+        assert!(
+            text.contains("bytes)"),
+            "it says how much was left out: {text}"
+        );
+    }
+}

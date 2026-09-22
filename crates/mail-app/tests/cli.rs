@@ -11,6 +11,9 @@ use mail_store::{SqliteStore, Store};
 // the same shape the binary has.
 #[path = "../src/account.rs"]
 mod account;
+#[allow(dead_code)]
+#[path = "../src/attach.rs"]
+mod attach;
 #[path = "../src/cli.rs"]
 mod cli;
 #[allow(dead_code)]

@@ -48,6 +48,14 @@ pub enum Command {
     Drafts,
     /// Delete a draft.
     Discard { draft: DraftId },
+    /// The attachments on a message.
+    Attachments { message: MessageId },
+    /// Write one attachment to a directory.
+    Save {
+        message: MessageId,
+        index: usize,
+        dir: std::path::PathBuf,
+    },
     /// Forward a message. The covering note is read from stdin.
     ///
     /// Recipients are given on the command line because a forward has none of its own: nothing
@@ -164,6 +172,43 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                 to,
                 // Filled in by the caller, which owns stdin. Parsing stays pure.
                 body: String::new(),
+            })
+        }
+        "attachments" => {
+            let raw = args
+                .get(1)
+                .ok_or_else(|| format!("attachments needs a message id\n\n{}", usage()))?;
+            let uuid = raw
+                .parse()
+                .map_err(|_| format!("{raw:?} is not a message id"))?;
+            Ok(Command::Attachments {
+                message: MessageId::from_uuid(uuid),
+            })
+        }
+        "save" => {
+            let raw = args
+                .get(1)
+                .ok_or_else(|| format!("save needs a message id\n\n{}", usage()))?;
+            let uuid = raw
+                .parse()
+                .map_err(|_| format!("{raw:?} is not a message id"))?;
+            let index = args
+                .get(2)
+                .ok_or_else(|| format!("save needs the attachment's number\n\n{}", usage()))?
+                .parse::<usize>()
+                .map_err(|_| {
+                    "the attachment's number comes from `mailo attachments <message-id>`".to_owned()
+                })?;
+            // The current directory by default, which is where someone running a command
+            // expects a file to land.
+            let dir = args
+                .get(3)
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| std::path::PathBuf::from("."));
+            Ok(Command::Save {
+                message: MessageId::from_uuid(uuid),
+                index,
+                dir,
             })
         }
         "drafts" => Ok(Command::Drafts),
@@ -292,6 +337,8 @@ usage: mailo <command>
   forward <message-id> --to a@b[,c@d]
                              forward it; the covering note is read from stdin
   send <draft-id>             queue a draft for the next sync
+  attachments <message-id>    what is attached to a message
+  save <message-id> <n> [dir] write one of them out (default: here)
   drafts                      drafts and where each one got to
   discard <draft-id>          delete a draft
   status
@@ -381,6 +428,13 @@ pub fn run(store: &SqliteStore, command: &Command, now: DateTime<Utc>) -> Result
         } => crate::compose::reply(store, *message, *scope, body, now),
         Command::Send { draft } => crate::compose::send(store, *draft, now),
         Command::Drafts => crate::compose::drafts(store),
+        Command::Attachments { message } => crate::attach::list(store, *message),
+        Command::Save {
+            message,
+            index,
+            dir,
+        } => crate::attach::save(store, *message, *index, dir)
+            .map(|path| format!("wrote {}\n", path.display())),
         Command::Forward { message, to, body } => {
             crate::compose::forward(store, *message, to, body, now)
         }

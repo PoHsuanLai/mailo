@@ -423,9 +423,14 @@ impl ImapSession {
                 }
                 // Not a failure: the rest is still on the wire.
                 Err(nom::Err::Incomplete(_)) => return Progress::Need(vec![IoNeed::Read]),
-                Err(e) => {
+                Err(_) => {
+                    // The response as text, not as `nom`'s error. `{e:?}` prints the remaining
+                    // input as a `Vec<u8>` of decimal numbers — five hundred integers where the
+                    // answer is one line of IMAP, which is a diagnostic nobody can read and the
+                    // only thing the field ever sees.
                     return self.fail(ProtoError::Malformed(format!(
-                        "could not parse a response: {e:?}"
+                        "could not parse a response: {}",
+                        excerpt(&snapshot)
                     )));
                 }
             };
@@ -671,6 +676,25 @@ fn check_set(set: &str) -> Result<(), ProtoError> {
 }
 
 /// An IMAP quoted string, with `\` and `"` escaped.
+/// The beginning of a response, printable, for an error a person has to read.
+///
+/// Lossy on purpose: bytes that are not text are exactly what one wants to see in a message
+/// about bytes that did not parse. Truncated because a `FETCH` can be megabytes and an error is
+/// not the place for them.
+fn excerpt(bytes: &[u8]) -> String {
+    const LIMIT: usize = 400;
+    let head = &bytes[..bytes.len().min(LIMIT)];
+    let text = String::from_utf8_lossy(head)
+        .replace("\r\n", "\\r\\n")
+        .replace('\r', "\\r")
+        .replace('\n', "\\n");
+    if bytes.len() > LIMIT {
+        format!("{text}… ({} bytes)", bytes.len())
+    } else {
+        text
+    }
+}
+
 fn quoted(value: &str) -> String {
     let mut out = String::with_capacity(value.len() + 2);
     out.push('"');

@@ -2301,3 +2301,65 @@ Date: Wed, 15 Nov 2023 at 07:13
 One small thing the tests taught: the F97 "no run of two spaces" rule is about prose. The CLI's
 draft summary is an aligned table and its runs of spaces are the alignment, so that assertion
 belongs on sentences and not on everything a command prints.
+
+### F111 — Attachments were stored at ingest and reachable from nowhere
+
+`mail-runtime` writes every attachment to its own blob as a message arrives, and
+`Message::attachments` has named them since phase 1. Nothing read that. No command listed them,
+no pane showed them, and there was no way at all to get a file out of a message. A client people
+are sent PDFs through is not one that can only display text.
+
+`mailo attachments <message-id>` lists them; `mailo save <message-id> <n> [dir]` writes one out;
+the reader shows what a message carries, named and sized, with the command that fetches it.
+
+The part worth the care is the file name. It is a MIME parameter chosen by whoever sent the
+message — not a fact about the file and not a promise about where it belongs — so
+`../../../.ssh/authorized_keys` is a well-formed attachment name, and writing a file where it
+asks is how a mail client hands someone else's machine over. `attach::safe_name` keeps one path
+component: both separators stripped (a message written on Windows names its parts with
+backslashes, and the same code on Windows would write two directories up), control characters
+dropped (a newline makes a terminal print something other than what was written; a NUL truncates
+the name at the syscall), `.` and `..` and empty replaced, and a long name shortened *keeping its
+extension*, because the extension is what decides which program opens it. Saving never
+overwrites: `invoice.pdf` twice is `invoice.pdf` and `invoice (2).pdf`, because the same supplier
+sends one every month.
+
+The listing shows the name that will be written, not the claim. A listing that said
+`../../escape.pdf` would be describing something that does not happen.
+
+Proved from the wire in: real RFC 5322 multipart bytes with a hostile `filename`, ingested the
+way a sync ingests them, listed, saved, and the base64 decoded — so the MIME parser, the blob the
+runtime writes, the listing and the name are the real ones rather than four fixtures agreeing
+with each other.
+
+### F112 — Every live IMAP test had been single-part, and the fixture could not do better
+
+Trying to receive an attachment over the IMAP fixture killed the connection. The fixture declared
+every message `isMultipart() -> False` and raised from `getSubPart`, and Twisted raises *inside*
+BODYSTRUCTURE generation, so the client sees "connection closed unexpectedly" — which looks
+exactly like a client bug and is not one. Every message the live IMAP tests had ever carried was
+`text/plain`; attachments and HTML alternatives, which are most real mail, had never been on that
+wire.
+
+The fixture now parses each message with `email.parser` and answers `isMultipart`/`getSubPart`
+from it. That exposed the next layer: **Twisted emits a space between the nested body lists**,
+and `body-type-mpart = 1*body SP media-subtype` allows none, so the response it produces is not
+conformant and our parser rejects it.
+
+Checked before concluding anything, which is the F107 lesson: the spelling real servers send
+parses fine.
+
+| BODYSTRUCTURE | parses |
+| --- | --- |
+| single part | yes |
+| nested parts with no space (RFC 3501, Dovecot, Gmail) | **yes**, attachment and all |
+| nested parts separated by a space (Twisted) | no |
+
+So the client is right and the fixture is not, and multipart over this particular fixture stays
+out of reach — recorded rather than worked around, because the alternative is teaching the
+fixture to emit what Twisted does not and calling that a test of the client.
+
+What *is* ours is what the failure looked like. The error printed `nom`'s `Error { input: [42,
+32, 49, …] }` — five hundred decimal integers where the answer is one line of IMAP — and that is
+the only diagnostic the field ever sees. It now prints the response as text, escaped to one line
+and truncated with a byte count.
