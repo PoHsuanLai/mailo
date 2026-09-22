@@ -1,4 +1,4 @@
-//! Searching mail that is not in English, which is half of this user's.
+//! Searching mail that is not in English.
 //!
 //! See FINDINGS F125. Full-text search cannot find a *part* of a Chinese phrase, because
 //! `unicode61` makes an unbroken run of ideographs one token; the field clauses can, because

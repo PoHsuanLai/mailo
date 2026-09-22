@@ -287,7 +287,7 @@ impl ImapSession {
                 // RFC 3501 §6.2.3: a client MUST NOT issue LOGIN when the server advertises
                 // LOGINDISABLED. Observed live on outlook.office365.com, which answers
                 // `AUTH=XOAUTH2 LOGINDISABLED` — so this is not a hypothetical server, it is
-                // the one two of this user's three accounts live on.
+                // the one every Microsoft 365 account lives on.
                 //
                 // The rule is worth more than protocol conformance. Without it the client sends
                 // the user's password to something that has already said it will not accept

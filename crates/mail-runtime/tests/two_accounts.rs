@@ -1,7 +1,7 @@
 //! Two accounts in one database, which is what this client is for and what nothing tested.
 //!
-//! Every other suite here creates exactly one account. The user this was written for has a
-//! campus POP3 mailbox, a Gmail one and two Microsoft 365 tenants, so "two accounts" is the ordinary
+//! Every other suite here creates exactly one account. Someone with a work address and a
+//! personal one has two, so "two accounts" is the ordinary
 //! case and not an edge one — and the things that can go wrong with it are the ones that only
 //! appear with two: a thread merged across accounts, an operation reaching the wrong copy, a
 //! label name meaning two different labels, a count that adds up the wrong mailboxes.

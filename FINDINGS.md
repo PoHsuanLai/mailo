@@ -1198,8 +1198,8 @@ second into the first for fifteen rounds.
 ### F69 — `LOGINDISABLED` was ignored, so we would send a password to a server that had refused it
 
 RFC 3501 §6.2.3: a client MUST NOT issue `LOGIN` when the server advertises `LOGINDISABLED`.
-Nothing here looked at it. Exchange Online advertises it, so two of this user's three accounts
-are servers where the client would have sent a password that had already been declined — and
+Nothing here looked at it. Exchange Online advertises it, so every Microsoft 365 account is on
+a server where the client would have sent a password that had already been declined — and
 then reported the rejection as though the credential were wrong, which is F63's failure mode
 arriving by a different route.
 
@@ -1830,7 +1830,7 @@ deliberate — test fixtures whose subject is exactly that whitespace is preserv
 
 ### F98 — Every date in the application was shown in UTC, including in mail sent to other people
 
-Found by running the program as a person on this machine, which is `Asia/Taipei`, `+0800`. A
+Found by running the program on a machine set to `Asia/Taipei`, `+0800`. A
 message the fixture stamped `09:02 +0800` appeared in `mailo list` as `01:02`. At the moment this
 was found the clock read 07:25 on the 22nd, UTC read 23:25 on the 21st, and every row, every
 header in the reader and every draft in the shell was dated the 21st.
@@ -2730,7 +2730,7 @@ writes the same hashes and reuses them.
 
 ### F123 — Every test in the project used one account
 
-The user this was written for has a campus POP3 mailbox, a Gmail one and two Microsoft 365 tenants. Every
+Someone with a work address and a personal one has two accounts, and that is ordinary. Every
 suite in the repository — nine of them touching the store — creates exactly one account. Two
 accounts was not an edge case that had been decided against; it was a case nobody had looked at.
 
@@ -2807,8 +2807,7 @@ Whitespace is not a signature: a file of blank lines, or `< /dev/null`, is store
 ### F125 — Full-text search cannot find a Chinese word
 
 The next assumption after F123's "one account" and F124's "nothing set on the identity": every
-message in every test is in English. This user is at a university in Taipei and a large part of their mail
-is Chinese.
+message in every test is in English.
 
 Measured against one real-shaped message — a campus IT notice, subject in an RFC 2047
 encoded word, body in UTF-8:
@@ -2830,7 +2829,7 @@ text search does not work.
 
 What *does* work, and is worth knowing: the field clauses are `LIKE '%needle%'` on a column rather
 than FTS, so `subject:校園`, `from:` and `to:` find Chinese correctly. The query language added in
-F118 gave this user a working search path by accident.
+F118 gave Chinese a working search path by accident.
 
 The obvious fixes were checked rather than assumed, and the two obvious ones do not work:
 
@@ -3336,7 +3335,7 @@ for Archive, Trash, Spam and Restore. So the remote work that was being discarde
 never been computed: two independent faults, each of which alone would have produced the same
 silence.
 
-The user's own accounts say what this cost. Gmail is recorded as `archive: drop_inbox`,
+Real accounts show what this cost. Gmail is recorded as `archive: drop_inbox`,
 `labels: supported`; the campus account, being POP3, is `local_only` for both. So archiving a Gmail conversation
 in mailo left it in the inbox on the phone and brought it back here on the next full sync, and
 mail read here stayed bold everywhere else. `SetFlags` is emitted whatever the capabilities say,

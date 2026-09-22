@@ -379,8 +379,8 @@ shift_jis, big5, euc-jp, euc-kr, iso-2022-jp, gbk, gb18030,
 x-mac-cyrillic, x-user-defined, iso-2022-kr, hz-gb-2312
 ```
 
-**`big5` is in that list.** Our second account is a campus POP3 mailbox in Taiwan, whose
-2,372-message maildrop (F17) will contain Big5 mail. With default features those bodies decode
+**`big5` is in that list.** A Traditional Chinese mailbox, like
+the 2,372-message maildrop in F17, will contain Big5 mail. With default features those bodies decode
 to mojibake with no error. One-word fix, but it has to be written down.
 
 ### 6b. Mislabelled charsets — **ADOPT `chardetng` 1.0.0**

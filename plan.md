@@ -928,7 +928,7 @@ Versions checked against crates.io on 2026-09-22.
 
 | Crate | Version | Role | Notes |
 |---|---|---|---|
-| `mail-parser` | 0.11.9 | MIME parse | **feature `full_encoding`** — `big5`, `gbk`, `shift_jis`, `euc-kr` are gated behind it, and the campus mail is Taiwanese |
+| `mail-parser` | 0.11.9 | MIME parse | **feature `full_encoding`** — `big5`, `gbk`, `shift_jis`, `euc-kr` are gated behind it, and Traditional Chinese mail uses Big5 |
 | `mail-builder` | 1.0.0 | MIME build | 1.0, not 0.5 |
 | `ammonia` | 4.2.0 | HTML sanitize | |
 | `rusqlite` | 0.40.2 | store | features `bundled`, `fts5`. Not 0.32. |
