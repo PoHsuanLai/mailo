@@ -65,6 +65,23 @@ The Dioxus shell compiles and its decisions are tested without a window — whic
 means, what the reader does with each body kind, which hover actions a thread offers. Whether it
 is pleasant to use is not something a test reports, but nothing is blocked on that.
 
+
+## Starting the shell
+
+The CLI is a plain binary: `cargo build` and run `target/debug/mailo`.
+
+The **Dioxus shell is not**, and running that same binary with no arguments opens an empty window
+— see FINDINGS F106. A Dioxus 0.7 desktop application is launched through the Dioxus CLI:
+
+```
+cargo install dioxus-cli
+dx serve --package mail-app
+```
+
+`dx` is not installed on this machine, so that command is written from Dioxus's documentation and
+has **not** been run here. It is the first thing to try, and the first thing to correct if it is
+wrong. Until it works the window says so itself rather than showing a blank rectangle.
+
 ### Phase 5 without a Google OAuth client
 
 IMAP does not need OAuth; Gmail does. The backend used to name `AUTHENTICATE XOAUTH2` itself, so

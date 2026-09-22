@@ -2085,3 +2085,52 @@ right. Two were not:
   `threads` and requires them to agree, which is a claim a wrong answer cannot accidentally
   meet — and it is a better test than a magic number, because it compares two implementations of
   one question rather than one implementation against a constant copied out of a fixture.
+
+### F106 — The shell has never rendered anything
+
+The one thing behind every "I could not verify that" in F100 through F104: **`mailo` with no
+arguments opens a window that stays empty.** Not "looks wrong" — the mount point has no children
+at all.
+
+Found by giving the page a way to talk back. The window cannot be screenshotted here and its
+stderr says nothing, but a WebView can make an HTTP request to `127.0.0.1`, so a few lines in
+`with_custom_head` reported what the document actually contained to a listener in a scratch
+directory. What came back:
+
+```
+/head-script-ran
+/focus-is-BODY
+/app-found-no
+/main-len0
+/roots-DIV|__dx-toast|dx-toast,DIV|main|,SCRIPT||,SCRIPT||
+/toast-Your app is being rebuilt.\nA non-hot-reloadable change occurred and we must rebuild.
+/late-main-len0-app-no
+```
+
+`main-len0` at 1.5 seconds and again at 6. No `.app` element, so nothing this shell renders was
+ever in the document. Narrowed from there:
+
+- **Not the debug profile.** A release build says the same, minus the devtools toast.
+- **Not our `App`.** A component whose whole body is `rsx! { div { "hello" } }` mounts nothing
+  either.
+- **Not the focus script.** Stripped to a bare probe, `main` is still empty.
+
+So it is the renderer's plumbing. Dioxus 0.7 desktop applications are built and launched through
+`dx`, which is not installed here and is not this repository's to install. Nothing in the project
+said so: `ORCHESTRATION.md` documents every CLI command and never mentions how to start the shell.
+
+This reframes four earlier findings. F103's "spawned futures are never polled" is what an
+unmounted tree looks like from inside — no component body ever ran, so of course nothing it
+spawned did. The `xdotool` experiments could not have worked against a document with no handlers
+in it. F100's screenshots were of `dioxus-ssr` output, which is exactly what the shell *would*
+draw and remains the right way to look at it, but it was never what the window was showing.
+
+What is fixed here is the part that is ours: a blank window that explains nothing is the worst
+version of this. If the mount point is still childless after four seconds, the page now says the
+interface did not start, names `dx serve --package mail-app` as the way to launch it, and lists
+the commands that work in a terminal today — which is most of the application. Written through
+`textContent`, so it cannot become markup. Verified the same way it was found: `/fallback-shown-940`,
+in a mount point that had been empty.
+
+What is not fixed is the launch itself. Installing a toolchain onto someone's machine is their
+call, and "how do you start it" is the first thing a daily driver has to answer.

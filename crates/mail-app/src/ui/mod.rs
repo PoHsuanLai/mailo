@@ -23,6 +23,22 @@ mod style;
 use composer::Composer;
 use style::STYLE;
 
+/// What to put on the page when the interface never mounts.
+///
+/// It does not mount when the binary is run directly: `mailo` with no arguments opens a window
+/// whose mount point stays empty, in debug and in release, six seconds in, and for a component
+/// that renders nothing but the word "hello" — so it is the renderer's plumbing rather than
+/// anything in this shell. Dioxus 0.7 desktop applications are built and run through `dx`, which
+/// is not installed here and is not this repository's to install.
+///
+/// A blank window that says nothing is the worst version of that. This turns it into a window
+/// that says what happened and what does work, which is most of the application: the CLI.
+const NOTHING_MOUNTED: &str = "The interface did not start.\n\n\
+     A Dioxus desktop build is launched through the Dioxus CLI. Install it with \
+     `cargo install dioxus-cli`, then run `dx serve --package mail-app`.\n\n\
+     Everything else works from a terminal right now: `mailo list`, `mailo show <thread>`, \
+     `mailo search <words>`, `mailo reply <message>`, `mailo send <draft>`, `mailo sync`.";
+
 /// Keep the app's root focused, so the keyboard has somewhere to land.
 ///
 /// A keydown targets the focused element and bubbles *up*. `body` is that element until
@@ -36,15 +52,28 @@ const KEEP_FOCUS: &str = r#"<script>
 document.addEventListener("DOMContentLoaded", () => {
   const hold = () => {
     const app = document.querySelector(".app");
-    if (app) { app.focus(); return true; }
-    return false;
+    if (!app || document.activeElement === app) { return; }
+    // Only when focus is nowhere in particular. Taking it from a text box would make typing
+    // impossible, which is a far worse bug than the one this exists to fix.
+    const here = document.activeElement;
+    if (here && here !== document.body && here !== document.documentElement) { return; }
+    app.focus();
   };
-  if (!hold()) { const t = setInterval(() => { if (hold()) clearInterval(t); }, 50); }
-  // A click on anything that cannot take focus hands it back to `body`, which would silently
-  // turn the keyboard off until the next click on a button.
-  document.addEventListener("focusin", (event) => {
-    if (event.target === document.body) { hold(); }
-  });
+  // On a timer, not once: the first attempt runs before anything is mounted, and a later render
+  // can drop focus back to `body` without firing any event that says so.
+  setInterval(hold, 250);
+  // If nothing has mounted by now, nothing is going to. Say so rather than showing a blank
+  // rectangle: the text is set through `textContent`, so it cannot become markup.
+  setTimeout(() => {
+    const main = document.getElementById("main");
+    if (main && main.children.length === 0) {
+      const note = document.createElement("pre");
+      note.id = "nothing-mounted";
+      note.style.cssText = "margin:0;padding:24px;font:14px/1.6 system-ui,sans-serif;white-space:pre-wrap";
+      note.textContent = window.__mailo_nothing_mounted || "The interface did not start.";
+      main.appendChild(note);
+    }
+  }, 4000);
 });
 </script>"#;
 
@@ -59,7 +88,11 @@ pub fn run(store: Arc<SqliteStore>) {
                         .with_inner_size(dioxus::desktop::LogicalSize::new(1200.0, 800.0)),
                 )
                 .with_menu(None)
-                .with_custom_head(KEEP_FOCUS.to_owned()),
+                .with_custom_head(format!(
+                    "<script>window.__mailo_nothing_mounted = {};</script>{KEEP_FOCUS}",
+                    serde_json::to_string(NOTHING_MOUNTED)
+                        .unwrap_or_else(|_| "\"The interface did not start.\"".to_owned())
+                )),
         )
         .with_context(store)
         .launch(App);
