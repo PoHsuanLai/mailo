@@ -195,13 +195,8 @@ impl SqliteStore {
                 m.body.raw().map(|b| b.to_string()),
                 to_json("attachments", &m.attachments)?,
                 // What the index will hold: the tokens the query side will ask for, and nothing
-                // else. See `crate::sql::indexable`.
-                crate::sql::indexable(&[
-                    Some(m.subject.as_str()),
-                    m.from.name.as_deref(),
-                    Some(m.from.email.as_str()),
-                    m.body.text(),
-                ]),
+                // else. See `crate::sql::message_index`.
+                crate::sql::message_index(&m.subject, &m.from, &m.to, &m.cc, m.body.text()),
             ],
         )?;
         for label in &m.labels {
@@ -505,12 +500,13 @@ impl SqliteStore {
                 text,
                 raw.to_string(),
                 to_json("attachments", &filled.attachments)?,
-                crate::sql::indexable(&[
-                    Some(filled.subject.as_str()),
-                    filled.from.name.as_deref(),
-                    Some(filled.from.email.as_str()),
+                crate::sql::message_index(
+                    &filled.subject,
+                    &filled.from,
+                    &filled.to,
+                    &filled.cc,
                     text.as_deref(),
-                ]),
+                ),
             ],
         )?;
         Ok(())

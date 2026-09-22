@@ -245,3 +245,96 @@ fn mail_that_predates_the_segmented_index_is_findable_afterwards() {
         0
     );
 }
+
+/// Migration 0005 added `To` and `Cc` to the indexed text.
+///
+/// A version-4 database already has `fts_text`, built without them, so the backfill's `IS NULL`
+/// test would skip every row: the migration has to clear the text and the index together. Asked
+/// here of a row whose old text is still in the index, because that is the case where getting
+/// the order wrong corrupts it — hence the integrity check, and a write after the upgrade to
+/// prove the update triggers still agree with what is indexed.
+#[test]
+fn mail_indexed_before_recipients_were_is_findable_by_them_afterwards() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("mail.db");
+
+    let message = {
+        let db = Connection::open(&path).unwrap();
+        for (version, sql) in migrate::MIGRATIONS.iter().take(4) {
+            db.execute_batch(sql).unwrap();
+            if *version > 1 {
+                db.execute(
+                    "INSERT INTO schema_version (version, applied_at) VALUES (?1, datetime('now'))",
+                    [version],
+                )
+                .unwrap();
+            }
+        }
+        let (account, _) = seed(&db);
+        let thread: String = db
+            .query_row("SELECT id FROM threads LIMIT 1", [], |r| r.get(0))
+            .unwrap();
+        let message = uuid::Uuid::new_v4().to_string();
+        // Indexed the way version 4 did it: subject, sender and body, no recipients.
+        db.execute(
+            "INSERT INTO messages (id, thread, account, msg_key, date, from_name, from_email,
+                 recipients, subject, in_reply_to, refs, rfc_message_id, read, star, mailbox,
+                 body_text, body_raw, attachments, fts_text)
+             VALUES (?1, ?2, ?3, '\"k2\"', '2023-01-02T00:00:00Z', NULL, 'c@d.test',
+                 '{\"to\":[{\"name\":\"Ada Lovelace\",\"email\":\"ada@engine.test\"}],
+                   \"cc\":[{\"name\":null,\"email\":\"grace@hopper.test\"}],
+                   \"bcc\":[{\"name\":null,\"email\":\"secret@hidden.test\"}]}',
+                 'minutes', NULL, '[]', NULL, '\"read\"', '\"unstarred\"',
+                 '\"inbox\"', 'lunch on friday', NULL, '[]', 'minutes c d test lunch on friday')",
+            rusqlite::params![message, thread, account],
+        )
+        .unwrap();
+        message
+    };
+
+    let store = SqliteStore::open(&path, dir.path()).unwrap();
+    let hits = |needle: &str| {
+        store
+            .connection()
+            .query_row(
+                "SELECT count(*) FROM messages_fts WHERE messages_fts MATCH ?1",
+                [needle],
+                |r| r.get::<_, i64>(0),
+            )
+            .unwrap_or(-1)
+    };
+    let intact = || {
+        store
+            .connection()
+            .execute(
+                "INSERT INTO messages_fts(messages_fts) VALUES ('integrity-check')",
+                [],
+            )
+            .map(|_| ())
+    };
+
+    assert_eq!(hits("lovelace"), 1, "a To name was not indexed");
+    assert_eq!(hits("hopper"), 1, "a Cc address was not indexed");
+    assert_eq!(
+        hits("lunch"),
+        1,
+        "what was findable before stopped being findable"
+    );
+    assert_eq!(
+        hits("minutes"),
+        1,
+        "and the old entry was not left beside the new one"
+    );
+    assert_eq!(hits("hidden"), 0, "a blind copy must never be searchable");
+    intact().expect("the index disagrees with the table after the upgrade");
+
+    store
+        .connection()
+        .execute(
+            "UPDATE messages SET read = '\"unread\"' WHERE id = ?1",
+            [&message],
+        )
+        .unwrap();
+    intact().expect("the index disagrees with the table after a write");
+    assert_eq!(hits("hopper"), 1);
+}

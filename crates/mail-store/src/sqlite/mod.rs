@@ -127,7 +127,7 @@ impl SqliteStore {
     }
 }
 
-/// Fill `messages.fts_text` for rows that predate migration 0004.
+/// Fill `messages.fts_text` for rows that predate migration 0004, or that 0005 cleared.
 ///
 /// The migration could not: segmenting a run of ideographs into bigrams is not something SQL can
 /// express, and the whole point of that migration is that the indexed text is no longer the
@@ -150,17 +150,24 @@ fn backfill_fts(db: &Connection) -> Result<(), StoreError> {
     }
 
     /// One row's worth of the columns the index is built from.
-    type Indexed = (i64, String, Option<String>, String, Option<String>);
+    type Indexed = (i64, String, Option<String>, String, String, Option<String>);
     let rows: Vec<Indexed> = {
         let mut stmt = db
             .prepare(
-                "SELECT rowid, subject, from_name, from_email, body_text
+                "SELECT rowid, subject, from_name, from_email, recipients, body_text
                  FROM messages WHERE fts_text IS NULL",
             )
             .map_err(|e| StoreError::Db(e.to_string()))?;
         let mapped = stmt
             .query_map([], |r| {
-                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                ))
             })
             .map_err(|e| StoreError::Db(e.to_string()))?;
         mapped
@@ -171,13 +178,19 @@ fn backfill_fts(db: &Connection) -> Result<(), StoreError> {
     let tx = db
         .unchecked_transaction()
         .map_err(|e| StoreError::Db(e.to_string()))?;
-    for (rowid, subject, from_name, from_email, body_text) in rows {
-        let text = crate::sql::indexable(&[
-            Some(subject.as_str()),
-            from_name.as_deref(),
-            Some(from_email.as_str()),
+    for (rowid, subject, from_name, from_email, recipients, body_text) in rows {
+        let recipients: read::Recipients = row::json("Message.recipients", &recipients)?;
+        let from = mail_domain::Address {
+            name: from_name,
+            email: from_email,
+        };
+        let text = crate::sql::message_index(
+            &subject,
+            &from,
+            &recipients.to,
+            &recipients.cc,
             body_text.as_deref(),
-        ]);
+        );
         tx.execute(
             "UPDATE messages SET fts_text = ?2 WHERE rowid = ?1",
             rusqlite::params![rowid, text],

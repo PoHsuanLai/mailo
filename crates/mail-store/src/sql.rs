@@ -6,7 +6,7 @@
 //! filters and corpora. If that test is ever skipped or weakened, the bug ships.
 
 use chrono::{DateTime, SecondsFormat, Utc};
-use mail_domain::{DateRange, Filter, MailboxRole, TextMatch};
+use mail_domain::{Address, DateRange, Filter, MailboxRole, TextMatch};
 use serde::Serialize;
 
 /// A bound parameter. Deliberately not `String`: binding is the only thing standing between a
@@ -285,11 +285,6 @@ fn text_predicate(m: &TextMatch, params: &mut Vec<SqlValue>) -> String {
     }
 }
 
-/// Alphanumeric runs, with combining marks dropped rather than used as separators.
-///
-/// That is how `unicode61 remove_diacritics 2` tokenizes a decomposed letter (`e` + U+0301
-/// stays one token) and how [`mail_domain::Filter`]'s full-text matcher splits the needle.
-/// Case and diacritics are left for FTS5: the same tokenizer folds the query and the index.
 /// The text to store for the full-text index: exactly the tokens a query will ask for.
 ///
 /// The index used to read the message columns directly, and `unicode61` made one token of an
@@ -308,6 +303,37 @@ pub(crate) fn indexable(fields: &[Option<&str>]) -> String {
     tokens.join(" ")
 }
 
+/// The indexed text of one message: every field [`Filter::Text`] searches, in one place.
+///
+/// Three writers need this — insert, body arrival, and the backfill — and they used to list the
+/// fields separately, which is how a field gets added to two of them. `To` and `Cc` are here
+/// because a thread is found by who it was addressed to as well as by who wrote it; `Bcc` is
+/// not, for the reason `ThreadSummary::recipients` gives.
+pub(crate) fn message_index(
+    subject: &str,
+    from: &Address,
+    to: &[Address],
+    cc: &[Address],
+    body: Option<&str>,
+) -> String {
+    let mut fields = vec![
+        Some(subject),
+        from.name.as_deref(),
+        Some(from.email.as_str()),
+    ];
+    for addr in to.iter().chain(cc) {
+        fields.push(addr.name.as_deref());
+        fields.push(Some(addr.email.as_str()));
+    }
+    fields.push(body);
+    indexable(&fields)
+}
+
+/// Alphanumeric runs, with combining marks dropped rather than used as separators.
+///
+/// That is how `unicode61 remove_diacritics 2` tokenizes a decomposed letter (`e` + U+0301
+/// stays one token) and how [`mail_domain::Filter`]'s full-text matcher splits the needle.
+/// Case and diacritics are left for FTS5: the same tokenizer folds the query and the index.
 fn fts_tokens(text: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut current = String::new();

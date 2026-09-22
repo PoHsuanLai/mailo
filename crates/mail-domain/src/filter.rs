@@ -233,16 +233,18 @@ fn text_search_fits(m: &TextMatch, ctx: &MatchCtx<'_>) -> bool {
 /// never something else, so it is safe to search when `corpus` is `None`.
 fn text_corpus<'a>(ctx: &MatchCtx<'a>) -> Vec<&'a str> {
     let s = ctx.summary;
-    let mut fields = Vec::with_capacity(4 + 2 * s.participants.len());
+    let mut fields = Vec::with_capacity(4 + 2 * (s.participants.len() + s.recipients.len()));
     fields.push(s.subject.as_str());
     fields.push(s.snippet.as_str());
     push_address(&mut fields, &s.from);
     for participant in &s.participants {
         push_address(&mut fields, participant);
     }
-    // TODO(F1): recipients join this corpus once `ThreadSummary` carries them. Until then a
-    // thread is findable by who wrote in it, never by who it was addressed to — the same gap
-    // that makes `to_fits` unanswerable.
+    // Who it was addressed to, as well as who wrote it: the store indexes each message's `To`
+    // and `Cc`, and this is the union of those. Never `Bcc` — `ThreadSummary` leaves it out.
+    for recipient in &s.recipients {
+        push_address(&mut fields, recipient);
+    }
     fields.extend(ctx.corpus);
     fields
 }
@@ -356,21 +358,12 @@ fn fold_diacritic(ch: char) -> char {
     }
 }
 
-/// Whether a [`Filter::To`] clause matches — which, given only a [`ThreadSummary`], is
-/// **never**.
+/// Whether a [`Filter::To`] clause matches: whether anyone the thread was addressed to fits.
 ///
-/// This is a known, documented limitation, not an oversight. A `ThreadSummary` carries
-/// `from` (the newest message's sender) and `participants` (every *sender*); it carries no
-/// recipient list, and neither does `thread_summary` in the store schema. Matching `To`
-/// against `participants` would answer a different question — "did this person write here?"
-/// rather than "was this addressed to them?" — and would fire on threads the user was never
-/// a recipient of, which is worse than not answering.
-///
-/// So `To` is unsatisfiable until the recipients reach this function: either as a field on
-/// [`ThreadSummary`] (unioned over the thread's messages, as `mailboxes` is) or as one on
-/// [`MatchCtx`] beside `corpus`. Both are frozen-interface changes. Until then the store's
-/// SQL compiler must compile `To` to a false predicate too, or the parity proptest fails and
-/// is right to.
+/// Against `recipients`, never `participants`. Matching senders would answer "did this person
+/// write here?" rather than "was this addressed to them?", and fire on threads the user was
+/// never a recipient of. The store compiles `To` against `thread_summary.recipients`, the same
+/// union, which is what the parity proptest holds it to.
 fn to_fits(m: &TextMatch, summary: &ThreadSummary) -> bool {
     summary.recipients.iter().any(|a| address_fits(m, a))
 }

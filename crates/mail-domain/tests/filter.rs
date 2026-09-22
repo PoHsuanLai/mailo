@@ -851,3 +851,22 @@ fn to_matches_thread_recipients() {
     let empty = summary(|s| s.recipients = Vec::new());
     assert!(!Filter::To(TextMatch::Contains("ada".into())).fit(&ctx(&empty)));
 }
+
+/// Free text finds a thread by who it was addressed to, not only by who wrote in it.
+#[test]
+fn text_matches_thread_recipients() {
+    let s = summary(|s| {
+        s.recipients = vec![Address {
+            name: Some("Grace Hopper".into()),
+            email: "grace@navy.test".into(),
+        }];
+    });
+    let ctx = MatchCtx {
+        summary: &s,
+        corpus: None,
+        now: now(),
+    };
+    assert!(Filter::Text(TextMatch::Contains("hopper".into())).fit(&ctx));
+    assert!(Filter::Text(TextMatch::Contains("navy".into())).fit(&ctx));
+    assert!(!Filter::Text(TextMatch::Contains("babbage".into())).fit(&ctx));
+}

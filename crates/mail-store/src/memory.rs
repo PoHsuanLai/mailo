@@ -834,22 +834,25 @@ impl Inner {
 /// it adds no token, and it does not stop two tokens from being adjacent.
 /// The full searchable text of a thread, as `messages_fts` indexes it.
 ///
-/// Every message's subject, sender name, sender address and body — not only the newest, and not
-/// only the body. `ThreadSummary` carries the OLDEST message's subject and the NEWEST message's
+/// Every message's subject, sender, `To`, `Cc` and body — not only the newest, and not only the
+/// body. `ThreadSummary` carries the OLDEST message's subject and the NEWEST message's
 /// sender, so a word appearing only in a reply's subject is findable in SQL and invisible to
 /// `Filter::fit` unless it arrives through here. The parity proptest found exactly that.
 fn thread_corpus(messages: &[Message]) -> Option<String> {
     let mut out = String::new();
     for message in messages {
-        for piece in [
+        // The same fields, in the same order, as `sql::message_index`.
+        let mut pieces = vec![
             Some(message.subject.as_str()),
             message.from.name.as_deref(),
             Some(message.from.email.as_str()),
-            message.body.text(),
-        ]
-        .into_iter()
-        .flatten()
-        {
+        ];
+        for addr in message.to.iter().chain(&message.cc) {
+            pieces.push(addr.name.as_deref());
+            pieces.push(Some(addr.email.as_str()));
+        }
+        pieces.push(message.body.text());
+        for piece in pieces.into_iter().flatten() {
             if piece.is_empty() {
                 continue;
             }
