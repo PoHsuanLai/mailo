@@ -3005,3 +3005,85 @@ stored before the window opens: 0
   /rows-2|note-ada@example.test: 2 headers, 2 bodies, 0
 stored after 12s with nobody pressing anything: 2
 ```
+
+### F129 — A wrong password would have been retried 288 times a day
+
+F128 built the poll loop's safety rule on `Retry::NeedsReauth` and never checked that anything
+produces it. It does — on two servers. `classify` in `imap.rs` decided what a `NO` meant by
+searching its text for `[AUTHENTICATIONFAILED]` or `invalid credentials`, which is Dovecot's
+wording and Gmail's, the two that were to hand. Exchange, Courier, UW-imapd and Zimbra all answer
+a wrong password with a bare `NO LOGIN failed.`
+
+That fell through to `Refusal::Permanent`, so `retry()` said `Fatal` rather than `NeedsReauth`,
+`SyncReport.needs_reauth` stayed false, and the loop scored the pass as a clean success and came
+back in five minutes. For ever, with the same wrong password. The rule F128 is *about* was off on
+most of the servers it was written for, and every test passed because every test used a wording
+from the table.
+
+A `NO` is a reply to a command, and the command was one field away at the call site. Sign-in
+refusals are now decided by which command was refused — as POP3 has always done, and as SMTP
+does by reply class, with 4xx correctly left transient so a temporary auth failure is not blamed
+on the password. Only IMAP read the prose. The text is still consulted first for rate limiting,
+which is the one thing only the text says.
+
+Six real servers' wordings are enumerated in a test, all of which must reach `Retry::NeedsReauth`;
+a refused `SELECT` must not. End to end, a pass against a server sending the bare wording sets
+`Ran.rejected`. The control is what makes that worth anything: an *unreachable* server must not
+set it, or one flaky minute of network would stop the loop until the user next noticed.
+
+A bare `FAIL` in a protocol trace now accepts any error, because a test about which error a
+response produces must not name the answer in its own transcript.
+
+### F130 — "Wait an hour" was computed, then dropped on the floor
+
+`ProtoError::Throttled` has always become `Retry::After`, carrying the server's own wait or an
+hour where it names none. The comment on it says plainly that backing off is the entire remedy
+and that hammering lengthens the lockout. Nothing downstream read the number. The pass folded the
+error into its prose, `rejected` stayed false, and the loop treated it as a success and came back
+in five minutes — twelve times an hour into a server that had just said stop.
+
+`SyncReport` now carries `hold`, the longest wait anything asked for, and `SyncReport::saw`
+gathers both facts a caller must act on so the three sites that see a `Retry` cannot drift apart
+— which is exactly how F129 happened. `view::Passed::Throttled { wait }` puts it in front of the
+decision, and the wait is honoured in full: `BACKOFF_CEILING` deliberately does not apply, since
+capping an hour at thirty minutes means knocking twice inside the window the server asked for.
+
+Rejection still wins over a hold when a pass reports both. One asks the user to act; the other
+only asks for time.
+
+The control is again the half that could have gone wrong quietly. `Retry::After` is also produced
+by ordinary sixty-second backoffs, and a throttle resets the consecutive-failure count — so if an
+unreachable server set `hold`, it would be polled flat for ever instead of climbing to the
+ceiling. It does not, and a test says so.
+
+### F131 — `label:` worked in the terminal and found nothing in the window
+
+`label:` is the one search term that needs the store, so it arrives as a resolver and the parser
+stays pure. `mailo search` passed one. The window called `query::parse`, a convenience wrapper
+that passes a resolver knowing no names at all — so every `label:` typed into the search box
+resolved to nothing, fell through the unknown-term rule that exists so a half-typed word still
+searches, and became a full-text search for the literal string `label:travel`. No results, no
+error, and the same query working one surface over. A whole wave of work on Gmail labels,
+reachable only from the command line.
+
+`Shell` carries the label index as data, so `query` stays a pure function of the shell, and `App`
+refills it on every revision — a label that arrives in a sync is searchable without a restart.
+`query::known_labels` and `query::named` are the single definition both surfaces use.
+`query::parse` is deleted rather than fixed: a caller with no index has to write `&|_|
+Vec::new()` and see itself do it.
+
+**The tests drive the real `App`.** A mutation recorder finds the search box's element id,
+`HasFormData` joins the test event converter, and the input event goes to the component tree with
+a real store behind it. A test that set `Shell::search` directly would build the index itself and
+prove nothing about whether the window ever does — which is how this shipped. Disabling the
+effect fails the test; the control, a name nothing bears, still finds nothing.
+
+Two of this project's own rules caught me while writing them. `page.contains("hi")` matched
+`white-space` in the stylesheet, which is *Substrings are not tokens* in a test of its own making.
+And seeding the label by writing `labels` and `message_labels` by hand looked equivalent to a sync
+and was not: `Filter::HasLabel` reads `thread_summary.labels`, a materialized union that only the
+ingest path rewrites, so the rows were there and no search could see them.
+
+The window was launched to look at it directly, per *Run it the way its user would*. It starts,
+initialises its WebView and creates its store; the screen was locked, so the shell itself was not
+seen this round, and unlocking someone's session is not mine to do.
