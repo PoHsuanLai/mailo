@@ -1,1 +1,76 @@
-:root { color-scheme: light dark; --edge: color-mix(in oklab, currentColor 15%, transparent); }
+/* The palette, light. Every colour in the shell resolves through one of these.
+   Contrast-critical tokens are literal #rrggbb and must stay that way: the test in
+   `style::tests` parses them to check the ratios, and it cannot read a `color-mix()`.
+   Decoration -- hairline washes, hovers, the shadow -- may use `color-mix()` freely. */
+:root {
+  /* Keep `color-scheme` and keep it following the theme: it is what makes scrollbars,
+     <input> internals and the reader's unstyled mail render dark in a dark window. */
+  color-scheme: light dark;
+
+  /* surface and ink */
+  --paper: #E9ECE6;
+  --paper-raised: #F8F9F6;
+  --paper-sunken: #F1F3EE;
+  --ink: #1A1E1A;
+  --ink-dim: #586057;
+  --ink-faint: #676E65;
+  --hairline: #D6DBD0;
+
+  /* Elevation. `--lift` is the composed pair, so a raised thing spends one token and the
+     1px inset highlight can never drift away from the shadow it belongs to. */
+  --highlight: rgba(255, 255, 255, 0.7);
+  --shadow: 0 1px 2px rgba(26, 30, 26, 0.1);
+  --lift: inset 0 1px 0 var(--highlight), var(--shadow);
+
+  /* Shape. `--radius` is a four-value shorthand and can only be spent whole -- there is no
+     overriding one corner out of it. Anything that needs the small corner on the other side
+     uses `--radius-mirror`. It belongs to cards, buttons, fields and panes; a stacked list
+     row keeps a hairline and no radius, because the flap corner repeated down a list reads
+     as a rendering fault rather than a signature. */
+  --radius: 12px 12px 12px 4px;
+  --radius-mirror: 12px 12px 4px 12px;
+  --radius-sm: 9px;
+  --radius-pill: 999px;
+
+  /* type */
+  --font: system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --size: 14px;
+  --weight-strong: 650;
+
+  /* rhythm */
+  --gap: 10px;
+  --pad: 12px;
+  --pad-sm: 6px;
+
+  /* State. `--selected` and `--focus` are the accent, so they move with the decoration and
+     nothing else has to know which hue is on. */
+  --hover: color-mix(in oklab, var(--ink) 6%, transparent);
+  --active: color-mix(in oklab, var(--ink) 12%, transparent);
+  --selected: var(--accent-soft);
+  --focus: var(--accent);
+
+  /* The ground behind a sender's HTML. White, and deliberately absent from
+     `tokens.dark.css`, so it stays white in a dark window: mail is authored for a white page,
+     the frame's document is transparent, and a sender's black text on dark paper is a message
+     nobody can read. This is the one surface the theme does not reach, and it is on purpose. */
+  --frame: #FFFFFF;
+
+  /* semantic */
+  --danger: #B03A2A;
+  --danger-ink: #FFF6F4;
+
+  /* The decoration, defaulting to Postmark. `accents.css` overrides these four and nothing
+     else; a window that never writes `data-accent` still has a complete palette. */
+  --accent: #23508F;
+  --accent-ink: #F4F8FF;
+  --accent-soft: #DCE5F3;
+  --seal: #23508F;
+
+  /* The old name for the hairline, kept for exactly one step so the rules that still say
+     `var(--edge)` keep meaning what they meant. Delete it with the last of them. */
+  --edge: var(--hairline);
+}
+
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }

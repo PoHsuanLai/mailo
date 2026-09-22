@@ -1,0 +1,134 @@
+/* The decoration: six hues, four properties each, and nothing else changes with them.
+   Chrome is greyscale; a hue appears only where it states a fact -- unread, selected,
+   focused, the seal on the current place, and the one button that is the primary verb.
+
+   Each hue is written three times, because a colour must never have its only definition
+   inside a media query. The two dark forms carry an extra attribute, so they are one step
+   more specific than the light block and win in a dark window whatever the source order --
+   which is the belt to `style/mod.rs`'s braces about where this file is stitched in.
+
+   Longhand on purpose. Twelve four-line includes would hide the one thing worth seeing
+   here, which is the whole table at once.
+
+   The default (Postmark) lives in `tokens.css` and `tokens.dark.css` instead, so a window
+   that never writes `data-accent` still resolves every one of these four. */
+/* Postmark. Ink blue on sage is the pairing a real postmark is printed in. */
+:root[data-accent="postmark"] {
+  --accent: #23508F;
+  --accent-ink: #F4F8FF;
+  --accent-soft: #DCE5F3;
+  --seal: #23508F;
+}
+/* Graphite. No hue at all: the chrome goes monochrome and the only colour left
+   in the window is whatever a label carries. */
+:root[data-accent="graphite"] {
+  --accent: #2E342C;
+  --accent-ink: #F8F9F6;
+  --accent-soft: #DDE2D8;
+  --seal: #2E342C;
+}
+/* Pine. Harmonises with the paper rather than contrasting with it; the quietest. */
+:root[data-accent="pine"] {
+  --accent: #1F6349;
+  --accent-ink: #F2FBF6;
+  --accent-soft: #D7E7DD;
+  --seal: #1F6349;
+}
+/* Indigo. */
+:root[data-accent="indigo"] {
+  --accent: #3A3D96;
+  --accent-ink: #F3F3FF;
+  --accent-soft: #DFE0F4;
+  --seal: #3A3D96;
+}
+/* Oxblood. Red without orange in it. */
+:root[data-accent="oxblood"] {
+  --accent: #8E2F31;
+  --accent-ink: #FFF4F4;
+  --accent-soft: #EBDBDB;
+  --seal: #8E2F31;
+}
+/* Vermilion. The original, kept so the others have something to be unlike. It is
+   also the one that measured 4.39:1 on the paper, under the 4.5 it needed. */
+:root[data-accent="vermilion"] {
+  --accent: #C0402A;
+  --accent-ink: #FFF6F3;
+  --accent-soft: #F2DCD5;
+  --seal: #C0402A;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"])[data-accent="postmark"] {
+    --accent: #7FA6E6;
+    --accent-ink: #0B142A;
+    --accent-soft: #1E2A44;
+    --seal: #7FA6E6;
+  }
+  :root:not([data-theme="light"])[data-accent="graphite"] {
+    --accent: #D5DBCE;
+    --accent-ink: #151814;
+    --accent-soft: #333A30;
+    --seal: #D5DBCE;
+  }
+  :root:not([data-theme="light"])[data-accent="pine"] {
+    --accent: #5FB68C;
+    --accent-ink: #062014;
+    --accent-soft: #1B3328;
+    --seal: #5FB68C;
+  }
+  :root:not([data-theme="light"])[data-accent="indigo"] {
+    --accent: #9AA0F0;
+    --accent-ink: #0E0F2A;
+    --accent-soft: #262848;
+    --seal: #9AA0F0;
+  }
+  :root:not([data-theme="light"])[data-accent="oxblood"] {
+    --accent: #D9736F;
+    --accent-ink: #22090A;
+    --accent-soft: #3A1E1E;
+    --seal: #D9736F;
+  }
+  :root:not([data-theme="light"])[data-accent="vermilion"] {
+    --accent: #E9684B;
+    --accent-ink: #1A0F0B;
+    --accent-soft: #3A201A;
+    --seal: #E9684B;
+  }
+}
+
+:root[data-theme="dark"][data-accent="postmark"] {
+  --accent: #7FA6E6;
+  --accent-ink: #0B142A;
+  --accent-soft: #1E2A44;
+  --seal: #7FA6E6;
+}
+:root[data-theme="dark"][data-accent="graphite"] {
+  --accent: #D5DBCE;
+  --accent-ink: #151814;
+  --accent-soft: #333A30;
+  --seal: #D5DBCE;
+}
+:root[data-theme="dark"][data-accent="pine"] {
+  --accent: #5FB68C;
+  --accent-ink: #062014;
+  --accent-soft: #1B3328;
+  --seal: #5FB68C;
+}
+:root[data-theme="dark"][data-accent="indigo"] {
+  --accent: #9AA0F0;
+  --accent-ink: #0E0F2A;
+  --accent-soft: #262848;
+  --seal: #9AA0F0;
+}
+:root[data-theme="dark"][data-accent="oxblood"] {
+  --accent: #D9736F;
+  --accent-ink: #22090A;
+  --accent-soft: #3A1E1E;
+  --seal: #D9736F;
+}
+:root[data-theme="dark"][data-accent="vermilion"] {
+  --accent: #E9684B;
+  --accent-ink: #1A0F0B;
+  --accent-soft: #3A201A;
+  --seal: #E9684B;
+}

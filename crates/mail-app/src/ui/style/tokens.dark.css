@@ -1,0 +1,30 @@
+  /* The palette, dark. Bare declarations with no selector of their own: `style/mod.rs`
+     emits this file twice, once inside the `prefers-color-scheme` guard and once inside
+     `:root[data-theme="dark"]`, so the desktop's setting and an explicit choice cannot
+     drift apart. Only the tokens that differ from light are here; anything absent keeps
+     its light value on purpose. */
+  --paper: #151814;
+  --paper-raised: #1D211B;
+  --paper-sunken: #232722;
+  --ink: #E7EBE3;
+  --ink-dim: #A0A79B;
+  --ink-faint: #959D91;
+  --hairline: #333A30;
+
+  /* A highlight that reads as light falling on a raised edge cannot be white here; at 5%
+     it is the suggestion of one, which is all a dark surface will take before the edge
+     starts to glow. */
+  --highlight: rgba(255, 255, 255, 0.05);
+  --shadow: 0 2px 4px rgba(0, 0, 0, 0.45);
+
+  --danger: #E0705A;
+  --danger-ink: #1A0B08;
+
+  /* The default decoration again, in dark. Here rather than in `accents.css` because a
+     window with no `data-accent` attribute matches no rule there, and an accent that kept
+     its light value on a dark ground is the one palette bug a screenshot of either theme
+     alone will not show. */
+  --accent: #7FA6E6;
+  --accent-ink: #0B142A;
+  --accent-soft: #1E2A44;
+  --seal: #7FA6E6;
