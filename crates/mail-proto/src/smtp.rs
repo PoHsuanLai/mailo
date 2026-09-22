@@ -49,6 +49,53 @@ pub struct EhloExtensions {
     pub eight_bit_mime: Advertised,
     /// `SMTPUTF8` (RFC 6531): the server accepts a UTF-8 envelope.
     pub smtputf8: Advertised,
+    /// `DSN` (RFC 3461): the server accepts delivery-status parameters.
+    pub dsn: Advertised,
+    /// `CHUNKING` (RFC 3030): the server accepts `BDAT` in place of `DATA`.
+    pub chunking: Advertised,
+}
+
+/// A request for a delivery status notification (RFC 3461).
+///
+/// A request, not a requirement. When the server did not advertise `DSN` the
+/// message is still submitted and these parameters are left off the commands.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Receipt {
+    /// Which delivery events the sender wants reported.
+    pub notify: Notify,
+    /// How much of the message a notification should quote.
+    pub ret: Return,
+    /// Envelope identifier to echo in the notification, when the sender set one.
+    pub envid: Option<String>,
+}
+
+/// Which delivery events a notification should report (`NOTIFY`).
+///
+/// `Never`, and an [`Notify::On`] with every flag false, are both sent as
+/// `NOTIFY=NEVER`: RFC 3461 has no empty list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Notify {
+    /// The sender wants no notification.
+    Never,
+    /// The events to report. Only the true flags are listed, in the order
+    /// success, failure, delay.
+    On {
+        /// Report a successful delivery.
+        success: bool,
+        /// Report a failed delivery.
+        failure: bool,
+        /// Report a delayed delivery.
+        delay: bool,
+    },
+}
+
+/// How much of the original message a notification includes (`RET`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Return {
+    /// Headers only (`RET=HDRS`).
+    Headers,
+    /// The full message (`RET=FULL`).
+    Full,
 }
 
 /// A complete SMTP reply, reduced to its status code and text.
@@ -91,6 +138,8 @@ pub struct Submission {
     pub sasl: Vec<SaslMech>,
     pub mail_from: String,
     pub recipients: Vec<String>,
+    /// Delivery status to request. `None` leaves the envelope commands unchanged.
+    pub receipt: Option<Receipt>,
     pub message: Vec<u8>,
 }
 
@@ -108,6 +157,7 @@ impl fmt::Debug for Submission {
             .field("sasl", &self.sasl)
             .field("mail_from", &self.mail_from)
             .field("recipients", &self.recipients)
+            .field("receipt", &self.receipt)
             .field("message_len", &self.message.len())
             .finish()
     }
@@ -139,6 +189,9 @@ enum Phase {
     Data,
     /// The stuffed body, including the terminating dot, has been written.
     Body,
+    /// `BDAT n LAST` and the raw message have been written. The reply is the acceptance:
+    /// unlike `DATA`, `BDAT` has no intermediate `354` to wait for first.
+    Bdat,
     /// Waiting for `QUIT`. The value is the acceptance reply, which must survive a rude close.
     Quit(ReplyText),
     Finished,
@@ -582,6 +635,8 @@ fn apply_ehlo_line(ext: &mut EhloExtensions, line: &str) {
         // The keyword alone. A parameter, were a server to send one, is not
         // part of the token and must not hide the extension.
         "SMTPUTF8" => ext.smtputf8 = Advertised::Offered,
+        "DSN" => ext.dsn = Advertised::Offered,
+        "CHUNKING" => ext.chunking = Advertised::Offered,
         "SIZE" => match parts.next() {
             Some(number) => match number.parse::<u64>() {
                 Ok(limit) => ext.size = SizeLimit::Limited(limit),
@@ -651,9 +706,10 @@ fn decide(
         | Phase::AuthXoauth2
         | Phase::AuthXoauth2Sent => on_auth(phase, reply, sub, envelope),
         Phase::MailFrom => on_mail_from(reply, envelope),
-        Phase::Rcpt(index) => on_rcpt(*index, reply, envelope),
+        Phase::Rcpt(index) => on_rcpt(*index, reply, sub, envelope),
         Phase::Data => on_data(reply, sub),
         Phase::Body => on_body(reply),
+        Phase::Bdat => on_bdat(reply),
         Phase::Quit(accepted) => on_quit(accepted, reply, ext, mech),
         Phase::Finished => Err(ProtoError::Malformed(
             "reply after the session finished".into(),
@@ -683,7 +739,9 @@ fn on_ehlo(
     check_transfer(ext, &sub.message)?;
     // Same moment as the transfer checks: the extensions are final, and no
     // envelope command has been written, so a refusal never becomes MAIL FROM.
-    let envelope = prepare_envelope(ext, &sub.mail_from, &sub.recipients)?;
+    // DSN and CHUNKING are decided here too, from this EHLO and not the one
+    // that preceded STARTTLS.
+    let envelope = prepare_envelope(ext, &sub.mail_from, &sub.recipients, sub.receipt.as_ref())?;
     let mech = choose_mech(&ext.auth, &sub.sasl, &sub.credential)?;
     let (next, command) = auth_command(mech, sub)?;
     Ok(continue_with_envelope(
@@ -779,6 +837,7 @@ fn on_mail_from(
 fn on_rcpt(
     index: usize,
     reply: &ServerReply,
+    sub: &Submission,
     envelope: Option<&PreparedEnvelope>,
 ) -> Result<Outcome, ProtoError> {
     expect_success(reply)?;
@@ -787,8 +846,15 @@ fn on_rcpt(
     if next < envelope.recipients.len() {
         send_rcpt(envelope, next)
     } else {
-        Ok(continue_with(Phase::Data, vec![cmd("DATA")], None))
+        send_body(envelope, &sub.message)
     }
+}
+
+fn on_bdat(reply: &ServerReply) -> Result<Outcome, ProtoError> {
+    // The reply to `BDAT LAST` is the acceptance, the same role as the reply
+    // to the terminating dot. A 2xx is recorded on `SmtpReply.accepted`;
+    // anything else is the refusal `on_body` already returns for a refused DATA.
+    on_body(reply)
 }
 
 fn on_data(reply: &ServerReply, sub: &Submission) -> Result<Outcome, ProtoError> {
@@ -864,9 +930,23 @@ fn send_rcpt(envelope: &PreparedEnvelope, index: usize) -> Result<Outcome, Proto
     };
     Ok(continue_with(
         Phase::Rcpt(index),
-        vec![cmd(&format!("RCPT TO:<{addr}>"))],
+        vec![cmd(&rcpt_command(envelope, addr))],
         None,
     ))
+}
+
+/// After the last recipient, `BDAT` when the submitting EHLO offered `CHUNKING`,
+/// otherwise the `DATA` command this client has always sent.
+fn send_body(envelope: &PreparedEnvelope, message: &[u8]) -> Result<Outcome, ProtoError> {
+    if envelope.chunking == Advertised::Offered {
+        Ok(send_bdat(message))
+    } else {
+        Ok(continue_with(Phase::Data, vec![cmd("DATA")], None))
+    }
+}
+
+fn send_bdat(message: &[u8]) -> Outcome {
+    continue_with(Phase::Bdat, bdat_writes(message), None)
 }
 
 /// The envelope was prepared at `EHLO`, which is before `AUTH` and therefore
@@ -879,7 +959,7 @@ fn require_envelope(envelope: Option<&PreparedEnvelope>) -> Result<&PreparedEnve
 
 fn check_transfer(ext: &EhloExtensions, message: &[u8]) -> Result<(), ProtoError> {
     if let SizeLimit::Limited(max) = ext.size {
-        let size = transmitted_octets(message);
+        let size = transfer_octets(ext, message);
         if size > max {
             return Err(ProtoError::Refused {
                 kind: Refusal::Permanent,
@@ -906,12 +986,19 @@ enum Utf8Parameter {
 /// Envelope addresses in the form they will be written.
 ///
 /// Fixed once, at the `EHLO` that precedes submission, and then used for both
-/// `MAIL FROM` and every `RCPT TO`.
+/// `MAIL FROM` and every `RCPT TO`. `receipt` and `chunking` are part of that
+/// same decision: the parameters and the body path cannot drift apart from
+/// the SIZE check, which runs at that EHLO.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PreparedEnvelope {
     mail_from: String,
     recipients: Vec<String>,
     utf8: Utf8Parameter,
+    /// DSN parameters to write. `None` when the caller asked for none, and
+    /// also when they asked and the server did not offer `DSN`.
+    receipt: Option<Receipt>,
+    /// Whether this EHLO offered `CHUNKING`. `BDAT` is used only then.
+    chunking: Advertised,
 }
 
 /// Choose the wire form of the envelope before `MAIL FROM` is written.
@@ -925,7 +1012,14 @@ fn prepare_envelope(
     ext: &EhloExtensions,
     mail_from: &str,
     recipients: &[String],
+    receipt: Option<&Receipt>,
 ) -> Result<PreparedEnvelope, ProtoError> {
+    // A receipt is a request, never a precondition. When the server did not
+    // offer `DSN` the parameters are omitted and submission continues;
+    // refusing here would drop a message only because a notification could
+    // not be asked for.
+    let receipt = dsn_to_send(ext, receipt);
+    let chunking = ext.chunking;
     if !envelope_is_ascii(mail_from, recipients) && ext.smtputf8 != Advertised::Offered {
         return Ok(PreparedEnvelope {
             mail_from: encode_without_smtputf8(mail_from)?,
@@ -934,6 +1028,8 @@ fn prepare_envelope(
                 .map(|addr| encode_without_smtputf8(addr))
                 .collect::<Result<Vec<_>, _>>()?,
             utf8: Utf8Parameter::Omit,
+            receipt,
+            chunking,
         });
     }
     // One non-ASCII address puts the parameter on the whole transaction.
@@ -947,7 +1043,18 @@ fn prepare_envelope(
         mail_from: mail_from.to_owned(),
         recipients: recipients.to_vec(),
         utf8,
+        receipt,
+        chunking,
     })
+}
+
+/// `Some` only when the caller asked for a receipt and this EHLO offered `DSN`.
+fn dsn_to_send(ext: &EhloExtensions, receipt: Option<&Receipt>) -> Option<Receipt> {
+    if ext.dsn == Advertised::Offered {
+        receipt.cloned()
+    } else {
+        None
+    }
 }
 
 /// True when every envelope address is ASCII.
@@ -960,9 +1067,10 @@ fn envelope_is_ascii(mail_from: &str, recipients: &[String]) -> bool {
 
 /// `MAIL FROM`, without CRLF.
 ///
-/// `BODY=8BITMIME` stays in front of `SMTPUTF8` when both apply, so an 8-bit
-/// internationalised submission is still the command this client already sends
-/// for an 8-bit body, with the UTF-8 parameter added after it.
+/// Parameters stay in a fixed order — `BODY=8BITMIME`, then `SMTPUTF8`, then
+/// `RET`, then `ENVID` — so a command this client already sends is a prefix
+/// of the same command once a later extension is added. `RET` and `ENVID`
+/// are present only when [`dsn_to_send`] kept the receipt.
 fn mail_from_command(envelope: &PreparedEnvelope, message: &[u8]) -> String {
     let mut line = format!("MAIL FROM:<{}>", envelope.mail_from);
     if has_high_bit(message) {
@@ -971,7 +1079,100 @@ fn mail_from_command(envelope: &PreparedEnvelope, message: &[u8]) -> String {
     if envelope.utf8 == Utf8Parameter::Send {
         line.push_str(" SMTPUTF8");
     }
+    if let Some(receipt) = &envelope.receipt {
+        line.push(' ');
+        line.push_str(ret_parameter(&receipt.ret));
+        if let Some(envid) = &receipt.envid {
+            line.push_str(" ENVID=");
+            line.push_str(&xtext(envid.as_bytes()));
+        }
+    }
     line
+}
+
+/// `RET=HDRS` or `RET=FULL`.
+fn ret_parameter(ret: &Return) -> &'static str {
+    match ret {
+        Return::Headers => "RET=HDRS",
+        Return::Full => "RET=FULL",
+    }
+}
+
+/// `RCPT TO`, without CRLF.
+///
+/// `NOTIFY` lists the requested events. `ORCPT` is added only when the
+/// address is ASCII. A UTF-8 original recipient needs RFC 6533
+/// `utf-8-addr-xtext`, which is a different encoding from the xtext used
+/// here, so a non-ASCII recipient keeps `NOTIFY` and omits `ORCPT`.
+fn rcpt_command(envelope: &PreparedEnvelope, addr: &str) -> String {
+    let mut line = format!("RCPT TO:<{addr}>");
+    if let Some(receipt) = &envelope.receipt {
+        line.push(' ');
+        line.push_str(&notify_parameter(&receipt.notify));
+        if addr.is_ascii() {
+            line.push_str(" ORCPT=rfc822;");
+            line.push_str(&xtext(addr.as_bytes()));
+        }
+    }
+    line
+}
+
+/// `NOTIFY=NEVER`, or the true events in the order success, failure, delay.
+///
+/// An [`Notify::On`] with every flag false is `NEVER`. RFC 3461's value is
+/// a non-empty list or `NEVER`, and an empty list is not a value on the wire.
+fn notify_parameter(notify: &Notify) -> String {
+    let Notify::On {
+        success,
+        failure,
+        delay,
+    } = notify
+    else {
+        return "NOTIFY=NEVER".to_owned();
+    };
+    let mut events = Vec::new();
+    if *success {
+        events.push("SUCCESS");
+    }
+    if *failure {
+        events.push("FAILURE");
+    }
+    if *delay {
+        events.push("DELAY");
+    }
+    if events.is_empty() {
+        return "NOTIFY=NEVER".to_owned();
+    }
+    format!("NOTIFY={}", events.join(","))
+}
+
+/// RFC 3461 xtext.
+///
+/// Bytes from `!` to `~` except `+` and `=` pass through. Every other byte,
+/// including those two and each octet of a UTF-8 character, is `+` and two
+/// uppercase hex digits. Characters are not the unit: the RFC encodes bytes.
+fn xtext(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len());
+    for &byte in bytes {
+        if is_xchar(byte) {
+            out.push(char::from(byte));
+        } else {
+            push_hex(&mut out, byte);
+        }
+    }
+    out
+}
+
+/// Printable ASCII except `+` and `=`, which introduce the hex form.
+fn is_xchar(byte: u8) -> bool {
+    byte.is_ascii_graphic() && byte != b'+' && byte != b'='
+}
+
+fn push_hex(out: &mut String, byte: u8) {
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+    out.push('+');
+    out.push(char::from(HEX[usize::from(byte >> 4)]));
+    out.push(char::from(HEX[usize::from(byte & 0x0f)]));
 }
 
 /// Rewrite one address for a server that did not offer `SMTPUTF8`.
@@ -1197,6 +1398,32 @@ fn transmitted_octets(message: &[u8]) -> u64 {
     body as u64
 }
 
+/// Octets `SIZE` is compared with, for the path the submitting EHLO chose.
+///
+/// `CHUNKING` transmits the raw message, so the figure is its length. Without
+/// it the figure is the dot-stuffed body, which is what `DATA` actually sends
+/// and can be longer than the message the caller handed us.
+fn transfer_octets(ext: &EhloExtensions, message: &[u8]) -> u64 {
+    if ext.chunking == Advertised::Offered {
+        message.len() as u64
+    } else {
+        transmitted_octets(message)
+    }
+}
+
+/// The `BDAT` command and the message that follows it.
+///
+/// RFC 3030 makes the octet count authoritative: the server reads exactly
+/// that many bytes and does not look for a terminating dot. The message is
+/// therefore copied unchanged. A missing final CRLF stays missing — adding
+/// one would change both the count and the content — and a line that begins
+/// with `.` is not stuffed, because stuffing would make the count describe
+/// different bytes from the ones the server will store.
+fn bdat_writes(message: &[u8]) -> Vec<Vec<u8>> {
+    let line = cmd(&format!("BDAT {} LAST", message.len()));
+    vec![line, message.to_vec()]
+}
+
 fn has_high_bit(message: &[u8]) -> bool {
     message.iter().any(|byte| *byte >= 0x80)
 }
@@ -1359,6 +1586,7 @@ mod tests {
             sasl: vec![SaslMech::Plain, SaslMech::Login],
             mail_from: "ada@example.com".into(),
             recipients: vec!["bob@example.com".into()],
+            receipt: None,
             message: message.as_bytes().to_vec(),
         }
     }
@@ -1457,6 +1685,25 @@ mod tests {
         assert_eq!(ext.starttls, Advertised::Offered);
         assert_eq!(ext.eight_bit_mime, Advertised::Offered);
         assert_eq!(ext.smtputf8, Advertised::Absent);
+        assert_eq!(ext.dsn, Advertised::Absent);
+        assert_eq!(ext.chunking, Advertised::Absent);
+    }
+
+    #[test]
+    fn ehlo_dsn_and_chunking_are_whole_keywords() {
+        let offered = parse_ehlo(&ServerReply {
+            code: 250,
+            lines: vec!["hello".into(), "dsn".into(), "Chunking extra".into()],
+        });
+        assert_eq!(offered.dsn, Advertised::Offered);
+        assert_eq!(offered.chunking, Advertised::Offered);
+        // A longer token that merely contains the word is a different extension.
+        let absent = parse_ehlo(&ServerReply {
+            code: 250,
+            lines: vec!["XDSN".into(), "CHUNKINGS".into(), "BDAT".into()],
+        });
+        assert_eq!(absent.dsn, Advertised::Absent);
+        assert_eq!(absent.chunking, Advertised::Absent);
     }
 
     #[test]
@@ -1490,6 +1737,8 @@ mod tests {
                     mail_from: "Ada@Example.COM".into(),
                     recipients: vec!["bob@example.com".into()],
                     utf8: Utf8Parameter::Omit,
+                    receipt: None,
+                    chunking: Advertised::Absent,
                 },
             ),
             (
@@ -1501,6 +1750,8 @@ mod tests {
                     mail_from: "用户@例子.广告".into(),
                     recipients: vec!["bob@example.com".into()],
                     utf8: Utf8Parameter::Send,
+                    receipt: None,
+                    chunking: Advertised::Absent,
                 },
             ),
             (
@@ -1512,6 +1763,8 @@ mod tests {
                     mail_from: "ada@example.com".into(),
                     recipients: vec!["bob@bücher.example".into()],
                     utf8: Utf8Parameter::Send,
+                    receipt: None,
+                    chunking: Advertised::Absent,
                 },
             ),
             (
@@ -1523,6 +1776,8 @@ mod tests {
                     mail_from: "ann@bob@xn--bcher-kva.example".into(),
                     recipients: vec!["cara@xn--fsqu00a.xn--4rr70v".into()],
                     utf8: Utf8Parameter::Omit,
+                    receipt: None,
+                    chunking: Advertised::Absent,
                 },
             ),
         ];
@@ -1534,13 +1789,19 @@ mod tests {
                     .iter()
                     .map(|addr| (*addr).to_owned())
                     .collect::<Vec<_>>(),
+                None,
             )
             .unwrap_or_else(|err| panic!("{name}: {err}"));
             assert_eq!(&got, expect, "{name}");
         }
 
-        let local =
-            prepare_envelope(&absent, "jörg@example.com", &["bob@example.com".into()]).unwrap_err();
+        let local = prepare_envelope(
+            &absent,
+            "jörg@example.com",
+            &["bob@example.com".into()],
+            None,
+        )
+        .unwrap_err();
         assert_eq!(
             local.to_string(),
             "server does not support SMTPUTF8, which jörg@example.com needs: its local part is not ASCII"
@@ -1549,7 +1810,8 @@ mod tests {
         // refusal is the domain and not the local-part case. An all-ASCII
         // address is not put through IDNA: that path stays byte-for-byte.
         let rejected = "ada@\u{11C3A}";
-        let domain = prepare_envelope(&absent, rejected, &["bob@example.com".into()]).unwrap_err();
+        let domain =
+            prepare_envelope(&absent, rejected, &["bob@example.com".into()], None).unwrap_err();
         assert_eq!(
             domain.to_string(),
             format!(
@@ -1561,10 +1823,180 @@ mod tests {
             mail_from: "用户@例子.广告".into(),
             recipients: vec!["bob@example.com".into()],
             utf8: Utf8Parameter::Send,
+            receipt: None,
+            chunking: Advertised::Absent,
         };
         assert_eq!(
             mail_from_command(&both, "café".as_bytes()),
             "MAIL FROM:<用户@例子.广告> BODY=8BITMIME SMTPUTF8"
+        );
+    }
+
+    #[test]
+    fn xtext_escapes_plus_equals_space_and_non_ascii_bytes() {
+        let cases: &[(&[u8], &str)] = &[
+            (b"bob@example.com", "bob@example.com"),
+            (b"q+1=x", "q+2B1+3Dx"),
+            (b"+", "+2B"),
+            (b"=", "+3D"),
+            (b" ", "+20"),
+            ("é".as_bytes(), "+C3+A9"),
+        ];
+        for (input, expect) in cases {
+            assert_eq!(xtext(input), *expect, "{input:?}");
+        }
+    }
+
+    #[test]
+    fn notify_lists_only_the_true_events_and_an_empty_set_is_never() {
+        let cases = [
+            (Notify::Never, "NOTIFY=NEVER"),
+            (
+                Notify::On {
+                    success: false,
+                    failure: false,
+                    delay: false,
+                },
+                "NOTIFY=NEVER",
+            ),
+            (
+                Notify::On {
+                    success: true,
+                    failure: true,
+                    delay: false,
+                },
+                "NOTIFY=SUCCESS,FAILURE",
+            ),
+            (
+                Notify::On {
+                    success: true,
+                    failure: false,
+                    delay: true,
+                },
+                "NOTIFY=SUCCESS,DELAY",
+            ),
+            (
+                Notify::On {
+                    success: false,
+                    failure: true,
+                    delay: true,
+                },
+                "NOTIFY=FAILURE,DELAY",
+            ),
+            (
+                Notify::On {
+                    success: true,
+                    failure: true,
+                    delay: true,
+                },
+                "NOTIFY=SUCCESS,FAILURE,DELAY",
+            ),
+        ];
+        for (notify, expect) in cases {
+            assert_eq!(notify_parameter(&notify), expect, "{notify:?}");
+        }
+    }
+
+    #[test]
+    fn mail_from_parameters_follow_body_utf8_ret_envid() {
+        let envelope = PreparedEnvelope {
+            mail_from: "用户@例子.广告".into(),
+            recipients: vec!["bob@example.com".into()],
+            utf8: Utf8Parameter::Send,
+            receipt: Some(Receipt {
+                notify: Notify::On {
+                    success: true,
+                    failure: false,
+                    delay: false,
+                },
+                ret: Return::Headers,
+                envid: Some("q+1=x".into()),
+            }),
+            chunking: Advertised::Absent,
+        };
+        assert_eq!(
+            mail_from_command(&envelope, "café".as_bytes()),
+            "MAIL FROM:<用户@例子.广告> BODY=8BITMIME SMTPUTF8 RET=HDRS ENVID=q+2B1+3Dx"
+        );
+        assert_eq!(
+            rcpt_command(&envelope, "bob+tag@example.com"),
+            "RCPT TO:<bob+tag@example.com> NOTIFY=SUCCESS ORCPT=rfc822;bob+2Btag@example.com"
+        );
+        // The address itself is not ASCII, so ORCPT is omitted rather than
+        // encoded with the RFC 3461 rules.
+        assert_eq!(
+            rcpt_command(&envelope, "收件人@例子.广告"),
+            "RCPT TO:<收件人@例子.广告> NOTIFY=SUCCESS"
+        );
+    }
+
+    #[test]
+    fn a_receipt_without_dsn_is_dropped_and_does_not_fail() {
+        let receipt = Receipt {
+            notify: Notify::Never,
+            ret: Return::Full,
+            envid: Some("id".into()),
+        };
+        let dropped = prepare_envelope(
+            &EhloExtensions::default(),
+            "ada@example.com",
+            &["bob@example.com".into()],
+            Some(&receipt),
+        )
+        .expect("a receipt is not a precondition");
+        assert_eq!(dropped.receipt, None);
+        assert_eq!(
+            mail_from_command(&dropped, b"hi"),
+            "MAIL FROM:<ada@example.com>"
+        );
+        assert_eq!(
+            rcpt_command(&dropped, "bob@example.com"),
+            "RCPT TO:<bob@example.com>"
+        );
+
+        let offered = EhloExtensions {
+            dsn: Advertised::Offered,
+            ..EhloExtensions::default()
+        };
+        let kept = prepare_envelope(
+            &offered,
+            "ada@example.com",
+            &["bob@example.com".into()],
+            Some(&receipt),
+        )
+        .expect("ascii");
+        assert_eq!(kept.receipt, Some(receipt));
+    }
+
+    #[test]
+    fn bdat_copies_the_message_and_counts_raw_octets() {
+        let message = b"Hi.\r\n.dot\r\nno final break";
+        let writes = bdat_writes(message);
+        assert_eq!(
+            writes[0],
+            format!("BDAT {} LAST\r\n", message.len()).into_bytes()
+        );
+        assert_eq!(writes[1], message);
+        // Stuffing would have turned the second line into "..dot".
+        assert!(writes[1].windows(5).any(|window| window == b"\n.dot"));
+        assert!(!writes[1].windows(6).any(|window| window == b"\n..dot"));
+
+        let dotted = b".x\r\n";
+        assert_eq!(transmitted_octets(dotted), 5);
+        let chunked = EhloExtensions {
+            chunking: Advertised::Offered,
+            size: SizeLimit::Limited(4),
+            ..EhloExtensions::default()
+        };
+        assert!(check_transfer(&chunked, dotted).is_ok());
+        let data_path = EhloExtensions {
+            size: SizeLimit::Limited(4),
+            ..EhloExtensions::default()
+        };
+        let err = check_transfer(&data_path, dotted).unwrap_err();
+        assert!(
+            err.to_string().contains("5 octets"),
+            "DATA must count the stuffed body, got {err}"
         );
     }
 
@@ -1715,6 +2147,7 @@ mod tests {
         let rendered = format!("{session:?}");
         assert!(rendered.contains("SmtpSession"));
         assert!(rendered.contains("ada@example.com"));
+        assert!(rendered.contains("receipt"));
         assert!(rendered.contains("redacted"));
         assert!(!rendered.contains(PASSWORD));
         let encoded = b64(&plain_raw("ada@example.com", PASSWORD));

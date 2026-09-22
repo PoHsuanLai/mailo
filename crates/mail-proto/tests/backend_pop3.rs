@@ -345,6 +345,7 @@ fn smtp_backend_submits_and_reports_no_remote_copy() {
                 sasl: vec![SaslMech::Plain],
                 mail_from: posting.mail_from,
                 recipients: posting.rcpt_to,
+                receipt: None,
                 message: posting.message,
             })
         }),

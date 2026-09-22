@@ -276,6 +276,7 @@ impl<B: Backend> AccountEngine<B> {
                     // is FINDINGS F37.
                     mail_from: posting.mail_from,
                     recipients: posting.rcpt_to,
+                    receipt: None,
                     message: posting.message,
                 })
             }),

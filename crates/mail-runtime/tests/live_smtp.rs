@@ -64,6 +64,7 @@ async fn a_real_server_accepts_what_this_client_sends() {
             "bob@example.test".to_owned(),
             "cara@example.test".to_owned(),
         ],
+        receipt: None,
         message: BODY.as_bytes().to_vec(),
     };
 
@@ -141,6 +142,7 @@ async fn a_real_server_rejecting_a_password_is_an_auth_error_not_a_crash() {
         sasl: vec![SaslMech::Plain],
         mail_from: USER.to_owned(),
         recipients: vec!["bob@example.test".to_owned()],
+        receipt: None,
         message: BODY.as_bytes().to_vec(),
     };
 
