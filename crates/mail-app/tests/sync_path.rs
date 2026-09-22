@@ -677,6 +677,14 @@ mod a_refused_sign_in {
             view::NextSync::After(_) => {}
             other => panic!("it would have given up on a server being down: {other:?}"),
         }
+        // And it must not look like a rate limit either. `Throttled` resets the consecutive
+        // failure count, so a down server that set `hold` would be polled at the flat interval
+        // for ever instead of backing off — the loop would never reach the ceiling.
+        assert!(
+            ran.hold.is_none(),
+            "a refused connection asked us to wait {:?}",
+            ran.hold
+        );
     }
 
     #[test]
@@ -698,6 +706,81 @@ mod a_refused_sign_in {
         match view::next_sync(passed, 1, std::time::Duration::from_secs(300)) {
             view::NextSync::Wait(why) => assert!(why.contains("rejected"), "{why}"),
             other => panic!("it would have tried again: {other:?}"),
+        }
+    }
+}
+
+/// A server that asks to be left alone, and whether anyone listens.
+///
+/// `ProtoError::Throttled` carries a wait — the server's own `Retry-After` where it gives one,
+/// and an hour where it does not, because Gmail's lockouts are measured in hours and hammering
+/// lengthens them. The domain layer has computed that number since the beginning. The question
+/// here is whether it reaches the loop that decides when to knock again.
+mod a_server_asking_to_be_left_alone {
+    use super::*;
+    use std::io::{Read, Write};
+
+    /// Refuses the sign-in for rate limiting, which is what Gmail does to a client that
+    /// reconnects too often — not a wrong password, and not something a new password fixes.
+    fn serve_throttling() -> u16 {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for sock in listener.incoming() {
+                let Ok(mut sock) = sock else { continue };
+                let _ = sock.write_all(b"* OK [CAPABILITY IMAP4rev1] ready\r\n");
+                let mut buf = [0u8; 4096];
+                while let Ok(n) = sock.read(&mut buf) {
+                    if n == 0 {
+                        break;
+                    }
+                    let text = String::from_utf8_lossy(&buf[..n]).to_string();
+                    for line in text.lines() {
+                        let Some(tag) = line.split_whitespace().next() else {
+                            continue;
+                        };
+                        let _ = sock.write_all(
+                            format!("{tag} NO [LIMIT] Too many simultaneous connections\r\n")
+                                .as_bytes(),
+                        );
+                    }
+                }
+            }
+        });
+        port
+    }
+
+    #[test]
+    fn the_wait_the_server_asked_for_survives_as_far_as_the_loop() {
+        let (store, _dir) = configured(serve_throttling(), caps());
+        let secrets = MapSecrets::default();
+        with_password(&secrets, "the-right-password");
+
+        let ran =
+            sync::run_with(store, Arc::new(secrets), &OAuthRegistry::default(), now()).unwrap();
+
+        assert!(
+            !ran.rejected,
+            "being asked to slow down is not a bad password: {}",
+            ran.text
+        );
+        let hold = ran.hold.expect("the server named a wait; nothing kept it");
+        assert!(
+            hold >= std::time::Duration::from_secs(3600),
+            "an hour is the floor when the server gives no hint, got {hold:?}"
+        );
+    }
+
+    #[test]
+    fn and_the_loop_waits_that_long_rather_than_the_usual_five_minutes() {
+        let interval = std::time::Duration::from_secs(300);
+        let hold = std::time::Duration::from_secs(3600);
+        match view::next_sync(view::Passed::Throttled { wait: hold }, 1, interval) {
+            view::NextSync::After(next) => assert!(
+                next >= hold,
+                "the client would knock again in {next:?}, after being asked for {hold:?}"
+            ),
+            other => panic!("a rate limit is not something to give up over: {other:?}"),
         }
     }
 }

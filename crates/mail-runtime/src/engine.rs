@@ -50,6 +50,33 @@ pub struct SyncReport {
     /// failed logins a day against the user's own mail server, which is how an account gets
     /// locked. A poll loop must stop on this and wait for the user, not back off and continue.
     pub needs_reauth: bool,
+    /// The longest wait a server asked for during this pass, where one asked.
+    ///
+    /// A rate limit is the one refusal whose entire remedy is doing nothing, and hammering
+    /// through it lengthens the lockout — so the number the server named (or the hour
+    /// `Retry::After` supplies when it names none) has to outlive the pass that saw it. Kept
+    /// apart from `needs_reauth` because they call for opposite things: stop and ask the user,
+    /// versus come back later unaided.
+    pub hold: Option<std::time::Duration>,
+}
+
+impl SyncReport {
+    /// Fold one operation's verdict into the pass.
+    ///
+    /// The two facts a caller has to *act* on, gathered in one place so the several sites that
+    /// see a `Retry` cannot disagree about which ones matter. `Retry::Now` and `Retry::Fatal`
+    /// are decided within the pass — reconnect, or give up on that operation — and leave nothing
+    /// for the caller to schedule.
+    pub fn saw(&mut self, retry: &Retry) {
+        match retry {
+            Retry::NeedsReauth => self.needs_reauth = true,
+            // The longest wait anyone asked for. Ordinary backoffs land here too, at a minute or
+            // so, and are absorbed by the caller's own interval; a rate limit is an hour and is
+            // not. Both mean the same thing to a scheduler, so neither needs a special case.
+            Retry::After(wait) => self.hold = Some(self.hold.map_or(*wait, |had| had.max(*wait))),
+            Retry::Now | Retry::Fatal(_) => {}
+        }
+    }
 }
 
 /// How often each part of a sync runs.
@@ -307,7 +334,7 @@ impl<B: Backend> AccountEngine<B> {
                     if matches!(retry, Retry::NeedsReauth | Retry::Fatal(_)) {
                         report.needs_attention.push(e.to_string());
                     }
-                    report.needs_reauth |= matches!(retry, Retry::NeedsReauth);
+                    report.saw(&retry);
                     if let Some(draft) = draft {
                         // Carries the retry, so the composer can say "retrying" rather than
                         // "failed" for something the outbox has not given up on.

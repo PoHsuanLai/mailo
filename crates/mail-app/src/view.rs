@@ -1433,6 +1433,12 @@ pub enum Passed {
     Transient,
     /// The server rejected the credential. Trying again cannot help and *costs* something.
     Rejected,
+    /// The server asked to be left alone for a while, and named how long.
+    ///
+    /// Distinct from `Transient` because the wait is not ours to choose: doubling our own
+    /// interval could still knock long before the server said to, and a rate limit is the one
+    /// refusal where knocking early lengthens the lockout.
+    Throttled { wait: std::time::Duration },
 }
 
 /// When a background sync should run again.
@@ -1458,6 +1464,10 @@ const BACKOFF_CEILING: std::time::Duration = std::time::Duration::from_secs(30 *
 /// account gets locked, and the reason every experiment in this project has been run against a
 /// fixture rather than against NTU. A loop must stop and say so, not back off and continue.
 ///
+/// `Throttled` is the other rule with a cost. The server named a wait, so that wait is honoured in
+/// full — [`BACKOFF_CEILING`] deliberately does not apply, since Gmail's limits are measured in
+/// hours and capping at half an hour would turn "wait an hour" into knocking twice inside it.
+///
 /// Everything else doubles from the interval and stops at [`BACKOFF_CEILING`], so a server that
 /// is down is asked less and less rather than steadily.
 pub fn next_sync(
@@ -1467,6 +1477,9 @@ pub fn next_sync(
 ) -> NextSync {
     match passed {
         Passed::Fine => NextSync::After(interval),
+        // At least the interval: a sixty-second ordinary backoff must not poll faster than the
+        // loop normally would.
+        Passed::Throttled { wait } => NextSync::After(wait.max(interval)),
         Passed::Rejected => NextSync::Wait(
             "the server rejected the sign-in. Nothing will be fetched until it is fixed: \
              re-run `mailo account add` for this address."

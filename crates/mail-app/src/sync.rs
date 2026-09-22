@@ -80,6 +80,8 @@ pub struct Ran {
     /// Some account's credential was rejected. A poll loop must stop on this rather than back
     /// off: see `view::next_sync`.
     pub rejected: bool,
+    /// The longest wait any server asked for. A poll loop must not knock again before it.
+    pub hold: Option<std::time::Duration>,
 }
 
 /// How often a background sync should run, from the accounts' own capabilities.
@@ -132,6 +134,7 @@ pub fn run_with(
         return Ok(Ran {
             text: "no accounts. Add one with: mailo account add <address>\n".to_owned(),
             rejected: false,
+            hold: None,
         });
     }
 
@@ -142,10 +145,14 @@ pub fn run_with(
 
     let mut out = String::new();
     let mut rejected = false;
+    let mut hold: Option<std::time::Duration> = None;
     for account in accounts {
         match runtime.block_on(one(&store, &account, secrets.clone(), registry, now)) {
             Ok(report) => {
                 rejected |= report.needs_reauth;
+                if let Some(asked) = report.hold {
+                    hold = Some(hold.map_or(asked, |had: std::time::Duration| had.max(asked)));
+                }
                 let _ = writeln!(
                     out,
                     "{}: {} headers, {} bodies, {} queued operations settled, {} sent",
@@ -182,6 +189,7 @@ pub fn run_with(
     Ok(Ran {
         text: out,
         rejected,
+        hold,
     })
 }
 
@@ -362,7 +370,7 @@ async fn pass<B: mail_proto::Backend>(
             Err(e) => {
                 // Classified while the error is still typed. By the time it reaches the user it
                 // is prose, and prose is not something a loop can safely decide on.
-                report.needs_reauth |= matches!(e.retry(), mail_domain::Retry::NeedsReauth);
+                report.saw(&e.retry());
                 report
                     .needs_attention
                     .push(format!("{}: {e}", mailbox.path));
@@ -380,7 +388,7 @@ async fn pass<B: mail_proto::Backend>(
                 report.needs_attention.extend(bodies.needs_attention);
             }
             Err(e) => {
-                report.needs_reauth |= matches!(e.retry(), mail_domain::Retry::NeedsReauth);
+                report.saw(&e.retry());
                 report
                     .needs_attention
                     .push(format!("{}: {e}", mailbox.path));

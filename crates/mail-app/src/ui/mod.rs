@@ -300,15 +300,22 @@ fn App() -> Element {
                 tokio::task::spawn_blocking(move || crate::sync::run(store, chrono::Utc::now()))
                     .await;
 
+            // Order matters: a pass can both be refused and be told to slow down, and only one
+            // of the two is worth stopping the loop for.
             let passed = match &done {
                 Ok(Ok(ran)) if ran.rejected => crate::view::Passed::Rejected,
-                Ok(Ok(_)) => crate::view::Passed::Fine,
+                Ok(Ok(ran)) => match ran.hold {
+                    Some(wait) => crate::view::Passed::Throttled { wait },
+                    None => crate::view::Passed::Fine,
+                },
                 // A pass that could not run at all, and a task that panicked, are both worth
                 // trying again: a laptop lid is the usual cause of the first.
                 Ok(Err(_)) | Err(_) => crate::view::Passed::Transient,
             };
             failures = match passed {
-                crate::view::Passed::Fine => 0,
+                // Being asked to wait is not a failure, and counting it as one would double a
+                // wait the server had already named.
+                crate::view::Passed::Fine | crate::view::Passed::Throttled { .. } => 0,
                 _ => failures.saturating_add(1),
             };
             sync_state.set(match done {
