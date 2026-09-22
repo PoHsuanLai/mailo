@@ -2034,3 +2034,37 @@ for. The spawned-future finding is *not* in that category — it stands on print
 It also means the Sync button, which spawns from a click handler, is worth a look by someone who
 can watch the window. Spawning from an event handler is a different path from spawning during a
 render and may well be fine; this could not settle it.
+
+### F104 — The last inch of F103, closed: events can be dispatched in a test
+
+F103 left two things open, both because the only instrument was pressing keys at a window under a
+compositor that would not say where the focus was. Neither needed a window.
+
+`VirtualDom::handle_event` delivers an event to the running component tree. It needs two things a
+renderer normally provides: a `PlatformEventData` wrapper, and a global `HtmlEventConverter` to
+turn that back into the typed data the handler expects — without the converter every dispatch
+panics on a failed downcast, which is what it did first. Twenty stub methods and one real one is
+the whole of it. `bubbling: true` means the event climbs to the handler on the root exactly as it
+does in a browser, so the test does not need to know which element it started from — only that it
+started inside the shell, which ids 1 and 2 are not.
+
+**The Sync button is fine.** A task spawned from an event handler does run; it is only a task
+spawned from a *component body* that never starts. The distinction is now a test of its own,
+`a_task_spawned_from_an_event_handler_does_run`, against a component that exists to ask nothing
+else. That closes the question F103 had to leave open, and the answer is that nothing is wrong.
+
+**The keyboard reaches the store.** `a_keystroke_reaches_the_store` presses `j` then `e` on the
+real `App` over a real database and asserts the inbox is one conversation shorter. Removing the
+`onkeydown` attribute makes it fail. `a_letter_typed_into_a_reply_is_not_a_shortcut` presses `j`,
+`r`, `e` and asserts nothing was archived; dropping `composing.is_some()` from the `typing` guard
+makes it fail with "an \"e\" typed into a reply archived the conversation behind it", which is
+exactly the sentence the guard exists to prevent becoming true.
+
+That second test was vacuous when first written — it asserted `drafts > 0` after `r`, and
+`realistic()` seeds a draft of its own, so it was true whatever `r` did. It now counts drafts
+across the keystroke. The same mistake as the four in CONVENTIONS §"Substrings are not tokens",
+in a new place: an assertion about a *quantity* that was already satisfied before the action.
+
+What remains unverified about the keyboard is now only what happens between a physical key and
+the WebView — the layer F103's experiment could not address either. Everything from the event
+reaching the document down to the row leaving the inbox is tested.

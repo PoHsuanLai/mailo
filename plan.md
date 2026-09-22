@@ -1109,10 +1109,13 @@ the attribution line quoted into outgoing replies — was invisible to forty-thr
 obvious within one minute of reading `mailo list` on a machine in `+0800`. F99, a `reply` that
 offered a `send` no command could make work, came from the next minute.
 
-The shell now has a keyboard (F103) — j/k to move, Enter-free opening, e to archive, s and u to
-toggle, r and a to reply, Escape to close — with the decisions tested and the last inch, whether
-a key press in the running window reaches them, still unverified. That inch, and the Sync
-button's spawned task, are two concrete things a day of real use would settle in a minute.
+The shell now has a keyboard (F103) — j/k to move, e to archive, s and u to toggle, r and a to
+reply, Escape to close — and F104 closed the part F103 could not verify: `VirtualDom::handle_event`
+delivers a key press to the real component tree over a real database, so `j` then `e` is asserted
+to leave the inbox one conversation shorter, and `j`, `r`, `e` is asserted to archive nothing.
+The same mechanism settled the other open question: a task spawned from an event handler does
+run, so the Sync button was never broken; it is only a task spawned from a component body that
+never starts.
 
 Looking at the window turned out to be possible after all, and F100 is what it found: subjects
 truncated to twenty characters beside an empty reader, `Sep 22` on mail that arrived an hour ago,

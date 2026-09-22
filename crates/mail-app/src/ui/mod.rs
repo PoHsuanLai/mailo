@@ -1088,6 +1088,288 @@ mod render_tests {
         assert!(!markup.contains("No account yet"), "{markup}");
     }
 
+    /// A keyboard event that can be handed to `VirtualDom::handle_event`.
+    ///
+    /// Written by hand rather than through `SerializedKeyboardData`, which is behind a feature
+    /// flag: six trivial methods is a smaller dependency than a feature.
+    #[derive(Debug, Clone)]
+    struct FakeKey(&'static str);
+
+    impl dioxus::html::point_interaction::ModifiersInteraction for FakeKey {
+        fn modifiers(&self) -> dioxus::html::input_data::keyboard_types::Modifiers {
+            dioxus::html::input_data::keyboard_types::Modifiers::empty()
+        }
+    }
+
+    impl dioxus::html::HasKeyboardData for FakeKey {
+        fn key(&self) -> dioxus::html::input_data::keyboard_types::Key {
+            self.0
+                .parse()
+                .unwrap_or(dioxus::html::input_data::keyboard_types::Key::Character(
+                    self.0.to_owned(),
+                ))
+        }
+        fn code(&self) -> dioxus::html::input_data::keyboard_types::Code {
+            dioxus::html::input_data::keyboard_types::Code::Unidentified
+        }
+        fn location(&self) -> dioxus::html::input_data::keyboard_types::Location {
+            dioxus::html::input_data::keyboard_types::Location::Standard
+        }
+        fn is_auto_repeating(&self) -> bool {
+            false
+        }
+        fn is_composing(&self) -> bool {
+            false
+        }
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+    }
+
+    /// The renderer's job, done by the tests instead.
+    ///
+    /// `handle_event` hands a listener a `PlatformEventData` and a global converter turns it
+    /// into the typed data the handler expects. A renderer installs one; a test has no renderer,
+    /// so without this every dispatched event panics on a failed downcast. Only keyboard events
+    /// are converted, because those are the only ones these tests send.
+    struct TestEvents;
+
+    impl dioxus::html::HtmlEventConverter for TestEvents {
+        fn convert_keyboard_data(&self, event: &PlatformEventData) -> dioxus::html::KeyboardData {
+            dioxus::html::KeyboardData::new(
+                event
+                    .downcast::<FakeKey>()
+                    .cloned()
+                    .expect("these tests only dispatch FakeKey"),
+            )
+        }
+
+        fn convert_animation_data(&self, _: &PlatformEventData) -> dioxus::html::AnimationData {
+            unimplemented!("convert_animation_data is not what these tests dispatch")
+        }
+        fn convert_cancel_data(&self, _: &PlatformEventData) -> dioxus::html::CancelData {
+            unimplemented!("convert_cancel_data is not what these tests dispatch")
+        }
+        fn convert_clipboard_data(&self, _: &PlatformEventData) -> dioxus::html::ClipboardData {
+            unimplemented!("convert_clipboard_data is not what these tests dispatch")
+        }
+        fn convert_composition_data(&self, _: &PlatformEventData) -> dioxus::html::CompositionData {
+            unimplemented!("convert_composition_data is not what these tests dispatch")
+        }
+        fn convert_drag_data(&self, _: &PlatformEventData) -> dioxus::html::DragData {
+            unimplemented!("convert_drag_data is not what these tests dispatch")
+        }
+        fn convert_focus_data(&self, _: &PlatformEventData) -> dioxus::html::FocusData {
+            unimplemented!("convert_focus_data is not what these tests dispatch")
+        }
+        fn convert_form_data(&self, _: &PlatformEventData) -> dioxus::html::FormData {
+            unimplemented!("convert_form_data is not what these tests dispatch")
+        }
+        fn convert_image_data(&self, _: &PlatformEventData) -> dioxus::html::ImageData {
+            unimplemented!("convert_image_data is not what these tests dispatch")
+        }
+        fn convert_media_data(&self, _: &PlatformEventData) -> dioxus::html::MediaData {
+            unimplemented!("convert_media_data is not what these tests dispatch")
+        }
+        fn convert_mounted_data(&self, _: &PlatformEventData) -> dioxus::html::MountedData {
+            unimplemented!("convert_mounted_data is not what these tests dispatch")
+        }
+        fn convert_mouse_data(&self, _: &PlatformEventData) -> dioxus::html::MouseData {
+            unimplemented!("convert_mouse_data is not what these tests dispatch")
+        }
+        fn convert_pointer_data(&self, _: &PlatformEventData) -> dioxus::html::PointerData {
+            unimplemented!("convert_pointer_data is not what these tests dispatch")
+        }
+        fn convert_resize_data(&self, _: &PlatformEventData) -> dioxus::html::ResizeData {
+            unimplemented!("convert_resize_data is not what these tests dispatch")
+        }
+        fn convert_scroll_data(&self, _: &PlatformEventData) -> dioxus::html::ScrollData {
+            unimplemented!("convert_scroll_data is not what these tests dispatch")
+        }
+        fn convert_selection_data(&self, _: &PlatformEventData) -> dioxus::html::SelectionData {
+            unimplemented!("convert_selection_data is not what these tests dispatch")
+        }
+        fn convert_toggle_data(&self, _: &PlatformEventData) -> dioxus::html::ToggleData {
+            unimplemented!("convert_toggle_data is not what these tests dispatch")
+        }
+        fn convert_touch_data(&self, _: &PlatformEventData) -> dioxus::html::TouchData {
+            unimplemented!("convert_touch_data is not what these tests dispatch")
+        }
+        fn convert_transition_data(&self, _: &PlatformEventData) -> dioxus::html::TransitionData {
+            unimplemented!("convert_transition_data is not what these tests dispatch")
+        }
+        fn convert_visible_data(&self, _: &PlatformEventData) -> dioxus::html::VisibleData {
+            unimplemented!("convert_visible_data is not what these tests dispatch")
+        }
+        fn convert_wheel_data(&self, _: &PlatformEventData) -> dioxus::html::WheelData {
+            unimplemented!("convert_wheel_data is not what these tests dispatch")
+        }
+    }
+
+    /// Install the converter once for the whole test binary.
+    fn dispatching() {
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        ONCE.call_once(|| {
+            dioxus::html::set_event_converter(Box::new(TestEvents));
+        });
+    }
+
+    /// Whether a task spawned from inside an event handler ever runs.
+    ///
+    /// F103 established that a future spawned from a *component body* is never polled here, and
+    /// left the other half open: the Sync button spawns from a click handler, which is a
+    /// different path. Left open it is a question about whether the one button that fetches mail
+    /// works at all, so it is worth a component that exists only to ask it.
+    static SPAWN_RAN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+    #[component]
+    fn SpawnProbe() -> Element {
+        rsx! {
+            div {
+                onkeydown: move |_| {
+                    spawn(async {
+                        SPAWN_RAN.store(true, std::sync::atomic::Ordering::SeqCst);
+                    });
+                },
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn a_task_spawned_from_an_event_handler_does_run() {
+        use dioxus_core::ElementId;
+
+        dispatching();
+        SPAWN_RAN.store(false, std::sync::atomic::Ordering::SeqCst);
+        let mut dom = VirtualDom::new(SpawnProbe);
+        dom.rebuild_in_place();
+        #[allow(deprecated)]
+        dom.handle_event(
+            "keydown",
+            std::rc::Rc::new(PlatformEventData::new(Box::new(FakeKey("j")))),
+            ElementId(1),
+            true,
+        );
+        // One turn of the loop, which is what a spawned task needs to be picked up.
+        tokio::time::timeout(std::time::Duration::from_millis(500), dom.wait_for_work())
+            .await
+            .ok();
+        dom.render_immediate(&mut NoOpMutations);
+
+        assert!(
+            SPAWN_RAN.load(std::sync::atomic::Ordering::SeqCst),
+            "a task spawned from a click handler never ran — which is how the Sync button works"
+        );
+    }
+
+    /// Press a key on the running component tree.
+    ///
+    /// `bubbling: true`, so it does not matter which element inside the shell receives it — the
+    /// handler is on the root and the event climbs to it, exactly as it does in a browser.
+    fn press(dom: &mut VirtualDom, key: &'static str, element: u32) {
+        #[allow(deprecated)]
+        dom.handle_event(
+            "keydown",
+            std::rc::Rc::new(PlatformEventData::new(Box::new(FakeKey(key)))),
+            dioxus_core::ElementId(element as usize),
+            true,
+        );
+        dom.render_immediate(&mut NoOpMutations);
+    }
+
+    /// An element inside the shell, to deliver key presses to.
+    ///
+    /// The exact id does not matter — `bubbling: true` means the event climbs to the handler on
+    /// the root, as it does in a browser — but it has to be *inside*: ids 1 and 2 are the
+    /// stylesheet and the root's own placeholder, and an event dispatched there reaches nothing.
+    /// Found by dispatching to each id in turn and watching which ones moved the database.
+    const INSIDE_THE_SHELL: u32 = 3;
+
+    #[tokio::test]
+    async fn a_keystroke_reaches_the_store() {
+        // The half of F103 that could not be checked by pressing keys at the window: whether a
+        // keydown delivered to the shell reaches the handler, the decision, and the database.
+        // `j` opens the first conversation and `e` archives it.
+        dispatching();
+        let (store, _dir) = realistic();
+        let mut dom = VirtualDom::new(App).with_root_context(store.clone());
+        dom.rebuild_in_place();
+
+        let before = store
+            .threads(&inbox_query(), chrono::Utc::now())
+            .unwrap()
+            .items
+            .len();
+        assert!(before > 1, "the fixture should have something to move");
+
+        press(&mut dom, "j", INSIDE_THE_SHELL);
+        press(&mut dom, "e", INSIDE_THE_SHELL);
+
+        let after = store
+            .threads(&inbox_query(), chrono::Utc::now())
+            .unwrap()
+            .items
+            .len();
+        assert_eq!(
+            after,
+            before - 1,
+            "a keystroke did not reach the store: {before} conversations before, {after} after"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_letter_typed_into_a_reply_is_not_a_shortcut() {
+        // The failure the whole `typing` guard exists for, through the real tree rather than
+        // only against the pure function: open a conversation, start a reply, and then "e" is a
+        // letter someone is writing rather than Archive.
+        dispatching();
+        let (store, _dir) = realistic();
+        let mut dom = VirtualDom::new(App).with_root_context(store.clone());
+        dom.rebuild_in_place();
+
+        let drafts_before = store.drafts(ACCOUNT).unwrap().len();
+        press(&mut dom, "j", INSIDE_THE_SHELL);
+        press(&mut dom, "r", INSIDE_THE_SHELL);
+        // Counted across the keystroke, not merely "more than none": `realistic()` seeds a
+        // draft of its own, so `drafts > 0` would have been true whatever `r` did.
+        assert_eq!(
+            store.drafts(ACCOUNT).unwrap().len(),
+            drafts_before + 1,
+            "`r` did not open a reply, so the rest of this proves nothing"
+        );
+
+        let before = store
+            .threads(&inbox_query(), chrono::Utc::now())
+            .unwrap()
+            .items
+            .len();
+        press(&mut dom, "e", INSIDE_THE_SHELL);
+
+        assert_eq!(
+            store
+                .threads(&inbox_query(), chrono::Utc::now())
+                .unwrap()
+                .items
+                .len(),
+            before,
+            "an \"e\" typed into a reply archived the conversation behind it"
+        );
+    }
+
+    fn inbox_query() -> Query {
+        Query {
+            filter: Filter::InMailbox(MailboxRole::Inbox),
+            sort: Sort {
+                property: Property::Date,
+                dir: SortDir::Desc,
+            },
+            page: PageReq {
+                after: None,
+                limit: 50,
+            },
+        }
+    }
+
     #[tokio::test]
     async fn the_root_can_hold_focus_so_the_keyboard_has_somewhere_to_land() {
         // A keydown targets the focused element and bubbles up, so a handler on an element that
