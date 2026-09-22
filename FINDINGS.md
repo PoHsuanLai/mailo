@@ -3084,6 +3084,25 @@ And seeding the label by writing `labels` and `message_labels` by hand looked eq
 and was not: `Filter::HasLabel` reads `thread_summary.labels`, a materialized union that only the
 ingest path rewrites, so the rows were there and no search could see them.
 
-The window was launched to look at it directly, per *Run it the way its user would*. It starts,
-initialises its WebView and creates its store; the screen was locked, so the shell itself was not
-seen this round, and unlocking someone's session is not mine to do.
+**Then it was run the way its user runs it, which is the part I first got wrong.** The window
+was launched, the screen was locked, and the round ended saying the shell had not been seen. That
+was a claim about my eyes, not about the program: WebKit runs and executes script whether or not
+a compositor is showing the pixels to anyone. `scripts/live-window.sh` now seeds a real store,
+starts the real binary, and has the page type into its own search box and post what the list
+contained:
+
+```
+{"stage": "mounted",                  "subjects": ["flight to taipei", "the invoice"]}
+{"stage": "after label:travel",       "subjects": ["flight to taipei"], "typed": "label:travel"}
+{"stage": "after label:nosuchlabel",  "subjects": []}
+{"stage": "after clearing",           "subjects": ["flight to taipei", "the invoice"]}
+```
+
+Real WebKit, real store, a real `input` event on the real search box. The probe reaches the head
+through `$MAILO_PROBE`, which `cfg(debug_assertions)` keeps out of any release build — a mail
+window that runs script from an environment variable would turn control of the environment into
+reading every message in the store and sending it somewhere, and that is a real step up from what
+setting a variable otherwise buys.
+
+The technique had been rebuilt from scratch three times and thrown away each round. It is a
+script now.

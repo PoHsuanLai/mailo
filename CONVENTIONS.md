@@ -377,6 +377,18 @@ finding is about the wrapper. If it fails there too, you have something.
 The tell is a conclusion drawn entirely from runs that share a flag you added. Ask what the
 command would look like if a user typed it, and type that.
 
+**And "I could not look at it" is usually a claim about your eyes, not about the program.** The
+window was launched once with the screen locked, and the round ended saying the shell had not
+been seen. Seeing it was never what verification needed: WebKit runs and executes script whether
+or not a compositor is showing the pixels to anybody. `scripts/live-window.sh` seeds a real
+store, starts the real binary, and has the page type into its own search box and post what the
+list then contained to a loopback listener — no input tooling, no forced backend, no screen. It
+is one command, and it exists because the technique had been rebuilt from scratch three times.
+
+Reach for it whenever a conclusion is about what the user sees. A component-tree test proves the
+components agree with each other; it does not prove WebKit renders them or that a keystroke
+arrives.
+
 ## An assertion that was already true proves nothing
 
 The same failure as above wearing different clothes. A test asserted `drafts > 0` after a

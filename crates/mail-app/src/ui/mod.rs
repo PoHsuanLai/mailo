@@ -77,6 +77,30 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 </script>"#;
 
+/// Extra markup for the head, from `$MAILO_PROBE`, in debug builds only.
+///
+/// How this application is verified the way its user runs it. The window has no scripting seam
+/// and the desktop has no reliable one — `xdotool` needs `GDK_BACKEND=x11`, which breaks the
+/// WebView's own edit delivery, and that mistake cost three rounds and a retracted finding
+/// (FINDINGS F106/F107). A page that can dispatch its own events and report to a loopback
+/// listener needs neither, and works with the screen locked, which is where the technique earned
+/// its place: it is the difference between "I could not look at it" and knowing.
+///
+/// **Never compiled into a release build.** A mail window that runs script from an environment
+/// variable turns control of the environment into the ability to read every message in the
+/// store and send it somewhere, which is a real step up from what setting a variable otherwise
+/// buys. `cfg(debug_assertions)` is the whole guard: `scripts/live-window.sh` uses the debug
+/// binary, and nothing a user installs has this in it at all.
+#[cfg(debug_assertions)]
+fn probe() -> String {
+    std::env::var("MAILO_PROBE").unwrap_or_default()
+}
+
+#[cfg(not(debug_assertions))]
+fn probe() -> &'static str {
+    ""
+}
+
 /// Launch the shell.
 pub fn run(store: Arc<SqliteStore>) {
     dioxus::LaunchBuilder::desktop()
@@ -89,9 +113,10 @@ pub fn run(store: Arc<SqliteStore>) {
                 )
                 .with_menu(None)
                 .with_custom_head(format!(
-                    "<script>window.__mailo_nothing_mounted = {};</script>{KEEP_FOCUS}",
+                    "<script>window.__mailo_nothing_mounted = {};</script>{KEEP_FOCUS}{}",
                     serde_json::to_string(NOTHING_MOUNTED)
-                        .unwrap_or_else(|_| "\"The interface did not start.\"".to_owned())
+                        .unwrap_or_else(|_| "\"The interface did not start.\"".to_owned()),
+                    probe()
                 )),
         )
         .with_context(store)
