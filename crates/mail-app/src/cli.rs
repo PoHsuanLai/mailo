@@ -90,6 +90,8 @@ pub enum Command {
     Detach { draft: DraftId, index: usize },
     /// What a draft is carrying.
     Attached { draft: DraftId },
+    /// Keep fetching until stopped.
+    Watch,
     /// A message that answers nothing. `from` names the sending account when there is a choice.
     Compose {
         from: Option<String>,
@@ -218,6 +220,7 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                 body: String::new(),
             })
         }
+        "watch" => Ok(Command::Watch),
         "attach" => {
             let raw = args
                 .get(1)
@@ -560,6 +563,8 @@ usage: mailo <command>
   account add <address> --microsoft
                              a work or school Microsoft 365 mailbox on its own domain
   sync                       fetch mail and send anything queued
+  watch                      keep fetching until stopped; uses IDLE where the
+                             server offers it, and polls where it does not
 "
     .to_owned()
 }
@@ -644,6 +649,7 @@ pub fn run(store: &SqliteStore, command: &Command, now: DateTime<Utc>) -> Result
         // Dispatched in main: it needs an async runtime and the store by Arc, which would make
         // this function untestable without one.
         Command::Sync => Err("sync is dispatched before this point".to_owned()),
+        Command::Watch => Err("watch is dispatched before this point".to_owned()),
         Command::Reply {
             message,
             scope,

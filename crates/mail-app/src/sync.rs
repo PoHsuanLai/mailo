@@ -14,11 +14,11 @@ use std::sync::Arc;
 use tokio::sync::watch;
 
 /// Everything stored about one account.
-struct Configured {
-    id: AccountId,
-    address: String,
-    plan: AccountPlan,
-    caps: AccountCaps,
+pub(crate) struct Configured {
+    pub(crate) id: AccountId,
+    pub(crate) address: String,
+    pub(crate) plan: AccountPlan,
+    pub(crate) caps: AccountCaps,
 }
 
 /// What the server was last observed to support, for one account.
@@ -136,6 +136,17 @@ pub fn poll_interval(store: &SqliteStore) -> std::time::Duration {
         .unwrap_or(default)
 }
 
+/// Keep syncing until the process is stopped — `mailo watch`, and `plan.md` phase 8g.
+///
+/// Where `AccountEngine::watch` finally has a caller outside a test. IDLE is a connection held
+/// open for as long as the server allows, so it needs a process whose job is to stay open; the
+/// window was meant to be that and F140 says it is not, so this is.
+#[allow(dead_code)] // Called from `main`, which the test binaries do not include.
+pub fn watch(store: Arc<SqliteStore>, now: chrono::DateTime<chrono::Utc>) -> Result<Ran, String> {
+    let registry = OAuthRegistry::load_default().map_err(|e| e.to_string())?;
+    run_all(store, Arc::new(KeyringSecrets), &registry, now, Mode::Watch)
+}
+
 pub fn run(store: Arc<SqliteStore>, now: chrono::DateTime<chrono::Utc>) -> Result<Ran, String> {
     // The registry is read once per run rather than once per account: it is deployment
     // configuration, and an edit halfway through a run producing two different client ids is
@@ -159,6 +170,17 @@ pub fn run_with(
     secrets: Arc<dyn Secrets>,
     registry: &OAuthRegistry,
     now: chrono::DateTime<chrono::Utc>,
+) -> Result<Ran, String> {
+    run_all(store, secrets, registry, now, Mode::Once)
+}
+
+/// The same, told whether to stop after one pass.
+fn run_all(
+    store: Arc<SqliteStore>,
+    secrets: Arc<dyn Secrets>,
+    registry: &OAuthRegistry,
+    now: chrono::DateTime<chrono::Utc>,
+    mode: Mode,
 ) -> Result<Ran, String> {
     let accounts = configured(&store)?;
     if accounts.is_empty() {
@@ -190,11 +212,10 @@ pub fn run_with(
     // Nothing here needs a rate limiter. Throttling is a within-account question — one server,
     // several connections — and this is one connection each to servers that have never heard of
     // each other.
-    let reports = runtime.block_on(futures_util::future::join_all(
-        accounts
-            .iter()
-            .map(|account| one(&store, account, secrets.clone(), registry, now)),
-    ));
+    let reports =
+        runtime.block_on(futures_util::future::join_all(accounts.iter().map(
+            |account| one(&store, account, secrets.clone(), registry, now, mode),
+        )));
 
     let mut out = String::new();
     let mut rejected = false;
@@ -209,33 +230,7 @@ pub fn run_with(
                 if let Some(asked) = report.hold {
                     hold = Some(hold.map_or(asked, |had: std::time::Duration| had.max(asked)));
                 }
-                let _ = writeln!(
-                    out,
-                    "{}: {} headers, {} bodies, {} queued operations settled, {} sent",
-                    account.address,
-                    report.headers_fetched,
-                    report.bodies_fetched,
-                    report.outbox_settled,
-                    report.submitted
-                );
-                // Said plainly, because the alternative is what this used to do: someone runs
-                // `send` and then `sync`, reads "0 sent", and has no reason to think their mail
-                // is still sitting here. It is not an error — it will be retried — but silence
-                // reads as success.
-                if report.still_queued > 0 {
-                    let _ = writeln!(
-                        out,
-                        "  {} still queued; run sync again to retry, or `mailo drafts` to see why",
-                        report.still_queued
-                    );
-                }
-                for note in report.needs_attention {
-                    let _ = writeln!(out, "  needs attention: {note}");
-                    // The server's words stay; this adds what they mean, where we know.
-                    if let Some(why) = mail_proto::explain_text(&note) {
-                        let _ = writeln!(out, "    → {why}");
-                    }
-                }
+                out.push_str(&one_line(&account.address, &report, now));
             }
             Err(why) => {
                 let _ = writeln!(out, "{}: {why}", account.address);
@@ -297,6 +292,7 @@ async fn one(
     secrets: Arc<dyn Secrets>,
     registry: &OAuthRegistry,
     now: chrono::DateTime<chrono::Utc>,
+    mode: Mode,
 ) -> Result<SyncReport, String> {
     let stored = secrets
         .get(&SecretKey {
@@ -339,7 +335,7 @@ async fn one(
                 store.clone(),
                 secrets,
             );
-            pass(&mut engine, &mailboxes, &mut cancel, now).await
+            drive(&mut engine, account, &mailboxes, &mut cancel, now, mode).await
         }
         Incoming::Imap { .. } => {
             // Password *and* bearer token. Only Gmail needs OAuth; every other IMAP server this
@@ -375,7 +371,127 @@ async fn one(
                 store.clone(),
                 secrets,
             );
-            pass(&mut engine, &mailboxes, &mut cancel, now).await
+            drive(&mut engine, account, &mailboxes, &mut cancel, now, mode).await
+        }
+    }
+}
+
+/// What one account's pass did, as the user reads it.
+///
+/// Shared by `sync` and `watch` rather than written twice: a watch that reported a pass
+/// differently from the command that runs one pass would be two vocabularies for one event.
+fn one_line(address: &str, report: &SyncReport, now: chrono::DateTime<chrono::Utc>) -> String {
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "{address}: {} headers, {} bodies, {} queued operations settled, {} sent",
+        report.headers_fetched, report.bodies_fetched, report.outbox_settled, report.submitted
+    );
+    // Said plainly, because the alternative is what this used to do: someone runs `send` and
+    // then `sync`, reads "0 sent", and has no reason to think their mail is still sitting here.
+    // It is not an error — it will be retried — but silence reads as success.
+    if report.still_queued > 0 {
+        let _ = writeln!(
+            out,
+            "  {} still queued; run sync again to retry, or `mailo drafts` to see why",
+            report.still_queued
+        );
+    }
+    for note in &report.needs_attention {
+        let _ = writeln!(out, "  needs attention: {note}");
+        // The server's words stay; this adds what they mean, where we know.
+        if let Some(why) = mail_proto::explain_text(note) {
+            let _ = writeln!(out, "    → {why}");
+        }
+    }
+    let _ = now;
+    out
+}
+
+/// One pass, or passes until the process is stopped.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Mode {
+    /// `mailo sync`: one pass per account, then return.
+    Once,
+    /// `mailo watch`: keep going, waiting the way each server prefers to be waited on.
+    Watch,
+}
+
+/// How long to wait after a pass that failed, before trying again.
+///
+/// A watch that retried immediately against a server that is down is a client hammering someone
+/// else's machine, and the credential rule from F128 applies here too: a rejected sign-in must
+/// not be retried in a loop. `Retryable` already decides that per error; this is the floor for
+/// everything else.
+const AFTER_A_FAILURE: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Drive one account: a single pass, or a loop that never returns of its own accord.
+///
+/// The loop is where `AccountEngine::watch` finally gets a caller. It has handled IDLE since
+/// phase 3 — and every caller was a test, which F128 found and the window's poll loop was meant
+/// to answer. F140 then established that the window's loop never runs, so this is the first
+/// place IDLE is actually reachable by a user: a process whose whole job is to stay open.
+pub(crate) async fn drive<B: mail_proto::Backend>(
+    engine: &mut AccountEngine<B>,
+    account: &Configured,
+    mailboxes: &[MailboxRef],
+    cancel: &mut mail_runtime::Cancel,
+    now: chrono::DateTime<chrono::Utc>,
+    mode: Mode,
+) -> Result<SyncReport, String> {
+    if mode == Mode::Once {
+        return pass(engine, mailboxes, cancel, now).await;
+    }
+
+    let poll_every = match account.caps.watch {
+        WatchMode::Poll { every } => every,
+        // An IDLE account still needs a floor: `watch` returns as soon as the server says
+        // anything, and a mailbox that is busy would otherwise pass in a tight loop.
+        WatchMode::Idle => std::time::Duration::from_secs(30),
+    };
+    let inbox = mailboxes
+        .first()
+        .cloned()
+        .ok_or_else(|| "nothing to watch".to_owned())?;
+
+    loop {
+        let at = chrono::Utc::now();
+        let report = pass(engine, mailboxes, cancel, at).await;
+        match &report {
+            Ok(done) => {
+                print!("{}", one_line(&account.address, done, at));
+                use std::io::Write as _;
+                let _ = std::io::stdout().flush();
+                // The rule F128 built its loop on, and the reason this one is not a bare sleep:
+                // a credential the server has already refused must stop the loop rather than
+                // slow it. Sixty seconds of wrong passwords is still a locked account by
+                // morning.
+                if done.needs_reauth {
+                    return report;
+                }
+                if let Some(wait) = done.hold {
+                    // The server asked. Honour it before doing anything else (F130).
+                    tokio::time::sleep(wait).await;
+                    continue;
+                }
+            }
+            Err(why) => {
+                println!("{}: {why}", account.address);
+                tokio::time::sleep(AFTER_A_FAILURE).await;
+                continue;
+            }
+        }
+
+        // Then wait the way this server prefers. `watch` answers `false` at once when the
+        // account has no push, which is what makes the sleep below the whole of the waiting for
+        // a POP3 account and a safety floor for an IMAP one.
+        match engine.watch(&inbox, cancel).await {
+            Ok(true) => continue,
+            Ok(false) => tokio::time::sleep(poll_every).await,
+            Err(e) => {
+                println!("{}: {e}", account.address);
+                tokio::time::sleep(AFTER_A_FAILURE).await;
+            }
         }
     }
 }

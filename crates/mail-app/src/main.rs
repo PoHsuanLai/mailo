@@ -129,6 +129,24 @@ fn main() {
         }
         return;
     }
+    // `watch` is `sync` that does not stop. It prints as it goes rather than at the end, because
+    // "at the end" is when the user presses Ctrl-C.
+    if matches!(command, Some(cli::Command::Watch)) {
+        println!("watching. Ctrl-C to stop.");
+        match sync::watch(store, chrono::Utc::now()) {
+            // Only reached when every account has stopped for a reason worth stopping for — a
+            // credential the server refused, which no amount of retrying fixes.
+            Ok(ran) => {
+                print!("{}", ran.text);
+                eprintln!("stopped watching; nothing left to watch");
+                std::process::exit(1);
+            }
+            Err(message) => {
+                eprintln!("{message}");
+                std::process::exit(1);
+            }
+        }
+    }
 
     match command {
         Some(command) => match cli::run(&store, &command, chrono::Utc::now()) {

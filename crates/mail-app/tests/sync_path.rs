@@ -1084,3 +1084,210 @@ mod both_accounts_at_once {
         );
     }
 }
+
+/// `mailo watch`, and the first caller `AccountEngine::watch` has ever had — `plan.md` 8g.
+///
+/// IDLE has worked at the engine level since phase 3 and is covered against a real server in
+/// `mail-runtime/tests/imap_end_to_end.rs`: it parks, it wakes, it cancels. What it never had was
+/// somebody to call it. F128 found that and answered it with the window's poll loop; F140 then
+/// established that the poll loop never runs, so a long-lived *command* is where IDLE first
+/// becomes something a user can actually have.
+///
+/// The backend here is a stub rather than a server. What is being asserted is not that IDLE works
+/// — that is tested where the protocol is — but that the loop asks for it, which is the part that
+/// was missing.
+mod watching {
+    use super::*;
+    use crate::sync::Configured;
+    use mail_proto::{Backend, IoReady, Progress, ProtoOutcome};
+    use std::sync::{Arc as StdArc, Mutex as StdMutex};
+
+    /// Every op the loop asked for.
+    type Asked = StdArc<StdMutex<Vec<String>>>;
+
+    struct Stub {
+        caps: AccountCaps,
+        asked: Asked,
+    }
+
+    impl Backend for Stub {
+        fn begin(&mut self, op: ProtoOp) -> Progress<ProtoOutcome> {
+            let name = match &op {
+                ProtoOp::Watch { .. } => "watch",
+                ProtoOp::FetchCaps => "caps",
+                ProtoOp::ListFolders => "folders",
+                ProtoOp::FetchEnvelopes { .. } => "envelopes",
+                ProtoOp::FetchHeaders { .. } => "headers",
+                ProtoOp::FetchBody { .. } => "body",
+                _ => "other",
+            };
+            self.asked.lock().unwrap().push(name.to_owned());
+            Progress::Done(match op {
+                // What a server says when IDLE reports something. Returning `Woken` rather than
+                // parking keeps the test a test: the parking is covered against a real server.
+                ProtoOp::Watch { .. } => ProtoOutcome::Woken,
+                ProtoOp::FetchCaps => ProtoOutcome::Caps(Box::new(self.caps.clone())),
+                ProtoOp::FetchEnvelopes { mailbox, .. } => {
+                    ProtoOutcome::Ingested(Box::new(Ingest {
+                        mailbox,
+                        validity: UidValidity::Same,
+                        cursor: None,
+                        messages: Vec::new(),
+                        flags: Vec::new(),
+                        labels: Vec::new(),
+                        label_names: Vec::new(),
+                        gone: Vec::new(),
+                    }))
+                }
+                ProtoOp::FetchHeaders { .. } | ProtoOp::FetchBody { .. } => ProtoOutcome::Fetched {
+                    items: Vec::new(),
+                    flags: Vec::new(),
+                },
+                _ => ProtoOutcome::Applied,
+            })
+        }
+
+        fn feed(&mut self, _: IoReady) -> Progress<ProtoOutcome> {
+            // Never reached: every `begin` above is already `Done`, so the runtime asks for no
+            // I/O at all and this backend never touches a socket.
+            Progress::Done(ProtoOutcome::Applied)
+        }
+
+        fn caps(&self) -> &AccountCaps {
+            &self.caps
+        }
+    }
+
+    /// A port that accepts and then says nothing.
+    ///
+    /// `pass` opens a connection before it asks the backend anything — deliberately, so an
+    /// unreachable server is reported once rather than three times — so even a backend that
+    /// needs no I/O needs somewhere to connect. Nothing is ever read from or written to it: the
+    /// stub answers every op as `Done`.
+    fn somewhere_to_connect() -> u16 {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            let mut held = Vec::new();
+            for sock in listener.incoming() {
+                match sock {
+                    Ok(sock) => held.push(sock),
+                    Err(_) => return,
+                }
+            }
+        });
+        port
+    }
+
+    fn account(caps: AccountCaps, port: u16) -> Configured {
+        Configured {
+            id: ACCOUNT,
+            address: "ada@example.test".to_owned(),
+            plan: AccountPlan {
+                address: "ada@example.test".to_owned(),
+                incoming: Incoming::Imap {
+                    host: "127.0.0.1".to_owned(),
+                    port,
+                    tls: Tls::Plaintext,
+                },
+                outgoing: Outgoing::Smtp {
+                    host: "127.0.0.1".to_owned(),
+                    port,
+                    tls: Tls::Plaintext,
+                },
+                auth: AuthPlan::Password {
+                    username: Username::SameAsAddress,
+                    sasl: vec![SaslMech::Plain],
+                },
+                identities: Vec::new(),
+            },
+            caps,
+        }
+    }
+
+    /// Run the watch loop until it has asked for enough, or give up.
+    ///
+    /// It never returns of its own accord — that is what watching is — so the test stops it.
+    async fn until_it_watches(caps: AccountCaps) -> Vec<String> {
+        let port = somewhere_to_connect();
+        let (store, _dir) = configured(port, caps.clone());
+        let asked: Asked = StdArc::new(StdMutex::new(Vec::new()));
+        let backend = Stub {
+            caps: caps.clone(),
+            asked: asked.clone(),
+        };
+        let mut engine = mail_runtime::AccountEngine::new(
+            ACCOUNT,
+            account(caps.clone(), port).plan.clone(),
+            backend,
+            store.clone(),
+            StdArc::new(MapSecrets::default()),
+        );
+        let (_tx, mut cancel) = tokio::sync::watch::channel(false);
+        let inboxes = vec![MailboxRef {
+            account: ACCOUNT,
+            path: "INBOX".to_owned(),
+        }];
+        let account = account(caps, port);
+        let _ = tokio::time::timeout(
+            std::time::Duration::from_millis(500),
+            sync::drive(
+                &mut engine,
+                &account,
+                &inboxes,
+                &mut cancel,
+                now(),
+                sync::Mode::Watch,
+            ),
+        )
+        .await;
+        asked.lock().unwrap().clone()
+    }
+
+    #[tokio::test]
+    async fn a_server_that_offers_idle_is_asked_to_hold_the_line() {
+        let seen = until_it_watches(AccountCaps {
+            watch: WatchMode::Idle,
+            ..caps()
+        })
+        .await;
+        assert!(
+            seen.iter().any(|op| op == "watch"),
+            "the loop synced and then slept instead of watching: {seen:?}"
+        );
+        // And it passed first: watching a mailbox before fetching what is already in it would
+        // leave the first run of `mailo watch` showing nothing until new mail arrived.
+        let first_watch = seen.iter().position(|op| op == "watch").unwrap();
+        assert!(
+            seen[..first_watch].iter().any(|op| op == "envelopes"),
+            "it watched before it ever synced: {seen:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_server_with_no_push_is_not_asked_to_hold_the_line() {
+        // POP3, and every IMAP server without IDLE. `AccountEngine::watch` answers `false`
+        // immediately for these, and the loop's sleep is the whole of the waiting — but asking
+        // at all would be a round trip per interval for an answer that is a constant.
+        let seen = until_it_watches(AccountCaps {
+            watch: WatchMode::Poll {
+                every: std::time::Duration::from_secs(300),
+            },
+            ..caps()
+        })
+        .await;
+        assert!(
+            seen.iter().any(|op| op == "envelopes"),
+            "it never even synced: {seen:?}"
+        );
+        assert!(
+            !seen.iter().any(|op| op == "watch"),
+            "a server with no push was asked to hold a connection open: {seen:?}"
+        );
+    }
+
+    #[test]
+    fn the_command_line_names_it() {
+        assert!(cli::usage().contains("watch"), "{}", cli::usage());
+    }
+}
