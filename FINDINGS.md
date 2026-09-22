@@ -3187,3 +3187,40 @@ That is what one definition buys, and it is the answer to the question F131 and 
 
 The lying fixture is deleted rather than kept, and `seed_live.rs` and `live-window.sh` both now
 say that a store in some other state is made by running the command, not by writing the rows.
+
+### F134 — Every "re-run this command" ended in a database error
+
+Found by a user, on the first real attempt, which is the argument for phase 6's criterion in one
+line.
+
+`mailo account add` is the only way to supply a credential, and every message this program prints
+about a missing one says to re-run it: F132's `not signed in yet … Run: MAILO_OAUTH_CLIENT_ID=…
+mailo account add <address>`, the password equivalent, and the line `account add` itself prints
+after creating an OAuth account. The address column is `UNIQUE` and the insert was a plain
+`INSERT`, so the second run failed with
+
+```
+cannot save the account: UNIQUE constraint failed: accounts.address
+```
+
+A raw SQLite error, as the entire response to following the program's own instruction — and a
+dead end, because no other command finishes a half-configured account either. Anyone adding an
+OAuth account hits it: the first run creates the row and then asks for a client id, so the
+*first* thing they are told to do is the thing that cannot work. This is F99 again, which was a
+`reply` offering a `send` no command could make work, and it is the same lesson: advice that does
+not work when followed is worse than none.
+
+Adding an address that is already there now updates it and says `updated` rather than `added`.
+Two things had to be got right beyond the upsert:
+
+- **The account id is the keyring key.** `AccountId::generate()` ran before the insert, so an
+  upsert keyed on address alone would have left a new id in the row and orphaned a credential
+  already stored — a working account would quietly stop working. The existing id is read back
+  and reused.
+- **`mailo signature` writes to the identity row.** Rebuilding the identity on each run would
+  have silently deleted a signature, and a display name with it — the sort of loss nobody notices
+  until it has gone out on a week of mail. `default_identity` reads the stored one back, and the
+  insert is `ON CONFLICT DO NOTHING`.
+
+The plan and the expected capabilities are refreshed, since a preset may have learned a better
+host; `created_at` is not.

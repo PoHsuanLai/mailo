@@ -48,7 +48,25 @@ pub fn add(
         },
     };
 
-    let account = AccountId::generate();
+    // An address that is already here keeps its account id, and re-running is not an error.
+    //
+    // Every message this program prints about a missing credential says to re-run this command:
+    // that is how a client id is supplied, and how a password is. It used to fail the second
+    // time with `UNIQUE constraint failed: accounts.address` — a raw SQLite error, and a dead
+    // end, because no other command finishes a half-configured account either. The id in
+    // particular must be the *existing* one: it is the keyring key, so minting a fresh one
+    // would orphan a credential already stored and a working account would quietly stop working.
+    let existing: Option<AccountId> = store
+        .connection()
+        .query_row(
+            "SELECT id FROM accounts WHERE address = ?1",
+            [&address],
+            |row| row.get::<_, String>(0),
+        )
+        .ok()
+        .and_then(|id| id.parse().ok())
+        .map(AccountId::from_uuid);
+    let account = existing.unwrap_or_else(AccountId::generate);
 
     // The preset leaves `identities` empty on purpose: minting one needs an `IdentityId` and
     // an `AccountId`, which would make `preset_for` impure and invent an account id no row
@@ -56,7 +74,12 @@ pub fn add(
     // is built — and without it nothing can be sent, because a draft names the identity it is
     // from and `mail_mime::build` reads the `From` header out of it.
     let mut plan = preset.plan;
-    let identity = Identity {
+    // Reuse the identity too, where there is one. `mailo signature` writes to that row, and
+    // replacing it on a re-run would silently delete a signature the user had set — the sort of
+    // loss nobody notices until it has gone out on a week of mail.
+    let established: Option<Identity> =
+        existing.and_then(|account| default_identity(store, account));
+    let identity = established.unwrap_or_else(|| Identity {
         id: IdentityId::generate(),
         account,
         from: Address {
@@ -68,7 +91,7 @@ pub fn add(
         reply_to: None,
         signature: None,
         default: IsDefault::Default,
-    };
+    });
     plan.identities = vec![identity.clone()];
     let plan_json =
         serde_json::to_string(&plan).map_err(|e| format!("cannot encode the account plan: {e}"))?;
@@ -78,7 +101,10 @@ pub fn add(
     store
         .connection()
         .execute(
-            "INSERT INTO accounts (id, address, plan, created_at) VALUES (?1, ?2, ?3, ?4)",
+            // The plan is refreshed — a preset may have learned a better host since — while
+            // `created_at` and the id stay as they were.
+            "INSERT INTO accounts (id, address, plan, created_at) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(address) DO UPDATE SET plan = excluded.plan",
             rusqlite_params(&[
                 &account.to_string(),
                 &address,
@@ -90,9 +116,11 @@ pub fn add(
     store
         .connection()
         .execute(
+            // Left alone if it is already there, so a signature and a display name survive.
             "INSERT INTO identities (id, account, from_name, from_email, reply_to, signature,
                  is_default)
-             VALUES (?1, ?2, NULL, ?3, NULL, NULL, ?4)",
+             VALUES (?1, ?2, NULL, ?3, NULL, NULL, ?4)
+             ON CONFLICT(id) DO NOTHING",
             rusqlite_params(&[
                 &identity.id.to_string(),
                 &account.to_string(),
@@ -105,12 +133,22 @@ pub fn add(
     store
         .connection()
         .execute(
-            "INSERT INTO account_caps (account, caps, observed_at) VALUES (?1, ?2, ?3)",
+            // Expected capabilities from the preset, which a real connection later replaces.
+            "INSERT INTO account_caps (account, caps, observed_at) VALUES (?1, ?2, ?3)
+             ON CONFLICT(account) DO UPDATE
+                 SET caps = excluded.caps, observed_at = excluded.observed_at",
             rusqlite_params(&[&account.to_string(), &caps_json, &now.to_rfc3339()]),
         )
         .map_err(|e| format!("cannot save capabilities: {e}"))?;
 
-    let mut out = format!("added {address} as {account}\n");
+    let mut out = format!(
+        "{} {address} as {account}\n",
+        if existing.is_some() {
+            "updated"
+        } else {
+            "added"
+        }
+    );
     match &plan.auth {
         AuthPlan::Password { username, sasl } => {
             let login = username.resolve(&address);
@@ -367,6 +405,40 @@ fn where_to_get_one(issuer: OAuthIssuer) -> &'static str {
     }
 }
 
+/// The account's default identity, as stored.
+///
+/// Read back rather than rebuilt so that re-running `account add` keeps whatever the user has
+/// since put on it — a signature, a display name — instead of resetting it to the bare address.
+fn default_identity(store: &SqliteStore, account: AccountId) -> Option<Identity> {
+    store
+        .connection()
+        .query_row(
+            "SELECT id, from_name, from_email, reply_to, signature FROM identities
+             WHERE account = ?1 ORDER BY is_default DESC LIMIT 1",
+            [account.to_string()],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                ))
+            },
+        )
+        .ok()
+        .and_then(|(id, name, email, reply_to, signature)| {
+            Some(Identity {
+                id: IdentityId::from_uuid(id.parse().ok()?),
+                account,
+                from: Address { name, email },
+                reply_to: reply_to.and_then(|r| crate::view::parse_addresses(&r).ok()?.pop()),
+                signature,
+                default: IsDefault::Default,
+            })
+        })
+}
+
 /// The host mail arrives from, whichever protocol that is.
 fn incoming_host(plan: &AccountPlan) -> Option<&str> {
     match &plan.incoming {
@@ -390,6 +462,96 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = SqliteStore::in_memory(dir.path()).unwrap();
         (store, dir)
+    }
+
+    /// Re-running `account add` is the documented way to supply a client id or a password —
+    /// every message this program prints about a missing credential says to do exactly that.
+    /// It used to fail on the second run with `UNIQUE constraint failed: accounts.address`,
+    /// a raw SQLite error, leaving the account permanently half-configured and no command able
+    /// to finish it. Advice that does not work when followed is worse than none.
+    mod adding_an_account_that_is_already_here {
+        use super::*;
+
+        fn id_of(store: &SqliteStore, address: &str) -> String {
+            store
+                .connection()
+                .query_row(
+                    "SELECT id FROM accounts WHERE address = ?1",
+                    [address],
+                    |r| r.get(0),
+                )
+                .unwrap()
+        }
+
+        #[test]
+        fn it_succeeds_and_says_what_it_did() {
+            let (store, _dir) = store();
+            add(&store, "someone@gmail.com", None, false, now()).unwrap();
+            let out = add(&store, "someone@gmail.com", None, false, now())
+                .expect("re-running is what every message tells the user to do");
+            assert!(
+                !out.contains("UNIQUE constraint"),
+                "a database error reached the user: {out}"
+            );
+            assert!(out.contains("someone@gmail.com"), "{out}");
+        }
+
+        /// The account id is the keyring key. Minting a fresh one would orphan a credential the
+        /// user had already stored, so a working account would silently stop working.
+        #[test]
+        fn the_account_keeps_its_identity() {
+            let (store, _dir) = store();
+            add(&store, "someone@gmail.com", None, false, now()).unwrap();
+            let first = id_of(&store, "someone@gmail.com");
+            add(&store, "someone@gmail.com", None, false, now()).unwrap();
+            assert_eq!(first, id_of(&store, "someone@gmail.com"));
+        }
+
+        /// And there is still exactly one of everything.
+        #[test]
+        fn nothing_is_duplicated() {
+            let (store, _dir) = store();
+            for _ in 0..3 {
+                add(&store, "someone@gmail.com", None, false, now()).unwrap();
+            }
+            let db = store.connection();
+            let accounts: i64 = db
+                .query_row("SELECT count(*) FROM accounts", [], |r| r.get(0))
+                .unwrap();
+            let identities: i64 = db
+                .query_row("SELECT count(*) FROM identities", [], |r| r.get(0))
+                .unwrap();
+            let caps: i64 = db
+                .query_row("SELECT count(*) FROM account_caps", [], |r| r.get(0))
+                .unwrap();
+            assert_eq!((accounts, identities, caps), (1, 1, 1));
+        }
+
+        /// A signature is set on the identity by a separate command, and re-running `account
+        /// add` must not be the thing that quietly deletes it.
+        #[test]
+        fn a_signature_already_set_survives() {
+            let (store, _dir) = store();
+            add(&store, "someone@gmail.com", None, false, now()).unwrap();
+            store
+                .connection()
+                .execute(
+                    "UPDATE identities SET signature = 'Ada, sent from mailo', from_name = 'Ada'",
+                    [],
+                )
+                .unwrap();
+
+            add(&store, "someone@gmail.com", None, false, now()).unwrap();
+
+            let (signature, name): (Option<String>, Option<String>) = store
+                .connection()
+                .query_row("SELECT signature, from_name FROM identities", [], |r| {
+                    Ok((r.get(0)?, r.get(1)?))
+                })
+                .unwrap();
+            assert_eq!(signature.as_deref(), Some("Ada, sent from mailo"));
+            assert_eq!(name.as_deref(), Some("Ada"));
+        }
     }
 
     #[test]
