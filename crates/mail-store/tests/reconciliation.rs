@@ -680,3 +680,172 @@ mod remote_map_identity {
         assert_eq!(rows, 2, "the many-to-one mapping was collapsed");
     }
 }
+
+/// Labels the server reports, against a label change the user has just made.
+///
+/// The ingest path added for Gmail labels writes server truth directly, which is correct — and
+/// only correct because it runs before the re-layer and marks the thread touched. A label the
+/// user added a second ago, still queued, must not disappear the moment a survey lands; and the
+/// user must be able to *remove* one the server still reports, which is the direction that is
+/// easy to get wrong because the server's list is complete and looks authoritative.
+mod labels {
+    use super::*;
+
+    const LABEL: LabelId = LabelId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000e1"));
+
+    fn with_label(f: &Fixture) {
+        f.store
+            .apply(
+                ACCOUNT,
+                &Patch {
+                    id: ChangeId::generate(),
+                    changes: vec![Change::LabelUpsert(Label {
+                        id: LABEL,
+                        account: ACCOUNT,
+                        name: "travel".to_owned(),
+                        color: None,
+                        origin: LabelOrigin::Provider,
+                    })],
+                },
+            )
+            .unwrap();
+    }
+
+    fn labelled(f: &Fixture, m: MessageId) -> bool {
+        f.store.message(m).unwrap().labels.contains(&LABEL)
+    }
+
+    /// Apply a label change locally and queue it, as the app does.
+    fn queue(f: &Fixture, m: MessageId, membership: Membership) {
+        let flip = match membership {
+            Membership::In => Membership::Out,
+            Membership::Out => Membership::In,
+        };
+        f.store
+            .apply(
+                ACCOUNT,
+                &Patch {
+                    id: ChangeId::generate(),
+                    changes: vec![Change::MessageLabel(m, LABEL, membership)],
+                },
+            )
+            .unwrap();
+        let queued = f
+            .store
+            .enqueue(
+                ACCOUNT,
+                RemoteIntent::SetLabels {
+                    messages: vec![m],
+                    add: if membership == Membership::In {
+                        vec![LABEL]
+                    } else {
+                        Vec::new()
+                    },
+                    remove: if membership == Membership::Out {
+                        vec![LABEL]
+                    } else {
+                        Vec::new()
+                    },
+                },
+                &Patch {
+                    id: ChangeId::generate(),
+                    changes: vec![Change::MessageLabel(m, LABEL, flip)],
+                },
+                at(10),
+            )
+            .unwrap();
+        assert!(queued.is_some(), "the message has a remote address");
+    }
+
+    #[test]
+    fn a_label_the_user_just_added_survives_a_survey_that_predates_it() {
+        let f = fixture();
+        let thread = ThreadId::generate();
+        let m = message(&f, thread, "a@example.test", 1);
+        f.store
+            .ingest(
+                ACCOUNT,
+                ingest_of("INBOX", vec![fetched(&m, imap("INBOX", 5))]),
+            )
+            .unwrap();
+        with_label(&f);
+        queue(&f, m.id, Membership::In);
+        assert!(labelled(&f, m.id), "applied optimistically");
+
+        // A survey lands before the server heard about it, reporting no labels at all.
+        let mut stale = ingest_of("INBOX", vec![]);
+        stale.label_names = vec![(imap("INBOX", 5), vec![])];
+        f.store.ingest(ACCOUNT, stale).unwrap();
+
+        assert!(
+            labelled(&f, m.id),
+            "the pending label was wiped by a survey that predates it"
+        );
+    }
+
+    #[test]
+    fn a_label_the_user_just_removed_does_not_come_back() {
+        // The direction that is easy to get wrong: the server's list is complete and looks
+        // authoritative, so a naive apply puts back exactly what the user took off.
+        let f = fixture();
+        let thread = ThreadId::generate();
+        let m = message(&f, thread, "a@example.test", 1);
+        f.store
+            .ingest(
+                ACCOUNT,
+                ingest_of("INBOX", vec![fetched(&m, imap("INBOX", 5))]),
+            )
+            .unwrap();
+        with_label(&f);
+
+        // The server has it labelled, and the user takes the label off.
+        let mut sweep = ingest_of("INBOX", vec![]);
+        sweep.label_names = vec![(imap("INBOX", 5), vec!["travel".to_owned()])];
+        f.store.ingest(ACCOUNT, sweep).unwrap();
+        assert!(labelled(&f, m.id));
+        queue(&f, m.id, Membership::Out);
+        assert!(!labelled(&f, m.id), "applied optimistically");
+
+        // Another survey, still reporting the label the server has not yet been told about.
+        let mut stale = ingest_of("INBOX", vec![]);
+        stale.label_names = vec![(imap("INBOX", 5), vec!["travel".to_owned()])];
+        f.store.ingest(ACCOUNT, stale).unwrap();
+
+        assert!(
+            !labelled(&f, m.id),
+            "the label the user removed came back on the next poll"
+        );
+    }
+
+    #[test]
+    fn once_the_server_agrees_its_list_is_what_counts() {
+        // The other half: a pending change that is confirmed stops being re-layered, or a later
+        // change from another client could never land. Same rule as flags.
+        let f = fixture();
+        let thread = ThreadId::generate();
+        let m = message(&f, thread, "a@example.test", 1);
+        f.store
+            .ingest(
+                ACCOUNT,
+                ingest_of("INBOX", vec![fetched(&m, imap("INBOX", 5))]),
+            )
+            .unwrap();
+        with_label(&f);
+        queue(&f, m.id, Membership::In);
+
+        // The send settles, so nothing is pending any more.
+        for entry in f.store.outbox_due(ACCOUNT, at(20)).unwrap() {
+            f.store.outbox_settle(entry.id, Settle::Ok, at(20)).unwrap();
+        }
+
+        // Now another client takes the label off, and this one must follow.
+        let mut elsewhere = ingest_of("INBOX", vec![]);
+        elsewhere.label_names = vec![(imap("INBOX", 5), vec![])];
+        f.store.ingest(ACCOUNT, elsewhere).unwrap();
+
+        assert!(
+            !labelled(&f, m.id),
+            "a confirmed change was still being re-layered, so another client could never remove it"
+        );
+    }
+}

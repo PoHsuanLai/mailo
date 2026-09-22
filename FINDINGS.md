@@ -2664,3 +2664,30 @@ A second assertion pins the property that makes a query language safe to offer a
 term must not cost more than the terms it narrows**. One clause against three, and the three are
 no slower — a builder that evaluated each clause independently and intersected afterwards would
 fail that, and it is the shape a query language invites.
+
+### F121 — Checking the new ingest path against the rule the old ones follow
+
+F119 added a second place where server truth is written into the store, and the design has a rule
+about that: **server truth is the base, and anything the user did that the server has not
+confirmed goes back on top of it.** A new writer that ignores it silently undoes the user's last
+action every time a poll lands.
+
+The label path follows it, and only because of where it sits: step 3b, before the re-layer at
+step 5, marking each affected thread `touched` so the re-layer visits it. That is correct by
+construction rather than by intent, which is exactly the kind of correctness that survives until
+someone moves the block.
+
+So it is asserted now, in the suite that already holds this rule for flags:
+
+- A label the user added a second ago survives a survey that predates it.
+- A label the user *removed* does not come back — the direction that is easy to get wrong,
+  because the server's list is complete and looks authoritative, so a naive apply puts back
+  precisely what the user took off.
+- Once the send settles, the server's list wins again. Otherwise a confirmed change would be
+  re-layered for ever and another client could never remove the label.
+
+Removing the two lines that mark the thread touched fails the first two and leaves the third
+passing, which is the right signature: the re-layer is what the first two are about.
+
+No defect. The value is that the rule is now checked for labels rather than reasoned about, and
+the next person to add an ingest path has two more examples of what it has to satisfy.
