@@ -1377,6 +1377,89 @@ today's size, which is worth saying plainly after a phase that began by assuming
 
 ---
 
+### 9 — What the data layer still owes
+
+Surveyed 2026-09-23 against the code, not against this file. Nine items. The order is: first the
+two places where the code contradicts its own documentation (cheap, and a false comment is worse
+than a missing feature), then the one risk that ships silently, then correctness, then capability,
+then the extensions nobody will notice.
+
+**9.1 — POP3 first sync: newest first, as documented.** `backend/pop3.rs` says the runtime orders
+the first sync "smallest band first, newest first"; `engine.rs` sorts by size alone, so in a
+2372-message maildrop the mail the user wants arrives last. And `fetch_bodies` goes through
+`unfetched`, whose `survey_sizes` is a stub returning nothing, so every body is "size unknown" and
+the body pass degrades to store order — bands in name only. Fix: order by `(band, newest)`, where
+newest is reverse survey position (POP3 message numbers are arrival order, and nothing else is known
+before `TOP`); feed `unfetched` from `backend.surveyed()`. Test with a scripted POP3 backend that
+asserts the order of `TOP` and `RETR` commands, not just the count.
+
+**9.2 — Text search finds recipients.** `ThreadSummary.recipients` exists and `Filter::To` uses it;
+the `TODO(F1)` in `text_corpus` and the doc comment on `to_fits` both still say it does not. What is
+genuinely missing is that `Filter::Text` does not search To/Cc. Fix on both sides at once, because
+the parity proptest compares them: `text_corpus` pushes recipients; the store's `fts_text` includes
+each message's To/Cc (never Bcc — same reason as `ThreadSummary`); migration `0005` nulls
+`fts_text` so the existing backfill recomputes it; `memory.rs::thread_corpus` follows. The proptest
+already generates `to_local`, so it covers this with no new strategy.
+
+**9.3 — F2: fold parity by measurement, not by corpus restriction.** Today the parity proptest is
+kept inside Latin + ASCII so it cannot see the divergence. Replace the restriction with an
+exhaustive differential test in `mail-store`: for every scalar value in the BMP, tokenize it with
+SQLite's `unicode61 remove_diacritics 2` (via `fts5vocab` on a scratch table) and with
+`fts_tokens`, and require equality. 65k code points is milliseconds. Then regenerate `fold.rs` from
+what that test observes — the table becomes "what SQLite does", checked in, with the generator
+alongside — and widen `WORDS` in the proptest to include Greek, Cyrillic and CJK. No Unicode crate
+in `mail-domain`; the dependency is on SQLite's behaviour, which is the thing parity is with.
+
+**9.4 — SMTPUTF8.** Parse the extension. When an envelope address is not ASCII: if the server
+offers `SMTPUTF8`, send `MAIL FROM:<…> SMTPUTF8` (still with `BODY=8BITMIME` when the content is 8-bit, as today);
+if it does not, IDNA-encode the domain part, and refuse with a named error only when the *local*
+part is non-ASCII — that is the one case no encoding can rescue. Headers are unchanged: encoded
+words remain valid under SMTPUTF8.
+
+**9.5 — QRESYNC.** `imap-proto` 0.16 already parses `VANISHED`. When the server offers `QRESYNC`:
+`ENABLE QRESYNC` after authentication, `SELECT <box> (QRESYNC (<uidvalidity> <modseq>))`, and read
+expunges from `VANISHED (EARLIER)` instead of `ListRemote`'s `UID SEARCH ALL`. `AccountCaps` gains
+`qresync`, detected and never assumed. Gmail does not offer it, so the Gmail path must be
+byte-for-byte unchanged — asserted by the existing transcript tests. New transcripts are Dovecot's.
+
+**9.6 — Large IMAP messages: fetch the parts, not the message.** The biggest item, and the one
+that changes the store's central invariant, so the interface is frozen before any body is written.
+
+- *When.* Only for messages above the second band (1 MiB by `RFC822.SIZE`, already known from the
+  header fetch). Below it, `BODY.PEEK[]` stays: that is F113's measurement, and it still holds for
+  the ninety per cent of mail that is small. Above it, `UID FETCH n BODYSTRUCTURE` is one small
+  response per large message, and F113's own rule is met: the code that reads it exists.
+- *What.* The text and HTML parts (`BODY.PEEK[1]`-style sections, each with its `.MIME` header),
+  and nothing else. Attachments are fetched when opened or saved.
+- *Domain.* `Body::Present`'s `raw` stays the single source of truth for rendering: for a parted
+  message it is a *reconstructed* MIME document — the real headers, the real text/HTML parts, and
+  each attachment present as a part with its headers and an empty body. `Attachment.blob` becomes
+  `Attachment.content: Held(BlobId) | Remote { section: String }`, with a serde migration for the
+  JSON already stored. POP3 cannot do any of this (`TOP` has no sections) and keeps whole bodies.
+- *New op.* `ProtoOp::FetchPart { remote, section }` → the part's decoded bytes, stored as a blob,
+  the attachment flipped to `Held`. The app's save/open path calls it on demand.
+- *F112.* A server that fails on `BODYSTRUCTURE` falls back to `BODY.PEEK[]` for that message and
+  records it; one bad message never stalls the pass.
+
+**9.7 — DSN.** Protocol and envelope only: parse the extension; `Submission` gains an optional
+`Receipt { notify, ret }`; `MAIL FROM … RET=HDRS ENVID=…` and `RCPT TO … NOTIFY=…` when offered,
+silently omitted when not (a receipt is a request, never a precondition). Exposed as
+`mailo send --receipt`. A composer toggle is a UI decision left to the UI phase.
+
+**9.8 — CHUNKING / BDAT.** When offered, send with `BDAT` instead of `DATA`: no dot-stuffing, and a
+size the server knows up front. `DATA` remains the path whenever it is not offered. Pipelined with
+the `RCPT`s where `PIPELINING` is also offered.
+
+**9.9 — NTU: verify `ccms`.** `spike/out/` now holds `msa` transcripts only. Without credentials:
+probe `ccms.ntu.edu.tw:995` for its greeting and `CAPA` and compare with `msa`'s; find NTU's own
+documentation of which accounts live where. With credentials, which only the user has: a login on
+a non-student address. The first two are done here; the third is reported, not faked.
+
+**Delegation.** 9.1, 9.4, 9.7 and 9.8 are self-contained and go to Grok with a brief each; 9.2,
+9.3, 9.5 and 9.6 cross crates or change frozen types, so the freeze is written here first and
+Grok gets bodies behind it. Every diff is reviewed before it is committed, one commit per item.
+
+
 ## Test strategy
 
 - **Domain** — table-driven unit tests plus proptests for `apply`/`inverse` round-trip and
