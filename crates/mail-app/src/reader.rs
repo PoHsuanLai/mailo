@@ -16,7 +16,110 @@ use mail_store::SqliteStore;
 /// sanitizer must judge the URLs the *message* contains, not a `data:` URI substituted for one
 /// — and running it second would mean re-judging bytes this code produced rather than bytes the
 /// sender did.
+/// The most rendered output to keep, in bytes.
+///
+/// Sixteen mebibytes, and bounded by *bytes* rather than by a count because what is cached is
+/// mostly inline images: one message with a photograph in it outweighs a hundred without.
+const CACHE_BUDGET: usize = 16 * 1024 * 1024;
+
+/// What a rendering is a function of.
+///
+/// The whole of the input, which is the point. `raw` is a `BlobId` and `BlobStore::put` is
+/// content-addressed — the same bytes are the same blob — so a message's rendered form cannot
+/// change while its key stays the same. There is nothing to invalidate, and no way for the cache
+/// to hold an answer that has quietly stopped being true.
+///
+/// That is a property of the design rather than a lucky fact about this function. `render` reads
+/// a blob and calls pure code on it; in a client where a message were a mutable object with a
+/// body that could be edited in place, this cache would be a bug farm and the key would have to
+/// be a version number somebody remembered to bump.
+#[derive(PartialEq, Eq, Clone, Copy)]
+struct Key {
+    raw: mail_domain::BlobId,
+    remote_images: mail_mime::RemoteImages,
+    /// The sanitizer's revision. Its own documentation already called this "part of the render
+    /// cache key", years before there was one: without it an upgrade would keep serving markup
+    /// judged under the old rules.
+    version: u32,
+}
+
+/// Rendered messages, newest use last.
+///
+/// A `Vec` rather than a map: the budget keeps it to a few dozen entries, a linear scan of that
+/// is faster than hashing a key, and the order *is* the eviction policy.
+struct Cache {
+    entries: Vec<(Key, Reading)>,
+    bytes: usize,
+}
+
+fn weight(reading: &Reading) -> usize {
+    match reading {
+        Reading::NotFetched => 0,
+        Reading::Text(text) => text.len(),
+        Reading::Html { html, .. } => html.len(),
+    }
+}
+
+static CACHE: std::sync::Mutex<Cache> = std::sync::Mutex::new(Cache {
+    entries: Vec::new(),
+    bytes: 0,
+});
+
+/// The cached rendering for `key`, if there is one, moved to the back as the most recent.
+fn cached(key: &Key) -> Option<Reading> {
+    // A poisoned lock is not a reason to fail a render: the cache holds nothing that matters,
+    // and the worst case is doing the work again.
+    let mut cache = CACHE.lock().unwrap_or_else(|held| held.into_inner());
+    let at = cache.entries.iter().position(|(had, _)| had == key)?;
+    let entry = cache.entries.remove(at);
+    let found = entry.1.clone();
+    cache.entries.push(entry);
+    Some(found)
+}
+
+fn remember(key: Key, reading: &Reading) {
+    let cost = weight(reading);
+    // Nothing to gain, and a single message larger than the whole budget would evict everything
+    // else to hold only itself.
+    if cost == 0 || cost > CACHE_BUDGET {
+        return;
+    }
+    let mut cache = CACHE.lock().unwrap_or_else(|held| held.into_inner());
+    cache.entries.push((key, reading.clone()));
+    cache.bytes += cost;
+    while cache.bytes > CACHE_BUDGET && !cache.entries.is_empty() {
+        let (_, dropped) = cache.entries.remove(0);
+        cache.bytes = cache.bytes.saturating_sub(weight(&dropped));
+    }
+}
+
+/// Forget everything cached. Tests only — the cache is process-wide, and tests share one.
+#[cfg(test)]
+#[allow(dead_code)]
+pub fn forget_everything() {
+    let mut cache = CACHE.lock().unwrap_or_else(|held| held.into_inner());
+    cache.entries.clear();
+    cache.bytes = 0;
+}
+
 pub fn render(store: &SqliteStore, message: &Message, policy: SanitizePolicy) -> Reading {
+    // Answered from the cache when it has been asked before — phase 8d. The key is the whole
+    // input, so a hit is the same answer this function would compute.
+    let key = match &message.body {
+        mail_domain::Body::Present { raw, .. } => Some(Key {
+            raw: *raw,
+            remote_images: policy.remote_images,
+            version: policy.version,
+        }),
+        // Nothing fetched yet: no bytes, no key, and the answer is a constant anyway.
+        mail_domain::Body::Absent => None,
+    };
+    if let Some(key) = key
+        && let Some(had) = cached(&key)
+    {
+        return had;
+    }
+
     // Parsed once. `html_of` and `inline_parts` each read the blob and run the whole MIME
     // parser, and `render` called both — so every message in an open thread was parsed twice on
     // every render, and the shell re-renders the open thread on every keystroke in the search
@@ -25,7 +128,7 @@ pub fn render(store: &SqliteStore, message: &Message, policy: SanitizePolicy) ->
     let Some(parsed) = parse_body(store, message) else {
         return reading(&message.body, None, policy);
     };
-    match reading(&message.body, parsed.html.as_deref(), policy) {
+    let rendered = match reading(&message.body, parsed.html.as_deref(), policy) {
         Reading::Html {
             html,
             blocked_remote,
@@ -34,7 +137,11 @@ pub fn render(store: &SqliteStore, message: &Message, policy: SanitizePolicy) ->
             blocked_remote,
         },
         other => other,
+    };
+    if let Some(key) = key {
+        remember(key, &rendered);
     }
+    rendered
 }
 
 /// The message's stored bytes, parsed.

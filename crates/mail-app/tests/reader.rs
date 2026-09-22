@@ -310,3 +310,143 @@ iVBORw0KGgo=\r\n\
         );
     }
 }
+
+/// Answering twice with the same answer — `plan.md` phase 8d.
+///
+/// `render` is a function of the stored bytes and the sanitize policy, and nothing else. The
+/// bytes are named by a `BlobId`, and `BlobStore::put` is content-addressed — the same bytes are
+/// the same blob — so the key is the whole of the input and a cached answer cannot quietly stop
+/// being true. There is no invalidation to get wrong, which is the functional design paying for
+/// itself rather than a lucky property of this one function.
+///
+/// The tests below are about the two ways a cache of this shape can still be wrong: giving back
+/// something that is not what a fresh render would produce, and confusing two keys.
+mod rendering_twice {
+    use super::*;
+
+    /// The cache is process-wide, and these tests share a process.
+    fn fresh() {
+        reader::forget_everything();
+    }
+
+    fn allowing() -> SanitizePolicy {
+        SanitizePolicy {
+            remote_images: RemoteImages::Allowed,
+            version: SanitizePolicy::CURRENT.version,
+        }
+    }
+
+    const REMOTE: &[u8] = b"From: ada@example.test\r\n\
+        Subject: pictures\r\n\
+        MIME-Version: 1.0\r\n\
+        Content-Type: text/html; charset=utf-8\r\n\r\n\
+        <p>hello</p><img src=\"https://tracker.test/pixel.gif\">\r\n";
+
+    #[test]
+    fn the_second_answer_is_the_first_answer() {
+        fresh();
+        let (store, _dir) = store();
+        let message = ingest(&store, REMOTE, Some("hello"));
+
+        let once = reader::render(&store, &message, policy());
+        let twice = reader::render(&store, &message, policy());
+        assert_eq!(once, twice, "a cached render differed from a fresh one");
+    }
+
+    #[test]
+    fn allowing_remote_images_is_a_different_question() {
+        // The failure this prevents is a privacy failure, not a display one. If the policy were
+        // not part of the key, a message rendered once with images blocked would keep its
+        // blocked form after the user opted in — or, in the other direction and far worse, a
+        // message rendered with images allowed would serve that markup to a conversation whose
+        // owner never opted in, and the sender would get a read receipt nobody granted.
+        fresh();
+        let (store, _dir) = store();
+        let message = ingest(&store, REMOTE, Some("hello"));
+
+        let blocked = reader::render(&store, &message, policy());
+        let allowed = reader::render(&store, &message, allowing());
+
+        let view::Reading::Html { html: blocked, .. } = blocked else {
+            panic!("html should render as html");
+        };
+        let view::Reading::Html { html: allowed, .. } = allowed else {
+            panic!("html should render as html");
+        };
+        assert!(
+            !blocked.contains("tracker.test"),
+            "a remote image survived blocking: {blocked}"
+        );
+        assert!(
+            allowed.contains("tracker.test"),
+            "opting in was answered from the blocked cache: {allowed}"
+        );
+    }
+
+    #[test]
+    fn the_order_of_the_two_questions_does_not_matter() {
+        // The same pair the other way round, because a cache that is keyed correctly is keyed
+        // correctly in both directions and one that is not usually fails in only one.
+        fresh();
+        let (store, _dir) = store();
+        let message = ingest(&store, REMOTE, Some("hello"));
+
+        let allowed = reader::render(&store, &message, allowing());
+        let blocked = reader::render(&store, &message, policy());
+
+        let view::Reading::Html { html: allowed, .. } = allowed else {
+            panic!("html should render as html");
+        };
+        let view::Reading::Html { html: blocked, .. } = blocked else {
+            panic!("html should render as html");
+        };
+        assert!(allowed.contains("tracker.test"), "{allowed}");
+        assert!(
+            !blocked.contains("tracker.test"),
+            "blocking was answered from the allowed cache, \
+             which is a read receipt nobody granted: {blocked}"
+        );
+    }
+
+    #[test]
+    fn two_messages_with_the_same_bytes_share_one_answer() {
+        // Not a coincidence to be defended against: the blob store deduplicates by hash, so the
+        // same forwarded newsletter arriving twice *is* one blob, and one rendering of it is the
+        // right answer for both.
+        fresh();
+        let (store, _dir) = store();
+        let one = ingest(&store, REMOTE, Some("hello"));
+        let two = ingest(&store, REMOTE, Some("hello"));
+        assert_ne!(one.id, two.id, "two messages");
+
+        assert_eq!(
+            reader::render(&store, &one, policy()),
+            reader::render(&store, &two, policy())
+        );
+    }
+
+    #[test]
+    fn a_message_whose_body_has_not_arrived_is_not_cached_as_one_that_has() {
+        // `Body::Absent` has no blob and so no key. The danger would be caching it under some
+        // stand-in and then serving "not downloaded yet" after the body landed.
+        fresh();
+        let (store, _dir) = store();
+        let mut message = ingest(&store, REMOTE, Some("hello"));
+        let real = message.body.clone();
+        message.body = Body::Absent;
+
+        assert_eq!(
+            reader::render(&store, &message, policy()),
+            view::Reading::NotFetched
+        );
+
+        message.body = real;
+        assert!(
+            matches!(
+                reader::render(&store, &message, policy()),
+                view::Reading::Html { .. }
+            ),
+            "the body arrived and the reader still said it had not"
+        );
+    }
+}

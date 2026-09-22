@@ -354,12 +354,12 @@ fn what_one_frame_of_the_window_costs() {
 
 /// The one thing here that is a check rather than a measurement.
 ///
-/// Not a budget in milliseconds — that would be flaky on a loaded machine and would be deleted
-/// the first time CI hiccuped. It is the *shape*: rendering the same message twice must not cost
-/// twice, once 8d caches it. Until then this records what is true today, which is that it does.
+/// Not a budget in milliseconds — that would be flaky on a loaded machine and deleted the first
+/// time CI hiccuped. It is the *shape*: since phase 8d, rendering the same message twice does not
+/// cost twice, because the second answer comes out of a cache whose key is the whole input.
 #[test]
 #[ignore = "a measurement, not a check; run with --ignored --nocapture"]
-fn rendering_the_same_message_twice_costs_twice() {
+fn rendering_the_same_message_twice_does_not_cost_twice() {
     let (store, _dir, _) = subject();
     let message = store
         .threads(&page(1, Filter::All), Utc::now())
