@@ -15,6 +15,7 @@ use std::time::Instant;
 #[allow(dead_code)]
 #[path = "../src/query.rs"]
 mod query;
+#[allow(dead_code)]
 #[path = "../src/reader.rs"]
 mod reader;
 #[allow(dead_code)]

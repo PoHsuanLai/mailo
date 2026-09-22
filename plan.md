@@ -1337,7 +1337,7 @@ available, which is the one already in use.
 large thread open drops no frames; a sync pass fetches both accounts at once; and opening a
 conversation the user was about to open is a lookup.
 
-**State: five of seven, and the other two are blocked rather than skipped.**
+**State: all seven.**
 
 Done. *8a* measured, and corrected this section twice — the reader was cheap where the plan
 called it the thing that stutters, and the first totals wrongly charged the badge counts to every
@@ -1355,16 +1355,21 @@ window was meant to be that, and it is not — so `mailo watch` is. It passes, t
 each server prefers: `watch` where IDLE is offered, a sleep where it is not. That is
 `AccountEngine::watch`'s first caller outside a test since phase 3.
 
-Blocked on 8z, and deliberately left so. *8c* — reads off the render thread — was built, passed
-1382 tests, and showed an empty mailbox in the real window, which is how F140 was found: a
-`use_resource` never resolves when nothing polls the dom. *8e* — speculative render — is 8c's
-continuation.
+*8c* was wrong the first time and the second attempt says why. A bare `use_resource` is empty
+until it resolves, so the window opened on an empty mailbox — and under F140 it stayed empty,
+because nothing ever polls the task. The answer is not to give up the thread, it is to keep the
+synchronous answer for the one frame that has no other: the list and the badges are computed here
+on the first render and on a blocking thread every time after, and `use_resource` keeps its
+previous value across a restart, so a keystroke shows a slightly stale list rather than a blank
+pane. Falsified against the real window — with the fallback removed, `{"stage": "mounted",
+"subjects": []}`; with it, the mail is there.
 
-Writing either of them again now would mean shipping code whose only purpose is to be ready for a
-runtime that does not currently run, verified by tests that pass for the same reason F128's did.
-That is the shape this project has found four times — `watch`, the label resolver, `sweep`,
-`PendingAttachment` — and choosing it knowingly, to make a checklist look finished, would be
-worse than the four times it happened by accident.
+*8e* is the one piece of this phase that F140 does not touch at all, and the reason is worth
+stating: it writes into a `Mutex`, not into a signal. Everything else that leaves the render
+thread has to deliver an answer back onto it. An ordinary `std::thread`, started from the
+`use_hook` that runs at mount, renders the first twenty conversations into the cache 8d built —
+so opening one costs a lookup. Other clients parse, sanitize and embed when you click; this has
+already done it.
 
 The measurements, for whoever picks this up: on the real mailbox a keystroke costs 0.88 ms and a
 sync landing 5.1 ms; at ten thousand messages, 15.3 ms and 13.4 ms. Nothing here is urgent at

@@ -20,6 +20,20 @@ mod view;
 #[path = "../src/reader.rs"]
 mod reader;
 
+/// The render cache is process-wide, and these tests share a process.
+///
+/// Anything that clears it or counts what is in it has to have it to itself — otherwise the
+/// count is a race against whatever else is rendering, which is how a test that is right becomes
+/// a test that fails on a busy machine and then gets deleted.
+fn alone() -> std::sync::MutexGuard<'static, ()> {
+    static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let held = ONE_AT_A_TIME
+        .lock()
+        .unwrap_or_else(|held| held.into_inner());
+    reader::forget_everything();
+    held
+}
+
 const ACCOUNT: AccountId =
     AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
 
@@ -324,9 +338,9 @@ iVBORw0KGgo=\r\n\
 mod rendering_twice {
     use super::*;
 
-    /// The cache is process-wide, and these tests share a process.
-    fn fresh() {
-        reader::forget_everything();
+    /// Exclusive use of the cache for the duration of a test.
+    fn fresh() -> std::sync::MutexGuard<'static, ()> {
+        alone()
     }
 
     fn allowing() -> SanitizePolicy {
@@ -344,7 +358,7 @@ mod rendering_twice {
 
     #[test]
     fn the_second_answer_is_the_first_answer() {
-        fresh();
+        let _alone = fresh();
         let (store, _dir) = store();
         let message = ingest(&store, REMOTE, Some("hello"));
 
@@ -360,7 +374,7 @@ mod rendering_twice {
         // blocked form after the user opted in — or, in the other direction and far worse, a
         // message rendered with images allowed would serve that markup to a conversation whose
         // owner never opted in, and the sender would get a read receipt nobody granted.
-        fresh();
+        let _alone = fresh();
         let (store, _dir) = store();
         let message = ingest(&store, REMOTE, Some("hello"));
 
@@ -387,7 +401,7 @@ mod rendering_twice {
     fn the_order_of_the_two_questions_does_not_matter() {
         // The same pair the other way round, because a cache that is keyed correctly is keyed
         // correctly in both directions and one that is not usually fails in only one.
-        fresh();
+        let _alone = fresh();
         let (store, _dir) = store();
         let message = ingest(&store, REMOTE, Some("hello"));
 
@@ -413,7 +427,7 @@ mod rendering_twice {
         // Not a coincidence to be defended against: the blob store deduplicates by hash, so the
         // same forwarded newsletter arriving twice *is* one blob, and one rendering of it is the
         // right answer for both.
-        fresh();
+        let _alone = fresh();
         let (store, _dir) = store();
         let one = ingest(&store, REMOTE, Some("hello"));
         let two = ingest(&store, REMOTE, Some("hello"));
@@ -429,7 +443,7 @@ mod rendering_twice {
     fn a_message_whose_body_has_not_arrived_is_not_cached_as_one_that_has() {
         // `Body::Absent` has no blob and so no key. The danger would be caching it under some
         // stand-in and then serving "not downloaded yet" after the body landed.
-        fresh();
+        let _alone = fresh();
         let (store, _dir) = store();
         let mut message = ingest(&store, REMOTE, Some("hello"));
         let real = message.body.clone();
@@ -448,5 +462,125 @@ mod rendering_twice {
             ),
             "the body arrived and the reader still said it had not"
         );
+    }
+}
+
+/// Rendering a conversation before it is opened — `plan.md` phase 8e.
+///
+/// The one piece of phase 8 that leaves the render thread and does not need a way back onto it.
+/// Everything else — a query on a blocking task, a badge count in a resource — has to deliver an
+/// answer into a signal, and F140 says nothing will notice. This writes into a `Mutex` instead,
+/// so an ordinary thread can fill the cache and whatever draws next simply finds it full.
+mod warming_it_before_it_is_opened {
+    use super::*;
+
+    #[test]
+    fn a_warmed_conversation_costs_a_lookup() {
+        let _alone = alone();
+        let (store, _dir) = store();
+        let messages: Vec<Message> = (0..5)
+            .map(|n| {
+                ingest(
+                    &store,
+                    format!(
+                        "From: ada@example.test\r\n\
+                         Subject: number {n}\r\n\
+                         MIME-Version: 1.0\r\n\
+                         Content-Type: text/html; charset=utf-8\r\n\r\n\
+                         <p>message {n}</p>\r\n"
+                    )
+                    .as_bytes(),
+                    Some(&format!("message {n}")),
+                )
+            })
+            .collect();
+
+        assert_eq!(reader::held(), 0);
+        let warmed = reader::prewarm(&store, &messages, policy());
+        assert_eq!(warmed, 5, "every message had a body to render");
+        assert_eq!(reader::held(), 5);
+
+        // Opening it now adds nothing, because there is nothing left to do.
+        for message in &messages {
+            let _ = reader::render(&store, message, policy());
+        }
+        assert_eq!(
+            reader::held(),
+            5,
+            "rendering a warmed conversation did the work again"
+        );
+    }
+
+    #[test]
+    fn warming_gives_the_same_answer_as_opening_would_have() {
+        // The property that matters more than the speed: a warmed answer is the answer, not an
+        // approximation of it computed under different conditions.
+        let _alone = alone();
+        let (store, _dir) = store();
+        let message = ingest(
+            &store,
+            b"From: ada@example.test\r\n\
+              Subject: pictures\r\n\
+              MIME-Version: 1.0\r\n\
+              Content-Type: text/html; charset=utf-8\r\n\r\n\
+              <p>hi</p><img src=\"https://tracker.test/p.gif\">\r\n",
+            Some("hi"),
+        );
+
+        let cold = {
+            reader::forget_everything();
+            reader::render(&store, &message, policy())
+        };
+        reader::forget_everything();
+        reader::prewarm(&store, std::slice::from_ref(&message), policy());
+        let warm = reader::render(&store, &message, policy());
+        assert_eq!(cold, warm);
+    }
+
+    #[test]
+    fn a_message_whose_body_has_not_arrived_is_not_warmed() {
+        // Nothing to render and nothing to cache; counting it would make the return value a lie
+        // about how much work was done.
+        let _alone = alone();
+        let (store, _dir) = store();
+        let mut message = ingest(
+            &store,
+            b"From: a@b.test\r\nSubject: x\r\n\r\nbody\r\n",
+            Some("x"),
+        );
+        message.body = Body::Absent;
+
+        assert_eq!(reader::prewarm(&store, &[message], policy()), 0);
+        assert_eq!(reader::held(), 0);
+    }
+
+    #[test]
+    fn it_runs_on_an_ordinary_thread() {
+        // The whole point, asserted rather than assumed: no runtime, no waker, no signal. If
+        // this ever needs one, it has stopped being the part of phase 8 that F140 does not block.
+        let _alone = alone();
+        let dir = tempfile::tempdir().unwrap();
+        let store =
+            std::sync::Arc::new(SqliteStore::open(dir.path().join("m.db"), dir.path()).unwrap());
+        store
+            .connection()
+            .execute(
+                "INSERT INTO accounts (id, address, plan, created_at)
+                 VALUES (?1, 'me@example.test', '{}', datetime('now'))",
+                [ACCOUNT.to_string()],
+            )
+            .unwrap();
+        let message = ingest(
+            &store,
+            b"From: a@b.test\r\nSubject: x\r\n\r\nbody\r\n",
+            Some("x"),
+        );
+
+        let warming = store.clone();
+        let done = std::thread::spawn(move || reader::prewarm(&warming, &[message], policy()))
+            .join()
+            .expect("the warming thread did not panic");
+        assert_eq!(done, 1);
+        assert_eq!(reader::held(), 1);
     }
 }

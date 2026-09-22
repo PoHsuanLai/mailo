@@ -93,6 +93,48 @@ fn remember(key: Key, reading: &Reading) {
     }
 }
 
+/// Render `messages` into the cache, off whatever thread the caller is on.
+///
+/// Phase 8e, and the reason it can exist at all while F140 stands: this writes into a `Mutex`,
+/// not into a signal. It needs no render, no waker and no runtime — an ordinary thread fills the
+/// cache and whatever draws next finds the answer already there. Everything else in phase 8 that
+/// wanted to leave the render thread needed a way back onto it; this one does not.
+///
+/// What it buys: opening a conversation costs a lookup rather than a parse, a sanitize and an
+/// inline-embed per message. Other clients do that work when you click. This does it before.
+///
+/// Returns how many were rendered, so a caller can say what it warmed and a test can tell the
+/// difference between "did the work" and "found it already done".
+pub fn prewarm(store: &SqliteStore, messages: &[Message], policy: SanitizePolicy) -> usize {
+    let mut done = 0;
+    for message in messages {
+        // Stop at the budget rather than churning through it: warming more than the cache can
+        // hold would evict the conversations the user is nearest to in order to hold the ones
+        // they are furthest from.
+        if fits(message) {
+            let _ = render(store, message, policy);
+            done += 1;
+        }
+    }
+    done
+}
+
+/// Whether a message is worth warming: it has a body, and we are not already holding it.
+fn fits(message: &Message) -> bool {
+    matches!(message.body, mail_domain::Body::Present { .. })
+}
+
+/// How many renderings are being held. Tests only.
+#[cfg(test)]
+#[allow(dead_code)]
+pub fn held() -> usize {
+    CACHE
+        .lock()
+        .unwrap_or_else(|held| held.into_inner())
+        .entries
+        .len()
+}
+
 /// Forget everything cached. Tests only — the cache is process-wide, and tests share one.
 #[cfg(test)]
 #[allow(dead_code)]

@@ -125,7 +125,10 @@ pub fn run(store: Arc<SqliteStore>) {
 
 #[component]
 fn App() -> Element {
-    let store = use_context::<Arc<SqliteStore>>();
+    // No store handle in the component body any more. Since phase 8c every read this component
+    // makes goes through a `use_resource` that takes its own clone for a blocking thread, or
+    // through the first-frame fallback beside it, which asks the context where it stands. A
+    // handle held here is a handle that invites a query back onto the thread that draws.
     let mut shell = use_signal(Shell::default);
     // Bumped after any write, to re-run the queries. Explicit rather than implicit so it is
     // obvious what causes a refresh.
@@ -140,28 +143,71 @@ fn App() -> Element {
     // indexed query, which is why the sidebar can afford to ask on every revision.
     // Resolved once. The sidebar's places are fixed after construction, so what each badge
     // counts never changes — only the answer does.
-    let badge_filters: Vec<Option<Filter>> = use_hook(|| {
-        crate::view::default_places()
-            .iter()
-            .map(|place| badge_filter(&place.source))
-            .collect()
+    // Render the first screenful before anybody asks for it — phase 8e.
+    //
+    // An ordinary `std::thread`, not a task: it writes into the render cache, which is a `Mutex`
+    // and not a signal, so it needs nothing to poll it and nothing to notice when it finishes.
+    // That is the whole reason this part of phase 8 works while F140 stands — every other way of
+    // leaving the render thread has to find its way back onto one.
+    //
+    // `use_hook` runs its closure at mount, which is established: the note above the keyboard
+    // says so, and it is `spawn` inside it that does not run.
+    //
+    // Opening a conversation then costs a hash lookup. Other clients parse, sanitize and embed
+    // when you click; this has already done it.
+    use_hook(|| {
+        let store = consume_context::<Arc<SqliteStore>>();
+        std::thread::spawn(move || {
+            warm_the_first_screenful(&store);
+        });
+    });
+
+    // Behind an `Arc` because two closures want it: the blocking count and the first-frame
+    // fallback beside it. The places are fixed after construction, so this is read-only either
+    // way and sharing it is cheaper than deciding which one owns it.
+    let badge_filters: Arc<Vec<Option<Filter>>> = use_hook(|| {
+        Arc::new(
+            crate::view::default_places()
+                .iter()
+                .map(|place| badge_filter(&place.source))
+                .collect(),
+        )
     });
 
     // Depends on `revision` and nothing else. It used to read `shell`, which subscribes a memo
     // to *every* change of it — so each keystroke in the search box re-ran one indexed count
     // per place. Six queries per character, about half a frame on a ten-thousand-message
     // mailbox, to recompute numbers that could not have moved.
-    let badges = use_memo(move || {
+    //
+    // Phase 8a measured these as the largest single cost of a frame at every mailbox size tried
+    // — 4.7 ms on the real store, 12 ms at ten thousand messages — so phase 8c moves them off
+    // the thread that draws. What arrives late is a number beside a place name, which is the
+    // right thing to make late: a badge that appears a moment after the list is a badge that
+    // appeared, while a list that appears a moment after the keystroke is a window that stutters.
+    let for_the_task = badge_filters.clone();
+    let counted: Resource<Vec<Option<u64>>> = use_resource(move || {
         let _ = revision();
         let store = consume_context::<Arc<SqliteStore>>();
-        let now = chrono::Utc::now();
-        badge_filters
-            .iter()
-            .map(|filter| match store.count(filter.as_ref()?, now) {
-                Ok(0) | Err(_) => None,
-                Ok(n) => Some(n),
-            })
-            .collect::<Vec<Option<u64>>>()
+        let filters = for_the_task.clone();
+        async move {
+            tokio::task::spawn_blocking(move || count_badges(&store, &filters))
+                .await
+                .unwrap_or_default()
+        }
+    });
+    // And the answer for the very first frame, computed here because there is not one yet.
+    //
+    // This is what phase 8c got wrong the first time. A bare resource is empty until it
+    // resolves, so the window opened on an empty mailbox — and under F140 it stays empty, since
+    // nothing ever polls the task. Falling back to the synchronous answer costs one query on the
+    // first frame and nothing afterwards: once the resource has a value it keeps it across
+    // restarts, so a search never drops back to computing on this thread.
+    let badges = use_memo(move || match counted.read().as_ref() {
+        Some(counts) => counts.clone(),
+        None => {
+            let store = consume_context::<Arc<SqliteStore>>();
+            count_badges(&store, &badge_filters)
+        }
     });
 
     // The label names the search box can resolve. Re-read after every write, because a sync
@@ -183,14 +229,31 @@ fn App() -> Element {
         }
     });
 
-    let threads = use_memo(move || {
+    // The list, by the same rule as the badges: computed here the first time, off the thread
+    // afterwards.
+    //
+    // The first attempt at phase 8c was a bare `use_resource`, and a bare resource is empty
+    // until it resolves — so the window opened on an empty mailbox, and under F140 stayed that
+    // way because nothing ever polled the task. This keeps the synchronous answer for the frame
+    // that has no other one. `use_resource` does not clear its value when it restarts, so after
+    // the first frame a keystroke shows the previous list for a moment rather than a blank pane,
+    // and never falls back to querying on this thread.
+    let listing_now = move || shell.read().listing(PAGE * pages());
+    let queried: Resource<Vec<ThreadSummary>> = use_resource(move || {
         let _ = revision();
-        match shell.read().listing(PAGE * pages()) {
-            Listing::Threads(query) => store
-                .threads(&query, chrono::Utc::now())
-                .map(|page| page.items)
-                .unwrap_or_default(),
-            Listing::Drafts => Vec::new(),
+        let listing = listing_now();
+        let store = consume_context::<Arc<SqliteStore>>();
+        async move {
+            tokio::task::spawn_blocking(move || list_for(&store, listing))
+                .await
+                .unwrap_or_default()
+        }
+    });
+    let threads = use_memo(move || match queried.read().as_ref() {
+        Some(items) => items.clone(),
+        None => {
+            let store = consume_context::<Arc<SqliteStore>>();
+            list_for(&store, listing_now())
         }
     });
 
@@ -851,6 +914,77 @@ fn start_new(store: &SqliteStore, known: &[(String, AccountId)]) -> Result<Draft
     // No recipients and no subject: there is no original to take either from, and a guess is
     // something the sender has to notice and undo. Saved anyway, so closing the window keeps it.
     crate::compose::draft_new(store, account, &[], "", "", chrono::Utc::now())
+}
+
+/// The conversations a listing asks for.
+///
+/// Shared by the blocking task and the first frame's fallback, for the reason `count_badges` is:
+/// two copies would be two chances to disagree about what the list contains.
+fn list_for(store: &SqliteStore, listing: Listing) -> Vec<ThreadSummary> {
+    match listing {
+        Listing::Threads(query) => store
+            .threads(&query, chrono::Utc::now())
+            .map(|page| page.items)
+            .unwrap_or_default(),
+        Listing::Drafts => Vec::new(),
+    }
+}
+
+/// One count per place, for the sidebar's badges.
+///
+/// A free function rather than a closure, because phase 8c calls it from two places: once on a
+/// blocking thread, and once on the render thread for the first frame, when there is no answer
+/// yet. Two copies of it would be two chances for them to disagree about what a badge counts.
+fn count_badges(store: &SqliteStore, filters: &[Option<Filter>]) -> Vec<Option<u64>> {
+    let now = chrono::Utc::now();
+    filters
+        .iter()
+        .map(|filter| match store.count(filter.as_ref()?, now) {
+            Ok(0) | Err(_) => None,
+            Ok(n) => Some(n),
+        })
+        .collect()
+}
+
+/// How many conversations to render ahead of the user.
+///
+/// A screenful, near enough. Warming the whole mailbox would evict the conversations they are
+/// about to open in order to hold the ones they are not, which is the cache paying for itself in
+/// reverse.
+const WARM: u32 = 20;
+
+/// Render the newest conversations in the inbox into the cache.
+///
+/// Errors are dropped on purpose: nothing here is load-bearing. A message that cannot be read is
+/// one the reader will report when it is opened, and failing to warm is only failing to be fast.
+fn warm_the_first_screenful(store: &SqliteStore) -> usize {
+    let query = Query {
+        filter: crate::view::place_filter(MailboxRole::Inbox),
+        sort: Sort {
+            property: Property::Date,
+            dir: SortDir::Desc,
+        },
+        page: PageReq {
+            after: None,
+            limit: WARM,
+        },
+    };
+    let Ok(page) = store.threads(&query, chrono::Utc::now()) else {
+        return 0;
+    };
+    let mut warmed = 0;
+    for summary in page.items {
+        let Ok(loaded) = store.thread(summary.id) else {
+            continue;
+        };
+        let messages: Vec<Message> = loaded
+            .messages
+            .iter()
+            .filter_map(|id| store.message(*id).ok())
+            .collect();
+        warmed += crate::reader::prewarm(store, &messages, mail_mime::SanitizePolicy::CURRENT);
+    }
+    warmed
 }
 
 fn start_composing(store: &SqliteStore, thread: ThreadId, what: Composes) -> Result<Draft, String> {
@@ -1863,10 +1997,7 @@ mod render_tests {
                 boxes[0],
                 true,
             );
-            tokio::time::timeout(std::time::Duration::from_millis(500), dom.wait_for_work())
-                .await
-                .ok();
-            dom.render_immediate(&mut NoOpMutations);
+            settle(&mut dom).await;
             dioxus_ssr::render(&dom)
         }
 
@@ -1991,6 +2122,29 @@ mod render_tests {
             dioxus_core::ElementId(element as usize),
             true,
         );
+        dom.render_immediate(&mut NoOpMutations);
+    }
+
+    /// Let the off-thread reads finish and fold their answers back into the tree.
+    ///
+    /// Since phase 8c the list and the badges are computed on a blocking thread and delivered
+    /// through a `use_resource`, which keeps its previous value while it recomputes — so one
+    /// render after a keystroke shows what was on screen *before* it. That is the right
+    /// behaviour in a window, where a blank pane between keystrokes is worse than a stale one,
+    /// and the wrong thing to assert against.
+    ///
+    /// Bounded, and it stops as soon as the tree has nothing left to do: a bare `wait_for_work`
+    /// on a settled tree never returns.
+    async fn settle(dom: &mut VirtualDom) {
+        for _ in 0..16 {
+            if tokio::time::timeout(std::time::Duration::from_millis(20), dom.wait_for_work())
+                .await
+                .is_err()
+            {
+                break;
+            }
+            dom.render_immediate(&mut NoOpMutations);
+        }
         dom.render_immediate(&mut NoOpMutations);
     }
 
@@ -2367,6 +2521,25 @@ mod render_tests {
                 "the rows offer no way to label anything:\n{page}"
             );
         }
+    }
+
+    #[test]
+    fn the_first_screenful_is_rendered_before_anyone_opens_it() {
+        // Phase 8e's caller. Asserted through the function the window mounts rather than through
+        // the window, because what is being checked is that the work happens on an ordinary
+        // thread with nothing polling it — which is the only reason this part of phase 8 works
+        // while F140 stands.
+        let (store, _dir) = realistic();
+
+        // Counted by the warming itself rather than by looking at the cache afterwards: the
+        // cache is process-wide and these tests share a process, so "something is in it" is a
+        // sentence another test can make true. What is asserted is what *this* call did.
+        let warming = store.clone();
+        let warmed = std::thread::spawn(move || warm_the_first_screenful(&warming))
+            .join()
+            .expect("warming did not panic");
+
+        assert!(warmed > 0, "the mailbox was not rendered ahead of the user");
     }
 
     #[tokio::test]
