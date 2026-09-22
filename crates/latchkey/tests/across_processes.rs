@@ -79,6 +79,32 @@ fn unique_name() -> String {
     )
 }
 
+/// Run a client and give back what it printed, without waiting on a pipe.
+///
+/// `Command::output()` would be the obvious thing and is the wrong thing here. It waits for the
+/// child's stdout to reach end-of-file, and on Windows the agent the client starts inherits that
+/// pipe and holds it open for as long as it runs — so the read finishes only when the *agent*
+/// stops, which is never. See `latchkey::find::spawn` for why the standard library gives no
+/// stable way to prevent the inheritance.
+///
+/// A file has no end-of-file to wait for, so redirecting there decouples the two. That is also
+/// the first workaround `spawn`'s documentation recommends, which makes this test a check that
+/// the advice works rather than only a way past the problem.
+fn say(world: &World, command: &str, tag: &str) -> (std::process::ExitStatus, String, String) {
+    let out = world.path().join(format!("{tag}.out"));
+    let err = world.path().join(format!("{tag}.err"));
+    let status = demo(world, command)
+        .stdout(Stdio::from(std::fs::File::create(&out).unwrap()))
+        .stderr(Stdio::from(std::fs::File::create(&err).unwrap()))
+        .status()
+        .expect("it runs");
+    (
+        status,
+        std::fs::read_to_string(&out).unwrap_or_default(),
+        std::fs::read_to_string(&err).unwrap_or_default(),
+    )
+}
+
 /// One test's world: a private directory and a name nobody else uses.
 struct World {
     dir: tempfile::TempDir,
@@ -180,6 +206,9 @@ fn a_second_agent_in_a_second_process_is_refused() {
     let mut first = demo(&world, "serve").spawn().expect("it starts");
     assert!(answering(&agent, Duration::from_secs(5)));
 
+    // `output()` is safe here where it was not in `a_client_starts_an_agent_and_talks_to_it`:
+    // this child is refused and exits immediately, and it starts nothing that could inherit the
+    // pipe and outlive it.
     let second = demo(&world, "serve").output().expect("it runs");
 
     assert!(!second.status.success(), "two agents answered to one name");
@@ -199,10 +228,10 @@ fn a_client_starts_an_agent_and_talks_to_it() {
     // sense that matters here: the client finds `current_exe`, launches it detached, waits for
     // the door, and gets an answer.
     let world = World::new();
-    let asked = demo(&world, "ask").output().expect("it runs");
+    let (first, said, complained) = say(&world, "ask", "first");
     // Asking again must reach the *same* agent, not start a second one. This is the property
     // every `foo status` depends on and the one a naive implementation loses first.
-    let again = demo(&world, "ask").output().expect("it runs");
+    let (second, twice, twice_complained) = say(&world, "ask", "second");
 
     // Tidy up *before* asserting, through the door rather than with a signal. An assertion that
     // fires first leaves a detached agent alive, and one still holding
@@ -210,19 +239,15 @@ fn a_client_starts_an_agent_and_talks_to_it() {
     // first version of this test poisoned the next build rather than only failing it.
     stop(&agent_at(&world));
 
-    let said = String::from_utf8_lossy(&asked.stdout);
-    let complained = String::from_utf8_lossy(&asked.stderr);
-    assert!(asked.status.success(), "{complained}");
+    assert!(first.success(), "{complained}");
+    assert!(second.success(), "{twice_complained}");
     let pid: u32 = said
         .trim()
         .parse()
         .unwrap_or_else(|_| panic!("expected the agent's pid, got {said:?} / {complained}"));
-
-    let twice = String::from_utf8_lossy(&again.stdout);
-    let twice_said = String::from_utf8_lossy(&again.stderr);
     let same: u32 = twice
         .trim()
         .parse()
-        .unwrap_or_else(|_| panic!("expected the agent's pid, got {twice:?} / {twice_said}"));
+        .unwrap_or_else(|_| panic!("expected the agent's pid, got {twice:?} / {twice_complained}"));
     assert_eq!(pid, same, "the second client started its own agent");
 }

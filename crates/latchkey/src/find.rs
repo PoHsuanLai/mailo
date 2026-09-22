@@ -170,14 +170,59 @@ fn wait_for(at: &Address, wait: Duration) -> Result<Stream, Error> {
 /// The child's output goes nowhere by design. An agent writing to the terminal of whichever
 /// client happened to start it is an agent that scribbles over an unrelated session; anything it
 /// has to say belongs in a log it chooses or in an answer to a request.
+///
+/// # Windows: the agent inherits the starting client's handles
+///
+/// This is a real limitation and not a footnote. `CreateProcess` is called with
+/// `bInheritHandles: TRUE` — the standard library has no stable way to say otherwise — and, as
+/// its own source puts it, "once an inheritable handle is created, *any* spawned child will
+/// inherit that handle". Setting the agent's own stdio to null does not help: the handles at
+/// issue are the *client's*, and they were made inheritable by whoever started the client.
+///
+/// The consequence is specific. If the client's stdout is a pipe that someone is reading to
+/// end-of-file — `$(mytool status)` in a shell, `Command::output()` in a test, any CI step that
+/// captures output — that read does not finish when the client exits, because the agent is still
+/// holding the write end and the agent is meant to live for hours. The reader waits for the
+/// agent, which is waiting for a request, which will not come.
+///
+/// Two ways around it, in order of preference:
+///
+/// 1. **Have the client write somewhere that has no end-of-file**, such as a file or the
+///    terminal. This is a one-line change in the client and costs nothing.
+/// 2. **Supply your own `start`.** [`connect_or_start`] takes it as a closure precisely so this
+///    function is a convenience rather than a constraint; a caller who needs `STARTUPINFOEX` and
+///    `PROC_THREAD_ATTRIBUTE_HANDLE_LIST` can have them.
+///
+/// Fixing it here needs one `unsafe` call to `SetHandleInformation` or an equivalent dependency.
+/// It is not done because this crate compiles under `unsafe_code = "forbid"` and the workaround
+/// above is cheap; if that trade stops being the right one, this is where it changes.
 pub fn spawn(args: &[&str]) -> Result<(), Error> {
     let exe = std::env::current_exe().map_err(Error::NoSelf)?;
-    std::process::Command::new(exe)
+    let mut command = std::process::Command::new(exe);
+    command
         .args(args)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .map(|_| ())
-        .map_err(Error::CannotSpawn)
+        .stderr(std::process::Stdio::null());
+    detach(&mut command);
+    command.spawn().map(|_| ()).map_err(Error::CannotSpawn)
 }
+
+/// Cut the agent loose from the console that started it.
+///
+/// `DETACHED_PROCESS` stops the agent joining the client's console, so closing the terminal that
+/// ran the first command does not take the agent with it, and `CREATE_NO_WINDOW` stops a console
+/// window appearing for an agent nobody is looking at. Neither affects handle inheritance — see
+/// [`spawn`] — they are the part of "detached" that *is* expressible in safe code.
+#[cfg(windows)]
+fn detach(command: &mut std::process::Command) {
+    use std::os::windows::process::CommandExt as _;
+    const DETACHED_PROCESS: u32 = 0x0000_0008;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    command.creation_flags(DETACHED_PROCESS | CREATE_NO_WINDOW);
+}
+
+/// Nothing to do: on Unix the child already outlives its parent, and `Stdio::null` has already
+/// severed the three handles that matter. Pipes are `CLOEXEC`, so nothing else is inherited.
+#[cfg(not(windows))]
+fn detach(_command: &mut std::process::Command) {}

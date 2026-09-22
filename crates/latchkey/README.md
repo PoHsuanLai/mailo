@@ -65,6 +65,19 @@ The knock is bounded for the same reason. `interprocess` defaults to unbounded w
 Windows is `WaitNamedPipeW(NMPWAIT_WAIT_FOREVER)` — so the default "is anyone home?" can block
 for ever against a busy agent, with nothing to cancel it. This crate always passes a timeout.
 
+And one limitation that is not papered over: **on Windows an agent started by `spawn` inherits
+the starting client's handles.** `CreateProcess` is called with `bInheritHandles: TRUE`, because
+the standard library offers no stable way to say otherwise, and as std's own source puts it,
+"once an inheritable handle is created, *any* spawned child will inherit that handle". Setting
+the agent's stdio to null does not help — the handles at issue belong to the client.
+
+So if the client's stdout is a pipe someone reads to end-of-file — `$(mytool status)` in a
+shell, a CI step capturing output — that read waits for the *agent*, which is designed to live
+for hours. Have the client write to a file or the terminal instead, or supply your own `start`
+closure: `connect_or_start` takes one precisely so `spawn` is a convenience and not a
+constraint. Fixing it inside the crate needs one `unsafe` call to `SetHandleInformation`, and
+this crate compiles under `unsafe_code = "forbid"`.
+
 ## Why a lock and not a look
 
 The obvious way to find out whether an agent is running is to look at its socket: is the file
