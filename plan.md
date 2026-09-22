@@ -1226,10 +1226,30 @@ in this application that need synchronising are the store and the sockets. Every
 `Filter::fit`, `ThreadSummary::derive`, MIME parse, sanitize, the protocol machines — is a value
 going in and a value coming out.
 
-**8a — Measure first.** A bench against a real database, not a fixture: the list query, the badge
-sweep, one thread render, one search keystroke. CONVENTIONS says scale is measured rather than
-assumed, and every lever below is a guess about where the milliseconds are until this exists.
-Nothing after 8b is committed to before the numbers arrive.
+**8a — Measure first.** Done, in `mail-app/tests/frame_budget.rs`, and it moved everything below
+it. Release build, one keystroke in the search box with a conversation open:
+
+| | 3,138 messages (real) | 10,000 messages |
+|---|---|---|
+| list of 50 | 0.36 ms | 0.19 ms |
+| **six badge counts** | **4.65 ms** | **11.97 ms** |
+| label index | 0.01 ms | 0.00 ms |
+| drafts | 0.01 ms | 0.01 ms |
+| reader, 40 messages | — | 0.89 ms |
+| search | 0.05 ms | 13.01 ms |
+| **one keystroke** | **5.07 ms** | **26.08 ms** |
+
+Two things in that table were not what this plan predicted. The reader is *cheap* — 0.89 ms for a
+forty-message conversation, against the paragraph above that called it the thing that stutters —
+and the badge counts are the single largest cost at both sizes, six sequential `COUNT`s run on
+the render thread on every revision. The mailbox this was measured against is fine today at 5 ms;
+at ten thousand messages a keystroke costs 26 ms, which is a frame and a half at 60 Hz, and that
+is what typing into the search box with a mailbox a year old will feel like.
+
+So the order below is the measurement's, not the one this section was first written with: what is
+on the render thread matters more than what the store costs, and the badges matter more than the
+reader. `8d` and `8e` stay in the plan because a cache of a pure function is still free and still
+correct — but they are no longer where the milliseconds are, and they are not first.
 
 **8b — A reader connection per thread.** One writer, N readers, so WAL delivers what its own
 comment already claims. This is the only item here scheduled ahead of its measurement, because it
