@@ -18,6 +18,9 @@ mail-runtime.workspace = true
 rusqlite = { version = "0.40", features = ["bundled"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt", "macros", "time", "net", "io-util"] }
+# For `join_all` only: one pass over several accounts is several independent conversations with
+# several servers, and running them one after another spends the sum of their waiting.
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "charset", "http2"] }
 chrono.workspace = true
 dioxus = { version = "0.7", features = ["desktop"] }

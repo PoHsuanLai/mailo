@@ -3097,6 +3097,7 @@ dependencies = [
  "chrono",
  "dioxus",
  "dioxus-ssr",
+ "futures-util",
  "mail-domain",
  "mail-mime",
  "mail-proto",

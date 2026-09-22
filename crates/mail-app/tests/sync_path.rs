@@ -956,3 +956,131 @@ mod capabilities_the_window_reads {
         assert!(sync::caps_of(&store, AccountId::generate()).is_none());
     }
 }
+
+/// Two accounts, one pass, at the same time — `plan.md` phase 8f.
+///
+/// Accounts are independent by construction: `AccountId` partitions every table, and two accounts
+/// are two conversations with two servers that have never heard of each other. Run one after
+/// another, a pass spends the *sum* of their waiting, and almost all of a pass is waiting — so a
+/// slow Gmail backfill held up an NTU poll that had nothing to do with it.
+mod both_accounts_at_once {
+    use super::*;
+    use std::sync::{Arc as StdArc, Mutex as StdMutex};
+    use std::time::Instant;
+
+    /// When a server was being talked to: the moment it accepted, and the moment it gave up.
+    type Window = StdArc<StdMutex<Vec<(Instant, Instant)>>>;
+
+    /// A server that accepts, says nothing for `holds`, and closes.
+    ///
+    /// Saying nothing is the point. The client waits for a greeting, so the connection stays open
+    /// for the whole of `holds` and the account's pass fails afterwards — which is fine, because
+    /// what is being measured is *when* each conversation happened, not whether it succeeded.
+    fn slow_server(holds: std::time::Duration) -> (u16, Window) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let window: Window = StdArc::new(StdMutex::new(Vec::new()));
+        let recording = window.clone();
+        std::thread::spawn(move || {
+            for sock in listener.incoming() {
+                let Ok(sock) = sock else { continue };
+                let opened = Instant::now();
+                std::thread::sleep(holds);
+                drop(sock);
+                recording.lock().unwrap().push((opened, Instant::now()));
+            }
+        });
+        (port, window)
+    }
+
+    /// A store with two password accounts, each pointed at its own port.
+    fn other_account() -> AccountId {
+        AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a2"))
+    }
+
+    fn two_accounts(first: u16, second: u16) -> (Arc<SqliteStore>, tempfile::TempDir) {
+        let (store, dir) = configured(first, caps());
+        let other = other_account();
+        let plan = AccountPlan {
+            address: "bee@example.test".to_owned(),
+            incoming: Incoming::Imap {
+                host: "127.0.0.1".to_owned(),
+                port: second,
+                tls: Tls::Plaintext,
+            },
+            outgoing: Outgoing::Smtp {
+                host: "127.0.0.1".to_owned(),
+                port: 1,
+                tls: Tls::Plaintext,
+            },
+            auth: AuthPlan::Password {
+                username: Username::SameAsAddress,
+                sasl: vec![SaslMech::Plain],
+            },
+            identities: Vec::new(),
+        };
+        let db = store.connection();
+        db.execute(
+            "INSERT INTO accounts (id, address, plan, created_at)
+             VALUES (?1, 'bee@example.test', ?2, datetime('now', '+1 second'))",
+            rusqlite::params![other.to_string(), serde_json::to_string(&plan).unwrap()],
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO account_caps (account, caps, observed_at) VALUES (?1, ?2, ?3)",
+            rusqlite::params![
+                other.to_string(),
+                serde_json::to_string(&caps()).unwrap(),
+                now().to_rfc3339()
+            ],
+        )
+        .unwrap();
+        drop(db);
+        (store, dir)
+    }
+
+    /// Two intervals that share any instant at all.
+    fn overlap(a: (Instant, Instant), b: (Instant, Instant)) -> bool {
+        a.0 < b.1 && b.0 < a.1
+    }
+
+    #[test]
+    fn the_two_conversations_happen_at_the_same_time() {
+        // Asserted as an overlap rather than as a duration. A threshold in milliseconds is a
+        // test that fails on a loaded machine and then gets deleted; two connections being open
+        // at the same instant is the property itself, and it is either true or it is not.
+        let hold = std::time::Duration::from_millis(400);
+        let (first, one) = slow_server(hold);
+        let (second, two) = slow_server(hold);
+        let (store, _dir) = two_accounts(first, second);
+
+        // Both accounts need a credential, or the one without it is skipped before it ever
+        // opens a socket — and a test of concurrency with one participant proves nothing.
+        let secrets = MapSecrets::default();
+        with_password(&secrets, "s3cr3t-pass");
+        secrets
+            .put(
+                &SecretKey {
+                    account: other_account(),
+                    purpose: SecretPurpose::IncomingPassword,
+                },
+                &Credential::Password("s3cr3t-pass".to_owned()),
+            )
+            .unwrap();
+        let _ = sync::run_with(store, Arc::new(secrets), &OAuthRegistry::default(), now());
+
+        let one = one.lock().unwrap().clone();
+        let two = two.lock().unwrap().clone();
+        // At least one each: a pass may open more than one connection to the same server, and
+        // how many is not what this is about. The first of each is the one that matters.
+        assert!(!one.is_empty(), "the first account was never contacted");
+        assert!(!two.is_empty(), "the second account was never contacted");
+        assert!(
+            overlap(one[0], two[0]),
+            "the accounts were synced one after the other: \
+             the first was open for {:?} and the second started {:?} after it finished",
+            one[0].1.duration_since(one[0].0),
+            two[0].0.duration_since(one[0].1),
+        );
+    }
+}

@@ -174,11 +174,36 @@ pub fn run_with(
         .build()
         .map_err(|e| format!("cannot start the async runtime: {e}"))?;
 
+    // All the accounts at once — `plan.md` phase 8f.
+    //
+    // Accounts are independent by construction: `AccountId` partitions every table, and two
+    // accounts are two conversations with two different servers. Run one after another, a pass
+    // spends the *sum* of their waiting, and almost all of a pass is waiting — so a slow Gmail
+    // backfill used to hold up an NTU poll that had nothing to do with it.
+    //
+    // Concurrent rather than parallel, and deliberately: these futures are joined, not spawned,
+    // so they share one thread and interleave at their `await` points. What overlaps is the
+    // network, which is where the time goes. Spawning would need `'static` and would buy only
+    // the few milliseconds of SQLite in between — and the store is one connection behind a
+    // mutex, so those milliseconds cannot overlap anyway. That is phase 8b's subject.
+    //
+    // Nothing here needs a rate limiter. Throttling is a within-account question — one server,
+    // several connections — and this is one connection each to servers that have never heard of
+    // each other.
+    let reports = runtime.block_on(futures_util::future::join_all(
+        accounts
+            .iter()
+            .map(|account| one(&store, account, secrets.clone(), registry, now)),
+    ));
+
     let mut out = String::new();
     let mut rejected = false;
     let mut hold: Option<std::time::Duration> = None;
-    for account in accounts {
-        match runtime.block_on(one(&store, &account, secrets.clone(), registry, now)) {
+    // Reported in the order the accounts are configured, which `join_all` preserves. A pass that
+    // printed its accounts in whatever order they happened to finish would read differently
+    // between runs for no reason the user could see.
+    for (account, report) in accounts.iter().zip(reports) {
+        match report {
             Ok(report) => {
                 rejected |= report.needs_reauth;
                 if let Some(asked) = report.hold {
