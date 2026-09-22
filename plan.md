@@ -1198,6 +1198,25 @@ command line, and the window can label and snooze what it lists. Verified the wa
 journeys were — through `VirtualDom::handle_event` against a real store, and through
 `scripts/live-window.sh` against the real binary.
 
+**State:** all five are written and tested. `c` and a New button open a blank draft; `mailo
+compose --to` does the same from a terminal, and with two accounts configured both refuse to
+guess which one a message leaves from. A file can be attached from either surface, and an
+incoming one saved from the reader rather than from a printed command. Labels and snoozing have
+menus on the row.
+
+Two defects fell out of the work, and both were bigger than the feature that found them. F138:
+attachments were modelled in the domain, assembled by the MIME builder, persisted by the store
+and resolved by `send` — five layers, each tested, and no surface had ever constructed one, so
+every message this client sent was single-part whatever the user meant to attach. F139, found
+while wiring labels by asking what would carry one to Gmail: `ui::apply_op` computed the remote
+half of every operation and dropped it, and passed hardcoded `LocalOnly` capabilities instead of
+the account's, so archiving and marking read in the window changed this machine and told the
+server nothing.
+
+What is *not* established is whether any of it can be used, because F140 says the window stops
+re-rendering after it opens. Every one of these is correct code behind a surface that may not be
+able to show the result. The command-line halves are unaffected.
+
 ### 8 — Concurrency, and the frame budget
 
 The argument for doing this in Rust at all, cashed in. It is deliberately after phase 7, because
@@ -1317,6 +1336,28 @@ available, which is the one already in use.
 **Done when:** the bench from 8a is re-run and says what changed; typing in the search box with a
 large thread open drops no frames; a sync pass fetches both accounts at once; and opening a
 conversation the user was about to open is a lookup.
+
+**State: four of seven, and the other three are blocked rather than skipped.**
+
+Done. *8a* measured, and corrected this section twice — the reader was cheap where the plan
+called it the thing that stutters, and the first totals wrongly charged the badge counts to every
+keystroke. *8b* opened three read-only connections beside the writer, so a query no longer waits
+behind a commit; the hazard the struct's own comment had warned about is prevented by a
+signature, since the four read helpers now take the connection to read from and a write path
+cannot hand them a reader. *8d* cached `render` on a content-addressed key, taking forty messages
+of an open conversation from 0.89 ms to nothing, and the test that matters is not the speed but
+the key: dropping the policy from it serves a read receipt nobody granted. *8f* runs both
+accounts in one pass, asserted as an overlap of two connection windows rather than a threshold in
+milliseconds.
+
+Blocked on 8z. *8c* — reads off the render thread — was built, passed 1382 tests, and showed an
+empty mailbox in the real window, which is how F140 was found: a `use_resource` never resolves
+when nothing polls the dom. *8e* — speculative render — is 8c's continuation and waits on the
+same answer. *8g* — IDLE — would replace a poll loop that does not currently run.
+
+The measurements, for whoever picks this up: on the real mailbox a keystroke costs 0.88 ms and a
+sync landing 5.1 ms; at ten thousand messages, 15.3 ms and 13.4 ms. Nothing here is urgent at
+today's size, which is worth saying plainly after a phase that began by assuming otherwise.
 
 ---
 
