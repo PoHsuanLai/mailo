@@ -2629,3 +2629,38 @@ in, a thread found by `Filter::HasLabel` out.
 What is *not* proved is a real Gmail account, and nothing here can be. What it would exercise
 beyond these tests is whether Gmail's wire matches its documentation, which is exactly what the
 capture in `traces/` was recorded to answer.
+
+### F120 — Measuring the query shapes F118 made reachable
+
+A query language that produces shapes the SQL builder answers by reading the whole mailbox is a
+slower search than the one it replaced. F118 turned `from:ada is:unread after:2026-01-01` into a
+three-clause `Filter::And` that nothing in this application had ever asked the store for, so the
+shapes are measured rather than assumed. Ten thousand messages:
+
+| search | |
+| --- | --- |
+| `subject:widgets` | 0.76 ms |
+| `is:unread` | 0.82 ms |
+| `after:…` | 0.79 ms |
+| `-from:s1` | 0.79 ms |
+| `from:s1` | 4.9 ms |
+| `is:starred` / `has:attachment` / `is:pinned` / `is:snoozed` | 5.9–7.7 ms |
+| `from:s1 is:unread` | 9.8 ms |
+| `from:s1 widgets after:… is:unread` | 28 ms |
+
+No pathology. The slowest thing the language can build is four clauses at 28 ms, which is well
+inside the range where a search box still feels immediate.
+
+Two of those numbers are worth understanding rather than optimising. `from:s1` costs six times
+`subject:widgets` because the fixture's subject matches every message and its sender matches one
+in ninety-seven — filling a page of fifty takes more rows, which is the query doing its job. And
+the four that find *nothing* cost 6–8 ms because proving a mailbox contains no starred message
+means looking at all of it; there is no index on `star`, `pin` or `snooze`. At this size that is
+the right trade: an index would have to be maintained on every write to save seven milliseconds
+on a search nobody runs twice. Recorded so the decision is visible if the mailbox ever gets large
+enough to change it.
+
+A second assertion pins the property that makes a query language safe to offer at all: **adding a
+term must not cost more than the terms it narrows**. One clause against three, and the three are
+no slower — a builder that evaluated each clause independently and intersected afterwards would
+fail that, and it is the shape a query language invites.

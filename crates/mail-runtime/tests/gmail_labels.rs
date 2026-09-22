@@ -7,9 +7,7 @@
 use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::*;
 use mail_proto::backend::{Authenticate, ImapBackend};
-use mail_proto::{
-    Backend, ImapAuth, ImapCommand, ImapSession, IoReady, Progress, ProtoOutcome,
-};
+use mail_proto::{Backend, ImapAuth, ImapCommand, ImapSession, IoReady, Progress, ProtoOutcome};
 use mail_store::{SqliteStore, Store};
 
 const ACCOUNT: AccountId =

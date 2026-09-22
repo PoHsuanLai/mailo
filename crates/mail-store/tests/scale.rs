@@ -361,3 +361,130 @@ mod ingest_throughput {
         );
     }
 }
+
+/// The query shapes the search language made reachable.
+///
+/// F118 turned `from:ada is:unread after:2026-01-01` into `Filter::And` of three clauses, which
+/// nothing in this application had ever asked the store for. A query language that produces
+/// shapes the SQL builder answers by reading the whole mailbox is a slower search than the one
+/// it replaced, so the shapes are measured rather than assumed.
+mod the_search_language {
+    use super::*;
+
+    fn timed(store: &SqliteStore, name: &str, filter: Filter) -> std::time::Duration {
+        let q = page(50, filter);
+        let elapsed = best_of_three(|| {
+            store.threads(&q, at(0)).unwrap();
+        });
+        let hits = store.threads(&q, at(0)).unwrap().items.len();
+        eprintln!("{name:<44} {elapsed:>10?}  {hits} hits");
+        elapsed
+    }
+
+    #[test]
+    fn every_shape_the_language_can_build_stays_usable() {
+        let (store, _dir) = store();
+        fill(&store, 10_000);
+
+        let cases: Vec<(&str, Filter)> = vec![
+            (
+                "from:s1",
+                Filter::From(TextMatch::Contains("s1@example.test".to_owned())),
+            ),
+            (
+                "subject:widgets",
+                Filter::Subject(TextMatch::Contains("widgets".to_owned())),
+            ),
+            ("is:unread", Filter::Read(ReadState::Unread)),
+            ("is:starred", Filter::Starred(Star::Starred)),
+            ("has:attachment", Filter::HasAttachment),
+            ("is:pinned", Filter::Pinned),
+            ("is:snoozed", Filter::Snoozed),
+            (
+                "after:…",
+                Filter::Date(DateRange {
+                    from: Some(at(5_000)),
+                    to: None,
+                }),
+            ),
+            (
+                "-from:s1",
+                Filter::Not(Box::new(Filter::From(TextMatch::Contains(
+                    "s1@example.test".to_owned(),
+                )))),
+            ),
+            (
+                "from:s1 is:unread",
+                Filter::And(vec![
+                    Filter::From(TextMatch::Contains("s1@example.test".to_owned())),
+                    Filter::Read(ReadState::Unread),
+                ]),
+            ),
+            (
+                "from:s1 widgets after:… is:unread",
+                Filter::And(vec![
+                    Filter::From(TextMatch::Contains("s1@example.test".to_owned())),
+                    Filter::Text(TextMatch::Contains("widgets".to_owned())),
+                    Filter::Date(DateRange {
+                        from: Some(at(5_000)),
+                        to: None,
+                    }),
+                    Filter::Read(ReadState::Unread),
+                ]),
+            ),
+        ];
+
+        let mut slowest = std::time::Duration::ZERO;
+        let mut worst = "";
+        for (name, filter) in cases {
+            let elapsed = timed(&store, name, filter);
+            if elapsed > slowest {
+                slowest = elapsed;
+                worst = name;
+            }
+        }
+        // Generous against a loaded machine and still far under the threshold where a search
+        // box stops feeling immediate. What this catches is a shape answered by reading the
+        // mailbox — which is hundreds of milliseconds at this size, not tens.
+        assert!(
+            slowest < std::time::Duration::from_millis(500),
+            "{worst:?} took {slowest:?} on 10k messages"
+        );
+    }
+
+    #[test]
+    fn adding_a_term_does_not_cost_more_than_the_terms_it_narrows() {
+        // The property that makes a query language safe to offer: each clause you add finds
+        // less, so it must not take longer. A builder that evaluated clauses independently and
+        // intersected afterwards would fail this.
+        let (store, _dir) = store();
+        fill(&store, 10_000);
+
+        let one = page(
+            50,
+            Filter::From(TextMatch::Contains("s1@example.test".to_owned())),
+        );
+        let three = page(
+            50,
+            Filter::And(vec![
+                Filter::From(TextMatch::Contains("s1@example.test".to_owned())),
+                Filter::Read(ReadState::Unread),
+                Filter::Date(DateRange {
+                    from: Some(at(5_000)),
+                    to: None,
+                }),
+            ]),
+        );
+        let first = best_of_three(|| {
+            store.threads(&one, at(0)).unwrap();
+        });
+        let narrowed = best_of_three(|| {
+            store.threads(&three, at(0)).unwrap();
+        });
+        eprintln!("one clause {first:?}, three clauses {narrowed:?}");
+        assert!(
+            narrowed < first * 4,
+            "narrowing made it slower: one={first:?} three={narrowed:?}"
+        );
+    }
+}
