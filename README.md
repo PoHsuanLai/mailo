@@ -13,13 +13,20 @@ mail-mime     → mail-domain                              parse, build, sanitiz
 mail-domain   → serde, uuid, chrono, thiserror           the vocabulary
 ```
 
-## The two ideas it is built on
+## How it is put together
 
-**Sans-I/O.** `mail-domain`, `mail-mime` and `mail-proto` never open a socket, read a clock or
-spawn a task. A protocol machine takes bytes in and returns `Progress::Need(..)` or
-`Progress::Done(..)`; the runtime owns the loop. That is what makes IDLE interruptible and
-transcripts replayable, and it is enforced mechanically — `scripts/check-boundary.sh` fails if any
-of those three crates can reach tokio, rusqlite, dioxus, reqwest or keyring.
+Obviously the thing does I/O: `mail-runtime` opens sockets and owns a tokio loop, `mail-store`
+writes SQLite, `mail-app` runs a webview and a terminal. What the layout buys is *where* it
+happens.
+
+**The bottom three crates do none of it.** `mail-domain`, `mail-mime` and `mail-proto` never open
+a socket, read a clock or spawn a task — that is the sans-I/O pattern, which has never meant "does
+no I/O" but "the protocol layer does not perform it". `ImapSession` takes bytes and returns
+`Progress::Need(..)` or `Progress::Done(..)`; something above it does the reading. IDLE is
+interruptible because the machine is a value someone else drives, and a recorded transcript
+replays because nothing in it wanted a socket. It is enforced mechanically rather than by
+intention: `scripts/check-boundary.sh` fails if any of those three can reach tokio, rusqlite,
+dioxus, reqwest or keyring.
 
 **Enums for mail vocabulary, traits only for real seams.** An account is a value — incoming
 protocol, outgoing protocol, auth — not a type. Adding Microsoft meant an enum variant, an

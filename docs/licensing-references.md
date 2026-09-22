@@ -440,18 +440,36 @@ question the build asks every time: what licences does the dependency tree carry
 fails CI on anything outside the allow-list, so each entry below is a decision somebody made
 rather than a thing that drifted in.
 
-Two dependencies are neither MIT nor Apache-2.0, and both are recorded there as *scoped
-exceptions* rather than as blanket allowances — a new dependency arriving under either licence
-still fails the gate and still gets a decision.
+Eight packages are neither MIT nor Apache-2.0. Six of them are MPL-2.0 and are covered by a
+policy; two are one-offs and are covered by scoped exceptions.
+
+**MPL-2.0 — allowed as a licence, not crate by crate.** Tier **R** above is a position about the
+licence: file-level copyleft, fine to link or depend on, never to paste source from. It arrives
+by two unrelated routes and the versions already churn, so `deny.toml` allows it outright rather
+than naming crates that will be renumbered next month.
+
+| Crate | Reached through |
+|---|---|
+| `cssparser` 0.38, `cssparser-macros`, `dtoa-short` | `ammonia` → `mail-mime` — the HTML sanitizer |
+| `cssparser` 0.29, `selectors` | `kuchikiki` → `wry` → `dioxus-desktop` |
+| `option-ext` | `dirs` → `tray-icon` → `dioxus-desktop` |
+
+Depending on these obliges us to make *those files'* source available, which crates.io already
+does, and obliges nothing of ours. The rule that does constrain this repository — do not copy MPL
+source into it — is not something a dependency gate can check, and lives in §1 and in
+`CONVENTIONS.md`, where the person about to break it will read it.
+
+**The two one-offs**, scoped in `deny.toml` to one crate each:
 
 | Crate | Licence | Reached through | Why it is acceptable |
 |---|---|---|---|
-| `selectors` | MPL-2.0 | `kuchikiki` → `wry` → `dioxus-desktop` | Tier **R** by the rule above: file-level copyleft, fine to depend on. The obligation is to make *those files'* source available, which crates.io already does; nothing of ours is affected. What it forbids is pasting a function out of it into this repository — which §1 forbids anyway. |
-| `webpki-roots` | CDLA-Permissive-2.0 | `hyper-rustls` → `reqwest` | Mozilla's CA root bundle. The licence covers the *data* — the list of certificate authorities — rather than code, which is why it is a CDLA rather than one of the usual four. Permissive, with no obligation reaching anything that reads it. |
+| `webpki-roots` | CDLA-Permissive-2.0 | `hyper-rustls` → `reqwest` | Mozilla's CA root bundle. The licence covers the *data* — which certificate authorities to trust — rather than code, which is why it is a CDLA and not one of the usual four. Permissive, with nothing reaching what reads it. |
+| `libfuzzer-sys` | `(MIT OR Apache-2.0) AND NCSA` | `rav1e` → `ravif` → `image` → `dioxus-desktop` | The `AND` is why the usual pair is not enough. NCSA is the University of Illinois/NCSA licence, permissive and BSD-shaped. It is the fuzz target of an AV1 encoder the image decoder depends on, and reaches no shipped binary. |
 
-Both were found by CI on the first run against a public repository, which is the argument for
-having the gate at all: neither is a problem, and neither would have been noticed by anybody
-reading `Cargo.lock`.
+All of this was found by CI on its first runs against a public repository, which is the argument
+for having the gate: none of it is a problem, and none of it would have been noticed by anybody
+reading `Cargo.lock`. It also took two wrong attempts — see the note in `deny.toml` about why
+per-crate exceptions were the wrong shape for MPL.
 
 ---
 

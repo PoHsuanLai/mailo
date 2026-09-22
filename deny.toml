@@ -15,33 +15,43 @@ allow = [
     "CC0-1.0",
     "Unicode-3.0",
     "Zlib",
+    # Weak, file-level copyleft. The long note below says why this one is here and GPL is not.
+    "MPL-2.0",
 ]
 confidence-threshold = 0.9
 
-# Strong and weak copyleft are absent from `allow` on purpose. Adding one there is a deliberate
-# decision that changes what this project may be distributed as, not a dependency bump.
+# MPL-2.0 is allowed, and it is a decision rather than an oversight.
 #
-# The two below are *exceptions*, scoped to one crate each, which is the difference that matters:
-# a new dependency arriving under either licence still fails this gate and still gets a decision.
-# A blanket entry in `allow` would let the next one in unnoticed, which is the thing this file
-# exists to prevent.
-
-# The window's HTML layer, three levels down: selectors → kuchikiki → wry → dioxus-desktop.
+# `docs/licensing-references.md` puts MPL at tier **R**: file-level copyleft, fine to link or
+# depend on, never to paste source from. That position is about the *licence*, so encoding it
+# per-crate would be busywork — six crates arrive under it by two unrelated routes, and the
+# versions already churn:
 #
-# MPL-2.0 is file-level copyleft, and `docs/licensing-references.md` already records the position
-# this takes — tier R, "fine to link or depend on; do not paste source in". Depending on it
-# obliges us to make *those files'* source available, which crates.io already does, and it
-# obliges nothing of ours. What it would forbid is copying a function out of `selectors` into
-# this repository, which the same document forbids for a different reason and which has not
-# happened.
-[[licenses.exceptions]]
-name = "selectors"
-allow = ["MPL-2.0"]
+#   cssparser 0.38, cssparser-macros, dtoa-short   ← ammonia ← mail-mime   (the HTML sanitizer)
+#   cssparser 0.29, selectors                      ← kuchikiki ← wry ← dioxus-desktop
+#   option-ext                                     ← dirs ← tray-icon ← dioxus-desktop
+#
+# Depending on them obliges us to make *those files'* source available, which crates.io already
+# does, and obliges nothing of ours. The rule that actually constrains this repository — do not
+# copy MPL source into it — is not something a dependency gate can check, and lives in
+# CONVENTIONS.md and the licensing notes where it can be read by the person about to break it.
+#
+# What stays out of that list is strong copyleft: GPL, AGPL, EUPL. Those would change what this
+# project may be distributed as, and a dependency arriving under one should stop the build.
 
-# Mozilla's CA root bundle, via reqwest → hyper-rustls. The licence covers the *data* — the list
-# of certificate authorities — rather than code, which is why it is a CDLA and not one of the
-# usual four. Permissive: it allows use and redistribution of the data, with no obligation
-# reaching anything that reads it.
+# Mozilla's CA root bundle, via reqwest → hyper-rustls. Scoped to the one crate because unlike
+# MPL this is not a policy, it is a one-off: the licence covers the *data* — which certificate
+# authorities to trust — rather than code, which is why it is a CDLA and not one of the usual
+# four. Permissive, with no obligation reaching anything that reads it.
 [[licenses.exceptions]]
 name = "webpki-roots"
 allow = ["CDLA-Permissive-2.0"]
+
+# A fuzzing harness, five levels down: libfuzzer-sys ← rav1e ← ravif ← image ← dioxus-desktop.
+# Its licence is `(MIT OR Apache-2.0) AND NCSA`, and the AND is why the usual pair is not
+# enough. NCSA is the University of Illinois/NCSA licence, permissive and BSD-shaped. Nothing of
+# it reaches a shipped binary — it is the fuzz target of an AV1 encoder that the image decoder
+# happens to depend on.
+[[licenses.exceptions]]
+name = "libfuzzer-sys"
+allow = ["NCSA", "MIT", "Apache-2.0"]
