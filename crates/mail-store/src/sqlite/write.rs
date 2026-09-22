@@ -215,7 +215,9 @@ impl SqliteStore {
 
     /// Rebuild the materialized summary for `thread`, or drop it if the thread is now empty.
     pub(super) fn refresh_summary(&self, thread: ThreadId) -> Result<(), StoreError> {
-        let messages = self.messages_of(thread)?;
+        // The writer, not a reader: this runs inside `write_patch`'s transaction and has to
+        // see the rows it has just written.
+        let messages = self.messages_of(&self.connection(), thread)?;
         if messages.is_empty() {
             self.connection().execute(
                 "DELETE FROM threads WHERE id = ?1",
@@ -383,7 +385,7 @@ impl SqliteStore {
             for name in names {
                 wanted.push(self.label_by_name(account, name)?);
             }
-            let held = self.labels_of(id)?;
+            let held = self.labels_of(&self.connection(), id)?;
             for label in wanted.iter().filter(|l| !held.contains(l)) {
                 let change = Change::MessageLabel(id, *label, Membership::In);
                 self.write_change(&change)?;

@@ -7,7 +7,7 @@ use mail_domain::{
     Address, Attachment, Attachments, BlobId, Body, LabelId, MailboxRole, MailboxSet, Message,
     MessageId, MessageKey, Pin, ReadState, Snooze, Star, Thread, ThreadId, ThreadSummary,
 };
-use rusqlite::{Row, params};
+use rusqlite::{Connection, Row, params};
 
 /// The `to`/`cc`/`bcc`/`reply_to` bundle, stored as one JSON column.
 #[derive(Debug, serde::Serialize, serde::Deserialize, Default)]
@@ -31,10 +31,15 @@ pub const SUMMARY_COLUMNS: &str = "thread, account, subject, snippet, from_name,
      attachments, snooze, pin";
 
 impl SqliteStore {
-    pub(super) fn read_message(&self, row: &Row<'_>) -> Result<Message, StoreError> {
+    /// `db` is the connection the row came from, so the labels are read from the same world.
+    pub(super) fn read_message(
+        &self,
+        db: &Connection,
+        row: &Row<'_>,
+    ) -> Result<Message, StoreError> {
         let recipients: Recipients = json("Message.recipients", &row.get::<_, String>(7)?)?;
         let id = MessageId::from_uuid(uuid("MessageId", &row.get::<_, String>(0)?)?);
-        let labels = self.labels_of(id)?;
+        let labels = self.labels_of(db, id)?;
         Ok(Message {
             id,
             thread: ThreadId::from_uuid(uuid("ThreadId", &row.get::<_, String>(1)?)?),
@@ -108,7 +113,7 @@ impl SqliteStore {
         &self,
         account: mail_domain::AccountId,
     ) -> Result<Vec<mail_domain::Label>, StoreError> {
-        let db = self.connection();
+        let db = self.reader();
         let mut stmt = db.prepare_cached(
             "SELECT id, name, color, origin FROM labels WHERE account = ?1 ORDER BY name",
         )?;
@@ -134,8 +139,13 @@ impl SqliteStore {
         Ok(out)
     }
 
-    pub(super) fn labels_of(&self, message: MessageId) -> Result<Vec<LabelId>, StoreError> {
-        let db = self.connection();
+    /// `db` rather than reaching for one: this is called both from a read and from inside
+    /// `write_patch`'s transaction, and those are two different worlds. See `SqliteStore::reader`.
+    pub(super) fn labels_of(
+        &self,
+        db: &Connection,
+        message: MessageId,
+    ) -> Result<Vec<LabelId>, StoreError> {
         let mut stmt = db
             .prepare_cached("SELECT label FROM message_labels WHERE message = ?1 ORDER BY label")?;
         let rows = stmt.query_map(params![message.to_string()], |r| r.get::<_, String>(0))?;
@@ -147,22 +157,28 @@ impl SqliteStore {
     }
 
     /// Every message of a thread, oldest first.
-    pub(super) fn messages_of(&self, thread: ThreadId) -> Result<Vec<Message>, StoreError> {
+    pub(super) fn messages_of(
+        &self,
+        db: &Connection,
+        thread: ThreadId,
+    ) -> Result<Vec<Message>, StoreError> {
         let sql =
             format!("SELECT {MESSAGE_COLUMNS} FROM messages WHERE thread = ?1 ORDER BY date, id");
-        let db = self.connection();
         let mut stmt = db.prepare_cached(&sql)?;
         let mut rows = stmt.query(params![thread.to_string()])?;
         let mut out = Vec::new();
         while let Some(row) = rows.next()? {
-            out.push(self.read_message(row)?);
+            out.push(self.read_message(db, row)?);
         }
         Ok(out)
     }
 
-    pub(super) fn summary_of(&self, thread: ThreadId) -> Result<ThreadSummary, StoreError> {
+    pub(super) fn summary_of(
+        &self,
+        db: &Connection,
+        thread: ThreadId,
+    ) -> Result<ThreadSummary, StoreError> {
         let sql = format!("SELECT {SUMMARY_COLUMNS} FROM thread_summary WHERE thread = ?1");
-        let db = self.connection();
         let mut stmt = db.prepare_cached(&sql)?;
         let mut rows = stmt.query(params![thread.to_string()])?;
         match rows.next()? {
@@ -172,8 +188,13 @@ impl SqliteStore {
     }
 
     pub(super) fn load_thread(&self, id: ThreadId) -> Result<Thread, StoreError> {
-        let summary = self.summary_of(id)?;
-        let messages = self.messages_of(id)?.into_iter().map(|m| m.id).collect();
+        let db = self.reader();
+        let summary = self.summary_of(&db, id)?;
+        let messages = self
+            .messages_of(&db, id)?
+            .into_iter()
+            .map(|m| m.id)
+            .collect();
         Ok(Thread { summary, messages })
     }
 }

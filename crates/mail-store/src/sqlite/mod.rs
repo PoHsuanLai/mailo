@@ -23,9 +23,11 @@ use std::path::Path;
 /// repaints a second while mail is absorbing. Reads and writes take turns for the length of a
 /// batch, which is visible as a list that updates in steps during a sync rather than smoothly.
 ///
-/// That is a cost, not yet a reason to change: the alternative is exactly the disagreement this
-/// comment warns about, and a second connection reading a half-written thread summary is a wrong
-/// answer where this is a late one. Revisit if batches grow or someone watches it stutter.
+/// Phase 8b changed that answer, and the worry above turned out to be the right one to have: a
+/// second connection reading a half-written thread summary *is* a wrong answer, so the readers
+/// are never used inside a write. What keeps that true is a signature rather than a rule —
+/// `summary_of`, `messages_of`, `labels_of` and `read_message` take the connection they should
+/// read from, so a write path physically cannot hand them a reader.
 #[derive(Debug)]
 pub struct SqliteStore {
     /// Behind a mutex because `rusqlite::Connection` is `Send` but **not `Sync`**, so an
@@ -40,8 +42,27 @@ pub struct SqliteStore {
     /// panic. A reentrant lock is sound here because `rusqlite` only ever needs `&Connection`,
     /// so recursion hands out a second shared reference rather than aliasing a mutable one.
     db: ReentrantMutex<Connection>,
+    /// Connections that only ever read — `plan.md` phase 8b.
+    ///
+    /// WAL gives concurrent readers, but concurrent *across connections*: with one handle every
+    /// query in this process waits behind whatever is committing, and the comment above the
+    /// pragmas claimed a benefit this struct could not deliver. These are what make it true.
+    ///
+    /// Empty for an in-memory database, which is not a file two connections can share — a second
+    /// `:memory:` handle opens a second, empty database. Tests fall back to the writer, which is
+    /// what they already had.
+    ///
+    /// A bounded `Vec` rather than one per thread, so a process that spawns tasks freely cannot
+    /// open file handles without limit; `try_lock` in turn takes the first free one.
+    readers: Vec<ReentrantMutex<Connection>>,
     blobs: BlobStore,
 }
+
+/// How many read-only connections to open beside the writer.
+///
+/// Three: the window's list, whatever the reader pane is showing, and a sync pass asking what it
+/// already holds. More would be file handles against a mailbox that belongs to one person.
+const READERS: usize = 3;
 
 impl SqliteStore {
     /// Open or create the database at `db_path`, with blobs under `blob_root`.
@@ -49,8 +70,23 @@ impl SqliteStore {
         db_path: impl AsRef<Path>,
         blob_root: impl AsRef<Path>,
     ) -> Result<Self, StoreError> {
-        let db = Connection::open(db_path).map_err(|e| StoreError::Db(e.to_string()))?;
-        Self::from_connection(db, blob_root)
+        let path = db_path.as_ref().to_path_buf();
+        let db = Connection::open(&path).map_err(|e| StoreError::Db(e.to_string()))?;
+        let mut store = Self::from_connection(db, blob_root)?;
+        // After `from_connection`, which is what runs the migrations: a reader opened against an
+        // unmigrated file would be a connection whose schema does not exist yet.
+        for _ in 0..READERS {
+            let reader = Connection::open(&path).map_err(|e| StoreError::Db(e.to_string()))?;
+            reader
+                .execute_batch(
+                    "PRAGMA journal_mode = WAL;
+                     PRAGMA busy_timeout = 5000;
+                     PRAGMA query_only = ON;",
+                )
+                .map_err(|e| StoreError::Db(e.to_string()))?;
+            store.readers.push(ReentrantMutex::new(reader));
+        }
+        Ok(store)
     }
 
     /// An in-memory database. Tests only: it vanishes when dropped.
@@ -61,7 +97,9 @@ impl SqliteStore {
 
     fn from_connection(db: Connection, blob_root: impl AsRef<Path>) -> Result<Self, StoreError> {
         // WAL lets a reader run while a writer commits, which is what keeps the UI responsive
-        // during a sync. NORMAL trades a fsync per commit for the small risk of losing the
+        // during a sync — and that is true across *connections*, so until phase 8b opened the
+        // read-only ones beside this handle, the sentence described SQLite rather than this
+        // program. NORMAL trades a fsync per commit for the small risk of losing the
         // last transaction on power loss — acceptable, because the server still has the mail.
         //
         // `busy_timeout` is what happens when two *writers* meet, which WAL does not help with:
@@ -83,6 +121,7 @@ impl SqliteStore {
         backfill_fts(&db)?;
         Ok(Self {
             db: ReentrantMutex::new(db),
+            readers: Vec::new(),
             blobs: BlobStore::new(blob_root.as_ref().to_path_buf()),
         })
     }
@@ -162,6 +201,32 @@ impl SqliteStore {
     /// mutex that is a deadlock, and a deadlock has no error message.
     pub fn connection(&self) -> ReentrantMutexGuard<'_, Connection> {
         self.db.lock()
+    }
+
+    /// A connection for reading, which is not the one that writes.
+    ///
+    /// The first free reader, or the writer when there are none — an in-memory database has
+    /// none, because a second `:memory:` handle is a second, empty database rather than a second
+    /// view of this one.
+    ///
+    /// **Never inside a write.** A reader is a different connection, so it sees the last
+    /// committed state and not the transaction in progress; a helper reading through this while
+    /// `write_patch` had a transaction open would answer with the world as it was before the
+    /// change it is part of. That is why `summary_of`, `messages_of`, `labels_of` and
+    /// `read_message` take a `&Connection` instead of reaching for one: the caller says which
+    /// world it means, and the compiler will not let a write path forget.
+    pub fn reader(&self) -> ReentrantMutexGuard<'_, Connection> {
+        for reader in &self.readers {
+            if let Some(free) = reader.try_lock() {
+                return free;
+            }
+        }
+        // Every reader busy: wait on one of them rather than on the writer, which may hold its
+        // lock for a whole ingest batch.
+        match self.readers.first() {
+            Some(reader) => reader.lock(),
+            None => self.db.lock(),
+        }
     }
 }
 
@@ -244,7 +309,7 @@ impl Store for SqliteStore {
         let limit = i64::from(query.page.limit);
         bound.push(sql::SqlValue::Int(limit + 1));
 
-        let db = self.connection();
+        let db = self.reader();
 
         let mut stmt = db.prepare(&sql_text)?;
         let mut rows = stmt.query(rusqlite::params_from_iter(bound.iter().map(|v| match v {
@@ -279,7 +344,7 @@ impl Store for SqliteStore {
             "SELECT count(*) FROM thread_summary ts WHERE {}",
             compiled.where_clause
         );
-        let n: i64 = self.connection().query_row(
+        let n: i64 = self.reader().query_row(
             &sql_text,
             rusqlite::params_from_iter(compiled.params.iter().map(|v| match v {
                 sql::SqlValue::Text(t) => rusqlite::types::Value::Text(t.clone()),
@@ -299,11 +364,11 @@ impl Store for SqliteStore {
             "SELECT {} FROM messages WHERE id = ?1",
             read::MESSAGE_COLUMNS
         );
-        let db = self.connection();
+        let db = self.reader();
         let mut stmt = db.prepare_cached(&sql_text)?;
         let mut rows = stmt.query(rusqlite::params![id.to_string()])?;
         match rows.next()? {
-            Some(row) => self.read_message(row),
+            Some(row) => self.read_message(&db, row),
             None => Err(StoreError::NoMessage(id)),
         }
     }
