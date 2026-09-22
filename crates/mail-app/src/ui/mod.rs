@@ -541,6 +541,26 @@ fn App() -> Element {
                                                 // Without this the click also opens the thread.
                                                 e.stop_propagation();
                                                 let store = consume_context::<Arc<SqliteStore>>();
+                                                // A label needs a payload no button can
+                                                // carry, so this one opens a menu instead of
+                                                // performing anything.
+                                                if kind == OpKind::AddLabel {
+                                                    let already =
+                                                        shell.peek().labelling == Some(id);
+                                                    shell.write().labelling =
+                                                        if already { None } else { Some(id) };
+                                                    return;
+                                                }
+                                                // Snooze needs a time, which is the same shape
+                                                // of payload as a label and gets the same
+                                                // answer: a menu rather than a guess.
+                                                if kind == OpKind::Snooze {
+                                                    let already =
+                                                        shell.peek().snoozing == Some(id);
+                                                    shell.write().snoozing =
+                                                        if already { None } else { Some(id) };
+                                                    return;
+                                                }
                                                 match composes(kind) {
                                                     Some(what) => {
                                                         match start_composing(&store, id, what) {
@@ -565,6 +585,75 @@ fn App() -> Element {
                                                 }
                                             },
                                             "{label(kind)}"
+                                        }
+                                    }
+                                }
+                                if shell.read().snoozing == Some(id) {
+                                    div { class: "labels",
+                                        onclick: move |e: Event<MouseData>| e.stop_propagation(),
+                                        for (says, phrase) in crate::view::snooze_choices() {
+                                            button {
+                                                key: "{phrase}",
+                                                class: "label",
+                                                onclick: move |e: Event<MouseData>| {
+                                                    e.stop_propagation();
+                                                    let store =
+                                                        consume_context::<Arc<SqliteStore>>();
+                                                    match crate::snooze::snooze(
+                                                        &store,
+                                                        id,
+                                                        phrase,
+                                                        chrono::Utc::now(),
+                                                    ) {
+                                                        Ok(_) => {
+                                                            shell.write().snoozing = None;
+                                                            revision += 1;
+                                                        }
+                                                        // The vocabulary is fixed and the clock
+                                                        // is the only other input, so this is
+                                                        // "the year 262143 has no tomorrow".
+                                                        Err(why) => eprintln!("snooze: {why}"),
+                                                    }
+                                                },
+                                                "{says}"
+                                            }
+                                        }
+                                    }
+                                }
+                                if shell.read().labelling == Some(id) {
+                                    div { class: "labels",
+                                        // Stops a click in the menu from also opening the
+                                        // conversation underneath it.
+                                        onclick: move |e: Event<MouseData>| e.stop_propagation(),
+                                        if shell.read().labels.is_empty() {
+                                            // Said rather than shown as an empty box: on a
+                                            // fresh account there are no labels yet, and a menu
+                                            // with nothing in it reads as something broken.
+                                            p { class: "hint", "No labels yet. They arrive with the first sync." }
+                                        }
+                                        for choice in crate::view::label_menu(&shell.read().labels, &summary) {
+                                            button {
+                                                key: "{choice.id}",
+                                                class: if choice.membership == Membership::In {
+                                                    "label on"
+                                                } else {
+                                                    "label"
+                                                },
+                                                onclick: {
+                                                    let wanted = choice.toggled();
+                                                    let which = choice.id;
+                                                    move |e: Event<MouseData>| {
+                                                        e.stop_propagation();
+                                                        let store =
+                                                            consume_context::<Arc<SqliteStore>>();
+                                                        if apply_label(&store, id, which, wanted) {
+                                                            revision += 1;
+                                                        }
+                                                    }
+                                                },
+                                                if choice.membership == Membership::In { "✓ " }
+                                                "{choice.name}"
+                                            }
                                         }
                                     }
                                 }
@@ -828,6 +917,19 @@ fn from_name(message: &Message) -> String {
 ///
 /// A free function rather than a closure so it can be called from several handlers, and so the
 /// store it needs is an argument rather than a capture.
+/// Put a label on a conversation, or take it off.
+///
+/// Separate from `apply_op` because `Op::Label` carries a payload no `OpKind` can supply — which
+/// is exactly why the row's "Label" button opened nothing for as long as it existed.
+fn apply_label(
+    store: &SqliteStore,
+    thread: ThreadId,
+    label: LabelId,
+    membership: Membership,
+) -> bool {
+    apply(store, thread, Op::Label(label, membership))
+}
+
 fn apply_op(store: &SqliteStore, thread: ThreadId, kind: OpKind) -> bool {
     // `Pin` needs a payload `op_for` cannot supply — the direction comes from the conversation's
     // current state and the rank from the clock — so it is resolved here, where both are in
@@ -845,6 +947,11 @@ fn apply_op(store: &SqliteStore, thread: ThreadId, kind: OpKind) -> bool {
             None => return false,
         },
     };
+    apply(store, thread, op)
+}
+
+/// Apply one resolved operation: locally, and to the server when it has a server half.
+fn apply(store: &SqliteStore, thread: ThreadId, op: Op) -> bool {
     let Ok(loaded) = store.thread(thread) else {
         return false;
     };
@@ -856,9 +963,14 @@ fn apply_op(store: &SqliteStore, thread: ThreadId, kind: OpKind) -> bool {
     let Some(account) = messages.first().map(|m| m.account) else {
         return false;
     };
-    // Defaults sit at the safe end: expunging forbidden, labels local. Real capabilities
-    // arrive once an account is configured and synced.
-    let caps = AccountCaps {
+    // What the server actually supports, which is the only thing that decides whether an
+    // operation gets a `RemoteIntent` at all — `Op::remote_intent` is the sole consumer of
+    // `caps`, and under `ArchiveMeans::LocalOnly` it returns `None` for Archive and Trash.
+    // This used to be a hardcoded struct of safe defaults, so archiving in the window changed
+    // nothing on the server and the conversation came back on the next full sync. See F139.
+    //
+    // The defaults below are still the answer before the first sync, when nothing is known.
+    let caps = crate::sync::caps_of(store, account).unwrap_or(AccountCaps {
         labels: ServerLabels::LocalOnly,
         threads: ServerThreads::Jwz,
         watch: WatchMode::Poll {
@@ -873,7 +985,7 @@ fn apply_op(store: &SqliteStore, thread: ThreadId, kind: OpKind) -> bool {
         pipelining: Supported::Absent,
         connections: ConnectionBudget::default(),
         observed_at: chrono::Utc::now(),
-    };
+    });
     let applied = op.apply(
         &Target::Threads(vec![thread]),
         &loaded,
@@ -881,7 +993,20 @@ fn apply_op(store: &SqliteStore, thread: ThreadId, kind: OpKind) -> bool {
         &caps,
         chrono::Utc::now(),
     );
-    store.apply(account, &applied.forward).is_ok()
+    if store.apply(account, &applied.forward).is_err() {
+        return false;
+    }
+    // And the server's half. `Applied.remote` was computed and dropped on the floor, so every
+    // operation the window performed was local and stayed local: a conversation archived here
+    // was still in the inbox on the phone, and mail read here was still bold everywhere else.
+    // The undo goes with it, because a submission that fails has to put back what it changed.
+    //
+    // A failure to enqueue is not a failure of the operation: the local change is real and the
+    // user can see it. It surfaces where every other stalled submission does, in the outbox.
+    if let Some(intent) = applied.remote {
+        let _ = store.enqueue(account, intent, &applied.inverse, chrono::Utc::now());
+    }
+    true
 }
 
 /// Each attachment as the name it would be written under and a readable size.
@@ -957,6 +1082,24 @@ mod render_tests {
         AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
 
     /// A store with one account, one message and one draft, so the panes have something to draw.
+    /// What was actually observed against the user's Gmail account.
+    fn gmail_caps() -> AccountCaps {
+        AccountCaps {
+            labels: ServerLabels::Supported,
+            threads: ServerThreads::Jwz,
+            watch: WatchMode::Idle,
+            archive: ArchiveMeans::DropInbox,
+            folders: FolderRoles::default(),
+            condstore: Condstore::Supported,
+            move_ext: MoveExt::Supported,
+            expunge: ExpungeMeans::Forbidden,
+            top: Supported::Absent,
+            pipelining: Supported::Yes,
+            connections: ConnectionBudget::default(),
+            observed_at: chrono::Utc::now(),
+        }
+    }
+
     fn seeded() -> (Arc<SqliteStore>, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
         let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
@@ -973,6 +1116,20 @@ mod render_tests {
                 "INSERT INTO identities (id, account, from_name, from_email, is_default)
                  VALUES (?1, ?2, NULL, 'me@example.test', '\"default\"')",
                 [identity.to_string(), ACCOUNT.to_string()],
+            )
+            .unwrap();
+            // Capabilities, because `account add` always writes them and a fixture without them
+            // is a state the application cannot reach — F133's lesson. Gmail's own, as recorded
+            // against the real account: archiving means dropping the inbox label, and labels
+            // are the server's. This is what decides whether an operation performed in the
+            // window has a server half at all.
+            db.execute(
+                "INSERT INTO account_caps (account, caps, observed_at)
+                 VALUES (?1, ?2, datetime('now'))",
+                rusqlite::params![
+                    ACCOUNT.to_string(),
+                    serde_json::to_string(&gmail_caps()).unwrap()
+                ],
             )
             .unwrap();
         }
@@ -1940,6 +2097,276 @@ mod render_tests {
              to notice and undo"
         );
         assert!(made.subject.is_empty(), "{:?}", made.subject);
+    }
+
+    /// What the server is told when the window acts — F139.
+    ///
+    /// `Op::apply` returns the local patch, its undo, *and* the remote work. `apply_op` used
+    /// the first and dropped the third, and built the `AccountCaps` it passed out of safe
+    /// defaults rather than reading the account's own — and `remote_intent` is the only
+    /// consumer of `caps`, returning `None` for Archive and Trash under `LocalOnly`. So the
+    /// operation could not have produced remote work, and would have been discarded if it had.
+    mod what_the_server_is_told {
+        use super::*;
+
+        fn first_thread(store: &SqliteStore) -> ThreadId {
+            store
+                .threads(&inbox_query(), chrono::Utc::now())
+                .unwrap()
+                .items
+                .first()
+                .expect("the fixture has mail")
+                .id
+        }
+
+        #[test]
+        fn archiving_in_the_window_reaches_the_server() {
+            // The conversation used to be archived here and nowhere else: still in the inbox on
+            // the phone, and back in this one on the next full sync.
+            let (store, _dir) = realistic();
+            let thread = first_thread(&store);
+
+            assert!(apply_op(&store, thread, OpKind::Archive));
+
+            let queued = store.outbox_due(ACCOUNT, chrono::Utc::now()).unwrap();
+            let intents: Vec<&ProtoOp> = queued.iter().map(|entry| &entry.op).collect();
+            assert!(
+                intents.iter().any(|op| matches!(
+                    op,
+                    ProtoOp::SetMailbox {
+                        role: MailboxRole::Archive,
+                        ..
+                    }
+                )),
+                "nothing was queued for the server: {intents:?}"
+            );
+        }
+
+        #[test]
+        fn marking_read_reaches_the_server_too() {
+            // This one produces a remote intent whatever the capabilities say, so it was lost
+            // purely to the dropped field — mail read here stayed bold everywhere else.
+            let (store, _dir) = realistic();
+            let thread = first_thread(&store);
+
+            assert!(apply_op(&store, thread, OpKind::MarkRead));
+
+            let queued = store.outbox_due(ACCOUNT, chrono::Utc::now()).unwrap();
+            assert!(
+                queued
+                    .iter()
+                    .any(|entry| matches!(&entry.op, ProtoOp::SetFlags { read: Some(_), .. })),
+                "the flag never left this machine: {:?}",
+                queued.iter().map(|e| &e.op).collect::<Vec<_>>()
+            );
+        }
+
+        #[test]
+        fn an_account_that_files_nothing_queues_nothing() {
+            // The control, and the reason this was invisible: on a POP3 account
+            // `ArchiveMeans::LocalOnly` is the truth and archiving really is local. The account
+            // tested against most was the one where the hardcoded value happened to be right.
+            let (store, _dir) = realistic();
+            let local_only = AccountCaps {
+                labels: ServerLabels::LocalOnly,
+                archive: ArchiveMeans::LocalOnly,
+                ..gmail_caps()
+            };
+            store
+                .connection()
+                .execute(
+                    "UPDATE account_caps SET caps = ?2 WHERE account = ?1",
+                    rusqlite::params![
+                        ACCOUNT.to_string(),
+                        serde_json::to_string(&local_only).unwrap()
+                    ],
+                )
+                .unwrap();
+            let thread = first_thread(&store);
+
+            assert!(apply_op(&store, thread, OpKind::Archive));
+            let queued = store.outbox_due(ACCOUNT, chrono::Utc::now()).unwrap();
+            assert!(
+                !queued
+                    .iter()
+                    .any(|entry| matches!(&entry.op, ProtoOp::SetMailbox { .. })),
+                "a POP3 account has nowhere to file anything"
+            );
+        }
+
+        #[test]
+        fn a_pin_has_no_server_half_and_queues_nothing() {
+            // Pin and snooze are this application's own state. Queueing them would ask the
+            // server to do something it has no word for.
+            let (store, _dir) = realistic();
+            let thread = first_thread(&store);
+
+            assert!(apply_op(&store, thread, OpKind::Pin));
+            let queued = store.outbox_due(ACCOUNT, chrono::Utc::now()).unwrap();
+            assert!(
+                queued.is_empty(),
+                "{:?}",
+                queued.iter().map(|e| &e.op).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    /// Putting a conversation off, from the window — `plan.md` phase 7e.
+    ///
+    /// The Snoozed place has listed correctly since the place existed and the vocabulary has
+    /// been parsed since the CLI learned it. Nothing in the window could snooze anything.
+    mod putting_it_off {
+        use super::*;
+
+        #[tokio::test]
+        async fn the_rows_offer_a_way_to_snooze() {
+            let (store, _dir) = realistic();
+            assert!(markup(store).contains(">Snooze<"));
+        }
+
+        #[test]
+        fn snoozing_takes_it_out_of_the_inbox_and_the_snoozed_place_has_it() {
+            let (store, _dir) = realistic();
+            // The *place's* filter, not a bare `InMailbox`: hiding a snoozed conversation is
+            // what `place_filter` is for, and asserting against the bare one would be asking
+            // whether snoozing archives things, which it does not.
+            let place = Query {
+                filter: crate::view::place_filter(MailboxRole::Inbox),
+                ..inbox_query()
+            };
+            let before = store.threads(&place, chrono::Utc::now()).unwrap();
+            let thread = before.items[0].id;
+
+            crate::snooze::snooze(&store, thread, "tomorrow", chrono::Utc::now())
+                .expect("tomorrow is a time");
+
+            let after = store.threads(&place, chrono::Utc::now()).unwrap();
+            assert!(
+                !after.items.iter().any(|t| t.id == thread),
+                "a snoozed conversation is still in the inbox"
+            );
+            let asleep = store
+                .threads(
+                    &Query {
+                        filter: crate::view::pending_snooze(),
+                        ..inbox_query()
+                    },
+                    chrono::Utc::now(),
+                )
+                .unwrap();
+            assert!(asleep.items.iter().any(|t| t.id == thread), "{asleep:?}");
+        }
+
+        #[test]
+        fn every_phrase_the_menu_offers_is_one_the_parser_accepts() {
+            // The menu's phrases are the command line's, so a button that said something the
+            // parser had never heard of would be a button that does nothing. Checked rather
+            // than assumed, because the two lists are written in different files.
+            let now = chrono::Utc::now();
+            for (says, phrase) in crate::view::snooze_choices() {
+                let at = crate::view::snooze_until(phrase, now, &chrono::Local)
+                    .unwrap_or_else(|why| panic!("{says:?} means {phrase:?}, which is not: {why}"));
+                assert!(at > now, "{says:?} is not in the future");
+            }
+        }
+    }
+
+    /// Labels, in both directions — `plan.md` phase 7d.
+    ///
+    /// `label:` has searched since F131 and sync has ingested Gmail's labels since F136, and the
+    /// row's own "Label" button opened nothing: `OpKind::AddLabel` has no `Op` because
+    /// `Op::Label` carries a payload, and `op_for` correctly returned `None` for it. Correctly,
+    /// and then nothing else happened.
+    mod naming_a_conversation {
+        use super::*;
+
+        fn a_label(store: &SqliteStore, name: &str) -> LabelId {
+            let id = LabelId::generate();
+            store
+                .connection()
+                .execute(
+                    "INSERT INTO labels (id, account, name, origin)
+                     VALUES (?1, ?2, ?3, '\"provider\"')",
+                    rusqlite::params![id.to_string(), ACCOUNT.to_string(), name],
+                )
+                .unwrap();
+            id
+        }
+
+        #[test]
+        fn a_label_can_be_put_on_and_taken_off_again() {
+            let (store, _dir) = realistic();
+            let travel = a_label(&store, "travel");
+            let thread = store
+                .threads(&inbox_query(), chrono::Utc::now())
+                .unwrap()
+                .items[0]
+                .id;
+
+            assert!(apply_label(&store, thread, travel, Membership::In));
+            assert!(
+                store
+                    .thread(thread)
+                    .unwrap()
+                    .summary
+                    .labels
+                    .contains(&travel),
+                "the label never landed"
+            );
+
+            assert!(apply_label(&store, thread, travel, Membership::Out));
+            assert!(
+                !store
+                    .thread(thread)
+                    .unwrap()
+                    .summary
+                    .labels
+                    .contains(&travel),
+                "the label would not come off"
+            );
+        }
+
+        #[test]
+        fn labelling_a_gmail_conversation_reaches_gmail() {
+            // Under `ServerLabels::Supported` a label is the server's, not ours. The fixture's
+            // capabilities are the real account's, so this is the path the user's mail takes.
+            let (store, _dir) = realistic();
+            let travel = a_label(&store, "travel");
+            let thread = store
+                .threads(&inbox_query(), chrono::Utc::now())
+                .unwrap()
+                .items[0]
+                .id;
+
+            apply_label(&store, thread, travel, Membership::In);
+
+            let queued = store.outbox_due(ACCOUNT, chrono::Utc::now()).unwrap();
+            assert!(
+                queued.iter().any(|entry| matches!(
+                    &entry.op,
+                    ProtoOp::SetLabels { add, .. } if add.iter().any(|name| name == "travel")
+                )),
+                "the label stopped at this machine: {:?}",
+                queued.iter().map(|e| &e.op).collect::<Vec<_>>()
+            );
+        }
+
+        #[tokio::test]
+        async fn the_menu_opens_from_the_row_and_lists_what_there_is() {
+            dispatching();
+            let (store, _dir) = realistic();
+            a_label(&store, "travel");
+            let mut dom = VirtualDom::new(App).with_root_context(store.clone());
+            dom.rebuild_in_place();
+            // The effect that fills `Shell::labels` runs on a revision; one render settles it.
+            dom.render_immediate(&mut NoOpMutations);
+
+            let page = dioxus_ssr::render(&dom);
+            assert!(
+                page.contains(">Label<"),
+                "the rows offer no way to label anything:\n{page}"
+            );
+        }
     }
 
     #[tokio::test]

@@ -17,6 +17,11 @@ body { margin: 0; font: 14px/1.5 system-ui, sans-serif; }
 .place.on { background: var(--edge); font-weight: 600; }
 /* Set apart from the places above it: those choose what to look at, this one writes. */
 .place.compose { margin-top: 10px; font-weight: 600; border: 1px solid var(--edge); }
+/* The label menu, under the row whose button opened it. */
+.labels { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 4px 2px; }
+.labels .label { padding: 3px 9px; border: 1px solid var(--edge); border-radius: 999px; background: none; color: inherit; font: inherit; font-size: 0.85em; cursor: pointer; }
+.labels .label:hover { background: var(--edge); }
+.labels .label.on { background: var(--edge); font-weight: 600; }
 .list { overflow-y: auto; border-right: 1px solid var(--edge); }
 .search { width: 100%; padding: 10px 12px; border: 0; border-bottom: 1px solid var(--edge); background: none; color: inherit; font: inherit; }
 .row { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 13fr) auto; gap: 10px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--edge); cursor: pointer; position: relative; }

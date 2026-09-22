@@ -918,3 +918,41 @@ mod an_account_with_nothing_stored {
         );
     }
 }
+
+/// What the window is told about the server — the loader behind F139.
+///
+/// `apply_op` built an `AccountCaps` out of safe defaults rather than reading the account's own,
+/// and `Op::remote_intent` is the only consumer of `caps`: under `ArchiveMeans::LocalOnly` it
+/// returns `None` for Archive and Trash. So every conversation archived in the window was
+/// archived on this machine and nowhere else.
+mod capabilities_the_window_reads {
+    use super::*;
+
+    #[test]
+    fn what_was_observed_is_what_comes_back() {
+        let (store, _dir) = configured_with(
+            1,
+            AccountCaps {
+                archive: ArchiveMeans::DropInbox,
+                labels: ServerLabels::Supported,
+                ..caps()
+            },
+            AuthPlan::Password {
+                username: Username::SameAsAddress,
+                sasl: vec![SaslMech::Plain],
+            },
+        );
+
+        let read = sync::caps_of(&store, ACCOUNT).expect("the account has capabilities");
+        assert_eq!(read.archive, ArchiveMeans::DropInbox);
+        assert_eq!(read.labels, ServerLabels::Supported);
+    }
+
+    #[test]
+    fn an_account_nothing_has_connected_to_yet_has_none() {
+        // Not an error: the window can be opened before the first sync, and the caller's answer
+        // is to assume nothing rather than to refuse to act.
+        let (store, _dir) = configured(1, caps());
+        assert!(sync::caps_of(&store, AccountId::generate()).is_none());
+    }
+}

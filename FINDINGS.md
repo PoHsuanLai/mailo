@@ -3315,3 +3315,39 @@ a message grows past what the server will take, one acceptable file at a time.
 and nothing selected it, so the first thing that wanted a file's length read the whole file to
 measure it — for a list of what a draft carries, that is every attachment loaded into memory to
 print its size.
+
+### F139 — Everything the window did stopped at this machine
+
+Found while wiring phase 7d, by asking what would carry a label to Gmail.
+
+`Op::apply` returns three things: the local patch, its undo, and `remote: Option<RemoteIntent>` —
+the server's half. `ui::apply_op` wrote the first and dropped the third on the floor. It is the
+function behind every row button and every keyboard shortcut in the window, so archiving, trashing,
+starring, and marking read or unread all changed this database and told the server nothing.
+
+It was worse than that, because the same function also built the `AccountCaps` it passed to
+`apply` out of hardcoded safe defaults — `ArchiveMeans::LocalOnly`, `ServerLabels::LocalOnly` —
+with a comment saying real capabilities arrive once an account is synced. They do. Nothing read
+them. `remote_intent` is the *only* consumer of `caps`, and under `LocalOnly` it returns `None`
+for Archive, Trash, Spam and Restore. So the remote work that was being discarded had mostly
+never been computed: two independent faults, each of which alone would have produced the same
+silence.
+
+The user's own accounts say what this cost. Gmail is recorded as `archive: drop_inbox`,
+`labels: supported`; NTU, being POP3, is `local_only` for both. So archiving a Gmail conversation
+in mailo left it in the inbox on the phone and brought it back here on the next full sync, and
+mail read here stayed bold everywhere else. `SetFlags` is emitted whatever the capabilities say,
+so read and star were lost purely to the dropped field.
+
+**Why it was invisible.** The account tested against most is the one where the hardcoded value is
+the truth: on POP3 there is nowhere to file anything and `LocalOnly` is correct. F108 watched `j`
+open a conversation and `e` archive it, and the assertion — the inbox is one conversation shorter
+— was true, because the local half always worked. The test could not have failed. Nothing in the
+repository distinguishes "archived" from "archived here only" unless it looks in the outbox, and
+nothing did.
+
+`apply_op` now reads the account's capabilities through `sync::caps_of`, keeping the safe
+defaults only for an account nothing has connected to yet, and enqueues `applied.remote` with
+`applied.inverse` as its undo — the same call `compose::send` has always made. The fixture also
+gained an `account_caps` row, because `account add` always writes one and a fixture without it is
+a state the application cannot reach, which is F133's lesson applied a second time.

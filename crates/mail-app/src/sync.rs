@@ -21,6 +21,23 @@ struct Configured {
     caps: AccountCaps,
 }
 
+/// What the server was last observed to support, for one account.
+///
+/// `None` when nothing has connected yet, which the caller must treat as "assume nothing" rather
+/// than as an error: the window can be opened before the first sync, and refusing to act at all
+/// would be worse than acting locally.
+pub fn caps_of(store: &SqliteStore, account: AccountId) -> Option<AccountCaps> {
+    let db = store.connection();
+    let stored: Option<String> = db
+        .query_row(
+            "SELECT caps FROM account_caps WHERE account = ?1",
+            [account.to_string()],
+            |r| r.get(0),
+        )
+        .ok();
+    serde_json::from_str(&stored?).ok()
+}
+
 /// Read the accounts back out of the store.
 fn configured(store: &SqliteStore) -> Result<Vec<Configured>, String> {
     let db = store.connection();

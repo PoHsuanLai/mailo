@@ -166,6 +166,14 @@ pub struct Shell {
     /// Per thread and not persisted: consenting to load one sender's images is not consent for
     /// the next message, and a remote image is a read receipt the sender never asked for.
     pub show_remote_images: bool,
+    /// The conversation whose label menu is open, if any.
+    ///
+    /// One at a time and identified by thread rather than by row index: a sync can land between
+    /// the click and the choice, and a menu pinned to "the fourth row" would then be labelling
+    /// something else.
+    pub labelling: Option<ThreadId>,
+    /// The conversation whose snooze menu is open, if any.
+    pub snoozing: Option<ThreadId>,
     /// The composer, when one is open.
     ///
     /// `Option` rather than a `mode` enum on `Shell`: composing does not replace reading, it
@@ -377,6 +385,8 @@ impl Default for Shell {
             open: None,
             show_remote_images: false,
             composing: None,
+            labelling: None,
+            snoozing: None,
             accounts: Vec::new(),
             labels: Vec::new(),
         }
@@ -500,9 +510,12 @@ pub fn hover_actions(summary: &ThreadSummary) -> Vec<OpKind> {
         Star::Unstarred => OpKind::Star,
         Star::Starred => OpKind::Unstar,
     });
-    // Both always offered. Neither depends on where the conversation is or what state it is in:
-    // a forward is the message being passed on, and a pin is a note to yourself about it.
+    // All three always offered. None depends on where the conversation is or what state it is
+    // in: a forward is the message being passed on, a pin is a note to yourself about it, and a
+    // label is a name you are giving it.
     out.push(OpKind::Pin);
+    out.push(OpKind::Snooze);
+    out.push(OpKind::AddLabel);
     out.push(OpKind::Forward);
     out
 }
@@ -574,6 +587,68 @@ pub fn shortcut(key: &str, typing: bool) -> Option<Shortcut> {
         "c" => Shortcut::Compose,
         _ => return None,
     })
+}
+
+/// What the snooze menu offers, as `(what the button says, the phrase it means)`.
+///
+/// A subset of the vocabulary `mailo snooze` accepts, not all of it: `+2h` and a date are things
+/// to type, not things to click, and a menu that listed every accepted phrase would be a
+/// reference card rather than a choice. The phrases are the same strings the command line
+/// parses, so the two cannot drift into meaning different times.
+pub fn snooze_choices() -> &'static [(&'static str, &'static str)] {
+    &[
+        ("Later today", "later"),
+        ("This evening", "tonight"),
+        ("Tomorrow", "tomorrow"),
+        ("This weekend", "weekend"),
+        ("Next week", "monday"),
+    ]
+}
+
+/// One row of the label menu: the name, which label it is, and whether this conversation has it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LabelChoice {
+    pub name: String,
+    pub id: LabelId,
+    pub membership: Membership,
+}
+
+impl LabelChoice {
+    /// What clicking it should do — the opposite of where the conversation is now.
+    pub fn toggled(&self) -> Membership {
+        self.membership.flip()
+    }
+}
+
+/// The label menu for one conversation.
+///
+/// `known` is the shell's own index, so this stays a pure function of what is on screen. Names
+/// are not unique — `UNIQUE (account, name)` is per account, so "travel" on two accounts is two
+/// labels — and both are listed rather than merged, because giving a Gmail conversation the NTU
+/// account's "travel" is not something this menu can do and not something it should imply.
+///
+/// Sorted by name, with the ones already on the conversation first: the common act is taking a
+/// label off the thing you are looking at, and it should not be a search.
+pub fn label_menu(known: &[(String, LabelId)], summary: &ThreadSummary) -> Vec<LabelChoice> {
+    let mut out: Vec<LabelChoice> = known
+        .iter()
+        .map(|(name, id)| LabelChoice {
+            name: name.clone(),
+            id: *id,
+            membership: if summary.labels.contains(id) {
+                Membership::In
+            } else {
+                Membership::Out
+            },
+        })
+        .collect();
+    out.sort_by(|a, b| {
+        let on = |c: &LabelChoice| c.membership == Membership::In;
+        on(b)
+            .cmp(&on(a))
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
+    out
 }
 
 /// The operation a shortcut performs on this conversation, if it is one the conversation allows.
