@@ -2,3 +2,5 @@
 /spike/out/
 .grok-progress.log
 .live-venv/
+__pycache__/
+*.pyc

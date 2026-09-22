@@ -5,7 +5,7 @@
 file, per-file SPDX header, or package-manager metadata published by the project itself). URLs and
 what was actually read are recorded per row. Nothing here is from memory.
 
-**mailo is `MIT OR Apache-2.0`** (`/home/pohsuanlai/mailo/Cargo.toml:14`). That is the constraint
+**mailo is `MIT OR Apache-2.0`** (`Cargo.toml:14`). That is the constraint
 everything else is measured against.
 
 ## What I am and am not confident about
