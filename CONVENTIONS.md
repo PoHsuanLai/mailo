@@ -342,6 +342,24 @@ The cost is asymmetric, which is why this is a rule rather than a preference. A 
 fails visibly on input you have. A too-wide one silently does the wrong thing on input you have
 not thought of, which is the input an attacker chooses.
 
+## Run it the way its user would, before concluding anything about it
+
+A failure that reproduces only through your own harness is a fact about the harness.
+
+The harness here was one environment variable. `GDK_BACKEND=x11`, set so a screenshot tool could
+find the window, kept for three rounds, and never once removed — and under it the shell's WebView
+receives no updates at all and shows an empty window. That produced a finding (F106) which said
+the interface had never rendered, a commit message that said so at length, a section in
+`ORCHESTRATION.md` telling the next person to install a toolchain they do not need, and a
+correction (F107) that had to undo all three.
+
+**So: before reporting that something does not work, run it with nothing of yours around it.**
+No wrapper, no forced backend, no injected variable, no redirected output. If it works there, the
+finding is about the wrapper. If it fails there too, you have something.
+
+The tell is a conclusion drawn entirely from runs that share a flag you added. Ask what the
+command would look like if a user typed it, and type that.
+
 ## An assertion that was already true proves nothing
 
 The same failure as above wearing different clothes. A test asserted `drafts > 0` after a

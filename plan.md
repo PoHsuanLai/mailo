@@ -1109,6 +1109,10 @@ the attribution line quoted into outgoing replies — was invisible to forty-thr
 obvious within one minute of reading `mailo list` on a machine in `+0800`. F99, a `reply` that
 offered a `send` no command could make work, came from the next minute.
 
+The shell renders, its root holds focus, and its keyboard is wired — all three measured from
+inside the running window (F107) after F106 concluded the opposite from a harness that was
+launching it wrongly. What remains of the criterion is the criterion: days of real mail.
+
 The shell now has a keyboard (F103) — j/k to move, e to archive, s and u to toggle, r and a to
 reply, Escape to close — and F104 closed the part F103 could not verify: `VirtualDom::handle_event`
 delivers a key press to the real component tree over a real database, so `j` then `e` is asserted

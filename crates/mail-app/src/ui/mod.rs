@@ -23,20 +23,20 @@ mod style;
 use composer::Composer;
 use style::STYLE;
 
-/// What to put on the page when the interface never mounts.
+/// What to put on the page if the interface never mounts.
 ///
-/// It does not mount when the binary is run directly: `mailo` with no arguments opens a window
-/// whose mount point stays empty, in debug and in release, six seconds in, and for a component
-/// that renders nothing but the word "hello" — so it is the renderer's plumbing rather than
-/// anything in this shell. Dioxus 0.7 desktop applications are built and run through `dx`, which
-/// is not installed here and is not this repository's to install.
+/// It normally does. It does *not* when the process is started with `GDK_BACKEND=x11` on a
+/// Wayland session: the window opens, every script runs, `window.onload` fires and the
+/// interpreter is ready, and no edits ever arrive, so the mount point stays empty for good —
+/// see FINDINGS F107, and F106 for the wrong conclusion that cost.
 ///
-/// A blank window that says nothing is the worst version of that. This turns it into a window
-/// that says what happened and what does work, which is most of the application: the CLI.
+/// A blank window that says nothing is the worst version of that, whatever the cause. This turns
+/// it into a window that says the interface did not start, names the one thing known to do it,
+/// and lists what works in a terminal meanwhile — which is most of the application.
 const NOTHING_MOUNTED: &str = "The interface did not start.\n\n\
-     A Dioxus desktop build is launched through the Dioxus CLI. Install it with \
-     `cargo install dioxus-cli`, then run `dx serve --package mail-app`.\n\n\
-     Everything else works from a terminal right now: `mailo list`, `mailo show <thread>`, \
+     If this process was launched with GDK_BACKEND=x11 on a Wayland session, that is the cause: \
+     run it without that variable.\n\n\
+     Everything else works from a terminal: `mailo list`, `mailo show <thread>`, \
      `mailo search <words>`, `mailo reply <message>`, `mailo send <draft>`, `mailo sync`.";
 
 /// Keep the app's root focused, so the keyboard has somewhere to land.

@@ -2134,3 +2134,42 @@ in a mount point that had been empty.
 
 What is not fixed is the launch itself. Installing a toolchain onto someone's machine is their
 call, and "how do you start it" is the first thing a daily driver has to answer.
+
+### F107 — F106 was wrong: the shell renders, and my harness was launching it wrongly
+
+**Retraction.** F106 says "the shell has never rendered anything". It renders. The same binary,
+same profile, ten seconds after launch, reported from inside the page:
+
+| launched as | mount point | `.app` | focus | sidebar |
+| --- | --- | --- | --- | --- |
+| `./target/debug/mailo` | **5898 chars** | found | **on `.app`** | 7 places |
+| `GDK_BACKEND=x11 ./target/debug/mailo` | **0 chars** | missing | BODY | — |
+
+`GDK_BACKEND=x11` is mine. I set it in the F100 round so `xdotool` could see the window, kept it
+in every launch afterwards, and never once ran the program the way a person would. On a Wayland
+session it forces the WebView onto XWayland, and there the edits Dioxus produces never reach the
+page: `window.onload` fires, `window.interpreter` exists, `initialize` is sent, there is no
+JavaScript error, and nothing ever arrives. Everything F106 narrowed — release says the same, a
+trivial component says the same, the focus script is not the cause — was true and pointed at the
+wrong thing, because every one of those runs carried the same variable.
+
+What this corrects, beyond F106 itself:
+
+- **F103's "a future spawned from a component body is never polled"** is what an unmounted tree
+  looks like from inside. The prints that established it ran under the same broken launch.
+- **The focus mechanism works.** `focus-app` on a live run. That was F103's open question, and
+  F104 could only test it below the DOM.
+- **The keyboard's last inch is closed in the direction that matters**: the root holds focus, so
+  a keydown lands on the element carrying the handler. F104 already proved everything from there
+  to the store.
+
+Found by asking the page rather than the operating system. It could talk back all along — a
+WebView can reach `127.0.0.1`, so a few lines in `with_custom_head` and a listener in a scratch
+directory answered in one run what three rounds of `xdotool` could not. The first thing it said
+was `main-len0`; the thing that made it useful was running it a second time *without* my variable.
+
+The lasting rule is in CONVENTIONS: a failure that only reproduces through your own harness is a
+fact about the harness until you have run the thing the way its user would. F88 was the same
+mistake in the other direction — a pass I could not reproduce. This was a catastrophic failure
+I reported at length, in a commit message, in the plan and in the project's own documentation,
+and it was my `env`.
