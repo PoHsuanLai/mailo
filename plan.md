@@ -1137,6 +1137,12 @@ the picture — see `ui::render_tests::render_the_shell_to_a_file`. It is the ma
 rather than the running application, and the same call is what finally lets the shell's output be
 *asserted* instead of only executed.
 
+Looking at the window is now one command rather than a technique rebuilt each round.
+`scripts/live-window.sh` seeds a real store, starts the real binary, and has the page type into
+its own controls and report what it then showed — no input tooling, no forced backend, and it
+works with the screen locked, which is where the previous round stopped and should not have. The
+seam it uses is kept out of release builds by `cfg(debug_assertions)`.
+
 The criterion itself is not one this or any amount of work can satisfy from inside the
 repository. "Daily driver" is a judgement about using it, with real mail, over days.
 
