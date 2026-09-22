@@ -44,6 +44,13 @@ sleep 9
 
 echo "--- what the page reported ---"
 cat "$work/report.log"
+# The window's own stderr, always. It used to be printed only when the page reported nothing,
+# which is the case where it is least useful: a page that reports the *wrong* thing is exactly
+# when you want to see what the process was saying while it did so.
+if [ -s "$work/app.log" ]; then
+    echo "--- what the window said ---"
+    cat "$work/app.log"
+fi
 if [ ! -s "$work/report.log" ]; then
     echo "nothing reported. The window's own output:" >&2
     cat "$work/app.log" >&2

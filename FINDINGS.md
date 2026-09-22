@@ -3351,3 +3351,57 @@ defaults only for an account nothing has connected to yet, and enqueues `applied
 `applied.inverse` as its undo — the same call `compose::send` has always made. The fixture also
 gained an `account_caps` row, because `account add` always writes one and a fixture without it is
 a state the application cannot reach, which is F133's lesson applied a second time.
+
+### F140 — In the real window, a future is polled once and never again
+
+Found by phase 8c, which moved the thread list and the badge counts onto blocking threads behind
+`use_resource` — 1382 tests passed and `scripts/live-window.sh` showed an empty mailbox.
+
+The instrumentation, run against the real binary under both X and Wayland:
+
+```
+PROBE: list resource started; tokio handle = Ok("MultiThread")
+PROBE: poll loop started
+PROBE: label effect ran
+PROBE: list resource started; tokio handle = Ok("MultiThread")
+```
+
+and nothing else, ever. There *is* a multi-threaded tokio runtime. `use_effect` runs.
+`use_future` and `use_resource` bodies start. What never happens is the second poll: the
+`spawn_blocking` join never completes, and a plain `tokio::time::sleep(1s)` in a `use_future`
+added for the experiment printed not one of its twelve ticks in fourteen seconds. A wake that
+arrives from another thread does not bring the future back.
+
+**This is not a fact about phase 8c. It is a fact about two things already recorded as done.**
+
+*F128's poll loop does not run.* It is a `use_future` whose first statement is a two-second
+sleep. The sleep never returns, so the first pass never happens and neither does any pass after
+it. Mail still arrives only when the user presses Sync — which is the exact sentence F128 was
+written to delete, and the finding says "a window left open all day fetched nothing".
+
+*The composer's autosave does not fire.* Three seconds of `tokio::time::sleep` in a `use_future`,
+covering "the application going away while someone is still typing" — the one window nothing else
+covers.
+
+And pressing Sync does not visibly do anything either: `scripts/live-window/sync.js` clicks the
+button and reads its label six times over nine seconds, and it says `Sync` every time, never
+`Syncing…`.
+
+**Why the tests did not catch it.** F128 was careful about this and still missed it: it added
+`a_future_started_when_a_component_mounts_does_run`, which passes, because it runs under
+`#[tokio::test]` where tokio drives its own timers and wakes its own tasks. The test proves a
+property of the harness. The window has a different executor, and that is where the property is
+false. The plan's own earlier note — "a future spawned from a component body is never polled
+here" — was closer to right than the finding that superseded it; the truth is narrower and worse,
+because it runs *once*, which is exactly enough to look alive.
+
+**Status: found, evidenced, not fixed.** The fix is not a smaller change to the code that is
+there — it is a different mechanism for background work in this window, and choosing one needs to
+start from why the wake is lost rather than from a guess. Phase 8c is blocked behind it, because
+there is no point moving work off the render thread until something off the render thread can
+report back. It is now the first item of phase 8.
+
+**What is safe meanwhile**: nothing in the window relies on a timer for correctness — every read
+is a synchronous `use_memo`, which is why the list has always drawn. The cost of that is what
+phase 8a measured, and it is affordable at today's mailbox: 0.85 ms for a search keystroke and
+7.8 ms when a sync lands, against 15.3 ms and 13.4 ms at ten thousand messages.

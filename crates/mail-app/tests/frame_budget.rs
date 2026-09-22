@@ -171,13 +171,20 @@ fn subject() -> (SqliteStore, Option<tempfile::TempDir>, String) {
     match std::env::var_os("MAILO_BENCH_DB") {
         Some(path) => {
             let path = std::path::PathBuf::from(path);
-            let blobs = path.parent().unwrap_or(std::path::Path::new(".")).join("blobs");
+            let blobs = path
+                .parent()
+                .unwrap_or(std::path::Path::new("."))
+                .join("blobs");
             let store = SqliteStore::open(&path, blobs).expect("that database opens");
             let count: i64 = store
                 .connection()
                 .query_row("SELECT count(*) FROM messages", [], |r| r.get(0))
                 .unwrap_or(0);
-            (store, None, format!("{} ({count} messages)", path.display()))
+            (
+                store,
+                None,
+                format!("{} ({count} messages)", path.display()),
+            )
         }
         None => {
             let (store, dir) = generated();
@@ -188,7 +195,9 @@ fn subject() -> (SqliteStore, Option<tempfile::TempDir>, String) {
 
 fn accounts(store: &SqliteStore) -> Vec<AccountId> {
     let db = store.connection();
-    let mut stmt = db.prepare("SELECT id FROM accounts ORDER BY created_at").unwrap();
+    let mut stmt = db
+        .prepare("SELECT id FROM accounts ORDER BY created_at")
+        .unwrap();
     let rows = stmt.query_map([], |r| r.get::<_, String>(0)).unwrap();
     rows.filter_map(Result::ok)
         .filter_map(|id| id.parse().ok())
@@ -292,9 +301,20 @@ fn what_one_frame_of_the_window_costs() {
     });
 
     // 6. A search keystroke: parse plus query, which is what each character costs.
+    //
+    // The needle is taken from the store's own subjects rather than written here. A word that
+    // matches nothing is answered by FTS almost instantly, so a fixed needle measures how fast
+    // this mailbox says "no" — which was the first number this printed against a real database,
+    // and it was not the question.
     let index = query::known_labels(&store);
+    let needle = messages
+        .iter()
+        .flat_map(|m| m.subject.split_whitespace())
+        .find(|word| word.chars().count() > 4)
+        .unwrap_or("widgets")
+        .to_owned();
     let search = timed(7, || {
-        let filter = query::parse_with("widgets", &chrono::Local, &query::named(&index));
+        let filter = query::parse_with(&needle, &chrono::Local, &query::named(&index));
         let _ = store.threads(&page(50, filter), now);
     });
 
@@ -303,20 +323,23 @@ fn what_one_frame_of_the_window_costs() {
     println!("  six badge counts      {}", ms(badges));
     println!("  label index           {}", ms(labels));
     println!("  drafts                {}", ms(drafts));
-    println!(
-        "  reader ({:>3} messages) {}",
-        messages.len(),
-        ms(reader)
-    );
-    println!("  search, per keystroke {}", ms(search));
+    println!("  reader ({:>3} messages) {}", messages.len(), ms(reader));
+    println!("  search {needle:?}{}{}", " ".repeat(14usize.saturating_sub(needle.len())), ms(search));
 
-    // What the render thread actually pays for one character typed with a conversation open.
-    let keystroke = list + badges + labels + drafts + reader + search;
-    println!("\n  one keystroke, reading  {}", ms(keystroke));
-    println!(
-        "  frames at 60 Hz         {:>8.1}\n",
-        keystroke.as_secs_f64() / (1.0 / 60.0)
-    );
+    // Two different totals, because these do not all happen at the same moments and adding them
+    // together was the first thing this file got wrong.
+    //
+    // The badge memo reads `revision` and nothing else — that was a deliberate fix, recorded in
+    // `ui::App` — so typing does not recount anything. What a keystroke re-runs is the memo that
+    // reads `Shell::search`: the list, or the search that replaces it, plus the open
+    // conversation's reader, which re-renders with everything else.
+    let keystroke = search + reader;
+    // A sync landing bumps `revision`, which re-runs all of it at once.
+    let revision = list + badges + labels + drafts + reader;
+    println!("\n  a keystroke, reading    {}  ({:.1} frames at 60 Hz)",
+        ms(keystroke), keystroke.as_secs_f64() / (1.0 / 60.0));
+    println!("  a sync landing          {}  ({:.1} frames at 60 Hz)\n",
+        ms(revision), revision.as_secs_f64() / (1.0 / 60.0));
 }
 
 /// The one thing here that is a check rather than a measurement.
