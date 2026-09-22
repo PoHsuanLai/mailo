@@ -182,7 +182,8 @@ The two `LocalOnly` tests that the `ops` agent flagged as vacuous now discrimina
 
 ## Still open
 
-- **The NTU host heuristic is unverified.** `spike/out/` is empty.
+- **The NTU host heuristic** is verified for the two hosts it knows and misses a third — see
+  F142, which needs a decision.
 - ~~**F2's parity limit.**~~ Closed in phase 9.3. Measured first: 1017 BMP code points
   tokenized differently on the two sides — marks the domain kept inside a word and SQLite split
   on (Hebrew points, Arabic harakat, Indic signs), compatibility folds only SQLite made (`µ`,
@@ -3516,3 +3517,31 @@ the surface deliberately unpresented — screen locked, or the window occluded �
 `raf_ticks` to stop climbing and the list to freeze in the same run. Until then the shell is a
 surface that works on this machine and is untrusted on one that showed F140, and no amount of
 correct code behind it changes that.
+
+### F142 — NTU has three mail systems, and an address cannot say which one it is on
+
+Phase 9.9, 2026-09-23. The preset picks `msa` for a local part shaped like a student id and
+`ccms` for anything else. Checked against NTU's own documentation and the servers themselves
+(greeting, `CAPA` and `EHLO` only; no credentials sent):
+
+| | `msa.ntu.edu.tw` | `ccms.ntu.edu.tw` | `mail.ntu.edu.tw` |
+|---|---|---|---|
+| Who, per the Computing Center | students enrolled 2020 on; alumni with id usernames | alumni and hospital staff with name usernames | staff, faculty, units, and students enrolled 2019 or earlier |
+| POP3 | 995 TLS, Dovecot, `SASL PLAIN` | 995 TLS, Dovecot, identical `CAPA` | 995 TLS, Exchange, `SASL PLAIN` |
+| Submission | `smtps` 465 | `smtps` 465 | 587 `STARTTLS`, `AUTH GSSAPI NTLM LOGIN` — **no `PLAIN`** |
+| Login name | local part | local part | the full address |
+
+The `msa`/`ccms` rule is right for the two systems it knows about. The third is the one most
+people with an `@ntu.edu.tw` address are on, and the rule sends every one of them somewhere they
+cannot log in. Nor can the address decide it: `b07…` is on `msa` after graduating and on Exchange
+while still enrolled, and a professor's name-shaped local part looks exactly like an alumnus's.
+
+Sources: <https://jsc.cc.ntu.edu.tw/ntucc/email/mailsoftwaresetup.html> (`msa`/`ccms`), and the
+Computing Center's *Outlook 2024 設定 Exchange 信箱（POP 類型）*, 2025-05-15 (`mail.ntu.edu.tw`).
+
+The Exchange submission server is also the first real server seen here that offers `SMTPUTF8`,
+`DSN`, `CHUNKING` and `BINARYMIME` — phase 9.4, 9.7 and 9.8 have somewhere to be tried.
+
+**Status: open, needs a decision.** Either setup tries the candidates in turn with the user's
+password (all three are `*.ntu.edu.tw` behind one certificate), or it asks which kind of account
+this is. Not decided here: it is a question about what the setup screen should do.
