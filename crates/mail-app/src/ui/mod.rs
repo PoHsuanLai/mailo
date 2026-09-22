@@ -842,6 +842,7 @@ mod render_tests {
                     }],
                     flags: vec![],
                     labels: vec![],
+                    label_names: Vec::new(),
                     gone: vec![],
                 },
             )
@@ -998,6 +999,7 @@ mod render_tests {
                         }],
                         flags: vec![],
                         labels: vec![],
+                        label_names: Vec::new(),
                         gone: vec![],
                     },
                 )

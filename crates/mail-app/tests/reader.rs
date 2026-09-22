@@ -99,6 +99,7 @@ fn ingest(store: &SqliteStore, raw_bytes: &[u8], text: Option<&str>) -> Message 
                 }],
                 flags: vec![],
                 labels: vec![],
+                label_names: Vec::new(),
                 gone: vec![],
             },
         )

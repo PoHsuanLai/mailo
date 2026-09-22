@@ -88,6 +88,7 @@ fn with_attachment(store: &SqliteStore, claimed: &str, bytes: &[u8]) -> MessageI
                 }],
                 flags: vec![],
                 labels: vec![],
+                label_names: Vec::new(),
                 gone: vec![],
             },
         )

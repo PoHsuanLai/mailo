@@ -295,6 +295,7 @@ fn ingest_one(b: &Both) -> MessageId {
         }],
         flags: vec![],
         labels: vec![],
+        label_names: Vec::new(),
         gone: vec![],
     };
     b.sqlite.ingest(ACCOUNT, ingest.clone()).unwrap();

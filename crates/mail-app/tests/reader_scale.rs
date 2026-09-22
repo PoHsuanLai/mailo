@@ -120,6 +120,7 @@ fn thread_of(store: &SqliteStore, count: i64, padding: usize) -> Vec<Message> {
                 messages: fetched,
                 flags: vec![],
                 labels: vec![],
+                label_names: Vec::new(),
                 gone: vec![],
             },
         )

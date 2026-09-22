@@ -2576,3 +2576,56 @@ the binary: `from:billing`, `-from:billing`, `subject:invoice is:unread`, `after
 `label:` is absent on purpose. Nothing populates labels — the envelope walk discarded Gmail's
 (F113) and `Ingest.labels` has always been empty — so the term would parse, select nothing, and
 look like a bug in search rather than the gap it is.
+
+### F119 — Labels, the last thing that was modelled and never arrived
+
+I said twice that this needed an account on a server that has labels. Both times were wrong, and
+for two different reasons.
+
+The first: `crates/mail-proto/tests/traces/imap/gmail_fetch.trace` is **derived from a real Gmail
+capture**, and contains `X-GM-LABELS (\Inbox "travel")`. The bytes were in the repository the
+whole time.
+
+The second: I claimed the chain was unverifiable end to end. The IMAP test servers in
+`mail-runtime/tests` are hand-written and in-process, and the backend is sans-I/O — "the server"
+can be a slice of bytes. Nothing about verifying this needs a socket, let alone Google's.
+
+What was missing, once the excuses were gone, was the assignment. `Ingest.labels` has upserted
+label *definitions* since phase 1 and nothing ever said which message carried which: per-message
+labels ride on `Fetched.message.labels`, which `absorb` fills from parsed RFC 5322 bytes, and a
+parsed message has no Gmail labels in it. So `Ingest` gains `label_names: Vec<(RemoteRef,
+Vec<String>)>` — names, because the protocol has names and the store owns ids, and parallel to
+`flags` because a label change is far cheaper than refetching a message.
+
+Three decisions worth the words:
+
+- **The list is complete, not additive.** It is what the message is labelled *now*. A client that
+  only ever adds accumulates labels the user deleted years ago and no later sync takes them off,
+  so the store applies the difference in both directions — and only the difference, because
+  writing every membership every pass is the waste F95 and F113 were about. Asserted: a second
+  identical sweep writes no changes at all.
+- **Gmail's own names are not labels.** `\Inbox`, `\Sent`, `\Draft`, `\Spam`, `\Trash`,
+  `\Important`, `\Starred`, `\Muted` are `mailbox`, `read` and `star` here already; carried
+  through they would appear on every row and the user could not remove them. Anything beginning
+  with a backslash is dropped rather than a fixed list matched — Gmail has added to that set
+  before, and a client that enumerates it inherits the next name as a label.
+- **Names are modified UTF-7.** A Chinese label arrives as `&Ux1Tgg-` and must not be shown that
+  way; `mutf7::decode` was already there for mailbox names (F44) and is the same answer here.
+
+`X-GM-LABELS` is back in the fetch item list, which is exactly the condition F113 set: ask for
+what something reads, and only that. `ENVELOPE`, `BODYSTRUCTURE`, `INTERNALDATE` and the other
+`X-GM-*` attributes stay gone.
+
+`label:travel` now works in search, through the same parser both surfaces use, with the name
+resolved by the caller so the parser stays pure.
+
+Checked at every layer that exists: the parse, against the capture's own shapes and against
+quoting, escaping and non-ASCII; the store, that a name becomes a row, that the same name twice
+is one label, that a dropped label comes off, that an unchanged list writes nothing, and that a
+label row for a message this client has not fetched is skipped rather than fatal; and the seam
+between them in `mail-runtime`, which is the only crate allowed to hold both — a survey's bytes
+in, a thread found by `Filter::HasLabel` out.
+
+What is *not* proved is a real Gmail account, and nothing here can be. What it would exercise
+beyond these tests is whether Gmail's wire matches its documentation, which is exactly what the
+capture in `traces/` was recorded to answer.

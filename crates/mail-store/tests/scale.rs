@@ -100,6 +100,7 @@ fn fill(store: &SqliteStore, count: i64) {
                     messages,
                     flags: vec![],
                     labels: vec![],
+                    label_names: Vec::new(),
                     gone: vec![],
                 },
             )
@@ -297,6 +298,7 @@ mod ingest_throughput {
             messages,
             flags: vec![],
             labels: vec![],
+            label_names: Vec::new(),
             gone: vec![],
         }
     }

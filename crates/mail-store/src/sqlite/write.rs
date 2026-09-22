@@ -359,6 +359,37 @@ impl SqliteStore {
             }
         }
 
+        // 3b. Labels the server reports, where it has them — Gmail and nowhere else.
+        //
+        //     The list is complete rather than additive, like flags: a label the server no
+        //     longer lists has been removed there, and a client that only ever adds accumulates
+        //     labels the user deleted years ago. So the difference is applied in both
+        //     directions, and only the difference — writing every membership every pass would
+        //     fill the change log with nothing.
+        for (remote, names) in &ingest.label_names {
+            let Some(id) = self.message_by_remote(account, remote)? else {
+                continue;
+            };
+            let mut wanted = Vec::new();
+            for name in names {
+                wanted.push(self.label_by_name(account, name)?);
+            }
+            let held = self.labels_of(id)?;
+            for label in wanted.iter().filter(|l| !held.contains(l)) {
+                let change = Change::MessageLabel(id, *label, Membership::In);
+                self.write_change(&change)?;
+                changes.push(change);
+            }
+            for label in held.iter().filter(|l| !wanted.contains(l)) {
+                let change = Change::MessageLabel(id, *label, Membership::Out);
+                self.write_change(&change)?;
+                changes.push(change);
+            }
+            if let Some(t) = self.thread_of(id)? {
+                touched.insert(t);
+            }
+        }
+
         // 4. Expunged elsewhere. Drop the mapping; drop the message only when no mailbox still
         //    holds it, because vanishing from INBOX is what archiving looks like on Gmail.
         for remote in &ingest.gone {
@@ -500,6 +531,38 @@ impl SqliteStore {
         found
             .map(|t| uuid("MessageId", &t).map(MessageId::from_uuid))
             .transpose()
+    }
+
+    /// The id of the label called `name` on this account, creating it if it is new.
+    ///
+    /// `LabelOrigin::Provider`: the server made it, so the user may not rename or delete it here
+    /// — that is what the origin is for. The `UNIQUE (account, name)` constraint is what makes
+    /// this safe against two passes racing to create the same one.
+    fn label_by_name(
+        &self,
+        account: AccountId,
+        name: &str,
+    ) -> Result<mail_domain::LabelId, StoreError> {
+        let existing: Option<String> = self
+            .connection()
+            .query_row(
+                "SELECT id FROM labels WHERE account = ?1 AND name = ?2",
+                params![account.to_string(), name],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if let Some(id) = existing {
+            return uuid("LabelId", &id).map(mail_domain::LabelId::from_uuid);
+        }
+        let label = mail_domain::Label {
+            id: mail_domain::LabelId::generate(),
+            account,
+            name: name.to_owned(),
+            color: None,
+            origin: mail_domain::LabelOrigin::Provider,
+        };
+        self.write_change(&Change::LabelUpsert(label.clone()))?;
+        Ok(label.id)
     }
 
     fn map_remote(

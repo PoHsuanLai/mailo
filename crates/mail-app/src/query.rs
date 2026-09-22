@@ -16,6 +16,7 @@
 //! in:inbox  in:archive in:sent         where it lives
 //! in:spam   in:trash
 //! has:attachment                       what it carries
+//! label:travel                        a label the server gave it
 //! before:2026-01-01 after:2025-12-25   when, in the reader's zone
 //! -from:newsletter                     not that
 //! "exact phrase"                       adjacent words, in one field
@@ -27,7 +28,7 @@
 //! `-`, and nobody types it.
 
 use chrono::{DateTime, NaiveDate, TimeZone, Utc};
-use mail_domain::{DateRange, Filter, MailboxRole, ReadState, Star, TextMatch};
+use mail_domain::{DateRange, Filter, LabelId, MailboxRole, ReadState, Star, TextMatch};
 
 /// Turn a search line into a filter.
 ///
@@ -36,11 +37,25 @@ use mail_domain::{DateRange, Filter, MailboxRole, ReadState, Star, TextMatch};
 /// text rather than refused. The cost of that choice is a search that finds nothing rather than
 /// one that explains itself, which is the right way round while the user is still typing.
 pub fn parse<Tz: TimeZone>(input: &str, zone: &Tz) -> Filter {
+    parse_with(input, zone, &|_| None)
+}
+
+/// The same, with a way to resolve a label name to its id.
+///
+/// `label:` needs the store and the rest of this does not, so the lookup arrives as a function
+/// rather than a connection: the parser stays pure and testable, and the one term that needs the
+/// world gets it from the caller. A name nothing knows becomes text — the same rule as any other
+/// unrecognised term, and the same reason: a search box must not refuse what is being typed.
+pub fn parse_with<Tz: TimeZone>(
+    input: &str,
+    zone: &Tz,
+    label: &dyn Fn(&str) -> Option<LabelId>,
+) -> Filter {
     let mut clauses: Vec<Filter> = Vec::new();
     let mut words: Vec<String> = Vec::new();
 
     for token in tokenize(input) {
-        match term(&token, zone) {
+        match term(&token, zone, label) {
             Some(filter) => clauses.push(filter),
             None => words.push(token.text),
         }
@@ -137,7 +152,11 @@ fn tokenize(input: &str) -> Vec<Token> {
 }
 
 /// The filter one token means, or `None` when it is just a word.
-fn term<Tz: TimeZone>(token: &Token, zone: &Tz) -> Option<Filter> {
+fn term<Tz: TimeZone>(
+    token: &Token,
+    zone: &Tz,
+    label: &dyn Fn(&str) -> Option<LabelId>,
+) -> Option<Filter> {
     let wrap = |f: Filter| {
         if token.negated {
             Filter::Not(Box::new(f))
@@ -173,6 +192,7 @@ fn term<Tz: TimeZone>(token: &Token, zone: &Tz) -> Option<Filter> {
             _ => return None,
         },
         "in" => Filter::InMailbox(mailbox(value)?),
+        "label" => Filter::HasLabel(label(value)?),
         // `before` is exclusive and `after` inclusive, matching `DateRange`'s own `>= from` and
         // `< to`: a day named is a whole day, and "before the 25th" should not include it.
         "before" => Filter::Date(DateRange {

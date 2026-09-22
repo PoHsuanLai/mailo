@@ -89,6 +89,7 @@ fn ingest_of(store: &SqliteStore, from: i64, count: i64) -> Ingest {
         messages,
         flags: vec![],
         labels: vec![],
+        label_names: Vec::new(),
         gone: vec![],
     }
 }

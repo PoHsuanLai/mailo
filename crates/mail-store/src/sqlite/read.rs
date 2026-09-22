@@ -100,6 +100,40 @@ impl SqliteStore {
         })
     }
 
+    /// Every label on this account, by name.
+    ///
+    /// For the search box, which needs a name to become a [`LabelId`], and for anything that
+    /// wants to show the user what there is. Ordered by name so two calls agree.
+    pub fn labels(
+        &self,
+        account: mail_domain::AccountId,
+    ) -> Result<Vec<mail_domain::Label>, StoreError> {
+        let db = self.connection();
+        let mut stmt = db.prepare_cached(
+            "SELECT id, name, color, origin FROM labels WHERE account = ?1 ORDER BY name",
+        )?;
+        let rows = stmt.query_map(params![account.to_string()], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, Option<String>>(2)?,
+                r.get::<_, String>(3)?,
+            ))
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            let (id, name, color, origin) = row?;
+            out.push(mail_domain::Label {
+                id: uuid("LabelId", &id).map(LabelId::from_uuid)?,
+                account,
+                name,
+                color,
+                origin: json("LabelOrigin", &origin)?,
+            });
+        }
+        Ok(out)
+    }
+
     pub(super) fn labels_of(&self, message: MessageId) -> Result<Vec<LabelId>, StoreError> {
         let db = self.connection();
         let mut stmt = db

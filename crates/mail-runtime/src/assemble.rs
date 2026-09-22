@@ -126,6 +126,7 @@ pub fn assemble(
         messages,
         flags: Vec::new(),
         labels: Vec::new(),
+        label_names: Vec::new(),
         gone: Vec::new(),
     })
 }

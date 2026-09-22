@@ -47,7 +47,21 @@ pub struct Ingest {
     pub messages: Vec<Fetched>,
     /// Flag-only updates, which are far cheaper than refetching a message.
     pub flags: Vec<(RemoteRef, ReadState, Star)>,
+    /// Label definitions this batch learned about.
     pub labels: Vec<Label>,
+    /// What the server says each message is labelled, by name.
+    ///
+    /// Names and not [`LabelId`]s because the protocol has names and the store owns ids: the
+    /// store creates any it has not seen, with [`LabelOrigin::Provider`]. Parallel to `flags`
+    /// and for the same reason — a label change is far cheaper than refetching a message.
+    ///
+    /// The list is **complete**, like `flags`: it is what the message is labelled *now*, not
+    /// what was added. A label the server no longer lists has been removed there, and a client
+    /// that only ever adds accumulates labels the user deleted years ago.
+    ///
+    /// Empty on every protocol but Gmail, which is the only one that has them.
+    #[serde(default)]
+    pub label_names: Vec<(RemoteRef, Vec<String>)>,
     /// Expunged on the server, by this client or another one. Without this, a message
     /// deleted elsewhere never disappears locally.
     pub gone: Vec<RemoteRef>,

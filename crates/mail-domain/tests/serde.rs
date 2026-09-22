@@ -374,6 +374,8 @@ fn ingest() -> Ingest {
         }],
         flags: vec![(imap_ref(), ReadState::Unread, Star::Starred)],
         labels: vec![label()],
+        // Non-empty, so the round trip covers a shape a Gmail survey actually produces.
+        label_names: vec![(imap_ref(), vec!["travel".to_owned(), "家人".to_owned()])],
         gone: vec![RemoteRef::Pop {
             uidl: "UID-2".to_owned(),
         }],

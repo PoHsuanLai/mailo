@@ -133,6 +133,7 @@ impl Pop3Backend {
             messages: Vec::new(),
             flags: Vec::new(),
             labels: Vec::new(),
+            label_names: Vec::new(),
             gone: Vec::new(),
         }
     }

@@ -487,7 +487,12 @@ pub fn run(store: &SqliteStore, command: &Command, now: DateTime<Utc>) -> Result
             let page = store
                 .threads(
                     // The same parser the shell's box uses, so `from:ada` means one thing.
-                    &list_query(crate::query::parse(needle, &chrono::Local), *limit),
+                    &list_query(
+                        crate::query::parse_with(needle, &chrono::Local, &|name| {
+                            label_named(store, name)
+                        }),
+                        *limit,
+                    ),
                     now,
                 )
                 .map_err(|e| e.to_string())?;
@@ -588,6 +593,38 @@ fn list_query(filter: Filter, limit: u32) -> Query {
         },
         page: PageReq { after: None, limit },
     }
+}
+
+/// The id of a label with this name, on any configured account.
+///
+/// Any account rather than one, because search is across accounts here and a label name is the
+/// only thing the user typed. Two accounts with the same label name is a real case; the first
+/// wins, which is wrong in a way nobody will notice until there are two accounts and worth
+/// fixing then rather than inventing a syntax for it now.
+fn label_named(store: &SqliteStore, name: &str) -> Option<mail_domain::LabelId> {
+    let db = store.connection();
+    let mut stmt = db
+        .prepare("SELECT id FROM accounts ORDER BY created_at")
+        .ok()?;
+    let ids: Vec<String> = stmt
+        .query_map([], |r| r.get::<_, String>(0))
+        .ok()?
+        .filter_map(Result::ok)
+        .collect();
+    drop(stmt);
+    drop(db);
+    for id in ids {
+        let Ok(uuid) = id.parse() else { continue };
+        let account = AccountId::from_uuid(uuid);
+        if let Ok(labels) = store.labels(account)
+            && let Some(found) = labels
+                .into_iter()
+                .find(|l| l.name.eq_ignore_ascii_case(name))
+        {
+            return Some(found.id);
+        }
+    }
+    None
 }
 
 fn render_list(items: &[ThreadSummary]) -> String {

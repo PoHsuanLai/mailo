@@ -76,6 +76,36 @@ impl Machine for Driven {
     }
 }
 
+fn inbox() -> MailboxRef {
+    MailboxRef {
+        account: ACCOUNT,
+        path: "INBOX".to_owned(),
+    }
+}
+
+/// The same backend, authenticating with a password: what every server but Gmail gets.
+fn password_backend(caps: AccountCaps) -> ImapBackend {
+    ImapBackend::new(
+        ACCOUNT,
+        caps,
+        Box::new(|auth: Authenticate, commands: Vec<ImapCommand>| {
+            let mut all = Vec::new();
+            if auth == Authenticate::First {
+                all.push(ImapCommand::Login);
+            }
+            all.extend(commands);
+            ImapSession::new(
+                ImapAuth {
+                    username: "ada@example.test".to_owned(),
+                    credential: Credential::Password("hunter2".to_owned()),
+                    sasl: vec![SaslMech::Plain],
+                },
+                all,
+            )
+        }),
+    )
+}
+
 fn imap_ref(mailbox: &str, uid: u32) -> RemoteRef {
     RemoteRef::Imap {
         mailbox: mailbox.to_owned(),
@@ -352,5 +382,132 @@ mod literal_bodies {
             capabilities: Vec::new(),
         };
         assert!(t.untagged[0].text.contains("SEARCH"));
+    }
+}
+
+/// Gmail's labels, asked for and discarded for the life of the project.
+///
+/// The response bytes below are the shape `traces/imap/gmail_fetch.trace` records from a real
+/// capture, which is why this can be checked at all without an account on a server that has
+/// labels.
+mod gmail_labels {
+    use super::*;
+
+    fn surveyed(fetch_lines: &str) -> Ingest {
+        let trace = format!(
+            concat!(
+                "S: * OK Gimap ready\n",
+                "C: a001 AUTHENTICATE XOAUTH2 dXNlcj1hZGFAZXhhbXBsZS50ZXN0AWF1dGg9QmVhcmVyIHlhMjkudG9rZW4BAQ==\n",
+                "S: a001 OK authenticated\n",
+                "C: a002 EXAMINE \"INBOX\"\n",
+                "S: * OK [UIDVALIDITY 1] UIDs valid.\n",
+                "S: * OK [UIDNEXT 43] Predicted next UID.\n",
+                "S: a002 OK [READ-ONLY] EXAMINE completed\n",
+                "C: a003 UID FETCH 1:* (UID FLAGS RFC822.SIZE X-GM-LABELS)\n",
+                "{}",
+                "S: a003 OK Success\n",
+                "DONE\n"
+            ),
+            fetch_lines
+        );
+        let mut driven = Driven {
+            backend: backend(caps(ServerLabels::Supported, ArchiveMeans::DropInbox)),
+            op: Some(ProtoOp::FetchEnvelopes {
+                mailbox: inbox(),
+                since: FetchSince::Beginning,
+            }),
+        };
+        match replay(&mut driven, &trace).unwrap() {
+            ProtoOutcome::Ingested(ingest) => *ingest,
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_survey_now_carries_what_the_server_says_each_message_is_labelled() {
+        // The capture's own shape: one message with a system label and a user label, one with
+        // an empty list.
+        let ingest = surveyed(concat!(
+            "S: * 1 FETCH (UID 42 FLAGS (\\Seen) RFC822.SIZE 100 X-GM-LABELS (\\Inbox \"travel\"))\n",
+            "S: * 2 FETCH (UID 43 FLAGS () RFC822.SIZE 200 X-GM-LABELS ())\n",
+        ));
+
+        assert_eq!(
+            ingest.label_names,
+            vec![(imap_ref("INBOX", 42), vec!["travel".to_owned()])],
+            "the user label, and only messages that have one"
+        );
+    }
+
+    #[test]
+    fn gmails_names_for_mailboxes_and_flags_are_not_labels() {
+        // `\Inbox` is `mailbox`, `\Starred` is `star`, `\Unread` is `read`. Carried through as
+        // labels they would appear on every row, and the user could not remove them.
+        let ingest = surveyed(
+            "S: * 1 FETCH (UID 42 FLAGS (\\Seen) RFC822.SIZE 100 X-GM-LABELS (\\Inbox \\Sent \\Draft \\Spam \\Trash \\Important \\Starred \\Muted))\n",
+        );
+        assert!(
+            ingest.label_names.is_empty(),
+            "a system name became a label: {:?}",
+            ingest.label_names
+        );
+    }
+
+    #[test]
+    fn a_quoted_label_may_contain_spaces_quotes_and_backslashes() {
+        let ingest = surveyed(
+            "S: * 1 FETCH (UID 42 FLAGS () RFC822.SIZE 100 X-GM-LABELS (\"two words\" \"with \\\"quotes\\\"\" plain))\n",
+        );
+        assert_eq!(
+            ingest.label_names[0].1,
+            vec![
+                "two words".to_owned(),
+                "with \"quotes\"".to_owned(),
+                "plain".to_owned()
+            ]
+        );
+    }
+
+    #[test]
+    fn a_non_ascii_label_is_decoded_rather_than_shown_as_wire_bytes() {
+        // Gmail sends modified UTF-7. A Chinese label arriving as `&Ux1Tgg-` and being shown
+        // that way is the same class of bug as F44's mailbox names.
+        let ingest =
+            surveyed("S: * 1 FETCH (UID 42 FLAGS () RFC822.SIZE 100 X-GM-LABELS (\"&Ux1Tgg-\"))\n");
+        let name = &ingest.label_names[0].1[0];
+        assert!(!name.contains('&'), "still modified UTF-7: {name:?}");
+        assert!(!name.is_ascii(), "{name:?}");
+    }
+
+    #[test]
+    fn a_server_without_labels_is_not_asked_for_them() {
+        // F113's condition: ask for what is read, and only that. A Dovecot or NTU account has
+        // no X-GM-LABELS and must not be sent an attribute it will reject.
+        let trace = concat!(
+            "S: * OK ready\n",
+            "C: a001 LOGIN \"ada@example.test\" \"hunter2\"\n",
+            "S: a001 OK authenticated\n",
+            "C: a002 EXAMINE \"INBOX\"\n",
+            "S: * OK [UIDVALIDITY 1] UIDs valid.\n",
+            "S: a002 OK [READ-ONLY] EXAMINE completed\n",
+            "C: a003 UID FETCH 1:* (UID FLAGS RFC822.SIZE)\n",
+            "S: * 1 FETCH (UID 42 FLAGS () RFC822.SIZE 100)\n",
+            "S: a003 OK Success\n",
+            "DONE\n"
+        );
+        let mut driven = Driven {
+            backend: password_backend(caps(ServerLabels::LocalOnly, ArchiveMeans::LocalOnly)),
+            op: Some(ProtoOp::FetchEnvelopes {
+                mailbox: inbox(),
+                since: FetchSince::Beginning,
+            }),
+        };
+        // `replay` asserts the client's side of the transcript, so the absence of X-GM-LABELS in
+        // the C: line above is the assertion.
+        let outcome = replay(&mut driven, trace).unwrap();
+        match outcome {
+            ProtoOutcome::Ingested(ingest) => assert!(ingest.label_names.is_empty()),
+            other => panic!("{other:?}"),
+        }
     }
 }

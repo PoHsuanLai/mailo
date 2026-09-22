@@ -95,6 +95,7 @@ fn ingest_of(mailbox: &str, messages: Vec<Fetched>) -> Ingest {
         messages,
         flags: vec![],
         labels: vec![],
+        label_names: Vec::new(),
         gone: vec![],
     }
 }

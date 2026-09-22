@@ -179,7 +179,14 @@ impl Backend for ImapBackend {
                 // When labels are implemented, `X-GM-LABELS` comes back — together with the code
                 // that reads it, which is the only condition under which asking for something is
                 // worth the bytes.
-                let items = "(UID FLAGS RFC822.SIZE)";
+                // `X-GM-LABELS` is back, with the code that reads it — which is the condition
+                // F113 set for asking a server for anything. `ENVELOPE`, `BODYSTRUCTURE`,
+                // `INTERNALDATE` and the other `X-GM-*` attributes stay gone: still unread.
+                let items = if matches!(self.caps.labels, ServerLabels::Supported) {
+                    "(UID FLAGS RFC822.SIZE X-GM-LABELS)"
+                } else {
+                    "(UID FLAGS RFC822.SIZE)"
+                };
                 self.queue(vec![
                     Self::select(&mailbox, true),
                     ImapCommand::UidFetch {
@@ -470,6 +477,7 @@ impl Backend for ImapBackend {
                     messages: Vec::new(),
                     flags: Vec::new(),
                     labels: Vec::new(),
+                    label_names: Vec::new(),
                     gone: Vec::new(),
                 })))
             }
@@ -505,6 +513,13 @@ impl Backend for ImapBackend {
                         .map(|row| (row.remote.clone(), row.read, row.star))
                         .collect(),
                     labels: Vec::new(),
+                    // Only where the server has them. Everywhere else this is empty and the
+                    // store does nothing, which is what "labels are local" means on POP3.
+                    label_names: seen
+                        .iter()
+                        .filter(|row| !row.labels.is_empty())
+                        .map(|row| (row.remote.clone(), row.labels.clone()))
+                        .collect(),
                     gone: Vec::new(),
                 })))
             }
@@ -551,6 +566,71 @@ struct Surveyed {
     size: u64,
     read: mail_domain::ReadState,
     star: mail_domain::Star,
+    /// Gmail's user labels, empty everywhere else. See [`user_labels`].
+    labels: Vec<String>,
+}
+
+/// The user labels in an `X-GM-LABELS (…)` list.
+///
+/// Gmail mixes two things in that list: labels the user made, and its own names for mailboxes
+/// and flags — `\Inbox`, `\Sent`, `\Draft`, `\Trash`, `\Spam`, `\Important`, `\Starred`,
+/// `\Muted`. The second kind is already `mailbox` and `read` and `star` here, so carrying them
+/// through as labels would put `\Inbox` on every message in the inbox and `\Starred` on
+/// everything starred — noise on every row, and a "label" the user cannot remove.
+///
+/// Anything beginning with a backslash is dropped rather than a fixed list being matched: Gmail
+/// has added to that set before, and a client that enumerates it inherits the next name as a
+/// label. Real labels cannot start with one — Gmail rejects the character.
+///
+/// Values are atoms or quoted strings, and a quoted one may contain an escaped quote or
+/// backslash. `&` is Gmail's modified UTF-7 for non-ASCII names, which [`crate::mutf7`] decodes:
+/// a Chinese label arrives as `&Ux1Tgg-` on the wire and must not be shown that way.
+fn user_labels(line: &str) -> Vec<String> {
+    let Some(rest) = after_atom_list(line, "X-GM-LABELS ") else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    let mut chars = rest.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c.is_whitespace() {
+            continue;
+        }
+        let mut value = String::new();
+        if c == '"' {
+            while let Some(c) = chars.next() {
+                match c {
+                    '\\' => value.push(chars.next().unwrap_or('\\')),
+                    '"' => break,
+                    other => value.push(other),
+                }
+            }
+        } else {
+            value.push(c);
+            while let Some(&next) = chars.peek() {
+                if next.is_whitespace() {
+                    break;
+                }
+                value.push(next);
+                chars.next();
+            }
+        }
+        if value.is_empty() || value.starts_with('\\') {
+            continue;
+        }
+        out.push(crate::mutf7::decode(&value));
+    }
+    out
+}
+
+/// The contents of the parenthesised list following `key`, if there is one.
+///
+/// Nesting is not a possibility here — a label list is flat — so counting depth would be
+/// answering a question the grammar does not ask.
+fn after_atom_list<'a>(line: &'a str, key: &str) -> Option<&'a str> {
+    let at = line.find(key)? + key.len();
+    let rest = line.get(at..)?.strip_prefix('(')?;
+    let end = rest.find(')')?;
+    rest.get(..end)
 }
 
 /// Pull `UID`, `RFC822.SIZE` and `FLAGS` out of untagged `FETCH` responses.
@@ -575,6 +655,7 @@ fn parse_fetches(untagged: &[crate::Untagged], mailbox: &str, uidvalidity: u32) 
             .unwrap_or(0);
         let flags = flag_list(&line.text);
         out.push(Surveyed {
+            labels: user_labels(&line.text),
             remote: RemoteRef::Imap {
                 mailbox: mailbox.to_owned(),
                 // The mailbox's own UIDVALIDITY, not zero. `remote_map` keys on it, so a
