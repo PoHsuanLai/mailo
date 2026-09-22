@@ -18,5 +18,30 @@ allow = [
 ]
 confidence-threshold = 0.9
 
-# Strong and weak copyleft are absent on purpose. Adding one is a deliberate decision that
-# changes what this project may be distributed as, not a dependency bump.
+# Strong and weak copyleft are absent from `allow` on purpose. Adding one there is a deliberate
+# decision that changes what this project may be distributed as, not a dependency bump.
+#
+# The two below are *exceptions*, scoped to one crate each, which is the difference that matters:
+# a new dependency arriving under either licence still fails this gate and still gets a decision.
+# A blanket entry in `allow` would let the next one in unnoticed, which is the thing this file
+# exists to prevent.
+
+# The window's HTML layer, three levels down: selectors → kuchikiki → wry → dioxus-desktop.
+#
+# MPL-2.0 is file-level copyleft, and `docs/licensing-references.md` already records the position
+# this takes — tier R, "fine to link or depend on; do not paste source in". Depending on it
+# obliges us to make *those files'* source available, which crates.io already does, and it
+# obliges nothing of ours. What it would forbid is copying a function out of `selectors` into
+# this repository, which the same document forbids for a different reason and which has not
+# happened.
+[[licenses.exceptions]]
+name = "selectors"
+allow = ["MPL-2.0"]
+
+# Mozilla's CA root bundle, via reqwest → hyper-rustls. The licence covers the *data* — the list
+# of certificate authorities — rather than code, which is why it is a CDLA and not one of the
+# usual four. Permissive: it allows use and redistribution of the data, with no obligation
+# reaching anything that reads it.
+[[licenses.exceptions]]
+name = "webpki-roots"
+allow = ["CDLA-Permissive-2.0"]

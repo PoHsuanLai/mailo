@@ -433,6 +433,28 @@ goodwill we cannot buy back.
 
 ---
 
+## What we actually depend on, where it is not MIT or Apache-2.0
+
+The table above is about *reading and copying* other mail clients. This section is the narrower
+question the build asks every time: what licences does the dependency tree carry. `deny.toml`
+fails CI on anything outside the allow-list, so each entry below is a decision somebody made
+rather than a thing that drifted in.
+
+Two dependencies are neither MIT nor Apache-2.0, and both are recorded there as *scoped
+exceptions* rather than as blanket allowances — a new dependency arriving under either licence
+still fails the gate and still gets a decision.
+
+| Crate | Licence | Reached through | Why it is acceptable |
+|---|---|---|---|
+| `selectors` | MPL-2.0 | `kuchikiki` → `wry` → `dioxus-desktop` | Tier **R** by the rule above: file-level copyleft, fine to depend on. The obligation is to make *those files'* source available, which crates.io already does; nothing of ours is affected. What it forbids is pasting a function out of it into this repository — which §1 forbids anyway. |
+| `webpki-roots` | CDLA-Permissive-2.0 | `hyper-rustls` → `reqwest` | Mozilla's CA root bundle. The licence covers the *data* — the list of certificate authorities — rather than code, which is why it is a CDLA rather than one of the usual four. Permissive, with no obligation reaching anything that reads it. |
+
+Both were found by CI on the first run against a public repository, which is the argument for
+having the gate at all: neither is a problem, and neither would have been noticed by anybody
+reading `Cargo.lock`.
+
+---
+
 ## Appendix: verification method
 
 Every row was checked on **2026-09-22** by fetching one or more of:
