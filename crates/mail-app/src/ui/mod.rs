@@ -8,8 +8,12 @@ mod app;
 mod composer;
 mod data;
 mod launch;
+mod list;
+mod menus;
 mod ops;
 mod reading;
+mod row;
+mod sidebar;
 mod style;
 mod text;
 

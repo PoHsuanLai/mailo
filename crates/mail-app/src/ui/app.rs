@@ -1,13 +1,11 @@
 use super::composer::{self, Composer};
 use super::data::{PAGE, accounts, count_badges, list_for, warm_the_first_screenful};
-use super::ops::{Composes, apply_label, apply_op, composes, start_composing, start_new};
+use super::list::ThreadList;
+use super::ops::{Composes, apply_op, start_composing, start_new};
 use super::reading::Reader;
+use super::sidebar::Places;
 use super::style::STYLE;
-use super::text::{draft_state, label, sender};
-use crate::view::{
-    Listing, Shell, Shortcut, SyncState, badge_filter, hover_actions, nothing_to_show, synced,
-};
-use chrono::Local;
+use crate::view::{Listing, Shell, Shortcut, SyncState, badge_filter, nothing_to_show, synced};
 use dioxus::prelude::*;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
@@ -26,7 +24,7 @@ pub(super) fn App() -> Element {
 
     // How many pages of the list have been asked for. Reset whenever the list itself changes,
     // because "page 3" of the Inbox means nothing once the user is looking at Archive.
-    let mut pages = use_signal(|| 1u32);
+    let pages = use_signal(|| 1u32);
     let mut sync_state = use_signal(|| SyncState::Idle);
 
     // One count per place, recomputed after any write. `Store::count` answers each in a single
@@ -198,7 +196,7 @@ pub(super) fn App() -> Element {
     // writing, and the client that confuses the two archives a conversation because someone
     // typed "e" into a reply. The composer counts wholesale: its fields are many and focus can
     // sit between them.
-    let mut in_a_field = use_signal(|| false);
+    let in_a_field = use_signal(|| false);
 
     let on_key = move |event: Event<KeyboardData>| {
         // `Key`'s Display is the DOM key name — "e", "ArrowDown", "Escape" — which is the
@@ -356,272 +354,8 @@ pub(super) fn App() -> Element {
         div { class: "app",
             tabindex: "0",
             onkeydown: on_key,
-            nav { class: "places",
-                for (index, place) in shell.read().places.iter().enumerate() {
-                    button {
-                        key: "{place.name}",
-                        class: if index == shell.read().selected { "place on" } else { "place" },
-                        onclick: move |_| {
-                            shell.write().select(index);
-                            pages.set(1);
-                        },
-                        "{place.name}"
-                        if let Some(Some(count)) = badges().get(index).copied() {
-                            span { class: "badge", "{count}" }
-                        }
-                    }
-                }
-                button {
-                    class: "place compose",
-                    onclick: move |_| {
-                        let store = consume_context::<Arc<SqliteStore>>();
-                        let known = shell.peek().accounts.clone();
-                        match start_new(&store, &known) {
-                            Ok(draft) => {
-                                shell.write().compose(&draft);
-                                revision += 1;
-                            }
-                            Err(why) => eprintln!("compose: {why}"),
-                        }
-                    },
-                    title: "Write a new message (c)",
-                    "New"
-                }
-                div { class: "spacer" }
-                button {
-                    class: "place sync",
-                    disabled: !sync_state.read().may_start(),
-                    onclick: move |_| {
-                        if !sync_state.read().may_start() {
-                            return;
-                        }
-                        sync_state.set(SyncState::Running);
-                        let store = consume_context::<Arc<SqliteStore>>();
-                        spawn(async move {
-                            // `spawn_blocking`, not this task: sync::run opens sockets and
-                            // builds its own runtime, and `Runtime::block_on` inside an async
-                            // context panics. Off the UI thread either way — a pass takes
-                            // minutes on a first sync and would freeze the window.
-                            let done = tokio::task::spawn_blocking(move || {
-                                crate::sync::run(store, chrono::Utc::now())
-                            })
-                            .await;
-                            sync_state.set(match done {
-                                Ok(result) => synced(result.map(|ran| ran.text)),
-                                // The blocking task panicked. Saying so beats a window that
-                                // sits on "Syncing…" for ever.
-                                Err(e) => synced(Err(format!("the sync pass stopped: {e}"))),
-                            });
-                            revision += 1;
-                        });
-                    },
-                    if sync_state.read().may_start() { "Sync" } else { "Syncing…" }
-                }
-                if let Some(note) = sync_state.read().message() {
-                    p {
-                        class: if sync_state.read().is_failure() { "sync-note bad" } else { "sync-note" },
-                        "{note}"
-                    }
-                }
-            }
-            section { class: "list",
-                input {
-                    class: "search",
-                    placeholder: "Search all mail",
-                    onfocusin: move |_| in_a_field.set(true),
-                    onfocusout: move |_| in_a_field.set(false),
-                    value: "{shell.read().search}",
-                    oninput: move |e| {
-                        shell.write().search = e.value();
-                        pages.set(1);
-                    },
-                }
-                if threads().is_empty() && drafts().is_empty() {
-                    p { class: "empty", "{nothing().message()}" }
-                    if let Some(command) = nothing().command() {
-                        pre { class: "command", "{command}" }
-                    }
-                }
-                for draft in drafts() {
-                    {
-                        let id = draft.id;
-                        let subject = if draft.subject.is_empty() {
-                            "(no subject)".to_owned()
-                        } else {
-                            draft.subject.clone()
-                        };
-                        let who = crate::view::join_addresses(&draft.to);
-                        let state = draft_state(&draft.state);
-                        let when = crate::view::listed(draft.updated, chrono::Utc::now(), &Local);
-                        rsx! {
-                            div {
-                                key: "{id}",
-                                class: "row",
-                                onclick: move |_| {
-                                    let store = consume_context::<Arc<SqliteStore>>();
-                                    if let Ok(draft) = store.draft(id) {
-                                        shell.write().compose(&draft);
-                                    }
-                                },
-                                span { class: "who", if who.is_empty() { "(no recipient)" } else { "{who}" } }
-                                span { class: "subject", "{subject}" }
-                                span { class: "when", "{state} · {when}" }
-                            }
-                        }
-                    }
-                }
-                for summary in threads() {
-                    {
-                        let id = summary.id;
-                        let unread = summary.read == ReadState::Unread;
-                        let who = sender(&summary);
-                        let when = crate::view::listed(summary.last_date, chrono::Utc::now(), &Local);
-                        let subject = summary.subject.clone();
-                        let actions = hover_actions(&summary);
-                        rsx! {
-                            div {
-                                key: "{id}",
-                                class: if unread { "row unread" } else { "row" },
-                                onclick: move |_| shell.write().open(id),
-                                span { class: "who", "{who}" }
-                                span { class: "subject", "{subject}" }
-                                span { class: "when", "{when}" }
-                                span { class: "hover",
-                                    for kind in actions {
-                                        button {
-                                            key: "{kind:?}",
-                                            onclick: move |e: Event<MouseData>| {
-                                                // Without this the click also opens the thread.
-                                                e.stop_propagation();
-                                                let store = consume_context::<Arc<SqliteStore>>();
-                                                // A label needs a payload no button can
-                                                // carry, so this one opens a menu instead of
-                                                // performing anything.
-                                                if kind == OpKind::AddLabel {
-                                                    let already =
-                                                        shell.peek().labelling == Some(id);
-                                                    shell.write().labelling =
-                                                        if already { None } else { Some(id) };
-                                                    return;
-                                                }
-                                                // Snooze needs a time, which is the same shape
-                                                // of payload as a label and gets the same
-                                                // answer: a menu rather than a guess.
-                                                if kind == OpKind::Snooze {
-                                                    let already =
-                                                        shell.peek().snoozing == Some(id);
-                                                    shell.write().snoozing =
-                                                        if already { None } else { Some(id) };
-                                                    return;
-                                                }
-                                                match composes(kind) {
-                                                    Some(what) => {
-                                                        match start_composing(&store, id, what) {
-                                                            Ok(draft) => {
-                                                                shell.write().compose(&draft);
-                                                                revision += 1;
-                                                            }
-                                                            Err(why) => {
-                                                                // Nowhere else to say it yet:
-                                                                // the composer that would show
-                                                                // a notice is what failed to
-                                                                // open.
-                                                                eprintln!("reply: {why}");
-                                                            }
-                                                        }
-                                                    }
-                                                    None => {
-                                                        if apply_op(&store, id, kind) {
-                                                            revision += 1;
-                                                        }
-                                                    }
-                                                }
-                                            },
-                                            "{label(kind)}"
-                                        }
-                                    }
-                                }
-                                if shell.read().snoozing == Some(id) {
-                                    div { class: "labels",
-                                        onclick: move |e: Event<MouseData>| e.stop_propagation(),
-                                        for (says, phrase) in crate::view::snooze_choices() {
-                                            button {
-                                                key: "{phrase}",
-                                                class: "label",
-                                                onclick: move |e: Event<MouseData>| {
-                                                    e.stop_propagation();
-                                                    let store =
-                                                        consume_context::<Arc<SqliteStore>>();
-                                                    match crate::snooze::snooze(
-                                                        &store,
-                                                        id,
-                                                        phrase,
-                                                        chrono::Utc::now(),
-                                                    ) {
-                                                        Ok(_) => {
-                                                            shell.write().snoozing = None;
-                                                            revision += 1;
-                                                        }
-                                                        // The vocabulary is fixed and the clock
-                                                        // is the only other input, so this is
-                                                        // "the year 262143 has no tomorrow".
-                                                        Err(why) => eprintln!("snooze: {why}"),
-                                                    }
-                                                },
-                                                "{says}"
-                                            }
-                                        }
-                                    }
-                                }
-                                if shell.read().labelling == Some(id) {
-                                    div { class: "labels",
-                                        // Stops a click in the menu from also opening the
-                                        // conversation underneath it.
-                                        onclick: move |e: Event<MouseData>| e.stop_propagation(),
-                                        if shell.read().labels.is_empty() {
-                                            // Said rather than shown as an empty box: on a
-                                            // fresh account there are no labels yet, and a menu
-                                            // with nothing in it reads as something broken.
-                                            p { class: "hint", "No labels yet. They arrive with the first sync." }
-                                        }
-                                        for choice in crate::view::label_menu(&shell.read().labels, &summary) {
-                                            button {
-                                                key: "{choice.id}",
-                                                class: if choice.membership == Membership::In {
-                                                    "label on"
-                                                } else {
-                                                    "label"
-                                                },
-                                                onclick: {
-                                                    let wanted = choice.toggled();
-                                                    let which = choice.id;
-                                                    move |e: Event<MouseData>| {
-                                                        e.stop_propagation();
-                                                        let store =
-                                                            consume_context::<Arc<SqliteStore>>();
-                                                        if apply_label(&store, id, which, wanted) {
-                                                            revision += 1;
-                                                        }
-                                                    }
-                                                },
-                                                if choice.membership == Membership::In { "✓ " }
-                                                "{choice.name}"
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                if more() {
-                    button {
-                        class: "more",
-                        onclick: move |_| pages += 1,
-                        "Show more"
-                    }
-                }
-            }
+            Places { shell, pages, badges, revision, sync_state }
+            ThreadList { shell, pages, revision, in_a_field, threads, drafts, nothing, more }
             section { class: "reader",
                 if let Some(thread) = shell.read().open {
                     Reader { thread, shell }
@@ -639,17 +373,14 @@ pub(super) fn App() -> Element {
 #[cfg(test)]
 mod tests {
     use super::super::launch::KEEP_FOCUS;
-    use super::super::ops::apply_label;
     use super::App;
     use crate::ui::fixtures::{
-        ACCOUNT, FakeKey, INSIDE_THE_SHELL, Typed, dispatching, empty, inbox_query, markup, press,
+        ACCOUNT, FakeKey, INSIDE_THE_SHELL, dispatching, empty, inbox_query, markup, press,
         realistic, seeded,
     };
     use dioxus::prelude::*;
     use dioxus_core::{NoOpMutations, VirtualDom};
-    use mail_domain::*;
-    use mail_store::{SqliteStore, Store};
-    use std::sync::Arc;
+    use mail_store::Store;
 
     #[tokio::test]
     async fn the_whole_app_renders() {
@@ -716,187 +447,6 @@ mod tests {
         }
     }
 
-    /// Records which `ElementId` each dynamic attribute landed on.
-    ///
-    /// The one thing a test needs in order to drive the real `App` rather than a stand-in:
-    /// `handle_event` addresses an element by id, and nothing else in the harness says which id
-    /// is which. Static attributes live in the template and never appear here, so an element is
-    /// found by an attribute the component computes — `value` on the search box.
-    use dioxus_core::ElementId;
-
-    #[derive(Default)]
-    struct WhereThingsWent {
-        attrs: Vec<(String, String, dioxus_core::ElementId)>,
-    }
-
-    impl WhereThingsWent {
-        /// The element a dynamic `name` attribute was set on, where its value matched.
-        fn with_attr(&self, name: &str, matching: impl Fn(&str) -> bool) -> Vec<ElementId> {
-            self.attrs
-                .iter()
-                .filter(|(n, v, _)| n == name && matching(v))
-                .map(|(_, _, id)| *id)
-                .collect()
-        }
-    }
-
-    impl dioxus_core::WriteMutations for WhereThingsWent {
-        fn set_attribute(
-            &mut self,
-            name: &'static str,
-            _ns: Option<&'static str>,
-            value: &dioxus_core::AttributeValue,
-            id: ElementId,
-        ) {
-            let rendered = match value {
-                dioxus_core::AttributeValue::Text(t) => t.clone(),
-                other => format!("{other:?}"),
-            };
-            self.attrs.push((name.to_owned(), rendered, id));
-        }
-
-        fn append_children(&mut self, _: ElementId, _: usize) {}
-        fn assign_node_id(&mut self, _: &'static [u8], _: ElementId) {}
-        fn create_placeholder(&mut self, _: ElementId) {}
-        fn create_text_node(&mut self, _: &str, _: ElementId) {}
-        fn load_template(&mut self, _: dioxus_core::Template, _: usize, _: ElementId) {}
-        fn replace_node_with(&mut self, _: ElementId, _: usize) {}
-        fn replace_placeholder_with_nodes(&mut self, _: &'static [u8], _: usize) {}
-        fn insert_nodes_after(&mut self, _: ElementId, _: usize) {}
-        fn insert_nodes_before(&mut self, _: ElementId, _: usize) {}
-        fn set_node_text(&mut self, _: &str, _: ElementId) {}
-        fn create_event_listener(&mut self, _: &'static str, _: ElementId) {}
-        fn remove_event_listener(&mut self, _: &'static str, _: ElementId) {}
-        fn remove_node(&mut self, _: ElementId) {}
-        fn push_root(&mut self, _: ElementId) {}
-    }
-
-    /// Typing into the real window's search box, and reading what the list pane then shows.
-    ///
-    /// `label:` is the one search term whose answer depends on state the component loads from
-    /// the store. A test that sets `Shell::search` directly would build that state itself and
-    /// prove nothing about whether `App` ever does — which is exactly how this shipped broken:
-    /// the window passed a resolver that knew no label names, so `label:travel` quietly became a
-    /// full-text search for the literal string while the same query worked in the terminal.
-    mod searching_in_the_window {
-        use super::*;
-
-        fn labelled() -> (Arc<SqliteStore>, tempfile::TempDir) {
-            let (store, dir) = seeded();
-            // The way a Gmail sync reports it: the complete label set for one remote message.
-            // Writing `labels` and `message_labels` by hand looked equivalent and was not —
-            // `Filter::HasLabel` reads `thread_summary.labels`, a materialized union that only
-            // the ingest path rewrites, so the rows were there and no search could see them.
-            store
-                .ingest(
-                    ACCOUNT,
-                    Ingest {
-                        mailbox: MailboxRef {
-                            account: ACCOUNT,
-                            path: "INBOX".to_owned(),
-                        },
-                        validity: UidValidity::Same,
-                        cursor: None,
-                        messages: vec![],
-                        flags: vec![],
-                        labels: vec![],
-                        label_names: vec![(
-                            RemoteRef::Pop {
-                                uidl: "u1".to_owned(),
-                            },
-                            vec!["travel".to_owned()],
-                        )],
-                        gone: vec![],
-                    },
-                )
-                .unwrap();
-            (store, dir)
-        }
-
-        /// Mount `App`, type `typed` into its search box, and return the rendered page.
-        async fn typing(store: Arc<SqliteStore>, typed: &str) -> String {
-            dispatching();
-            let mut dom = VirtualDom::new(App).with_root_context(store);
-            let mut seen = WhereThingsWent::default();
-            dom.rebuild(&mut seen);
-            // Let the mount-time effects run: the label index is one of them, and the whole
-            // question is whether it is there by the time someone types.
-            tokio::time::timeout(std::time::Duration::from_millis(500), dom.wait_for_work())
-                .await
-                .ok();
-            dom.render_immediate(&mut NoOpMutations);
-
-            // The search box is the only element whose `value` the component computes; the
-            // composer's inputs exist only once a draft is open, and none is.
-            let boxes = seen.with_attr("value", |_| true);
-            assert_eq!(
-                boxes.len(),
-                1,
-                "expected exactly one dynamic value attribute, found {boxes:?}"
-            );
-            #[allow(deprecated)]
-            dom.handle_event(
-                "input",
-                std::rc::Rc::new(PlatformEventData::new(Box::new(Typed(typed.to_owned())))),
-                boxes[0],
-                true,
-            );
-            settle(&mut dom).await;
-            dioxus_ssr::render(&dom)
-        }
-
-        /// The subjects the list pane is showing.
-        ///
-        /// Read from the subject cells rather than searched for in the page: the stylesheet is
-        /// in the markup, and `page.contains("hi")` is true of `white-space` and `this`. That is
-        /// the substring rule in `CONVENTIONS.md`, caught here by a test of its own making.
-        fn listed(page: &str) -> Vec<String> {
-            page.split(r#"<span class="subject">"#)
-                .skip(1)
-                .filter_map(|rest| rest.split_once("</span>"))
-                .map(|(subject, _)| subject.to_owned())
-                .collect()
-        }
-
-        #[tokio::test]
-        async fn a_label_name_finds_the_conversation_that_bears_it() {
-            let (store, _dir) = labelled();
-            let page = typing(store, "label:travel").await;
-            assert_eq!(
-                listed(&page),
-                vec!["hi"],
-                "the window searched for the words instead of the label"
-            );
-        }
-
-        /// The control. Without it the test above would pass on a window that ignores the search
-        /// box entirely and shows the Inbox whatever is typed.
-        #[tokio::test]
-        async fn a_label_nothing_bears_finds_nothing() {
-            let (store, _dir) = labelled();
-            let page = typing(store, "label:nosuchlabel").await;
-            assert!(
-                listed(&page).is_empty(),
-                "a search that matches nothing still showed {:?}",
-                listed(&page)
-            );
-        }
-
-        /// And the box itself still shows what was typed, so this is a search and not a filter
-        /// that silently rewrites the query.
-        #[tokio::test]
-        async fn the_box_keeps_what_was_typed() {
-            let (store, _dir) = labelled();
-            let page = typing(store, "label:travel").await;
-            assert!(
-                page.contains(
-                    r#"class="search" placeholder="Search all mail" value="label:travel""#
-                ),
-                "the search box lost the text:\n{page}"
-            );
-        }
-    }
-
     static MOUNTED_SPAWN_RAN: std::sync::atomic::AtomicBool =
         std::sync::atomic::AtomicBool::new(false);
 
@@ -952,29 +502,6 @@ mod tests {
             SPAWN_RAN.load(std::sync::atomic::Ordering::SeqCst),
             "a task spawned from a click handler never ran — which is how the Sync button works"
         );
-    }
-
-    /// Let the off-thread reads finish and fold their answers back into the tree.
-    ///
-    /// Since phase 8c the list and the badges are computed on a blocking thread and delivered
-    /// through a `use_resource`, which keeps its previous value while it recomputes — so one
-    /// render after a keystroke shows what was on screen *before* it. That is the right
-    /// behaviour in a window, where a blank pane between keystrokes is worse than a stale one,
-    /// and the wrong thing to assert against.
-    ///
-    /// Bounded, and it stops as soon as the tree has nothing left to do: a bare `wait_for_work`
-    /// on a settled tree never returns.
-    async fn settle(dom: &mut VirtualDom) {
-        for _ in 0..16 {
-            if tokio::time::timeout(std::time::Duration::from_millis(20), dom.wait_for_work())
-                .await
-                .is_err()
-            {
-                break;
-            }
-            dom.render_immediate(&mut NoOpMutations);
-        }
-        dom.render_immediate(&mut NoOpMutations);
     }
 
     #[tokio::test]
@@ -1072,164 +599,6 @@ mod tests {
              to notice and undo"
         );
         assert!(made.subject.is_empty(), "{:?}", made.subject);
-    }
-
-    /// Putting a conversation off, from the window — `plan.md` phase 7e.
-    ///
-    /// The Snoozed place has listed correctly since the place existed and the vocabulary has
-    /// been parsed since the CLI learned it. Nothing in the window could snooze anything.
-    mod putting_it_off {
-        use super::*;
-
-        #[tokio::test]
-        async fn the_rows_offer_a_way_to_snooze() {
-            let (store, _dir) = realistic();
-            assert!(markup(store).contains(">Snooze<"));
-        }
-
-        #[test]
-        fn snoozing_takes_it_out_of_the_inbox_and_the_snoozed_place_has_it() {
-            let (store, _dir) = realistic();
-            // The *place's* filter, not a bare `InMailbox`: hiding a snoozed conversation is
-            // what `place_filter` is for, and asserting against the bare one would be asking
-            // whether snoozing archives things, which it does not.
-            let place = Query {
-                filter: crate::view::place_filter(MailboxRole::Inbox),
-                ..inbox_query()
-            };
-            let before = store.threads(&place, chrono::Utc::now()).unwrap();
-            let thread = before.items[0].id;
-
-            crate::snooze::snooze(&store, thread, "tomorrow", chrono::Utc::now())
-                .expect("tomorrow is a time");
-
-            let after = store.threads(&place, chrono::Utc::now()).unwrap();
-            assert!(
-                !after.items.iter().any(|t| t.id == thread),
-                "a snoozed conversation is still in the inbox"
-            );
-            let asleep = store
-                .threads(
-                    &Query {
-                        filter: crate::view::pending_snooze(),
-                        ..inbox_query()
-                    },
-                    chrono::Utc::now(),
-                )
-                .unwrap();
-            assert!(asleep.items.iter().any(|t| t.id == thread), "{asleep:?}");
-        }
-
-        #[test]
-        fn every_phrase_the_menu_offers_is_one_the_parser_accepts() {
-            // The menu's phrases are the command line's, so a button that said something the
-            // parser had never heard of would be a button that does nothing. Checked rather
-            // than assumed, because the two lists are written in different files.
-            let now = chrono::Utc::now();
-            for (says, phrase) in crate::view::snooze_choices() {
-                let at = crate::view::snooze_until(phrase, now, &chrono::Local)
-                    .unwrap_or_else(|why| panic!("{says:?} means {phrase:?}, which is not: {why}"));
-                assert!(at > now, "{says:?} is not in the future");
-            }
-        }
-    }
-
-    /// Labels, in both directions — `plan.md` phase 7d.
-    ///
-    /// `label:` has searched since F131 and sync has ingested Gmail's labels since F136, and the
-    /// row's own "Label" button opened nothing: `OpKind::AddLabel` has no `Op` because
-    /// `Op::Label` carries a payload, and `op_for` correctly returned `None` for it. Correctly,
-    /// and then nothing else happened.
-    mod naming_a_conversation {
-        use super::*;
-
-        fn a_label(store: &SqliteStore, name: &str) -> LabelId {
-            let id = LabelId::generate();
-            store
-                .connection()
-                .execute(
-                    "INSERT INTO labels (id, account, name, origin)
-                     VALUES (?1, ?2, ?3, '\"provider\"')",
-                    rusqlite::params![id.to_string(), ACCOUNT.to_string(), name],
-                )
-                .unwrap();
-            id
-        }
-
-        #[test]
-        fn a_label_can_be_put_on_and_taken_off_again() {
-            let (store, _dir) = realistic();
-            let travel = a_label(&store, "travel");
-            let thread = store
-                .threads(&inbox_query(), chrono::Utc::now())
-                .unwrap()
-                .items[0]
-                .id;
-
-            assert!(apply_label(&store, thread, travel, Membership::In));
-            assert!(
-                store
-                    .thread(thread)
-                    .unwrap()
-                    .summary
-                    .labels
-                    .contains(&travel),
-                "the label never landed"
-            );
-
-            assert!(apply_label(&store, thread, travel, Membership::Out));
-            assert!(
-                !store
-                    .thread(thread)
-                    .unwrap()
-                    .summary
-                    .labels
-                    .contains(&travel),
-                "the label would not come off"
-            );
-        }
-
-        #[test]
-        fn labelling_a_gmail_conversation_reaches_gmail() {
-            // Under `ServerLabels::Supported` a label is the server's, not ours. The fixture's
-            // capabilities are the real account's, so this is the path the user's mail takes.
-            let (store, _dir) = realistic();
-            let travel = a_label(&store, "travel");
-            let thread = store
-                .threads(&inbox_query(), chrono::Utc::now())
-                .unwrap()
-                .items[0]
-                .id;
-
-            apply_label(&store, thread, travel, Membership::In);
-
-            let queued = store.outbox_due(ACCOUNT, chrono::Utc::now()).unwrap();
-            assert!(
-                queued.iter().any(|entry| matches!(
-                    &entry.op,
-                    ProtoOp::SetLabels { add, .. } if add.iter().any(|name| name == "travel")
-                )),
-                "the label stopped at this machine: {:?}",
-                queued.iter().map(|e| &e.op).collect::<Vec<_>>()
-            );
-        }
-
-        #[tokio::test]
-        async fn the_menu_opens_from_the_row_and_lists_what_there_is() {
-            dispatching();
-            let (store, _dir) = realistic();
-            a_label(&store, "travel");
-            let mut dom = VirtualDom::new(App).with_root_context(store.clone());
-            dom.rebuild_in_place();
-            // The effect that fills `Shell::labels` runs on a revision; one render settles it.
-            dom.render_immediate(&mut NoOpMutations);
-
-            let page = dioxus_ssr::render(&dom);
-            assert!(
-                page.contains(">Label<"),
-                "the rows offer no way to label anything:\n{page}"
-            );
-        }
     }
 
     #[tokio::test]
