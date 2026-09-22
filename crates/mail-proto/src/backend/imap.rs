@@ -620,11 +620,20 @@ impl Backend for ImapBackend {
                 //
                 // A `FETCH` with no literal is skipped rather than guessed at: an untagged
                 // response that is not carrying a body has no body to offer.
-                let bodies: Vec<Vec<u8>> = transcript
+                //
+                // Paired by the UID each response carries, never by position. A server answers
+                // a UID FETCH in mailbox order whatever order the set was written in, and skips
+                // a UID that no longer exists; zipping the request with the replies gave every
+                // message after the first mismatch someone else's headers and body, and moved
+                // its `remote_map` row onto that other message.
+                let mut bodies: std::collections::HashMap<u32, Vec<u8>> = transcript
                     .untagged
                     .iter()
                     .filter(|u| u.text.contains("FETCH"))
-                    .filter_map(|u| u.literal().map(<[u8]>::to_vec))
+                    .filter_map(|u| {
+                        let uid = after_atom(&protocol_text(u), "UID ")?.parse().ok()?;
+                        Some((uid, u.literal()?.to_vec()))
+                    })
                     .collect();
                 // The same parser the survey uses. The header fetch asks for `FLAGS`, so they
                 // are already on the wire; not reading them here is what left every message
@@ -638,7 +647,13 @@ impl Backend for ImapBackend {
                 .map(|row| (row.remote, row.read, row.star))
                 .collect();
                 Progress::Done(ProtoOutcome::Fetched {
-                    items: remotes.into_iter().zip(bodies).collect(),
+                    items: remotes
+                        .into_iter()
+                        .filter_map(|remote| {
+                            let body = bodies.remove(&uid_of(&remote)?)?;
+                            Some((remote, body))
+                        })
+                        .collect(),
                     flags,
                 })
             }
@@ -795,17 +810,18 @@ fn after_atom_list<'a>(line: &'a str, key: &str) -> Option<&'a str> {
 fn parse_fetches(untagged: &[crate::Untagged], mailbox: &str, uidvalidity: u32) -> Vec<Surveyed> {
     let mut out = Vec::new();
     for line in untagged.iter().filter(|u| u.text.contains("FETCH")) {
-        let Some(uid) = after_atom(&line.text, "UID ").and_then(|v| v.parse::<u32>().ok()) else {
+        let text = protocol_text(line);
+        let Some(uid) = after_atom(&text, "UID ").and_then(|v| v.parse::<u32>().ok()) else {
             continue;
         };
         // Absent size is 0, which sorts into the first band. Fetching a small message early is
         // the cheap mistake; treating an unknown size as enormous would defer it for ever.
-        let size = after_atom(&line.text, "RFC822.SIZE ")
+        let size = after_atom(&text, "RFC822.SIZE ")
             .and_then(|v| v.parse::<u64>().ok())
             .unwrap_or(0);
-        let flags = flag_list(&line.text);
+        let flags = flag_list(&text);
         out.push(Surveyed {
-            labels: user_labels(&line.text),
+            labels: user_labels(&text),
             remote: RemoteRef::Imap {
                 mailbox: mailbox.to_owned(),
                 // The mailbox's own UIDVALIDITY, not zero. `remote_map` keys on it, so a
@@ -1009,6 +1025,22 @@ fn parse_vanished(untagged: &[crate::Untagged]) -> Vec<(u32, u32)> {
 }
 
 /// The value following `key`, up to the next space or closing paren.
+/// A response's text with its literal cut out: the protocol, without the mail.
+///
+/// A header or body can say `UID 7` or `FLAGS (\Seen)` as easily as the response around it,
+/// and a server may put `UID` after the literal as well as before it. Scanning the whole text
+/// finds whichever comes first.
+fn protocol_text(u: &crate::Untagged) -> std::borrow::Cow<'_, str> {
+    let Some(literal) = u.literal() else {
+        return std::borrow::Cow::Borrowed(&u.text);
+    };
+    // `literal` borrows from `raw`, so its offset there is the distance between the two.
+    let start = literal.as_ptr() as usize - u.raw.as_ptr() as usize;
+    let mut outside = u.raw[..start].to_vec();
+    outside.extend_from_slice(&u.raw[start + literal.len()..]);
+    std::borrow::Cow::Owned(String::from_utf8_lossy(&outside).into_owned())
+}
+
 fn after_atom(text: &str, key: &str) -> Option<String> {
     let at = text.find(key)? + key.len();
     let rest = &text[at..];

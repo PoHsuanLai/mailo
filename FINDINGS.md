@@ -3544,3 +3544,40 @@ configured by naming its hosts — `mailo account add ADDRESS --imap HOST --smtp
 HOST` for one that offers only POP3 (`presets::manual_pop3`: implicit TLS, mail left on the
 server, `CAPA` read before anything is fetched) — plus `--login` where the login is not the
 address.
+
+### F143 — IMAP fetches were paired with their UIDs by position, and a real mailbox was scrambled
+
+Found 2026-09-23 by the live send tests: a Gmail bounce was listed for three syncs as "body not
+fetched yet". The message had no `remote_map` row at all, so no fetch could ever name it. Nor did
+1,762 others on the same account, while 1,302 messages held several INBOX UIDs each; the newest
+message in the mailbox was mapped to UID 30677 while rows up to 32535 pointed at mail from
+weeks earlier.
+
+`ImapBackend`'s `Job::Fetch`, which serves both the header pass and the body pass, built its
+result as `remotes.into_iter().zip(bodies)`: the n-th UID asked for, paired with the n-th
+literal that came back. RFC 3501 promises no order, and servers answer in mailbox order and
+say nothing about a UID that has been expunged. While the engine asked oldest first the two
+orders happened to agree. Phase 9.1 made it ask newest first, and from then every batch was
+paired backwards. Each message's *content* stayed its own, because the store keys a message by
+the Message-ID in the bytes that arrived; what moved was the row saying which UID holds it,
+and with it every flag and label the server reported for that UID.
+
+No test could see it. The fake server in `imap_end_to_end.rs` answered in request order, which
+is the one order that makes positional pairing correct.
+
+**Fixed.** Each response's own `UID` decides whose bytes they are, read from the response with
+its literal cut out, so a header or body that says `UID 3` is not mistaken for one. A reply for
+a UID that was not asked for, or none for one that was, drops out rather than shifting the rest.
+`bodies_are_matched_by_uid_not_by_order` fails on the old code with exactly the real symptom;
+the fake server now answers in mailbox order. Migration 0008 drops every IMAP mapping, which
+cannot be told right from wrong, and the header pass rebuilds them: it fetches what the server
+lists and the store does not map, matches each to the message already held by its key, and
+applies the flags the server reports for it. POP3 mappings never passed through this code and
+are kept.
+
+Nothing reached the server: the outbox and pending changes were empty when this was found. A
+queued archive or flag change would have been sent to whichever message the scrambled row
+named.
+
+**Also seen, not investigated:** some older messages in that mailbox have subjects in raw
+8-bit Big5, not RFC 2047 encoded words, and are listed as replacement characters.

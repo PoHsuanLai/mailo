@@ -108,12 +108,17 @@ fn a_version_one_database_with_duplicates_upgrades_and_keeps_one_of_each() {
     let after: i64 = db
         .query_row("SELECT count(*) FROM remote_map", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(
-        after, 2,
-        "one IMAP mapping and one POP mapping should remain"
-    );
+    // One POP mapping. The IMAP one was collapsed to one by 0002 and then dropped by 0008,
+    // which removes every IMAP mapping for the header pass to rebuild.
+    assert_eq!(after, 1, "one POP mapping should remain");
 
     // And the index now prevents what the DELETE just cleaned up.
+    db.execute(
+        "INSERT INTO remote_map (account, mailbox, uidvalidity, uid, uidl, message)
+         VALUES (?1, 'INBOX', 1, 101, NULL, ?2)",
+        [&account, &message],
+    )
+    .unwrap();
     let again = db.execute(
         "INSERT INTO remote_map (account, mailbox, uidvalidity, uid, uidl, message)
          VALUES (?1, 'INBOX', 1, 101, NULL, ?2)",
@@ -469,4 +474,52 @@ fn an_undecodable_row_does_not_stop_the_upgrade() {
 
     let store = SqliteStore::open(&path, dir.path()).expect("one bad row must not lock anyone out");
     assert_eq!(version_of(&store.connection()), migrate::EXPECTED_VERSION);
+}
+
+/// 0008: every IMAP mapping goes, because any of them may name the wrong message; POP3's stay.
+#[test]
+fn imap_mappings_are_dropped_so_the_header_pass_can_rebuild_them() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("mail.db");
+    let message = {
+        let db = Connection::open(&path).unwrap();
+        for (version, sql) in migrate::MIGRATIONS.iter().take(7) {
+            db.execute_batch(sql).unwrap();
+            if *version > 1 {
+                db.execute(
+                    "INSERT INTO schema_version (version, applied_at) VALUES (?1, datetime('now'))",
+                    [version],
+                )
+                .unwrap();
+            }
+        }
+        let (account, message) = seed(&db);
+        db.execute(
+            "INSERT INTO remote_map (account, mailbox, uidvalidity, uid, uidl, message)
+             VALUES (?1, 'INBOX', 1, 42, NULL, ?2), (?1, 'INBOX', NULL, NULL, 'u1', ?2)",
+            [&account, &message],
+        )
+        .unwrap();
+        message
+    };
+
+    let store = SqliteStore::open(&path, dir.path()).unwrap();
+    let left: Vec<(Option<i64>, Option<String>)> = store
+        .connection()
+        .prepare("SELECT uid, uidl FROM remote_map")
+        .unwrap()
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    assert_eq!(left, [(None, Some("u1".to_owned()))]);
+    let kept: i64 = store
+        .connection()
+        .query_row(
+            "SELECT count(*) FROM messages WHERE id = ?1",
+            [&message],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(kept, 1, "the message itself stays");
 }

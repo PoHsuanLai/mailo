@@ -163,6 +163,74 @@ fn fetching_headers_uses_body_peek() {
     }
 }
 
+/// Bodies are paired with messages by the UID in each response, not by position.
+///
+/// A server answers a `UID FETCH` in mailbox order, whatever order the set was written in, and
+/// says nothing about a UID that has gone. Pairing the n-th reply with the n-th request gave
+/// messages each other's bodies on a real Gmail account, once the engine started asking for the
+/// newest first: 1,302 messages ended up holding several UIDs and 1,763 held none.
+#[test]
+fn bodies_are_matched_by_uid_not_by_order() {
+    let trace = concat!(
+        "# SYNTHETIC. Asked newest first, answered in mailbox order; 5 has been expunged. UID 9's\n",
+        "# response puts UID after the literal, and its body says `UID 3`, which must not count.\n",
+        "S: * OK Gimap ready\n",
+        "C: a001 AUTHENTICATE XOAUTH2 dXNlcj1hZGFAZXhhbXBsZS50ZXN0AWF1dGg9QmVhcmVyIHlhMjkudG9rZW4BAQ==\n",
+        "S: a001 OK authenticated\n",
+        "C: a002 EXAMINE \"INBOX\"\n",
+        "S: * OK [UIDVALIDITY 1] UIDs valid.\n",
+        "S: a002 OK [READ-ONLY] EXAMINE completed\n",
+        "C: a003 UID FETCH 9,5,3 (UID BODY.PEEK[])\n",
+        "S: * 1 FETCH (UID 3 BODY[] {18}\n",
+        "S: Subject: three\n",
+        "S: \n",
+        "S: )\n",
+        "S: * 2 FETCH (BODY[] {24}\n",
+        "S: Subject: nine\n",
+        "S: \n",
+        "S: UID 3\n",
+        "S:  UID 9)\n",
+        "S: a003 OK Success\n",
+        "DONE\n"
+    );
+    let mut driven = Driven {
+        backend: backend(caps(ServerLabels::Supported, ArchiveMeans::DropInbox)),
+        op: Some(ProtoOp::FetchBody {
+            remotes: vec![
+                imap_ref("INBOX", 9),
+                imap_ref("INBOX", 5),
+                imap_ref("INBOX", 3),
+            ],
+        }),
+    };
+    let ProtoOutcome::Fetched { items, .. } = replay(&mut driven, trace).unwrap() else {
+        panic!("not a fetch");
+    };
+    let got: Vec<(u32, String)> = items
+        .into_iter()
+        .map(|(remote, raw)| {
+            let RemoteRef::Imap { uid, .. } = remote else {
+                panic!("{remote:?}")
+            };
+            let subject = String::from_utf8(raw)
+                .unwrap()
+                .lines()
+                .next()
+                .unwrap()
+                .to_owned();
+            (uid, subject)
+        })
+        .collect();
+    assert_eq!(
+        got,
+        [
+            (9, "Subject: nine".to_owned()),
+            (3, "Subject: three".to_owned())
+        ],
+        "each UID has its own body, and the expunged one has none"
+    );
+}
+
 /// Archiving on Gmail is a label change. Nothing is deleted, and no EXPUNGE is issued.
 #[test]
 fn archiving_on_gmail_removes_the_inbox_label() {

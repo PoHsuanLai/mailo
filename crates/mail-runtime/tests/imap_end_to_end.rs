@@ -399,7 +399,12 @@ fn envelopes(drop: &[(u32, String)], tag: &str, flags: &Flags) -> String {
     out
 }
 
-/// Which UIDs a `UID FETCH <set>` names. Only the forms this client emits.
+/// Which UIDs a `UID FETCH <set>` names, in the order a server answers them: mailbox order.
+///
+/// Not the order the set was written in. RFC 3501 does not promise request order, and Gmail
+/// answers `UID FETCH 9,3` with 3 first. This fake used to answer in request order, which is
+/// how a client that paired replies with requests by position passed every test here and then
+/// scrambled a real mailbox the day it started asking newest-first.
 fn wanted(upper: &str, drop: &[(u32, String)]) -> Vec<u32> {
     let set = upper
         .strip_prefix("UID FETCH ")
@@ -408,7 +413,9 @@ fn wanted(upper: &str, drop: &[(u32, String)]) -> Vec<u32> {
     if set.contains(':') {
         return drop.iter().map(|(uid, _)| *uid).collect();
     }
-    set.split(',').filter_map(|n| n.parse().ok()).collect()
+    let mut uids: Vec<u32> = set.split(',').filter_map(|n| n.parse().ok()).collect();
+    uids.sort_unstable();
+    uids
 }
 
 fn headers(drop: &[(u32, String)], upper: &str, tag: &str) -> String {
