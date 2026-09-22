@@ -341,3 +341,20 @@ same in the one example in front of you.
 The cost is asymmetric, which is why this is a rule rather than a preference. A too-narrow match
 fails visibly on input you have. A too-wide one silently does the wrong thing on input you have
 not thought of, which is the input an attacker chooses.
+
+## An assertion that was already true proves nothing
+
+The same failure as above wearing different clothes. A test asserted `drafts > 0` after a
+keystroke that was supposed to create a draft — and the fixture it ran against seeds a draft of
+its own, so the assertion held whatever the keystroke did. It passed for a week and would have
+gone on passing with the feature deleted.
+
+**So: assert the difference the action makes, not a state the action happens to be compatible
+with.** Read the quantity before, act, and compare — `drafts_before + 1`, not `> 0`; `before - 1`
+conversations in the inbox, not `is_empty()`. Where the "before" is awkward to capture, name the
+exact value the action must produce.
+
+The tell is an assertion that could be moved *above* the line that does the work and still pass.
+When one can, it is not testing that line. Ask it of every new assertion that uses `>`, `<`,
+`is_empty`, `is_some`, `contains` or `!` — those are where a condition wide enough to be
+accidentally satisfied hides.
