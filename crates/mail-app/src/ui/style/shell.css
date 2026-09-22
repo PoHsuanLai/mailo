@@ -1,17 +1,17 @@
 /* Focusable for the keyboard, without a ring around the entire window. */
 .app:focus, .app:focus-visible { outline: none; }
 .app { display: grid; grid-template-columns: 180px minmax(340px, 32%) minmax(0, 1fr); height: 100vh; }
-.places { display: flex; flex-direction: column; gap: 2px; padding: 12px; border-right: 1px solid var(--edge); }
-.place { text-align: left; padding: 6px 10px; border: 0; border-radius: 6px; background: none; color: inherit; font: inherit; cursor: pointer; }
-.place:hover { background: var(--edge); }
-.place.on { background: var(--edge); font-weight: 600; }
+.places { display: flex; flex-direction: column; gap: 2px; padding: 12px; border-right: 1px solid var(--hairline); background: var(--paper-sunken); min-height: 0; }
+.place { display: flex; align-items: center; gap: 8px; text-align: left; padding: 6px 10px; border: 0; border-radius: var(--radius-sm); background: none; color: var(--ink-dim); font: inherit; cursor: pointer; }
+.place:hover { background: var(--hover); color: var(--ink); }
+.place.on { background: var(--paper-raised); color: var(--ink); font-weight: 700; box-shadow: var(--lift), inset 3px 0 0 var(--seal); }
 /* Set apart from the places above it: those choose what to look at, this one writes. */
-.place.compose { margin-top: 10px; font-weight: 600; border: 1px solid var(--edge); }
-.place { display: flex; align-items: center; gap: 8px; }
-.badge { margin-left: auto; font-size: 11px; font-variant-numeric: tabular-nums; opacity: .7; }
-.place.on .badge { opacity: 1; }
+.place.compose { margin-top: 10px; background: var(--accent); color: var(--accent-ink); border: 0; border-radius: var(--radius); box-shadow: var(--lift); font-weight: 600; }
+.place.compose:hover { background: color-mix(in oklab, var(--accent) 88%, var(--ink)); }
+.badge { margin-left: auto; font-size: 11px; font-variant-numeric: tabular-nums; color: var(--ink-faint); }
+.place.on .badge { color: var(--ink-dim); }
 .spacer { flex: 1; }
-.sync { text-align: center; border: 1px solid var(--edge); }
+.sync { text-align: center; border: 1px solid var(--hairline); border-radius: var(--radius); background: var(--paper-raised); color: var(--ink); }
 .sync:disabled { opacity: .6; cursor: default; }
-.sync-note { margin: 8px 2px 0; font-size: 11px; opacity: .7; white-space: pre-wrap; word-break: break-word; }
-.sync-note.bad { opacity: .95; font-weight: 600; }
+.sync-note { margin: 8px 2px 0; font-size: 11px; color: var(--ink-dim); white-space: pre-wrap; word-break: break-word; }
+.sync-note.bad { color: var(--danger); font-weight: 600; }

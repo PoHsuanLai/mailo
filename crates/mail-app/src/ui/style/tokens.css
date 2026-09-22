@@ -66,10 +66,6 @@
   --accent-ink: #F4F8FF;
   --accent-soft: #DCE5F3;
   --seal: #23508F;
-
-  /* The old name for the hairline, kept for exactly one step so the rules that still say
-     `var(--edge)` keep meaning what they meant. Delete it with the last of them. */
-  --edge: var(--hairline);
 }
 
 :root[data-theme="light"] { color-scheme: light; }

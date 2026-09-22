@@ -1,12 +1,13 @@
-.reader { overflow-y: auto; padding: 20px 24px; }
-.reader h1 { font-size: 20px; margin: 0 0 12px; }
-article { border-top: 1px solid var(--edge); padding: 14px 0; }
+.reader { overflow-y: auto; padding: 20px 24px; background: var(--paper-sunken); min-height: 0; }
+.reader h1 { font-size: 20px; margin: 0 0 12px; color: var(--ink); }
+article { border-top: 1px solid var(--hairline); padding: 14px 0; }
 article header { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; margin-bottom: 8px; }
-article time { margin-left: auto; opacity: .6; }
-.text { white-space: pre-wrap; word-wrap: break-word; font: inherit; margin: 0; }
-.html { width: 100%; min-height: 320px; border: 0; }
+article time { margin-left: auto; color: var(--ink-dim); }
+.text { white-space: pre-wrap; word-wrap: break-word; font: inherit; margin: 0; color: var(--ink); }
+.html { width: 100%; min-height: 320px; border: 0; background: var(--frame); border-radius: var(--radius-sm); }
 .attachments { list-style: none; margin: 0 0 10px; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
-.attachments li { display: flex; align-items: baseline; gap: 6px; padding: 4px 10px; border: 1px solid var(--edge); border-radius: 999px; font-size: 12px; }
+.attachments li { display: flex; align-items: baseline; gap: 6px; padding: 4px 10px; border: 1px solid var(--hairline); border-radius: var(--radius); background: var(--paper-raised); font-size: 12px; }
 .attachments .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 22em; }
-.attachments .size { opacity: .6; font-variant-numeric: tabular-nums; }
-.images { font: inherit; font-size: 12px; padding: 4px 10px; border: 1px solid var(--edge); border-radius: 999px; background: none; color: inherit; cursor: pointer; margin-bottom: 8px; }
+.attachments .size { color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+.images { font: inherit; font-size: 12px; padding: 4px 10px; border: 1px solid var(--hairline); border-radius: var(--radius-pill); background: var(--paper-raised); color: var(--ink); cursor: pointer; margin-bottom: 8px; }
+.images:hover { background: var(--accent-soft); }

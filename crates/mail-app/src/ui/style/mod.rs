@@ -360,4 +360,146 @@ mod tests {
         }
         assert!(failures.is_empty(), "{}", failures.join("\n"));
     }
+
+    /// Rules that are not the palette. `:root` holds the hex the contrast test reads,
+    /// including when it is nested in `@media`. An at-rule is a wrapper, as in
+    /// [`declarations_in`].
+    fn component_rules(css: &str, out: &mut Vec<(String, String)>) {
+        let bytes = css.as_bytes();
+        let mut index = 0;
+        let mut boundary = 0;
+        while index < bytes.len() {
+            match bytes[index] {
+                b'{' => {
+                    let selector = css[boundary..index].trim();
+                    let Some(close) = matching_close(css, index) else {
+                        return;
+                    };
+                    let body = &css[index + 1..close];
+                    if selector.starts_with('@') {
+                        component_rules(body, out);
+                    } else if !selector.is_empty() && !selector.starts_with(":root") {
+                        out.push((selector.to_string(), body.to_string()));
+                    }
+                    index = close + 1;
+                    boundary = index;
+                }
+                b';' | b'}' => {
+                    boundary = index + 1;
+                    index += 1;
+                }
+                _ => index += 1,
+            }
+        }
+    }
+
+    /// Letter, digit, or `-`. `_` is a boundary, and so is either end of the text.
+    /// Comparison stays case-sensitive: `Canvas` is not `CanvasText`, and `Highlight`
+    /// is not `--highlight`.
+    fn word_continues(c: char) -> bool {
+        c.is_alphanumeric() || c == '-'
+    }
+
+    /// What may follow a hex colour without making it part of a longer identifier.
+    /// End of input does not continue one.
+    fn colour_ident_continues(c: char) -> bool {
+        c.is_alphanumeric() || c == '-' || c == '_'
+    }
+
+    fn starts_with_at(chars: &[char], index: usize, needle: &str) -> bool {
+        let mut rest = chars[index..].iter().copied();
+        for expected in needle.chars() {
+            if rest.next() != Some(expected) {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Length in chars of a `#` plus 3, 4, 6, or 8 hex digits, longest first, when the
+    /// next character does not continue an identifier. `None` when `chars[index]` is not
+    /// such a colour.
+    fn hex_colour_at(chars: &[char], index: usize) -> Option<usize> {
+        if chars[index] != '#' {
+            return None;
+        }
+        let mut run = 0usize;
+        while chars
+            .get(index + 1 + run)
+            .is_some_and(|c| c.is_ascii_hexdigit())
+        {
+            run += 1;
+        }
+        for len in [8usize, 6, 4, 3] {
+            if run < len {
+                continue;
+            }
+            let terminated = chars
+                .get(index + 1 + len)
+                .is_none_or(|c| !colour_ident_continues(*c));
+            if terminated {
+                return Some(len + 1);
+            }
+        }
+        None
+    }
+
+    fn offence_at(chars: &[char], index: usize) -> Option<String> {
+        if let Some(len) = hex_colour_at(chars, index) {
+            return Some(chars[index..index + len].iter().collect());
+        }
+        for name in ["rgba(", "rgb(", "hsl(", "oklch(", "var(--edge)"] {
+            if starts_with_at(chars, index, name) {
+                return Some(name.to_string());
+            }
+        }
+        if index > 0 && word_continues(chars[index - 1]) {
+            return None;
+        }
+        let mut matched: Option<&str> = None;
+        for word in [
+            "CanvasText",
+            "Canvas",
+            "ButtonFace",
+            "Highlight",
+            "currentColor",
+        ] {
+            if !starts_with_at(chars, index, word) {
+                continue;
+            }
+            let after = index + word.chars().count();
+            let boundary = chars.get(after).is_none_or(|c| !word_continues(*c));
+            if boundary && matched.is_none_or(|got| word.len() > got.len()) {
+                matched = Some(word);
+            }
+        }
+        matched.map(str::to_string)
+    }
+
+    fn colour_offences(selector: &str, body: &str) -> Vec<String> {
+        let chars: Vec<char> = body.chars().collect();
+        let mut offences = Vec::new();
+        let mut index = 0;
+        while index < chars.len() {
+            if let Some(found) = offence_at(&chars, index) {
+                offences.push(format!("{selector}: {found}"));
+                index += found.chars().count();
+            } else {
+                index += 1;
+            }
+        }
+        offences
+    }
+
+    #[test]
+    fn no_colour_outside_the_palette() {
+        let css = strip_comments(STYLE);
+        let mut rules = Vec::new();
+        component_rules(&css, &mut rules);
+        let mut offences = Vec::new();
+        for (selector, body) in &rules {
+            offences.extend(colour_offences(selector, body));
+        }
+        assert!(offences.is_empty(), "{}", offences.join("\n"));
+    }
 }

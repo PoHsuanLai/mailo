@@ -1,5 +1,5 @@
-.pending, .empty { opacity: .6; font-style: italic; }
-.ghost.danger { border-color: color-mix(in oklab, #c0392b 60%, var(--edge)); color: #c0392b; font-weight: 600; }
-.ghost { font: inherit; font-size: 12px; padding: 2px 8px; border: 1px solid var(--edge); border-radius: 999px; background: none; color: inherit; cursor: pointer; }
-.notice { margin: 0; padding: 6px 8px; border-radius: 6px; background: var(--edge); font-size: 13px; }
-.hint { font-size: 12px; opacity: .6; }
+.pending, .empty { color: var(--ink-dim); font-style: italic; }
+.ghost { font: inherit; font-size: 12px; padding: 2px 8px; border: 1px solid var(--hairline); border-radius: var(--radius-pill); background: none; color: var(--ink-dim); cursor: pointer; }
+.ghost.danger { color: var(--danger); border-color: color-mix(in oklab, var(--danger) 45%, var(--hairline)); font-weight: 600; }
+.notice { margin: 0; padding: 6px 8px; border-radius: var(--radius); background: var(--accent-soft); color: var(--ink); font-size: 13px; }
+.hint { font-size: 12px; color: var(--ink-faint); }
