@@ -2800,3 +2800,54 @@ to an outgoing message.
 
 Whitespace is not a signature: a file of blank lines, or `< /dev/null`, is stored as NULL so that
 "has one" is a single question rather than two that can disagree.
+
+### F125 — Full-text search cannot find a Chinese word
+
+The next assumption after F123's "one account" and F124's "nothing set on the identity": every
+message in every test is in English. This user is at NTU in Taipei and a large part of their mail
+is Chinese.
+
+Measured against one real-shaped message — an NTU computer centre notice, subject in an RFC 2047
+encoded word, body in UTF-8:
+
+```
+subject as stored: "【重要】臺大計中信箱系統維護"
+
+  search "臺大計中信箱系統維護"        -> 1 hit     the whole run
+  search "臺大"                       -> 0 hits    NTU
+  search "計中"                       -> 0 hits    computer centre
+  search "維護"                       -> 0 hits    maintenance
+  search "暫停服務"                   -> 0 hits    service suspended
+```
+
+`unicode61` classifies ideographs as token characters and Chinese is written without spaces, so
+an unbroken run of them is **one token**. The whole subject is a single word, and the only query
+that finds it is all fourteen characters of it. For a mailbox that is substantially Chinese, full-
+text search does not work.
+
+What *does* work, and is worth knowing: the field clauses are `LIKE '%needle%'` on a column rather
+than FTS, so `subject:臺大`, `from:` and `to:` find Chinese correctly. The query language added in
+F118 gave this user a working search path by accident.
+
+The obvious fixes were checked rather than assumed, and the two obvious ones do not work:
+
+- **`trigram`, SQLite's substring tokenizer.** It answers queries of three characters or more.
+  Chinese words are overwhelmingly *two* characters — 臺大, 維護, 服務 — so it fails on the
+  common case. Measured directly: a trigram index finds `臺大計` and does not find `臺大`.
+- **Transforming the text before it is indexed**, by segmenting CJK runs into per-character or
+  bigram tokens. `messages_fts` is an external-content table populated by SQL triggers straight
+  from the `messages` columns. Rust never touches the indexed text, so there is nowhere to put
+  the transformation without giving up external content and writing the index rows from Rust.
+
+A real fix is therefore: drop `content = 'messages'`, write `messages_fts` rows from Rust with
+CJK runs segmented, segment the needle the same way, and mirror the rule in `filter.rs`'s
+`fts_tokens` so the `fit` ⟺ SQL parity proptest still holds. That is a change across three crates
+and a migration that reindexes, and it is the right change — but it is a redesign of the search
+index, not a patch, and starting one at the end of a long round is how the index ends up
+half-rebuilt.
+
+So it is written down instead, with the measurements, the two dead ends and the shape of the
+answer. Four assertions pin the present behaviour — including that the encoded-word subject is
+decoded on the way in, that the field clauses *do* find parts of a Chinese phrase, and that
+English is unaffected. The one that says a partial Chinese search finds nothing is written to
+fail the day the index learns to segment, which is the day this file should change.
