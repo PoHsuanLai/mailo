@@ -2363,3 +2363,52 @@ What *is* ours is what the failure looked like. The error printed `nom`'s `Error
 32, 49, …] }` — five hundred decimal integers where the answer is one line of IMAP — and that is
 the only diagnostic the field ever sees. It now prints the response as text, escaped to one line
 and truncated with a byte count.
+
+### F113 — The envelope walk asked for eleven times the bytes it read
+
+F95's sibling, one layer down. The IMAP envelope walk asked every server for
+
+```
+(UID FLAGS INTERNALDATE RFC822.SIZE ENVELOPE BODYSTRUCTURE)
+```
+
+and `parse_fetches`, the only thing that reads the result, takes `UID`, `RFC822.SIZE` and
+`FLAGS`. `INTERNALDATE`, `ENVELOPE` and `BODYSTRUCTURE` — and on Gmail `X-GM-MSGID`,
+`X-GM-THRID` and `X-GM-LABELS` — were requested on every walk and discarded. Headers arrive
+separately from `BODY.PEEK[HEADER]`; nothing needed any of it.
+
+Measured against the fixture with 22 messages, a third of them multipart with an attachment:
+
+| asked for | bytes |
+| --- | --- |
+| `(UID FLAGS INTERNALDATE RFC822.SIZE ENVELOPE BODYSTRUCTURE)` | 10162 |
+| `(UID FLAGS RFC822.SIZE)` — what is read | 922 |
+
+Eleven times the response, for nothing. On the 2372-message maildrop this client was built for
+that is roughly a megabyte per walk instead of a hundred kilobytes, every five minutes, on a
+campus link.
+
+The second cost is not bandwidth. **Asking for data is asking a server to produce it**, and
+producing a BODYSTRUCTURE means parsing the whole message — so the request is also an exposure to
+whatever bugs that path has. F112 is exactly that: a server that crashes generating a
+BODYSTRUCTURE we would have thrown away. With the item list trimmed, the same 22-message
+multipart mailbox that could not be synced at all now syncs completely — 22 headers, 22 bodies,
+attachments stored, `mailo save` writing `report-18.pdf` out of a message that arrived over IMAP.
+Not because the client got better at multipart, but because it stopped asking for something it
+never read.
+
+`X-GM-LABELS` comes back when labels are implemented, together with the code that reads it, which
+is the only condition under which asking for something is worth the bytes.
+
+A note on the measurement: the before-and-after could not both be taken through this client,
+because the old item list cannot complete a sync of that mailbox. The 11× figure is measured
+server-side with `imaplib`, which is the right place to weigh what a server sends anyway.
+
+And the new error message earned itself immediately. The failed run printed
+
+```
+could not parse a response: * 3 FETCH (UID 200 FLAGS (\Seen) INTERNALDATE "14-Nov-2023 …
+BODYSTRUCTURE (("text" "plain" ("charset" "utf-8") NIL NIL "7bit" 82 … (9543 bytes)
+```
+
+which says what happened. A week ago it would have been nine thousand decimal integers.

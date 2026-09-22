@@ -160,15 +160,26 @@ impl Backend for ImapBackend {
                 self.job = Job::Envelopes {
                     mailbox: mailbox.clone(),
                 };
+                // Exactly what `parse_fetches` reads, and nothing else.
+                //
                 // `RFC822.SIZE` is not decoration: the runtime fetches bodies smallest band
                 // first, and without a size every message lands in the same band and the order
-                // is arrival order again.
-                let items = if matches!(self.caps.labels, ServerLabels::Supported) {
-                    "(UID FLAGS INTERNALDATE RFC822.SIZE ENVELOPE BODYSTRUCTURE \
-                     X-GM-MSGID X-GM-THRID X-GM-LABELS)"
-                } else {
-                    "(UID FLAGS INTERNALDATE RFC822.SIZE ENVELOPE BODYSTRUCTURE)"
-                };
+                // is arrival order again. `ENVELOPE`, `BODYSTRUCTURE`, `INTERNALDATE` and the
+                // `X-GM-*` set were all asked for and thrown away — the walk keeps a UID, a size
+                // and two flags, and headers arrive later from `BODY.PEEK[HEADER]`. Measured
+                // against the local fixture over 22 messages, a third of them multipart with an
+                // attachment: 10162 bytes asked for against 922 read, eleven times the response
+                // for nothing. On the 2372-message maildrop this client is for, that is about a
+                // megabyte per walk, every five minutes, on a campus link.
+                //
+                // Asking for data is also asking a server to *produce* it, which is a second
+                // cost and a second risk: F112 is a server that crashes generating a
+                // BODYSTRUCTURE we would have discarded.
+                //
+                // When labels are implemented, `X-GM-LABELS` comes back — together with the code
+                // that reads it, which is the only condition under which asking for something is
+                // worth the bytes.
+                let items = "(UID FLAGS RFC822.SIZE)";
                 self.queue(vec![
                     Self::select(&mailbox, true),
                     ImapCommand::UidFetch {

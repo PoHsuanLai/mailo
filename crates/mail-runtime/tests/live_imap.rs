@@ -57,7 +57,7 @@ async fn a_real_server_accepts_login_select_and_fetch() {
         },
         ImapCommand::UidFetch {
             set: "1:*".to_owned(),
-            items: "(UID FLAGS INTERNALDATE RFC822.SIZE ENVELOPE BODYSTRUCTURE)".to_owned(),
+            items: "(UID FLAGS RFC822.SIZE)".to_owned(),
         },
     ])
     .await
