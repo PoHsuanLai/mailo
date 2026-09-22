@@ -43,27 +43,66 @@ fn stop(agent: &latchkey::Agent) {
     }
     let deadline = Instant::now() + Duration::from_secs(5);
     while Instant::now() < deadline {
-        if !matches!(agent.connect(), Ok(Some(_))) {
+        // `Ok(None)` specifically. `Err(Busy)` means the agent is alive and occupied, so
+        // reading "not reachable" as "stopped" would be exactly backwards.
+        if matches!(agent.connect(), Ok(None)) {
             return;
         }
         std::thread::sleep(Duration::from_millis(20));
     }
 }
 
-fn demo(dir: &std::path::Path, command: &str) -> Command {
+fn demo(world: &World, command: &str) -> Command {
     let mut it = Command::new(the_example());
     it.arg(command)
-        .env("LATCHKEY_DEMO_DIR", dir)
+        .env("LATCHKEY_DEMO_DIR", world.path())
+        .env("LATCHKEY_DEMO_NAME", &world.name)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     it
 }
 
+/// A name no other test, and no other run, will use.
+///
+/// A temporary directory is not enough isolation. On Unix the endpoint lives inside it, so a
+/// per-test directory separates everything; on Windows the endpoint is a named pipe whose
+/// namespace is machine-wide and derives only from the name and the user. All three tests here
+/// addressed `\\.\pipe\demo-demo` while holding three different locks, so they served each
+/// other's clients — one failed and one hung for an hour and forty minutes.
+fn unique_name() -> String {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static NEXT: AtomicU32 = AtomicU32::new(0);
+    format!(
+        "d{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    )
+}
+
+/// One test's world: a private directory and a name nobody else uses.
+struct World {
+    dir: tempfile::TempDir,
+    name: String,
+}
+
+impl World {
+    fn new() -> Self {
+        Self {
+            dir: tempfile::tempdir().unwrap(),
+            name: unique_name(),
+        }
+    }
+
+    fn path(&self) -> &std::path::Path {
+        self.dir.path()
+    }
+}
+
 /// The same agent the example addresses, so the test can knock on the door itself.
-fn agent_at(dir: &std::path::Path) -> latchkey::Agent {
-    let dir = dir.as_os_str();
+fn agent_at(world: &World) -> latchkey::Agent {
+    let dir = world.path().as_os_str();
     latchkey::Agent::in_environment(
-        "demo",
+        &world.name,
         latchkey::here(),
         &latchkey::Environment {
             runtime_dir: Some(dir),
@@ -97,9 +136,9 @@ fn a_killed_agent_locks_nobody_out() {
     // The claim the whole design rests on. A socket-based check would have to guess how long to
     // wait before deciding a leftover file is dead; the kernel releases an advisory lock with
     // the process, under `SIGKILL`, where no destructor runs and no timeout is needed.
-    let dir = tempfile::tempdir().unwrap();
-    let agent = agent_at(dir.path());
-    let mut first = demo(dir.path(), "serve").spawn().expect("it starts");
+    let world = World::new();
+    let agent = agent_at(&world);
+    let mut first = demo(&world, "serve").spawn().expect("it starts");
     assert!(
         answering(&agent, Duration::from_secs(5)),
         "the first agent never opened its door"
@@ -115,16 +154,19 @@ fn a_killed_agent_locks_nobody_out() {
     // tested — that the *lock* is released — is the same on both.
     #[cfg(unix)]
     {
-        let socket = dir.path().join("demo").join("agent.sock");
-        assert!(socket.exists(), "the residue is the whole point");
-        assert!(dir.path().join("demo").join("agent.lock").exists());
+        let home = world.path().join(&world.name);
+        assert!(
+            home.join("agent.sock").exists(),
+            "the residue is the whole point"
+        );
+        assert!(home.join("agent.lock").exists());
     }
     assert!(
         !matches!(agent.connect(), Ok(Some(_))),
         "the socket is still there and nothing is behind it"
     );
 
-    let mut second = demo(dir.path(), "serve").spawn().expect("it starts");
+    let mut second = demo(&world, "serve").spawn().expect("it starts");
     let reached = answering(&agent, Duration::from_secs(5));
     let _ = second.kill();
     let _ = second.wait();
@@ -133,12 +175,12 @@ fn a_killed_agent_locks_nobody_out() {
 
 #[test]
 fn a_second_agent_in_a_second_process_is_refused() {
-    let dir = tempfile::tempdir().unwrap();
-    let agent = agent_at(dir.path());
-    let mut first = demo(dir.path(), "serve").spawn().expect("it starts");
+    let world = World::new();
+    let agent = agent_at(&world);
+    let mut first = demo(&world, "serve").spawn().expect("it starts");
     assert!(answering(&agent, Duration::from_secs(5)));
 
-    let second = demo(dir.path(), "serve").output().expect("it runs");
+    let second = demo(&world, "serve").output().expect("it runs");
 
     assert!(!second.status.success(), "two agents answered to one name");
     let said = String::from_utf8_lossy(&second.stderr);
@@ -156,28 +198,31 @@ fn a_client_starts_an_agent_and_talks_to_it() {
     // Demand-start end to end, across two processes that were not compiled together in any
     // sense that matters here: the client finds `current_exe`, launches it detached, waits for
     // the door, and gets an answer.
-    let dir = tempfile::tempdir().unwrap();
-    let asked = demo(dir.path(), "ask").output().expect("it runs");
+    let world = World::new();
+    let asked = demo(&world, "ask").output().expect("it runs");
+    // Asking again must reach the *same* agent, not start a second one. This is the property
+    // every `foo status` depends on and the one a naive implementation loses first.
+    let again = demo(&world, "ask").output().expect("it runs");
+
+    // Tidy up *before* asserting, through the door rather than with a signal. An assertion that
+    // fires first leaves a detached agent alive, and one still holding
+    // `target/debug/examples/agent` open is one cargo cannot relink over — which is how the
+    // first version of this test poisoned the next build rather than only failing it.
+    stop(&agent_at(&world));
+
     let said = String::from_utf8_lossy(&asked.stdout);
     let complained = String::from_utf8_lossy(&asked.stderr);
     assert!(asked.status.success(), "{complained}");
-
     let pid: u32 = said
         .trim()
         .parse()
         .unwrap_or_else(|_| panic!("expected the agent's pid, got {said:?} / {complained}"));
 
-    // Asking again must reach the *same* agent, not start a second one. This is the property
-    // every `foo status` depends on and the one a naive implementation loses first.
-    let again = demo(dir.path(), "ask").output().expect("it runs");
-    let same: u32 = String::from_utf8_lossy(&again.stdout)
+    let twice = String::from_utf8_lossy(&again.stdout);
+    let twice_said = String::from_utf8_lossy(&again.stderr);
+    let same: u32 = twice
         .trim()
         .parse()
-        .unwrap();
+        .unwrap_or_else(|_| panic!("expected the agent's pid, got {twice:?} / {twice_said}"));
     assert_eq!(pid, same, "the second client started its own agent");
-
-    // Tidy up through the door rather than with a signal. A detached agent outlives the test
-    // either way, but one still holding `target/debug/examples/agent` open is one cargo cannot
-    // relink over — which is how the first version of this test poisoned the next build.
-    stop(&agent_at(dir.path()));
 }

@@ -49,6 +49,22 @@ you would be one you fought.
 - **Every platform rule is a pure function**, so the macOS and Windows answers are tested from
   whatever machine runs `cargo test`.
 
+## What it cannot hide
+
+One platform difference survives the abstraction, and pretending otherwise would be worse than
+naming it: **a busy agent refuses on Windows and queues on Unix.**
+
+A Unix domain socket holds pending connections in a backlog, so a client that knocks while the
+agent is mid-conversation simply waits its turn and notices nothing. A Windows named pipe serves
+one client per instance and turns the rest away with `ERROR_PIPE_BUSY`. `connect` therefore has a
+third answer besides "reached" and "nobody home": [`Error::Busy`], which means somebody *is* home
+and cannot come to the door. `connect_or_start` treats it as proof of life and keeps knocking,
+because starting an agent then would be starting a rival to one that is demonstrably alive.
+
+The knock is bounded for the same reason. `interprocess` defaults to unbounded waiting, which on
+Windows is `WaitNamedPipeW(NMPWAIT_WAIT_FOREVER)` — so the default "is anyone home?" can block
+for ever against a busy agent, with nothing to cancel it. This crate always passes a timeout.
+
 ## Why a lock and not a look
 
 The obvious way to find out whether an agent is running is to look at its socket: is the file

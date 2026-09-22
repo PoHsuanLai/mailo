@@ -22,9 +22,12 @@ fn main() {
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     // An address under `LATCHKEY_DEMO_DIR` when it is set, so a test can drive this without
     // touching the real per-user directory. A real program would just call `Agent::new`.
+    // The name is passed in, not fixed, because on Windows the endpoint is a machine-wide pipe
+    // name: two tests sharing a name share a door however separate their directories are.
+    let name = std::env::var("LATCHKEY_DEMO_NAME").unwrap_or_else(|_| "demo".to_owned());
     let agent = match std::env::var_os("LATCHKEY_DEMO_DIR") {
         Some(dir) => latchkey::Agent::in_environment(
-            "demo",
+            &name,
             latchkey::here(),
             &latchkey::Environment {
                 runtime_dir: Some(&dir),
@@ -34,7 +37,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 ..latchkey::Environment::default()
             },
         )?,
-        None => latchkey::Agent::new("demo")?,
+        None => latchkey::Agent::new(&name)?,
     };
 
     match std::env::args().nth(1).as_deref() {

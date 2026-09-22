@@ -4,7 +4,9 @@
 //! being checked are the ones the kernel provides — and a fake filesystem would be checking this
 //! crate's idea of locking rather than the one it is built on.
 
-use latchkey::{Agent, Endpoint, Environment, Error};
+#[cfg(unix)]
+use latchkey::Endpoint;
+use latchkey::{Agent, Environment, Error};
 use std::io::{BufRead, BufReader, Write};
 use std::time::Duration;
 
@@ -16,9 +18,7 @@ use std::time::Duration;
 fn agent_in(dir: &std::path::Path) -> Agent {
     let dir = dir.as_os_str();
     Agent::in_environment(
-        // A distinct name per platform is unnecessary; a distinct *directory* is what keeps two
-        // tests apart, and every field points at the same temporary one.
-        "test",
+        &unique_name(),
         latchkey::here(),
         &Environment {
             runtime_dir: Some(dir),
@@ -31,7 +31,29 @@ fn agent_in(dir: &std::path::Path) -> Agent {
     .unwrap()
 }
 
+/// A name no other test, and no other run, will use.
+///
+/// A temporary directory is *not* enough isolation, and finding that out is what this file cost.
+/// On Unix the endpoint lives inside the directory, so a per-test directory separates everything.
+/// On Windows the endpoint is a named pipe, whose namespace is machine-wide and derives only
+/// from the agent's name and the user — so every test here addressed `\\.\pipe\test-test`
+/// while holding a different lock file, and thirteen agents fought over one door. The Unix suite
+/// passed throughout; the Windows one hung.
+///
+/// The pid keeps concurrent `cargo test` runs apart, and the counter keeps this run's tests
+/// apart from each other.
+fn unique_name() -> String {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static NEXT: AtomicU32 = AtomicU32::new(0);
+    format!(
+        "t{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    )
+}
+
 /// The socket, where there is one. `None` on Windows, where the endpoint is a pipe name.
+#[cfg(unix)]
 fn socket_of(agent: &Agent) -> Option<std::path::PathBuf> {
     match &agent.address().endpoint {
         Endpoint::Socket(path) => Some(path.clone()),

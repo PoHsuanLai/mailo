@@ -9,11 +9,24 @@
 use crate::Error;
 use crate::address::{Address, Endpoint};
 use crate::serve::Stream;
-use interprocess::local_socket::{GenericFilePath, GenericNamespaced, prelude::*};
+use interprocess::ConnectWaitMode;
+use interprocess::local_socket::{ConnectOptions, GenericFilePath, GenericNamespaced, prelude::*};
 use std::time::{Duration, Instant};
 
 /// How often to knock while waiting for an agent we just started.
 const RETRY: Duration = Duration::from_millis(50);
+
+/// How long one knock may take before it is abandoned.
+///
+/// Not a nicety. `interprocess` defaults to [`ConnectWaitMode::Unbounded`], which on Windows
+/// means `WaitNamedPipeW(NMPWAIT_WAIT_FOREVER)` when every instance of the pipe is busy — so a
+/// client that knocks while the agent is mid-conversation with somebody else waits for ever,
+/// with no timeout and nothing to cancel it. That is not hypothetical: it hung a CI job for an
+/// hour and forty minutes before it was cancelled.
+///
+/// A bounded knock is also the honest shape of the operation. `connect` answers "is anyone
+/// home?", and a question that can take unbounded time is not that question.
+const KNOCK: Duration = Duration::from_secs(2);
 
 /// Connect to the running agent, if there is one.
 ///
@@ -25,33 +38,33 @@ const RETRY: Duration = Duration::from_millis(50);
 /// see [`crate::lock`] — so clearing a stale socket is [`crate::serve::listen`]'s job, under the
 /// lock that proves it is nobody's.
 pub fn connect(at: &Address) -> Result<Option<Stream>, Error> {
-    let reached = match &at.endpoint {
+    let name = match &at.endpoint {
         Endpoint::Socket(path) => {
             if !path.exists() {
                 return Ok(None);
             }
-            let name = path
-                .as_os_str()
+            path.as_os_str()
                 .to_fs_name::<GenericFilePath>()
-                .map_err(|e| Error::at(path, e))?;
-            Stream::connect(name)
+                .map_err(|e| Error::at(path, e))?
         }
-        Endpoint::Pipe(pipe) => {
-            let name = pipe
-                .as_str()
-                .to_ns_name::<GenericNamespaced>()
-                .map_err(|e| Error::Listen {
-                    endpoint: at.endpoint.clone(),
-                    cause: e,
-                })?;
-            Stream::connect(name)
-        }
+        Endpoint::Pipe(pipe) => pipe
+            .as_str()
+            .to_ns_name::<GenericNamespaced>()
+            .map_err(|e| Error::Listen {
+                endpoint: at.endpoint.clone(),
+                cause: e,
+            })?,
     };
+    let reached = ConnectOptions::new()
+        .name(name)
+        .wait_mode(ConnectWaitMode::Timeout(KNOCK))
+        .connect_sync();
+
     match reached {
         Ok(stream) => Ok(Some(stream)),
-        // The three ways "nobody is home" arrives. `ConnectionRefused` is what a socket whose
-        // listener has gone answers; `NotFound` is a race with an agent tidying on the way out,
-        // and the name a Windows pipe gives when it was never created at all.
+        // The ways "nobody is home" arrives. `ConnectionRefused` is what a socket whose listener
+        // has gone answers; `NotFound` is a race with an agent tidying on the way out, and the
+        // name a Windows pipe gives when it was never created at all.
         Err(e)
             if matches!(
                 e.kind(),
@@ -62,11 +75,32 @@ pub fn connect(at: &Address) -> Result<Option<Stream>, Error> {
         {
             Ok(None)
         }
+        // Somebody *is* home and cannot come to the door: every instance of the pipe is in use,
+        // or the connect timed out waiting for one. This is its own answer and not `None`,
+        // because the right response to it is to knock again — starting a second agent would be
+        // starting a rival to one that is demonstrably alive.
+        Err(e) if busy(&e) => Err(Error::Busy),
         Err(e) => Err(Error::Connect {
             endpoint: at.endpoint.clone(),
             cause: e,
         }),
     }
+}
+
+/// "Someone is home but cannot come to the door."
+///
+/// Windows named pipes serve one client per instance, so a busy agent refuses rather than
+/// queues — where a Unix socket would hold the connection in its backlog and say nothing. The
+/// kinds are checked as well as the raw code because which one `ERROR_PIPE_BUSY` maps to has
+/// moved between Rust releases, and an unrecognised busy would become a hard error.
+fn busy(e: &std::io::Error) -> bool {
+    const ERROR_PIPE_BUSY: i32 = 231;
+    matches!(
+        e.kind(),
+        std::io::ErrorKind::ResourceBusy
+            | std::io::ErrorKind::TimedOut
+            | std::io::ErrorKind::WouldBlock
+    ) || e.raw_os_error() == Some(ERROR_PIPE_BUSY)
 }
 
 /// Connect, and start an agent if nobody answers.
@@ -83,20 +117,44 @@ pub fn connect_or_start(
     start: impl FnOnce() -> Result<(), Error>,
     wait: Duration,
 ) -> Result<Stream, Error> {
-    if let Some(live) = connect(at)? {
-        return Ok(live);
+    match connect(at) {
+        Ok(Some(live)) => return Ok(live),
+        Ok(None) => {}
+        // Busy means an agent is alive and occupied, so starting one would start a rival. Fall
+        // through to the waiting loop without calling `start`.
+        Err(Error::Busy) => return wait_for(at, wait),
+        Err(other) => return Err(other),
     }
     start()?;
 
     let deadline = Instant::now() + wait;
     loop {
-        if let Some(live) = connect(at)? {
-            return Ok(live);
+        match connect(at) {
+            Ok(Some(live)) => return Ok(live),
+            // Still busy, still alive: keep knocking rather than give up on it.
+            Ok(None) | Err(Error::Busy) => {}
+            Err(other) => return Err(other),
         }
         if Instant::now() >= deadline {
             // Said rather than waited out. A client blocked for ever on an agent that failed to
             // start is worse than one that gives up, because the second can be retried by a
             // person who can also read why.
+            return Err(Error::NeverAnswered(wait));
+        }
+        std::thread::sleep(RETRY);
+    }
+}
+
+/// Knock until an agent that is known to exist can actually talk.
+fn wait_for(at: &Address, wait: Duration) -> Result<Stream, Error> {
+    let deadline = Instant::now() + wait;
+    loop {
+        match connect(at) {
+            Ok(Some(live)) => return Ok(live),
+            Ok(None) | Err(Error::Busy) => {}
+            Err(other) => return Err(other),
+        }
+        if Instant::now() >= deadline {
             return Err(Error::NeverAnswered(wait));
         }
         std::thread::sleep(RETRY);

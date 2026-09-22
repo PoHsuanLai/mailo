@@ -46,6 +46,20 @@
 //! conversation: there is no message framing, no protocol version, no request type. Those differ
 //! per application and a crate that chose them for you would be one you fought.
 //!
+//! # The one difference it cannot hide
+//!
+//! **A busy agent refuses on Windows and queues on Unix.** A Unix domain socket holds pending
+//! connections in a backlog, so a client that knocks mid-conversation waits its turn and notices
+//! nothing; a Windows named pipe serves one client per instance and turns the rest away. So
+//! [`Agent::connect`] has a third answer besides "reached" and "nobody home": [`Error::Busy`],
+//! meaning somebody *is* home and cannot come to the door. [`Agent::connect_or_start`] treats it
+//! as proof of life and keeps knocking, because starting an agent then would start a rival to
+//! one that is demonstrably alive.
+//!
+//! The knock is bounded for the same reason. `interprocess` defaults to unbounded waiting, which
+//! on Windows is `WaitNamedPipeW(NMPWAIT_WAIT_FOREVER)`, so the default "is anyone home?" can
+//! block for ever. This crate always passes a timeout.
+//!
 //! # Why not just use systemd
 //!
 //! You should, where you can. systemd socket activation and launchd's `Sockets` key are both
@@ -170,6 +184,12 @@ impl Agent {
 pub enum Error {
     /// Another process holds the lock. Not a failure: it is the answer to "should I start?".
     AlreadyRunning,
+    /// An agent is alive and every connection slot is in use.
+    ///
+    /// Windows only in practice: a named pipe serves one client per instance and refuses the
+    /// rest, where a Unix socket holds them in its backlog and says nothing. Distinct from
+    /// "nobody home" because the right response is to knock again, never to start a rival.
+    Busy,
     /// The name is not one that can safely become a path or a pipe.
     BadName(String),
     /// Nothing in the environment says where a per-user runtime directory is.
@@ -217,6 +237,7 @@ impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Error::AlreadyRunning => write!(f, "an agent is already running for this user"),
+            Error::Busy => write!(f, "the agent is busy with another client"),
             Error::BadName(name) => write!(
                 f,
                 "{name:?} is not a usable agent name: ASCII letters, digits and '-' only"
