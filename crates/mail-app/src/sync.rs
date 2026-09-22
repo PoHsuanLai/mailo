@@ -392,6 +392,25 @@ async fn pass<B: mail_proto::Backend>(
         report.headers_fetched += one.headers_fetched;
         report.needs_attention.extend(one.needs_attention);
 
+        // What the server knows and a header fetch does not carry: flags, Gmail's labels, and
+        // messages that have gone. `AccountEngine::sweep` has done this since phase 3 and was
+        // called from nowhere but its own tests, so every message stayed unread for ever — mail
+        // read on a phone stayed bold, unread counts were the size of the mailbox, and labels
+        // never arrived, since they ride the same survey.
+        //
+        // After the header fetch, because a sweep is about messages already held, and before the
+        // bodies, so the list is right as soon as it is populated. Failures are reported and do
+        // not abandon the mail already in hand, like every other step here.
+        match engine.sweep(mailbox, cancel, now).await {
+            Ok(swept) => report.needs_attention.extend(swept.needs_attention),
+            Err(e) => {
+                report.saw(&e.retry());
+                report
+                    .needs_attention
+                    .push(format!("{}: {e}", mailbox.path));
+            }
+        }
+
         // Headers first, then bodies smallest-band-first behind them, so the inbox is usable
         // long before the hundred large attachments finish.
         match engine.fetch_bodies(mailbox, cancel, now, 100).await {

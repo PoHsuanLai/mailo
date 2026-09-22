@@ -591,7 +591,7 @@ impl<B: Backend> AccountEngine<B> {
                 )
                 .await
             {
-                Ok(ProtoOutcome::Fetched { items }) => {
+                Ok(ProtoOutcome::Fetched { items, flags }) => {
                     let arrivals = items
                         .into_iter()
                         .map(|(remote, raw)| crate::assemble::Arrival { remote, raw })
@@ -613,6 +613,27 @@ impl<B: Backend> AccountEngine<B> {
                         true,
                         now,
                     )?;
+                    // The server's own view of these messages, which arrived on the same FETCH.
+                    // Applied after absorbing, because a flag needs a message to sit on, and
+                    // through `Ingest` because that is the path the sweep already uses. Without
+                    // it every message is built unread and only a later sweep can correct it —
+                    // which on a CONDSTORE server never revisits old mail, so anything found by
+                    // backfill stayed unread for ever.
+                    if !flags.is_empty() {
+                        self.store.ingest(
+                            self.account,
+                            mail_domain::Ingest {
+                                mailbox: mailbox.clone(),
+                                validity: mail_domain::UidValidity::Same,
+                                cursor: None,
+                                messages: Vec::new(),
+                                flags,
+                                labels: Vec::new(),
+                                label_names: Vec::new(),
+                                gone: Vec::new(),
+                            },
+                        )?;
+                    }
                 }
                 Ok(_) => {}
                 Err(RuntimeError::Cancelled) => return Ok(report),
@@ -655,7 +676,9 @@ impl<B: Backend> AccountEngine<B> {
             .run(ProtoOp::FetchBody { remotes: batch }, cancel)
             .await
         {
-            Ok(ProtoOutcome::Fetched { items }) => {
+            // Bodies carry flags too, but the header fetch has already recorded them and a
+            // body batch is a subset; ignored rather than applied twice.
+            Ok(ProtoOutcome::Fetched { items, .. }) => {
                 let arrivals = items
                     .into_iter()
                     .map(|(remote, raw)| crate::assemble::Arrival { remote, raw })

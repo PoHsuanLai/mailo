@@ -311,6 +311,8 @@ impl Backend for Pop3Backend {
                     })
                     .collect();
                 Progress::Done(ProtoOutcome::Fetched {
+                    // POP3 has no server-side flags; read and starred live only here.
+                    flags: Vec::new(),
                     items: remotes.into_iter().zip(bodies).collect(),
                 })
             }
@@ -326,6 +328,8 @@ impl Backend for Pop3Backend {
                     })
                     .collect();
                 Progress::Done(ProtoOutcome::Fetched {
+                    // POP3 has no server-side flags; read and starred live only here.
+                    flags: Vec::new(),
                     items: remotes.into_iter().zip(bodies).collect(),
                 })
             }

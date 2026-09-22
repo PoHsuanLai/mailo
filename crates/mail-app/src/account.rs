@@ -194,7 +194,14 @@ pub fn add(
         }
         AuthPlan::OAuth { issuer, scopes } => match std::env::var("MAILO_OAUTH_CLIENT_ID") {
             Ok(client_id) if !client_id.is_empty() => {
-                let credential = authorize(*issuer, &client_id, scopes, now)?;
+                // Google issues one with every "Desktop app" client and refuses the exchange
+                // without it; Microsoft's public clients want none. Read here rather than
+                // demanded, so the issuer that does not need one is not asked for it.
+                let client_secret = std::env::var("MAILO_OAUTH_CLIENT_SECRET")
+                    .ok()
+                    .filter(|s| !s.is_empty());
+                let credential =
+                    authorize(*issuer, &client_id, client_secret.as_deref(), scopes, now)?;
                 KeyringSecrets
                     .put(
                         &SecretKey {
@@ -219,7 +226,7 @@ pub fn add(
                 // same client id and nothing else will have it. Without this the account
                 // signs in, works, expires, and cannot be renewed — the environment variable
                 // that configured it is long gone by then.
-                match remember(*issuer, &client_id) {
+                match remember(*issuer, &client_id, client_secret.as_deref()) {
                     Ok(Some(path)) => {
                         let _ = writeln!(
                             out,
@@ -254,12 +261,20 @@ pub fn add(
                 let _ = writeln!(
                     out,
                     "this account uses OAuth ({issuer:?}) and needs a client id.\n\
-                     \n{}\n\
+                     \n{where}\n\
                      \nThen re-run:\n\
-                     \n  MAILO_OAUTH_CLIENT_ID=… mailo account add {address}{flags}\n\
-                     \nIt is recorded after the first sign-in, so the variable is needed once.\n\
+                     \n  MAILO_OAUTH_CLIENT_ID=… {secret}mailo account add {address}{flags}\n\
+                     \nThey are recorded after the first sign-in, so the variables are needed \
+                     once.\n\
                      \nScopes it will request: {scopes:?}",
-                    where_to_get_one(*issuer)
+                    // Named, because two bare `{}` fill in source order and these two read
+                    // perfectly plausibly the wrong way round.
+                    where = where_to_get_one(*issuer),
+                    secret = if matches!(issuer, OAuthIssuer::Google) {
+                        "MAILO_OAUTH_CLIENT_SECRET=… "
+                    } else {
+                        ""
+                    },
                 );
             }
         },
@@ -271,14 +286,18 @@ pub fn add(
 ///
 /// Returns where it was written, or `None` when this machine has no config directory to write
 /// to — which is not a failure, just an installation that will need the variable again.
-fn remember(issuer: OAuthIssuer, client_id: &str) -> Result<Option<std::path::PathBuf>, String> {
+fn remember(
+    issuer: OAuthIssuer,
+    client_id: &str,
+    client_secret: Option<&str>,
+) -> Result<Option<std::path::PathBuf>, String> {
     let Some(path) = signin::default_path() else {
         return Ok(None);
     };
     // Loaded and re-saved rather than overwritten, because a second account with a different
     // issuer must not erase the first one's registration.
     let mut registry = OAuthRegistry::load(&path).map_err(|e| e.to_string())?;
-    registry.set(Registration::new(issuer, client_id));
+    registry.set(Registration::new(issuer, client_id).with_secret(client_secret));
     registry.save(&path).map_err(|e| e.to_string())?;
     Ok(Some(path))
 }
@@ -290,6 +309,7 @@ fn remember(issuer: OAuthIssuer, client_id: &str) -> Result<Option<std::path::Pa
 fn authorize(
     issuer: OAuthIssuer,
     client_id: &str,
+    client_secret: Option<&str>,
     scopes: &[String],
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<Credential, String> {
@@ -302,9 +322,14 @@ fn authorize(
         // Bind first: the redirect URI has to name the port we actually got, and an installed
         // application has no fixed one.
         let listener = Loopback::bind().await.map_err(|e| e.to_string())?;
-        let authorization =
-            mail_runtime::oauth::begin(issuer, client_id, scopes, listener.redirect_uri())
-                .map_err(|e| e.to_string())?;
+        let authorization = mail_runtime::oauth::begin(
+            issuer,
+            client_id,
+            client_secret,
+            scopes,
+            listener.redirect_uri(),
+        )
+        .map_err(|e| e.to_string())?;
 
         println!(
             "Open this in a browser to sign in:\n\n  {}\n",
@@ -392,9 +417,12 @@ fn where_to_get_one(issuer: OAuthIssuer) -> &'static str {
     match issuer {
         OAuthIssuer::Google => concat!(
             "Create one in the Google Cloud console (console.cloud.google.com) as an OAuth ",
-            "client ID of application type \"Desktop app\". While its consent screen is still ",
-            "in Testing, the address above has to be listed as a test user or the sign-in is ",
-            "refused — that is the step most people miss."
+            "client ID of application type \"Desktop app\", and download its JSON. While the ",
+            "consent screen is still in Testing, the address above has to be listed as a test ",
+            "user or the sign-in is refused — that is the step most people miss.\n",
+            "\nGoogle issues a client *secret* with that client and will not exchange a code ",
+            "without it, PKCE or no PKCE, so set MAILO_OAUTH_CLIENT_SECRET as well. Both are ",
+            "in the downloaded JSON, as client_id and client_secret."
         ),
         OAuthIssuer::Microsoft => concat!(
             "Register an application in the Microsoft Entra admin centre (entra.microsoft.com) ",
@@ -573,8 +601,18 @@ mod tests {
         let out = add(&store, "someone@gmail.com", None, false, now()).unwrap();
         assert!(out.contains("client id"), "{out}");
         assert!(
-            out.contains("MAILO_OAUTH_CLIENT_ID=… mailo account add someone@gmail.com"),
+            out.contains(
+                "MAILO_OAUTH_CLIENT_ID=… MAILO_OAUTH_CLIENT_SECRET=… \
+                 mailo account add someone@gmail.com"
+            ),
             "it should print the command to re-run: {out}"
+        );
+        // Google issues a secret with every Desktop-app client and refuses the exchange without
+        // it. Naming only the client id is what sent the first real sign-in into
+        // `invalid_request: client_secret is missing`.
+        assert!(
+            out.contains("client_secret"),
+            "it should say where the secret comes from: {out}"
         );
         assert!(
             out.contains("https://mail.google.com/"),

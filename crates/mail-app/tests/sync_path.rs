@@ -233,6 +233,27 @@ async fn a_whole_pass_against_a_real_server_lands_mail_and_says_what_it_did() {
         .query_row("SELECT count(*) FROM messages", [], |r| r.get(0))
         .unwrap();
     assert_eq!(count, 2, "the pass reported success and stored nothing");
+
+    // And the server's flags reached the store.
+    //
+    // The fixture serves both messages as `\Seen`. They arrived as unread, because a header
+    // fetch does not carry flags — the flag sweep does, and `AccountEngine::sweep` was called
+    // from nowhere but its own tests. Every message in the application therefore stayed unread
+    // for ever: mail read on a phone stayed bold here, the unread counts were the mailbox size,
+    // and on Gmail the labels never appeared either, because they ride the same survey. Found
+    // against a real account, where 138 messages the user had *sent* were all marked unread.
+    let unread: i64 = store
+        .connection()
+        .query_row(
+            "SELECT count(*) FROM messages WHERE read = '\"unread\"'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        unread, 0,
+        "the server reports both messages \\Seen; the pass never swept for flags"
+    );
 }
 
 /// Renewing a sign-in that has expired, which nothing did.

@@ -16,8 +16,8 @@ use chrono::{DateTime, TimeDelta, Utc};
 use mail_domain::{Credential, OAuthIssuer};
 use oauth2::basic::BasicClient;
 use oauth2::{
-    AuthUrl, AuthorizationCode, ClientId, CsrfToken, PkceCodeChallenge, PkceCodeVerifier,
-    RedirectUrl, RefreshToken, Scope, TokenResponse, TokenUrl,
+    AuthUrl, AuthorizationCode, ClientId, ClientSecret, CsrfToken, PkceCodeChallenge,
+    PkceCodeVerifier, RedirectUrl, RefreshToken, Scope, TokenResponse, TokenUrl,
 };
 use std::time::Duration;
 
@@ -123,6 +123,15 @@ pub struct Pending {
     verifier: PkceCodeVerifier,
     state: CsrfToken,
     client_id: String,
+    /// Google issues one even for a "Desktop app" client and its token endpoint **requires**
+    /// it, PKCE or no PKCE — a sign-in without it fails with `client_secret is missing`.
+    /// Microsoft's public clients genuinely have none, hence the `Option`.
+    ///
+    /// It is not a secret in the sense the name suggests: an installed application ships it to
+    /// every user, Google documents it as not confidential for this client type, and what
+    /// actually protects the exchange is PKCE plus the loopback redirect. Treated with care
+    /// anyway — never logged, never in a URL.
+    client_secret: Option<String>,
     issuer: OAuthIssuer,
     redirect: String,
     /// Resolved when the request was made, not looked up again when it completes: a second
@@ -164,11 +173,17 @@ pub struct Authorization {
 
 /// Begin an authorization-code flow with PKCE.
 ///
-/// `redirect` must be a loopback URL — `http://127.0.0.1:<port>` — because an installed
-/// application cannot keep a client secret, and PKCE plus loopback is what replaces one.
+/// `redirect` must be a loopback URL — `http://127.0.0.1:<port>`. PKCE plus loopback is what
+/// makes an installed application safe without a *confidential* secret.
+///
+/// `client_secret` is nonetheless required by Google, which issues one with every "Desktop app"
+/// client and refuses the token exchange without it (`invalid_request: client_secret is
+/// missing`). This code asserted the opposite for a long time, and the assertion held right up
+/// until a real Google client was used. Microsoft's public clients want none, so it is optional.
 pub fn begin(
     issuer: OAuthIssuer,
     client_id: &str,
+    client_secret: Option<&str>,
     scopes: &[String],
     redirect: &str,
 ) -> Result<Authorization, RuntimeError> {
@@ -197,6 +212,7 @@ pub fn begin(
             verifier,
             state,
             client_id: client_id.to_owned(),
+            client_secret: client_secret.map(str::to_owned),
             issuer,
             redirect: redirect.to_owned(),
             endpoints: endpoints_for(issuer),
@@ -231,10 +247,13 @@ impl Pending {
         now: DateTime<Utc>,
     ) -> Result<Credential, RuntimeError> {
         let ends = self.endpoints;
-        let client = BasicClient::new(ClientId::new(self.client_id))
+        let mut client = BasicClient::new(ClientId::new(self.client_id))
             .set_auth_uri(AuthUrl::new(ends.auth.clone()).map_err(bad_url)?)
             .set_token_uri(TokenUrl::new(ends.token.clone()).map_err(bad_url)?)
             .set_redirect_uri(RedirectUrl::new(self.redirect).map_err(bad_url)?);
+        if let Some(secret) = self.client_secret {
+            client = client.set_client_secret(ClientSecret::new(secret));
+        }
 
         let token = client
             .exchange_code(AuthorizationCode::new(code.to_owned()))
@@ -270,24 +289,40 @@ impl Pending {
 pub async fn refresh(
     issuer: OAuthIssuer,
     client_id: &str,
+    client_secret: Option<&str>,
     refresh_token: &str,
     http: &reqwest::Client,
     now: DateTime<Utc>,
 ) -> Result<Credential, RuntimeError> {
-    refresh_at(&endpoints_for(issuer), client_id, refresh_token, http, now).await
+    refresh_at(
+        &endpoints_for(issuer),
+        client_id,
+        client_secret,
+        refresh_token,
+        http,
+        now,
+    )
+    .await
 }
 
 /// The same, against endpoints the caller names.
 pub async fn refresh_at(
     ends: &Endpoints,
     client_id: &str,
+    client_secret: Option<&str>,
     refresh_token: &str,
     http: &reqwest::Client,
     now: DateTime<Utc>,
 ) -> Result<Credential, RuntimeError> {
-    let client = BasicClient::new(ClientId::new(client_id.to_owned()))
+    // The renewal needs the secret for the same reason the first exchange did. Without it an
+    // account signs in, works for an hour, and then cannot be renewed — which is the failure
+    // `signin::renew` exists to prevent, arriving by a different door.
+    let mut client = BasicClient::new(ClientId::new(client_id.to_owned()))
         .set_auth_uri(AuthUrl::new(ends.auth.clone()).map_err(bad_url)?)
         .set_token_uri(TokenUrl::new(ends.token.clone()).map_err(bad_url)?);
+    if let Some(secret) = client_secret {
+        client = client.set_client_secret(ClientSecret::new(secret.to_owned()));
+    }
 
     let token = client
         .exchange_refresh_token(&RefreshToken::new(refresh_token.to_owned()))
@@ -365,7 +400,7 @@ mod tests {
 
     #[test]
     fn the_authorize_url_carries_pkce_state_and_offline_access() {
-        let auth = begin(OAuthIssuer::Google, CLIENT, &scopes(), REDIRECT).unwrap();
+        let auth = begin(OAuthIssuer::Google, CLIENT, None, &scopes(), REDIRECT).unwrap();
         for required in [
             "code_challenge=",
             "code_challenge_method=S256",
@@ -391,7 +426,7 @@ mod tests {
     fn a_redirect_with_the_wrong_state_is_refused() {
         // Anything can reach a loopback listener. A mismatched state is someone else's
         // authorization code being offered to us, which is the whole reason for the parameter.
-        let auth = begin(OAuthIssuer::Google, CLIENT, &scopes(), REDIRECT).unwrap();
+        let auth = begin(OAuthIssuer::Google, CLIENT, None, &scopes(), REDIRECT).unwrap();
         for wrong in ["", "nonsense", "0000000000000000000000"] {
             assert!(!auth.pending.accepts(wrong), "accepted {wrong:?}");
         }
@@ -399,15 +434,15 @@ mod tests {
 
     #[test]
     fn a_redirect_with_the_matching_state_is_accepted() {
-        let auth = begin(OAuthIssuer::Google, CLIENT, &scopes(), REDIRECT).unwrap();
+        let auth = begin(OAuthIssuer::Google, CLIENT, None, &scopes(), REDIRECT).unwrap();
         let ours = auth.pending.state.secret().clone();
         assert!(auth.pending.accepts(&ours));
     }
 
     #[test]
     fn two_authorizations_never_share_a_verifier_or_state() {
-        let a = begin(OAuthIssuer::Google, CLIENT, &scopes(), REDIRECT).unwrap();
-        let b = begin(OAuthIssuer::Google, CLIENT, &scopes(), REDIRECT).unwrap();
+        let a = begin(OAuthIssuer::Google, CLIENT, None, &scopes(), REDIRECT).unwrap();
+        let b = begin(OAuthIssuer::Google, CLIENT, None, &scopes(), REDIRECT).unwrap();
         assert_ne!(a.pending.state.secret(), b.pending.state.secret());
         assert_ne!(a.pending.verifier.secret(), b.pending.verifier.secret());
     }
@@ -467,6 +502,7 @@ mod debug_tests {
         let auth = begin(
             OAuthIssuer::Google,
             "client.apps.googleusercontent.com",
+            None,
             &["https://mail.google.com/".to_owned()],
             "http://127.0.0.1:8080",
         )

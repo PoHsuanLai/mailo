@@ -1473,11 +1473,16 @@ pub fn no_credential(address: &str, auth: &AuthPlan) -> String {
                 concat!(
                     "not signed in yet. This account uses OAuth ({issuer:?}), which needs a ",
                     "client id registered with the issuer — a password will not work. Run:\n",
-                    "    MAILO_OAUTH_CLIENT_ID=… mailo account add {address}{flag}"
+                    "    MAILO_OAUTH_CLIENT_ID=… {secret}mailo account add {address}{flag}"
                 ),
                 issuer = issuer,
                 address = address,
                 flag = flag,
+                // Google will not exchange a code without the application secret it issued.
+                secret = match issuer {
+                    OAuthIssuer::Google => "MAILO_OAUTH_CLIENT_SECRET=… ",
+                    OAuthIssuer::Microsoft => "",
+                },
             )
         }
         AuthPlan::Password { .. } => {

@@ -140,10 +140,26 @@ fn fetching_headers_uses_body_peek() {
         }),
     };
     let outcome = replay(&mut driven, trace).unwrap();
-    assert!(
-        matches!(outcome, ProtoOutcome::Fetched { .. }),
-        "{outcome:?}"
-    );
+    // And the flags it asked for are kept.
+    //
+    // This trace has said `FLAGS (\Seen)` since the day it was written and the assertion was
+    // `matches!(outcome, Fetched { .. })` — true whatever happened to them, and they were
+    // dropped. Every message was therefore built unread, and only a later flag sweep could
+    // correct it; on a CONDSTORE server that sweep asks `CHANGEDSINCE` and never revisits old
+    // mail, so anything found by backfill stayed unread for ever. Against a real account, 177
+    // of every 200 messages. See `CONVENTIONS.md`, "An assertion that was already true".
+    match outcome {
+        ProtoOutcome::Fetched { flags, .. } => assert_eq!(
+            flags,
+            vec![(
+                imap_ref("INBOX", 42),
+                mail_domain::ReadState::Read,
+                mail_domain::Star::Unstarred
+            )],
+            "the server said \\Seen and the fetch discarded it"
+        ),
+        other => panic!("{other:?}"),
+    }
 }
 
 /// Archiving on Gmail is a label change. Nothing is deleted, and no EXPUNGE is issued.

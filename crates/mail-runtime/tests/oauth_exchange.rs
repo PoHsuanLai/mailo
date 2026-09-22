@@ -71,6 +71,7 @@ fn pending(ends: Endpoints) -> oauth::Pending {
     oauth::begin(
         OAuthIssuer::Google,
         "client-id.apps.googleusercontent.com",
+        None,
         &["https://mail.google.com/".to_owned()],
         "http://127.0.0.1:8080",
     )
@@ -132,7 +133,7 @@ async fn a_refresh_returns_a_credential_with_a_new_expiry() {
     let (ends, seen) = serve(GOOD, "200 OK").await;
     let http = reqwest::Client::new();
 
-    let credential = oauth::refresh_at(&ends, "client-id", "1//old-refresh", &http, now())
+    let credential = oauth::refresh_at(&ends, "client-id", None, "1//old-refresh", &http, now())
         .await
         .expect("the token endpoint answered");
 
@@ -163,7 +164,8 @@ async fn a_response_with_no_refresh_token_keeps_the_one_we_had() {
     .await;
     let http = reqwest::Client::new();
 
-    let credential = oauth::refresh_at(&ends, "client-id", "1//still-good", &http, now()).await;
+    let credential =
+        oauth::refresh_at(&ends, "client-id", None, "1//still-good", &http, now()).await;
     match credential {
         Ok(Credential::OAuth { refresh, .. }) => assert_eq!(
             refresh, "1//still-good",
@@ -190,4 +192,102 @@ async fn a_rejected_code_is_an_error_rather_than_a_credential() {
         text.contains("invalid_grant") || text.to_lowercase().contains("token exchange failed"),
         "the reason should survive: {text}"
     );
+}
+
+/// The application secret Google requires, and whether it reaches the wire.
+///
+/// It did not, and nothing noticed, because no test had ever watched a real request to a real
+/// issuer. `begin` documented — correctly — that an installed application cannot keep a
+/// confidential secret, and concluded — incorrectly, for Google — that it therefore sends none.
+/// Google issues a secret with every "Desktop app" client and answers the exchange with
+/// `invalid_request: client_secret is missing` without it. The first sign-in against a real
+/// Google client failed on exactly that. See FINDINGS F135.
+mod the_application_secret {
+    use super::*;
+
+    fn pending_with(ends: Endpoints, secret: Option<&str>) -> oauth::Pending {
+        oauth::begin(
+            OAuthIssuer::Google,
+            "client-id.apps.googleusercontent.com",
+            secret,
+            &["https://mail.google.com/".to_owned()],
+            "http://127.0.0.1:8080",
+        )
+        .expect("a valid authorize request")
+        .pending
+        // Without this the request goes to the real Google, which is both a wrong test and a
+        // live call this project does not make.
+        .with_endpoints(ends)
+    }
+
+    /// `oauth2` may send it as a form field or as HTTP Basic, and either satisfies Google.
+    fn carried(request: &str, secret: &str) -> bool {
+        use base64::Engine as _;
+        let basic = base64::engine::general_purpose::STANDARD
+            .encode(format!("client-id.apps.googleusercontent.com:{secret}"));
+        request.contains(&format!("client_secret={secret}")) || request.contains(&basic)
+    }
+
+    #[tokio::test]
+    async fn the_code_exchange_sends_it() {
+        let (ends, seen) = serve(GOOD, "200 OK").await;
+        let http = reqwest::Client::new();
+        pending_with(ends, Some("GOCSPX-the-secret"))
+            .exchange("the-code", &http, now())
+            .await
+            .expect("the exchange should succeed");
+
+        let request = seen.lock().unwrap().join("\n");
+        assert!(
+            carried(&request, "GOCSPX-the-secret"),
+            "Google would answer `client_secret is missing`:\n{request}"
+        );
+    }
+
+    /// An hour later, and by the same rule. Renewing without it fails exactly as the first
+    /// exchange did, which would mean an account that signs in, works, and then stops — the
+    /// failure `signin::renew` exists to prevent, arriving through a different door.
+    #[tokio::test]
+    async fn the_refresh_sends_it_too() {
+        let (ends, seen) = serve(GOOD, "200 OK").await;
+        let http = reqwest::Client::new();
+        oauth::refresh_at(
+            &ends,
+            "client-id.apps.googleusercontent.com",
+            Some("GOCSPX-the-secret"),
+            "1//old-refresh",
+            &http,
+            now(),
+        )
+        .await
+        .expect("the refresh should succeed");
+
+        let request = seen.lock().unwrap().join("\n");
+        assert!(
+            carried(&request, "GOCSPX-the-secret"),
+            "the token would renew once and never again:\n{request}"
+        );
+    }
+
+    /// The control. Microsoft's public clients have no secret, and sending an empty one is not
+    /// the same as sending none — it is a request that a public client endpoint rejects.
+    #[tokio::test]
+    async fn an_issuer_that_wants_none_is_sent_none() {
+        let (ends, seen) = serve(GOOD, "200 OK").await;
+        let http = reqwest::Client::new();
+        pending_with(ends, None)
+            .exchange("the-code", &http, now())
+            .await
+            .expect("the exchange should succeed");
+
+        let request = seen.lock().unwrap().join("\n");
+        assert!(
+            !request.contains("client_secret"),
+            "an empty secret was sent:\n{request}"
+        );
+        assert!(
+            !request.to_lowercase().contains("authorization: basic"),
+            "credentials were sent for a client that has none:\n{request}"
+        );
+    }
 }

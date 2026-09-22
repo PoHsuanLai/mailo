@@ -3224,3 +3224,52 @@ Two things had to be got right beyond the upsert:
 
 The plan and the expected capabilities are refreshed, since a preset may have learned a better
 host; `created_at` is not.
+
+### F136 — Nothing ever called the flag sweep
+
+Found by using it. The first real Gmail account synced, and all 338 messages were unread —
+including 138 the user had *sent*, which Gmail always marks `\Seen`. That is not a proportion to
+argue about; it is a proof.
+
+`AccountEngine::sweep` has existed since phase 3. It fetches flags, Gmail's labels and the list
+of messages that have gone, on three separate clocks, and it is thoroughly tested. Every one of
+its callers was a test. `sync::pass` ran `sync`, `fetch_bodies` and `drain_outbox`, and never it.
+
+So: every message in the application was unread for ever. Mail read on a phone stayed bold.
+Unread counts were the size of the mailbox. Stars never arrived. Messages deleted elsewhere were
+never removed. And Gmail's labels never appeared at all, because they ride the same survey —
+which is why F131's `label:` fix had nothing to find on a real account.
+
+This is the third time: F128 was `watch`, which nothing called; F131 was the label resolver,
+which the window never passed; this is `sweep`. A capability with tests and no caller looks
+exactly like a working feature from inside the repository.
+
+The live IMAP fixture already served both its messages as `\Seen` and the test already asserted
+the pass "reported success and stored nothing" was false. It never asked what state they were in.
+
+### F137 — The header fetch asked for flags and threw them away
+
+F136's fix made the sent folder correct and left something behind: of 200 messages added by
+backfill, 23 had a read state. The sweep was doing all the work, and on a CONDSTORE server it
+asks `CHANGEDSINCE`, which by design never revisits mail that has not changed. Anything found by
+walking backwards through the mailbox was therefore unread for ever, sweep or no sweep.
+
+The header fetch is `UID FETCH … (UID FLAGS BODY.PEEK[HEADER])`. It asks for `FLAGS`. The
+`Job::Fetch` arm collected the literals and returned `ProtoOutcome::Fetched { items }`, and the
+flags on those same FETCH lines went nowhere. `parse_fetches` — the function that reads exactly
+this, for the survey — was three hundred lines away.
+
+`ProtoOutcome::Fetched` now carries them, and the engine applies them through `Ingest.flags`,
+which is the path the sweep already used. POP3 sends an empty list, because POP3 has no
+server-side flags at all.
+
+**The test for this already existed and asserted nothing.** `fetching_headers_uses_body_peek`
+replays a trace containing `FLAGS (\Seen)` and checked
+`matches!(outcome, ProtoOutcome::Fetched { .. })` — true whatever became of them. It was written
+to pin `BODY.PEEK` over `BODY`, which it does; the flags were in the fixture by accident and
+nobody ever looked. That is `CONVENTIONS.md`, "An assertion that was already true", in a test
+that had been passing for months.
+
+On the real account, after both fixes: 55 of the next 200 backfilled messages arrived with a read
+state, the sent folder is 135 of 138 read, and 463 messages carry Gmail labels where 123 did
+before, and none did before F136.

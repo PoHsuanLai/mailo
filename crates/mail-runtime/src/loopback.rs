@@ -217,6 +217,7 @@ mod tests {
         let auth = crate::oauth::begin(
             mail_domain::OAuthIssuer::Google,
             "client.apps.googleusercontent.com",
+            None,
             &["https://mail.google.com/".to_owned()],
             lb.redirect_uri(),
         )

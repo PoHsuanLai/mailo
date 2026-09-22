@@ -85,6 +85,17 @@ pub enum ProtoOutcome {
     Fetched {
         /// One entry per message the batch retrieved, in arrival order.
         items: Vec<(RemoteRef, Vec<u8>)>,
+        /// What the server said about each message's state, where it said anything.
+        ///
+        /// The header fetch asks for `FLAGS` alongside the headers and this is where they
+        /// arrive. They used to be asked for and dropped on the floor, so every message was
+        /// built unread and unstarred no matter what the server reported. A flag sweep later
+        /// corrected the ones it happened to look at — and on a CONDSTORE server it asks
+        /// `CHANGEDSINCE`, which never revisits old mail, so anything found by backfill stayed
+        /// unread for ever. On a real account that was 177 of every 200 messages.
+        ///
+        /// Empty on POP3, which has no server-side flags at all.
+        flags: Vec<(RemoteRef, mail_domain::ReadState, mail_domain::Star)>,
     },
     /// A watch saw activity. The runtime schedules a fetch; the machine does not do it itself.
     Woken,

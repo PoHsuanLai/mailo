@@ -537,8 +537,20 @@ impl Backend for ImapBackend {
                     .filter(|u| u.text.contains("FETCH"))
                     .filter_map(|u| u.literal().map(<[u8]>::to_vec))
                     .collect();
+                // The same parser the survey uses. The header fetch asks for `FLAGS`, so they
+                // are already on the wire; not reading them here is what left every message
+                // unread until a later sweep happened to revisit it.
+                let flags = parse_fetches(
+                    &transcript.untagged,
+                    &mailbox_of(&remotes, self.account).path,
+                    uidvalidity_of(&remotes),
+                )
+                .into_iter()
+                .map(|row| (row.remote, row.read, row.star))
+                .collect();
                 Progress::Done(ProtoOutcome::Fetched {
                     items: remotes.into_iter().zip(bodies).collect(),
+                    flags,
                 })
             }
             Job::Applied => Progress::Done(ProtoOutcome::Applied),
@@ -568,6 +580,20 @@ struct Surveyed {
     star: mail_domain::Star,
     /// Gmail's user labels, empty everywhere else. See [`user_labels`].
     labels: Vec<String>,
+}
+
+/// The UIDVALIDITY a batch of references carries, so re-parsed rows key to the same rows.
+///
+/// Every reference in one batch comes from one mailbox — a fetch is issued after a `SELECT` —
+/// so taking it from the first is exact rather than an approximation.
+fn uidvalidity_of(remotes: &[RemoteRef]) -> u32 {
+    remotes
+        .iter()
+        .find_map(|r| match r {
+            RemoteRef::Imap { uidvalidity, .. } => Some(*uidvalidity),
+            _ => None,
+        })
+        .unwrap_or(0)
 }
 
 /// The user labels in an `X-GM-LABELS (…)` list.

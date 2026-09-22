@@ -31,6 +31,17 @@ const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
 pub struct Registration {
     pub issuer: OAuthIssuer,
     pub client_id: String,
+    /// Google issues one with every "Desktop app" client and requires it in both the code
+    /// exchange and every later refresh. Absent for Microsoft's public clients.
+    ///
+    /// Stored beside the client id rather than in the keyring, and that is a deliberate
+    /// distinction rather than an exception to "credentials live in the keyring". This is not
+    /// the user's credential: it is the *application's*, identical for every user of this build,
+    /// and Google documents it as not confidential for installed clients precisely because such
+    /// an application has to ship it. What protects the exchange is PKCE and the loopback
+    /// redirect. The user's tokens remain in the keyring, where they belong.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_secret: Option<String>,
     /// Where to send the exchange when it is not where the issuer publishes it: a sovereign
     /// cloud, an inspecting proxy, or a test that must not reach the internet.
     #[serde(rename = "endpoints", default, skip_serializing_if = "Option::is_none")]
@@ -42,8 +53,15 @@ impl Registration {
         Self {
             issuer,
             client_id: client_id.into(),
+            client_secret: None,
             elsewhere: None,
         }
+    }
+
+    /// The application secret the issuer requires, where it requires one.
+    pub fn with_secret(mut self, secret: Option<impl Into<String>>) -> Self {
+        self.client_secret = secret.map(Into::into);
+        self
     }
 
     /// Send this registration's exchanges somewhere other than the published host.
@@ -117,7 +135,17 @@ impl OAuthRegistry {
         }
         let text = serde_json::to_string_pretty(self)
             .map_err(|e| RuntimeError::Secrets(format!("cannot encode the registry: {e}")))?;
-        std::fs::write(path, text).map_err(|e| RuntimeError::Io(format!("{}: {e}", path.display())))
+        std::fs::write(path, text)
+            .map_err(|e| RuntimeError::Io(format!("{}: {e}", path.display())))?;
+        // Owner-only. The application secret in here is not the user's credential and Google
+        // publishes it to every installed client, but a config file nobody else can read costs
+        // one syscall and removes the question.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+        }
+        Ok(())
     }
 
     /// Read the registry from where this installation keeps it.
@@ -170,6 +198,7 @@ pub async fn renew(
     let renewed = oauth::refresh_at(
         &registration.endpoints(),
         &registration.client_id,
+        registration.client_secret.as_deref(),
         &refresh_token,
         http,
         now,
@@ -266,14 +295,68 @@ mod tests {
         assert_eq!(OAuthRegistry::load(&path).unwrap(), registry);
     }
 
+    /// Google requires the application secret, and this file is where it has to live.
+    ///
+    /// This test used to assert the opposite — that no secret field existed, on the reasoning
+    /// that an installed application cannot keep one. The reasoning is sound and the conclusion
+    /// was wrong for Google, which issues a secret with every "Desktop app" client and answers
+    /// the token exchange with `invalid_request: client_secret is missing` without it. The
+    /// assertion held until the first real Google client was used. See FINDINGS F135.
     #[test]
-    fn the_file_does_not_name_a_client_secret_field() {
-        // An installed application has none, and a field for one is an invitation to put a
-        // secret in a world-readable config file.
+    fn an_application_secret_round_trips_and_is_optional() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mailo").join("oauth.json");
         let mut registry = OAuthRegistry::default();
-        registry.set(google());
-        let text = serde_json::to_string(&registry).unwrap();
-        assert!(!text.contains("secret"), "{text}");
-        assert!(text.contains("client.apps.googleusercontent.com"), "{text}");
+        registry.set(google().with_secret(Some("GOCSPX-example")));
+        // Microsoft's public clients have none, and must not grow an empty one.
+        registry.set(Registration::new(OAuthIssuer::Microsoft, "ms-client"));
+        registry.save(&path).unwrap();
+
+        let back = OAuthRegistry::load(&path).unwrap();
+        assert_eq!(back, registry);
+        assert_eq!(
+            back.get(OAuthIssuer::Google)
+                .unwrap()
+                .client_secret
+                .as_deref(),
+            Some("GOCSPX-example")
+        );
+        assert_eq!(
+            back.get(OAuthIssuer::Microsoft).unwrap().client_secret,
+            None
+        );
+
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            !text.contains("client_secret") || text.contains("GOCSPX-example"),
+            "an absent secret should not be written at all: {text}"
+        );
+    }
+
+    /// The user's tokens do not belong in it, whatever else does.
+    #[test]
+    fn the_file_holds_no_user_credential() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mailo").join("oauth.json");
+        let mut registry = OAuthRegistry::default();
+        registry.set(google().with_secret(Some("GOCSPX-example")));
+        registry.save(&path).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        for forbidden in ["access_token", "refresh_token", "refresh", "access"] {
+            assert!(!text.contains(forbidden), "{forbidden} is in {text}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_file_is_readable_only_by_its_owner() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mailo").join("oauth.json");
+        let mut registry = OAuthRegistry::default();
+        registry.set(google().with_secret(Some("GOCSPX-example")));
+        registry.save(&path).unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "mode is {mode:o}");
     }
 }
