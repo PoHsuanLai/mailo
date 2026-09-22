@@ -1014,3 +1014,48 @@ fn derive_rolls_up_recipients_without_bcc() {
         "Bcc must not surface in a list row"
     );
 }
+
+/// The list's paperclip counts files, not the images an HTML body shows inline.
+#[test]
+fn embedded_images_are_not_counted_as_attachments() {
+    let mut newsletter = message(1, 10);
+    newsletter.attachments = vec![
+        Attachment {
+            inline: Inline::Embedded {
+                cid: "logo@x".to_owned(),
+            },
+            ..attachment("logo.png")
+        },
+        Attachment {
+            inline: Inline::Embedded {
+                cid: "banner@x".to_owned(),
+            },
+            ..attachment("banner.png")
+        },
+    ];
+    let mut report = message(2, 20);
+    report.attachments = vec![
+        attachment("report.pdf"),
+        Attachment {
+            inline: Inline::Embedded {
+                cid: "chart@x".to_owned(),
+            },
+            ..attachment("chart.png")
+        },
+    ];
+
+    let only_images = ThreadSummary::derive(
+        THREAD,
+        &[newsletter.clone()],
+        Snooze::Inactive,
+        Pin::Unpinned,
+    );
+    assert_eq!(only_images.attachments, Attachments::None);
+    let both = ThreadSummary::derive(
+        THREAD,
+        &[newsletter, report],
+        Snooze::Inactive,
+        Pin::Unpinned,
+    );
+    assert_eq!(both.attachments, Attachments::Present { count: 1 });
+}

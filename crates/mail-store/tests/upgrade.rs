@@ -338,3 +338,135 @@ fn mail_indexed_before_recipients_were_is_findable_by_them_afterwards() {
     intact().expect("the index disagrees with the table after a write");
     assert_eq!(hits("hopper"), 1);
 }
+
+/// Migration 0007: a summary written before embedded images stopped counting is re-derived.
+///
+/// The stored count is what the list's paperclip and `has:attachment` read, and a thread nobody
+/// writes to again would otherwise keep its old count for ever.
+#[test]
+fn a_summary_that_counted_embedded_images_is_corrected_on_open() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("mail.db");
+    {
+        let db = Connection::open(&path).unwrap();
+        for (version, sql) in migrate::MIGRATIONS.iter().take(6) {
+            db.execute_batch(sql).unwrap();
+            if *version > 1 {
+                db.execute(
+                    "INSERT INTO schema_version (version, applied_at) VALUES (?1, datetime('now'))",
+                    [version],
+                )
+                .unwrap();
+            }
+        }
+        let (account, message) = seed(&db);
+        // `seed` writes a key and a thread state no build ever wrote; this test needs a thread
+        // that decodes, so it writes real ones.
+        db.execute(
+            r#"UPDATE messages SET msg_key = '{"kind":"rfc","v":"k@example.test"}' WHERE id = ?1"#,
+            [&message],
+        )
+        .unwrap();
+        db.execute(
+            "UPDATE threads SET snooze = ?1, pin = ?2",
+            [
+                serde_json::to_string(&mail_domain::Snooze::Inactive).unwrap(),
+                serde_json::to_string(&mail_domain::Pin::Unpinned).unwrap(),
+            ],
+        )
+        .unwrap();
+        db.execute(
+            r#"UPDATE messages SET attachments = '[{"name":"logo.png","mime":"image/png","size":3,
+                "blob":"04040404-0404-0404-0404-040404040404",
+                "inline":{"kind":"embedded","v":{"cid":"logo@x"}}}]' WHERE id = ?1"#,
+            [&message],
+        )
+        .unwrap();
+        let thread: String = db
+            .query_row(
+                "SELECT thread FROM messages WHERE id = ?1",
+                [&message],
+                |r| r.get(0),
+            )
+            .unwrap();
+        // What the old derivation wrote: one attachment, the embedded logo.
+        db.execute(
+            r#"INSERT INTO thread_summary (thread, account, subject, snippet, from_name,
+                 from_email, participants, recipients, last_date, message_count, read, star,
+                 mailboxes, labels, attachments, snooze, pin)
+               VALUES (?1, ?2, 's', '', NULL, 'a@b.test', '[]', '[]',
+                 '2023-01-01T00:00:00.000000000Z', 1, '"read"', '"unstarred"', '["inbox"]',
+                 '[]', '{"kind":"present","v":{"count":1}}', '"none"', '"none"')"#,
+            rusqlite::params![thread, account],
+        )
+        .unwrap();
+    }
+
+    let store = SqliteStore::open(&path, dir.path()).unwrap();
+    let (stored, queued): (String, i64) = store
+        .connection()
+        .query_row(
+            "SELECT (SELECT attachments FROM thread_summary),
+                    (SELECT count(*) FROM summaries_to_refresh)",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(
+        stored, r#"{"kind":"none"}"#,
+        "the embedded logo is still counted"
+    );
+    assert_eq!(queued, 0, "the queue is emptied once it has been worked");
+}
+
+/// One row that no longer decodes must not stop the database opening after an upgrade.
+///
+/// Both passes that run on open — the FTS backfill and the summary queue — read every message,
+/// so either could lock someone out of all their mail over one bad row. The row keeps what it
+/// had; everything else is upgraded.
+#[test]
+fn an_undecodable_row_does_not_stop_the_upgrade() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("mail.db");
+    {
+        let db = Connection::open(&path).unwrap();
+        for (version, sql) in migrate::MIGRATIONS.iter().take(6) {
+            db.execute_batch(sql).unwrap();
+            if *version > 1 {
+                db.execute(
+                    "INSERT INTO schema_version (version, applied_at) VALUES (?1, datetime('now'))",
+                    [version],
+                )
+                .unwrap();
+            }
+        }
+        // `seed`'s key and recipients are not what any build wrote, so this message decodes
+        // neither as a `Message` nor, once its recipients are garbage too, for the index.
+        let (account, message) = seed(&db);
+        db.execute(
+            "UPDATE messages SET recipients = 'not json', fts_text = NULL WHERE id = ?1",
+            [&message],
+        )
+        .unwrap();
+        let thread: String = db
+            .query_row(
+                "SELECT thread FROM messages WHERE id = ?1",
+                [&message],
+                |r| r.get(0),
+            )
+            .unwrap();
+        db.execute(
+            r#"INSERT INTO thread_summary (thread, account, subject, snippet, from_name,
+                 from_email, participants, recipients, last_date, message_count, read, star,
+                 mailboxes, labels, attachments, snooze, pin)
+               VALUES (?1, ?2, 's', '', NULL, 'a@b.test', '[]', '[]',
+                 '2023-01-01T00:00:00.000000000Z', 1, '"read"', '"unstarred"', '["inbox"]',
+                 '[]', '{"kind":"none"}', '"none"', '"none"')"#,
+            rusqlite::params![thread, account],
+        )
+        .unwrap();
+    }
+
+    let store = SqliteStore::open(&path, dir.path()).expect("one bad row must not lock anyone out");
+    assert_eq!(version_of(&store.connection()), migrate::EXPECTED_VERSION);
+}

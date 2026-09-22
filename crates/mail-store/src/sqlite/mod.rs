@@ -119,11 +119,49 @@ impl SqliteStore {
         .map_err(|e| StoreError::Db(e.to_string()))?;
         migrate::migrate(&db)?;
         backfill_fts(&db)?;
-        Ok(Self {
+        let store = Self {
             db: ReentrantMutex::new(db),
             readers: Vec::new(),
             blobs: BlobStore::new(blob_root.as_ref().to_path_buf()),
-        })
+        };
+        store.refresh_queued_summaries()?;
+        Ok(store)
+    }
+
+    /// Re-derive every summary a migration queued, then forget them.
+    ///
+    /// For a derivation change SQL cannot express; see `0007_resummarize.sql`. Nothing queued is
+    /// one indexed count and no work.
+    fn refresh_queued_summaries(&self) -> Result<(), StoreError> {
+        let queued: Vec<String> = {
+            let db = self.connection();
+            let mut stmt = db.prepare("SELECT thread FROM summaries_to_refresh")?;
+            let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+            rows.collect::<Result<_, _>>()?
+        };
+        if queued.is_empty() {
+            return Ok(());
+        }
+        // Held for the whole pass: the lock is reentrant, so `refresh_summary` takes it again
+        // inside this transaction rather than waiting on it.
+        let db = self.connection();
+        let tx = db
+            .unchecked_transaction()
+            .map_err(|e| StoreError::Db(e.to_string()))?;
+        for thread in queued {
+            let id: uuid::Uuid = thread
+                .parse()
+                .map_err(|e: uuid::Error| StoreError::Decode {
+                    what: "summaries_to_refresh.thread".to_owned(),
+                    why: e.to_string(),
+                })?;
+            // One thread that no longer decodes keeps the summary it had. Failing here would
+            // stop the database opening at all, over one row, on the first run after an upgrade.
+            let _ = self.refresh_summary(mail_domain::ThreadId::from_uuid(id));
+        }
+        tx.execute("DELETE FROM summaries_to_refresh", [])?;
+        tx.commit().map_err(|e| StoreError::Db(e.to_string()))?;
+        Ok(())
     }
 }
 
@@ -200,7 +238,10 @@ fn backfill_fts(db: &Connection) -> Result<(), StoreError> {
         .unchecked_transaction()
         .map_err(|e| StoreError::Db(e.to_string()))?;
     for (rowid, subject, from_name, from_email, recipients, body_text) in rows {
-        let recipients: read::Recipients = row::json("Message.recipients", &recipients)?;
+        // A row whose recipients no longer decode is indexed without them, rather than stopping
+        // the database from opening over one message.
+        let recipients: read::Recipients =
+            row::json("Message.recipients", &recipients).unwrap_or_default();
         let from = mail_domain::Address {
             name: from_name,
             email: from_email,

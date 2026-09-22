@@ -129,7 +129,8 @@ pub struct ThreadSummary {
     pub mailboxes: MailboxSet,
     /// Derived: the union over messages, deduplicated.
     pub labels: Vec<LabelId>,
-    /// Derived: the total across messages.
+    /// Derived: the files attached across messages. An image the HTML body embeds by `cid:` is
+    /// part of the message, not a file sent with it, and is not counted.
     pub attachments: Attachments,
     /// Thread-level, not derived: set by the user.
     pub snooze: Snooze,
@@ -202,7 +203,14 @@ impl ThreadSummary {
             if m.star == Star::Starred {
                 star = Star::Starred;
             }
-            attachments = attachments.saturating_add(m.attachments.len());
+            // Files, not the images an HTML body embeds: a paperclip on every newsletter would be
+            // a paperclip nobody could find a file behind.
+            let files = m
+                .attachments
+                .iter()
+                .filter(|a| a.inline == crate::content::Inline::Attached)
+                .count();
+            attachments = attachments.saturating_add(files);
         }
 
         ThreadSummary {
