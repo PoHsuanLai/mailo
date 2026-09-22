@@ -210,6 +210,13 @@ pub struct Composing {
     pub cc: String,
     pub subject: String,
     pub body: String,
+    /// What the draft carries, as `(name, size)` ready to show.
+    ///
+    /// Filled by the composer rather than by [`Composing::of`], because the sizes live in the
+    /// blob table and this module is deliberately free of the store — every decision in it is
+    /// tested without one. A list that is merely stale shows the wrong size for a moment; a
+    /// `view` that could read the database would be a `view` nothing could test cheaply.
+    pub attachments: Vec<(String, String)>,
     /// What went wrong with the last save or send, shown inline.
     pub notice: Option<String>,
     /// Discard has been asked for once and is waiting to be meant.
@@ -231,6 +238,7 @@ impl Composing {
             cc: join_addresses(&draft.cc),
             subject: draft.subject.clone(),
             body: draft.text.clone(),
+            attachments: Vec::new(),
             notice: None,
             confirming_discard: false,
         }
@@ -2289,6 +2297,7 @@ mod discarding {
             cc: String::new(),
             subject: "Re: lunch".to_owned(),
             body: "never mind".to_owned(),
+            attachments: Vec::new(),
             notice: None,
             confirming_discard: false,
         }

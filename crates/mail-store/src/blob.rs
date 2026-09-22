@@ -99,6 +99,25 @@ impl BlobStore {
         }
     }
 
+    /// How many bytes are behind `id`, without reading them.
+    ///
+    /// The column has been there since migration 0001 and nothing asked for it, so the one
+    /// caller that wanted a size read the whole attachment to measure it — which for a list of
+    /// what a draft is carrying means loading every file to print its length.
+    pub fn size(&self, db: &Connection, id: BlobId) -> Result<u64, StoreError> {
+        let found: Option<i64> = db
+            .query_row(
+                "SELECT size FROM blobs WHERE id = ?1",
+                params![id.to_string()],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(|e| StoreError::Db(e.to_string()))?;
+        found
+            .map(|size| size.max(0) as u64)
+            .ok_or_else(|| StoreError::Blob(id.to_string(), "no such blob".to_owned()))
+    }
+
     fn lookup(&self, db: &Connection, hash: &str) -> Result<Option<BlobId>, StoreError> {
         let found: Option<String> = db
             .query_row("SELECT id FROM blobs WHERE hash = ?1", params![hash], |r| {
@@ -147,6 +166,32 @@ mod tests {
         let db = Connection::open_in_memory().unwrap();
         crate::migrate::migrate(&db).unwrap();
         db
+    }
+
+    #[test]
+    fn a_size_is_answered_without_reading_the_bytes() {
+        // The column has been in the schema since migration 0001 and nothing read it, so the
+        // one caller that wanted a size read the whole file to measure it. Both sides of the
+        // inline threshold, because they are stored differently and only one of them is a file.
+        let dir = tempfile::tempdir().unwrap();
+        let store = BlobStore::new(dir.path());
+        let db = db();
+
+        let small = store.put(&db, b"hello").unwrap();
+        assert_eq!(store.size(&db, small).unwrap(), 5);
+
+        let large = vec![9u8; INLINE_MAX + 100];
+        let id = store.put(&db, &large).unwrap();
+        assert_eq!(store.size(&db, id).unwrap(), large.len() as u64);
+    }
+
+    #[test]
+    fn the_size_of_a_blob_that_is_not_there_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = BlobStore::new(dir.path());
+        store
+            .size(&db(), BlobId::generate())
+            .expect_err("no such blob");
     }
 
     #[test]

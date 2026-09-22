@@ -251,6 +251,201 @@ pub fn draft_new(
     Ok(draft)
 }
 
+/// The most a single message may carry, before base64 expands it.
+///
+/// Encoding inflates by four bytes for every three, so this is about 27 MiB on the wire, which
+/// is over the 25 MB Gmail and most of the rest refuse at. The check is here rather than at send
+/// because the answer has to arrive while the file is being attached: a refusal at Send is one
+/// that comes after the message is written, and there is nothing useful to do with it then.
+pub const ATTACHMENT_BUDGET: u64 = 20 * 1024 * 1024;
+
+/// What to call the content of a file, from its name.
+///
+/// A small table and `application/octet-stream` for everything else, rather than a dependency
+/// that sniffs content. The receiving client re-sniffs anyway, the honest fallback is never
+/// wrong — it says "bytes", which they are — and `mail_mime::build` replaces anything that is
+/// not a well-formed media type regardless, so a wrong guess here cannot forge a header.
+fn media_type_of(name: &str) -> &'static str {
+    let extension = name.rsplit_once('.').map(|(_, ext)| ext).unwrap_or("");
+    match extension.to_ascii_lowercase().as_str() {
+        "txt" | "log" | "md" => "text/plain",
+        "csv" => "text/csv",
+        "html" | "htm" => "text/html",
+        "pdf" => "application/pdf",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        "zip" => "application/zip",
+        "gz" | "tgz" => "application/gzip",
+        "json" => "application/json",
+        "doc" => "application/msword",
+        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "xls" => "application/vnd.ms-excel",
+        "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "ppt" => "application/vnd.ms-powerpoint",
+        "pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        _ => "application/octet-stream",
+    }
+}
+
+/// Attach `bytes` to a draft under `name`.
+///
+/// Bytes rather than a path, because the window has a file chooser that hands over contents and
+/// the command line has a path, and only one of those is I/O this function should be doing.
+///
+/// `PendingAttachment` has existed since phase 1, `mail_mime::build` has assembled multipart
+/// from it since phase 2 and `sqlite/draft.rs` has persisted it since phase 3 — and nothing in
+/// the application ever constructed one, so the send path supported attachments right up to the
+/// moment somebody needed one. See FINDINGS F138.
+pub fn attach_bytes(
+    store: &SqliteStore,
+    draft: DraftId,
+    name: &str,
+    bytes: &[u8],
+    now: DateTime<Utc>,
+) -> Result<Draft, String> {
+    let mut draft = store.draft(draft).map_err(|e| e.to_string())?;
+    if matches!(draft.state, SendState::Queued | SendState::Sending) {
+        return Err(
+            "that draft is on its way; what goes out was frozen when you sent it".to_owned(),
+        );
+    }
+    // The name a file arrives under is the name it goes out under, and it is about to be a
+    // header. `safe_name` is the same function that decides where an *incoming* attachment may
+    // be written, so a `../` or a newline is refused in both directions by one rule.
+    let name = crate::attach::safe_name(name);
+
+    let carried: u64 = attached_size(store, &draft);
+    let total = carried.saturating_add(bytes.len() as u64);
+    if total > ATTACHMENT_BUDGET {
+        return Err(format!(
+            "that would make {} of attachments, and most servers refuse above {}. \
+             Send a link instead, or split the message",
+            crate::attach::human_size(total),
+            crate::attach::human_size(ATTACHMENT_BUDGET),
+        ));
+    }
+
+    let blob = store
+        .blobs()
+        .put(&store.connection(), bytes)
+        .map_err(|e| format!("cannot store {name}: {e}"))?;
+    draft.attachments.push(PendingAttachment {
+        mime: media_type_of(&name).to_owned(),
+        name,
+        blob,
+    });
+    draft.updated = now;
+    save(store, &draft)?;
+    Ok(draft)
+}
+
+/// Read `path` and attach it.
+pub fn attach_file(
+    store: &SqliteStore,
+    draft: DraftId,
+    path: &std::path::Path,
+    now: DateTime<Utc>,
+) -> Result<Draft, String> {
+    // Checked before reading, so attaching a 4 GB file is an error rather than 4 GB of memory.
+    let size = std::fs::metadata(path)
+        .map_err(|e| format!("cannot read {}: {e}", path.display()))?
+        .len();
+    if size > ATTACHMENT_BUDGET {
+        return Err(format!(
+            "{} is {}, and most servers refuse above {}",
+            path.display(),
+            crate::attach::human_size(size),
+            crate::attach::human_size(ATTACHMENT_BUDGET),
+        ));
+    }
+    let bytes = std::fs::read(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "attachment".to_owned());
+    attach_bytes(store, draft, &name, &bytes, now)
+}
+
+/// Take attachment `index` back off a draft.
+///
+/// The blob stays. It is content-addressed and shared — the same bytes may be an attachment on
+/// a message that already went out — so removing the reference is the whole of the operation.
+pub fn detach(
+    store: &SqliteStore,
+    draft: DraftId,
+    index: usize,
+    now: DateTime<Utc>,
+) -> Result<Draft, String> {
+    let mut draft = store.draft(draft).map_err(|e| e.to_string())?;
+    if index >= draft.attachments.len() {
+        return Err(format!(
+            "that draft has {} attachment(s); there is no number {index}",
+            draft.attachments.len()
+        ));
+    }
+    draft.attachments.remove(index);
+    draft.updated = now;
+    save(store, &draft)?;
+    Ok(draft)
+}
+
+/// The bytes a draft is already carrying.
+///
+/// `size` rather than `get`: measuring by reading would load every file already attached each
+/// time another one is added, which on a message with three large files is three reads to
+/// answer a question one column already holds.
+fn attached_size(store: &SqliteStore, draft: &Draft) -> u64 {
+    draft
+        .attachments
+        .iter()
+        .filter_map(|a| store.blobs().size(&store.connection(), a.blob).ok())
+        .sum()
+}
+
+/// What a draft carries, as `(name, size)` ready to show.
+///
+/// The sizes come from the store rather than from whatever was just handed over, so a file that
+/// failed to store cannot appear in the list as though it had.
+pub fn attached_to(store: &SqliteStore, draft: &Draft) -> Vec<(String, String)> {
+    draft
+        .attachments
+        .iter()
+        .map(|a| {
+            let size = store
+                .blobs()
+                .size(&store.connection(), a.blob)
+                .map(crate::attach::human_size)
+                .unwrap_or_else(|_| "missing".to_owned());
+            (a.name.clone(), size)
+        })
+        .collect()
+}
+
+/// What a draft is carrying, as the CLI prints it.
+pub fn attachments_of(store: &SqliteStore, draft: DraftId) -> Result<String, String> {
+    let draft = store.draft(draft).map_err(|e| e.to_string())?;
+    if draft.attachments.is_empty() {
+        return Ok("nothing attached to that draft\n".to_owned());
+    }
+    let mut out = String::new();
+    for (index, attachment) in draft.attachments.iter().enumerate() {
+        let size = store
+            .blobs()
+            .size(&store.connection(), attachment.blob)
+            .map(crate::attach::human_size)
+            .unwrap_or_else(|_| "missing".to_owned());
+        let _ = writeln!(
+            out,
+            "  {index}  {:>9}  {}  {}",
+            size, attachment.mime, attachment.name
+        );
+    }
+    Ok(out)
+}
+
 /// Send this draft from a different account.
 ///
 /// Both columns move together. `identity` is a foreign key into the *new* account's identities,

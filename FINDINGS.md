@@ -3273,3 +3273,45 @@ that had been passing for months.
 On the real account, after both fixes: 55 of the next 200 backfilled messages arrived with a read
 state, the sent folder is 135 of 138 read, and 463 messages carry Gmail labels where 123 did
 before, and none did before F136.
+
+### F138 — The send path supported attachments until somebody needed one
+
+The fourth modelled-and-unreachable, after F128 (`watch`), F131 (the label resolver) and F136
+(`sweep`), and the one that reads most like a working feature from inside the repository.
+
+`Draft.attachments: Vec<PendingAttachment>` has been in `mail-domain` since phase 1 and is
+covered by the serde round-trip tests. `mail_mime::build` has assembled `multipart/mixed` from
+it since phase 2, refusing a referenced blob that is absent with `MimeError::MissingPart` rather
+than dropping it silently, and `mail-mime/tests/build.rs` proves that with a fixture. The
+`drafts` table has had an `attachments` column since migration 0001, and `sqlite/draft.rs` reads
+and writes it. `compose::send` resolves every `PendingAttachment` to its bytes out of the blob
+store before calling `posting`, with a per-attachment error message naming the file.
+
+Five layers, each tested. `grep -rn PendingAttachment --include=*.rs crates/` outside
+`mail-domain` returns the serde tests, the MIME builder, its fixture, and the store — and nothing
+in `mail-app`. No surface ever constructed one, so no draft ever had a non-empty
+`attachments`, so every message this client has ever sent was single-part regardless of what the
+user meant to send with it.
+
+What makes this the worst of the four is that it is invisible in exactly the direction that
+matters. `sweep` not running showed up as mail that stayed unread; a missing `watch` showed up as
+mail that did not arrive. An attachment that cannot be added shows up as nothing at all: the
+composer had no control, so there was no failure to notice, and the machinery beneath it would
+have worked the first time it was asked.
+
+`compose::attach_bytes` is the missing constructor. Bytes rather than a path, because the window
+has a chooser that hands over contents and the command line has a path, and only one of those is
+I/O that function should be doing. The name goes through `attach::safe_name` — the same function
+that decides where an *incoming* attachment may be written — so `../` and a newline are refused
+in both directions by one rule, which matters here because the name is about to become part of a
+`Content-Disposition` header.
+
+The budget is checked while the file is being attached rather than at Send, and it counts what
+is already there. A refusal at Send arrives after the message is written and addressed, when
+there is nothing useful left to do about it; a budget that measures only the newest file is how
+a message grows past what the server will take, one acceptable file at a time.
+
+`BlobStore::size` came out of the same work. `blobs.size` has been a column since migration 0001
+and nothing selected it, so the first thing that wanted a file's length read the whole file to
+measure it — for a list of what a draft carries, that is every attachment loaded into memory to
+print its size.

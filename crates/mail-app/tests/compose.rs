@@ -9,6 +9,11 @@ use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 
+// Attaching reads `safe_name` and `human_size` from here: the name a file goes out under is
+// decided by the same function that decides where an incoming one may be written.
+#[allow(dead_code)]
+#[path = "../src/attach.rs"]
+mod attach;
 #[path = "../src/compose.rs"]
 mod compose;
 #[allow(dead_code)]
@@ -1408,5 +1413,223 @@ mod choosing_the_sender {
         let reread = store.draft(draft.id).unwrap();
         assert_eq!(reread.account, ACCOUNT, "the draft was moved anyway");
         assert_eq!(reread.identity, IDENTITY);
+    }
+}
+
+/// Attaching a file — `plan.md` phase 7b, and FINDINGS F138.
+///
+/// `PendingAttachment` has existed since phase 1, `mail_mime::build` has assembled multipart
+/// from it since phase 2, `sqlite/draft.rs` has persisted it since phase 3, and nothing in the
+/// application ever constructed one. The send path supported attachments right up to the moment
+/// somebody needed one, which is why the first test below asserts against the bytes that leave
+/// rather than against the draft row: the row was never the part that was missing.
+mod carrying_a_file {
+    use super::*;
+
+    fn a_draft(store: &SqliteStore) -> DraftId {
+        compose::draft_new(
+            store,
+            ACCOUNT,
+            &[Address {
+                name: None,
+                email: "kim@elsewhere.test".to_owned(),
+            }],
+            "the report",
+            "here it is",
+            at(10),
+        )
+        .unwrap()
+        .id
+    }
+
+    fn queued_bytes(store: &SqliteStore) -> String {
+        let due = store.outbox_due(ACCOUNT, at(40)).unwrap();
+        let ProtoOp::Submit { raw, .. } = &due[0].op else {
+            panic!("expected a submission");
+        };
+        let bytes = store.blobs().get(&store.connection(), *raw).unwrap();
+        String::from_utf8_lossy(&bytes).into_owned()
+    }
+
+    #[test]
+    fn an_attached_file_reaches_the_bytes_that_go_out() {
+        let (store, _dir) = seeded();
+        let draft = a_draft(&store);
+
+        compose::attach_bytes(&store, draft, "report.txt", b"the whole report", at(20))
+            .expect("a draft can carry a file");
+        compose::send(&store, draft, at(30)).expect("send queues");
+
+        let text = queued_bytes(&store);
+        assert!(
+            text.contains("multipart/mixed"),
+            "the message is not multipart, so nothing is attached to it:\n{text}"
+        );
+        assert!(text.contains("report.txt"), "{text}");
+        assert!(text.contains("text/plain"), "{text}");
+        assert!(
+            text.contains("filename=\"report.txt\""),
+            "named but not as an attachment:\n{text}"
+        );
+        // And the contents. The builder picks `7bit` for a file that is already clean ASCII, so
+        // this one goes out as itself — asserted as what the message actually carries rather
+        // than as what an encoder would have produced.
+        assert!(
+            text.contains("the whole report"),
+            "the file was named but its bytes never went:\n{text}"
+        );
+    }
+
+    #[test]
+    fn a_file_that_is_not_text_survives_the_encoding() {
+        // The other half: bytes that cannot go out as themselves are base64'd, and a file that
+        // arrives corrupted is worse than one that never arrives. The expected value is written
+        // out rather than computed, because a test that encodes with the same idea as the code
+        // agrees with it whether or not either is right.
+        let (store, _dir) = seeded();
+        let draft = a_draft(&store);
+        compose::attach_bytes(&store, draft, "tiny.bin", &[0xff, 0xfe, 0x00, 0x01], at(20))
+            .unwrap();
+        compose::send(&store, draft, at(30)).unwrap();
+
+        let text = queued_bytes(&store);
+        assert!(text.contains("filename=\"tiny.bin\""), "{text}");
+        assert!(
+            text.contains("//4AAQ=="),
+            "four bytes of binary did not survive:\n{text}"
+        );
+    }
+
+    #[test]
+    fn the_name_it_goes_out_under_cannot_forge_a_header() {
+        // The same rule that decides where an *incoming* attachment may be written, applied in
+        // the other direction. A name is about to become part of a header, and a newline in one
+        // is a header of the attacker's choosing — here, of the sender's own careless choosing.
+        let (store, _dir) = seeded();
+        let draft = a_draft(&store);
+        let carried = compose::attach_bytes(
+            &store,
+            draft,
+            "../../etc/passwd\r\nBcc: someone@elsewhere.test",
+            b"x",
+            at(20),
+        )
+        .expect("a hostile name is cleaned, not refused");
+        let name = &carried.attachments[0].name;
+        assert!(!name.contains(".."), "{name}");
+        assert!(!name.contains('\r') && !name.contains('\n'), "{name:?}");
+        assert!(!name.contains('/'), "{name}");
+    }
+
+    #[test]
+    fn a_file_too_large_to_send_is_refused_while_it_is_being_attached() {
+        // Refused here rather than at Send. A message that is written, addressed and only then
+        // rejected leaves the sender with nothing useful to do about it.
+        let (store, _dir) = seeded();
+        let draft = a_draft(&store);
+        let huge = vec![0u8; (compose::ATTACHMENT_BUDGET + 1) as usize];
+        let refused = compose::attach_bytes(&store, draft, "huge.bin", &huge, at(20))
+            .expect_err("over the budget");
+        assert!(refused.contains("refuse"), "{refused}");
+        assert_eq!(
+            store.draft(draft).unwrap().attachments.len(),
+            0,
+            "the refusal still attached it"
+        );
+    }
+
+    #[test]
+    fn the_budget_counts_what_is_already_there() {
+        // Three files that each fit and together do not. Measuring only the newest is how a
+        // message grows past what the server will take, one acceptable file at a time.
+        let (store, _dir) = seeded();
+        let draft = a_draft(&store);
+        let two_fifths = vec![7u8; (compose::ATTACHMENT_BUDGET / 5 * 2) as usize];
+        compose::attach_bytes(&store, draft, "one.bin", &two_fifths, at(20)).unwrap();
+        compose::attach_bytes(&store, draft, "two.bin", &two_fifths, at(21)).unwrap();
+        let refused = compose::attach_bytes(&store, draft, "three.bin", &two_fifths, at(22))
+            .expect_err("the third goes over");
+        assert!(refused.contains("refuse"), "{refused}");
+        assert_eq!(store.draft(draft).unwrap().attachments.len(), 2);
+    }
+
+    #[test]
+    fn a_draft_already_on_its_way_does_not_gain_a_file() {
+        // The bytes were frozen at Send. Attaching afterwards would put a file on a draft that
+        // is not what is going to be delivered, which is worse than refusing.
+        let (store, _dir) = seeded();
+        let draft = a_draft(&store);
+        compose::send(&store, draft, at(30)).unwrap();
+        let refused = compose::attach_bytes(&store, draft, "late.txt", b"too late", at(31))
+            .expect_err("it is already queued");
+        assert!(refused.contains("on its way"), "{refused}");
+    }
+
+    #[test]
+    fn taking_one_back_off_leaves_the_rest() {
+        let (store, _dir) = seeded();
+        let draft = a_draft(&store);
+        compose::attach_bytes(&store, draft, "one.txt", b"first", at(20)).unwrap();
+        compose::attach_bytes(&store, draft, "two.txt", b"second", at(21)).unwrap();
+
+        let left = compose::detach(&store, draft, 0, at(22)).expect("it comes off");
+        assert_eq!(left.attachments.len(), 1);
+        assert_eq!(left.attachments[0].name, "two.txt");
+        // And the stored row moved, not just the value returned.
+        assert_eq!(store.draft(draft).unwrap().attachments.len(), 1);
+    }
+
+    #[test]
+    fn detaching_something_that_is_not_there_is_an_error_not_a_panic() {
+        let (store, _dir) = seeded();
+        let draft = a_draft(&store);
+        let refused = compose::detach(&store, draft, 3, at(22)).expect_err("there is no number 3");
+        assert!(refused.contains("no number 3"), "{refused}");
+    }
+
+    #[test]
+    fn the_type_is_guessed_from_the_name_and_falls_back_to_bytes() {
+        let (store, _dir) = seeded();
+        let draft = a_draft(&store);
+        compose::attach_bytes(&store, draft, "notes.pdf", b"%PDF", at(20)).unwrap();
+        compose::attach_bytes(&store, draft, "mystery.qqq", b"..", at(21)).unwrap();
+        let carried = store.draft(draft).unwrap();
+        assert_eq!(carried.attachments[0].mime, "application/pdf");
+        assert_eq!(
+            carried.attachments[1].mime, "application/octet-stream",
+            "an unknown extension must say `bytes`, not guess"
+        );
+    }
+
+    #[test]
+    fn a_file_on_disk_is_attached_under_its_own_name() {
+        let (store, dir) = seeded();
+        let path = dir.path().join("minutes.md");
+        std::fs::write(&path, b"# minutes").unwrap();
+
+        let draft = a_draft(&store);
+        let carried = compose::attach_file(&store, draft, &path, at(20)).expect("it reads");
+        assert_eq!(carried.attachments[0].name, "minutes.md");
+        assert_eq!(carried.attachments[0].mime, "text/plain");
+    }
+
+    #[test]
+    fn what_a_draft_carries_can_be_listed_with_its_sizes() {
+        let (store, _dir) = seeded();
+        let draft = a_draft(&store);
+        assert!(
+            compose::attachments_of(&store, draft)
+                .unwrap()
+                .contains("nothing attached")
+        );
+
+        compose::attach_bytes(&store, draft, "report.txt", b"0123456789", at(20)).unwrap();
+        let listed = compose::attachments_of(&store, draft).unwrap();
+        assert!(listed.contains("report.txt"), "{listed}");
+        assert!(listed.contains("10 B"), "{listed}");
+
+        // The same list the composer shows, from the same place.
+        let shown = compose::attached_to(&store, &store.draft(draft).unwrap());
+        assert_eq!(shown, vec![("report.txt".to_owned(), "10 B".to_owned())]);
     }
 }

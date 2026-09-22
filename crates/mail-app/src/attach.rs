@@ -101,6 +101,44 @@ pub fn list(store: &SqliteStore, message: MessageId) -> Result<String, String> {
     Ok(out)
 }
 
+/// Where the window puts a file it has been asked to save.
+///
+/// `XDG_DOWNLOAD_DIR` when the desktop names one, `~/Downloads` when it does not, and the
+/// working directory as a last resort. Deliberately not a file chooser: a dialog is a
+/// dependency that pulls a toolkit in behind it, and every client that offers one also has a
+/// default that most saves actually use. The path is reported afterwards, which is the part
+/// that matters — a file saved somewhere the user cannot name is a file they have lost.
+pub fn downloads_dir() -> PathBuf {
+    downloads_from(
+        std::env::var_os("XDG_DOWNLOAD_DIR").as_deref(),
+        std::env::var_os("HOME").as_deref(),
+    )
+}
+
+/// The same decision, with the environment as arguments.
+///
+/// Separated because the workspace forbids `unsafe`, and `std::env::set_var` has been unsafe
+/// since the 2024 edition — so a test that wanted to check this rule could not set the variable
+/// it is about. The same answer `plan.md` gives for the clock: the ambient thing becomes a
+/// parameter, and the decision becomes a function anything can call.
+pub(crate) fn downloads_from(
+    named: Option<&std::ffi::OsStr>,
+    home: Option<&std::ffi::OsStr>,
+) -> PathBuf {
+    if let Some(named) = named {
+        let path = PathBuf::from(named);
+        // A relative setting would put the file wherever the process happens to have been
+        // started, which for a desktop launcher is somewhere the user cannot guess.
+        if path.is_absolute() {
+            return path;
+        }
+    }
+    match home {
+        Some(home) => PathBuf::from(home).join("Downloads"),
+        None => PathBuf::from("."),
+    }
+}
+
 /// Write one attachment into `dir`, returning the path written.
 ///
 /// Never overwrites. A message that arrives twice, or two messages with the same attachment

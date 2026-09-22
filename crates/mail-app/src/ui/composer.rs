@@ -49,6 +49,24 @@ pub(super) fn Composer(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
         }
     });
 
+    // What the draft carries, read when the composer opens on a different one. A reply starts
+    // with nothing attached, but a draft reopened from the Drafts list does not, and a composer
+    // that showed an empty list would invite the user to attach the same file twice.
+    let mut showing = use_signal(|| None::<DraftId>);
+    use_effect(move || {
+        let Some(draft) = shell.read().composing.as_ref().map(|c| c.draft) else {
+            return;
+        };
+        if showing.peek().as_ref() == Some(&draft) {
+            return;
+        }
+        showing.set(Some(draft));
+        let store = consume_context::<Arc<SqliteStore>>();
+        if let Ok(stored) = store.draft(draft) {
+            reload_attachments(&store, &mut shell, &stored);
+        }
+    });
+
     // Now the early return, below every hook. `App` only renders this when something is being
     // composed, but "only" is a claim about a caller, and the rules of hooks are not a matter
     // of who calls what.
@@ -203,6 +221,96 @@ pub(super) fn Composer(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
                     },
                 }
             }
+            // What is going out with it. Listed whether or not there are any, because an
+            // attachment the sender has forgotten is the one they needed to see.
+            if !editing.attachments.is_empty() {
+                ul { class: "attachments",
+                    for (index, (name, size)) in editing.attachments.iter().cloned().enumerate() {
+                        li { key: "{index}-{name}",
+                            span { class: "paperclip", "📎" }
+                            span { class: "name", "{name}" }
+                            span { class: "size", "{size}" }
+                            button {
+                                class: "ghost",
+                                onclick: move |_| {
+                                    let store = consume_context::<Arc<SqliteStore>>();
+                                    let draft = shell.peek().composing.as_ref().map(|c| c.draft);
+                                    let Some(draft) = draft else { return };
+                                    match crate::compose::detach(
+                                        &store,
+                                        draft,
+                                        index,
+                                        chrono::Utc::now(),
+                                    ) {
+                                        Ok(draft) => {
+                                            reload_attachments(&store, &mut shell, &draft);
+                                            revision += 1;
+                                        }
+                                        Err(why) => set_notice(&mut shell, Some(why)),
+                                    }
+                                },
+                                title: "Take this off the message",
+                                "Remove"
+                            }
+                        }
+                    }
+                }
+            }
+            label { class: "attach", "Attach"
+                input {
+                    r#type: "file",
+                    multiple: true,
+                    onchange: move |e: Event<FormData>| {
+                        let files = e.files();
+                        if files.is_empty() {
+                            return;
+                        }
+                        // Spawned rather than awaited inline: reading a file is I/O, and an
+                        // event handler that blocks is a window that stops drawing. A task
+                        // started from a handler does run — settled by F104, and the Sync
+                        // button has depended on it since.
+                        spawn(async move {
+                            for file in files {
+                                // Asked before reading. `read_bytes` would otherwise pull a
+                                // four-gigabyte file into memory to tell the user it is too big.
+                                if file.size() > crate::compose::ATTACHMENT_BUDGET {
+                                    set_notice(
+                                        &mut shell,
+                                        Some(format!(
+                                            "{} is too large to send",
+                                            crate::attach::safe_name(&file.name())
+                                        )),
+                                    );
+                                    continue;
+                                }
+                                let Ok(bytes) = file.read_bytes().await else {
+                                    set_notice(
+                                        &mut shell,
+                                        Some(format!("cannot read {}", file.name())),
+                                    );
+                                    continue;
+                                };
+                                let store = consume_context::<Arc<SqliteStore>>();
+                                let draft = shell.peek().composing.as_ref().map(|c| c.draft);
+                                let Some(draft) = draft else { return };
+                                match crate::compose::attach_bytes(
+                                    &store,
+                                    draft,
+                                    &file.name(),
+                                    &bytes,
+                                    chrono::Utc::now(),
+                                ) {
+                                    Ok(draft) => {
+                                        reload_attachments(&store, &mut shell, &draft);
+                                        revision += 1;
+                                    }
+                                    Err(why) => set_notice(&mut shell, Some(why)),
+                                }
+                            }
+                        });
+                    },
+                }
+            }
             textarea {
                 class: "composer-body",
                 value: "{editing.body}",
@@ -274,6 +382,19 @@ pub(super) fn persist(store: &SqliteStore, editing: Option<&Composing>) -> Resul
     let edited = editing.apply_to(&base, chrono::Utc::now())?;
     crate::compose::save(store, &edited)?;
     Ok(edited)
+}
+
+/// Refresh the composer's view of what the draft carries.
+///
+/// The draft row is the document and the widgets are a view of it, so this reads the sizes back
+/// from the blobs rather than remembering what was just handed over — an attachment that failed
+/// to store must not appear in the list as though it had.
+fn reload_attachments(store: &SqliteStore, shell: &mut Signal<Shell>, draft: &Draft) {
+    let listed = crate::compose::attached_to(store, draft);
+    if let Some(c) = shell.write().composing.as_mut() {
+        c.attachments = listed;
+        c.notice = None;
+    }
 }
 
 fn set_notice(shell: &mut Signal<Shell>, notice: Option<String>) {

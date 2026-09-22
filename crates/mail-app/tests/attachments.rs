@@ -377,3 +377,68 @@ JVBERi0xLjQKMSAwIG9iajw8L1R5cGUvQ2F0YWxvZz4+ZW5kb2JqCg==\r\n\
         );
     }
 }
+
+/// Where the window puts a file when the reader is asked to save one — `plan.md` phase 7c.
+///
+/// The pane listed what was attached and then printed a command for the user to run, which was
+/// honest while there was no way to save from the window and furniture once there was.
+mod where_it_goes {
+    use super::*;
+
+    fn os(text: &str) -> std::ffi::OsString {
+        std::ffi::OsString::from(text)
+    }
+
+    #[test]
+    fn the_desktops_own_download_directory_wins() {
+        let named = os("/tmp/somewhere-else");
+        let home = os("/home/nobody");
+        assert_eq!(
+            attach::downloads_from(Some(&named), Some(&home)),
+            std::path::PathBuf::from("/tmp/somewhere-else")
+        );
+    }
+
+    #[test]
+    fn a_relative_setting_is_ignored_rather_than_followed() {
+        // It would put the file wherever the process was started, which for a desktop launcher
+        // is somewhere the user cannot guess and cannot be told afterwards.
+        let named = os("Downloads");
+        let home = os("/home/nobody");
+        assert_eq!(
+            attach::downloads_from(Some(&named), Some(&home)),
+            std::path::PathBuf::from("/home/nobody/Downloads")
+        );
+    }
+
+    #[test]
+    fn without_a_setting_it_is_downloads_under_home() {
+        let home = os("/home/nobody");
+        assert_eq!(
+            attach::downloads_from(None, Some(&home)),
+            std::path::PathBuf::from("/home/nobody/Downloads")
+        );
+    }
+
+    #[test]
+    fn with_no_home_at_all_it_is_here_rather_than_nowhere() {
+        assert_eq!(
+            attach::downloads_from(None, None),
+            std::path::PathBuf::from(".")
+        );
+    }
+
+    #[test]
+    fn saving_twice_keeps_both_rather_than_overwriting() {
+        // The reader's Save button is one click and can be clicked again. `free_path` already
+        // refuses to overwrite; this is the property that button depends on.
+        let (store, dir) = store();
+        let message = with_attachment(&store, "report.pdf", b"first");
+        let into = dir.path().join("saved");
+
+        let one = attach::save(&store, message, 0, &into).unwrap();
+        let two = attach::save(&store, message, 0, &into).unwrap();
+        assert_ne!(one, two, "the second save replaced the first");
+        assert!(one.exists() && two.exists());
+    }
+}

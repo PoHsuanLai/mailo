@@ -597,6 +597,9 @@ fn App() -> Element {
 #[component]
 fn Reader(thread: ThreadId, shell: Signal<Shell>) -> Element {
     let store = use_context::<Arc<SqliteStore>>();
+    // Where the last attachment went, or why it did not. Cleared by opening another
+    // conversation, because this component is rebuilt for each one.
+    let mut saved = use_signal(|| None::<String>);
     let Ok(loaded) = store.thread(thread) else {
         return rsx! { p { class: "empty", "That conversation is gone." } };
     };
@@ -634,6 +637,11 @@ fn Reader(thread: ThreadId, shell: Signal<Shell>) -> Element {
 
     rsx! {
         h1 { "{loaded.summary.subject}" }
+        if let Some(where_it_went) = saved() {
+            // Where it went, named. A file saved somewhere the user cannot point at is a file
+            // they have lost, and this pane's previous answer was to print a command to run.
+            p { class: "notice", "{where_it_went}" }
+        }
         if anything_blocked && !shell.read().show_remote_images {
             button {
                 class: "images",
@@ -659,10 +667,30 @@ fn Reader(thread: ThreadId, shell: Signal<Shell>) -> Element {
                                 span { class: "paperclip", "📎" }
                                 span { class: "name", "{item.0}" }
                                 span { class: "size", "{item.1}" }
+                                button {
+                                    class: "ghost",
+                                    onclick: {
+                                        let id = message.id;
+                                        move |_| {
+                                            let store = consume_context::<Arc<SqliteStore>>();
+                                            let where_to = crate::attach::downloads_dir();
+                                            saved.set(Some(
+                                                match crate::attach::save(
+                                                    &store, id, index, &where_to,
+                                                ) {
+                                                    Ok(path) => {
+                                                        format!("Saved to {}", path.display())
+                                                    }
+                                                    Err(why) => why,
+                                                },
+                                            ));
+                                        }
+                                    },
+                                    "Save"
+                                }
                             }
                         }
                     }
-                    p { class: "hint", "mailo save {message.id} <number>" }
                 }
                 match reading {
                     Reading::NotFetched => rsx! { p { class: "pending", "Body not downloaded yet." } },
@@ -1912,6 +1940,24 @@ mod render_tests {
              to notice and undo"
         );
         assert!(made.subject.is_empty(), "{:?}", made.subject);
+    }
+
+    #[tokio::test]
+    async fn the_composer_offers_a_way_to_attach_a_file() {
+        // Phase 7b's window half. `PendingAttachment` was modelled, persisted and assembled into
+        // multipart, and no surface could make one — so what this asserts is the existence of
+        // the control, which is the whole of what was missing.
+        dispatching();
+        let (store, _dir) = realistic();
+        let mut dom = VirtualDom::new(App).with_root_context(store.clone());
+        dom.rebuild_in_place();
+        press(&mut dom, "c", INSIDE_THE_SHELL);
+
+        let page = dioxus_ssr::render(&dom);
+        assert!(
+            page.contains(r#"type="file""#),
+            "the composer has no way to attach anything:\n{page}"
+        );
     }
 
     #[tokio::test]

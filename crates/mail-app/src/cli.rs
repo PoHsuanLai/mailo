@@ -81,6 +81,15 @@ pub enum Command {
         to: Vec<Address>,
         body: String,
     },
+    /// Put a file on a draft.
+    Attach {
+        draft: DraftId,
+        path: std::path::PathBuf,
+    },
+    /// Take one back off, by the number `attached` prints.
+    Detach { draft: DraftId, index: usize },
+    /// What a draft is carrying.
+    Attached { draft: DraftId },
     /// A message that answers nothing. `from` names the sending account when there is a choice.
     Compose {
         from: Option<String>,
@@ -207,6 +216,57 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                 to,
                 // Filled in by the caller, which owns stdin. Parsing stays pure.
                 body: String::new(),
+            })
+        }
+        "attach" => {
+            let raw = args
+                .get(1)
+                .ok_or_else(|| format!("attach needs a draft id\n\n{}", usage()))?;
+            let uuid = raw
+                .parse()
+                .map_err(|_| format!("{raw:?} is not a draft id"))?;
+            let path = args.get(2).ok_or_else(|| {
+                format!(
+                    "attach needs a file: mailo attach {raw} ./report.pdf\n\n{}",
+                    usage()
+                )
+            })?;
+            Ok(Command::Attach {
+                draft: DraftId::from_uuid(uuid),
+                path: std::path::PathBuf::from(path),
+            })
+        }
+        "detach" => {
+            let raw = args
+                .get(1)
+                .ok_or_else(|| format!("detach needs a draft id\n\n{}", usage()))?;
+            let uuid = raw
+                .parse()
+                .map_err(|_| format!("{raw:?} is not a draft id"))?;
+            let index = args
+                .get(2)
+                .ok_or_else(|| {
+                    format!(
+                        "detach needs a number, as `attached` prints it\n\n{}",
+                        usage()
+                    )
+                })?
+                .parse()
+                .map_err(|_| "that is not an attachment number".to_owned())?;
+            Ok(Command::Detach {
+                draft: DraftId::from_uuid(uuid),
+                index,
+            })
+        }
+        "attached" => {
+            let raw = args
+                .get(1)
+                .ok_or_else(|| format!("attached needs a draft id\n\n{}", usage()))?;
+            let uuid = raw
+                .parse()
+                .map_err(|_| format!("{raw:?} is not a draft id"))?;
+            Ok(Command::Attached {
+                draft: DraftId::from_uuid(uuid),
             })
         }
         "compose" => {
@@ -478,6 +538,9 @@ usage: mailo <command>
                              forward it; the covering note is read from stdin
   compose --to a@b[,c@d] [--subject S] [--from address]
                              a new message; the body is read from stdin
+  attach <draft-id> <path>    put a file on a draft
+  attached <draft-id>         what it is carrying
+  detach <draft-id> <n>       take one back off
   send <draft-id>             queue a draft for the next sync
   snooze <thread-id> <when>   put it off: later, tonight, tomorrow, weekend,
                              monday…sunday, +2h, +3d, or a date like 2026-09-25
@@ -619,6 +682,25 @@ pub fn run(store: &SqliteStore, command: &Command, now: DateTime<Utc>) -> Result
         Command::Forward { message, to, body } => {
             crate::compose::forward(store, *message, to, body, now)
         }
+        Command::Attach { draft, path } => crate::compose::attach_file(store, *draft, path, now)
+            .map(|draft| {
+                format!(
+                    "attached {}; {} now carries {} file(s)\n",
+                    path.display(),
+                    draft.id,
+                    draft.attachments.len()
+                )
+            }),
+        Command::Detach { draft, index } => {
+            crate::compose::detach(store, *draft, *index, now).map(|draft| {
+                format!(
+                    "{} now carries {} file(s)\n",
+                    draft.id,
+                    draft.attachments.len()
+                )
+            })
+        }
+        Command::Attached { draft } => crate::compose::attachments_of(store, *draft),
         Command::Compose {
             from,
             to,
