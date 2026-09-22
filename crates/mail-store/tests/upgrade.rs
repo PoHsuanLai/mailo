@@ -14,7 +14,7 @@
 //! Rather than check in a binary fixture, each version is built by applying the migrations up to
 //! it: the SQL is the fixture, and it cannot drift from the migration it describes.
 
-use mail_store::migrate;
+use mail_store::{SqliteStore, migrate};
 use rusqlite::Connection;
 
 /// A database at version `upto`, with nothing applied after it.
@@ -158,4 +158,90 @@ fn upgrading_an_already_current_database_changes_nothing() {
         .query_row("SELECT count(*) FROM remote_map", [], |r| r.get(0))
         .unwrap();
     assert_eq!(rows, 1, "a no-op migration must not touch data");
+}
+
+/// Migration 0004 moved the full-text index off the message columns onto one Rust fills.
+///
+/// A database written by an older build has no `fts_text`, and SQL cannot compute one — the
+/// whole point of the migration is that segmenting a run of ideographs into bigrams is not
+/// something a tokenizer or a trigger can do. So `SqliteStore::from_connection` backfills it,
+/// and mail that was already on disk has to become findable rather than only new mail.
+#[test]
+fn mail_that_predates_the_segmented_index_is_findable_afterwards() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("mail.db");
+
+    // A version-3 database with one English and one Chinese message in it.
+    {
+        let db = Connection::open(&path).unwrap();
+        for (version, sql) in migrate::MIGRATIONS.iter().take(3) {
+            db.execute_batch(sql).unwrap();
+            if *version > 1 {
+                db.execute(
+                    "INSERT INTO schema_version (version, applied_at) VALUES (?1, datetime('now'))",
+                    [version],
+                )
+                .unwrap();
+            }
+        }
+        let (account, _) = seed(&db);
+        let thread: String = db
+            .query_row("SELECT id FROM threads LIMIT 1", [], |r| r.get(0))
+            .unwrap();
+        db.execute(
+            "INSERT INTO messages (id, thread, account, msg_key, date, from_name, from_email,
+                 recipients, subject, in_reply_to, refs, rfc_message_id, read, star, mailbox,
+                 body_text, body_raw, attachments)
+             VALUES (?1, ?2, ?3, '\"k2\"', '2023-01-02T00:00:00Z', NULL, 'c@d.test', '{}',
+                 '【重要】臺大計中信箱系統維護', NULL, '[]', NULL, '\"read\"', '\"unstarred\"',
+                 '\"inbox\"', 'lunch on friday', NULL, '[]')",
+            rusqlite::params![uuid::Uuid::new_v4().to_string(), thread, account],
+        )
+        .unwrap();
+    }
+
+    // Opening it upgrades and backfills.
+    let store = SqliteStore::open(&path, dir.path()).unwrap();
+
+    // Asked of the index directly rather than through `threads`, which also needs a
+    // `thread_summaries` row — this fixture is a hand-built version-3 database, and what the
+    // backfill is responsible for is the index.
+    let hits = |needle: &str| {
+        store
+            .connection()
+            .query_row(
+                "SELECT count(*) FROM messages_fts WHERE messages_fts MATCH ?1",
+                [needle],
+                |r| r.get::<_, i64>(0),
+            )
+            .unwrap_or(-1)
+    };
+
+    assert_eq!(
+        hits("lunch"),
+        1,
+        "English mail already on disk stopped being findable"
+    );
+    assert_eq!(hits("臺大"), 1, "old Chinese mail was not reindexed");
+    assert_eq!(hits("維護"), 1);
+    assert_eq!(
+        hits("臺北"),
+        0,
+        "and the index did not become a substring match on everything"
+    );
+
+    // Idempotent: opening it again does no work and changes nothing.
+    drop(store);
+    let again = SqliteStore::open(&path, dir.path()).unwrap();
+    assert_eq!(
+        again
+            .connection()
+            .query_row(
+                "SELECT count(*) FROM messages WHERE fts_text IS NULL",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+        0
+    );
 }

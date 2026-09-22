@@ -290,27 +290,84 @@ fn text_predicate(m: &TextMatch, params: &mut Vec<SqlValue>) -> String {
 /// That is how `unicode61 remove_diacritics 2` tokenizes a decomposed letter (`e` + U+0301
 /// stays one token) and how [`mail_domain::Filter`]'s full-text matcher splits the needle.
 /// Case and diacritics are left for FTS5: the same tokenizer folds the query and the index.
+/// The text to store for the full-text index: exactly the tokens a query will ask for.
+///
+/// The index used to read the message columns directly, and `unicode61` made one token of an
+/// unbroken run of ideographs — so a Chinese subject was one word and only typing all of it
+/// found anything (FINDINGS F125). Segmenting the text is the fix, and a tokenizer cannot be
+/// asked to do it, so this writes the tokens out separated by spaces and lets `unicode61` find
+/// exactly them again.
+///
+/// Built from [`fts_tokens`], not beside it: the index and the query are then the same function
+/// by construction rather than by two pieces of code agreeing.
+pub(crate) fn indexable(fields: &[Option<&str>]) -> String {
+    let mut tokens = Vec::new();
+    for field in fields.iter().flatten() {
+        tokens.extend(fts_tokens(field));
+    }
+    tokens.join(" ")
+}
+
 fn fts_tokens(text: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut current = String::new();
+    // A run of ideographs or kana, held separately. Mirrors `mail_domain`'s tokenizer, which the
+    // `fit` ⟺ SQL proptest requires to agree with this one exactly.
+    let mut run: Vec<char> = Vec::new();
     for ch in text.chars() {
         if is_combining_mark(ch) {
             continue;
         }
-        if ch.is_alphanumeric() {
+        if is_scriptio_continua(ch) {
+            if !current.is_empty() {
+                tokens.push(std::mem::take(&mut current));
+            }
+            run.push(ch);
+        } else if ch.is_alphanumeric() {
+            bigrams(&run, &mut tokens);
+            run.clear();
             current.push(ch);
-        } else if !current.is_empty() {
-            tokens.push(std::mem::take(&mut current));
+        } else {
+            if !current.is_empty() {
+                tokens.push(std::mem::take(&mut current));
+            }
+            bigrams(&run, &mut tokens);
+            run.clear();
         }
     }
     if !current.is_empty() {
         tokens.push(current);
     }
+    bigrams(&run, &mut tokens);
     tokens
 }
 
-/// The mark ranges `Filter::fit` ignores when it tokenizes. Kept in step with that function
-/// so a decomposed letter is one token on both sides.
+/// Whether `ch` belongs to a script written without spaces between words.
+///
+/// CJK ideographs and the Japanese kana. **Not Hangul**: Korean is written with spaces.
+fn is_scriptio_continua(ch: char) -> bool {
+    matches!(ch,
+        '\u{3040}'..='\u{30ff}'
+        | '\u{3400}'..='\u{4dbf}'
+        | '\u{4e00}'..='\u{9fff}'
+        | '\u{f900}'..='\u{faff}'
+    )
+}
+
+/// The tokens a run of such characters contributes: overlapping bigrams, or the character
+/// itself when the run is one long. See `mail_domain::filter` for why.
+fn bigrams(run: &[char], out: &mut Vec<String>) {
+    match run.len() {
+        0 => {}
+        1 => out.push(run[0].to_string()),
+        _ => {
+            for pair in run.windows(2) {
+                out.push(pair.iter().collect());
+            }
+        }
+    }
+}
+
 fn is_combining_mark(ch: char) -> bool {
     matches!(
         ch,

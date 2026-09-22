@@ -22,10 +22,11 @@ pub const MIGRATIONS: &[(u32, &str)] = &[
         include_str!("../migrations/0002_remote_map_identity.sql"),
     ),
     (3, include_str!("../migrations/0003_list_order_index.sql")),
+    (4, include_str!("../migrations/0004_fts_segmented.sql")),
 ];
 
 /// The schema version this build expects.
-pub const EXPECTED_VERSION: u32 = 3;
+pub const EXPECTED_VERSION: u32 = 4;
 
 /// Bring `db` up to [`EXPECTED_VERSION`], creating it if it is empty.
 ///

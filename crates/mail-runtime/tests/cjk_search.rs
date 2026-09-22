@@ -142,28 +142,37 @@ fn a_field_clause_finds_part_of_a_chinese_phrase() {
 }
 
 #[test]
-fn full_text_cannot_find_part_of_a_chinese_phrase() {
-    // FINDINGS F125, asserted as it is rather than as it should be. `unicode61` classifies
-    // ideographs as token characters, so an unbroken run of them is ONE token: the whole
-    // subject is a single word, and only typing all of it finds anything.
+fn full_text_finds_part_of_a_chinese_phrase() {
+    // FINDINGS F125, and the migration that answered it. `unicode61` makes one token of an
+    // unbroken run of ideographs, so the index no longer reads the message columns: it reads a
+    // column Rust fills with overlapping bigrams, and the needle is bigrammed the same way.
     //
-    // This test says what the search box does today. When the index learns to segment CJK it
-    // will fail, which is the point: the day that changes is the day this file should.
+    // This test used to assert the opposite, and was written to fail the day this changed.
     let (store, _dir) = with_chinese_mail();
     assert_eq!(
         found(&store, "臺大計中信箱系統維護"),
         1,
-        "the whole run matches"
+        "the whole run still matches"
     );
-    for part in ["臺大", "計中", "維護", "系統維護"] {
-        assert_eq!(
-            found(&store, part),
-            0,
-            "{part} is findable now — good, update F125"
-        );
+    for part in ["臺大", "計中", "維護", "系統維護", "信箱系統"] {
+        assert_eq!(found(&store, part), 1, "{part} is not findable");
     }
-    assert_eq!(found(&store, "本週六凌晨兩點至六點暫停服務"), 1);
-    assert_eq!(found(&store, "暫停服務"), 0);
+    assert_eq!(
+        found(&store, "暫停服務"),
+        1,
+        "in the body rather than the subject"
+    );
+    assert_eq!(found(&store, "本週六"), 1);
+}
+
+#[test]
+fn a_chinese_phrase_that_is_not_there_is_not_found() {
+    // The other half, and the one bigrams could get wrong: `大臺` is `臺大` backwards, and
+    // `計維` takes one character from each end of the subject. Neither is a bigram of it.
+    let (store, _dir) = with_chinese_mail();
+    for absent in ["大臺", "計維", "維計中", "臺北"] {
+        assert_eq!(found(&store, absent), 0, "{absent} matched and should not");
+    }
 }
 
 #[test]

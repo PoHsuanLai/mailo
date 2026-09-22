@@ -168,12 +168,13 @@ impl SqliteStore {
         self.connection().execute(
             "INSERT INTO messages (id, thread, account, msg_key, date, from_name, from_email,
                  recipients, subject, in_reply_to, refs, rfc_message_id, read, star, mailbox,
-                 body_text, body_raw, attachments)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)
+                 body_text, body_raw, attachments, fts_text)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19)
              ON CONFLICT(id) DO UPDATE SET
                  thread=excluded.thread, subject=excluded.subject, read=excluded.read,
                  star=excluded.star, mailbox=excluded.mailbox, body_text=excluded.body_text,
-                 attachments=excluded.attachments, recipients=excluded.recipients",
+                 attachments=excluded.attachments, recipients=excluded.recipients,
+                 fts_text=excluded.fts_text",
             params![
                 m.id.to_string(),
                 m.thread.to_string(),
@@ -193,6 +194,14 @@ impl SqliteStore {
                 m.body.text(),
                 m.body.raw().map(|b| b.to_string()),
                 to_json("attachments", &m.attachments)?,
+                // What the index will hold: the tokens the query side will ask for, and nothing
+                // else. See `crate::sql::indexable`.
+                crate::sql::indexable(&[
+                    Some(m.subject.as_str()),
+                    m.from.name.as_deref(),
+                    Some(m.from.email.as_str()),
+                    m.body.text(),
+                ]),
             ],
         )?;
         for label in &m.labels {
@@ -483,13 +492,23 @@ impl SqliteStore {
         let Body::Present { text, raw } = &filled.body else {
             return Ok(());
         };
+        // `fts_text` too, or the body never reaches the index: a message fetched headers-first
+        // was indexed with a subject and a sender, and this is the moment its text arrives. An
+        // end-to-end test caught that the day the index stopped reading `body_text` directly.
         self.connection().execute(
-            "UPDATE messages SET body_text = ?2, body_raw = ?3, attachments = ?4 WHERE id = ?1",
+            "UPDATE messages SET body_text = ?2, body_raw = ?3, attachments = ?4,
+                 fts_text = ?5 WHERE id = ?1",
             params![
                 message.to_string(),
                 text,
                 raw.to_string(),
                 to_json("attachments", &filled.attachments)?,
+                crate::sql::indexable(&[
+                    Some(filled.subject.as_str()),
+                    filled.from.name.as_deref(),
+                    Some(filled.from.email.as_str()),
+                    text.as_deref(),
+                ]),
             ],
         )?;
         Ok(())

@@ -2846,8 +2846,68 @@ and a migration that reindexes, and it is the right change — but it is a redes
 index, not a patch, and starting one at the end of a long round is how the index ends up
 half-rebuilt.
 
+**Fixed in F126**, immediately below. What follows was written before that and is kept because
+the measurements and the two dead ends are why the fix has the shape it does.
+
 So it is written down instead, with the measurements, the two dead ends and the shape of the
 answer. Four assertions pin the present behaviour — including that the encoded-word subject is
 decoded on the way in, that the field clauses *do* find parts of a Chinese phrase, and that
 English is unaffected. The one that says a partial Chinese search finds nothing is written to
 fail the day the index learns to segment, which is the day this file should change.
+
+### F126 — Segmenting the index, so Chinese is searchable
+
+F125's fix, which the previous round described and declined to start. Declining was the wrong
+call: it is a defined change with a proptest for a safety net, and "large" is not "someone else's".
+
+**The rule.** A run of ideographs or kana becomes its overlapping bigrams: `臺大計中` is `臺大`,
+`大計`, `計中`. Bigrams rather than single characters because separate characters ANDed would
+match any message containing 臺 and 大 anywhere — the looseness that is acceptable between two
+English words and useless between two halves of one Chinese word. Overlapping, so a needle
+starting mid-word still matches. A run of one character is that character, so an isolated
+ideograph stays findable. Hangul is deliberately excluded: Korean is written with spaces and
+already tokenizes correctly.
+
+**Where it lives.** `fts_tokens` in `mail-domain` and its mirror in `mail-store`, which the
+`fit` ⟺ SQL parity proptest already forces to agree — and `sql::indexable`, which is *built from*
+`fts_tokens` rather than written beside it, so the index and the query are the same function by
+construction.
+
+**What had to change underneath.** A tokenizer cannot be asked to segment, so the indexed text
+must be segmented before it reaches one — and the index could not read the message columns any
+more. Migration 0004 gives `messages` an `fts_text` column that Rust fills with exactly the
+tokens the query side will ask for, and points `messages_fts` at that one column. External
+content is kept, so the index still stores no duplicate text.
+
+Three things this turned up, none of which review would have:
+
+- **The body pass has its own update path.** `fill_body` writes `body_text` directly rather than
+  going through the upsert, so a message fetched headers-first was indexed with a subject and a
+  sender and never with its text. `a_whole_sync_over_a_real_socket_lands_mail_in_the_store`
+  caught it — an English search, broken by a change about Chinese.
+- **Telling an external-content index to remove an entry that was never inserted corrupts it.**
+  Every row predating the migration has `fts_text IS NULL` and no entry, and the backfill is
+  exactly an update of those rows, so the first thing that happened was `database disk image is
+  malformed`. There are two update triggers now, split on `old.fts_text IS NULL`.
+- **SQL cannot compute the new column**, which is the whole point of the migration, so
+  `from_connection` backfills rows that have none. Idempotent and skipped by one count on a
+  database that has already done it. `mail_that_predates_the_segmented_index_is_findable_afterwards`
+  builds a version-3 database by hand, with English and Chinese in it, and asserts both are
+  findable after the upgrade.
+
+Through the real binary, against an NTU notice with an RFC 2047 subject and a base64 body:
+
+```
+search 臺大      →  【重要】臺大計中信箱系統維護
+search 計中      →  【重要】臺大計中信箱系統維護
+search 維護      →  【重要】臺大計中信箱系統維護
+search 暫停服務  →  【重要】臺大計中信箱系統維護     (in the body)
+search lunch     →  lunch on friday                  (English is unaffected)
+search 臺北      →  nothing matches "臺北"
+```
+
+`臺北` is the assertion that matters as much as the others: bigrams must not become a substring
+match on everything. `大臺`, `計維` and `維計中` are checked too — reversed, and one character
+from each end of the run.
+
+Search over ten thousand messages is 47 ms, inside the same budget as before.

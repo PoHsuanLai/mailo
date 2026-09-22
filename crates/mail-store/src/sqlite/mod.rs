@@ -80,12 +80,76 @@ impl SqliteStore {
         )
         .map_err(|e| StoreError::Db(e.to_string()))?;
         migrate::migrate(&db)?;
+        backfill_fts(&db)?;
         Ok(Self {
             db: ReentrantMutex::new(db),
             blobs: BlobStore::new(blob_root.as_ref().to_path_buf()),
         })
     }
+}
 
+/// Fill `messages.fts_text` for rows that predate migration 0004.
+///
+/// The migration could not: segmenting a run of ideographs into bigrams is not something SQL can
+/// express, and the whole point of that migration is that the indexed text is no longer the
+/// message columns. So it runs here, once, over the rows that have no segmented text yet — and
+/// the `AFTER UPDATE` trigger reindexes each one as it is written.
+///
+/// Cheap to check and cheap to skip: one indexed-free count on a column that is `NOT NULL` for
+/// every row after the first run. A 2372-message maildrop takes a fraction of a second; a
+/// database that has already been backfilled does no work at all.
+fn backfill_fts(db: &Connection) -> Result<(), StoreError> {
+    let pending: i64 = db
+        .query_row(
+            "SELECT count(*) FROM messages WHERE fts_text IS NULL",
+            [],
+            |r| r.get(0),
+        )
+        .map_err(|e| StoreError::Db(e.to_string()))?;
+    if pending == 0 {
+        return Ok(());
+    }
+
+    /// One row's worth of the columns the index is built from.
+    type Indexed = (i64, String, Option<String>, String, Option<String>);
+    let rows: Vec<Indexed> = {
+        let mut stmt = db
+            .prepare(
+                "SELECT rowid, subject, from_name, from_email, body_text
+                 FROM messages WHERE fts_text IS NULL",
+            )
+            .map_err(|e| StoreError::Db(e.to_string()))?;
+        let mapped = stmt
+            .query_map([], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+            })
+            .map_err(|e| StoreError::Db(e.to_string()))?;
+        mapped
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| StoreError::Db(e.to_string()))?
+    };
+
+    let tx = db
+        .unchecked_transaction()
+        .map_err(|e| StoreError::Db(e.to_string()))?;
+    for (rowid, subject, from_name, from_email, body_text) in rows {
+        let text = crate::sql::indexable(&[
+            Some(subject.as_str()),
+            from_name.as_deref(),
+            Some(from_email.as_str()),
+            body_text.as_deref(),
+        ]);
+        tx.execute(
+            "UPDATE messages SET fts_text = ?2 WHERE rowid = ?1",
+            rusqlite::params![rowid, text],
+        )
+        .map_err(|e| StoreError::Db(e.to_string()))?;
+    }
+    tx.commit().map_err(|e| StoreError::Db(e.to_string()))?;
+    Ok(())
+}
+
+impl SqliteStore {
     /// The blob store, for callers that need to read a raw message or an attachment.
     pub fn blobs(&self) -> &BlobStore {
         &self.blobs
