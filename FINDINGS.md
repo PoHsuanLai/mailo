@@ -2724,3 +2724,35 @@ from the UIDVALIDITY reset to the cursor, so a failure halfway rolls back rather
 cursor advanced past messages that were never stored — which would be lost mail. And a rolled-back
 ingest leaves its blobs behind, which is not a leak: blobs are content-addressed, so the retry
 writes the same hashes and reuses them.
+
+### F123 — Every test in the project used one account
+
+The user this was written for has an NTU mailbox, a Gmail one and two Microsoft 365 tenants. Every
+suite in the repository — nine of them touching the store — creates exactly one account. Two
+accounts was not an edge case that had been decided against; it was a case nobody had looked at.
+
+The things that can only go wrong with two are the ones worth checking, so they are checked now:
+
+- **The unified inbox is `InMailbox(Inbox)` with no `Account` clause** and holds both, which is
+  the plan's claim about places being saved filters, asserted rather than assumed. A list that
+  silently showed one account is the kind of thing a user notices when mail goes missing.
+- **A message that arrives on both accounts is two threads.** A mailing list both addresses are
+  on, or one that forwards to the other. Merged, it would be one thread whose messages live on
+  two accounts — and archiving it would have to act on two servers with two credentials, which no
+  operation here can do. Threading looks up `In-Reply-To` scoped by account, so a reply arriving
+  on one attaches to that one's copy; asserted by message count on each side.
+- **Archiving one account's copy leaves the other's alone.**
+- **One label name on two accounts is two labels**, which `UNIQUE (account, name)` gives and
+  nothing had relied on.
+- **A count adds up the accounts it is asked for**, one or both.
+
+All seven passed first time, which is the answer: the store's multi-account behaviour is sound.
+What was *not* sound was above it.
+
+**`label:travel` searched one account.** `labels_named` took the first label with that name and
+`Filter::HasLabel` takes one id, so with "travel" on both the Gmail and the NTU account the term
+matched whichever account was created first — a wrong answer that looks exactly like an empty
+one, which is the worst kind. The resolver returns every match now and the parser builds
+`Or([HasLabel(a), HasLabel(b)])`, because someone who types a word means the word. A name nothing
+bears still becomes text rather than `Filter::Nothing`, so it reads as a typo rather than as a
+label with no mail.

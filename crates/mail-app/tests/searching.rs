@@ -334,3 +334,52 @@ mod what_the_store_returns {
         assert!(found(&store, "frm:ada").is_empty());
     }
 }
+
+/// `label:`, which is the one term that needs the world.
+mod labels {
+    use super::*;
+
+    const A: LabelId = LabelId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000e1"));
+    const B: LabelId = LabelId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000e2"));
+
+    fn with(found: Vec<LabelId>) -> impl Fn(&str) -> Vec<LabelId> {
+        move |_| found.clone()
+    }
+
+    #[test]
+    fn one_label_with_that_name_is_one_clause() {
+        assert_eq!(
+            query::parse_with("label:travel", &taipei(), &with(vec![A])),
+            Filter::HasLabel(A)
+        );
+    }
+
+    #[test]
+    fn the_same_name_on_two_accounts_means_either() {
+        // `UNIQUE (account, name)`, so "travel" on the Gmail account and "travel" on the NTU one
+        // are two labels. Someone typing `label:travel` means the word — taking the first
+        // silently searched one mailbox, which is a wrong answer that looks like an empty one.
+        assert_eq!(
+            query::parse_with("label:travel", &taipei(), &with(vec![A, B])),
+            Filter::Or(vec![Filter::HasLabel(A), Filter::HasLabel(B)])
+        );
+    }
+
+    #[test]
+    fn a_name_nothing_bears_is_searched_for_as_text() {
+        // The same rule as any other unrecognised term. Not `Filter::Nothing`, which would find
+        // nothing and look identical to a label that exists and has no mail.
+        assert_eq!(
+            query::parse_with("label:nosuch", &taipei(), &with(vec![])),
+            Filter::Text(TextMatch::Contains("label:nosuch".to_owned()))
+        );
+    }
+
+    #[test]
+    fn it_still_composes_with_everything_else() {
+        assert_eq!(
+            query::parse_with("label:travel is:unread", &taipei(), &with(vec![A])),
+            Filter::And(vec![Filter::HasLabel(A), Filter::Read(ReadState::Unread)])
+        );
+    }
+}

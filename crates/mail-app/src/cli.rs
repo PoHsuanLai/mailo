@@ -489,7 +489,7 @@ pub fn run(store: &SqliteStore, command: &Command, now: DateTime<Utc>) -> Result
                     // The same parser the shell's box uses, so `from:ada` means one thing.
                     &list_query(
                         crate::query::parse_with(needle, &chrono::Local, &|name| {
-                            label_named(store, name)
+                            labels_named(store, name)
                         }),
                         *limit,
                     ),
@@ -595,36 +595,33 @@ fn list_query(filter: Filter, limit: u32) -> Query {
     }
 }
 
-/// The id of a label with this name, on any configured account.
+/// Every label with this name, across every configured account.
 ///
-/// Any account rather than one, because search is across accounts here and a label name is the
-/// only thing the user typed. Two accounts with the same label name is a real case; the first
-/// wins, which is wrong in a way nobody will notice until there are two accounts and worth
-/// fixing then rather than inventing a syntax for it now.
-fn label_named(store: &SqliteStore, name: &str) -> Option<mail_domain::LabelId> {
-    let db = store.connection();
-    let mut stmt = db
-        .prepare("SELECT id FROM accounts ORDER BY created_at")
-        .ok()?;
-    let ids: Vec<String> = stmt
-        .query_map([], |r| r.get::<_, String>(0))
-        .ok()?
-        .filter_map(Result::ok)
-        .collect();
-    drop(stmt);
-    drop(db);
-    for id in ids {
-        let Ok(uuid) = id.parse() else { continue };
-        let account = AccountId::from_uuid(uuid);
-        if let Ok(labels) = store.labels(account)
-            && let Some(found) = labels
-                .into_iter()
-                .find(|l| l.name.eq_ignore_ascii_case(name))
-        {
-            return Some(found.id);
-        }
-    }
-    None
+/// All of them, not the first. `UNIQUE (account, name)` means "travel" on the Gmail account and
+/// "travel" on the NTU one are two different labels, and a user who types `label:travel` means
+/// the word rather than one account's row. Taking the first silently searched one mailbox — a
+/// wrong answer that looks like an empty one, which is the worst kind.
+fn labels_named(store: &SqliteStore, name: &str) -> Vec<mail_domain::LabelId> {
+    let accounts: Vec<AccountId> = {
+        let db = store.connection();
+        let Ok(mut stmt) = db.prepare("SELECT id FROM accounts ORDER BY created_at") else {
+            return Vec::new();
+        };
+        let Ok(rows) = stmt.query_map([], |r| r.get::<_, String>(0)) else {
+            return Vec::new();
+        };
+        rows.filter_map(Result::ok)
+            .filter_map(|id| id.parse().ok())
+            .map(AccountId::from_uuid)
+            .collect()
+    };
+    accounts
+        .into_iter()
+        .filter_map(|account| store.labels(account).ok())
+        .flatten()
+        .filter(|l| l.name.eq_ignore_ascii_case(name))
+        .map(|l| l.id)
+        .collect()
 }
 
 fn render_list(items: &[ThreadSummary]) -> String {
