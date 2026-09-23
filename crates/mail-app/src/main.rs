@@ -5,11 +5,23 @@ mod appearance;
 mod attach;
 mod cli;
 mod compose;
+// used from F2 (the frame shell); remove when the first caller lands
+#[allow(dead_code)]
+mod contrast;
 mod ipc;
+// used from F2 (the frame shell); remove when the first caller lands
+#[allow(dead_code)]
+mod palette;
 mod query;
 mod reader;
 mod snooze;
+// used from F2 (the frame shell); remove when the first caller lands
+#[allow(dead_code)]
+mod space;
 mod sync;
+// used from F2 (the frame shell); remove when the first caller lands
+#[allow(dead_code)]
+mod today;
 mod ui;
 mod view;
 

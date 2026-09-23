@@ -15,10 +15,7 @@ const FILE_NAME: &str = "appearance.json";
 /// Not an error the user needs to see: a missing or damaged file means the window
 /// looks as it did on first run.
 pub fn load(dir: &Path) -> Appearance {
-    let Ok(bytes) = std::fs::read(dir.join(FILE_NAME)) else {
-        return Appearance::default();
-    };
-    serde_json::from_slice(&bytes).unwrap_or_default()
+    read_json(dir, FILE_NAME)
 }
 
 /// Write `look` to `dir`, creating the directory if needed.
@@ -26,10 +23,36 @@ pub fn load(dir: &Path) -> Appearance {
 /// The bytes land in a temporary file in `dir` and are renamed into place, so a
 /// crash mid-write cannot leave a half-written `appearance.json` for the next launch.
 pub fn save(dir: &Path, look: Appearance) -> Result<(), String> {
+    write_json(dir, FILE_NAME, &look)
+}
+
+/// Read `file_name` from `dir`.
+///
+/// A missing file, or one that is not this type's JSON, is `T::default`: a
+/// damaged preference must not stop the window opening.
+pub(crate) fn read_json<T>(dir: &Path, file_name: &str) -> T
+where
+    T: serde::de::DeserializeOwned + Default,
+{
+    let Ok(bytes) = std::fs::read(dir.join(file_name)) else {
+        return T::default();
+    };
+    serde_json::from_slice(&bytes).unwrap_or_default()
+}
+
+/// Write `value` as JSON to `dir/file_name`, creating `dir` if needed.
+///
+/// The bytes land in a temporary file in `dir` and are renamed into place, so a
+/// crash mid-write cannot leave a half-written file for the next launch.
+pub(crate) fn write_json(
+    dir: &Path,
+    file_name: &str,
+    value: &impl serde::Serialize,
+) -> Result<(), String> {
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    let path = dir.join(FILE_NAME);
+    let path = dir.join(file_name);
     let tmp = path.with_extension("part");
-    let mut body = serde_json::to_vec(&look).map_err(|e| e.to_string())?;
+    let mut body = serde_json::to_vec(value).map_err(|e| e.to_string())?;
     body.push(b'\n');
     std::fs::write(&tmp, &body).map_err(|e| format!("{}: {e}", tmp.display()))?;
     std::fs::rename(&tmp, &path).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -51,9 +74,28 @@ fn config_dir_from(xdg: Option<OsString>, home: Option<OsString>) -> Option<Path
     Some(base.join("mailo"))
 }
 
+/// `$XDG_STATE_HOME/mailo`, else `$HOME/.local/state/mailo`, else None.
+///
+/// Today lives here, not beside appearance: it is a list of what was opened,
+/// and it expires, so it is state rather than a preference.
+// used from F2 (the frame shell); remove when the first caller lands
+#[allow(dead_code)]
+pub fn state_dir() -> Option<PathBuf> {
+    state_dir_from(std::env::var_os("XDG_STATE_HOME"), std::env::var_os("HOME"))
+}
+
+// used from F2 (the frame shell); remove when the first caller lands
+#[allow(dead_code)]
+fn state_dir_from(xdg: Option<OsString>, home: Option<OsString>) -> Option<PathBuf> {
+    let base = xdg
+        .map(PathBuf::from)
+        .or_else(|| home.map(|home| PathBuf::from(home).join(".local/state")))?;
+    Some(base.join("mailo"))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{config_dir_from, load, save};
+    use super::{config_dir_from, load, save, state_dir_from};
     use crate::view::{Accent, Appearance, Motion, Theme};
     use std::ffi::OsString;
     use std::path::{Path, PathBuf};
@@ -243,6 +285,44 @@ mod tests {
         for case in CASES {
             assert_eq!(
                 config_dir_from(case.xdg.map(OsString::from), case.home.map(OsString::from)),
+                case.expect.map(PathBuf::from),
+                "{}",
+                case.name
+            );
+        }
+    }
+
+    #[test]
+    fn the_state_directory_follows_xdg() {
+        struct Case {
+            name: &'static str,
+            xdg: Option<&'static str>,
+            home: Option<&'static str>,
+            expect: Option<&'static str>,
+        }
+        const CASES: &[Case] = &[
+            Case {
+                name: "xdg wins",
+                xdg: Some("/xdg"),
+                home: Some("/home/ada"),
+                expect: Some("/xdg/mailo"),
+            },
+            Case {
+                name: "home when xdg is unset",
+                xdg: None,
+                home: Some("/home/ada"),
+                expect: Some("/home/ada/.local/state/mailo"),
+            },
+            Case {
+                name: "neither",
+                xdg: None,
+                home: None,
+                expect: None,
+            },
+        ];
+        for case in CASES {
+            assert_eq!(
+                state_dir_from(case.xdg.map(OsString::from), case.home.map(OsString::from)),
                 case.expect.map(PathBuf::from),
                 "{}",
                 case.name
