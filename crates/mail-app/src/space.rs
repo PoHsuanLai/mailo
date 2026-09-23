@@ -10,6 +10,7 @@ use crate::view::Theme;
 use mail_domain::AccountId;
 use serde::de::Deserializer;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::Path;
 
 const FILE_NAME: &str = "spaces.json";
@@ -70,6 +71,39 @@ pub struct Space {
     pub scope: Scope,
     /// People and saved searches that stay put.
     pub pins: Vec<Pinned>,
+    /// Each account's avatar colour, stored so three blue providers do not look alike.
+    ///
+    /// Missing entries take [`AVATAR`] in order. The colour is the account's, not the provider's.
+    pub colors: BTreeMap<AccountId, String>,
+}
+
+/// Avatar colours, taken in order when a Space has not chosen one for an account.
+pub const AVATAR: &[&str] = &[
+    "#5B4FC4", "#2F7F6E", "#B0662E", "#3C8A5B", "#7A4A9E", "#C0782E", "#2E7F8C", "#6D7A3A",
+];
+
+/// The colour `id` wears in `space`, or the preset at `index` when none was stored.
+pub fn avatar_color(space: &Space, id: AccountId, index: usize) -> String {
+    space
+        .colors
+        .get(&id)
+        .cloned()
+        .unwrap_or_else(|| AVATAR[index % AVATAR.len()].to_owned())
+}
+
+/// Fill any account that has no colour yet. Returns whether the Space changed.
+pub fn ensure_colors(space: &mut Space, accounts: &[AccountId]) -> bool {
+    let mut changed = false;
+    for (index, id) in accounts.iter().enumerate() {
+        if space.colors.contains_key(id) {
+            continue;
+        }
+        space
+            .colors
+            .insert(*id, AVATAR[index % AVATAR.len()].to_owned());
+        changed = true;
+    }
+    changed
 }
 
 impl Default for Space {
@@ -82,7 +116,15 @@ impl Default for Space {
             card_accent: CardAccent::default(),
             scope: Scope::default(),
             pins: Vec::new(),
+            colors: BTreeMap::new(),
         }
+    }
+}
+
+impl Spaces {
+    /// The Space on screen, or a blank one when the file held none.
+    pub fn current_space(&self) -> Space {
+        self.spaces.get(self.current).cloned().unwrap_or_default()
     }
 }
 
@@ -114,6 +156,8 @@ struct SpaceRaw {
     scope: Scope,
     #[serde(default)]
     pins: Vec<Pinned>,
+    #[serde(default)]
+    colors: BTreeMap<AccountId, String>,
 }
 
 #[derive(Deserialize)]
@@ -153,6 +197,7 @@ impl From<SpaceRaw> for Space {
             card_accent: raw.card_accent,
             scope: raw.scope,
             pins: raw.pins,
+            colors: raw.colors,
         }
     }
 }

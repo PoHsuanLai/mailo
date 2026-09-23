@@ -95,46 +95,37 @@ pub fn pending_snooze() -> Filter {
 }
 
 pub fn default_places() -> Vec<Place> {
-    let mut places: Vec<Place> = [
-        ("Inbox", MailboxRole::Inbox),
-        ("Archive", MailboxRole::Archive),
-        ("Sent", MailboxRole::Sent),
-        ("Drafts", MailboxRole::Drafts),
-        ("Spam", MailboxRole::Spam),
-        ("Trash", MailboxRole::Trash),
-    ]
-    .into_iter()
-    .map(|(name, role)| Place {
-        name: name.to_owned(),
-        source: source_for(role),
-        unread: None,
-    })
-    .collect();
-    // After Drafts, where a conversation that was put off is looked for: with the other places
-    // that hold mail rather than at the end beside Trash.
-    let at = places
-        .iter()
-        .position(|p| p.name == "Drafts")
-        .map_or(places.len(), |i| i + 1);
-    places.insert(
-        at,
-        Place {
-            name: "Pinned".to_owned(),
-            source: Source::Mail(Filter::Pinned),
-            unread: None,
-        },
-    );
-    places.insert(
-        at,
-        Place {
-            name: "Snoozed".to_owned(),
+    // Starred sits with the places that ask "what is this mail", ahead of the folders.
+    // Snoozed stays with them: a conversation that was put off is looked for there, not beside
+    // Trash. Pinned threads stay a place of their own, distinct from a Space's pinned people.
+    [
+        ("Inbox", source_for(MailboxRole::Inbox)),
+        ("Starred", Source::Mail(Filter::Starred(Star::Starred))),
+        (
+            "Snoozed",
             // Only the ones still away. A due thread is back in the inbox, and showing it here
             // as well would make "snoozed" mean two different things in two places.
-            source: Source::Mail(pending_snooze()),
-            unread: None,
-        },
-    );
-    places
+            Source::Mail(pending_snooze()),
+        ),
+        ("Archive", source_for(MailboxRole::Archive)),
+        ("Sent", source_for(MailboxRole::Sent)),
+        ("Drafts", source_for(MailboxRole::Drafts)),
+        ("Spam", source_for(MailboxRole::Spam)),
+        ("Trash", source_for(MailboxRole::Trash)),
+        ("Pinned", Source::Mail(Filter::Pinned)),
+    ]
+    .into_iter()
+    .map(|(name, source)| Place {
+        name: name.to_owned(),
+        source,
+        unread: None,
+    })
+    .collect()
+}
+
+/// A place that lists one label, as opposed to a mailbox.
+pub fn is_label_place(place: &Place) -> bool {
+    matches!(place.source, Source::Mail(Filter::HasLabel(_)))
 }
 
 /// What a place's badge counts, or `None` when it has no badge.
@@ -445,6 +436,10 @@ pub struct Shell {
     /// Remembered in the config directory, not in the mail database; a shell built with no
     /// stored choice is [`Appearance::default`].
     pub appearance: Appearance,
+    /// The account tile that is pressed. `None` is every account in [`Self::scope`].
+    pub account: Option<AccountId>,
+    /// Accounts the current Space shows. Empty means every account.
+    pub scope: Vec<AccountId>,
 }
 
 /// A message being edited, as the widgets hold it.
@@ -643,6 +638,8 @@ impl Default for Shell {
             accounts: Vec::new(),
             labels: Vec::new(),
             appearance: Appearance::default(),
+            account: None,
+            scope: Vec::new(),
         }
     }
 }
@@ -666,6 +663,7 @@ impl Shell {
         } else {
             crate::query::parse_with(needle, &chrono::Local, &crate::query::named(&self.labels))
         };
+        let filter = self.with_account(filter);
         Query {
             filter,
             sort: Sort {
@@ -691,6 +689,28 @@ impl Shell {
             return Listing::Drafts;
         }
         Listing::Threads(self.query(limit))
+    }
+
+    /// Narrow `filter` to the pressed account tile, or to the Space when it names accounts.
+    ///
+    /// A tile wins over the Space: pressing one account inside a Space of three shows that
+    /// account. No tile and an empty scope leave the filter alone, which is every account.
+    fn with_account(&self, filter: Filter) -> Filter {
+        let account = if let Some(id) = self.account {
+            Some(Filter::Account(id))
+        } else {
+            match self.scope.as_slice() {
+                [] => None,
+                [id] => Some(Filter::Account(*id)),
+                ids => Some(Filter::Or(
+                    ids.iter().copied().map(Filter::Account).collect(),
+                )),
+            }
+        };
+        match account {
+            Some(account) => Filter::And(vec![account, filter]),
+            None => filter,
+        }
     }
 
     /// Select a place, and drop any open thread that no longer belongs to the new list.
@@ -1227,7 +1247,12 @@ mod tests {
     #[test]
     fn an_empty_search_box_falls_back_to_the_place() {
         let mut shell = Shell::default();
-        shell.select(2);
+        let sent = shell
+            .places
+            .iter()
+            .position(|place| place.name == "Sent")
+            .expect("there is a Sent place");
+        shell.select(sent);
         shell.search = "   ".to_owned();
         assert_eq!(shell.query(20).filter, Filter::InMailbox(MailboxRole::Sent));
     }

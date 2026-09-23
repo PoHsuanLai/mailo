@@ -182,3 +182,75 @@ pub(super) const KEY: &[Shape] = &[
         r: "5.5",
     },
 ];
+
+pub(super) const FILE_PEN: &[Shape] = &[
+    Shape::Path(
+        "M12.659 22H18a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v9.34",
+    ),
+    Shape::Path("M14 2v5a1 1 0 0 0 1 1h5"),
+    Shape::Path(
+        "M10.378 12.622a1 1 0 0 1 3 3.003L8.36 20.637a2 2 0 0 1-.854.506l-2.867.837a.5.5 0 0 1-.62-.62l.836-2.869a2 2 0 0 1 .506-.853z",
+    ),
+];
+
+pub(super) const OCTAGON_ALERT: &[Shape] = &[
+    Shape::Path("M12 16h.01"),
+    Shape::Path("M12 8v4"),
+    Shape::Path(
+        "M15.312 2a2 2 0 0 1 1.414.586l4.688 4.688A2 2 0 0 1 22 8.688v6.624a2 2 0 0 1-.586 1.414l-4.688 4.688a2 2 0 0 1-1.414.586H8.688a2 2 0 0 1-1.414-.586l-4.688-4.688A2 2 0 0 1 2 15.312V8.688a2 2 0 0 1 .586-1.414l4.688-4.688A2 2 0 0 1 8.688 2z",
+    ),
+];
+
+pub(super) const PIN: &[Shape] = &[
+    Shape::Path("M12 17v5"),
+    Shape::Path(
+        "M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z",
+    ),
+];
+
+pub(super) const REPLY: &[Shape] = &[
+    Shape::Path("M20 18v-2a4 4 0 0 0-4-4H4"),
+    Shape::Path("m9 17-5-5 5-5"),
+];
+
+pub(super) const REPLY_ALL: &[Shape] = &[
+    Shape::Path("m12 17-5-5 5-5"),
+    Shape::Path("M22 18v-2a4 4 0 0 0-4-4H7"),
+    Shape::Path("m7 17-5-5 5-5"),
+];
+
+pub(super) const FORWARD: &[Shape] = &[
+    Shape::Path("m15 17 5-5-5-5"),
+    Shape::Path("M4 18v-2a4 4 0 0 1 4-4h12"),
+];
+
+pub(super) const SEARCH: &[Shape] = &[
+    Shape::Path("m21 21-4.34-4.34"),
+    Shape::Circle {
+        cx: "11",
+        cy: "11",
+        r: "8",
+    },
+];
+
+pub(super) const SETTINGS: &[Shape] = &[
+    Shape::Path(
+        "M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915",
+    ),
+    Shape::Circle {
+        cx: "12",
+        cy: "12",
+        r: "3",
+    },
+];
+
+pub(super) const PANEL_LEFT: &[Shape] = &[
+    Shape::Rect {
+        x: "3",
+        y: "3",
+        width: "18",
+        height: "18",
+        rx: "2",
+    },
+    Shape::Path("M9 3v18"),
+];

@@ -2,6 +2,7 @@ use super::{CardAccent, PRESETS, Pinned, Scope, Space, Spaces, load, save};
 use crate::palette::Dot;
 use crate::view::Theme;
 use mail_domain::AccountId;
+use std::collections::BTreeMap;
 use std::path::Path;
 use uuid::Uuid;
 
@@ -68,6 +69,7 @@ fn spaces_round_trip() {
                                 query: "is:unread".to_owned(),
                             },
                         ],
+                        colors: BTreeMap::new(),
                     },
                     Space {
                         name: "Home".to_owned(),
@@ -77,6 +79,7 @@ fn spaces_round_trip() {
                         card_accent: CardAccent::Hint,
                         scope: Scope::Accounts(vec![home]),
                         pins: Vec::new(),
+                        colors: BTreeMap::new(),
                     },
                 ],
             },

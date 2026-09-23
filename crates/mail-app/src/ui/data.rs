@@ -76,6 +76,61 @@ pub(super) fn warm_the_first_screenful(store: &SqliteStore) -> usize {
     warmed
 }
 
+/// One account as the sidebar draws it: the id, the address, and the plan the provider comes from.
+#[derive(Clone, PartialEq, Eq)]
+pub(super) struct AccountRow {
+    pub id: AccountId,
+    pub address: String,
+    pub plan: AccountPlan,
+}
+
+/// Every account, oldest first. A plan that does not parse becomes a plain IMAP account so the
+/// tile still has a host to name; `'{}'` is what the oldest fixtures wrote.
+pub(super) fn account_rows(store: &SqliteStore) -> Vec<AccountRow> {
+    let db = store.connection();
+    let Ok(mut stmt) = db.prepare("SELECT id, address, plan FROM accounts ORDER BY created_at")
+    else {
+        return Vec::new();
+    };
+    let Ok(rows) = stmt.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+        ))
+    }) else {
+        return Vec::new();
+    };
+    rows.filter_map(|row| row.ok())
+        .filter_map(|(id, address, plan)| {
+            let id = AccountId::from_uuid(id.parse().ok()?);
+            let plan = serde_json::from_str(&plan).unwrap_or_else(|_| fallback_plan(&address));
+            Some(AccountRow { id, address, plan })
+        })
+        .collect()
+}
+
+fn fallback_plan(address: &str) -> AccountPlan {
+    AccountPlan {
+        address: address.to_owned(),
+        incoming: Incoming::Imap {
+            host: "imap.example".to_owned(),
+            port: 993,
+            tls: Tls::Implicit,
+        },
+        outgoing: Outgoing::Smtp {
+            host: "smtp.example".to_owned(),
+            port: 465,
+            tls: Tls::Implicit,
+        },
+        auth: AuthPlan::Password {
+            username: Username::SameAsAddress,
+            sasl: vec![SaslMech::Plain],
+        },
+        identities: Vec::new(),
+    }
+}
+
 /// Every configured account, for the places that are not scoped to one.
 pub(super) fn accounts(store: &SqliteStore) -> Vec<AccountId> {
     let db = store.connection();

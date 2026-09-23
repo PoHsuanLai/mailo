@@ -7,6 +7,7 @@
 mod app;
 mod composer;
 mod data;
+mod frame;
 mod icon;
 mod launch;
 mod list;
@@ -20,5 +21,7 @@ mod text;
 
 #[cfg(test)]
 mod fixtures;
+#[cfg(test)]
+mod shell_tests;
 
 pub use launch::run;

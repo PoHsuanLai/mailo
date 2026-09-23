@@ -114,7 +114,8 @@ mod tests {
         #[tokio::test]
         async fn the_rows_offer_a_way_to_snooze() {
             let (store, _dir) = realistic();
-            assert!(markup(store).contains(">Snooze<"));
+            // The strip is an icon. The name is the accessible label; the fly says when.
+            assert!(markup(store).contains("aria-label=\"Snooze\""));
         }
 
         #[test]

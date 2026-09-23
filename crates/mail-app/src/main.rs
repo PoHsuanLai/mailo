@@ -5,22 +5,15 @@ mod appearance;
 mod attach;
 mod cli;
 mod compose;
-// used from F2 (the frame shell); remove when the first caller lands
-#[allow(dead_code)]
 mod contrast;
 mod ipc;
-// used from F2 (the frame shell); remove when the first caller lands
-#[allow(dead_code)]
 mod palette;
+mod provider;
 mod query;
 mod reader;
 mod snooze;
-// used from F2 (the frame shell); remove when the first caller lands
-#[allow(dead_code)]
 mod space;
 mod sync;
-// used from F2 (the frame shell); remove when the first caller lands
-#[allow(dead_code)]
 mod today;
 mod ui;
 mod view;
@@ -250,13 +243,43 @@ fn main() {
             }
         },
         None => {
-            let look = appearance::config_dir()
-                .as_deref()
-                .map(appearance::load)
-                .unwrap_or_default();
-            ui::run(store, look);
+            let config = appearance::config_dir();
+            let look = config.as_deref().map(appearance::load).unwrap_or_default();
+            let ids = account_ids(&store);
+            let spaces = match &config {
+                Some(dir) => {
+                    let loaded = space::load(dir);
+                    if loaded.spaces.is_empty() {
+                        let made = space::first_run(&ids);
+                        let _ = space::save(dir, &made);
+                        made
+                    } else {
+                        loaded
+                    }
+                }
+                None => space::first_run(&ids),
+            };
+            let dirs = config.and_then(|config| {
+                appearance::state_dir().map(|state| appearance::WindowDirs { config, state })
+            });
+            ui::run(store, look, spaces, dirs);
         }
     }
+}
+
+/// Account ids in the order they were added, for the first-run Spaces.
+fn account_ids(store: &SqliteStore) -> Vec<mail_domain::AccountId> {
+    let db = store.connection();
+    let Ok(mut stmt) = db.prepare("SELECT id FROM accounts ORDER BY created_at") else {
+        return Vec::new();
+    };
+    let Ok(rows) = stmt.query_map([], |row| row.get::<_, String>(0)) else {
+        return Vec::new();
+    };
+    rows.filter_map(|row| row.ok())
+        .filter_map(|id| id.parse().ok())
+        .map(mail_domain::AccountId::from_uuid)
+        .collect()
 }
 
 struct Paths {

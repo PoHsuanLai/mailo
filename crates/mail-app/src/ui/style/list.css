@@ -1,18 +1,97 @@
-.list { overflow-y: auto; border-right: 1px solid var(--line); background: var(--surface); min-height: 0; }
-.search { width: 100%; padding: 10px 12px; border: 0; border-bottom: 1px solid var(--line); background: var(--surface); color: var(--ink); font: inherit; }
-.search::placeholder { color: var(--ink-faint); }
-.row { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 13fr) auto; gap: 10px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--line); cursor: pointer; position: relative; }
-.row:hover { background: var(--raise); }
-/* Inset, so the unread mark costs no layout. */
-.row.unread { box-shadow: inset 3px 0 0 var(--accent); }
-.row.unread .subject, .row.unread .who { font-weight: 600; }
-.who, .subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.when { color: var(--ink-soft); font-variant-numeric: tabular-nums; }
-.hover { display: none; position: absolute; right: 8px; gap: 4px; }
-.row:hover .hover { display: flex; }
-.hover button { font: inherit; font-size: 12px; padding: 2px 8px; border: 1px solid var(--line); border-radius: var(--r-pill); background: var(--surface); color: var(--ink-soft); cursor: pointer; }
-.hover button:hover { background: var(--accent-soft); color: var(--ink); }
-/* The first-run message names a command, which has to survive its own line breaks. */
-.empty { padding: 12px 12px 0; margin: 0; }
-.command { margin: 6px 12px 0; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--r-card); background: var(--surface-2); color: var(--ink); font: 12px/1.5 var(--font-data); white-space: pre-wrap; overflow-wrap: anywhere; }
-.more { display: block; width: calc(100% - 24px); margin: 10px 12px; padding: 8px; font: inherit; border: 1px solid var(--line); border-radius: var(--r-card); background: var(--surface); color: var(--ink); cursor: pointer; }
+/* The list inside the card: the bar is in shell.css, the rows are here. */
+label.search {
+  display: flex; align-items: center; gap: 8px; padding: 8px 14px;
+  border-bottom: 1px solid var(--line-soft); color: var(--ink-faint);
+}
+label.search .ic { width: 15px; height: 15px; }
+input.search, label.search input {
+  font: inherit; font-size: 14.5px; border: 0; outline: none; background: transparent;
+  color: var(--ink); width: 100%;
+}
+input.search::placeholder, label.search input::placeholder { color: var(--ink-faint); }
+/* Rows are the mockup's: each a small card on the paper, lifted on hover. */
+.list { list-style: none; margin: 0; padding: 8px; overflow-y: auto; flex: 1; min-height: 0; }
+.list.entering .row { animation: rise var(--t-move) var(--e-out) backwards; animation-delay: calc(var(--i, 0) * var(--stagger)); }
+.row {
+  position: relative; display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: 10px; align-items: start;
+  padding: 10px 11px; margin-bottom: 5px; border-radius: var(--r-card); background: var(--surface);
+  border: 1px solid transparent; cursor: pointer; user-select: none;
+  transition: transform var(--t-quick) var(--e-out), box-shadow var(--t-quick) var(--e-out),
+              background-color var(--t-quick) var(--e-out), border-color var(--t-quick) var(--e-out);
+}
+.row:hover { transform: translateY(var(--lift)); box-shadow: var(--shadow-2); border-color: var(--line); }
+.row[aria-selected="true"] { background: var(--raise); border-color: var(--accent); box-shadow: var(--shadow-1); }
+.row-dot { padding-top: 6px; }
+.dot {
+  display: block; width: 8px; height: 8px; border-radius: 999px; background: var(--accent);
+  transition: transform var(--t-quick) var(--e-spring), opacity var(--t-quick) var(--e-out);
+}
+.row[data-read="read"] .dot { transform: scale(0) translateX(-6px); opacity: 0; }
+.row-main { min-width: 0; }
+.row-from { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
+.nm { font-weight: 700; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row[data-read="read"] .nm { font-weight: 500; color: var(--ink-soft); }
+.via { display: inline-flex; align-items: center; font-family: var(--font-data); font-size: 9.5px; color: var(--ink-faint); flex: none; }
+.row-sub { font-size: 13.5px; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row[data-read="unread"] .row-sub { font-weight: 600; }
+.row-snip { font-size: 12.5px; color: var(--ink-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row-tail { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; }
+.row-time { font-family: var(--font-data); font-size: 10px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+.chips { display: flex; gap: 4px; align-items: center; }
+.chip {
+  font-family: var(--font-data); font-size: 9.5px; padding: 1.5px 7px; border-radius: var(--r-chip);
+  background: var(--accent-soft); color: var(--ink); white-space: nowrap;
+}
+.clip { display: inline-flex; align-items: center; gap: 2px; font-family: var(--font-data); font-size: 9.5px; color: var(--ink-faint); }
+.clip .ic { width: 11px; height: 11px; }
+/* The star sits in the dot column, under the dot, and shows on hover or when on. */
+.star {
+  position: absolute; left: 6px; bottom: 7px; width: 22px; height: 22px; border: 0; padding: 0; background: transparent;
+  cursor: pointer; display: grid; place-items: center; opacity: 0; transition: opacity var(--t-quick) var(--e-out);
+}
+.row:hover .star, .star[data-on="true"], .star:focus-visible { opacity: 1; }
+.star .ic { width: 14px; height: 14px; stroke: var(--ink-faint); transition: stroke var(--t-quick) var(--e-out), fill var(--t-quick) var(--e-out); }
+.star[data-on="true"] .ic { stroke: var(--warn); fill: var(--warn); }
+.star.pop .ic { animation: star-pop var(--t-big) var(--e-spring); }
+.sparks { position: absolute; inset: 0; pointer-events: none; }
+.sparks i { position: absolute; left: 50%; top: 50%; width: 3px; height: 3px; border-radius: 999px; background: var(--warn); opacity: 0; }
+.sparks.go i { animation: spark 520ms var(--e-out) forwards; }
+/* The strip is display-toggled by CSS alone, so it works without a re-render. */
+.strip {
+  position: absolute; right: 8px; top: 50%; transform: translateY(-50%); display: none; gap: 3px; padding: 3px;
+  border-radius: 999px; background: var(--raise); border: 1px solid var(--line); box-shadow: var(--shadow-2);
+}
+.row:hover .strip, .row:focus-within .strip { display: flex; }
+.strip button {
+  position: relative; width: 26px; height: 26px; border: 0; border-radius: 999px; background: transparent; cursor: pointer;
+  display: grid; place-items: center; padding: 0; color: var(--ink-soft); transform: scale(.7); opacity: 0;
+  transition: background-color var(--t-quick) var(--e-out), color var(--t-quick) var(--e-out);
+}
+.row:hover .strip button, .row:focus-within .strip button {
+  animation: pop-in var(--t-move) var(--e-spring) forwards; animation-delay: calc(var(--j, 0) * var(--stagger));
+}
+.strip button:hover { background: var(--accent-soft); color: var(--ink); }
+.strip button:active { transform: scale(.88) !important; }
+.strip .ic { width: 14px; height: 14px; }
+.strip .fly {
+  position: absolute; bottom: calc(100% + 7px); left: 50%; transform: translateX(-50%) translateY(3px); white-space: nowrap;
+  background: var(--ink); color: var(--paper); font-family: var(--font-data); font-size: 10px; padding: 3px 7px; border-radius: 6px;
+  opacity: 0; pointer-events: none;
+  transition: opacity var(--t-quick) var(--e-out) 0ms, transform var(--t-quick) var(--e-spring) 0ms;
+}
+.strip button:hover .fly { opacity: 1; transform: translateX(-50%) translateY(0); transition-delay: var(--fly-delay, 350ms); }
+.row.is-entering { animation: row-in var(--t-move) var(--e-out); }
+.row.is-going { animation: row-in var(--t-quick) var(--e-exit) reverse forwards; }
+.chip.is-landing { animation: chip-land var(--t-quick) var(--e-spring); }
+.item.gulp, .view.is-gulping { animation: gulp var(--t-quick) var(--e-spring); }
+li.empty {
+  list-style: none; padding: 28px 16px; text-align: center; color: var(--ink-soft);
+}
+li.empty > p:first-child { font-family: var(--font-display); font-size: 16px; }
+li.empty p.mono { margin-top: 4px; color: var(--ink-faint); }
+.command {
+  margin: 8px auto 0; max-width: 36ch; padding: 6px 8px; border: 1px solid var(--line);
+  border-radius: var(--r-panel); background: var(--surface-2); color: var(--ink);
+  font: 12px/1.5 var(--font-data); white-space: pre-wrap; overflow-wrap: anywhere; text-align: left;
+}
+.list-col > .mini { align-self: center; margin: 10px; }

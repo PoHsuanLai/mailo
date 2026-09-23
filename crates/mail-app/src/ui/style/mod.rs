@@ -47,6 +47,7 @@ pub(super) const STYLE: &str = concat!(
     include_str!("reader.css"),
     include_str!("composer.css"),
     include_str!("controls.css"),
+    include_str!("motion.css"),
 );
 
 #[cfg(test)]
@@ -346,10 +347,16 @@ mod tests {
             .get("grid-template-columns")
             .map(String::as_str)
             .unwrap_or("");
+        // The mockup's row is the unread dot, one flexible text track, and the time.
+        // Sender and subject stack inside `.row-main`, so the old second `minmax` track is gone.
         assert_eq!(
             row_columns.matches("minmax(0,").count(),
-            2,
-            ".row grid-template-columns is {row_columns:?}; without both minmax(0, …) tracks the grid overflows the window",
+            1,
+            ".row grid-template-columns is {row_columns:?}; the text track has to be minmax(0, …) or the grid overflows the window",
+        );
+        assert!(
+            row_columns.contains("minmax(0, 1fr)"),
+            ".row grid-template-columns is {row_columns:?}"
         );
         let position = row.get("position").map(String::as_str);
         assert_eq!(
@@ -638,7 +645,79 @@ mod tests {
     /// Custom properties a component sets on one element (from markup, per row or per spark),
     /// so they are never on `:root`. Each rule that reads one gives it a fallback or is only
     /// reached with it set.
-    const PER_ELEMENT: &[&str] = &["--i", "--a", "--d", "--dy"];
+    const PER_ELEMENT: &[&str] = &["--i", "--a", "--d", "--dy", "--j", "--pc"];
+
+    /// Class tokens in `html`, and the class selectors `css` actually defines.
+    fn unstyled_classes(html: &str, css: &str) -> Vec<String> {
+        let mut used = BTreeSet::new();
+        let mut rest = html;
+        while let Some(at) = rest.find("class=\"") {
+            rest = &rest[at + "class=\"".len()..];
+            let Some(end) = rest.find('"') else { break };
+            for token in rest[..end].split_whitespace() {
+                if !token.is_empty() {
+                    used.insert(token.to_owned());
+                }
+            }
+            rest = &rest[end..];
+        }
+        let mut styled = BTreeSet::new();
+        let chars: Vec<char> = strip_comments(css).chars().collect();
+        let mut index = 0;
+        while index < chars.len() {
+            // `.pin.acct` is two class selectors. A dot followed by a letter is one;
+            // a dot followed by a digit is a number (`0.5`), not a class.
+            if chars[index] == '.'
+                && chars
+                    .get(index + 1)
+                    .is_some_and(|next| next.is_ascii_alphabetic() || *next == '_' || *next == '-')
+            {
+                let start = index + 1;
+                let mut end = start;
+                while end < chars.len()
+                    && (chars[end].is_ascii_alphanumeric()
+                        || chars[end] == '-'
+                        || chars[end] == '_')
+                {
+                    end += 1;
+                }
+                if end > start {
+                    styled.insert(chars[start..end].iter().collect::<String>());
+                }
+                index = end;
+            } else {
+                index += 1;
+            }
+        }
+        used.difference(&styled).cloned().collect()
+    }
+
+    #[test]
+    fn every_class_on_the_frame_is_styled() {
+        use crate::ui::app::App;
+        use crate::ui::fixtures::work;
+        use dioxus::prelude::*;
+        let built = work();
+        let mut dom = VirtualDom::new(App)
+            .with_root_context(built.store)
+            .with_root_context(built.dirs);
+        dom.rebuild_in_place();
+        let page = dioxus_ssr::render(&dom);
+        let missing = unstyled_classes(&page, STYLE);
+        assert!(missing.is_empty(), "unstyled classes: {missing:?}");
+    }
+
+    #[test]
+    fn a_class_with_no_rule_is_named() {
+        // The failure is the class name. A stylesheet that merely exists would pass a
+        // test that only asked "is there CSS".
+        let missing = unstyled_classes("<div class=\"zz-missing\"></div>", STYLE);
+        assert_eq!(
+            missing,
+            vec!["zz-missing".to_owned()],
+            "unstyled classes: {missing:?}"
+        );
+    }
 
     #[test]
     fn every_var_is_declared() {

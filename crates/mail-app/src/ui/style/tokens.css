@@ -92,6 +92,49 @@
   --swatch-indigo: #3A3D96;
   --swatch-oxblood: #8E2F31;
   --swatch-vermilion: #C0402A;
+
+  /* The frame, before a Space's script runs. Light is declared here, on bare :root;
+     a token that existed only inside the media block below would be missing whenever
+     the desktop is light. The -d copies are the dark pair the media query switches to. */
+  --f-ink-l: #1b1b22;
+  --f-ink-soft-l: #44444f;
+  --f-ink-faint-l: #5d5d6a;
+  --f-pill-l: rgba(255, 255, 255, 0.58);
+  --f-hover-l: rgba(255, 255, 255, 0.34);
+  --f-line-l: rgba(0, 0, 0, 0.08);
+  --f-solid-l: #f4ebe5;
+  --f-grad-l: linear-gradient(135deg, #f4ebe5, #f4ebe5);
+  --f-grain-l: 0.07;
+  --f-accent-l: #23508F;
+  --f-accent-soft-l: #DCE5F3;
+  --f-accent-ink-l: #F4F8FF;
+  --f-ink-d: #d7e8e3;
+  --f-ink-soft-d: #b7c7c2;
+  --f-ink-faint-d: #8aa099;
+  --f-pill-d: rgba(255, 255, 255, 0.1);
+  --f-hover-d: rgba(255, 255, 255, 0.06);
+  --f-line-d: rgba(255, 255, 255, 0.09);
+  --f-solid-d: #001e15;
+  --f-grad-d: linear-gradient(135deg, #001e15, #001e15);
+  --f-grain-d: 0.056;
+  --f-accent-d: #7FA6E6;
+  --f-accent-soft-d: #1E2A44;
+  --f-accent-ink-d: #0B142A;
+  --f-ink: var(--f-ink-l);
+  --f-ink-soft: var(--f-ink-soft-l);
+  --f-ink-faint: var(--f-ink-faint-l);
+  --f-pill: var(--f-pill-l);
+  --f-hover: var(--f-hover-l);
+  --f-pill-hover: var(--f-hover);
+  --f-line: var(--f-line-l);
+  --f-solid: var(--f-solid-l);
+  --f-grad: var(--f-grad-l);
+  --f-grain: var(--f-grain-l);
+  --f-inset: rgba(255, 255, 255, 0.4);
+  --f-shadow-pill: 0 1px 0 var(--f-inset) inset, 0 2px 6px -3px rgba(0, 0, 0, 0.25);
+  --f-card-shadow: 0 0 0 1px rgba(0, 0, 0, 0.06), 0 10px 30px -14px rgba(0, 0, 0, 0.45);
+  --prov-paper: #FFFFFF;
+  --fly-delay: 350ms;
 }
 
 :root[data-theme="light"] { color-scheme: light; }
@@ -115,4 +158,20 @@
   --stagger: 34ms;
   --e-spring: cubic-bezier(0.34, 2, 0.5, 1);
   --t-big: 560ms;
+}
+
+/* System theme: the desktop picks. Explicit Light or Dark set the unsuffixed tokens
+   inline, which beats this. The -d tokens are declared on bare :root above. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --f-ink: var(--f-ink-d);
+    --f-ink-soft: var(--f-ink-soft-d);
+    --f-ink-faint: var(--f-ink-faint-d);
+    --f-pill: var(--f-pill-d);
+    --f-hover: var(--f-hover-d);
+    --f-line: var(--f-line-d);
+    --f-solid: var(--f-solid-d);
+    --f-grad: var(--f-grad-d);
+    --f-grain: var(--f-grain-d);
+  }
 }

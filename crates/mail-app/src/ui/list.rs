@@ -4,10 +4,17 @@
 //! ask for another page. Split from [`super::app`] (`CONVENTIONS.md` §8). The queries stay in
 //! `App`; this reads the memos it is handed rather than cloning their answers in the parent.
 
+use super::data::account_rows;
+use super::icon::{Glyph, Icon};
+use super::ops::start_new;
 use super::row::{DraftRow, Row};
-use crate::view::{Nothing, Shell};
+use crate::provider::provider;
+use crate::view::{Nothing, Shell, SyncState, synced};
 use dioxus::prelude::*;
 use mail_domain::*;
+use mail_store::SqliteStore;
+use std::collections::BTreeMap;
+use std::sync::Arc;
 
 /// The conversations and drafts for wherever the shell is looking.
 #[component]
@@ -20,41 +27,155 @@ pub(super) fn ThreadList(
     drafts: Memo<Vec<Draft>>,
     nothing: Memo<Nothing>,
     more: Memo<bool>,
+    sync_state: Signal<SyncState>,
+    entering: Signal<bool>,
 ) -> Element {
+    let rows = use_memo(move || {
+        let _ = revision();
+        let store = consume_context::<Arc<SqliteStore>>();
+        account_rows(&store)
+    });
+    let place = shell
+        .read()
+        .places
+        .get(shell.read().selected)
+        .map(|place| place.name.clone())
+        .unwrap_or_else(|| "Inbox".to_owned());
+    let address = shell.read().account.and_then(|id| {
+        shell
+            .read()
+            .accounts
+            .iter()
+            .find(|(_, account)| *account == id)
+            .map(|(address, _)| address.clone())
+            .or_else(|| {
+                rows()
+                    .iter()
+                    .find(|row| row.id == id)
+                    .map(|row| row.address.clone())
+            })
+    });
+    let names: BTreeMap<LabelId, String> = shell
+        .read()
+        .labels
+        .iter()
+        .map(|(name, id)| (*id, name.clone()))
+        .collect();
+    let inbox = place == "Inbox" && shell.read().search.trim().is_empty();
+    let note = sync_state.read().message().map(|text| text.to_owned());
+    let bad = sync_state.read().is_failure();
     rsx! {
-        section { class: "list",
-            input {
-                class: "search",
-                placeholder: "Search all mail",
-                onfocusin: move |_| in_a_field.set(true),
-                onfocusout: move |_| in_a_field.set(false),
-                value: "{shell.read().search}",
-                oninput: move |e| {
-                    shell.write().search = e.value();
-                    pages.set(1);
-                },
-            }
-            if threads().is_empty() && drafts().is_empty() {
-                p { class: "empty", "{nothing().message()}" }
-                if let Some(command) = nothing().command() {
-                    pre { class: "command", "{command}" }
+        div { class: "list-col",
+            div { class: "list-bar",
+                h2 {
+                    "{place}"
+                    if let Some(address) = address {
+                        span { class: "mono", "{address}" }
+                    }
+                }
+                if let Some(note) = note {
+                    span { class: if bad { "status bad" } else { "status" }, "{note}" }
+                }
+                div { class: "bar-tools",
+                    button {
+                        class: "mini",
+                        aria_label: "Sync now",
+                        disabled: !sync_state.read().may_start(),
+                        onclick: move |_| {
+                            if !sync_state.read().may_start() {
+                                return;
+                            }
+                            sync_state.set(SyncState::Running);
+                            let store = consume_context::<Arc<SqliteStore>>();
+                            spawn(async move {
+                                // `spawn_blocking`, not this task: sync::run opens sockets and
+                                // builds its own runtime, and `Runtime::block_on` inside an async
+                                // context panics.
+                                let done = tokio::task::spawn_blocking(move || {
+                                    crate::sync::run(store, chrono::Utc::now())
+                                })
+                                .await;
+                                sync_state.set(match done {
+                                    Ok(result) => synced(result.map(|ran| ran.text)),
+                                    Err(e) => synced(Err(format!("the sync pass stopped: {e}"))),
+                                });
+                                revision += 1;
+                            });
+                        },
+                        Glyph { icon: Icon::Refresh, class: None }
+                    }
+                    button {
+                        class: "mini",
+                        title: "Write a new message (c)",
+                        onclick: move |_| {
+                            let store = consume_context::<Arc<SqliteStore>>();
+                            let known = shell.peek().accounts.clone();
+                            match start_new(&store, &known) {
+                                Ok(draft) => {
+                                    shell.write().compose(&draft);
+                                    revision += 1;
+                                }
+                                Err(why) => eprintln!("compose: {why}"),
+                            }
+                        },
+                        Glyph { icon: Icon::Pen, class: None }
+                        "Compose"
+                    }
                 }
             }
-            for draft in drafts() {
-                {
-                    let id = draft.id;
-                    rsx! { DraftRow { key: "{id}", draft, shell } }
+            label { class: "search",
+                Glyph { icon: Icon::Search, class: None }
+                input {
+                    class: "search",
+                    placeholder: "Search all mail",
+                    onfocusin: move |_| in_a_field.set(true),
+                    onfocusout: move |_| in_a_field.set(false),
+                    value: "{shell.read().search}",
+                    oninput: move |e| {
+                        shell.write().search = e.value();
+                        pages.set(1);
+                    },
                 }
             }
-            for summary in threads() {
-                {
-                    let id = summary.id;
-                    rsx! { Row { key: "{id}", summary, shell, revision } }
+            ul {
+                class: if entering() { "list entering" } else { "list" },
+                onanimationend: move |_| entering.set(false),
+                if threads().is_empty() && drafts().is_empty() {
+                    li { class: "empty",
+                        p { "{nothing().message()}" }
+                        if nothing().command().is_none() && matches!(nothing(), Nothing::EmptyFolder) {
+                            p { class: "mono", if inbox { "inbox zero" } else { "empty" } }
+                        }
+                        if let Some(command) = nothing().command() {
+                            pre { class: "command", "{command}" }
+                        }
+                    }
+                }
+                for (index, draft) in drafts().into_iter().enumerate() {
+                    {
+                        let id = draft.id;
+                        rsx! { DraftRow { key: "{id}", draft, shell, index } }
+                    }
+                }
+                for (index, summary) in threads().into_iter().enumerate() {
+                    {
+                        let id = summary.id;
+                        let via = rows()
+                            .iter()
+                            .find(|row| row.id == summary.account)
+                            .map(|row| provider(&row.plan));
+                        let chips = summary
+                            .labels
+                            .iter()
+                            .filter_map(|id| names.get(id).cloned())
+                            .collect::<Vec<_>>();
+                        rsx! { Row { key: "{id}", summary, shell, revision, index, chips, via } }
+                    }
                 }
             }
             if more() {
                 button {
-                    class: "more",
+                    class: "mini",
                     onclick: move |_| pages += 1,
                     "Show more"
                 }
@@ -231,9 +352,9 @@ mod tests {
         /// in the markup, and `page.contains("hi")` is true of `white-space` and `this`. That is
         /// the substring rule in `CONVENTIONS.md`, caught here by a test of its own making.
         fn listed(page: &str) -> Vec<String> {
-            page.split(r#"<span class="subject">"#)
+            page.split(r#"<div class="row-sub">"#)
                 .skip(1)
-                .filter_map(|rest| rest.split_once("</span>"))
+                .filter_map(|rest| rest.split_once("</div>"))
                 .map(|(subject, _)| subject.to_owned())
                 .collect()
         }

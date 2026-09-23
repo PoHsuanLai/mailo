@@ -1,163 +1,171 @@
-//! The places down the side of the window.
+//! The sidebar on the Space's colour.
 //!
-//! Where a conversation can be, plus the two actions that are not about one conversation:
-//! writing a new message, and fetching mail. Split from [`super::app`] (`CONVENTIONS.md` §8).
-//! The hooks that feed the badges stay in `App`; this only reads the memo it is handed, so a
-//! keystroke in the search box does not recount them.
+//! Account tiles, places, labels, pinned people, Today, and the foot. Writing and
+//! fetching moved into the list bar; the look stays here, behind the gear.
 
+mod panes;
+mod today;
+
+use self::panes::{AccountTiles, PinnedList, PlaceList, counts};
+use self::today::TodayList;
+use super::icon::{Glyph, Icon};
 use super::launch::appearance_script;
-use super::ops::start_new;
-use crate::view::{Accent, Appearance, Motion, Shell, SyncState, Theme, synced};
+use crate::appearance::WindowDirs;
+use crate::space::Spaces;
+use crate::today::Today;
+use crate::view::{Accent, Appearance, Motion, Shell, Theme};
 use dioxus::prelude::*;
-use mail_store::SqliteStore;
-use std::sync::Arc;
+use mail_domain::ThreadId;
 
 /// Show `look` now, and remember it when a config directory exists.
 ///
-/// A file that cannot be written changes nothing the user can see: the window already
-/// wears `look`, and a cosmetic miss is not a reason to unwind the click.
-fn choose(mut shell: Signal<Shell>, look: Appearance) {
+/// The frame tokens are stamped in the same script, so a theme click repaints the
+/// Space rather than only the card. A file that cannot be written changes nothing
+/// the user can see.
+fn choose(mut shell: Signal<Shell>, look: Appearance, space: &crate::space::Space) {
     shell.write().appearance = look;
-    dioxus::document::eval(&appearance_script(look));
+    dioxus::document::eval(&appearance_script(look, space));
     if let Some(dir) = crate::appearance::config_dir() {
         let _ = crate::appearance::save(&dir, look);
     }
 }
 
-/// The places a conversation can be, and the way to write or fetch.
+/// The coloured sidebar.
 #[component]
 pub(super) fn Places(
     shell: Signal<Shell>,
     pages: Signal<u32>,
     badges: Memo<Vec<Option<u64>>>,
     revision: Signal<u64>,
-    sync_state: Signal<SyncState>,
+    spaces: Signal<Spaces>,
+    today: Signal<Today>,
+    dirs: Option<WindowDirs>,
+    side_hidden: Signal<bool>,
+    just_added: Signal<Option<ThreadId>>,
 ) -> Element {
+    let space = spaces.read().current_space();
+    let counted = use_memo(move || {
+        let _ = revision();
+        let store = consume_context::<std::sync::Arc<mail_store::SqliteStore>>();
+        counts(&store, &spaces.read().current_space())
+    });
+    let mut open = use_signal(|| false);
+    let space_index = spaces.read().current;
+    let tiles = counted.read().clone();
     rsx! {
-        nav { class: "places",
-            for (index, place) in shell.read().places.iter().enumerate() {
+        nav { class: "side", aria_label: "Sidebar",
+            button {
+                class: "cmd",
+                onclick: move |_| {
+                    dioxus::document::eval("document.querySelector('input.search')?.focus()");
+                },
+                Glyph { icon: Icon::Search, class: None }
+                span { class: "t", "Search or run a command" }
+                span { class: "k", "Ctrl T" }
+            }
+            div { class: "slide",
+                AccountTiles { shell, pages, space: space.clone(), counted: tiles.clone() }
+                PlaceList { shell, pages, badges }
+                PinnedList { shell, pages, space: space.clone(), pins: tiles.pins.clone() }
+                TodayList { shell, today, space_index, dirs: dirs.clone(), just_added }
+            }
+            div { class: "side-foot",
+                span { class: "space-name", "{space.name}" }
+                for (index, one) in spaces.read().spaces.iter().enumerate() {
+                    {
+                        let grad = crate::palette::gradient(&crate::palette::derive(
+                            &one.dots,
+                            false,
+                        ));
+                        let name = one.name.clone();
+                        let current = index == space_index;
+                        rsx! {
+                            span {
+                                key: "{index}",
+                                class: "sp",
+                                aria_label: "{name} Space",
+                                aria_current: if current { "true" } else { "false" },
+                                style: "background:{grad}",
+                            }
+                        }
+                    }
+                }
                 button {
-                    key: "{place.name}",
-                    class: if index == shell.read().selected { "place on" } else { "place" },
-                    onclick: move |_| {
-                        shell.write().select(index);
-                        pages.set(1);
-                    },
-                    "{place.name}"
-                    if let Some(Some(count)) = badges().get(index).copied() {
-                        span { class: "badge", "{count}" }
-                    }
+                    class: "foot-btn",
+                    aria_label: "Appearance",
+                    aria_expanded: if open() { "true" } else { "false" },
+                    onclick: move |_| open.set(!open()),
+                    Glyph { icon: Icon::Settings, class: None }
                 }
-            }
-            button {
-                class: "place compose",
-                onclick: move |_| {
-                    let store = consume_context::<Arc<SqliteStore>>();
-                    let known = shell.peek().accounts.clone();
-                    match start_new(&store, &known) {
-                        Ok(draft) => {
-                            shell.write().compose(&draft);
-                            revision += 1;
-                        }
-                        Err(why) => eprintln!("compose: {why}"),
-                    }
-                },
-                title: "Write a new message (c)",
-                "New"
-            }
-            div { class: "spacer" }
-            div { class: "appearance",
-                div {
-                    class: "theme-choice",
-                    role: "group",
-                    aria_label: "Theme",
-                    for theme in [Theme::System, Theme::Light, Theme::Dark] {
-                        button {
-                            key: "{theme.label()}",
-                            aria_pressed: if shell.read().appearance.theme == theme { "true" } else { "false" },
-                            onclick: move |_| {
-                                let look = shell.read().appearance;
-                                choose(shell, Appearance { theme, ..look });
-                            },
-                            "{theme.label()}"
+                button {
+                    class: "foot-btn",
+                    aria_label: "Hide sidebar",
+                    onclick: move |_| side_hidden.set(!side_hidden()),
+                    Glyph { icon: Icon::PanelLeft, class: None }
+                }
+                div { class: if open() { "appearance open" } else { "appearance" },
+                    p { class: "seg-label", "Theme" }
+                    div {
+                        class: "theme-choice seg",
+                        role: "group",
+                        aria_label: "Theme",
+                        for theme in [Theme::System, Theme::Light, Theme::Dark] {
+                            button {
+                                key: "{theme.label()}",
+                                aria_pressed: if shell.read().appearance.theme == theme { "true" } else { "false" },
+                                onclick: move |_| {
+                                    let look = shell.read().appearance;
+                                    let space = spaces.read().current_space();
+                                    choose(shell, Appearance { theme, ..look }, &space);
+                                },
+                                "{theme.label()}"
+                            }
                         }
                     }
-                }
-                div {
-                    class: "motion-choice",
-                    role: "group",
-                    aria_label: "Motion",
-                    for motion in Motion::ALL {
-                        button {
-                            key: "{motion.slug()}",
-                            aria_pressed: if shell.read().appearance.motion == motion { "true" } else { "false" },
-                            onclick: move |_| {
-                                let look = shell.read().appearance;
-                                choose(shell, Appearance { motion, ..look });
-                            },
-                            "{motion.label()}"
+                    p { class: "seg-label", "Motion" }
+                    div {
+                        class: "motion-choice seg",
+                        role: "group",
+                        aria_label: "Motion",
+                        for motion in Motion::ALL {
+                            button {
+                                key: "{motion.slug()}",
+                                aria_pressed: if shell.read().appearance.motion == motion { "true" } else { "false" },
+                                onclick: move |_| {
+                                    let look = shell.read().appearance;
+                                    let space = spaces.read().current_space();
+                                    choose(shell, Appearance { motion, ..look }, &space);
+                                },
+                                "{motion.label()}"
+                            }
                         }
                     }
-                }
-                div {
-                    class: "accent-choice",
-                    role: "group",
-                    aria_label: "Decoration",
-                    for accent in Accent::ALL {
-                        button {
-                            key: "{accent.slug()}",
-                            class: "swatch",
-                            "data-hue": "{accent.slug()}",
-                            aria_label: "{accent.label()}",
-                            title: "{accent.label()}",
-                            aria_pressed: if shell.read().appearance.accent == accent { "true" } else { "false" },
-                            onclick: move |_| {
-                                let look = shell.read().appearance;
-                                choose(shell, Appearance { accent, ..look });
-                            },
+                    p { class: "seg-label", "Decoration" }
+                    div {
+                        class: "accent-choice",
+                        role: "group",
+                        aria_label: "Decoration",
+                        for accent in Accent::ALL {
+                            button {
+                                key: "{accent.slug()}",
+                                class: "swatch",
+                                "data-hue": "{accent.slug()}",
+                                aria_label: "{accent.label()}",
+                                title: "{accent.label()}",
+                                aria_pressed: if shell.read().appearance.accent == accent { "true" } else { "false" },
+                                onclick: move |_| {
+                                    let look = shell.read().appearance;
+                                    let space = spaces.read().current_space();
+                                    choose(shell, Appearance { accent, ..look }, &space);
+                                },
+                            }
                         }
                     }
-                }
-            }
-            button {
-                class: "place sync",
-                disabled: !sync_state.read().may_start(),
-                onclick: move |_| {
-                    if !sync_state.read().may_start() {
-                        return;
-                    }
-                    sync_state.set(SyncState::Running);
-                    let store = consume_context::<Arc<SqliteStore>>();
-                    spawn(async move {
-                        // `spawn_blocking`, not this task: sync::run opens sockets and
-                        // builds its own runtime, and `Runtime::block_on` inside an async
-                        // context panics. Off the UI thread either way — a pass takes
-                        // minutes on a first sync and would freeze the window.
-                        let done = tokio::task::spawn_blocking(move || {
-                            crate::sync::run(store, chrono::Utc::now())
-                        })
-                        .await;
-                        sync_state.set(match done {
-                            Ok(result) => synced(result.map(|ran| ran.text)),
-                            // The blocking task panicked. Saying so beats a window that
-                            // sits on "Syncing…" for ever.
-                            Err(e) => synced(Err(format!("the sync pass stopped: {e}"))),
-                        });
-                        revision += 1;
-                    });
-                },
-                if sync_state.read().may_start() { "Sync" } else { "Syncing…" }
-            }
-            if let Some(note) = sync_state.read().message() {
-                p {
-                    class: if sync_state.read().is_failure() { "sync-note bad" } else { "sync-note" },
-                    "{note}"
                 }
             }
         }
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::super::app::App;

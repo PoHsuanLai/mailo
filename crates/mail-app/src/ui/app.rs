@@ -1,12 +1,14 @@
 use super::composer::{self, Composer};
 use super::data::{PAGE, accounts, count_badges, list_for, warm_the_first_screenful};
+use super::frame;
 use super::list::ThreadList;
 use super::ops::{Composes, apply_op, start_composing, start_new};
 use super::reading::Reader;
 use super::sidebar::Places;
 use super::style::STYLE;
 use crate::view::{
-    Appearance, Listing, Shell, Shortcut, SyncState, badge_filter, nothing_to_show, synced,
+    Appearance, Listing, Place, Shell, Shortcut, Source, SyncState, badge_filter, is_label_place,
+    nothing_to_show, synced,
 };
 use dioxus::prelude::*;
 use mail_domain::*;
@@ -28,6 +30,36 @@ pub(super) fn App() -> Element {
     // Bumped after any write, to re-run the queries. Explicit rather than implicit so it is
     // obvious what causes a refresh.
     let mut revision = use_signal(|| 0u64);
+    let boot = use_hook(frame::load_boot);
+    let spaces = use_signal(|| boot.spaces.clone());
+    let mut today_list = use_signal(|| boot.today.clone());
+    let dirs = boot.dirs.clone();
+    let mut side_hidden = use_signal(|| false);
+    let mut entering = use_signal(|| true);
+    let mut just_added = use_signal(|| None::<mail_domain::ThreadId>);
+    let mut seen_open = use_signal(|| None::<mail_domain::ThreadId>);
+    let mut scoped = use_signal(|| false);
+    let mut label_ids = use_signal(Vec::<mail_domain::LabelId>::new);
+    // The first frame cannot wait for the effect below: a chip's name is a lookup, and a
+    // lookup against an empty list draws an empty chip.
+    use_hook(|| {
+        let store = consume_context::<Arc<SqliteStore>>();
+        let known = crate::query::known_labels(&store);
+        let ids: Vec<mail_domain::LabelId> = known.iter().map(|(_, id)| *id).collect();
+        label_ids.set(ids);
+        let mut places = crate::view::default_places();
+        for (name, id) in &known {
+            places.push(Place {
+                name: name.clone(),
+                source: Source::Mail(Filter::HasLabel(*id)),
+                unread: None,
+            });
+        }
+        let mut write = shell.write();
+        write.labels = known;
+        write.places = places;
+        write.accounts = crate::compose::sending_accounts(&store);
+    });
 
     // How many pages of the list have been asked for. Reset whenever the list itself changes,
     // because "page 3" of the Inbox means nothing once the user is looking at Archive.
@@ -57,33 +89,29 @@ pub(super) fn App() -> Element {
         });
     });
 
-    // Behind an `Arc` because two closures want it: the blocking count and the first-frame
-    // fallback beside it. The places are fixed after construction, so this is read-only either
-    // way and sharing it is cheaper than deciding which one owns it.
-    let badge_filters: Arc<Vec<Option<Filter>>> = use_hook(|| {
-        Arc::new(
-            crate::view::default_places()
-                .iter()
-                .map(|place| badge_filter(&place.source))
-                .collect(),
-        )
+    // Mailbox badges are fixed. Label badges join them when the label list changes, which is
+    // a signal of its own so a keystroke — a shell change — does not recount.
+    let badge_filters = use_memo(move || {
+        let mut filters: Vec<Option<Filter>> = crate::view::default_places()
+            .iter()
+            .map(|place| badge_filter(&place.source))
+            .collect();
+        for id in label_ids.read().iter() {
+            filters.push(Some(Filter::And(vec![
+                Filter::HasLabel(*id),
+                Filter::Read(ReadState::Unread),
+            ])));
+        }
+        filters
     });
 
-    // Depends on `revision` and nothing else. It used to read `shell`, which subscribes a memo
-    // to *every* change of it — so each keystroke in the search box re-ran one indexed count
-    // per place. Six queries per character, about half a frame on a ten-thousand-message
-    // mailbox, to recompute numbers that could not have moved.
-    //
-    // Phase 8a measured these as the largest single cost of a frame at every mailbox size tried
-    // — 4.7 ms on the real store, 12 ms at ten thousand messages — so phase 8c moves them off
-    // the thread that draws. What arrives late is a number beside a place name, which is the
-    // right thing to make late: a badge that appears a moment after the list is a badge that
-    // appeared, while a list that appears a moment after the keystroke is a window that stutters.
-    let for_the_task = badge_filters.clone();
+    // Depends on `revision` and the badge filters, not on `shell`. It used to read `shell`,
+    // which subscribes a memo to *every* change of it — so each keystroke in the search box
+    // re-ran one indexed count per place.
     let counted: Resource<Vec<Option<u64>>> = use_resource(move || {
         let _ = revision();
+        let filters = badge_filters();
         let store = consume_context::<Arc<SqliteStore>>();
-        let filters = for_the_task.clone();
         async move {
             tokio::task::spawn_blocking(move || count_badges(&store, &filters))
                 .await
@@ -101,7 +129,7 @@ pub(super) fn App() -> Element {
         Some(counts) => counts.clone(),
         None => {
             let store = consume_context::<Arc<SqliteStore>>();
-            count_badges(&store, &badge_filters)
+            count_badges(&store, &badge_filters())
         }
     });
 
@@ -113,14 +141,89 @@ pub(super) fn App() -> Element {
         let _ = revision();
         let store = consume_context::<Arc<SqliteStore>>();
         let known = crate::query::known_labels(&store);
+        let ids: Vec<mail_domain::LabelId> = known.iter().map(|(_, id)| *id).collect();
+        if label_ids.peek().as_slice() != ids.as_slice() {
+            label_ids.set(ids);
+        }
         if shell.peek().labels != known {
-            shell.write().labels = known;
+            shell.write().labels = known.clone();
         }
         // The same shape for the same reason: the From row needs the list, and an account added
         // in a terminal should reach the open window without a restart.
         let sending = crate::compose::sending_accounts(&store);
         if shell.peek().accounts != sending {
             shell.write().accounts = sending;
+        }
+        let mut next: Vec<Place> = shell
+            .peek()
+            .places
+            .iter()
+            .filter(|place| !is_label_place(place))
+            .cloned()
+            .collect();
+        if next.is_empty() {
+            next = crate::view::default_places();
+        }
+        for (name, id) in &known {
+            next.push(Place {
+                name: name.clone(),
+                source: Source::Mail(Filter::HasLabel(*id)),
+                unread: None,
+            });
+        }
+        if shell.peek().places != next {
+            let selected = shell.peek().selected.min(next.len().saturating_sub(1));
+            let mut write = shell.write();
+            write.places = next;
+            write.selected = selected;
+        }
+    });
+
+    // The Space's account list, once. A tile press is a shell change and must not reload it.
+    use_effect(move || {
+        if scoped() {
+            return;
+        }
+        scoped.set(true);
+        let scope = frame::scope_ids(&spaces.read().current_space());
+        if shell.peek().scope != scope {
+            shell.write().scope = scope;
+        }
+    });
+
+    // Opening a thread is a shortcut in Today. Closing one is not a write to the mail.
+    let today_dirs = dirs.clone();
+    use_effect(move || {
+        let open = shell.read().open;
+        if open == seen_open() {
+            return;
+        }
+        let already = open.is_some_and(|id| {
+            today_list
+                .peek()
+                .live(spaces.peek().current, chrono::Utc::now())
+                .contains(&id)
+        });
+        seen_open.set(open);
+        let Some(id) = open else {
+            return;
+        };
+        let index = spaces.peek().current;
+        today_list.write().opened(index, id, chrono::Utc::now());
+        if !already {
+            just_added.set(Some(id));
+        }
+        if let Some(dirs) = today_dirs.clone() {
+            let _ = crate::today::save(&dirs.state, &today_list.read());
+        }
+    });
+
+    let mut list_watch = use_signal(|| (0usize, None::<mail_domain::AccountId>));
+    use_effect(move || {
+        let now = (shell.read().selected, shell.read().account);
+        if now != list_watch() {
+            list_watch.set(now);
+            entering.set(true);
         }
     });
 
@@ -209,6 +312,10 @@ pub(super) fn App() -> Element {
         // `Key`'s Display is the DOM key name — "e", "ArrowDown", "Escape" — which is the
         // vocabulary `view::shortcut` is written against.
         let key = event.key().to_string();
+        if key == "s" && event.modifiers().ctrl() {
+            side_hidden.set(!side_hidden());
+            return;
+        }
         let typing = in_a_field() || shell.read().composing.is_some();
         // Esc closes a centre or full peek and revokes image consent. Side peek still falls
         // through to Shortcut::Back, and a composer still takes Esc.
@@ -371,12 +478,16 @@ pub(super) fn App() -> Element {
 
     let peek = shell.read().peek.slug();
     let close_label = "Close";
+    let hidden = side_hidden();
     rsx! {
         style { {STYLE} }
-        div { class: "app",
+        div { class: if hidden { "app no-side" } else { "app" },
             tabindex: "0",
             onkeydown: on_key,
             "data-peek": "{peek}",
+            div { class: "layer" }
+            div { class: "layer back" }
+            div { class: "grain" }
             if shell.read().open.is_some() && shell.read().peek.floats() {
                 button {
                     class: "scrim",
@@ -385,8 +496,15 @@ pub(super) fn App() -> Element {
                     onclick: move |_| shell.write().close(),
                 }
             }
-            Places { shell, pages, badges, revision, sync_state }
-            ThreadList { shell, pages, revision, in_a_field, threads, drafts, nothing, more }
+            Places {
+                shell, pages, badges, revision, spaces, today: today_list, dirs: dirs.clone(),
+                side_hidden, just_added,
+            }
+            div { class: "card",
+            ThreadList {
+                shell, pages, revision, in_a_field, threads, drafts, nothing, more,
+                sync_state, entering,
+            }
             section { class: "reader",
                 if let Some(thread) = shell.read().open {
                     Reader { thread, shell }
@@ -399,6 +517,7 @@ pub(super) fn App() -> Element {
                 if shell.read().composing.is_some() {
                     Composer { shell, revision }
                 }
+            }
             }
         }
     }
@@ -657,7 +776,7 @@ mod tests {
     async fn the_sidebar_offers_a_way_to_write() {
         // The button, for anyone who does not know the key.
         let (store, _dir) = realistic();
-        assert!(markup(store).contains(">New<"));
+        assert!(markup(store).contains(">Compose<"));
     }
 
     #[tokio::test]

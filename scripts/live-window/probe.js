@@ -4,7 +4,7 @@
     fetch("http://127.0.0.1:18099/report", { method: "POST", body: JSON.stringify(what) })
       .catch(() => {});
   const subjects = () =>
-    Array.from(document.querySelectorAll(".row .subject")).map((e) => e.textContent);
+    Array.from(document.querySelectorAll(".row .row-sub")).map((e) => e.textContent);
 
   const type = (box, text) => {
     // React-style controlled input: set through the native setter so the framework's own
@@ -17,7 +17,7 @@
 
   let tries = 0;
   const start = setInterval(() => {
-    const box = document.querySelector(".search");
+    const box = document.querySelector("input.search");
     if (!box) {
       if (++tries > 60) { clearInterval(start); say({ stage: "no search box ever appeared" }); }
       return;

@@ -43,6 +43,15 @@ pub(super) enum Icon {
     Paperclip,
     Pen,
     Key,
+    FilePen,
+    OctagonAlert,
+    Pin,
+    Reply,
+    ReplyAll,
+    Forward,
+    Search,
+    Settings,
+    PanelLeft,
 }
 
 impl Icon {
@@ -74,6 +83,15 @@ impl Icon {
         Icon::Paperclip,
         Icon::Pen,
         Icon::Key,
+        Icon::FilePen,
+        Icon::OctagonAlert,
+        Icon::Pin,
+        Icon::Reply,
+        Icon::ReplyAll,
+        Icon::Forward,
+        Icon::Search,
+        Icon::Settings,
+        Icon::PanelLeft,
     ];
 
     /// The children of this glyph, in the design's order.
@@ -102,6 +120,15 @@ impl Icon {
             Icon::Paperclip => PAPERCLIP,
             Icon::Pen => PEN,
             Icon::Key => KEY,
+            Icon::FilePen => FILE_PEN,
+            Icon::OctagonAlert => OCTAGON_ALERT,
+            Icon::Pin => PIN,
+            Icon::Reply => REPLY,
+            Icon::ReplyAll => REPLY_ALL,
+            Icon::Forward => FORWARD,
+            Icon::Search => SEARCH,
+            Icon::Settings => SETTINGS,
+            Icon::PanelLeft => PANEL_LEFT,
         }
     }
 }
@@ -250,9 +277,16 @@ mod tests {
 
     #[test]
     fn the_set_matches_icons_js() {
-        // Source: the keys of `ICON` in mailo-design/icons.js (inbox through key).
+        // The first 23 are the keys of `ICON` in mailo-design/icons.js (inbox through key).
+        // The rest are the glyphs the frame's places, rows and foot draw, fetched from Lucide.
         const KEYS_IN_ICONS_JS: usize = 23;
-        assert_eq!(Icon::ALL.len(), KEYS_IN_ICONS_JS, "{:?}", Icon::ALL);
+        const FRAME_GLYPHS: usize = 9;
+        assert_eq!(
+            Icon::ALL.len(),
+            KEYS_IN_ICONS_JS + FRAME_GLYPHS,
+            "{:?}",
+            Icon::ALL
+        );
         let mut duplicates = Vec::new();
         for (index, icon) in Icon::ALL.iter().enumerate() {
             if Icon::ALL[index + 1..].contains(icon) {

@@ -28,7 +28,7 @@
     fetch("http://127.0.0.1:18099/report", { method: "POST", body: JSON.stringify(what) })
       .catch(() => {});
   const subjects = () =>
-    Array.from(document.querySelectorAll(".row .subject")).map((e) => e.textContent);
+    Array.from(document.querySelectorAll(".row .row-sub")).map((e) => e.textContent);
 
   let ticks = 0;   // setInterval, which even a throttled surface still gets
   let frames = 0;  // requestAnimationFrame, which it does not
@@ -61,7 +61,7 @@
 
   let tries = 0;
   const start = setInterval(() => {
-    const box = document.querySelector(".search");
+    const box = document.querySelector("input.search");
     if (!box) {
       if (++tries > 60) { clearInterval(start); look("no search box ever appeared"); }
       return;

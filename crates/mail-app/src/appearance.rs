@@ -74,18 +74,24 @@ fn config_dir_from(xdg: Option<OsString>, home: Option<OsString>) -> Option<Path
     Some(base.join("mailo"))
 }
 
+/// Config and state directories the window reads and writes.
+///
+/// Tests pass a [`tempfile`] pair. A launch with no home directory passes none,
+/// and the window keeps the choices in memory for the session.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WindowDirs {
+    pub config: PathBuf,
+    pub state: PathBuf,
+}
+
 /// `$XDG_STATE_HOME/mailo`, else `$HOME/.local/state/mailo`, else None.
 ///
 /// Today lives here, not beside appearance: it is a list of what was opened,
 /// and it expires, so it is state rather than a preference.
-// used from F2 (the frame shell); remove when the first caller lands
-#[allow(dead_code)]
 pub fn state_dir() -> Option<PathBuf> {
     state_dir_from(std::env::var_os("XDG_STATE_HOME"), std::env::var_os("HOME"))
 }
 
-// used from F2 (the frame shell); remove when the first caller lands
-#[allow(dead_code)]
 fn state_dir_from(xdg: Option<OsString>, home: Option<OsString>) -> Option<PathBuf> {
     let base = xdg
         .map(PathBuf::from)

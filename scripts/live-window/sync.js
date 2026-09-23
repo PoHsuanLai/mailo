@@ -6,8 +6,9 @@
   const say = (what) =>
     fetch("http://127.0.0.1:18099/report", { method: "POST", body: JSON.stringify(what) })
       .catch(() => {});
-  const button = () =>
-    Array.from(document.querySelectorAll(".place")).find((b) => /sync/.test(b.className));
+  // Sync moved into the list bar. It is an icon button; disabled is "Syncing…".
+  const button = () => document.querySelector('button[aria-label="Sync now"]');
+  const labelOf = (node) => (node && node.disabled ? "Syncing…" : "Sync");
 
   let tries = 0;
   const start = setInterval(() => {
@@ -18,7 +19,7 @@
     const seen = [];
     const sample = () => {
       const now = button();
-      const label = now ? now.textContent : "(gone)";
+      const label = now ? labelOf(now) : "(gone)";
       if (seen[seen.length - 1] !== label) seen.push(label);
     };
     sample();

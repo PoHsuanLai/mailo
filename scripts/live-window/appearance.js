@@ -25,7 +25,7 @@
   const look = (stage) => { try { lookUnguarded(stage); } catch (e) { say({ stage, error: String(e) }); } };
   const lookUnguarded = (stage) => {
     const app = document.querySelector(".app");
-    const current = document.querySelector(".place.on");
+    const current = document.querySelector('.item[aria-current="true"]');
     say({
       stage,
       data_theme: root.dataset.theme === undefined ? "(absent)" : root.dataset.theme,
