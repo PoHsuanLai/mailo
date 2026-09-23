@@ -13,6 +13,8 @@ mail-parser = "0.11"
 mail-builder = "1"
 ammonia = "4"
 base64 = "0.22"
+# Already here through ammonia. Parses the URLs in `List-Unsubscribe`, which are untrusted.
+url = "2"
 # Pinned to ammonia 4.2's own html5ever, deliberately: the block parser reads the sanitizer's
 # output, so it must tokenize it with the same parser that produced it. If an ammonia bump
 # moves this, move this line in the same commit.

@@ -11,6 +11,7 @@ pub mod inline;
 pub mod parse;
 pub mod reconstruct;
 pub mod sanitize;
+pub mod unsubscribe;
 
 pub use block::{
     Action, Block, Dir, Document, Flowed, ImgSrc, Inlined, LINK_REL, LINK_TARGET, Limits, Reached,
@@ -21,6 +22,9 @@ pub use inline::{INLINE_BUDGET, embed_inline, embeddable};
 pub use parse::{Parsed, ParsedPart, RemotePart, parse, parse_reconstructed};
 pub use reconstruct::{decode_part, reconstruct, sections_for};
 pub use sanitize::{RemoteImages, SafeHtml, SanitizePolicy, sanitize};
+pub use unsubscribe::{
+    HttpsUrl, ListHeaders, ListId, Mailto, ONE_CLICK, Unsubscribe, list_headers,
+};
 
 /// Something in the message, or in what we were asked to build, did not hold together.
 ///

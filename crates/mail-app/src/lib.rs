@@ -22,4 +22,5 @@ mod today;
 pub mod trust;
 pub mod ui;
 pub mod undo;
+pub mod unsubscribe;
 pub mod view;

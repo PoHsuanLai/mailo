@@ -46,6 +46,9 @@ unicode-segmentation = "1.13"
 # over `publicsuffix`, which needs the list shipped and parsed at run time; this one compiles the
 # list in, so a check needs no file and no I/O. MIT/Apache-2.0, with one dependency, `psl-types`.
 psl = "2"
+# Already a dependency of every id type. Named here because `mailo unsubscribe` takes an id that
+# may be a message or a thread, and only the store can say which.
+uuid = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"

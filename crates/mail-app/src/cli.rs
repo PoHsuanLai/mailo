@@ -113,6 +113,23 @@ pub enum Command {
         subject: String,
         body: String,
     },
+    /// Leave the mailing list a message, or the newest list message in a thread, came through.
+    ///
+    /// A uuid rather than a typed id: it may be either a message or a thread, and only the
+    /// store can say which. See [`crate::unsubscribe::find`].
+    Unsubscribe {
+        target: uuid::Uuid,
+        step: UnsubscribeStep,
+    },
+}
+
+/// Whether `unsubscribe` acts or only says what it would do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnsubscribeStep {
+    /// `--show`: list the ways out and which one would be taken.
+    Show,
+    /// Take the preferred way out.
+    Act,
 }
 
 /// Parse arguments, or explain what was wrong.
@@ -233,6 +250,20 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                 // Filled in by the caller, which owns stdin. Parsing stays pure.
                 body: String::new(),
             })
+        }
+        "unsubscribe" => {
+            let raw = args.get(1).ok_or_else(|| {
+                format!("unsubscribe needs a thread or message id\n\n{}", usage())
+            })?;
+            let target = raw
+                .parse()
+                .map_err(|_| format!("{raw:?} is not a thread or message id"))?;
+            let step = match args.get(2).map(String::as_str) {
+                None => UnsubscribeStep::Act,
+                Some("--show") => UnsubscribeStep::Show,
+                Some(other) => return Err(format!("unknown option {other:?}\n\n{}", usage())),
+            };
+            Ok(Command::Unsubscribe { target, step })
         }
         "watch" => Ok(Command::Watch),
         "daemon" => match args.get(1).map(String::as_str) {
@@ -703,6 +734,10 @@ usage: mailo <command>
   pin <thread-id>             keep it in view, or unpin it again
   attachments <message-id>    what is attached to a message
   save <message-id> <n> [dir] write one of them out (default: here)
+  unsubscribe <thread-or-message-id> [--show]
+                             leave the list it came through: one-click where the
+                             list offers it, else a queued message; --show only lists
+                             the ways out. A web page is printed, never opened
   drafts                      drafts and where each one got to
   discard <draft-id>          delete a draft
   status
@@ -907,6 +942,24 @@ pub fn run_with_clients(
             subject,
             body,
         } => crate::compose::new_message(store, from.as_deref(), [to, cc, bcc], subject, body, now),
+        Command::Unsubscribe { target, step } => {
+            let found = crate::unsubscribe::find(store, *target)?;
+            let described = crate::unsubscribe::describe(&found);
+            if *step == UnsubscribeStep::Show {
+                return Ok(described);
+            }
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|err| format!("cannot unsubscribe: {err}"))?;
+            let http = mail_runtime::unsubscribe::client().map_err(|e| e.to_string())?;
+            let outcome =
+                runtime.block_on(crate::unsubscribe::perform(store, &found, &http, now))?;
+            Ok(format!(
+                "{described}\n{}",
+                crate::unsubscribe::report(&outcome)
+            ))
+        }
         Command::Discard { draft } => {
             crate::compose::discard(store, *draft).map(|subject| format!("discarded {subject:?}\n"))
         }

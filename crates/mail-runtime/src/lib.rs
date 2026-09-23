@@ -14,6 +14,7 @@ pub mod renewal;
 pub mod secrets;
 pub mod signin;
 pub mod transport;
+pub mod unsubscribe;
 
 pub use assemble::{Arrival, Destination, absorb, absorb_into, assemble};
 pub use drive::{Cancel, drive};

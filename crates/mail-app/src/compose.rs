@@ -251,6 +251,61 @@ pub fn draft_new(
     Ok(draft)
 }
 
+/// Create and persist a message whose every word is given, returning the draft.
+///
+/// [`draft_new`] without the signature: for a message a program reads rather than a person, such
+/// as the one a list's software takes as an unsubscribe, where a signature is noise in a body
+/// that may be parsed as commands. `identity` picks the address it leaves from; `None` is the
+/// account's default.
+pub fn draft_exact(
+    store: &SqliteStore,
+    account: AccountId,
+    identity: Option<IdentityId>,
+    to: &[Address],
+    subject: &str,
+    body: &str,
+    now: DateTime<Utc>,
+) -> Result<Draft, String> {
+    let identity = identity_of(store, account, identity)?;
+    let mut draft = Draft::blank(&identity, now);
+    draft.to = to.to_vec();
+    draft.subject = subject.to_owned();
+    draft.text = body.to_owned();
+    save(store, &draft)?;
+    Ok(draft)
+}
+
+/// The identity of `account` that one of `addressed` names, if any.
+///
+/// Which address a message reached is which address is on the list, and a list's software
+/// takes off the address that writes to it — so an unsubscribe sent from the default identity,
+/// for mail that came to an alias, would leave the alias subscribed.
+pub fn identity_addressed(
+    store: &SqliteStore,
+    account: AccountId,
+    addressed: &[Address],
+) -> Option<IdentityId> {
+    let db = store.connection();
+    let mut stmt = db
+        .prepare(
+            "SELECT id, from_email FROM identities WHERE account = ?1
+             ORDER BY is_default DESC, id",
+        )
+        .ok()?;
+    let rows = stmt
+        .query_map([account.to_string()], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })
+        .ok()?;
+    rows.filter_map(Result::ok)
+        .find(|(_, email)| {
+            addressed
+                .iter()
+                .any(|a| a.email.eq_ignore_ascii_case(email))
+        })
+        .and_then(|(id, _)| id.parse().ok().map(IdentityId::from_uuid))
+}
+
 /// The most a single message may carry, before base64 expands it.
 ///
 /// Encoding inflates by four bytes for every three, so this is about 27 MiB on the wire, which

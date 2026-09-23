@@ -29,6 +29,9 @@ pub enum RuntimeError {
     /// Microsoft Graph answered, and not with acceptance. Classified where the status is read.
     #[error("{why}")]
     Graph { why: String, retry: Retry },
+    /// A one-click unsubscribe did not go through. See [`crate::unsubscribe`].
+    #[error("{0}")]
+    Unsubscribe(crate::unsubscribe::UnsubscribeFailure),
 }
 
 impl Retryable for RuntimeError {
@@ -53,6 +56,7 @@ impl Retryable for RuntimeError {
             // Not a failure: the user closed the app or switched accounts.
             RuntimeError::Cancelled => Retry::Fatal("cancelled".to_owned()),
             RuntimeError::Graph { retry, .. } => retry.clone(),
+            RuntimeError::Unsubscribe(failure) => failure.retry(),
         }
     }
 }
