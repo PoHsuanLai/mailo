@@ -1550,9 +1550,7 @@ numbered in landing order at integration, not in this file.
   Exchange Online from 2026-10-01, so an EWS backend would arrive dead, and on-premises Exchange
   offers IMAP. Graph delta queries for folders and messages, MIME bodies through `$value`.
   Covers tenants that switch IMAP off.
-- **10.19 — Translation.** A message catalogue with plural rules, the locale from the
-  environment, English and Traditional Chinese for every CLI string; the window's strings move
-  to the catalogue in the UI session.
+- **10.19 — Translation.** Dropped on 2026-09-24 at the user's request.
 
 **Done when** each item's data half is reachable from `mailo`, tested to the standard of phases
 1–9 (transcripts for protocols, the parity proptest for anything `Filter` touches, a live test
@@ -1652,7 +1650,7 @@ authentication permanently off, failing even under OAuth.
 
 ## Non-goals (v1)
 
-Nested labels. Proton. EWS (retired in Exchange Online; see 10.18). Multi-device sync of
+Nested labels. Proton. Translation (10.19). EWS (retired in Exchange Online; see 10.18). Multi-device sync of
 local-only state (views, pins, snoozes).
 
 Lifted on 2026-09-24 and planned in phase 10: Graph as a protocol, calendar invites, CardDAV,
