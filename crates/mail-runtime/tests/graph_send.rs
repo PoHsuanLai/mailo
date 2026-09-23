@@ -146,6 +146,7 @@ fn draft() -> Draft {
         text: "Shall we say one o'clock?\r\n.a line that needs stuffing\r\n".to_owned(),
         html: None,
         attachments: Vec::new(),
+        receipt: ReceiptRequest::Unrequested,
         state: SendState::Editing,
         updated: now(),
     }

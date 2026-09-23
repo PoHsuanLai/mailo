@@ -47,6 +47,7 @@ fn draft_of(text: &str) -> Draft {
         text: text.to_owned(),
         html: None,
         attachments: Vec::new(),
+        receipt: ReceiptRequest::Unrequested,
         state: SendState::Editing,
         updated: at(0),
     }

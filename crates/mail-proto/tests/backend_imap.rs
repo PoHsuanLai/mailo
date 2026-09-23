@@ -262,6 +262,37 @@ fn archiving_on_gmail_removes_the_inbox_label() {
     ));
 }
 
+/// A receipt answered or declined is `$MDNSent` on the server (RFC 3503), so every other
+/// client knows not to ask again.
+#[test]
+fn a_receipt_answered_sets_mdnsent() {
+    let trace = concat!(
+        "# SYNTHETIC. One STORE of the registered keyword, and nothing removed.\n",
+        "S: * OK Gimap ready\n",
+        "C: a001 AUTHENTICATE XOAUTH2 dXNlcj1hZGFAZXhhbXBsZS50ZXN0AWF1dGg9QmVhcmVyIHlhMjkudG9rZW4BAQ==\n",
+        "S: a001 OK authenticated\n",
+        "C: a002 SELECT \"INBOX\"\n",
+        "S: * FLAGS (\\Answered \\Flagged \\Draft \\Deleted \\Seen $MDNSent)\n",
+        "S: * OK [PERMANENTFLAGS (\\Answered \\Flagged \\Draft \\Deleted \\Seen $MDNSent \\*)] Flags permitted.\n",
+        "S: * OK [UIDVALIDITY 1] UIDs valid.\n",
+        "S: a002 OK [READ-WRITE] SELECT completed\n",
+        "C: a003 UID STORE 42 +FLAGS ($MDNSent)\n",
+        "S: a003 OK Success\n",
+        "DONE\n"
+    );
+    let mut driven = Driven {
+        backend: backend(caps(ServerLabels::Supported, ArchiveMeans::DropInbox)),
+        op: Some(ProtoOp::AddKeyword {
+            remotes: vec![imap_ref("INBOX", 42)],
+            keyword: Keyword::MdnSent,
+        }),
+    };
+    assert!(matches!(
+        replay(&mut driven, trace).unwrap(),
+        ProtoOutcome::Applied
+    ));
+}
+
 /// Expunging is refused outright, not gated on a capability.
 #[test]
 fn expunge_is_refused_because_the_setting_cannot_be_read() {

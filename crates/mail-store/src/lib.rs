@@ -22,8 +22,8 @@ pub use error::StoreError;
 use chrono::{DateTime, Utc};
 use mail_domain::{
     AccountCaps, AccountId, BlobId, Draft, DraftId, Filter, Folder, FolderContents, Ingest,
-    MailboxRef, Message, MessageId, OutboxId, Page, Patch, ProtoOp, Query, RemoteIntent, RemoteRef,
-    Retry, SendState, SyncCursor, Thread, ThreadId, ThreadSummary,
+    MailboxRef, Message, MessageId, OutboxId, Page, Patch, ProtoOp, Query, ReceiptAnswer,
+    RemoteIntent, RemoteRef, Retry, SendState, SyncCursor, Thread, ThreadId, ThreadSummary,
 };
 
 /// One queued unit of remote work, with everything needed to retry or abandon it.
@@ -249,4 +249,20 @@ pub trait Store {
         settle: Settle,
         now: DateTime<Utc>,
     ) -> Result<(), StoreError>;
+
+    /// What the user answered this message's request for a read receipt, if they have.
+    fn receipt_answer(&self, message: MessageId) -> Result<Option<ReceiptAnswer>, StoreError>;
+
+    /// Record the answer to a read-receipt request, and return the one that stands.
+    ///
+    /// The first answer stands and a later one is ignored: a request is put to the user once,
+    /// and "declined, then sent anyway" is the thing recording it exists to prevent. Not undoable
+    /// and not a [`Patch`] for the same reason [`Store::set_send_state`] is not — a receipt that
+    /// left cannot be recalled. [`StoreError::NoMessage`] when the message is unknown.
+    fn answer_receipt(
+        &self,
+        message: MessageId,
+        answer: ReceiptAnswer,
+        now: DateTime<Utc>,
+    ) -> Result<ReceiptAnswer, StoreError>;
 }

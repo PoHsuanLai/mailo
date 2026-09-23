@@ -96,6 +96,11 @@ fn parse_as(raw: &[u8], markers: Markers) -> Result<Parsed, MimeError> {
     if !raw.contains(&b':') {
         return Err(not_a_message());
     }
+    // Header fields in some legacy 8-bit charset are decoded to UTF-8 first; the parser below
+    // would otherwise turn each of their bytes into U+FFFD. `None` is the common case: the
+    // headers were already UTF-8 (or ASCII) and the bytes are parsed as they came.
+    let rewritten = crate::charset::headers_as_utf8(raw);
+    let raw = rewritten.as_deref().unwrap_or(raw);
     // `MessageParser::default()` has an empty header map, which selects the built-in
     // structured parsers (dates, addresses, ids, MIME). It returns `None` only when it
     // could not find a single header.

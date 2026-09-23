@@ -15,6 +15,7 @@ mod palette;
 mod provider;
 pub mod query;
 pub mod reader;
+pub mod receipt;
 pub mod search;
 pub mod snooze;
 pub mod space;

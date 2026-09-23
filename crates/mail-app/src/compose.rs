@@ -19,7 +19,7 @@ use std::fmt::Write as _;
 /// before identities were created at setup has neither, but one restored from a plan alone
 /// would have a list the table does not back. Reading the side the constraint enforces means
 /// the lookup cannot disagree with the row that let the draft be saved.
-fn identity_of(
+pub(crate) fn identity_of(
     store: &SqliteStore,
     account: AccountId,
     wanted: Option<IdentityId>,
@@ -527,19 +527,23 @@ pub fn move_draft_to(
 }
 
 /// Start a new message to `[to, cc, bcc]`, as the CLI reports it.
+///
+/// `receipt` is whether it asks its recipients for a read receipt.
 pub fn new_message(
     store: &SqliteStore,
     from: Option<&str>,
     [to, cc, bcc]: [&[Address]; 3],
     subject: &str,
     body: &str,
+    receipt: ReceiptRequest,
     now: DateTime<Utc>,
 ) -> Result<String, String> {
     let account = account_for(store, from)?;
     let mut draft = draft_new(store, account, to, subject, body, now)?;
-    if !cc.is_empty() || !bcc.is_empty() {
+    if !cc.is_empty() || !bcc.is_empty() || receipt != draft.receipt {
         draft.cc = cc.to_vec();
         draft.bcc = bcc.to_vec();
+        draft.receipt = receipt;
         save(store, &draft)?;
     }
     let mut out = format!("draft {}\n", draft.id);
@@ -559,6 +563,9 @@ pub fn new_message(
             &draft.subject
         }
     );
+    if draft.receipt == ReceiptRequest::Requested {
+        let _ = writeln!(out, "  asks for a read receipt");
+    }
     let _ = writeln!(out, "\nsend it with: mailo send {}", draft.id);
     Ok(out)
 }

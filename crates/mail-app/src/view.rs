@@ -1761,6 +1761,7 @@ mod composer_tests {
             text: "body".to_owned(),
             html: None,
             attachments: Vec::new(),
+            receipt: ReceiptRequest::Unrequested,
             state: SendState::Editing,
             updated: chrono::Utc::now(),
         }
@@ -2973,6 +2974,7 @@ mod discarding {
             text: String::new(),
             html: None,
             attachments: vec![],
+            receipt: ReceiptRequest::Unrequested,
             state: SendState::Editing,
             updated: Utc.with_ymd_and_hms(2026, 9, 22, 0, 0, 0).unwrap(),
         };

@@ -117,6 +117,13 @@ pub enum Command {
         bcc: Vec<Address>,
         subject: String,
         body: String,
+        /// `--request-receipt`: ask the recipients to confirm they displayed it.
+        receipt: ReceiptRequest,
+    },
+    /// Answer a message's request for a read receipt: send one, or decline.
+    Receipt {
+        message: MessageId,
+        answer: ReceiptAnswer,
     },
     /// Leave the mailing list a message, or the newest list message in a thread, came through.
     ///
@@ -367,10 +374,16 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
             let mut from = None;
             let (mut to, mut cc, mut bcc) = (Vec::new(), Vec::new(), Vec::new());
             let mut subject = String::new();
+            let mut receipt = ReceiptRequest::Unrequested;
             let mut rest = args[1..].iter();
             while let Some(flag) = rest.next() {
                 let missing = format!("{flag} needs a value\n\n{}", usage());
                 match flag.as_str() {
+                    // Both word orders: `plan.md` says one and the brief the other, and a flag
+                    // refused for its word order is a flag nobody finds.
+                    "--request-receipt" | "--receipt-request" => {
+                        receipt = ReceiptRequest::Requested;
+                    }
                     "--from" => {
                         from = Some(rest.next().ok_or(missing)?.clone());
                     }
@@ -405,6 +418,27 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                 subject,
                 // Filled in by the caller, which owns stdin. Parsing stays pure.
                 body: String::new(),
+                receipt,
+            })
+        }
+        "receipt" => {
+            let raw = args
+                .get(1)
+                .ok_or_else(|| format!("receipt needs a message id\n\n{}", usage()))?;
+            let uuid = raw
+                .parse()
+                .map_err(|_| format!("{raw:?} is not a message id"))?;
+            let answer = match args.get(2).map(String::as_str) {
+                None => ReceiptAnswer::Sent,
+                Some("--decline") => ReceiptAnswer::Declined,
+                Some(other) => return Err(format!("unknown option {other:?}\n\n{}", usage())),
+            };
+            if let Some(extra) = args.get(3) {
+                return Err(format!("unexpected {extra:?}\n\n{}", usage()));
+            }
+            Ok(Command::Receipt {
+                message: MessageId::from_uuid(uuid),
+                answer,
             })
         }
         "pin" => {
@@ -762,7 +796,11 @@ usage: mailo <command>
   forward <message-id> --to a@b[,c@d]
                              forward it; the covering note is read from stdin
   compose --to a@b[,c@d] [--cc …] [--bcc …] [--subject S] [--from address]
+          [--request-receipt]
                              a new message; the body is read from stdin
+  receipt <message-id> [--decline]
+                             send the read receipt a message asks for, or
+                             decline to; `show` says which messages ask
   attach <draft-id> <path>    put a file on a draft
   attached <draft-id>         what it is carrying
   detach <draft-id> <n>       take one back off
@@ -872,6 +910,11 @@ pub fn run_with_clients(
                     crate::view::stamp(message.date, &Local, Stamp::Full),
                     message.id
                 );
+                // Asked here rather than only in a window, so a request is never answered by
+                // default: whoever reads the message is told it asks and how to answer.
+                if let Ok(state) = crate::receipt::state(store, &message) {
+                    out.push_str(&crate::receipt::describe(&state, message.id));
+                }
                 match message.body.text() {
                     Some(text) => {
                         let _ = writeln!(out, "{}", text.trim_end());
@@ -964,7 +1007,19 @@ pub fn run_with_clients(
             bcc,
             subject,
             body,
-        } => crate::compose::new_message(store, from.as_deref(), [to, cc, bcc], subject, body, now),
+            receipt,
+        } => crate::compose::new_message(
+            store,
+            from.as_deref(),
+            [to, cc, bcc],
+            subject,
+            body,
+            *receipt,
+            now,
+        ),
+        Command::Receipt { message, answer } => {
+            crate::receipt::answer(store, *message, *answer, now)
+        }
         Command::Unsubscribe { target, step } => {
             let found = crate::unsubscribe::find(store, *target)?;
             let described = crate::unsubscribe::describe(&found);

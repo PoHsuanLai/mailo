@@ -189,6 +189,7 @@ fn draft() -> Draft {
             mime: "image/png".to_owned(),
             blob: BlobId::from_uuid(uuid(10)),
         }],
+        receipt: ReceiptRequest::Unrequested,
         state: SendState::Failed {
             reason: "550 rejected".to_owned(),
             retry: Retry::After(Duration::from_secs(90)),
@@ -272,6 +273,10 @@ fn proto_ops() -> Vec<ProtoOp> {
         },
         ProtoOp::Watch {
             mailbox: mailbox_ref(),
+        },
+        ProtoOp::AddKeyword {
+            remotes: vec![imap_ref()],
+            keyword: Keyword::MdnSent,
         },
     ]
 }
@@ -1281,6 +1286,15 @@ fixtures! {
     "thread.json" => Thread = thread(),
     "label.json" => Label = label(),
     "draft.json" => Draft = draft(),
+    // Written when drafts gained `receipt`. `draft.json` above predates the field and must keep
+    // loading as `Unrequested`; this one pins the field's own spelling.
+    "draft_receipt.json" => Draft = Draft { receipt: ReceiptRequest::Requested, ..draft() },
+    "receipt_answers.json" => Vec<ReceiptAnswer> = vec![ReceiptAnswer::Sent, ReceiptAnswer::Declined],
+    // The keyword op, added after `proto_ops.json` was frozen.
+    "proto_ops_keywords.json" => Vec<ProtoOp> = vec![ProtoOp::AddKeyword {
+        remotes: vec![imap_ref()],
+        keyword: Keyword::MdnSent,
+    }],
     "send_states.json" => Vec<SendState> = vec![
         SendState::Editing,
         SendState::Queued,
@@ -1325,6 +1339,10 @@ fn remote_intent_round_trips() {
             messages: vec![m],
             add: vec![l],
             remove: Vec::new(),
+        },
+        RemoteIntent::AddKeyword {
+            messages: vec![m],
+            keyword: Keyword::MdnSent,
         },
     ] {
         let json = serde_json::to_value(&value).expect("serialize");
@@ -1372,4 +1390,16 @@ fn folder_types_round_trip() {
             path: "Receipts".to_owned(),
         }),
     );
+}
+
+/// A draft written before receipts existed did not ask for one, and still loads saying so.
+#[test]
+fn a_draft_from_before_receipts_asks_for_none() {
+    let text = std::fs::read_to_string(fixture_dir().join("draft.json")).expect("fixture");
+    assert!(
+        !text.contains("receipt"),
+        "the fixture must predate the field"
+    );
+    let draft: Draft = serde_json::from_str(&text).expect("still deserializes");
+    assert_eq!(draft.receipt, ReceiptRequest::Unrequested);
 }

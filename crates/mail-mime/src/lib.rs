@@ -7,7 +7,9 @@
 
 pub mod block;
 pub mod build;
+mod charset;
 pub mod inline;
+pub mod mdn;
 pub mod parse;
 pub mod reconstruct;
 pub mod sanitize;
@@ -19,6 +21,7 @@ pub use block::{
 };
 pub use build::{Disclosure, Posting, build, posting};
 pub use inline::{INLINE_BUDGET, embed_inline, embeddable};
+pub use mdn::{OriginalHeaders, ReceiptAsk, Reporting, ReturnPath, receipt, receipt_asked};
 pub use parse::{Parsed, ParsedPart, RemotePart, parse, parse_reconstructed};
 pub use reconstruct::{decode_part, reconstruct, sections_for};
 pub use sanitize::{RemoteImages, SafeHtml, SanitizePolicy, sanitize};

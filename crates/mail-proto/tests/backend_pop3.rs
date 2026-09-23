@@ -220,6 +220,13 @@ fn local_only_operations_confirm_without_touching_the_wire() {
             add: vec![],
             remove: vec![],
         },
+        // POP3 has no flags at all: an answered receipt is remembered only here.
+        ProtoOp::AddKeyword {
+            remotes: vec![RemoteRef::Pop {
+                uidl: "x".to_owned(),
+            }],
+            keyword: Keyword::MdnSent,
+        },
     ] {
         match backend.begin(op) {
             Progress::Done(ProtoOutcome::Applied) => {}

@@ -136,8 +136,11 @@ pub fn reverse_intent(remote: &RemoteIntent, inverse: &Patch) -> Option<RemoteIn
         }
         // A submission is not taken back by a patch; the outbox owns that. Nor is folder work,
         // which is not a conversation's and never enters this stack: `folder::change` returns
-        // its own `Applied` for a caller that wants to offer an undo.
-        RemoteIntent::Send { .. } | RemoteIntent::Folder(_) => None,
+        // its own `Applied` for a caller that wants to offer an undo. Nor is a keyword:
+        // `$MDNSent` records a receipt answered, which no undo un-answers.
+        RemoteIntent::Send { .. } | RemoteIntent::Folder(_) | RemoteIntent::AddKeyword { .. } => {
+            None
+        }
     }
 }
 

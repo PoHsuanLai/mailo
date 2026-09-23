@@ -596,3 +596,68 @@ fn accounts_from_before_notifications_start_unarmed() {
         .unwrap();
     assert_eq!(left, 0, "a removed account's floor goes with it");
 }
+
+/// 0011: a draft saved before receipts existed opens as one that asks for none, and the answers
+/// table starts empty and goes with its message.
+#[test]
+fn drafts_from_before_receipts_load_without_asking_for_one() {
+    use mail_domain::{DraftId, ReceiptAnswer, ReceiptRequest};
+    use mail_store::Store;
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("mail.db");
+    let (draft, message) = {
+        let db = Connection::open(&path).unwrap();
+        for (version, sql) in migrate::MIGRATIONS.iter().take(10) {
+            db.execute_batch(sql).unwrap();
+            if *version > 1 {
+                db.execute(
+                    "INSERT INTO schema_version (version, applied_at) VALUES (?1, datetime('now'))",
+                    [version],
+                )
+                .unwrap();
+            }
+        }
+        let (account, message) = seed(&db);
+        let identity = uuid::Uuid::new_v4().to_string();
+        db.execute(
+            "INSERT INTO identities (id, account, from_name, from_email, is_default)
+             VALUES (?1, ?2, NULL, 'me@example.test', '\"default\"')",
+            [&identity, &account],
+        )
+        .unwrap();
+        let draft = uuid::Uuid::new_v4();
+        db.execute(
+            r#"INSERT INTO drafts (id, account, identity, recipients, subject, in_reply_to,
+                 forward_of, body_text, body_html, attachments, state, updated_at)
+               VALUES (?1, ?2, ?3, '{"reply_to":[],"to":[],"cc":[],"bcc":[]}', 'old', NULL,
+                 NULL, 'text', NULL, '[]', '{"kind":"editing"}',
+                 '2023-01-01T00:00:00.000000000Z')"#,
+            rusqlite::params![draft.to_string(), account, identity],
+        )
+        .unwrap();
+        (DraftId::from_uuid(draft), message)
+    };
+
+    let store = SqliteStore::open(&path, dir.path()).unwrap();
+    assert_eq!(version_of(&store.connection()), migrate::EXPECTED_VERSION);
+    let loaded = store.draft(draft).expect("the old draft still loads");
+    assert_eq!(loaded.subject, "old");
+    assert_eq!(loaded.receipt, ReceiptRequest::Unrequested);
+
+    let message = mail_domain::MessageId::from_uuid(message.parse().unwrap());
+    let at = chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap();
+    assert_eq!(store.receipt_answer(message).unwrap(), None);
+    store
+        .answer_receipt(message, ReceiptAnswer::Declined, at)
+        .unwrap();
+    store
+        .connection()
+        .execute("DELETE FROM messages", [])
+        .unwrap();
+    let left: i64 = store
+        .connection()
+        .query_row("SELECT count(*) FROM receipt_answers", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(left, 0, "an answer does not outlive its message");
+}

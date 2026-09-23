@@ -43,6 +43,7 @@ fn main() {
             bcc,
             subject,
             body: _,
+            receipt,
         }) => {
             let mut body = String::new();
             if let Err(e) = std::io::Read::read_to_string(&mut std::io::stdin(), &mut body) {
@@ -56,6 +57,7 @@ fn main() {
                 bcc,
                 subject,
                 body,
+                receipt,
             })
         }
         Some(mail_app::cli::Command::Forward {
@@ -106,6 +108,13 @@ fn main() {
             std::process::exit(1);
         }
     };
+
+    // Messages an older parser misread are re-read from their stored bytes, once, here — the
+    // one place every command and the window pass through. Usually an empty queue and one
+    // query. A failure is reported and does not stop the command: the mail is still readable.
+    if let Err(e) = mail_runtime::reparse_queued(&store) {
+        eprintln!("could not re-read stored headers: {e}");
+    }
 
     let store = std::sync::Arc::new(store);
     // Sync needs an async runtime and the store by Arc, so it is dispatched here rather than

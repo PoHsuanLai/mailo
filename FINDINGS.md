@@ -3656,3 +3656,19 @@ Found while building 10.1 and 10.2 and fixed there.
 
 The common shape: each layer classified its failure correctly and the next layer flattened it to
 a string. `Retry` survives only where it is passed along as a value.
+
+### F148 — Multi-byte charsets were never decoded, and a re-ingested sender kept its old name
+
+Found while building 10.5 and fixed there.
+
+- `mail-parser` was built without its `full_encoding` feature. Without it every multi-byte
+  charset — Big5, GBK, Shift_JIS, EUC-KR — is decoded as if it were UTF-8, so a
+  `=?gb2312?B?…?=` subject or a Big5 body came out as replacement characters even when the
+  sender labelled it correctly. Nothing failed: the parser returned text, just the wrong text.
+- `upsert_message` in the SQLite store did not update `from_name`/`from_email` on conflict, so
+  a message ingested again kept the sender it was first stored with. `MemoryStore` replaced the
+  whole message, so the two stores disagreed, and the parity proptest never generated a
+  re-ingest with a changed sender.
+
+Mail already stored with replacement characters is re-read from its raw bytes once, through the
+`messages_to_reparse` queue (migration 0012).

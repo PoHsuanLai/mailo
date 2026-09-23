@@ -3,10 +3,10 @@
 use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::{
     AccountId, Address, BlobId, Body, Draft, DraftId, Identity, IdentityId, Inline, IsDefault,
-    MailboxRole, Message, MessageId, MessageKey, PendingAttachment, ReadState, SendState, Star,
-    ThreadId,
+    MailboxRole, Message, MessageId, MessageKey, PendingAttachment, ReadState, ReceiptRequest,
+    SendState, Star, ThreadId,
 };
-use mail_mime::{Disclosure, MimeError, build, parse, posting};
+use mail_mime::{Disclosure, MimeError, ReturnPath, build, parse, posting, receipt_asked};
 
 struct ThreadCase {
     name: &'static str,
@@ -138,6 +138,7 @@ fn draft(replying_to: Option<MessageId>, blob: Option<BlobId>) -> Draft {
             })
             .into_iter()
             .collect(),
+        receipt: ReceiptRequest::Unrequested,
         state: SendState::Editing,
         updated: at(),
     }
@@ -428,4 +429,33 @@ mod blind_copies {
             Err(MimeError::NoRecipients)
         ));
     }
+}
+
+#[test]
+fn a_draft_that_asks_for_a_receipt_says_so_and_one_that_does_not_does_not() {
+    let me = identity();
+    let mut asking = draft(None, None);
+    asking.receipt = ReceiptRequest::Requested;
+    let sent = posting(&asking, &me, None, &[]).unwrap();
+    let text = String::from_utf8_lossy(&sent.message);
+    // To the sender's own address, not the identity's `Reply-To` alias: the recipient's client
+    // compares it with the return path, which is `mail_from`.
+    assert!(
+        text.contains("Disposition-Notification-To: \"Me\" <me@example.test>\r\n"),
+        "{text}"
+    );
+    let with_path = [
+        b"Return-Path: <".as_slice(),
+        sent.mail_from.as_bytes(),
+        b">\r\n",
+        &sent.message,
+    ]
+    .concat();
+    let ask = receipt_asked(&with_path).expect("the built message asks");
+    assert_eq!(ask.to[0].email, "me@example.test");
+    assert_eq!(ask.return_path, ReturnPath::Agrees);
+
+    let plain = posting(&draft(None, None), &me, None, &[]).unwrap();
+    assert!(!String::from_utf8_lossy(&plain.message).contains("Disposition-Notification-To"));
+    assert_eq!(receipt_asked(&plain.message), None);
 }

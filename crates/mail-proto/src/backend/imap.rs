@@ -292,6 +292,24 @@ impl Backend for ImapBackend {
                 self.job = Job::Applied;
                 self.queue(commands)
             }
+            ProtoOp::AddKeyword { remotes, keyword } => {
+                let Some(set) = uid_set(&remotes) else {
+                    return Progress::Done(ProtoOutcome::Applied);
+                };
+                let mailbox = mailbox_of(&remotes, self.account);
+                self.job = Job::Applied;
+                // A server whose `PERMANENTFLAGS` has no `\*` may keep the keyword only for
+                // the session, or not at all, and still answer OK (RFC 9051 §6.4.6). That is
+                // the server's choice to make; the answer is already recorded locally, so the
+                // worst case is another client asking its user again.
+                self.queue(vec![
+                    Self::select(&mailbox, false),
+                    ImapCommand::UidStore {
+                        set,
+                        what: format!("+FLAGS ({})", keyword_atom(keyword)),
+                    },
+                ])
+            }
             ProtoOp::SetLabels {
                 remotes,
                 add,
@@ -747,6 +765,13 @@ impl Backend for ImapBackend {
 
     fn stage_append(&mut self, raw: Vec<u8>) {
         self.staged = Some(raw);
+    }
+}
+
+/// The wire spelling of a keyword. `$`-prefixed keywords are the registered ones (RFC 5788).
+fn keyword_atom(keyword: mail_domain::Keyword) -> &'static str {
+    match keyword {
+        mail_domain::Keyword::MdnSent => "$MDNSent",
     }
 }
 

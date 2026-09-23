@@ -75,6 +75,7 @@ fn full_draft(in_reply_to: Option<MessageId>) -> Draft {
         text: "quoted\n> original\n".to_owned(),
         html: Some("<p>quoted</p>".to_owned()),
         attachments: vec![],
+        receipt: ReceiptRequest::Requested,
         state: SendState::Editing,
         updated: at(10),
     }
@@ -301,4 +302,99 @@ fn ingest_one(b: &Both) -> MessageId {
     b.sqlite.ingest(ACCOUNT, ingest.clone()).unwrap();
     b.memory.ingest(ACCOUNT, ingest).unwrap();
     id
+}
+
+// ---------------------------------------------------------------------------------------
+// Read receipts: the draft that asks, and the answer to a message that asked.
+// ---------------------------------------------------------------------------------------
+
+#[test]
+fn a_draft_asking_for_a_receipt_still_asks_when_read_back() {
+    let b = both();
+    let mut draft = full_draft(None);
+    draft.receipt = ReceiptRequest::Requested;
+    upsert(&b, &draft);
+    assert_eq!(
+        b.sqlite.draft(draft.id).unwrap().receipt,
+        ReceiptRequest::Requested
+    );
+    assert_eq!(
+        b.memory.draft(draft.id).unwrap().receipt,
+        ReceiptRequest::Requested
+    );
+}
+
+#[test]
+fn a_receipt_answer_is_kept_and_the_first_one_stands_in_both_stores() {
+    let b = both();
+    let message = ingest_one(&b);
+    for store in [&b.sqlite as &dyn Store, &b.memory] {
+        assert_eq!(store.receipt_answer(message).unwrap(), None);
+        assert_eq!(
+            store
+                .answer_receipt(message, ReceiptAnswer::Declined, at(1))
+                .unwrap(),
+            ReceiptAnswer::Declined
+        );
+        // Asked once: a later answer does not replace the first.
+        assert_eq!(
+            store
+                .answer_receipt(message, ReceiptAnswer::Sent, at(2))
+                .unwrap(),
+            ReceiptAnswer::Declined
+        );
+        assert_eq!(
+            store.receipt_answer(message).unwrap(),
+            Some(ReceiptAnswer::Declined)
+        );
+    }
+}
+
+#[test]
+fn answering_for_a_message_that_is_not_there_is_an_error_in_both_stores() {
+    let b = both();
+    let ghost = MessageId::generate();
+    for store in [&b.sqlite as &dyn Store, &b.memory] {
+        assert!(matches!(
+            store.answer_receipt(ghost, ReceiptAnswer::Sent, at(1)),
+            Err(StoreError::NoMessage(id)) if id == ghost
+        ));
+        assert_eq!(store.receipt_answer(ghost).unwrap(), None);
+    }
+}
+
+#[test]
+fn a_keyword_intent_resolves_to_the_same_operation_in_both_stores() {
+    let b = both();
+    let message = ingest_one(&b);
+    let intent = RemoteIntent::AddKeyword {
+        messages: vec![message],
+        keyword: Keyword::MdnSent,
+    };
+    let nothing = Patch {
+        id: ChangeId::generate(),
+        changes: vec![],
+    };
+    let mut ops = Vec::new();
+    for store in [&b.sqlite as &dyn Store, &b.memory] {
+        assert!(
+            store
+                .enqueue(ACCOUNT, intent.clone(), &nothing, at(1))
+                .unwrap()
+                .is_some()
+        );
+        let due = store.outbox_due(ACCOUNT, at(1_000)).unwrap();
+        assert_eq!(due.len(), 1);
+        ops.push(due[0].op.clone());
+    }
+    assert_eq!(ops[0], ops[1]);
+    assert_eq!(
+        ops[0],
+        ProtoOp::AddKeyword {
+            remotes: vec![RemoteRef::Pop {
+                uidl: "u1".to_owned()
+            }],
+            keyword: Keyword::MdnSent,
+        }
+    );
 }

@@ -193,7 +193,8 @@ impl SqliteStore {
                  body_text, body_raw, attachments, fts_text)
              VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19)
              ON CONFLICT(id) DO UPDATE SET
-                 thread=excluded.thread, subject=excluded.subject, read=excluded.read,
+                 thread=excluded.thread, subject=excluded.subject, from_name=excluded.from_name,
+                 from_email=excluded.from_email, read=excluded.read,
                  star=excluded.star, mailbox=excluded.mailbox, body_text=excluded.body_text,
                  attachments=excluded.attachments, recipients=excluded.recipients,
                  fts_text=excluded.fts_text",

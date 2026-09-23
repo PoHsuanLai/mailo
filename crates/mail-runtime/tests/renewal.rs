@@ -734,6 +734,7 @@ fn queued(graph_port: u16, registration: Registration, graph: Credential) -> Sen
         text: "Shall we say one o'clock?\r\n".to_owned(),
         html: None,
         attachments: Vec::new(),
+        receipt: ReceiptRequest::Unrequested,
         state: SendState::Editing,
         updated: t0(),
     };

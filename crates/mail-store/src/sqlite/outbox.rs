@@ -114,7 +114,8 @@ impl SqliteStore {
         let messages = match intent {
             RemoteIntent::SetFlags { messages, .. }
             | RemoteIntent::SetMailbox { messages, .. }
-            | RemoteIntent::SetLabels { messages, .. } => messages,
+            | RemoteIntent::SetLabels { messages, .. }
+            | RemoteIntent::AddKeyword { messages, .. } => messages,
             RemoteIntent::Send { .. } | RemoteIntent::Folder(_) => {
                 unreachable!("handled above")
             }
@@ -139,6 +140,10 @@ impl SqliteStore {
                 remotes,
                 add: self.label_names(add)?,
                 remove: self.label_names(remove)?,
+            },
+            RemoteIntent::AddKeyword { keyword, .. } => ProtoOp::AddKeyword {
+                remotes,
+                keyword: *keyword,
             },
             RemoteIntent::Send { .. } | RemoteIntent::Folder(_) => unreachable!("handled above"),
         }))
@@ -192,6 +197,9 @@ impl SqliteStore {
             // Nothing to re-layer. `pending_changes` exists so a local edit survives the next
             // ingest overwriting the message it applies to; a submission has no such message,
             // and the draft's own `SendState` is not a `Change` (FINDINGS F36).
+            // A keyword has no local mirror on the message to re-layer: the answer it records is
+            // kept by the store beside the message, written when the user answered.
+            RemoteIntent::AddKeyword { .. } => Vec::new(),
             RemoteIntent::Send { .. } | RemoteIntent::Folder(_) => Vec::new(),
         }
     }

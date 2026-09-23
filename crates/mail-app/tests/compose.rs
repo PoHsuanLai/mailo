@@ -1285,6 +1285,7 @@ mod writing_to_someone_new {
             [&stranger(), &[], &[]],
             "dinner on saturday",
             "are you free?",
+            ReceiptRequest::Unrequested,
             at(10),
         )
         .expect("one account needs no --from");
@@ -1302,8 +1303,16 @@ mod writing_to_someone_new {
             name: None,
             email: "lee@elsewhere.test".to_owned(),
         }];
-        let out = compose::new_message(&store, None, [&stranger(), &[], &blind], "s", "", at(10))
-            .unwrap();
+        let out = compose::new_message(
+            &store,
+            None,
+            [&stranger(), &[], &blind],
+            "s",
+            "",
+            ReceiptRequest::Unrequested,
+            at(10),
+        )
+        .unwrap();
         assert!(out.contains("bcc     lee@elsewhere.test"), "{out}");
         assert_eq!(only_draft(&store).bcc, blind);
     }
@@ -1311,9 +1320,35 @@ mod writing_to_someone_new {
     #[test]
     fn a_message_with_no_subject_says_so_rather_than_printing_a_blank() {
         let (store, _dir) = seeded();
-        let out =
-            compose::new_message(&store, None, [&stranger(), &[], &[]], "", "", at(10)).unwrap();
+        let out = compose::new_message(
+            &store,
+            None,
+            [&stranger(), &[], &[]],
+            "",
+            "",
+            ReceiptRequest::Unrequested,
+            at(10),
+        )
+        .unwrap();
         assert!(out.contains("(none)"), "{out}");
+    }
+
+    #[test]
+    fn a_message_can_ask_for_a_read_receipt() {
+        let (store, _dir) = seeded();
+        let out = compose::new_message(
+            &store,
+            None,
+            [&stranger(), &[], &[]],
+            "figures",
+            "",
+            ReceiptRequest::Requested,
+            at(10),
+        )
+        .unwrap();
+        assert!(out.contains("asks for a read receipt"), "{out}");
+        // Kept on the stored draft, so a send tomorrow still asks.
+        assert_eq!(only_draft(&store).receipt, ReceiptRequest::Requested);
     }
 
     #[test]

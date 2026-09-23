@@ -12,8 +12,8 @@ use chrono::{DateTime, SecondsFormat, TimeDelta, Utc};
 use mail_domain::{
     AccountCaps, AccountId, Change, ChangeId, Cursor, Draft, DraftId, Filter, Ingest, Label,
     LabelId, MailboxRef, MatchCtx, Membership, Message, MessageId, MessageKey, OutboxId, Page,
-    Patch, Pin, Property, ProtoOp, Query, RemoteIntent, RemoteRef, Retry, SendState, Snooze,
-    SortDir, SyncCursor, Thread, ThreadId, ThreadSummary, UidValidity,
+    Patch, Pin, Property, ProtoOp, Query, ReceiptAnswer, RemoteIntent, RemoteRef, Retry, SendState,
+    Snooze, SortDir, SyncCursor, Thread, ThreadId, ThreadSummary, UidValidity,
 };
 use serde::Serialize;
 
@@ -47,6 +47,9 @@ struct Inner {
     sync: BTreeMap<(AccountId, String), SyncCursor>,
     /// Every mailbox the server listed, by account and path.
     folders: BTreeMap<(AccountId, String), mail_domain::Folder>,
+    /// What the user answered each message's read-receipt request. Dropped with the message,
+    /// as the SQL foreign key does.
+    receipts: BTreeMap<MessageId, ReceiptAnswer>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -98,6 +101,7 @@ impl Default for Inner {
             pending: Vec::new(),
             sync: BTreeMap::new(),
             folders: BTreeMap::new(),
+            receipts: BTreeMap::new(),
         }
     }
 }
@@ -378,6 +382,24 @@ impl Store for MemoryStore {
     ) -> Result<(), StoreError> {
         self.inner.borrow_mut().outbox_settle(id, settle, now)
     }
+
+    fn receipt_answer(&self, message: MessageId) -> Result<Option<ReceiptAnswer>, StoreError> {
+        Ok(self.inner.borrow().receipts.get(&message).copied())
+    }
+
+    fn answer_receipt(
+        &self,
+        message: MessageId,
+        answer: ReceiptAnswer,
+        _now: DateTime<Utc>,
+    ) -> Result<ReceiptAnswer, StoreError> {
+        let mut inner = self.inner.borrow_mut();
+        if !inner.messages.contains_key(&message) {
+            return Err(StoreError::NoMessage(message));
+        }
+        // The first answer stands, as `INSERT OR IGNORE` has it.
+        Ok(*inner.receipts.entry(message).or_insert(answer))
+    }
 }
 
 impl Inner {
@@ -593,6 +615,7 @@ impl Inner {
         }
         self.remotes.retain(|row| row.message != id);
         self.pending.retain(|row| row.message != id);
+        self.receipts.remove(&id);
         if !self.has_messages(prev.thread) {
             self.threads.remove(&prev.thread);
         }
@@ -809,7 +832,8 @@ impl Inner {
         let messages = match intent {
             RemoteIntent::SetFlags { messages, .. }
             | RemoteIntent::SetMailbox { messages, .. }
-            | RemoteIntent::SetLabels { messages, .. } => messages,
+            | RemoteIntent::SetLabels { messages, .. }
+            | RemoteIntent::AddKeyword { messages, .. } => messages,
             RemoteIntent::Send { .. } | RemoteIntent::Folder(_) => unreachable!("handled above"),
         };
         let remotes = self.refs_for(account, messages)?;
@@ -830,6 +854,10 @@ impl Inner {
                 remotes,
                 add: self.label_names(add),
                 remove: self.label_names(remove),
+            },
+            RemoteIntent::AddKeyword { keyword, .. } => ProtoOp::AddKeyword {
+                remotes,
+                keyword: *keyword,
             },
             RemoteIntent::Send { .. } | RemoteIntent::Folder(_) => unreachable!("handled above"),
         }))
@@ -1097,6 +1125,9 @@ fn pending_of(intent: &RemoteIntent) -> Vec<(MessageId, Vec<Change>)> {
             .collect(),
         // A submission re-layers nothing: it has no existing message to be overwritten by the
         // next ingest. Matches SqliteStore.
+        // A keyword has no local mirror on the message to re-layer: the answer it records is
+        // kept by the store beside the message, written when the user answered.
+        RemoteIntent::AddKeyword { .. } => Vec::new(),
         RemoteIntent::Send { .. } | RemoteIntent::Folder(_) => Vec::new(),
     }
 }

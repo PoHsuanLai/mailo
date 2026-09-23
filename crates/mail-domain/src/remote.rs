@@ -157,6 +157,12 @@ pub enum ProtoOp {
         add: Vec<String>,
         remove: Vec<String>,
     },
+    /// Add a keyword to messages: `UID STORE +FLAGS (…)` on IMAP. A server that cannot keep
+    /// keywords, and POP3, which has no flags at all, treat it as done.
+    AddKeyword {
+        remotes: Vec<RemoteRef>,
+        keyword: crate::receipt::Keyword,
+    },
     /// Upload a message we composed, e.g. a draft to the Drafts folder.
     Append {
         mailbox: MailboxRef,

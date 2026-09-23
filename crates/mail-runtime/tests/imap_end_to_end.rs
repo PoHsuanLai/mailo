@@ -1638,6 +1638,7 @@ mod appending {
             text: "to be continued".to_owned(),
             html: None,
             attachments: vec![],
+            receipt: ReceiptRequest::Unrequested,
             state: SendState::Editing,
             updated: now(),
         }

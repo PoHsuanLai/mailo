@@ -140,6 +140,7 @@ pub(in crate::ui) fn seeded() -> (Arc<SqliteStore>, tempfile::TempDir) {
                     text: "typing".to_owned(),
                     html: None,
                     attachments: vec![],
+                    receipt: ReceiptRequest::Unrequested,
                     state: SendState::Editing,
                     updated: chrono::Utc::now(),
                 }))],

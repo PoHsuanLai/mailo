@@ -27,6 +27,7 @@ use crate::draft::Draft;
 use crate::folder::{Folder, FolderWork};
 use crate::id::{BlobId, ChangeId, DraftId, LabelId, MessageId, ThreadId};
 use crate::message::{Message, Thread};
+use crate::receipt::Keyword;
 use crate::remote::MailboxRef;
 use crate::state::{MailboxRole, Membership, Pin, ReadState, Snooze, Star};
 use chrono::{DateTime, Utc};
@@ -165,6 +166,15 @@ pub enum RemoteIntent {
         messages: Vec<MessageId>,
         add: Vec<LabelId>,
         remove: Vec<LabelId>,
+    },
+    /// Put a keyword on messages, for other clients to read.
+    ///
+    /// Add only. The one keyword this client sets, [`Keyword::MdnSent`], records that
+    /// something happened, and nothing un-happens it; there is no local state to re-layer
+    /// either, since the answer itself is kept by the store beside the message.
+    AddKeyword {
+        messages: Vec<MessageId>,
+        keyword: Keyword,
     },
     /// Submit a composed message.
     ///

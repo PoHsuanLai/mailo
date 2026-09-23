@@ -4,6 +4,7 @@
 use crate::content::Address;
 use crate::id::{AccountId, BlobId, DraftId, IdentityId, MessageId};
 use crate::message::Message;
+use crate::receipt::ReceiptRequest;
 use crate::retry::Retry;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -54,6 +55,10 @@ pub struct Draft {
     pub text: String,
     pub html: Option<String>,
     pub attachments: Vec<PendingAttachment>,
+    /// Whether the message asks for a read receipt. Defaulted so drafts persisted before
+    /// receipts existed still load.
+    #[serde(default)]
+    pub receipt: ReceiptRequest,
     pub state: SendState,
     pub updated: DateTime<Utc>,
 }
@@ -121,6 +126,7 @@ impl Draft {
             text: String::new(),
             html: None,
             attachments: Vec::new(),
+            receipt: ReceiptRequest::Unrequested,
             state: SendState::Editing,
             updated: now,
         }
@@ -152,6 +158,7 @@ impl Draft {
             text: String::new(),
             html: None,
             attachments: Vec::new(),
+            receipt: ReceiptRequest::Unrequested,
             state: SendState::Editing,
             updated: now,
         }
@@ -180,6 +187,7 @@ impl Draft {
             text: String::new(),
             html: None,
             attachments: Vec::new(),
+            receipt: ReceiptRequest::Unrequested,
             state: SendState::Editing,
             updated: now,
         }

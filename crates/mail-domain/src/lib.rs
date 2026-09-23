@@ -18,6 +18,7 @@ pub mod message;
 pub mod op;
 pub mod parts;
 pub mod presets;
+pub mod receipt;
 pub mod remote;
 pub mod retry;
 pub mod state;
@@ -45,6 +46,7 @@ pub use ingest::{Fetched, Ingest};
 pub use message::{Message, MessageKey, Thread, ThreadSummary};
 pub use op::{Action, Applied, Change, Op, OpKind, Patch, RemoteIntent, Target};
 pub use parts::PartTree;
+pub use receipt::{Keyword, ReceiptAnswer, ReceiptRequest};
 pub use remote::{FetchSince, MailboxRef, ProtoOp, RemoteRef, Resync, SyncCursor, UidValidity};
 pub use retry::{Retry, Retryable};
 pub use state::{

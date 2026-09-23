@@ -4,6 +4,8 @@ mod draft;
 mod folders;
 mod outbox;
 mod read;
+mod receipt;
+mod reparse;
 mod row;
 mod search;
 mod write;
@@ -685,5 +687,21 @@ impl Store for SqliteStore {
         now: DateTime<Utc>,
     ) -> Result<(), StoreError> {
         self.settle(id, settle, now)
+    }
+
+    fn receipt_answer(
+        &self,
+        message: MessageId,
+    ) -> Result<Option<mail_domain::ReceiptAnswer>, StoreError> {
+        self.load_receipt_answer(message)
+    }
+
+    fn answer_receipt(
+        &self,
+        message: MessageId,
+        answer: mail_domain::ReceiptAnswer,
+        now: DateTime<Utc>,
+    ) -> Result<mail_domain::ReceiptAnswer, StoreError> {
+        self.write_receipt_answer(message, answer, now)
     }
 }

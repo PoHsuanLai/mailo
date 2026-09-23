@@ -3,7 +3,7 @@
 use crate::MimeError;
 use mail_builder::MessageBuilder;
 use mail_builder::headers::address::Address as MailAddress;
-use mail_domain::{Address, BlobId, Draft, Identity, Message, normalize_id};
+use mail_domain::{Address, BlobId, Draft, Identity, Message, ReceiptRequest, normalize_id};
 use std::collections::HashSet;
 
 /// Whether the built bytes may name blind recipients.
@@ -127,6 +127,13 @@ pub fn build(
     if !draft.bcc.is_empty() && disclosure == Disclosure::Full {
         builder = builder.bcc(mail_list(&draft.bcc));
     }
+    // RFC 8098 §2.1. The receipt goes to the address the message is from, not to `Reply-To`:
+    // it is the sender asking, and the recipient's client compares this header's domain with the
+    // `Return-Path`, which is `from` too (see `Posting::mail_from`). A `Reply-To` on another
+    // domain would make every such client warn that the request looks forged.
+    if draft.receipt == ReceiptRequest::Requested {
+        builder = builder.header("Disposition-Notification-To", mail_addr(&identity.from));
+    }
     if let Some(html) = draft.html.as_deref() {
         builder = builder.html_body(html);
     }
@@ -194,7 +201,7 @@ fn message_id(draft: &Draft, identity: &Identity) -> String {
     format!("{}@{domain}", draft.id).to_ascii_lowercase()
 }
 
-fn is_domain(domain: &str) -> bool {
+pub(crate) fn is_domain(domain: &str) -> bool {
     !domain.is_empty()
         && !domain.starts_with('.')
         && !domain.ends_with('.')
@@ -211,7 +218,7 @@ fn mail_list(addrs: &[Address]) -> MailAddress<'static> {
 /// The mailbox is written raw inside `<>`. Bytes from the first control character on are
 /// dropped, then angle brackets and whitespace are removed, so a value copied out of a
 /// hostile header cannot start a new header line or glue a `Bcc` onto the address.
-fn mail_addr(addr: &Address) -> MailAddress<'static> {
+pub(crate) fn mail_addr(addr: &Address) -> MailAddress<'static> {
     let name = addr
         .name
         .as_deref()
@@ -221,7 +228,7 @@ fn mail_addr(addr: &Address) -> MailAddress<'static> {
     MailAddress::new_address(name, mailbox(&addr.email))
 }
 
-fn mailbox(email: &str) -> String {
+pub(crate) fn mailbox(email: &str) -> String {
     // Cut at the first control character. Deleting the breaks and keeping the tail
     // would glue `Bcc: victim` onto the real mailbox.
     email
