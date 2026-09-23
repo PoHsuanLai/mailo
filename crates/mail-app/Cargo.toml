@@ -40,6 +40,8 @@ nucleo-matcher = "0.3"
 image = { version = "0.25", default-features = false, features = ["ico", "png"] }
 base64 = "0.22"
 thiserror.workspace = true
+# Grapheme clusters for caret movement and backspace. Unicode Standard Annex #29.
+unicode-segmentation = "1.13"
 
 [dev-dependencies]
 tempfile = "3"

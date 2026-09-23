@@ -1,0 +1,10 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc de5d1efc2c39886f3fa30d502d5c5de925008b514ce20e5174bb1c69527468b1 # shrinks to n = 2
+cc 02f8aeae212f873efeafe5fdbae5cfc092ea753b6080459ca86843e54029859f # shrinks to n = 12
+cc ad0fb811db1535128afb31bb5a5fbfefca88b3c7286bef0a8b5a08d286219a2b # shrinks to (doc, ops) = (Doc { nodes: [Para { kind: Paragraph, runs: [] }] }, [Replace { index: 0, take: 1, nodes: [] }])
+cc 6fc511b61d70e4d29534f9bbd8083c303ed31e03412dd0a90d21e31704af24a9 # shrinks to doc = Doc { nodes: [Para { kind: Bullet, runs: [Run { text: "Hello ", marks: Marks { bits: 13, link: Some(SafeUrl("https://example.com/a")) } }, Run { text: "Hello", marks: Marks { bits: 1, link: Some(SafeUrl("https://example.com/a")) } }] }] }

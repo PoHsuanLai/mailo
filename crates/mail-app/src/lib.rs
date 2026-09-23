@@ -6,6 +6,7 @@ pub mod attach;
 pub mod cli;
 pub mod compose;
 mod contrast;
+pub mod editor;
 pub mod ipc;
 mod palette;
 mod provider;
