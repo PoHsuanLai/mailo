@@ -436,6 +436,87 @@ impl Peek {
     }
 }
 
+/// How the loaded page is grouped.
+///
+/// Client-side, and only the rows already on this page. The store's own grouping is a
+/// different feature.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PageGroup {
+    #[default]
+    None,
+    Sender,
+    Date,
+    Label,
+    Unread,
+}
+
+/// Whether a row draws one of its parts.
+///
+/// A closed pair, so a call site cannot pass a bare `true` and leave the reader guessing
+/// which way round it went.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RowPart {
+    Shown,
+    Hidden,
+}
+
+/// Which parts of a row the loaded page draws.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PageParts {
+    pub snippet: RowPart,
+    pub provider: RowPart,
+    pub chips: RowPart,
+    pub time: RowPart,
+}
+
+impl Default for PageParts {
+    fn default() -> Self {
+        Self {
+            snippet: RowPart::Shown,
+            provider: RowPart::Shown,
+            chips: RowPart::Shown,
+            time: RowPart::Shown,
+        }
+    }
+}
+
+impl PageParts {
+    /// The part named by a properties-menu key, if it is one.
+    pub fn part_mut(&mut self, key: &str) -> Option<&mut RowPart> {
+        match key {
+            "snippet" => Some(&mut self.snippet),
+            "provider" => Some(&mut self.provider),
+            "chips" => Some(&mut self.chips),
+            "time" => Some(&mut self.time),
+            _ => None,
+        }
+    }
+}
+
+impl RowPart {
+    /// The other way of showing a part.
+    pub fn toggle(self) -> Self {
+        match self {
+            RowPart::Shown => RowPart::Hidden,
+            RowPart::Hidden => RowPart::Shown,
+        }
+    }
+
+    /// Whether the row should draw this part.
+    pub fn shown(self) -> bool {
+        matches!(self, RowPart::Shown)
+    }
+}
+
+/// Which list-bar menu is open.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PageMenu {
+    #[default]
+    Closed,
+    Group,
+    Properties,
+}
+
 /// Everything the shell is currently showing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Shell {
@@ -488,6 +569,14 @@ pub struct Shell {
     pub account: Option<AccountId>,
     /// Accounts the current Space shows. Empty means every account.
     pub scope: Vec<AccountId>,
+    /// How this page's rows are grouped. Not a store query.
+    pub group: PageGroup,
+    /// Which parts of a row this page draws.
+    pub parts: PageParts,
+    /// The list-bar menu that is open.
+    pub page_menu: PageMenu,
+    /// The command menu's query while it is open. `None` is closed.
+    pub command: Option<String>,
 }
 
 /// A message being edited, as the widgets hold it.
@@ -688,6 +777,10 @@ impl Default for Shell {
             appearance: Appearance::default(),
             account: None,
             scope: Vec::new(),
+            group: PageGroup::None,
+            parts: PageParts::default(),
+            page_menu: PageMenu::Closed,
+            command: None,
         }
     }
 }

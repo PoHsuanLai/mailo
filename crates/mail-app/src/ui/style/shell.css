@@ -182,5 +182,5 @@
 .list-bar h2 .mono { font-weight: 400; color: var(--ink-faint); font-size: 11px; margin-left: 8px; }
 .list-bar .status { font-size: 12px; color: var(--ink-faint); min-width: 0; }
 .list-bar .status.bad { color: var(--danger); font-weight: 600; }
-.bar-tools { display: flex; gap: 6px; align-items: center; margin-left: auto; }
+.bar-tools { display: flex; gap: 6px; align-items: center; margin-left: auto; position: relative; }
 .bar-tools .mini .ic { width: 14px; height: 14px; }

@@ -365,13 +365,91 @@ mod tests {
             ".row position is {position:?}; .hover is positioned against the row",
         );
 
-        let labels = declared(STYLE, ".labels");
-        let span = labels.get("grid-column").map(String::as_str);
+        let menu = declared(STYLE, ".row .fmenu, .row .row-menu");
         assert_eq!(
-            span,
-            Some("1 / -1"),
-            ".labels grid-column is {span:?}; the menus are grid items of the row",
+            menu.get("position").map(String::as_str),
+            Some("absolute"),
+            "a row menu is positioned against the row, under the strip"
         );
+    }
+
+    /// `.cmdk` used to open with `peek-in`, which animates opacity from 0. Any frame caught
+    /// before it ends (a headless screenshot, a slow first paint) shows the panel translucent:
+    /// the scrim and the rows behind it bleed through and the whole menu reads washed out.
+    /// The open rise may move the panel, never fade it, and the overlay sits above the scrim.
+    #[test]
+    fn the_command_panel_is_opaque_on_its_first_frame() {
+        let css = strip_comments(STYLE);
+        let body = rule_body(&css, ".cmdk");
+        let animation = property(&body, "animation");
+        assert!(
+            !animation.contains("peek-in"),
+            ".cmdk animates with {animation:?}; peek-in starts transparent"
+        );
+        let name = animation
+            .split_whitespace()
+            .next()
+            .unwrap_or("")
+            .trim_end_matches(',');
+        let frames = keyframes(&css, name).replace(' ', "");
+        assert!(
+            !frames.contains("opacity:0"),
+            "@keyframes {name} fades the panel: {frames}"
+        );
+        let wrap = property(&rule_body(&css, ".cmdk-wrap"), "z-index");
+        let scrim = property(&rule_body(&css, ".scrim"), "z-index");
+        let wrap_z: i32 = wrap.parse().unwrap_or(0);
+        let scrim_z: i32 = scrim.parse().unwrap_or(0);
+        assert!(
+            wrap_z > scrim_z,
+            "command menu z-index {wrap_z} is not above the scrim {scrim_z}"
+        );
+    }
+
+    fn rule_body(css: &str, selector: &str) -> String {
+        let bytes = css.as_bytes();
+        let mut index = 0;
+        let mut boundary = 0;
+        while index < bytes.len() {
+            match bytes[index] {
+                b'{' => {
+                    let sel = css[boundary..index].trim();
+                    let Some(close) = matching_close(css, index) else {
+                        return String::new();
+                    };
+                    if sel == selector {
+                        return css[index + 1..close].to_owned();
+                    }
+                    index = close + 1;
+                    boundary = index;
+                }
+                b';' | b'}' => {
+                    boundary = index + 1;
+                    index += 1;
+                }
+                _ => index += 1,
+            }
+        }
+        String::new()
+    }
+
+    fn property(body: &str, name: &str) -> String {
+        body.split(';')
+            .find_map(|decl| {
+                let (prop, value) = decl.split_once(':')?;
+                (prop.trim() == name).then(|| value.trim().to_owned())
+            })
+            .unwrap_or_default()
+    }
+
+    fn keyframes(css: &str, name: &str) -> String {
+        let needle = format!("@keyframes {name}");
+        let Some(at) = css.find(&needle) else {
+            panic!("{needle} is missing");
+        };
+        let open = css[at..].find('{').expect("keyframes body") + at;
+        let close = matching_close(css, open).expect("keyframes close");
+        css[open + 1..close].to_owned()
     }
 
     #[test]
@@ -698,11 +776,15 @@ mod tests {
         use crate::ui::fixtures::work;
         use dioxus::prelude::*;
         let built = work();
+        let store = built.store.clone();
         let mut dom = VirtualDom::new(App)
             .with_root_context(built.store)
             .with_root_context(built.dirs);
         dom.rebuild_in_place();
-        let page = dioxus_ssr::render(&dom);
+        let mut menus =
+            VirtualDom::new(crate::ui::command::tests::OpenMenus).with_root_context(store);
+        menus.rebuild_in_place();
+        let page = dioxus_ssr::render(&dom) + &dioxus_ssr::render(&menus);
         let missing = unstyled_classes(&page, STYLE);
         assert!(missing.is_empty(), "unstyled classes: {missing:?}");
     }

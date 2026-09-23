@@ -17,6 +17,17 @@
   --ink: #1A1E1A;
   --ink-soft: #586057;
   --ink-faint: #676E65;
+  /* Sender avatars. Picked from the address, never from the window accent.
+     The letter is `--av-ink` on every one of them, in both themes. */
+  --av-0: #5B4B8A;
+  --av-1: #1F6B4A;
+  --av-2: #8A4B2F;
+  --av-3: #2F5D8A;
+  --av-4: #8A3D55;
+  --av-5: #3D6B4F;
+  --av-6: #6B5420;
+  --av-7: #3E4A78;
+  --av-ink: #F7F6F1;
   --line: #D6DBD0;
   --line-soft: #E3E7DE;
 

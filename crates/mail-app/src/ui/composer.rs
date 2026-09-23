@@ -5,6 +5,7 @@
 //! does it go when the user is done"; the decisions behind it live in `crate::view`, which is
 //! free of Dioxus and tested without a window.
 
+use super::field::{Field, FieldKind};
 use crate::view::{Composing, Discarding, Shell};
 use dioxus::prelude::*;
 use mail_domain::*;
@@ -189,36 +190,51 @@ pub(super) fn Composer(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
                 }
             }
             label { "To"
-                input {
-                    value: "{editing.to}",
-                    oninput: move |e| {
+                Field {
+                    kind: FieldKind::Inline,
+                    value: editing.to.clone(),
+                    placeholder: String::new(),
+                    extra: None,
+                    on_input: move |value| {
                         if let Some(c) = shell.write().composing.as_mut() {
-                            c.to = e.value();
+                            c.to = value;
                         }
                         dirty.set(true);
                     },
+                    on_focus: |_| {},
+                    on_blur: |_| {},
                 }
             }
             label { "Cc"
-                input {
-                    value: "{editing.cc}",
-                    oninput: move |e| {
+                Field {
+                    kind: FieldKind::Inline,
+                    value: editing.cc.clone(),
+                    placeholder: String::new(),
+                    extra: None,
+                    on_input: move |value| {
                         if let Some(c) = shell.write().composing.as_mut() {
-                            c.cc = e.value();
+                            c.cc = value;
                         }
                         dirty.set(true);
                     },
+                    on_focus: |_| {},
+                    on_blur: |_| {},
                 }
             }
             label { "Subject"
-                input {
-                    value: "{editing.subject}",
-                    oninput: move |e| {
+                Field {
+                    kind: FieldKind::Inline,
+                    value: editing.subject.clone(),
+                    placeholder: String::new(),
+                    extra: None,
+                    on_input: move |value| {
                         if let Some(c) = shell.write().composing.as_mut() {
-                            c.subject = e.value();
+                            c.subject = value;
                         }
                         dirty.set(true);
                     },
+                    on_focus: |_| {},
+                    on_blur: |_| {},
                 }
             }
             // What is going out with it. Listed whether or not there are any, because an
@@ -258,6 +274,7 @@ pub(super) fn Composer(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
             }
             label { class: "attach", "Attach"
                 input {
+                    class: "inp",
                     r#type: "file",
                     multiple: true,
                     onchange: move |e: Event<FormData>| {

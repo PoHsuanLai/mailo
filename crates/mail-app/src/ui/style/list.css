@@ -4,11 +4,11 @@ label.search {
   border-bottom: 1px solid var(--line-soft); color: var(--ink-faint);
 }
 label.search .ic { width: 15px; height: 15px; }
-input.search, label.search input {
-  font: inherit; font-size: 14.5px; border: 0; outline: none; background: transparent;
-  color: var(--ink); width: 100%;
+label.search .inp { flex: 1; }
+.list-g {
+  list-style: none; padding: 10px 8px 4px; font-family: var(--font-data); font-size: 10px;
+  letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-faint);
 }
-input.search::placeholder, label.search input::placeholder { color: var(--ink-faint); }
 /* Rows are the mockup's: each a small card on the paper, lifted on hover. */
 .list { list-style: none; margin: 0; padding: 8px; overflow-y: auto; flex: 1; min-height: 0; }
 .list.entering .row { animation: rise var(--t-move) var(--e-out) backwards; animation-delay: calc(var(--i, 0) * var(--stagger)); }

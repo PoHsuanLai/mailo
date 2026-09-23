@@ -5,14 +5,18 @@
 //! rendering a stranger's HTML.
 
 mod app;
+mod command;
 mod composer;
 mod data;
+mod field;
 mod frame;
 mod icon;
 mod launch;
 mod list;
+mod menu;
 mod menus;
 mod ops;
+mod page;
 mod reading;
 mod row;
 mod sidebar;

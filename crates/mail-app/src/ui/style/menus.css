@@ -1,5 +1,96 @@
-/* The label menu, under the row whose button opened it. */
-.labels { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 4px 2px; }
-.labels .label { padding: 3px 9px; border: 1px solid var(--line); border-radius: var(--r-pill); background: none; color: var(--ink-soft); font: inherit; font-size: 0.85em; cursor: pointer; }
-.labels .label:hover { background: var(--raise); color: var(--ink); }
-.labels .label.on { background: var(--accent-soft); color: var(--ink); font-weight: 600; }
+/* One menu. Ported from the mockup's `.fmenu`, `.inp` and `.cmdk`.
+   The shadow is `--shadow-2`: a raw rgba() here is a colour outside the palette. */
+.fmenu {
+  position: absolute; z-index: 40; width: 280px; max-height: 320px; overflow-y: auto;
+  background: var(--raise); color: var(--ink); border: 1px solid var(--line);
+  border-radius: 12px; box-shadow: var(--shadow-2); padding: 5px;
+  animation: menu-pop var(--t-move) var(--e-spring);
+}
+@keyframes menu-pop {
+  from { opacity: 0; transform: translateY(-4px) scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+.fmenu .g {
+  padding: 7px 8px 3px; font-family: var(--font-data); font-size: 9.5px; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--ink-faint);
+}
+.fmenu .it {
+  display: grid; grid-template-columns: 34px 1fr auto; gap: 9px; align-items: center;
+  padding: 5px 7px; border-radius: 8px; cursor: pointer;
+}
+.fmenu .it[aria-selected="true"] { background: var(--accent-soft); }
+.fmenu .it .tile {
+  width: 34px; height: 34px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface);
+  display: grid; place-items: center; font-family: var(--font-display); font-weight: 800; font-size: 13px;
+  color: var(--ink-soft);
+}
+.fmenu .it .tile .ic { width: 17px; height: 17px; }
+.fmenu .it b { display: block; font-size: 13px; font-weight: 600; }
+.fmenu .who { color: var(--ink); font-weight: 700; }
+.fmenu .addr { font-family: var(--font-data); font-size: 11px; font-weight: 400; color: var(--ink-faint); }
+.fmenu .it small { display: block; font-size: 11.5px; color: var(--ink-faint); line-height: 1.3; }
+.fmenu .it .sc { font-family: var(--font-data); font-size: 10px; color: var(--ink-faint); }
+.fmenu .none { padding: 10px; font-size: 12.5px; color: var(--ink-faint); }
+.fmenu.slim { width: 220px; }
+.fmenu.slim .it { grid-template-columns: 22px 1fr auto; padding: 6px 8px; }
+.fmenu.slim .it .tile { width: 22px; height: 22px; border: 0; background: transparent; }
+.fmenu .tile.round { border-radius: 999px; color: var(--av-ink); }
+.fmenu.slim .tile.round {
+  width: 20px; height: 20px; font-family: var(--font-display); font-weight: 800; font-size: 9px;
+}
+.fmenu .it[aria-checked="true"] b { color: var(--ink); }
+.fmenu .it .sc .ic { width: 14px; height: 14px; color: var(--accent); }
+.fmenu mark, .cmdk mark { background: transparent; color: var(--accent); font-weight: 800; }
+
+/* Anchored to the row, under the strip. `.row` is position: relative. */
+.row .fmenu, .row .row-menu {
+  position: absolute; z-index: 40; top: calc(100% + 4px); right: 8px; width: 280px;
+}
+.row-menu { display: flex; flex-direction: column; gap: 4px; }
+
+.inp {
+  font: inherit; font-size: 13.5px; color: var(--ink); background: var(--surface);
+  border: 1px solid var(--line); border-radius: 10px; padding: 7px 10px; outline: none;
+  transition: border-color var(--t-quick) var(--e-out), box-shadow var(--t-quick) var(--e-out);
+}
+.inp::placeholder { color: var(--ink-faint); }
+.inp:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.inp.inline {
+  border-color: transparent; background: transparent; padding: 3px 2px; min-width: 120px;
+  flex: 1; box-shadow: none;
+}
+.inp.inline:focus { border-color: transparent; box-shadow: none; }
+
+.cmdk-wrap {
+  position: absolute; inset: 0; z-index: 20; display: grid; place-items: start center; padding-top: 11%;
+  background: var(--scrim);
+}
+/* `peek-in` starts at opacity 0. A capture of that frame — the headless screenshot included —
+   paints the panel translucent over the scrim, so the list shows through it. This rise never
+   touches opacity: the panel is `--raise` on the first frame and on the last. */
+@keyframes cmdk-rise { from { transform: translateY(8px) scale(0.98); } to { transform: none; } }
+.cmdk {
+  position: relative; z-index: 1; opacity: 1;
+  width: min(540px, 88%); background: var(--raise); color: var(--ink); border: 1px solid var(--line);
+  border-radius: 14px; box-shadow: var(--shadow-2); overflow: hidden;
+  animation: cmdk-rise var(--t-big) var(--e-spring);
+}
+.cmdk-in {
+  display: flex; align-items: center; gap: 9px; padding: 12px 14px;
+  border-bottom: 1px solid var(--line-soft); color: var(--ink-faint);
+}
+.cmdk-in .inp { font-size: 16px; }
+.cmdk .fmenu {
+  position: static; width: auto; max-height: 360px; border: 0; box-shadow: none;
+  border-radius: 0; animation: none;
+}
+.cmdk .tokens { display: flex; gap: 5px; flex-wrap: wrap; padding: 0 14px 8px; }
+.cmdk .tok {
+  font-family: var(--font-data); font-size: 10.5px; padding: 2px 8px; border-radius: 999px;
+  background: var(--accent-soft); color: var(--ink);
+}
+.cmdk .snip {
+  display: block; font-size: 11.5px; color: var(--ink-faint); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; max-width: 380px;
+}
+.bar-tools .fmenu { top: calc(100% + 4px); right: 0; }

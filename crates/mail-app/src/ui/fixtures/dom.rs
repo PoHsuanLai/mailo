@@ -336,6 +336,11 @@ impl Seen {
         (ids.len() == 1).then(|| ids[0])
     }
 
+    /// Every element whose dynamic `name` attribute equals `value`, in paint order.
+    pub(in crate::ui) fn all(&self, name: &str, value: &str) -> Vec<dioxus_core::ElementId> {
+        self.ids(name, value)
+    }
+
     /// The one element whose dynamic `name` attribute equals `value`.
     pub(in crate::ui) fn one(&self, name: &str, value: &str) -> dioxus_core::ElementId {
         let ids = self.ids(name, value);

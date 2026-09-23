@@ -35,6 +35,20 @@ const NOTHING_MOUNTED: &str = "The interface did not start.\n\n\
 pub(super) const KEEP_FOCUS: &str = r#"<script>
 document.addEventListener("DOMContentLoaded", () => {
   const hold = () => {
+    // An open menu owns the keyboard. Focusing `.app` here would take it back on the next
+    // tick, and the field would lose whatever was just typed.
+    const menuField = document.querySelector(".cmdk .inp, .fmenu .inp");
+    if (menuField) {
+      if (document.activeElement === menuField) { return; }
+      menuField.focus();
+      return;
+    }
+    const menu = document.querySelector(".fmenu");
+    if (menu) {
+      if (document.activeElement === menu) { return; }
+      menu.focus();
+      return;
+    }
     const app = document.querySelector(".app");
     if (!app || document.activeElement === app) { return; }
     // Only when focus is nowhere in particular. Taking it from a text box would make typing

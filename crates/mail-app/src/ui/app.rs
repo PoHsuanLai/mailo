@@ -1,3 +1,4 @@
+use super::command::CommandMenu;
 use super::composer::{self, Composer};
 use super::data::{PAGE, accounts, count_badges, list_for, warm_the_first_screenful};
 use super::frame;
@@ -7,8 +8,8 @@ use super::reading::Reader;
 use super::sidebar::Places;
 use super::style::STYLE;
 use crate::view::{
-    Appearance, Listing, Place, Shell, Shortcut, Source, SyncState, badge_filter, is_label_place,
-    nothing_to_show, synced,
+    Appearance, Listing, PageMenu, Place, Shell, Shortcut, Source, SyncState, badge_filter,
+    is_label_place, nothing_to_show, synced,
 };
 use dioxus::prelude::*;
 use mail_domain::*;
@@ -316,6 +317,36 @@ pub(super) fn App() -> Element {
             side_hidden.set(!side_hidden());
             return;
         }
+        if (key == "t" || key == "T") && event.modifiers().ctrl() {
+            let open = shell.read().command.is_some();
+            if open {
+                shell.write().command = None;
+                dioxus::document::eval("document.querySelector('.app')?.focus()");
+            } else {
+                shell.write().command = Some(String::new());
+            }
+            return;
+        }
+        // A menu is showing its own cursor. Shortcuts would archive a thread the user is
+        // trying to filter for, and the menu's own handler already took the arrows.
+        let menu_open = {
+            let current = shell.read();
+            current.command.is_some()
+                || current.page_menu != PageMenu::Closed
+                || current.snoozing.is_some()
+                || current.labelling.is_some()
+        };
+        if menu_open {
+            if key == "Escape" {
+                let mut write = shell.write();
+                write.command = None;
+                write.page_menu = PageMenu::Closed;
+                write.snoozing = None;
+                write.labelling = None;
+                dioxus::document::eval("document.querySelector('.app')?.focus()");
+            }
+            return;
+        }
         let typing = in_a_field() || shell.read().composing.is_some();
         // Esc closes a centre or full peek and revokes image consent. Side peek still falls
         // through to Shortcut::Back, and a composer still takes Esc.
@@ -499,6 +530,9 @@ pub(super) fn App() -> Element {
             Places {
                 shell, pages, badges, revision, spaces, today: today_list, dirs: dirs.clone(),
                 side_hidden, just_added,
+            }
+            if shell.read().command.is_some() {
+                CommandMenu { shell, pages, revision, side_hidden, sync_state, spaces, in_a_field }
             }
             div { class: "card",
             ThreadList {

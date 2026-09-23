@@ -54,10 +54,14 @@ pub(super) fn DraftRow(draft: Draft, shell: Signal<Shell>, index: usize) -> Elem
                     span { class: "nm", "{who}" }
                 }
                 div { class: "row-sub", "{subject}" }
-                div { class: "row-snip", "{state}" }
+                if shell.read().parts.snippet.shown() {
+                    div { class: "row-snip", "{state}" }
+                }
             }
             div { class: "row-tail",
-                span { class: "row-time", "{when}" }
+                if shell.read().parts.time.shown() {
+                    span { class: "row-time", "{when}" }
+                }
             }
         }
     }
@@ -105,20 +109,26 @@ pub(super) fn Row(
             div { class: "row-main",
                 div { class: "row-from",
                     span { class: "nm", "{who}" }
-                    if let Some(via) = via {
-                        ViaChip { via, marks: shell.read().appearance.marks }
+                    if shell.read().parts.provider.shown() {
+                        if let Some(via) = via {
+                            ViaChip { via, marks: shell.read().appearance.marks }
+                        }
                     }
                 }
                 div { class: "row-sub", "{subject}" }
-                if !snippet.is_empty() {
+                if shell.read().parts.snippet.shown() && !snippet.is_empty() {
                     div { class: "row-snip", "{snippet}" }
                 }
             }
             div { class: "row-tail",
-                span { class: "row-time", "{when}" }
+                if shell.read().parts.time.shown() {
+                    span { class: "row-time", "{when}" }
+                }
                 span { class: "chips",
-                    for name in chips {
-                        span { key: "{name}", class: "chip", "data-chip": "{name}", "{name}" }
+                    if shell.read().parts.chips.shown() {
+                        for name in chips {
+                            span { key: "{name}", class: "chip", "data-chip": "{name}", "{name}" }
+                        }
                     }
                     if let Some(count) = files {
                         span { class: "clip",

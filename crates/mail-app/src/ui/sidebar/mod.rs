@@ -57,7 +57,7 @@ pub(super) fn Places(
             button {
                 class: "cmd",
                 onclick: move |_| {
-                    dioxus::document::eval("document.querySelector('input.search')?.focus()");
+                    shell.write().command = Some(String::new());
                 },
                 Glyph { icon: Icon::Search, class: None }
                 span { class: "t", "Search or run a command" }

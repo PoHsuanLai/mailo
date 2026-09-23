@@ -5,8 +5,10 @@
 //! `App`; this reads the memos it is handed rather than cloning their answers in the parent.
 
 use super::data::account_rows;
+use super::field::{Field, FieldKind};
 use super::icon::{Glyph, Icon};
 use super::ops::start_new;
+use super::page::{PageMenus, group_page};
 use super::row::{DraftRow, Row};
 use crate::provider::provider;
 use crate::view::{Nothing, Shell, SyncState, synced};
@@ -64,6 +66,46 @@ pub(super) fn ThreadList(
     let inbox = place == "Inbox" && shell.read().search.trim().is_empty();
     let note = sync_state.read().message().map(|text| text.to_owned());
     let bad = sync_state.read().is_failure();
+    enum Line {
+        Head(String),
+        Mail {
+            index: usize,
+            summary: Box<ThreadSummary>,
+            via: Option<crate::provider::Provider>,
+            chips: Vec<String>,
+        },
+    }
+    let mut lines = Vec::new();
+    let mut row_index = 0usize;
+    for band in group_page(
+        threads(),
+        shell.read().group,
+        &names,
+        chrono::Utc::now(),
+        &chrono::Local,
+    ) {
+        if let Some(title) = band.title {
+            lines.push(Line::Head(title));
+        }
+        for summary in band.threads {
+            let via = rows()
+                .iter()
+                .find(|row| row.id == summary.account)
+                .map(|row| provider(&row.plan));
+            let chips = summary
+                .labels
+                .iter()
+                .filter_map(|id| names.get(id).cloned())
+                .collect::<Vec<_>>();
+            lines.push(Line::Mail {
+                index: row_index,
+                summary: Box::new(summary),
+                via,
+                chips,
+            });
+            row_index += 1;
+        }
+    }
     rsx! {
         div { class: "list-col",
             div { class: "list-bar",
@@ -77,6 +119,7 @@ pub(super) fn ThreadList(
                     span { class: if bad { "status bad" } else { "status" }, "{note}" }
                 }
                 div { class: "bar-tools",
+                    PageMenus { shell }
                     button {
                         class: "mini",
                         aria_label: "Sync now",
@@ -125,16 +168,17 @@ pub(super) fn ThreadList(
             }
             label { class: "search",
                 Glyph { icon: Icon::Search, class: None }
-                input {
-                    class: "search",
-                    placeholder: "Search all mail",
-                    onfocusin: move |_| in_a_field.set(true),
-                    onfocusout: move |_| in_a_field.set(false),
-                    value: "{shell.read().search}",
-                    oninput: move |e| {
-                        shell.write().search = e.value();
+                Field {
+                    kind: FieldKind::Boxed,
+                    value: shell.read().search.clone(),
+                    placeholder: "Search all mail".to_owned(),
+                    extra: Some("search".to_owned()),
+                    on_input: move |value| {
+                        shell.write().search = value;
                         pages.set(1);
                     },
+                    on_focus: move |_| in_a_field.set(true),
+                    on_blur: move |_| in_a_field.set(false),
                 }
             }
             ul {
@@ -157,19 +201,19 @@ pub(super) fn ThreadList(
                         rsx! { DraftRow { key: "{id}", draft, shell, index } }
                     }
                 }
-                for (index, summary) in threads().into_iter().enumerate() {
-                    {
-                        let id = summary.id;
-                        let via = rows()
-                            .iter()
-                            .find(|row| row.id == summary.account)
-                            .map(|row| provider(&row.plan));
-                        let chips = summary
-                            .labels
-                            .iter()
-                            .filter_map(|id| names.get(id).cloned())
-                            .collect::<Vec<_>>();
-                        rsx! { Row { key: "{id}", summary, shell, revision, index, chips, via } }
+                for line in lines {
+                    match line {
+                        Line::Head(title) => rsx! { li { key: "band-{title}", class: "list-g", "{title}" } },
+                        Line::Mail {
+                            index,
+                            summary,
+                            via,
+                            chips,
+                        } => {
+                            let summary = *summary;
+                            let id = summary.id;
+                            rsx! { Row { key: "{id}", summary, shell, revision, index, chips, via } }
+                        }
                     }
                 }
             }
@@ -390,9 +434,9 @@ mod tests {
             let (store, _dir) = labelled();
             let page = typing(store, "label:travel").await;
             assert!(
-                page.contains(
-                    r#"class="search" placeholder="Search all mail" value="label:travel""#
-                ),
+                page.contains(r#"class="inp search""#)
+                    && page.contains(r#"placeholder="Search all mail""#)
+                    && page.contains(r#"value="label:travel""#),
                 "the search box lost the text:\n{page}"
             );
         }
