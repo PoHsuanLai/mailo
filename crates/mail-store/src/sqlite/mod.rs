@@ -4,6 +4,7 @@ mod draft;
 mod outbox;
 mod read;
 mod row;
+mod search;
 mod write;
 
 use crate::blob::BlobStore;
@@ -80,9 +81,14 @@ impl SqliteStore {
             reader
                 .execute_batch(
                     "PRAGMA journal_mode = WAL;
-                     PRAGMA busy_timeout = 5000;
-                     PRAGMA query_only = ON;",
+                     PRAGMA busy_timeout = 5000;",
                 )
+                .map_err(|e| StoreError::Db(e.to_string()))?;
+            // Before `query_only`: a TEMP vocab table is per connection, and a query-only
+            // connection is not allowed to create one.
+            search::ensure_vocab(&reader)?;
+            reader
+                .execute_batch("PRAGMA query_only = ON;")
                 .map_err(|e| StoreError::Db(e.to_string()))?;
             store.readers.push(ReentrantMutex::new(reader));
         }
@@ -119,6 +125,7 @@ impl SqliteStore {
         .map_err(|e| StoreError::Db(e.to_string()))?;
         migrate::migrate(&db)?;
         backfill_fts(&db)?;
+        search::ensure_vocab(&db)?;
         let store = Self {
             db: ReentrantMutex::new(db),
             readers: Vec::new(),
@@ -305,7 +312,7 @@ impl SqliteStore {
     }
 }
 
-use crate::{OutboxEntry, Settle, Store, sql};
+use crate::{OutboxEntry, Settle, Store, Term, sql};
 use chrono::{DateTime, Utc};
 use mail_domain::{
     AccountCaps, AccountId, Cursor, Draft, DraftId, Filter, Ingest, MailboxRef, Message, MessageId,
@@ -411,6 +418,21 @@ impl Store for SqliteStore {
             None
         };
         Ok(Page { items, next })
+    }
+
+    fn terms_with_prefix(&self, prefix: &str, limit: usize) -> Result<Vec<Term>, StoreError> {
+        let db = self.reader();
+        search::terms_with_prefix(&db, prefix, limit)
+    }
+
+    fn search_ranked(
+        &self,
+        filter: &Filter,
+        limit: usize,
+        now: DateTime<Utc>,
+    ) -> Result<Vec<(ThreadSummary, f64)>, StoreError> {
+        let db = self.reader();
+        search::search_ranked(self, &db, filter, limit, now)
     }
 
     fn count(&self, filter: &Filter, now: DateTime<Utc>) -> Result<u64, StoreError> {

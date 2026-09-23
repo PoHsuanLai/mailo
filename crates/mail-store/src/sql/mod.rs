@@ -10,7 +10,7 @@ use mail_domain::{DateRange, Filter, MailboxRole, TextMatch};
 use serde::Serialize;
 
 mod fts;
-pub(crate) use fts::message_index;
+pub(crate) use fts::{MATCH_PREDICATE, MATCHING, match_needles, message_index};
 
 /// A bound parameter. Deliberately not `String`: binding is the only thing standing between a
 /// subject line and SQL injection, so values never reach the query text.

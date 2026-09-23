@@ -17,7 +17,7 @@ use mail_domain::{
 };
 use serde::Serialize;
 
-use crate::{OutboxEntry, Settle, Store, StoreError};
+use crate::{OutboxEntry, Settle, Store, StoreError, Term};
 
 /// Everything held in memory. Cheap to construct, and never touches the disk.
 #[derive(Debug, Default)]
@@ -115,6 +115,25 @@ impl Store for MemoryStore {
 
     fn count(&self, filter: &Filter, now: DateTime<Utc>) -> Result<u64, StoreError> {
         Ok(self.inner.borrow().matching(filter, now).len() as u64)
+    }
+
+    fn terms_with_prefix(&self, prefix: &str, limit: usize) -> Result<Vec<Term>, StoreError> {
+        let inner = self.inner.borrow();
+        Ok(crate::memory_search::terms_with_prefix(
+            inner.messages.values(),
+            prefix,
+            limit,
+        ))
+    }
+
+    fn search_ranked(
+        &self,
+        filter: &Filter,
+        limit: usize,
+        now: DateTime<Utc>,
+    ) -> Result<Vec<(ThreadSummary, f64)>, StoreError> {
+        let rows = self.inner.borrow().matching(filter, now);
+        Ok(crate::memory_search::order_by_last_date(rows, limit))
     }
 
     fn thread(&self, id: ThreadId) -> Result<Thread, StoreError> {

@@ -89,6 +89,100 @@ fn the_reported_parity_hazards_are_actually_closed() {
     assert!(per_token > 0, "one EXISTS per token spans the thread");
 }
 
+/// `fts5vocab` over the external-content `messages_fts`, created in `temp` so it is not schema.
+///
+/// Prefix suggestions read this table. It has to accept the table migration 0004 actually
+/// built — one column, `content = 'messages'` — or there is no vocabulary to suggest from
+/// and the rest of the search work should stop rather than invent a second index.
+#[test]
+fn fts5vocab_row_accepts_the_external_content_index() {
+    use chrono::{TimeZone, Utc};
+    use mail_domain::*;
+    use mail_store::{SqliteStore, Store};
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = SqliteStore::in_memory(dir.path()).unwrap();
+    let account = AccountId::generate();
+    store
+        .connection()
+        .execute(
+            "INSERT INTO accounts (id, address, plan, created_at)
+             VALUES (?1, 'me@example.test', '{}', datetime('now'))",
+            [account.to_string()],
+        )
+        .unwrap();
+
+    // The exact statement the store runs per connection. `main` because the index lives in
+    // the main schema and this table lives in temp, which is not a migration.
+    store
+        .connection()
+        .execute_batch(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS temp.messages_vocab \
+             USING fts5vocab(main, messages_fts, 'row')",
+        )
+        .expect("fts5vocab must accept the external-content messages_fts");
+
+    let raw = store.blobs().put(&store.connection(), b"raw").unwrap();
+    let message = Message {
+        id: MessageId::generate(),
+        thread: ThreadId::generate(),
+        account,
+        key: MessageKey::Rfc("vocab@example.test".into()),
+        date: Utc.timestamp_opt(1_700_000_000, 0).unwrap(),
+        from: Address {
+            name: None,
+            email: "a@b.test".into(),
+        },
+        reply_to: vec![],
+        to: vec![],
+        cc: vec![],
+        bcc: vec![],
+        subject: "Résumé widgets".into(),
+        in_reply_to: None,
+        references: vec![],
+        rfc_message_id: None,
+        read: ReadState::Unread,
+        star: Star::Unstarred,
+        mailbox: MailboxRole::Inbox,
+        labels: vec![],
+        body: Body::Present {
+            text: Some("widgets widgets in the body".into()),
+            raw,
+        },
+        attachments: vec![],
+    };
+    store
+        .apply(
+            account,
+            &Patch {
+                id: ChangeId::generate(),
+                changes: vec![Change::MessageUpsert(Box::new(message))],
+            },
+        )
+        .unwrap();
+
+    let db = store.connection();
+    let mut stmt = db
+        .prepare("SELECT term, doc, cnt FROM temp.messages_vocab WHERE term = 'resume'")
+        .expect("vocab columns term, doc, cnt");
+    let (doc, cnt): (i64, i64) = stmt
+        .query_row([], |r| Ok((r.get(1)?, r.get(2)?)))
+        .expect("folded term resume must be in the vocab");
+    assert_eq!(doc, 1, "one message holds resume");
+    assert!(cnt >= 1, "cnt counts occurrences, got {cnt}");
+
+    // SQLite's bm25 is negative and numerically smaller is a better match. search_ranked
+    // negates it; this pins the sign the negation assumes.
+    let score: f64 = db
+        .query_row(
+            "SELECT bm25(messages_fts) FROM messages_fts WHERE messages_fts MATCH '\"widgets\"'",
+            [],
+            |r| r.get(0),
+        )
+        .expect("bm25");
+    assert!(score < 0.0, "bm25 of a hit must be negative, got {score}");
+}
+
 /// A public method that opens a transaction and then calls a helper must not deadlock.
 ///
 /// This is a regression test for a real bug, not a hypothetical. Guarding the connection with a

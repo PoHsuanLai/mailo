@@ -219,6 +219,36 @@ fn search_stays_usable_on_a_full_mailbox() {
 }
 
 #[test]
+fn ranked_search_of_a_common_word_stays_within_five_times_threads() {
+    // Same fixture and the same filter as the search above: "widgets" is in every message.
+    // Ranking has to score every match, while `threads` stops at the first page, so the ratio
+    // is near 3× by construction (measured 2.9–3.0×). 5× leaves room for a loaded machine and
+    // still fails if ranking starts doing work per thread rather than per match.
+    let (store, _dir) = store();
+    fill(&store, 10_000);
+
+    let filter = Filter::Text(TextMatch::Contains("widgets".to_owned()));
+    let query = page(50, filter.clone());
+    let threads = best_of_three(|| {
+        store.threads(&query, at(0)).unwrap();
+    });
+    let ranked = best_of_three(|| {
+        store.search_ranked(&filter, 50, at(0)).unwrap();
+    });
+    let found = store.search_ranked(&filter, 50, at(0)).unwrap();
+
+    eprintln!(
+        "search_ranked over 10k: {ranked:?}   threads(): {threads:?}   hits {}",
+        found.len()
+    );
+    assert_eq!(found.len(), 50, "the ranked page should be full");
+    assert!(
+        ranked <= threads * 5,
+        "search_ranked {ranked:?} exceeded 5× threads() {threads:?}"
+    );
+}
+
+#[test]
 fn an_unread_count_does_not_read_the_mailbox() {
     // Every sidebar badge runs this on every revision. A count that scans is a count that makes
     // the whole window pause each time a message arrives.

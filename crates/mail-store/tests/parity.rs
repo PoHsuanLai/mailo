@@ -282,6 +282,10 @@ fn build(specs: &[Spec]) -> Both {
     }
 }
 
+/// ASCII prefixes drawn from the corpus words. Empty is included: both stores must return
+/// nothing, not the vocabulary.
+const ASCII_PREFIXES: &[&str] = &["", "a", "re", "lun", "fr", "50", "cafe", "plain", "z", "x"];
+
 fn ids(store: &dyn Store, f: &Filter) -> BTreeSet<ThreadId> {
     let query = Query {
         filter: f.clone(),
@@ -302,6 +306,15 @@ fn ids(store: &dyn Store, f: &Filter) -> BTreeSet<ThreadId> {
         .items
         .into_iter()
         .map(|s| s.id)
+        .collect()
+}
+
+fn term_set(store: &dyn Store, prefix: &str) -> BTreeSet<String> {
+    store
+        .terms_with_prefix(prefix, 1000)
+        .expect("terms must not error")
+        .into_iter()
+        .map(|term| term.text)
         .collect()
 }
 
@@ -336,5 +349,46 @@ proptest! {
         let rows = ids(&both.sqlite, &f).len() as u64;
         let counted = both.sqlite.count(&f, now()).expect("count must not error");
         prop_assert_eq!(counted, rows);
+    }
+
+    /// The same set of thread ids as `threads`, in both stores.
+    ///
+    /// Order is not compared across the two stores. SQLite orders by negated bm25; the memory
+    /// store orders by `last_date` and reports 0.0. Comparing those orders would fail on a
+    /// corpus this generator is happy to build, and it would be testing a difference the two
+    /// stores are supposed to have.
+    #[test]
+    fn search_ranked_returns_the_same_thread_set(
+        specs in prop::collection::vec(spec(), 1..8),
+        f in filter(),
+    ) {
+        let both = build(&specs);
+        for store in [&both.sqlite as &dyn Store, &both.memory] {
+            let from_threads = ids(store, &f);
+            let ranked = store.search_ranked(&f, 1000, now()).expect("ranked");
+            let from_ranked: BTreeSet<_> = ranked.iter().map(|(summary, _)| summary.id).collect();
+            prop_assert_eq!(ranked.len(), from_ranked.len(), "duplicate thread in {:?}", f);
+            prop_assert_eq!(&from_ranked, &from_threads, "filter {:?}", f);
+        }
+        let memory = both.memory.search_ranked(&f, 1000, now()).expect("ranked");
+        for (_, score) in &memory {
+            prop_assert_eq!(*score, 0.0);
+        }
+    }
+
+    /// Term sets for an ASCII prefix. Both stores fold with `search_tokens` and count a term
+    /// once per message, so the texts agree. Order is not the question here.
+    #[test]
+    fn ascii_prefix_term_sets_agree(
+        specs in prop::collection::vec(spec(), 1..8),
+        prefix in prop::sample::select(ASCII_PREFIXES),
+    ) {
+        let both = build(&specs);
+        prop_assert_eq!(
+            term_set(&both.sqlite, prefix),
+            term_set(&both.memory, prefix),
+            "prefix {:?}",
+            prefix
+        );
     }
 }

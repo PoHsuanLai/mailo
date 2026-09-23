@@ -5,13 +5,17 @@
 pub mod blob;
 pub mod error;
 pub mod memory;
+mod memory_search;
 pub mod migrate;
+mod prefix;
 pub mod sql;
 pub mod sqlite;
+mod term;
 
 pub use memory::MemoryStore;
 pub use sql::{SqlFilter, SqlValue, compile};
 pub use sqlite::SqliteStore;
+pub use term::Term;
 
 pub use error::StoreError;
 
@@ -58,6 +62,41 @@ pub trait Store {
     /// How many threads match, without loading them. Sidebar badges need this; loading every
     /// row to count it is how a mail client becomes unusable.
     fn count(&self, filter: &Filter, now: DateTime<Utc>) -> Result<u64, StoreError>;
+
+    /// Index terms that begin with `prefix`, most frequent first, at most `limit`.
+    ///
+    /// Every account's terms, on purpose: expanding a word with a term only another account has
+    /// costs nothing, because the caller's account filter still applies to the results.
+    ///
+    /// The prefix is folded with [`mail_domain::filter::search_tokens`] before it is matched,
+    /// because that is what the index stored. An empty prefix, or one that folds to no single
+    /// token, returns an empty list rather than the vocabulary. Equal frequencies break by the
+    /// term text, ascending.
+    fn terms_with_prefix(&self, prefix: &str, limit: usize) -> Result<Vec<Term>, StoreError>;
+
+    /// The threads [`Store::threads`] would return for `filter`, each with a relevance score,
+    /// best first.
+    ///
+    /// The score is the best (lowest) FTS5 `bm25()` among the thread's matching messages,
+    /// **negated**, so higher is better. It is 0.0 when the filter has no text term.
+    ///
+    /// A filter with several text terms is scored from the MATCH arguments the full-text
+    /// compiler already builds for [`Filter::Text`]: one quoted term per word of a `Contains`,
+    /// one phrase for an `Exact`, combined with `OR` into one MATCH. The score is the minimum
+    /// `bm25` among the thread's messages that hit that MATCH. `AND` inside the MATCH would
+    /// require every word on the same message, and a thread whose words are split across
+    /// messages would have no score even though [`Store::threads`] returns it. `bm25` cannot
+    /// be aggregated directly, so the minimum is taken of the value the MATCH already produced.
+    ///
+    /// Capped at `limit`, ordered by that score and then by `last_date` descending. The
+    /// in-memory store has no index score: every value is 0.0 and the order is `last_date`
+    /// descending.
+    fn search_ranked(
+        &self,
+        filter: &Filter,
+        limit: usize,
+        now: DateTime<Utc>,
+    ) -> Result<Vec<(ThreadSummary, f64)>, StoreError>;
 
     fn thread(&self, id: ThreadId) -> Result<Thread, StoreError>;
 
