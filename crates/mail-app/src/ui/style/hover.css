@@ -1,0 +1,77 @@
+/* Hover previews, ported from the F6 mockup's `.hc`: wait for intent, stay warm, never mark
+   read, never fetch. The thread card is drawn inside the list column and sits beside it; the
+   others are placed against the window by the pointer's own coordinates. */
+.list-col { position: relative; }
+.reader { position: relative; }
+.hc {
+  position: absolute; z-index: 30; width: 300px; background: var(--raise); color: var(--ink);
+  border: 1px solid var(--line); border-radius: var(--r-panel); box-shadow: var(--shadow-drag);
+  padding: 12px 13px; font-size: 13px; line-height: 1.45;
+  animation: hc-in var(--t-move) var(--e-spring);
+}
+.hc.beside { left: calc(100% + 10px); }
+.hc h5 { margin: 0; font-family: var(--font-display); font-size: 14px; line-height: 1.2; }
+.hc .sub { font-family: var(--font-data); font-size: 10.5px; color: var(--ink-faint); margin-top: 2px; }
+.hc .msgs { margin-top: 9px; display: grid; gap: 7px; }
+.hc .msg { display: grid; grid-template-columns: 22px 1fr; gap: 8px; align-items: start; }
+.hc .msg .av, .hc .person .av {
+  width: 22px; height: 22px; border-radius: 999px; display: grid; place-items: center;
+  background: var(--ink); color: var(--paper); font-family: var(--font-display); font-weight: 800; font-size: 10px;
+}
+.hc .msg b { font-size: 12px; }
+.hc .msg p {
+  font-size: 12px; color: var(--ink-soft); line-height: 1.4; display: -webkit-box;
+  -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.hc .msg p.none { font-style: italic; color: var(--ink-faint); }
+.hc .foot {
+  margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line-soft); display: flex; align-items: center;
+  gap: 6px; font-family: var(--font-data); font-size: 10px; color: var(--ink-faint);
+}
+.hc .foot .k { margin-left: auto; }
+.hc kbd {
+  font-family: var(--font-data); font-size: 9.5px; padding: 0 4px; border: 1px solid var(--line);
+  border-radius: 4px; color: var(--ink-soft);
+}
+.hc .person { display: flex; gap: 10px; align-items: center; }
+.hc .person .av { width: 34px; height: 34px; font-size: 14px; }
+.hc .stat { margin-top: 9px; display: flex; gap: 14px; font-size: 12px; color: var(--ink-soft); }
+.hc .stat b { display: block; font-family: var(--font-display); font-size: 15px; color: var(--ink); }
+.hc .flag {
+  margin-top: 9px; display: flex; gap: 7px; align-items: flex-start; padding: 7px 9px; border-radius: var(--r-btn);
+  background: color-mix(in oklab, var(--danger) 12%, var(--raise)); color: var(--ink); font-size: 12px; line-height: 1.4;
+}
+.hc .flag .ic { width: 14px; height: 14px; color: var(--danger); margin-top: 1px; }
+.hc .flag.info { background: var(--accent-soft); }
+.hc .flag.info .ic { color: var(--accent); }
+.hc .acts { margin-top: 8px; }
+/* The shared menu, laid flat inside the card: its rows are the card's actions. */
+.hc .acts .fmenu {
+  position: static; width: auto; max-height: none; padding: 0; border: 0; box-shadow: none;
+  background: transparent; animation: none;
+}
+.hc.tip { width: auto; max-width: 280px; padding: 6px 10px; font-size: 12px; border-radius: 9px; }
+.hc.tip .sub { margin-top: 1px; }
+.hc.side-card { width: 260px; }
+
+/* A strip button's result label shows at once while previews are warm. */
+.list-col.warm .strip button:hover .fly { --fly-delay: 0ms; }
+
+/* Archive and Snooze light the place they would send the row to. */
+.item.dest {
+  background: var(--f-hover); color: var(--f-ink); box-shadow: 0 0 0 1.5px var(--accent) inset;
+}
+
+/* Where a link really goes, like a browser's status bar, and loud when its text lies. */
+.linkpill {
+  position: absolute; left: 12px; bottom: 12px; z-index: 7; max-width: calc(100% - 24px);
+  display: flex; align-items: center; background: var(--ink); color: var(--paper); border-radius: 999px;
+  padding: 5px 11px 5px 9px; font-family: var(--font-data); font-size: 11px; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; box-shadow: var(--shadow-2); pointer-events: none;
+  animation: hc-in var(--t-quick) var(--e-out);
+}
+.linkpill b { color: var(--paper); }
+.linkpill .dim { opacity: 0.62; }
+.linkpill.warn { background: var(--danger); color: var(--danger-ink); }
+.linkpill.warn b { color: var(--danger-ink); }
+.linkpill .ic { width: 13px; height: 13px; margin-right: 6px; }

@@ -232,8 +232,13 @@ impl dioxus::html::HtmlEventConverter for TestEvents {
         )
     }
 
-    fn convert_animation_data(&self, _: &PlatformEventData) -> dioxus::html::AnimationData {
-        unimplemented!("convert_animation_data is not what these tests dispatch")
+    fn convert_animation_data(&self, event: &PlatformEventData) -> dioxus::html::AnimationData {
+        dioxus::html::AnimationData::new(
+            event
+                .downcast::<super::events::FakeAnimation>()
+                .cloned()
+                .expect("these tests only dispatch FakeAnimation"),
+        )
     }
     fn convert_cancel_data(&self, _: &PlatformEventData) -> dioxus::html::CancelData {
         unimplemented!("convert_cancel_data is not what these tests dispatch")
@@ -275,8 +280,13 @@ impl dioxus::html::HtmlEventConverter for TestEvents {
                 .expect("these tests only dispatch FakeClick"),
         )
     }
-    fn convert_pointer_data(&self, _: &PlatformEventData) -> dioxus::html::PointerData {
-        unimplemented!("convert_pointer_data is not what these tests dispatch")
+    fn convert_pointer_data(&self, event: &PlatformEventData) -> dioxus::html::PointerData {
+        dioxus::html::PointerData::new(
+            event
+                .downcast::<super::events::FakePointer>()
+                .cloned()
+                .expect("these tests only dispatch FakePointer"),
+        )
     }
     fn convert_resize_data(&self, _: &PlatformEventData) -> dioxus::html::ResizeData {
         unimplemented!("convert_resize_data is not what these tests dispatch")

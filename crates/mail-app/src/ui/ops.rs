@@ -1,3 +1,4 @@
+use crate::undo::Undo;
 use crate::view::op_for;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
@@ -93,6 +94,7 @@ fn start_reply(store: &SqliteStore, thread: ThreadId, scope: ReplyScope) -> Resu
 ///
 /// Separate from `apply_op` because `Op::Label` carries a payload no `OpKind` can supply — which
 /// is exactly why the row's "Label" button opened nothing for as long as it existed.
+#[cfg(test)]
 pub(super) fn apply_label(
     store: &SqliteStore,
     thread: ThreadId,
@@ -103,38 +105,55 @@ pub(super) fn apply_label(
 }
 
 pub(super) fn apply_op(store: &SqliteStore, thread: ThreadId, kind: OpKind) -> bool {
-    // `Pin` needs a payload `op_for` cannot supply — the direction comes from the conversation's
-    // current state and the rank from the clock — so it is resolved here, where both are in
-    // reach. Label and snooze still open something rather than acting; snooze has a vocabulary
-    // (`mailo snooze <thread> tomorrow`) and no picker in the window yet.
-    let op = match kind {
+    resolve(store, thread, kind).is_some_and(|op| apply(store, thread, op))
+}
+
+/// The operation a button means for this conversation now.
+///
+/// `Pin` needs a payload `op_for` cannot supply — the direction comes from the conversation's
+/// current state and the rank from the clock — so it is resolved here, where both are in
+/// reach. Label and snooze open a menu rather than acting, and resolve to nothing.
+pub(super) fn resolve(store: &SqliteStore, thread: ThreadId, kind: OpKind) -> Option<Op> {
+    match kind {
         OpKind::Pin => {
-            let Ok(loaded) = store.thread(thread) else {
-                return false;
-            };
-            crate::view::pin_op(&loaded.summary, chrono::Utc::now())
+            let loaded = store.thread(thread).ok()?;
+            Some(crate::view::pin_op(&loaded.summary, chrono::Utc::now()))
         }
-        other => match op_for(other) {
-            Some(op) => op,
-            None => return false,
-        },
-    };
-    apply(store, thread, op)
+        other => op_for(other),
+    }
+}
+
+fn apply(store: &SqliteStore, thread: ThreadId, op: Op) -> bool {
+    perform(store, thread, op).is_some()
+}
+
+/// Take back one operation: its inverse, written like any other patch, and the reverse queued
+/// for the server when the operation had told it anything.
+pub(super) fn take_back(store: &SqliteStore, entry: &Undo) -> bool {
+    if store.apply(entry.account, &entry.inverse).is_err() {
+        return false;
+    }
+    if let Some(reverse) = entry
+        .remote
+        .as_ref()
+        .and_then(|remote| crate::undo::reverse_intent(remote, &entry.inverse))
+    {
+        let _ = store.enqueue(entry.account, reverse, &entry.forward, chrono::Utc::now());
+    }
+    true
 }
 
 /// Apply one resolved operation: locally, and to the server when it has a server half.
-fn apply(store: &SqliteStore, thread: ThreadId, op: Op) -> bool {
-    let Ok(loaded) = store.thread(thread) else {
-        return false;
-    };
+///
+/// Returns what it takes to undo it, which the window keeps for the toast and Ctrl Z.
+pub(super) fn perform(store: &SqliteStore, thread: ThreadId, op: Op) -> Option<Undo> {
+    let loaded = store.thread(thread).ok()?;
     let messages: Vec<Message> = loaded
         .messages
         .iter()
         .filter_map(|id| store.message(*id).ok())
         .collect();
-    let Some(account) = messages.first().map(|m| m.account) else {
-        return false;
-    };
+    let account = messages.first().map(|m| m.account)?;
     // What the server actually supports, which is the only thing that decides whether an
     // operation gets a `RemoteIntent` at all — `Op::remote_intent` is the sole consumer of
     // `caps`, and under `ArchiveMeans::LocalOnly` it returns `None` for Archive and Trash.
@@ -165,9 +184,7 @@ fn apply(store: &SqliteStore, thread: ThreadId, op: Op) -> bool {
         &caps,
         chrono::Utc::now(),
     );
-    if store.apply(account, &applied.forward).is_err() {
-        return false;
-    }
+    store.apply(account, &applied.forward).ok()?;
     // And the server's half. `Applied.remote` was computed and dropped on the floor, so every
     // operation the window performed was local and stayed local: a conversation archived here
     // was still in the inbox on the phone, and mail read here was still bold everywhere else.
@@ -175,10 +192,17 @@ fn apply(store: &SqliteStore, thread: ThreadId, op: Op) -> bool {
     //
     // A failure to enqueue is not a failure of the operation: the local change is real and the
     // user can see it. It surfaces where every other stalled submission does, in the outbox.
-    if let Some(intent) = applied.remote {
+    if let Some(intent) = applied.remote.clone() {
         let _ = store.enqueue(account, intent, &applied.inverse, chrono::Utc::now());
     }
-    true
+    Some(Undo {
+        said: crate::undo::said(&op, &chrono::Local),
+        thread,
+        account,
+        forward: applied.forward,
+        inverse: applied.inverse,
+        remote: applied.remote,
+    })
 }
 
 #[cfg(test)]

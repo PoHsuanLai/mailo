@@ -1,5 +1,6 @@
 //! Today: threads opened in this Space, as sidebar shortcuts.
 
+use super::super::hover::{Hook, corner, hover};
 use super::super::icon::{Glyph, Icon};
 use super::super::text::sender;
 use crate::appearance::WindowDirs;
@@ -83,8 +84,19 @@ pub(super) fn TodayList(
                         key: "{id}",
                         class: "{class}",
                         role: "button",
+                        "data-hc": "today:{id}",
                         tabindex: "0",
                         onclick: move |_| shell.write().open(id),
+                        onpointerenter: move |event| {
+                            if let Some(hover) = hover() {
+                                hover.enter(Hook::Today(id), corner(&event));
+                            }
+                        },
+                        onpointerleave: move |_| {
+                            if let Some(hover) = hover() {
+                                hover.leave();
+                            }
+                        },
                         onanimationend: move |_| {
                             if leaving() == Some(id) {
                                 leaving.set(None);

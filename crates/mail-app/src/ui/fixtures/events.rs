@@ -90,3 +90,123 @@ impl Document for Scripts {
         NoOpDocument.eval(js)
     }
 }
+
+/// A pointer at a place on the page: `client` in the window, `offset` inside its target.
+#[derive(Debug, Clone)]
+pub(in crate::ui) struct FakePointer {
+    pub(in crate::ui) client: (f64, f64),
+    pub(in crate::ui) offset: (f64, f64),
+    pub(in crate::ui) held: bool,
+}
+
+impl dioxus::html::point_interaction::ModifiersInteraction for FakePointer {
+    fn modifiers(&self) -> Modifiers {
+        Modifiers::empty()
+    }
+}
+
+impl dioxus::html::point_interaction::InteractionLocation for FakePointer {
+    fn client_coordinates(&self) -> dioxus::html::geometry::ClientPoint {
+        dioxus::html::geometry::ClientPoint::new(self.client.0, self.client.1)
+    }
+    fn screen_coordinates(&self) -> dioxus::html::geometry::ScreenPoint {
+        dioxus::html::geometry::ScreenPoint::new(self.client.0, self.client.1)
+    }
+    fn page_coordinates(&self) -> dioxus::html::geometry::PagePoint {
+        dioxus::html::geometry::PagePoint::new(self.client.0, self.client.1)
+    }
+}
+
+impl dioxus::html::point_interaction::InteractionElementOffset for FakePointer {
+    fn element_coordinates(&self) -> dioxus::html::geometry::ElementPoint {
+        dioxus::html::geometry::ElementPoint::new(self.offset.0, self.offset.1)
+    }
+}
+
+impl dioxus::html::point_interaction::PointerInteraction for FakePointer {
+    fn trigger_button(&self) -> Option<dioxus::html::input_data::MouseButton> {
+        Some(dioxus::html::input_data::MouseButton::Primary)
+    }
+    fn held_buttons(&self) -> dioxus::html::input_data::MouseButtonSet {
+        let mut set = dioxus::html::input_data::MouseButtonSet::empty();
+        if self.held {
+            set.insert(dioxus::html::input_data::MouseButton::Primary);
+        }
+        set
+    }
+}
+
+impl dioxus::html::HasPointerData for FakePointer {
+    fn pointer_id(&self) -> i32 {
+        1
+    }
+    fn width(&self) -> f64 {
+        1.0
+    }
+    fn height(&self) -> f64 {
+        1.0
+    }
+    fn pressure(&self) -> f32 {
+        0.0
+    }
+    fn tangential_pressure(&self) -> f32 {
+        0.0
+    }
+    fn tilt_x(&self) -> i32 {
+        0
+    }
+    fn tilt_y(&self) -> i32 {
+        0
+    }
+    fn twist(&self) -> i32 {
+        0
+    }
+    fn pointer_type(&self) -> String {
+        "mouse".to_owned()
+    }
+    fn is_primary(&self) -> bool {
+        true
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+/// An animation that has finished, by the name its `@keyframes` has.
+#[derive(Debug, Clone)]
+pub(in crate::ui) struct FakeAnimation(pub(in crate::ui) &'static str);
+
+impl dioxus::html::HasAnimationData for FakeAnimation {
+    fn animation_name(&self) -> String {
+        self.0.to_owned()
+    }
+    fn pseudo_element(&self) -> String {
+        String::new()
+    }
+    fn elapsed_time(&self) -> f32 {
+        0.4
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+/// Send a pointer event named `name` (`"pointerover"`, `"pointerdown"`…) to `element`.
+pub(in crate::ui) fn pointer(
+    dom: &mut VirtualDom,
+    name: &str,
+    element: ElementId,
+    at: FakePointer,
+) -> Seen {
+    dispatch(dom, name, PlatformEventData::new(Box::new(at)), element)
+}
+
+/// Report that the animation `name` ended on `element`.
+pub(in crate::ui) fn animation_end(
+    dom: &mut VirtualDom,
+    element: ElementId,
+    name: &'static str,
+) -> Seen {
+    let data = PlatformEventData::new(Box::new(FakeAnimation(name)));
+    dispatch(dom, "animationend", data, element)
+}

@@ -80,10 +80,56 @@ label.search .inp { flex: 1; }
   transition: opacity var(--t-quick) var(--e-out) 0ms, transform var(--t-quick) var(--e-spring) 0ms;
 }
 .strip button:hover .fly { opacity: 1; transform: translateX(-50%) translateY(0); transition-delay: var(--fly-delay, 350ms); }
-.row.is-entering { animation: row-in var(--t-move) var(--e-out); }
-.row.is-going { animation: row-in var(--t-quick) var(--e-exit) reverse forwards; }
-.chip.is-landing { animation: chip-land var(--t-quick) var(--e-spring); }
-.item.gulp, .view.is-gulping { animation: gulp var(--t-quick) var(--e-spring); }
+/* Leaving: archive folds, snooze curls away, and the rows below close the gap. A row is drawn
+   with these until its own animationend; the store already has the change. Unread rows take
+   15% longer, so what you had not read yet does not vanish faster than what you had. */
+.list .row.going { pointer-events: none; animation: fold var(--t-big) var(--e-exit) forwards; }
+.list .row.going[data-op="snooze"] { animation: curl calc(var(--t-big) * 1.33) var(--e-exit) forwards; }
+.list .row[data-read="unread"].going { animation-duration: calc(var(--t-big) * 1.15); }
+.list .row[data-read="unread"].going[data-op="snooze"] { animation-duration: calc(var(--t-big) * 1.53); }
+.list .row.healing { animation: heal var(--t-move) var(--e-spring) backwards; animation-delay: calc(var(--d, 0) * var(--stagger)); }
+.list .row.returning { animation: rise var(--t-big) var(--e-spring) backwards; }
+.row .floater {
+  position: absolute; right: 70px; top: 8px; pointer-events: none; font-family: var(--font-display);
+  font-weight: 800; font-size: 14px; color: var(--accent); animation: floatup calc(var(--t-big) * 2.1) var(--e-out) forwards;
+}
+.chip.is-landing { animation: chip-land var(--t-move) var(--e-spring); }
+/* The place that received it gulps; a count that changed bumps. */
+.item.gulp { animation: gulp var(--t-big) var(--e-spring); }
+.count.bump { display: inline-block; animation: bump var(--t-move) var(--e-spring); }
+
+/* Dragging a row onto a place. Places that take the drop are outlined while a drag is live;
+   the one under the pointer lifts. A saved search takes nothing and stays as it is. */
+.item.can-drop { box-shadow: 0 0 0 1px var(--f-line) inset; }
+.item.is-drop-target {
+  background: var(--accent-soft); color: var(--ink); transform: scale(1.045); box-shadow: var(--shadow-1);
+  transition: transform var(--t-quick) var(--e-spring);
+}
+.ghost-row {
+  position: fixed; z-index: 50; pointer-events: none; width: 250px; padding: 9px 11px;
+  border-radius: var(--r-card); background: var(--raise); color: var(--ink); border: 1px solid var(--line);
+  box-shadow: var(--shadow-drag); font-size: 13px; font-weight: 700; transform: rotate(var(--tilt)) scale(1.02);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ghost-row .g-sub { font-weight: 500; color: var(--ink-faint); font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
+
+/* The undo toast, with a tab to pull. */
+.toast {
+  position: absolute; left: 50%; bottom: 14px; z-index: 8; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 2px; background: var(--ink); color: var(--paper); border-radius: 999px;
+  padding: 5px 5px 5px 15px; box-shadow: var(--shadow-2); font-size: 12.5px; font-weight: 600; white-space: nowrap;
+  animation: toast-in var(--t-big) var(--e-spring);
+}
+.toast .hint {
+  font-family: var(--font-data); font-size: 10px; color: inherit; opacity: 0.7; letter-spacing: 0.06em; padding: 0 6px 0 10px;
+}
+.toast .tab {
+  display: flex; align-items: center; gap: 6px; cursor: grab; background: var(--paper); color: var(--ink); border: 0;
+  border-radius: 999px; padding: 5px 12px 5px 9px; font-size: 12px; font-weight: 700; touch-action: none;
+  transition: transform var(--t-move) var(--e-spring), background-color var(--t-quick) var(--e-out);
+}
+.toast .tab.armed { background: var(--accent); color: var(--accent-ink); }
+.toast .tab .ic { width: 13px; height: 13px; }
 li.empty {
   list-style: none; padding: 28px 16px; text-align: center; color: var(--ink-soft);
 }

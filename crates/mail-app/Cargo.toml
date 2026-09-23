@@ -42,6 +42,10 @@ base64 = "0.22"
 thiserror.workspace = true
 # Grapheme clusters for caret movement and backspace. Unicode Standard Annex #29.
 unicode-segmentation = "1.13"
+# The registered domain of a host, for the sender card's brand check and the link pill. Chosen
+# over `publicsuffix`, which needs the list shipped and parsed at run time; this one compiles the
+# list in, so a check needs no file and no I/O. MIT/Apache-2.0, with one dependency, `psl-types`.
+psl = "2"
 
 [dev-dependencies]
 tempfile = "3"

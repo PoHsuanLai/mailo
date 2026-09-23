@@ -1,18 +1,17 @@
 //! The rows of the Ctrl T menu, built from one `search::run`.
 //!
-//! People come from the senders of the threads the store already ranked. [`Affinity::default`]
-//! is an empty map, and an empty map has no people, so "dana" would never be a person. Counting
-//! the senders is the history the ranker asked the caller to pass.
+//! People, and the ranker's sender affinity, come from the one grouped sender history the hover
+//! cards read (`ui::history`): how many conversations, and whether you have written to them.
+//! [`crate::search::Affinity::default`] is an empty map, and an empty map has no people, so
+//! "dana" would never be a person.
 
 use std::collections::HashMap;
 
 use super::super::icon::Icon;
 use super::super::menu::{MenuItem, Right, Run, Tile, Tone};
-use crate::search::{
-    self, ActionHit, Affinity, Command, MailHit, PersonHit, Results, SenderStats, Top,
-};
+use crate::search::{self, ActionHit, Command, MailHit, PersonHit, Results, Top};
 use chrono::{DateTime, Utc};
-use mail_domain::{Filter, ThreadId};
+use mail_domain::ThreadId;
 use mail_store::SqliteStore;
 
 /// The actions the window can run today.
@@ -35,33 +34,6 @@ pub(in crate::ui) fn commands() -> Vec<Command> {
         label: label.to_owned(),
     })
     .collect()
-}
-
-/// Sender history for the menu, counted from the threads `source` already returns.
-pub(in crate::ui) fn affinity_of(
-    source: &dyn search::Source,
-    now: DateTime<Utc>,
-) -> (Affinity, HashMap<String, String>) {
-    let mut counts: HashMap<String, u32> = HashMap::new();
-    let mut names = HashMap::new();
-    for (summary, _) in source.ranked(&Filter::All, 300, now) {
-        let email = summary.from.email.to_ascii_lowercase();
-        *counts.entry(email.clone()).or_insert(0) += 1;
-        if let Some(name) = summary.from.name.clone().filter(|name| !name.is_empty()) {
-            names.entry(email).or_insert(name);
-        }
-    }
-    let mut affinity = Affinity::default();
-    for (email, threads) in counts {
-        affinity.insert(
-            email,
-            SenderStats {
-                threads,
-                replied: false,
-            },
-        );
-    }
-    (affinity, names)
 }
 
 /// What Enter does with one row.
@@ -315,7 +287,8 @@ pub(in crate::ui) fn search_now(
     query: &str,
     now: DateTime<Utc>,
 ) -> (Results, HashMap<String, String>) {
-    let (affinity, names) = affinity_of(store, now);
+    let history = super::super::history::history(store);
+    let (affinity, names) = (history.affinity(), history.names());
     let results = search::run(query, store, &affinity, &commands(), now);
     (results, names)
 }

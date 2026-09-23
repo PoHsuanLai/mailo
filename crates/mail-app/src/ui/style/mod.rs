@@ -25,6 +25,8 @@
 //!   `color-mix()` is for decoration -- hovers, washes, the shadow.
 
 #[cfg(test)]
+mod calm;
+#[cfg(test)]
 mod contrast;
 
 pub(super) const STYLE: &str = concat!(
@@ -44,6 +46,7 @@ pub(super) const STYLE: &str = concat!(
     include_str!("list.css"),
     include_str!("menus.css"),
     include_str!("reader.css"),
+    include_str!("hover.css"),
     include_str!("composer.css"),
     include_str!("controls.css"),
     include_str!("motion.css"),

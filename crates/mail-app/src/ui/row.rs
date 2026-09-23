@@ -3,11 +3,13 @@
 //! A draft and a conversation are different rows: a draft opens the composer, a conversation
 //! opens the reader and carries the hover strip. Split from [`super::app`] (`CONVENTIONS.md` §8).
 
+use super::hover::{Hook, corner, hover};
 use super::icon::{Glyph, Icon};
 use super::list_search::RowHit;
 use super::marked::{Numbering, marked};
 use super::menus::{LabelMenu, SnoozeMenu};
-use super::ops::{apply_op, composes, start_composing};
+use super::motion::{act_kind, drag, motion, row_animation_ended};
+use super::ops::{composes, start_composing};
 use super::text::{draft_state, label, sender};
 use crate::provider::Provider;
 use crate::provider::icon::{ChipPlace, ProvChip};
@@ -69,6 +71,20 @@ pub(super) fn DraftRow(draft: Draft, shell: Signal<Shell>, index: usize) -> Elem
     }
 }
 
+/// What a row is doing besides being there. Each is a fact the window already has: an op took
+/// it out of the list, a row above it has gone, an undo brought it back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(super) enum Moving {
+    #[default]
+    Still,
+    /// Drawn after the store dropped it, until its exit ends. The `data-op` of the exit.
+    Going(&'static str),
+    /// Closing the gap a row above left, with its stagger.
+    Healing(usize),
+    /// Back from an undo.
+    Returning,
+}
+
 /// A conversation, as a row, including the hover strip and whichever menu it has open.
 #[component]
 pub(super) fn Row(
@@ -79,6 +95,9 @@ pub(super) fn Row(
     chips: Vec<String>,
     via: Option<Provider>,
     hit: Option<RowHit>,
+    moving: Moving,
+    /// The chip that has just been added, which lands.
+    landing: Option<String>,
 ) -> Element {
     let id = summary.id;
     let unread = summary.read == ReadState::Unread;
@@ -102,20 +121,71 @@ pub(super) fn Row(
     let selected = shell.read().open == Some(id);
     let delay = index.min(8);
     let mut pop = use_signal(|| false);
+    // Where the row's own corner is, for the thread card. Not a signal: nothing redraws for it.
+    let mut at = use_hook(|| CopyValue::new((0.0_f64, 0.0_f64)));
+    let going = matches!(moving, Moving::Going(_));
+    let (class, op, style) = match moving {
+        Moving::Still => ("row", None, format!("--i:{delay}")),
+        Moving::Going(op) => ("row going", Some(op), format!("--i:{delay}")),
+        Moving::Healing(stagger) => (
+            "row healing",
+            None,
+            format!("--i:{delay};--d:{stagger};--dy:{}px", gap(&shell.read())),
+        ),
+        Moving::Returning => ("row returning", None, format!("--i:{delay}")),
+    };
+    let snoozing = op == Some("snooze");
+    let enter = move |hook: Hook, corner: (f64, f64)| {
+        if !going && let Some(hover) = hover() {
+            hover.enter(hook, corner);
+        }
+    };
     rsx! {
         li {
             key: "{id}",
-            class: "row",
+            class: "{class}",
             role: "option",
             aria_label: "Open {subject}",
             "data-read": if unread { "unread" } else { "read" },
+            "data-op": op,
+            "data-hc": "thread:{id}",
             aria_selected: if selected { "true" } else { "false" },
-            style: "--i:{delay}",
+            style: "{style}",
             onclick: move |_| shell.write().open(id),
+            onpointerenter: move |event| {
+                at.set(corner(&event));
+                enter(Hook::Thread(id), *at.peek());
+            },
+            onpointerover: move |_| enter(Hook::Thread(id), *at.peek()),
+            onpointerleave: move |_| {
+                if let Some(hover) = hover() {
+                    hover.leave();
+                }
+            },
+            onpointerdown: move |event: Event<PointerData>| {
+                if let Some(hover) = hover() {
+                    hover.dismiss();
+                }
+                if !going {
+                    let point = event.client_coordinates();
+                    drag::press(id, (point.x, point.y));
+                }
+            },
+            onanimationend: move |event: Event<AnimationData>| {
+                row_animation_ended(id, &event.animation_name());
+            },
             span { class: "row-dot", span { class: "dot" } }
             div { class: "row-main",
                 div { class: "row-from",
-                    span { class: "nm", "{who}" }
+                    span {
+                        class: "nm",
+                        "data-hc": "sender:{id}",
+                        onpointerover: move |event| {
+                            event.stop_propagation();
+                            enter(Hook::Sender(id), corner(&event));
+                        },
+                        "{who}"
+                    }
                     if shell.read().parts.provider.shown() {
                         if let Some(via) = via {
                             ViaChip { via, marks: shell.read().appearance.marks }
@@ -129,12 +199,25 @@ pub(super) fn Row(
             }
             div { class: "row-tail",
                 if shell.read().parts.time.shown() {
-                    span { class: "row-time", "{when}" }
+                    span {
+                        class: "row-time",
+                        "data-hc": "time:{id}",
+                        onpointerover: move |event| {
+                            event.stop_propagation();
+                            enter(Hook::Time(id), corner(&event));
+                        },
+                        "{when}"
+                    }
                 }
                 span { class: "chips",
                     if shell.read().parts.chips.shown() {
                         for name in chips {
-                            span { key: "{name}", class: "chip", "data-chip": "{name}", "{name}" }
+                            span {
+                                key: "{name}",
+                                class: if landing.as_deref() == Some(name.as_str()) { "chip is-landing" } else { "chip" },
+                                "data-chip": "{name}",
+                                "{name}"
+                            }
                         }
                     }
                     if let Some(count) = files {
@@ -155,9 +238,7 @@ pub(super) fn Row(
                     pop.set(true);
                     let store = consume_context::<Arc<SqliteStore>>();
                     let kind = if starred { OpKind::Unstar } else { OpKind::Star };
-                    if apply_op(&store, id, kind) {
-                        revision += 1;
-                    }
+                    act_kind(&store, shell, revision, id, kind);
                 },
                 onanimationend: move |_| pop.set(false),
                 Glyph { icon: Icon::Star, class: None }
@@ -175,6 +256,16 @@ pub(super) fn Row(
                         aria_label: "{label(kind)}",
                         title: "{label(kind)}",
                         style: "--j:{n}",
+                        onpointerenter: move |_| {
+                            if let (Some(mut state), Some(place)) = (motion(), preview(kind)) {
+                                state.dest.set(Some(place));
+                            }
+                        },
+                        onpointerleave: move |_| {
+                            if let Some(mut state) = motion() {
+                                state.dest.set(None);
+                            }
+                        },
                         onclick: move |event: Event<MouseData>| {
                             event.stop_propagation();
                             let store = consume_context::<Arc<SqliteStore>>();
@@ -197,9 +288,7 @@ pub(super) fn Row(
                                     Err(why) => eprintln!("reply: {why}"),
                                 },
                                 None => {
-                                    if apply_op(&store, id, kind) {
-                                        revision += 1;
-                                    }
+                                    act_kind(&store, shell, revision, id, kind);
                                 }
                             }
                         },
@@ -207,6 +296,9 @@ pub(super) fn Row(
                         span { class: "fly", "{fly(kind)}" }
                     }
                 }
+            }
+            if snoozing {
+                span { class: "floater", aria_hidden: "true", "zZ" }
             }
             if shell.read().snoozing == Some(id) {
                 SnoozeMenu { id, shell, revision }
@@ -216,6 +308,21 @@ pub(super) fn Row(
             }
         }
     }
+}
+
+/// The place a strip button would send the row to, which glows while the button is hovered.
+fn preview(kind: OpKind) -> Option<&'static str> {
+    match kind {
+        OpKind::Archive => Some("Archive"),
+        OpKind::Snooze => Some("Snoozed"),
+        OpKind::Trash => Some("Trash"),
+        _ => None,
+    }
+}
+
+/// How far the rows under a gap travel as they heal: one row, with its margin.
+fn gap(shell: &Shell) -> u32 {
+    if shell.parts.snippet.shown() { 72 } else { 54 }
 }
 
 #[component]

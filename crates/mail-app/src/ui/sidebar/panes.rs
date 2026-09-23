@@ -1,7 +1,9 @@
 //! Account tiles, places, labels and pinned people.
 
 use super::super::data::account_rows;
+use super::super::hover::{Hook, corner, hover};
 use super::super::icon::{Glyph, Icon};
+use super::super::motion::{drag, motion};
 use crate::provider::icon::{ChipPlace, ProvChip};
 use crate::provider::{Provider, provider};
 use crate::query::{self};
@@ -207,21 +209,86 @@ fn PlaceButton(
 ) -> Element {
     let on = shell.read().selected == index;
     let count = badges().get(index).copied().flatten();
+    // The count this place showed last, so a change can bump. Kept apart from the badge memo:
+    // a bump is "the number changed", and only an effect sees both numbers.
+    let mut shown = use_signal(|| count);
+    let mut bumping = use_signal(|| false);
+    use_effect(move || {
+        let now = badges().get(index).copied().flatten();
+        if now != *shown.peek() {
+            let had = shown.peek().is_some();
+            shown.set(now);
+            bumping.set(had && now.is_some());
+        }
+    });
+    let state = use_hook(motion);
+    let accepts = shell.read().places.get(index).is_some_and(drag::accepts);
+    let place = name.clone();
+    let class = state.map_or_else(
+        || "item".to_owned(),
+        |state| place_class(&state, index, &place, accepts),
+    );
     rsx! {
         button {
-            class: "item",
+            class: "{class}",
+            "data-place": "{name}",
             aria_current: if on { "true" } else { "false" },
             onclick: move |_| {
                 shell.write().select(index);
                 pages.set(1);
             },
+            onpointerenter: move |_| {
+                if accepts {
+                    drag::over(Some(index), index);
+                }
+            },
+            onpointerleave: move |_| drag::over(None, index),
+            onanimationend: move |event: Event<AnimationData>| {
+                if event.animation_name() == "gulp"
+                    && let Some(mut state) = motion()
+                {
+                    state.gulp.set(None);
+                }
+            },
             Glyph { icon, class: None }
             span { "{name}" }
             if let Some(count) = count {
-                span { class: "count", "{count}" }
+                span {
+                    class: if bumping() { "count bump" } else { "count" },
+                    onanimationend: move |event: Event<AnimationData>| {
+                        event.stop_propagation();
+                        bumping.set(false);
+                    },
+                    "{count}"
+                }
             }
         }
     }
+}
+
+/// A place's classes: where an op landed, where a hovered button would send a row, and
+/// whether it takes the row being dragged.
+fn place_class(
+    state: &super::super::motion::Motion,
+    index: usize,
+    name: &str,
+    accepts: bool,
+) -> String {
+    let mut class = String::from("item");
+    if state.gulp.read().as_deref() == Some(name) {
+        class.push_str(" gulp");
+    }
+    if *state.dest.read() == Some(name) {
+        class.push_str(" dest");
+    }
+    if let drag::Drag::Live { target, .. } = &*state.drag.read() {
+        if *target == Some(index) && accepts {
+            class.push_str(" is-drop-target");
+        } else if accepts {
+            class.push_str(" can-drop");
+        }
+    }
+    class
 }
 
 #[component]
@@ -249,6 +316,17 @@ pub(super) fn PinnedList(
                     button {
                         key: "{name}",
                         class: "item pinned",
+                        "data-hc": "pin:{index}",
+                        onpointerenter: move |event| {
+                            if let Some(hover) = hover() {
+                                hover.enter(Hook::Pin(index), corner(&event));
+                            }
+                        },
+                        onpointerleave: move |_| {
+                            if let Some(hover) = hover() {
+                                hover.leave();
+                            }
+                        },
                         onclick: move |_| {
                             shell.write().search = query.clone();
                             pages.set(1);

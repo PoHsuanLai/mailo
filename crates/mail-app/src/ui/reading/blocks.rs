@@ -287,12 +287,16 @@ fn quote_nodes_one(block: &Block) -> usize {
 
 fn action_link(label: &str, url: &SafeUrl, key: &str, found: &Found) -> Element {
     let (marks, numbering) = found.at(key);
+    let text = label.to_owned();
+    let href = url.as_str().to_owned();
     rsx! {
         a {
             class: "b-cta",
             href: "{url.as_str()}",
             target: "{LINK_TARGET}",
             rel: "{LINK_REL}",
+            onpointerenter: move |_| super::super::hover::link_over(&text, &href),
+            onpointerleave: move |_| super::super::hover::link_out(),
             {marked(label, marks, numbering)}
         }
     }

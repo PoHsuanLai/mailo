@@ -514,6 +514,8 @@ pub struct Shell {
     /// Belongs to the thread it was opened on: [`Self::open`] and [`Self::close`] drop it, so a
     /// find never carries its count into a conversation it was not typed for.
     pub find: Option<crate::search::Find>,
+    /// What the undo toast and Ctrl Z can take back, newest last.
+    pub undo: crate::undo::UndoStack,
 }
 
 /// A message being edited, as the widgets hold it.
@@ -719,6 +721,7 @@ impl Default for Shell {
             page_menu: PageMenu::Closed,
             command: None,
             find: None,
+            undo: crate::undo::UndoStack::default(),
         }
     }
 }

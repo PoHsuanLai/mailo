@@ -5,7 +5,7 @@
 
 use super::icon::Icon;
 use super::menu::{Menu, MenuItem, Right, Tile};
-use super::ops::apply_label;
+use super::motion::act;
 use crate::view::Shell;
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
@@ -105,10 +105,12 @@ pub(super) fn SnoozeMenu(id: ThreadId, shell: Signal<Shell>, revision: Signal<u6
             filterable: false,
             on_pick: move |phrase: String| {
                 let store = consume_context::<Arc<SqliteStore>>();
-                match crate::snooze::snooze(&store, id, &phrase, Utc::now()) {
-                    Ok(_) => {
+                // The same time `mailo snooze` resolves, applied through the same op; only the
+                // undo, the curl and the toast are the window's.
+                match crate::view::snooze_until(&phrase, Utc::now(), &chrono::Local) {
+                    Ok(at) => {
                         shell.write().snoozing = None;
-                        revision += 1;
+                        act(&store, shell, revision, id, Op::SetSnooze(Snooze::Until(at)));
                     }
                     // The vocabulary is fixed and the clock is the only other input, so this
                     // is "the year 262143 has no tomorrow".
@@ -151,9 +153,7 @@ pub(super) fn LabelMenu(
                     let Some(created) = create_label(&store, account, name) else {
                         return;
                     };
-                    if apply_label(&store, id, created, Membership::In) {
-                        revision += 1;
-                    }
+                    act(&store, shell, revision, id, Op::Label(created, Membership::In));
                     shell.write().labelling = None;
                     return;
                 }
@@ -168,9 +168,7 @@ pub(super) fn LabelMenu(
                 };
                 let on = summary.labels.contains(&which);
                 let wanted = if on { Membership::Out } else { Membership::In };
-                if apply_label(&store, id, which, wanted) {
-                    revision += 1;
-                }
+                act(&store, shell, revision, id, Op::Label(which, wanted));
             },
             on_close: move |_| shell.write().labelling = None,
             slim: false,

@@ -50,6 +50,9 @@ pub(super) fn App() -> Element {
     let mut seen_open = use_signal(|| None::<mail_domain::ThreadId>);
     let mut scoped = use_signal(|| false);
     let mut label_ids = use_signal(Vec::<mail_domain::LabelId>::new);
+    // Hover previews and the motion keyed to ops: shared state, provided once for the window.
+    super::hover::use_hover();
+    super::motion::use_motion();
     // The first frame cannot wait for the effect below: a chip's name is a lookup, and a
     // lookup against an empty list draws an empty chip.
     use_hook(|| {
@@ -335,6 +338,10 @@ pub(super) fn App() -> Element {
             }
             return;
         }
+        let typing_now = in_a_field() || shell.read().composing.is_some();
+        if super::motion::key(&key, event.modifiers().ctrl(), typing_now, shell, revision) {
+            return;
+        }
         if key == "s" && event.modifiers().ctrl() {
             side_peek.set(false);
             side_hidden.set(!side_hidden());
@@ -463,10 +470,8 @@ pub(super) fn App() -> Element {
                 let Some(summary) = threads().iter().find(|t| t.id == id).cloned() else {
                     return;
                 };
-                if let Some(kind) = crate::view::op_for_shortcut(action, &summary)
-                    && apply_op(&store, id, kind)
-                {
-                    revision += 1;
+                if let Some(kind) = crate::view::op_for_shortcut(action, &summary) {
+                    super::motion::act_kind(&store, shell, revision, id, kind);
                 }
             }
         }
@@ -553,6 +558,12 @@ pub(super) fn App() -> Element {
         div { class: frame_class,
             tabindex: "0",
             onkeydown: on_key,
+            onpointermove: move |event| {
+                let at = event.client_coordinates();
+                let held = !event.held_buttons().is_empty();
+                super::motion::drag::moved((at.x, at.y), held);
+            },
+            onpointerup: move |_| super::motion::drag::release(shell, revision),
             "data-peek": "{peek}",
             div { class: "layer" }
             div { class: "layer back" }
@@ -577,6 +588,7 @@ pub(super) fn App() -> Element {
                 side_hidden, side_peek, just_added, editing, slide,
             }
             SpaceEditor { spaces, editing, shell }
+            super::hover::HoverLayer { site: super::hover::Site::Frame, shell, revision, spaces: Some(spaces) }
             if shell.read().command.is_some() {
                 CommandMenu { shell, pages, revision, side_hidden, sync_state, spaces, in_a_field }
             }
@@ -602,6 +614,7 @@ pub(super) fn App() -> Element {
                         }
                     },
                 }
+                super::hover::LinkPill {}
             }
             SendPill { shell }
             }

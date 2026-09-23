@@ -115,6 +115,8 @@
 .item[aria-current="true"]::before {
   content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px; border-radius: 2px;
   background: var(--f-ink);
+  /* The seal pops when the current place changes: the attribute moving is the trigger. */
+  animation: seal-pop var(--t-big) var(--e-spring);
 }
 .item .ic { width: 15px; height: 15px; }
 .item .count { margin-left: auto; font-family: var(--font-data); font-size: 11px; color: var(--f-ink-faint); }
