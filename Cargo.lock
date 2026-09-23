@@ -3147,6 +3147,7 @@ dependencies = [
  "tokio",
  "unicode-segmentation",
  "uuid",
+ "zbus",
 ]
 
 [[package]]

@@ -101,8 +101,10 @@ pub enum Command {
     Detach { draft: DraftId, index: usize },
     /// What a draft is carrying.
     Attached { draft: DraftId },
-    /// Keep fetching until stopped.
-    Watch,
+    /// Keep fetching until stopped, announcing new mail unless told not to.
+    Watch { notify: WatchNotify },
+    /// Turn new-mail notifications on or off, or say which they are.
+    Notify { set: Option<crate::notify::Setting> },
     /// Run the daemon, or stop the one that is running.
     Daemon { stop: bool },
     /// Reach the daemon, starting one if none is listening.
@@ -133,6 +135,18 @@ pub enum UnsubscribeStep {
     Show,
     /// Take the preferred way out.
     Act,
+}
+
+/// Whether one `mailo watch` announces new mail.
+///
+/// The flag can only silence: turning notifications on for one run while the setting says off
+/// would be a second way to say what `notify on` already says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WatchNotify {
+    /// As `mailo notify` last said, which is on until someone says otherwise.
+    AsSet,
+    /// `--no-notify`.
+    Never,
 }
 
 /// Parse arguments, or explain what was wrong.
@@ -268,7 +282,28 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
             };
             Ok(Command::Unsubscribe { target, step })
         }
-        "watch" => Ok(Command::Watch),
+        "watch" => match args.get(1).map(String::as_str) {
+            None => Ok(Command::Watch {
+                notify: WatchNotify::AsSet,
+            }),
+            Some("--no-notify") => Ok(Command::Watch {
+                notify: WatchNotify::Never,
+            }),
+            Some(other) => Err(format!("unknown option {other:?}\n\n{}", usage())),
+        },
+        "notify" => match args.get(1).map(String::as_str) {
+            None => Ok(Command::Notify { set: None }),
+            Some("on") => Ok(Command::Notify {
+                set: Some(crate::notify::Setting::On),
+            }),
+            Some("off") => Ok(Command::Notify {
+                set: Some(crate::notify::Setting::Off),
+            }),
+            Some(other) => Err(format!(
+                "notify takes on or off, not {other:?}\n\n{}",
+                usage()
+            )),
+        },
         "daemon" => match args.get(1).map(String::as_str) {
             None => Ok(Command::Daemon { stop: false }),
             Some("--stop") => Ok(Command::Daemon { stop: true }),
@@ -765,8 +800,11 @@ usage: mailo <command>
                              this removes a label and deletes no message
   folder subscribe|unsubscribe <account> <name>
   icons refresh              fetch each account's provider icon again
-  watch                      keep fetching until stopped; uses IDLE where the
-                             server offers it, and polls where it does not
+  watch [--no-notify]        keep fetching until stopped; uses IDLE where the
+                             server offers it, and polls where it does not.
+                             New unread inbox mail raises a desktop notification
+                             unless --no-notify or `notify off`
+  notify [on|off]            turn new-mail notifications on or off (default on)
   daemon [--stop]            run the background daemon, or stop it
   ping                       reach the daemon, starting one if none is running
 "
@@ -856,7 +894,9 @@ pub fn run_with_clients(
         // Dispatched in main: it needs an async runtime and the store by Arc, which would make
         // this function untestable without one.
         Command::Sync => Err("sync is dispatched before this point".to_owned()),
-        Command::Watch => Err("watch is dispatched before this point".to_owned()),
+        Command::Watch { .. } => Err("watch is dispatched before this point".to_owned()),
+        // Dispatched in main, which owns the environment the config directory comes from.
+        Command::Notify { .. } => Err("notify is dispatched before this point".to_owned()),
         Command::Daemon { .. } | Command::Ping => {
             Err("the daemon commands are dispatched before this point".to_owned())
         }

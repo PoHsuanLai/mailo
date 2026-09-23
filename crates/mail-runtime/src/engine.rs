@@ -94,6 +94,26 @@ pub struct SyncReport {
     /// apart from `needs_reauth` because they call for opposite things: stop and ask the user,
     /// versus come back later unaided.
     pub hold: Option<std::time::Duration>,
+    /// Messages this pass stored for the first time, in the order they were stored.
+    ///
+    /// Identities, not copies: by the time anyone reads this the same pass has applied the
+    /// server's flags and may have fetched bodies, so what a caller wants to know about a message
+    /// — is it still unread, is it still in the inbox — is the store's current answer, not the
+    /// one the header fetch built. A message already held that arrives again (a remap, a body
+    /// filling in, the same mail under a second UID) is not here: it did not *arrive*.
+    pub arrived: Vec<MessageId>,
+}
+
+/// The messages a patch stored for the first time.
+///
+/// Only meaningful for the patch of a header fetch: that path upserts a message only when its
+/// key is new, since a header carries no body to fill in. A body fetch's patch upserts messages
+/// already held, and must not be read with this.
+fn first_stored(patch: &mail_domain::Patch) -> impl Iterator<Item = MessageId> + '_ {
+    patch.changes.iter().filter_map(|change| match change {
+        mail_domain::Change::MessageUpsert(message) => Some(message.id),
+        _ => None,
+    })
 }
 
 impl SyncReport {
@@ -760,7 +780,7 @@ impl<B: Backend> AccountEngine<B> {
                     report.headers_fetched += arrivals.len();
                     // Headers only: Body::Absent says the body has not arrived, rather than
                     // storing an empty message that looks complete.
-                    crate::assemble::absorb_into(
+                    let stored = crate::assemble::absorb_into(
                         &self.store,
                         self.account,
                         crate::assemble::Destination {
@@ -774,6 +794,7 @@ impl<B: Backend> AccountEngine<B> {
                         true,
                         now,
                     )?;
+                    report.arrived.extend(first_stored(&stored));
                     // The server's own view of these messages, which arrived on the same FETCH.
                     // Applied after absorbing, because a flag needs a message to sit on, and
                     // through `Ingest` because that is the path the sweep already uses. Without

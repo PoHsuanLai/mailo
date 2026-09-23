@@ -569,3 +569,30 @@ fn an_account_from_before_folders_upgrades_with_an_empty_listing() {
         .unwrap();
     assert_eq!(kept, 1);
 }
+
+/// 0010: a database from before notifications has no account armed, so the first watched pass
+/// after the upgrade arms each one — and deleting an account takes its floor with it.
+#[test]
+fn accounts_from_before_notifications_start_unarmed() {
+    let db = database_at(9);
+    let (account, _message) = seed(&db);
+    migrate::migrate(&db).unwrap();
+    assert_eq!(version_of(&db), migrate::EXPECTED_VERSION);
+
+    let armed: i64 = db
+        .query_row("SELECT count(*) FROM notify_floor", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(armed, 0, "nothing is armed until something watches");
+
+    db.execute(
+        "INSERT INTO notify_floor (account, armed_at) VALUES (?1, '2026-09-24T00:00:00+00:00')",
+        [&account],
+    )
+    .unwrap();
+    db.execute("DELETE FROM accounts WHERE id = ?1", [&account])
+        .unwrap();
+    let left: i64 = db
+        .query_row("SELECT count(*) FROM notify_floor", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(left, 0, "a removed account's floor goes with it");
+}

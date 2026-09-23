@@ -4,6 +4,7 @@
 //! keyring, the backend that speaks the protocol, and the store that keeps the result. It is
 //! also the only place in the application that needs an async runtime.
 
+pub use crate::notify::Announce;
 use mail_domain::*;
 use mail_proto::backend::{Authenticate, ImapBackend, Pop3Backend};
 use mail_proto::{ImapAuth, ImapCommand, ImapSession, Pop3Command, Pop3Session};
@@ -145,9 +146,34 @@ pub fn poll_interval(store: &SqliteStore) -> std::time::Duration {
 /// Where `AccountEngine::watch` finally has a caller outside a test. IDLE is a connection held
 /// open for as long as the server allows, so it needs a process whose job is to stay open; the
 /// window was meant to be that and F140 says it is not, so this is.
-pub fn watch(store: Arc<SqliteStore>, now: chrono::DateTime<chrono::Utc>) -> Result<Ran, String> {
+///
+/// `notifications` decides whether what each pass fetches is announced on the desktop
+/// (`plan.md` 10.6). With no session bus to announce on, it is as if they were off.
+pub fn watch(
+    store: Arc<SqliteStore>,
+    now: chrono::DateTime<chrono::Utc>,
+    notifications: crate::notify::Setting,
+) -> Result<Ran, String> {
     let registry = OAuthRegistry::load_default().map_err(|e| e.to_string())?;
-    run_all(store, Arc::new(KeyringSecrets), &registry, now, Mode::Watch)
+    let desktop;
+    let announce = match notifications {
+        crate::notify::Setting::On => {
+            desktop = crate::notify::desktop::Desktop::connect();
+            Announce::To {
+                store: &store,
+                notifier: &desktop,
+            }
+        }
+        crate::notify::Setting::Off => Announce::Quietly,
+    };
+    run_all(
+        store.clone(),
+        Arc::new(KeyringSecrets),
+        &registry,
+        now,
+        Mode::Watch,
+        announce,
+    )
 }
 
 pub fn run(store: Arc<SqliteStore>, now: chrono::DateTime<chrono::Utc>) -> Result<Ran, String> {
@@ -174,7 +200,7 @@ pub fn run_with(
     registry: &OAuthRegistry,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<Ran, String> {
-    run_all(store, secrets, registry, now, Mode::Once)
+    run_all(store, secrets, registry, now, Mode::Once, Announce::Quietly)
 }
 
 /// The same, told whether to stop after one pass.
@@ -184,6 +210,7 @@ fn run_all(
     registry: &OAuthRegistry,
     now: chrono::DateTime<chrono::Utc>,
     mode: Mode,
+    announce: Announce<'_>,
 ) -> Result<Ran, String> {
     let accounts = configured(&store)?;
     if accounts.is_empty() {
@@ -215,10 +242,19 @@ fn run_all(
     // Nothing here needs a rate limiter. Throttling is a within-account question — one server,
     // several connections — and this is one connection each to servers that have never heard of
     // each other.
-    let reports =
-        runtime.block_on(futures_util::future::join_all(accounts.iter().map(
-            |account| one(&store, account, secrets.clone(), registry, now, mode),
-        )));
+    let reports = runtime.block_on(futures_util::future::join_all(accounts.iter().map(
+        |account| {
+            one(
+                &store,
+                account,
+                secrets.clone(),
+                registry,
+                now,
+                mode,
+                announce,
+            )
+        },
+    )));
 
     let mut out = String::new();
     let mut rejected = false;
@@ -343,6 +379,7 @@ async fn one(
     registry: &OAuthRegistry,
     now: chrono::DateTime<chrono::Utc>,
     mode: Mode,
+    announce: Announce<'_>,
 ) -> Result<SyncReport, String> {
     let stored = secrets
         .get(&SecretKey {
@@ -402,14 +439,32 @@ async fn one(
             if let Some(renewal) = renewal {
                 engine = engine.with_renewal(renewal);
             }
-            drive(&mut engine, account, &mailboxes, &mut cancel, now, mode).await
+            drive(
+                &mut engine,
+                account,
+                &mailboxes,
+                &mut cancel,
+                now,
+                mode,
+                announce,
+            )
+            .await
         }
         Incoming::Imap { .. } => {
             let mut engine = imap_engine(store, account, held, secrets);
             if let Some(renewal) = renewal {
                 engine = engine.with_renewal(renewal);
             }
-            drive(&mut engine, account, &mailboxes, &mut cancel, now, mode).await
+            drive(
+                &mut engine,
+                account,
+                &mailboxes,
+                &mut cancel,
+                now,
+                mode,
+                announce,
+            )
+            .await
         }
     };
     report.map(|mut report| {
@@ -621,6 +676,7 @@ pub async fn drive<B: mail_proto::Backend>(
     cancel: &mut mail_runtime::Cancel,
     now: chrono::DateTime<chrono::Utc>,
     mode: Mode,
+    announce: Announce<'_>,
 ) -> Result<SyncReport, String> {
     if mode == Mode::Once {
         return pass(engine, mailboxes, cancel, now).await;
@@ -643,6 +699,15 @@ pub async fn drive<B: mail_proto::Backend>(
         match &report {
             Ok(done) => {
                 print!("{}", one_line(&account.address, done, at));
+                // After the line, so a notification never announces mail the terminal has not
+                // yet said was fetched. A failure here is said and does not stop the watch:
+                // mail that cannot be announced is still mail worth fetching.
+                if let Announce::To { store, notifier } = announce
+                    && let Err(why) =
+                        crate::notify::announce(store, account.id, &done.arrived, notifier, at)
+                {
+                    println!("{}: {why}", account.address);
+                }
                 use std::io::Write as _;
                 let _ = std::io::stdout().flush();
                 // The rule F128 built its loop on, and the reason this one is not a bare sleep:
@@ -740,6 +805,7 @@ async fn pass<B: mail_proto::Backend>(
             }
         };
         report.headers_fetched += one.headers_fetched;
+        report.arrived.extend(one.arrived);
         report.needs_attention.extend(one.needs_attention);
 
         // What the server knows and a header fetch does not carry: flags, Gmail's labels, and

@@ -202,9 +202,26 @@ fn main() {
 
     // `watch` is `sync` that does not stop. It prints as it goes rather than at the end, because
     // "at the end" is when the user presses Ctrl-C.
-    if matches!(command, Some(mail_app::cli::Command::Watch)) {
+    if let Some(mail_app::cli::Command::Notify { set }) = &command {
+        match mail_app::notify::command(mail_app::appearance::config_dir().as_deref(), *set) {
+            Ok(said) => print!("{said}"),
+            Err(message) => {
+                eprintln!("{message}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+    if let Some(mail_app::cli::Command::Watch { notify }) = &command {
+        let notifications = match notify {
+            mail_app::cli::WatchNotify::Never => mail_app::notify::Setting::Off,
+            mail_app::cli::WatchNotify::AsSet => mail_app::appearance::config_dir()
+                .as_deref()
+                .map(mail_app::notify::load)
+                .unwrap_or_default(),
+        };
         println!("watching. Ctrl-C to stop.");
-        match mail_app::sync::watch(store, chrono::Utc::now()) {
+        match mail_app::sync::watch(store, chrono::Utc::now(), notifications) {
             // Only reached when every account has stopped for a reason worth stopping for — a
             // credential the server refused, which no amount of retrying fixes.
             Ok(ran) => {

@@ -28,10 +28,11 @@ pub const MIGRATIONS: &[(u32, &str)] = &[
     (7, include_str!("../migrations/0007_resummarize.sql")),
     (8, include_str!("../migrations/0008_remap_imap.sql")),
     (9, include_str!("../migrations/0009_folders.sql")),
+    (10, include_str!("../migrations/0010_notify_floor.sql")),
 ];
 
 /// The schema version this build expects.
-pub const EXPECTED_VERSION: u32 = 9;
+pub const EXPECTED_VERSION: u32 = 10;
 
 /// Bring `db` up to [`EXPECTED_VERSION`], creating it if it is empty.
 ///

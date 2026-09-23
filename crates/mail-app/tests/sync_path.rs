@@ -1268,6 +1268,7 @@ mod watching {
                 &mut cancel,
                 now(),
                 sync::Mode::Watch,
+                sync::Announce::Quietly,
             ),
         )
         .await;

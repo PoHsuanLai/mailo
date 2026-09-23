@@ -10,6 +10,7 @@ pub mod editor;
 pub mod folder;
 pub mod hover;
 pub mod ipc;
+pub mod notify;
 mod palette;
 mod provider;
 pub mod query;
