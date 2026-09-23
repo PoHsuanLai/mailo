@@ -1,0 +1,213 @@
+//! The Space editor: a sheet over the frame, opened from the Space's name, "+" or the gear.
+//!
+//! Every change repaints the frame at once through the same script a switch uses, Save
+//! writes `spaces.json`, and Esc puts the Space back exactly as the sheet found it. The
+//! rules live on [`Draft`]; the colours all come from `palette`.
+
+mod hue;
+mod parts;
+
+use self::hue::HueField;
+use self::parts::{Marks as MarksChoice, Presets, Readout, Seg, Stops};
+use super::field::{Field, FieldKind};
+use super::frame::keep;
+use super::paint::{Fade, paint_script};
+use crate::palette;
+use crate::space::edit::Draft;
+use crate::space::{CardAccent, Spaces};
+use crate::view::{Motion, Shell, Theme};
+use dioxus::prelude::*;
+
+/// Apply `edit` to the draft, put the result in the window's Spaces, and repaint.
+///
+/// No write to disk: that is Save's. A change to a sheet that has closed does nothing.
+pub(super) fn change(
+    mut editing: Signal<Option<Draft>>,
+    mut spaces: Signal<Spaces>,
+    edit: impl FnOnce(&mut Draft),
+) {
+    let (index, space) = {
+        let mut guard = editing.write();
+        let Some(draft) = guard.as_mut() else {
+            return;
+        };
+        edit(draft);
+        (draft.index, draft.space.clone())
+    };
+    if let Some(slot) = spaces.write().spaces.get_mut(index) {
+        *slot = space.clone();
+    }
+    dioxus::document::eval(&paint_script(&space, Fade::None));
+}
+
+/// Esc: put the Space back as the sheet found it, repaint, and close.
+pub(super) fn cancel(mut editing: Signal<Option<Draft>>, mut spaces: Signal<Spaces>) {
+    let Some(draft) = editing.write().take() else {
+        return;
+    };
+    let saved = draft.reverted();
+    if let Some(slot) = spaces.write().spaces.get_mut(draft.index) {
+        *slot = saved.clone();
+    }
+    dioxus::document::eval(&paint_script(&saved, Fade::None));
+    dioxus::document::eval("document.querySelector('.app')?.focus()");
+}
+
+/// Save: the draft is already on screen and in the Spaces; write them and close.
+fn save(mut editing: Signal<Option<Draft>>, spaces: Signal<Spaces>) {
+    editing.set(None);
+    keep(&spaces.read());
+    dioxus::document::eval("document.querySelector('.app')?.focus()");
+}
+
+/// `--gl` and `--gd`: `dots`' frame gradient in the light and in the dark.
+///
+/// The stylesheet picks one by the window's theme, so a swatch follows System without the
+/// editor having to know what the desktop is set to.
+pub(super) fn both_gradients(dots: &[crate::palette::Dot]) -> String {
+    let light = palette::gradient(&palette::derive(dots, false));
+    let dark = palette::gradient(&palette::derive(dots, true));
+    format!("--gl:{light};--gd:{dark}")
+}
+
+/// What the Save button says it does.
+const SAVE_TITLE: &str = "Save this Space and close";
+
+/// The themes the readout measures a Space in: its own, or both when the desktop decides.
+fn measured_in(theme: Theme) -> &'static [(bool, &'static str)] {
+    match theme {
+        Theme::Light => &[(false, "")],
+        Theme::Dark => &[(true, "")],
+        Theme::System => &[(false, "Light"), (true, "Dark")],
+    }
+}
+
+/// The sheet. Renders nothing while `editing` is `None`.
+#[component]
+pub(super) fn SpaceEditor(
+    spaces: Signal<Spaces>,
+    editing: Signal<Option<Draft>>,
+    shell: Signal<Shell>,
+) -> Element {
+    let Some(draft) = editing.read().clone() else {
+        return rsx! {};
+    };
+    let space = draft.space.clone();
+    let sw = both_gradients(&space.dots);
+    let grain = space.grain;
+    let theme_now = space.theme;
+    let motion_now = space.motion;
+    let accent_now = space.card_accent;
+    rsx! {
+        div {
+            class: "editor",
+            role: "dialog",
+            aria_label: "Space editor",
+            h3 {
+                span { class: "sw", style: "{sw}" }
+                Field {
+                    kind: FieldKind::Boxed,
+                    value: space.name.clone(),
+                    placeholder: "Name this Space".to_owned(),
+                    extra: Some("ed-name".to_owned()),
+                    on_input: move |value: String| change(editing, spaces, |draft| draft.space.name = value),
+                    on_focus: |_| {},
+                    on_blur: |_| {},
+                }
+            }
+            div {
+                div { class: "ed-label", "Colour", span { class: "r", "drag a dot · arrows, Shift ×10" } }
+                HueField { editing, spaces }
+                Stops { editing, spaces }
+            }
+            div {
+                div { class: "ed-label", "Grain", span { class: "r mono", "{grain}" } }
+                Field {
+                    kind: FieldKind::Range { min: 0, max: 100 },
+                    value: grain.to_string(),
+                    placeholder: "Grain".to_owned(),
+                    extra: None,
+                    on_input: move |value: String| {
+                        if let Ok(grain) = value.parse::<u8>() {
+                            change(editing, spaces, |draft| draft.space.grain = grain.min(100));
+                        }
+                    },
+                    on_focus: |_| {},
+                    on_blur: |_| {},
+                }
+            }
+            div {
+                div { class: "ed-label", "Appearance" }
+                Seg {
+                    label: "Theme".to_owned(),
+                    options: [Theme::System, Theme::Light, Theme::Dark]
+                        .iter()
+                        .map(|theme| (theme.label().to_owned(), *theme == theme_now))
+                        .collect::<Vec<_>>(),
+                    on_pick: move |index: usize| {
+                        let theme = [Theme::System, Theme::Light, Theme::Dark][index];
+                        change(editing, spaces, |draft| draft.space.theme = theme);
+                    },
+                }
+            }
+            div {
+                div { class: "ed-label", "Motion" }
+                Seg {
+                    label: "Motion".to_owned(),
+                    options: Motion::ALL
+                        .iter()
+                        .map(|motion| (motion.label().to_owned(), *motion == motion_now))
+                        .collect::<Vec<_>>(),
+                    on_pick: move |index: usize| {
+                        let motion = Motion::ALL[index];
+                        change(editing, spaces, |draft| draft.space.motion = motion);
+                    },
+                }
+            }
+            div {
+                div { class: "ed-label", "Accent inside the card" }
+                Seg {
+                    label: "Card accent".to_owned(),
+                    options: vec![
+                        ("A hint of the Space".to_owned(), accent_now == CardAccent::Hint),
+                        ("Postmark".to_owned(), accent_now == CardAccent::Postmark),
+                    ],
+                    on_pick: move |index: usize| {
+                        let accent = if index == 0 { CardAccent::Hint } else { CardAccent::Postmark };
+                        change(editing, spaces, |draft| draft.space.card_accent = accent);
+                    },
+                }
+            }
+            MarksChoice { shell }
+            div {
+                div { class: "ed-label", "Presets" }
+                Presets { editing, spaces }
+            }
+            div {
+                div { class: "ed-label", "Measured, this Space" }
+                for &(dark, heading) in measured_in(theme_now) {
+                    Readout { key: "{heading}", space: space.clone(), dark, heading: heading.to_owned() }
+                }
+            }
+            div { class: "ed-foot",
+                button {
+                    class: "mini",
+                    r#type: "button",
+                    onclick: move |_| cancel(editing, spaces),
+                    "Cancel"
+                    span { class: "k", "Esc" }
+                }
+                button {
+                    class: "mini primary",
+                    r#type: "button",
+                    title: "{SAVE_TITLE}",
+                    onclick: move |_| save(editing, spaces),
+                    "Save"
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+pub(in crate::ui) mod tests;

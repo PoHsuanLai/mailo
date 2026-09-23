@@ -17,10 +17,9 @@
 //!   selector, and it is included twice below: inside the `prefers-color-scheme` guard, and
 //!   inside `:root[data-theme="dark"]`. Three theme states, one source of truth. The guard is
 //!   `:root:not([data-theme="light"])` so an explicit light choice beats a dark desktop.
-//! - **`accents.css` comes after the dark block.** A light accent block and the dark palette
-//!   block are both one attribute deep, so source order is what separates them. The six dark
-//!   accent blocks carry a second attribute and win from there regardless -- belt as well as
-//!   braces, because this is the failure that looks like "the accent doesn't work in dark".
+//! - **The card's accent is Postmark or the Space's.** Postmark is `tokens.css`'s own; a
+//!   Space that lends its hue writes `--accent` and its two partners inline, from
+//!   `palette::derive`, so there is no accent file and no `data-accent` any more.
 //! - **Contrast-critical tokens are literal `#rrggbb`.** The contrast test parses them; it
 //!   cannot read a `color-mix()`, and it must fail rather than skip when it meets one.
 //!   `color-mix()` is for decoration -- hovers, washes, the shadow.
@@ -40,8 +39,8 @@ pub(super) const STYLE: &str = concat!(
     ":root[data-theme=\"dark\"] {\n",
     include_str!("tokens.dark.css"),
     "}\n",
-    include_str!("accents.css"),
     include_str!("shell.css"),
+    include_str!("editor.css"),
     include_str!("list.css"),
     include_str!("menus.css"),
     include_str!("reader.css"),
@@ -55,9 +54,6 @@ mod tests {
     use std::collections::{BTreeMap, BTreeSet};
 
     use super::{STYLE, contrast};
-    use crate::view::Accent;
-
-    const ACCENT_KEYS: &[&str] = &["--accent", "--accent-ink", "--accent-soft", "--seal"];
 
     /// Text on every ground it is drawn on. The Post reference puts faint text on the recessed
     /// panes too (the sidebar's counts, the reader's meta), so `--surface-2` is checked, not
@@ -217,20 +213,13 @@ mod tests {
         Ok(resolved.clone())
     }
 
-    fn resolved(overlay: Option<&str>, accent: &str) -> BTreeMap<String, String> {
+    /// The palette in one theme state: bare `:root`, then the overlay laid over it.
+    fn resolved(overlay: Option<&str>) -> BTreeMap<String, String> {
         let mut tokens = declared(STYLE, ":root");
         if let Some(selector) = overlay {
             tokens.extend(declared(STYLE, selector));
         }
-        tokens.extend(declared(STYLE, accent));
         tokens
-    }
-
-    fn accent_selector(overlay: Option<&str>, slug: &str) -> String {
-        match overlay {
-            Some(selector) => format!(r#"{selector}[data-accent="{slug}"]"#),
-            None => format!(r#":root[data-accent="{slug}"]"#),
-        }
     }
 
     #[test]
@@ -258,58 +247,30 @@ mod tests {
     }
 
     #[test]
-    fn an_accent_declares_exactly_the_four() {
-        let expect: BTreeSet<&str> = ACCENT_KEYS.iter().copied().collect();
-        let mut failures = Vec::new();
-        for accent in Accent::ALL {
-            let slug = accent.slug();
-            for selector in [
-                format!(r#":root[data-accent="{slug}"]"#),
-                format!(r#":root:not([data-theme="light"])[data-accent="{slug}"]"#),
-                format!(r#":root[data-theme="dark"][data-accent="{slug}"]"#),
-            ] {
-                let decls = declared(STYLE, &selector);
-                let got: BTreeSet<&str> = decls.keys().map(String::as_str).collect();
-                if got != expect {
-                    let missing: Vec<_> = expect.difference(&got).collect();
-                    let extra: Vec<_> = got.difference(&expect).collect();
-                    failures.push(format!("{selector}: missing {missing:?}, extra {extra:?}"));
-                }
-            }
-        }
-        assert!(failures.is_empty(), "{}", failures.join("\n"));
-    }
-
-    #[test]
-    fn each_swatch_is_its_hues_accent() {
-        // Resolved apart from the accent block. A swatch written as `var(--accent)` would
-        // equal the hue only when that hue is the one selected, which is the case this
-        // exists to forbid.
+    fn the_card_the_readout_measures_is_the_stylesheets() {
+        // `palette::readout` and the sweep in `palette::tests` measure against constants,
+        // because they cannot read CSS. These are the constants, checked against the file in
+        // every theme state, so the readout and the window cannot drift apart.
+        use crate::palette::{Card, POST_DARK, POST_LIGHT};
         let mut failures = Vec::new();
         for &(state, overlay) in THEMES {
-            let mut palette = declared(STYLE, ":root");
-            if let Some(selector) = overlay {
-                palette.extend(declared(STYLE, selector));
-            }
-            for accent in Accent::ALL {
-                let slug = accent.slug();
-                let swatch = format!("--swatch-{slug}");
-                let block = declared(STYLE, &accent_selector(overlay, slug));
-                let swatch_hex = literal(&palette, &swatch);
-                let accent_hex = literal(&block, "--accent");
-                match (swatch_hex, accent_hex) {
-                    (Ok(swatch_hex), Ok(accent_hex)) if swatch_hex == accent_hex => {}
-                    (Ok(swatch_hex), Ok(accent_hex)) => failures.push(format!(
-                        "{state} {slug}: {swatch} is {swatch_hex}, its --accent is {accent_hex}"
-                    )),
-                    (swatch_hex, accent_hex) => {
-                        if let Err(reason) = &swatch_hex {
-                            failures.push(format!("{state} {slug}: {reason}"));
-                        }
-                        if let Err(reason) = &accent_hex {
-                            failures.push(format!("{state} {slug}: {reason}"));
-                        }
-                    }
+            let tokens = resolved(overlay);
+            let card: Card = if overlay.is_some() {
+                POST_DARK
+            } else {
+                POST_LIGHT
+            };
+            for (token, want) in [
+                ("--surface", card.surface),
+                ("--ink", card.ink),
+                ("--accent", card.accent),
+                ("--accent-soft", card.accent_soft),
+                ("--accent-ink", card.accent_ink),
+            ] {
+                match literal(&tokens, token) {
+                    Ok(got) if got.eq_ignore_ascii_case(want) => {}
+                    Ok(got) => failures.push(format!("{state} {token}: css {got}, palette {want}")),
+                    Err(reason) => failures.push(format!("{state}: {reason}")),
                 }
             }
         }
@@ -317,20 +278,15 @@ mod tests {
     }
 
     #[test]
-    fn the_decoration_follows_the_dark_palette() {
-        // The one-line `color-scheme` rule means `:root[data-theme="dark"]` is the wrong
-        // anchor: it occurs before the palette, so the assertion would hold with the files
-        // misordered. The desktop guard occurs once, around the palette.
-        let Some(palette) = STYLE.rfind(":root:not([data-theme=\"light\"]) {") else {
-            panic!("the desktop dark palette selector is missing");
-        };
-        let Some(decoration) = STYLE.find("[data-accent=") else {
-            panic!("no [data-accent= selector");
-        };
-        assert!(
-            decoration > palette,
-            "first [data-accent= at {decoration}, last desktop dark palette at {palette}",
-        );
+    fn nothing_is_keyed_on_the_retired_accent() {
+        // Six hues used to be `[data-accent=...]` blocks. The attribute is no longer written,
+        // so a rule still keyed on it would never apply, silently.
+        for retired in ["data-accent", "--swatch-", ".accent-choice", ".swatch"] {
+            assert!(
+                !STYLE.contains(retired),
+                "{retired} is still in the stylesheet"
+            );
+        }
     }
 
     #[test]
@@ -467,32 +423,31 @@ mod tests {
 
     #[test]
     fn every_pair_is_legible() {
+        // Postmark, the stylesheet's own accent, in all three theme states. A Space's hint
+        // is written inline from `palette::derive`, and `palette::tests::every_pick_is_legible`
+        // sweeps every hue and chroma of it against the same card.
         let mut failures = Vec::new();
         for &(state, overlay) in THEMES {
-            for accent in Accent::ALL {
-                let slug = accent.slug();
-                let tokens = resolved(overlay, &accent_selector(overlay, slug));
-                for &(fore, back, need) in PAIRS {
-                    let fore_hex = literal(&tokens, fore);
-                    let back_hex = literal(&tokens, back);
-                    match (fore_hex, back_hex) {
-                        (Ok(fore_hex), Ok(back_hex)) => match contrast::ratio(&fore_hex, &back_hex)
-                        {
-                            Some(measured) if measured < need => failures.push(format!(
-                                "{fore} on {back}, {state}, {slug}: {measured:.2} < {need:.1}"
-                            )),
-                            Some(_) => {}
-                            None => failures.push(format!(
-                                "{fore} on {back}, {state}, {slug}: {fore} is not a hex colour ({fore_hex}) / {back} ({back_hex})"
-                            )),
-                        },
-                        (fore_hex, back_hex) => {
-                            if let Err(reason) = fore_hex {
-                                failures.push(format!("{fore} on {back}, {state}, {slug}: {reason}"));
-                            }
-                            if let Err(reason) = back_hex {
-                                failures.push(format!("{fore} on {back}, {state}, {slug}: {reason}"));
-                            }
+            let tokens = resolved(overlay);
+            for &(fore, back, need) in PAIRS {
+                let fore_hex = literal(&tokens, fore);
+                let back_hex = literal(&tokens, back);
+                match (fore_hex, back_hex) {
+                    (Ok(fore_hex), Ok(back_hex)) => match contrast::ratio(&fore_hex, &back_hex) {
+                        Some(measured) if measured < need => failures.push(format!(
+                            "{fore} on {back}, {state}, postmark: {measured:.2} < {need:.1}"
+                        )),
+                        Some(_) => {}
+                        None => failures.push(format!(
+                            "{fore} on {back}, {state}: {fore} is not a hex colour ({fore_hex}) / {back} ({back_hex})"
+                        )),
+                    },
+                    (fore_hex, back_hex) => {
+                        if let Err(reason) = fore_hex {
+                            failures.push(format!("{fore} on {back}, {state}: {reason}"));
+                        }
+                        if let Err(reason) = back_hex {
+                            failures.push(format!("{fore} on {back}, {state}: {reason}"));
                         }
                     }
                 }
@@ -736,7 +691,7 @@ mod tests {
     /// Custom properties a component sets on one element (from markup, per row or per spark),
     /// so they are never on `:root`. Each rule that reads one gives it a fallback or is only
     /// reached with it set.
-    const PER_ELEMENT: &[&str] = &["--i", "--a", "--d", "--dy", "--j", "--pc"];
+    const PER_ELEMENT: &[&str] = &["--i", "--a", "--d", "--dy", "--j", "--pc", "--gl", "--gd"];
 
     /// Class tokens in `html`, and the class selectors `css` actually defines.
     fn unstyled_classes(html: &str, css: &str) -> Vec<String> {
@@ -783,8 +738,8 @@ mod tests {
         used.difference(&styled).cloned().collect()
     }
 
-    #[test]
-    fn every_class_on_the_frame_is_styled() {
+    #[tokio::test]
+    async fn every_class_on_the_frame_is_styled() {
         use crate::ui::app::App;
         use crate::ui::fixtures::work;
         use dioxus::prelude::*;
@@ -797,7 +752,14 @@ mod tests {
         let mut menus =
             VirtualDom::new(crate::ui::command::tests::OpenMenus).with_root_context(store);
         menus.rebuild_in_place();
-        let page = dioxus_ssr::render(&dom) + &dioxus_ssr::render(&menus);
+        // The Space editor is a sheet the first frame never shows. Opened here, through the
+        // Space's name as a person would, so its markup is in the set that must be styled.
+        let editor = crate::ui::space_editor::tests::editor_open_markup();
+        assert!(
+            editor.contains("aria-label=\"Space editor\""),
+            "the editor did not open: {editor}"
+        );
+        let page = dioxus_ssr::render(&dom) + &dioxus_ssr::render(&menus) + &editor;
         let missing = unstyled_classes(&page, STYLE);
         assert!(missing.is_empty(), "unstyled classes: {missing:?}");
     }
@@ -855,9 +817,9 @@ mod tests {
             (".ic", "stroke: currentColor", &[]),
             (".ic", "fill: currentColor", &[]),
             (
-                ".swatch",
+                ".presets button",
                 "background: currentColor",
-                &[".swatch: currentColor"],
+                &[".presets button: currentColor"],
             ),
             (".ic", "stroke-width: currentColor", &[".ic: currentColor"]),
             (".ic", "stroke: currentColor extra", &[".ic: currentColor"]),

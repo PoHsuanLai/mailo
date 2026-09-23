@@ -17,10 +17,13 @@ mod menu;
 mod menus;
 mod ops;
 mod page;
+mod paint;
 mod reading;
 mod row;
 mod sidebar;
+mod space_editor;
 mod style;
+mod switch;
 mod text;
 
 #[cfg(test)]

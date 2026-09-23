@@ -6,6 +6,7 @@ use super::list::ThreadList;
 use super::ops::{Composes, apply_op, start_composing, start_new};
 use super::reading::Reader;
 use super::sidebar::Places;
+use super::space_editor::SpaceEditor;
 use super::style::STYLE;
 use crate::view::{
     Appearance, Listing, PageMenu, Place, Shell, Shortcut, Source, SyncState, badge_filter,
@@ -36,6 +37,12 @@ pub(super) fn App() -> Element {
     let mut today_list = use_signal(|| boot.today.clone());
     let dirs = boot.dirs.clone();
     let mut side_hidden = use_signal(|| false);
+    // The hidden sidebar, shown as a floating panel while the pointer is at the left edge.
+    let mut side_peek = use_signal(|| false);
+    // The Space editor's draft, while the sheet is open.
+    let editing = use_signal(|| None::<crate::space::edit::Draft>);
+    // Which way the sidebar's contents slid in on the last switch.
+    let slide = use_signal(|| None::<super::switch::Slide>);
     let mut entering = use_signal(|| true);
     let mut just_added = use_signal(|| None::<mail_domain::ThreadId>);
     let mut seen_open = use_signal(|| None::<mail_domain::ThreadId>);
@@ -313,8 +320,23 @@ pub(super) fn App() -> Element {
         // `Key`'s Display is the DOM key name — "e", "ArrowDown", "Escape" — which is the
         // vocabulary `view::shortcut` is written against.
         let key = event.key().to_string();
+        // The Space editor owns the keyboard while it is open. Its name field takes letters,
+        // its handles take the arrows, and Esc puts the Space back as the sheet found it.
+        if editing.read().is_some() {
+            if key == "Escape" {
+                super::space_editor::cancel(editing, spaces);
+            }
+            return;
+        }
         if key == "s" && event.modifiers().ctrl() {
+            side_peek.set(false);
             side_hidden.set(!side_hidden());
+            return;
+        }
+        if event.modifiers().ctrl()
+            && let Some(index) = super::switch::space_key(&key)
+        {
+            super::switch::go(spaces, shell, pages, slide, index);
             return;
         }
         if (key == "t" || key == "T") && event.modifiers().ctrl() {
@@ -509,16 +531,27 @@ pub(super) fn App() -> Element {
 
     let peek = shell.read().peek.slug();
     let close_label = "Close";
-    let hidden = side_hidden();
+    let frame_class = match (side_hidden(), side_peek()) {
+        (false, _) => "app",
+        (true, false) => "app no-side",
+        (true, true) => "app no-side side-peek",
+    };
     rsx! {
         style { {STYLE} }
-        div { class: if hidden { "app no-side" } else { "app" },
+        div { class: frame_class,
             tabindex: "0",
             onkeydown: on_key,
             "data-peek": "{peek}",
             div { class: "layer" }
             div { class: "layer back" }
             div { class: "grain" }
+            if side_hidden() {
+                div {
+                    class: "edge",
+                    aria_hidden: "true",
+                    onpointerenter: move |_| side_peek.set(true),
+                }
+            }
             if shell.read().open.is_some() && shell.read().peek.floats() {
                 button {
                     class: "scrim",
@@ -529,8 +562,9 @@ pub(super) fn App() -> Element {
             }
             Places {
                 shell, pages, badges, revision, spaces, today: today_list, dirs: dirs.clone(),
-                side_hidden, just_added,
+                side_hidden, side_peek, just_added, editing, slide,
             }
+            SpaceEditor { spaces, editing, shell }
             if shell.read().command.is_some() {
                 CommandMenu { shell, pages, revision, side_hidden, sync_state, spaces, in_a_field }
             }

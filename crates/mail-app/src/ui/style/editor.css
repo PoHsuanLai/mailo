@@ -1,0 +1,98 @@
+/* The Space editor. Ported from the mockup's `.editor`, which sat beside the window; here it
+   is a sheet over the frame, above the foot it was opened from, so the frame behind it stays
+   in view while every change repaints it. It is on the card's paper, not the frame's. */
+.editor {
+  position: absolute; left: 12px; bottom: 50px; z-index: 30; width: 300px;
+  max-height: calc(100% - 66px); overflow-y: auto; scrollbar-width: thin;
+  display: grid; gap: 14px; padding: 14px;
+  background: var(--surface); color: var(--ink);
+  border: 1px solid var(--line); border-radius: var(--r-panel); box-shadow: var(--shadow-2);
+  animation: sheet-in var(--t-move) var(--e-spring);
+}
+/* It moves on open and never fades: a frame caught mid-open still shows an opaque sheet. */
+@keyframes sheet-in { from { transform: translateY(8px); } to { transform: translateY(0); } }
+.editor h3 { font-size: 15px; display: flex; align-items: center; gap: 8px; margin: 0; }
+.editor h3 .sw { width: 14px; height: 14px; border-radius: 999px; flex: none; }
+.editor h3 .inp.ed-name { flex: 1; min-width: 0; font-family: var(--font-display); font-weight: 700; font-size: 15px; padding: 5px 8px; }
+.ed-label {
+  display: flex; align-items: center; margin-bottom: 6px;
+  font-family: var(--font-data); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.ed-label .r { margin-left: auto; letter-spacing: 0.02em; text-transform: none; }
+
+/* The hue x chroma field. Exactly `hue.rs`'s FIELD_W x FIELD_H: the pointer's offset is divided
+   by those, so a field drawn at any other size would put a dot beside the pointer. */
+.field {
+  position: relative; width: 270px; height: 176px; border-radius: 12px; overflow: hidden;
+  cursor: crosshair; touch-action: none; background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.field.dragging { cursor: grabbing; }
+.field-dots { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.field-dots[data-for="dark"] { display: none; }
+.field-hit { position: absolute; inset: 0; z-index: 1; }
+.handle {
+  position: absolute; z-index: 2; width: 22px; height: 22px; margin: -11px 0 0 -11px;
+  border-radius: 999px; border: 3px solid var(--handle-ring); box-shadow: var(--handle-shadow);
+  pointer-events: none; transition: transform var(--t-tap) var(--e-out);
+}
+.handle.on { transform: scale(1.15); }
+.handle:focus-visible { outline: 2.5px solid var(--accent); outline-offset: 2px; border-radius: 999px; }
+
+.stops { display: flex; gap: 6px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+.stop {
+  display: inline-flex; align-items: center; gap: 5px; padding: 3px 5px 3px 4px;
+  border: 1px solid var(--line); background: var(--surface-2); border-radius: 999px;
+  font-family: var(--font-data); font-size: 10px; color: var(--ink-soft); cursor: pointer;
+}
+.stop i { width: 14px; height: 14px; border-radius: 999px; display: block; }
+.stop[aria-pressed="true"] { border-color: var(--ink-faint); color: var(--ink); }
+.stop .rm { border: 0; background: none; padding: 0; cursor: pointer; color: var(--ink-faint); line-height: 0; }
+.stop .rm .ic { width: 11px; height: 11px; }
+.stops .mini .ic { width: 12px; height: 12px; }
+
+.inp.range {
+  display: block; width: 100%; padding: 0; margin: 0; border: 0; background: none;
+  accent-color: var(--accent); box-shadow: none;
+}
+.inp.range:focus { box-shadow: none; }
+
+.presets { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+.presets button {
+  aspect-ratio: 1; border-radius: 999px; border: 1px solid var(--line); cursor: pointer; padding: 0;
+  transition: transform var(--t-quick) var(--e-spring);
+}
+.presets button:hover { transform: scale(1.1); }
+
+.checks { display: grid; gap: 5px; font-size: 12px; }
+.checks + .checks { margin-top: 8px; }
+.check-h { font-family: var(--font-data); font-size: 10px; color: var(--ink-faint); }
+.check { display: flex; align-items: center; gap: 8px; color: var(--ink-soft); }
+.check .v { margin-left: auto; font-family: var(--font-data); font-size: 10.5px; font-variant-numeric: tabular-nums; }
+.pill { font-family: var(--font-data); font-size: 9.5px; padding: 1px 7px; border-radius: 999px; }
+.pill.ok { background: color-mix(in oklab, var(--ok) 16%, transparent); color: var(--ok); }
+.pill.bad { background: color-mix(in oklab, var(--danger) 16%, transparent); color: var(--danger); }
+.capnote { font-size: 11.5px; color: var(--ink-faint); line-height: 1.45; margin: 0; }
+
+/* Save stays in reach however far the sheet is scrolled. */
+.ed-foot {
+  position: sticky; bottom: -14px; z-index: 3; display: flex; justify-content: flex-end; gap: 8px;
+  margin: 0 -14px -14px; padding: 10px 14px; background: var(--surface); border-top: 1px solid var(--line-soft);
+}
+.ed-foot .k { font-family: var(--font-data); font-size: 10px; font-weight: 400; color: var(--ink-faint); }
+.mini.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.mini.primary:hover { background: var(--accent); color: var(--accent-ink); }
+
+/* A Space's gradient in the window's own theme. Each swatch carries both, as `--gl` and `--gd`
+   from `both_gradients`, because under System only the desktop knows which one applies. */
+.editor h3 .sw, .presets button, .sp { background: var(--gl); }
+:root[data-theme="dark"] .editor h3 .sw, :root[data-theme="dark"] .presets button, :root[data-theme="dark"] .sp { background: var(--gd); }
+:root[data-theme="dark"] .field-dots[data-for="light"] { display: none; }
+:root[data-theme="dark"] .field-dots[data-for="dark"] { display: block; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .editor h3 .sw, :root:not([data-theme="light"]) .presets button,
+  :root:not([data-theme="light"]) .sp { background: var(--gd); }
+  :root:not([data-theme="light"]) .field-dots[data-for="light"] { display: none; }
+  :root:not([data-theme="light"]) .field-dots[data-for="dark"] { display: block; }
+}

@@ -6,7 +6,7 @@ use super::*;
 use crate::search::{Results, Top};
 use crate::ui::fixtures::work;
 use crate::view::Shell;
-use crate::view::{Appearance, Theme};
+use crate::view::Theme;
 use dioxus_core::VirtualDom;
 use mail_domain::Filter;
 use std::collections::HashMap;
@@ -222,19 +222,18 @@ async fn settle(dom: &mut VirtualDom) {
 }
 
 fn page(body: &str, theme: Theme, space: &crate::space::Space) -> String {
-    use super::super::launch::appearance_script;
+    use super::super::paint::appearance_script;
     use super::super::style::STYLE;
-    let look = Appearance {
+    let script = appearance_script(&crate::space::Space {
         theme,
-        ..Appearance::default()
-    };
-    let script = appearance_script(look, space);
+        ..space.clone()
+    });
     let theme_attr = theme
         .attribute()
         .map(|name| format!(" data-theme=\"{name}\""))
         .unwrap_or_default();
     format!(
-        "<!doctype html>\n<html lang=\"en\" data-accent=\"postmark\"{theme_attr}>\
+        "<!doctype html>\n<html lang=\"en\"{theme_attr}>\
          <head><meta charset=\"utf-8\"><style>{STYLE}</style><script>{script}</script></head>\
          <body>{body}</body></html>\n"
     )

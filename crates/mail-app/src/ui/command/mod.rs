@@ -8,7 +8,7 @@ use super::field::{Field, FieldKind};
 use super::icon::Icon;
 use super::menu::{Menu, MenuItem, MenuKey, MenuState};
 use super::ops::start_new;
-use crate::view::{Appearance, PageMenu, Shell, Theme};
+use crate::view::{PageMenu, Shell, Theme};
 use chrono::Utc;
 use dioxus::prelude::*;
 use items::{Pick, interpret, rows_of, search_now, tokens};
@@ -215,16 +215,24 @@ fn run_action(
                 "Theme dark" => Theme::Dark,
                 _ => Theme::System,
             };
-            let look = Appearance {
-                theme,
-                ..shell.read().appearance
+            // The theme is the current Space's now, so this is a change to that Space.
+            let mut spaces = spaces;
+            let space = {
+                let mut all = spaces.write();
+                let current = all.current;
+                match all.spaces.get_mut(current) {
+                    Some(space) => {
+                        space.theme = theme;
+                        space.clone()
+                    }
+                    None => return close(shell),
+                }
             };
-            let space = spaces.read().current_space();
-            shell.write().appearance = look;
-            dioxus::document::eval(&super::launch::appearance_script(look, &space));
-            if let Some(dir) = crate::appearance::config_dir() {
-                let _ = crate::appearance::save(&dir, look);
-            }
+            dioxus::document::eval(&super::paint::paint_script(
+                &space,
+                super::paint::Fade::None,
+            ));
+            super::frame::keep(&spaces.read());
             close(shell);
         }
         _ => close(shell),

@@ -238,14 +238,19 @@ fn main() {
                 Some(dir) => {
                     let loaded = mail_app::space::load(dir);
                     if loaded.spaces.is_empty() {
-                        let made = mail_app::space::first_run(&ids);
+                        let mut made = mail_app::space::first_run(&ids);
+                        mail_app::space::inherit(&mut made, &look);
                         let _ = mail_app::space::save(dir, &made);
                         made
                     } else {
                         loaded
                     }
                 }
-                None => mail_app::space::first_run(&ids),
+                None => {
+                    let mut made = mail_app::space::first_run(&ids);
+                    mail_app::space::inherit(&mut made, &look);
+                    made
+                }
             };
             let dirs = config.and_then(|config| {
                 mail_app::appearance::state_dir()

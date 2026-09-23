@@ -4,14 +4,22 @@
 //! not in the mail database. A cosmetic choice must not be a write against
 //! someone's mail.
 
-use crate::appearance::{read_json, write_json};
+use crate::appearance::write_json;
 use crate::palette::{Dot, NEUTRAL_DOT};
-use crate::view::Theme;
+use crate::view::{Appearance, Motion, Theme};
 use mail_domain::AccountId;
 use serde::de::Deserializer;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::Path;
+
+pub mod edit;
+mod migrate;
+mod presets;
+mod recall;
+
+pub use presets::{PRESET_NAMES, PRESETS};
+pub use recall::Recall;
 
 const FILE_NAME: &str = "spaces.json";
 const DEFAULT_GRAIN: u8 = 35;
@@ -65,6 +73,8 @@ pub struct Space {
     pub grain: u8,
     /// Which palette this Space resolves to, independently of the window.
     pub theme: Theme,
+    /// How much the window moves while this Space is on screen.
+    pub motion: Motion,
     /// Whether the card follows this Space's hue.
     pub card_accent: CardAccent,
     /// Whose mail this Space shows.
@@ -113,6 +123,7 @@ impl Default for Space {
             dots: vec![NEUTRAL_DOT],
             grain: DEFAULT_GRAIN,
             theme: Theme::default(),
+            motion: Motion::default(),
             card_accent: CardAccent::default(),
             scope: Scope::default(),
             pins: Vec::new(),
@@ -138,6 +149,12 @@ pub struct Spaces {
     pub spaces: Vec<Space>,
     /// Index into [`Self::spaces`]. Past the end, it becomes the last Space.
     pub current: usize,
+    /// Where each Space was left, by index: its place, its open thread, its account tile.
+    ///
+    /// Beside `current` rather than inside a [`Space`] because it is where you are, not how
+    /// the Space looks: the editor's Esc restores a Space exactly and must not also move you.
+    /// A Space with no entry opens on the Inbox.
+    pub recall: BTreeMap<usize, Recall>,
 }
 
 #[derive(Deserialize)]
@@ -150,6 +167,8 @@ struct SpaceRaw {
     grain: u8,
     #[serde(default, deserialize_with = "de_theme")]
     theme: Theme,
+    #[serde(default, deserialize_with = "de_motion")]
+    motion: Motion,
     #[serde(default, deserialize_with = "de_card_accent")]
     card_accent: CardAccent,
     #[serde(default, deserialize_with = "de_scope")]
@@ -166,6 +185,8 @@ struct SpacesRaw {
     spaces: Vec<Space>,
     #[serde(default, deserialize_with = "de_index")]
     current: usize,
+    #[serde(default, deserialize_with = "recall::de_recall")]
+    recall: BTreeMap<usize, Recall>,
 }
 
 #[derive(Deserialize)]
@@ -194,6 +215,7 @@ impl From<SpaceRaw> for Space {
             dots,
             grain: raw.grain.min(100),
             theme: raw.theme,
+            motion: raw.motion,
             card_accent: raw.card_accent,
             scope: raw.scope,
             pins: raw.pins,
@@ -209,7 +231,16 @@ impl From<SpacesRaw> for Spaces {
             0 => 0,
             count => raw.current.min(count - 1),
         };
-        Self { spaces, current }
+        let recall = raw
+            .recall
+            .into_iter()
+            .filter(|(index, _)| *index < spaces.len())
+            .collect();
+        Self {
+            spaces,
+            current,
+            recall,
+        }
     }
 }
 
@@ -255,6 +286,14 @@ where
     Ok(Theme::parse(&word).unwrap_or_default())
 }
 
+fn de_motion<'de, D>(deserializer: D) -> Result<Motion, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let word = String::deserialize(deserializer)?;
+    Ok(Motion::parse(&word).unwrap_or_default())
+}
+
 fn de_card_accent<'de, D>(deserializer: D) -> Result<CardAccent, D::Error>
 where
     D: Deserializer<'de>,
@@ -282,8 +321,40 @@ where
 /// Dots are kept to the first three, grain to 0..=100, and `current` to a real
 /// index. A missing dot list is the neutral dot. An unknown word for one field
 /// is that field's default, not a failure of the whole file.
+///
+/// Theme and motion moved from `appearance.json` into each Space. A Space written before
+/// that has neither, and takes the window-wide values stored beside it in the same
+/// directory, so the first read after the upgrade looks the way the window did.
 pub fn load(dir: &Path) -> Spaces {
-    read_json(dir, FILE_NAME)
+    let Ok(bytes) = std::fs::read(dir.join(FILE_NAME)) else {
+        return Spaces::default();
+    };
+    migrate::read_with(&bytes, &crate::appearance::load(dir))
+}
+
+/// Give every Space `look`'s theme and motion. For Spaces made before any were stored.
+pub fn inherit(spaces: &mut Spaces, look: &Appearance) {
+    for space in &mut spaces.spaces {
+        space.theme = look.theme;
+        space.motion = look.motion;
+    }
+}
+
+/// A Space for "+": named after its position, tinted from the next preset in turn.
+///
+/// It covers every account, and keeps the current Space's theme and motion so making one
+/// does not also change how the window looks.
+pub fn new_space(spaces: &Spaces) -> Space {
+    let count = spaces.spaces.len();
+    let current = spaces.current_space();
+    Space {
+        name: format!("Space {}", count + 1),
+        dots: PRESETS[count % PRESETS.len()].to_vec(),
+        theme: current.theme,
+        motion: current.motion,
+        scope: Scope::All,
+        ..Space::default()
+    }
 }
 
 /// Write `spaces` to `dir/spaces.json`, creating `dir` if needed.
@@ -305,6 +376,7 @@ pub fn first_run(accounts: &[AccountId]) -> Spaces {
                 ..Space::default()
             }],
             current: 0,
+            recall: BTreeMap::new(),
         };
     }
     let spaces = accounts
@@ -317,105 +389,12 @@ pub fn first_run(accounts: &[AccountId]) -> Spaces {
             ..Space::default()
         })
         .collect();
-    Spaces { spaces, current: 0 }
+    Spaces {
+        spaces,
+        current: 0,
+        recall: BTreeMap::new(),
+    }
 }
-
-/// The eight gradients from the mockup, then the six Part A accent hues as single dots.
-///
-/// The accent dots sit at chroma 0.7, except graphite, whose own colour is almost
-/// neutral and is stored at 0.08. Each hue is the OKLCH hue of that Part A swatch.
-pub const PRESETS: &[&[Dot]] = &[
-    &[
-        Dot {
-            hue: 268.0,
-            chroma: 0.72,
-        },
-        Dot {
-            hue: 318.0,
-            chroma: 0.55,
-        },
-    ],
-    &[
-        Dot {
-            hue: 152.0,
-            chroma: 0.62,
-        },
-        Dot {
-            hue: 62.0,
-            chroma: 0.55,
-        },
-        Dot {
-            hue: 28.0,
-            chroma: 0.5,
-        },
-    ],
-    &[Dot {
-        hue: 220.0,
-        chroma: 0.7,
-    }],
-    &[
-        Dot {
-            hue: 20.0,
-            chroma: 0.66,
-        },
-        Dot {
-            hue: 55.0,
-            chroma: 0.6,
-        },
-    ],
-    &[
-        Dot {
-            hue: 190.0,
-            chroma: 0.6,
-        },
-        Dot {
-            hue: 240.0,
-            chroma: 0.55,
-        },
-    ],
-    &[
-        Dot {
-            hue: 340.0,
-            chroma: 0.6,
-        },
-        Dot {
-            hue: 290.0,
-            chroma: 0.5,
-        },
-    ],
-    &[Dot {
-        hue: 95.0,
-        chroma: 0.5,
-    }],
-    &[Dot {
-        hue: 250.0,
-        chroma: 0.06,
-    }],
-    &[Dot {
-        hue: 257.437_8,
-        chroma: 0.7,
-    }],
-    &[Dot {
-        hue: 137.85431,
-        chroma: 0.08,
-    }],
-    &[Dot {
-        hue: 164.06635,
-        chroma: 0.7,
-    }],
-    &[Dot {
-        hue: 276.64212,
-        chroma: 0.7,
-    }],
-    &[Dot {
-        hue: 22.80671,
-        chroma: 0.7,
-    }],
-    &[Dot {
-        hue: 32.172_4,
-        chroma: 0.7,
-    }],
-];
 
 #[cfg(test)]
 mod tests;

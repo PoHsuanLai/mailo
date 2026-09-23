@@ -13,6 +13,9 @@ pub(super) enum FieldKind {
     Boxed,
     /// No chrome, for a property row or the inside of a menu.
     Inline,
+    /// A slider from `min` to `max`, for a number with no need of digits: the Space's grain.
+    /// The value it hands back is the slider's position, as text like every other field.
+    Range { min: u8, max: u8 },
 }
 
 /// A text field. `extra` is a further class, kept so the list's search box stays `input.search`.
@@ -26,12 +29,30 @@ pub(super) fn Field(
     on_focus: EventHandler<()>,
     on_blur: EventHandler<()>,
 ) -> Element {
-    let class = match (kind, extra) {
-        (FieldKind::Boxed, None) => "inp".to_owned(),
-        (FieldKind::Inline, None) => "inp inline".to_owned(),
-        (FieldKind::Boxed, Some(extra)) => format!("inp {extra}"),
-        (FieldKind::Inline, Some(extra)) => format!("inp inline {extra}"),
+    let variant = match kind {
+        FieldKind::Boxed => "inp",
+        FieldKind::Inline => "inp inline",
+        FieldKind::Range { .. } => "inp range",
     };
+    let class = match extra {
+        None => variant.to_owned(),
+        Some(extra) => format!("{variant} {extra}"),
+    };
+    if let FieldKind::Range { min, max } = kind {
+        return rsx! {
+            input {
+                class: "{class}",
+                r#type: "range",
+                min: "{min}",
+                max: "{max}",
+                aria_label: "{placeholder}",
+                value: "{value}",
+                oninput: move |event| on_input.call(event.value()),
+                onfocusin: move |_| on_focus.call(()),
+                onfocusout: move |_| on_blur.call(()),
+            }
+        };
+    }
     rsx! {
         input {
             class: "{class}",

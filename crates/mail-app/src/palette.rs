@@ -7,6 +7,52 @@
 use crate::contrast::ratio;
 use serde::{Deserialize, Serialize};
 
+mod readout;
+
+pub use readout::readout;
+
+/// The card's own colours: Post, which a Space's hue never moves.
+///
+/// The same literals as `tokens.css` and `tokens.dark.css`; `ui::style`'s tests hold the two
+/// together. Here so the editor's contrast readout can measure against the card without
+/// reading a stylesheet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Card {
+    /// A pane: the list and the reader.
+    pub surface: &'static str,
+    /// Body text on it.
+    pub ink: &'static str,
+    /// Postmark, the card's accent when a Space does not lend its hue.
+    pub accent: &'static str,
+    /// Postmark's tint, behind a selected row.
+    pub accent_soft: &'static str,
+    /// Text on Postmark.
+    pub accent_ink: &'static str,
+}
+
+/// The light card.
+pub const POST_LIGHT: Card = Card {
+    surface: "#F8F9F6",
+    ink: "#1A1E1A",
+    accent: "#23508F",
+    accent_soft: "#DCE5F3",
+    accent_ink: "#F4F8FF",
+};
+
+/// The dark card.
+pub const POST_DARK: Card = Card {
+    surface: "#1D211B",
+    ink: "#E7EBE3",
+    accent: "#7FA6E6",
+    accent_soft: "#1E2A44",
+    accent_ink: "#0B142A",
+};
+
+/// The card for a theme.
+pub fn card(dark: bool) -> Card {
+    if dark { POST_DARK } else { POST_LIGHT }
+}
+
 /// One colour the person placed.
 ///
 /// `chroma` is a fraction of the most the frame will show, not an OKLCH chroma
@@ -96,6 +142,8 @@ const FRAME_DARK: Frame = Frame {
 /// Lightness of the swatch on a dot. The peach pick `#EF8C62` was C 0.13;
 /// a fully saturated dot is drawn at L 0.74, C 0.15. See [`FRAME_LIGHT`].
 const PICK_L: f64 = 0.74;
+/// Lightness of the field's swatches on a dark field, where 0.74 glares. See [`PICK_L`].
+const PICK_L_DARK: f64 = 0.66;
 /// Chroma of a fully saturated pick. See [`PICK_L`].
 const PICK_C: f64 = 0.15;
 
@@ -174,7 +222,7 @@ pub fn derive(dots: &[Dot], dark: bool) -> Palette {
         PILL_LIGHT.to_owned()
     };
 
-    let surface = if dark { "#1D211B" } else { "#F8F9F6" };
+    let surface = card(dark).surface;
     let mut accent_l = if dark { 0.77 } else { 0.45 };
     let accent_c = 0.045 + 0.035 * k;
     let mut accent = hex(accent_l, accent_c, hue0);
@@ -210,6 +258,19 @@ pub fn derive(dots: &[Dot], dark: bool) -> Palette {
         accent_ink,
         capped,
     }
+}
+
+/// The colour one point of the editor's hue × chroma field is drawn in.
+///
+/// The pick's own lightness: L 0.74 on a light field and 0.66 on a dark one, at up to the
+/// pick's chroma. The editor draws the field from this and computes no colour of its own.
+pub fn swatch(dot: Dot, dark: bool) -> String {
+    let lightness = if dark { PICK_L_DARK } else { PICK_L };
+    hex(
+        lightness,
+        f64::from(dot.chroma) * PICK_C,
+        f64::from(dot.hue),
+    )
 }
 
 /// The frame's background, as a CSS `linear-gradient`.

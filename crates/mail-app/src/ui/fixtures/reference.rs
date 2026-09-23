@@ -9,7 +9,7 @@ use crate::appearance::WindowDirs;
 use crate::palette::Dot;
 use crate::space::{self, CardAccent, Pinned, Scope, Space, Spaces};
 use crate::today::{self, Today};
-use crate::view::Theme;
+use crate::view::{Motion, Theme};
 use chrono::Datelike;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
@@ -229,6 +229,7 @@ pub(in crate::ui) fn work() -> Work {
     colors.insert(FASTMAIL, "#B0662E".to_owned());
     let spaces = Spaces {
         current: 0,
+        recall: BTreeMap::new(),
         spaces: vec![Space {
             name: "Work".to_owned(),
             dots: vec![
@@ -243,6 +244,7 @@ pub(in crate::ui) fn work() -> Work {
             ],
             grain: 35,
             theme: Theme::System,
+            motion: Motion::Standard,
             card_accent: CardAccent::Hint,
             scope: Scope::All,
             pins: vec![

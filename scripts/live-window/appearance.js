@@ -3,15 +3,16 @@
 //
 // Every other check of the stylesheet is static: the style tests parse `STYLE`, and `dump()`
 // renders the components to a file that headless Chrome photographs. None of that is WebKitGTK,
-// and none of it is the head script that stamps `data-theme` / `data-accent` onto <html> at
-// launch. This asks the running window what it actually resolved.
+// and none of it is the head script that stamps the Space's `data-theme`, `data-motion` and
+// frame tokens onto <html> at launch. This asks the running window what it actually resolved.
 //
 // Read-only, and it needs nothing to re-render: the first frame is what carries the appearance,
 // so this is checkable whatever F140/F141 turn out to be about.
 //
 // What a healthy report looks like, with nothing persisted yet:
-//   data_accent "postmark", data_theme absent (the desktop decides),
-//   --paper and --accent resolved to real colours rather than "",
+//   data_theme absent (the first Space follows the desktop), data_motion "standard",
+//   data_accent absent (the six accent hues are retired; the card's accent is the Space's),
+//   --paper, --accent and --f-grad resolved to real values rather than "",
 //   body_background the computed --paper, not the WebKit default of transparent / white.
 (function () {
   const say = (what) =>
@@ -29,11 +30,13 @@
     say({
       stage,
       data_theme: root.dataset.theme === undefined ? "(absent)" : root.dataset.theme,
+      data_motion: root.dataset.motion === undefined ? "(absent)" : root.dataset.motion,
       data_accent: root.dataset.accent === undefined ? "(absent)" : root.dataset.accent,
       prefers_dark: window.matchMedia("(prefers-color-scheme: dark)").matches,
       paper: token("--paper"),
       ink: token("--ink"),
       accent: token("--accent"),
+      f_grad: token("--f-grad"),
       frame: token("--frame"),
       // The first look runs from the custom head, before <body> exists.
       body_background: document.body ? getComputedStyle(document.body).backgroundColor : "(no body yet)",

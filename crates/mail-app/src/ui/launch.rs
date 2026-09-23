@@ -1,5 +1,5 @@
 use super::app::App;
-use super::frame::frame_statements;
+use super::paint::appearance_script;
 use crate::appearance::WindowDirs;
 use crate::space::Spaces;
 use crate::view::Appearance;
@@ -75,41 +75,13 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 </script>"#;
 
-/// The statements that stamp `look` onto `<html>`.
-///
-/// System deletes `data-theme` rather than setting it: the attribute's absence is what
-/// lets `prefers-color-scheme` decide, including after a click that leaves Light or Dark.
-/// [`appearance_head`] wraps this in `<script>` and a click evals it as it stands, so the
-/// first frame and a later change cannot say different things. Values go through
-/// `serde_json::to_string`: an attribute written into a script is an injection site even
-/// when it can only be one of six words.
-pub(super) fn appearance_script(look: Appearance, space: &crate::space::Space) -> String {
-    let quote = |word: &str| {
-        serde_json::to_string(word).expect("a &str always serializes") // `&str` serialization cannot fail
-    };
-    let accent = quote(look.accent.slug());
-    let motion = quote(look.motion.slug());
-    let theme = match look.theme.attribute() {
-        Some(theme) => {
-            let theme = quote(theme);
-            format!("document.documentElement.dataset.theme = {theme};")
-        }
-        None => "delete document.documentElement.dataset.theme;".to_owned(),
-    };
-    format!(
-        "document.documentElement.dataset.accent = {accent};\n\
-         document.documentElement.dataset.motion = {motion};\n\
-         {theme}\n{}",
-        frame_statements(look, space)
-    )
-}
-
-/// A script that stamps the appearance onto `<html>` before the stylesheet is first applied.
+/// A script that stamps the current Space onto `<html>` before the stylesheet is first applied.
 ///
 /// It goes in the custom head, which is inserted before `</head>` and therefore runs ahead
-/// of the interpreter module, so the first frame is already in the right palette.
-fn appearance_head(look: Appearance, space: &crate::space::Space) -> String {
-    format!("<script>\n{}\n</script>", appearance_script(look, space))
+/// of the interpreter module, so the first frame is already in the right palette. The
+/// statements are [`appearance_script`]'s, which a later switch builds from the same pairs.
+fn appearance_head(space: &crate::space::Space) -> String {
+    format!("<script>\n{}\n</script>", appearance_script(space))
 }
 
 /// Extra markup for the head, from `$MAILO_PROBE`, in debug builds only.
@@ -153,7 +125,7 @@ pub fn run(store: Arc<SqliteStore>, look: Appearance, spaces: Spaces, dirs: Opti
                 .with_menu(None)
                 .with_custom_head(format!(
                     "{}<script>window.__mailo_nothing_mounted = {};</script>{KEEP_FOCUS}{}",
-                    appearance_head(look, &space),
+                    appearance_head(&space),
                     serde_json::to_string(NOTHING_MOUNTED)
                         .unwrap_or_else(|_| "\"The interface did not start.\"".to_owned()),
                     probe()
@@ -183,12 +155,11 @@ fn ShellRoot() -> Element {
 
 #[cfg(test)]
 mod tests {
-    use super::Appearance;
     use super::appearance_head;
-    use super::appearance_script;
     use crate::palette::{self, Dot};
     use crate::space::Space;
-    use crate::view::{Accent, Motion, Theme};
+    use crate::ui::paint::appearance_script;
+    use crate::view::{Motion, Theme};
 
     fn starts_with_look(head: &str, lines: &str) {
         let expect = format!("<script>\n{lines}");
@@ -199,108 +170,46 @@ mod tests {
     }
 
     #[test]
-    fn the_default_appearance_is_stamped_exactly() {
+    fn the_default_space_is_stamped_exactly() {
         // The delete is deliberate. System used to omit `dataset.theme` entirely, which is
-        // right on first paint and wrong after a click that leaves Light or Dark: the head
-        // and the click share [`appearance_script`], so both remove the attribute.
-        let head = appearance_head(Appearance::default(), &Space::default());
+        // right on first paint and wrong after a switch from a Light or Dark Space: the head
+        // and the switch share their statements, so both remove the attribute.
+        let head = appearance_head(&Space::default());
         starts_with_look(
             &head,
-            "document.documentElement.dataset.accent = \"postmark\";\n\
-             document.documentElement.dataset.motion = \"standard\";\n\
+            "document.documentElement.dataset.motion = \"standard\";\n\
              delete document.documentElement.dataset.theme;",
+        );
+        assert!(
+            !head.contains("dataset.accent"),
+            "the retired accent is still stamped: {head}"
         );
     }
 
     #[test]
-    fn a_dark_pine_window_is_stamped_exactly() {
-        let head = appearance_head(
-            Appearance {
-                theme: Theme::Dark,
-                accent: Accent::Pine,
-                motion: Motion::Extra,
-                ..Appearance::default()
-            },
-            &Space::default(),
-        );
+    fn a_dark_extra_space_is_stamped_exactly() {
+        let head = appearance_head(&Space {
+            theme: Theme::Dark,
+            motion: Motion::Extra,
+            ..Space::default()
+        });
         starts_with_look(
             &head,
-            "document.documentElement.dataset.accent = \"pine\";\n\
-             document.documentElement.dataset.motion = \"extra\";\n\
+            "document.documentElement.dataset.motion = \"extra\";\n\
              document.documentElement.dataset.theme = \"dark\";",
         );
     }
 
     #[test]
-    fn system_writes_no_theme_dataset() {
+    fn system_deletes_the_theme_and_does_not_set_it() {
         // Absence is the property. System deletes the attribute so a previous Light or Dark
         // cannot linger, and it must not assign `dataset.theme` or the stylesheet's
         // `prefers-color-scheme` guard is unreachable.
-        let head = appearance_head(
-            Appearance {
-                theme: Theme::System,
-                accent: Accent::Vermilion,
-                motion: Motion::default(),
-                ..Appearance::default()
-            },
-            &Space::default(),
-        );
-        assert!(
-            head.contains("delete document.documentElement.dataset.theme"),
-            "a system theme left a previous data-theme in place: {head}"
-        );
-        assert!(
-            !head.contains("dataset.theme ="),
-            "a system theme set data-theme, so the desktop can no longer decide: {head}"
-        );
-    }
-
-    #[test]
-    fn appearance_script_is_exact() {
-        let cases = [
-            (
-                Appearance {
-                    theme: Theme::Dark,
-                    accent: Accent::Pine,
-                    motion: Motion::Calm,
-                    ..Appearance::default()
-                },
-                "document.documentElement.dataset.accent = \"pine\";\n\
-                 document.documentElement.dataset.motion = \"calm\";\n\
-                 document.documentElement.dataset.theme = \"dark\";",
-            ),
-            (
-                Appearance {
-                    theme: Theme::System,
-                    accent: Accent::Graphite,
-                    motion: Motion::Standard,
-                    ..Appearance::default()
-                },
-                "document.documentElement.dataset.accent = \"graphite\";\n\
-                 document.documentElement.dataset.motion = \"standard\";\n\
-                 delete document.documentElement.dataset.theme;",
-            ),
-        ];
-        for (look, lines) in cases {
-            let script = appearance_script(look, &Space::default());
-            assert!(
-                script.starts_with(lines),
-                "{look:?} did not start with the appearance lines:\n{script}"
-            );
-        }
-    }
-
-    #[test]
-    fn system_deletes_the_theme_and_does_not_set_it() {
-        let script = appearance_script(
-            Appearance {
-                theme: Theme::System,
-                accent: Accent::Graphite,
-                motion: Motion::default(),
-                ..Appearance::default()
-            },
-            &Space::default(),
-        );
+        let script = appearance_script(&Space {
+            theme: Theme::System,
+            motion: Motion::Calm,
+            ..Space::default()
+        });
         assert!(
             script.contains("delete document.documentElement.dataset.theme"),
             "{script}"
@@ -308,6 +217,10 @@ mod tests {
         assert!(
             !script.contains("dataset.theme ="),
             "system set data-theme: {script}"
+        );
+        assert!(
+            script.starts_with("document.documentElement.dataset.motion = \"calm\";"),
+            "{script}"
         );
     }
 
@@ -326,15 +239,12 @@ mod tests {
                     chroma: 0.55,
                 },
             ],
-            ..Space::default()
-        };
-        let look = Appearance {
             theme: Theme::Light,
-            ..Appearance::default()
+            ..Space::default()
         };
         let gradient = palette::gradient(&palette::derive(&space.dots, false));
         let quoted = serde_json::to_string(&gradient).expect("a string serializes");
-        let script = appearance_script(look, &space);
+        let script = appearance_script(&space);
         let needle = format!("document.documentElement.style.setProperty(\"--f-grad\", {quoted})");
         assert!(
             script.contains(&needle),

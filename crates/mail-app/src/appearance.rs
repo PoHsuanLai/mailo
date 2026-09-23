@@ -117,7 +117,7 @@ fn cache_dir_from(xdg: Option<OsString>, home: Option<OsString>) -> Option<PathB
 #[cfg(test)]
 mod tests {
     use super::{cache_dir_from, config_dir_from, load, save, state_dir_from};
-    use crate::view::{Accent, Appearance, Marks, Motion, Theme};
+    use crate::view::{Appearance, Marks, Motion, Theme};
     use std::ffi::OsString;
     use std::path::{Path, PathBuf};
 
@@ -143,39 +143,18 @@ mod tests {
         const CASES: &[Appearance] = &[
             Appearance {
                 theme: Theme::System,
-                accent: Accent::Postmark,
                 motion: Motion::Standard,
                 marks: Marks::Icons,
             },
             Appearance {
                 theme: Theme::Dark,
-                accent: Accent::Pine,
                 motion: Motion::Calm,
                 marks: Marks::Letters,
             },
             Appearance {
                 theme: Theme::Light,
-                accent: Accent::Oxblood,
                 motion: Motion::Extra,
                 marks: Marks::Icons,
-            },
-            Appearance {
-                theme: Theme::System,
-                accent: Accent::Vermilion,
-                motion: Motion::Standard,
-                marks: Marks::Letters,
-            },
-            Appearance {
-                theme: Theme::Dark,
-                accent: Accent::Graphite,
-                motion: Motion::Calm,
-                marks: Marks::Icons,
-            },
-            Appearance {
-                theme: Theme::Light,
-                accent: Accent::Indigo,
-                motion: Motion::Extra,
-                marks: Marks::Letters,
             },
         ];
         for &look in CASES {
@@ -210,15 +189,10 @@ mod tests {
 
     #[test]
     fn a_partial_file_keeps_the_fields_it_has() {
-        // `rose` alone matching the default is not enough: a loader that rejects the whole
-        // file also returns the default. The rows that set the other field are what show
-        // the bad word was dropped on its own.
+        // `sepia` alone matching the default is not enough: a loader that rejects the whole
+        // file also returns the default. The rows that set another field are what show the
+        // bad word was dropped on its own.
         let cases: &[(&str, &str, Appearance)] = &[
-            (
-                "unknown accent",
-                r#"{"accent":"rose"}"#,
-                Appearance::default(),
-            ),
             (
                 "theme only",
                 r#"{"theme":"dark"}"#,
@@ -228,18 +202,10 @@ mod tests {
                 },
             ),
             (
-                "unknown accent keeps the theme",
-                r#"{"accent":"rose","theme":"dark"}"#,
+                "unknown theme keeps the motion",
+                r#"{"theme":"sepia","motion":"calm"}"#,
                 Appearance {
-                    theme: Theme::Dark,
-                    ..Appearance::default()
-                },
-            ),
-            (
-                "unknown theme keeps the accent",
-                r#"{"theme":"sepia","accent":"pine"}"#,
-                Appearance {
-                    accent: Accent::Pine,
+                    motion: Motion::Calm,
                     ..Appearance::default()
                 },
             ),
@@ -252,20 +218,10 @@ mod tests {
                 },
             ),
             (
-                "unknown motion keeps the rest",
-                r#"{"theme":"dark","accent":"pine","motion":"wild"}"#,
+                "unknown motion keeps the theme",
+                r#"{"theme":"dark","motion":"wild"}"#,
                 Appearance {
                     theme: Theme::Dark,
-                    accent: Accent::Pine,
-                    ..Appearance::default()
-                },
-            ),
-            (
-                "an extra field is ignored",
-                r#"{"theme":"light","accent":"indigo","future":true}"#,
-                Appearance {
-                    theme: Theme::Light,
-                    accent: Accent::Indigo,
                     ..Appearance::default()
                 },
             ),
@@ -285,14 +241,53 @@ mod tests {
                     ..Appearance::default()
                 },
             ),
+        ];
+        let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+        let path = dir.path().join("appearance.json");
+        for &(name, bytes, look) in cases {
+            std::fs::write(&path, bytes).unwrap_or_else(|e| panic!("{name}: {e}"));
+            assert_eq!(load(dir.path()), look, "{name}: {bytes}");
+        }
+    }
+
+    #[test]
+    fn the_accent_is_dropped_on_read_and_theme_and_motion_are_kept() {
+        // The migration table. Every row names a theme or a motion that is not the default,
+        // so a loader that threw the file away on meeting `accent` would fail it: dropping
+        // the retired field must not drop the fields beside it.
+        let cases: &[(&str, &str, Appearance)] = &[
             (
-                "a file from before marks existed",
+                "an old file with every field",
                 r#"{"theme":"dark","accent":"pine","motion":"calm"}"#,
                 Appearance {
                     theme: Theme::Dark,
-                    accent: Accent::Pine,
                     motion: Motion::Calm,
                     marks: Marks::Icons,
+                },
+            ),
+            (
+                "an accent this build never knew",
+                r#"{"accent":"rose","theme":"light"}"#,
+                Appearance {
+                    theme: Theme::Light,
+                    ..Appearance::default()
+                },
+            ),
+            (
+                "an accent that is not a word",
+                r#"{"accent":7,"motion":"extra"}"#,
+                Appearance {
+                    motion: Motion::Extra,
+                    ..Appearance::default()
+                },
+            ),
+            (
+                "an unknown field is ignored",
+                r#"{"theme":"light","future":true,"motion":"extra","marks":"letters"}"#,
+                Appearance {
+                    theme: Theme::Light,
+                    motion: Motion::Extra,
+                    marks: Marks::Letters,
                 },
             ),
         ];
@@ -300,7 +295,13 @@ mod tests {
         let path = dir.path().join("appearance.json");
         for &(name, bytes, look) in cases {
             std::fs::write(&path, bytes).unwrap_or_else(|e| panic!("{name}: {e}"));
-            assert_eq!(load(dir.path()), look, "{name}: {bytes}");
+            let read = load(dir.path());
+            assert_eq!(read, look, "{name}: {bytes}");
+            // Written back, the retired word is gone for good.
+            save(dir.path(), read).unwrap_or_else(|e| panic!("{name}: {e}"));
+            let raw = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{name}: {e}"));
+            assert!(!raw.contains("accent"), "{name}: {raw}");
+            assert_eq!(load(dir.path()), look, "{name}: after saving {raw}");
         }
     }
 
@@ -438,14 +439,13 @@ mod tests {
 
         std::fs::write(
             dir.path().join("appearance.json"),
-            r#"{"theme":"light","accent":"indigo","motion":"extra"}"#,
+            r#"{"theme":"light","motion":"extra"}"#,
         )
         .unwrap_or_else(|err| panic!("{err}"));
         assert_eq!(
             load(dir.path()),
             Appearance {
                 theme: Theme::Light,
-                accent: Accent::Indigo,
                 motion: Motion::Extra,
                 marks: Marks::Icons,
             }

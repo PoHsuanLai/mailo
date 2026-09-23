@@ -285,3 +285,65 @@ fn half_rounds_the_way_javascript_does() {
         assert_eq!(js_round(input), want, "{input}");
     }
 }
+
+#[test]
+fn the_readout_is_the_ratio_of_the_derived_tokens() {
+    // A fixed pick, measured here the long way from `derive` and `ratio`. The readout must say
+    // exactly these numbers: the editor shows nothing it computed on its own.
+    use super::{POST_DARK, POST_LIGHT, readout};
+    use crate::contrast::ratio;
+    use crate::space::{CardAccent, Space};
+    for dark in [false, true] {
+        for accent in [CardAccent::Hint, CardAccent::Postmark] {
+            let space = Space {
+                dots: HOME.to_vec(),
+                card_accent: accent,
+                ..Space::default()
+            };
+            let palette = derive(HOME, dark);
+            let post = if dark { POST_DARK } else { POST_LIGHT };
+            let worst = |fore: &str| {
+                palette
+                    .stops
+                    .iter()
+                    .map(|stop| ratio(fore, stop).expect("hex"))
+                    .fold(f64::INFINITY, f64::min)
+            };
+            let (tint_accent, tint) = match accent {
+                CardAccent::Hint => (palette.accent.clone(), palette.accent_soft.clone()),
+                CardAccent::Postmark => (post.accent.to_owned(), post.accent_soft.to_owned()),
+            };
+            let want = [
+                worst(&palette.ink),
+                worst(&palette.faint),
+                ratio(&tint_accent, post.surface).expect("hex"),
+                ratio(post.ink, &tint).expect("hex"),
+            ];
+            let checks = readout(&space, dark);
+            let got: Vec<f64> = checks.iter().map(|check| check.measured).collect();
+            assert_eq!(got, want, "dark={dark} {accent:?}");
+            assert!(
+                checks.iter().all(|check| check.passes()),
+                "dark={dark} {accent:?}: {checks:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_swatch_is_the_pick_at_the_themes_lightness() {
+    // Light is the same colour `derive` paints on the dot itself, so the field and the
+    // stops list agree about what a pick looks like.
+    for dot in HOME {
+        assert_eq!(
+            super::swatch(*dot, false),
+            derive(&[*dot], false).picked[0],
+            "{dot:?}"
+        );
+        assert_ne!(
+            super::swatch(*dot, true),
+            super::swatch(*dot, false),
+            "{dot:?}"
+        );
+    }
+}

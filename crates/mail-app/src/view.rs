@@ -146,66 +146,6 @@ pub fn badge_filter(source: &Source) -> Option<Filter> {
     }
 }
 
-/// One of six decoration hues. Only the four accent custom properties change with it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Copy, Hash, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum Accent {
-    /// Ink blue on sage, the pairing a real postmark is printed in.
-    #[default]
-    Postmark,
-    /// No hue. The chrome goes monochrome, and the only colour left is a label's own.
-    Graphite,
-    /// Harmonises with the paper rather than contrasting with it. The quietest.
-    Pine,
-    /// A blue with no green in it.
-    Indigo,
-    /// Red without orange in it.
-    Oxblood,
-    /// The original hue, kept so the others have something to be unlike.
-    Vermilion,
-}
-
-impl Accent {
-    /// Every hue, in the order a picker offers them.
-    pub const ALL: [Accent; 6] = [
-        Accent::Postmark,
-        Accent::Graphite,
-        Accent::Pine,
-        Accent::Indigo,
-        Accent::Oxblood,
-        Accent::Vermilion,
-    ];
-
-    /// The `data-accent` value. `accents.css` is written against exactly these.
-    pub fn slug(self) -> &'static str {
-        match self {
-            Accent::Postmark => "postmark",
-            Accent::Graphite => "graphite",
-            Accent::Pine => "pine",
-            Accent::Indigo => "indigo",
-            Accent::Oxblood => "oxblood",
-            Accent::Vermilion => "vermilion",
-        }
-    }
-
-    /// What a picker calls it: "Postmark", "Graphite", "Pine", "Indigo", "Oxblood", "Vermilion".
-    pub fn label(self) -> &'static str {
-        match self {
-            Accent::Postmark => "Postmark",
-            Accent::Graphite => "Graphite",
-            Accent::Pine => "Pine",
-            Accent::Indigo => "Indigo",
-            Accent::Oxblood => "Oxblood",
-            Accent::Vermilion => "Vermilion",
-        }
-    }
-
-    /// The hue a stored word names, or [`None`] for a word that is not one.
-    pub fn parse(word: &str) -> Option<Accent> {
-        Self::ALL.into_iter().find(|hue| hue.slug() == word)
-    }
-}
-
 /// Which palette the window resolves to.
 ///
 /// Three states and not a bool: "follow the desktop" is a different choice from "light",
@@ -340,17 +280,18 @@ impl Marks {
 /// How the window looks, as data.
 ///
 /// A missing field is the first-run value. An unknown word for one field is that field's
-/// default, not a failure of the whole value: a hue this build does not know must not throw
-/// away the palette stored beside it.
+/// default, not a failure of the whole value. An unknown field is ignored: files written
+/// before the six accent hues were retired still carry `accent`, and reading one drops it
+/// while keeping the theme and motion beside it.
+///
+/// Theme and motion are per Space now. They stay here as what a Space that has none of its
+/// own inherits on first read (see `space::load`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Copy, Hash, Default)]
 #[serde(default)]
 pub struct Appearance {
     /// Which palette the window resolves to.
     #[serde(deserialize_with = "de_theme")]
     pub theme: Theme,
-    /// The decoration hue. Only the four accent custom properties change with it.
-    #[serde(deserialize_with = "de_accent")]
-    pub accent: Accent,
     /// How much the window moves.
     #[serde(deserialize_with = "de_motion")]
     pub motion: Motion,
@@ -366,15 +307,6 @@ where
 {
     let word = String::deserialize(deserializer)?;
     Ok(Motion::parse(&word).unwrap_or_default())
-}
-
-/// A stored accent. Anything that is not one of the six slugs is [`Accent::default`].
-fn de_accent<'de, D>(deserializer: D) -> Result<Accent, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let word = String::deserialize(deserializer)?;
-    Ok(Accent::parse(&word).unwrap_or_default())
 }
 
 /// A stored theme. Anything that is not `system`, `light` or `dark` is [`Theme::default`].
@@ -3136,42 +3068,10 @@ mod stamps {
     }
 }
 
-/// Which palette, and which decoration hue.
+/// Which palette.
 #[cfg(test)]
 mod appearance {
     use super::*;
-
-    #[test]
-    fn every_slug_parses_back_to_its_hue() {
-        for accent in Accent::ALL {
-            assert_eq!(
-                Accent::parse(accent.slug()),
-                Some(accent),
-                "slug {}",
-                accent.slug()
-            );
-        }
-    }
-
-    #[test]
-    fn the_hues_have_distinct_slugs_and_labels() {
-        use std::collections::BTreeSet;
-        let slugs: BTreeSet<&str> = Accent::ALL.iter().map(|accent| accent.slug()).collect();
-        let labels: BTreeSet<&str> = Accent::ALL.iter().map(|accent| accent.label()).collect();
-        assert_eq!(slugs.len(), Accent::ALL.len(), "slugs {slugs:?}");
-        assert_eq!(labels.len(), Accent::ALL.len(), "labels {labels:?}");
-    }
-
-    #[test]
-    fn a_word_that_is_not_a_hue_parses_to_none() {
-        // Case matters: the slugs are lower case, so a label is not a slug. A leading space is
-        // not a slug either — parsing does not trim, because a stored word is either exact or
-        // it is not one of these.
-        const CASES: &[&str] = &["", "rose", "Postmark", " pine"];
-        for &word in CASES {
-            assert_eq!(Accent::parse(word), None, "{word:?}");
-        }
-    }
 
     #[test]
     fn the_theme_attribute_is_none_light_or_dark() {

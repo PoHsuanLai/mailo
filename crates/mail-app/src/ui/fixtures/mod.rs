@@ -7,6 +7,7 @@
 //! window, which is the only part of this that ever needed one.
 
 mod dom;
+mod events;
 mod reference;
 mod store;
 
@@ -14,7 +15,8 @@ pub(in crate::ui) use dom::{
     FakeKey, INSIDE_THE_SHELL, Seen, Typed, click, dispatching, harness, key, markup, press,
     reader_markup, rebuild_into, thread_like,
 };
-pub(in crate::ui) use reference::work;
+pub(in crate::ui) use events::{Scripts, chord, type_into};
+pub(in crate::ui) use reference::{Work, work};
 pub(in crate::ui) use store::{
     ACCOUNT, empty, gmail_caps, held_and_remote, inbox_query, realistic, seeded,
 };

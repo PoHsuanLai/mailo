@@ -772,8 +772,7 @@ const READER_ONLY: &str = ".app { grid-template-columns: minmax(0, 1fr); } \
 fn dump_page(name: &str, body: &str) {
     let target = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
     std::fs::create_dir_all(&target).unwrap();
-    let accent = crate::view::Accent::default().slug();
-    let plain = format!(" data-accent=\"{accent}\"");
+    let plain = String::new();
     let dark = crate::view::Theme::Dark
         .attribute()
         .expect("Theme::Dark names a data-theme value");

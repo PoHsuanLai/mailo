@@ -25,19 +25,10 @@
   --danger: #E0705A;
   --danger-ink: #1A0B08;
 
-  /* The default decoration again, in dark. Here rather than in `accents.css` because a
-     window with no `data-accent` attribute matches no rule there, and an accent that kept
-     its light value on a dark ground is the one palette bug a screenshot of either theme
-     alone will not show. */
+  /* Postmark again, in dark. A window whose Space keeps Postmark on the card resolves the
+     accent here, and an accent that kept its light value on a dark ground is the one palette
+     bug a screenshot of either theme alone will not show. `palette::POST_DARK` matches. */
   --accent: #7FA6E6;
   --accent-ink: #0B142A;
   --accent-soft: #1E2A44;
   --seal: #7FA6E6;
-
-  /* The same six, in the dark accent of each hue. See `tokens.css`. */
-  --swatch-postmark: #7FA6E6;
-  --swatch-graphite: #D5DBCE;
-  --swatch-pine: #5FB68C;
-  --swatch-indigo: #9AA0F0;
-  --swatch-oxblood: #D9736F;
-  --swatch-vermilion: #E9684B;

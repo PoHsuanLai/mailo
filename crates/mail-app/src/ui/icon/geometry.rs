@@ -254,3 +254,5 @@ pub(super) const PANEL_LEFT: &[Shape] = &[
     },
     Shape::Path("M9 3v18"),
 ];
+
+pub(super) const PLUS: &[Shape] = &[Shape::Path("M5 12h14"), Shape::Path("M12 5v14")];

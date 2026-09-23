@@ -3,7 +3,7 @@ use super::super::composer::Composer;
 use super::super::reading::Reader;
 use super::super::style::STYLE;
 use super::store::{ACCOUNT, seeded};
-use crate::view::{Accent, Shell, Theme};
+use crate::view::{Shell, Theme};
 use dioxus::prelude::*;
 use dioxus_core::{NoOpMutations, VirtualDom};
 use mail_domain::*;
@@ -22,7 +22,7 @@ pub(in crate::ui) fn markup(store: Arc<SqliteStore>) -> String {
 
 /// Wrap rendered markup in a self-contained page and write it to `target/`.
 ///
-/// Two files. `<name>.html` sets `data-accent` and leaves `data-theme` unset, which is the
+/// Two files. `<name>.html` leaves `data-theme` unset, which is the
 /// desktop-decides path: the stylesheet's `prefers-color-scheme` guard is reachable only
 /// while that attribute is absent. `<name>-dark.html` sets `data-theme` as well. Every
 /// colour is a token now, in three theme states, so the dark file has to name the state.
@@ -30,8 +30,7 @@ pub(in crate::ui) fn markup(store: Arc<SqliteStore>) -> String {
 /// `CanvasText`; it no longer answers to that, and a dark file that does not ask renders light.
 fn dump(name: &str, body: &str) {
     let target = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
-    let accent = Accent::default().slug();
-    let plain = format!(" data-accent=\"{accent}\"");
+    let plain = String::new();
     // `Dark` is the variant that names an attribute. `System` is the one that does not.
     let dark = Theme::Dark
         .attribute()
@@ -222,11 +221,14 @@ struct TestEvents;
 
 impl dioxus::html::HtmlEventConverter for TestEvents {
     fn convert_keyboard_data(&self, event: &PlatformEventData) -> dioxus::html::KeyboardData {
+        if let Some(chord) = event.downcast::<super::events::FakeChord>() {
+            return dioxus::html::KeyboardData::new(chord.clone());
+        }
         dioxus::html::KeyboardData::new(
             event
                 .downcast::<FakeKey>()
                 .cloned()
-                .expect("these tests only dispatch FakeKey"),
+                .expect("these tests only dispatch FakeKey or FakeChord"),
         )
     }
 
@@ -603,6 +605,7 @@ mod tests {
         // account, which would hide four of the five tiles.
         let spaces = crate::space::Spaces {
             current: 0,
+            recall: std::collections::BTreeMap::new(),
             spaces: vec![crate::space::Space {
                 name: "Mail".to_owned(),
                 scope: crate::space::Scope::All,
