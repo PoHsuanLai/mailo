@@ -32,9 +32,15 @@
   --radius-sm: 9px;
   --radius-pill: 999px;
 
-  /* type */
-  --font: system-ui, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* Type. Three faces, each with a job: Bricolage Grotesque for headings, Karla for the
+     reading and the chrome, Space Mono for machine facts (times, counts, hosts, sizes). The
+     first name in each stack is embedded by `build.rs`; the rest is where a character outside
+     the embedded Latin subsets goes, which is the system's CJK face for most of this mail. */
+  --font-display: "Bricolage Grotesque", "Trebuchet MS", system-ui, sans-serif;
+  --font-ui: "Karla", "Segoe UI", system-ui, sans-serif;
+  --font-data: "Space Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --font: var(--font-ui);
+  --font-mono: var(--font-data);
   --size: 14px;
   --weight-strong: 650;
 

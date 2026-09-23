@@ -466,6 +466,18 @@ source into it — is not something a dependency gate can check, and lives in §
 | `webpki-roots` | CDLA-Permissive-2.0 | `hyper-rustls` → `reqwest` | Mozilla's CA root bundle. The licence covers the *data* — which certificate authorities to trust — rather than code, which is why it is a CDLA and not one of the usual four. Permissive, with nothing reaching what reads it. |
 | `libfuzzer-sys` | `(MIT OR Apache-2.0) AND NCSA` | `rav1e` → `ravif` → `image` → `dioxus-desktop` | The `AND` is why the usual pair is not enough. NCSA is the University of Illinois/NCSA licence, permissive and BSD-shaped. It is the fuzz target of an AV1 encoder the image decoder depends on, and reaches no shipped binary. |
 
+**Bundled assets, which the dependency gate does not see.** `cargo deny` reads `Cargo.lock`,
+so a file vendored into the tree is invisible to it. Each one is listed here with its notice
+beside it.
+
+| Asset | Licence | Where | Notice |
+|---|---|---|---|
+| Bricolage Grotesque, Karla, Space Mono (Latin and Latin Extended subsets, WOFF2, from Google Fonts) | SIL Open Font License 1.1 | `crates/mail-app/assets/fonts/` | `OFL-*.txt` beside the files |
+
+The OFL lets a font ship inside software under any licence. What it forbids is selling the font
+on its own and using a Reserved Font Name for a modified font. We sell nothing and modify nothing:
+the files are Google's own subsets, byte for byte, so the names stay the upstream ones.
+
 All of this was found by CI on its first runs against a public repository, which is the argument
 for having the gate: none of it is a problem, and none of it would have been noticed by anybody
 reading `Cargo.lock`. It also took two wrong attempts — see the note in `deny.toml` about why
