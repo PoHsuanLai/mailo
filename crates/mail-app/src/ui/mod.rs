@@ -13,6 +13,8 @@ mod frame;
 mod icon;
 mod launch;
 mod list;
+mod list_search;
+mod marked;
 mod menu;
 mod menus;
 mod ops;

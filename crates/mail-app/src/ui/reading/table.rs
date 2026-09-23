@@ -3,11 +3,18 @@
 //! Whether a column holds amounts is decided from its cells, because the
 //! sender's `align` did not survive into the blocks.
 
+use super::found::Found;
 use super::spans::spans;
 use dioxus::prelude::*;
 use mail_mime::Span;
 
-pub(super) fn table(path: &str, head: &Option<Vec<Vec<Span>>>, rows: &[Vec<Vec<Span>>]) -> Element {
+/// Head cell `i` is the leaf `{path}/h{i}`, body cell `c` of row `r` is `{path}/r{r}c{c}`.
+pub(super) fn table(
+    path: &str,
+    head: &Option<Vec<Vec<Span>>>,
+    rows: &[Vec<Vec<Span>>],
+    found: &Found,
+) -> Element {
     let numeric = numeric_columns(rows);
     rsx! {
         div { key: "{path}", class: "b b-table",
@@ -16,7 +23,7 @@ pub(super) fn table(path: &str, head: &Option<Vec<Vec<Span>>>, rows: &[Vec<Vec<S
                     thead {
                         tr {
                             for (index, cell) in head.iter().enumerate() {
-                                th { key: "{index}", {spans(cell)} }
+                                th { key: "{index}", {spans(cell, &format!("{path}/h{index}"), found)} }
                             }
                         }
                     }
@@ -28,7 +35,7 @@ pub(super) fn table(path: &str, head: &Option<Vec<Vec<Span>>>, rows: &[Vec<Vec<S
                                 td {
                                     key: "{index}",
                                     class: if numeric.get(index).copied().unwrap_or(false) { "num" } else { "" },
-                                    {spans(cell)}
+                                    {spans(cell, &format!("{path}/r{row_index}c{index}"), found)}
                                 }
                             }
                         }

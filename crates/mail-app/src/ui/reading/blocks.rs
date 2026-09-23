@@ -3,16 +3,21 @@
 //! Nothing here is the sender's markup. The Original frame, when the body is
 //! laid out, is a separate sandboxed iframe that stays mounted: showing and
 //! hiding it is a class, because mounting it again would reload the document.
+//!
+//! Marks from a search or a find are drawn into the blocks' text, looked up by
+//! each leaf's key in [`Found`]. The frame takes no part in that: its props are
+//! the markup and a class, and a find changes neither.
 
 use super::super::icon::{Glyph, Icon};
+use super::super::marked::marked;
+use super::found::{Found, PRIMARY};
+use super::image::image;
 use super::spans::spans;
 use super::table::table;
 use crate::view::{Reading, Shell};
 use dioxus::prelude::*;
 use mail_domain::MessageId;
-use mail_mime::{
-    Block, Dir, Document, ImgSrc, LINK_REL, LINK_TARGET, Reached, SafeUrl, Shape, Span,
-};
+use mail_mime::{Block, Dir, Document, LINK_REL, LINK_TARGET, Reached, SafeUrl, Shape, Span};
 use std::collections::HashMap;
 
 #[cfg(test)]
@@ -32,6 +37,15 @@ pub(super) fn reset_iframe_mounts() {
 }
 
 pub(super) type OpenQuotes = HashMap<String, bool>;
+
+/// What every block of one message is drawn with.
+#[derive(Clone, Copy)]
+struct Ctx<'a> {
+    message_id: MessageId,
+    quotes: Signal<OpenQuotes>,
+    shell: Signal<Shell>,
+    found: &'a Found,
+}
 
 /// The sandboxed original. Always mounted when the body has HTML; `concealed`
 /// only changes a class.
@@ -60,10 +74,19 @@ pub(super) fn MessageView(
     original: Signal<HashMap<MessageId, bool>>,
     quotes: Signal<OpenQuotes>,
     shell: Signal<Shell>,
+    /// Marks to draw. The default marks nothing.
+    #[props(default)]
+    found: Found,
 ) -> Element {
     let frame = reading.frame_html().map(str::to_owned);
     let show_original = frame.is_some() && original.read().get(&message_id) == Some(&true);
     let document = reading.document().cloned();
+    let cx = Ctx {
+        message_id,
+        quotes,
+        shell,
+        found: &found,
+    };
     rsx! {
         if let Some(html) = frame {
             Sandbox { html, concealed: !show_original }
@@ -71,7 +94,7 @@ pub(super) fn MessageView(
         if let Some(document) = document {
             div {
                 class: if show_original { "blocks is-hidden" } else { "blocks" },
-                {body(message_id, &document, quotes, shell)}
+                {body(&document, cx)}
                 if document.reached != Reached::Nothing {
                     p { class: "b b-note", "This message was shortened to display it." }
                 }
@@ -80,26 +103,21 @@ pub(super) fn MessageView(
     }
 }
 
-fn body(
-    message_id: MessageId,
-    document: &Document,
-    quotes: Signal<OpenQuotes>,
-    shell: Signal<Shell>,
-) -> Element {
+fn body(document: &Document, cx: Ctx) -> Element {
     let machine = document.shape == Shape::Machine;
     rsx! {
         if machine {
             div { class: "b b-receipt",
                 if let Some(action) = &document.primary {
                     div { class: "top",
-                        {action_link(&action.label, &action.url)}
+                        {action_link(&action.label, &action.url, PRIMARY, cx.found)}
                     }
                 }
-                {render_blocks(&document.blocks, message_id, "0", false, quotes, shell)}
+                {render_blocks(&document.blocks, "0", false, cx)}
                 p { class: "b-note", "reshaped: the action first, the rest as facts" }
             }
         } else {
-            {render_blocks(&document.blocks, message_id, "0", false, quotes, shell)}
+            {render_blocks(&document.blocks, "0", false, cx)}
         }
         if document.shape == Shape::Layout {
             p { class: "b-note", "laid-out mail: shown as blocks; Original is the sandboxed frame" }
@@ -107,73 +125,46 @@ fn body(
     }
 }
 
-fn render_blocks(
-    blocks: &[Block],
-    message_id: MessageId,
-    path: &str,
-    in_quote: bool,
-    quotes: Signal<OpenQuotes>,
-    shell: Signal<Shell>,
-) -> Element {
+fn render_blocks(blocks: &[Block], path: &str, in_quote: bool, cx: Ctx) -> Element {
     rsx! {
         for (index, block) in blocks.iter().enumerate() {
-            {one_block(
-                block,
-                message_id,
-                &format!("{path}.{index}"),
-                in_quote,
-                quotes,
-                shell,
-            )}
+            {one_block(block, &format!("{path}.{index}"), in_quote, cx)}
         }
     }
 }
 
-fn one_block(
-    block: &Block,
-    message_id: MessageId,
-    path: &str,
-    in_quote: bool,
-    quotes: Signal<OpenQuotes>,
-    shell: Signal<Shell>,
-) -> Element {
+fn one_block(block: &Block, path: &str, in_quote: bool, cx: Ctx) -> Element {
+    let found = cx.found;
     match block {
         Block::Heading {
             level,
             spans: inner,
-        } => heading(*level, inner, path),
+        } => heading(*level, inner, path, found),
         Block::Paragraph { spans: inner, dir } => rsx! {
-            p { key: "{path}", class: "b b-p", dir: "{dir_name(*dir)}", {spans(inner)} }
+            p { key: "{path}", class: "b b-p", dir: "{dir_name(*dir)}", {spans(inner, path, found)} }
         },
-        Block::List { ordered, items } => {
-            list(path, *ordered, items, message_id, in_quote, quotes, shell)
-        }
+        Block::List { ordered, items } => list(path, *ordered, items, in_quote, cx),
         Block::Quote {
             attribution,
             blocks,
-        } => quote_block(
-            path,
-            message_id,
-            in_quote,
-            attribution,
-            blocks,
-            quotes,
-            shell,
-        ),
-        Block::Code { lang, text } => rsx! {
-            pre { key: "{path}", class: "b b-code",
-                if let Some(lang) = lang {
-                    span { class: "lang", "{lang}" }
+        } => quote_block(path, in_quote, attribution, blocks, cx),
+        Block::Code { lang, text } => {
+            let (marks, numbering) = found.at(&format!("{path}/code"));
+            rsx! {
+                pre { key: "{path}", class: "b b-code",
+                    if let Some(lang) = lang {
+                        span { class: "lang", "{lang}" }
+                    }
+                    {marked(text, marks, numbering)}
                 }
-                "{text}"
             }
-        },
-        Block::Table { head, rows } => table(path, head, rows),
+        }
+        Block::Table { head, rows } => table(path, head, rows, found),
         Block::Facts(pairs) => rsx! {
             dl { key: "{path}", class: "b b-kv",
                 for (index, (label, value)) in pairs.iter().enumerate() {
-                    dt { key: "{index}", {spans(label)} }
-                    dd { {spans(value)} }
+                    dt { key: "{index}", {spans(label, &format!("{path}/k{index}"), found)} }
+                    dd { {spans(value, &format!("{path}/v{index}"), found)} }
                 }
             }
         },
@@ -182,84 +173,72 @@ fn one_block(
             alt,
             width,
             height,
-        } => image(path, src, alt, *width, *height, shell),
+        } => image(path, src, alt, *width, *height, cx.shell),
         Block::Button { label, url } => rsx! {
-            div { key: "{path}", class: "b", {action_link(label, url)} }
+            div { key: "{path}", class: "b", {action_link(label, url, &format!("{path}/btn"), found)} }
         },
         Block::Signature(blocks) => rsx! {
             div { key: "{path}", class: "b b-sig",
-                {render_blocks(blocks, message_id, &format!("{path}.s"), in_quote, quotes, shell)}
+                {render_blocks(blocks, &format!("{path}.s"), in_quote, cx)}
             }
         },
         Block::Rule => rsx! { hr { key: "{path}", class: "b b-rule" } },
     }
 }
 
-fn heading(level: u8, inner: &[Span], path: &str) -> Element {
+fn heading(level: u8, inner: &[Span], path: &str, found: &Found) -> Element {
     // The reader's subject is already an h2. Message headings sit under it,
     // the way the parsed-body mockup draws h1 as h3.
     let class = format!("b b-h{level}");
     match level {
-        1 => rsx! { h3 { key: "{path}", class: "{class}", {spans(inner)} } },
-        2 => rsx! { h4 { key: "{path}", class: "{class}", {spans(inner)} } },
-        3 => rsx! { h5 { key: "{path}", class: "{class}", {spans(inner)} } },
-        _ => rsx! { h6 { key: "{path}", class: "{class}", {spans(inner)} } },
+        1 => rsx! { h3 { key: "{path}", class: "{class}", {spans(inner, path, found)} } },
+        2 => rsx! { h4 { key: "{path}", class: "{class}", {spans(inner, path, found)} } },
+        3 => rsx! { h5 { key: "{path}", class: "{class}", {spans(inner, path, found)} } },
+        _ => rsx! { h6 { key: "{path}", class: "{class}", {spans(inner, path, found)} } },
     }
 }
 
-fn list(
-    path: &str,
-    ordered: bool,
-    items: &[Vec<Block>],
-    message_id: MessageId,
-    in_quote: bool,
-    quotes: Signal<OpenQuotes>,
-    shell: Signal<Shell>,
-) -> Element {
+fn list(path: &str, ordered: bool, items: &[Vec<Block>], in_quote: bool, cx: Ctx) -> Element {
     if ordered {
         rsx! {
-            ol { key: "{path}", class: "b b-list",
-                {list_items(path, items, message_id, in_quote, quotes, shell)}
-            }
+            ol { key: "{path}", class: "b b-list", {list_items(path, items, in_quote, cx)} }
         }
     } else {
         rsx! {
-            ul { key: "{path}", class: "b b-list",
-                {list_items(path, items, message_id, in_quote, quotes, shell)}
-            }
+            ul { key: "{path}", class: "b b-list", {list_items(path, items, in_quote, cx)} }
         }
     }
 }
 
-fn list_items(
-    path: &str,
-    items: &[Vec<Block>],
-    message_id: MessageId,
-    in_quote: bool,
-    quotes: Signal<OpenQuotes>,
-    shell: Signal<Shell>,
-) -> Element {
+fn list_items(path: &str, items: &[Vec<Block>], in_quote: bool, cx: Ctx) -> Element {
     rsx! {
         for (index, item) in items.iter().enumerate() {
             li { key: "{index}",
-                {render_blocks(item, message_id, &format!("{path}.{index}"), in_quote, quotes, shell)}
+                {render_blocks(item, &format!("{path}.{index}"), in_quote, cx)}
             }
         }
     }
 }
 
-/// A quote inside another quote is earlier in the chain, and starts folded.
+/// A quote inside another quote is earlier in the chain, and starts folded — unless a search
+/// or a find has a match inside it, which opens it so that the match can be seen.
 fn quote_block(
     path: &str,
-    message_id: MessageId,
     in_quote: bool,
     attribution: &Option<Vec<Span>>,
     blocks: &[Block],
-    mut quotes: Signal<OpenQuotes>,
-    shell: Signal<Shell>,
+    cx: Ctx,
 ) -> Element {
+    let Ctx {
+        message_id,
+        mut quotes,
+        found,
+        ..
+    } = cx;
     let key = format!("{message_id}/{path}");
-    let folded = in_quote && !quotes.read().get(&key).copied().unwrap_or(false);
+    let inner = format!("{path}.q");
+    let folded =
+        in_quote && !quotes.read().get(&key).copied().unwrap_or(false) && !found.inside(&inner);
     let count = 1 + quote_nodes(blocks);
     let label = if count == 1 {
         "1 earlier message".to_owned()
@@ -271,7 +250,7 @@ fn quote_block(
             if let Some(who) = attribution {
                 div { class: "who",
                     Glyph { icon: Icon::Corner, class: None }
-                    {spans(who)}
+                    {spans(who, &format!("{path}/who"), found)}
                 }
             }
             if folded {
@@ -286,7 +265,7 @@ fn quote_block(
                 }
             } else {
                 div { class: "inner",
-                    {render_blocks(blocks, message_id, &format!("{path}.q"), true, quotes, shell)}
+                    {render_blocks(blocks, &inner, true, cx)}
                 }
             }
         }
@@ -306,77 +285,15 @@ fn quote_nodes_one(block: &Block) -> usize {
     }
 }
 
-fn image(
-    path: &str,
-    src: &ImgSrc,
-    alt: &str,
-    width: Option<u32>,
-    height: Option<u32>,
-    mut shell: Signal<Shell>,
-) -> Element {
-    // A one-pixel image is a tracking pixel or a layout spacer. Drawing it as a
-    // placeholder would name its host in the page for a picture nobody can see.
-    if spacer(width, height) {
-        return rsx! { "" };
-    }
-    match src {
-        ImgSrc::Blocked { host } => rsx! {
-            div { key: "{path}", class: "b b-img blocked", style: "{placeholder_ratio(width, height)}",
-                span { "Image from " strong { "{host}" } " — " }
-                button {
-                    class: "mini",
-                    r#type: "button",
-                    aria_label: "load images",
-                    onclick: move |_| shell.write().show_remote_images = true,
-                    "load images"
-                }
-            }
-        },
-        ImgSrc::Inline(uri) => rsx! {
-            div { key: "{path}", class: "b b-img",
-                img { alt: "{alt}", src: "{uri.as_str()}" }
-            }
-        },
-        ImgSrc::Remote(url) => rsx! {
-            div { key: "{path}", class: "b b-img",
-                img { alt: "{alt}", src: "{url.as_str()}" }
-            }
-        },
-    }
-}
-
-/// The declared shape of a blocked image, so the placeholder holds the room the
-/// picture will take. Numbers only: the sender's own style never reaches us. A
-/// ratio past 8:1 either way is not drawn to shape, so a hostile `height` cannot
-/// make the placeholder a page tall.
-fn placeholder_ratio(width: Option<u32>, height: Option<u32>) -> String {
-    match (width, height) {
-        (Some(w), Some(h))
-            if w > 0 && h > 0 && w <= h.saturating_mul(8) && h <= w.saturating_mul(8) =>
-        {
-            format!("aspect-ratio: {w} / {h}")
-        }
-        _ => String::new(),
-    }
-}
-
-fn spacer(width: Option<u32>, height: Option<u32>) -> bool {
-    match (width, height) {
-        (Some(w), Some(h)) => w <= 1 || h <= 1,
-        (Some(w), None) => w <= 1,
-        (None, Some(h)) => h <= 1,
-        (None, None) => false,
-    }
-}
-
-fn action_link(label: &str, url: &SafeUrl) -> Element {
+fn action_link(label: &str, url: &SafeUrl, key: &str, found: &Found) -> Element {
+    let (marks, numbering) = found.at(key);
     rsx! {
         a {
             class: "b-cta",
             href: "{url.as_str()}",
             target: "{LINK_TARGET}",
             rel: "{LINK_REL}",
-            "{label}"
+            {marked(label, marks, numbering)}
         }
     }
 }

@@ -95,3 +95,5 @@ li.empty p.mono { margin-top: 4px; color: var(--ink-faint); }
   font: 12px/1.5 var(--font-data); white-space: pre-wrap; overflow-wrap: anywhere; text-align: left;
 }
 .list-col > .mini { align-self: center; margin: 10px; }
+/* A search's matches in the subject and the snippet: a wash, so the words stay readable. */
+.row mark.hit { background: var(--accent-soft); color: inherit; border-radius: 3px; padding: 0 1px; }

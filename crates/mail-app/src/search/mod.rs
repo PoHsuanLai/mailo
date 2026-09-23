@@ -7,6 +7,7 @@
 
 #[path = "expand.rs"]
 mod expanding;
+mod find;
 mod fuzzy;
 mod group;
 mod highlight;
@@ -28,6 +29,7 @@ use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::{Filter, LabelId, ThreadSummary};
 
 pub use expanding::{Expansion, expand, suggestions};
+pub use find::{Find, Highlight, Step, find_highlight, list_highlight};
 pub use fuzzy::{FuzzyHit, match_list};
 pub use group::{ActionHit, Command, MailHit, PersonHit, Results, Top};
 pub use highlight::{marks, snippet};

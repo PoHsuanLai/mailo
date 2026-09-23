@@ -509,6 +509,11 @@ pub struct Shell {
     pub page_menu: PageMenu,
     /// The command menu's query while it is open. `None` is closed.
     pub command: Option<String>,
+    /// Ctrl F in the open thread. `None` is closed, and marks nothing.
+    ///
+    /// Belongs to the thread it was opened on: [`Self::open`] and [`Self::close`] drop it, so a
+    /// find never carries its count into a conversation it was not typed for.
+    pub find: Option<crate::search::Find>,
 }
 
 /// A message being edited, as the widgets hold it.
@@ -713,6 +718,7 @@ impl Default for Shell {
             parts: PageParts::default(),
             page_menu: PageMenu::Closed,
             command: None,
+            find: None,
         }
     }
 }
@@ -769,7 +775,18 @@ impl Shell {
     /// A tile wins over the Space: pressing one account inside a Space of three shows that
     /// account. No tile and an empty scope leave the filter alone, which is every account.
     fn with_account(&self, filter: Filter) -> Filter {
-        let account = if let Some(id) = self.account {
+        match self.account_filter() {
+            Some(account) => Filter::And(vec![account, filter]),
+            None => filter,
+        }
+    }
+
+    /// The pressed tile, or the Space's accounts, as a filter. `None` is every account.
+    ///
+    /// The search pipeline narrows its candidates with this, so a search inside a Space finds
+    /// what [`Self::query`] would, and nothing from an account the Space leaves out.
+    pub fn account_filter(&self) -> Option<Filter> {
+        if let Some(id) = self.account {
             Some(Filter::Account(id))
         } else {
             match self.scope.as_slice() {
@@ -779,10 +796,6 @@ impl Shell {
                     ids.iter().copied().map(Filter::Account).collect(),
                 )),
             }
-        };
-        match account {
-            Some(account) => Filter::And(vec![account, filter]),
-            None => filter,
         }
     }
 
@@ -800,6 +813,7 @@ impl Shell {
     pub fn open(&mut self, thread: ThreadId) {
         self.open = Some(thread);
         self.show_remote_images = false;
+        self.find = None;
     }
 
     /// Close the reader.
@@ -809,6 +823,7 @@ impl Shell {
     pub fn close(&mut self) {
         self.open = None;
         self.show_remote_images = false;
+        self.find = None;
     }
 
     /// Open the composer on `draft`.

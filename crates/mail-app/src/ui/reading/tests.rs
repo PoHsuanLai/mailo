@@ -262,7 +262,7 @@ async fn a_held_part_offers_save_and_a_remote_part_offers_download() {
     );
 }
 
-fn html_message(subject: &str, html: &str) -> Vec<u8> {
+pub(super) fn html_message(subject: &str, html: &str) -> Vec<u8> {
     format!(
         "From: Ada <ada@example.test>\r\nSubject: {subject}\r\nMIME-Version: 1.0\r\n\
          Content-Type: text/html; charset=utf-8\r\n\r\n{html}\r\n"
@@ -270,7 +270,7 @@ fn html_message(subject: &str, html: &str) -> Vec<u8> {
     .into_bytes()
 }
 
-fn text_message(subject: &str, content_type: &str, body: &str) -> Vec<u8> {
+pub(super) fn text_message(subject: &str, content_type: &str, body: &str) -> Vec<u8> {
     format!(
         "From: Ada <ada@example.test>\r\nSubject: {subject}\r\nMIME-Version: 1.0\r\n\
          Content-Type: {content_type}\r\n\r\n{body}"
@@ -281,7 +281,9 @@ fn text_message(subject: &str, content_type: &str, body: &str) -> Vec<u8> {
 /// One thread whose messages are `parts`: `(subject, raw)`.
 ///
 /// The directory is part of the return so the store's files outlive the call.
-fn thread_of(parts: &[(&str, Vec<u8>)]) -> (Arc<SqliteStore>, ThreadId, tempfile::TempDir) {
+pub(super) fn thread_of(
+    parts: &[(&str, Vec<u8>)],
+) -> (Arc<SqliteStore>, ThreadId, tempfile::TempDir) {
     // `body{index}`, not `m{index}`: the seeded store already holds `m1@example.test`,
     // and a second message under that key is the same message to the store.
     let (store, dir) = seeded();
@@ -740,7 +742,7 @@ async fn the_original_tab_does_not_remount_the_iframe() {
     );
 }
 
-fn iframe_srcdoc(page: &str) -> String {
+pub(super) fn iframe_srcdoc(page: &str) -> String {
     let Some(at) = page.find("<iframe") else {
         panic!("no iframe:\n{page}");
     };
@@ -769,7 +771,7 @@ const READER_ONLY: &str = ".app { grid-template-columns: minmax(0, 1fr); } \
     .app > .places, .app > .list { display: none; } \
     .app > .reader { background: var(--surface); color: var(--ink); border-radius: var(--r-card); }";
 
-fn dump_page(name: &str, body: &str) {
+pub(super) fn dump_page(name: &str, body: &str) {
     let target = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
     std::fs::create_dir_all(&target).unwrap();
     let plain = String::new();

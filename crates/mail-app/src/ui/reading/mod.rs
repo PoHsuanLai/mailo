@@ -1,4 +1,7 @@
 mod blocks;
+mod find_bar;
+mod found;
+mod image;
 mod spans;
 mod table;
 
@@ -7,6 +10,8 @@ use super::text::{Kept, address, attachment_rows, from_name, stamp};
 use crate::view::{Peek, Reading, Shell};
 use blocks::MessageView;
 use dioxus::prelude::*;
+pub(super) use find_bar::open_find;
+use find_bar::{FindBar, marking};
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 use std::collections::HashMap;
@@ -171,16 +176,33 @@ pub(super) fn Reader(thread: ThreadId, shell: Signal<Shell>, children: Element) 
     let any_frame = shown
         .iter()
         .any(|(_, reading, _)| reading.frame_html().is_some());
+    // Ctrl F's marks, or the list search's while no find is open. Blocks only: the frame is
+    // never read and never marked.
+    let (highlight, problem) = marking(&shell.read());
+    let finding = shell.read().find.clone();
+    let documents: Vec<_> = shown
+        .iter()
+        .map(|(_, reading, _)| reading.document())
+        .collect();
+    let (founds, total) = found::find_in(&documents, &highlight, finding.as_ref());
+    let invalid = problem.is_some();
 
     rsx! {
         div { class: "reader-head",
             div { class: "head-row",
-                span { class: "spacer" }
+                if finding.is_some() {
+                    FindBar { shell, total, invalid }
+                } else {
+                    span { class: "spacer" }
+                }
                 div { class: "bar-tools",
                     {peek_tool(Peek::Side, peek, Icon::Panel, shell)}
                     {peek_tool(Peek::Center, peek, Icon::Square, shell)}
                     {peek_tool(Peek::Full, peek, Icon::Maximize, shell)}
                 }
+            }
+            if let Some(why) = problem {
+                pre { class: "find-err mono", "{why}" }
             }
             h2 { "{subject}" }
             if let Some((initial, from, addr, when)) = meta {
@@ -221,7 +243,7 @@ pub(super) fn Reader(thread: ThreadId, shell: Signal<Shell>, children: Element) 
                     }
                 }
             }
-            for (message, reading, _) in shown {
+            for ((message, reading, _), found) in shown.into_iter().zip(founds) {
                 article { key: "{message.id}", class: "frame",
                     header {
                         strong { "{from_name(&message)}" }
@@ -347,6 +369,7 @@ pub(super) fn Reader(thread: ThreadId, shell: Signal<Shell>, children: Element) 
                             original,
                             quotes,
                             shell,
+                            found,
                         }
                     }
                 }
@@ -363,5 +386,7 @@ pub(super) fn Reader(thread: ThreadId, shell: Signal<Shell>, children: Element) 
     }
 }
 
+#[cfg(test)]
+mod find_tests;
 #[cfg(test)]
 mod tests;

@@ -67,6 +67,17 @@ fn expand_word(word: &str, source: &dyn Source) -> (Filter, Vec<String>, Vec<Ter
     };
 
     let terms = vocabulary(prefix, source);
+    // One letter completes to nothing. Its completions are the commonest words that start with
+    // it — `us`, `up`, `use`, `update` — whose union is most of the index, and ranking most of
+    // the index is what a keystroke cannot afford. `tests/search_scale.rs` measured `u` at
+    // 1.2 s over 50,000 messages whose `u` words were that common, and `us` alone at 62 ms over
+    // its Zipf-distributed mailbox. One ideograph is already a word, and the index holds it as
+    // bigrams, so a single CJK character still completes to those.
+    let terms: Vec<Term> = if prefix.chars().count() == 1 {
+        terms.into_iter().filter(|term| term.cjk_bigram).collect()
+    } else {
+        terms
+    };
     let suggestions = terms
         .iter()
         .filter(|term| !term.cjk_bigram)
@@ -259,6 +270,16 @@ mod tests {
                 terms: bigrams,
                 or: Some(&["電話", "電子"]),
                 text: None,
+                earlier: &[],
+                suggestions: &[],
+                calls: true,
+            },
+            Case {
+                name: "one latin letter does not complete",
+                input: "V",
+                terms: latin,
+                or: None,
+                text: Some("V"),
                 earlier: &[],
                 suggestions: &[],
                 calls: true,

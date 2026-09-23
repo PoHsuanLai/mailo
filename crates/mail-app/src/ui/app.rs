@@ -1,8 +1,9 @@
 use super::command::CommandMenu;
 use super::compose::{self, ComposerPage, PageKind, SendPill};
-use super::data::{PAGE, accounts, count_badges, list_for, warm_the_first_screenful};
+use super::data::{PAGE, accounts, count_badges, warm_the_first_screenful};
 use super::frame;
 use super::list::ThreadList;
+use super::list_search::{Listed, Request, listed};
 use super::ops::{Composes, apply_op, start_composing, start_new};
 use super::reading::Reader;
 use super::sidebar::Places;
@@ -245,24 +246,29 @@ pub(super) fn App() -> Element {
     // that has no other one. `use_resource` does not clear its value when it restarts, so after
     // the first frame a keystroke shows the previous list for a moment rather than a blank pane,
     // and never falls back to querying on this thread.
-    let listing_now = move || shell.read().listing(PAGE * pages());
-    let queried: Resource<Vec<ThreadSummary>> = use_resource(move || {
+    // A search goes through the ranked pipeline (`list_search`); an empty box is the place.
+    // A memo, so a shell change the list does not depend on — a letter typed into Ctrl F, a
+    // peek mode — does not run the search again.
+    let request = use_memo(move || Request::of(&shell.read(), PAGE * pages()));
+    let queried: Resource<Listed> = use_resource(move || {
         let _ = revision();
-        let listing = listing_now();
+        let request = request();
         let store = consume_context::<Arc<SqliteStore>>();
         async move {
-            tokio::task::spawn_blocking(move || list_for(&store, listing))
+            tokio::task::spawn_blocking(move || listed(&store, request, chrono::Utc::now()))
                 .await
                 .unwrap_or_default()
         }
     });
-    let threads = use_memo(move || match queried.read().as_ref() {
-        Some(items) => items.clone(),
+    let current = use_memo(move || match queried.read().as_ref() {
+        Some(done) => done.clone(),
         None => {
             let store = consume_context::<Arc<SqliteStore>>();
-            list_for(&store, listing_now())
+            listed(&store, request(), chrono::Utc::now())
         }
     });
+    let threads = use_memo(move || current.read().threads.clone());
+    let marking = use_memo(move || current.read().marking.clone());
 
     let drafts = use_memo(move || {
         let _ = revision();
@@ -340,6 +346,10 @@ pub(super) fn App() -> Element {
             super::switch::go(spaces, shell, pages, slide, index);
             return;
         }
+        if (key == "f" || key == "F") && event.modifiers().ctrl() {
+            super::reading::open_find(shell);
+            return;
+        }
         if (key == "t" || key == "T") && event.modifiers().ctrl() {
             let open = shell.read().command.is_some();
             if open {
@@ -368,6 +378,11 @@ pub(super) fn App() -> Element {
                 write.labelling = None;
                 dioxus::document::eval("document.querySelector('.app')?.focus()");
             }
+            return;
+        }
+        // Esc closes a find before it closes anything else, and clears its marks.
+        if key == "Escape" && shell.read().find.is_some() {
+            shell.write().find = None;
             return;
         }
         let typing = in_a_field() || shell.read().composing.is_some();
@@ -568,7 +583,7 @@ pub(super) fn App() -> Element {
             div { class: "card",
             ThreadList {
                 shell, pages, revision, in_a_field, threads, drafts, nothing, more,
-                sync_state, entering,
+                sync_state, entering, marking,
             }
             section { class: "reader",
                 // A new message is a page in this column; a reply sits under its thread.

@@ -7,6 +7,7 @@
 use super::data::account_rows;
 use super::field::{Field, FieldKind};
 use super::icon::{Glyph, Icon};
+use super::list_search::{Marking, RowHit, Scope, row_hit};
 use super::ops::start_new;
 use super::page::{PageMenus, group_page};
 use super::row::{DraftRow, Row};
@@ -31,6 +32,7 @@ pub(super) fn ThreadList(
     more: Memo<bool>,
     sync_state: Signal<SyncState>,
     entering: Signal<bool>,
+    marking: Memo<Marking>,
 ) -> Element {
     let rows = use_memo(move || {
         let _ = revision();
@@ -65,6 +67,8 @@ pub(super) fn ThreadList(
         .collect();
     let inbox = place == "Inbox" && shell.read().search.trim().is_empty();
     let note = sync_state.read().message().map(|text| text.to_owned());
+    let search_note = marking.read().note();
+    let invalid = matches!(marking.read().scope, Scope::Invalid(_));
     let bad = sync_state.read().is_failure();
     enum Line {
         Head(String),
@@ -73,6 +77,7 @@ pub(super) fn ThreadList(
             summary: Box<ThreadSummary>,
             via: Option<crate::provider::Provider>,
             chips: Vec<String>,
+            hit: Option<RowHit>,
         },
     }
     let mut lines = Vec::new();
@@ -97,11 +102,13 @@ pub(super) fn ThreadList(
                 .iter()
                 .filter_map(|id| names.get(id).cloned())
                 .collect::<Vec<_>>();
+            let hit = row_hit(&summary, &marking.read().highlight);
             lines.push(Line::Mail {
                 index: row_index,
                 summary: Box::new(summary),
                 via,
                 chips,
+                hit,
             });
             row_index += 1;
         }
@@ -117,6 +124,9 @@ pub(super) fn ThreadList(
                 }
                 if let Some(note) = note {
                     span { class: if bad { "status bad" } else { "status" }, "{note}" }
+                }
+                if let Some(said) = search_note {
+                    span { class: if invalid { "status bad" } else { "status" }, "{said}" }
                 }
                 div { class: "bar-tools",
                     PageMenus { shell }
@@ -209,10 +219,11 @@ pub(super) fn ThreadList(
                             summary,
                             via,
                             chips,
+                            hit,
                         } => {
                             let summary = *summary;
                             let id = summary.id;
-                            rsx! { Row { key: "{id}", summary, shell, revision, index, chips, via } }
+                            rsx! { Row { key: "{id}", summary, shell, revision, index, chips, via, hit } }
                         }
                     }
                 }

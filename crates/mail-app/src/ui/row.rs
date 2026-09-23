@@ -4,6 +4,8 @@
 //! opens the reader and carries the hover strip. Split from [`super::app`] (`CONVENTIONS.md` §8).
 
 use super::icon::{Glyph, Icon};
+use super::list_search::RowHit;
+use super::marked::{Numbering, marked};
 use super::menus::{LabelMenu, SnoozeMenu};
 use super::ops::{apply_op, composes, start_composing};
 use super::text::{draft_state, label, sender};
@@ -76,6 +78,7 @@ pub(super) fn Row(
     index: usize,
     chips: Vec<String>,
     via: Option<Provider>,
+    hit: Option<RowHit>,
 ) -> Element {
     let id = summary.id;
     let unread = summary.read == ReadState::Unread;
@@ -83,7 +86,11 @@ pub(super) fn Row(
     let who = sender(&summary);
     let when = crate::view::listed(summary.last_date, chrono::Utc::now(), &Local);
     let subject = summary.subject.clone();
-    let snippet = summary.snippet.clone();
+    // While a search is active the snippet is cut around its first match, and both lines mark.
+    let (subject_marks, snippet, snippet_marks) = match hit {
+        Some(hit) => (hit.subject, hit.snippet, hit.snippet_marks),
+        None => (Vec::new(), summary.snippet.clone(), Vec::new()),
+    };
     let files = match summary.attachments {
         Attachments::Present { count } => Some(count),
         Attachments::None => None,
@@ -115,9 +122,9 @@ pub(super) fn Row(
                         }
                     }
                 }
-                div { class: "row-sub", "{subject}" }
+                div { class: "row-sub", {marked(&subject, &subject_marks, Numbering::default())} }
                 if shell.read().parts.snippet.shown() && !snippet.is_empty() {
-                    div { class: "row-snip", "{snippet}" }
+                    div { class: "row-snip", {marked(&snippet, &snippet_marks, Numbering::default())} }
                 }
             }
             div { class: "row-tail",
