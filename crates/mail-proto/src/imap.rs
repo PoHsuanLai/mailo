@@ -134,18 +134,31 @@ impl Untagged {
     /// Handing the whole thing up as the body — which is what this crate used to do — appends
     /// that paren to every message fetched over IMAP and prepends the `* 2 FETCH (...)` header,
     /// which a lenient MIME parser then swallows without complaint.
+    ///
+    /// The *first* `{n}` followed by CRLF is the marker. Searching from the end found the last
+    /// `{` in the response — which is inside the message whenever the message has one, so every
+    /// HTML mail with a stylesheet had no body, and was asked for again on every sync.
     pub fn literal(&self) -> Option<&[u8]> {
-        let open = self.raw.iter().rposition(|b| *b == b'{')?;
-        let close = self.raw[open..].iter().position(|b| *b == b'}')? + open;
-        let digits = std::str::from_utf8(&self.raw[open + 1..close]).ok()?;
-        let len: usize = digits.parse().ok()?;
-        // The literal begins after the CRLF that follows `{n}`.
-        let start = close + 1;
-        let start = match self.raw.get(start..start + 2) {
-            Some(b"\r\n") => start + 2,
-            _ => return None,
-        };
-        self.raw.get(start..start + len)
+        let mut from = 0;
+        while let Some(at) = self.raw[from..].iter().position(|b| *b == b'{') {
+            let open = from + at;
+            from = open + 1;
+            let close = open + self.raw[open..].iter().position(|b| *b == b'}')?;
+            let digits = &self.raw[open + 1..close];
+            if digits.is_empty() || !digits.iter().all(u8::is_ascii_digit) {
+                continue;
+            }
+            let Ok(len) = std::str::from_utf8(digits).unwrap_or("").parse::<usize>() else {
+                continue;
+            };
+            // The literal begins after the CRLF that follows `{n}`.
+            if self.raw.get(close + 1..close + 3) != Some(b"\r\n") {
+                continue;
+            }
+            let start = close + 3;
+            return self.raw.get(start..start + len);
+        }
+        None
     }
 }
 

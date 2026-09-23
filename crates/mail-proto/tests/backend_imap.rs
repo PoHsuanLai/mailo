@@ -440,6 +440,18 @@ mod literal_bodies {
     }
 
     #[test]
+    fn a_body_with_braces_in_it_is_still_a_body() {
+        // A stylesheet, and something shaped like a literal marker. The marker is the first
+        // `{n}` in the response; searching from the end found these instead and gave up.
+        let body = b"Subject: s\r\n\r\n<style>p {color: red}</style> {12}\r\nx\r\n";
+        let mut raw = format!("* 1 FETCH (UID 1 BODY[] {{{}}}\r\n", body.len()).into_bytes();
+        raw.extend_from_slice(body);
+        raw.extend_from_slice(b")\r\n");
+
+        assert_eq!(untagged(&raw).literal(), Some(&body[..]));
+    }
+
+    #[test]
     fn a_response_with_no_literal_offers_no_body() {
         // A FLAGS-only FETCH has nothing to hand up, and inventing something from its text is
         // how the response header became a message in the first place.

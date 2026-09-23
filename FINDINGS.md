@@ -3581,3 +3581,14 @@ named.
 
 **Also seen, not investigated:** some older messages in that mailbox have subjects in raw
 8-bit Big5, not RFC 2047 encoded words, and are listed as replacement characters.
+
+**And a second bug behind it.** With the pairing fixed, passes fetched 200 headers and no
+bodies. `Untagged::literal` found the literal marker by searching for the *last* `{` in the
+response, which is inside the message whenever the message has one — every HTML mail with a
+stylesheet. Those came back with no body, silently, and since `unfetched` hands out the newest
+first, the same hundred were asked for on every pass and nothing older was ever reached. The
+positional pairing had hidden it: bodies that did parse were stored under the wrong UIDs, so
+something always arrived. The marker is now the first `{n}` followed by CRLF;
+`a_body_with_braces_in_it_is_still_a_body` fails on the old search. Against the real account,
+the next pass fetched 200 bodies — including the SMTPUTF8 bounce, which quotes
+`測試.mailo@example.com` exactly as it was sent.
