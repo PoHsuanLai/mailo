@@ -7,7 +7,10 @@
 use mail_domain::*;
 use mail_proto::backend::{Authenticate, ImapBackend, Pop3Backend};
 use mail_proto::{ImapAuth, ImapCommand, ImapSession, Pop3Command, Pop3Session};
-use mail_runtime::{AccountEngine, KeyringSecrets, OAuthRegistry, Secrets, SyncReport, signin};
+use mail_runtime::renewal::Now;
+use mail_runtime::{
+    AccountEngine, Held, KeyringSecrets, OAuthRegistry, Renewal, Secrets, SyncReport, signin,
+};
 use mail_store::SqliteStore;
 use std::fmt::Write as _;
 use std::sync::Arc;
@@ -257,7 +260,7 @@ async fn signed_in(
     registry: &OAuthRegistry,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<Credential, String> {
-    let AuthPlan::OAuth { issuer, .. } = &account.plan.auth else {
+    let AuthPlan::OAuth { issuer, scopes } = &account.plan.auth else {
         return Ok(credential);
     };
     // Checked before the client is built and before anything is sent: a password account and a
@@ -281,9 +284,56 @@ async fn signed_in(
         ));
     };
     let http = signin::http_client().map_err(|e| e.to_string())?;
-    signin::renew(account.id, registration, credential, secrets, &http, now)
-        .await
-        .map_err(|e| format!("cannot renew the sign-in: {e}"))
+    let scopes = mail_runtime::oauth::incoming_scopes(scopes);
+    signin::renew(
+        account.id,
+        registration,
+        &scopes,
+        credential,
+        secrets,
+        &http,
+        now,
+    )
+    .await
+    .map_err(|e| format!("cannot renew the sign-in: {e}"))
+}
+
+/// What keeps an OAuth account's tokens fresh for as long as its engine runs.
+///
+/// `None` for a password account and for one this installation has no client id for: the first
+/// has nothing to renew, and [`signed_in`] has already said what is wrong with the second.
+///
+/// `clock` is where it reads the time. A watch reads the wall clock, because it outlives any
+/// `now` it could be handed; a single pass uses the instant it was given, like everything else
+/// in it.
+fn renewal_for(
+    account: &Configured,
+    held: &Held,
+    secrets: Arc<dyn Secrets>,
+    registry: &OAuthRegistry,
+    clock: Now,
+) -> Option<Renewal> {
+    let AuthPlan::OAuth { issuer, .. } = &account.plan.auth else {
+        return None;
+    };
+    let registration = registry.get(*issuer)?.clone();
+    Renewal::new(
+        account.id,
+        &account.plan,
+        registration,
+        secrets,
+        held.clone(),
+    )
+    .ok()
+    .map(|renewal| renewal.with_clock(clock))
+}
+
+/// The clock a renewal reads in `mode`. See [`renewal_for`].
+fn clock_for(mode: Mode, now: chrono::DateTime<chrono::Utc>) -> Now {
+    match mode {
+        Mode::Once => Arc::new(move || now),
+        Mode::Watch => Arc::new(chrono::Utc::now),
+    }
 }
 
 async fn one(
@@ -305,6 +355,16 @@ async fn one(
     let sending = sending_token(account, secrets.as_ref(), registry, now)
         .await
         .err();
+    // The credential goes into a cell rather than into the session factory, so a token renewed
+    // an hour into a watch reaches the next connection.
+    let held = Held::new(credential);
+    let renewal = renewal_for(
+        account,
+        &held,
+        secrets.clone(),
+        registry,
+        clock_for(mode, now),
+    );
 
     let mailboxes = to_sync(account);
     // Nothing cancels a one-shot CLI sync, but the loop requires a receiver, and wiring a real
@@ -314,7 +374,7 @@ async fn one(
     let report = match &account.plan.incoming {
         Incoming::Pop3 { .. } => {
             let username = username_for(&account.plan);
-            let Credential::Password(password) = credential else {
+            let Credential::Password(password) = held.current() else {
                 return Err("POP3 needs a password credential".to_owned());
             };
             let sasl = sasl_for(&account.plan);
@@ -339,10 +399,16 @@ async fn one(
                 store.clone(),
                 secrets,
             );
+            if let Some(renewal) = renewal {
+                engine = engine.with_renewal(renewal);
+            }
             drive(&mut engine, account, &mailboxes, &mut cancel, now, mode).await
         }
         Incoming::Imap { .. } => {
-            let mut engine = imap_engine(store, account, credential, secrets);
+            let mut engine = imap_engine(store, account, held, secrets);
+            if let Some(renewal) = renewal {
+                engine = engine.with_renewal(renewal);
+            }
             drive(&mut engine, account, &mailboxes, &mut cancel, now, mode).await
         }
     };
@@ -376,37 +442,40 @@ async fn sending_token(
         .map_err(|e| format!("cannot sign in to Microsoft Graph for sending: {e}"))
 }
 
-/// An engine for an IMAP account, signed in with `credential`.
+/// An engine for an IMAP account, signed in with whatever `held` holds when it connects.
 fn imap_engine(
     store: &Arc<SqliteStore>,
     account: &Configured,
-    credential: Credential,
+    held: Held,
     secrets: Arc<dyn Secrets>,
 ) -> AccountEngine<ImapBackend> {
     // Password *and* bearer token. Only Gmail needs OAuth; every other IMAP server this client
     // will meet authenticates with `LOGIN`, and refusing one meant the IMAP path could not be
     // used at all without registering an OAuth client.
-    let mechanism = match &credential {
+    let mechanism = match held.current() {
         Credential::OAuth { .. } => ImapCommand::AuthenticateXoauth2,
         Credential::Password(_) => ImapCommand::Login,
     };
-    let auth = ImapAuth {
-        username: username_for(&account.plan),
-        credential,
-        sasl: sasl_for(&account.plan),
-    };
+    let (username, sasl) = (username_for(&account.plan), sasl_for(&account.plan));
     let backend = ImapBackend::new(
         account.id,
         account.caps.clone(),
         // The factory owns authentication, so the backend never names a mechanism and never
-        // holds the credential that would decide one.
+        // holds the credential that would decide one. It reads the credential per session, not
+        // once: a renewal replaces it in `held`, and a copy taken here would be the token the
+        // process started with, for as long as it runs.
         Box::new(move |authenticate, commands: Vec<ImapCommand>| {
             let mut all = Vec::new();
             if authenticate == Authenticate::First {
                 all.push(mechanism.clone());
             }
             all.extend(commands);
-            ImapSession::new(auth.clone(), all)
+            let auth = ImapAuth {
+                username: username.clone(),
+                credential: held.current(),
+                sasl: sasl.clone(),
+            };
+            ImapSession::new(auth, all)
         }),
     );
     AccountEngine::new(
@@ -470,7 +539,18 @@ pub fn fetch_part_with(
             .map_err(|_| crate::view::no_credential(&account.address, &account.plan.auth))?;
         let credential = signed_in(&account, stored, secrets.as_ref(), registry, now).await?;
         let (_tx, mut cancel) = watch::channel(false);
-        let mut engine = imap_engine(store, &account, credential, secrets.clone());
+        let held = Held::new(credential);
+        let renewal = renewal_for(
+            &account,
+            &held,
+            secrets.clone(),
+            registry,
+            clock_for(Mode::Once, now),
+        );
+        let mut engine = imap_engine(store, &account, held, secrets.clone());
+        if let Some(renewal) = renewal {
+            engine = engine.with_renewal(renewal);
+        }
         engine
             .fetch_part(message, section, &mut cancel)
             .await
@@ -625,6 +705,15 @@ async fn pass<B: mail_proto::Backend>(
     if engine.caps_are_stale(now) {
         match engine.refresh_caps(cancel, now).await {
             Ok(_) => {}
+            // A refused sign-in is reported as one, so the watch stops and says so. As prose it
+            // read as an ordinary failure, and a watch retries those every minute — against a
+            // credential already refused, which is the loop F128 exists to prevent.
+            Err(e) if matches!(e.retry(), Retry::NeedsReauth) => {
+                let mut report = SyncReport::default();
+                report.saw(&Retry::NeedsReauth);
+                report.needs_attention.push(e.to_string());
+                return Ok(report);
+            }
             // Not fatal. A server that refuses CAPABILITY still delivers mail, and the stored
             // expectation is a worse answer than the truth but a better one than stopping.
             Err(e) => return Err(format!("could not read capabilities: {e}")),

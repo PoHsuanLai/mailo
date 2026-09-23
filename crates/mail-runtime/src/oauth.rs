@@ -95,14 +95,16 @@ async fn send(
         .body(body)
         .send()
         .await
-        .map_err(|e| RuntimeError::Secrets(format!("token endpoint unreachable: {e}")))?;
+        // `Connect`, not `Secrets`: an issuer that cannot be reached this minute has not refused
+        // anything, and calling it a rejected sign-in would stop a watch that only had to wait.
+        .map_err(|e| RuntimeError::Connect(format!("token endpoint unreachable: {e}")))?;
 
     let status = response.status();
     let headers = response.headers().clone();
     let bytes = response
         .bytes()
         .await
-        .map_err(|e| RuntimeError::Secrets(format!("token endpoint body: {e}")))?;
+        .map_err(|e| RuntimeError::Connect(format!("token endpoint body: {e}")))?;
 
     let mut builder = oauth2::http::Response::builder().status(status.as_u16());
     for (name, value) in headers.iter() {
@@ -389,7 +391,7 @@ pub async fn refresh_for(
         .add_scopes(scopes.iter().map(|s| Scope::new(s.clone())))
         .request_async(&|req| send(http, req))
         .await
-        .map_err(|e| RuntimeError::Secrets(format!("refresh failed: {e}")))?;
+        .map_err(refresh_failed)?;
 
     Ok(Credential::OAuth {
         access: token.access_token().secret().to_owned(),
@@ -399,6 +401,40 @@ pub async fn refresh_for(
             .unwrap_or_else(|| refresh_token.to_owned()),
         expires_at: expiry(token.expires_in(), now),
     })
+}
+
+/// What a failed refresh means, which is not the same thing each time.
+///
+/// Only an answer from the issuer is a refusal: `invalid_grant` is a revoked or expired grant,
+/// and no amount of retrying brings it back, so it is `Secrets` and reads as `NeedsReauth`. A
+/// token endpoint that could not be reached, or answered with something that is not OAuth (a
+/// proxy's error page, a 503), has refused nothing and is worth trying again later. Treating the
+/// second like the first would end a long-running watch over a network blip.
+fn refresh_failed<T: oauth2::ErrorResponse + 'static>(
+    e: oauth2::RequestTokenError<RuntimeError, T>,
+) -> RuntimeError {
+    match e {
+        oauth2::RequestTokenError::ServerResponse(_) => {
+            RuntimeError::Secrets(format!("the issuer refused to renew the sign-in: {e}"))
+        }
+        oauth2::RequestTokenError::Request(inner) => inner,
+        oauth2::RequestTokenError::Parse(..) | oauth2::RequestTokenError::Other(_) => {
+            RuntimeError::Connect(format!("the token endpoint answered unreadably: {e}"))
+        }
+    }
+}
+
+/// The scopes to name when renewing the access token the incoming server signs in with.
+///
+/// Empty when the sign-in was for one resource, which asks for what it was for — Google's
+/// `mail.google.com`, or Exchange's IMAP and SMTP together. A sign-in that also consented to a
+/// second resource (Graph's `Mail.Send`) must name the first one's scopes on every refresh:
+/// Microsoft issues each access token for one resource and refuses a request that spans two
+/// (`AADSTS28003`).
+pub fn incoming_scopes(scopes: &[String]) -> Vec<String> {
+    first_resource(scopes)
+        .map(|chosen| chosen.split(' ').map(str::to_owned).collect())
+        .unwrap_or_default()
 }
 
 fn expiry(lifetime: Option<Duration>, now: DateTime<Utc>) -> DateTime<Utc> {

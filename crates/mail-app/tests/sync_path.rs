@@ -428,6 +428,59 @@ mod renewing_an_expired_sign_in {
         assert_eq!(secrets.get(&key()).unwrap(), token(45), "and left alone");
     }
 
+    /// A Microsoft sign-in that also consented to Graph renews its IMAP token by name.
+    ///
+    /// Microsoft issues each access token for one resource and refuses a request that spans two
+    /// (`AADSTS28003`). The renewal named nothing, which asks for what the sign-in was for — and
+    /// this sign-in was for two.
+    #[test]
+    fn a_sign_in_for_two_resources_renews_each_by_its_own_scopes() {
+        let (store, _dir) = oauth_account();
+        let plan = mail_domain::presets::send_through_graph(
+            mail_domain::presets::microsoft_preset("ada@example.test", now()),
+        )
+        .plan;
+        store
+            .connection()
+            .execute(
+                "UPDATE accounts SET plan = ?1 WHERE id = ?2",
+                rusqlite::params![serde_json::to_string(&plan).unwrap(), ACCOUNT.to_string()],
+            )
+            .unwrap();
+        let secrets: Arc<dyn Secrets> = Arc::new(MapSecrets::default());
+        secrets.put(&key(), &token(-120)).unwrap();
+        secrets
+            .put(
+                &SecretKey {
+                    account: ACCOUNT,
+                    purpose: SecretPurpose::OAuthRefresh,
+                },
+                &token(-120),
+            )
+            .unwrap();
+        let (ends, seen) = token_endpoint(RENEWED);
+        let mut registry = OAuthRegistry::default();
+        registry.set(Registration::new(OAuthIssuer::Microsoft, "client-id").at(ends));
+
+        let _ = sync::run_with(store, secrets, &registry, now());
+
+        let asked = seen.lock().unwrap().clone();
+        let imap = "IMAP.AccessAsUser.All";
+        let graph = "Mail.Send";
+        assert!(
+            asked.iter().any(|r| r.contains(imap) && !r.contains(graph)),
+            "the IMAP token was not renewed by its own scope: {asked:?}"
+        );
+        assert!(
+            asked.iter().any(|r| r.contains(graph) && !r.contains(imap)),
+            "the Graph token was not minted by its own scope: {asked:?}"
+        );
+        assert!(
+            !asked.iter().any(|r| r.contains(imap) && r.contains(graph)),
+            "one request named two resources: {asked:?}"
+        );
+    }
+
     #[test]
     fn a_password_account_never_reaches_the_issuer() {
         // The plan is what decides, not the credential: a password has no expiry and there is

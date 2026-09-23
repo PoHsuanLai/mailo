@@ -5,6 +5,7 @@
 //! misrepresent ownership, and `Box<dyn Store>` per account would be worse. Time is an argument
 //! rather than a `Clock` trait, per `CONVENTIONS.md` §6.
 
+use crate::renewal::{AfterRefusal, Renewal, Token};
 use crate::{Cancel, RuntimeError, Secrets, Transport, drive};
 use chrono::{DateTime, Utc};
 use mail_domain::{
@@ -162,6 +163,10 @@ pub struct AccountEngine<B: Backend> {
     last: LastRun,
     /// Where [`Outgoing::Graph`] posts. Graph's own address, except under test.
     graph_url: String,
+    /// Keeps an OAuth account's tokens fresh between and within passes. `None` for a password
+    /// account, and for an engine nobody gave one — which then signs in with what it was built
+    /// with, as every engine did before a watch had to outlive an access token.
+    renewal: Option<Renewal>,
 }
 
 impl<B: Backend> AccountEngine<B> {
@@ -181,7 +186,17 @@ impl<B: Backend> AccountEngine<B> {
             schedule: Schedule::default(),
             last: LastRun::default(),
             graph_url: crate::graph::SEND_MAIL.to_owned(),
+            renewal: None,
         }
+    }
+
+    /// Renew the account's access tokens as they near expiry, and once after a refusal.
+    ///
+    /// The backend's session factory must read its credential from `renewal.held()`, or the
+    /// renewed token never reaches a connection.
+    pub fn with_renewal(mut self, renewal: Renewal) -> Self {
+        self.renewal = Some(renewal);
+        self
     }
 
     /// Send [`Outgoing::Graph`] mail somewhere other than Graph: a test's own listener.
@@ -215,6 +230,38 @@ impl<B: Backend> AccountEngine<B> {
         Transport::connect(host, port, tls).await
     }
 
+    /// Run one operation, with a token that is fresh — and, if the server refuses a token that
+    /// looked valid, once more with a new one.
+    ///
+    /// Here rather than in each operation, because every one of them presents a token and a watch
+    /// reaches all of them an hour in. A token can be refused before its expiry says it should
+    /// be: revoked sessions, a clock that is wrong, an issuer that shortened a lifetime. One
+    /// renewal answers that; a second would not, which is why [`Renewal::after_refusal`] will not
+    /// renew a token it minted for this reason already.
+    async fn run(
+        &mut self,
+        op: ProtoOp,
+        cancel: &mut Cancel,
+    ) -> Result<ProtoOutcome, RuntimeError> {
+        let Some(renewal) = &self.renewal else {
+            return self.run_once(op, cancel).await;
+        };
+        let token = match op {
+            ProtoOp::Submit { .. } => Token::Sending,
+            _ => Token::Incoming,
+        };
+        renewal.ahead(token).await?;
+        let first = self.run_once(op.clone(), cancel).await;
+        let refused = matches!(&first, Err(e) if matches!(e.retry(), Retry::NeedsReauth));
+        let Some(renewal) = self.renewal.as_ref().filter(|_| refused) else {
+            return first;
+        };
+        match renewal.after_refusal(token).await? {
+            AfterRefusal::TryAgain => self.run_once(op, cancel).await,
+            AfterRefusal::StillRefused => first,
+        }
+    }
+
     /// Run one operation to completion, on a connection of its own.
     ///
     /// A fresh connection per operation, and that is not laziness. A session reads the server's
@@ -224,7 +271,7 @@ impl<B: Backend> AccountEngine<B> {
     /// whether it is resuming, which puts protocol state in the caller, or one operation per
     /// pass, which is what batching already achieves: a sync is three connections, not one per
     /// message.
-    async fn run(
+    async fn run_once(
         &mut self,
         op: ProtoOp,
         cancel: &mut Cancel,

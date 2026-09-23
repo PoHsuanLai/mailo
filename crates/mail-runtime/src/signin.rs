@@ -181,9 +181,14 @@ pub fn http_client() -> Result<reqwest::Client, RuntimeError> {
 /// Returns the credential to authenticate with. A password is returned untouched: this is the
 /// one place that knows expiry is an OAuth concept, and making the caller ask first would put
 /// that knowledge in every caller.
+///
+/// `scopes` names the resource the token is for, and is [`oauth::incoming_scopes`] of the
+/// account's plan: empty for a one-resource sign-in, and the incoming server's alone for one
+/// that also consented to Graph.
 pub async fn renew(
     account: AccountId,
     registration: &Registration,
+    scopes: &[String],
     credential: Credential,
     secrets: &dyn Secrets,
     http: &reqwest::Client,
@@ -194,12 +199,37 @@ pub async fn renew(
         // Owned before the await: the borrow is of the credential this function then replaces.
         Freshness::Expired { refresh_token } => refresh_token.to_owned(),
     };
+    renew_incoming(
+        account,
+        registration,
+        scopes,
+        &refresh_token,
+        secrets,
+        http,
+        now,
+    )
+    .await
+}
 
-    let renewed = oauth::refresh_at(
+/// Spend `refresh_token` on a new incoming access token, whatever the old one's expiry said.
+///
+/// What [`renew`] does once it has decided, and what a server refusing a token that looked valid
+/// calls for directly (see [`crate::renewal`]).
+pub(crate) async fn renew_incoming(
+    account: AccountId,
+    registration: &Registration,
+    scopes: &[String],
+    refresh_token: &str,
+    secrets: &dyn Secrets,
+    http: &reqwest::Client,
+    now: DateTime<Utc>,
+) -> Result<Credential, RuntimeError> {
+    let renewed = oauth::refresh_for(
         &registration.endpoints(),
         &registration.client_id,
         registration.client_secret.as_deref(),
-        &refresh_token,
+        refresh_token,
+        scopes,
         http,
         now,
     )
@@ -207,7 +237,8 @@ pub async fn renew(
 
     // Both entries, because `account add` wrote both. The sync path reads `IncomingPassword`
     // and the browser flow is what writes `OAuthRefresh`; leaving either stale is the same
-    // account failing an hour later, just via a different key.
+    // account failing an hour later, just via a different key. A refresh token the issuer
+    // rotated is in `renewed`, so it is saved here too.
     for purpose in [SecretPurpose::IncomingPassword, SecretPurpose::OAuthRefresh] {
         secrets.put(&SecretKey { account, purpose }, &renewed)?;
     }
@@ -241,11 +272,39 @@ pub async fn graph_token(
         Some(Freshness::Expired { refresh_token }) => refresh_token.to_owned(),
         None => sign_in_refresh(secrets, account)?,
     };
+    mint_graph(account, registration, &refresh_token, secrets, http, now).await
+}
+
+/// The refresh token a new Graph token is minted from: the Graph token's own, or the sign-in's.
+pub(crate) fn graph_refresh(
+    secrets: &dyn Secrets,
+    account: AccountId,
+) -> Result<String, RuntimeError> {
+    match secrets.get(&SecretKey {
+        account,
+        purpose: SecretPurpose::OutgoingPassword,
+    }) {
+        Ok(Credential::OAuth { refresh, .. }) => Ok(refresh),
+        _ => sign_in_refresh(secrets, account),
+    }
+}
+
+/// Spend `refresh_token` on a Graph token, and keep it as the account's outgoing credential.
+///
+/// Named with Graph's scope alone: one resource per request, or Microsoft refuses it.
+pub(crate) async fn mint_graph(
+    account: AccountId,
+    registration: &Registration,
+    refresh_token: &str,
+    secrets: &dyn Secrets,
+    http: &reqwest::Client,
+    now: DateTime<Utc>,
+) -> Result<Credential, RuntimeError> {
     let minted = oauth::refresh_for(
         &registration.endpoints(),
         &registration.client_id,
         registration.client_secret.as_deref(),
-        &refresh_token,
+        refresh_token,
         &[
             mail_domain::presets::GRAPH_SEND_SCOPE.to_owned(),
             "offline_access".to_owned(),
@@ -254,7 +313,13 @@ pub async fn graph_token(
         now,
     )
     .await?;
-    secrets.put(&key(SecretPurpose::OutgoingPassword), &minted)?;
+    secrets.put(
+        &SecretKey {
+            account,
+            purpose: SecretPurpose::OutgoingPassword,
+        },
+        &minted,
+    )?;
     Ok(minted)
 }
 
