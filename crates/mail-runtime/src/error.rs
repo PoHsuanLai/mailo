@@ -26,6 +26,9 @@ pub enum RuntimeError {
     /// The engine was asked to stop.
     #[error("cancelled")]
     Cancelled,
+    /// Microsoft Graph answered, and not with acceptance. Classified where the status is read.
+    #[error("{why}")]
+    Graph { why: String, retry: Retry },
 }
 
 impl Retryable for RuntimeError {
@@ -49,6 +52,7 @@ impl Retryable for RuntimeError {
             RuntimeError::UnsupportedIo(why) => Retry::Fatal(why.clone()),
             // Not a failure: the user closed the app or switched accounts.
             RuntimeError::Cancelled => Retry::Fatal("cancelled".to_owned()),
+            RuntimeError::Graph { retry, .. } => retry.clone(),
         }
     }
 }

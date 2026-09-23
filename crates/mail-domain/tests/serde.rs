@@ -1104,6 +1104,10 @@ fn fixture_dir() -> std::path::PathBuf {
 fixtures! {
     "account_plan_gmail.json" => AccountPlan = presets::preset_for("someone@gmail.com", at(3))
         .expect("gmail preset").plan,
+    // A Microsoft 365 account that sends through Graph rather than SMTP.
+    "account_plan_graph.json" => AccountPlan = presets::send_through_graph(
+        presets::microsoft_preset("me@contoso.example", at(3))
+    ).plan,
     // A POP3 account that logs in with the local part of its address.
     "account_plan_local_part.json" => AccountPlan = AccountPlan {
         address: "s1234567@example.edu".to_owned(),

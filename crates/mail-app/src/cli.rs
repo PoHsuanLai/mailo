@@ -31,6 +31,8 @@ pub enum Command {
         /// The address belongs to a managed Microsoft 365 tenant on its own domain, which is
         /// the one thing the preset table cannot work out for itself.
         microsoft: bool,
+        /// `--send graph`: send through Microsoft Graph, for a tenant with SMTP AUTH off.
+        graph: bool,
     },
     /// Configured accounts, and what each still needs.
     AccountList,
@@ -443,11 +445,31 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                     .ok_or_else(|| format!("account add needs an address\n\n{}", usage()))?;
                 let rest = &args[3..];
                 let microsoft = rest.iter().any(|a| a == "--microsoft");
-                let others: Vec<String> = rest
-                    .iter()
-                    .filter(|a| *a != "--microsoft")
-                    .cloned()
-                    .collect();
+                let mut graph = false;
+                let mut others: Vec<String> = Vec::new();
+                let mut words = rest.iter().filter(|a| *a != "--microsoft");
+                while let Some(word) = words.next() {
+                    if word != "--send" {
+                        others.push(word.clone());
+                        continue;
+                    }
+                    graph = match words.next().map(String::as_str) {
+                        Some("graph") => true,
+                        Some("smtp") => false,
+                        other => {
+                            return Err(format!(
+                                "--send takes smtp or graph, not {other:?}\n\n{}",
+                                usage()
+                            ));
+                        }
+                    };
+                    if !microsoft {
+                        return Err(format!(
+                            "--send is for a Microsoft 365 account; add --microsoft\n\n{}",
+                            usage()
+                        ));
+                    }
+                }
                 if microsoft && !others.is_empty() {
                     return Err(format!(
                         "--microsoft already knows the servers; drop the other options\n\n{}",
@@ -458,6 +480,7 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                     address: address.clone(),
                     manual: parse_manual(&others)?,
                     microsoft,
+                    graph,
                 })
             }
             None | Some("list") => Ok(Command::AccountList),
@@ -598,8 +621,9 @@ usage: mailo <command>
                              for a server the preset table does not know
   account add <address> --pop3 HOST[:PORT] --smtp HOST[:PORT] [--login NAME]
                              the same, for a server that offers only POP3
-  account add <address> --microsoft
-                             a work or school Microsoft 365 mailbox on its own domain
+  account add <address> --microsoft [--send graph]
+                             a work or school Microsoft 365 mailbox on its own domain;
+                             --send graph where the tenant has SMTP sending turned off
   sync                       fetch mail and send anything queued
   watch                      keep fetching until stopped; uses IDLE where the
                              server offers it, and polls where it does not
@@ -763,7 +787,8 @@ pub fn run(store: &SqliteStore, command: &Command, now: DateTime<Utc>) -> Result
             address,
             manual,
             microsoft,
-        } => crate::account::add(store, address, manual.as_ref(), *microsoft, now),
+            graph,
+        } => crate::account::add(store, address, manual.as_ref(), *microsoft, *graph, now),
         Command::AccountList => crate::account::list(store),
         Command::Signature {
             address,

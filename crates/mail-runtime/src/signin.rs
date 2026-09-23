@@ -214,6 +214,63 @@ pub async fn renew(
     Ok(renewed)
 }
 
+/// A Graph access token for an account that sends through [`mail_domain::Outgoing::Graph`].
+///
+/// Kept as the account's *outgoing* credential, which `AccountEngine` already prefers for
+/// submission, beside the incoming one for Exchange's IMAP: Microsoft's tokens are each for one
+/// resource, so an account that reads over IMAP and sends through Graph holds two. Minted from
+/// the sign-in's refresh token the first time, and from its own after that; a still-valid one
+/// is returned without touching the network.
+pub async fn graph_token(
+    account: AccountId,
+    registration: &Registration,
+    secrets: &dyn Secrets,
+    http: &reqwest::Client,
+    now: DateTime<Utc>,
+) -> Result<Credential, RuntimeError> {
+    let key = |purpose| SecretKey { account, purpose };
+    let held = secrets.get(&key(SecretPurpose::OutgoingPassword)).ok();
+    let refresh_token = match held.as_ref().map(|c| oauth::assess(c, now)) {
+        Some(Freshness::Ready) => {
+            if let Some(held @ Credential::OAuth { .. }) = held {
+                return Ok(held);
+            }
+            // A password here is left over from an SMTP setup; the sign-in's token replaces it.
+            sign_in_refresh(secrets, account)?
+        }
+        Some(Freshness::Expired { refresh_token }) => refresh_token.to_owned(),
+        None => sign_in_refresh(secrets, account)?,
+    };
+    let minted = oauth::refresh_for(
+        &registration.endpoints(),
+        &registration.client_id,
+        registration.client_secret.as_deref(),
+        &refresh_token,
+        &[
+            mail_domain::presets::GRAPH_SEND_SCOPE.to_owned(),
+            "offline_access".to_owned(),
+        ],
+        http,
+        now,
+    )
+    .await?;
+    secrets.put(&key(SecretPurpose::OutgoingPassword), &minted)?;
+    Ok(minted)
+}
+
+/// The refresh token the browser sign-in stored.
+fn sign_in_refresh(secrets: &dyn Secrets, account: AccountId) -> Result<String, RuntimeError> {
+    match secrets.get(&SecretKey {
+        account,
+        purpose: SecretPurpose::OAuthRefresh,
+    })? {
+        Credential::OAuth { refresh, .. } => Ok(refresh),
+        Credential::Password(_) => Err(RuntimeError::Secrets(
+            "sending through Graph needs a Microsoft sign-in".to_owned(),
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -301,13 +301,17 @@ async fn one(
         })
         .map_err(|_| crate::view::no_credential(&account.address, &account.plan.auth))?;
     let credential = signed_in(account, stored, secrets.as_ref(), registry, now).await?;
+    // Not fatal to the pass: an account that cannot send can still receive.
+    let sending = sending_token(account, secrets.as_ref(), registry, now)
+        .await
+        .err();
 
     let mailboxes = to_sync(account);
     // Nothing cancels a one-shot CLI sync, but the loop requires a receiver, and wiring a real
     // one here is what lets the same engine serve the UI unchanged.
     let (_tx, mut cancel) = watch::channel(false);
 
-    match &account.plan.incoming {
+    let report = match &account.plan.incoming {
         Incoming::Pop3 { .. } => {
             let username = username_for(&account.plan);
             let Credential::Password(password) = credential else {
@@ -341,7 +345,35 @@ async fn one(
             let mut engine = imap_engine(store, account, credential, secrets);
             drive(&mut engine, account, &mailboxes, &mut cancel, now, mode).await
         }
-    }
+    };
+    report.map(|mut report| {
+        report.needs_attention.extend(sending);
+        report
+    })
+}
+
+/// For an account that sends through Graph, a Graph token valid for this pass.
+///
+/// Its own token beside the IMAP one: Microsoft issues each access token for one resource.
+async fn sending_token(
+    account: &Configured,
+    secrets: &dyn Secrets,
+    registry: &OAuthRegistry,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<(), String> {
+    let (Outgoing::Graph, AuthPlan::OAuth { issuer, .. }) =
+        (&account.plan.outgoing, &account.plan.auth)
+    else {
+        return Ok(());
+    };
+    let registration = registry
+        .get(*issuer)
+        .ok_or_else(|| "no OAuth client id is configured, so nothing can be sent".to_owned())?;
+    let http = signin::http_client().map_err(|e| e.to_string())?;
+    signin::graph_token(account.id, registration, secrets, &http, now)
+        .await
+        .map(|_| ())
+        .map_err(|e| format!("cannot sign in to Microsoft Graph for sending: {e}"))
 }
 
 /// An engine for an IMAP account, signed in with `credential`.

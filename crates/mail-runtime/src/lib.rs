@@ -7,6 +7,7 @@ pub mod assemble;
 pub mod drive;
 pub mod engine;
 pub mod error;
+pub mod graph;
 pub mod loopback;
 pub mod oauth;
 pub mod secrets;

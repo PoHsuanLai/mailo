@@ -1,0 +1,27 @@
+{
+  "address": "me@contoso.example",
+  "incoming": {
+    "kind": "imap",
+    "v": {
+      "host": "outlook.office365.com",
+      "port": 993,
+      "tls": "implicit"
+    }
+  },
+  "outgoing": {
+    "kind": "graph"
+  },
+  "auth": {
+    "kind": "o_auth",
+    "v": {
+      "issuer": "microsoft",
+      "scopes": [
+        "https://outlook.office.com/IMAP.AccessAsUser.All",
+        "offline_access",
+        "openid",
+        "https://graph.microsoft.com/Mail.Send"
+      ]
+    }
+  },
+  "identities": []
+}

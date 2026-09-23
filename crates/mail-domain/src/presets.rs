@@ -356,6 +356,26 @@ pub fn microsoft_preset(address: &str, now: DateTime<Utc>) -> Preset {
     microsoft(address, now)
 }
 
+/// The delegated permission Graph's `sendMail` needs.
+pub const GRAPH_SEND_SCOPE: &str = "https://graph.microsoft.com/Mail.Send";
+
+/// `preset`, sending through Microsoft Graph instead of SMTP.
+///
+/// For a tenant that refuses SMTP AUTH (`535 5.7.139`). The sign-in asks for Graph's
+/// `Mail.Send` in place of `SMTP.Send`: one consent covers both resources, and the runtime
+/// exchanges the refresh token for a Graph token when it sends, since one access token is only
+/// ever good for one of them.
+pub fn send_through_graph(mut preset: Preset) -> Preset {
+    preset.plan.outgoing = Outgoing::Graph;
+    if let AuthPlan::OAuth { scopes, .. } = &mut preset.plan.auth {
+        scopes.retain(|s| !s.ends_with("/SMTP.Send"));
+        if !scopes.iter().any(|s| s == GRAPH_SEND_SCOPE) {
+            scopes.push(GRAPH_SEND_SCOPE.to_owned());
+        }
+    }
+    preset
+}
+
 /// A managed Microsoft 365 mailbox, work or school.
 ///
 /// The plan's first outside test of "a provider is a value, not a type": adding this required an
@@ -480,6 +500,30 @@ mod tests {
             "expected capabilities must read as stale, so CAPA runs before the first fetch"
         );
         assert_eq!(preset.expected_caps.top, Supported::Absent, "not assumed");
+    }
+
+    /// Graph replaces SMTP for sending, and the sign-in asks for Graph's permission in place of
+    /// SMTP's. Receiving is untouched.
+    #[test]
+    fn sending_through_graph_swaps_the_smtp_permission_for_graphs() {
+        let smtp = microsoft_preset("me@contoso.example", at());
+        let graph = send_through_graph(smtp.clone());
+        assert_eq!(graph.plan.outgoing, Outgoing::Graph);
+        assert_eq!(graph.plan.incoming, smtp.plan.incoming);
+        let AuthPlan::OAuth { scopes, .. } = &graph.plan.auth else {
+            panic!("{:?}", graph.plan.auth)
+        };
+        assert!(scopes.iter().any(|s| s == GRAPH_SEND_SCOPE));
+        assert!(!scopes.iter().any(|s| s.ends_with("/SMTP.Send")));
+        assert!(
+            scopes[0].ends_with("/IMAP.AccessAsUser.All"),
+            "the sign-in's own token is for the first resource named, and it must be IMAP's"
+        );
+        assert_eq!(
+            send_through_graph(graph.clone()),
+            graph,
+            "applying it twice changes nothing"
+        );
     }
 
     #[test]

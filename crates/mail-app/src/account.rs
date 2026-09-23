@@ -19,6 +19,7 @@ pub fn add(
     address: &str,
     manual: Option<&crate::cli::Setup>,
     microsoft: bool,
+    graph: bool,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<String, String> {
     // Normalised once, here, and used for the preset, the stored plan and the stored column
@@ -30,6 +31,9 @@ pub fn add(
     let address = address.to_lowercase();
     let preset = match manual {
         // Named explicitly, so no guessing from a domain that says nothing.
+        _ if microsoft && graph => mail_domain::presets::send_through_graph(
+            mail_domain::presets::microsoft_preset(&address, now),
+        ),
         _ if microsoft => mail_domain::presets::microsoft_preset(&address, now),
         // Explicit servers win over the table. Someone who names a host means that host, even
         // for a domain a preset happens to cover.
@@ -228,6 +232,26 @@ pub fn add(
                         &credential,
                     )
                     .map_err(|e| format!("cannot save the token: {e}"))?;
+                // Minted now rather than at the first send, so a permission the tenant withheld
+                // is reported while the user is still at the setup command — not hours later as
+                // a draft that will not leave.
+                if plan.outgoing == Outgoing::Graph {
+                    let registration = Registration::new(*issuer, &client_id)
+                        .with_secret(client_secret.as_deref());
+                    match graph_token(account, &registration, now) {
+                        Ok(()) => {
+                            let _ = writeln!(out, "sending goes through Microsoft Graph");
+                        }
+                        Err(why) => {
+                            let _ = writeln!(
+                                out,
+                                "warning: signed in, but Graph would not issue a token for \
+                                 sending ({why}). Mail will be received; sending needs Graph's \
+                                 Mail.Send permission on the app registration, consented to."
+                            );
+                        }
+                    }
+                }
                 // Remembered, because renewing an access token an hour from now needs the
                 // same client id and nothing else will have it. Without this the account
                 // signs in, works, expires, and cannot be renewed — the environment variable
@@ -260,7 +284,11 @@ pub fn add(
                 // not reproduce this account: `--microsoft` is precisely the information the
                 // preset table does not have, and a re-run without it fails to find any preset
                 // at all. Advice that does not work when followed is worse than none.
-                let flags = if microsoft { " --microsoft" } else { "" };
+                let flags = match (microsoft, graph) {
+                    (true, true) => " --microsoft --send graph",
+                    (true, false) => " --microsoft",
+                    _ => "",
+                };
                 // The client id is deployment configuration and cannot be shipped in a source
                 // tree, so the honest thing is to say exactly what is missing and how to
                 // supply it — not to look configured and fail at first connect.
@@ -286,6 +314,25 @@ pub fn add(
         },
     }
     Ok(out)
+}
+
+/// Exchange the sign-in's refresh token for a Graph token and keep it as the outgoing credential.
+fn graph_token(
+    account: AccountId,
+    registration: &Registration,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<(), String> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| format!("cannot start the async runtime: {e}"))?;
+    runtime.block_on(async {
+        let http = signin::http_client().map_err(|e| e.to_string())?;
+        signin::graph_token(account, registration, &KeyringSecrets, &http, now)
+            .await
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    })
 }
 
 /// Record the client id this account signed in with, so it can be renewed later.
@@ -531,8 +578,8 @@ mod tests {
         #[test]
         fn it_succeeds_and_says_what_it_did() {
             let (store, _dir) = store();
-            add(&store, "someone@gmail.com", None, false, now()).unwrap();
-            let out = add(&store, "someone@gmail.com", None, false, now())
+            add(&store, "someone@gmail.com", None, false, false, now()).unwrap();
+            let out = add(&store, "someone@gmail.com", None, false, false, now())
                 .expect("re-running is what every message tells the user to do");
             assert!(
                 !out.contains("UNIQUE constraint"),
@@ -546,9 +593,9 @@ mod tests {
         #[test]
         fn the_account_keeps_its_identity() {
             let (store, _dir) = store();
-            add(&store, "someone@gmail.com", None, false, now()).unwrap();
+            add(&store, "someone@gmail.com", None, false, false, now()).unwrap();
             let first = id_of(&store, "someone@gmail.com");
-            add(&store, "someone@gmail.com", None, false, now()).unwrap();
+            add(&store, "someone@gmail.com", None, false, false, now()).unwrap();
             assert_eq!(first, id_of(&store, "someone@gmail.com"));
         }
 
@@ -557,7 +604,7 @@ mod tests {
         fn nothing_is_duplicated() {
             let (store, _dir) = store();
             for _ in 0..3 {
-                add(&store, "someone@gmail.com", None, false, now()).unwrap();
+                add(&store, "someone@gmail.com", None, false, false, now()).unwrap();
             }
             let db = store.connection();
             let accounts: i64 = db
@@ -577,7 +624,7 @@ mod tests {
         #[test]
         fn a_signature_already_set_survives() {
             let (store, _dir) = store();
-            add(&store, "someone@gmail.com", None, false, now()).unwrap();
+            add(&store, "someone@gmail.com", None, false, false, now()).unwrap();
             store
                 .connection()
                 .execute(
@@ -586,7 +633,7 @@ mod tests {
                 )
                 .unwrap();
 
-            add(&store, "someone@gmail.com", None, false, now()).unwrap();
+            add(&store, "someone@gmail.com", None, false, false, now()).unwrap();
 
             let (signature, name): (Option<String>, Option<String>) = store
                 .connection()
@@ -602,7 +649,7 @@ mod tests {
     #[test]
     fn an_unknown_domain_says_which_are_known() {
         let (store, _dir) = store();
-        let err = add(&store, "someone@example.test", None, false, now()).unwrap_err();
+        let err = add(&store, "someone@example.test", None, false, false, now()).unwrap_err();
         assert!(err.contains("gmail.com"), "{err}");
         assert!(
             err.contains("--pop3"),
@@ -618,7 +665,7 @@ mod tests {
         // With no MAILO_OAUTH_CLIENT_ID set, which is the state anyone starts in. The client
         // id is deployment configuration and cannot be shipped in a source tree, so the useful
         // thing is the exact command to run once they have one.
-        let out = add(&store, "someone@gmail.com", None, false, now()).unwrap();
+        let out = add(&store, "someone@gmail.com", None, false, false, now()).unwrap();
         assert!(out.contains("client id"), "{out}");
         assert!(
             out.contains(
@@ -646,7 +693,15 @@ mod tests {
         // wrong is a failed authentication with no explanation, so the CLI says which name it
         // will use.
         let (store, _dir) = store();
-        let out = add(&store, "s1234567@example.edu", Some(&pop3()), false, now()).unwrap();
+        let out = add(
+            &store,
+            "s1234567@example.edu",
+            Some(&pop3()),
+            false,
+            false,
+            now(),
+        )
+        .unwrap();
         assert!(out.contains("s1234567"), "{out}");
         assert!(
             !out.contains("s1234567@example.edu\""),
@@ -657,7 +712,15 @@ mod tests {
     #[test]
     fn adding_an_account_persists_its_plan_and_capabilities() {
         let (store, _dir) = store();
-        add(&store, "s1234567@example.edu", Some(&pop3()), false, now()).unwrap();
+        add(
+            &store,
+            "s1234567@example.edu",
+            Some(&pop3()),
+            false,
+            false,
+            now(),
+        )
+        .unwrap();
         let accounts: i64 = store
             .connection()
             .query_row("SELECT count(*) FROM accounts", [], |r| r.get(0))

@@ -531,6 +531,60 @@ mod microsoft {
     }
 
     #[test]
+    fn a_tenant_without_smtp_sends_through_graph() {
+        let parsed = cli::parse(&args(
+            "account add me@yourcompany.example --microsoft --send graph",
+        ))
+        .unwrap();
+        match parsed {
+            cli::Command::AccountAdd {
+                microsoft, graph, ..
+            } => assert!(microsoft && graph),
+            other => panic!("{other:?}"),
+        }
+        let plain = cli::parse(&args("account add me@yourcompany.example --microsoft")).unwrap();
+        assert!(matches!(
+            plain,
+            cli::Command::AccountAdd { graph: false, .. }
+        ));
+    }
+
+    #[test]
+    fn sending_through_graph_is_only_for_microsoft() {
+        let err = cli::parse(&args("account add me@gmail.com --send graph"))
+            .expect_err("Graph is Microsoft's");
+        assert!(err.contains("--microsoft"), "{err}");
+        let err = cli::parse(&args(
+            "account add me@x.example --microsoft --send carrier-pigeon",
+        ))
+        .expect_err("two ways to send, not three");
+        assert!(err.contains("smtp or graph"), "{err}");
+    }
+
+    #[test]
+    fn a_graph_account_is_stored_sending_through_graph() {
+        let (store, _dir, _thread) = seeded();
+        let command = cli::parse(&args(
+            "account add me@yourcompany.example --microsoft --send graph",
+        ))
+        .unwrap();
+        // No client id in the environment, so this stops at "needs a client id", after the
+        // plan is written; the advice it prints must reproduce the flag.
+        let out = cli::run(&store, &command, now()).unwrap();
+        assert!(out.contains("--microsoft --send graph"), "{out}");
+        let plan: String = store
+            .connection()
+            .query_row(
+                "SELECT plan FROM accounts WHERE address = 'me@yourcompany.example'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let plan: AccountPlan = serde_json::from_str(&plan).unwrap();
+        assert_eq!(plan.outgoing, Outgoing::Graph);
+    }
+
+    #[test]
     fn microsoft_and_manual_servers_together_are_refused() {
         // Both name the servers. Silently letting one win is how an account ends up pointed
         // somewhere the user did not intend.
@@ -571,6 +625,7 @@ mod microsoft {
                 assert_eq!(port, 587);
                 assert_eq!(tls, Tls::StartTlsRequired);
             }
+            Outgoing::Graph => panic!("SMTP unless --send graph says otherwise"),
         }
     }
 

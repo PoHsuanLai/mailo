@@ -314,6 +314,32 @@ pub async fn refresh_at(
     http: &reqwest::Client,
     now: DateTime<Utc>,
 ) -> Result<Credential, RuntimeError> {
+    refresh_for(
+        ends,
+        client_id,
+        client_secret,
+        refresh_token,
+        &[],
+        http,
+        now,
+    )
+    .await
+}
+
+/// A refresh that names the scopes the new access token is for.
+///
+/// Microsoft issues one access token per resource. A sign-in consented to Exchange's IMAP and
+/// to Graph's `Mail.Send` returns a token for the first; a token for the second is this call,
+/// with Graph's scope. No scopes asks for what the sign-in was for, as [`refresh_at`] does.
+pub async fn refresh_for(
+    ends: &Endpoints,
+    client_id: &str,
+    client_secret: Option<&str>,
+    refresh_token: &str,
+    scopes: &[String],
+    http: &reqwest::Client,
+    now: DateTime<Utc>,
+) -> Result<Credential, RuntimeError> {
     // The renewal needs the secret for the same reason the first exchange did. Without it an
     // account signs in, works for an hour, and then cannot be renewed — which is the failure
     // `signin::renew` exists to prevent, arriving by a different door.
@@ -326,6 +352,7 @@ pub async fn refresh_at(
 
     let token = client
         .exchange_refresh_token(&RefreshToken::new(refresh_token.to_owned()))
+        .add_scopes(scopes.iter().map(|s| Scope::new(s.clone())))
         .request_async(&|req| send(http, req))
         .await
         .map_err(|e| RuntimeError::Secrets(format!("refresh failed: {e}")))?;

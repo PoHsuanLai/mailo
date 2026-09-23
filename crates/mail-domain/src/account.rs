@@ -80,7 +80,15 @@ pub enum Incoming {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "v", rename_all = "snake_case")]
 pub enum Outgoing {
-    Smtp { host: String, port: u16, tls: Tls },
+    Smtp {
+        host: String,
+        port: u16,
+        tls: Tls,
+    },
+    /// Microsoft Graph's `sendMail`, for a Microsoft 365 mailbox whose tenant has SMTP AUTH
+    /// switched off — the default in many. HTTPS to a fixed host with the account's OAuth
+    /// sign-in, so there is nothing to configure: no host, no port, no TLS mode.
+    Graph,
 }
 
 /// Transport security.

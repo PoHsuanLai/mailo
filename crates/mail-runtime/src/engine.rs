@@ -160,6 +160,8 @@ pub struct AccountEngine<B: Backend> {
     secrets: Arc<dyn Secrets>,
     schedule: Schedule,
     last: LastRun,
+    /// Where [`Outgoing::Graph`] posts. Graph's own address, except under test.
+    graph_url: String,
 }
 
 impl<B: Backend> AccountEngine<B> {
@@ -178,7 +180,14 @@ impl<B: Backend> AccountEngine<B> {
             secrets,
             schedule: Schedule::default(),
             last: LastRun::default(),
+            graph_url: crate::graph::SEND_MAIL.to_owned(),
         }
+    }
+
+    /// Send [`Outgoing::Graph`] mail somewhere other than Graph: a test's own listener.
+    pub fn with_graph_url(mut self, url: impl Into<String>) -> Self {
+        self.graph_url = url.into();
+        self
     }
 
     /// Override the default intervals.
@@ -234,10 +243,11 @@ impl<B: Backend> AccountEngine<B> {
         drive(&mut step, &mut transport, cancel).await
     }
 
-    /// Where the submission server lives.
-    fn outgoing(&self) -> (&str, u16, Tls) {
+    /// Where the submission server lives, for an account that submits over SMTP.
+    fn outgoing(&self) -> Option<(&str, u16, Tls)> {
         match &self.plan.outgoing {
-            Outgoing::Smtp { host, port, tls } => (host, *port, *tls),
+            Outgoing::Smtp { host, port, tls } => Some((host, *port, *tls)),
+            Outgoing::Graph => None,
         }
     }
 
@@ -247,7 +257,9 @@ impl<B: Backend> AccountEngine<B> {
     /// long-lived copy of a password is a copy waiting to be logged. The closure is the only
     /// thing that holds it; `SmtpBackend` itself never sees it.
     fn submitter(&self) -> Result<SmtpBackend, RuntimeError> {
-        let (host, port, tls) = self.outgoing();
+        let (host, port, tls) = self.outgoing().ok_or_else(|| {
+            RuntimeError::UnsupportedIo("this account does not submit over SMTP".to_owned())
+        })?;
         let (host, ehlo) = (host.to_owned(), self.plan.ehlo());
         let (username, sasl) = (self.plan.username(), self.plan.sasl());
         // Most providers authenticate submission with the same secret as retrieval, which is
@@ -310,6 +322,10 @@ impl<B: Backend> AccountEngine<B> {
         // The bytes were frozen when the user pressed send, so a draft edited while the outbox
         // was backed off does not change what goes out.
         let message = self.store.blobs().get(&self.store.connection(), raw)?;
+        let Some((host, port, tls)) = self.outgoing() else {
+            return self.submit_to_graph(&message, rcpt_to).await;
+        };
+        let (host, port, tls) = (host.to_owned(), port, tls);
         let posting = Posting {
             mail_from: mail_from.clone(),
             rcpt_to: rcpt_to.clone(),
@@ -318,13 +334,34 @@ impl<B: Backend> AccountEngine<B> {
 
         let mut backend = self.submitter()?;
         backend.stage(posting)?;
-        let (host, port, tls) = self.outgoing();
-        let mut transport = Transport::connect(host, port, tls).await?;
+        let mut transport = Transport::connect(&host, port, tls).await?;
         let mut step = BackendMachine {
             backend: &mut backend,
             op: Some(op),
         };
         drive(&mut step, &mut transport, cancel).await
+    }
+
+    /// Submit through Microsoft Graph, for an account whose plan says [`Outgoing::Graph`].
+    ///
+    /// The token is the account's *outgoing* credential: a Graph access token, which the caller
+    /// minted from the sign-in's refresh token before the pass (`signin::graph_token`). The
+    /// incoming one is for Exchange's IMAP and Graph refuses it. Graph files the sent copy
+    /// itself, and does not say where.
+    async fn submit_to_graph(
+        &self,
+        message: &[u8],
+        rcpt_to: &[String],
+    ) -> Result<ProtoOutcome, RuntimeError> {
+        let credential = self.secret(mail_domain::SecretPurpose::OutgoingPassword)?;
+        let mail_domain::Credential::OAuth { access, .. } = credential else {
+            return Err(RuntimeError::Secrets(
+                "sending through Graph needs a Microsoft sign-in, not a password".to_owned(),
+            ));
+        };
+        let http = crate::signin::http_client()?;
+        crate::graph::send_mime(&http, &self.graph_url, &access, message, rcpt_to).await?;
+        Ok(ProtoOutcome::Submitted { remote: None })
     }
 
     /// Drain the outbox, in insertion order, stopping at the first entry not yet due.
