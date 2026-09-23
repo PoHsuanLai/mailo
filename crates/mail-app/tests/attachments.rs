@@ -5,12 +5,9 @@
 //! authorized_keys` is a well-formed attachment name. Everything here is about the difference
 //! between what a message claims and what gets written.
 
+use mail_app::attach;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
-
-#[allow(dead_code)]
-#[path = "../src/attach.rs"]
-mod attach;
 
 const ACCOUNT: AccountId =
     AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));

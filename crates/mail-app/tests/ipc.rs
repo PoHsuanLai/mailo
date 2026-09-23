@@ -4,9 +4,7 @@
 //! starts one moved to `latchkey` along with their tests, because none of it was about mail —
 //! and keeping a second copy here would mean two places to fix the next race found in it.
 
-#[path = "../src/ipc/wire.rs"]
-mod wire;
-
+use mail_app::ipc::wire;
 use wire::{Mismatch, Request, Response};
 
 #[test]

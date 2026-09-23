@@ -7,20 +7,11 @@
 //! times a second.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_app::reader;
 use mail_domain::*;
 use mail_mime::{RemoteImages, SanitizePolicy};
 use mail_store::{SqliteStore, Store};
 use std::time::Instant;
-
-#[allow(dead_code)]
-#[path = "../src/query.rs"]
-mod query;
-#[allow(dead_code)]
-#[path = "../src/reader.rs"]
-mod reader;
-#[allow(dead_code)]
-#[path = "../src/view.rs"]
-mod view;
 
 const ACCOUNT: AccountId =
     AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));

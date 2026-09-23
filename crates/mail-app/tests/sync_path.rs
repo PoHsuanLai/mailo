@@ -10,37 +10,11 @@
 //! not need a server runs normally.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_app::{account, cli, sync, view};
 use mail_domain::*;
 use mail_runtime::{MapSecrets, OAuthRegistry, Secrets};
 use mail_store::SqliteStore;
 use std::sync::Arc;
-
-#[allow(dead_code)]
-#[path = "../src/account.rs"]
-mod account;
-#[allow(dead_code)]
-#[path = "../src/attach.rs"]
-mod attach;
-#[allow(dead_code)]
-#[path = "../src/cli.rs"]
-mod cli;
-#[allow(dead_code)]
-#[path = "../src/compose.rs"]
-mod compose;
-#[allow(dead_code)]
-#[path = "../src/query.rs"]
-mod query;
-#[allow(dead_code)]
-#[path = "../src/search/mod.rs"]
-mod search;
-#[allow(dead_code)]
-#[path = "../src/snooze.rs"]
-mod snooze;
-#[path = "../src/sync.rs"]
-mod sync;
-#[allow(dead_code)]
-#[path = "../src/view.rs"]
-mod view;
 
 const ACCOUNT: AccountId =
     AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
@@ -1101,7 +1075,7 @@ mod both_accounts_at_once {
 /// was missing.
 mod watching {
     use super::*;
-    use crate::sync::Configured;
+    use mail_app::sync::Configured;
     use mail_proto::{Backend, IoReady, Progress, ProtoOutcome};
     use std::sync::{Arc as StdArc, Mutex as StdMutex};
 

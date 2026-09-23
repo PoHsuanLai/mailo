@@ -1,26 +1,3 @@
-//! `mailo` — the command line. The Dioxus shell will call the same store methods.
-
-mod account;
-mod appearance;
-mod attach;
-mod cli;
-mod compose;
-mod contrast;
-mod ipc;
-mod palette;
-mod provider;
-mod query;
-mod reader;
-#[allow(dead_code)]
-// `run` is the menu. The window calls it in a later step; the CLI calls `rank_query`.
-mod search;
-mod snooze;
-mod space;
-mod sync;
-mod today;
-mod ui;
-mod view;
-
 use mail_store::SqliteStore;
 
 fn main() {
@@ -31,7 +8,7 @@ fn main() {
     let command = if args.is_empty() {
         None
     } else {
-        match cli::parse(&args) {
+        match mail_app::cli::parse(&args) {
             Ok(command) => Some(command),
             Err(message) => {
                 eprintln!("{message}");
@@ -43,7 +20,7 @@ fn main() {
     // `reply` takes its body from stdin, which is I/O and so does not belong in the parser.
     // Read here, once, before anything opens the database.
     let command = match command {
-        Some(cli::Command::Reply {
+        Some(mail_app::cli::Command::Reply {
             message,
             scope,
             body: _,
@@ -53,13 +30,13 @@ fn main() {
                 eprintln!("cannot read the message body: {e}");
                 std::process::exit(1);
             }
-            Some(cli::Command::Reply {
+            Some(mail_app::cli::Command::Reply {
                 message,
                 scope,
                 body,
             })
         }
-        Some(cli::Command::Compose {
+        Some(mail_app::cli::Command::Compose {
             from,
             to,
             cc,
@@ -72,7 +49,7 @@ fn main() {
                 eprintln!("cannot read the message body: {e}");
                 std::process::exit(1);
             }
-            Some(cli::Command::Compose {
+            Some(mail_app::cli::Command::Compose {
                 from,
                 to,
                 cc,
@@ -81,7 +58,7 @@ fn main() {
                 body,
             })
         }
-        Some(cli::Command::Forward {
+        Some(mail_app::cli::Command::Forward {
             message,
             to,
             body: _,
@@ -91,10 +68,10 @@ fn main() {
                 eprintln!("cannot read the covering note: {e}");
                 std::process::exit(1);
             }
-            Some(cli::Command::Forward { message, to, body })
+            Some(mail_app::cli::Command::Forward { message, to, body })
         }
         // `signature` takes its text from stdin too, unless it is being cleared.
-        Some(cli::Command::Signature {
+        Some(mail_app::cli::Command::Signature {
             address,
             clear: false,
             text: _,
@@ -104,7 +81,7 @@ fn main() {
                 eprintln!("cannot read the signature: {e}");
                 std::process::exit(1);
             }
-            Some(cli::Command::Signature {
+            Some(mail_app::cli::Command::Signature {
                 address,
                 clear: false,
                 text,
@@ -132,9 +109,9 @@ fn main() {
 
     let store = std::sync::Arc::new(store);
     // Sync needs an async runtime and the store by Arc, so it is dispatched here rather than
-    // inside cli::run, which is deliberately synchronous and testable.
-    if matches!(command, Some(cli::Command::Sync)) {
-        match sync::run(store, chrono::Utc::now()) {
+    // inside mail_app::cli::run, which is deliberately synchronous and testable.
+    if matches!(command, Some(mail_app::cli::Command::Sync)) {
+        match mail_app::sync::run(store, chrono::Utc::now()) {
             Ok(ran) => print!("{}", ran.text),
             Err(message) => {
                 eprintln!("{message}");
@@ -145,15 +122,16 @@ fn main() {
     }
     // Saving an attachment may have to download it first — a large IMAP message's attachments
     // stay on the server until asked for — and that needs the store by `Arc`, like sync.
-    if let Some(cli::Command::Save {
+    if let Some(mail_app::cli::Command::Save {
         message,
         index,
         dir,
     }) = &command
     {
-        let download =
-            |section: &str| sync::fetch_part(&store, *message, section, chrono::Utc::now());
-        match attach::fetch_and_save(&store, *message, *index, dir, download) {
+        let download = |section: &str| {
+            mail_app::sync::fetch_part(&store, *message, section, chrono::Utc::now())
+        };
+        match mail_app::attach::fetch_and_save(&store, *message, *index, dir, download) {
             Ok(said) => println!("{said}"),
             Err(message) => {
                 eprintln!("{message}");
@@ -163,14 +141,16 @@ fn main() {
         return;
     }
     // The daemon and the clients that reach it. Dispatched here with `sync` and `watch` because
-    // they need the store by `Arc` and an exit code, neither of which `cli::run` has.
+    // they need the store by `Arc` and an exit code, neither of which `mail_app::cli::run` has.
     match &command {
-        Some(cli::Command::Daemon { stop: false }) => match ipc::daemon::serve(
+        Some(mail_app::cli::Command::Daemon { stop: false }) => match mail_app::ipc::daemon::serve(
             store,
-            std::sync::Arc::new(|store| match sync::run(store, chrono::Utc::now()) {
-                Ok(ran) => print!("{}", ran.text),
-                Err(why) => eprintln!("{why}"),
-            }),
+            std::sync::Arc::new(
+                |store| match mail_app::sync::run(store, chrono::Utc::now()) {
+                    Ok(ran) => print!("{}", ran.text),
+                    Err(why) => eprintln!("{why}"),
+                },
+            ),
         ) {
             Ok(out) => {
                 print!("{out}");
@@ -181,14 +161,14 @@ fn main() {
                 std::process::exit(1);
             }
         },
-        Some(cli::Command::Daemon { stop: true }) => {
+        Some(mail_app::cli::Command::Daemon { stop: true }) => {
             // Never starts one in order to stop it, which is why this is `connect` and not
             // `reach`: "there was nothing to stop" is a success, not a reason to spawn a daemon
             // and immediately ask it to leave.
-            match ipc::client::connect() {
+            match mail_app::ipc::client::connect() {
                 Ok(None) => println!("no daemon is running"),
-                Ok(Some(mut daemon)) => match daemon.ask(ipc::wire::Request::Shutdown) {
-                    Ok(ipc::wire::Response::Stopping) => println!("stopped"),
+                Ok(Some(mut daemon)) => match daemon.ask(mail_app::ipc::wire::Request::Shutdown) {
+                    Ok(mail_app::ipc::wire::Response::Stopping) => println!("stopped"),
                     Ok(other) => println!("{other:?}"),
                     Err(why) => {
                         eprintln!("{why}");
@@ -202,9 +182,11 @@ fn main() {
             }
             return;
         }
-        Some(cli::Command::Ping) => {
-            match ipc::client::reach().and_then(|mut d| d.ask(ipc::wire::Request::Ping)) {
-                Ok(ipc::wire::Response::Pong { pid, version }) => {
+        Some(mail_app::cli::Command::Ping) => {
+            match mail_app::ipc::client::reach()
+                .and_then(|mut d| d.ask(mail_app::ipc::wire::Request::Ping))
+            {
+                Ok(mail_app::ipc::wire::Response::Pong { pid, version }) => {
                     println!("daemon {version} answering, pid {pid}");
                 }
                 Ok(other) => println!("{other:?}"),
@@ -220,9 +202,9 @@ fn main() {
 
     // `watch` is `sync` that does not stop. It prints as it goes rather than at the end, because
     // "at the end" is when the user presses Ctrl-C.
-    if matches!(command, Some(cli::Command::Watch)) {
+    if matches!(command, Some(mail_app::cli::Command::Watch)) {
         println!("watching. Ctrl-C to stop.");
-        match sync::watch(store, chrono::Utc::now()) {
+        match mail_app::sync::watch(store, chrono::Utc::now()) {
             // Only reached when every account has stopped for a reason worth stopping for — a
             // credential the server refused, which no amount of retrying fixes.
             Ok(ran) => {
@@ -238,7 +220,7 @@ fn main() {
     }
 
     match command {
-        Some(command) => match cli::run(&store, &command, chrono::Utc::now()) {
+        Some(command) => match mail_app::cli::run(&store, &command, chrono::Utc::now()) {
             Ok(output) => print!("{output}"),
             Err(message) => {
                 eprintln!("{message}");
@@ -246,26 +228,30 @@ fn main() {
             }
         },
         None => {
-            let config = appearance::config_dir();
-            let look = config.as_deref().map(appearance::load).unwrap_or_default();
+            let config = mail_app::appearance::config_dir();
+            let look = config
+                .as_deref()
+                .map(mail_app::appearance::load)
+                .unwrap_or_default();
             let ids = account_ids(&store);
             let spaces = match &config {
                 Some(dir) => {
-                    let loaded = space::load(dir);
+                    let loaded = mail_app::space::load(dir);
                     if loaded.spaces.is_empty() {
-                        let made = space::first_run(&ids);
-                        let _ = space::save(dir, &made);
+                        let made = mail_app::space::first_run(&ids);
+                        let _ = mail_app::space::save(dir, &made);
                         made
                     } else {
                         loaded
                     }
                 }
-                None => space::first_run(&ids),
+                None => mail_app::space::first_run(&ids),
             };
             let dirs = config.and_then(|config| {
-                appearance::state_dir().map(|state| appearance::WindowDirs { config, state })
+                mail_app::appearance::state_dir()
+                    .map(|state| mail_app::appearance::WindowDirs { config, state })
             });
-            ui::run(store, look, spaces, dirs);
+            mail_app::ui::run(store, look, spaces, dirs);
         }
     }
 }

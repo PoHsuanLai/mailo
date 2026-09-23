@@ -6,18 +6,10 @@
 //! whole of what snoozing means and the part a pure predicate test cannot show.
 
 use chrono::{DateTime, TimeDelta, TimeZone, Utc};
+use mail_app::{snooze, view};
 use mail_domain::*;
 use mail_runtime::{Arrival, absorb};
 use mail_store::{SqliteStore, Store};
-
-#[allow(dead_code)]
-#[path = "../src/query.rs"]
-mod query;
-#[path = "../src/snooze.rs"]
-mod snooze;
-#[allow(dead_code)]
-#[path = "../src/view.rs"]
-mod view;
 
 const ACCOUNT: AccountId =
     AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));

@@ -6,16 +6,10 @@
 //! does not select is worse than no filter — what the store returns for it.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_app::{query, view};
 use mail_domain::*;
 use mail_runtime::{Arrival, absorb};
 use mail_store::{SqliteStore, Store};
-
-#[allow(dead_code)]
-#[path = "../src/query.rs"]
-mod query;
-#[allow(dead_code)]
-#[path = "../src/view.rs"]
-mod view;
 
 const ACCOUNT: AccountId =
     AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));

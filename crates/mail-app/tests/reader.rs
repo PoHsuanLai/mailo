@@ -6,25 +6,19 @@
 //! with no text alternative rendered as nothing at all.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_app::{reader, view};
 use mail_domain::*;
 use mail_mime::{RemoteImages, SanitizePolicy};
 use mail_store::{SqliteStore, Store};
-
-#[allow(dead_code)]
-#[path = "../src/query.rs"]
-mod query;
-#[allow(dead_code)]
-#[path = "../src/view.rs"]
-mod view;
-
-#[path = "../src/reader.rs"]
-mod reader;
 
 /// The render cache is process-wide, and these tests share a process.
 ///
 /// Anything that clears it or counts what is in it has to have it to itself — otherwise the
 /// count is a race against whatever else is rendering, which is how a test that is right becomes
-/// a test that fails on a busy machine and then gets deleted.
+/// a test that fails on a busy machine and then gets deleted. So every test here takes it, not
+/// only the ones that count: a test that merely renders is the "whatever else" a counting test
+/// races. (The race was always there; it surfaced when this binary stopped also carrying the
+/// unit tests of the modules it used to compile in, which had been changing the scheduling.)
 fn alone() -> std::sync::MutexGuard<'static, ()> {
     static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let held = ONE_AT_A_TIME
@@ -138,6 +132,7 @@ Content-Type: text/html; charset=utf-8\r\n\
 
 #[test]
 fn an_html_message_reaches_the_sandbox_instead_of_falling_back_to_text() {
+    let _alone = alone();
     let (store, _dir) = store();
     let message = ingest(&store, MULTIPART, Some("the plain alternative"));
 
@@ -158,6 +153,7 @@ fn an_html_message_reaches_the_sandbox_instead_of_falling_back_to_text() {
 
 #[test]
 fn a_plain_text_message_has_no_html_part_and_renders_as_text() {
+    let _alone = alone();
     let (store, _dir) = store();
     let raw = b"From: sender@example.test\r\nSubject: s\r\n\r\njust words\r\n";
     let message = ingest(&store, raw, Some("just words"));
@@ -170,6 +166,7 @@ fn a_plain_text_message_has_no_html_part_and_renders_as_text() {
 
 #[test]
 fn a_message_whose_bytes_do_not_parse_is_still_readable() {
+    let _alone = alone();
     // A blank pane for mail every other client displays is worse than a rough rendering.
     let (store, _dir) = store();
     let message = ingest(
@@ -186,6 +183,7 @@ fn a_message_whose_bytes_do_not_parse_is_still_readable() {
 
 #[test]
 fn a_message_with_no_body_yet_is_not_mistaken_for_an_empty_one() {
+    let _alone = alone();
     // Mid-sync. `Body::Absent` has no blob to read, and the reader must say "not downloaded"
     // rather than showing an empty message.
     let (store, _dir) = store();
@@ -200,6 +198,7 @@ fn a_message_with_no_body_yet_is_not_mistaken_for_an_empty_one() {
 
 #[test]
 fn a_script_in_the_html_part_does_not_survive_to_the_iframe() {
+    let _alone = alone();
     // The sanitizer has its own adversarial tests; this one proves the reader actually routes
     // through it rather than handing raw bytes to the frame.
     let (store, _dir) = store();
@@ -251,6 +250,7 @@ iVBORw0KGgo=\r\n\
 
     #[test]
     fn an_inline_image_is_resolved_rather_than_left_broken() {
+        let _alone = alone();
         // `cid:` survives sanitizing on purpose, and nothing resolved it, so every inline image
         // in every HTML mail rendered as a broken image icon.
         let (store, _dir) = store();
@@ -271,6 +271,7 @@ iVBORw0KGgo=\r\n\
 
     #[test]
     fn resolution_happens_after_sanitizing_not_before() {
+        let _alone = alone();
         // If the order were reversed, the sanitizer would be judging a data: URI this code
         // produced instead of the cid: the sender wrote — and anything it strips from the
         // document would be stripped from our substitution rather than from the message.
@@ -304,6 +305,7 @@ iVBORw0KGgo=\r\n\
 
     #[test]
     fn a_plain_text_message_is_untouched_by_any_of_this() {
+        let _alone = alone();
         let (store, _dir) = store();
         let raw = b"From: sender@example.test\r\nSubject: s\r\n\r\njust words\r\n";
         let message = ingest(&store, raw, Some("just words"));
@@ -315,6 +317,7 @@ iVBORw0KGgo=\r\n\
 
     #[test]
     fn a_message_with_no_body_still_says_so() {
+        let _alone = alone();
         let (store, _dir) = store();
         let mut message = ingest(&store, WITH_IMAGE, None);
         message.body = Body::Absent;

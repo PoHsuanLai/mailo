@@ -6,24 +6,9 @@
 //! into the outbox — was missing at every one of those three points.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_app::{compose, view};
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
-
-// Attaching reads `safe_name` and `human_size` from here: the name a file goes out under is
-// decided by the same function that decides where an incoming one may be written.
-#[allow(dead_code)]
-#[path = "../src/attach.rs"]
-mod attach;
-#[path = "../src/compose.rs"]
-mod compose;
-#[allow(dead_code)]
-#[path = "../src/query.rs"]
-mod query;
-// Only the composer's half of `view` is used here; the rest belongs to the window, which this
-// test deliberately does not build.
-#[allow(dead_code)]
-#[path = "../src/view.rs"]
-mod view;
 
 const ACCOUNT: AccountId =
     AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));

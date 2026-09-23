@@ -646,8 +646,22 @@ usage: mailo <command>
 /// Run a command against the store, returning what to print.
 ///
 /// Returns a `String` rather than printing, so tests assert on output instead of capturing
-/// stdout.
+/// stdout. OAuth setup falls back on [`crate::account::saved_clients`].
 pub fn run(store: &SqliteStore, command: &Command, now: DateTime<Utc>) -> Result<String, String> {
+    run_with_clients(store, command, now, &crate::account::saved_clients())
+}
+
+/// [`run`], with the OAuth clients named.
+///
+/// The binary passes [`crate::account::saved_clients`]. An integration test passes an empty
+/// registry: it links the ordinary library, so that function's `cfg!(test)` guard does not
+/// apply, and a real client id would open a browser and wait.
+pub fn run_with_clients(
+    store: &SqliteStore,
+    command: &Command,
+    now: DateTime<Utc>,
+    saved: &mail_runtime::OAuthRegistry,
+) -> Result<String, String> {
     match command {
         Command::List { mailbox, limit } => {
             // `view::place_filter`, not `Filter::InMailbox`: the shell and the command list the
@@ -816,7 +830,7 @@ pub fn run(store: &SqliteStore, command: &Command, now: DateTime<Utc>) -> Result
             manual.as_ref(),
             *microsoft,
             *graph,
-            &crate::account::saved_clients(),
+            saved,
             now,
         ),
         Command::AccountList => crate::account::list(store),

@@ -1,13 +1,9 @@
-// The re-exports below are for the Ctrl T menu (E10), which is their first caller; only
-// `rank_query` has one today. Remove this allow when the menu lands.
-#![allow(unused_imports)]
-
 //! Search, from what was typed to the menu.
 //!
 //! `parse` splits operators from free words, `expand` completes the word being typed without
 //! changing what [`Filter::Text`] means, `rank` orders the candidates, and [`run`] groups them.
 //! `mailo search` calls [`rank_query`], which is the same parse, expand and rank, so the terminal
-//! and the window cannot drift on a text query.
+//! and the window cannot drift on a text query. The re-exports are the Ctrl T menu's API.
 
 #[path = "expand.rs"]
 mod expanding;

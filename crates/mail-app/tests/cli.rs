@@ -1,39 +1,22 @@
 //! The CLI against a real store, which is `plan.md` phase 4's "a tiny CLI can list and open".
 //!
-//! Driven through `cli::run` rather than by spawning the binary, so the assertions are about
-//! what the user sees rather than about process plumbing.
+//! Driven through `cli::run_with_clients` rather than by spawning the binary, so the assertions
+//! are about what the user sees rather than about process plumbing. The registry is empty: this
+//! links the ordinary library, and a saved client id would open a real sign-in.
 
-use chrono::{TimeZone, Utc};
+use chrono::{DateTime, TimeZone, Utc};
+use mail_app::cli;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 
-// Both modules are pulled in by path: cli.rs calls into account.rs, so the test crate needs
-// the same shape the binary has.
-#[path = "../src/account.rs"]
-mod account;
-#[allow(dead_code)]
-#[path = "../src/attach.rs"]
-mod attach;
-#[path = "../src/cli.rs"]
-mod cli;
-#[allow(dead_code)]
-#[path = "../src/compose.rs"]
-mod compose;
-#[allow(dead_code)]
-#[path = "../src/query.rs"]
-mod query;
-#[allow(dead_code)]
-#[path = "../src/search/mod.rs"]
-mod search;
-#[allow(dead_code)]
-#[path = "../src/snooze.rs"]
-mod snooze;
-#[allow(dead_code)]
-#[path = "../src/sync.rs"]
-mod sync;
-#[allow(dead_code)]
-#[path = "../src/view.rs"]
-mod view;
+/// `cli::run`, with no saved OAuth clients.
+fn exercise(
+    store: &SqliteStore,
+    command: &cli::Command,
+    now: DateTime<Utc>,
+) -> Result<String, String> {
+    cli::run_with_clients(store, command, now, &mail_runtime::OAuthRegistry::default())
+}
 
 const ACCOUNT: AccountId =
     AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
@@ -123,7 +106,7 @@ fn now() -> chrono::DateTime<Utc> {
 #[test]
 fn list_shows_threads_newest_first_and_marks_unread() {
     let (store, _dir, _) = seeded();
-    let out = cli::run(
+    let out = exercise(
         &store,
         &cli::Command::List {
             mailbox: MailboxRole::Inbox,
@@ -144,7 +127,7 @@ fn list_shows_threads_newest_first_and_marks_unread() {
 #[test]
 fn an_empty_mailbox_says_so_instead_of_printing_nothing() {
     let (store, _dir, _) = seeded();
-    let out = cli::run(
+    let out = exercise(
         &store,
         &cli::Command::List {
             mailbox: MailboxRole::Trash,
@@ -159,14 +142,14 @@ fn an_empty_mailbox_says_so_instead_of_printing_nothing() {
 #[test]
 fn show_prints_the_body_and_says_when_it_is_not_fetched() {
     let (store, _dir, first) = seeded();
-    let out = cli::run(&store, &cli::Command::Show { thread: first }, now()).unwrap();
+    let out = exercise(&store, &cli::Command::Show { thread: first }, now()).unwrap();
     assert!(out.contains("lunch on friday"));
     assert!(out.contains("the body of lunch on friday"), "{out}");
 
     // The headers-only thread must say so rather than render as an empty message, which is how
     // a mid-sync state gets mistaken for a blank email.
     let headers_only = ThreadId::from_uuid(uuid::Uuid::from_u128(0x7001));
-    let out = cli::run(
+    let out = exercise(
         &store,
         &cli::Command::Show {
             thread: headers_only,
@@ -180,7 +163,7 @@ fn show_prints_the_body_and_says_when_it_is_not_fetched() {
 #[test]
 fn search_goes_through_full_text_and_reports_a_miss() {
     let (store, _dir, _) = seeded();
-    let hit = cli::run(
+    let hit = exercise(
         &store,
         &cli::Command::Search {
             needle: "outage".to_owned(),
@@ -191,7 +174,7 @@ fn search_goes_through_full_text_and_reports_a_miss() {
     .unwrap();
     assert!(hit.contains("server outage"), "{hit}");
 
-    let miss = cli::run(
+    let miss = exercise(
         &store,
         &cli::Command::Search {
             needle: "nothingmatchesthis".to_owned(),
@@ -206,7 +189,7 @@ fn search_goes_through_full_text_and_reports_a_miss() {
 #[test]
 fn status_counts_unread_separately_from_total() {
     let (store, _dir, _) = seeded();
-    let out = cli::run(&store, &cli::Command::Status, now()).unwrap();
+    let out = exercise(&store, &cli::Command::Status, now()).unwrap();
     assert!(out.contains("inbox"), "{out}");
     assert!(out.contains("3 total"), "{out}");
     assert!(out.contains("1 unread"), "{out}");
@@ -217,7 +200,7 @@ fn status_counts_unread_separately_from_total() {
 #[test]
 fn a_missing_thread_is_an_error_not_a_panic() {
     let (store, _dir, _) = seeded();
-    let err = cli::run(
+    let err = exercise(
         &store,
         &cli::Command::Show {
             thread: ThreadId::generate(),
@@ -359,7 +342,7 @@ mod manual_setup {
 
         let (store, _dir, _thread) = seeded();
         let command = cli::parse(&args("account add me@nowhere.example")).unwrap();
-        let err = cli::run(&store, &command, now()).expect_err("no preset");
+        let err = exercise(&store, &command, now()).expect_err("no preset");
         assert!(
             err.contains("--imap"),
             "the error must show the way out: {err}"
@@ -423,7 +406,7 @@ mod manual_setup {
             "account add someone@example.edu --pop3 pop.example.edu:1995 --smtp smtp.example.edu",
         ))
         .unwrap();
-        let _ = cli::run(&store, &command, now());
+        let _ = exercise(&store, &command, now());
 
         let plan: String = store
             .connection()
@@ -459,7 +442,7 @@ mod manual_setup {
         .unwrap();
         // No MAILO_PASSWORD in the environment, so this reports what is still needed rather
         // than failing — what matters here is the plan it wrote.
-        let _ = cli::run(&store, &command, now());
+        let _ = exercise(&store, &command, now());
 
         let plan: String = store
             .connection()
@@ -573,7 +556,7 @@ mod microsoft {
         .unwrap();
         // No client id in the environment, so this stops at "needs a client id", after the
         // plan is written; the advice it prints must reproduce the flag.
-        let out = cli::run(&store, &command, now()).unwrap();
+        let out = exercise(&store, &command, now()).unwrap();
         assert!(out.contains("--microsoft --send graph"), "{out}");
         let plan: String = store
             .connection()
@@ -658,7 +641,7 @@ fn the_suggested_rerun_reproduces_the_account_it_describes() {
             .collect::<Vec<_>>(),
     )
     .unwrap();
-    let out = cli::run(&store, &command, now()).expect("an OAuth account is added");
+    let out = exercise(&store, &command, now()).expect("an OAuth account is added");
 
     let line = out
         .lines()

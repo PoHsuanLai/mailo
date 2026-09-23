@@ -333,8 +333,9 @@ fn client_for(issuer: OAuthIssuer, saved: &OAuthRegistry) -> Option<(String, Opt
 
 /// The OAuth clients earlier sign-ins recorded, for [`add`] to fall back on.
 ///
-/// Empty under test: this is the one read of the user's real configuration on the way into
-/// `add`, and a test that found a real client id there would open a real sign-in and wait on it.
+/// Empty in this crate's unit tests. Integration tests link the ordinary library, so this
+/// guard does not apply to them; they pass an empty registry to [`crate::cli::run_with_clients`].
+/// A test that found a real client id here would open a sign-in and wait on it.
 pub fn saved_clients() -> OAuthRegistry {
     if cfg!(test) {
         return OAuthRegistry::default();

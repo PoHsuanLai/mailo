@@ -121,10 +121,7 @@ pub fn downloads_dir() -> PathBuf {
 /// since the 2024 edition — so a test that wanted to check this rule could not set the variable
 /// it is about. The same answer `plan.md` gives for the clock: the ambient thing becomes a
 /// parameter, and the decision becomes a function anything can call.
-pub(crate) fn downloads_from(
-    named: Option<&std::ffi::OsStr>,
-    home: Option<&std::ffi::OsStr>,
-) -> PathBuf {
+pub fn downloads_from(named: Option<&std::ffi::OsStr>, home: Option<&std::ffi::OsStr>) -> PathBuf {
     if let Some(named) = named {
         let path = PathBuf::from(named);
         // A relative setting would put the file wherever the process happens to have been
@@ -178,9 +175,8 @@ pub fn save(
 /// [`save`], downloading the attachment first if a sync left it on the server.
 ///
 /// `download` fetches one section of `message` and records it held; the application passes
-/// [`crate::sync::fetch_part`]. Taken as a parameter because this file is compiled into tests
-/// that have no network and no `sync` module, and because it makes "remote, then saved" a thing
-/// a test can check without a server.
+/// [`crate::sync::fetch_part`]. Taken as a parameter so a test can check "remote, then saved"
+/// without a server.
 ///
 /// Blocking and network-bound for a part that is still remote, so the UI calls it off the
 /// render thread. The answer is a sentence, shown to the user as it is.

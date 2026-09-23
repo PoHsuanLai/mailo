@@ -14,11 +14,12 @@ use std::sync::Arc;
 use tokio::sync::watch;
 
 /// Everything stored about one account.
-pub(crate) struct Configured {
-    pub(crate) id: AccountId,
-    pub(crate) address: String,
-    pub(crate) plan: AccountPlan,
-    pub(crate) caps: AccountCaps,
+#[derive(Debug)]
+pub struct Configured {
+    pub id: AccountId,
+    pub address: String,
+    pub plan: AccountPlan,
+    pub caps: AccountCaps,
 }
 
 /// What the server was last observed to support, for one account.
@@ -141,7 +142,6 @@ pub fn poll_interval(store: &SqliteStore) -> std::time::Duration {
 /// Where `AccountEngine::watch` finally has a caller outside a test. IDLE is a connection held
 /// open for as long as the server allows, so it needs a process whose job is to stay open; the
 /// window was meant to be that and F140 says it is not, so this is.
-#[allow(dead_code)] // Called from `main`, which the test binaries do not include.
 pub fn watch(store: Arc<SqliteStore>, now: chrono::DateTime<chrono::Utc>) -> Result<Ran, String> {
     let registry = OAuthRegistry::load_default().map_err(|e| e.to_string())?;
     run_all(store, Arc::new(KeyringSecrets), &registry, now, Mode::Watch)
@@ -422,7 +422,6 @@ fn imap_engine(
 ///
 /// Blocking, with a runtime of its own, for the same reason [`run`] has one: its callers are a
 /// command and a click handler, not async code.
-#[allow(dead_code)] // Called from `main` and the window, which the test binaries do not include.
 pub fn fetch_part(
     store: &Arc<SqliteStore>,
     message: mail_domain::MessageId,
@@ -535,7 +534,7 @@ const AFTER_A_FAILURE: std::time::Duration = std::time::Duration::from_secs(60);
 /// phase 3 — and every caller was a test, which F128 found and the window's poll loop was meant
 /// to answer. F140 then established that the window's loop never runs, so this is the first
 /// place IDLE is actually reachable by a user: a process whose whole job is to stay open.
-pub(crate) async fn drive<B: mail_proto::Backend>(
+pub async fn drive<B: mail_proto::Backend>(
     engine: &mut AccountEngine<B>,
     account: &Configured,
     mailboxes: &[MailboxRef],

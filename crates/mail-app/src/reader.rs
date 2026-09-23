@@ -124,9 +124,8 @@ fn fits(message: &Message) -> bool {
     matches!(message.body, mail_domain::Body::Present { .. })
 }
 
-/// How many renderings are being held. Tests only.
-#[cfg(test)]
-#[allow(dead_code)]
+/// How many renderings are being held. Integration tests count this process-wide cache.
+#[doc(hidden)]
 pub fn held() -> usize {
     CACHE
         .lock()
@@ -135,9 +134,8 @@ pub fn held() -> usize {
         .len()
 }
 
-/// Forget everything cached. Tests only — the cache is process-wide, and tests share one.
-#[cfg(test)]
-#[allow(dead_code)]
+/// Forget everything cached. Integration tests share this process-wide cache.
+#[doc(hidden)]
 pub fn forget_everything() {
     let mut cache = CACHE.lock().unwrap_or_else(|held| held.into_inner());
     cache.entries.clear();

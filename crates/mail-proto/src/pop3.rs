@@ -790,8 +790,6 @@ fn clip(text: &str, max: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    #[allow(unused_imports)]
-    use super::{};
     use super::{
         Action, Buffer, MAX_LINE_BYTES, Phase, Pop3Command, Pop3Reply, Pop3Session, base64_encode,
         decide, interpret_stat, sasl_plain, unstuff,
