@@ -82,11 +82,6 @@ pub(super) fn search_ranked(
 ) -> Result<Vec<(ThreadSummary, f64)>, StoreError> {
     let compiled = sql::compile(filter, now);
     let needles = sql::match_needles(filter);
-    debug_assert_eq!(
-        read::SUMMARY_COLUMNS.split(',').count(),
-        17,
-        "the score is selected after the summary columns"
-    );
 
     // Several text terms become one MATCH, the arguments `match_args` already builds, joined
     // with OR. `bm25` cannot be an argument of `MIN` and cannot appear in a compound SELECT,
@@ -147,7 +142,14 @@ pub(super) fn search_ranked(
         )
     };
 
-    let columns = read::SUMMARY_COLUMNS.replace("thread,", "ts.thread,");
+    // Qualified column by column, not by text replacement: a later column whose name ends in
+    // `thread` must not be rewritten along with `thread`. The score follows the last one.
+    let qualified: Vec<String> = read::SUMMARY_COLUMNS
+        .split(',')
+        .map(|column| format!("ts.{}", column.trim()))
+        .collect();
+    let score_at = qualified.len();
+    let columns = qualified.join(", ");
     let sql_text = format!(
         "{with_clause}SELECT {columns}, {score_expr} AS relevance \
          FROM thread_summary ts \
@@ -167,7 +169,7 @@ pub(super) fn search_ranked(
     let mut out = Vec::new();
     while let Some(row) = rows.next()? {
         let summary = store.read_summary(row)?;
-        let score: f64 = row.get(17)?;
+        let score: f64 = row.get(score_at)?;
         out.push((summary, score));
     }
     Ok(out)
@@ -178,6 +180,11 @@ pub(super) fn search_ranked(
 /// The placeholder that belonged to that MATCH is dropped; the caller binds the same text as
 /// the CTE's own parameter. `None` when the clause isn't exactly one occurrence, or the bound
 /// text isn't `needle` — then the caller keeps the compiled filter untouched.
+///
+/// The parameter is found by counting `?` before the clause, which assumes the compiled WHERE
+/// has no literal `?` of its own. `sql::compile` binds every value today; if it ever writes a
+/// string literal containing `?`, the count is off by one. The check that the bound text
+/// equals `needle` then fails and this returns `None`, so the result is slower, never wrong.
 fn rewrite_single_match(
     compiled: &sql::SqlFilter,
     needle: &str,
