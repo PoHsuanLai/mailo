@@ -19,6 +19,8 @@ use serde::Serialize;
 
 use crate::{OutboxEntry, Settle, Store, StoreError, Term};
 
+mod folders;
+
 /// Everything held in memory. Cheap to construct, and never touches the disk.
 #[derive(Debug, Default)]
 pub struct MemoryStore {
@@ -43,6 +45,8 @@ struct Inner {
     next_outbox: i64,
     pending: Vec<PendingRow>,
     sync: BTreeMap<(AccountId, String), SyncCursor>,
+    /// Every mailbox the server listed, by account and path.
+    folders: BTreeMap<(AccountId, String), mail_domain::Folder>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -93,6 +97,7 @@ impl Default for Inner {
             next_outbox: 1,
             pending: Vec::new(),
             sync: BTreeMap::new(),
+            folders: BTreeMap::new(),
         }
     }
 }
@@ -353,6 +358,26 @@ impl Store for MemoryStore {
             .collect())
     }
 
+    fn folders(&self, account: AccountId) -> Result<Vec<mail_domain::Folder>, StoreError> {
+        Ok(self.inner.borrow().folders_of(account))
+    }
+
+    fn put_folders(
+        &self,
+        account: AccountId,
+        listed: Vec<mail_domain::Folder>,
+    ) -> Result<(), StoreError> {
+        self.inner.borrow_mut().put_folders(account, listed);
+        Ok(())
+    }
+
+    fn folder_contents(
+        &self,
+        mailbox: &MailboxRef,
+    ) -> Result<mail_domain::FolderContents, StoreError> {
+        Ok(self.inner.borrow().contents(mailbox))
+    }
+
     fn outbox_settle(
         &self,
         id: OutboxId,
@@ -520,6 +545,14 @@ impl Inner {
                     |_, row| !matches!(&row.op, ProtoOp::Submit { draft, .. } if draft == id),
                 );
             }
+            Change::LabelRemove(id) => self.remove_label(*id),
+            Change::FolderUpsert(folder) => self.upsert_folder(folder),
+            Change::FolderRemove(mailbox) => self.remove_folder(mailbox),
+            Change::FolderRename {
+                from,
+                to,
+                delimiter,
+            } => self.rename_folder(from, to, *delimiter),
         }
         Ok(())
     }
@@ -778,11 +811,14 @@ impl Inner {
                 rcpt_to: rcpt_to.clone(),
             }));
         }
+        if let RemoteIntent::Folder(work) = intent {
+            return Ok(Some(ProtoOp::Folder(work.clone())));
+        }
         let messages = match intent {
             RemoteIntent::SetFlags { messages, .. }
             | RemoteIntent::SetMailbox { messages, .. }
             | RemoteIntent::SetLabels { messages, .. } => messages,
-            RemoteIntent::Send { .. } => unreachable!("handled above"),
+            RemoteIntent::Send { .. } | RemoteIntent::Folder(_) => unreachable!("handled above"),
         };
         let remotes = self.refs_for(account, messages)?;
         if remotes.is_empty() {
@@ -803,7 +839,7 @@ impl Inner {
                 add: self.label_names(add),
                 remove: self.label_names(remove),
             },
-            RemoteIntent::Send { .. } => unreachable!("handled above"),
+            RemoteIntent::Send { .. } | RemoteIntent::Folder(_) => unreachable!("handled above"),
         }))
     }
 
@@ -855,7 +891,16 @@ impl Inner {
             return Err(StoreError::Db(format!("no such outbox entry: {id}")));
         }
         match settle {
-            Settle::Ok => self.drop_entry(id),
+            Settle::Ok => {
+                // As the SQLite store does: a deleted mailbox is let go of once confirmed.
+                if let ProtoOp::Folder(mail_domain::FolderWork::Delete { path, .. }) =
+                    &self.outbox[&id].op
+                {
+                    let (account, path) = (self.outbox[&id].account, path.clone());
+                    self.forget_mailbox(account, &path);
+                }
+                self.drop_entry(id)
+            }
             Settle::Failed { reason: _, retry } => match &retry {
                 Retry::Now | Retry::After(_) => {
                     let attempts = self.outbox[&id].attempts;
@@ -1060,7 +1105,7 @@ fn pending_of(intent: &RemoteIntent) -> Vec<(MessageId, Vec<Change>)> {
             .collect(),
         // A submission re-layers nothing: it has no existing message to be overwritten by the
         // next ingest. Matches SqliteStore.
-        RemoteIntent::Send { .. } => Vec::new(),
+        RemoteIntent::Send { .. } | RemoteIntent::Folder(_) => Vec::new(),
     }
 }
 

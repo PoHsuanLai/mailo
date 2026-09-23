@@ -1,0 +1,26 @@
+[
+  {
+    "account": "01010101-0101-0101-0101-010101010101",
+    "path": "[Gmail]/Sent Mail",
+    "delimiter": "/",
+    "special": "sent",
+    "subscription": "subscribed",
+    "holds": "mail"
+  },
+  {
+    "account": "01010101-0101-0101-0101-010101010101",
+    "path": "[Gmail]",
+    "delimiter": "/",
+    "special": null,
+    "subscription": "unsubscribed",
+    "holds": "folders_only"
+  },
+  {
+    "account": "01010101-0101-0101-0101-010101010101",
+    "path": "日本語",
+    "delimiter": null,
+    "special": null,
+    "subscription": "subscribed",
+    "holds": "mail"
+  }
+]

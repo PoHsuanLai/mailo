@@ -6,6 +6,7 @@
 //! plus SMTP submit", which would have put two sockets behind one `Machine` and made the drive
 //! loop's single-transport shape a lie.
 
+mod folders;
 pub mod imap;
 pub mod pop3;
 pub mod smtp;

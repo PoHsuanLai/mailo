@@ -135,6 +135,28 @@ impl SqliteStore {
                 self.delete_draft(*id)?;
                 None
             }
+            // Folders belong to no thread either. A label removal rebuilds the threads it
+            // touched itself, because it can touch more than one.
+            Change::LabelRemove(id) => {
+                self.remove_label(*id)?;
+                None
+            }
+            Change::FolderUpsert(folder) => {
+                self.upsert_folder(folder)?;
+                None
+            }
+            Change::FolderRemove(mailbox) => {
+                self.remove_folder(mailbox)?;
+                None
+            }
+            Change::FolderRename {
+                from,
+                to,
+                delimiter,
+            } => {
+                self.rename_folder(from, to, *delimiter)?;
+                None
+            }
         };
         Ok(thread)
     }

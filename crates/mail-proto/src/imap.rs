@@ -88,6 +88,41 @@ pub enum ImapCommand {
         flags: Vec<String>,
         raw: Vec<u8>,
     },
+    /// `LSUB "" "*"`: the mailboxes the user follows (RFC 3501 §6.3.9).
+    Lsub,
+    /// `CREATE <mailbox>`.
+    Create {
+        mailbox: String,
+    },
+    /// `RENAME <from> <to>`. The server moves everything beneath `from` too.
+    Rename {
+        from: String,
+        to: String,
+    },
+    /// `DELETE <mailbox>`.
+    ///
+    /// Not `\Deleted` and `EXPUNGE`, which stay absent (see the module note): this removes a
+    /// mailbox, and on Gmail, where a mailbox is a label, it removes the label and no message.
+    Delete {
+        mailbox: String,
+    },
+    /// `SUBSCRIBE <mailbox>`.
+    Subscribe {
+        mailbox: String,
+    },
+    /// `UNSUBSCRIBE <mailbox>`.
+    Unsubscribe {
+        mailbox: String,
+    },
+    /// `STATUS <mailbox> (MESSAGES)`, and the walk stops with a refusal unless it says zero.
+    ///
+    /// A guard, not a query: the one way to make "delete this folder only if it is empty" hold
+    /// at the moment of deletion. A walk is a fixed list of commands on one connection, and a
+    /// second connection cannot share this one's greeting, so the decision has to be made
+    /// inside the walk. A server that answers no `MESSAGES` count is taken as not empty.
+    RequireEmpty {
+        mailbox: String,
+    },
     /// `IDLE`, which parks until the server says something or the caller interrupts.
     Idle,
     Noop,
@@ -296,6 +331,16 @@ impl ImapSession {
             ImapCommand::Logout => "LOGOUT".to_owned(),
             ImapCommand::Idle => "IDLE".to_owned(),
             ImapCommand::List => "LIST \"\" \"*\"".to_owned(),
+            ImapCommand::Lsub => "LSUB \"\" \"*\"".to_owned(),
+            // Every name goes out as modified UTF-7, quoted: the wire name is the identity.
+            ImapCommand::Create { mailbox } => format!("CREATE {}", wire(mailbox)),
+            ImapCommand::Rename { from, to } => format!("RENAME {} {}", wire(from), wire(to)),
+            ImapCommand::Delete { mailbox } => format!("DELETE {}", wire(mailbox)),
+            ImapCommand::Subscribe { mailbox } => format!("SUBSCRIBE {}", wire(mailbox)),
+            ImapCommand::Unsubscribe { mailbox } => format!("UNSUBSCRIBE {}", wire(mailbox)),
+            ImapCommand::RequireEmpty { mailbox } => {
+                format!("STATUS {} (MESSAGES)", wire(mailbox))
+            }
             ImapCommand::Login => {
                 // RFC 3501 §6.2.3: a client MUST NOT issue LOGIN when the server advertises
                 // LOGINDISABLED. Observed live on outlook.office365.com, which answers
@@ -505,6 +550,13 @@ impl ImapSession {
                 };
                 match status {
                     imap_proto::Status::Ok => {
+                        if let Some(ImapCommand::RequireEmpty { mailbox }) =
+                            self.commands.get(index)
+                            && let Some(refusal) =
+                                not_empty(&self.transcript.untagged, index, mailbox)
+                        {
+                            return Some(self.fail(refusal));
+                        }
                         // Consume before issuing the next command, or these bytes would be
                         // re-parsed on the next pass.
                         self.buf.drain(..raw.len());
@@ -701,6 +753,40 @@ fn classify(text: &str, refused: Option<&ImapCommand>) -> ProtoError {
         kind: Refusal::Permanent,
         text: text.to_owned(),
     }
+}
+
+/// Why a [`ImapCommand::RequireEmpty`] guard stops the walk, if it does.
+///
+/// Read from the typed `STATUS` response that arrived during the guard, not from its text:
+/// the count is the one number that decides whether mail is about to be destroyed.
+fn not_empty(untagged: &[Untagged], index: usize, mailbox: &str) -> Option<ProtoError> {
+    let count = untagged
+        .iter()
+        .filter(|u| u.during == index)
+        .filter_map(|u| match imap_proto::parser::parse_response(&u.raw) {
+            Ok((_, Response::MailboxData(imap_proto::MailboxDatum::Status { status, .. }))) => {
+                status.iter().find_map(|a| match a {
+                    imap_proto::StatusAttribute::Messages(n) => Some(*n),
+                    _ => None,
+                })
+            }
+            _ => None,
+        })
+        .next_back();
+    let why = match count {
+        Some(0) => return None,
+        Some(n) => format!("{mailbox} holds {n} message(s) on the server"),
+        None => format!("the server did not say how many messages {mailbox} holds"),
+    };
+    Some(ProtoError::Refused {
+        kind: Refusal::Permanent,
+        text: format!("{why}; not deleted"),
+    })
+}
+
+/// A mailbox name as it travels: modified UTF-7, quoted.
+fn wire(mailbox: &str) -> String {
+    quoted(&mutf7::encode(mailbox))
 }
 
 /// A UID set must be digits, ranges and commas — never a sequence number and never free text.

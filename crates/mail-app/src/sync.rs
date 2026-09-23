@@ -43,7 +43,7 @@ pub fn caps_of(store: &SqliteStore, account: AccountId) -> Option<AccountCaps> {
 }
 
 /// Read the accounts back out of the store.
-fn configured(store: &SqliteStore) -> Result<Vec<Configured>, String> {
+pub(crate) fn configured(store: &SqliteStore) -> Result<Vec<Configured>, String> {
     let db = store.connection();
     let mut stmt = db
         .prepare(
@@ -785,6 +785,27 @@ async fn pass<B: mail_proto::Backend>(
     report.submitted += drained.submitted;
     report.still_queued = drained.still_queued;
     report.needs_attention.extend(drained.needs_attention);
+    // The drain classified its own failures and they were dropped here, so a credential the
+    // outbox found rejected did not stop the poll loop the way one found by a fetch does.
+    report.needs_reauth |= drained.needs_reauth;
+    if let Some(wait) = drained.hold {
+        report.saw(&mail_domain::Retry::After(wait));
+    }
+
+    // The folder list, on an account that has never had one: otherwise it arrives with the
+    // daily capability refresh, and an account added this morning could not list, rename or
+    // delete a folder until tomorrow. After the drain, so it shows any folder work just sent.
+    //
+    // Not after a refused sign-in or a rate limit, which would only add one more failed login
+    // or one more request the server asked not to receive.
+    if engine.folders_unlisted()
+        && !report.needs_reauth
+        && report.hold.is_none()
+        && let Err(e) = engine.refresh_folders(cancel, now).await
+    {
+        report.saw(&e.retry());
+        report.needs_attention.push(format!("folders: {e}"));
+    }
     Ok(report)
 }
 

@@ -10,8 +10,8 @@ use super::row::{from_time, json, to_json};
 use crate::{OutboxEntry, Settle, StoreError};
 use chrono::{DateTime, TimeDelta, Utc};
 use mail_domain::{
-    AccountId, Change, Membership, MessageId, OutboxId, Patch, ProtoOp, RemoteIntent, RemoteRef,
-    Retry,
+    AccountId, Change, FolderWork, Membership, MessageId, OutboxId, Patch, ProtoOp, RemoteIntent,
+    RemoteRef, Retry,
 };
 use rusqlite::params;
 
@@ -107,11 +107,17 @@ impl SqliteStore {
                 rcpt_to: rcpt_to.clone(),
             }));
         }
+        // Nor does folder work, which names mailboxes rather than messages.
+        if let RemoteIntent::Folder(work) = intent {
+            return Ok(Some(ProtoOp::Folder(work.clone())));
+        }
         let messages = match intent {
             RemoteIntent::SetFlags { messages, .. }
             | RemoteIntent::SetMailbox { messages, .. }
             | RemoteIntent::SetLabels { messages, .. } => messages,
-            RemoteIntent::Send { .. } => unreachable!("handled above"),
+            RemoteIntent::Send { .. } | RemoteIntent::Folder(_) => {
+                unreachable!("handled above")
+            }
         };
         let remotes = self.refs_for(account, messages)?;
         if remotes.is_empty() {
@@ -134,7 +140,7 @@ impl SqliteStore {
                 add: self.label_names(add)?,
                 remove: self.label_names(remove)?,
             },
-            RemoteIntent::Send { .. } => unreachable!("handled above"),
+            RemoteIntent::Send { .. } | RemoteIntent::Folder(_) => unreachable!("handled above"),
         }))
     }
 
@@ -186,7 +192,7 @@ impl SqliteStore {
             // Nothing to re-layer. `pending_changes` exists so a local edit survives the next
             // ingest overwriting the message it applies to; a submission has no such message,
             // and the draft's own `SendState` is not a `Change` (FINDINGS F36).
-            RemoteIntent::Send { .. } => Vec::new(),
+            RemoteIntent::Send { .. } | RemoteIntent::Folder(_) => Vec::new(),
         }
     }
 
@@ -277,6 +283,16 @@ impl SqliteStore {
         let tx = db.unchecked_transaction()?;
         match settle {
             Settle::Ok => {
+                // A deleted mailbox's addresses are let go of only once the server agrees.
+                let (account, op): (String, String) = self.connection().query_row(
+                    "SELECT account, op FROM outbox WHERE id = ?1",
+                    params![id.as_i64()],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )?;
+                if let ProtoOp::Folder(FolderWork::Delete { path, .. }) = json("ProtoOp", &op)? {
+                    let account = AccountId::from_uuid(super::row::uuid("AccountId", &account)?);
+                    self.forget_mailbox(account, &path)?;
+                }
                 // Confirmed. The local value and the server's now agree, so it is no longer
                 // pending and must not be re-layered over the next ingest.
                 self.drop_entry(id)?;

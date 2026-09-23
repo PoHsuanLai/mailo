@@ -36,6 +36,10 @@ pub enum Command {
     },
     /// Configured accounts, and what each still needs.
     AccountList,
+    /// Folders on every account, or on the one named.
+    FolderList { account: Option<String> },
+    /// Create, rename, delete, or follow a folder on one account, by its address.
+    Folder { account: String, work: FolderWork },
     /// Fetch every configured account's provider icon again.
     IconsRefresh,
     /// Set or clear the signature on an account. The text is read from stdin.
@@ -450,6 +454,7 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
             })
         }
         "sync" => Ok(Command::Sync),
+        "folder" => parse_folder(&args[1..]),
         "icons" => match args.get(1).map(String::as_str) {
             Some("refresh") if args.len() == 2 => Ok(Command::IconsRefresh),
             Some("refresh") => Err(format!("icons refresh takes no arguments\n\n{}", usage())),
@@ -508,6 +513,74 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
         },
         other => Err(format!("unknown command {other:?}\n\n{}", usage())),
     }
+}
+
+/// `folder list [account]`, `folder new|rename|delete|subscribe|unsubscribe <account> …`.
+///
+/// Every change names its account. A folder name means nothing without one, and guessing the
+/// account for something that deletes is not a default worth having.
+fn parse_folder(args: &[String]) -> Result<Command, String> {
+    let words: Vec<&str> = args.iter().map(String::as_str).collect();
+    let usage_for = |shape: &str| format!("usage: mailo folder {shape}\n\n{}", usage());
+    let work = match words.as_slice() {
+        [] | ["list"] => return Ok(Command::FolderList { account: None }),
+        ["list", account] => {
+            return Ok(Command::FolderList {
+                account: Some((*account).to_owned()),
+            });
+        }
+        ["new", account, name] => (
+            account,
+            FolderWork::Create {
+                path: (*name).to_owned(),
+            },
+        ),
+        ["rename", account, from, to] => (
+            account,
+            FolderWork::Rename {
+                from: (*from).to_owned(),
+                to: (*to).to_owned(),
+            },
+        ),
+        ["delete", account, name] => (
+            account,
+            FolderWork::Delete {
+                path: (*name).to_owned(),
+                non_empty: NonEmpty::Refuse,
+            },
+        ),
+        ["delete", account, name, "--with-messages"] => (
+            account,
+            FolderWork::Delete {
+                path: (*name).to_owned(),
+                non_empty: NonEmpty::Allow,
+            },
+        ),
+        [verb @ ("subscribe" | "unsubscribe"), account, name] => (
+            account,
+            FolderWork::Subscribe {
+                path: (*name).to_owned(),
+                subscription: if *verb == "subscribe" {
+                    Subscription::Subscribed
+                } else {
+                    Subscription::Unsubscribed
+                },
+            },
+        ),
+        ["list", ..] => return Err(usage_for("list [account]")),
+        ["new", ..] => return Err(usage_for("new <account> <name>")),
+        ["rename", ..] => return Err(usage_for("rename <account> <old> <new>")),
+        ["delete", ..] => return Err(usage_for("delete <account> <name> [--with-messages]")),
+        ["subscribe" | "unsubscribe", ..] => {
+            return Err(usage_for("subscribe|unsubscribe <account> <name>"));
+        }
+        [other, ..] => return Err(format!("unknown folder command {other:?}\n\n{}", usage())),
+    };
+    let (account, work) = work;
+    Ok(Command::Folder {
+        account: (*account).to_owned(),
+        work,
+    })
 }
 
 /// Servers the user named, for an address the preset table does not cover.
@@ -645,6 +718,13 @@ usage: mailo <command>
                              a work or school Microsoft 365 mailbox on its own domain;
                              --send graph where the tenant has SMTP sending turned off
   sync                       fetch mail and send anything queued
+  folder [list] [account]    every folder the server lists
+  folder new <account> <name>
+  folder rename <account> <old> <new>
+  folder delete <account> <name> [--with-messages]
+                             refuses a folder that holds mail unless told; on Gmail
+                             this removes a label and deletes no message
+  folder subscribe|unsubscribe <account> <name>
   icons refresh              fetch each account's provider icon again
   watch                      keep fetching until stopped; uses IDLE where the
                              server offers it, and polls where it does not
@@ -845,6 +925,19 @@ pub fn run_with_clients(
             now,
         ),
         Command::AccountList => crate::account::list(store),
+        Command::FolderList { account } => {
+            let id = account
+                .as_deref()
+                .map(|address| account_named(store, address))
+                .transpose()?;
+            crate::folder::list(store, id)
+        }
+        Command::Folder { account, work } => {
+            let id = account_named(store, account)?;
+            crate::folder::change(store, id, work.clone(), now)
+                .map(|_| crate::folder::said(work, account))
+                .map_err(|e| e.to_string())
+        }
         Command::IconsRefresh => {
             let Some(root) = crate::appearance::cache_dir() else {
                 return Err("no home directory, so there is nowhere to keep an icon".to_owned());
@@ -1019,6 +1112,124 @@ mod tests {
                 limit: 20
             }
         );
+    }
+
+    #[test]
+    fn the_folder_verbs_parse_to_the_work_they_name() {
+        let work = |account: &str, work: FolderWork| Command::Folder {
+            account: account.to_owned(),
+            work,
+        };
+        let cases: Vec<(&[&str], Command)> = vec![
+            (&["folder"], Command::FolderList { account: None }),
+            (&["folder", "list"], Command::FolderList { account: None }),
+            (
+                &["folder", "list", "me@example.test"],
+                Command::FolderList {
+                    account: Some("me@example.test".to_owned()),
+                },
+            ),
+            (
+                &["folder", "new", "me@example.test", "Paid bills"],
+                work(
+                    "me@example.test",
+                    FolderWork::Create {
+                        path: "Paid bills".to_owned(),
+                    },
+                ),
+            ),
+            (
+                &["folder", "rename", "me@example.test", "Work", "工作"],
+                work(
+                    "me@example.test",
+                    FolderWork::Rename {
+                        from: "Work".to_owned(),
+                        to: "工作".to_owned(),
+                    },
+                ),
+            ),
+            (
+                &["folder", "delete", "me@example.test", "Old"],
+                work(
+                    "me@example.test",
+                    FolderWork::Delete {
+                        path: "Old".to_owned(),
+                        non_empty: NonEmpty::Refuse,
+                    },
+                ),
+            ),
+            (
+                &[
+                    "folder",
+                    "delete",
+                    "me@example.test",
+                    "Old",
+                    "--with-messages",
+                ],
+                work(
+                    "me@example.test",
+                    FolderWork::Delete {
+                        path: "Old".to_owned(),
+                        non_empty: NonEmpty::Allow,
+                    },
+                ),
+            ),
+            (
+                &["folder", "subscribe", "me@example.test", "Lists"],
+                work(
+                    "me@example.test",
+                    FolderWork::Subscribe {
+                        path: "Lists".to_owned(),
+                        subscription: Subscription::Subscribed,
+                    },
+                ),
+            ),
+            (
+                &["folder", "unsubscribe", "me@example.test", "Lists"],
+                work(
+                    "me@example.test",
+                    FolderWork::Subscribe {
+                        path: "Lists".to_owned(),
+                        subscription: Subscription::Unsubscribed,
+                    },
+                ),
+            ),
+        ];
+        for (words, want) in cases {
+            assert_eq!(parse(&args(words)).unwrap(), want, "{words:?}");
+        }
+    }
+
+    #[test]
+    fn a_folder_command_missing_a_part_says_which_shape_it_wanted() {
+        const CASES: &[(&[&str], &str)] = &[
+            // Every change names its account; a name without one means nothing.
+            (&["folder", "new", "Receipts"], "new <account> <name>"),
+            (
+                &["folder", "rename", "me@example.test", "Work"],
+                "rename <account>",
+            ),
+            (&["folder", "delete", "me@example.test"], "delete <account>"),
+            // Deleting mail is said in full or not at all.
+            (
+                &["folder", "delete", "me@example.test", "Old", "--force"],
+                "--with-messages",
+            ),
+            (&["folder", "subscribe"], "subscribe|unsubscribe"),
+            (
+                &["folder", "list", "a@example.test", "b@example.test"],
+                "list [account]",
+            ),
+            (
+                &["folder", "move", "me@example.test", "Old"],
+                "unknown folder command",
+            ),
+        ];
+        for (words, hint) in CASES {
+            let error = parse(&args(words)).unwrap_err();
+            assert!(error.contains(hint), "{words:?}: {error}");
+        }
+        assert!(usage().contains("folder delete <account> <name> [--with-messages]"));
     }
 
     #[test]

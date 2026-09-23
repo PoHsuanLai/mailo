@@ -1,0 +1,51 @@
+[
+  {
+    "kind": "folder",
+    "v": {
+      "kind": "create",
+      "v": {
+        "path": "Receipts"
+      }
+    }
+  },
+  {
+    "kind": "folder",
+    "v": {
+      "kind": "rename",
+      "v": {
+        "from": "Work",
+        "to": "Work/2026"
+      }
+    }
+  },
+  {
+    "kind": "folder",
+    "v": {
+      "kind": "delete",
+      "v": {
+        "path": "Old",
+        "non_empty": "refuse"
+      }
+    }
+  },
+  {
+    "kind": "folder",
+    "v": {
+      "kind": "delete",
+      "v": {
+        "path": "Old",
+        "non_empty": "allow"
+      }
+    }
+  },
+  {
+    "kind": "folder",
+    "v": {
+      "kind": "subscribe",
+      "v": {
+        "path": "Lists",
+        "subscription": "unsubscribed"
+      }
+    }
+  }
+]

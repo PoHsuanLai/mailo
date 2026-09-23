@@ -4,7 +4,7 @@
 //! backends share it, which is why a backend test is a byte transcript exactly like a session
 //! test, and why there is no separate adapter crate.
 
-use mail_domain::{AccountCaps, Ingest, ProtoOp, RemoteRef, Retry, Retryable, Tls};
+use mail_domain::{AccountCaps, Folder, Ingest, ProtoOp, RemoteRef, Retry, Retryable, Tls};
 use std::time::Duration;
 
 /// What a machine wants done before it can continue.
@@ -70,6 +70,16 @@ pub trait Machine {
 pub enum ProtoOutcome {
     Ingested(Box<Ingest>),
     Caps(Box<AccountCaps>),
+    /// What [`ProtoOp::ListFolders`] found: the roles folded into the capabilities, as before,
+    /// and every mailbox the server lists, with whether the user follows it.
+    ///
+    /// Its own variant rather than more fields on `Caps`, because only a listing has folders
+    /// to report, and a `Caps` carrying an empty list would be indistinguishable from a server
+    /// with no mailboxes.
+    Folders {
+        caps: Box<AccountCaps>,
+        listed: Vec<Folder>,
+    },
     /// Flags, labels or mailbox membership are now confirmed on the server.
     Applied,
     Submitted {

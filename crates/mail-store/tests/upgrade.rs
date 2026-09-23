@@ -523,3 +523,49 @@ fn imap_mappings_are_dropped_so_the_header_pass_can_rebuild_them() {
         .unwrap();
     assert_eq!(kept, 1, "the message itself stays");
 }
+
+/// 0009: an account that predates folder listings upgrades with none, keeps its mail, and can
+/// be given a listing straight away.
+#[test]
+fn an_account_from_before_folders_upgrades_with_an_empty_listing() {
+    use mail_store::Store;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("mail.db");
+    let (account, message) = {
+        let db = Connection::open(&path).unwrap();
+        for (version, sql) in migrate::MIGRATIONS.iter().take(8) {
+            db.execute_batch(sql).unwrap();
+            if *version > 1 {
+                db.execute(
+                    "INSERT INTO schema_version (version, applied_at) VALUES (?1, datetime('now'))",
+                    [version],
+                )
+                .unwrap();
+            }
+        }
+        seed(&db)
+    };
+
+    let store = SqliteStore::open(&path, dir.path()).unwrap();
+    let account = mail_domain::AccountId::from_uuid(account.parse().unwrap());
+    assert_eq!(store.folders(account).unwrap(), vec![]);
+    let inbox = mail_domain::Folder {
+        account,
+        path: "INBOX".to_owned(),
+        delimiter: Some('/'),
+        special: Some(mail_domain::SpecialUse::Inbox),
+        subscription: mail_domain::Subscription::Subscribed,
+        holds: mail_domain::Holds::Mail,
+    };
+    store.put_folders(account, vec![inbox.clone()]).unwrap();
+    assert_eq!(store.folders(account).unwrap(), vec![inbox]);
+    let kept: i64 = store
+        .connection()
+        .query_row(
+            "SELECT count(*) FROM messages WHERE id = ?1",
+            [&message],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(kept, 1);
+}

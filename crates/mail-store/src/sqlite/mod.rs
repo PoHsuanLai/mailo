@@ -1,6 +1,7 @@
 //! The real [`Store`]: SQLite in WAL mode, with FTS5.
 
 mod draft;
+mod folders;
 mod outbox;
 mod read;
 mod row;
@@ -665,6 +666,25 @@ impl Store for SqliteStore {
         now: DateTime<Utc>,
     ) -> Result<(), StoreError> {
         SqliteStore::set_send_state(self, id, state, now)
+    }
+
+    fn folders(&self, account: AccountId) -> Result<Vec<mail_domain::Folder>, StoreError> {
+        self.read_folders(account)
+    }
+
+    fn put_folders(
+        &self,
+        account: AccountId,
+        listed: Vec<mail_domain::Folder>,
+    ) -> Result<(), StoreError> {
+        self.write_folders(account, listed)
+    }
+
+    fn folder_contents(
+        &self,
+        mailbox: &MailboxRef,
+    ) -> Result<mail_domain::FolderContents, StoreError> {
+        self.contents(mailbox)
     }
 
     fn outbox_settle(

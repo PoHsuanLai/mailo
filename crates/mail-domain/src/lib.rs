@@ -11,6 +11,7 @@ pub mod account;
 pub mod content;
 pub mod draft;
 pub mod filter;
+pub mod folder;
 pub mod id;
 pub mod ingest;
 pub mod message;
@@ -32,6 +33,10 @@ pub use account::{
 pub use content::{Address, Attachment, Body, Inline, Label, PartContent};
 pub use draft::{Draft, PendingAttachment, ReplyScope, SendState};
 pub use filter::{DateRange, Filter, MatchCtx, TextMatch};
+pub use folder::{
+    Folder, FolderContents, FolderCtx, FolderError, FolderWork, Holds, NonEmpty, SpecialUse,
+    Subscription,
+};
 pub use id::{
     AccountId, BlobId, ChangeId, DraftId, IdentityId, LabelId, MessageId, OutboxId, ThreadId,
     ViewId,

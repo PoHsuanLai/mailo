@@ -221,6 +221,8 @@ async fn session(
                      * LIST (\\HasNoChildren \\Drafts) \"/\" \"Drafts\"\r\n\
                      {tag} OK done\r\n"
                 )
+            } else if upper.starts_with("LSUB") {
+                format!("* LSUB () \"/\" \"INBOX\"\r\n{tag} OK done\r\n")
             } else if upper.starts_with("ENABLE") {
                 format!("* ENABLED QRESYNC\r\n{tag} OK enabled\r\n")
             } else if upper.starts_with("SELECT") || upper.starts_with("EXAMINE") {

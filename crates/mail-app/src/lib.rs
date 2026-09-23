@@ -7,6 +7,7 @@ pub mod cli;
 pub mod compose;
 mod contrast;
 pub mod editor;
+pub mod folder;
 pub mod hover;
 pub mod ipc;
 mod palette;

@@ -530,11 +530,48 @@ impl<B: Backend> AccountEngine<B> {
         // rather than treating it as a failure.
         let outcome = self.run(ProtoOp::ListFolders, cancel).await?;
         let caps = match outcome {
+            ProtoOutcome::Folders { caps, listed } => {
+                self.store.put_folders(self.account, listed)?;
+                *caps
+            }
             ProtoOutcome::Caps(caps) => *caps,
             _ => self.backend.caps().clone(),
         };
         self.store.put_caps(self.account, &caps, now)?;
         Ok(caps)
+    }
+
+    /// Ask the server for its folders, and write down the answer.
+    ///
+    /// The second half of [`AccountEngine::refresh_caps`] on its own, for when the list is
+    /// wanted and the capabilities are not stale. The roles come with it, as they always have.
+    pub async fn refresh_folders(
+        &mut self,
+        cancel: &mut Cancel,
+        now: DateTime<Utc>,
+    ) -> Result<Vec<mail_domain::Folder>, RuntimeError> {
+        // A protocol without folders answers something else, and that is not a failure.
+        if let ProtoOutcome::Folders { caps, listed } =
+            self.run(ProtoOp::ListFolders, cancel).await?
+        {
+            self.store.put_folders(self.account, listed)?;
+            self.store.put_caps(self.account, &caps, now)?;
+        }
+        Ok(self.store.folders(self.account)?)
+    }
+
+    /// Whether this account has folders and none have been listed yet.
+    ///
+    /// Capabilities are re-read daily, and the folder list with them. An account added this
+    /// morning would otherwise show no folders until tomorrow, and refuse to rename or delete
+    /// any, so a sync pass asks as soon as it finds the list empty.
+    pub fn folders_unlisted(&self) -> bool {
+        matches!(self.plan.incoming, Incoming::Imap { .. })
+            && self
+                .store
+                .folders(self.account)
+                .map(|f| f.is_empty())
+                .unwrap_or(false)
     }
 
     /// Upload a draft into the server's Drafts folder.

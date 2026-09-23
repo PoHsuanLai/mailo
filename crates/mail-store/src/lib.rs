@@ -21,9 +21,9 @@ pub use error::StoreError;
 
 use chrono::{DateTime, Utc};
 use mail_domain::{
-    AccountCaps, AccountId, BlobId, Draft, DraftId, Filter, Ingest, MailboxRef, Message, MessageId,
-    OutboxId, Page, Patch, ProtoOp, Query, RemoteIntent, RemoteRef, Retry, SendState, SyncCursor,
-    Thread, ThreadId, ThreadSummary,
+    AccountCaps, AccountId, BlobId, Draft, DraftId, Filter, Folder, FolderContents, Ingest,
+    MailboxRef, Message, MessageId, OutboxId, Page, Patch, ProtoOp, Query, RemoteIntent, RemoteRef,
+    Retry, SendState, SyncCursor, Thread, ThreadId, ThreadSummary,
 };
 
 /// One queued unit of remote work, with everything needed to retry or abandon it.
@@ -240,7 +240,31 @@ pub trait Store {
         now: DateTime<Utc>,
     ) -> Result<(), StoreError>;
 
+    /// Every mailbox this account's server lists, by path, with folder work still in the
+    /// outbox laid on top.
+    ///
+    /// Empty until the first listing, and always for POP3, which has no folders to list.
+    fn folders(&self, account: AccountId) -> Result<Vec<Folder>, StoreError>;
+
+    /// Replace the account's folders with what the server just listed.
+    ///
+    /// Folder work still queued is re-applied over the listing, in queue order, for the reason
+    /// [`Store::ingest`] re-layers pending changes: a listing taken before the server heard
+    /// about a new folder would otherwise make that folder disappear until the outbox drained.
+    fn put_folders(&self, account: AccountId, listed: Vec<Folder>) -> Result<(), StoreError>;
+
+    /// What this client holds in one mailbox: the messages it has a server address for there,
+    /// and the messages carrying the server's label of the same name.
+    ///
+    /// The question "would deleting this folder lose mail", asked of local knowledge. The
+    /// server is asked again when the delete is sent, because a folder never synced holds
+    /// nothing here whatever it holds there.
+    fn folder_contents(&self, mailbox: &MailboxRef) -> Result<FolderContents, StoreError>;
+
     /// Record how a queued operation finished and act on it.
+    ///
+    /// A confirmed [`mail_domain::FolderWork::Delete`] also drops the deleted mailbox's server
+    /// addresses and cursor, and any message that had no address anywhere else.
     fn outbox_settle(
         &self,
         id: OutboxId,

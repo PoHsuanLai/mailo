@@ -24,8 +24,10 @@
 use crate::account::{AccountCaps, ArchiveMeans, ServerLabels};
 use crate::content::Label;
 use crate::draft::Draft;
+use crate::folder::{Folder, FolderWork};
 use crate::id::{BlobId, ChangeId, DraftId, LabelId, MessageId, ThreadId};
 use crate::message::{Message, Thread};
+use crate::remote::MailboxRef;
 use crate::state::{MailboxRole, Membership, Pin, ReadState, Snooze, Star};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -105,6 +107,23 @@ pub enum Change {
     LabelUpsert(Label),
     DraftUpsert(Box<Draft>),
     DraftDelete(DraftId),
+    /// A label and every message's membership of it. Membership is removed first by the
+    /// caller, with [`Change::MessageLabel`], so that thread summaries are rebuilt from it.
+    LabelRemove(LabelId),
+    /// A mailbox as listed, added or replaced.
+    FolderUpsert(Folder),
+    /// A mailbox gone. Only the folder: its messages' server addresses are dropped when the
+    /// server confirms the delete, because an undo cannot put them back.
+    FolderRemove(MailboxRef),
+    /// A mailbox and everything beneath it renamed, with every record keyed by those names:
+    /// server addresses, sync cursors and, where mailboxes are labels, the labels.
+    ///
+    /// `delimiter` is the renamed folder's, which is what "beneath" is measured with.
+    FolderRename {
+        from: MailboxRef,
+        to: String,
+        delimiter: Option<char>,
+    },
 }
 
 /// A set of mutations applied as one unit.
@@ -162,9 +181,14 @@ pub enum RemoteIntent {
         mail_from: String,
         rcpt_to: Vec<String>,
     },
+    /// Create, rename, delete or follow a mailbox.
+    ///
+    /// Addresses no message, like [`RemoteIntent::Send`], so it resolves to the identical
+    /// [`crate::ProtoOp::Folder`] without consulting `remote_map`.
+    Folder(FolderWork),
 }
 
-/// The result of applying an [`Op`].
+/// The result of applying an [`Op`], or of planning a folder change with [`crate::folder::plan`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Applied {
     /// What to write locally, right now.

@@ -1,0 +1,38 @@
+{
+  "id": "08080808-0808-0808-0808-080808080808",
+  "changes": [
+    {
+      "kind": "folder_upsert",
+      "v": {
+        "account": "01010101-0101-0101-0101-010101010101",
+        "path": "[Gmail]/Sent Mail",
+        "delimiter": "/",
+        "special": "sent",
+        "subscription": "subscribed",
+        "holds": "mail"
+      }
+    },
+    {
+      "kind": "folder_remove",
+      "v": {
+        "account": "01010101-0101-0101-0101-010101010101",
+        "path": "[Gmail]/All Mail"
+      }
+    },
+    {
+      "kind": "folder_rename",
+      "v": {
+        "from": {
+          "account": "01010101-0101-0101-0101-010101010101",
+          "path": "[Gmail]/All Mail"
+        },
+        "to": "Archive/Old",
+        "delimiter": "/"
+      }
+    },
+    {
+      "kind": "label_remove",
+      "v": "04040404-0404-0404-0404-040404040404"
+    }
+  ]
+}

@@ -3,13 +3,14 @@
 //! Submission is deliberately absent: it is a separate connection to a separate host and lives
 //! in [`crate::backend::SmtpBackend`].
 
+use super::folders::{already_so, folder_commands};
 use crate::imap::{ImapCommand, ImapSession};
 use crate::machine::{Backend, IoReady, Machine, Progress, ProtoError, ProtoOutcome};
 use crate::mutf7;
 use mail_domain::{
-    AccountCaps, AccountId, ArchiveMeans, Condstore, ExpungeMeans, FetchSince, FolderRoles, Ingest,
-    MailboxRef, MailboxRole, MoveExt, PartTree, ProtoOp, RemoteRef, Resync, ServerLabels,
-    SyncCursor, UidValidity,
+    AccountCaps, AccountId, ArchiveMeans, Condstore, ExpungeMeans, FetchSince, FolderRoles,
+    FolderWork, Ingest, MailboxRef, MailboxRole, MoveExt, PartTree, ProtoOp, RemoteRef, Resync,
+    ServerLabels, SyncCursor, UidValidity,
 };
 
 /// Builds a session for one command walk, owning the credential so the backend never sees it.
@@ -30,15 +31,33 @@ enum Job {
     Idle,
     Caps,
     Folders,
-    Envelopes { mailbox: MailboxRef },
-    Flags { mailbox: MailboxRef },
-    Listing { mailbox: MailboxRef },
-    Resyncing { mailbox: MailboxRef, since: Resync },
-    Fetch { remotes: Vec<RemoteRef> },
-    Structure { remotes: Vec<RemoteRef> },
-    Sections { remote: RemoteRef },
+    Envelopes {
+        mailbox: MailboxRef,
+    },
+    Flags {
+        mailbox: MailboxRef,
+    },
+    Listing {
+        mailbox: MailboxRef,
+    },
+    Resyncing {
+        mailbox: MailboxRef,
+        since: Resync,
+    },
+    Fetch {
+        remotes: Vec<RemoteRef>,
+    },
+    Structure {
+        remotes: Vec<RemoteRef>,
+    },
+    Sections {
+        remote: RemoteRef,
+    },
     Applied,
     Watching,
+    /// A change to the set of mailboxes, kept so a refusal that says the change has already
+    /// happened can be recognised as success.
+    Folder(FolderWork),
 }
 
 /// Drives [`ImapSession`] on behalf of an account.
@@ -147,7 +166,14 @@ impl Backend for ImapBackend {
             }
             ProtoOp::ListFolders => {
                 self.job = Job::Folders;
-                self.queue(vec![ImapCommand::List])
+                // `LSUB` beside `LIST`, because only it says which mailboxes the user follows,
+                // and every server has it; `LIST ... RETURN (SUBSCRIBED)` needs LIST-EXTENDED.
+                self.queue(vec![ImapCommand::List, ImapCommand::Lsub])
+            }
+            ProtoOp::Folder(work) => {
+                let commands = folder_commands(&work);
+                self.job = Job::Folder(work);
+                self.queue(commands)
             }
             ProtoOp::FetchEnvelopes { mailbox, since } => {
                 let set = match since {
@@ -455,7 +481,18 @@ impl Backend for ImapBackend {
         };
         let transcript = match session.feed(ready) {
             Progress::Need(needs) => return Progress::Need(needs),
-            Progress::Failed(e) => return Progress::Failed(e),
+            Progress::Failed(e) => {
+                return match &self.job {
+                    // The server refused because what was asked is already true: the folder
+                    // exists, or is already gone. That is the outcome the user wanted, and
+                    // undoing it here would leave this client disagreeing with the server.
+                    Job::Folder(work) if already_so(work, &e) => {
+                        self.job = Job::Idle;
+                        Progress::Done(ProtoOutcome::Applied)
+                    }
+                    _ => Progress::Failed(e),
+                };
+            }
             Progress::Done(transcript) => transcript,
         };
 
@@ -500,7 +537,10 @@ impl Backend for ImapBackend {
                 let mut caps = self.caps.clone();
                 caps.folders = FolderRoles(roles);
                 self.caps = caps.clone();
-                Progress::Done(ProtoOutcome::Caps(Box::new(caps)))
+                Progress::Done(ProtoOutcome::Folders {
+                    caps: Box::new(caps),
+                    listed: crate::backend::folders::listing(&transcript.untagged, self.account),
+                })
             }
             Job::Listing { mailbox } => {
                 // `UID SEARCH ALL` answers with `* SEARCH 101 102 …`, not with FETCH lines, so
@@ -692,7 +732,7 @@ impl Backend for ImapBackend {
                 }
                 Progress::Done(ProtoOutcome::Sections { remote, parts })
             }
-            Job::Applied => Progress::Done(ProtoOutcome::Applied),
+            Job::Applied | Job::Folder(_) => Progress::Done(ProtoOutcome::Applied),
             Job::Watching => Progress::Done(ProtoOutcome::Woken),
         }
     }

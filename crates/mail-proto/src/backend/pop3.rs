@@ -260,6 +260,11 @@ impl Backend for Pop3Backend {
             ProtoOp::Append { .. } | ProtoOp::Submit { .. } => Progress::Failed(
                 ProtoError::Unsupported("POP3 cannot store or send a message".to_owned()),
             ),
+            // Refused before it is ever queued (`mail_domain::folder::plan`); this is the
+            // backstop for a row that got into the outbox some other way.
+            ProtoOp::Folder(_) => Progress::Failed(ProtoError::Unsupported(
+                "POP3 has one mailbox; it has no folders to change".to_owned(),
+            )),
         }
     }
 

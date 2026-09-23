@@ -277,6 +277,77 @@ fn proto_ops() -> Vec<ProtoOp> {
 }
 
 /// Every [`Filter`] variant, once.
+fn folders() -> Vec<Folder> {
+    vec![
+        Folder {
+            account: account(),
+            path: "[Gmail]/Sent Mail".to_owned(),
+            delimiter: Some('/'),
+            special: Some(SpecialUse::Sent),
+            subscription: Subscription::Subscribed,
+            holds: Holds::Mail,
+        },
+        Folder {
+            account: account(),
+            path: "[Gmail]".to_owned(),
+            delimiter: Some('/'),
+            special: None,
+            subscription: Subscription::Unsubscribed,
+            holds: Holds::FoldersOnly,
+        },
+        Folder {
+            account: account(),
+            path: "日本語".to_owned(),
+            delimiter: None,
+            special: None,
+            subscription: Subscription::Subscribed,
+            holds: Holds::Mail,
+        },
+    ]
+}
+
+/// Every shape of folder work, as the outbox stores it.
+fn folder_ops() -> Vec<ProtoOp> {
+    vec![
+        ProtoOp::Folder(FolderWork::Create {
+            path: "Receipts".to_owned(),
+        }),
+        ProtoOp::Folder(FolderWork::Rename {
+            from: "Work".to_owned(),
+            to: "Work/2026".to_owned(),
+        }),
+        ProtoOp::Folder(FolderWork::Delete {
+            path: "Old".to_owned(),
+            non_empty: NonEmpty::Refuse,
+        }),
+        ProtoOp::Folder(FolderWork::Delete {
+            path: "Old".to_owned(),
+            non_empty: NonEmpty::Allow,
+        }),
+        ProtoOp::Folder(FolderWork::Subscribe {
+            path: "Lists".to_owned(),
+            subscription: Subscription::Unsubscribed,
+        }),
+    ]
+}
+
+/// The undo of folder work, as the outbox stores it.
+fn folder_patch() -> Patch {
+    Patch {
+        id: ChangeId::from_uuid(uuid(8)),
+        changes: vec![
+            Change::FolderUpsert(folders().remove(0)),
+            Change::FolderRemove(mailbox_ref()),
+            Change::FolderRename {
+                from: mailbox_ref(),
+                to: "Archive/Old".to_owned(),
+                delimiter: Some('/'),
+            },
+            Change::LabelRemove(LabelId::from_uuid(uuid(4))),
+        ],
+    }
+}
+
 fn filters() -> Vec<Filter> {
     vec![
         Filter::All,
@@ -1223,6 +1294,9 @@ fixtures! {
         MailboxSet::only(MailboxRole::Inbox),
         MailboxRole::ALL.into_iter().collect(),
     ],
+    "folders.json" => Vec<Folder> = folders(),
+    "proto_ops_folders.json" => Vec<ProtoOp> = folder_ops(),
+    "patch_folders.json" => Patch = folder_patch(),
     "message_keys.json" => Vec<MessageKey> = vec![
         MessageKey::Rfc("abc@example.test".to_owned()),
         MessageKey::Gmail(1),
@@ -1285,4 +1359,17 @@ fn group_key_round_trips_every_variant() {
         let back: GroupKey = serde_json::from_value(json).expect("deserialize");
         assert_eq!(back, value);
     }
+}
+
+#[test]
+fn folder_types_round_trip() {
+    round_trip_each("Folder", folders());
+    round_trip_each("ProtoOp::Folder", folder_ops());
+    round_trip("folder Patch", folder_patch());
+    round_trip(
+        "RemoteIntent::Folder",
+        RemoteIntent::Folder(FolderWork::Create {
+            path: "Receipts".to_owned(),
+        }),
+    );
 }

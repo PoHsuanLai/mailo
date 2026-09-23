@@ -228,6 +228,8 @@ pub enum ProtoOp {
     Watch {
         mailbox: MailboxRef,
     },
+    /// Create, rename, delete or follow a mailbox. IMAP only.
+    Folder(crate::folder::FolderWork),
 }
 
 #[cfg(test)]
