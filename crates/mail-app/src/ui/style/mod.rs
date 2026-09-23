@@ -515,7 +515,52 @@ mod tests {
                 matched = Some(word);
             }
         }
-        matched.map(str::to_string)
+        match matched {
+            // An icon's stroke follows the text it sits in. That is not a palette
+            // choice, so `currentColor` is allowed only as the whole value of
+            // `stroke` or `fill`. Anywhere else, including `color`, it stays forbidden.
+            Some("currentColor") if current_color_is_stroke_or_fill(chars, index) => None,
+            Some(word) => Some(word.to_string()),
+            None => None,
+        }
+    }
+
+    /// `currentColor` at `start` is the entire value of a `stroke` or `fill` declaration.
+    ///
+    /// `stroke-width` is a different property, and a value with another token
+    /// (`stroke: currentColor extra`) is not the keyword on its own.
+    fn current_color_is_stroke_or_fill(chars: &[char], start: usize) -> bool {
+        let Some(property) = property_before(chars, start) else {
+            return false;
+        };
+        if property != "stroke" && property != "fill" {
+            return false;
+        }
+        let mut index = start + "currentColor".chars().count();
+        while chars.get(index).is_some_and(|c| c.is_whitespace()) {
+            index += 1;
+        }
+        chars.get(index).is_none_or(|c| *c == ';')
+    }
+
+    /// The property whose value starts at `value`, when only whitespace separates them.
+    fn property_before(chars: &[char], value: usize) -> Option<String> {
+        let mut index = value;
+        while index > 0 && chars[index - 1].is_whitespace() {
+            index -= 1;
+        }
+        if index == 0 || chars[index - 1] != ':' {
+            return None;
+        }
+        index -= 1;
+        while index > 0 && chars[index - 1].is_whitespace() {
+            index -= 1;
+        }
+        let end = index;
+        while index > 0 && word_continues(chars[index - 1]) {
+            index -= 1;
+        }
+        (end > index).then(|| chars[index..end].iter().collect())
     }
 
     fn colour_offences(selector: &str, body: &str) -> Vec<String> {
@@ -625,5 +670,34 @@ mod tests {
             offences.extend(colour_offences(selector, body));
         }
         assert!(offences.is_empty(), "{}", offences.join("\n"));
+    }
+
+    #[test]
+    fn current_color_is_only_a_stroke_or_fill_value() {
+        // The keyword names the surrounding text. It is the whole value of
+        // `stroke` or `fill`, or it is a colour outside the palette.
+        const CASES: &[(&str, &str, &[&str])] = &[
+            (".label", "color: currentColor", &[".label: currentColor"]),
+            (".ic", "stroke: currentColor", &[]),
+            (".ic", "fill: currentColor", &[]),
+            (
+                ".swatch",
+                "background: currentColor",
+                &[".swatch: currentColor"],
+            ),
+            (".ic", "stroke-width: currentColor", &[".ic: currentColor"]),
+            (".ic", "stroke: currentColor extra", &[".ic: currentColor"]),
+        ];
+        let mut failures = Vec::new();
+        for &(selector, body, expect) in CASES {
+            let got = colour_offences(selector, body);
+            let expect: Vec<String> = expect.iter().map(|offence| (*offence).to_owned()).collect();
+            if got != expect {
+                failures.push(format!(
+                    "{selector} {{ {body} }}: got {got:?}, want {expect:?}"
+                ));
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
     }
 }

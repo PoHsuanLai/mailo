@@ -7,6 +7,7 @@
 mod app;
 mod composer;
 mod data;
+mod icon;
 mod launch;
 mod list;
 mod menus;

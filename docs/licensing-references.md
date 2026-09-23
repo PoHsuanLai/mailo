@@ -473,6 +473,7 @@ beside it.
 | Asset | Licence | Where | Notice |
 |---|---|---|---|
 | Bricolage Grotesque, Karla, Space Mono (Latin and Latin Extended subsets, WOFF2, from Google Fonts) | SIL Open Font License 1.1 | `crates/mail-app/assets/fonts/` | `OFL-*.txt` beside the files |
+| Lucide icon geometry (23 icons, transcribed as path data) | ISC (portions MIT, from Feather) | `crates/mail-app/src/ui/icon/geometry.rs` | `crates/mail-app/assets/icons/LICENSE-lucide.txt` |
 
 The OFL lets a font ship inside software under any licence. What it forbids is selling the font
 on its own and using a Reserved Font Name for a modified font. We sell nothing and modify nothing:
