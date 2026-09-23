@@ -54,7 +54,7 @@ fn config_dir_from(xdg: Option<OsString>, home: Option<OsString>) -> Option<Path
 #[cfg(test)]
 mod tests {
     use super::{config_dir_from, load, save};
-    use crate::view::{Accent, Appearance, Theme};
+    use crate::view::{Accent, Appearance, Motion, Theme};
     use std::ffi::OsString;
     use std::path::{Path, PathBuf};
 
@@ -81,26 +81,32 @@ mod tests {
             Appearance {
                 theme: Theme::System,
                 accent: Accent::Postmark,
+                motion: Motion::Standard,
             },
             Appearance {
                 theme: Theme::Dark,
                 accent: Accent::Pine,
+                motion: Motion::Calm,
             },
             Appearance {
                 theme: Theme::Light,
                 accent: Accent::Oxblood,
+                motion: Motion::Extra,
             },
             Appearance {
                 theme: Theme::System,
                 accent: Accent::Vermilion,
+                motion: Motion::Standard,
             },
             Appearance {
                 theme: Theme::Dark,
                 accent: Accent::Graphite,
+                motion: Motion::Calm,
             },
             Appearance {
                 theme: Theme::Light,
                 accent: Accent::Indigo,
+                motion: Motion::Extra,
             },
         ];
         for &look in CASES {
@@ -150,6 +156,7 @@ mod tests {
                 Appearance {
                     theme: Theme::Dark,
                     accent: Accent::default(),
+                    motion: Motion::default(),
                 },
             ),
             (
@@ -158,6 +165,7 @@ mod tests {
                 Appearance {
                     theme: Theme::Dark,
                     accent: Accent::default(),
+                    motion: Motion::default(),
                 },
             ),
             (
@@ -166,6 +174,24 @@ mod tests {
                 Appearance {
                     theme: Theme::default(),
                     accent: Accent::Pine,
+                    motion: Motion::default(),
+                },
+            ),
+            (
+                "motion only",
+                r#"{"motion":"calm"}"#,
+                Appearance {
+                    motion: Motion::Calm,
+                    ..Appearance::default()
+                },
+            ),
+            (
+                "unknown motion keeps the rest",
+                r#"{"theme":"dark","accent":"pine","motion":"wild"}"#,
+                Appearance {
+                    theme: Theme::Dark,
+                    accent: Accent::Pine,
+                    motion: Motion::default(),
                 },
             ),
             (
@@ -174,6 +200,7 @@ mod tests {
                 Appearance {
                     theme: Theme::Light,
                     accent: Accent::Indigo,
+                    motion: Motion::default(),
                 },
             ),
         ];

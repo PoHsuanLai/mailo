@@ -1,18 +1,18 @@
-.list { overflow-y: auto; border-right: 1px solid var(--hairline); background: var(--paper-raised); min-height: 0; }
-.search { width: 100%; padding: 10px 12px; border: 0; border-bottom: 1px solid var(--hairline); background: var(--paper-raised); color: var(--ink); font: inherit; }
+.list { overflow-y: auto; border-right: 1px solid var(--line); background: var(--surface); min-height: 0; }
+.search { width: 100%; padding: 10px 12px; border: 0; border-bottom: 1px solid var(--line); background: var(--surface); color: var(--ink); font: inherit; }
 .search::placeholder { color: var(--ink-faint); }
-.row { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 13fr) auto; gap: 10px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--hairline); cursor: pointer; position: relative; }
-.row:hover { background: var(--hover); }
+.row { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 13fr) auto; gap: 10px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--line); cursor: pointer; position: relative; }
+.row:hover { background: var(--raise); }
 /* Inset, so the unread mark costs no layout. */
 .row.unread { box-shadow: inset 3px 0 0 var(--accent); }
-.row.unread .subject, .row.unread .who { font-weight: var(--weight-strong); }
+.row.unread .subject, .row.unread .who { font-weight: 600; }
 .who, .subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.when { color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+.when { color: var(--ink-soft); font-variant-numeric: tabular-nums; }
 .hover { display: none; position: absolute; right: 8px; gap: 4px; }
 .row:hover .hover { display: flex; }
-.hover button { font: inherit; font-size: 12px; padding: 2px 8px; border: 1px solid var(--hairline); border-radius: var(--radius-pill); background: var(--paper-raised); color: var(--ink-dim); cursor: pointer; }
+.hover button { font: inherit; font-size: 12px; padding: 2px 8px; border: 1px solid var(--line); border-radius: var(--r-pill); background: var(--surface); color: var(--ink-soft); cursor: pointer; }
 .hover button:hover { background: var(--accent-soft); color: var(--ink); }
 /* The first-run message names a command, which has to survive its own line breaks. */
 .empty { padding: 12px 12px 0; margin: 0; }
-.command { margin: 6px 12px 0; padding: 6px 8px; border: 1px solid var(--hairline); border-radius: var(--radius); background: var(--paper-sunken); color: var(--ink); font: 12px/1.5 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
-.more { display: block; width: calc(100% - 24px); margin: 10px 12px; padding: 8px; font: inherit; border: 1px solid var(--hairline); border-radius: var(--radius); background: var(--paper-raised); color: var(--ink); cursor: pointer; }
+.command { margin: 6px 12px 0; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--r-card); background: var(--surface-2); color: var(--ink); font: 12px/1.5 var(--font-data); white-space: pre-wrap; overflow-wrap: anywhere; }
+.more { display: block; width: calc(100% - 24px); margin: 10px 12px; padding: 8px; font: inherit; border: 1px solid var(--line); border-radius: var(--r-card); background: var(--surface); color: var(--ink); cursor: pointer; }

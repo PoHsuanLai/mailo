@@ -58,19 +58,28 @@ mod tests {
 
     const ACCENT_KEYS: &[&str] = &["--accent", "--accent-ink", "--accent-soft", "--seal"];
 
+    /// Text on every ground it is drawn on. The Post reference puts faint text on the recessed
+    /// panes too (the sidebar's counts, the reader's meta), so `--surface-2` is checked, not
+    /// only the paper. `--warn` is a star's fill and a retry's mark, a graphic, so 3.0.
     const PAIRS: &[(&str, &str, f64)] = &[
         ("--ink", "--paper", 4.5),
-        ("--ink", "--paper-raised", 4.5),
-        ("--ink", "--paper-sunken", 4.5),
-        ("--ink-dim", "--paper", 4.5),
-        ("--ink-dim", "--paper-raised", 4.5),
+        ("--ink", "--surface", 4.5),
+        ("--ink", "--surface-2", 4.5),
+        ("--ink", "--raise", 4.5),
+        ("--ink-soft", "--paper", 4.5),
+        ("--ink-soft", "--surface", 4.5),
+        ("--ink-soft", "--surface-2", 4.5),
         ("--ink-faint", "--paper", 3.0),
-        ("--ink-faint", "--paper-raised", 3.0),
+        ("--ink-faint", "--surface", 3.0),
+        ("--ink-faint", "--surface-2", 3.0),
         ("--danger", "--paper", 4.5),
         ("--danger-ink", "--danger", 4.5),
         ("--accent-ink", "--accent", 4.5),
         ("--accent", "--paper", 3.0),
-        ("--accent", "--paper-raised", 3.0),
+        ("--accent", "--surface", 3.0),
+        ("--ink", "--accent-soft", 4.5),
+        ("--warn", "--surface", 3.0),
+        ("--ok", "--surface", 3.0),
     ];
 
     /// Light, then dark because the desktop prefers it, then dark because the
@@ -579,6 +588,31 @@ mod tests {
                 &src[..src.len().min(48)]
             );
         }
+    }
+
+    /// Custom properties a component sets on one element (from markup, per row or per spark),
+    /// so they are never on `:root`. Each rule that reads one gives it a fallback or is only
+    /// reached with it set.
+    const PER_ELEMENT: &[&str] = &["--i", "--a", "--d", "--dy"];
+
+    #[test]
+    fn every_var_is_declared() {
+        // A misspelt token is not an error anywhere: `var(--line-sfot)` resolves to nothing,
+        // the declaration is dropped, and the element quietly takes its inherited value. With
+        // hundreds of rules ported from the reference, this is the typo that survives review.
+        let css = strip_comments(STYLE);
+        let root = declared(&css, ":root");
+        let mut missing = BTreeSet::new();
+        for (at, _) in css.match_indices("var(--") {
+            let name: String = css[at + "var(".len()..]
+                .chars()
+                .take_while(|c| c.is_ascii_alphanumeric() || *c == '-')
+                .collect();
+            if !root.contains_key(&name) && !PER_ELEMENT.contains(&name.as_str()) {
+                missing.insert(name);
+            }
+        }
+        assert!(missing.is_empty(), "used but never declared: {missing:?}");
     }
 
     #[test]

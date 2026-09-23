@@ -264,6 +264,52 @@ impl Theme {
     }
 }
 
+/// How much the window moves.
+///
+/// One setting that rescales the whole motion system (see `tokens.css`) rather than a switch per
+/// animation. `Calm` keeps every state change visible but removes the overshoot; the desktop's
+/// reduced-motion setting goes further and is honoured whatever this says.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Copy, Hash, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Motion {
+    /// No overshoot, no stagger, no tilt.
+    Calm,
+    /// The design as drawn.
+    #[default]
+    Standard,
+    /// More spring, more stagger, more tilt.
+    Extra,
+}
+
+impl Motion {
+    /// Every level, in the order a picker offers them.
+    pub const ALL: [Motion; 3] = [Motion::Calm, Motion::Standard, Motion::Extra];
+
+    /// The `data-motion` value. `tokens.css` is written against `calm` and `extra`; `standard`
+    /// matches no rule there, which is what makes it the design as drawn.
+    pub fn slug(self) -> &'static str {
+        match self {
+            Motion::Calm => "calm",
+            Motion::Standard => "standard",
+            Motion::Extra => "extra",
+        }
+    }
+
+    /// What a picker calls it.
+    pub fn label(self) -> &'static str {
+        match self {
+            Motion::Calm => "Calm",
+            Motion::Standard => "Standard",
+            Motion::Extra => "Extra",
+        }
+    }
+
+    /// The level a stored word names, or [`None`] for a word that is not one.
+    pub fn parse(word: &str) -> Option<Motion> {
+        Self::ALL.into_iter().find(|level| level.slug() == word)
+    }
+}
+
 /// How the window looks, as data.
 ///
 /// A missing field is the first-run value. An unknown word for one field is that field's
@@ -278,6 +324,18 @@ pub struct Appearance {
     /// The decoration hue. Only the four accent custom properties change with it.
     #[serde(deserialize_with = "de_accent")]
     pub accent: Accent,
+    /// How much the window moves.
+    #[serde(deserialize_with = "de_motion")]
+    pub motion: Motion,
+}
+
+/// A stored motion level. Anything that is not one of the three is [`Motion::default`].
+fn de_motion<'de, D>(deserializer: D) -> Result<Motion, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let word = String::deserialize(deserializer)?;
+    Ok(Motion::parse(&word).unwrap_or_default())
 }
 
 /// A stored accent. Anything that is not one of the six slugs is [`Accent::default`].

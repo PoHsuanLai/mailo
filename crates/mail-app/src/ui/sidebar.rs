@@ -7,7 +7,7 @@
 
 use super::launch::appearance_script;
 use super::ops::start_new;
-use crate::view::{Accent, Appearance, Shell, SyncState, Theme, synced};
+use crate::view::{Accent, Appearance, Motion, Shell, SyncState, Theme, synced};
 use dioxus::prelude::*;
 use mail_store::SqliteStore;
 use std::sync::Arc;
@@ -76,10 +76,26 @@ pub(super) fn Places(
                             key: "{theme.label()}",
                             aria_pressed: if shell.read().appearance.theme == theme { "true" } else { "false" },
                             onclick: move |_| {
-                                let accent = shell.read().appearance.accent;
-                                choose(shell, Appearance { theme, accent });
+                                let look = shell.read().appearance;
+                                choose(shell, Appearance { theme, ..look });
                             },
                             "{theme.label()}"
+                        }
+                    }
+                }
+                div {
+                    class: "motion-choice",
+                    role: "group",
+                    aria_label: "Motion",
+                    for motion in Motion::ALL {
+                        button {
+                            key: "{motion.slug()}",
+                            aria_pressed: if shell.read().appearance.motion == motion { "true" } else { "false" },
+                            onclick: move |_| {
+                                let look = shell.read().appearance;
+                                choose(shell, Appearance { motion, ..look });
+                            },
+                            "{motion.label()}"
                         }
                     }
                 }
@@ -96,8 +112,8 @@ pub(super) fn Places(
                             title: "{accent.label()}",
                             aria_pressed: if shell.read().appearance.accent == accent { "true" } else { "false" },
                             onclick: move |_| {
-                                let theme = shell.read().appearance.theme;
-                                choose(shell, Appearance { theme, accent });
+                                let look = shell.read().appearance;
+                                choose(shell, Appearance { accent, ..look });
                             },
                         }
                     }
@@ -146,7 +162,7 @@ pub(super) fn Places(
 mod tests {
     use super::super::app::App;
     use crate::ui::fixtures::empty;
-    use crate::view::{Accent, Appearance, Theme};
+    use crate::view::{Accent, Appearance, Motion, Theme};
     use dioxus::prelude::*;
 
     #[tokio::test]
@@ -155,6 +171,7 @@ mod tests {
         let look = Appearance {
             theme: Theme::Dark,
             accent: Accent::Pine,
+            motion: Motion::Calm,
         };
         let mut dom = VirtualDom::new(App)
             .with_root_context(store)
@@ -164,6 +181,7 @@ mod tests {
 
         let themes = buttons_in(&page, "theme-choice");
         let swatches = buttons_in(&page, "accent-choice");
+        let motions = buttons_in(&page, "motion-choice");
         assert_eq!(
             themes
                 .iter()
@@ -186,6 +204,11 @@ mod tests {
         assert_eq!(
             pressed(&swatches, |button| button.attr("data-hue")),
             ["pine"],
+            "{page}"
+        );
+        assert_eq!(
+            pressed(&motions, |button| button.text.as_str()),
+            ["Calm"],
             "{page}"
         );
     }

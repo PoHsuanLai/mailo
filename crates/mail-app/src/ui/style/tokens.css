@@ -7,30 +7,34 @@
      <input> internals and the reader's unstyled mail render dark in a dark window. */
   color-scheme: light dark;
 
-  /* surface and ink */
+  /* Surface and ink, in the Post reference's own names so its component rules port as
+     written. `--surface` is a pane, `--surface-2` the recessed one (sidebar, reader),
+     `--raise` the thing lifted off both (a selected row, a menu, the composer). */
   --paper: #E9ECE6;
-  --paper-raised: #F8F9F6;
-  --paper-sunken: #F1F3EE;
+  --surface: #F8F9F6;
+  --surface-2: #F1F3EE;
+  --raise: #FFFFFF;
   --ink: #1A1E1A;
-  --ink-dim: #586057;
+  --ink-soft: #586057;
   --ink-faint: #676E65;
-  --hairline: #D6DBD0;
+  --line: #D6DBD0;
+  --line-soft: #E3E7DE;
 
-  /* Elevation. `--lift` is the composed pair, so a raised thing spends one token and the
-     1px inset highlight can never drift away from the shadow it belongs to. */
-  --highlight: rgba(255, 255, 255, 0.7);
-  --shadow: 0 1px 2px rgba(26, 30, 26, 0.1);
-  --lift: inset 0 1px 0 var(--highlight), var(--shadow);
+  /* Elevation. Each shadow carries its own 1px inset highlight, so a raised thing spends one
+     token and the highlight cannot drift away from the shadow it belongs to. */
+  --shadow-1: 0 1px 0 rgba(255, 255, 255, 0.7) inset, 0 1px 2px rgba(26, 30, 26, 0.1);
+  --shadow-2: 0 1px 0 rgba(255, 255, 255, 0.7) inset, 0 6px 16px -6px rgba(26, 30, 26, 0.3);
+  --shadow-drag: 0 18px 30px -12px rgba(26, 30, 26, 0.4);
+  /* What sits behind a dialog: the command menu and a centred reader. */
+  --scrim: rgba(0, 0, 0, 0.22);
 
-  /* Shape. `--radius` is a four-value shorthand and can only be spent whole -- there is no
-     overriding one corner out of it. Anything that needs the small corner on the other side
-     uses `--radius-mirror`. It belongs to cards, buttons, fields and panes; a stacked list
-     row keeps a hairline and no radius, because the flap corner repeated down a list reads
-     as a rendering fault rather than a signature. */
-  --radius: 12px 12px 12px 4px;
-  --radius-mirror: 12px 12px 4px 12px;
-  --radius-sm: 9px;
-  --radius-pill: 999px;
+  /* Shape. `--r-card` is a four-value shorthand and can only be spent whole: the small corner
+     is the envelope flap, bottom left, and there is no overriding one corner out of it. */
+  --r-card: 12px 12px 12px 4px;
+  --r-btn: 9px;
+  --r-pill: 999px;
+  --r-panel: 14px;
+  --r-chip: 6px 6px 6px 2px;
 
   /* Type. Three faces, each with a job: Bricolage Grotesque for headings, Karla for the
      reading and the chrome, Space Mono for machine facts (times, counts, hosts, sizes). The
@@ -39,22 +43,28 @@
   --font-display: "Bricolage Grotesque", "Trebuchet MS", system-ui, sans-serif;
   --font-ui: "Karla", "Segoe UI", system-ui, sans-serif;
   --font-data: "Space Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
-  --font: var(--font-ui);
-  --font-mono: var(--font-data);
-  --size: 14px;
-  --weight-strong: 650;
 
-  /* rhythm */
-  --gap: 10px;
-  --pad: 12px;
-  --pad-sm: 6px;
+  /* Motion. Five durations and three curves, and nothing in the stylesheet spells a number
+     of milliseconds of its own. `--e-spring` overshoots and is spent only on contact -- the
+     200ms after you touched something. Nothing loops except the sync halo, and that only
+     while a sync is actually running. `data-motion` below rescales the whole system. */
+  --t-tap: 90ms;
+  --t-quick: 170ms;
+  --t-move: 250ms;
+  --t-big: 420ms;
+  --t-ambient: 5s;
+  --e-out: cubic-bezier(0.22, 0.9, 0.3, 1);
+  --e-spring: cubic-bezier(0.34, 1.42, 0.52, 1);
+  --e-exit: cubic-bezier(0.55, 0, 0.75, 0.2);
+  --overshoot: 1.04;
+  --squish: 0.955;
+  --lift: -2px;
+  --tilt: 2.2deg;
+  --stagger: 26ms;
 
-  /* State. `--selected` and `--focus` are the accent, so they move with the decoration and
-     nothing else has to know which hue is on. */
-  --hover: color-mix(in oklab, var(--ink) 6%, transparent);
-  --active: color-mix(in oklab, var(--ink) 12%, transparent);
-  --selected: var(--accent-soft);
-  --focus: var(--accent);
+  /* Meaning, not decoration: `--ok` is a send that landed, `--warn` a star and a retry. */
+  --ok: #2C7A57;
+  --warn: #A5761A;
 
   /* The ground behind a sender's HTML. White, and deliberately absent from
      `tokens.dark.css`, so it stays white in a dark window: mail is authored for a white page,
@@ -86,3 +96,23 @@
 
 :root[data-theme="light"] { color-scheme: light; }
 :root[data-theme="dark"] { color-scheme: dark; }
+
+/* Motion levels. The setting rescales the one system rather than switching animations off one
+   by one: `calm` removes every overshoot and the stagger, `extra` exaggerates them. Reduced
+   motion from the desktop goes further than `calm`, and is in `reset.css`. */
+:root[data-motion="calm"] {
+  --overshoot: 1;
+  --squish: 1;
+  --tilt: 0deg;
+  --stagger: 0ms;
+  --e-spring: var(--e-out);
+  --t-big: 300ms;
+}
+:root[data-motion="extra"] {
+  --overshoot: 1.14;
+  --squish: 0.86;
+  --tilt: 5deg;
+  --stagger: 34ms;
+  --e-spring: cubic-bezier(0.34, 2, 0.5, 1);
+  --t-big: 560ms;
+}

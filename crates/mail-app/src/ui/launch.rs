@@ -70,16 +70,19 @@ pub(super) fn appearance_script(look: Appearance) -> String {
         serde_json::to_string(word).expect("a &str always serializes") // `&str` serialization cannot fail
     };
     let accent = quote(look.accent.slug());
+    let motion = quote(look.motion.slug());
     match look.theme.attribute() {
         Some(theme) => {
             let theme = quote(theme);
             format!(
                 "document.documentElement.dataset.accent = {accent};\n\
+                 document.documentElement.dataset.motion = {motion};\n\
                  document.documentElement.dataset.theme = {theme};"
             )
         }
         None => format!(
             "document.documentElement.dataset.accent = {accent};\n\
+             document.documentElement.dataset.motion = {motion};\n\
              delete document.documentElement.dataset.theme;"
         ),
     }
@@ -146,7 +149,7 @@ mod tests {
     use super::Appearance;
     use super::appearance_head;
     use super::appearance_script;
-    use crate::view::{Accent, Theme};
+    use crate::view::{Accent, Motion, Theme};
 
     #[test]
     fn the_default_appearance_is_stamped_exactly() {
@@ -156,6 +159,7 @@ mod tests {
         assert_eq!(
             appearance_head(Appearance::default()),
             "<script>\ndocument.documentElement.dataset.accent = \"postmark\";\n\
+             document.documentElement.dataset.motion = \"standard\";\n\
              delete document.documentElement.dataset.theme;\n</script>"
         );
     }
@@ -166,8 +170,10 @@ mod tests {
             appearance_head(Appearance {
                 theme: Theme::Dark,
                 accent: Accent::Pine,
+                motion: Motion::Extra,
             }),
             "<script>\ndocument.documentElement.dataset.accent = \"pine\";\n\
+             document.documentElement.dataset.motion = \"extra\";\n\
              document.documentElement.dataset.theme = \"dark\";\n</script>"
         );
     }
@@ -180,6 +186,7 @@ mod tests {
         let head = appearance_head(Appearance {
             theme: Theme::System,
             accent: Accent::Vermilion,
+            motion: Motion::default(),
         });
         assert!(
             head.contains("delete document.documentElement.dataset.theme"),
@@ -198,16 +205,20 @@ mod tests {
                 Appearance {
                     theme: Theme::Dark,
                     accent: Accent::Pine,
+                    motion: Motion::Calm,
                 },
                 "document.documentElement.dataset.accent = \"pine\";\n\
+                 document.documentElement.dataset.motion = \"calm\";\n\
                  document.documentElement.dataset.theme = \"dark\";",
             ),
             (
                 Appearance {
                     theme: Theme::System,
                     accent: Accent::Graphite,
+                    motion: Motion::Standard,
                 },
                 "document.documentElement.dataset.accent = \"graphite\";\n\
+                 document.documentElement.dataset.motion = \"standard\";\n\
                  delete document.documentElement.dataset.theme;",
             ),
         ];
@@ -221,6 +232,7 @@ mod tests {
         let script = appearance_script(Appearance {
             theme: Theme::System,
             accent: Accent::Graphite,
+            motion: Motion::default(),
         });
         assert!(
             script.contains("delete document.documentElement.dataset.theme"),
