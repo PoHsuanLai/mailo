@@ -1459,6 +1459,107 @@ HOST`, which carries no host guess to verify.
 Grok gets bodies behind it. Every diff is reviewed before it is committed, one commit per item.
 
 
+### 10 — What every mature client has
+
+Surveyed 2026-09-24 against the published feature sets of Thunderbird, Evolution, Geary,
+K-9/Thunderbird Android, aerc and neomutt (their documentation, never their source). Phases 1–9
+built a client that reads, searches, writes and sends; this phase is the rest of what a person
+expects a mail client to do. The user lifted the v1 non-goals that stood in the way (calendar
+invites, CardDAV, OpenPGP/S-MIME, Graph as a protocol, incoming protocols beyond IMAP/POP3) on
+2026-09-24; see §Non-goals.
+
+Every item is split the same way. The **data half** (domain, MIME, protocol, store, runtime, CLI)
+is written here and delegated to subagents in worktrees. The **window half** goes to the UI
+session with the data half's API, once that half has landed. Each item is done when its data
+half is reachable from `mailo` and tested, and its window half is handed over.
+
+Ordering is by what a user notices first, then by what later items build on. Migrations are
+numbered in landing order at integration, not in this file.
+
+**Wave A — small, independent.**
+
+- **10.1 — Tokens renew inside `mailo watch`.** An OAuth access token lives about an hour; the
+  engine refreshes it before expiry (and once on a `NeedsReauth` refusal) instead of only at
+  process start. Covers the IMAP token and the separate Graph sending token.
+- **10.2 — Folders.** IMAP `CREATE`, `RENAME`, `DELETE`, `SUBSCRIBE`/`UNSUBSCRIBE` as remote
+  intents; `mailo folder new|rename|delete|subscribe`. Gmail labels are mailboxes to IMAP, so the
+  same commands manage them. Deleting a mailbox that holds mail refuses unless told otherwise.
+- **10.3 — One-click unsubscribe.** Parse `List-Unsubscribe` (RFC 2369) and
+  `List-Unsubscribe-Post` (RFC 8058). One-click is an HTTPS `POST` with the RFC 8058 body, made
+  by the runtime; otherwise a `mailto:` becomes a queued message; an `http(s)` link without
+  one-click is shown, never fetched. `mailo unsubscribe <thread>`.
+- **10.4 — Read receipts.** Request one (`Disposition-Notification-To`, `mailo compose
+  --receipt-request`), see that a message asks for one, and answer it (RFC 8098
+  `multipart/report; report-type=disposition-notification`). Never sent automatically.
+- **10.5 — Raw 8-bit headers.** Headers that are neither ASCII nor valid UTF-8 (Big5, GBK,
+  Shift_JIS, KOI8 from old servers) are decoded with the charset the message itself declares,
+  then a detector, instead of shown as replacement characters.
+
+**Wave B — surfaces that need new storage.**
+
+- **10.6 — New-mail notifications.** The engine reports what arrived; `mailo watch` raises a
+  freedesktop desktop notification (sender, subject) for new unread mail in Inbox-like places,
+  never for spam, muted, or mail this client sent. Batches a burst into one. Off with a setting.
+- **10.7 — Contacts.** A contacts table fed by message history (frecency: addresses written to
+  count more than addresses read from), autocomplete as a store query, vCard 4.0/3.0 import and
+  export (RFC 6350; new pure crate `mail-pim`), and CardDAV sync (RFC 6352, `.well-known`
+  discovery, `sync-collection`). `mailo contacts [query]`, `mailo contacts import|export|sync`.
+- **10.8 — Templates and send later.** A draft can be saved as a template and a new draft made
+  from one. A queued send can carry a not-before time; the outbox holds it until then, and it
+  can be cancelled back to a draft until it leaves. `mailo send <draft> --at <when>`.
+- **10.9 — Import and export.** mboxrd, Maildir and single `.eml`, both directions. Imported
+  mail lands in a local-only account (the way other clients keep "Local Folders"), or with
+  `--to-mailbox` is appended to an IMAP mailbox. `mailo import|export`.
+- **10.10 — Printing.** A pure function turns a message or thread into a self-contained,
+  sanitised, printable HTML document (headers, body, attachment list); `mailo print` writes it.
+  The window prints the same document through the webview.
+
+**Wave C — rules, invites, discovery.**
+
+- **10.11 — Rules and vacation.** Local rules: a `Filter` plus actions (label, move, mark read,
+  star, spam), applied to arriving mail at ingest and on demand to what is already here. Where
+  the server offers ManageSieve (RFC 5804), the same rules and a vacation reply (RFC 5230) are
+  compiled to Sieve (RFC 5228) and installed on the server so they run while this client is off.
+- **10.12 — Calendar invites.** Parse `text/calendar` (RFC 5545) in `mail-pim`; show the event
+  (time in the reader's zone, organiser, attendees, location); answer `REQUEST` with an iTIP
+  `REPLY` (RFC 5546, sent as mail, iMIP RFC 6047) as accepted, tentative or declined; honour
+  `CANCEL`; export `.ics`. A calendar is not in scope: this is the mail half of scheduling.
+- **10.13 — Account discovery.** `account add` without hosts looks them up: the domain's own
+  autoconfig (`autoconfig.<domain>` and `.well-known`), the Thunderbird ISPDB fetched at run
+  time, RFC 6186 SRV records, and then the ISPDB entry of the MX host's domain. HTTPS only;
+  implicit-TLS endpoints only (the STARTTLS rule in §Risk notes stands). What was found is shown
+  and confirmed before any credential leaves; that is the answer to the autodiscover concern
+  in `presets.rs`.
+- **10.14 — Graph sends past 4 MB.** Above the `sendMail` MIME limit, create the message as a
+  Graph draft, upload each attachment through an upload session (up to 150 MB), then send it.
+
+**Wave D — large.**
+
+- **10.15 — OpenPGP.** With rPGP (MIT/Apache; Sequoia is LGPL and stays out). Keys: generate,
+  import, export; secret keys in the keyring, public keys in the store. Read: decrypt and
+  verify PGP/MIME (RFC 3156) and inline PGP. Send: sign, encrypt, or both, as PGP/MIME. Keys
+  arrive through Autocrypt Level 1 headers and gossip, and Web Key Directory lookup. Decrypted
+  text is not put in the search index.
+- **10.16 — S/MIME.** RFC 8551 with the RustCrypto `cms`/`x509-cert` crates. Verify signatures
+  and collect the senders' certificates; import a PKCS#12 identity; sign, encrypt, decrypt.
+- **10.17 — JMAP.** RFC 8620/8621 as a third incoming protocol and a sending path
+  (`EmailSubmission`): session discovery, `Email/changes` and `Mailbox/changes` as the sync
+  cursor, push through EventSource. Pure request/response mapping in `mail-proto`; HTTP in the
+  runtime, the way Graph sending is.
+- **10.18 — Microsoft Graph as an incoming protocol.** Instead of EWS: Microsoft retires EWS in
+  Exchange Online from 2026-10-01, so an EWS backend would arrive dead, and on-premises Exchange
+  offers IMAP. Graph delta queries for folders and messages, MIME bodies through `$value`.
+  Covers tenants that switch IMAP off.
+- **10.19 — Translation.** A message catalogue with plural rules, the locale from the
+  environment, English and Traditional Chinese for every CLI string; the window's strings move
+  to the catalogue in the UI session.
+
+**Done when** each item's data half is reachable from `mailo`, tested to the standard of phases
+1–9 (transcripts for protocols, the parity proptest for anything `Filter` touches, a live test
+behind `#[ignore]` where a real server decides), gated by fmt, clippy, the workspace tests,
+`check-boundary.sh` and `cargo deny check licenses`, and committed one item per commit.
+
+
 ## Test strategy
 
 - **Domain** — table-driven unit tests plus proptests for `apply`/`inverse` round-trip and
@@ -1551,9 +1652,11 @@ authentication permanently off, failing even under OAuth.
 
 ## Non-goals (v1)
 
-Microsoft Graph / Exchange as a v1 protocol. Calendar and invites. CardDAV (local frecency contacts from message
-history are in scope; a protocol is not). OpenPGP / S/MIME. Nested labels. Proton. Incoming
-protocols beyond IMAP and POP3. Multi-device sync of local-only state (views, pins, snoozes).
+Nested labels. Proton. EWS (retired in Exchange Online; see 10.18). Multi-device sync of
+local-only state (views, pins, snoozes).
+
+Lifted on 2026-09-24 and planned in phase 10: Graph as a protocol, calendar invites, CardDAV,
+OpenPGP and S/MIME, incoming protocols beyond IMAP and POP3.
 
 Unified inbox is `Filter` without an `Account` clause. Note honestly that a conversation you are
 on from both accounts appears twice, because `ThreadId` is per account. Cross-account thread
