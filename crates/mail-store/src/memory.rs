@@ -480,6 +480,10 @@ impl Inner {
             }
             Change::DraftDelete(id) => {
                 self.drafts.remove(id);
+                // As the SQLite store does: a discarded draft's queued submission goes with it.
+                self.outbox.retain(
+                    |_, row| !matches!(&row.op, ProtoOp::Submit { draft, .. } if draft == id),
+                );
             }
         }
         Ok(())

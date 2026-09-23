@@ -53,9 +53,20 @@ impl SqliteStore {
         Ok(())
     }
 
+    /// Delete a draft, and withdraw any submission of it still waiting in the outbox.
+    ///
+    /// A send that failed and is backing off is still queued. Deleting only the draft left the
+    /// outbox to deliver it on its next retry: a message the user discarded, sent anyway, with
+    /// nothing left on screen to say it was coming. The caller refuses to discard a draft that
+    /// is mid-send; anything else still queued is withdrawn here, in the same write.
     pub(super) fn delete_draft(&self, id: DraftId) -> Result<(), StoreError> {
-        self.connection()
-            .execute("DELETE FROM drafts WHERE id = ?1", params![id.to_string()])?;
+        let db = self.connection();
+        db.execute(
+            "DELETE FROM outbox WHERE json_extract(op, '$.kind') = 'submit'
+                 AND json_extract(op, '$.v.draft') = ?1",
+            params![id.to_string()],
+        )?;
+        db.execute("DELETE FROM drafts WHERE id = ?1", params![id.to_string()])?;
         Ok(())
     }
 

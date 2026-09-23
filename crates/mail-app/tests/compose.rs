@@ -906,6 +906,35 @@ mod discarding {
     }
 
     #[test]
+    fn a_failed_send_waiting_to_retry_is_withdrawn_with_its_draft() {
+        // Found against a real account: a send refused by the server backs off for a day, still
+        // queued, while the draft reads `Failed`. Discarding it deleted the draft and left the
+        // outbox to send the message anyway the next day.
+        let (store, _dir) = seeded();
+        let id = a_draft(&store);
+        compose::send(&store, id, at(20)).unwrap();
+        let mut draft = store.draft(id).unwrap();
+        draft.state = SendState::Failed {
+            reason: "535 5.7.139".to_owned(),
+            retry: Retry::NeedsReauth,
+        };
+        compose::save(&store, &draft).unwrap();
+        let far = at(20) + chrono::TimeDelta::try_days(365).unwrap();
+        assert_eq!(
+            store.outbox_due(ACCOUNT, far).unwrap().len(),
+            1,
+            "precondition"
+        );
+
+        compose::discard(&store, id).unwrap();
+
+        assert!(
+            store.outbox_due(ACCOUNT, far).unwrap().is_empty(),
+            "the discarded message would still have been sent"
+        );
+    }
+
+    #[test]
     fn a_draft_that_was_already_sent_can_still_be_cleared_away() {
         // A `Sent` draft is a record of something that happened, not work in progress, and the
         // drafts list is the only place it shows up. Refusing to remove it would make the list
