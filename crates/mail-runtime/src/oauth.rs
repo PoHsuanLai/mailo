@@ -137,6 +137,8 @@ pub struct Pending {
     /// Resolved when the request was made, not looked up again when it completes: a second
     /// lookup is a second answer, and the code came back from whichever host was asked.
     endpoints: Endpoints,
+    /// The scopes to name when redeeming the code, or none to name none. See [`first_resource`].
+    redeem: Option<String>,
 }
 
 impl Pending {
@@ -216,8 +218,36 @@ pub fn begin(
             issuer,
             redirect: redirect.to_owned(),
             endpoints: endpoints_for(issuer),
+            redeem: first_resource(scopes),
         },
     })
+}
+
+/// When `scopes` span more than one resource, the ones the code should be redeemed for.
+///
+/// Microsoft lets one sign-in consent to several resources — Exchange's IMAP and Graph's
+/// `Mail.Send` — but issues each access token for one, and refuses to redeem such a code without
+/// being told which (`AADSTS28003`). The first resource named is the one the sign-in is for;
+/// the others are reached later by refreshing with their scopes. Scopes that belong to no
+/// resource (`offline_access`, `openid`) go with it. A request for one resource names nothing
+/// here, and is redeemed exactly as before.
+fn first_resource(scopes: &[String]) -> Option<String> {
+    let resource = |s: &str| {
+        s.strip_prefix("https://")
+            .and_then(|rest| rest.split('/').next())
+            .map(str::to_owned)
+    };
+    let resources: Vec<String> = scopes.iter().filter_map(|s| resource(s)).collect();
+    let first = resources.first()?;
+    if resources.iter().all(|r| r == first) {
+        return None;
+    }
+    let chosen: Vec<&str> = scopes
+        .iter()
+        .filter(|s| resource(s).is_none_or(|r| &r == first))
+        .map(String::as_str)
+        .collect();
+    Some(chosen.join(" "))
 }
 
 impl Pending {
@@ -255,9 +285,13 @@ impl Pending {
             client = client.set_client_secret(ClientSecret::new(secret));
         }
 
-        let token = client
+        let mut request = client
             .exchange_code(AuthorizationCode::new(code.to_owned()))
-            .set_pkce_verifier(self.verifier)
+            .set_pkce_verifier(self.verifier);
+        if let Some(scope) = &self.redeem {
+            request = request.add_extra_param("scope", scope.clone());
+        }
+        let token = request
             .request_async(&|req| send(http, req))
             .await
             .map_err(|e| RuntimeError::Secrets(format!("token exchange failed: {e}")))?;
@@ -483,6 +517,33 @@ mod tests {
         assert_eq!(
             String::from_utf8(decoded).unwrap(),
             "user=ada@example.test\x01auth=Bearer ya29.token\x01\x01"
+        );
+    }
+
+    #[test]
+    fn a_code_for_two_resources_is_redeemed_for_the_first() {
+        let scopes = |list: &[&str]| list.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+        assert_eq!(
+            first_resource(&scopes(&[
+                "https://outlook.office.com/IMAP.AccessAsUser.All",
+                "offline_access",
+                "openid",
+                "https://graph.microsoft.com/Mail.Send",
+            ])),
+            Some("https://outlook.office.com/IMAP.AccessAsUser.All offline_access openid".into())
+        );
+        // One resource: nothing is named, and the exchange is what it always was.
+        assert_eq!(
+            first_resource(&scopes(&[
+                "https://outlook.office.com/IMAP.AccessAsUser.All",
+                "https://outlook.office.com/SMTP.Send",
+                "offline_access",
+            ])),
+            None
+        );
+        assert_eq!(
+            first_resource(&scopes(&["https://mail.google.com/", "email"])),
+            None
         );
     }
 

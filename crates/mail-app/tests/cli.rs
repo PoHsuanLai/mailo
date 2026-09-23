@@ -827,6 +827,7 @@ mod composing {
                 to,
                 subject,
                 body,
+                ..
             } => {
                 assert_eq!(from.as_deref(), Some("me@example.test"));
                 assert_eq!(to.len(), 1);
@@ -855,9 +856,15 @@ mod composing {
 
     #[test]
     fn an_option_nobody_recognises_is_refused_rather_than_ignored() {
-        let err =
-            parse(&["compose", "--to", "kim@elsewhere.test", "--bcc", "x@y.test"]).unwrap_err();
-        assert!(err.contains("--bcc"), "{err}");
+        let err = parse(&[
+            "compose",
+            "--to",
+            "kim@elsewhere.test",
+            "--priority",
+            "high",
+        ])
+        .unwrap_err();
+        assert!(err.contains("--priority"), "{err}");
     }
 
     #[test]

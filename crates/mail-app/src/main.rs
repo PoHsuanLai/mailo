@@ -54,6 +54,8 @@ fn main() {
         Some(cli::Command::Compose {
             from,
             to,
+            cc,
+            bcc,
             subject,
             body: _,
         }) => {
@@ -65,6 +67,8 @@ fn main() {
             Some(cli::Command::Compose {
                 from,
                 to,
+                cc,
+                bcc,
                 subject,
                 body,
             })

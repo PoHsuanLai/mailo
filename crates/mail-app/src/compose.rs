@@ -471,19 +471,30 @@ pub fn move_draft_to(
     Ok(draft)
 }
 
-/// Start a new message, as the CLI reports it.
+/// Start a new message to `[to, cc, bcc]`, as the CLI reports it.
 pub fn new_message(
     store: &SqliteStore,
     from: Option<&str>,
-    to: &[Address],
+    [to, cc, bcc]: [&[Address]; 3],
     subject: &str,
     body: &str,
     now: DateTime<Utc>,
 ) -> Result<String, String> {
     let account = account_for(store, from)?;
-    let draft = draft_new(store, account, to, subject, body, now)?;
+    let mut draft = draft_new(store, account, to, subject, body, now)?;
+    if !cc.is_empty() || !bcc.is_empty() {
+        draft.cc = cc.to_vec();
+        draft.bcc = bcc.to_vec();
+        save(store, &draft)?;
+    }
     let mut out = format!("draft {}\n", draft.id);
     let _ = writeln!(out, "  to      {}", addresses(&draft.to));
+    if !draft.cc.is_empty() {
+        let _ = writeln!(out, "  cc      {}", addresses(&draft.cc));
+    }
+    if !draft.bcc.is_empty() {
+        let _ = writeln!(out, "  bcc     {}", addresses(&draft.bcc));
+    }
     let _ = writeln!(
         out,
         "  subject {}",

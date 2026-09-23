@@ -1268,7 +1268,7 @@ mod writing_to_someone_new {
         let out = compose::new_message(
             &store,
             None,
-            &stranger(),
+            [&stranger(), &[], &[]],
             "dinner on saturday",
             "are you free?",
             at(10),
@@ -1282,9 +1282,23 @@ mod writing_to_someone_new {
     }
 
     #[test]
+    fn copies_are_kept_and_listed() {
+        let (store, _dir) = seeded();
+        let blind = vec![Address {
+            name: None,
+            email: "lee@elsewhere.test".to_owned(),
+        }];
+        let out = compose::new_message(&store, None, [&stranger(), &[], &blind], "s", "", at(10))
+            .unwrap();
+        assert!(out.contains("bcc     lee@elsewhere.test"), "{out}");
+        assert_eq!(only_draft(&store).bcc, blind);
+    }
+
+    #[test]
     fn a_message_with_no_subject_says_so_rather_than_printing_a_blank() {
         let (store, _dir) = seeded();
-        let out = compose::new_message(&store, None, &stranger(), "", "", at(10)).unwrap();
+        let out =
+            compose::new_message(&store, None, [&stranger(), &[], &[]], "", "", at(10)).unwrap();
         assert!(out.contains("(none)"), "{out}");
     }
 

@@ -102,6 +102,8 @@ pub enum Command {
     Compose {
         from: Option<String>,
         to: Vec<Address>,
+        cc: Vec<Address>,
+        bcc: Vec<Address>,
         subject: String,
         body: String,
     },
@@ -288,7 +290,7 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
             // A flag loop rather than fixed positions: three options, two of them optional, and
             // the order someone types them in is not something to have an opinion about.
             let mut from = None;
-            let mut to = Vec::new();
+            let (mut to, mut cc, mut bcc) = (Vec::new(), Vec::new(), Vec::new());
             let mut subject = String::new();
             let mut rest = args[1..].iter();
             while let Some(flag) = rest.next() {
@@ -299,6 +301,12 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                     }
                     "--to" => {
                         to = crate::view::parse_addresses(rest.next().ok_or(missing)?)?;
+                    }
+                    "--cc" => {
+                        cc = crate::view::parse_addresses(rest.next().ok_or(missing)?)?;
+                    }
+                    "--bcc" => {
+                        bcc = crate::view::parse_addresses(rest.next().ok_or(missing)?)?;
                     }
                     "--subject" => {
                         subject = rest.next().ok_or(missing)?.clone();
@@ -317,6 +325,8 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
             Ok(Command::Compose {
                 from,
                 to,
+                cc,
+                bcc,
                 subject,
                 // Filled in by the caller, which owns stdin. Parsing stays pure.
                 body: String::new(),
@@ -598,7 +608,7 @@ usage: mailo <command>
   reply <message-id> [--all]  compose a reply; the body is read from stdin
   forward <message-id> --to a@b[,c@d]
                              forward it; the covering note is read from stdin
-  compose --to a@b[,c@d] [--subject S] [--from address]
+  compose --to a@b[,c@d] [--cc …] [--bcc …] [--subject S] [--from address]
                              a new message; the body is read from stdin
   attach <draft-id> <path>    put a file on a draft
   attached <draft-id>         what it is carrying
@@ -777,9 +787,11 @@ pub fn run(store: &SqliteStore, command: &Command, now: DateTime<Utc>) -> Result
         Command::Compose {
             from,
             to,
+            cc,
+            bcc,
             subject,
             body,
-        } => crate::compose::new_message(store, from.as_deref(), to, subject, body, now),
+        } => crate::compose::new_message(store, from.as_deref(), [to, cc, bcc], subject, body, now),
         Command::Discard { draft } => {
             crate::compose::discard(store, *draft).map(|subject| format!("discarded {subject:?}\n"))
         }
@@ -788,7 +800,15 @@ pub fn run(store: &SqliteStore, command: &Command, now: DateTime<Utc>) -> Result
             manual,
             microsoft,
             graph,
-        } => crate::account::add(store, address, manual.as_ref(), *microsoft, *graph, now),
+        } => crate::account::add(
+            store,
+            address,
+            manual.as_ref(),
+            *microsoft,
+            *graph,
+            &crate::account::saved_clients(),
+            now,
+        ),
         Command::AccountList => crate::account::list(store),
         Command::Signature {
             address,

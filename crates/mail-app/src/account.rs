@@ -20,6 +20,7 @@ pub fn add(
     manual: Option<&crate::cli::Setup>,
     microsoft: bool,
     graph: bool,
+    saved: &OAuthRegistry,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<String, String> {
     // Normalised once, here, and used for the preset, the stored plan and the stored column
@@ -202,14 +203,8 @@ pub fn add(
                 }
             }
         }
-        AuthPlan::OAuth { issuer, scopes } => match std::env::var("MAILO_OAUTH_CLIENT_ID") {
-            Ok(client_id) if !client_id.is_empty() => {
-                // Google issues one with every "Desktop app" client and refuses the exchange
-                // without it; Microsoft's public clients want none. Read here rather than
-                // demanded, so the issuer that does not need one is not asked for it.
-                let client_secret = std::env::var("MAILO_OAUTH_CLIENT_SECRET")
-                    .ok()
-                    .filter(|s| !s.is_empty());
+        AuthPlan::OAuth { issuer, scopes } => match client_for(*issuer, saved) {
+            Some((client_id, client_secret)) => {
                 let credential =
                     authorize(*issuer, &client_id, client_secret.as_deref(), scopes, now)?;
                 KeyringSecrets
@@ -314,6 +309,37 @@ pub fn add(
         },
     }
     Ok(out)
+}
+
+/// The OAuth client to sign in with: from the environment, or else the one recorded by an
+/// earlier sign-in.
+///
+/// The recorded one is what makes re-running this command work as its own advice says — to
+/// change how an account sends, say — without digging the client id back out of a portal.
+fn client_for(issuer: OAuthIssuer, saved: &OAuthRegistry) -> Option<(String, Option<String>)> {
+    let from_env = |name| std::env::var(name).ok().filter(|s: &String| !s.is_empty());
+    if let Some(client_id) = from_env("MAILO_OAUTH_CLIENT_ID") {
+        // Google issues one with every "Desktop app" client and refuses the exchange without
+        // it; Microsoft's public clients want none. Read here rather than demanded, so the
+        // issuer that does not need one is not asked for it.
+        return Some((client_id, from_env("MAILO_OAUTH_CLIENT_SECRET")));
+    }
+    let registration = saved.get(issuer)?;
+    Some((
+        registration.client_id.clone(),
+        registration.client_secret.clone(),
+    ))
+}
+
+/// The OAuth clients earlier sign-ins recorded, for [`add`] to fall back on.
+///
+/// Empty under test: this is the one read of the user's real configuration on the way into
+/// `add`, and a test that found a real client id there would open a real sign-in and wait on it.
+pub fn saved_clients() -> OAuthRegistry {
+    if cfg!(test) {
+        return OAuthRegistry::default();
+    }
+    OAuthRegistry::load_default().unwrap_or_default()
 }
 
 /// Exchange the sign-in's refresh token for a Graph token and keep it as the outgoing credential.
@@ -578,9 +604,26 @@ mod tests {
         #[test]
         fn it_succeeds_and_says_what_it_did() {
             let (store, _dir) = store();
-            add(&store, "someone@gmail.com", None, false, false, now()).unwrap();
-            let out = add(&store, "someone@gmail.com", None, false, false, now())
-                .expect("re-running is what every message tells the user to do");
+            add(
+                &store,
+                "someone@gmail.com",
+                None,
+                false,
+                false,
+                &OAuthRegistry::default(),
+                now(),
+            )
+            .unwrap();
+            let out = add(
+                &store,
+                "someone@gmail.com",
+                None,
+                false,
+                false,
+                &OAuthRegistry::default(),
+                now(),
+            )
+            .expect("re-running is what every message tells the user to do");
             assert!(
                 !out.contains("UNIQUE constraint"),
                 "a database error reached the user: {out}"
@@ -593,9 +636,27 @@ mod tests {
         #[test]
         fn the_account_keeps_its_identity() {
             let (store, _dir) = store();
-            add(&store, "someone@gmail.com", None, false, false, now()).unwrap();
+            add(
+                &store,
+                "someone@gmail.com",
+                None,
+                false,
+                false,
+                &OAuthRegistry::default(),
+                now(),
+            )
+            .unwrap();
             let first = id_of(&store, "someone@gmail.com");
-            add(&store, "someone@gmail.com", None, false, false, now()).unwrap();
+            add(
+                &store,
+                "someone@gmail.com",
+                None,
+                false,
+                false,
+                &OAuthRegistry::default(),
+                now(),
+            )
+            .unwrap();
             assert_eq!(first, id_of(&store, "someone@gmail.com"));
         }
 
@@ -604,7 +665,16 @@ mod tests {
         fn nothing_is_duplicated() {
             let (store, _dir) = store();
             for _ in 0..3 {
-                add(&store, "someone@gmail.com", None, false, false, now()).unwrap();
+                add(
+                    &store,
+                    "someone@gmail.com",
+                    None,
+                    false,
+                    false,
+                    &OAuthRegistry::default(),
+                    now(),
+                )
+                .unwrap();
             }
             let db = store.connection();
             let accounts: i64 = db
@@ -624,7 +694,16 @@ mod tests {
         #[test]
         fn a_signature_already_set_survives() {
             let (store, _dir) = store();
-            add(&store, "someone@gmail.com", None, false, false, now()).unwrap();
+            add(
+                &store,
+                "someone@gmail.com",
+                None,
+                false,
+                false,
+                &OAuthRegistry::default(),
+                now(),
+            )
+            .unwrap();
             store
                 .connection()
                 .execute(
@@ -633,7 +712,16 @@ mod tests {
                 )
                 .unwrap();
 
-            add(&store, "someone@gmail.com", None, false, false, now()).unwrap();
+            add(
+                &store,
+                "someone@gmail.com",
+                None,
+                false,
+                false,
+                &OAuthRegistry::default(),
+                now(),
+            )
+            .unwrap();
 
             let (signature, name): (Option<String>, Option<String>) = store
                 .connection()
@@ -647,9 +735,37 @@ mod tests {
     }
 
     #[test]
+    fn a_client_id_recorded_by_an_earlier_sign_in_is_used_again() {
+        // Re-running `account add` to change how an account sends must not need the client id
+        // dug back out of a portal: the first sign-in recorded it.
+        let mut saved = OAuthRegistry::default();
+        saved.set(Registration::new(OAuthIssuer::Microsoft, "recorded-client"));
+        if std::env::var_os("MAILO_OAUTH_CLIENT_ID").is_none() {
+            assert_eq!(
+                client_for(OAuthIssuer::Microsoft, &saved),
+                Some(("recorded-client".to_owned(), None))
+            );
+        }
+        assert_eq!(
+            client_for(OAuthIssuer::Google, &OAuthRegistry::default()).is_some(),
+            std::env::var_os("MAILO_OAUTH_CLIENT_ID").is_some(),
+            "nothing recorded and nothing in the environment is no client"
+        );
+    }
+
+    #[test]
     fn an_unknown_domain_says_which_are_known() {
         let (store, _dir) = store();
-        let err = add(&store, "someone@example.test", None, false, false, now()).unwrap_err();
+        let err = add(
+            &store,
+            "someone@example.test",
+            None,
+            false,
+            false,
+            &OAuthRegistry::default(),
+            now(),
+        )
+        .unwrap_err();
         assert!(err.contains("gmail.com"), "{err}");
         assert!(
             err.contains("--pop3"),
@@ -665,7 +781,16 @@ mod tests {
         // With no MAILO_OAUTH_CLIENT_ID set, which is the state anyone starts in. The client
         // id is deployment configuration and cannot be shipped in a source tree, so the useful
         // thing is the exact command to run once they have one.
-        let out = add(&store, "someone@gmail.com", None, false, false, now()).unwrap();
+        let out = add(
+            &store,
+            "someone@gmail.com",
+            None,
+            false,
+            false,
+            &OAuthRegistry::default(),
+            now(),
+        )
+        .unwrap();
         assert!(out.contains("client id"), "{out}");
         assert!(
             out.contains(
@@ -699,6 +824,7 @@ mod tests {
             Some(&pop3()),
             false,
             false,
+            &OAuthRegistry::default(),
             now(),
         )
         .unwrap();
@@ -718,6 +844,7 @@ mod tests {
             Some(&pop3()),
             false,
             false,
+            &OAuthRegistry::default(),
             now(),
         )
         .unwrap();
