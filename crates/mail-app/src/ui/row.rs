@@ -8,6 +8,8 @@ use super::menus::{LabelMenu, SnoozeMenu};
 use super::ops::{apply_op, composes, start_composing};
 use super::text::{draft_state, label, sender};
 use crate::provider::Provider;
+use crate::provider::icon::{ChipPlace, ProvChip};
+use crate::view::Marks;
 use crate::view::{Shell, hover_actions};
 use chrono::Local;
 use dioxus::prelude::*;
@@ -104,7 +106,7 @@ pub(super) fn Row(
                 div { class: "row-from",
                     span { class: "nm", "{who}" }
                     if let Some(via) = via {
-                        ViaChip { via }
+                        ViaChip { via, marks: shell.read().appearance.marks }
                     }
                 }
                 div { class: "row-sub", "{subject}" }
@@ -200,14 +202,12 @@ pub(super) fn Row(
 }
 
 #[component]
-fn ViaChip(via: Provider) -> Element {
-    let mark = via.mark();
+fn ViaChip(via: Provider, marks: Marks) -> Element {
     let short = via.short();
     let title = via.title();
-    let color = via.color().map(|color| format!("--pc:{color}"));
     rsx! {
         span { class: "via", title: "{title}",
-            span { class: "prov in-row", style: color, "{mark}" }
+            ProvChip { provider: via, marks, place: ChipPlace::Row }
             "{short}"
         }
     }

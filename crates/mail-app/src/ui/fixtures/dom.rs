@@ -537,4 +537,82 @@ mod tests {
         );
         dump("composer", &body);
     }
+
+    /// The sidebar with a cached icon on each provider tile.
+    ///
+    /// Uses the PNGs `fetch_the_provider_icons` wrote, when that probe has been run.
+    /// Without them the tiles draw letters, which is the same fallback the window uses.
+    #[tokio::test]
+    #[ignore = "writes target/shell-icons.html from target/provider-icons, when the real fetch has run"]
+    async fn render_the_shell_with_provider_icons() {
+        let icons =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/provider-icons");
+        let (store, _dir) = empty();
+        let rows = [
+            ("ada@gmail.com", "imap.gmail.com"),
+            ("ada@outlook.com", "imap.outlook.com"),
+            ("ada@fastmail.com", "imap.fastmail.com"),
+            ("ada@icloud.com", "imap.mail.me.com"),
+            ("ada@yahoo.com", "imap.mail.yahoo.com"),
+        ];
+        for (n, (address, host)) in rows.into_iter().enumerate() {
+            let plan = mail_domain::AccountPlan {
+                address: address.to_owned(),
+                incoming: mail_domain::Incoming::Imap {
+                    host: host.to_owned(),
+                    port: 993,
+                    tls: mail_domain::Tls::Implicit,
+                },
+                outgoing: mail_domain::Outgoing::Smtp {
+                    host: host.to_owned(),
+                    port: 465,
+                    tls: mail_domain::Tls::Implicit,
+                },
+                auth: mail_domain::AuthPlan::Password {
+                    username: mail_domain::Username::SameAsAddress,
+                    sasl: vec![mail_domain::SaslMech::Plain],
+                },
+                identities: Vec::new(),
+            };
+            store
+                .connection()
+                .execute(
+                    "INSERT INTO accounts (id, address, plan, created_at) VALUES (?1, ?2, ?3, ?4)",
+                    rusqlite::params![
+                        mail_domain::AccountId::generate().to_string(),
+                        address,
+                        serde_json::to_string(&plan).unwrap(),
+                        format!("2026-01-0{}T00:00:00Z", n + 1),
+                    ],
+                )
+                .unwrap();
+        }
+        let loaded = crate::provider::icon::Loaded::read(&icons);
+        if !icons.join("google.png").is_file() {
+            println!(
+                "no cached icons in {}; tiles will show letters",
+                icons.display()
+            );
+        }
+        // One Space over every account. The first-run layout is one Space per
+        // account, which would hide four of the five tiles.
+        let spaces = crate::space::Spaces {
+            current: 0,
+            spaces: vec![crate::space::Space {
+                name: "Mail".to_owned(),
+                scope: crate::space::Scope::All,
+                ..crate::space::Space::default()
+            }],
+        };
+        let mut dom = dioxus::prelude::VirtualDom::new(crate::ui::app::App)
+            .with_root_context(store)
+            .with_root_context(loaded)
+            .with_root_context(spaces)
+            .with_root_context(crate::view::Appearance {
+                marks: crate::view::Marks::Icons,
+                ..crate::view::Appearance::default()
+            });
+        dom.rebuild_in_place();
+        dump("shell-icons", &dioxus_ssr::render(&dom));
+    }
 }

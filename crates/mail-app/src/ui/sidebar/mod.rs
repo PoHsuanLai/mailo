@@ -13,7 +13,7 @@ use super::launch::appearance_script;
 use crate::appearance::WindowDirs;
 use crate::space::Spaces;
 use crate::today::Today;
-use crate::view::{Accent, Appearance, Motion, Shell, Theme};
+use crate::view::{Accent, Appearance, Marks, Motion, Shell, Theme};
 use dioxus::prelude::*;
 use mail_domain::ThreadId;
 
@@ -140,6 +140,57 @@ pub(super) fn Places(
                             }
                         }
                     }
+                    p { class: "seg-label", "Provider marks" }
+                    div {
+                        class: "marks-choice seg",
+                        role: "group",
+                        aria_label: "Provider marks",
+                        for marks in Marks::ALL {
+                            button {
+                                key: "{marks.label()}",
+                                aria_pressed: if shell.read().appearance.marks == marks { "true" } else { "false" },
+                                onclick: move |_| {
+                                    let look = shell.read().appearance;
+                                    let space = spaces.read().current_space();
+                                    choose(shell, Appearance { marks, ..look }, &space);
+                                },
+                                "{marks.label()}"
+                            }
+                        }
+                    }
+                    button {
+                        class: "marks-refresh",
+                        onclick: move |_| {
+                            let store = consume_context::<std::sync::Arc<mail_store::SqliteStore>>();
+                            let icons = try_consume_context::<Signal<crate::provider::icon::Loaded>>();
+                            spawn(async move {
+                                let Some(root) = crate::appearance::cache_dir() else {
+                                    eprintln!("provider icon: no cache directory");
+                                    return;
+                                };
+                                let dir = root.join("providers");
+                                let providers = match crate::provider::icon::providers_of(&store) {
+                                    Ok(providers) => providers,
+                                    Err(err) => {
+                                        eprintln!("provider icon: {err}");
+                                        return;
+                                    }
+                                };
+                                let results = crate::provider::icon::refresh(&dir, &providers).await;
+                                for (provider, result) in &results {
+                                    if let Err(err) = result
+                                        && !matches!(err, crate::provider::icon::IconError::Unmapped)
+                                    {
+                                        eprintln!("provider icon: {provider:?}: {err}");
+                                    }
+                                }
+                                if let Some(mut icons) = icons {
+                                    icons.set(crate::provider::icon::Loaded::read(&dir));
+                                }
+                            });
+                        },
+                        "Refresh icons"
+                    }
                     p { class: "seg-label", "Decoration" }
                     div {
                         class: "accent-choice",
@@ -170,7 +221,7 @@ pub(super) fn Places(
 mod tests {
     use super::super::app::App;
     use crate::ui::fixtures::empty;
-    use crate::view::{Accent, Appearance, Motion, Theme};
+    use crate::view::{Accent, Appearance, Marks, Motion, Theme};
     use dioxus::prelude::*;
 
     #[tokio::test]
@@ -180,6 +231,7 @@ mod tests {
             theme: Theme::Dark,
             accent: Accent::Pine,
             motion: Motion::Calm,
+            ..Appearance::default()
         };
         let mut dom = VirtualDom::new(App)
             .with_root_context(store)
@@ -219,6 +271,35 @@ mod tests {
             ["Calm"],
             "{page}"
         );
+    }
+
+    #[tokio::test]
+    async fn the_picker_offers_their_icons_or_letters() {
+        let (store, _dir) = empty();
+        let look = Appearance {
+            marks: Marks::Letters,
+            ..Appearance::default()
+        };
+        let mut dom = VirtualDom::new(App)
+            .with_root_context(store)
+            .with_root_context(look);
+        dom.rebuild_in_place();
+        let page = dioxus_ssr::render(&dom);
+        let marks = buttons_in(&page, "marks-choice");
+        assert_eq!(
+            marks
+                .iter()
+                .map(|button| button.text.as_str())
+                .collect::<Vec<_>>(),
+            ["Their icons", "Letters"],
+            "{page}"
+        );
+        assert_eq!(
+            pressed(&marks, |button| button.text.as_str()),
+            ["Letters"],
+            "{page}"
+        );
+        assert!(page.contains("Refresh icons"), "{page}");
     }
 
     struct Button {

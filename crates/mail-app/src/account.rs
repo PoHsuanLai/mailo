@@ -308,6 +308,7 @@ pub fn add(
             }
         },
     }
+    crate::provider::icon::fetch_if_missing(crate::provider::provider(&plan));
     Ok(out)
 }
 

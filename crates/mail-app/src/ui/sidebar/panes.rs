@@ -2,6 +2,7 @@
 
 use super::super::data::account_rows;
 use super::super::icon::{Glyph, Icon};
+use crate::provider::icon::{ChipPlace, ProvChip};
 use crate::provider::{Provider, provider};
 use crate::query::{self};
 use crate::space::{self, Pinned, Scope, Space};
@@ -144,8 +145,6 @@ pub(super) fn AccountTiles(
                     let address = row.1.clone();
                     let n = row.2;
                     let via = row.3;
-                    let mark = via.mark();
-                    let tint = via.color().map(|color| format!("--pc:{color}"));
                     let on = !several || shell.read().account == Some(id);
                     let color = space::avatar_color(&space, id, index);
                     let letter = initial(&address);
@@ -160,7 +159,7 @@ pub(super) fn AccountTiles(
                                 pages.set(1);
                             },
                             span { class: "av", style: "background:{color}", "{letter}" }
-                            span { class: "prov on-tile", title: "{via.title()}", style: tint, "{mark}" }
+                            ProvChip { provider: via, marks: shell.read().appearance.marks, place: ChipPlace::Tile }
                             if n > 0 {
                                 span { class: "n", "{n}" }
                             }

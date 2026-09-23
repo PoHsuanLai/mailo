@@ -36,6 +36,8 @@ pub enum Command {
     },
     /// Configured accounts, and what each still needs.
     AccountList,
+    /// Fetch every configured account's provider icon again.
+    IconsRefresh,
     /// Set or clear the signature on an account. The text is read from stdin.
     Signature {
         address: String,
@@ -448,6 +450,14 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
             })
         }
         "sync" => Ok(Command::Sync),
+        "icons" => match args.get(1).map(String::as_str) {
+            Some("refresh") if args.len() == 2 => Ok(Command::IconsRefresh),
+            Some("refresh") => Err(format!("icons refresh takes no arguments\n\n{}", usage())),
+            _ => Err(format!(
+                "unknown icons command. Use: mailo icons refresh\n\n{}",
+                usage()
+            )),
+        },
         "account" => match args.get(1).map(String::as_str) {
             Some("add") => {
                 let address = args
@@ -635,6 +645,7 @@ usage: mailo <command>
                              a work or school Microsoft 365 mailbox on its own domain;
                              --send graph where the tenant has SMTP sending turned off
   sync                       fetch mail and send anything queued
+  icons refresh              fetch each account's provider icon again
   watch                      keep fetching until stopped; uses IDLE where the
                              server offers it, and polls where it does not
   daemon [--stop]            run the background daemon, or stop it
@@ -834,6 +845,31 @@ pub fn run_with_clients(
             now,
         ),
         Command::AccountList => crate::account::list(store),
+        Command::IconsRefresh => {
+            let Some(root) = crate::appearance::cache_dir() else {
+                return Err("no home directory, so there is nowhere to keep an icon".to_owned());
+            };
+            let providers = crate::provider::icon::providers_of(store)?;
+            if providers.is_empty() {
+                return Ok("no accounts. Add one with: mailo account add <address>\n".to_owned());
+            }
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|err| format!("cannot fetch icons: {err}"))?;
+            let results = runtime.block_on(crate::provider::icon::refresh(
+                &root.join("providers"),
+                &providers,
+            ));
+            for (provider, result) in &results {
+                if let Err(err) = result
+                    && !matches!(err, crate::provider::icon::IconError::Unmapped)
+                {
+                    eprintln!("provider icon: {provider:?}: {err}");
+                }
+            }
+            Ok(crate::provider::icon::report(&results))
+        }
         Command::Signature {
             address,
             clear,
@@ -983,6 +1019,17 @@ mod tests {
                 limit: 20
             }
         );
+    }
+
+    #[test]
+    fn icons_refresh_is_a_command() {
+        assert_eq!(
+            parse(&args(&["icons", "refresh"])).unwrap(),
+            Command::IconsRefresh
+        );
+        assert!(parse(&args(&["icons"])).is_err());
+        assert!(parse(&args(&["icons", "refresh", "now"])).is_err());
+        assert!(usage().contains("icons refresh"));
     }
 
     #[test]

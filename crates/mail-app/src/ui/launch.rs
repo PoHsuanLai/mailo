@@ -3,6 +3,7 @@ use super::frame::frame_statements;
 use crate::appearance::WindowDirs;
 use crate::space::Spaces;
 use crate::view::Appearance;
+use dioxus::prelude::*;
 use mail_store::SqliteStore;
 use std::sync::Arc;
 
@@ -124,6 +125,9 @@ fn probe() -> &'static str {
 /// Launch the shell, already wearing `look` and `spaces`.
 pub fn run(store: Arc<SqliteStore>, look: Appearance, spaces: Spaces, dirs: Option<WindowDirs>) {
     let space = spaces.current_space();
+    let icons = crate::appearance::cache_dir()
+        .map(|dir| crate::provider::icon::Loaded::read(&dir.join("providers")))
+        .unwrap_or_default();
     let mut launch = dioxus::LaunchBuilder::desktop()
         .with_cfg(
             dioxus::desktop::Config::new()
@@ -143,11 +147,24 @@ pub fn run(store: Arc<SqliteStore>, look: Appearance, spaces: Spaces, dirs: Opti
         )
         .with_context(store)
         .with_context(look)
-        .with_context(spaces);
+        .with_context(spaces)
+        .with_context(icons);
     if let Some(dirs) = dirs {
         launch = launch.with_context(dirs);
     }
-    launch.launch(App);
+    launch.launch(ShellRoot);
+}
+
+/// Holds the icon cache in a signal so a refresh can replace it.
+///
+/// The files were read once, before the first frame. The signal is what a later
+/// refresh writes; the chips subscribe to it.
+#[component]
+fn ShellRoot() -> Element {
+    let loaded = try_consume_context::<crate::provider::icon::Loaded>().unwrap_or_default();
+    let icons = use_signal(|| loaded);
+    use_context_provider(|| icons);
+    rsx! { App {} }
 }
 
 #[cfg(test)]
@@ -188,6 +205,7 @@ mod tests {
                 theme: Theme::Dark,
                 accent: Accent::Pine,
                 motion: Motion::Extra,
+                ..Appearance::default()
             },
             &Space::default(),
         );
@@ -209,6 +227,7 @@ mod tests {
                 theme: Theme::System,
                 accent: Accent::Vermilion,
                 motion: Motion::default(),
+                ..Appearance::default()
             },
             &Space::default(),
         );
@@ -230,6 +249,7 @@ mod tests {
                     theme: Theme::Dark,
                     accent: Accent::Pine,
                     motion: Motion::Calm,
+                    ..Appearance::default()
                 },
                 "document.documentElement.dataset.accent = \"pine\";\n\
                  document.documentElement.dataset.motion = \"calm\";\n\
@@ -240,6 +260,7 @@ mod tests {
                     theme: Theme::System,
                     accent: Accent::Graphite,
                     motion: Motion::Standard,
+                    ..Appearance::default()
                 },
                 "document.documentElement.dataset.accent = \"graphite\";\n\
                  document.documentElement.dataset.motion = \"standard\";\n\
@@ -262,6 +283,7 @@ mod tests {
                 theme: Theme::System,
                 accent: Accent::Graphite,
                 motion: Motion::default(),
+                ..Appearance::default()
             },
             &Space::default(),
         );

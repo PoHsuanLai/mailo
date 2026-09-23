@@ -99,10 +99,25 @@ fn state_dir_from(xdg: Option<OsString>, home: Option<OsString>) -> Option<PathB
     Some(base.join("mailo"))
 }
 
+/// `$XDG_CACHE_HOME/mailo`, else `$HOME/.cache/mailo`, else None.
+///
+/// Provider icons live here, under `providers/`. They are not config and not the
+/// mail database: a missing cache is the letter on the chip, not a lost account.
+pub fn cache_dir() -> Option<PathBuf> {
+    cache_dir_from(std::env::var_os("XDG_CACHE_HOME"), std::env::var_os("HOME"))
+}
+
+fn cache_dir_from(xdg: Option<OsString>, home: Option<OsString>) -> Option<PathBuf> {
+    let base = xdg
+        .map(PathBuf::from)
+        .or_else(|| home.map(|home| PathBuf::from(home).join(".cache")))?;
+    Some(base.join("mailo"))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{config_dir_from, load, save, state_dir_from};
-    use crate::view::{Accent, Appearance, Motion, Theme};
+    use super::{cache_dir_from, config_dir_from, load, save, state_dir_from};
+    use crate::view::{Accent, Appearance, Marks, Motion, Theme};
     use std::ffi::OsString;
     use std::path::{Path, PathBuf};
 
@@ -130,31 +145,37 @@ mod tests {
                 theme: Theme::System,
                 accent: Accent::Postmark,
                 motion: Motion::Standard,
+                marks: Marks::Icons,
             },
             Appearance {
                 theme: Theme::Dark,
                 accent: Accent::Pine,
                 motion: Motion::Calm,
+                marks: Marks::Letters,
             },
             Appearance {
                 theme: Theme::Light,
                 accent: Accent::Oxblood,
                 motion: Motion::Extra,
+                marks: Marks::Icons,
             },
             Appearance {
                 theme: Theme::System,
                 accent: Accent::Vermilion,
                 motion: Motion::Standard,
+                marks: Marks::Letters,
             },
             Appearance {
                 theme: Theme::Dark,
                 accent: Accent::Graphite,
                 motion: Motion::Calm,
+                marks: Marks::Icons,
             },
             Appearance {
                 theme: Theme::Light,
                 accent: Accent::Indigo,
                 motion: Motion::Extra,
+                marks: Marks::Letters,
             },
         ];
         for &look in CASES {
@@ -203,8 +224,7 @@ mod tests {
                 r#"{"theme":"dark"}"#,
                 Appearance {
                     theme: Theme::Dark,
-                    accent: Accent::default(),
-                    motion: Motion::default(),
+                    ..Appearance::default()
                 },
             ),
             (
@@ -212,17 +232,15 @@ mod tests {
                 r#"{"accent":"rose","theme":"dark"}"#,
                 Appearance {
                     theme: Theme::Dark,
-                    accent: Accent::default(),
-                    motion: Motion::default(),
+                    ..Appearance::default()
                 },
             ),
             (
                 "unknown theme keeps the accent",
                 r#"{"theme":"sepia","accent":"pine"}"#,
                 Appearance {
-                    theme: Theme::default(),
                     accent: Accent::Pine,
-                    motion: Motion::default(),
+                    ..Appearance::default()
                 },
             ),
             (
@@ -239,7 +257,7 @@ mod tests {
                 Appearance {
                     theme: Theme::Dark,
                     accent: Accent::Pine,
-                    motion: Motion::default(),
+                    ..Appearance::default()
                 },
             ),
             (
@@ -248,7 +266,33 @@ mod tests {
                 Appearance {
                     theme: Theme::Light,
                     accent: Accent::Indigo,
-                    motion: Motion::default(),
+                    ..Appearance::default()
+                },
+            ),
+            (
+                "marks letters",
+                r#"{"marks":"letters"}"#,
+                Appearance {
+                    marks: Marks::Letters,
+                    ..Appearance::default()
+                },
+            ),
+            (
+                "unknown marks keeps the theme",
+                r#"{"marks":"crests","theme":"dark"}"#,
+                Appearance {
+                    theme: Theme::Dark,
+                    ..Appearance::default()
+                },
+            ),
+            (
+                "a file from before marks existed",
+                r#"{"theme":"dark","accent":"pine","motion":"calm"}"#,
+                Appearance {
+                    theme: Theme::Dark,
+                    accent: Accent::Pine,
+                    motion: Motion::Calm,
+                    marks: Marks::Icons,
                 },
             ),
         ];
@@ -334,5 +378,77 @@ mod tests {
                 case.name
             );
         }
+    }
+
+    #[test]
+    fn the_cache_directory_follows_xdg() {
+        struct Case {
+            name: &'static str,
+            xdg: Option<&'static str>,
+            home: Option<&'static str>,
+            expect: Option<&'static str>,
+        }
+        const CASES: &[Case] = &[
+            Case {
+                name: "xdg wins",
+                xdg: Some("/xdg"),
+                home: Some("/home/ada"),
+                expect: Some("/xdg/mailo"),
+            },
+            Case {
+                name: "home when xdg is unset",
+                xdg: None,
+                home: Some("/home/ada"),
+                expect: Some("/home/ada/.cache/mailo"),
+            },
+            Case {
+                name: "neither",
+                xdg: None,
+                home: None,
+                expect: None,
+            },
+        ];
+        for case in CASES {
+            assert_eq!(
+                cache_dir_from(case.xdg.map(OsString::from), case.home.map(OsString::from)),
+                case.expect.map(PathBuf::from),
+                "{}",
+                case.name
+            );
+        }
+    }
+
+    #[test]
+    fn letters_are_written_and_a_file_without_marks_stays_icons() {
+        // Saving Icons and reading Icons would pass even if the field were dropped on
+        // the floor: the missing word is the default. Letters is the value that proves
+        // the field survived, and the old file proves a missing word is Icons rather
+        // than a failure of the whole look.
+        let dir = tempfile::tempdir().unwrap_or_else(|err| panic!("{err}"));
+        let look = Appearance {
+            theme: Theme::Dark,
+            marks: Marks::Letters,
+            ..Appearance::default()
+        };
+        save(dir.path(), look).unwrap_or_else(|err| panic!("{err}"));
+        let raw = std::fs::read_to_string(dir.path().join("appearance.json"))
+            .unwrap_or_else(|err| panic!("{err}"));
+        assert!(raw.contains("\"letters\""), "{raw}");
+        assert_eq!(load(dir.path()), look);
+
+        std::fs::write(
+            dir.path().join("appearance.json"),
+            r#"{"theme":"light","accent":"indigo","motion":"extra"}"#,
+        )
+        .unwrap_or_else(|err| panic!("{err}"));
+        assert_eq!(
+            load(dir.path()),
+            Appearance {
+                theme: Theme::Light,
+                accent: Accent::Indigo,
+                motion: Motion::Extra,
+                marks: Marks::Icons,
+            }
+        );
     }
 }

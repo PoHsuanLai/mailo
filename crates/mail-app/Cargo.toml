@@ -36,6 +36,10 @@ aho-corasick = "1.1"
 regex = "1"
 # fzf-style fuzzy match for the menu's small sets. See `search/fuzzy.rs` for why this one.
 nucleo-matcher = "0.3"
+# Provider icons. Already in the lock through dioxus-desktop; only these two formats are decoded.
+image = { version = "0.25", default-features = false, features = ["ico", "png"] }
+base64 = "0.22"
+thiserror.workspace = true
 
 [dev-dependencies]
 tempfile = "3"

@@ -301,6 +301,42 @@ impl Motion {
     }
 }
 
+/// Whether a provider chip draws the cached icon or the letter.
+///
+/// Icons are the first-run choice. A chip whose file has not been fetched yet still
+/// draws the letter, so the window never waits on the network.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Copy, Hash, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Marks {
+    /// The provider's own icon, once it is cached.
+    #[default]
+    Icons,
+    /// The letter, even when an icon is cached.
+    Letters,
+}
+
+impl Marks {
+    /// The order a picker offers them: their icons, then letters.
+    pub const ALL: [Marks; 2] = [Marks::Icons, Marks::Letters];
+
+    /// What the picker calls it.
+    pub fn label(self) -> &'static str {
+        match self {
+            Marks::Icons => "Their icons",
+            Marks::Letters => "Letters",
+        }
+    }
+
+    /// The choice a stored word names, or [`None`] when it is not one of the two.
+    pub fn parse(word: &str) -> Option<Marks> {
+        match word {
+            "icons" => Some(Marks::Icons),
+            "letters" => Some(Marks::Letters),
+            _ => None,
+        }
+    }
+}
+
 /// How the window looks, as data.
 ///
 /// A missing field is the first-run value. An unknown word for one field is that field's
@@ -318,6 +354,9 @@ pub struct Appearance {
     /// How much the window moves.
     #[serde(deserialize_with = "de_motion")]
     pub motion: Motion,
+    /// Provider marks: their icons, or the letter.
+    #[serde(default, deserialize_with = "de_marks")]
+    pub marks: Marks,
 }
 
 /// A stored motion level. Anything that is not one of the three is [`Motion::default`].
@@ -345,6 +384,15 @@ where
 {
     let word = String::deserialize(deserializer)?;
     Ok(Theme::parse(&word).unwrap_or_default())
+}
+
+/// A stored provider-mark choice. Anything that is not `icons` or `letters` is [`Marks::default`].
+fn de_marks<'de, D>(deserializer: D) -> Result<Marks, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let word = String::deserialize(deserializer)?;
+    Ok(Marks::parse(&word).unwrap_or_default())
 }
 
 /// Where the open reader sits. Per session, and not persisted.

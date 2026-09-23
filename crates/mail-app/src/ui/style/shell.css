@@ -73,6 +73,11 @@
 }
 .prov.img { background: var(--prov-paper); padding: 1.5px; }
 .prov.img img { width: 100%; height: 100%; display: block; object-fit: contain; }
+.marks-refresh {
+  align-self: flex-start; border: 0; background: none; cursor: pointer;
+  font: inherit; font-size: 11px; color: var(--ink-soft); padding: 0;
+}
+.marks-refresh:hover { color: var(--ink); }
 .s-h {
   display: flex; align-items: center; gap: 8px; margin: 10px 4px 4px;
   font-family: var(--font-data); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
@@ -144,14 +149,15 @@
   font-family: var(--font-data); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
   color: var(--ink-faint);
 }
-.theme-choice, .motion-choice, .seg {
+.theme-choice, .motion-choice, .marks-choice, .seg {
   display: flex; padding: 2px; border: 1px solid var(--line); border-radius: var(--r-pill); background: var(--surface);
 }
-.theme-choice button, .motion-choice button, .seg button {
+.theme-choice button, .motion-choice button, .marks-choice button, .seg button {
   flex: 1; margin: 0; padding: 2px 0; border: 0; border-radius: var(--r-pill); background: none;
   color: var(--ink-soft); font: inherit; font-size: 11px; line-height: 1.2; cursor: pointer;
 }
 .theme-choice button[aria-pressed="true"], .motion-choice button[aria-pressed="true"],
+.marks-choice button[aria-pressed="true"],
 .seg button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
 .accent-choice { display: flex; gap: 6px; flex-wrap: wrap; }
 .swatch { width: 18px; height: 18px; padding: 0; border: 1px solid var(--line); border-radius: var(--r-pill); cursor: pointer; }

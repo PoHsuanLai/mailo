@@ -1,8 +1,8 @@
 //! Which provider an account is on.
 //!
-//! A letter on a white chip, never a logo: a letter carries no trademark question.
-//! The preset decides first, because an address on `gmail.com` is Google even when
-//! the host was typed by hand. Otherwise the incoming host's suffix, and Graph,
+//! The chip draws a letter until that provider's own icon has been fetched once and
+//! cached. The preset decides first, because an address on `gmail.com` is Google even
+//! when the host was typed by hand. Otherwise the incoming host's suffix, and Graph,
 //! which has no host. A lookalike (`imap.gmail.com.evil.test`) is not Google.
 
 use chrono::{DateTime, Utc};
@@ -10,7 +10,7 @@ use mail_domain::presets::preset_for;
 use mail_domain::{AccountPlan, AuthPlan, Incoming, OAuthIssuer, Outgoing};
 
 /// A mail host the window knows by name.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Provider {
     Google,
     Microsoft,
@@ -22,6 +22,16 @@ pub enum Provider {
 }
 
 impl Provider {
+    /// Every provider, in the order an icon cache names its files.
+    pub const ALL: [Provider; 6] = [
+        Provider::Google,
+        Provider::Microsoft,
+        Provider::Fastmail,
+        Provider::Icloud,
+        Provider::Yahoo,
+        Provider::Imap,
+    ];
+
     /// The letter on the chip.
     pub fn mark(self) -> &'static str {
         match self {
@@ -271,3 +281,6 @@ mod tests {
         assert!(failures.is_empty(), "{}", failures.join("\n"));
     }
 }
+
+#[path = "provider/icon/mod.rs"]
+pub(crate) mod icon;
