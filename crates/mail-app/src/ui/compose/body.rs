@@ -1,0 +1,386 @@
+//! The message body: one `contenteditable` root, the hidden wire beside it, the `/` and `@`
+//! menus at the caret, and the selection bubble.
+//!
+//! Every handler here calls `editor::` through [`super::wire`] and [`super::float`]. The only
+//! thing this file decides is which key goes where.
+
+use dioxus::prelude::*;
+
+use super::super::field::{Field, FieldKind};
+use super::super::menu::{Menu, MenuKey, menu_key};
+use super::float::{
+    Picked, commit, current_kind, mention_items, pick_mention, pick_slash, pick_turn, slash_items,
+    turn_items,
+};
+use super::page::{Float, Page};
+use super::render;
+use super::wire::{self, caret_attr};
+use crate::editor::{InputEvent, Mark, Node, Op, Presence, Range, to_html};
+
+/// Milliseconds on the wall clock, which is what groups typing into undo steps.
+pub(in crate::ui) fn now_ms() -> u64 {
+    u64::try_from(chrono::Utc::now().timestamp_millis()).unwrap_or(0)
+}
+
+/// Today, written out, for `/date`.
+fn today_words() -> String {
+    chrono::Local::now().format("%A %-d %B %Y").to_string()
+}
+
+#[component]
+pub(in crate::ui) fn Body(page: Signal<Page>, on_attach: EventHandler<()>) -> Element {
+    let read = page.read();
+    let only_empty = matches!(read.session.doc.nodes.as_slice(),
+        [Node::Para { runs, .. }] if runs.is_empty());
+    let seq = read.wire.seq;
+    let caret = caret_attr(&read);
+    // The document as the writers see it, for the live probe. Debug builds only.
+    let doc = if cfg!(debug_assertions) {
+        to_html(&read.session.doc)
+    } else {
+        String::new()
+    };
+    let float = read.float.clone();
+    let selected = read.selection.is_some();
+    drop(read);
+    let class = if only_empty { "c-body ph" } else { "c-body" };
+    rsx! {
+        div { class: "c-edit",
+            div {
+                class,
+                contenteditable: "true",
+                spellcheck: "true",
+                role: "textbox",
+                aria_multiline: "true",
+                aria_label: "Message",
+                "data-seq": "{seq}",
+                "data-caret": "{caret}",
+                "data-doc": "{doc}",
+                onkeydown: move |event| keys(page, on_attach, event),
+                {render::body(page)}
+            }
+            textarea {
+                class: "c-wire",
+                tabindex: "-1",
+                aria_hidden: "true",
+                oninput: move |event| {
+                    if let Some(heard) = wire::parse(&event.value()) {
+                        wire::hear(&mut page.write(), heard, now_ms());
+                    }
+                },
+            }
+            match float {
+                Float::Slash { active, .. } => rsx! {
+                    div { class: "c-float", "data-anchor": "below",
+                        Menu {
+                            title: String::new(),
+                            items: slash_items(&super::float::query(&page.read()).unwrap_or_default()),
+                            filterable: false,
+                            on_pick: move |key: String| pick(page, on_attach, &key),
+                            on_close: move |_| page.write().float = Float::Closed,
+                            on_query: move |_| {},
+                            slim: false,
+                            active: Some(active),
+                        }
+                    }
+                },
+                Float::Mention { active, .. } => rsx! {
+                    div { class: "c-float", "data-anchor": "below",
+                        Menu {
+                            title: "Mention, and add to Cc".to_owned(),
+                            items: mention_items(&page.read()),
+                            filterable: false,
+                            on_pick: move |key: String| pick_mention(&mut page.write(), &key),
+                            on_close: move |_| page.write().float = Float::Closed,
+                            on_query: move |_| {},
+                            slim: true,
+                            active: Some(active),
+                        }
+                    }
+                },
+                _ if selected => rsx! { Bubble { page } },
+                _ => rsx! {},
+            }
+        }
+    }
+}
+
+fn pick(mut page: Signal<Page>, on_attach: EventHandler<()>, key: &str) {
+    let picked = pick_slash(&mut page.write(), key, &today_words());
+    if picked == Picked::Attach {
+        on_attach.call(());
+    }
+}
+
+/// Keys the browser would otherwise take: the menus' arrows and Enter, and the inline marks.
+fn keys(mut page: Signal<Page>, on_attach: EventHandler<()>, event: KeyboardEvent) {
+    let key = event.key().to_string();
+    let modifiers = event.modifiers();
+    let ctrl = modifiers.ctrl() || modifiers.meta();
+    let float = page.read().float.clone();
+    if let Float::Slash { active, .. } | Float::Mention { active, .. } = float {
+        let items = match float {
+            Float::Slash { .. } => {
+                slash_items(&super::float::query(&page.read()).unwrap_or_default())
+            }
+            _ => mention_items(&page.read()),
+        };
+        let taken = match menu_key(&key) {
+            Some(MenuKey::Down) => {
+                set_active(page, (active + 1) % items.len().max(1));
+                true
+            }
+            Some(MenuKey::Up) => {
+                set_active(page, (active + items.len().max(1) - 1) % items.len().max(1));
+                true
+            }
+            Some(MenuKey::Enter) => {
+                if let Some(item) = items.get(active) {
+                    match float {
+                        Float::Slash { .. } => pick(page, on_attach, &item.key),
+                        _ => pick_mention(&mut page.write(), &item.key),
+                    }
+                }
+                true
+            }
+            Some(MenuKey::Escape) => {
+                page.write().float = Float::Closed;
+                true
+            }
+            _ => false,
+        };
+        if taken {
+            event.prevent_default();
+            event.stop_propagation();
+            return;
+        }
+    }
+    if !ctrl {
+        return;
+    }
+    let lower = key.to_lowercase();
+    let done = match (lower.as_str(), modifiers.shift()) {
+        ("b", false) => format(page, "formatBold"),
+        ("i", false) => format(page, "formatItalic"),
+        ("u", false) => format(page, "formatUnderline"),
+        ("s", true) => format(page, "formatStrikeThrough"),
+        ("e", false) => code(page),
+        ("k", false) => {
+            let has = page.read().selection.is_some();
+            if has {
+                page.write().float = Float::Link(String::new());
+            }
+            has
+        }
+        ("z", false) => format(page, "historyUndo"),
+        ("z", true) | ("y", false) => format(page, "historyRedo"),
+        _ => false,
+    };
+    if done {
+        event.prevent_default();
+        event.stop_propagation();
+    }
+}
+
+fn set_active(mut page: Signal<Page>, to: usize) {
+    if let Float::Slash { active, .. } | Float::Mention { active, .. } = &mut page.write().float {
+        *active = to;
+    }
+}
+
+/// Bold, italic, underline, strike, undo and redo go through the editor as the input events a
+/// browser would have sent, so they are recorded and undone exactly like typed ones.
+pub(in crate::ui) fn format(mut page: Signal<Page>, input_type: &str) -> bool {
+    let mut write = page.write();
+    let ranges: Vec<Range> = write.selection.into_iter().collect();
+    let event = InputEvent::new(input_type, None, ranges, false);
+    let before = write.session.doc.clone();
+    if write.session.handle(&event, now_ms()).is_ok() && write.session.doc != before {
+        write.touch();
+    }
+    true
+}
+
+/// Inline code over the selection, or off when it is all code already.
+pub(in crate::ui) fn code(mut page: Signal<Page>) -> bool {
+    let Some(range) = page.read().selection else {
+        return false;
+    };
+    let on = if covered(&page.read(), range, Mark::Code) {
+        Presence::Off
+    } else {
+        Presence::On
+    };
+    let caret = page.read().session.caret;
+    let mut write = page.write();
+    commit(
+        &mut write,
+        vec![Op::SetMark {
+            range,
+            mark: Mark::Code,
+            on,
+        }],
+        caret,
+    );
+    write.selection = Some(range);
+    true
+}
+
+/// Whether every paragraph `range` touches carries `mark` wherever it touches. Read-only.
+pub(in crate::ui) fn covered(page: &Page, range: Range, mark: Mark) -> bool {
+    let range = range.ordered();
+    page.session
+        .doc
+        .nodes
+        .iter()
+        .enumerate()
+        .take(range.end.node + 1)
+        .skip(range.start.node)
+        .all(|(index, node)| {
+            let Node::Para { runs, .. } = node else {
+                return true;
+            };
+            let from = if index == range.start.node {
+                range.start.offset
+            } else {
+                0
+            };
+            let to = if index == range.end.node {
+                range.end.offset
+            } else {
+                usize::MAX
+            };
+            let mut seen = 0usize;
+            runs.iter().all(|run| {
+                let len = crate::editor::grapheme_len(&run.text);
+                let overlaps = seen < to && seen + len > from;
+                seen += len;
+                !overlaps || run.marks.has(mark)
+            })
+        })
+}
+
+/// The selection bubble: Turn into, the five marks, and a link.
+#[component]
+fn Bubble(page: Signal<Page>) -> Element {
+    let read = page.read();
+    let Some(range) = read.selection else {
+        return rsx! {};
+    };
+    let float = read.float.clone();
+    let kind = current_kind(&read);
+    let turn_label = turn_items(kind)
+        .into_iter()
+        .find(|item| matches!(item.right, super::super::menu::Right::Check(true)))
+        .map(|item| item.name)
+        .unwrap_or_else(|| "Text".to_owned());
+    let pressed = |mark| {
+        if covered(&read, range, mark) {
+            "true"
+        } else {
+            "false"
+        }
+    };
+    let (bold, italic, under, strike) = (
+        pressed(Mark::Bold),
+        pressed(Mark::Italic),
+        pressed(Mark::Underline),
+        pressed(Mark::Strike),
+    );
+    drop(read);
+    rsx! {
+        div {
+            class: "bubble",
+            "data-anchor": "above",
+            onmousedown: move |event| event.prevent_default(),
+            match float {
+                Float::Link(typed) => rsx! {
+                    div {
+                        class: "link-in",
+                        onkeydown: move |event: KeyboardEvent| {
+                            let key = event.key().to_string();
+                            if key == "Enter" {
+                                event.prevent_default();
+                                link(page);
+                            } else if key == "Escape" {
+                                page.write().float = Float::Closed;
+                            }
+                        },
+                        Field {
+                            kind: FieldKind::Inline,
+                            value: typed,
+                            placeholder: "Paste a link, then Enter".to_owned(),
+                            extra: None,
+                            on_input: move |value: String| page.write().float = Float::Link(value),
+                            on_focus: |_| {},
+                            on_blur: |_| {},
+                        }
+                    }
+                },
+                _ => rsx! {
+                    button { class: "turn", r#type: "button",
+                        onclick: move |_| {
+                            let open = page.read().float == Float::Turn;
+                            page.write().float = if open { Float::Closed } else { Float::Turn };
+                        },
+                        "{turn_label} ▾"
+                    }
+                    span { class: "sep" }
+                    button { r#type: "button", title: "Bold (Ctrl B)", aria_pressed: bold,
+                        onclick: move |_| { format(page, "formatBold"); }, b { "B" } }
+                    button { r#type: "button", title: "Italic (Ctrl I)", aria_pressed: italic,
+                        onclick: move |_| { format(page, "formatItalic"); }, i { class: "serif", "i" } }
+                    button { r#type: "button", title: "Underline (Ctrl U)", aria_pressed: under,
+                        onclick: move |_| { format(page, "formatUnderline"); }, u { "U" } }
+                    button { r#type: "button", title: "Strikethrough (Ctrl Shift S)", aria_pressed: strike,
+                        onclick: move |_| { format(page, "formatStrikeThrough"); }, s { "S" } }
+                    button { class: "code", r#type: "button", title: "Inline code (Ctrl E)",
+                        onclick: move |_| { code(page); }, "</>" }
+                    span { class: "sep" }
+                    button { r#type: "button", title: "Link (Ctrl K)",
+                        onclick: move |_| page.write().float = Float::Link(String::new()), "Link" }
+                    if float == Float::Turn {
+                        div { class: "turn-menu",
+                            Menu {
+                                title: "Turn into".to_owned(),
+                                items: turn_items(kind),
+                                filterable: false,
+                                on_pick: move |key: String| pick_turn(&mut page.write(), &key),
+                                on_close: move |_| page.write().float = Float::Closed,
+                                on_query: move |_| {},
+                                slim: true,
+                                active: None,
+                            }
+                        }
+                    }
+                },
+            }
+        }
+    }
+}
+
+/// The typed link over the selection. Only `http`, `https` and `mailto` are links.
+fn link(mut page: Signal<Page>) {
+    let (range, typed) = {
+        let read = page.read();
+        match (&read.selection, &read.float) {
+            (Some(range), Float::Link(typed)) => (*range, typed.trim().to_owned()),
+            _ => return,
+        }
+    };
+    let Some(url) = mail_mime::SafeUrl::parse(&typed) else {
+        page.write().notice = Some(format!("“{typed}” is not a web or mail link"));
+        return;
+    };
+    let caret = page.read().session.caret;
+    let mut write = page.write();
+    commit(
+        &mut write,
+        vec![Op::SetLink {
+            range,
+            url: Some(url),
+        }],
+        caret,
+    );
+    write.float = Float::Closed;
+}

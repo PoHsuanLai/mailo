@@ -1,5 +1,5 @@
 use super::command::CommandMenu;
-use super::composer::{self, Composer};
+use super::compose::{self, ComposerPage, PageKind, SendPill};
 use super::data::{PAGE, accounts, count_badges, list_for, warm_the_first_screenful};
 use super::frame;
 use super::list::ThreadList;
@@ -43,6 +43,7 @@ pub(super) fn App() -> Element {
     let editing = use_signal(|| None::<crate::space::edit::Draft>);
     // Which way the sidebar's contents slid in on the last switch.
     let slide = use_signal(|| None::<super::switch::Slide>);
+    let desk = compose::use_desk(today_list, spaces, dirs.clone(), side_hidden);
     let mut entering = use_signal(|| true);
     let mut just_added = use_signal(|| None::<mail_domain::ThreadId>);
     let mut seen_open = use_signal(|| None::<mail_domain::ThreadId>);
@@ -396,13 +397,9 @@ pub(super) fn App() -> Element {
             }
             Shortcut::Back => {
                 if shell.read().composing.is_some() {
-                    // Saving first, exactly as the Close button does. A second way to close that
-                    // silently dropped the text would be worse than no keyboard.
-                    let current = shell.read().composing.clone();
-                    if composer::persist(&store, current.as_ref()).is_ok() {
-                        shell.write().close_composer();
-                        revision += 1;
-                    }
+                    // Parked, not closed: saved, and waiting in Today.
+                    compose::park_current(desk, shell);
+                    revision += 1;
                 } else {
                     shell.write().open = None;
                 }
@@ -574,18 +571,24 @@ pub(super) fn App() -> Element {
                 sync_state, entering,
             }
             section { class: "reader",
-                if let Some(thread) = shell.read().open {
-                    Reader { thread, shell }
-                } else if shell.read().composing.is_none() {
-                    div { class: "reader-empty",
-                        p { "Nothing open" }
-                        p { class: "mono", "pick a thread" }
-                    }
-                }
-                if shell.read().composing.is_some() {
-                    Composer { shell, revision }
+                // A new message is a page in this column; a reply sits under its thread.
+                match (compose::composing(&shell.read()), shell.read().open) {
+                    (Some((draft, PageKind::Reply)), Some(thread)) => rsx! {
+                        Reader { thread, shell,
+                            ComposerPage { key: "{draft}", draft, shell, revision }
+                        }
+                    },
+                    (Some((draft, _)), _) => rsx! { ComposerPage { key: "{draft}", draft, shell, revision } },
+                    (None, Some(thread)) => rsx! { Reader { thread, shell } },
+                    (None, None) => rsx! {
+                        div { class: "reader-empty",
+                            p { "Nothing open" }
+                            p { class: "mono", "pick a thread" }
+                        }
+                    },
                 }
             }
+            SendPill { shell }
             }
         }
     }

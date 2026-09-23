@@ -12,7 +12,7 @@ mod reference;
 mod store;
 
 pub(in crate::ui) use dom::{
-    FakeKey, INSIDE_THE_SHELL, Seen, Typed, click, dispatching, harness, key, markup, press,
+    FakeKey, INSIDE_THE_SHELL, Seen, Typed, click, dispatching, dump, harness, key, markup, press,
     reader_markup, rebuild_into, thread_like,
 };
 pub(in crate::ui) use events::{Scripts, chord, type_into};

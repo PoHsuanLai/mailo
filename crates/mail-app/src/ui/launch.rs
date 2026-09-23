@@ -35,6 +35,10 @@ const NOTHING_MOUNTED: &str = "The interface did not start.\n\n\
 pub(super) const KEEP_FOCUS: &str = r#"<script>
 document.addEventListener("DOMContentLoaded", () => {
   const hold = () => {
+    // The composer's editor and its fields own the keyboard. Its / and @ menus open beside the
+    // caret without taking focus, so they must not be focused here either.
+    const here = document.activeElement;
+    if (here && here.closest && here.closest(".c-body, .c-props .inp, .c-scroll .inp, .bubble .inp")) { return; }
     // An open menu owns the keyboard. Focusing `.app` here would take it back on the next
     // tick, and the field would lose whatever was just typed.
     const menuField = document.querySelector(".cmdk .inp, .fmenu .inp");
@@ -53,9 +57,10 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!app || document.activeElement === app) { return; }
     // Only when focus is nowhere in particular. Taking it from a text box would make typing
     // impossible, which is a far worse bug than the one this exists to fix.
-    const here = document.activeElement;
     if (here && here !== document.body && here !== document.documentElement) { return; }
-    app.focus();
+    // With a draft open, nowhere in particular means the draft.
+    const page = document.querySelector(".cpage .c-body, .inline-reply .c-body");
+    (page || app).focus();
   };
   // On a timer, not once: the first attempt runs before anything is mounted, and a later render
   // can drop focus back to `body` without firing any event that says so.
@@ -124,10 +129,11 @@ pub fn run(store: Arc<SqliteStore>, look: Appearance, spaces: Spaces, dirs: Opti
                 )
                 .with_menu(None)
                 .with_custom_head(format!(
-                    "{}<script>window.__mailo_nothing_mounted = {};</script>{KEEP_FOCUS}{}",
+                    "{}<script>window.__mailo_nothing_mounted = {};</script>{KEEP_FOCUS}{}{}",
                     appearance_head(&space),
                     serde_json::to_string(NOTHING_MOUNTED)
                         .unwrap_or_else(|_| "\"The interface did not start.\"".to_owned()),
+                    super::compose::GLUE,
                     probe()
                 )),
         )

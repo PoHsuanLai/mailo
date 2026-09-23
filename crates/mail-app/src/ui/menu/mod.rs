@@ -217,6 +217,7 @@ fn tile(tile: &Tile) -> Element {
             }
         },
         Tile::Glyph(ch) => rsx! { span { class: "tile", "{ch}" } },
+        Tile::Text(text) => rsx! { span { class: "tile", "{text}" } },
     }
 }
 

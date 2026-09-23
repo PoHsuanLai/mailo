@@ -50,7 +50,7 @@ pub(super) const STYLE: &str = concat!(
 );
 
 #[cfg(test)]
-mod tests {
+pub(in crate::ui) mod tests {
     use std::collections::{BTreeMap, BTreeSet};
 
     use super::{STYLE, contrast};
@@ -694,7 +694,7 @@ mod tests {
     const PER_ELEMENT: &[&str] = &["--i", "--a", "--d", "--dy", "--j", "--pc", "--gl", "--gd"];
 
     /// Class tokens in `html`, and the class selectors `css` actually defines.
-    fn unstyled_classes(html: &str, css: &str) -> Vec<String> {
+    pub(in crate::ui) fn unstyled_classes(html: &str, css: &str) -> Vec<String> {
         let mut used = BTreeSet::new();
         let mut rest = html;
         while let Some(at) = rest.find("class=\"") {

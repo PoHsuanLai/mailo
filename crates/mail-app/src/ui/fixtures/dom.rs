@@ -1,5 +1,5 @@
 use super::super::app::App;
-use super::super::composer::Composer;
+use super::super::compose::{ComposerPage, use_desk};
 use super::super::reading::Reader;
 use super::super::style::STYLE;
 use super::store::{ACCOUNT, seeded};
@@ -28,7 +28,7 @@ pub(in crate::ui) fn markup(store: Arc<SqliteStore>) -> String {
 /// colour is a token now, in three theme states, so the dark file has to name the state.
 /// `color-scheme` on the root used to be enough, when the stylesheet leaned on `Canvas` and
 /// `CanvasText`; it no longer answers to that, and a dark file that does not ask renders light.
-fn dump(name: &str, body: &str) {
+pub(in crate::ui) fn dump(name: &str, body: &str) {
     let target = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
     let plain = String::new();
     // `Dark` is the variant that names an attribute. `System` is the one that does not.
@@ -461,13 +461,17 @@ pub(in crate::ui) const INSIDE_THE_SHELL: u32 = 3;
 #[derive(Clone)]
 pub(in crate::ui) struct Toggle(pub(in crate::ui) Arc<std::sync::atomic::AtomicBool>);
 
-/// Renders `Composer`, opening or closing it according to [`Toggle`] on every render.
+/// Renders the composer page, opening or closing it according to [`Toggle`] on every render.
 #[component]
 fn ComposerHarness() -> Element {
     let store = use_context::<Arc<SqliteStore>>();
     let toggle = use_context::<Toggle>();
     let mut shell = use_signal(Shell::default);
     let revision = use_signal(|| 0u64);
+    let today = use_signal(crate::today::Today::default);
+    let spaces = use_signal(crate::space::Spaces::default);
+    let side = use_signal(|| false);
+    use_desk(today, spaces, None, side);
 
     let want_open = toggle.0.load(std::sync::atomic::Ordering::SeqCst);
     let is_open = shell.read().composing.is_some();
@@ -482,7 +486,12 @@ fn ComposerHarness() -> Element {
     } else if !want_open && is_open {
         shell.write().close_composer();
     }
-    rsx! { Composer { shell, revision } }
+    let draft = shell.read().composing.as_ref().map(|c| c.draft);
+    rsx! {
+        if let Some(draft) = draft {
+            ComposerPage { key: "{draft}", draft, shell, revision }
+        }
+    }
 }
 
 pub(in crate::ui) fn harness(open: bool) -> (VirtualDom, Toggle, tempfile::TempDir) {
@@ -497,7 +506,7 @@ pub(in crate::ui) fn harness(open: bool) -> (VirtualDom, Toggle, tempfile::TempD
 #[cfg(test)]
 mod tests {
     use super::super::store::{empty, realistic, seeded};
-    use super::{dump, harness, markup, reader_markup, thread_like};
+    use super::{dump, markup, reader_markup, thread_like};
 
     #[tokio::test]
     #[ignore = "writes target/first-run.html for a human or a headless browser to look at"]
@@ -527,22 +536,6 @@ mod tests {
     async fn render_the_shell_with_real_mail() {
         let (store, _dir) = realistic();
         dump("shell-real", &markup(store));
-    }
-
-    #[tokio::test]
-    #[ignore = "writes target/composer.html for a human or a headless browser to look at"]
-    async fn render_the_composer_to_a_file() {
-        // The composer is the other pane nothing has ever looked at: it only exists while a
-        // draft is open, which the shell's own signal decides, so it is reached through the
-        // harness that already exists for the hook-order test.
-        let (mut dom, _toggle, _dir) = harness(true);
-        dom.rebuild_in_place();
-        let body = format!(
-            "<div class=\"app\"><div class=\"places\"></div><div class=\"list\"></div>\
-             <div class=\"reader\">{}</div></div>",
-            dioxus_ssr::render(&dom)
-        );
-        dump("composer", &body);
     }
 
     /// The sidebar with a cached icon on each provider tile.

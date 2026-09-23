@@ -7,8 +7,13 @@ use super::super::icon::Icon;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::ui) enum Tile {
     Icon(Icon),
-    Avatar { letter: char, color: String },
+    Avatar {
+        letter: char,
+        color: String,
+    },
     Glyph(char),
+    /// A short mark of more than one character, like `H1` or `1.`.
+    Text(&'static str),
 }
 
 /// The right-hand side of an item.

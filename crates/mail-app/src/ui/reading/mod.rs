@@ -101,7 +101,7 @@ fn peek_tool(peek: Peek, current: Peek, icon: Icon, mut shell: Signal<Shell>) ->
 }
 
 #[component]
-pub(super) fn Reader(thread: ThreadId, shell: Signal<Shell>) -> Element {
+pub(super) fn Reader(thread: ThreadId, shell: Signal<Shell>, children: Element) -> Element {
     let store = use_context::<Arc<SqliteStore>>();
     // Where the last attachment went, or why it did not. Cleared by opening another
     // conversation, because this component is rebuilt for each one.
@@ -357,6 +357,8 @@ pub(super) fn Reader(thread: ThreadId, shell: Signal<Shell>) -> Element {
                     span { "sandboxed frame · no scripts, no same-origin" }
                 }
             }
+            // An inline reply, after every frame so no iframe gains a new parent.
+            {children}
         }
     }
 }

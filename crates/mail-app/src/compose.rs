@@ -807,6 +807,38 @@ pub fn send(store: &SqliteStore, draft: DraftId, now: DateTime<Utc>) -> Result<S
     Ok(out)
 }
 
+/// Take back a send that has not left: the queued submission goes, the draft is editable again.
+///
+/// One write of two changes. Deleting the draft withdraws its outbox entry (334b758), and the
+/// upsert puts the same draft back as `Editing`, so what comes back is exactly what was sent.
+/// A draft already `Sending` is on the wire and cannot be recalled; `Sent` is history.
+pub fn unsend(store: &SqliteStore, draft: DraftId, now: DateTime<Utc>) -> Result<Draft, String> {
+    let stored = store.draft(draft).map_err(|e| e.to_string())?;
+    match stored.state {
+        SendState::Sending => return Err("that message is already being sent".to_owned()),
+        SendState::Sent { .. } => return Err("that message was already sent".to_owned()),
+        SendState::Editing | SendState::Queued | SendState::Failed { .. } => {}
+    }
+    let back = Draft {
+        state: SendState::Editing,
+        updated: now,
+        ..stored
+    };
+    store
+        .apply(
+            back.account,
+            &Patch {
+                id: ChangeId::generate(),
+                changes: vec![
+                    Change::DraftDelete(back.id),
+                    Change::DraftUpsert(Box::new(back.clone())),
+                ],
+            },
+        )
+        .map_err(|e| e.to_string())?;
+    Ok(back)
+}
+
 /// Every draft, and where it got to.
 pub fn drafts(store: &SqliteStore) -> Result<String, String> {
     let accounts: Vec<AccountId> = {

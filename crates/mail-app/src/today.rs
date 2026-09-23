@@ -6,7 +6,7 @@
 
 use crate::appearance::{read_json, write_json};
 use chrono::{DateTime, Utc};
-use mail_domain::ThreadId;
+use mail_domain::{DraftId, ThreadId};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -28,11 +28,29 @@ pub struct Entry {
     pub last_opened: DateTime<Utc>,
 }
 
+/// A draft that was put aside with Esc, in one Space. Clicking it opens the composer again.
+///
+/// Parking is not a timer: a draft stays until it is reopened, sent or discarded, because the
+/// draft itself is in the store and this is only the way back to it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Parked {
+    /// Which Space it was put aside in.
+    pub space: usize,
+    /// The draft.
+    pub draft: DraftId,
+    /// What the entry says: the subject when there is one.
+    pub title: String,
+    /// When it was parked. The newest is first.
+    pub parked: DateTime<Utc>,
+}
+
 /// The shortcuts currently in Today, most recently opened first.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct Today {
     pub entries: Vec<Entry>,
+    /// Drafts put aside, newest first. Absent in files written before drafts could be parked.
+    pub drafts: Vec<Parked>,
 }
 
 impl Today {
@@ -73,6 +91,33 @@ impl Today {
     /// Drop every shortcut that has been idle for more than [`IDLE`].
     pub fn prune(&mut self, now: DateTime<Utc>) {
         self.entries.retain(|entry| !idle(entry, now));
+    }
+
+    /// Put `draft` aside in `space`, or move it to the front with a new title.
+    pub fn park(&mut self, space: usize, draft: DraftId, title: &str, now: DateTime<Utc>) {
+        self.drafts.retain(|parked| parked.draft != draft);
+        self.drafts.insert(
+            0,
+            Parked {
+                space,
+                draft,
+                title: title.to_owned(),
+                parked: now,
+            },
+        );
+    }
+
+    /// The draft is open again, sent, or gone: its entry goes, in every Space.
+    pub fn unpark(&mut self, draft: DraftId) {
+        self.drafts.retain(|parked| parked.draft != draft);
+    }
+
+    /// The drafts parked in `space`, newest first.
+    pub fn parked(&self, space: usize) -> Vec<&Parked> {
+        self.drafts
+            .iter()
+            .filter(|parked| parked.space == space)
+            .collect()
     }
 }
 

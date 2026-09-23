@@ -6,7 +6,7 @@
 
 mod app;
 mod command;
-mod composer;
+mod compose;
 mod data;
 mod field;
 mod frame;
