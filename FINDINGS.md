@@ -3641,3 +3641,18 @@ most 4 MB per request, so a message over about 3 MB before encoding is refused w
 Ammonia's `generic_attributes` are `lang` and `title`. `class`, `id` and `style` are gone before the block parser sees a byte. `gmail_quote`, `moz-cite-prefix`, `yahoo_quoted` and `OutlookMessageHeader` do not survive sanitization. A rule against them never fires, and a test of it passes if the test forgot to sanitize first.
 
 Detection is positional and textual: an attribution is recognised only when it is immediately followed by a quote. Adding `allowed_classes` was considered and rejected. Those names are chosen by the sender, so anyone could mark their first div `gmail_quote` and have the whole message drawn as quoted text.
+
+### F147 — Three ways a watch mistook a wait for a refusal, or a refusal for a wait
+
+Found while building 10.1 and 10.2 and fixed there.
+
+- A token endpoint that could not be reached was reported as `RuntimeError::Secrets`, which is
+  read as `NeedsReauth`. A network blip at the hourly refresh stopped `mailo watch` and asked the
+  user to sign in again. It is `Connect` now; only the issuer's own error answer is a refusal.
+- `refresh_caps` returning `NeedsReauth` reached `pass()` as prose, so the watch treated it as an
+  ordinary failure and retried it every minute against a credential already refused.
+- `pass()` dropped the outbox drain's `needs_reauth` and `hold`. A credential rejected while
+  sending did not stop the poll loop, and a server's rate limit on submission was not honoured.
+
+The common shape: each layer classified its failure correctly and the next layer flattened it to
+a string. `Retry` survives only where it is passed along as a value.
