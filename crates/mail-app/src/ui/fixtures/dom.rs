@@ -168,12 +168,56 @@ impl dioxus::html::HasFormData for Typed {
     }
 }
 
+/// A click with nothing but the primary button. The handlers these tests drive ignore the
+/// coordinates; the converter still has to produce a [`dioxus::html::MouseData`].
+#[derive(Debug, Clone)]
+struct FakeClick;
+
+impl dioxus::html::point_interaction::ModifiersInteraction for FakeClick {
+    fn modifiers(&self) -> dioxus::html::input_data::keyboard_types::Modifiers {
+        dioxus::html::input_data::keyboard_types::Modifiers::empty()
+    }
+}
+
+impl dioxus::html::point_interaction::InteractionLocation for FakeClick {
+    fn client_coordinates(&self) -> dioxus::html::geometry::ClientPoint {
+        dioxus::html::geometry::ClientPoint::new(0.0, 0.0)
+    }
+    fn screen_coordinates(&self) -> dioxus::html::geometry::ScreenPoint {
+        dioxus::html::geometry::ScreenPoint::new(0.0, 0.0)
+    }
+    fn page_coordinates(&self) -> dioxus::html::geometry::PagePoint {
+        dioxus::html::geometry::PagePoint::new(0.0, 0.0)
+    }
+}
+
+impl dioxus::html::point_interaction::InteractionElementOffset for FakeClick {
+    fn element_coordinates(&self) -> dioxus::html::geometry::ElementPoint {
+        dioxus::html::geometry::ElementPoint::new(0.0, 0.0)
+    }
+}
+
+impl dioxus::html::point_interaction::PointerInteraction for FakeClick {
+    fn trigger_button(&self) -> Option<dioxus::html::input_data::MouseButton> {
+        Some(dioxus::html::input_data::MouseButton::Primary)
+    }
+    fn held_buttons(&self) -> dioxus::html::input_data::MouseButtonSet {
+        dioxus::html::input_data::MouseButtonSet::empty()
+    }
+}
+
+impl dioxus::html::HasMouseData for FakeClick {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
 /// The renderer's job, done by the tests instead.
 ///
 /// `handle_event` hands a listener a `PlatformEventData` and a global converter turns it
 /// into the typed data the handler expects. A renderer installs one; a test has no renderer,
-/// so without this every dispatched event panics on a failed downcast. Only keyboard events
-/// are converted, because those are the only ones these tests send.
+/// so without this every dispatched event panics on a failed downcast. Keyboard, form and
+/// click are converted, because those are the events these tests send.
 struct TestEvents;
 
 impl dioxus::html::HtmlEventConverter for TestEvents {
@@ -221,8 +265,13 @@ impl dioxus::html::HtmlEventConverter for TestEvents {
     fn convert_mounted_data(&self, _: &PlatformEventData) -> dioxus::html::MountedData {
         unimplemented!("convert_mounted_data is not what these tests dispatch")
     }
-    fn convert_mouse_data(&self, _: &PlatformEventData) -> dioxus::html::MouseData {
-        unimplemented!("convert_mouse_data is not what these tests dispatch")
+    fn convert_mouse_data(&self, event: &PlatformEventData) -> dioxus::html::MouseData {
+        dioxus::html::MouseData::new(
+            event
+                .downcast::<FakeClick>()
+                .cloned()
+                .expect("these tests only dispatch FakeClick"),
+        )
     }
     fn convert_pointer_data(&self, _: &PlatformEventData) -> dioxus::html::PointerData {
         unimplemented!("convert_pointer_data is not what these tests dispatch")
@@ -259,6 +308,120 @@ pub(in crate::ui) fn dispatching() {
     ONCE.call_once(|| {
         dioxus::html::set_event_converter(Box::new(TestEvents));
     });
+}
+
+/// Dynamic attributes set during one render, and which element each landed on.
+///
+/// Static attributes live in the template and never appear here, so a control is found by an
+/// attribute the component computes — an `aria-label` built from a value, not a literal.
+#[derive(Default)]
+pub(in crate::ui) struct Seen {
+    attrs: Vec<(String, String, dioxus_core::ElementId)>,
+}
+
+impl Seen {
+    fn ids(&self, name: &str, value: &str) -> Vec<dioxus_core::ElementId> {
+        let mut ids = Vec::new();
+        for (got_name, got_value, id) in &self.attrs {
+            if got_name == name && got_value == value && !ids.contains(id) {
+                ids.push(*id);
+            }
+        }
+        ids
+    }
+
+    /// The element whose dynamic `name` attribute equals `value`, when this render set it.
+    pub(in crate::ui) fn get(&self, name: &str, value: &str) -> Option<dioxus_core::ElementId> {
+        let ids = self.ids(name, value);
+        (ids.len() == 1).then(|| ids[0])
+    }
+
+    /// The one element whose dynamic `name` attribute equals `value`.
+    pub(in crate::ui) fn one(&self, name: &str, value: &str) -> dioxus_core::ElementId {
+        let ids = self.ids(name, value);
+        assert_eq!(
+            ids.len(),
+            1,
+            "attribute {name}={value:?} on {} elements; saw {:?}",
+            ids.len(),
+            self.attrs
+                .iter()
+                .filter(|(got_name, _, _)| got_name == name)
+                .collect::<Vec<_>>()
+        );
+        ids[0]
+    }
+}
+
+impl dioxus_core::WriteMutations for Seen {
+    fn set_attribute(
+        &mut self,
+        name: &'static str,
+        _ns: Option<&'static str>,
+        value: &dioxus_core::AttributeValue,
+        id: dioxus_core::ElementId,
+    ) {
+        let rendered = match value {
+            dioxus_core::AttributeValue::Text(text) => text.clone(),
+            dioxus_core::AttributeValue::Float(n) => n.to_string(),
+            dioxus_core::AttributeValue::Int(n) => n.to_string(),
+            dioxus_core::AttributeValue::Bool(b) => b.to_string(),
+            other => format!("{other:?}"),
+        };
+        self.attrs.push((name.to_owned(), rendered, id));
+    }
+
+    fn append_children(&mut self, _: dioxus_core::ElementId, _: usize) {}
+    fn assign_node_id(&mut self, _: &'static [u8], _: dioxus_core::ElementId) {}
+    fn create_placeholder(&mut self, _: dioxus_core::ElementId) {}
+    fn create_text_node(&mut self, _: &str, _: dioxus_core::ElementId) {}
+    fn load_template(&mut self, _: dioxus_core::Template, _: usize, _: dioxus_core::ElementId) {}
+    fn replace_node_with(&mut self, _: dioxus_core::ElementId, _: usize) {}
+    fn replace_placeholder_with_nodes(&mut self, _: &'static [u8], _: usize) {}
+    fn insert_nodes_after(&mut self, _: dioxus_core::ElementId, _: usize) {}
+    fn insert_nodes_before(&mut self, _: dioxus_core::ElementId, _: usize) {}
+    fn set_node_text(&mut self, _: &str, _: dioxus_core::ElementId) {}
+    fn create_event_listener(&mut self, _: &'static str, _: dioxus_core::ElementId) {}
+    fn remove_event_listener(&mut self, _: &'static str, _: dioxus_core::ElementId) {}
+    fn remove_node(&mut self, _: dioxus_core::ElementId) {}
+    fn push_root(&mut self, _: dioxus_core::ElementId) {}
+}
+
+/// Render `dom` from scratch, recording the dynamic attributes of that first paint.
+pub(in crate::ui) fn rebuild_into(dom: &mut VirtualDom) -> Seen {
+    let mut seen = Seen::default();
+    dom.rebuild(&mut seen);
+    seen
+}
+
+fn paint(dom: &mut VirtualDom) -> Seen {
+    let mut seen = Seen::default();
+    dom.render_immediate(&mut seen);
+    seen
+}
+
+/// Click `element` and return the attributes the resulting render set.
+pub(in crate::ui) fn click(dom: &mut VirtualDom, element: dioxus_core::ElementId) -> Seen {
+    #[allow(deprecated)]
+    dom.handle_event(
+        "click",
+        std::rc::Rc::new(PlatformEventData::new(Box::new(FakeClick))),
+        element,
+        true,
+    );
+    paint(dom)
+}
+
+/// Press a key and return the attributes the resulting render set.
+pub(in crate::ui) fn key(dom: &mut VirtualDom, key_name: &'static str) -> Seen {
+    #[allow(deprecated)]
+    dom.handle_event(
+        "keydown",
+        std::rc::Rc::new(PlatformEventData::new(Box::new(FakeKey(key_name)))),
+        dioxus_core::ElementId(INSIDE_THE_SHELL as usize),
+        true,
+    );
+    paint(dom)
 }
 
 /// Press a key on the running component tree.

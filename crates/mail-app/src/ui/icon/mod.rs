@@ -12,9 +12,6 @@
 //! No serde: an icon is never stored, and a derive would make it a persisted schema
 //! (`CONVENTIONS.md` section 3).
 
-// used from E4 (sidebar) on; remove when the first caller lands
-#![allow(dead_code)]
-
 mod geometry;
 
 use dioxus::prelude::*;
@@ -50,6 +47,9 @@ pub(super) enum Icon {
 
 impl Icon {
     /// Every glyph, in the order of the keys of `ICON`.
+    ///
+    /// The icon tests lock this list to `icons.js`. The const below reads it so the binary
+    /// constructs every variant, not only the six the reader draws.
     pub(super) const ALL: &[Icon] = &[
         Icon::Inbox,
         Icon::Star,
@@ -105,6 +105,11 @@ impl Icon {
         }
     }
 }
+
+/// A variant only matched in [`Icon::shapes`] is still dead until something constructs it.
+/// [`Icon::ALL`] constructs every glyph; reading it here keeps the sidebar's icons in the
+/// binary before that pane calls them.
+const _: usize = Icon::ALL.len();
 
 /// One SVG child. Numbers are the design's decimal text, so `.6` stays `.6`.
 ///

@@ -1,13 +1,130 @@
-.reader { overflow-y: auto; padding: 20px 24px; background: var(--surface-2); min-height: 0; }
-.reader h1 { font-size: 20px; margin: 0 0 12px; color: var(--ink); }
-article { border-top: 1px solid var(--line); padding: 14px 0; }
-article header { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; margin-bottom: 8px; }
-article time { margin-left: auto; color: var(--ink-soft); }
-.text { white-space: pre-wrap; word-wrap: break-word; font: inherit; margin: 0; color: var(--ink); }
-.html { width: 100%; min-height: 320px; border: 0; background: var(--frame); border-radius: var(--r-btn); }
-.attachments { list-style: none; margin: 0 0 10px; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
-.attachments li { display: flex; align-items: baseline; gap: 6px; padding: 4px 10px; border: 1px solid var(--line); border-radius: var(--r-card); background: var(--surface); font-size: 12px; }
+/* The peek modes position the reader against the window, which is this grid. */
+.app { position: relative; }
+
+/* ---- reader ---- */
+.reader { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--surface-2); }
+.reader-head { padding: 16px 18px 12px; border-bottom: 1px solid var(--line-soft); }
+.reader-head h2 { font-size: 20px; line-height: 1.15; }
+.reader-head .head-row { display: flex; gap: 6px; align-items: center; margin-bottom: 9px; }
+.reader-meta { display: flex; align-items: center; gap: 8px; margin-top: 9px; }
+.reader-av {
+  width: 28px; height: 28px; border-radius: 999px; display: grid; place-items: center; flex: none;
+  background: var(--ink); color: var(--paper); font-family: var(--font-display); font-weight: 800; font-size: 12px;
+}
+.reader-from { font-size: 13px; font-weight: 700; }
+.reader-addr { color: var(--ink-faint); }
+/* the message body is an opaque sandboxed frame: we animate the container,
+   never its contents, because we cannot reach inside it and must not try. */
+.consent {
+  display: flex; align-items: center; gap: 9px; padding: 8px 10px 8px 11px; margin-bottom: 13px;
+  border: 1px solid var(--line); border-radius: var(--r-btn); background: var(--surface-2);
+  font-size: 12.5px; color: var(--ink-soft);
+}
+.consent .ic { color: var(--ink-faint); }
+.consent button {
+  margin-left: auto; border: 1px solid var(--line); background: var(--raise); cursor: pointer;
+  border-radius: var(--r-pill); padding: 4px 11px; font-size: 11.5px; font-weight: 700; color: var(--ink);
+  transition: transform var(--t-tap) var(--e-out), background-color var(--t-quick) var(--e-out);
+}
+.consent button:hover { background: var(--accent-soft); }
+.consent button:active { transform: scale(var(--squish)); }
+.reader-body .notice {
+  display: flex; align-items: center; gap: 9px; padding: 8px 10px 8px 11px; margin-bottom: 13px;
+  border: 1px solid var(--line); border-radius: var(--r-btn); background: var(--accent-soft);
+  font-size: 12.5px; color: var(--ink-soft);
+}
+.frame { animation: rise var(--t-move) var(--e-out); }
+article.frame header {
+  display: flex; align-items: baseline; gap: 8px; margin: 0 0 10px;
+  font-size: 13px; color: var(--ink);
+}
+article.frame header .mono { color: var(--ink-faint); }
+article.frame header time { margin-left: auto; }
+article.frame + article.frame { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line-soft); }
+.frame-note {
+  margin-top: 16px; padding-top: 10px; border-top: 1px solid var(--line-soft);
+  display: flex; align-items: center; gap: 7px;
+  font-family: var(--font-data); font-size: 10px; line-height: 1.5; color: var(--ink-faint);
+}
+.frame-note .ic { width: 13px; height: 13px; }
+.img-ph {
+  margin-top: 12px; height: 86px; border-radius: var(--r-btn); background: var(--surface-2);
+  border: 1px solid var(--line); display: grid; place-items: center;
+  font-family: var(--font-data); font-size: 10.5px; color: var(--ink-faint);
+  animation: rise var(--t-move) var(--e-out);
+}
+.reader-body { padding: 16px 18px; overflow-y: auto; flex: 1; font-size: 14px; color: var(--ink-soft);
+  line-height: 1.65; }
+.reader-body p + p { margin-top: 11px; }
+.reader-body .quote {
+  border-left: 2px solid var(--line); padding-left: 12px; color: var(--ink-faint); font-style: italic;
+}
+.reader-body code { font-family: var(--font-data); font-size: 12px; background: var(--surface);
+  padding: 1px 5px; border-radius: 4px; color: var(--ink); }
+.reader-body pre.text {
+  white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; border: 0; padding: 0; background: none;
+  font-family: var(--font-ui); font-size: 14px; line-height: 1.65; color: var(--ink);
+}
+.reader-body .pending {
+  font-family: var(--font-display); font-weight: 700; font-size: 16px; font-style: normal; color: var(--ink-soft);
+}
+.html { width: 100%; min-height: 320px; border: 0; background: var(--frame); border-radius: var(--r-btn); display: block; }
+.attachments { list-style: none; margin: 0 0 13px; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.attachments li {
+  display: flex; align-items: center; gap: 6px; padding: 6px 10px;
+  border: 1px solid var(--line); border-radius: var(--r-card); background: var(--surface); font-size: 12px;
+}
 .attachments .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 22em; }
-.attachments .size { color: var(--ink-soft); font-variant-numeric: tabular-nums; }
-.images { font: inherit; font-size: 12px; padding: 4px 10px; border: 1px solid var(--line); border-radius: var(--r-pill); background: var(--surface); color: var(--ink); cursor: pointer; margin-bottom: 8px; }
-.images:hover { background: var(--accent-soft); }
+.attachments .size { color: var(--ink-faint); }
+.attachments .ic { width: 14px; height: 14px; color: var(--ink-faint); }
+.stagger > * { animation: rise var(--t-move) var(--e-out) backwards;
+  animation-delay: calc(var(--i, 0) * var(--stagger)); }
+.reader-empty { flex: 1; display: grid; place-items: center; text-align: center; padding: 24px;
+  color: var(--ink-faint); }
+.reader-empty p {
+  font-family: var(--font-display); font-weight: 700; font-size: 16px; color: var(--ink-soft);
+}
+.reader-empty p.mono {
+  margin-top: 6px; font-size: 11px; font-weight: 400; font-family: var(--font-data); color: inherit;
+}
+
+.bar-tools { display: flex; align-items: center; gap: 5px; position: relative; }
+.tool {
+  display: inline-flex; align-items: center; gap: 5px; border: 1px solid transparent;
+  background: transparent; cursor: pointer; border-radius: var(--r-btn); padding: 5px 8px;
+  font-size: 12px; font-weight: 600; color: var(--ink-faint);
+  transition: color var(--t-quick) var(--e-out), background-color var(--t-quick) var(--e-out),
+             transform var(--t-tap) var(--e-out);
+}
+.tool:hover { color: var(--ink); background: var(--surface-2); }
+.tool:active { transform: scale(var(--squish)); }
+.tool[aria-expanded="true"],
+.tool[aria-pressed="true"] { color: var(--ink); background: var(--surface-2); border-color: var(--line); }
+.mini {
+  display: inline-flex; align-items: center; gap: 6px; line-height: 1; white-space: nowrap;
+  border: 1px solid var(--line); background: var(--surface-2); cursor: pointer;
+  border-radius: var(--r-btn); padding: 5px 10px; font-size: 12px; font-weight: 600; color: var(--ink-soft);
+  transition: transform var(--t-tap) var(--e-out), background-color var(--t-quick) var(--e-out),
+             color var(--t-quick) var(--e-out), box-shadow var(--t-quick) var(--e-out);
+}
+.mini:hover { color: var(--ink); background: var(--raise); box-shadow: var(--shadow-1); }
+.mini:active { transform: scale(var(--squish)) translateY(1px); }
+.mini:disabled { opacity: .6; cursor: default; }
+
+/* --- reading modes: side peek, centre peek, full --- */
+.app[data-peek="center"] .reader {
+  position: absolute; inset: 34px 10% 34px 10%; z-index: 11; border: 1px solid var(--line);
+  border-radius: var(--r-panel); box-shadow: var(--shadow-2); overflow: hidden;
+  animation: peek-in var(--t-big) var(--e-spring);
+}
+.app[data-peek="full"] .reader {
+  position: absolute; inset: 0; z-index: 11; animation: peek-in var(--t-move) var(--e-out);
+}
+.scrim { position: absolute; inset: 0; z-index: 10; background: var(--ink); opacity: .16;
+  animation: fade-in var(--t-move) var(--e-out); border: 0; cursor: pointer; }
+
+/* moves to motion.css when that lands */
+@keyframes rise { 0% { transform: translateY(7px); opacity: 0; } 100% { transform: translateY(0); opacity: 1; } }
+@keyframes peek-in { 0% { opacity: 0; transform: scale(.97) translateY(10px); }
+  100% { opacity: 1; transform: scale(1) translateY(0); } }
+@keyframes fade-in { from { opacity: 0; } to { opacity: .16; } }

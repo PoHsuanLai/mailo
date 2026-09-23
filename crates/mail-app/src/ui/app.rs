@@ -208,8 +208,21 @@ pub(super) fn App() -> Element {
     let on_key = move |event: Event<KeyboardData>| {
         // `Key`'s Display is the DOM key name — "e", "ArrowDown", "Escape" — which is the
         // vocabulary `view::shortcut` is written against.
+        let key = event.key().to_string();
         let typing = in_a_field() || shell.read().composing.is_some();
-        let Some(action) = crate::view::shortcut(&event.key().to_string(), typing) else {
+        // Esc closes a centre or full peek and revokes image consent. Side peek still falls
+        // through to Shortcut::Back, and a composer still takes Esc.
+        if key == "Escape" {
+            let floating = {
+                let current = shell.read();
+                current.composing.is_none() && current.open.is_some() && current.peek.floats()
+            };
+            if floating {
+                shell.write().close();
+                return;
+            }
+        }
+        let Some(action) = crate::view::shortcut(&key, typing) else {
             return;
         };
         let store = consume_context::<Arc<SqliteStore>>();
@@ -356,18 +369,32 @@ pub(super) fn App() -> Element {
         }
     });
 
+    let peek = shell.read().peek.slug();
+    let close_label = "Close";
     rsx! {
         style { {STYLE} }
         div { class: "app",
             tabindex: "0",
             onkeydown: on_key,
+            "data-peek": "{peek}",
+            if shell.read().open.is_some() && shell.read().peek.floats() {
+                button {
+                    class: "scrim",
+                    r#type: "button",
+                    aria_label: "{close_label}",
+                    onclick: move |_| shell.write().close(),
+                }
+            }
             Places { shell, pages, badges, revision, sync_state }
             ThreadList { shell, pages, revision, in_a_field, threads, drafts, nothing, more }
             section { class: "reader",
                 if let Some(thread) = shell.read().open {
                     Reader { thread, shell }
                 } else if shell.read().composing.is_none() {
-                    p { class: "empty", "Select a conversation." }
+                    div { class: "reader-empty",
+                        p { "Nothing open" }
+                        p { class: "mono", "pick a thread" }
+                    }
                 }
                 if shell.read().composing.is_some() {
                     Composer { shell, revision }
@@ -732,6 +759,175 @@ mod tests {
             dom.mark_dirty(dioxus_core::ScopeId::APP);
             dom.render_immediate(&mut NoOpMutations);
         }
+    }
+
+    /// The markup after the stylesheet. `data-peek` is also a selector in the CSS, and a search
+    /// of the whole page would find that selector whether or not the shell wrote the attribute.
+    fn shell_markup(page: &str) -> &str {
+        let Some(class_at) = page.find(r#"class="app""#) else {
+            panic!("no app root:\n{page}");
+        };
+        let start = page[..class_at].rfind('<').unwrap_or(class_at);
+        &page[start..]
+    }
+
+    fn peek_attr(page: &str) -> String {
+        let shell = shell_markup(page);
+        let key = "data-peek=\"";
+        let Some(at) = shell.find(key) else {
+            panic!("the shell has no data-peek:\n{shell}");
+        };
+        let rest = &shell[at + key.len()..];
+        rest.split('"').next().unwrap_or("").to_owned()
+    }
+
+    fn scrim_count(page: &str) -> usize {
+        shell_markup(page).matches(r#"class="scrim""#).count()
+    }
+
+    fn iframe_srcdoc(page: &str) -> String {
+        let shell = shell_markup(page);
+        let Some(at) = shell.find("<iframe") else {
+            panic!("no iframe:\n{shell}");
+        };
+        let tag = &shell[at..];
+        let Some(end) = tag.find('>') else {
+            panic!("iframe tag was not closed:\n{tag}");
+        };
+        let open = &tag[..end];
+        let key = "srcdoc=\"";
+        let Some(start) = open.find(key) else {
+            panic!("iframe has no srcdoc: {open}");
+        };
+        open[start + key.len()..]
+            .split('"')
+            .next()
+            .unwrap_or("")
+            .to_owned()
+    }
+
+    /// `(what to do, the data-peek value, whether the scrim is up)`.
+    ///
+    /// The slugs are literals. The shell writes `Peek::slug()`; if this table called `slug()`
+    /// too, the two would agree whatever the function returned.
+    const PEEK_STEPS: &[(&str, &str, bool)] = &[
+        ("start", "side", false),
+        ("open", "side", false),
+        ("Centre peek", "center", true),
+        ("scrim", "center", false),
+        ("open", "center", true),
+        ("Full page", "full", true),
+        ("escape", "full", false),
+        ("open", "full", true),
+        ("Side peek", "side", false),
+    ];
+
+    #[tokio::test]
+    async fn each_peek_writes_data_peek_and_the_scrim_only_while_a_thread_is_open() {
+        use crate::ui::fixtures::{click, key};
+
+        dispatching();
+        let (store, _dir) = realistic();
+        let mut dom = VirtualDom::new(App).with_root_context(store);
+        dom.rebuild_in_place();
+        let mut seen = crate::ui::fixtures::Seen::default();
+
+        let mut failures = Vec::new();
+        for (action, slug, scrim) in PEEK_STEPS {
+            match *action {
+                "start" => {}
+                "open" | "escape" => {
+                    let key_name = if *action == "open" { "j" } else { "Escape" };
+                    seen = key(&mut dom, key_name);
+                }
+                "scrim" => {
+                    let id = seen.one("aria-label", "Close");
+                    seen = click(&mut dom, id);
+                }
+                label => {
+                    let id = seen.one("aria-label", label);
+                    seen = click(&mut dom, id);
+                }
+            }
+            let page = dioxus_ssr::render(&dom);
+            let got = peek_attr(&page);
+            let scrims = scrim_count(&page);
+            let want_scrims = if *scrim { 1 } else { 0 };
+            if got != *slug || scrims != want_scrims {
+                failures.push(format!(
+                    "{action}: data-peek {got:?} (want {slug:?}), {scrims} scrims (want {want_scrims})"
+                ));
+            }
+            if *action == "start" {
+                if !page.contains("Nothing open") || !page.contains("pick a thread") {
+                    failures.push(format!(
+                        "the empty reader does not say what is open:\n{page}"
+                    ));
+                }
+                if page.contains("Select a conversation.") {
+                    failures.push("the empty reader still says Select a conversation.".to_owned());
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    #[tokio::test]
+    async fn changing_the_peek_does_not_remount_the_reader() {
+        use crate::ui::fixtures::{click, key};
+        use crate::ui::reading::{reader_mounts, reset_reader_mounts};
+
+        dispatching();
+        reset_reader_mounts();
+        let (store, _dir) = realistic();
+        let mut dom = VirtualDom::new(App).with_root_context(store);
+        dom.rebuild_in_place();
+
+        // The newest rows are plain text. Walk until the open thread is one with a frame,
+        // which is the node a remount would reload. The peek buttons are created on the first
+        // open and not rewritten while only the message changes, so their ids come from that
+        // first render.
+        let mut centre = None;
+        let mut full = None;
+        let mut page = String::new();
+        for _ in 0..8 {
+            let seen = key(&mut dom, "j");
+            centre = centre.or_else(|| seen.get("aria-label", "Centre peek"));
+            full = full.or_else(|| seen.get("aria-label", "Full page"));
+            page = dioxus_ssr::render(&dom);
+            if shell_markup(&page).contains("<iframe") {
+                break;
+            }
+        }
+        assert!(
+            shell_markup(&page).contains("<iframe"),
+            "no HTML thread in the fixture:\n{page}"
+        );
+        let mounted = reader_mounts();
+        assert!(mounted >= 1, "the reader never mounted");
+        let srcdoc = iframe_srcdoc(&page);
+        let centre = centre.expect("the reader never drew Centre peek");
+        let full = full.expect("the reader never drew Full page");
+
+        click(&mut dom, centre);
+        click(&mut dom, full);
+        let after = dioxus_ssr::render(&dom);
+        assert_eq!(
+            reader_mounts(),
+            mounted,
+            "peek changed the reader's mount count, so the iframe was recreated: {mounted} before, {} after",
+            reader_mounts()
+        );
+        assert_eq!(
+            peek_attr(&after),
+            "full",
+            "the Full page click did not change the peek, so this test never moved the reader"
+        );
+        assert_eq!(
+            iframe_srcdoc(&after),
+            srcdoc,
+            "peek replaced the iframe's document"
+        );
     }
 }
 

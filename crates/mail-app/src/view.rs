@@ -356,6 +356,47 @@ where
     Ok(Theme::parse(&word).unwrap_or_default())
 }
 
+/// Where the open reader sits. Per session, and not persisted.
+///
+/// Side is the grid's third column. Centre and full float over the window, which is a
+/// stylesheet change on `div.app` — the reader component stays where it is in the tree,
+/// because moving it would reload the sandboxed frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Peek {
+    /// The grid's third column.
+    #[default]
+    Side,
+    /// A panel over the middle of the window.
+    Center,
+    /// The whole window.
+    Full,
+}
+
+impl Peek {
+    /// `side`, `center` or `full`, written as `data-peek`.
+    pub fn slug(self) -> &'static str {
+        match self {
+            Peek::Side => "side",
+            Peek::Center => "center",
+            Peek::Full => "full",
+        }
+    }
+
+    /// What the peek button names itself: "Side peek", "Centre peek", "Full page".
+    pub fn label(self) -> &'static str {
+        match self {
+            Peek::Side => "Side peek",
+            Peek::Center => "Centre peek",
+            Peek::Full => "Full page",
+        }
+    }
+
+    /// Centre and full float over the window. Side stays in the grid.
+    pub fn floats(self) -> bool {
+        !matches!(self, Peek::Side)
+    }
+}
+
 /// Everything the shell is currently showing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Shell {
@@ -369,6 +410,8 @@ pub struct Shell {
     /// Per thread and not persisted: consenting to load one sender's images is not consent for
     /// the next message, and a remote image is a read receipt the sender never asked for.
     pub show_remote_images: bool,
+    /// Where the reader sits. Per session, not persisted.
+    pub peek: Peek,
     /// The conversation whose label menu is open, if any.
     ///
     /// One at a time and identified by thread rather than by row index: a sync can land between
@@ -593,6 +636,7 @@ impl Default for Shell {
             search: String::new(),
             open: None,
             show_remote_images: false,
+            peek: Peek::Side,
             composing: None,
             labelling: None,
             snoozing: None,
@@ -662,6 +706,15 @@ impl Shell {
     /// Open a thread.
     pub fn open(&mut self, thread: ThreadId) {
         self.open = Some(thread);
+        self.show_remote_images = false;
+    }
+
+    /// Close the reader.
+    ///
+    /// Consent is per thread, so closing revokes it the way [`Self::open`] and
+    /// [`Self::select`] do. A remote image is a read receipt.
+    pub fn close(&mut self) {
+        self.open = None;
         self.show_remote_images = false;
     }
 
@@ -1194,6 +1247,12 @@ mod tests {
         shell.select(1);
         assert!(!shell.show_remote_images);
         assert_eq!(shell.policy().remote_images, RemoteImages::Blocked);
+
+        shell.open(ThreadId::generate());
+        shell.show_remote_images = true;
+        shell.close();
+        assert!(shell.open.is_none(), "close left the reader open");
+        assert!(!shell.show_remote_images, "close kept image consent");
     }
 
     #[test]

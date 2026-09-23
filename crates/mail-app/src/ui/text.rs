@@ -67,7 +67,7 @@ pub(super) fn attachment_rows(message: &Message) -> Vec<AttachmentRow> {
 }
 
 pub(super) fn address(message: &Message) -> String {
-    format!(" <{}>", message.from.email)
+    message.from.email.clone()
 }
 
 pub(super) fn stamp(message: &Message) -> String {
