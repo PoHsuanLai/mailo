@@ -35,13 +35,18 @@ impl Source for Indexed<'_> {
         terms
     }
 
-    fn ranked(
+    fn listed(&self, filter: &Filter, page: PageReq, now: DateTime<Utc>) -> Vec<ThreadSummary> {
+        <MemoryStore as Source>::listed(self.store, filter, page, now)
+    }
+
+    fn top(
         &self,
         filter: &Filter,
-        limit: usize,
+        k: usize,
+        window: usize,
         now: DateTime<Utc>,
     ) -> Vec<(ThreadSummary, f64)> {
-        <MemoryStore as Source>::ranked(self.store, filter, limit, now)
+        <MemoryStore as Source>::top(self.store, filter, k, window, now)
     }
 }
 

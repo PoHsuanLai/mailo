@@ -6,6 +6,7 @@ use dioxus::prelude::*;
 use dioxus_core::{NoOpMutations, VirtualDom};
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
+use searching_in_the_window::listed;
 use std::sync::Arc;
 
 /// Records which `ElementId` each dynamic attribute landed on.
@@ -63,27 +64,33 @@ impl dioxus_core::WriteMutations for WhereThingsWent {
     fn push_root(&mut self, _: ElementId) {}
 }
 
-/// Let the off-thread reads finish and fold their answers back into the tree.
+/// Render until `landed` holds for the page, doing the tree's pending work in between.
 ///
-/// Since phase 8c the list and the badges are computed on a blocking thread and delivered
-/// through a `use_resource`, which keeps its previous value while it recomputes — so one
-/// render after a keystroke shows what was on screen *before* it. That is the right
-/// behaviour in a window, where a blank pane between keystrokes is worse than a stale one,
-/// and the wrong thing to assert against.
+/// Since phase 8c the list is computed on a blocking thread, and a search waits for the box to
+/// be still first, so one render after a keystroke shows what was on screen *before* it. That
+/// is the right behaviour in a window, where a blank pane between keystrokes is worse than a
+/// stale one, and the wrong thing to assert against. So the test waits for the condition it
+/// asserts, never for a number of polls: counting polls guessed how fast the blocking thread
+/// is, and under a loaded `cargo test --workspace` the guess was wrong.
 ///
-/// Bounded, and it stops as soon as the tree has nothing left to do: a bare `wait_for_work`
-/// on a settled tree never returns.
-async fn settle(dom: &mut VirtualDom) {
-    for _ in 0..16 {
-        if tokio::time::timeout(std::time::Duration::from_millis(20), dom.wait_for_work())
-            .await
-            .is_err()
-        {
-            break;
-        }
+/// The tests run on a paused clock. It cannot move while the list is fetched on its blocking
+/// thread (tokio holds it for `spawn_blocking`), so the bound below is only reached when the
+/// tree goes idle without ever showing the condition.
+async fn until(dom: &mut VirtualDom, landed: impl Fn(&str) -> bool) -> String {
+    let start = tokio::time::Instant::now();
+    loop {
         dom.render_immediate(&mut NoOpMutations);
+        let page = dioxus_ssr::render(dom);
+        if landed(&page) {
+            return page;
+        }
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(10),
+            "the list never showed what the test waits for: {:?}",
+            listed(&page)
+        );
+        dom.wait_for_work().await;
     }
-    dom.render_immediate(&mut NoOpMutations);
 }
 
 /// Typing into the real window's search box, and reading what the list pane then shows.
@@ -128,8 +135,9 @@ mod searching_in_the_window {
         (store, dir)
     }
 
-    /// Mount `App`, type `typed` into its search box, and return the rendered page.
-    async fn typing(store: Arc<SqliteStore>, typed: &str) -> String {
+    /// Mount `App`, type `typed` into its search box, let the box go still, and return the
+    /// page once `landed` holds for it.
+    async fn typing(store: Arc<SqliteStore>, typed: &str, landed: impl Fn(&str) -> bool) -> String {
         dispatching();
         let mut dom = VirtualDom::new(App).with_root_context(store);
         let mut seen = WhereThingsWent::default();
@@ -156,8 +164,8 @@ mod searching_in_the_window {
             boxes[0],
             true,
         );
-        settle(&mut dom).await;
-        dioxus_ssr::render(&dom)
+        tokio::time::advance(crate::ui::debounce::QUIET).await;
+        until(&mut dom, landed).await
     }
 
     /// The subjects the list pane is showing.
@@ -165,7 +173,7 @@ mod searching_in_the_window {
     /// Read from the subject cells rather than searched for in the page: the stylesheet is
     /// in the markup, and `page.contains("hi")` is true of `white-space` and `this`. That is
     /// the substring rule in `CONVENTIONS.md`, caught here by a test of its own making.
-    fn listed(page: &str) -> Vec<String> {
+    pub(super) fn listed(page: &str) -> Vec<String> {
         page.split(r#"<div class="row-sub">"#)
             .skip(1)
             .filter_map(|rest| rest.split_once("</div>"))
@@ -173,10 +181,10 @@ mod searching_in_the_window {
             .collect()
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn a_label_name_finds_the_conversation_that_bears_it() {
         let (store, _dir) = labelled();
-        let page = typing(store, "label:travel").await;
+        let page = typing(store, "label:travel", |page| listed(page) == ["hi"]).await;
         assert_eq!(
             listed(&page),
             vec!["hi"],
@@ -186,10 +194,10 @@ mod searching_in_the_window {
 
     /// The control. Without it the test above would pass on a window that ignores the search
     /// box entirely and shows the Inbox whatever is typed.
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn a_label_nothing_bears_finds_nothing() {
         let (store, _dir) = labelled();
-        let page = typing(store, "label:nosuchlabel").await;
+        let page = typing(store, "label:nosuchlabel", |page| listed(page).is_empty()).await;
         assert!(
             listed(&page).is_empty(),
             "a search that matches nothing still showed {:?}",
@@ -199,10 +207,10 @@ mod searching_in_the_window {
 
     /// And the box itself still shows what was typed, so this is a search and not a filter
     /// that silently rewrites the query.
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn the_box_keeps_what_was_typed() {
         let (store, _dir) = labelled();
-        let page = typing(store, "label:travel").await;
+        let page = typing(store, "label:travel", |page| listed(page) == ["hi"]).await;
         assert!(
             page.contains(r#"class="inp search""#)
                 && page.contains(r#"placeholder="Search all mail""#)

@@ -11,7 +11,7 @@ use super::RankedMail;
 use super::fuzzy::{self, FuzzyHit};
 use super::highlight;
 use super::ranking::Affinity;
-use super::source::Source;
+use super::source::{Source, first};
 
 /// Mail rows under the top hit.
 const MAIL_CAP: usize = 6;
@@ -86,13 +86,13 @@ pub struct Results {
 /// `top` is the newest thread. It is not repeated in `mail`, so `top` plus `mail` is those five
 /// (or fewer, when the store has fewer).
 pub fn empty_query(source: &dyn Source, commands: &[Command], now: DateTime<Utc>) -> Results {
-    let recent = source.ranked(&Filter::All, RECENT, now);
+    let recent = source.listed(&Filter::All, first(RECENT), now);
     let mut mail: Vec<MailHit> = recent
         .into_iter()
-        .map(|(summary, score)| MailHit {
+        .map(|summary| MailHit {
             preview: summary.snippet.clone(),
             summary,
-            score,
+            score: 0.0,
             indices: Vec::new(),
             marks: Vec::new(),
         })

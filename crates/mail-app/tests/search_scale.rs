@@ -1,18 +1,21 @@
 //! What one keystroke in the search box costs over a mailbox that is actually large.
 //!
 //! Sibling to `reader_scale.rs`. Every other search test holds a handful of threads, which says
-//! what a query returns and nothing about what it costs. The list box and Ctrl T run
-//! [`mail_app::search::rank_query`] on every keystroke — parse, prefix expansion through the
-//! index vocabulary, the ranked candidates, the score — so that whole pipeline is what is timed
-//! here, one character at a time, the way `uidvalidity` is actually typed.
+//! what a query returns and nothing about what it costs. The list box runs
+//! [`mail_app::search::search_list`] once the box is still — parse, prefix expansion through the
+//! index vocabulary, one page of matches in date order (`listed`), and the "Top results" strip
+//! ranked inside a window of the newest matches (`top`) — so that whole pipeline is what is
+//! timed here, one character at a time, the way `uidvalidity` is actually typed.
 //!
 //! The budget is 30 ms at the 95th percentile, in a release build, over 50,000 messages.
 //!
 //! The words are drawn Zipf-distributed from an 8,000-word vocabulary, which is how text is
 //! distributed: a few words (`the`, `us`, `update`) are in a large share of messages, and a
 //! technical word like `uid` is in a few hundred. A uniform draw from a short list would make
-//! every word a stop word, which no mailbox is. What frequent words cost is printed at the end
-//! and not asserted, because that cost is the store's (see the note there).
+//! every word a stop word, which no mailbox is. What a frequent word costs in all is the
+//! store's `threads()` and is printed, not asserted; what is asserted for it is that the strip
+//! adds at most half again to the list it sits on, so ranking never costs what ranking every
+//! match did.
 //!
 //! Run it with:
 //!
@@ -21,7 +24,7 @@
 //! ```
 
 use chrono::{DateTime, TimeZone, Utc};
-use mail_app::search::{Affinity, Source, Term, rank_query};
+use mail_app::search::{Affinity, Source, Term, first, search_list};
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 use std::cell::Cell;
@@ -278,11 +281,21 @@ fn fill(store: &SqliteStore) {
     }
 }
 
-/// The store, with the time spent in each of its two calls written down.
+/// The rows one page of the list asks for: the window's `PAGE`.
+const PAGE: usize = 100;
+
+/// Times each common word is searched for; the medians are compared.
+const COMMON_RUNS: usize = 7;
+
+/// What the top results may add to a common word's date-ordered list, as a multiple of it.
+const STRIP_OVERHEAD: f64 = 1.5;
+
+/// The store, with the time spent in each of its three calls written down.
 struct Timed<'a> {
     store: &'a SqliteStore,
     vocabulary: Cell<Duration>,
-    ranked: Cell<Duration>,
+    listed: Cell<Duration>,
+    top: Cell<Duration>,
 }
 
 impl Source for Timed<'_> {
@@ -293,41 +306,53 @@ impl Source for Timed<'_> {
         terms
     }
 
-    fn ranked(
+    fn listed(&self, filter: &Filter, page: PageReq, now: DateTime<Utc>) -> Vec<ThreadSummary> {
+        let start = Instant::now();
+        let rows = <SqliteStore as Source>::listed(self.store, filter, page, now);
+        self.listed.set(self.listed.get() + start.elapsed());
+        rows
+    }
+
+    fn top(
         &self,
         filter: &Filter,
-        limit: usize,
+        k: usize,
+        window: usize,
         now: DateTime<Utc>,
     ) -> Vec<(ThreadSummary, f64)> {
         let start = Instant::now();
-        let rows = <SqliteStore as Source>::ranked(self.store, filter, limit, now);
-        self.ranked.set(self.ranked.get() + start.elapsed());
+        let rows = <SqliteStore as Source>::top(self.store, filter, k, window, now);
+        self.top.set(self.top.get() + start.elapsed());
         rows
     }
 }
 
-/// One keystroke's cost: in total, in the vocabulary, and in the ranked candidates.
+/// One keystroke's cost: in total, and in each store call.
 struct Cost {
     total: Duration,
     vocabulary: Duration,
-    ranked: Duration,
-    top: Option<String>,
+    listed: Duration,
+    top: Duration,
+    best: Option<String>,
+    newest: Option<DateTime<Utc>>,
 }
 
-/// One keystroke: the typed text through the whole pipeline.
+/// One keystroke: the typed text through the list box's whole pipeline, one page and the strip.
 fn keystroke(store: &SqliteStore, typed: &str, now: DateTime<Utc>) -> Cost {
     let timed = Timed {
         store,
         vocabulary: Cell::new(Duration::ZERO),
-        ranked: Cell::new(Duration::ZERO),
+        listed: Cell::new(Duration::ZERO),
+        top: Cell::new(Duration::ZERO),
     };
     let start = Instant::now();
-    let ranked = rank_query(
+    let searched = search_list(
         typed,
         &timed,
         &Affinity::default(),
         &Utc,
         &|_| Vec::new(),
+        first(PAGE),
         now,
     )
     .unwrap_or_else(|why| panic!("{typed:?} is plain text, not a pattern: {why}"));
@@ -335,18 +360,25 @@ fn keystroke(store: &SqliteStore, typed: &str, now: DateTime<Utc>) -> Cost {
     Cost {
         total,
         vocabulary: timed.vocabulary.get(),
-        ranked: timed.ranked.get(),
-        top: ranked
-            .hits
+        listed: timed.listed.get(),
+        top: timed.top.get(),
+        best: searched
+            .top
             .into_iter()
             .next()
             .map(|(summary, _)| summary.subject),
+        newest: searched.rows.first().map(|summary| summary.last_date),
     }
 }
 
 fn percentile(sorted: &[Duration], p: usize) -> Duration {
     let index = (sorted.len() * p).div_ceil(100).saturating_sub(1);
     sorted[index.min(sorted.len() - 1)]
+}
+
+fn median(mut samples: Vec<Duration>) -> Duration {
+    samples.sort();
+    percentile(&samples, 50)
 }
 
 // Ignored in every build and run explicitly in release, as the module docs say. In a debug
@@ -363,12 +395,20 @@ fn typing_uidvalidity_stays_under_thirty_ms_a_keystroke() {
     eprintln!("ingested {MESSAGES} messages in {:?}", started.elapsed());
     let now = at(MESSAGES + 60);
 
-    // Not vacuous: the whole word finds a thread with it in the subject, first.
-    let top = keystroke(&store, TYPED, now).top.unwrap_or_default();
+    // Not vacuous: the whole word ranks a thread with it in the subject first, and lists the
+    // newest thread about it at the top of the date order.
+    let whole = keystroke(&store, TYPED, now);
+    let best = whole.best.unwrap_or_default();
     assert!(
-        top.split_whitespace()
+        best.split_whitespace()
             .any(|word| word.eq_ignore_ascii_case(TYPED)),
-        "the typed word did not put a thread about it first: {top:?}"
+        "the typed word did not put a thread about it first: {best:?}"
+    );
+    let newest_about = at((MESSAGES - 1) / ABOUT_UIDVALIDITY * ABOUT_UIDVALIDITY);
+    assert!(
+        whole.newest.is_some_and(|newest| newest >= newest_about),
+        "the list does not start at the newest match: {:?}, want at least {newest_about}",
+        whole.newest
     );
 
     // One untimed pass, so the first sample is not also SQLite paging the index in.
@@ -396,34 +436,52 @@ fn typing_uidvalidity_stays_under_thirty_ms_a_keystroke() {
         "{} keystrokes over {MESSAGES} messages: p50 {p50:?}, p95 {p95:?}, max {max:?}",
         samples.len()
     );
-    eprintln!("  typed        worst       vocabulary  ranked (store)");
+    eprintln!("  typed        worst       vocabulary  listed      top");
     for (end, cost) in worst.iter().enumerate() {
         if let Some(cost) = cost {
             eprintln!(
-                "  {:<12} {:<11?} {:<11?} {:?}",
+                "  {:<12} {:<11?} {:<11?} {:<11?} {:?}",
                 &TYPED[..=end],
                 cost.total,
                 cost.vocabulary,
-                cost.ranked
+                cost.listed,
+                cost.top
             );
         }
     }
 
-    // Reported, not asserted. A whole word in a large share of the mailbox is scored by
-    // `Store::search_ranked`, which computes bm25 for every matching message and groups them
-    // by thread before it applies the limit; that cost is the store's, not this pipeline's.
+    // A whole word in a large share of the mailbox. Its absolute time is `Store::threads`'s
+    // own, one indexed page of a word nearly every message has, and the debounce hides it, so
+    // it is reported and not asserted. What is asserted is that the strip does not bring back
+    // the cost of ranking every match: the window bounds `top`, whatever the word.
+    let mut overheads = Vec::new();
     for word in ["the ", "us ", "update "] {
-        let cost = keystroke(&store, word, now);
+        keystroke(&store, word, now);
+        let costs: Vec<Cost> = (0..COMMON_RUNS)
+            .map(|_| keystroke(&store, word, now))
+            .collect();
+        let listed = median(costs.iter().map(|cost| cost.listed).collect());
+        let top = median(costs.iter().map(|cost| cost.top).collect());
+        let total = median(costs.iter().map(|cost| cost.total).collect());
+        let ratio = (listed + top).as_secs_f64() / listed.as_secs_f64().max(f64::EPSILON);
         eprintln!(
-            "  whole word {:<8} {:<11?} ranked (store) {:?}",
+            "  whole word {:<8} total {:<11?} listed {:<11?} top {:<11?} listed+top {ratio:.2}x listed",
             word.trim(),
-            cost.total,
-            cost.ranked
+            total,
+            listed,
+            top
         );
+        overheads.push((word.trim(), ratio));
     }
 
     assert!(
         p95 < BUDGET_P95,
         "p95 {p95:?} is over the {BUDGET_P95:?} budget (p50 {p50:?}, max {max:?})"
     );
+    for (word, ratio) in overheads {
+        assert!(
+            ratio <= STRIP_OVERHEAD,
+            "{word:?}: listed + top is {ratio:.2}x listed alone, over {STRIP_OVERHEAD}x"
+        );
+    }
 }

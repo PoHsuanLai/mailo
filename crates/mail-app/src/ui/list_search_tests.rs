@@ -1,8 +1,15 @@
 //! The list box through the pipeline, typed into the real window over the reference fixture.
+//!
+//! Every test here runs on a paused clock and drives it: a keystroke is searched for only once
+//! the box has been still for [`QUIET`], and the list lands from a blocking thread. So a test
+//! types, moves the clock past the quiet period, and then waits for the very condition it goes
+//! on to assert. It never counts polls or sleeps: a fixed number of polls is a guess about how
+//! fast the blocking thread is, and under a loaded `cargo test --workspace` the guess was wrong.
 
 use super::row_hit;
 use crate::search::list_highlight;
 use crate::ui::app::App;
+use crate::ui::debounce::QUIET;
 use crate::ui::fixtures::{Work, dispatching, dump, rebuild_into, type_into, work};
 use chrono::Utc;
 use dioxus::prelude::*;
@@ -38,22 +45,35 @@ fn window() -> Window {
 }
 
 impl Window {
-    /// Type `text` as the box's whole value, and let the off-thread list land.
-    async fn typed(&mut self, text: &str) -> String {
+    /// Type `text` as the box's whole value, let the box go still, and wait until `landed`
+    /// holds for the page. Returns that page.
+    async fn typed(&mut self, text: &str, landed: impl Fn(&str) -> bool) -> String {
         type_into(&mut self.dom, self.search, text);
-        for _ in 0..16 {
-            let waited = tokio::time::timeout(
-                std::time::Duration::from_millis(40),
-                self.dom.wait_for_work(),
-            )
-            .await;
-            if waited.is_err() {
-                break;
-            }
+        tokio::time::advance(QUIET).await;
+        self.until(text, landed).await
+    }
+
+    /// Render until `landed` holds, doing the window's pending work in between.
+    ///
+    /// Bounded in the paused clock's time, not the wall's: while the list is being fetched on
+    /// its blocking thread the clock cannot move (tokio holds it for `spawn_blocking`), so the
+    /// bound is only reached if the window goes idle without ever showing the condition.
+    async fn until(&mut self, text: &str, landed: impl Fn(&str) -> bool) -> String {
+        let start = tokio::time::Instant::now();
+        loop {
             self.dom.render_immediate(&mut NoOpMutations);
+            let page = dioxus_ssr::render(&self.dom);
+            if landed(&page) {
+                return page;
+            }
+            assert!(
+                start.elapsed() < std::time::Duration::from_secs(10),
+                "after typing {text:?} the list never showed what the test waits for: {:?} {:?}",
+                subjects(&page),
+                notes(&page)
+            );
+            self.dom.wait_for_work().await;
         }
-        self.dom.render_immediate(&mut NoOpMutations);
-        dioxus_ssr::render(&self.dom)
     }
 }
 
@@ -81,31 +101,92 @@ fn notes(page: &str) -> Vec<String> {
         .collect()
 }
 
-#[tokio::test]
+/// The strip's heading, as markup: the words alone are also in the stylesheet's comments.
+const TOP_RESULTS: &str = r#"<li class="list-top-h">Top results</li>"#;
+const NEWEST_FIRST: &str = r#"<li class="list-top-h">Newest first</li>"#;
+
+const UIDVAL: &str =
+    r#"Re: UIDL stability across a <mark class="hit" data-hit="0">UIDVAL</mark>IDITY change"#;
+
+#[tokio::test(start_paused = true)]
 async fn half_a_word_puts_its_thread_first_with_the_typed_part_marked() {
     let mut window = window();
-    let page = window.typed("uidval").await;
-    let rows = subjects(&page);
+    let page = window
+        .typed("uidval", |page| {
+            subjects(page).first().map(String::as_str) == Some(UIDVAL)
+        })
+        .await;
     assert_eq!(
-        rows.first().map(String::as_str),
-        Some(
-            r#"Re: UIDL stability across a <mark class="hit" data-hit="0">UIDVAL</mark>IDITY change"#
-        ),
-        "rows: {rows:?}"
+        subjects(&page),
+        vec![UIDVAL.to_owned()],
+        "one match, and no strip repeating it"
+    );
+    assert!(!page.contains(TOP_RESULTS), "a strip of the one row");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_keystroke_is_searched_for_only_once_the_box_is_still() {
+    let mut window = window();
+    let place = subjects(&dioxus_ssr::render(&window.dom));
+    type_into(&mut window.dom, window.search, "uidval");
+    window.dom.render_immediate(&mut NoOpMutations);
+    assert_eq!(
+        subjects(&dioxus_ssr::render(&window.dom)),
+        place,
+        "the list searched on the keystroke itself"
+    );
+    let page = window
+        .typed("uidval", |page| {
+            subjects(page).first().map(String::as_str) == Some(UIDVAL)
+        })
+        .await;
+    assert_ne!(subjects(&page), place);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_word_lists_newest_first_under_its_top_results() {
+    let mut window = window();
+    let page = window
+        .typed("cursors", |page| page.contains(TOP_RESULTS))
+        .await;
+    let (strip, list) = page
+        .split_once(NEWEST_FIRST)
+        .expect("the strip has a heading for the list under it");
+    let plain = |rows: Vec<String>| -> Vec<String> {
+        rows.into_iter()
+            .map(|row| {
+                row.replace(r#"<mark class="hit" data-hit="0">"#, "")
+                    .replace("</mark>", "")
+            })
+            .collect()
+    };
+    assert_eq!(
+        plain(subjects(list)),
+        vec![
+            "Notes from the sync review".to_owned(),
+            "Re: Re: Keyset cursors, not offsets".to_owned(),
+        ],
+        "the matches, newest first"
+    );
+    let strip = subjects(strip);
+    assert_eq!(
+        strip.first().map(String::as_str),
+        Some(r#"Re: Re: Keyset <mark class="hit" data-hit="0">cursors</mark>, not offsets"#),
+        "the subject hit leads the strip, marked: {strip:?}"
     );
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn clearing_the_box_gives_the_place_back() {
     let mut window = window();
-    let place = subjects(&window.typed("").await);
+    let place = subjects(&dioxus_ssr::render(&window.dom));
     assert!(
         place.len() > 2,
         "the Work inbox has more than two threads: {place:?}"
     );
-    let searched = subjects(&window.typed("cursors").await);
+    let searched = subjects(&window.typed("cursors", |page| page.contains("<mark")).await);
     assert_ne!(searched, place, "the search changed nothing");
-    let back = subjects(&window.typed("").await);
+    let back = subjects(&window.typed("", |page| subjects(page) == place).await);
     assert_eq!(back, place, "clearing the box did not restore the place");
     assert!(
         !back.iter().any(|row| row.contains("<mark")),
@@ -113,10 +194,11 @@ async fn clearing_the_box_gives_the_place_back() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_bare_pattern_runs_over_this_page_and_says_so() {
     let mut window = window();
-    let page = window.typed("re:/^Re: /").await;
+    let over_page = |page: &str| notes(page).contains(&"pattern over this page".to_owned());
+    let page = window.typed("re:/^Re: /", over_page).await;
     assert_eq!(
         subjects(&page),
         vec![
@@ -131,15 +213,19 @@ async fn a_bare_pattern_runs_over_this_page_and_says_so() {
     );
 
     // Narrowed by a word, it is a search again, and the bar has nothing to add.
-    let page = window.typed("re:/^Re: / keyset").await;
+    let page = window
+        .typed("re:/^Re: / keyset", |page| !over_page(page))
+        .await;
     assert_eq!(subjects(&page).len(), 1, "{:?}", subjects(&page));
     assert!(notes(&page).is_empty(), "{:?}", notes(&page));
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_broken_pattern_is_the_regex_message_in_the_bar_and_no_rows() {
     let mut window = window();
-    let page = window.typed("re:/(/").await;
+    let page = window
+        .typed("re:/(/", |page| page.contains(r#"class="status bad""#))
+        .await;
     let own = regex::Regex::new(&String::from("("))
         .expect_err("an unclosed group")
         .to_string();
@@ -247,10 +333,12 @@ fn row_marks_sit_on_char_boundaries_after_cjk_and_emoji() {
 /// ```text
 /// cargo test -p mail-app -- --ignored render_a_search_to_a_file
 /// ```
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 #[ignore = "writes target/search.html for a screenshot; run with --ignored"]
 async fn render_a_search_to_a_file() {
     let mut window = window();
-    let page = window.typed("cursor").await;
+    let page = window
+        .typed("cursor", |page| page.contains(TOP_RESULTS))
+        .await;
     dump("search", &page);
 }

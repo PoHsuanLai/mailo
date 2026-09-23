@@ -10,6 +10,9 @@ use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 use std::fmt::Write as _;
 
+#[path = "cli_search.rs"]
+mod searching;
+
 /// What the user asked for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
@@ -718,7 +721,8 @@ usage: mailo <command>
   show <thread-id>          prints each message's id, for `reply`
   search <words...>          from:ada to:bob subject:lunch is:unread is:starred
                              in:archive has:attachment before:2026-01-01
-                             after:2025-12-25 -from:newsletter, or a quoted phrase
+                             after:2025-12-25 -from:newsletter, or a quoted phrase;
+                             the best few first, marked top, then newest first
   reply <message-id> [--all]  compose a reply; the body is read from stdin
   forward <message-id> --to a@b[,c@d]
                              forward it; the covering note is read from stdin
@@ -842,34 +846,13 @@ pub fn run_with_clients(
             }
             Ok(out)
         }
-        Command::Search { needle, limit } => {
-            // The same parse → expand → rank the menu runs, so `from:ada` and a prefix cannot
-            // mean one thing here and another in the window. Labels stay resolved: `label:` is
-            // the one operator that needs the store, and `run` has no slot for that index.
-            let ranked = match crate::search::rank_query(
-                needle,
-                store,
-                &crate::search::Affinity::default(),
-                &chrono::Local,
-                &|name| labels_named(store, name),
-                now,
-            ) {
-                Ok(ranked) => ranked,
-                // The `regex` crate's own message. Shown, not panicked on, and not a failed command.
-                Err(message) => return Ok(format!("{message}\n")),
-            };
-            let take = usize::try_from(*limit).unwrap_or(usize::MAX);
-            let items: Vec<ThreadSummary> = ranked
-                .hits
-                .into_iter()
-                .take(take)
-                .map(|(summary, _)| summary)
-                .collect();
-            if items.is_empty() {
-                return Ok(format!("nothing matches {needle:?}\n"));
-            }
-            Ok(render_list(&items))
-        }
+        Command::Search { needle, limit } => Ok(searching::search(
+            store,
+            needle,
+            *limit,
+            &|name| labels_named(store, name),
+            now,
+        )),
         // Dispatched in main: it needs an async runtime and the store by Arc, which would make
         // this function untestable without one.
         Command::Sync => Err("sync is dispatched before this point".to_owned()),

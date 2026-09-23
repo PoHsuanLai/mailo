@@ -3,7 +3,7 @@ use super::compose::{self, ComposerPage, PageKind, SendPill};
 use super::data::{PAGE, accounts, count_badges, warm_the_first_screenful};
 use super::frame;
 use super::list::ThreadList;
-use super::list_search::{Listed, Request, listed};
+use super::list_query::{ListView, use_list};
 use super::ops::{Composes, apply_op, start_composing, start_new};
 use super::reading::Reader;
 use super::sidebar::Places;
@@ -241,37 +241,12 @@ pub(super) fn App() -> Element {
     });
 
     // The list, by the same rule as the badges: computed here the first time, off the thread
-    // afterwards.
-    //
-    // The first attempt at phase 8c was a bare `use_resource`, and a bare resource is empty
-    // until it resolves — so the window opened on an empty mailbox, and under F140 stayed that
-    // way because nothing ever polled the task. This keeps the synchronous answer for the frame
-    // that has no other one. `use_resource` does not clear its value when it restarts, so after
-    // the first frame a keystroke shows the previous list for a moment rather than a blank pane,
-    // and never falls back to querying on this thread.
-    // A search goes through the ranked pipeline (`list_search`); an empty box is the place.
-    // A memo, so a shell change the list does not depend on — a letter typed into Ctrl F, a
-    // peek mode — does not run the search again.
-    let request = use_memo(move || Request::of(&shell.read(), PAGE * pages()));
-    let queried: Resource<Listed> = use_resource(move || {
-        let _ = revision();
-        let request = request();
-        let store = consume_context::<Arc<SqliteStore>>();
-        async move {
-            tokio::task::spawn_blocking(move || listed(&store, request, chrono::Utc::now()))
-                .await
-                .unwrap_or_default()
-        }
-    });
-    let current = use_memo(move || match queried.read().as_ref() {
-        Some(done) => done.clone(),
-        None => {
-            let store = consume_context::<Arc<SqliteStore>>();
-            listed(&store, request(), chrono::Utc::now())
-        }
-    });
-    let threads = use_memo(move || current.read().threads.clone());
-    let marking = use_memo(move || current.read().marking.clone());
+    // afterwards, and for a search only once the box is still (`list_query`).
+    let ListView {
+        threads,
+        top,
+        marking,
+    } = use_list(shell, pages, revision);
 
     let drafts = use_memo(move || {
         let _ = revision();
@@ -595,7 +570,7 @@ pub(super) fn App() -> Element {
             div { class: "card",
             ThreadList {
                 shell, pages, revision, in_a_field, threads, drafts, nothing, more,
-                sync_state, entering, marking,
+                sync_state, entering, marking, top,
             }
             section { class: "reader",
                 // A new message is a page in this column; a reply sits under its thread.

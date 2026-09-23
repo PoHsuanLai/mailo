@@ -1,9 +1,10 @@
 //! The list box, run through the search pipeline.
 //!
-//! A search is [`crate::search::rank_query`], the function Ctrl T and `mailo search` call, with
-//! the window's label index and local midnight, over the accounts the Space shows. So `from:`,
-//! a prefix, a phrase and `re:/…/` mean the same thing in all three places, and the rows come
-//! in the order `rank` gives them. An empty box is the place's own list, with its own row keys.
+//! A search is [`crate::search::search_list`], the function `mailo search` calls, with the
+//! window's label index and local midnight, over the accounts the Space shows. So `from:`, a
+//! prefix, a phrase and `re:/…/` mean the same thing in the list, in Ctrl T and in the terminal.
+//! The rows are the matches in date order, paginated like a place; above them, a strip of the
+//! few top results ranked within the newest matches. An empty box is the place's own list.
 //!
 //! One exception, said on screen: a bare `re:/…/` narrows nothing, so it runs over the page the
 //! place already has loaded ("pattern over this page") rather than over a ranked sample of all
@@ -13,7 +14,7 @@ use super::data::list_for;
 use crate::search::{self, Highlight, Source, Term};
 use crate::view::{Listing, Shell};
 use chrono::{DateTime, Utc};
-use mail_domain::{Filter, LabelId, Query, ThreadSummary};
+use mail_domain::{Filter, LabelId, PageReq, Query, ThreadSummary};
 use mail_store::{SqliteStore, Store};
 use std::ops::Range;
 
@@ -36,27 +37,29 @@ pub(super) struct Search {
     pub scope: Option<Filter>,
     /// The place's own query, for a bare pattern. `None` while Drafts is selected.
     pub page: Option<Query>,
-    pub limit: usize,
+    pub limit: u32,
 }
 
 impl Request {
-    /// What `shell` asks the list for, `limit` rows at most.
-    pub(super) fn of(shell: &Shell, limit: u32) -> Self {
-        if shell.search.trim().is_empty() {
-            return Self::Place(shell.listing(limit));
-        }
+    /// What the list asks for while `shell` is showing and `text` is the settled search, at
+    /// most `limit` rows. The box itself may already hold more: the debounce decides when that
+    /// is searched for, not this.
+    pub(super) fn of(shell: &Shell, text: &str, limit: u32) -> Self {
         let mut place = shell.clone();
         place.search.clear();
+        if text.trim().is_empty() {
+            return Self::Place(place.listing(limit));
+        }
         let page = match place.listing(limit) {
             Listing::Threads(query) => Some(query),
             Listing::Drafts => None,
         };
         Self::Search(Search {
-            input: shell.search.clone(),
+            input: text.to_owned(),
             labels: shell.labels.clone(),
             scope: shell.account_filter(),
             page,
-            limit: usize::try_from(limit).unwrap_or(usize::MAX),
+            limit,
         })
     }
 }
@@ -67,8 +70,8 @@ pub(super) enum Scope {
     /// Not a search: the place's list.
     #[default]
     Place,
-    /// Ranked by the pipeline.
-    Ranked,
+    /// Searched: the matches in date order, under their top results.
+    Searched,
     /// A bare pattern, over the rows the place had loaded.
     OverPage,
     /// The pattern did not compile. The `regex` crate's own message.
@@ -86,17 +89,20 @@ impl Marking {
     /// The note the list bar shows, when there is one.
     pub(super) fn note(&self) -> Option<String> {
         match &self.scope {
-            Scope::Place | Scope::Ranked => None,
+            Scope::Place | Scope::Searched => None,
             Scope::OverPage => Some("pattern over this page".to_owned()),
             Scope::Invalid(why) => Some(why.clone()),
         }
     }
 }
 
-/// The rows, and how to mark them.
+/// The rows, the top results above them, and how to mark both.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(super) struct Listed {
     pub threads: Vec<ThreadSummary>,
+    /// The "Top results" strip. Empty when nothing is searched for, when only operators were
+    /// typed, and when it would repeat the first rows.
+    pub top: Vec<ThreadSummary>,
     pub marking: Marking,
 }
 
@@ -105,6 +111,7 @@ pub(super) fn listed(store: &SqliteStore, request: Request, now: DateTime<Utc>) 
     match request {
         Request::Place(listing) => Listed {
             threads: list_for(store, listing),
+            top: Vec::new(),
             marking: Marking::default(),
         },
         Request::Search(search) => searched(store, &search, now),
@@ -127,27 +134,24 @@ fn searched(store: &SqliteStore, search: &Search, now: DateTime<Utc>) -> Listed 
         store,
         scope: search.scope.clone(),
     };
-    let ranked = match search::rank_query(
+    let searched = match search::search_list(
         &search.input,
         &scoped,
         &search::Affinity::default(),
         &chrono::Local,
         &label,
+        search::first(usize::try_from(search.limit).unwrap_or(usize::MAX)),
         now,
     ) {
-        Ok(ranked) => ranked,
+        Ok(searched) => searched,
         Err(why) => return invalid(why),
     };
     Listed {
-        threads: ranked
-            .hits
-            .into_iter()
-            .take(search.limit)
-            .map(|(summary, _)| summary)
-            .collect(),
+        top: searched.strip(),
+        threads: searched.rows,
         marking: Marking {
             highlight,
-            scope: Scope::Ranked,
+            scope: Scope::Searched,
         },
     }
 }
@@ -171,6 +175,7 @@ fn over_page(
     };
     Listed {
         threads,
+        top: Vec::new(),
         marking: Marking {
             highlight,
             scope: Scope::OverPage,
@@ -181,6 +186,7 @@ fn over_page(
 fn invalid(why: String) -> Listed {
     Listed {
         threads: Vec::new(),
+        top: Vec::new(),
         marking: Marking {
             highlight: Highlight::default(),
             scope: Scope::Invalid(why),
@@ -190,12 +196,21 @@ fn invalid(why: String) -> Listed {
 
 /// The store, narrowed to the accounts on screen.
 ///
-/// `rank_query` has no account in its signature, and should not: the terminal searches every
-/// account. The window's tile and Space narrowing is applied here, to the one call that returns
+/// `search_list` has no account in its signature, and should not: the terminal searches every
+/// account. The window's tile and Space narrowing is applied here, to both calls that return
 /// threads, so it is the same `And(account, …)` that [`Shell::query`] builds.
 struct Scoped<'a> {
     store: &'a SqliteStore,
     scope: Option<Filter>,
+}
+
+impl Scoped<'_> {
+    fn narrow(&self, filter: &Filter) -> Filter {
+        match &self.scope {
+            Some(scope) => Filter::And(vec![scope.clone(), filter.clone()]),
+            None => filter.clone(),
+        }
+    }
 }
 
 impl Source for Scoped<'_> {
@@ -203,17 +218,18 @@ impl Source for Scoped<'_> {
         <SqliteStore as Source>::terms_with_prefix(self.store, prefix, limit)
     }
 
-    fn ranked(
+    fn listed(&self, filter: &Filter, page: PageReq, now: DateTime<Utc>) -> Vec<ThreadSummary> {
+        <SqliteStore as Source>::listed(self.store, &self.narrow(filter), page, now)
+    }
+
+    fn top(
         &self,
         filter: &Filter,
-        limit: usize,
+        k: usize,
+        window: usize,
         now: DateTime<Utc>,
     ) -> Vec<(ThreadSummary, f64)> {
-        let filter = match &self.scope {
-            Some(scope) => Filter::And(vec![scope.clone(), filter.clone()]),
-            None => filter.clone(),
-        };
-        <SqliteStore as Source>::ranked(self.store, &filter, limit, now)
+        <SqliteStore as Source>::top(self.store, &self.narrow(filter), k, window, now)
     }
 }
 

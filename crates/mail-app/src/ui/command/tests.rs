@@ -45,10 +45,14 @@ pub(in crate::ui) fn OpenMenus() -> Element {
     let sync_state = use_signal(|| crate::view::SyncState::Idle);
     let spaces = use_signal(crate::space::Spaces::default);
     let in_a_field = use_signal(|| false);
-    let summary = crate::search::Source::ranked(store.as_ref(), &Filter::All, 1, Utc::now())
-        .into_iter()
-        .next()
-        .map(|(summary, _)| summary);
+    let summary = crate::search::Source::listed(
+        store.as_ref(),
+        &Filter::All,
+        crate::search::first(1),
+        Utc::now(),
+    )
+    .into_iter()
+    .next();
     rsx! {
         CommandMenu { shell, pages, revision, side_hidden, sync_state, spaces, in_a_field }
         if let Some(summary) = summary {

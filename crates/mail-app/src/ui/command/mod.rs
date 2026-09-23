@@ -1,18 +1,24 @@
 //! The Ctrl T menu: a field, the operator chips, and the grouped results.
 //!
-//! The rows are built in [`items`]; this file is the overlay and what a pick does.
+//! The rows are built in [`items`]; this file is the overlay and what a pick does. The search
+//! runs off the thread that draws, once the field has been still for [`super::debounce::QUIET`],
+//! and an answer to text a newer keystroke has replaced is dropped. What is drawn is always one
+//! answer to one query, so Enter picks from the rows on screen, not from a query run afresh.
 
 mod items;
 
+use super::debounce::{Settled, use_debounced};
 use super::field::{Field, FieldKind};
 use super::icon::Icon;
 use super::menu::{Menu, MenuItem, MenuKey, MenuState};
 use super::ops::start_new;
+use crate::search::Results;
 use crate::view::{PageMenu, Shell, Theme};
 use chrono::Utc;
 use dioxus::prelude::*;
 use items::{Pick, interpret, rows_of, search_now, tokens};
 use mail_store::SqliteStore;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// The centred overlay. Open while `shell.command` is `Some`.
@@ -27,15 +33,36 @@ pub(super) fn CommandMenu(
     in_a_field: Signal<bool>,
 ) -> Element {
     let query = shell.read().command.clone().unwrap_or_default();
-    let store = use_hook(consume_context::<Arc<SqliteStore>>);
-    let now = Utc::now();
-    let (results, names) = search_now(&store, &query, now);
-    let items = rows_of(&results, &names, &query);
+    let debounced = use_debounced(shell, |shell| shell.command.clone().unwrap_or_default());
+    let mut drawn = use_signal(|| {
+        let store = consume_context::<Arc<SqliteStore>>();
+        Drawn::of(&store, debounced.settled.peek().clone())
+    });
+    let _fetch = use_resource(move || {
+        let settled = debounced.settled.read().clone();
+        let store = consume_context::<Arc<SqliteStore>>();
+        async move {
+            // The first frame already drew this generation, on the thread that draws.
+            if drawn.peek().settled == settled {
+                return;
+            }
+            let done = tokio::task::spawn_blocking(move || Drawn::of(&store, settled)).await;
+            if let Ok(done) = done
+                && debounced.is_latest(done.settled.generation)
+            {
+                drawn.set(done);
+            }
+        }
+    });
+    let shown = drawn.read();
+    let items = rows_of(&shown.results, &shown.names, &shown.settled.text);
+    let answered = shown.settled.clone();
+    drop(shown);
     let chips = tokens(&query);
     let mut keys = use_signal(|| MenuState::new(false));
-    let mut seen = use_signal(String::new);
-    if seen() != query {
-        seen.set(query.clone());
+    let mut seen = use_signal(Settled::default);
+    if seen() != answered {
+        seen.set(answered);
         keys.write().restart();
     }
     let active = keys.read().active().min(items.len().saturating_sub(1));
@@ -57,10 +84,11 @@ pub(super) fn CommandMenu(
                         return;
                     }
                     event.stop_propagation();
-                    let current = rows_of_now(shell);
+                    let current = drawn.read().items();
                     match keys.write().on_key(key, &current) {
                         super::menu::MenuEvent::Pick(key) => act(
-                            shell, pages, revision, side_hidden, sync_state, spaces, &key,
+                            shell, pages, revision, side_hidden, sync_state, spaces,
+                            drawn.read().pick(&key),
                         ),
                         super::menu::MenuEvent::Close => close(shell),
                         _ => {}
@@ -92,7 +120,8 @@ pub(super) fn CommandMenu(
                     items,
                     filterable: false,
                     on_pick: move |key: String| {
-                        act(shell, pages, revision, side_hidden, sync_state, spaces, &key);
+                        let pick = drawn.read().pick(&key);
+                        act(shell, pages, revision, side_hidden, sync_state, spaces, pick);
                     },
                     on_close: move |_| close(shell),
                     on_query: move |_| {},
@@ -104,11 +133,34 @@ pub(super) fn CommandMenu(
     }
 }
 
-fn rows_of_now(shell: Signal<Shell>) -> Vec<MenuItem> {
-    let query = shell.read().command.clone().unwrap_or_default();
-    let store = consume_context::<Arc<SqliteStore>>();
-    let (results, names) = search_now(&store, &query, Utc::now());
-    rows_of(&results, &names, &query)
+/// One answer, and the settled text it answers.
+#[derive(Debug, Clone, PartialEq)]
+struct Drawn {
+    settled: Settled,
+    results: Results,
+    names: HashMap<String, String>,
+}
+
+impl Drawn {
+    /// Search for `settled`. Blocking: the store is read.
+    fn of(store: &SqliteStore, settled: Settled) -> Self {
+        let (results, names) = search_now(store, &settled.text, Utc::now());
+        Self {
+            settled,
+            results,
+            names,
+        }
+    }
+
+    /// The rows this answer paints.
+    fn items(&self) -> Vec<MenuItem> {
+        rows_of(&self.results, &self.names, &self.settled.text)
+    }
+
+    /// What the row keyed `key` does, read back against this answer.
+    fn pick(&self, key: &str) -> Option<Pick> {
+        interpret(&self.results, key)
+    }
 }
 
 fn close(mut shell: Signal<Shell>) {
@@ -124,12 +176,9 @@ fn act(
     mut side_hidden: Signal<bool>,
     mut sync_state: Signal<crate::view::SyncState>,
     spaces: Signal<crate::space::Spaces>,
-    key: &str,
+    pick: Option<Pick>,
 ) {
-    let store = consume_context::<Arc<SqliteStore>>();
-    let query = shell.read().command.clone().unwrap_or_default();
-    let (results, _) = search_now(&store, &query, Utc::now());
-    let Some(pick) = interpret(&results, key) else {
+    let Some(pick) = pick else {
         return;
     };
     match pick {

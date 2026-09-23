@@ -2,7 +2,7 @@
 
 use super::support::{at, sqlite_with};
 use super::*;
-use mail_domain::{PageReq, Property, Query, Sort, SortDir, TextMatch};
+use mail_domain::{Filter, PageReq, Property, Query, Sort, SortDir, TextMatch};
 use mail_store::Store;
 
 fn subjects(input: &str, store: &mail_store::SqliteStore) -> Vec<String> {
@@ -12,6 +12,7 @@ fn subjects(input: &str, store: &mail_store::SqliteStore) -> Vec<String> {
         &Affinity::default(),
         &Utc,
         &|_| Vec::new(),
+        MENU,
         at(900),
     )
     .unwrap_or_else(|why| panic!("{input:?} is not a regex: {why}"));

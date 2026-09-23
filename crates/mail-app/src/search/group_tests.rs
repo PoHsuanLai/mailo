@@ -108,12 +108,15 @@ fn top_hit_is_not_duplicated_in_mail() {
     );
 }
 
+/// `mailo search` prints the list box's answer: its top results first, marked `top`, then the
+/// other matches newest first. Asked of the pipeline, not restated, so the two cannot drift.
 #[test]
-fn cli_search_order_matches_run_mail() {
+fn cli_search_prints_the_windows_top_results_then_the_rest_newest_first() {
     let (store, _dir) = support::sqlite_with(&[
-        ("alpha", "please compose this", 10),
+        ("compose a reply", "please compose this", 10),
         ("bravo", "compose the note", 20),
-        ("charlie", "do compose it", 30),
+        ("charlie", "nothing to see", 30),
+        ("delta", "do compose it", 40),
     ]);
     let now = at(10_000);
     let out = crate::cli::run(
@@ -125,23 +128,77 @@ fn cli_search_order_matches_run_mail() {
         now,
     )
     .expect("search");
-    let cli_ids: Vec<String> = out
+    let id = |line: &str| line.split_whitespace().next_back().unwrap_or("").to_owned();
+    let top: Vec<String> = out
         .lines()
-        .map(|line| line.split_whitespace().next_back().unwrap_or("").to_owned())
+        .filter(|line| line.starts_with("top "))
+        .map(id)
         .collect();
+    let rest: Vec<String> = out
+        .lines()
+        .filter(|line| !line.starts_with("top "))
+        .map(id)
+        .collect();
+
+    let window = crate::search::search_list(
+        "compose",
+        &store,
+        &Affinity::default(),
+        &chrono::Local,
+        &|_| Vec::new(),
+        crate::search::first(100),
+        now,
+    )
+    .expect("not a pattern");
+    let window_top: Vec<String> = window
+        .top
+        .iter()
+        .map(|(summary, _)| summary.id.to_string())
+        .collect();
+    let window_rest: Vec<String> = window
+        .rows
+        .iter()
+        .map(|summary| summary.id.to_string())
+        .filter(|id| !window_top.contains(id))
+        .collect();
+    assert_eq!(
+        window_top.first(),
+        Some(&thread_of(0).to_string()),
+        "the subject hit is the best result"
+    );
+    assert_eq!(top, window_top, "top results, cli:\n{out}");
+    assert_eq!(rest, window_rest, "the rest, cli:\n{out}");
+    assert_eq!(
+        top.len() + rest.len(),
+        3,
+        "every match once, and only matches:\n{out}"
+    );
+}
+
+#[test]
+fn a_query_that_is_a_command_opens_the_command() {
+    let (store, _dir) = support::sqlite_with(&[
+        ("alpha", "please compose this", 10),
+        ("bravo", "compose the note", 20),
+    ]);
     let commands = vec![Command {
         label: "compose".to_owned(),
     }];
-    let results = run("compose", &store, &Affinity::default(), &commands, now);
+    let results = run(
+        "compose",
+        &store,
+        &Affinity::default(),
+        &commands,
+        at(10_000),
+    );
     assert!(
         matches!(results.top, Some(Top::Action(_))),
         "compose should open the command, got {:?}",
         results.top
     );
-    let mail_ids: Vec<String> = results
-        .mail
-        .iter()
-        .map(|hit| hit.summary.id.to_string())
-        .collect();
-    assert_eq!(cli_ids, mail_ids, "cli:\n{out}");
+    assert_eq!(
+        shown(&None, &results.mail),
+        vec![thread_of(1), thread_of(0)],
+        "the mail under it, best first"
+    );
 }

@@ -8,11 +8,10 @@
 use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
+use mail_domain::ThreadSummary;
 use mail_domain::filter::search_tokens;
-use mail_domain::{Filter, ThreadSummary};
 
 use super::parsing::Parsed;
-use super::source::Source;
 
 /// Thirty days, the recency half-life, in seconds.
 const THIRTY_DAYS_SECS: f64 = 30.0 * 24.0 * 60.0 * 60.0;
@@ -20,9 +19,6 @@ const THIRTY_DAYS_SECS: f64 = 30.0 * 24.0 * 60.0 * 60.0;
 /// How many of a sender's threads still move the score. Past this, one very chatty address
 /// would outrank a genuinely better bm25.
 const AFFINITY_THREAD_CAP: u32 = 20;
-
-/// Candidates asked of the source before this ranker re-scores them.
-const CANDIDATES: usize = 300;
 
 /// One weight per signal. See the module docs for which orderings the ratios protect.
 #[derive(Debug, Clone, Copy)]
@@ -97,17 +93,19 @@ impl Affinity {
     }
 }
 
-/// Score `source.ranked`'s candidates. Highest score first; ties go to the newer thread.
+/// Re-score `rows`, which arrive with the store's bm25. Highest score first; ties go to the
+/// newer thread.
+///
+/// Pure: the candidates are whatever the caller fetched, which is what keeps this ranker's cost
+/// bounded by the few rows a top-results strip holds rather than by how common a word is.
 pub fn rank(
-    filter: &Filter,
-    source: &dyn Source,
+    rows: Vec<(ThreadSummary, f64)>,
     affinity: &Affinity,
     parsed: &Parsed,
     now: DateTime<Utc>,
 ) -> Vec<(ThreadSummary, f64)> {
     let words = parsed.query_words();
-    let mut rows: Vec<(ThreadSummary, f64)> = source
-        .ranked(filter, CANDIDATES, now)
+    let mut rows: Vec<(ThreadSummary, f64)> = rows
         .into_iter()
         .map(|(summary, bm25)| {
             let score = score(&summary, bm25, &words, &parsed.phrases, affinity, now);
@@ -194,32 +192,11 @@ fn field_has(field: &str, needle: &[String]) -> bool {
 #[cfg(test)]
 mod tests {
     use chrono::Utc;
-    use mail_domain::{Filter, ReadState, Star, ThreadSummary};
+    use mail_domain::{ReadState, Star, ThreadSummary};
 
-    use super::super::Term;
     use super::super::parsing::parse;
-    use super::super::source::Source;
     use super::super::support::{self, at};
     use super::{Affinity, MAX_BONUS, SenderStats, rank};
-
-    struct Fixed {
-        rows: Vec<(ThreadSummary, f64)>,
-    }
-
-    impl Source for Fixed {
-        fn terms_with_prefix(&self, _: &str, _: usize) -> Vec<Term> {
-            Vec::new()
-        }
-
-        fn ranked(
-            &self,
-            _: &Filter,
-            _: usize,
-            _: chrono::DateTime<Utc>,
-        ) -> Vec<(ThreadSummary, f64)> {
-            self.rows.clone()
-        }
-    }
 
     fn ids(rows: &[(ThreadSummary, f64)]) -> Vec<u128> {
         rows.iter()
@@ -261,10 +238,8 @@ mod tests {
                 replied: true,
             },
         );
-        let fixed = Fixed {
-            rows: vec![(distant.clone(), 1.0), (close.clone(), 1.0)],
-        };
-        let ranked = rank(&Filter::All, &fixed, &affinity, &words("hello"), now);
+        let rows = vec![(distant.clone(), 1.0), (close.clone(), 1.0)];
+        let ranked = rank(rows, &affinity, &words("hello"), now);
         assert_eq!(
             ids(&ranked),
             vec![1, 2],
@@ -290,16 +265,8 @@ mod tests {
             ReadState::Read,
             Star::Unstarred,
         );
-        let fixed = Fixed {
-            rows: vec![(body, 2.0), (subject, 2.0)],
-        };
-        let ranked = rank(
-            &Filter::All,
-            &fixed,
-            &Affinity::default(),
-            &words("invoice"),
-            now,
-        );
+        let rows = vec![(body, 2.0), (subject, 2.0)];
+        let ranked = rank(rows, &Affinity::default(), &words("invoice"), now);
         assert_eq!(ids(&ranked), vec![3, 4], "subject beats body");
 
         // Every bonus on one side, a bm25 gap larger than MAX_BONUS on the other.
@@ -331,10 +298,8 @@ mod tests {
         );
         let mut parsed = words("invoice");
         parsed.phrases = vec!["pay now".to_owned()];
-        let fixed = Fixed {
-            rows: vec![(bonuses, 0.0), (bm25, MAX_BONUS + 1.0)],
-        };
-        let ranked = rank(&Filter::All, &fixed, &affinity, &parsed, now);
+        let rows = vec![(bonuses, 0.0), (bm25, MAX_BONUS + 1.0)];
+        let ranked = rank(rows, &affinity, &parsed, now);
         assert_eq!(ids(&ranked), vec![6, 5], "bm25 gap beats every bonus");
     }
 }

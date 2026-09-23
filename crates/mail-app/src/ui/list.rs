@@ -4,7 +4,7 @@
 //! ask for another page. Split from [`super::app`] (`CONVENTIONS.md` §8). The queries stay in
 //! `App`; this reads the memos it is handed rather than cloning their answers in the parent.
 
-use super::data::account_rows;
+use super::data::{AccountRow, account_rows};
 use super::field::{Field, FieldKind};
 use super::hover::{HoverLayer, Site, hover};
 use super::icon::{Glyph, Icon};
@@ -35,6 +35,8 @@ pub(super) fn ThreadList(
     sync_state: Signal<SyncState>,
     entering: Signal<bool>,
     marking: Memo<Marking>,
+    /// A search's top results, drawn above the date-ordered rows.
+    top: Memo<Vec<ThreadSummary>>,
 ) -> Element {
     let rows = use_memo(move || {
         let _ = revision();
@@ -84,6 +86,18 @@ pub(super) fn ThreadList(
             landing: Option<String>,
         },
     }
+    let accounts = rows();
+    let highlight = marking.read().highlight.clone();
+    let dress_row = |summary: &ThreadSummary| dress(summary, &accounts, &names, &highlight);
+    // The strip is the same row, marked the same way, under its own header. A top result is
+    // also in the list below, where its date puts it, as Gmail shows it.
+    let strip: Vec<(ThreadSummary, Dress)> = top()
+        .into_iter()
+        .map(|summary| {
+            let dressed = dress_row(&summary);
+            (summary, dressed)
+        })
+        .collect();
     let state = use_hook(motion);
     let shown = with_leaving(threads(), state);
     if let Some(state) = state {
@@ -104,16 +118,7 @@ pub(super) fn ThreadList(
             lines.push(Line::Head(title));
         }
         for summary in band.threads {
-            let via = rows()
-                .iter()
-                .find(|row| row.id == summary.account)
-                .map(|row| provider(&row.plan));
-            let chips = summary
-                .labels
-                .iter()
-                .filter_map(|id| names.get(id).cloned())
-                .collect::<Vec<_>>();
-            let hit = row_hit(&summary, &marking.read().highlight);
+            let Dress { via, chips, hit } = dress_row(&summary);
             let moving = moving_of(state, summary.id);
             let landing = state
                 .and_then(|state| *state.landing.read())
@@ -229,6 +234,29 @@ pub(super) fn ThreadList(
                         rsx! { DraftRow { key: "{id}", draft, shell, index } }
                     }
                 }
+                if !strip.is_empty() {
+                    li { class: "list-top-h", "Top results" }
+                    for (index, (summary, Dress { via, chips, hit })) in strip.into_iter().enumerate() {
+                        {
+                            let id = summary.id;
+                            rsx! {
+                                Row {
+                                    key: "top-{id}",
+                                    summary,
+                                    shell,
+                                    revision,
+                                    index,
+                                    chips,
+                                    via,
+                                    hit,
+                                    moving: Moving::Still,
+                                    landing: None,
+                                }
+                            }
+                        }
+                    }
+                    li { class: "list-top-h", "Newest first" }
+                }
                 for line in lines {
                     match line {
                         Line::Head(title) => rsx! { li { key: "band-{title}", class: "list-g", "{title}" } },
@@ -259,6 +287,33 @@ pub(super) fn ThreadList(
             Toast { shell, revision }
             Ghost {}
         }
+    }
+}
+
+/// What a row shows beside its summary: the provider mark, the label chips, the search marks.
+struct Dress {
+    via: Option<crate::provider::Provider>,
+    chips: Vec<String>,
+    hit: Option<RowHit>,
+}
+
+fn dress(
+    summary: &ThreadSummary,
+    accounts: &[AccountRow],
+    names: &BTreeMap<LabelId, String>,
+    highlight: &crate::search::Highlight,
+) -> Dress {
+    Dress {
+        via: accounts
+            .iter()
+            .find(|row| row.id == summary.account)
+            .map(|row| provider(&row.plan)),
+        chips: summary
+            .labels
+            .iter()
+            .filter_map(|id| names.get(id).cloned())
+            .collect(),
+        hit: row_hit(summary, highlight),
     }
 }
 

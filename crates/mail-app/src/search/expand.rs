@@ -144,9 +144,19 @@ mod tests {
                 .collect()
         }
 
-        fn ranked(
+        fn listed(
             &self,
             _: &Filter,
+            _: mail_domain::PageReq,
+            _: chrono::DateTime<Utc>,
+        ) -> Vec<ThreadSummary> {
+            Vec::new()
+        }
+
+        fn top(
+            &self,
+            _: &Filter,
+            _: usize,
             _: usize,
             _: chrono::DateTime<Utc>,
         ) -> Vec<(ThreadSummary, f64)> {
