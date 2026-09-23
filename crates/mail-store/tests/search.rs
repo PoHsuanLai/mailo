@@ -1,4 +1,4 @@
-//! Prefix terms and ranked threads.
+//! Prefix terms and the top hits of a listed window.
 //!
 //! Folding, the range (so `%` and `_` are literals), CJK bigrams, rank order, limits, and the
 //! fact that suggestions are not per account. Order is not compared across the two stores; the
@@ -109,6 +109,32 @@ fn texts(store: &dyn Store, prefix: &str) -> Vec<String> {
 
 fn stores(held: &Held) -> [&dyn Store; 2] {
     [&held.sqlite, &held.memory]
+}
+
+/// The newest `limit` threads `filter` lists: the window a caller hands `top_hits`, taken the
+/// way callers take it.
+fn listed(store: &dyn Store, filter: &Filter, limit: u32) -> Vec<ThreadId> {
+    let query = Query {
+        filter: filter.clone(),
+        sort: Sort {
+            property: Property::Date,
+            dir: SortDir::Desc,
+        },
+        page: PageReq { after: None, limit },
+    };
+    store
+        .threads(&query, at(0))
+        .unwrap()
+        .items
+        .into_iter()
+        .map(|summary| summary.id)
+        .collect()
+}
+
+/// `top_hits` over the newest 50 threads `filter` lists.
+fn ranked(store: &dyn Store, filter: &Filter, k: usize) -> Vec<(ThreadSummary, f64)> {
+    let window = listed(store, filter, 50);
+    store.top_hits(filter, k, &window, at(0)).unwrap()
 }
 
 /// `Rés` matches the indexed `resume`, case is ignored, and an empty prefix is not the vocabulary.
@@ -315,9 +341,9 @@ fn limits_of_zero_one_and_more_than_the_matches() {
     ]);
     let filter = Filter::Text(TextMatch::Contains("kite".into()));
     for store in stores(&held) {
-        let all = store.search_ranked(&filter, 10, at(0)).unwrap();
+        let all = ranked(store, &filter, 10);
         for (limit, n) in LIMITS {
-            let got = store.search_ranked(&filter, *limit, at(0)).unwrap();
+            let got = ranked(store, &filter, *limit);
             assert_eq!(got.len(), *n, "limit {limit}");
             if *n > 0 {
                 assert_eq!(got[0].0.id, all[0].0.id);
@@ -389,7 +415,7 @@ fn a_repeated_subject_term_outranks_one_hit_in_a_long_body() {
             .unwrap();
     }
     let filter = Filter::Text(TextMatch::Contains("kite".into()));
-    let ranked = sqlite.search_ranked(&filter, 10, at(0)).unwrap();
+    let ranked = ranked(&sqlite, &filter, 10);
     let order: Vec<ThreadId> = ranked.iter().map(|(summary, _)| summary.id).collect();
     assert_eq!(
         order, ids,
@@ -421,8 +447,8 @@ fn order_is_not_compared_across_the_two_stores() {
         },
     ]);
     let filter = Filter::Text(TextMatch::Contains("kite".into()));
-    let sql = held.sqlite.search_ranked(&filter, 10, at(0)).unwrap();
-    let mem = held.memory.search_ranked(&filter, 10, at(0)).unwrap();
+    let sql = ranked(&held.sqlite, &filter, 10);
+    let mem = ranked(&held.memory, &filter, 10);
     let sql_ids: Vec<_> = sql.iter().map(|(s, _)| s.id).collect::<Vec<_>>();
     let mem_ids: Vec<_> = mem.iter().map(|(s, _)| s.id).collect::<Vec<_>>();
     assert_eq!(
@@ -467,13 +493,8 @@ fn suggestions_come_from_every_account() {
     for store in stores(&held) {
         let suggested = texts(store, "xylo");
         assert_eq!(suggested, vec!["xylophone".to_owned()]);
-        assert!(
-            store
-                .search_ranked(&filter_a, 10, at(0))
-                .unwrap()
-                .is_empty()
-        );
-        let found = store.search_ranked(&filter_b, 10, at(0)).unwrap();
+        assert!(ranked(store, &filter_a, 10).is_empty());
+        let found = ranked(store, &filter_b, 10);
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].0.account, B);
     }
@@ -529,7 +550,7 @@ fn terms_are_visible_from_a_read_connection() {
     assert_eq!(texts(&sqlite, "Rés"), vec!["resume".to_owned()]);
 }
 
-/// `top_hits`: the best of the most recent matches, as a "Top results" strip ranks them.
+/// `top_hits`: the best of the listed window, as a "Top results" strip ranks them.
 mod top_hits {
     use super::*;
 
@@ -558,7 +579,7 @@ mod top_hits {
                 secs: 2,
             },
         ]);
-        let hits = held.sqlite.top_hits(&kite(), 5, 50, at(10)).unwrap();
+        let hits = ranked(&held.sqlite, &kite(), 5);
         assert_eq!(ids(&hits), [held.threads[0], held.threads[1]]);
         assert!(hits[0].1 > hits[1].1, "higher is better: {hits:?}");
     }
@@ -588,7 +609,8 @@ mod top_hits {
             },
         ]);
         for store in stores(&held) {
-            let hits = store.top_hits(&kite(), 5, 2, at(10)).unwrap();
+            let window = listed(store, &kite(), 2);
+            let hits = store.top_hits(&kite(), 5, &window, at(10)).unwrap();
             let mut got = ids(&hits);
             got.sort();
             let mut newest = vec![held.threads[1], held.threads[2]];
@@ -620,14 +642,15 @@ mod top_hits {
             },
         ]);
         for store in stores(&held) {
-            assert_eq!(store.top_hits(&kite(), 2, 50, at(10)).unwrap().len(), 2);
-            assert!(store.top_hits(&kite(), 0, 50, at(10)).unwrap().is_empty());
+            assert_eq!(ranked(store, &kite(), 2).len(), 2);
+            assert!(ranked(store, &kite(), 0).is_empty());
             assert!(
-                store
-                    .top_hits(&Filter::Account(A), 5, 50, at(10))
-                    .unwrap()
-                    .is_empty(),
+                ranked(store, &Filter::Account(A), 5).is_empty(),
                 "a filter with no words has nothing to rank by"
+            );
+            assert!(
+                store.top_hits(&kite(), 5, &[], at(10)).unwrap().is_empty(),
+                "an empty window has nothing in it to rank"
             );
         }
     }

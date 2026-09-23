@@ -219,11 +219,11 @@ fn search_stays_usable_on_a_full_mailbox() {
 }
 
 #[test]
-fn ranked_search_of_a_common_word_stays_within_five_times_threads() {
-    // Same fixture and the same filter as the search above: "widgets" is in every message.
-    // Ranking has to score every match, while `threads` stops at the first page, so the ratio
-    // is near 3× by construction (measured 2.9–3.0×). 5× leaves room for a loaded machine and
-    // still fails if ranking starts doing work per thread rather than per match.
+fn top_hits_of_a_common_word_cost_less_than_listing_it() {
+    // The point of `top_hits`: scoring is bounded by the window it is handed, not by how many
+    // messages the word is in. Here it is in all ten thousand. The window is listed once, as a
+    // caller lists its first page, and only the ranking is timed: a strip that cost as much as
+    // the list again would double every keystroke.
     let (store, _dir) = store();
     fill(&store, 10_000);
 
@@ -232,46 +232,22 @@ fn ranked_search_of_a_common_word_stays_within_five_times_threads() {
     let threads = best_of_three(|| {
         store.threads(&query, at(0)).unwrap();
     });
-    let ranked = best_of_three(|| {
-        store.search_ranked(&filter, 50, at(0)).unwrap();
-    });
-    let found = store.search_ranked(&filter, 50, at(0)).unwrap();
-
-    eprintln!(
-        "search_ranked over 10k: {ranked:?}   threads(): {threads:?}   hits {}",
-        found.len()
-    );
-    assert_eq!(found.len(), 50, "the ranked page should be full");
-    assert!(
-        ranked <= threads * 5,
-        "search_ranked {ranked:?} exceeded 5× threads() {threads:?}"
-    );
-}
-
-#[test]
-fn top_hits_of_a_common_word_cost_about_what_the_list_does() {
-    // The point of `top_hits`: scoring is bounded by the window, not by how many messages the
-    // word is in. Here it is in all ten thousand, the case `search_ranked` scales worst on.
-    let (store, _dir) = store();
-    fill(&store, 10_000);
-
-    let filter = Filter::Text(TextMatch::Contains("widgets".to_owned()));
-    let query = page(50, filter.clone());
-    let threads = best_of_three(|| {
-        store.threads(&query, at(0)).unwrap();
-    });
+    let window: Vec<ThreadId> = store
+        .threads(&page(200, filter.clone()), at(0))
+        .unwrap()
+        .items
+        .into_iter()
+        .map(|summary| summary.id)
+        .collect();
     let top = best_of_three(|| {
-        store.top_hits(&filter, 5, 200, at(0)).unwrap();
+        store.top_hits(&filter, 5, &window, at(0)).unwrap();
     });
-    let ranked = best_of_three(|| {
-        store.search_ranked(&filter, 50, at(0)).unwrap();
-    });
-    let found = store.top_hits(&filter, 5, 200, at(0)).unwrap();
+    let found = store.top_hits(&filter, 5, &window, at(0)).unwrap();
 
-    eprintln!("top_hits over 10k: {top:?}   threads(): {threads:?}   search_ranked: {ranked:?}");
+    eprintln!("top_hits over a window of 200 in 10k: {top:?}   threads(): {threads:?}");
     assert_eq!(found.len(), 5);
     assert!(
-        top <= threads * 3 + std::time::Duration::from_millis(5),
+        top <= threads + std::time::Duration::from_millis(5),
         "top_hits {top:?} is not bounded by its window: threads() took {threads:?}"
     );
 }

@@ -157,7 +157,7 @@ mod tests {
             &self,
             _: &Filter,
             _: usize,
-            _: usize,
+            _: &[mail_domain::ThreadId],
             _: chrono::DateTime<Utc>,
         ) -> Vec<(ThreadSummary, f64)> {
             Vec::new()

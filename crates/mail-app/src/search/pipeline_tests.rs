@@ -3,12 +3,12 @@
 use std::cell::RefCell;
 
 use chrono::{DateTime, Utc};
-use mail_domain::{Filter, PageReq, ThreadSummary};
+use mail_domain::{Filter, PageReq, ReadState, Star, ThreadId, ThreadSummary};
 
 use super::super::ranking::Affinity;
 use super::super::source::{Source, Term, first};
-use super::super::support::{at, sqlite_with};
-use super::{STRIP, WINDOW, search_list};
+use super::super::support::{at, sqlite_with, summary};
+use super::{STRIP, search_list};
 
 fn searched(input: &str, store: &mail_store::SqliteStore) -> super::Searched {
     search_list(
@@ -100,30 +100,34 @@ impl Source for Asked {
 
     fn listed(&self, _: &Filter, page: PageReq, _: DateTime<Utc>) -> Vec<ThreadSummary> {
         self.listed.borrow_mut().push(page.limit);
-        Vec::new()
+        // A full page, so the window the strip is handed can be told apart from none at all.
+        (0..u128::from(page.limit))
+            .map(|n| summary(n, "s", "", "a@b.c", 0, ReadState::Unread, Star::Unstarred))
+            .collect()
     }
 
     fn top(
         &self,
         _: &Filter,
         k: usize,
-        window: usize,
+        window: &[ThreadId],
         _: DateTime<Utc>,
     ) -> Vec<(ThreadSummary, f64)> {
-        self.top.borrow_mut().push((k, window));
+        self.top.borrow_mut().push((k, window.len()));
         Vec::new()
     }
 }
 
-/// What was typed, the page limits `listed` was asked for, and the `(k, window)` of each `top`.
+/// What was typed, the page limits `listed` was asked for, and the `(k, window size)` of each
+/// `top`. The window is the page just listed, never a second search.
 type AskedFor = (&'static str, &'static [u32], &'static [(usize, usize)]);
 
 #[test]
 fn a_search_asks_for_one_page_and_a_bounded_window_never_every_match() {
     let cases: &[AskedFor] = &[
-        ("the ", &[100], &[(STRIP, WINDOW)]),
-        ("invoice from:a@b.c", &[100], &[(STRIP, WINDOW)]),
-        ("\"lunch on friday\"", &[100], &[(STRIP, WINDOW)]),
+        ("the ", &[100], &[(STRIP, 100)]),
+        ("invoice from:a@b.c", &[100], &[(STRIP, 100)]),
+        ("\"lunch on friday\"", &[100], &[(STRIP, 100)]),
         ("from:a@b.c is:unread", &[100], &[]),
     ];
     for (input, listed, top) in cases {

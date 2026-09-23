@@ -43,7 +43,7 @@ impl Source for Indexed<'_> {
         &self,
         filter: &Filter,
         k: usize,
-        window: usize,
+        window: &[ThreadId],
         now: DateTime<Utc>,
     ) -> Vec<(ThreadSummary, f64)> {
         <MemoryStore as Source>::top(self.store, filter, k, window, now)

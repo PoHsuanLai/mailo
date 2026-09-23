@@ -74,47 +74,25 @@ pub trait Store {
     /// term text, ascending.
     fn terms_with_prefix(&self, prefix: &str, limit: usize) -> Result<Vec<Term>, StoreError>;
 
-    /// The threads [`Store::threads`] would return for `filter`, each with a relevance score,
-    /// best first.
+    /// The best `k` of `window` by full-text relevance to `filter`'s text terms, best first — a
+    /// "Top results" strip, as Gmail and Apple Mail show above a date-ordered list.
     ///
-    /// The score is the best (lowest) FTS5 `bm25()` among the thread's matching messages,
-    /// **negated**, so higher is better. It is 0.0 when the filter has no text term.
+    /// `window` is threads the caller has already listed with [`Store::threads`] for the same
+    /// filter, typically its first page: listing them again here would evaluate the filter's
+    /// full-text membership twice. Relevance is the best `bm25` among the thread's messages that
+    /// hit any of the filter's text terms (one MATCH, the terms joined with `OR`), negated so
+    /// higher is better. Only the window's messages are scored, so the cost is bounded by the
+    /// window and not by how many messages a common word hits. A thread in the window with no
+    /// message hitting a text term is not a top hit; ties go to the newer thread. Empty when the
+    /// filter has no text term, since there is nothing to rank by.
     ///
-    /// A filter with several text terms is scored from the MATCH arguments the full-text
-    /// compiler already builds for [`Filter::Text`]: one quoted term per word of a `Contains`,
-    /// one phrase for an `Exact`, combined with `OR` into one MATCH. The score is the minimum
-    /// `bm25` among the thread's messages that hit that MATCH. `AND` inside the MATCH would
-    /// require every word on the same message, and a thread whose words are split across
-    /// messages would have no score even though [`Store::threads`] returns it. `bm25` cannot
-    /// be aggregated directly, so the minimum is taken of the value the MATCH already produced.
-    ///
-    /// Capped at `limit`, ordered by that score and then by `last_date` descending. The
-    /// in-memory store has no index score: every value is 0.0 and the order is `last_date`
-    /// descending.
-    fn search_ranked(
-        &self,
-        filter: &Filter,
-        limit: usize,
-        now: DateTime<Utc>,
-    ) -> Result<Vec<(ThreadSummary, f64)>, StoreError>;
-
-    /// The best `k` of the `window` most recent threads [`Store::threads`] returns for
-    /// `filter`, by full-text relevance, best first — a "Top results" strip, as Gmail and Apple
-    /// Mail show above a date-ordered list.
-    ///
-    /// Relevance is scored as in [`Store::search_ranked`] (best `bm25` among the thread's
-    /// matching messages, negated, higher is better), but only inside the window: the cost is
-    /// bounded by `window`, not by how many messages a common word hits. A strong match older
-    /// than the window is not a top hit; the list below finds it by date. Empty when the filter
-    /// has no text term, since there is nothing to rank by.
-    ///
-    /// The in-memory store has no index score: it returns the first `k` of its window, newest
-    /// first, each scored 0.0.
+    /// The in-memory store has no index score: it returns the first `k` of the window that
+    /// match the filter's text terms, newest first, each scored 0.0.
     fn top_hits(
         &self,
         filter: &Filter,
         k: usize,
-        window: usize,
+        window: &[ThreadId],
         now: DateTime<Utc>,
     ) -> Result<Vec<(ThreadSummary, f64)>, StoreError>;
 

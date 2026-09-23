@@ -131,30 +131,22 @@ impl Store for MemoryStore {
         ))
     }
 
-    fn search_ranked(
-        &self,
-        filter: &Filter,
-        limit: usize,
-        now: DateTime<Utc>,
-    ) -> Result<Vec<(ThreadSummary, f64)>, StoreError> {
-        let rows = self.inner.borrow().matching(filter, now);
-        Ok(crate::memory_search::order_by_last_date(rows, limit))
-    }
-
     fn top_hits(
         &self,
         filter: &Filter,
         k: usize,
-        window: usize,
+        window: &[ThreadId],
         now: DateTime<Utc>,
     ) -> Result<Vec<(ThreadSummary, f64)>, StoreError> {
         if crate::sql::match_needles(filter).is_empty() {
             return Ok(Vec::new());
         }
         let rows = self.inner.borrow().matching(filter, now);
-        let mut windowed = crate::memory_search::order_by_last_date(rows, window);
-        windowed.truncate(k);
-        Ok(windowed)
+        let windowed = rows
+            .into_iter()
+            .filter(|summary| window.contains(&summary.id))
+            .collect();
+        Ok(crate::memory_search::order_by_last_date(windowed, k))
     }
 
     fn thread(&self, id: ThreadId) -> Result<Thread, StoreError> {

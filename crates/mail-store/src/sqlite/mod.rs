@@ -426,25 +426,16 @@ impl Store for SqliteStore {
         search::terms_with_prefix(&db, prefix, limit)
     }
 
-    fn search_ranked(
-        &self,
-        filter: &Filter,
-        limit: usize,
-        now: DateTime<Utc>,
-    ) -> Result<Vec<(ThreadSummary, f64)>, StoreError> {
-        let db = self.reader();
-        search::search_ranked(self, &db, filter, limit, now)
-    }
-
     fn top_hits(
         &self,
         filter: &Filter,
         k: usize,
-        window: usize,
-        now: DateTime<Utc>,
+        window: &[ThreadId],
+        _now: DateTime<Utc>,
     ) -> Result<Vec<(ThreadSummary, f64)>, StoreError> {
+        // `now` is unused: the window already answered every clause that reads the clock.
         let db = self.reader();
-        search::top_hits(self, &db, filter, k, window, now)
+        search::top_hits(self, &db, filter, k, window)
     }
 
     fn count(&self, filter: &Filter, now: DateTime<Utc>) -> Result<u64, StoreError> {

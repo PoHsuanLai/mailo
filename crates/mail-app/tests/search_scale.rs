@@ -317,7 +317,7 @@ impl Source for Timed<'_> {
         &self,
         filter: &Filter,
         k: usize,
-        window: usize,
+        window: &[ThreadId],
         now: DateTime<Utc>,
     ) -> Vec<(ThreadSummary, f64)> {
         let start = Instant::now();

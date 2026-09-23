@@ -171,7 +171,7 @@ fn fts5vocab_row_accepts_the_external_content_index() {
     assert_eq!(doc, 1, "one message holds resume");
     assert!(cnt >= 1, "cnt counts occurrences, got {cnt}");
 
-    // SQLite's bm25 is negative and numerically smaller is a better match. search_ranked
+    // SQLite's bm25 is negative and numerically smaller is a better match. top_hits
     // negates it; this pins the sign the negation assumes.
     let score: f64 = db
         .query_row(

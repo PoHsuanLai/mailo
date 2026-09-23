@@ -14,7 +14,7 @@ use super::data::list_for;
 use crate::search::{self, Highlight, Source, Term};
 use crate::view::{Listing, Shell};
 use chrono::{DateTime, Utc};
-use mail_domain::{Filter, LabelId, PageReq, Query, ThreadSummary};
+use mail_domain::{Filter, LabelId, PageReq, Query, ThreadId, ThreadSummary};
 use mail_store::{SqliteStore, Store};
 use std::ops::Range;
 
@@ -226,7 +226,7 @@ impl Source for Scoped<'_> {
         &self,
         filter: &Filter,
         k: usize,
-        window: usize,
+        window: &[ThreadId],
         now: DateTime<Utc>,
     ) -> Vec<(ThreadSummary, f64)> {
         <SqliteStore as Source>::top(self.store, &self.narrow(filter), k, window, now)

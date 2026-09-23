@@ -30,7 +30,7 @@ mod superset;
 mod support;
 
 use chrono::{DateTime, TimeZone, Utc};
-use mail_domain::{LabelId, ThreadSummary};
+use mail_domain::{LabelId, ThreadId, ThreadSummary};
 
 pub use expanding::{Expansion, expand, suggestions};
 pub use find::{Find, Highlight, Step, find_highlight, list_highlight};
@@ -51,6 +51,15 @@ pub struct RankedMail {
     pub hits: Vec<(ThreadSummary, f64)>,
 }
 
+/// The newest [`WINDOW`] matches of `prepared`: the window its top hits are chosen from.
+fn newest(prepared: &Prepared, source: &dyn Source, now: DateTime<Utc>) -> Vec<ThreadId> {
+    prepared
+        .listed(source, first(WINDOW), now)
+        .iter()
+        .map(|summary| summary.id)
+        .collect()
+}
+
 /// Parse, expand, and rank the best `k` of the newest [`WINDOW`] matches of `input`.
 ///
 /// `zone` and `label` are the CLI's: `before:` is the reader's midnight, `label:` is every
@@ -69,7 +78,7 @@ pub fn rank_query<Tz: TimeZone>(
     now: DateTime<Utc>,
 ) -> Result<RankedMail, String> {
     let prepared = prepare(input, source, zone, label)?;
-    let hits = prepared.top(source, affinity, k, now);
+    let hits = prepared.top(source, affinity, k, &newest(&prepared, source, now), now);
     Ok(prepared.ranked(hits))
 }
 
@@ -93,7 +102,7 @@ pub fn run(
         return Results::default();
     };
     let hits = if prepared.has_text() {
-        prepared.top(source, affinity, MENU, now)
+        prepared.top(source, affinity, MENU, &newest(&prepared, source, now), now)
     } else {
         let newest = prepared
             .listed(source, first(MENU), now)

@@ -5,7 +5,7 @@
 //! index would not give it on demand.
 
 use chrono::{DateTime, Utc};
-use mail_domain::{Filter, PageReq, Property, Query, Sort, SortDir, ThreadSummary};
+use mail_domain::{Filter, PageReq, Property, Query, Sort, SortDir, ThreadId, ThreadSummary};
 use mail_store::Store;
 
 /// One entry in the full-text vocabulary, as the store reports it.
@@ -24,16 +24,18 @@ pub trait Source {
     /// search lists under its top results. Cheap, because it is paginated and never scores.
     fn listed(&self, filter: &Filter, page: PageReq, now: DateTime<Utc>) -> Vec<ThreadSummary>;
 
-    /// The best `k` of the `window` newest threads matching `filter`, by full-text relevance,
-    /// best first, each with a bm25 score where higher is better.
+    /// The best `k` of `window` by full-text relevance to `filter`, best first, each with a
+    /// bm25 score where higher is better.
     ///
+    /// `window` is threads [`Source::listed`] already returned for `filter`: ranking what is in
+    /// hand, rather than listing again, is what keeps a strip from costing a second search.
     /// Empty when the filter has no text term: there is nothing to rank by. The cost is
     /// bounded by `window`, not by how many messages a common word hits.
     fn top(
         &self,
         filter: &Filter,
         k: usize,
-        window: usize,
+        window: &[ThreadId],
         now: DateTime<Utc>,
     ) -> Vec<(ThreadSummary, f64)>;
 }
@@ -66,7 +68,7 @@ impl<S: Store + ?Sized> Source for S {
         &self,
         filter: &Filter,
         k: usize,
-        window: usize,
+        window: &[ThreadId],
         now: DateTime<Utc>,
     ) -> Vec<(ThreadSummary, f64)> {
         Store::top_hits(self, filter, k, window, now).unwrap_or_default()

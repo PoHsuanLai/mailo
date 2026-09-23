@@ -6,7 +6,7 @@
 //! window of the newest matches. The window bounds the scoring cost whatever the word.
 
 use chrono::{DateTime, TimeZone, Utc};
-use mail_domain::{Filter, LabelId, PageReq, ThreadSummary};
+use mail_domain::{Filter, LabelId, PageReq, ThreadId, ThreadSummary};
 
 use super::RankedMail;
 use super::expanding::{Expansion, expand};
@@ -77,20 +77,24 @@ impl Prepared {
         self.parsed.is_empty() && self.regex.is_none()
     }
 
-    /// The best `k` of the newest [`WINDOW`] matches, re-scored by [`rank`], best first. Empty
-    /// without free text.
+    /// The best `k` of `window`, re-scored by [`rank`], best first. Empty without free text.
+    ///
+    /// `window` is threads [`Prepared::listed`] already returned for this query, newest first:
+    /// the page in hand, or the newest [`WINDOW`]. Ranking them is one bounded pass over their
+    /// messages; asking the store to choose them again would be the whole search a second time.
     pub fn top(
         &self,
         source: &dyn Source,
         affinity: &Affinity,
         k: usize,
+        window: &[ThreadId],
         now: DateTime<Utc>,
     ) -> Vec<(ThreadSummary, f64)> {
         if !self.has_text() {
             return Vec::new();
         }
         let mut rows = rank(
-            source.top(&self.filter, k, WINDOW, now),
+            source.top(&self.filter, k, window, now),
             affinity,
             &self.parsed,
             now,
@@ -180,7 +184,9 @@ pub fn search_list<Tz: TimeZone>(
 ) -> Result<Searched, String> {
     let prepared = prepare(input, source, zone, label)?;
     let rows = prepared.listed(source, page, now);
-    let top = prepared.top(source, affinity, STRIP, now);
+    // The strip ranks the page it sits above: those threads are already in hand.
+    let window: Vec<ThreadId> = rows.iter().map(|summary| summary.id).collect();
+    let top = prepared.top(source, affinity, STRIP, &window, now);
     Ok(Searched {
         prepared,
         top,

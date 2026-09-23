@@ -351,33 +351,8 @@ proptest! {
         prop_assert_eq!(counted, rows);
     }
 
-    /// The same set of thread ids as `threads`, in both stores.
-    ///
-    /// Order is not compared across the two stores. SQLite orders by negated bm25; the memory
-    /// store orders by `last_date` and reports 0.0. Comparing those orders would fail on a
-    /// corpus this generator is happy to build, and it would be testing a difference the two
-    /// stores are supposed to have.
-    #[test]
-    fn search_ranked_returns_the_same_thread_set(
-        specs in prop::collection::vec(spec(), 1..8),
-        f in filter(),
-    ) {
-        let both = build(&specs);
-        for store in [&both.sqlite as &dyn Store, &both.memory] {
-            let from_threads = ids(store, &f);
-            let ranked = store.search_ranked(&f, 1000, now()).expect("ranked");
-            let from_ranked: BTreeSet<_> = ranked.iter().map(|(summary, _)| summary.id).collect();
-            prop_assert_eq!(ranked.len(), from_ranked.len(), "duplicate thread in {:?}", f);
-            prop_assert_eq!(&from_ranked, &from_threads, "filter {:?}", f);
-        }
-        let memory = both.memory.search_ranked(&f, 1000, now()).expect("ranked");
-        for (_, score) in &memory {
-            prop_assert_eq!(*score, 0.0);
-        }
-    }
-
-    /// `top_hits` is at most `k` threads, every one of them among the first `window` that
-    /// `threads` returns, in both stores.
+    /// `top_hits` is at most `k` threads, every one of them in the window it was given — the
+    /// first `window` that `threads` returns — once each, in both stores.
     #[test]
     fn top_hits_come_from_the_newest_window_of_the_list(
         specs in prop::collection::vec(spec(), 1..8),
@@ -398,8 +373,11 @@ proptest! {
                 )
                 .expect("threads");
             let newest: BTreeSet<ThreadId> = listed.items.iter().map(|s| s.id).collect();
-            let hits = store.top_hits(&f, k, window, now()).expect("top_hits");
+            let given: Vec<ThreadId> = listed.items.iter().map(|s| s.id).collect();
+            let hits = store.top_hits(&f, k, &given, now()).expect("top_hits");
             prop_assert!(hits.len() <= k, "{} hits for k = {}", hits.len(), k);
+            let distinct: BTreeSet<ThreadId> = hits.iter().map(|(s, _)| s.id).collect();
+            prop_assert_eq!(distinct.len(), hits.len(), "duplicate thread in {:?}", f);
             for (summary, _) in &hits {
                 prop_assert!(newest.contains(&summary.id), "{:?} is outside the window for {:?}", summary.id, f);
             }
