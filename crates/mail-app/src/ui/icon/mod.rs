@@ -6,7 +6,7 @@
 //! The style is a 24 grid, 2px stroke, round caps and joins, one colour, no fills,
 //! with the stroke drawn by CSS `.ic`, not by attributes.
 //!
-//! The icons are data and not markup strings, so nothing here needs `dangerous_inner_html`.
+//! The icons are data and not markup strings, so nothing here needs a raw HTML sink.
 //! The geometry itself is in [`geometry`], transcribed from the design's `ICON` table.
 //!
 //! No serde: an icon is never stored, and a derive would make it a persisted schema

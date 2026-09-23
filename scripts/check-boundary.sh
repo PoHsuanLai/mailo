@@ -23,4 +23,12 @@ done
 if [ "$fail" -eq 0 ]; then
   echo "sans-I/O boundary holds: ${PURE[*]} reach none of ${FORBIDDEN[*]}"
 fi
+
+# The reader draws blocks. A raw HTML sink in the UI would put a sender's markup
+# in our document, which is what the block types exist to prevent.
+if grep -rn "dangerous_inner_html" crates/mail-app/src/ui/; then
+  echo "dangerous_inner_html is forbidden under crates/mail-app/src/ui/: the reader draws blocks, not raw markup"
+  exit 1
+fi
+
 exit "$fail"

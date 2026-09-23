@@ -1,6 +1,7 @@
 //! RFC 5322 / MIME bytes to domain values.
 
 use crate::MimeError;
+use crate::block::Flowed;
 use chrono::{DateTime, Utc};
 use mail_domain::{Address, Inline, normalize_id};
 use mail_parser::{HeaderName, Message, MessageParser, MimeHeaders, PartType};
@@ -53,6 +54,12 @@ pub struct Parsed {
     /// Normalized, oldest first, duplicates removed.
     pub references: Vec<String>,
     pub text: Option<String>,
+    /// `format` and `delsp` on the text/plain part [`Self::text`] was taken from.
+    ///
+    /// Not the first text/plain in the tree. An attached note carries its own
+    /// parameters, and they do not describe the body. [`Flowed::Fixed`] when
+    /// there is no text part.
+    pub flowed: Flowed,
     /// Raw, unsanitized. Sanitization happens at render time; see [`crate::sanitize`].
     pub html: Option<String>,
     pub attachments: Vec<ParsedPart>,
@@ -106,7 +113,7 @@ fn not_a_message() -> MimeError {
 }
 
 fn assemble(message: &Message<'_>, markers: Markers) -> Parsed {
-    let (text, html, attachments) = bodies(message, markers);
+    let (text, html, attachments, flowed) = bodies(message, markers);
     Parsed {
         rfc_message_id: first_id(message, HeaderName::MessageId),
         date: message_date(message),
@@ -121,6 +128,7 @@ fn assemble(message: &Message<'_>, markers: Markers) -> Parsed {
         in_reply_to: last_id(message, HeaderName::InReplyTo),
         references: reference_ids(message),
         text,
+        flowed,
         html,
         attachments,
     }
@@ -220,8 +228,17 @@ fn last_id(message: &Message<'_>, name: HeaderName<'static>) -> Option<String> {
 fn bodies(
     message: &Message<'_>,
     markers: Markers,
-) -> (Option<String>, Option<String>, Vec<ParsedPart>) {
-    let mut text = part_text(message.text_bodies());
+) -> (Option<String>, Option<String>, Vec<ParsedPart>, Flowed) {
+    // The same part `text` is read from. `text_bodies` is mail-parser's choice
+    // of body, which is not "the first text/plain in the tree".
+    let chosen = message
+        .text_bodies()
+        .find(|part| matches!(part.body, PartType::Text(_)));
+    let mut text = chosen.and_then(|part| match &part.body {
+        PartType::Text(text) => Some(text.to_string()),
+        _ => None,
+    });
+    let mut flowed = chosen.map(flowed_of);
     let mut html = part_html(message.html_bodies());
     let mut attachments = Vec::new();
     for part in message.attachments() {
@@ -230,6 +247,7 @@ fn bodies(
         }
         if text.is_none() && is_loose_text(part) {
             text = part.text_contents().map(str::to_owned);
+            flowed = Some(flowed_of(part));
             continue;
         }
         if html.is_none() && is_loose_html(part) {
@@ -248,7 +266,23 @@ fn bodies(
             },
         });
     }
-    (text, html, attachments)
+    (text, html, attachments, flowed.unwrap_or(Flowed::Fixed))
+}
+
+/// `format` and `delsp` on this part. Anything other than `format=flowed` is fixed,
+/// and `delsp` is only meaningful once the part says it flows.
+fn flowed_of(part: &mail_parser::MessagePart<'_>) -> Flowed {
+    let Some(ct) = part.content_type() else {
+        return Flowed::Fixed;
+    };
+    let format = ct.attribute("format").unwrap_or("fixed");
+    if !format.eq_ignore_ascii_case("flowed") {
+        return Flowed::Fixed;
+    }
+    let delsp = ct
+        .attribute("delsp")
+        .is_some_and(|value| value.eq_ignore_ascii_case("yes"));
+    Flowed::Flowed { delsp }
 }
 
 /// The reconstruction markers on `part`, when it carries both and they parse.
@@ -263,15 +297,6 @@ fn remote_part(part: &mail_parser::MessagePart<'_>) -> Option<RemotePart> {
     Some(RemotePart {
         section: field(crate::reconstruct::REMOTE_SECTION)?,
         octets: field(crate::reconstruct::REMOTE_OCTETS)?.parse().ok()?,
-    })
-}
-
-fn part_text<'a>(
-    mut parts: impl Iterator<Item = &'a mail_parser::MessagePart<'a>>,
-) -> Option<String> {
-    parts.find_map(|part| match &part.body {
-        PartType::Text(text) => Some(text.to_string()),
-        _ => None,
     })
 }
 

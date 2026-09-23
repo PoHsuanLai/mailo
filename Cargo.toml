@@ -37,3 +37,24 @@ missing_debug_implementations = "warn"
 
 [workspace.lints.clippy]
 todo = "allow"
+
+# The reader parses every message body into blocks when it opens a thread: html5ever tokenizes,
+# mail-mime walks. Unoptimised, that walk spent most of `reader_scale`'s budget (five 2 MB bodies
+# took ~425 ms against 500) and made a debug window slow on large mail. With these built optimised
+# even in dev it is ~170 ms. mail-mime is pure bytes-in, values-out and has its own tests, so
+# losing step-through debugging there is the cheaper trade; the crates that do I/O and the UI stay
+# at the dev default.
+[profile.dev.package.html5ever]
+opt-level = 2
+
+[profile.dev.package.markup5ever]
+opt-level = 2
+
+[profile.dev.package.tendril]
+opt-level = 2
+
+[profile.dev.package.ammonia]
+opt-level = 2
+
+[profile.dev.package.mail-mime]
+opt-level = 2

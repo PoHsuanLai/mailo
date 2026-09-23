@@ -352,3 +352,154 @@ fn bytes_that_are_not_a_message_are_unparseable() {
         assert!(matches!(err, MimeError::Unparseable(_)), "{name}: {err:?}");
     }
 }
+
+/// `format` and `delsp` of the text part `text` came from, including when an
+/// earlier text/plain in the tree says something else.
+#[test]
+fn flowed_is_read_from_the_text_part_that_text_came_from() {
+    use mail_mime::Flowed;
+
+    let cases: &[(&str, &[u8], &str, Flowed)] = &[
+        (
+            "a single part that flows, deleting the space",
+            b"From: ada@example.test\r\n\
+              Subject: s\r\n\
+              MIME-Version: 1.0\r\n\
+              Content-Type: text/plain; charset=utf-8; format=flowed; delsp=yes\r\n\
+              \r\n\
+              hello \r\n\
+              there\r\n",
+            "hello",
+            Flowed::Flowed { delsp: true },
+        ),
+        (
+            "flowed without delsp keeps the parameter false",
+            b"From: ada@example.test\r\n\
+              Subject: s\r\n\
+              MIME-Version: 1.0\r\n\
+              Content-Type: text/plain; charset=utf-8; format=flowed\r\n\
+              \r\n\
+              hello \r\n\
+              there\r\n",
+            "hello",
+            Flowed::Flowed { delsp: false },
+        ),
+        (
+            "absent format is fixed",
+            b"From: ada@example.test\r\nSubject: s\r\n\r\nhello\r\n",
+            "hello",
+            Flowed::Fixed,
+        ),
+        (
+            "the first text/plain is an attachment that flows; the body does not",
+            b"From: ada@example.test\r\n\
+              Subject: s\r\n\
+              MIME-Version: 1.0\r\n\
+              Content-Type: multipart/mixed; boundary=\"mix\"\r\n\
+              \r\n\
+              --mix\r\n\
+              Content-Type: text/plain; charset=utf-8; format=flowed; delsp=yes\r\n\
+              Content-Disposition: attachment; filename=\"notes.txt\"\r\n\
+              \r\n\
+              attachment flowed\r\n\
+              --mix\r\n\
+              Content-Type: text/plain; charset=utf-8; format=fixed\r\n\
+              \r\n\
+              body fixed\r\n\
+              --mix--\r\n",
+            "body fixed",
+            Flowed::Fixed,
+        ),
+        (
+            "the body flows; an earlier attached text/plain does not",
+            b"From: ada@example.test\r\n\
+              Subject: s\r\n\
+              MIME-Version: 1.0\r\n\
+              Content-Type: multipart/mixed; boundary=\"mix\"\r\n\
+              \r\n\
+              --mix\r\n\
+              Content-Type: text/plain; charset=utf-8; format=fixed\r\n\
+              Content-Disposition: attachment; filename=\"notes.txt\"\r\n\
+              \r\n\
+              attachment fixed\r\n\
+              --mix\r\n\
+              Content-Type: text/plain; charset=utf-8; format=flowed; delsp=yes\r\n\
+              \r\n\
+              body flowed\r\n\
+              --mix--\r\n",
+            "body flowed",
+            Flowed::Flowed { delsp: true },
+        ),
+    ];
+
+    let mut failures = Vec::new();
+    for (name, raw, needle, flowed) in cases {
+        let parsed = parse(raw).unwrap_or_else(|err| panic!("{name}: {err}"));
+        let text = parsed.text.as_deref().unwrap_or("");
+        if !text.contains(needle) || parsed.flowed != *flowed {
+            failures.push(format!(
+                "{name}: text {text:?} flowed {:?} (want {flowed:?}, text containing {needle:?})",
+                parsed.flowed
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// A reconstructed part carries its own `N.MIME` header. `format=flowed` on that
+/// header has to survive being written back into the document.
+#[test]
+fn a_reconstructed_text_part_keeps_its_flowed_parameters() {
+    use mail_domain::PartTree;
+    use mail_mime::{Flowed, parse_reconstructed, reconstruct};
+    use std::collections::HashMap;
+
+    let header = "From: ada@example.test\r\n\
+        Subject: re\r\n\
+        MIME-Version: 1.0\r\n\
+        Content-Type: multipart/mixed; boundary=\"mix\"\r\n\
+        \r\n";
+    // First text/plain in the tree is an attachment whose header says fixed.
+    // The body text part's own header says flowed. The body wins.
+    let attach_mime = "Content-Type: text/plain; charset=utf-8; format=fixed\r\n\
+        Content-Disposition: attachment; filename=\"notes.txt\"\r\n\
+        \r\n";
+    let attach = "attachment fixed\r\n";
+    let plain_mime = "Content-Type: text/plain; charset=utf-8; format=flowed; delsp=yes\r\n\r\n";
+    let plain = "hello \r\nthere\r\n";
+
+    let tree = PartTree::Multipart {
+        section: String::new(),
+        subtype: "mixed".to_owned(),
+        boundary: "mix".to_owned(),
+        parts: vec![
+            PartTree::Leaf {
+                section: "1".into(),
+                mime: "text/plain".into(),
+                octets: attach.len() as u64,
+                attachment: true,
+            },
+            PartTree::Leaf {
+                section: "2".into(),
+                mime: "text/plain".into(),
+                octets: plain.len() as u64,
+                attachment: false,
+            },
+        ],
+    };
+    let mut fetched = HashMap::new();
+    fetched.insert("HEADER".into(), header.as_bytes().to_vec());
+    fetched.insert("1.MIME".into(), attach_mime.as_bytes().to_vec());
+    fetched.insert("1".into(), attach.as_bytes().to_vec());
+    fetched.insert("2.MIME".into(), plain_mime.as_bytes().to_vec());
+    fetched.insert("2".into(), plain.as_bytes().to_vec());
+
+    let raw = reconstruct(&tree, &fetched).expect("the sections rebuild a message");
+    let parsed = parse_reconstructed(&raw).expect("the rebuilt message parses");
+    let text = parsed.text.as_deref().unwrap_or("");
+    assert!(
+        text.contains("hello") && !text.contains("attachment"),
+        "text came from the attachment, not the body: {text:?}"
+    );
+    assert_eq!(parsed.flowed, Flowed::Flowed { delsp: true });
+}

@@ -334,6 +334,19 @@ mod tests {
     }
 
     #[test]
+    fn the_paper_sets_its_own_ink() {
+        // `.app` is the frame and inks its text with the Space's `--f-ink`, which is chosen to
+        // read on the frame's colour — dark on a light Space, light on a dark one. The card is
+        // paper, not frame: anything on it that inherited the frame's ink would read in one
+        // theme and vanish in the other (the reader's subject did, dark on dark).
+        let color = property(&rule_body(STYLE, ".card"), "color");
+        assert_eq!(
+            color, "var(--ink)",
+            ".card must reset the text colour to the paper's ink"
+        );
+    }
+
+    #[test]
     fn the_load_bearing_layout_survives() {
         let app = declared(STYLE, ".app");
         let app_columns = app.get("grid-template-columns").map(String::as_str);

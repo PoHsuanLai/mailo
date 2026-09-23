@@ -623,6 +623,14 @@ a `data:` URI this code produced rather than the `cid:` the sender wrote.
 
 A deviation from the plan, recorded as one.
 
+### F144 — `ImgSrc` cannot carry a `BlobId`
+
+The sketch of the block tree had `ImgSrc::Inline(BlobId)`. A `BlobId` names a blob in the store. `mail-mime` is pure, and `scripts/check-boundary.sh` forbids it from reaching `mail-store`, so the parser cannot build that variant: the part it is holding is bytes, not a stored name. F42 already closed the path that would have used the id. A custom scheme handler cannot be fetched from the sandboxed frame's opaque origin, and a path-shaped handler is directory traversal driven by untrusted mail. The id was the key for that handler. With the handler gone, the variant had nothing to point at.
+
+What the parser builds is `ImgSrc::Inline(Inlined)`, a `data:image/...;base64,...` URI constructed only from a part whose declared type `embeddable` accepts, spelled with the allowlist's media type and not the message's. `ImgSrc::Remote` is a `SafeUrl` the reader has allowed. `ImgSrc::Blocked { host }` keeps the host and drops the URL, so a placeholder can name who would be told the mail was opened without the document holding a fetchable address.
+
+`Document` still has no serde derive. A serde form is a persisted schema, and render output must not be persisted: a cap or a mapping change would otherwise freeze yesterday's blocks in the database. Re-parse the message.
+
 ### F43 — A comment that asserted the bug could not happen
 
 `Shell::close_composer` dropped the composer's widgets, and its doc comment said discarding was
@@ -3627,3 +3635,9 @@ base64 MIME. What the live run found on the way:
 Still open: `mailo watch` holds one engine for hours and renews neither token inside it, so an
 OAuth account's watch loop stops working about an hour in until restarted. And Graph takes at
 most 4 MB per request, so a message over about 3 MB before encoding is refused with that said.
+
+### F146 — ammonia strips `class`, so no quote-class rule can work
+
+Ammonia's `generic_attributes` are `lang` and `title`. `class`, `id` and `style` are gone before the block parser sees a byte. `gmail_quote`, `moz-cite-prefix`, `yahoo_quoted` and `OutlookMessageHeader` do not survive sanitization. A rule against them never fires, and a test of it passes if the test forgot to sanitize first.
+
+Detection is positional and textual: an attribution is recognised only when it is immediately followed by a quote. Adding `allowed_classes` was considered and rejected. Those names are chosen by the sender, so anyone could mark their first div `gmail_quote` and have the whole message drawn as quoted text.

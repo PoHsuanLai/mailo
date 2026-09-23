@@ -1,11 +1,17 @@
+use super::blocks::{MessageView, iframe_mounts, reset_iframe_mounts};
 use super::{Reader, initial};
 use crate::ui::fixtures::{
-    click, dispatching, held_and_remote, reader_markup, realistic, rebuild_into, thread_like,
+    click, dispatching, held_and_remote, reader_markup, realistic, rebuild_into, seeded,
+    thread_like,
 };
-use crate::view::Shell;
+use crate::ui::style::STYLE;
+use crate::view::{Reading, Shell};
 use dioxus::prelude::*;
 use dioxus_core::VirtualDom;
-use mail_domain::ThreadId;
+use mail_domain::*;
+use mail_mime::{RemoteImages, SanitizePolicy};
+use mail_store::{SqliteStore, Store};
+use std::sync::Arc;
 
 #[test]
 fn the_avatar_is_the_first_character_not_the_first_byte() {
@@ -254,4 +260,571 @@ async fn a_held_part_offers_save_and_a_remote_part_offers_download() {
         !markup.contains("frame-note"),
         "a plain-text message claimed a sandboxed frame:\n{markup}"
     );
+}
+
+fn html_message(subject: &str, html: &str) -> Vec<u8> {
+    format!(
+        "From: Ada <ada@example.test>\r\nSubject: {subject}\r\nMIME-Version: 1.0\r\n\
+         Content-Type: text/html; charset=utf-8\r\n\r\n{html}\r\n"
+    )
+    .into_bytes()
+}
+
+fn text_message(subject: &str, content_type: &str, body: &str) -> Vec<u8> {
+    format!(
+        "From: Ada <ada@example.test>\r\nSubject: {subject}\r\nMIME-Version: 1.0\r\n\
+         Content-Type: {content_type}\r\n\r\n{body}"
+    )
+    .into_bytes()
+}
+
+/// One thread whose messages are `parts`: `(subject, raw)`.
+///
+/// The directory is part of the return so the store's files outlive the call.
+fn thread_of(parts: &[(&str, Vec<u8>)]) -> (Arc<SqliteStore>, ThreadId, tempfile::TempDir) {
+    // `body{index}`, not `m{index}`: the seeded store already holds `m1@example.test`,
+    // and a second message under that key is the same message to the store.
+    let (store, dir) = seeded();
+    let thread = ThreadId::generate();
+    let mut fetched = Vec::new();
+    for (index, (subject, bytes)) in parts.iter().enumerate() {
+        let raw = store.blobs().put(&store.connection(), bytes).unwrap();
+        let message = Message {
+            id: MessageId::generate(),
+            thread,
+            account: crate::ui::fixtures::ACCOUNT,
+            key: MessageKey::Rfc(format!("body{index}@example.test")),
+            date: chrono::Utc::now() - chrono::TimeDelta::try_hours(index as i64).unwrap(),
+            from: Address {
+                name: Some("Ada".to_owned()),
+                email: "ada@example.test".to_owned(),
+            },
+            reply_to: vec![],
+            to: vec![],
+            cc: vec![],
+            bcc: vec![],
+            subject: (*subject).to_owned(),
+            in_reply_to: None,
+            references: vec![],
+            rfc_message_id: Some(format!("body{index}@example.test")),
+            read: ReadState::Unread,
+            star: Star::Unstarred,
+            mailbox: MailboxRole::Inbox,
+            labels: vec![],
+            body: Body::Present {
+                text: Some((*subject).to_owned()),
+                raw,
+            },
+            attachments: vec![],
+        };
+        fetched.push(Fetched {
+            remote: RemoteRef::Pop {
+                uidl: format!("u{index}"),
+            },
+            key: message.key.clone(),
+            raw,
+            message,
+        });
+    }
+    store
+        .ingest(
+            crate::ui::fixtures::ACCOUNT,
+            Ingest {
+                mailbox: MailboxRef {
+                    account: crate::ui::fixtures::ACCOUNT,
+                    path: "INBOX".to_owned(),
+                },
+                validity: UidValidity::Same,
+                cursor: Some(SyncCursor::Pop),
+                messages: fetched,
+                flags: vec![],
+                labels: vec![],
+                label_names: Vec::new(),
+                gone: vec![],
+            },
+        )
+        .unwrap();
+    (store, thread, dir)
+}
+
+fn blocks_of(raw: &str, images: RemoteImages) -> mail_mime::Document {
+    let safe = mail_mime::sanitize(
+        raw,
+        SanitizePolicy {
+            remote_images: RemoteImages::Allowed,
+            version: SanitizePolicy::CURRENT.version,
+        },
+    );
+    mail_mime::from_html(&safe, &[], images)
+}
+
+#[component]
+fn ShowBlocks(document: mail_mime::Document) -> Element {
+    let reading = Reading::Blocks {
+        document,
+        blocked_remote: false,
+        html: None,
+    };
+    let original = use_signal(std::collections::HashMap::new);
+    let quotes = use_signal(super::blocks::OpenQuotes::new);
+    let shell = use_signal(Shell::default);
+    let message_id = use_hook(MessageId::generate);
+    rsx! {
+        MessageView { message_id, reading, original, quotes, shell }
+    }
+}
+
+fn rendered_blocks(document: mail_mime::Document) -> String {
+    let mut dom = VirtualDom::new_with_props(ShowBlocks, ShowBlocksProps { document });
+    dom.rebuild_in_place();
+    dioxus_ssr::render(&dom)
+}
+
+/// A one-line-per-block sketch of rendered markup.
+///
+/// Text inside `span`/`strong`/`em` belongs to the block that contains it.
+/// A block that contains another block emits its own line, then the inner ones.
+fn sketch_markup(html: &str) -> String {
+    let nodes = elements(html);
+    let mut out = String::new();
+    sketch_nodes(&nodes, &mut out);
+    out
+}
+
+#[derive(Clone)]
+enum Piece {
+    Text(String),
+    Node(Node),
+}
+
+#[derive(Clone)]
+struct Node {
+    label: String,
+    interesting: bool,
+    pieces: Vec<Piece>,
+}
+
+fn elements(html: &str) -> Vec<Node> {
+    let mut stack: Vec<Node> = vec![Node {
+        label: String::new(),
+        interesting: false,
+        pieces: Vec::new(),
+    }];
+    let mut rest = html;
+    while let Some(start) = rest.find('<') {
+        let text = &rest[..start];
+        if let Some(top) = stack.last_mut() {
+            let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+            if !flat.is_empty() {
+                top.pieces.push(Piece::Text(flat));
+            }
+        }
+        let after = &rest[start + 1..];
+        let Some(end) = after.find('>') else { break };
+        let tag = &after[..end];
+        rest = &after[end + 1..];
+        if tag.starts_with('!') {
+            continue;
+        }
+        if let Some(name) = tag.strip_prefix('/') {
+            let name = name.split_whitespace().next().unwrap_or(name);
+            if let Some(done) = stack.pop() {
+                if stack.is_empty() {
+                    stack.push(done);
+                    break;
+                }
+                let _ = name;
+                if let Some(parent) = stack.last_mut() {
+                    parent.pieces.push(Piece::Node(done));
+                }
+            }
+            continue;
+        }
+        let name = tag.split_whitespace().next().unwrap_or("");
+        let class = tag
+            .split("class=\"")
+            .nth(1)
+            .and_then(|value| value.split('"').next())
+            .unwrap_or("");
+        let interesting_class = class.split_whitespace().find(|token| {
+            token.starts_with("b-") || *token == "num" || *token == "lang" || *token == "fold"
+        });
+        let label = interesting_class
+            .unwrap_or(
+                if matches!(name, "li" | "th" | "td" | "dt" | "dd" | "img" | "hr") {
+                    name
+                } else {
+                    ""
+                },
+            )
+            .to_owned();
+        let void = tag.ends_with('/') || matches!(name, "img" | "hr" | "br");
+        let node = Node {
+            interesting: !label.is_empty(),
+            label,
+            pieces: Vec::new(),
+        };
+        if void {
+            if let Some(parent) = stack.last_mut() {
+                parent.pieces.push(Piece::Node(node));
+            }
+        } else {
+            stack.push(node);
+        }
+    }
+    while stack.len() > 1 {
+        if let Some(done) = stack.pop()
+            && let Some(parent) = stack.last_mut()
+        {
+            parent.pieces.push(Piece::Node(done));
+        }
+    }
+    stack
+        .pop()
+        .map(|root| pieces_nodes(&root.pieces))
+        .unwrap_or_default()
+}
+
+fn pieces_nodes(pieces: &[Piece]) -> Vec<Node> {
+    pieces
+        .iter()
+        .filter_map(|piece| match piece {
+            Piece::Node(node) => Some(node.clone()),
+            Piece::Text(_) => None,
+        })
+        .collect()
+}
+
+fn sketch_nodes(nodes: &[Node], out: &mut String) {
+    for node in nodes {
+        if node.interesting {
+            let text = own_text(node);
+            if text.is_empty() {
+                out.push_str(&node.label);
+                out.push('\n');
+            } else {
+                out.push_str(&node.label);
+                out.push(' ');
+                out.push_str(&text);
+                out.push('\n');
+            }
+        }
+        sketch_nodes(&pieces_nodes(&node.pieces), out);
+    }
+}
+
+fn own_text(node: &Node) -> String {
+    let mut out = String::new();
+    for piece in &node.pieces {
+        let inner = match piece {
+            Piece::Text(text) => text.clone(),
+            Piece::Node(child) if !child.interesting => own_text(child),
+            Piece::Node(_) => continue,
+        };
+        if inner.is_empty() {
+            continue;
+        }
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        out.push_str(&inner);
+    }
+    out
+}
+
+#[test]
+fn every_block_renders_to_the_same_sketch() {
+    // One case per variant the renderer has a shape for. The sketch is the
+    // markup, not a second copy of the block tree.
+    let cases: &[(&str, &str, &str)] = &[
+        ("heading", "<h1>Title</h1>", "b-h1 Title\n"),
+        (
+            "paragraph",
+            "<p>Hello <b>there</b></p>",
+            "b-p Hello there\n",
+        ),
+        ("list", "<ul><li>One</li></ul>", "b-list\nli\nb-p One\n"),
+        (
+            "quote",
+            "<p>Ada wrote:</p><blockquote><p>Inside</p></blockquote>",
+            "b-quote Ada wrote:\nb-p Inside\n",
+        ),
+        (
+            "code",
+            "<pre lang=\"rust\">let x = 1;</pre>",
+            "b-code let x = 1;\nlang rust\n",
+        ),
+        (
+            "table",
+            "<table><thead><tr><th>Name</th><th>Qty</th></tr></thead>\
+             <tbody><tr><td>Ada</td><td>2</td></tr><tr><td>Bea</td><td>5</td></tr></tbody></table>",
+            "b-table\nth Name\nth Qty\ntd Ada\nnum 2\ntd Bea\nnum 5\n",
+        ),
+        (
+            "image",
+            "<img src=\"https://pixels.example/banner.png\" alt=\"logo\" width=\"60\" height=\"40\">",
+            "b-img Image from pixels.example — load images\n",
+        ),
+        (
+            "button",
+            "<p><a href=\"https://news.example/issue\">Read the issue</a></p>",
+            "b-cta Read the issue\n",
+        ),
+        ("rule", "<hr>", "b-rule\n"),
+    ];
+    let mut failures = Vec::new();
+    for (name, raw, expect) in cases {
+        let document = blocks_of(raw, RemoteImages::Blocked);
+        let markup = rendered_blocks(document);
+        let got = sketch_markup(&markup);
+        if got != *expect {
+            failures.push(format!("{name}:\nGOT\n{got}WANT\n{expect}MARKUP\n{markup}"));
+        }
+    }
+
+    let signed = mail_mime::from_text("Thanks.\n\n-- \nSam\n", mail_mime::Flowed::Fixed);
+    let markup = rendered_blocks(signed);
+    let got = sketch_markup(&markup);
+    let expect = "b-p Thanks.\nb-sig\nb-p Sam\n";
+    if got != expect {
+        failures.push(format!(
+            "signature:\nGOT\n{got}WANT\n{expect}MARKUP\n{markup}"
+        ));
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n---\n"));
+}
+
+#[tokio::test]
+async fn a_flowed_reply_is_paragraphs_a_folded_quote_and_a_signature() {
+    let body = "\
+Thanks for the note. \r\n\
+It can wrap.\r\n\
+\r\n\
+On Monday Ada wrote:\r\n\
+> The list jumps when mail arrives.\r\n\
+>\r\n\
+> On Sunday Bea wrote:\r\n\
+> > Can you look at page two?\r\n\
+\r\n\
+-- \r\n\
+Sam\r\n\
+sam@example.test\r\n";
+    let (store, thread, _dir) = thread_of(&[(
+        "re: cursors",
+        text_message(
+            "re: cursors",
+            "text/plain; charset=utf-8; format=flowed",
+            body,
+        ),
+    )]);
+    let markup = reader_markup(store, thread);
+    assert!(
+        markup.contains("Thanks for the note."),
+        "the reply paragraph is missing:\n{markup}"
+    );
+    assert!(
+        markup.contains("earlier message"),
+        "the quoted chain was not folded:\n{markup}"
+    );
+    assert!(
+        markup.contains("b-sig"),
+        "the signature was not demoted:\n{markup}"
+    );
+    assert!(
+        !markup.contains("<pre"),
+        "plain text was still a pre:\n{markup}"
+    );
+}
+
+#[tokio::test]
+async fn a_justified_newsletter_stays_text() {
+    let body = include_str!("../../../../mail-mime/tests/fixtures/block/justified.txt");
+    let (store, thread, _dir) = thread_of(&[(
+        "the weekly",
+        text_message(
+            "the weekly",
+            "text/plain; charset=utf-8; format=fixed",
+            body,
+        ),
+    )]);
+    let markup = reader_markup(store, thread);
+    assert!(markup.contains("weekly note"), "{markup}");
+    assert!(
+        !markup.contains("b-code"),
+        "justified prose became code:\n{markup}"
+    );
+    assert!(!markup.contains("<pre"), "it was still a pre:\n{markup}");
+}
+
+#[tokio::test]
+async fn the_receipt_renders_the_button_before_the_facts() {
+    let body = include_str!("../../../../mail-mime/tests/fixtures/block/receipt.html");
+    let (store, thread, _dir) = thread_of(&[("order", html_message("order", body))]);
+    let markup = reader_markup(store, thread);
+    let blocks = markup
+        .split_once("class=\"blocks\"")
+        .map(|(_, rest)| rest)
+        .unwrap_or_else(|| panic!("no blocks:\n{markup}"));
+    let button = blocks
+        .find("TRACK YOUR PARCEL")
+        .unwrap_or_else(|| panic!("no button:\n{blocks}"));
+    let facts = blocks
+        .find("Order number")
+        .unwrap_or_else(|| panic!("no facts:\n{blocks}"));
+    assert!(
+        button < facts,
+        "the button did not come before the facts:\n{markup}"
+    );
+    assert!(markup.contains("b-receipt"), "{markup}");
+    assert!(markup.contains("b-kv"), "{markup}");
+}
+
+#[tokio::test]
+async fn the_original_tab_does_not_remount_the_iframe() {
+    // Same technique as `changing_the_peek_does_not_remount_the_reader`: the
+    // mount count and the srcdoc, taken before the click and after it.
+    dispatching();
+    reset_iframe_mounts();
+    let body = include_str!("../../../../mail-mime/tests/fixtures/block/newsletter.html");
+    let (store, thread, _dir) = thread_of(&[("issue", html_message("issue", body))]);
+    #[component]
+    fn Open(thread: ThreadId) -> Element {
+        let shell = use_signal(Shell::default);
+        rsx! { Reader { thread, shell } }
+    }
+    let shape = {
+        let message = store
+            .message(store.thread(thread).unwrap().messages[0])
+            .unwrap();
+        crate::reader::render(&store, &message, SanitizePolicy::CURRENT)
+            .document()
+            .map(|document| format!("{:?}", document.shape))
+            .unwrap_or_else(|| "none".to_owned())
+    };
+    let mut dom = VirtualDom::new_with_props(Open, OpenProps { thread }).with_root_context(store);
+    let seen = rebuild_into(&mut dom);
+    let before = dioxus_ssr::render(&dom);
+    assert!(
+        before.contains("aria-label=\"Original\""),
+        "a laid-out message offered no Original tab (shape {shape}):\n{before}"
+    );
+    assert!(
+        before.contains("class=\"html is-hidden\""),
+        "the frame was not mounted while the blocks were showing:\n{before}"
+    );
+    let srcdoc = iframe_srcdoc(&before);
+    let mounted = iframe_mounts();
+    assert!(mounted >= 1, "the frame never mounted");
+
+    let id = seen.one("aria-label", "Original");
+    click(&mut dom, id);
+    let after = dioxus_ssr::render(&dom);
+    assert_eq!(
+        iframe_mounts(),
+        mounted,
+        "Original remounted the frame: {mounted} before, {} after",
+        iframe_mounts()
+    );
+    assert_eq!(
+        iframe_srcdoc(&after),
+        srcdoc,
+        "Original replaced the iframe's document"
+    );
+    assert!(
+        after.contains("class=\"blocks is-hidden\""),
+        "the blocks stayed visible on Original:\n{after}"
+    );
+    assert!(
+        !after.contains("class=\"html is-hidden\""),
+        "the frame stayed concealed on Original:\n{after}"
+    );
+}
+
+fn iframe_srcdoc(page: &str) -> String {
+    let Some(at) = page.find("<iframe") else {
+        panic!("no iframe:\n{page}");
+    };
+    let tag = &page[at..];
+    let Some(end) = tag.find('>') else {
+        panic!("iframe tag was not closed:\n{tag}");
+    };
+    let open = &tag[..end];
+    let key = "srcdoc=\"";
+    let Some(start) = open.find(key) else {
+        panic!("iframe has no srcdoc: {open}");
+    };
+    open[start + key.len()..]
+        .split('"')
+        .next()
+        .unwrap_or("")
+        .to_owned()
+}
+
+/// The harness renders the reader inside an empty `.app`. Its grid has a column for the
+/// sidebar and one for the list, so the reader would wrap into the 232px sidebar slot.
+/// This page shows the reader alone, the width a centre peek gives it. The harness renders no
+/// `.card`, so the last rule stands in for it: in the window the reader sits on the card's paper
+/// and takes the paper's ink, never the frame's.
+const READER_ONLY: &str = ".app { grid-template-columns: minmax(0, 1fr); } \
+    .app > .places, .app > .list { display: none; } \
+    .app > .reader { background: var(--surface); color: var(--ink); border-radius: var(--r-card); }";
+
+fn dump_page(name: &str, body: &str) {
+    let target = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
+    std::fs::create_dir_all(&target).unwrap();
+    let accent = crate::view::Accent::default().slug();
+    let plain = format!(" data-accent=\"{accent}\"");
+    let dark = crate::view::Theme::Dark
+        .attribute()
+        .expect("Theme::Dark names a data-theme value");
+    let forced = format!(" data-theme=\"{dark}\"{plain}");
+    for (suffix, root) in [("", plain.as_str()), ("-dark", forced.as_str())] {
+        let page = format!(
+            "<!doctype html>\n<html lang=\"en\"{root}><head><meta charset=\"utf-8\">\n\
+             <title>mailo</title>\n<style>{STYLE}</style>\n<style>{READER_ONLY}</style>\n</head>\n\
+             <body><div style=\"width: 760px; margin: 0 auto\">{body}</div></body></html>\n"
+        );
+        let out = target.join(format!("{name}{suffix}.html"));
+        std::fs::write(&out, page).unwrap();
+        println!("wrote {}", out.display());
+    }
+}
+
+/// The reference fixture's rich messages, open, for a side-by-side with the mockup.
+///
+/// ```text
+/// cargo test -p mail-app -- --ignored render_the_bodies_to_a_file
+/// ```
+#[tokio::test]
+#[ignore = "writes target/bodies.html for a screenshot; run with --ignored"]
+async fn render_the_bodies_to_a_file() {
+    let letter = include_str!("../../../../mail-mime/tests/fixtures/block/letter.html");
+    let reply = include_str!("../../../../mail-mime/tests/fixtures/block/reply.html");
+    let receipt = include_str!("../../../../mail-mime/tests/fixtures/block/receipt.html");
+    let newsletter = include_str!("../../../../mail-mime/tests/fixtures/block/newsletter.html");
+    let hebrew = include_str!("../../../../mail-mime/tests/fixtures/block/hebrew.txt");
+    let cjk = include_str!("../../../../mail-mime/tests/fixtures/block/cjk.txt");
+    let blocked = "<p>The banner stayed on their server.</p>\
+        <img src=\"https://cdn.example/banner.png\" alt=\"This Week in Rust banner\" width=\"600\" height=\"150\">";
+    let (store, thread, _dir) = thread_of(&[
+        ("a letter", html_message("a letter", letter)),
+        ("the chain", html_message("the chain", reply)),
+        ("the receipt", html_message("the receipt", receipt)),
+        ("the newsletter", html_message("the newsletter", newsletter)),
+        (
+            "hebrew",
+            text_message("hebrew", "text/plain; charset=utf-8", hebrew),
+        ),
+        (
+            "cjk",
+            text_message(
+                "cjk",
+                "text/plain; charset=utf-8; format=flowed; delsp=yes",
+                cjk,
+            ),
+        ),
+        ("blocked", html_message("blocked", blocked)),
+    ]);
+    let body = reader_markup(store, thread);
+    dump_page("bodies", &body);
 }

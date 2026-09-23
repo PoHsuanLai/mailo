@@ -8,7 +8,7 @@
 use chrono::{DateTime, TimeZone, Utc};
 use mail_app::{reader, view};
 use mail_domain::*;
-use mail_mime::{RemoteImages, SanitizePolicy};
+use mail_mime::{Block, ImgSrc, RemoteImages, SanitizePolicy, Span};
 use mail_store::{SqliteStore, Store};
 
 /// The render cache is process-wide, and these tests share a process.
@@ -40,6 +40,117 @@ fn policy() -> SanitizePolicy {
         remote_images: RemoteImages::Blocked,
         version: SanitizePolicy::CURRENT.version,
     }
+}
+
+fn frame_html(reading: &view::Reading) -> Option<&str> {
+    reading.frame_html()
+}
+
+fn remote_count(reading: &view::Reading) -> usize {
+    reading
+        .document()
+        .map(|document| count_remote(&document.blocks))
+        .unwrap_or(0)
+}
+
+fn count_remote(blocks: &[Block]) -> usize {
+    let mut count = 0;
+    let mut stack: Vec<&[Block]> = vec![blocks];
+    while let Some(level) = stack.pop() {
+        for block in level {
+            match block {
+                Block::Image {
+                    src: ImgSrc::Remote(_),
+                    ..
+                } => count += 1,
+                Block::Quote { blocks, .. } | Block::Signature(blocks) => stack.push(blocks),
+                Block::List { items, .. } => {
+                    for item in items {
+                        stack.push(item);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    count
+}
+
+fn paragraph_text(reading: &view::Reading) -> String {
+    let Some(document) = reading.document() else {
+        panic!("no document in {reading:?}");
+    };
+    let mut out = String::new();
+    fn spans(out: &mut String, items: &[Span]) {
+        for span in items {
+            match span {
+                Span::Text(text) | Span::Code(text) => out.push_str(text),
+                Span::Break => out.push('\n'),
+                Span::Strong(inner) | Span::Emphasis(inner) | Span::Link { spans: inner, .. } => {
+                    spans(out, inner);
+                }
+            }
+        }
+    }
+    fn walk(out: &mut String, blocks: &[Block]) {
+        for block in blocks {
+            match block {
+                Block::Paragraph { spans: items, .. } | Block::Heading { spans: items, .. } => {
+                    if !out.is_empty() {
+                        out.push('\n');
+                    }
+                    spans(out, items);
+                }
+                Block::Quote {
+                    attribution,
+                    blocks,
+                } => {
+                    if let Some(items) = attribution {
+                        spans(out, items);
+                        out.push('\n');
+                    }
+                    walk(out, blocks);
+                }
+                Block::Signature(blocks) => walk(out, blocks),
+                Block::List { items, .. } => {
+                    for item in items {
+                        walk(out, item);
+                    }
+                }
+                Block::Code { text, .. } => out.push_str(text),
+                _ => {}
+            }
+        }
+    }
+    walk(&mut out, &document.blocks);
+    out
+}
+
+fn inline_srcs(reading: &view::Reading) -> Vec<String> {
+    let Some(document) = reading.document() else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    let mut stack: Vec<&[Block]> = vec![&document.blocks];
+    while let Some(level) = stack.pop() {
+        for block in level {
+            match block {
+                Block::Image { src, .. } => match src {
+                    ImgSrc::Inline(uri) => out.push(uri.as_str().to_owned()),
+                    ImgSrc::Remote(url) => out.push(url.as_str().to_owned()),
+                    ImgSrc::Blocked { host } => out.push(host.clone()),
+                },
+                Block::Quote { blocks, .. } | Block::Signature(blocks) => stack.push(blocks),
+                Block::List { items, .. } => {
+                    for item in items {
+                        stack.push(item);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    out
 }
 
 fn store() -> (SqliteStore, tempfile::TempDir) {
@@ -139,16 +250,17 @@ fn an_html_message_reaches_the_sandbox_instead_of_falling_back_to_text() {
     // Through `render`, which is what the shell calls: it parses the stored bytes once and
     // decides what the pane shows. Asking `html_of` separately tested a step the app no longer
     // takes on its own.
-    match reader::render(&store, &message, policy()) {
-        view::Reading::Html { html: rendered, .. } => {
-            assert!(rendered.contains("rich"), "{rendered}");
-            assert!(
-                rendered.contains("<b>"),
-                "formatting was stripped: {rendered}"
-            );
-        }
-        other => panic!("an HTML message rendered as {other:?}"),
-    }
+    let reading = reader::render(&store, &message, policy());
+    let rendered = frame_html(&reading).expect("an html message keeps a frame");
+    assert!(rendered.contains("rich"), "{rendered}");
+    assert!(
+        rendered.contains("<b>"),
+        "formatting was stripped: {rendered}"
+    );
+    assert!(
+        paragraph_text(&reading).contains("rich"),
+        "the blocks dropped the text: {reading:?}"
+    );
 }
 
 #[test]
@@ -158,10 +270,12 @@ fn a_plain_text_message_has_no_html_part_and_renders_as_text() {
     let raw = b"From: sender@example.test\r\nSubject: s\r\n\r\njust words\r\n";
     let message = ingest(&store, raw, Some("just words"));
 
-    match reader::render(&store, &message, policy()) {
-        view::Reading::Text(text) => assert_eq!(text, "just words"),
-        other => panic!("plain text rendered as {other:?}"),
-    }
+    let reading = reader::render(&store, &message, policy());
+    assert!(
+        reading.frame_html().is_none(),
+        "plain text grew a frame: {reading:?}"
+    );
+    assert_eq!(paragraph_text(&reading), "just words");
 }
 
 #[test]
@@ -175,10 +289,8 @@ fn a_message_whose_bytes_do_not_parse_is_still_readable() {
         Some("recovered text"),
     );
 
-    match reader::render(&store, &message, policy()) {
-        view::Reading::Text(text) => assert_eq!(text, "recovered text"),
-        other => panic!("{other:?}"),
-    }
+    let reading = reader::render(&store, &message, policy());
+    assert_eq!(paragraph_text(&reading), "recovered text");
 }
 
 #[test]
@@ -215,16 +327,13 @@ Content-Type: text/html; charset=utf-8\r\n\
     let stored = String::from_utf8_lossy(raw).to_string();
     assert!(stored.contains("<script>"), "the fixture should carry one");
 
-    match reader::render(&store, &message, policy()) {
-        view::Reading::Html { html: rendered, .. } => {
-            assert!(rendered.contains("hello"), "{rendered}");
-            assert!(
-                !rendered.contains("<script"),
-                "a script reached the frame: {rendered}"
-            );
-        }
-        other => panic!("{other:?}"),
-    }
+    let reading = reader::render(&store, &message, policy());
+    let rendered = frame_html(&reading).expect("html keeps a frame");
+    assert!(rendered.contains("hello"), "{rendered}");
+    assert!(
+        !rendered.contains("<script"),
+        "a script reached the frame: {rendered}"
+    );
 }
 
 /// Inline images, through the real store and the real sanitizer.
@@ -256,17 +365,18 @@ iVBORw0KGgo=\r\n\
         let (store, _dir) = store();
         let message = ingest(&store, WITH_IMAGE, None);
 
-        match reader::render(&store, &message, policy()) {
-            view::Reading::Html { html, .. } => {
-                assert!(html.contains("look"), "{html}");
-                assert!(
-                    html.contains("data:image/png;base64,"),
-                    "the inline image was not resolved: {html}"
-                );
-                assert!(!html.contains("cid:"), "{html}");
-            }
-            other => panic!("{other:?}"),
-        }
+        let reading = reader::render(&store, &message, policy());
+        assert!(paragraph_text(&reading).contains("look"), "{reading:?}");
+        let srcs = inline_srcs(&reading);
+        assert!(
+            srcs.iter()
+                .any(|src| src.contains("data:image/png;base64,")),
+            "the inline image was not resolved: {srcs:?}"
+        );
+        assert!(
+            srcs.iter().all(|src| !src.starts_with("cid:")),
+            "cid survived into the blocks: {srcs:?}"
+        );
     }
 
     #[test]
@@ -294,13 +404,15 @@ iVBORw0KGgo=\r\n\
         let (store, _dir) = store();
         let message = ingest(&store, raw, None);
 
-        match reader::render(&store, &message, policy()) {
-            view::Reading::Html { html, .. } => {
-                assert!(!html.contains("<script"), "script survived: {html}");
-                assert!(html.contains("data:image/png;base64,"), "{html}");
-            }
-            other => panic!("{other:?}"),
-        }
+        let reading = reader::render(&store, &message, policy());
+        let html = frame_html(&reading).expect("frame");
+        assert!(!html.contains("<script"), "script survived: {html}");
+        let srcs = inline_srcs(&reading);
+        assert!(
+            srcs.iter()
+                .any(|src| src.contains("data:image/png;base64,")),
+            "{srcs:?}"
+        );
     }
 
     #[test]
@@ -309,10 +421,9 @@ iVBORw0KGgo=\r\n\
         let (store, _dir) = store();
         let raw = b"From: sender@example.test\r\nSubject: s\r\n\r\njust words\r\n";
         let message = ingest(&store, raw, Some("just words"));
-        assert_eq!(
-            reader::render(&store, &message, policy()),
-            view::Reading::Text("just words".to_owned())
-        );
+        let reading = reader::render(&store, &message, policy());
+        assert!(reading.frame_html().is_none(), "{reading:?}");
+        assert_eq!(paragraph_text(&reading), "just words");
     }
 
     #[test]
@@ -384,20 +495,18 @@ mod rendering_twice {
         let blocked = reader::render(&store, &message, policy());
         let allowed = reader::render(&store, &message, allowing());
 
-        let view::Reading::Html { html: blocked, .. } = blocked else {
-            panic!("html should render as html");
-        };
-        let view::Reading::Html { html: allowed, .. } = allowed else {
-            panic!("html should render as html");
-        };
+        let blocked_html = frame_html(&blocked).expect("frame");
+        let allowed_html = frame_html(&allowed).expect("frame");
         assert!(
-            !blocked.contains("tracker.test"),
-            "a remote image survived blocking: {blocked}"
+            !blocked_html.contains("tracker.test"),
+            "a remote image survived blocking: {blocked_html}"
         );
         assert!(
-            allowed.contains("tracker.test"),
-            "opting in was answered from the blocked cache: {allowed}"
+            allowed_html.contains("tracker.test"),
+            "opting in was answered from the blocked cache: {allowed_html}"
         );
+        assert_eq!(remote_count(&blocked), 0);
+        assert_eq!(remote_count(&allowed), 1);
     }
 
     #[test]
@@ -411,18 +520,16 @@ mod rendering_twice {
         let allowed = reader::render(&store, &message, allowing());
         let blocked = reader::render(&store, &message, policy());
 
-        let view::Reading::Html { html: allowed, .. } = allowed else {
-            panic!("html should render as html");
-        };
-        let view::Reading::Html { html: blocked, .. } = blocked else {
-            panic!("html should render as html");
-        };
-        assert!(allowed.contains("tracker.test"), "{allowed}");
+        let allowed_html = frame_html(&allowed).expect("frame");
+        let blocked_html = frame_html(&blocked).expect("frame");
+        assert!(allowed_html.contains("tracker.test"), "{allowed_html}");
         assert!(
-            !blocked.contains("tracker.test"),
+            !blocked_html.contains("tracker.test"),
             "blocking was answered from the allowed cache, \
-             which is a read receipt nobody granted: {blocked}"
+             which is a read receipt nobody granted: {blocked_html}"
         );
+        assert_eq!(remote_count(&allowed), 1);
+        assert_eq!(remote_count(&blocked), 0);
     }
 
     #[test]
@@ -459,12 +566,62 @@ mod rendering_twice {
 
         message.body = real;
         assert!(
-            matches!(
-                reader::render(&store, &message, policy()),
-                view::Reading::Html { .. }
-            ),
+            reader::render(&store, &message, policy())
+                .frame_html()
+                .is_some(),
             "the body arrived and the reader still said it had not"
         );
+    }
+
+    #[test]
+    fn consent_is_not_cached_across_policies() {
+        // The count is the difference the action makes: blocked, then allowed, then
+        // revoked by opening another thread. A cache that forgot the policy would
+        // still be holding the allowed image on the third render.
+        let _alone = fresh();
+        let (store, _dir) = store();
+        let message = ingest(&store, REMOTE, Some("hello"));
+        let mut shell = view::Shell::default();
+
+        let blocked = reader::render(&store, &message, shell.policy());
+        assert_eq!(remote_count(&blocked), 0, "blocked: {blocked:?}");
+
+        shell.show_remote_images = true;
+        let allowed = reader::render(&store, &message, shell.policy());
+        assert_eq!(remote_count(&allowed), 1, "allowed: {allowed:?}");
+
+        shell.open(ThreadId::generate());
+        let revoked = reader::render(&store, &message, shell.policy());
+        assert_eq!(
+            remote_count(&revoked),
+            0,
+            "opening another thread served the allowed image: {revoked:?}"
+        );
+    }
+
+    #[test]
+    fn limits_version_invalidates() {
+        // A cap or a mapping change does not change the sanitizer's version. The
+        // blocks revision is its own number in the key, so a newer one misses.
+        let _alone = fresh();
+        let (store, _dir) = store();
+        let message = ingest(&store, REMOTE, Some("hello"));
+
+        let first = reader::render(&store, &message, policy());
+        assert_eq!(reader::held(), 1);
+        let _other = reader::render_at_limits(
+            &store,
+            &message,
+            policy(),
+            mail_mime::Limits::version().wrapping_add(1),
+        );
+        assert_eq!(
+            reader::held(),
+            2,
+            "a new block-limits revision reused the cached document"
+        );
+        assert_eq!(reader::render(&store, &message, policy()), first);
+        assert_eq!(reader::held(), 2);
     }
 }
 

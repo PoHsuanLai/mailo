@@ -1,9 +1,15 @@
+mod blocks;
+mod spans;
+mod table;
+
 use super::icon::{Glyph, Icon};
 use super::text::{Kept, address, attachment_rows, from_name, stamp};
 use crate::view::{Peek, Reading, Shell};
+use blocks::MessageView;
 use dioxus::prelude::*;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 #[cfg(test)]
@@ -32,6 +38,33 @@ fn initial(name: &str) -> String {
     match name.chars().next() {
         Some(c) => c.to_uppercase().collect(),
         None => String::new(),
+    }
+}
+
+/// Reader / Original. A span, so it can sit in the header without becoming the
+/// iframe's parent.
+#[component]
+fn ViewSwitch(message_id: MessageId, mut original: Signal<HashMap<MessageId, bool>>) -> Element {
+    let showing = original.read().get(&message_id) == Some(&true);
+    let reader = "Reader";
+    let original_label = "Original";
+    rsx! {
+        span { class: "view-switch", role: "group", aria_label: "How to show this message",
+            button {
+                r#type: "button",
+                aria_label: "{reader}",
+                aria_pressed: if showing { "false" } else { "true" },
+                onclick: move |_| { original.write().insert(message_id, false); },
+                "Reader"
+            }
+            button {
+                r#type: "button",
+                aria_label: "{original_label}",
+                aria_pressed: if showing { "true" } else { "false" },
+                onclick: move |_| { original.write().insert(message_id, true); },
+                "Original"
+            }
+        }
     }
 }
 
@@ -76,6 +109,12 @@ pub(super) fn Reader(thread: ThreadId, shell: Signal<Shell>) -> Element {
     // Which attachment is being fetched, if one is. That part's button stays disabled until
     // the fetch ends, so a second click cannot start a second download of it.
     let mut downloading = use_signal(|| None::<(MessageId, usize)>);
+    // Which HTML message is showing its Original frame. Keyed by message, so
+    // opening another one does not carry the choice over. The frame itself is
+    // not created and destroyed with this flag.
+    let original = use_signal(HashMap::<MessageId, bool>::new);
+    // Quotes the reader has unfolded, keyed by message and path.
+    let quotes = use_signal(blocks::OpenQuotes::new);
     #[cfg(test)]
     use_hook(|| {
         READER_MOUNTS.with(|mounts| mounts.set(mounts.get().saturating_add(1)));
@@ -92,12 +131,8 @@ pub(super) fn Reader(thread: ThreadId, shell: Signal<Shell>) -> Element {
     let peek = shell.read().peek;
     // The HTML part is not a column: it lives inside the stored raw message, which is the only
     // copy that is byte-for-byte what the server sent. Parsed here, once per render of a thread,
-    // rather than at ingest — storing sanitized HTML would freeze today's sanitizer into every
-    // row, and storing the unsanitized part would duplicate bytes we already have.
-    // Each message resolved all the way to what the pane should draw, before the view tree.
-    // `reading` sanitizes; `embed_inline` then resolves `cid:` inside what the sanitizer
-    // allowed, in that order, because the sanitizer must judge the message's own URLs and not
-    // a `data:` URI we substituted for one.
+    // rather than at ingest — storing the blocks would freeze today's limits into every row.
+    // Images resolve in that walk. The frame, when there is one, is the sanitized markup.
     let shown: Vec<(Message, Reading, bool)> = loaded
         .messages
         .iter()
@@ -107,19 +142,13 @@ pub(super) fn Reader(thread: ThreadId, shell: Signal<Shell>) -> Element {
             // Once the reader is allowed to fetch, the display pass blocks nothing, so it can
             // no longer say whether this message had a remote image. The blocked policy can:
             // that is the same question the offer was answered with.
-            let remote = match &reading {
-                Reading::Html {
-                    blocked_remote: true,
-                    ..
-                } => true,
-                Reading::Html { .. } if showing => matches!(
-                    crate::reader::render(&store, &message, mail_mime::SanitizePolicy::CURRENT),
-                    Reading::Html {
-                        blocked_remote: true,
-                        ..
-                    }
-                ),
-                _ => false,
+            let remote = if reading.blocked_remote() {
+                true
+            } else if showing && reading.frame_html().is_some() {
+                crate::reader::render(&store, &message, mail_mime::SanitizePolicy::CURRENT)
+                    .blocked_remote()
+            } else {
+                false
             };
             (message, reading, remote)
         })
@@ -139,9 +168,9 @@ pub(super) fn Reader(thread: ThreadId, shell: Signal<Shell>) -> Element {
         .rev()
         .find(|(_, _, remote)| *remote)
         .map(|(message, _, _)| host_of(&message.from.email).to_owned());
-    let any_html = shown
+    let any_frame = shown
         .iter()
-        .any(|(_, reading, _)| matches!(reading, Reading::Html { .. }));
+        .any(|(_, reading, _)| reading.frame_html().is_some());
 
     rsx! {
         div { class: "reader-head",
@@ -198,6 +227,17 @@ pub(super) fn Reader(thread: ThreadId, shell: Signal<Shell>) -> Element {
                         strong { "{from_name(&message)}" }
                         span { class: "mono", "{address(&message)}" }
                         time { class: "mono", "{stamp(&message)}" }
+                        if reading.frame_html().is_some() {
+                            // Offered wherever there is a frame, not only for
+                            // `Reading::Layout`: the frame is mounted for every HTML body,
+                            // and Original is the escape hatch when the blocks got a
+                            // message wrong. The mockup offers it on the receipt too.
+                            // A span, not a div: a div between the article and its iframe
+                            // is a new parent, and a new parent reloads the frame.
+                            // The labels are computed so a test can find the control: a
+                            // literal attribute never appears in the render mutations.
+                            ViewSwitch { message_id: message.id, original }
+                        }
                     }
                     // What is attached, if anything. Save writes a part that is already here;
                     // Download fetches one still on the server and then writes it. The name is
@@ -293,31 +333,25 @@ pub(super) fn Reader(thread: ThreadId, shell: Signal<Shell>) -> Element {
                             }
                         }
                     }
-                    match reading {
-                        Reading::NotFetched => rsx! { p { class: "pending", "Body not downloaded yet." } },
-                        Reading::Text(text) => rsx! { pre { class: "text", "{text}" } },
-                        // Never into the app's own document: a sandboxed frame with no
-                        // allow-same-origin, so even a sanitizer bug cannot reach our DOM.
-                        Reading::Html { html, .. } => rsx! {
-                            iframe {
-                                class: "html",
-                                // No allow-same-origin: even a sanitizer bug cannot reach our DOM.
-                                // Raw attribute because dioxus has no typed `sandbox` for iframe.
-                                "sandbox": "",
-                                srcdoc: "{html}",
-                            }
-                            // NOTE for anyone changing the reader's layout: moving this iframe to a
-                            // different parent makes the browser tear down and RELOAD the document
-                            // inside it. That re-runs the sanitizer, loses scroll position, and
-                            // re-requests anything the reader had just consented to — a second
-                            // network fetch and a silent consent reset, with nothing in the UI
-                            // saying either happened. Reading modes must restyle one container,
-                            // never reparent this node.
-                        },
+                    // The iframe, when this message has one, is the first element MessageView
+                    // draws, and it is drawn on every render. Toggling Reader / Original changes
+                    // a class. Conditionally rendering the iframe would reload it: a new parent,
+                    // or a frame that was not in the tree, re-runs the document, loses scroll,
+                    // and re-fetches anything just consented to.
+                    if matches!(reading, Reading::NotFetched) {
+                        p { class: "pending", "Body not downloaded yet." }
+                    } else {
+                        MessageView {
+                            message_id: message.id,
+                            reading: reading.clone(),
+                            original,
+                            quotes,
+                            shell,
+                        }
                     }
                 }
             }
-            if any_html {
+            if any_frame {
                 div { class: "frame-note",
                     Glyph { icon: Icon::Key, class: None }
                     span { "sandboxed frame · no scripts, no same-origin" }

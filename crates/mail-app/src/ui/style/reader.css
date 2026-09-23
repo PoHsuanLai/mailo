@@ -123,6 +123,77 @@ article.frame + article.frame { margin-top: 18px; padding-top: 14px; border-top:
 .scrim { position: absolute; inset: 0; z-index: 10; background: var(--ink); opacity: .16;
   animation: fade-in var(--t-move) var(--e-out); border: 0; cursor: pointer; }
 
+/* Parsed blocks. One measure, the shell's type, no sender CSS. */
+.reader-body .blocks { max-width: 66ch; display: grid; gap: 11px; }
+.reader-body .blocks > * { margin: 0; }
+.b { unicode-bidi: isolate; }
+.b-p { color: var(--ink-soft); }
+.b-h1 { font-family: var(--font-display); font-size: 21px; line-height: 1.15; color: var(--ink); margin-top: 4px; }
+.b-h2 { font-family: var(--font-display); font-size: 15.5px; color: var(--ink); margin-top: 8px; }
+.b-h3, .b-h4, .b-h5, .b-h6 { font-family: var(--font-display); font-size: 14px; color: var(--ink); margin-top: 8px; }
+.b-list { padding-left: 18px; color: var(--ink-soft); display: grid; gap: 4px; }
+.b-list li::marker { color: var(--ink-faint); }
+.b-code {
+  font-family: var(--font-data); font-size: 12px; line-height: 1.6; color: var(--ink); background: var(--surface);
+  border: 1px solid var(--line-soft); border-radius: 10px 10px 10px 3px; padding: 10px 12px; overflow-x: auto; white-space: pre;
+}
+.b-code .lang {
+  display: block; font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: 4px;
+}
+.b-table { overflow-x: auto; border: 1px solid var(--line-soft); border-radius: 10px; background: var(--surface); }
+.b-table table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+.b-table th {
+  font-family: var(--font-data); font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-faint);
+  text-align: left; padding: 7px 10px; background: var(--surface-2); border-bottom: 1px solid var(--line-soft);
+}
+.b-table td { padding: 7px 10px; border-bottom: 1px solid var(--line-soft); color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.b-table tr:last-child td { border-bottom: 0; }
+.b-table td.num { text-align: right; font-family: var(--font-data); font-size: 11.5px; }
+.b-quote { border-left: 2px solid var(--line); padding-left: 12px; display: grid; gap: 8px; }
+.b-quote .who { font-family: var(--font-data); font-size: 10.5px; color: var(--ink-faint); display: flex; align-items: center; gap: 6px; }
+.b-quote .b-p { color: var(--ink-faint); }
+.b-quote .fold {
+  justify-self: start; border: 1px dashed var(--line); background: transparent; border-radius: 999px; padding: 3px 10px;
+  font-family: var(--font-data); font-size: 10.5px; color: var(--ink-faint); cursor: pointer;
+}
+.b-quote .fold:hover { background: var(--surface); color: var(--ink); }
+.b-quote .inner { display: grid; gap: 8px; }
+.b-sig { border-top: 1px solid var(--line-soft); padding-top: 8px; font-size: 12.5px; color: var(--ink-faint); }
+.b-sig::before {
+  content: "signature"; display: block; font-family: var(--font-data); font-size: 9px; letter-spacing: .14em;
+  text-transform: uppercase; margin-bottom: 3px;
+}
+.b-img { border-radius: 10px 10px 10px 3px; overflow: hidden; border: 1px solid var(--line-soft); background: var(--surface); display: block; max-width: 100%; }
+.b-img img { display: block; width: 100%; height: auto; }
+.b-img.blocked {
+  display: grid; place-items: center; gap: 4px; text-align: center; color: var(--ink-faint); font-family: var(--font-data); font-size: 10.5px;
+  background: repeating-linear-gradient(135deg, var(--surface) 0 10px, var(--surface-2) 10px 20px); padding: 18px 12px; max-height: 320px; box-sizing: border-box; overflow: visible;
+}
+.blocks a { color: var(--accent); }
+.b-cta {
+  display: inline-flex; align-items: center; justify-self: start; border: 0; background: var(--accent); color: var(--accent-ink);
+  border-radius: var(--r-btn); padding: 8px 14px; font-weight: 700; font-size: 13px; text-decoration: none; cursor: pointer;
+}
+.blocks a.b-cta { color: var(--accent-ink); text-decoration: none; }
+.b-rule { border: 0; border-top: 1px solid var(--line-soft); }
+.b-receipt { border: 1px solid var(--line); border-radius: var(--r-panel); background: var(--surface); overflow: hidden; }
+.b-receipt .top { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--line-soft); }
+.b-receipt > .b-p, .b-receipt > .b-note, .b-receipt > .b-list, .b-receipt > .b-quote,
+.b-receipt > .b-h1, .b-receipt > .b-h2, .b-receipt > .b-h3, .b-receipt > .b-img { margin: 10px 14px; }
+.b-kv { display: grid; grid-template-columns: auto 1fr; gap: 5px 14px; padding: 11px 14px; font-size: 12.5px; }
+.b-kv dt { font-family: var(--font-data); font-size: 10px; letter-spacing: .06em; color: var(--ink-faint); padding-top: 2px; }
+.b-kv dd { margin: 0; color: var(--ink); }
+.b-receipt .b-table { border: 0; border-top: 1px solid var(--line-soft); border-radius: 0; }
+.b-note { font-family: var(--font-data); font-size: 10.5px; color: var(--ink-faint); }
+.view-switch { display: inline-flex; padding: 2px; gap: 2px; background: var(--surface); border: 1px solid var(--line); border-radius: 999px; margin-left: auto; }
+/* In a message header the time already takes the free space; the switch sits after it. */
+article.frame header .view-switch { margin-left: 0; }
+.view-switch button { border: 0; background: transparent; padding: 3px 10px; border-radius: 999px; font-size: 11.5px; font-weight: 600; color: var(--ink-soft); cursor: pointer; }
+.view-switch button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+.is-hidden { display: none; }
+.html.is-hidden { display: none; }
+.blocks.is-hidden { display: none; }
+
 @keyframes peek-in { 0% { opacity: 0; transform: scale(.97) translateY(10px); }
   100% { opacity: 1; transform: scale(1) translateY(0); } }
 @keyframes fade-in { from { opacity: 0; } to { opacity: .16; } }

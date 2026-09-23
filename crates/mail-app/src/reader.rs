@@ -7,15 +7,14 @@
 
 use crate::view::{Reading, reading};
 use mail_domain::Message;
-use mail_mime::SanitizePolicy;
+use mail_mime::{Limits, SanitizePolicy};
 use mail_store::SqliteStore;
 
 /// Everything the reader needs for one message, resolved.
 ///
-/// Sanitize first, then resolve `cid:` inside the result. That order is the point: the
-/// sanitizer must judge the URLs the *message* contains, not a `data:` URI substituted for one
-/// — and running it second would mean re-judging bytes this code produced rather than bytes the
-/// sender did.
+/// The block walk resolves `cid:` and remote images. It runs on sanitized markup, so it
+/// judges the URLs the message contains. The frame, when there is one, is that same
+/// policy's markup with no second embed pass: inline images live in the blocks.
 /// The most rendered output to keep, in bytes.
 ///
 /// Sixteen mebibytes, and bounded by *bytes* rather than by a count because what is cached is
@@ -41,6 +40,10 @@ struct Key {
     /// cache key", years before there was one: without it an upgrade would keep serving markup
     /// judged under the old rules.
     version: u32,
+    /// The block limits' revision. Its own number, not the sanitizer's: a cap or a mapping
+    /// change alters the blocks without altering the markup, and one shared number would be
+    /// bumped by whoever next edited the other.
+    blocks: u32,
 }
 
 /// Rendered messages, newest use last.
@@ -53,10 +56,15 @@ struct Cache {
 }
 
 fn weight(reading: &Reading) -> usize {
+    // `Document::bytes` is counted once, when the document is built. Walking the tree on
+    // every insert and every eviction would be O(blocks) against a 16 MiB budget.
+    // The frame's markup is stored beside the blocks, so it counts too.
     match reading {
         Reading::NotFetched => 0,
-        Reading::Text(text) => text.len(),
-        Reading::Html { html, .. } => html.len(),
+        Reading::Blocks { document, html, .. } => {
+            document.bytes() + html.as_ref().map(String::len).unwrap_or(0)
+        }
+        Reading::Layout { document, html, .. } => document.bytes() + html.len(),
     }
 }
 
@@ -105,6 +113,13 @@ fn remember(key: Key, reading: &Reading) {
 ///
 /// Returns how many were rendered, so a caller can say what it warmed and a test can tell the
 /// difference between "did the work" and "found it already done".
+///
+/// The shell calls this with [`SanitizePolicy::CURRENT`] while the open reader uses
+/// [`crate::view::Shell::policy`]. That split is deliberate. Consent is per thread and is
+/// revoked by [`crate::view::Shell::open`] and [`crate::view::Shell::select`], so the next
+/// thread opens with remote images blocked — which is `CURRENT`. Warming whatever policy the
+/// thread on screen happens to be using would fill the cache with network-fetching URLs for
+/// conversations nobody has opened.
 pub fn prewarm(store: &SqliteStore, messages: &[Message], policy: SanitizePolicy) -> usize {
     let mut done = 0;
     for message in messages {
@@ -143,6 +158,20 @@ pub fn forget_everything() {
 }
 
 pub fn render(store: &SqliteStore, message: &Message, policy: SanitizePolicy) -> Reading {
+    render_at_limits(store, message, policy, Limits::version())
+}
+
+/// [`render`] as if the block limits were at revision `blocks`.
+///
+/// The document is still built by the code in this binary. The argument is only the cache
+/// key, so a test can show that a new revision does not reuse an old entry.
+#[doc(hidden)]
+pub fn render_at_limits(
+    store: &SqliteStore,
+    message: &Message,
+    policy: SanitizePolicy,
+    blocks: u32,
+) -> Reading {
     // Answered from the cache when it has been asked before — phase 8d. The key is the whole
     // input, so a hit is the same answer this function would compute.
     let key = match &message.body {
@@ -150,6 +179,7 @@ pub fn render(store: &SqliteStore, message: &Message, policy: SanitizePolicy) ->
             raw: *raw,
             remote_images: policy.remote_images,
             version: policy.version,
+            blocks,
         }),
         // Nothing fetched yet: no bytes, no key, and the answer is a constant anyway.
         mail_domain::Body::Absent => None,
@@ -160,24 +190,11 @@ pub fn render(store: &SqliteStore, message: &Message, policy: SanitizePolicy) ->
         return had;
     }
 
-    // Parsed once. `html_of` and `inline_parts` each read the blob and run the whole MIME
-    // parser, and `render` called both — so every message in an open thread was parsed twice on
-    // every render, and the shell re-renders the open thread on every keystroke in the search
-    // box. On a thread of large messages that is the difference between a reader that opens and
-    // one that stutters.
-    let Some(parsed) = parse_body(store, message) else {
-        return reading(&message.body, None, policy);
-    };
-    let rendered = match reading(&message.body, parsed.html.as_deref(), policy) {
-        Reading::Html {
-            html,
-            blocked_remote,
-        } => Reading::Html {
-            html: mail_mime::embed_inline(&html, &parsed.attachments, mail_mime::INLINE_BUDGET),
-            blocked_remote,
-        },
-        other => other,
-    };
+    // Parsed once. The shell re-renders the open thread on every keystroke, and a second
+    // parse of every message in it is the difference between a reader that opens and one
+    // that stutters.
+    let parsed = parse_body(store, message);
+    let rendered = reading(&message.body, parsed.as_ref(), policy);
     if let Some(key) = key {
         remember(key, &rendered);
     }

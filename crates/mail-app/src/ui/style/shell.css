@@ -170,7 +170,7 @@
 .swatch[data-hue="vermilion"] { background: var(--swatch-vermilion); }
 .card {
   display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.08fr);
-  min-width: 0; min-height: 0; background: var(--surface);
+  min-width: 0; min-height: 0; background: var(--surface); color: var(--ink);
   border-radius: var(--r-card); overflow: hidden; box-shadow: var(--f-card-shadow);
 }
 .app[data-peek="center"] .card, .app[data-peek="full"] .card { overflow: visible; }
