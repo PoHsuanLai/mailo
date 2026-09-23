@@ -3168,9 +3168,11 @@ dependencies = [
  "ammonia",
  "base64",
  "chrono",
+ "html5ever 0.40.1",
  "mail-builder",
  "mail-domain",
  "mail-parser",
+ "proptest",
  "thiserror 2.0.20",
 ]
 

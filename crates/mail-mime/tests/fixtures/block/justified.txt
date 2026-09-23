@@ -1,0 +1,7 @@
+The weekly note pads its right margin
+with extra  spaces so that each line
+ends near the same column of the page.
+
+It is prose. The gaps move. Nothing in
+it lines up as a column of figures or
+as a rule of dashes down the middle.

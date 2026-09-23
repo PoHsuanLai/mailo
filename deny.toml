@@ -55,3 +55,9 @@ allow = ["CDLA-Permissive-2.0"]
 [[licenses.exceptions]]
 name = "libfuzzer-sys"
 allow = ["NCSA", "MIT", "Apache-2.0"]
+
+# Unsupported test DOM, pinned to html5ever 0.39. A second parser generation
+# reading ammonia's 0.40 output is where mutation-XSS lives.
+[[bans.deny]]
+name = "markup5ever_rcdom"
+reason = "Unsupported test DOM on html5ever 0.39; parsing ammonia 0.40 output with it is the mutation-XSS route this parser refused."

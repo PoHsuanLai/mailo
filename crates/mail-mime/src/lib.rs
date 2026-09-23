@@ -5,14 +5,19 @@
 //!
 //! [`IoNeed`]: https://docs.rs/mail-proto
 
+pub mod block;
 pub mod build;
 pub mod inline;
 pub mod parse;
 pub mod reconstruct;
 pub mod sanitize;
 
+pub use block::{
+    Action, Block, Dir, Document, Flowed, ImgSrc, Inlined, LINK_REL, LINK_TARGET, Limits, Reached,
+    SafeUrl, Shape, Span, from_html, from_text, is_mapped, mapped_tags,
+};
 pub use build::{Disclosure, Posting, build, posting};
-pub use inline::{INLINE_BUDGET, embed_inline};
+pub use inline::{INLINE_BUDGET, embed_inline, embeddable};
 pub use parse::{Parsed, ParsedPart, RemotePart, parse, parse_reconstructed};
 pub use reconstruct::{decode_part, reconstruct, sections_for};
 pub use sanitize::{RemoteImages, SafeHtml, SanitizePolicy, sanitize};

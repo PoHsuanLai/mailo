@@ -23,12 +23,12 @@ use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use mail_domain::Inline;
 
-/// How many bytes of inline image may be embedded into one message's HTML.
+/// How many bytes of inline image may be embedded into one message.
 ///
-/// A `data:` URI costs about a third more than the bytes it carries, and all of it lands in the
-/// iframe's `srcdoc` attribute as a single string. A message with forty megabytes of inline
-/// photographs would stall the renderer, so past this point the remaining references are left
-/// as `cid:` — a broken image, which is what they already were.
+/// A `data:` URI costs about a third more than the bytes it carries, and the reader holds that
+/// URI in the document it draws — in this process, whether as a block or as markup. A message
+/// with forty megabytes of inline photographs would stall the renderer, so past this point the
+/// remaining references are left as `cid:` — a broken image, which is what they already were.
 pub const INLINE_BUDGET: usize = 8 * 1024 * 1024;
 
 /// Media types that may be emitted as a `data:` URI.
@@ -94,6 +94,16 @@ fn encoded_len(bytes: usize) -> usize {
     bytes.div_ceil(3) * 4
 }
 
+/// The allowlist's spelling of `declared`, when this module will embed it.
+///
+/// The message's own spelling is attacker-controlled. Callers emit this string
+/// and never the one from the part, so the `data:` writer and the block parser
+/// cross the boundary in the same place.
+pub fn embeddable(declared: &str) -> Option<&'static str> {
+    let primary = declared.split(';').next()?.trim().to_ascii_lowercase();
+    EMBEDDABLE.iter().copied().find(|known| *known == primary)
+}
+
 /// The part a `cid` names, if it is one this module will embed.
 fn resolve<'a>(reference: &str, parts: &'a [ParsedPart]) -> Option<(&'static str, &'a [u8])> {
     // Some senders write `cid:<id>` with the angle brackets a Content-ID header carries.
@@ -107,13 +117,6 @@ fn resolve<'a>(reference: &str, parts: &'a [ParsedPart]) -> Option<(&'static str
     })?;
     // The declared type decides only whether we embed, never what we emit: the string written
     // into the document is the matching entry from EMBEDDABLE, not anything from the message.
-    let declared = part
-        .mime
-        .split(';')
-        .next()
-        .unwrap_or_default()
-        .trim()
-        .to_ascii_lowercase();
-    let mime = EMBEDDABLE.iter().find(|known| **known == declared)?;
+    let mime = embeddable(&part.mime)?;
     Some((mime, part.bytes.as_slice()))
 }
