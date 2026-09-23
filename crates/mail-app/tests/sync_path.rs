@@ -31,6 +31,9 @@ mod compose;
 #[path = "../src/query.rs"]
 mod query;
 #[allow(dead_code)]
+#[path = "../src/search/mod.rs"]
+mod search;
+#[allow(dead_code)]
 #[path = "../src/snooze.rs"]
 mod snooze;
 #[path = "../src/sync.rs"]

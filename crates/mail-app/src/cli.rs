@@ -703,22 +703,32 @@ pub fn run(store: &SqliteStore, command: &Command, now: DateTime<Utc>) -> Result
             Ok(out)
         }
         Command::Search { needle, limit } => {
-            let page = store
-                .threads(
-                    // The same parser the shell's box uses, so `from:ada` means one thing.
-                    &list_query(
-                        crate::query::parse_with(needle, &chrono::Local, &|name| {
-                            labels_named(store, name)
-                        }),
-                        *limit,
-                    ),
-                    now,
-                )
-                .map_err(|e| e.to_string())?;
-            if page.items.is_empty() {
+            // The same parse → expand → rank the menu runs, so `from:ada` and a prefix cannot
+            // mean one thing here and another in the window. Labels stay resolved: `label:` is
+            // the one operator that needs the store, and `run` has no slot for that index.
+            let ranked = match crate::search::rank_query(
+                needle,
+                store,
+                &crate::search::Affinity::default(),
+                &chrono::Local,
+                &|name| labels_named(store, name),
+                now,
+            ) {
+                Ok(ranked) => ranked,
+                // The `regex` crate's own message. Shown, not panicked on, and not a failed command.
+                Err(message) => return Ok(format!("{message}\n")),
+            };
+            let take = usize::try_from(*limit).unwrap_or(usize::MAX);
+            let items: Vec<ThreadSummary> = ranked
+                .hits
+                .into_iter()
+                .take(take)
+                .map(|(summary, _)| summary)
+                .collect();
+            if items.is_empty() {
                 return Ok(format!("nothing matches {needle:?}\n"));
             }
-            Ok(render_list(&page.items))
+            Ok(render_list(&items))
         }
         // Dispatched in main: it needs an async runtime and the store by Arc, which would make
         // this function untestable without one.

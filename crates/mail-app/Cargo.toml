@@ -26,11 +26,18 @@ futures-util = { version = "0.3", default-features = false, features = ["std"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "charset", "http2"] }
 chrono.workspace = true
 dioxus = { version = "0.7", features = ["desktop"] }
+# ASCII-case-insensitive multi-pattern search for highlights. Already in the tree via `regex`.
+aho-corasick = "1.1"
+# `re:/pattern/`. Already in the tree; depended on directly so the size caps are ours.
+regex = "1"
+# fzf-style fuzzy match for the menu's small sets. See `search/fuzzy.rs` for why this one.
+nucleo-matcher = "0.3"
 
 [dev-dependencies]
 tempfile = "3"
 dioxus-ssr = "0.7"
 uuid = { workspace = true }
+proptest = "1"
 
 [lints]
 workspace = true

@@ -11,6 +11,9 @@ mod palette;
 mod provider;
 mod query;
 mod reader;
+#[allow(dead_code)]
+// `run` is the menu. The window calls it in a later step; the CLI calls `rank_query`.
+mod search;
 mod snooze;
 mod space;
 mod sync;
