@@ -3592,3 +3592,38 @@ something always arrived. The marker is now the first `{n}` followed by CRLF;
 `a_body_with_braces_in_it_is_still_a_body` fails on the old search. Against the real account,
 the next pass fetched 200 bodies — including the SMTPUTF8 bounce, which quotes
 `測試.mailo@example.com` exactly as it was sent.
+
+### F145 — A Microsoft 365 tenant, live: IMAP yes, SMTP AUTH no, Graph yes
+
+2026-09-23, against a real work tenant — the spike `plan.md` asked for, answering its three
+tenant-policy questions for one organisation:
+
+1. **User consent:** not restricted. An app registered in the user's own directory (Entra ID
+   Free; no fee) was consented to at sign-in with no administrator involved.
+2. **IMAP:** enabled. The first pass fetched 200 headers and 100 bodies; the server offers IDLE
+   and an Archive folder, and neither `CONDSTORE` nor `QRESYNC`.
+3. **SMTP AUTH:** disabled tenant-wide. `535 5.7.139 … SmtpClientAuthentication is disabled for
+   the Tenant`, which is the common default.
+
+So the account could read and not send, and the plan's fallback was built: `Outgoing::Graph`,
+`mailo account add … --microsoft --send graph`, Graph's `sendMail` with the frozen message as
+base64 MIME. What the live run found on the way:
+
+- **A code consented for two resources must be redeemed naming one.** Asking for Exchange's IMAP
+  and Graph's `Mail.Send` in one sign-in is allowed; redeeming that code with no `scope` is not
+  (`AADSTS28003`). The first resource named is the one redeemed for, and Graph's token comes from
+  a refresh that names Graph's scope. Each access token is for one resource, so the account holds
+  two: the IMAP one as its incoming credential and the Graph one as its outgoing.
+- **A blind copy survives Graph.** Graph reads recipients from the headers, not an envelope, so
+  a `Bcc:` header is added to the copy handed to it. Checked live: the blind recipient received
+  the message, and neither copy carried a `Bcc:` header or any trace of that address. Exchange
+  also replaced the `From` display name with the directory's.
+- **Re-running `account add` needed the client id again** although the first sign-in had
+  recorded it; it now falls back to the recorded one.
+- **Discarding a failed send did not stop it.** The refused SMTP attempt backed off for a day,
+  still queued, while its draft read `Failed`; discarding deleted the draft and left the outbox
+  entry to send it the next day. Deleting a draft now withdraws its queued submission.
+
+Still open: `mailo watch` holds one engine for hours and renews neither token inside it, so an
+OAuth account's watch loop stops working about an hour in until restarted. And Graph takes at
+most 4 MB per request, so a message over about 3 MB before encoding is refused with that said.
