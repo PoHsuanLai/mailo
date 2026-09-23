@@ -528,3 +528,107 @@ fn terms_are_visible_from_a_read_connection() {
         .unwrap();
     assert_eq!(texts(&sqlite, "Rés"), vec!["resume".to_owned()]);
 }
+
+/// `top_hits`: the best of the most recent matches, as a "Top results" strip ranks them.
+mod top_hits {
+    use super::*;
+
+    fn kite() -> Filter {
+        Filter::Text(TextMatch::Contains("kite".into()))
+    }
+
+    fn ids(hits: &[(ThreadSummary, f64)]) -> Vec<ThreadId> {
+        hits.iter().map(|(summary, _)| summary.id).collect()
+    }
+
+    #[test]
+    fn inside_the_window_the_better_match_comes_first() {
+        // The strong match is the older thread; newest-first would put it second.
+        let held = load(&[
+            Mail {
+                account: A,
+                subject: "kite kite kite",
+                body: Some("ok"),
+                secs: 1,
+            },
+            Mail {
+                account: A,
+                subject: "hello",
+                body: Some("a kite, among many other words in a longer body"),
+                secs: 2,
+            },
+        ]);
+        let hits = held.sqlite.top_hits(&kite(), 5, 50, at(10)).unwrap();
+        assert_eq!(ids(&hits), [held.threads[0], held.threads[1]]);
+        assert!(hits[0].1 > hits[1].1, "higher is better: {hits:?}");
+    }
+
+    #[test]
+    fn a_strong_match_older_than_the_window_is_left_to_the_list() {
+        // The window is the two newest matches. The best match is the oldest and is not in it:
+        // bounding the work by the window is the point, and the date-ordered list finds it.
+        let held = load(&[
+            Mail {
+                account: A,
+                subject: "kite kite kite kite",
+                body: None,
+                secs: 1,
+            },
+            Mail {
+                account: A,
+                subject: "a kite",
+                body: None,
+                secs: 2,
+            },
+            Mail {
+                account: A,
+                subject: "another kite",
+                body: None,
+                secs: 3,
+            },
+        ]);
+        for store in stores(&held) {
+            let hits = store.top_hits(&kite(), 5, 2, at(10)).unwrap();
+            let mut got = ids(&hits);
+            got.sort();
+            let mut newest = vec![held.threads[1], held.threads[2]];
+            newest.sort();
+            assert_eq!(got, newest);
+        }
+    }
+
+    #[test]
+    fn at_most_k_and_nothing_to_rank_without_words() {
+        let held = load(&[
+            Mail {
+                account: A,
+                subject: "kite one",
+                body: None,
+                secs: 1,
+            },
+            Mail {
+                account: A,
+                subject: "kite two",
+                body: None,
+                secs: 2,
+            },
+            Mail {
+                account: A,
+                subject: "kite three",
+                body: None,
+                secs: 3,
+            },
+        ]);
+        for store in stores(&held) {
+            assert_eq!(store.top_hits(&kite(), 2, 50, at(10)).unwrap().len(), 2);
+            assert!(store.top_hits(&kite(), 0, 50, at(10)).unwrap().is_empty());
+            assert!(
+                store
+                    .top_hits(&Filter::Account(A), 5, 50, at(10))
+                    .unwrap()
+                    .is_empty(),
+                "a filter with no words has nothing to rank by"
+            );
+        }
+    }
+}

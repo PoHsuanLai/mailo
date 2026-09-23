@@ -435,6 +435,17 @@ impl Store for SqliteStore {
         search::search_ranked(self, &db, filter, limit, now)
     }
 
+    fn top_hits(
+        &self,
+        filter: &Filter,
+        k: usize,
+        window: usize,
+        now: DateTime<Utc>,
+    ) -> Result<Vec<(ThreadSummary, f64)>, StoreError> {
+        let db = self.reader();
+        search::top_hits(self, &db, filter, k, window, now)
+    }
+
     fn count(&self, filter: &Filter, now: DateTime<Utc>) -> Result<u64, StoreError> {
         let compiled = sql::compile(filter, now);
         let sql_text = format!(

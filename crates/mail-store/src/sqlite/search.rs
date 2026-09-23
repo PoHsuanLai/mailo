@@ -142,14 +142,7 @@ pub(super) fn search_ranked(
         )
     };
 
-    // Qualified column by column, not by text replacement: a later column whose name ends in
-    // `thread` must not be rewritten along with `thread`. The score follows the last one.
-    let qualified: Vec<String> = read::SUMMARY_COLUMNS
-        .split(',')
-        .map(|column| format!("ts.{}", column.trim()))
-        .collect();
-    let score_at = qualified.len();
-    let columns = qualified.join(", ");
+    let (columns, score_at) = qualified_columns();
     let sql_text = format!(
         "{with_clause}SELECT {columns}, {score_expr} AS relevance \
          FROM thread_summary ts \
@@ -173,6 +166,82 @@ pub(super) fn search_ranked(
         out.push((summary, score));
     }
     Ok(out)
+}
+
+/// The best `k` of the `window` most recent threads `filter` matches, by full-text relevance.
+///
+/// What costs is `bm25`, and `search_ranked` computes it for every message a term hits — every
+/// message, for a word like `the`. Here the window is chosen first, by the same indexed
+/// date-ordered query [`Store::threads`](crate::Store::threads) runs, and only the messages of
+/// those threads are scored: each one probed in the index by rowid, so the work is bounded by
+/// the window and not by how common the word is.
+///
+/// A thread in the window with no message hitting a text term — one kept by a non-text branch
+/// of an `Or` — has no relevance, and is not a top hit.
+pub(super) fn top_hits(
+    store: &SqliteStore,
+    db: &Connection,
+    filter: &Filter,
+    k: usize,
+    window: usize,
+    now: DateTime<Utc>,
+) -> Result<Vec<(ThreadSummary, f64)>, StoreError> {
+    let needles = sql::match_needles(filter);
+    if needles.is_empty() || k == 0 || window == 0 {
+        return Ok(Vec::new());
+    }
+    let compiled = sql::compile(filter, now);
+    let (columns, score_at) = qualified_columns();
+    let where_clause = &compiled.where_clause;
+    // The MATCH drives, walking the term's doclist, and the window is a filter on it. The
+    // unary `+` keeps that filter away from FTS5's planner: offered a rowid constraint as well,
+    // FTS5 picks a rowid lookup, which is not a full-text query and has no `bm25`. Walking a
+    // doclist is cheap even for `the`; what costs is scoring, and `bm25` is evaluated only for
+    // the rows the filter keeps — the messages of the window.
+    let sql_text = format!(
+        "WITH recent AS MATERIALIZED ( \
+            SELECT ts.thread AS thread FROM thread_summary ts \
+            WHERE {where_clause} \
+            ORDER BY ts.last_date DESC LIMIT ?), \
+         candidates AS MATERIALIZED ( \
+            SELECT m.rowid AS rowid, m.thread AS thread \
+            FROM recent JOIN messages m ON m.thread = recent.thread), \
+         scored AS MATERIALIZED ( \
+            SELECT candidates.thread AS thread, bm25(messages_fts) AS s \
+            FROM messages_fts JOIN candidates ON candidates.rowid = +messages_fts.rowid \
+            WHERE {MATCH_PREDICATE}) \
+         SELECT {columns}, -MIN(scored.s) AS relevance \
+         FROM scored JOIN thread_summary ts ON ts.thread = scored.thread \
+         GROUP BY ts.thread \
+         ORDER BY relevance DESC, ts.last_date DESC \
+         LIMIT ?"
+    );
+    let mut params = compiled.params;
+    params.push(SqlValue::Int(i64::try_from(window).unwrap_or(i64::MAX)));
+    params.push(SqlValue::Text(needles.join(" OR ")));
+    params.push(SqlValue::Int(i64::try_from(k).unwrap_or(i64::MAX)));
+
+    let mut stmt = db.prepare(&sql_text)?;
+    let mut rows = stmt.query(rusqlite::params_from_iter(bound(&params)))?;
+    let mut out = Vec::new();
+    while let Some(row) = rows.next()? {
+        let summary = store.read_summary(row)?;
+        let score: f64 = row.get(score_at)?;
+        out.push((summary, score));
+    }
+    Ok(out)
+}
+
+/// The summary columns, each qualified with `ts.`, and the index of the column after them.
+///
+/// Column by column, not by text replacement: a later column whose name ends in `thread` must
+/// not be rewritten along with `thread`.
+fn qualified_columns() -> (String, usize) {
+    let qualified: Vec<String> = read::SUMMARY_COLUMNS
+        .split(',')
+        .map(|column| format!("ts.{}", column.trim()))
+        .collect();
+    (qualified.join(", "), qualified.len())
 }
 
 /// Replace the one thread-membership MATCH in `compiled` with membership in the `hits` CTE.

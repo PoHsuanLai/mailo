@@ -98,6 +98,26 @@ pub trait Store {
         now: DateTime<Utc>,
     ) -> Result<Vec<(ThreadSummary, f64)>, StoreError>;
 
+    /// The best `k` of the `window` most recent threads [`Store::threads`] returns for
+    /// `filter`, by full-text relevance, best first — a "Top results" strip, as Gmail and Apple
+    /// Mail show above a date-ordered list.
+    ///
+    /// Relevance is scored as in [`Store::search_ranked`] (best `bm25` among the thread's
+    /// matching messages, negated, higher is better), but only inside the window: the cost is
+    /// bounded by `window`, not by how many messages a common word hits. A strong match older
+    /// than the window is not a top hit; the list below finds it by date. Empty when the filter
+    /// has no text term, since there is nothing to rank by.
+    ///
+    /// The in-memory store has no index score: it returns the first `k` of its window, newest
+    /// first, each scored 0.0.
+    fn top_hits(
+        &self,
+        filter: &Filter,
+        k: usize,
+        window: usize,
+        now: DateTime<Utc>,
+    ) -> Result<Vec<(ThreadSummary, f64)>, StoreError>;
+
     fn thread(&self, id: ThreadId) -> Result<Thread, StoreError>;
 
     fn message(&self, id: MessageId) -> Result<Message, StoreError>;

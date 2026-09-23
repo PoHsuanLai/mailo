@@ -376,6 +376,36 @@ proptest! {
         }
     }
 
+    /// `top_hits` is at most `k` threads, every one of them among the first `window` that
+    /// `threads` returns, in both stores.
+    #[test]
+    fn top_hits_come_from_the_newest_window_of_the_list(
+        specs in prop::collection::vec(spec(), 1..8),
+        f in filter(),
+        k in 0usize..4,
+        window in 0usize..6,
+    ) {
+        let both = build(&specs);
+        for store in [&both.sqlite as &dyn Store, &both.memory] {
+            let listed = store
+                .threads(
+                    &Query {
+                        filter: f.clone(),
+                        sort: Sort { property: Property::Date, dir: SortDir::Desc },
+                        page: PageReq { after: None, limit: window as u32 },
+                    },
+                    now(),
+                )
+                .expect("threads");
+            let newest: BTreeSet<ThreadId> = listed.items.iter().map(|s| s.id).collect();
+            let hits = store.top_hits(&f, k, window, now()).expect("top_hits");
+            prop_assert!(hits.len() <= k, "{} hits for k = {}", hits.len(), k);
+            for (summary, _) in &hits {
+                prop_assert!(newest.contains(&summary.id), "{:?} is outside the window for {:?}", summary.id, f);
+            }
+        }
+    }
+
     /// Term sets for an ASCII prefix. Both stores fold with `search_tokens` and count a term
     /// once per message, so the texts agree. Order is not the question here.
     #[test]

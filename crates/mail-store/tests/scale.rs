@@ -249,6 +249,34 @@ fn ranked_search_of_a_common_word_stays_within_five_times_threads() {
 }
 
 #[test]
+fn top_hits_of_a_common_word_cost_about_what_the_list_does() {
+    // The point of `top_hits`: scoring is bounded by the window, not by how many messages the
+    // word is in. Here it is in all ten thousand, the case `search_ranked` scales worst on.
+    let (store, _dir) = store();
+    fill(&store, 10_000);
+
+    let filter = Filter::Text(TextMatch::Contains("widgets".to_owned()));
+    let query = page(50, filter.clone());
+    let threads = best_of_three(|| {
+        store.threads(&query, at(0)).unwrap();
+    });
+    let top = best_of_three(|| {
+        store.top_hits(&filter, 5, 200, at(0)).unwrap();
+    });
+    let ranked = best_of_three(|| {
+        store.search_ranked(&filter, 50, at(0)).unwrap();
+    });
+    let found = store.top_hits(&filter, 5, 200, at(0)).unwrap();
+
+    eprintln!("top_hits over 10k: {top:?}   threads(): {threads:?}   search_ranked: {ranked:?}");
+    assert_eq!(found.len(), 5);
+    assert!(
+        top <= threads * 3 + std::time::Duration::from_millis(5),
+        "top_hits {top:?} is not bounded by its window: threads() took {threads:?}"
+    );
+}
+
+#[test]
 fn an_unread_count_does_not_read_the_mailbox() {
     // Every sidebar badge runs this on every revision. A count that scans is a count that makes
     // the whole window pause each time a message arrives.
