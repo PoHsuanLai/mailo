@@ -6,7 +6,6 @@ use super::paint::appearance_script;
 use super::style::STYLE;
 use crate::view::Theme;
 use dioxus::prelude::*;
-use dioxus_core::NoOpMutations;
 use mail_store::SqliteStore;
 use std::sync::Arc;
 
@@ -147,10 +146,11 @@ async fn closing_a_today_entry_writes_the_file_and_not_the_mail() {
         "Open Re: UIDL stability across a UIDVALIDITY change",
     );
     let second = seen.one("aria-label", "Open Notes from the sync review");
-    super::fixtures::click(&mut dom, first);
-    settle(&mut dom).await;
-    super::fixtures::click(&mut dom, second);
-    let seen = settle_seen(&mut dom).await;
+    let opened = super::fixtures::click(&mut dom, first);
+    let second = follow(&mut dom, opened, "Open Notes from the sync review", second).await;
+    let shown = super::fixtures::click(&mut dom, second);
+    let close_label = format!("Close {}", built.sam);
+    let close = follow_any(&mut dom, shown, &close_label).await;
     let stored = std::fs::read_to_string(built.dirs.state.join("today.json")).unwrap_or_default();
     assert_eq!(
         stored.matches("\"thread\"").count(),
@@ -158,7 +158,6 @@ async fn closing_a_today_entry_writes_the_file_and_not_the_mail() {
         "opening two threads did not store two shortcuts: {stored}"
     );
     let before = changes(&built.store);
-    let close = seen.one("aria-label", &format!("Close {}", built.sam));
     super::fixtures::click(&mut dom, close);
     let stored = std::fs::read_to_string(built.dirs.state.join("today.json")).unwrap_or_default();
     assert_eq!(
@@ -186,18 +185,47 @@ fn paint(dom: &mut VirtualDom) -> super::fixtures::Seen {
     seen
 }
 
-async fn settle_seen(dom: &mut VirtualDom) -> super::fixtures::Seen {
-    tokio::time::timeout(std::time::Duration::from_millis(500), dom.wait_for_work())
-        .await
-        .ok();
-    paint(dom)
+/// Draw until no background work is left, and return the newest element carrying
+/// `aria-label=label`, else `was`.
+///
+/// Opening a thread starts work whose results redraw the list, and a redrawn row is a new
+/// element: clicking the id from an earlier paint lands on a node that is gone. `latest` is what
+/// the click that started it all painted.
+async fn follow(
+    dom: &mut VirtualDom,
+    mut latest: super::fixtures::Seen,
+    label: &str,
+    mut was: dioxus_core::ElementId,
+) -> dioxus_core::ElementId {
+    loop {
+        if let Some(id) = latest.get("aria-label", label) {
+            was = id;
+        }
+        let more = tokio::time::timeout(std::time::Duration::from_millis(200), dom.wait_for_work());
+        if more.await.is_err() {
+            return was;
+        }
+        latest = paint(dom);
+    }
 }
 
-async fn settle(dom: &mut VirtualDom) {
-    tokio::time::timeout(std::time::Duration::from_millis(500), dom.wait_for_work())
-        .await
-        .ok();
-    dom.render_immediate(&mut NoOpMutations);
+/// [`follow`] for an element that may not have been drawn yet.
+async fn follow_any(
+    dom: &mut VirtualDom,
+    mut latest: super::fixtures::Seen,
+    label: &str,
+) -> dioxus_core::ElementId {
+    let mut found = None;
+    loop {
+        if let Some(id) = latest.get("aria-label", label) {
+            found = Some(id);
+        }
+        let more = tokio::time::timeout(std::time::Duration::from_millis(200), dom.wait_for_work());
+        if more.await.is_err() {
+            return found.unwrap_or_else(|| panic!("nothing is labelled {label:?}"));
+        }
+        latest = paint(dom);
+    }
 }
 
 #[tokio::test]
