@@ -540,34 +540,29 @@ impl Store for SqliteStore {
         )?;
         let rows = stmt.query_map(
             rusqlite::params![account.to_string(), i64::from(limit)],
-            |r| {
-                Ok((
-                    r.get::<_, String>(0)?,
-                    r.get::<_, Option<i64>>(1)?,
-                    r.get::<_, Option<i64>>(2)?,
-                    r.get::<_, Option<String>>(3)?,
-                ))
-            },
+            remote_columns,
         )?;
-        let mut out = Vec::new();
-        for row in rows {
-            let (mailbox, uidvalidity, uid, uidl) = row?;
-            out.push(match (uid, uidl) {
-                (Some(uid), None) => RemoteRef::Imap {
-                    mailbox,
-                    uidvalidity: uidvalidity.unwrap_or(0) as u32,
-                    uid: uid as u32,
-                },
-                (None, Some(uidl)) => RemoteRef::Pop { uidl },
-                _ => {
-                    return Err(StoreError::Decode {
-                        what: "remote_map row".to_owned(),
-                        why: "row has neither a uid nor a uidl".to_owned(),
-                    });
-                }
-            });
-        }
-        Ok(out)
+        rows.map(|row| remote_from_columns(row?)).collect()
+    }
+
+    fn unfetched_in(&self, mailbox: &MailboxRef, limit: u32) -> Result<Vec<RemoteRef>, StoreError> {
+        // The address in this mailbox, one per message: a server may hold two copies of one
+        // message in one folder, and one fetch fills both.
+        let db = self.connection();
+        let mut stmt = db.prepare_cached(
+            "SELECT r.mailbox, r.uidvalidity, r.uid, r.uidl
+             FROM remote_map r
+             JOIN messages m ON m.id = r.message
+             WHERE r.account = ?1 AND r.mailbox = ?2 AND m.body_raw IS NULL
+             GROUP BY m.id
+             ORDER BY m.date DESC, m.id DESC
+             LIMIT ?3",
+        )?;
+        let rows = stmt.query_map(
+            rusqlite::params![mailbox.account.to_string(), mailbox.path, i64::from(limit)],
+            remote_columns,
+        )?;
+        rows.map(|row| remote_from_columns(row?)).collect()
     }
 
     fn cursor(&self, mailbox: &MailboxRef) -> Result<Option<SyncCursor>, StoreError> {
@@ -776,5 +771,29 @@ impl Store for SqliteStore {
 
     fn address_books(&self) -> Result<Vec<AddressBook>, StoreError> {
         self.every_book()
+    }
+}
+
+/// The four `remote_map` columns that address a message, as `unfetched` selects them.
+type RemoteColumns = (String, Option<i64>, Option<i64>, Option<String>);
+
+fn remote_columns(r: &rusqlite::Row<'_>) -> rusqlite::Result<RemoteColumns> {
+    Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+}
+
+fn remote_from_columns(
+    (mailbox, uidvalidity, uid, uidl): RemoteColumns,
+) -> Result<RemoteRef, StoreError> {
+    match (uid, uidl) {
+        (Some(uid), None) => Ok(RemoteRef::Imap {
+            mailbox,
+            uidvalidity: uidvalidity.unwrap_or(0) as u32,
+            uid: uid as u32,
+        }),
+        (None, Some(uidl)) => Ok(RemoteRef::Pop { uidl }),
+        _ => Err(StoreError::Decode {
+            what: "remote_map row".to_owned(),
+            why: "row has neither a uid nor a uidl".to_owned(),
+        }),
     }
 }

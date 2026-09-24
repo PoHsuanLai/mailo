@@ -290,6 +290,22 @@ impl FolderRoles {
     pub fn role(&self, path: &str) -> Option<MailboxRole> {
         self.0.iter().find(|(p, _)| p == path).map(|(_, r)| *r)
     }
+
+    /// Where a message the server holds in `path` is filed here.
+    ///
+    /// `INBOX` by name, whatever the listing said, because RFC 3501 gives it that name on every
+    /// server and matches it case-insensitively. Then the role the server gave the folder:
+    /// `Sent`, `Trash`, `Spam`, `Archive`, `Drafts`. Any other folder — `Projects/2026`, one
+    /// the user made — is [`MailboxRole::Archive`]: kept, and out of the inbox. There is no
+    /// role per user folder, and none is needed to list one; that is what
+    /// [`crate::Filter::InFolder`] is for. Filing it as `Inbox` instead, which is what the
+    /// runtime did while only the inbox was fetched, would list every folder's mail there.
+    pub fn filed_as(&self, path: &str) -> MailboxRole {
+        if path.eq_ignore_ascii_case("INBOX") {
+            return MailboxRole::Inbox;
+        }
+        self.role(path).unwrap_or(MailboxRole::Archive)
+    }
 }
 
 /// Whether a capability is available.

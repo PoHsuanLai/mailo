@@ -76,8 +76,17 @@ struct Spec {
     star: bool,
     mailbox: u8,
     labels: Vec<bool>,
+    /// Which of [`FOLDERS`] hold a copy on the server: none, one, or several.
+    folders: Vec<bool>,
     date: i64,
 }
+
+/// Server mailboxes a message can have an address in. `INBOX` beside a user folder, a nested
+/// one, and one whose name needs modified UTF-7 on the wire and is stored decoded.
+const FOLDERS: &[&str] = &["INBOX", "Projects/2026", "收件匣/報告"];
+
+/// Another account, so `InFolder` is seen to scope by account as well as by path.
+const OTHER: AccountId = AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a2"));
 
 fn spec() -> impl Strategy<Value = Spec> {
     (
@@ -91,6 +100,7 @@ fn spec() -> impl Strategy<Value = Spec> {
         any::<bool>(),
         0u8..6,
         prop::collection::vec(any::<bool>(), 2..=2),
+        prop::collection::vec(any::<bool>(), FOLDERS.len()..=FOLDERS.len()),
         0i64..4_000,
     )
         .prop_map(
@@ -105,6 +115,7 @@ fn spec() -> impl Strategy<Value = Spec> {
                 star,
                 mailbox,
                 labels,
+                folders,
                 date,
             )| {
                 Spec {
@@ -118,6 +129,7 @@ fn spec() -> impl Strategy<Value = Spec> {
                     star,
                     mailbox,
                     labels,
+                    folders,
                     date,
                 }
             },
@@ -159,6 +171,10 @@ fn filter() -> impl Strategy<Value = Filter> {
             Star::Unstarred
         })),
         any::<bool>().prop_map(|b| Filter::HasLabel(if b { LABEL_A } else { LABEL_B })),
+        (0..FOLDERS.len(), any::<bool>()).prop_map(|(i, mine)| Filter::InFolder(MailboxRef {
+            account: if mine { ACCOUNT } else { OTHER },
+            path: FOLDERS[i].to_owned(),
+        })),
         text.clone().prop_map(Filter::From),
         text.clone().prop_map(Filter::To),
         text.clone().prop_map(Filter::Subject),
@@ -212,6 +228,7 @@ fn build(specs: &[Spec]) -> Both {
         memory.apply(ACCOUNT, &patch).unwrap();
     }
 
+    let mut held: Vec<(Message, &Spec)> = Vec::new();
     for (i, s) in specs.iter().enumerate() {
         let body = words(&s.body);
         // The blob must exist in SQLite before a message can reference it (foreign key), and
@@ -270,10 +287,49 @@ fn build(specs: &[Spec]) -> Both {
         };
         let patch = Patch {
             id: ChangeId::generate(),
-            changes: vec![Change::MessageUpsert(Box::new(message))],
+            changes: vec![Change::MessageUpsert(Box::new(message.clone()))],
         };
         sqlite.apply(ACCOUNT, &patch).unwrap();
         memory.apply(ACCOUNT, &patch).unwrap();
+        held.push((message, s));
+    }
+
+    // Server addresses, through `ingest` as a sync writes them: each message arriving again
+    // from every folder that holds a copy, matched to the one already held by its key.
+    for (f, path) in FOLDERS.iter().enumerate() {
+        let messages: Vec<Fetched> = held
+            .iter()
+            .enumerate()
+            .filter(|(_, (_, s))| s.folders[f])
+            .map(|(i, (message, _))| Fetched {
+                remote: RemoteRef::Imap {
+                    mailbox: (*path).to_owned(),
+                    uidvalidity: 7,
+                    uid: i as u32 + 1,
+                },
+                key: message.key.clone(),
+                raw: match &message.body {
+                    Body::Present { raw, .. } => *raw,
+                    Body::Absent => unreachable!("every generated message has a body"),
+                },
+                message: message.clone(),
+            })
+            .collect();
+        let ingest = Ingest {
+            mailbox: MailboxRef {
+                account: ACCOUNT,
+                path: (*path).to_owned(),
+            },
+            validity: UidValidity::Same,
+            cursor: None,
+            messages,
+            flags: Vec::new(),
+            labels: Vec::new(),
+            label_names: Vec::new(),
+            gone: Vec::new(),
+        };
+        sqlite.ingest(ACCOUNT, ingest.clone()).unwrap();
+        memory.ingest(ACCOUNT, ingest).unwrap();
     }
     Both {
         sqlite,

@@ -801,6 +801,7 @@ fn fit_decides_every_case() {
         let ctx = MatchCtx {
             summary: &case.summary,
             corpus: case.body,
+            folders: &[],
             now: case.now,
         };
         assert_eq!(
@@ -834,6 +835,7 @@ fn to_matches_thread_recipients() {
         MatchCtx {
             summary: sum,
             corpus: None,
+            folders: &[],
             now: now(),
         }
     }
@@ -864,9 +866,109 @@ fn text_matches_thread_recipients() {
     let ctx = MatchCtx {
         summary: &s,
         corpus: None,
+        folders: &[],
         now: now(),
     };
     assert!(Filter::Text(TextMatch::Contains("hopper".into())).fit(&ctx));
     assert!(Filter::Text(TextMatch::Contains("navy".into())).fit(&ctx));
     assert!(!Filter::Text(TextMatch::Contains("babbage".into())).fit(&ctx));
+}
+
+/// [`Filter::InFolder`] asks where the thread's messages are on the server, which a summary does
+/// not carry: it is answered from `MatchCtx::folders`, one row per case here.
+#[test]
+fn in_folder_matches_a_server_address_in_exactly_that_mailbox() {
+    use mail_domain::MailboxRef;
+    let at = |account: AccountId, path: &str| MailboxRef {
+        account,
+        path: path.to_owned(),
+    };
+    let projects = at(ACCOUNT_A, "Projects/2026");
+    let cases: Vec<(&str, Vec<MailboxRef>, Filter, bool)> = vec![
+        (
+            "a message there",
+            vec![at(ACCOUNT_A, "INBOX"), projects.clone()],
+            Filter::InFolder(projects.clone()),
+            true,
+        ),
+        (
+            "no address anywhere: composed here, or never synced",
+            vec![],
+            Filter::InFolder(projects.clone()),
+            false,
+        ),
+        (
+            "another folder",
+            vec![at(ACCOUNT_A, "INBOX")],
+            Filter::InFolder(projects.clone()),
+            false,
+        ),
+        (
+            "the same path on another account is another mailbox",
+            vec![at(ACCOUNT_B, "Projects/2026")],
+            Filter::InFolder(projects.clone()),
+            false,
+        ),
+        (
+            "a path is spelled exactly: a parent is not its children",
+            vec![projects.clone()],
+            Filter::InFolder(at(ACCOUNT_A, "Projects")),
+            false,
+        ),
+        (
+            "a path is spelled exactly: case is the server's",
+            vec![projects.clone()],
+            Filter::InFolder(at(ACCOUNT_A, "projects/2026")),
+            false,
+        ),
+        (
+            "non-ASCII paths are compared decoded",
+            vec![at(ACCOUNT_A, "收件匣/報告")],
+            Filter::InFolder(at(ACCOUNT_A, "收件匣/報告")),
+            true,
+        ),
+        (
+            "the role is not consulted: an Inbox thread with no INBOX address",
+            vec![projects.clone()],
+            Filter::InFolder(at(ACCOUNT_A, "INBOX")),
+            false,
+        ),
+        (
+            "and it composes like any other clause",
+            vec![projects.clone()],
+            Filter::And(vec![
+                Filter::InFolder(projects.clone()),
+                not(Filter::InMailbox(MailboxRole::Inbox)),
+            ]),
+            false,
+        ),
+    ];
+    let s = summary(|_| {});
+    for (name, folders, filter, want) in cases {
+        let ctx = MatchCtx {
+            summary: &s,
+            corpus: None,
+            folders: &folders,
+            now: now(),
+        };
+        assert_eq!(filter.fit(&ctx), want, "{name}: {filter:?}");
+    }
+}
+
+/// Saved views are stored as JSON. A new clause is a new tag, and every old one reads as before.
+#[test]
+fn in_folder_is_an_additive_clause_in_a_saved_view() {
+    use mail_domain::MailboxRef;
+    let filter = Filter::InFolder(MailboxRef {
+        account: ACCOUNT_A,
+        path: "Projects/2026".to_owned(),
+    });
+    let json = serde_json::to_string(&filter).unwrap();
+    assert!(json.starts_with(r#"{"kind":"in_folder","v":{"#), "{json}");
+    assert_eq!(serde_json::from_str::<Filter>(&json).unwrap(), filter);
+    let old = r#"{"kind":"in_mailbox","v":"inbox"}"#;
+    assert_eq!(
+        serde_json::from_str::<Filter>(old).unwrap(),
+        Filter::InMailbox(MailboxRole::Inbox)
+    );
 }

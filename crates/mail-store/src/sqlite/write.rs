@@ -9,8 +9,8 @@ use super::read::Recipients;
 use super::row::{from_time, json, to_json, uuid};
 use crate::StoreError;
 use mail_domain::{
-    AccountId, Body, Change, Import, Ingest, LabelOrigin, Membership, Message, MessageId, Patch,
-    RemoteRef, ThreadId, ThreadSummary, UidValidity,
+    AccountCaps, AccountId, Body, Change, FolderRoles, Import, Ingest, LabelOrigin, MailboxRole,
+    Membership, Message, MessageId, Patch, RemoteRef, ThreadId, ThreadSummary, UidValidity,
 };
 use rusqlite::{OptionalExtension, params};
 use std::collections::BTreeSet;
@@ -159,6 +159,44 @@ impl SqliteStore {
             }
         };
         Ok(thread)
+    }
+
+    /// Where `message` is filed, if it is held.
+    fn role_of(&self, message: MessageId) -> Result<Option<MailboxRole>, StoreError> {
+        let found: Option<String> = self
+            .connection()
+            .query_row(
+                "SELECT mailbox FROM messages WHERE id = ?1",
+                params![message.to_string()],
+                |r| r.get(0),
+            )
+            .optional()?;
+        found.map(|text| json("MailboxRole", &text)).transpose()
+    }
+
+    /// Every mailbox `message` still has a server address in.
+    fn mailboxes_of(&self, message: MessageId) -> Result<Vec<String>, StoreError> {
+        let db = self.connection();
+        let mut stmt =
+            db.prepare_cached("SELECT DISTINCT mailbox FROM remote_map WHERE message = ?1")?;
+        let rows = stmt.query_map(params![message.to_string()], |r| r.get(0))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// The folder roles the account's server last reported, or none before it has reported any.
+    fn folder_roles(&self, account: AccountId) -> Result<FolderRoles, StoreError> {
+        let stored: Option<String> = self
+            .connection()
+            .query_row(
+                "SELECT caps FROM account_caps WHERE account = ?1",
+                params![account.to_string()],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(match stored {
+            Some(text) => json::<AccountCaps>("AccountCaps", &text)?.folders,
+            None => FolderRoles::default(),
+        })
     }
 
     fn thread_of(&self, message: MessageId) -> Result<Option<ThreadId>, StoreError> {
@@ -360,6 +398,15 @@ impl SqliteStore {
                             }
                         }
                     }
+                    // A copy in the inbox, of a message first found in a folder.
+                    if let Some(held) = self.role_of(id)?
+                        && let Some(role) =
+                            crate::filing::after_arrival(held, fetched.message.mailbox)
+                    {
+                        let change = Change::MessageMailbox(id, role);
+                        self.write_change(&change)?;
+                        changes.push(change);
+                    }
                     id
                 }
                 None => {
@@ -441,6 +488,20 @@ impl SqliteStore {
                     }
                     self.write_change(&Change::MessageDelete(id))?;
                     changes.push(Change::MessageDelete(id));
+                } else if let Some(held) = self.role_of(id)?
+                    && let Some(role) = crate::filing::after_leaving(
+                        held,
+                        &mailbox,
+                        &self.mailboxes_of(id)?,
+                        &self.folder_roles(account)?,
+                    )
+                {
+                    // Moved out of the inbox by another client, and still held elsewhere.
+                    let change = Change::MessageMailbox(id, role);
+                    if let Some(t) = self.write_change(&change)? {
+                        touched.insert(t);
+                    }
+                    changes.push(change);
                 }
             }
         }

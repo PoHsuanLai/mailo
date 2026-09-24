@@ -177,6 +177,28 @@ impl Store for MemoryStore {
         Ok(Thread { summary, messages })
     }
 
+    fn unfetched_in(&self, mailbox: &MailboxRef, limit: u32) -> Result<Vec<RemoteRef>, StoreError> {
+        let inner = self.inner.borrow();
+        let mut with_dates: Vec<(DateTime<Utc>, MessageId, RemoteRef)> = Vec::new();
+        for m in inner.messages.values() {
+            if !matches!(m.body, mail_domain::Body::Absent) {
+                continue;
+            }
+            let Some(row) = inner.remotes.iter().find(|row| {
+                row.message == m.id && row.account == mailbox.account && row.mailbox == mailbox.path
+            }) else {
+                continue;
+            };
+            with_dates.push((m.date, m.id, row_to_remote(row)?));
+        }
+        with_dates.sort_by_key(|(date, id, _)| std::cmp::Reverse((*date, id.to_string())));
+        Ok(with_dates
+            .into_iter()
+            .map(|(_, _, remote)| remote)
+            .take(limit as usize)
+            .collect())
+    }
+
     fn cursor(&self, mailbox: &MailboxRef) -> Result<Option<SyncCursor>, StoreError> {
         // `sync` has held this since the store was written; nothing had ever read it back.
         Ok(self
@@ -550,9 +572,11 @@ impl Inner {
             let Some((summary, body)) = self.view(id) else {
                 continue;
             };
+            let folders = self.addressed_in(id);
             let ctx = MatchCtx {
                 summary: &summary,
                 corpus: body.as_deref(),
+                folders: &folders,
                 now,
             };
             if filter.fit(&ctx) {
@@ -574,6 +598,26 @@ impl Inner {
         let body = thread_corpus(&messages);
         let summary = ThreadSummary::derive(id, &messages, snooze, pin);
         Some((summary, body))
+    }
+
+    /// Every mailbox a message of this thread has a server address in: what
+    /// [`mail_domain::Filter::InFolder`] asks about, read from the same rows `remote_map` holds.
+    fn addressed_in(&self, thread: ThreadId) -> Vec<MailboxRef> {
+        let mut out: Vec<MailboxRef> = Vec::new();
+        for row in &self.remotes {
+            let held = self
+                .messages
+                .get(&row.message)
+                .is_some_and(|m| m.thread == thread);
+            let mailbox = MailboxRef {
+                account: row.account,
+                path: row.mailbox.clone(),
+            };
+            if held && !out.contains(&mailbox) {
+                out.push(mailbox);
+            }
+        }
+        out
     }
 
     fn summary_of(&self, id: ThreadId) -> Option<ThreadSummary> {
@@ -744,6 +788,14 @@ impl Inner {
 
         for fetched in &ingest.messages {
             let id = if let Some(id) = self.message_by_key(account, &fetched.key) {
+                // A copy in the inbox, of a message first found in a folder.
+                if let Some(role) = self.messages.get(&id).and_then(|held| {
+                    crate::filing::after_arrival(held.mailbox, fetched.message.mailbox)
+                }) {
+                    let change = Change::MessageMailbox(id, role);
+                    self.write_change(&change)?;
+                    changes.push(change);
+                }
                 id
             } else {
                 self.upsert_message(&fetched.message)?;
@@ -780,6 +832,14 @@ impl Inner {
                         touched.insert(thread);
                     }
                     let change = Change::MessageDelete(id);
+                    self.write_change(&change)?;
+                    changes.push(change);
+                } else if let Some(role) = self.after_leaving(account, id, remote) {
+                    // Moved out of the inbox by another client, and still held elsewhere.
+                    if let Some(thread) = self.thread_of(id) {
+                        touched.insert(thread);
+                    }
+                    let change = Change::MessageMailbox(id, role);
                     self.write_change(&change)?;
                     changes.push(change);
                 }
@@ -865,6 +925,29 @@ impl Inner {
         let id = label.id;
         self.labels.insert(id, label);
         id
+    }
+
+    /// [`crate::filing::after_leaving`], over what this store holds.
+    fn after_leaving(
+        &self,
+        account: AccountId,
+        id: MessageId,
+        left: &RemoteRef,
+    ) -> Option<mail_domain::MailboxRole> {
+        let held = self.messages.get(&id)?.mailbox;
+        let (left, ..) = remote_parts(left);
+        let mut remaining: Vec<String> = Vec::new();
+        for row in self.remotes.iter().filter(|row| row.message == id) {
+            if !remaining.contains(&row.mailbox) {
+                remaining.push(row.mailbox.clone());
+            }
+        }
+        let roles = self
+            .caps
+            .get(&account)
+            .map(|caps| caps.folders.clone())
+            .unwrap_or_default();
+        crate::filing::after_leaving(held, &left, &remaining, &roles)
     }
 
     fn message_by_key(&self, account: AccountId, key: &MessageKey) -> Option<MessageId> {

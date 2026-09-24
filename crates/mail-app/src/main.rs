@@ -156,6 +156,16 @@ fn main() {
         }
         return;
     }
+    if let Some(mail_app::cli::Command::SyncFolder { account, path }) = &command {
+        match mail_app::cli::sync_folder(store, account, path, chrono::Utc::now()) {
+            Ok(text) => print!("{text}"),
+            Err(message) => {
+                eprintln!("{message}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
     // Saving an attachment may have to download it first — a large IMAP message's attachments
     // stay on the server until asked for — and that needs the store by `Arc`, like sync.
     if let Some(mail_app::cli::Command::Save {

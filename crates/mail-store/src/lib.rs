@@ -5,6 +5,7 @@
 pub mod blob;
 pub mod contact;
 pub mod error;
+mod filing;
 pub mod memory;
 mod memory_search;
 pub mod migrate;
@@ -190,6 +191,18 @@ pub trait Store {
     fn unfetched(
         &self,
         account: AccountId,
+        limit: u32,
+    ) -> Result<Vec<mail_domain::RemoteRef>, StoreError>;
+
+    /// The same, for the messages that have an address in one mailbox: that address.
+    ///
+    /// What a body pass over one folder fetches. A fetch selects one mailbox and names UIDs in
+    /// it, so a batch drawn from the whole account — as [`Store::unfetched`] returns it — asked
+    /// the inbox for UIDs that belonged to Sent, and the answers were paired with the wrong
+    /// addresses. Newest first, like `unfetched`, ties broken by message id.
+    fn unfetched_in(
+        &self,
+        mailbox: &MailboxRef,
         limit: u32,
     ) -> Result<Vec<mail_domain::RemoteRef>, StoreError>;
 

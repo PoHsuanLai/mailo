@@ -808,3 +808,135 @@ fn a_database_from_before_templates_upgrades_with_none_and_keeps_its_drafts() {
     store.put_template(&kept).unwrap();
     assert_eq!(store.templates(account).unwrap(), vec![kept]);
 }
+
+/// 0015: what body fetches drawn from two mailboxes at once left behind is undone, and nothing
+/// else is touched.
+#[test]
+fn addresses_and_bodies_a_mixed_body_batch_damaged_are_cleared_for_refetching() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("mail.db");
+    {
+        let db = Connection::open(&path).unwrap();
+        for (version, sql) in migrate::MIGRATIONS.iter().take(14) {
+            db.execute_batch(sql).unwrap();
+            if *version > 1 {
+                db.execute(
+                    "INSERT INTO schema_version (version, applied_at) VALUES (?1, datetime('now'))",
+                    [version],
+                )
+                .unwrap();
+            }
+        }
+        let (account, _) = seed(&db);
+        let thread: String = db
+            .query_row("SELECT id FROM threads", [], |r| r.get(0))
+            .unwrap();
+        db.execute(
+            "INSERT INTO blobs (id, hash, size, path, inline, created_at)
+             VALUES ('b', 'h', 1, NULL, x'00', datetime('now'))",
+            [],
+        )
+        .unwrap();
+        let message = |id: &str, key: &str, subject: &str, body: Option<&str>| {
+            db.execute(
+                "INSERT INTO messages (id, thread, account, msg_key, date, from_name, from_email,
+                     recipients, subject, in_reply_to, refs, rfc_message_id, read, star, mailbox,
+                     body_text, body_raw, attachments)
+                 VALUES (?1, ?2, ?3, ?4, '2023-01-02T00:00:00Z', NULL, 'a@b.test', '{}', ?5,
+                     NULL, '[]', NULL, '\"read\"', '\"unstarred\"', '\"inbox\"', ?6,
+                     CASE WHEN ?6 IS NULL THEN NULL ELSE 'b' END, '[]')",
+                rusqlite::params![id, thread, account, key, subject, body],
+            )
+            .unwrap();
+        };
+        let at = |mailbox: &str, uid: i64, message: &str| {
+            db.execute(
+                "INSERT INTO remote_map (account, mailbox, uidvalidity, uid, uidl, message)
+                 VALUES (?1, ?2, 1, ?3, NULL, ?4)",
+                rusqlite::params![account, mailbox, uid, message],
+            )
+            .unwrap();
+        };
+        let rfc = |id: &str| format!("{{\"kind\":\"rfc\",\"v\":\"{id}@b.test\"}}");
+        // Y answered for Sent UID 5 while INBOX was selected: X lost its address to it.
+        message("x", &rfc("x"), "sent by me", None);
+        message("y", &rfc("y"), "to me", Some("hello"));
+        at("INBOX", 5, "y");
+        at("Sent", 5, "y");
+        // A message with no Message-ID, answered for Sent UID 6: stored again as a copy.
+        message(
+            "n",
+            "{\"kind\":\"synthetic\",\"v\":[1]}",
+            "no id",
+            Some("hi"),
+        );
+        message(
+            "copy",
+            "{\"kind\":\"synthetic\",\"v\":[9]}",
+            "no id",
+            Some("hi"),
+        );
+        at("INBOX", 6, "n");
+        at("Sent", 6, "copy");
+        // A large message rebuilt around another's structure.
+        message(
+            "big",
+            &rfc("big"),
+            "large",
+            Some("--other\r\nContent-Type: application/pdf\r\nX-Mailo-Remote-Section: 2\r\n"),
+        );
+        at("Sent", 9, "big");
+        // One held in two mailboxes under two UIDs, as a server keeps copies: untouched.
+        message("both", &rfc("both"), "copied", Some("-- \r\nsignature"));
+        at("INBOX", 7, "both");
+        at("Projects", 8, "both");
+    }
+
+    let store = SqliteStore::open(&path, dir.path()).unwrap();
+    let db = store.connection();
+    let rows: Vec<(String, i64, String)> = db
+        .prepare("SELECT mailbox, uid, message FROM remote_map ORDER BY mailbox, uid")
+        .unwrap()
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    let row = |m: &str, u: i64, id: &str| (m.to_owned(), u, id.to_owned());
+    assert_eq!(
+        rows,
+        vec![
+            row("INBOX", 7, "both"),
+            row("Projects", 8, "both"),
+            row("Sent", 9, "big"),
+        ],
+        "both addresses of one UID in two mailboxes go, and both copies with theirs"
+    );
+    let ids: Vec<String> = db
+        .prepare("SELECT id FROM messages WHERE length(id) < 10 ORDER BY id")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    // Which of two identical digest-keyed messages is the copy cannot be told from here, so
+    // both go; the header pass stores the one the server really holds again.
+    assert_eq!(ids, ["big", "both", "x", "y"]);
+    let body = |id: &str| -> (Option<String>, Option<String>) {
+        db.query_row(
+            "SELECT body_text, body_raw FROM messages WHERE id = ?1",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap()
+    };
+    assert_eq!(
+        body("big"),
+        (None, None),
+        "the rebuilt body is fetched again"
+    );
+    assert_eq!(body("y"), (Some("hello".to_owned()), Some("b".to_owned())));
+    assert_eq!(
+        body("both"),
+        (Some("-- \r\nsignature".to_owned()), Some("b".to_owned()))
+    );
+}

@@ -857,7 +857,7 @@ impl<B: Backend> AccountEngine<B> {
         if wanted.is_empty() {
             // A protocol that cannot enumerate up front: fall back to what we already hold,
             // which the store hands back newest first.
-            wanted = self.unfetched(budget as u32)?;
+            wanted = self.unfetched(mailbox, budget as u32)?;
         } else {
             // Minus what is already mapped. The survey is *everything on the server*, which is
             // the right answer to "what exists" and the wrong one to "what should I fetch": it
@@ -968,7 +968,7 @@ impl<B: Backend> AccountEngine<B> {
         budget: usize,
     ) -> Result<SyncReport, RuntimeError> {
         let mut report = SyncReport::default();
-        let mut wanted = self.unfetched(budget as u32)?;
+        let mut wanted = self.unfetched(mailbox, budget as u32)?;
         by_band(&mut wanted);
 
         // A size of `u64::MAX` is "unknown", not "enormous": no survey this session. Those are
@@ -1158,20 +1158,14 @@ impl<B: Backend> AccountEngine<B> {
 
     /// Which role a folder serves on this account.
     ///
-    /// From the capabilities the last `LIST (SPECIAL-USE)` wrote down, falling back to `Inbox`:
-    /// a server that answers no folder roles has one mailbox as far as this client is concerned,
-    /// and POP3 has exactly one by construction. `INBOX` is matched case-insensitively because
-    /// RFC 3501 says that name is, and a server that spells it `Inbox` is not describing a
-    /// different mailbox.
+    /// From the capabilities the last `LIST (SPECIAL-USE)` wrote down; see
+    /// [`mail_domain::FolderRoles::filed_as`]. POP3's one mailbox is `INBOX` by construction.
+    ///
+    /// A folder with no role used to fall back to `Inbox`, which was harmless while only the
+    /// inbox and Sent were fetched and would have listed every user folder's mail in the inbox
+    /// the day they were. It is `Archive` now: kept, and out of the inbox.
     fn role_of(&self, mailbox: &MailboxRef) -> MailboxRole {
-        if mailbox.path.eq_ignore_ascii_case("INBOX") {
-            return MailboxRole::Inbox;
-        }
-        self.backend
-            .caps()
-            .folders
-            .role(&mailbox.path)
-            .unwrap_or(MailboxRole::Inbox)
+        self.backend.caps().folders.filed_as(&mailbox.path)
     }
 
     /// Run whichever scheduled sweeps are due.
@@ -1347,14 +1341,21 @@ impl<B: Backend> AccountEngine<B> {
     ///
     /// A message with no size lands in the last band rather than the first: fetching something
     /// of unknown length ahead of a known-small one is the wrong bet.
-    fn unfetched(&self, limit: u32) -> Result<Vec<(RemoteRef, u64)>, RuntimeError> {
+    ///
+    /// Only this mailbox's. A fetch selects one mailbox and names UIDs in it, and the account's
+    /// whole backlog put the inbox's body pass to asking `INBOX` for UIDs that belonged to Sent.
+    fn unfetched(
+        &self,
+        mailbox: &MailboxRef,
+        limit: u32,
+    ) -> Result<Vec<(RemoteRef, u64)>, RuntimeError> {
         // Sizes from this session's survey. A message it did not cover — no survey yet, or a
         // protocol that cannot take one — is "size unknown" and sorts into the last band.
         let sizes: std::collections::HashMap<RemoteRef, u64> =
             self.backend.surveyed().into_iter().collect();
         Ok(self
             .store
-            .unfetched(self.account, limit)?
+            .unfetched_in(mailbox, limit)?
             .into_iter()
             .map(|remote| {
                 let size = sizes.get(&remote).copied().unwrap_or(u64::MAX);

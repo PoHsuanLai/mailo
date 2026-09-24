@@ -12,8 +12,8 @@
 
 use chrono::{DateTime, Utc};
 use mail_domain::{
-    Body, Filter, LabelId, MailboxRole, MatchCtx, Message, MessageId, PageReq, PartContent, Pin,
-    Property, Query, Snooze, Sort, SortDir, SystemFlag, ThreadSummary,
+    Body, Filter, LabelId, MailboxRef, MailboxRole, MatchCtx, Message, MessageId, PageReq,
+    PartContent, Pin, Property, Query, RemoteRef, Snooze, Sort, SortDir, SystemFlag, ThreadSummary,
 };
 use mail_mime::archive::{maildir, mbox};
 use mail_store::{SqliteStore, Store};
@@ -107,7 +107,7 @@ pub fn select(
                 None => {
                     let alone: Vec<&Message> = messages
                         .iter()
-                        .filter(|m| fits_alone(&filter, m, now))
+                        .filter(|m| fits_alone(store, &filter, m, now))
                         .collect();
                     if alone.is_empty() {
                         messages.iter().collect()
@@ -148,7 +148,22 @@ fn place_named(words: &str) -> Option<Chosen> {
 }
 
 /// Whether one message on its own is what `filter` asks for.
-fn fits_alone(filter: &Filter, message: &Message, now: DateTime<Utc>) -> bool {
+///
+/// Its own server addresses, for `Filter::InFolder`: a copy of the thread elsewhere does not
+/// put this message in that folder.
+fn fits_alone(store: &SqliteStore, filter: &Filter, message: &Message, now: DateTime<Utc>) -> bool {
+    let folders: Vec<MailboxRef> = store
+        .remotes_of(message.id)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|remote| MailboxRef {
+            account: message.account,
+            path: match remote {
+                RemoteRef::Imap { mailbox, .. } => mailbox,
+                RemoteRef::Pop { .. } => "INBOX".to_owned(),
+            },
+        })
+        .collect();
     let summary = ThreadSummary::derive(
         message.thread,
         std::slice::from_ref(message),
@@ -162,6 +177,7 @@ fn fits_alone(filter: &Filter, message: &Message, now: DateTime<Utc>) -> bool {
     filter.fit(&MatchCtx {
         summary: &summary,
         corpus,
+        folders: &folders,
         now,
     })
 }

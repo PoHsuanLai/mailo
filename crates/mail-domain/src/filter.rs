@@ -4,6 +4,7 @@
 use crate::content::Address;
 use crate::id::{AccountId, LabelId};
 use crate::message::ThreadSummary;
+use crate::remote::MailboxRef;
 use crate::state::{Attachments, MailboxRole, Pin, ReadState, Snooze, Star};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -69,6 +70,20 @@ pub enum Filter {
     Read(ReadState),
     Starred(Star),
     HasLabel(LabelId),
+    /// True when one of the thread's messages has a server address in this mailbox: a
+    /// `remote_map` row for the account and the path exactly as the server spells it.
+    ///
+    /// **Server truth as of the last sync, not the local intent [`Filter::InMailbox`] carries.**
+    /// A message archived here a moment ago has the `Archive` role at once, and keeps its
+    /// `INBOX` address until the server has moved it and a sync has seen it go; a message
+    /// composed here has a role and no address at all. So `InFolder("INBOX")` and
+    /// `InMailbox(Inbox)` agree on a settled mailbox and differ while work is queued. The
+    /// inbox and the other roles are listed by role; this is for every other folder, which
+    /// has no role to list by.
+    ///
+    /// On an account whose folders are labels (Gmail), [`Filter::HasLabel`] is how a folder
+    /// is listed: only `INBOX` and `Sent` are fetched there, so no other path has addresses.
+    InFolder(MailboxRef),
     From(TextMatch),
     To(TextMatch),
     Subject(TextMatch),
@@ -116,10 +131,16 @@ pub enum Filter {
 /// Supplying too little here is a silent parity bug rather than an error: `fit` simply fails to
 /// match something the SQL side finds, and search quietly misses a message. A caller that has
 /// no corpus passes `None`, and [`Filter::Text`] then sees only the summary fields.
+///
+/// `folders` is every mailbox any of the thread's messages has a server address in, which is
+/// what [`Filter::InFolder`] asks about. A summary does not carry it — it is `remote_map`, not
+/// message state — so it is handed in beside the summary, like the corpus. A caller that does
+/// not have it passes `&[]`, and then no `InFolder` clause matches.
 #[derive(Debug, Clone, Copy)]
 pub struct MatchCtx<'a> {
     pub summary: &'a ThreadSummary,
     pub corpus: Option<&'a str>,
+    pub folders: &'a [MailboxRef],
     pub now: DateTime<Utc>,
 }
 
@@ -149,6 +170,7 @@ impl Filter {
             Filter::Read(state) => s.read == *state,
             Filter::Starred(star) => s.star == *star,
             Filter::HasLabel(label) => s.labels.contains(label),
+            Filter::InFolder(mailbox) => ctx.folders.contains(mailbox),
             Filter::From(m) => address_fits(m, &s.from),
             Filter::To(m) => to_fits(m, s),
             Filter::Subject(m) => text_fits(m, &s.subject),

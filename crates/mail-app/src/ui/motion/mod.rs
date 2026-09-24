@@ -289,6 +289,7 @@ impl Motion {
         filter.fit(&MatchCtx {
             summary: &after.summary,
             corpus: None,
+            folders: &[],
             now: Utc::now(),
         })
     }

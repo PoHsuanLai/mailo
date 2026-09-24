@@ -53,6 +53,8 @@ pub enum Command {
     },
     /// Fetch mail for every configured account, and drain the outbox.
     Sync,
+    /// Fetch one folder of one account now, followed or not: `sync --folder <account> <path>`.
+    SyncFolder { account: String, path: String },
     /// Start a reply to a message. The body is read from stdin.
     Reply {
         message: MessageId,
@@ -667,7 +669,17 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                 text: String::new(),
             })
         }
-        "sync" => Ok(Command::Sync),
+        "sync" => match &args[1..] {
+            [] => Ok(Command::Sync),
+            [flag, account, path] if flag == "--folder" => Ok(Command::SyncFolder {
+                account: account.clone(),
+                path: path.clone(),
+            }),
+            _ => Err(format!(
+                "usage: mailo sync [--folder <account> <path>]\n\n{}",
+                usage()
+            )),
+        },
         "import" => parse_import(&args[1..]),
         "export" => parse_export(&args[1..]),
         "folder" => parse_folder(&args[1..]),
@@ -1057,6 +1069,8 @@ usage: mailo <command>
                              a work or school Microsoft 365 mailbox on its own domain;
                              --send graph where the tenant has SMTP sending turned off
   sync                       fetch mail and send anything queued
+  sync --folder <account> <path>
+                             fetch one folder now, followed or not
   import <file|maildir> [--to-mailbox <account> <folder>]
                              mail from an mbox (Google Takeout's too), a Maildir or
                              one .eml, kept in \"local folders\" on this computer, or
@@ -1171,7 +1185,9 @@ pub fn run_with_clients(
         )),
         // Dispatched in main: it needs an async runtime and the store by Arc, which would make
         // this function untestable without one.
-        Command::Sync => Err("sync is dispatched before this point".to_owned()),
+        Command::Sync | Command::SyncFolder { .. } => {
+            Err("sync is dispatched before this point".to_owned())
+        }
         Command::Import { .. } | Command::Export { .. } => {
             Err("import and export are dispatched before this point".to_owned())
         }
@@ -1418,6 +1434,19 @@ fn list_query(filter: Filter, limit: u32) -> Query {
 ///
 /// By address because that is what the user knows: an account id is a uuid nothing prints except
 /// `account list`, and asking someone to copy one to set a signature is asking them not to.
+/// `mailo sync --folder <account> <path>`: fetch one folder now, by the account's address.
+///
+/// Beside `run` rather than in it, like `sync`: it needs the store by `Arc` and a runtime.
+pub fn sync_folder(
+    store: std::sync::Arc<SqliteStore>,
+    account: &str,
+    path: &str,
+    now: DateTime<Utc>,
+) -> Result<String, String> {
+    let id = account_named(&store, account)?;
+    crate::sync::folder_now(store, id, path, now).map(|ran| ran.text)
+}
+
 fn account_named(store: &SqliteStore, address: &str) -> Result<AccountId, String> {
     let db = store.connection();
     let found: Option<String> = db
@@ -1507,6 +1536,33 @@ mod tests {
                 limit: 20
             }
         );
+    }
+
+    #[test]
+    fn sync_takes_one_folder_or_none() {
+        let args = |words: &[&str]| words.iter().map(|w| (*w).to_owned()).collect::<Vec<_>>();
+        assert_eq!(parse(&args(&["sync"])), Ok(Command::Sync));
+        assert_eq!(
+            parse(&args(&[
+                "sync",
+                "--folder",
+                "me@example.test",
+                "Projects/2026"
+            ])),
+            Ok(Command::SyncFolder {
+                account: "me@example.test".to_owned(),
+                path: "Projects/2026".to_owned(),
+            })
+        );
+        for wrong in [
+            &["sync", "--folder"][..],
+            &["sync", "--folder", "me@example.test"],
+            &["sync", "Projects/2026"],
+        ] {
+            let said = parse(&args(wrong)).unwrap_err();
+            assert!(said.contains("sync [--folder <account> <path>]"), "{said}");
+        }
+        assert!(usage().contains("sync --folder <account> <path>"));
     }
 
     #[test]

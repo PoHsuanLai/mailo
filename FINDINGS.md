@@ -3699,3 +3699,18 @@ Found while building 10.8 and fixed there.
   marks the draft `Sending` before handing it over.
 - The `Date` a message carried was the moment it was frozen, so a send held until morning — or
   by a closed laptop — was dated when it was written. It is now re-stamped as it leaves.
+
+### F151 — One body batch could span two mailboxes
+
+Found while building 10.2b and fixed there. The body pass took the account's whole backlog
+(`Store::unfetched(account)`) as one batch, and the IMAP backend selects one mailbox per batch —
+the first remote's — and asks for every UID in it. With INBOX and Sent both synced, Sent UIDs
+were asked of INBOX (or the reverse). A UID the selected mailbox did not hold simply went
+unanswered. One it did hold brought back another message's bytes on this message's address:
+ingest keyed the bytes correctly but moved the address to the other message, orphaning this one
+and giving the other a false address that later flag sweeps and user actions followed. A message
+over 1 MiB could also be rebuilt from another message's structure.
+
+Body passes are now per mailbox (`unfetched_in`). Migration 0015 clears the three damaged shapes
+so the next sync fetches them again, in the manner of 0008. Checked read-only against a copy of
+the live store on 2026-09-24: none of the three shapes was present.

@@ -78,6 +78,15 @@ fn predicate(filter: &Filter, now: DateTime<Utc>, params: &mut Vec<SqlValue>) ->
             params.push(SqlValue::Text(id.to_string()));
             "(EXISTS (SELECT 1 FROM json_each(ts.labels) WHERE value = ?))".to_owned()
         }
+        // Uncorrelated, for the reason `fts::predicate` gives: the subquery names no outer row,
+        // so SQLite runs it once — a search of `remote_map_identity` on its leading
+        // `(account, mailbox)` columns, then each message by primary key — and tests each
+        // thread against the result, rather than probing `remote_map` once per thread.
+        Filter::InFolder(mailbox) => {
+            params.push(SqlValue::Text(mailbox.account.to_string()));
+            params.push(SqlValue::Text(mailbox.path.clone()));
+            format!("(ts.thread IN ({IN_FOLDER}))")
+        }
         Filter::From(m) => like_either("ts.from_email", "ts.from_name", m, params),
         Filter::To(m) => {
             let pattern = like_pattern(m);
@@ -112,6 +121,13 @@ fn predicate(filter: &Filter, now: DateTime<Utc>, params: &mut Vec<SqlValue>) ->
         }
     }
 }
+
+/// The threads with a message addressed in one mailbox, for [`Filter::InFolder`]. Binds the
+/// account, then the path exactly as `remote_map.mailbox` holds it (decoded from modified
+/// UTF-7).
+const IN_FOLDER: &str = "SELECT m.thread FROM remote_map r \
+     JOIN messages m ON m.id = r.message \
+     WHERE r.account = ? AND r.mailbox = ?";
 
 fn combine(
     children: &[Filter],

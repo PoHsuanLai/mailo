@@ -1386,6 +1386,7 @@ mod tests {
         filter.fit(&mail_domain::MatchCtx {
             summary,
             corpus: None,
+            folders: &[],
             now,
         })
     }

@@ -428,7 +428,11 @@ async fn one(
         clock_for(mode, now),
     );
 
-    let mailboxes = to_sync(account);
+    let folders = {
+        use mail_store::Store as _;
+        store.folders(account.id).map_err(|e| e.to_string())?
+    };
+    let mailboxes = to_sync(account, &folders);
     // Nothing cancels a one-shot CLI sync, but the loop requires a receiver, and wiring a real
     // one here is what lets the same engine serve the UI unchanged.
     let (_tx, mut cancel) = watch::channel(false);
@@ -770,6 +774,9 @@ pub async fn drive<B: mail_proto::Backend>(
         // anything, and a mailbox that is busy would otherwise pass in a tight loop.
         WatchMode::Idle => std::time::Duration::from_secs(30),
     };
+    // The inbox only. `IDLE` holds one selected mailbox per connection, and new mail in a
+    // followed folder — usually filed there by a server-side rule — waits for the next pass,
+    // which every wake-up and every interval runs over all of them.
     let inbox = mailboxes
         .first()
         .cloned()
@@ -870,59 +877,13 @@ async fn pass<B: mail_proto::Backend>(
     // The inbox first and in full, then the other folders: a first sync of a large Archive must
     // not be what stands between the user and their new mail. `to_sync` puts them in that order
     // and a failure in a later one does not lose what the earlier ones fetched.
+    //
+    // Every folder has its own budget, so a pass is bounded by the number of folders times
+    // it, and the inbox's share is spent before any folder's: however large a folder's first
+    // sync, each pass brings the inbox up to date before it moves on.
     let mut report = SyncReport::default();
     for mailbox in mailboxes {
-        let one = match engine.sync(mailbox, cancel, now, 200).await {
-            Ok(report) => report,
-            // Named, because "cannot select" on a folder the server listed is worth seeing and
-            // is not a reason to abandon the mail already in hand.
-            Err(e) => {
-                // Classified while the error is still typed. By the time it reaches the user it
-                // is prose, and prose is not something a loop can safely decide on.
-                report.saw(&e.retry());
-                report
-                    .needs_attention
-                    .push(format!("{}: {e}", mailbox.path));
-                continue;
-            }
-        };
-        report.headers_fetched += one.headers_fetched;
-        report.arrived.extend(one.arrived);
-        report.needs_attention.extend(one.needs_attention);
-
-        // What the server knows and a header fetch does not carry: flags, Gmail's labels, and
-        // messages that have gone. `AccountEngine::sweep` has done this since phase 3 and was
-        // called from nowhere but its own tests, so every message stayed unread for ever — mail
-        // read on a phone stayed bold, unread counts were the size of the mailbox, and labels
-        // never arrived, since they ride the same survey.
-        //
-        // After the header fetch, because a sweep is about messages already held, and before the
-        // bodies, so the list is right as soon as it is populated. Failures are reported and do
-        // not abandon the mail already in hand, like every other step here.
-        match engine.sweep(mailbox, cancel, now).await {
-            Ok(swept) => report.needs_attention.extend(swept.needs_attention),
-            Err(e) => {
-                report.saw(&e.retry());
-                report
-                    .needs_attention
-                    .push(format!("{}: {e}", mailbox.path));
-            }
-        }
-
-        // Headers first, then bodies smallest-band-first behind them, so the inbox is usable
-        // long before the hundred large attachments finish.
-        match engine.fetch_bodies(mailbox, cancel, now, 100).await {
-            Ok(bodies) => {
-                report.bodies_fetched += bodies.bodies_fetched;
-                report.needs_attention.extend(bodies.needs_attention);
-            }
-            Err(e) => {
-                report.saw(&e.retry());
-                report
-                    .needs_attention
-                    .push(format!("{}: {e}", mailbox.path));
-            }
-        }
+        one_mailbox(engine, mailbox, cancel, now, &mut report).await;
     }
 
     let drained = engine
@@ -957,6 +918,185 @@ async fn pass<B: mail_proto::Backend>(
     Ok(report)
 }
 
+/// Most headers one mailbox takes in one pass. The rest wait for the next pass, behind the
+/// inbox's.
+const HEADERS_PER_PASS: usize = 200;
+
+/// Most bodies one mailbox takes in one pass.
+const BODIES_PER_PASS: usize = 100;
+
+/// One mailbox's share of a pass: headers, then the server's view of what is held, then bodies.
+///
+/// Failures are folded into `report` rather than returned: a folder the server will not select
+/// is worth seeing and is not a reason to abandon the mail already in hand.
+async fn one_mailbox<B: mail_proto::Backend>(
+    engine: &mut AccountEngine<B>,
+    mailbox: &MailboxRef,
+    cancel: &mut mail_runtime::Cancel,
+    now: chrono::DateTime<chrono::Utc>,
+    report: &mut SyncReport,
+) {
+    let one = match engine.sync(mailbox, cancel, now, HEADERS_PER_PASS).await {
+        Ok(report) => report,
+        // Named, because "cannot select" on a folder the server listed is worth seeing and
+        // is not a reason to abandon the mail already in hand.
+        Err(e) => {
+            // Classified while the error is still typed. By the time it reaches the user it
+            // is prose, and prose is not something a loop can safely decide on.
+            report.saw(&e.retry());
+            report
+                .needs_attention
+                .push(format!("{}: {e}", mailbox.path));
+            return;
+        }
+    };
+    report.headers_fetched += one.headers_fetched;
+    report.arrived.extend(one.arrived);
+    report.needs_attention.extend(one.needs_attention);
+
+    // What the server knows and a header fetch does not carry: flags, Gmail's labels, and
+    // messages that have gone. `AccountEngine::sweep` has done this since phase 3 and was
+    // called from nowhere but its own tests, so every message stayed unread for ever — mail
+    // read on a phone stayed bold, unread counts were the size of the mailbox, and labels
+    // never arrived, since they ride the same survey.
+    //
+    // After the header fetch, because a sweep is about messages already held, and before the
+    // bodies, so the list is right as soon as it is populated. Failures are reported and do
+    // not abandon the mail already in hand, like every other step here.
+    match engine.sweep(mailbox, cancel, now).await {
+        Ok(swept) => report.needs_attention.extend(swept.needs_attention),
+        Err(e) => {
+            report.saw(&e.retry());
+            report
+                .needs_attention
+                .push(format!("{}: {e}", mailbox.path));
+        }
+    }
+
+    // Headers first, then bodies smallest-band-first behind them, so the inbox is usable
+    // long before the hundred large attachments finish.
+    match engine
+        .fetch_bodies(mailbox, cancel, now, BODIES_PER_PASS)
+        .await
+    {
+        Ok(bodies) => {
+            report.bodies_fetched += bodies.bodies_fetched;
+            report.needs_attention.extend(bodies.needs_attention);
+        }
+        Err(e) => {
+            report.saw(&e.retry());
+            report
+                .needs_attention
+                .push(format!("{}: {e}", mailbox.path));
+        }
+    }
+}
+
+/// Fetch one folder now: its first page of headers, what the server says of them, and bodies.
+///
+/// For a folder the window opens that no pass fetches — one the user does not follow — so its
+/// mail is there to list without waiting for the next pass. A followed folder is fetched by
+/// every pass anyway, and asking again here is harmless: what is already held is not fetched
+/// twice. List it afterwards with `Filter::InFolder`.
+///
+/// Blocking, with a runtime of its own, like [`run`] and [`fetch_part`]: its callers are a
+/// command and a click handler, which reach it through `spawn_blocking`.
+///
+/// Refused for POP3, which has one mailbox and fetches it every pass, and for an account whose
+/// folders are labels, where a folder's mail is the mail with that label and arrives with it.
+pub fn folder_now(
+    store: Arc<SqliteStore>,
+    account: AccountId,
+    path: &str,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<Ran, String> {
+    let registry = OAuthRegistry::load_default().map_err(|e| e.to_string())?;
+    folder_now_with(
+        store,
+        Arc::new(KeyringSecrets),
+        &registry,
+        account,
+        path,
+        now,
+    )
+}
+
+/// The same, with the secret store named, so a test can run it.
+pub fn folder_now_with(
+    store: Arc<SqliteStore>,
+    secrets: Arc<dyn Secrets>,
+    registry: &OAuthRegistry,
+    account: AccountId,
+    path: &str,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<Ran, String> {
+    let account = configured(&store)?
+        .into_iter()
+        .find(|a| a.id == account)
+        .ok_or_else(|| "no such account".to_owned())?;
+    match account.plan.incoming {
+        Incoming::Pop3 { .. } => {
+            return Err("POP3 has one mailbox, and every sync fetches it".to_owned());
+        }
+        Incoming::Local => {
+            return Err(format!(
+                "{} is kept on this computer: there is no server to fetch from",
+                account.address
+            ));
+        }
+        Incoming::Imap { .. } => {}
+    }
+    if account.caps.labels == ServerLabels::Supported {
+        return Err(format!(
+            "on {} folders are labels: a folder's mail arrives with its label",
+            account.address
+        ));
+    }
+    let mailbox = MailboxRef {
+        account: account.id,
+        path: path.to_owned(),
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| format!("cannot start the async runtime: {e}"))?;
+    let report = runtime.block_on(async {
+        let stored = secrets
+            .get(&SecretKey {
+                account: account.id,
+                purpose: SecretPurpose::IncomingPassword,
+            })
+            .map_err(|_| crate::view::no_credential(&account.address, &account.plan.auth))?;
+        let credential = signed_in(&account, stored, secrets.as_ref(), registry, now).await?;
+        let (_tx, mut cancel) = watch::channel(false);
+        let held = Held::new(credential);
+        let renewal = renewal_for(
+            &account,
+            &held,
+            secrets.clone(),
+            registry,
+            clock_for(Mode::Once, now),
+        );
+        let mut engine = imap_engine(&store, &account, held, secrets.clone());
+        if let Some(renewal) = renewal {
+            engine = engine.with_renewal(renewal);
+        }
+        drop(engine.connect().await.map_err(|e| e.to_string())?);
+        let mut report = SyncReport::default();
+        one_mailbox(&mut engine, &mailbox, &mut cancel, now, &mut report).await;
+        Ok::<_, String>(report)
+    })?;
+    Ok(Ran {
+        text: one_line(
+            &format!("{} {}", account.address, mailbox.path),
+            &report,
+            now,
+        ),
+        rejected: report.needs_reauth,
+        hold: report.hold,
+    })
+}
+
 /// The mailboxes the next pass would fetch, per account, by address.
 ///
 /// Reported by `mailo account list`, because "why is my Sent folder empty" is a question a user
@@ -964,13 +1104,18 @@ async fn pass<B: mail_proto::Backend>(
 /// rather than duplicated so a test can ask the code rather than restate its rules —
 /// CONVENTIONS §"An assertion that was already true proves nothing", second half.
 pub fn mailboxes_by_account(store: &SqliteStore) -> Result<Vec<(String, Vec<String>)>, String> {
-    Ok(configured(store)?
+    use mail_store::Store as _;
+    configured(store)?
         .into_iter()
         .map(|account| {
-            let paths = to_sync(&account).into_iter().map(|m| m.path).collect();
-            (account.address, paths)
+            let folders = store.folders(account.id).map_err(|e| e.to_string())?;
+            let paths = to_sync(&account, &folders)
+                .into_iter()
+                .map(|m| m.path)
+                .collect();
+            Ok((account.address, paths))
         })
-        .collect())
+        .collect()
 }
 
 /// Which mailboxes a pass should fetch, in the order it should fetch them.
@@ -986,7 +1131,12 @@ pub fn mailboxes_by_account(store: &SqliteStore) -> Result<Vec<(String, Vec<Stri
 ///
 /// POP3 has one mailbox by construction, and a server that answered no roles gets the inbox
 /// alone, which is what happened before this existed.
-fn to_sync(account: &Configured) -> Vec<MailboxRef> {
+///
+/// Then, on an IMAP account whose folders are folders, every other folder the user follows
+/// (see [`followed`]), in the order the store lists them. Not on one whose folders are labels:
+/// there a folder is a label on mail already fetched from the inbox and Sent, and fetching it
+/// again as a mailbox would fetch the account's mail once per label.
+fn to_sync(account: &Configured, folders: &[Folder]) -> Vec<MailboxRef> {
     if matches!(account.plan.incoming, Incoming::Local) {
         return Vec::new();
     }
@@ -1009,7 +1159,48 @@ fn to_sync(account: &Configured) -> Vec<MailboxRef> {
             });
         }
     }
+    let folders_are_folders = matches!(account.plan.incoming, Incoming::Imap { .. })
+        && account.caps.labels != ServerLabels::Supported;
+    if folders_are_folders {
+        for folder in folders
+            .iter()
+            .filter(|f| followed(f, &account.caps.folders))
+        {
+            if !out.iter().any(|m| m.path == folder.path) {
+                out.push(MailboxRef {
+                    account: account.id,
+                    path: folder.path.clone(),
+                });
+            }
+        }
+    }
     out
+}
+
+/// Whether a pass fetches this folder, beside the inbox and Sent.
+///
+/// One the user follows (`LSUB`) that can hold mail. An unfollowed one is fetched when it is
+/// opened, by [`folder_now`], and not on every pass: a server can list hundreds of them.
+///
+/// Trash, Junk and Archive are fetched like any folder, and what arrives from them is filed
+/// under their roles (`FolderRoles::filed_as`). Not these:
+///
+/// - Drafts. Its server copies are this client's own uploaded drafts and other clients'
+///   half-written mail; fetched as messages they would stand beside the drafts this client
+///   already holds, and collide with its outbox.
+/// - `\All`, `\Flagged` and `\Important`. They are views of mail held in other folders, and
+///   fetching one fetches that mail a second time.
+fn followed(folder: &Folder, roles: &FolderRoles) -> bool {
+    folder.subscription == Subscription::Subscribed
+        && folder.holds == Holds::Mail
+        && !folder.path.eq_ignore_ascii_case("INBOX")
+        && !matches!(
+            folder.special,
+            Some(
+                SpecialUse::Drafts | SpecialUse::All | SpecialUse::Flagged | SpecialUse::Important
+            )
+        )
+        && roles.role(&folder.path) != Some(MailboxRole::Drafts)
 }
 
 /// The commands that authenticate a POP3 session, given the mechanisms on offer.
