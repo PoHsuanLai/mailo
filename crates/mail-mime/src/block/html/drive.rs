@@ -1,7 +1,7 @@
 //! Opening a tag, and the blocks a void tag is by itself.
 
-use super::Builder;
 use super::tags::{Frame, Kind, attr, code_lang, dir_attr, flush_buf, parse_px};
+use super::{Builder, Unheld};
 use crate::block::image::{is_spacer, resolve};
 use crate::block::kind::{Block, Dir, Span, first_strong, span_text, strip_overrides};
 use crate::block::limits::Limits;
@@ -106,6 +106,9 @@ impl<'a> Builder<'a> {
                     return;
                 };
                 let Some(resolved) = resolve(src, self.parts, self.images, &mut self.spent) else {
+                    if self.unheld == Unheld::Describe {
+                        self.describe_unheld(src, attr(tag, "alt"));
+                    }
                     return;
                 };
                 self.prepare_block();
@@ -124,6 +127,37 @@ impl<'a> Builder<'a> {
             }
             _ => {}
         }
+    }
+
+    /// Words where a `cid:` image stood whose bytes are not here: its `alt`, else the part's
+    /// file name, else just that an image was there. Inline text, so it sits where the image
+    /// did. A remote image is not this: it resolved, to a blocked host.
+    fn describe_unheld(&mut self, src: &str, alt: Option<&str>) {
+        let Some(reference) = src.trim().strip_prefix("cid:") else {
+            return;
+        };
+        let wanted = reference
+            .trim()
+            .trim_start_matches('<')
+            .trim_end_matches('>');
+        let named = self.parts.iter().find_map(|part| match &part.inline {
+            mail_domain::Inline::Embedded { cid }
+                if !wanted.is_empty()
+                    && cid.trim_start_matches('<').trim_end_matches('>') == wanted =>
+            {
+                Some(part.name.as_str())
+            }
+            _ => None,
+        });
+        let label = alt
+            .map(str::trim)
+            .filter(|alt| !alt.is_empty())
+            .or(named.map(str::trim).filter(|name| !name.is_empty()));
+        let words = match label {
+            Some(label) => format!("[image: {label}]"),
+            None => "[image]".to_owned(),
+        };
+        self.on_text(&words);
     }
 
     pub(super) fn push_break(&mut self) {

@@ -159,6 +159,60 @@ pub enum Command {
         query: String,
         target: crate::export::Target,
     },
+    /// A message, or a whole thread, as a printable HTML document.
+    ///
+    /// A uuid for the same reason as [`Command::Unsubscribe`]: it may name either.
+    Print {
+        target: uuid::Uuid,
+        out: PrintTo,
+        pages: mail_mime::Pages,
+    },
+}
+
+/// Where `mailo print` puts the document.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PrintTo {
+    /// No `--out`: standard output when that is a pipe or a file, and a file in the current
+    /// directory when it is a terminal, where a page of HTML would only scroll past. Only
+    /// `main` can tell which, so it replaces this before running; [`run`] treats it as
+    /// [`PrintTo::Stdout`].
+    Unsaid,
+    /// `--out -`, or no `--out` with standard output redirected.
+    Stdout,
+    /// `--out FILE`: that file, as asked.
+    File(std::path::PathBuf),
+    /// A new file in this directory, named from the subject, never over an existing one.
+    Into(std::path::PathBuf),
+}
+
+/// `print <id> [--out FILE] [--page-per-message]`, options in any order.
+fn parse_print(args: &[String]) -> Result<Command, String> {
+    let raw = args
+        .first()
+        .ok_or_else(|| format!("print needs a thread or message id\n\n{}", usage()))?;
+    let target = raw
+        .parse()
+        .map_err(|_| format!("{raw:?} is not a thread or message id"))?;
+    let mut out = PrintTo::Unsaid;
+    let mut pages = mail_mime::Pages::Flow;
+    let mut rest = args[1..].iter();
+    while let Some(option) = rest.next() {
+        match option.as_str() {
+            "--out" => {
+                let path = rest.next().ok_or_else(|| {
+                    "--out needs a file name, or - for standard output".to_owned()
+                })?;
+                out = if path == "-" {
+                    PrintTo::Stdout
+                } else {
+                    PrintTo::File(std::path::PathBuf::from(path))
+                };
+            }
+            "--page-per-message" => pages = mail_mime::Pages::PerMessage,
+            other => return Err(format!("unknown option {other:?}\n\n{}", usage())),
+        }
+    }
+    Ok(Command::Print { target, out, pages })
 }
 
 /// Whether `unsubscribe` acts or only says what it would do.
@@ -345,6 +399,7 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
             Ok(Command::Unsubscribe { target, step })
         }
         "contacts" => crate::contacts::parse(&args[1..]).map(Command::Contacts),
+        "print" => parse_print(&args[1..]),
         "watch" => match args.get(1).map(String::as_str) {
             None => Ok(Command::Watch {
                 notify: WatchNotify::AsSet,
@@ -975,6 +1030,9 @@ usage: mailo <command>
                              leave the list it came through: one-click where the
                              list offers it, else a queued message; --show only lists
                              the ways out. A web page is printed, never opened
+  print <thread-or-message-id> [--out FILE] [--page-per-message]
+                             a printable HTML document: to stdout when piped, else a
+                             new file here named from the subject; --out - for stdout
   contacts [words]            the best-matching contacts, as a recipient field offers them
   contacts add <address> [name]
   contacts remove <address>
@@ -1233,6 +1291,17 @@ pub fn run_with_clients(
             ))
         }
         Command::Contacts(contacts) => crate::contacts::run(store, contacts, saved, now),
+        Command::Print { target, out, pages } => {
+            let printed = crate::print::document(store, *target, &Local, now, *pages)?;
+            match out {
+                PrintTo::Unsaid | PrintTo::Stdout => Ok(printed.html),
+                PrintTo::File(path) => std::fs::write(path, &printed.html)
+                    .map(|()| format!("wrote {}\n", path.display()))
+                    .map_err(|e| format!("{}: {e}", path.display())),
+                PrintTo::Into(dir) => crate::print::write_into(dir, &printed)
+                    .map(|path| format!("wrote {}\n", path.display())),
+            }
+        }
         Command::Discard { draft } => {
             crate::compose::discard(store, *draft).map(|subject| format!("discarded {subject:?}\n"))
         }

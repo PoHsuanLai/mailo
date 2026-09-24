@@ -100,6 +100,24 @@ fn main() {
         }
         other => other,
     };
+    // `print` with no `--out` goes to stdout when that is a pipe or a file, and to a file
+    // when it is a terminal. Only here can that be asked.
+    let command = match command {
+        Some(mail_app::cli::Command::Print {
+            target,
+            out: mail_app::cli::PrintTo::Unsaid,
+            pages,
+        }) => {
+            use std::io::IsTerminal as _;
+            let out = if std::io::stdout().is_terminal() {
+                mail_app::cli::PrintTo::Into(std::path::PathBuf::from("."))
+            } else {
+                mail_app::cli::PrintTo::Stdout
+            };
+            Some(mail_app::cli::Command::Print { target, out, pages })
+        }
+        other => other,
+    };
 
     let Some(dirs) = paths() else {
         eprintln!("cannot determine a data directory; set HOME or XDG_DATA_HOME");

@@ -20,7 +20,26 @@ use crate::sanitize::{RemoteImages, SafeHtml};
 /// the URL. A body sanitized with images already blocked has no URL left to
 /// name a host from.
 pub fn from_html(sanitized: &SafeHtml, parts: &[ParsedPart], images: RemoteImages) -> Document {
-    let built = html::walk(sanitized.as_str(), parts, images);
+    lower_html(sanitized, parts, images, html::Unheld::Drop)
+}
+
+/// [`from_html`] for a printout: a `cid:` image that cannot be embedded leaves its
+/// description in the text instead of nothing.
+pub(crate) fn from_html_describing(
+    sanitized: &SafeHtml,
+    parts: &[ParsedPart],
+    images: RemoteImages,
+) -> Document {
+    lower_html(sanitized, parts, images, html::Unheld::Describe)
+}
+
+fn lower_html(
+    sanitized: &SafeHtml,
+    parts: &[ParsedPart],
+    images: RemoteImages,
+    unheld: html::Unheld,
+) -> Document {
+    let built = html::walk(sanitized.as_str(), parts, images, unheld);
     let mut blocks = built.blocks;
     let heavy = heaviness::score(&built.signals);
     let (shape, primary) = machine::finish(&mut blocks, heaviness::is_heavy(&built.signals));
@@ -32,7 +51,16 @@ pub fn from_html(sanitized: &SafeHtml, parts: &[ParsedPart], images: RemoteImage
 /// Heaviness is zero. There is no markup to score, so the shape is
 /// [`Shape::Letter`] however the prose is arranged.
 pub fn from_text(text: &str, flowed: Flowed) -> Document {
-    let built = text::parse(text, flowed);
+    lower_text(text, flowed, text::Lines::Join)
+}
+
+/// [`from_text`] for a printout: a fixed line ends where the sender ended it.
+pub(crate) fn from_text_keeping_lines(text: &str, flowed: Flowed) -> Document {
+    lower_text(text, flowed, text::Lines::Keep)
+}
+
+fn lower_text(text: &str, flowed: Flowed, lines: text::Lines) -> Document {
+    let built = text::parse(text, flowed, lines);
     let _ = Signals::plain();
     Document::new(
         built.blocks,

@@ -34,13 +34,29 @@ pub(crate) struct HtmlOut {
     pub signals: Signals,
 }
 
-pub(crate) fn walk(html: &str, parts: &[ParsedPart], images: RemoteImages) -> HtmlOut {
+/// What the walk does with a `cid:` image whose bytes it cannot embed.
+///
+/// The reader drops it: an image that is not there has nothing to draw, and the parts list
+/// already names the file. A printout has no parts pane beside it, so it says in the text that
+/// an image stood there, by its own description.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Unheld {
+    Drop,
+    Describe,
+}
+
+pub(crate) fn walk(
+    html: &str,
+    parts: &[ParsedPart],
+    images: RemoteImages,
+    unheld: Unheld,
+) -> HtmlOut {
     let mut tendril = StrTendril::new();
     tendril.push_slice(html);
     let queue = BufferQueue::default();
     queue.push_back(tendril);
     let sink = Sink {
-        inner: RefCell::new(Builder::new(parts, images)),
+        inner: RefCell::new(Builder::new(parts, images, unheld)),
     };
     let tokenizer = Tokenizer::new(sink, TokenizerOpts::default());
     let _ = tokenizer.feed(&queue);
@@ -75,13 +91,14 @@ struct Builder<'a> {
     signals: Signals,
     parts: &'a [ParsedPart],
     images: RemoteImages,
+    unheld: Unheld,
     spent: usize,
     closed: bool,
     output: Vec<Block>,
 }
 
 impl<'a> Builder<'a> {
-    fn new(parts: &'a [ParsedPart], images: RemoteImages) -> Self {
+    fn new(parts: &'a [ParsedPart], images: RemoteImages, unheld: Unheld) -> Self {
         Self {
             stack: vec![Frame::root()],
             skip_keep: 0,
@@ -94,6 +111,7 @@ impl<'a> Builder<'a> {
             signals: Signals::default(),
             parts,
             images,
+            unheld,
             spent: 0,
             closed: false,
             output: Vec::new(),
@@ -282,7 +300,7 @@ impl<'a> Builder<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::walk;
+    use super::{Unheld, walk};
     use crate::block::Block;
     use crate::block::kind::span_text;
     use crate::sanitize::RemoteImages;
@@ -291,7 +309,12 @@ mod tests {
     fn an_unknown_tag_keeps_its_subtree() {
         // Ammonia unwraps tags it does not allow, so this calls the walker on
         // the markup ammonia would emit the day it allows `main`.
-        let out = walk("<main><p>kept</p>inner</main>", &[], RemoteImages::Blocked);
+        let out = walk(
+            "<main><p>kept</p>inner</main>",
+            &[],
+            RemoteImages::Blocked,
+            Unheld::Drop,
+        );
         let mut text = String::new();
         for block in &out.blocks {
             if let Block::Paragraph { spans, .. } = block {

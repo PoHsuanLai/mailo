@@ -15,6 +15,7 @@ pub mod import;
 pub mod ipc;
 pub mod notify;
 mod palette;
+pub mod print;
 mod provider;
 pub mod query;
 pub mod reader;

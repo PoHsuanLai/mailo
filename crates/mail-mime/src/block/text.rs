@@ -20,7 +20,18 @@ pub(crate) struct TextOut {
     pub reached: Reached,
 }
 
-pub(crate) fn parse(text: &str, flowed: Flowed) -> TextOut {
+/// What a run of fixed lines becomes.
+///
+/// The reader joins them: on a screen of any width, the sender's 72-column breaks fall in the
+/// middle of lines. A printout keeps them, because a page is a fixed width the sender's breaks
+/// were written for, and a poem or an address block is not prose to be rewrapped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Lines {
+    Join,
+    Keep,
+}
+
+pub(crate) fn parse(text: &str, flowed: Flowed, lines: Lines) -> TextOut {
     let mut reached = Reached::Nothing;
     let decoded = decode_lines(text, flowed);
     let split = last_signature(&decoded);
@@ -28,9 +39,9 @@ pub(crate) fn parse(text: &str, flowed: Flowed) -> TextOut {
         Some(index) => (&decoded[..index], Some(&decoded[index + 1..])),
         None => (decoded.as_slice(), None),
     };
-    let mut blocks = pieces_to_blocks(&group(body), &mut reached);
+    let mut blocks = pieces_to_blocks(&group(body, lines), &mut reached);
     if let Some(signature) = signature {
-        let inner = pieces_to_blocks(&group(signature), &mut reached);
+        let inner = pieces_to_blocks(&group(signature, lines), &mut reached);
         blocks.push(Block::Signature(inner));
     }
     if blocks.len() > Limits::MAX_BLOCKS {
@@ -104,7 +115,7 @@ struct Piece {
     block: Block,
 }
 
-fn group(lines: &[Line]) -> Vec<Piece> {
+fn group(lines: &[Line], keep: Lines) -> Vec<Piece> {
     let mut pieces = Vec::new();
     let mut index = 0;
     while index < lines.len() {
@@ -150,6 +161,8 @@ fn group(lines: &[Line]) -> Vec<Piece> {
                     text,
                 },
             });
+        } else if keep == Lines::Keep {
+            pieces.push(broken_paragraph(depth, run));
         } else {
             pieces.push(paragraph(depth, join_fixed(run)));
         }
@@ -164,6 +177,29 @@ fn paragraph(depth: usize, text: String) -> Piece {
         block: Block::Paragraph {
             spans: vec![Span::Text(text)],
             dir,
+        },
+    }
+}
+
+/// A paragraph that keeps the sender's line breaks as [`Span::Break`]s.
+fn broken_paragraph(depth: usize, run: &[Line]) -> Piece {
+    let texts: Vec<&str> = run
+        .iter()
+        .map(|line| line.text.trim())
+        .filter(|text| !text.is_empty())
+        .collect();
+    let mut spans = Vec::with_capacity(texts.len() * 2);
+    for (at, text) in texts.iter().enumerate() {
+        if at > 0 {
+            spans.push(Span::Break);
+        }
+        spans.push(Span::Text((*text).to_owned()));
+    }
+    Piece {
+        depth,
+        block: Block::Paragraph {
+            spans,
+            dir: first_strong(&texts.join(" ")),
         },
     }
 }
