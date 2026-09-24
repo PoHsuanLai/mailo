@@ -32,3 +32,5 @@
 .acct-done p:first-child { font-weight: 700; }
 .pin.acct.acct-add .av { background: transparent; color: var(--f-ink-faint); border: 1px dashed var(--f-ink-faint); }
 .pin.acct.acct-add:hover .av { color: var(--f-ink); border-color: var(--f-ink); }
+/* Between looking up and typing a JMAP server in: quire's quiet button, under the rest. */
+.acct-alt { display: flex; margin-top: var(--s-4); }

@@ -11,7 +11,7 @@ use mail_store::SqliteStore;
 
 use super::AddAccountSheet;
 use super::flow::Seams;
-use super::flow_tests::{Fake, found, seams};
+use super::flow_tests::{Fake, found, seams, with_jmap};
 use crate::space::{Scope, Space, Spaces};
 use crate::ui::fixtures::{Scripts, Seen, click, dispatching, rebuild_into, type_into};
 use crate::view::Shell;
@@ -231,8 +231,237 @@ async fn a_lookup_error_is_shown_in_the_sheet() {
     look_up(&mut open, "ada@nowhere.test").await;
     let shown = page(&open);
     assert!(shown.contains(why), "{shown}");
+    assert!(
+        shown.contains("No JMAP server answered at https://nowhere.test/.well-known/jmap either"),
+        "{shown}"
+    );
     assert!(shown.contains("role=\"alert\""), "{shown}");
+    assert!(shown.contains("Enter a JMAP server by hand"), "{shown}");
     assert_eq!(fake.added(), 0);
+}
+
+const SESSION: &str = "https://jmap.example.test/session";
+const TOKEN: &str = "fmu1-tok3n-0f-4417";
+
+/// The two segments of the quire segmented control labelled `group`, in order. Every choice in
+/// the sheet is between two; what `aria-pressed` follows them — quire's `Button` computes one
+/// too — is not theirs.
+fn segments(seen: &Seen, group: &str) -> Vec<dioxus_core::ElementId> {
+    let mut all = seen.after("aria-label", group, "aria-pressed");
+    all.truncate(2);
+    all
+}
+
+#[tokio::test]
+async fn jmap_found_by_discovery_is_shown_in_words_and_added_with_its_session() {
+    dispatching();
+    let (store, _dir) = store();
+    let fake = Arc::new(Fake::default());
+    let seams = with_jmap(
+        &fake,
+        Err("no autoconfig".to_owned()),
+        Ok(SESSION.to_owned()),
+        false,
+    );
+    let mut open = open(&store, seams, Vec::new());
+    let seen = look_up(&mut open, "ada@example.test").await;
+    let shown = page(&open);
+    assert!(shown.contains(&format!("JMAP at {SESSION}")), "{shown}");
+    assert!(
+        shown.contains("at https://example.test/.well-known/jmap"),
+        "{shown}"
+    );
+    assert!(shown.contains("aria-label=\"Signs in with\""), "{shown}");
+    assert_eq!(fake.added(), 0);
+
+    type_into(
+        &mut open.dom,
+        seen.one("placeholder", "Password for ada@example.test"),
+        PASSWORD,
+    );
+    click(&mut open.dom, seen.one("aria-label", "Use these settings"));
+    settle(&mut open.dom).await;
+    assert_eq!(
+        *fake.setups.lock().unwrap(),
+        [crate::cli::Setup::Jmap {
+            session: Some(SESSION.to_owned()),
+            login: None,
+            auth: mail_domain::HttpAuth::Basic,
+        }]
+    );
+    let shown = page(&open);
+    assert!(shown.contains("Added ada@example.test."), "{shown}");
+    assert!(!shown.contains(PASSWORD), "{shown}");
+}
+
+#[tokio::test]
+async fn a_domain_with_imap_and_jmap_offers_imap_first_and_jmap_one_press_away() {
+    dispatching();
+    let (store, _dir) = store();
+    let fake = Arc::new(Fake::default());
+    let seams = with_jmap(&fake, ok("ada@example.test"), Ok(SESSION.to_owned()), false);
+    let mut open = open(&store, seams, Vec::new());
+    let seen = look_up(&mut open, "ada@example.test").await;
+    let shown = page(&open);
+    assert!(shown.contains("IMAP imap.example.test:993"), "{shown}");
+    assert!(shown.contains("This domain offers two ways in"), "{shown}");
+    assert!(
+        shown.contains(&format!(
+            "JMAP at {SESSION}, found at https://example.test/.well-known/jmap"
+        )),
+        "{shown}"
+    );
+    assert!(!shown.contains("aria-label=\"Signs in with\""), "{shown}");
+    let ways = segments(&seen, "Connect with");
+    assert_eq!(ways.len(), 2, "no choice of two");
+    let drawn = click(&mut open.dom, ways[1]);
+    let shown = page(&open);
+    assert!(shown.contains(&format!("JMAP at {SESSION}")), "{shown}");
+    assert!(!shown.contains("IMAP imap.example.test:993"), "{shown}");
+    assert!(shown.contains("aria-label=\"Signs in with\""), "{shown}");
+
+    // A token for it, then Use these settings: the JMAP session is what is added.
+    let seen = seen.merge(drawn);
+    click(&mut open.dom, segments(&seen, "Signs in with")[1]);
+    type_into(
+        &mut open.dom,
+        seen.one("placeholder", "Password for ada@example.test"),
+        TOKEN,
+    );
+    let shown = page(&open);
+    assert!(
+        shown.contains("an API token, sent as a bearer token"),
+        "{shown}"
+    );
+    assert!(shown.contains("API token for ada@example.test"), "{shown}");
+    click(&mut open.dom, seen.one("aria-label", "Use these settings"));
+    settle(&mut open.dom).await;
+    assert_eq!(
+        *fake.setups.lock().unwrap(),
+        [crate::cli::Setup::Jmap {
+            session: Some(SESSION.to_owned()),
+            login: None,
+            auth: mail_domain::HttpAuth::Bearer,
+        }]
+    );
+    assert_eq!(*fake.handed.lock().unwrap(), [TOKEN]);
+}
+
+/// Every table in `store` and every file under `dir` that holds `needle`.
+fn held(store: &SqliteStore, dir: &std::path::Path, needle: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    let db = store.connection();
+    let tables: Vec<String> = db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    for table in tables {
+        let mut rows = db.prepare(&format!("SELECT * FROM \"{table}\"")).unwrap();
+        let columns = rows.column_count();
+        let mut rows = rows.query([]).unwrap();
+        while let Some(row) = rows.next().unwrap() {
+            for column in 0..columns {
+                let text = match row.get::<_, rusqlite::types::Value>(column).unwrap() {
+                    rusqlite::types::Value::Text(text) => text,
+                    rusqlite::types::Value::Blob(bytes) => {
+                        String::from_utf8_lossy(&bytes).into_owned()
+                    }
+                    _ => continue,
+                };
+                if text.contains(needle) {
+                    found.push(format!("table {table}"));
+                }
+            }
+        }
+    }
+    let mut dirs = vec![dir.to_path_buf()];
+    while let Some(at) = dirs.pop() {
+        for entry in std::fs::read_dir(&at).unwrap().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                dirs.push(path);
+            } else if String::from_utf8_lossy(&std::fs::read(&path).unwrap_or_default())
+                .contains(needle)
+            {
+                found.push(path.display().to_string());
+            }
+        }
+    }
+    found
+}
+
+#[tokio::test]
+async fn a_session_typed_by_hand_with_a_token_adds_with_bearer_and_keeps_the_token_nowhere_else() {
+    dispatching();
+    let (store, dir) = store();
+    let fake = Arc::new(Fake::default());
+    let mut open = open(
+        &store,
+        seams(&fake, Err("unused".to_owned()), false),
+        Vec::new(),
+    );
+    type_into(
+        &mut open.dom,
+        open.seen.one("placeholder", "you@example.com"),
+        "ada@example.test",
+    );
+    let seen = click(&mut open.dom, open.seen.one("id", "acct-by-hand"));
+    let url = seen.one("aria-label", "JMAP session URL");
+    let seen = seen.merge(type_into(
+        &mut open.dom,
+        url,
+        "http://jmap.example.test/session",
+    ));
+    let shown = page(&open);
+    assert!(shown.contains("starts with https://"), "{shown}");
+    let seen = seen.merge(type_into(&mut open.dom, url, SESSION));
+    assert!(!page(&open).contains("starts with https://"));
+    let token = segments(&seen, "Signs in with")[1];
+    let seen = seen.merge(click(&mut open.dom, token));
+    type_into(
+        &mut open.dom,
+        seen.one("placeholder", "API token for ada@example.test"),
+        TOKEN,
+    );
+    let shown = page(&open);
+    assert!(!shown.contains(TOKEN), "the page holds the token: {shown}");
+    assert_eq!((fake.looked(), fake.added()), (0, 0));
+
+    click(&mut open.dom, seen.one("aria-label", "Use these settings"));
+    settle(&mut open.dom).await;
+    assert_eq!(
+        *fake.setups.lock().unwrap(),
+        [crate::cli::Setup::Jmap {
+            session: Some(SESSION.to_owned()),
+            login: None,
+            auth: mail_domain::HttpAuth::Bearer,
+        }]
+    );
+    let rows = crate::ui::data::account_rows(&store);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(
+        fake.kept(rows[0].id).as_deref(),
+        Some(TOKEN),
+        "the keyring fake"
+    );
+    let shown = page(&open);
+    assert!(
+        shown.contains("The token is in the system keyring."),
+        "{shown}"
+    );
+    assert!(!shown.contains(TOKEN), "the page holds the token");
+    assert!(
+        !open.snapshot.get().contains(TOKEN),
+        "the shell or the Spaces hold the token"
+    );
+    assert_eq!(held(&store, dir.path(), TOKEN), Vec::<String>::new());
+    assert!(
+        !held(&store, dir.path(), SESSION).is_empty(),
+        "the search of the store finds nothing at all"
+    );
 }
 
 #[tokio::test]
@@ -428,6 +657,27 @@ async fn every_state() -> Vec<(&'static str, String)> {
     let mut error = open(&store, seams(&fake, Err(why.to_owned()), false), Vec::new());
     look_up(&mut error, "ada@nowhere.test").await;
     all.push(("error", page(&error)));
+
+    let both = with_jmap(&fake, ok("ada@example.test"), Ok(SESSION.to_owned()), false);
+    let mut two = open(&store, both, Vec::new());
+    let seen = look_up(&mut two, "ada@example.test").await;
+    all.push(("two-ways", page(&two)));
+    click(&mut two.dom, segments(&seen, "Connect with")[1]);
+    all.push(("jmap", page(&two)));
+
+    let mut typing = open(&store, seams(&fake, ok("unused@x.test"), false), Vec::new());
+    type_into(
+        &mut typing.dom,
+        typing.seen.one("placeholder", "you@example.com"),
+        "ada@example.test",
+    );
+    let seen = click(&mut typing.dom, typing.seen.one("id", "acct-by-hand"));
+    type_into(
+        &mut typing.dom,
+        seen.one("aria-label", "JMAP session URL"),
+        "jmap.example.test",
+    );
+    all.push(("by-hand", page(&typing)));
     all
 }
 
@@ -448,6 +698,10 @@ async fn every_class_the_add_account_sheet_draws_is_styled() {
         "acct-said",
         "acct-url",
         "acct-link",
+        "acct-alt",
+        "ds-segmented",
+        "ds-input",
+        "ds-button",
     ] {
         assert!(markup.contains(class), "{class} was not drawn");
     }
