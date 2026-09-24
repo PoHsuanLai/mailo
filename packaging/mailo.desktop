@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=mailo
+Comment=Read and send mail
+Exec=mailo
+Categories=Network;Email;
+StartupNotify=true

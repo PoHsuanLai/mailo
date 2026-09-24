@@ -57,6 +57,11 @@ one store — a separate CLI would drift from what the window does.
 
 Run `./target/release/mailo` with an unknown command to print the full list.
 
+Clicking a new-mail notification from `mailo watch` opens that conversation in a new window (a
+second one if a window is already open — a known gap). For the desktop to name and group the
+notifications, put `mailo` on your `PATH` and install the entry:
+`install -Dm644 packaging/mailo.desktop ~/.local/share/applications/mailo.desktop`.
+
 ### The daemon is a prototype
 
 `mailo ping` starts a background daemon on demand and talks to it — the `ssh-agent` pattern, so
