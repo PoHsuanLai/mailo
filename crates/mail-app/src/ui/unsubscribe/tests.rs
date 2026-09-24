@@ -306,7 +306,7 @@ fn archive_all_takes_the_senders_inbox_and_nothing_else() {
     let other = put(&store, "quiet@example.test", NO_WAY_OUT, Held::Body);
 
     let undone = archive_from(&store, "weekly@rust.test");
-    let archived: Vec<ThreadId> = undone.iter().map(|undo| undo.thread).collect();
+    let archived: Vec<ThreadId> = undone.iter().filter_map(|undo| undo.thread).collect();
     assert!(
         archived.contains(&first) && archived.contains(&second),
         "{archived:?}"

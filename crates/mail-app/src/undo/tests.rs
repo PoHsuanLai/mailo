@@ -83,7 +83,7 @@ fn the_stack_forgets_the_oldest_past_its_depth() {
     for thread in &threads {
         stack.push(Undo {
             said: "Archived".to_owned(),
-            thread: *thread,
+            thread: Some(*thread),
             account,
             forward: patch(vec![]),
             inverse: patch(vec![]),
@@ -91,8 +91,8 @@ fn the_stack_forgets_the_oldest_past_its_depth() {
         });
     }
     assert_eq!(stack.len(), DEPTH);
-    assert_eq!(stack.last().map(|u| u.thread), threads.last().copied());
-    assert_eq!(stack.pop().map(|u| u.thread), threads.last().copied());
+    assert_eq!(stack.last().and_then(|u| u.thread), threads.last().copied());
+    assert_eq!(stack.pop().and_then(|u| u.thread), threads.last().copied());
     assert_eq!(stack.len(), DEPTH - 1);
 }
 

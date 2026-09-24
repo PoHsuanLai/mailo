@@ -9,8 +9,8 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::{
-    AccountId, Change, LabelId, MailboxRole, Membership, MessageId, Op, Patch, Pin, ReadState,
-    RemoteIntent, Snooze, Star, ThreadId,
+    AccountId, Change, FolderWork, LabelId, MailboxRole, Membership, MessageId, NonEmpty, Op,
+    Patch, Pin, ReadState, RemoteIntent, Snooze, Star, Subscription, ThreadId,
 };
 use std::collections::BTreeMap;
 
@@ -22,7 +22,9 @@ pub const DEPTH: usize = 20;
 pub struct Undo {
     /// What the toast said: "Archived".
     pub said: String,
-    pub thread: ThreadId,
+    /// The conversation it acted on. `None` for work on an account's folders, which belongs
+    /// to no conversation.
+    pub thread: Option<ThreadId>,
     pub account: AccountId,
     /// The patch that was applied.
     pub forward: Patch,
@@ -134,13 +136,45 @@ pub fn reverse_intent(remote: &RemoteIntent, inverse: &Patch) -> Option<RemoteIn
                 remove,
             })
         }
-        // A submission is not taken back by a patch; the outbox owns that. Nor is folder work,
-        // which is not a conversation's and never enters this stack: `folder::change` returns
-        // its own `Applied` for a caller that wants to offer an undo. Nor is a keyword:
+        RemoteIntent::Folder(work) => reverse_folder(work).map(RemoteIntent::Folder),
+        // A submission is not taken back by a patch; the outbox owns that. Nor is a keyword:
         // `$MDNSent` records a receipt answered, which no undo un-answers.
-        RemoteIntent::Send { .. } | RemoteIntent::Folder(_) | RemoteIntent::AddKeyword { .. } => {
-            None
-        }
+        RemoteIntent::Send { .. } | RemoteIntent::AddKeyword { .. } => None,
+    }
+}
+
+/// The folder work that takes `work` back on the server.
+///
+/// Read from the work rather than the inverse patch, because the patch describes this client's
+/// records and the server needs the command. A delete that took mail with it has no reverse:
+/// making the folder again would bring back a name, not the messages, so that one is not
+/// offered as an undo at all.
+pub fn reverse_folder(work: &FolderWork) -> Option<FolderWork> {
+    match work {
+        FolderWork::Create { path } => Some(FolderWork::Delete {
+            path: path.clone(),
+            // Whatever was filed there since is the server's to refuse over.
+            non_empty: NonEmpty::Refuse,
+        }),
+        FolderWork::Rename { from, to } => Some(FolderWork::Rename {
+            from: to.clone(),
+            to: from.clone(),
+        }),
+        FolderWork::Delete {
+            path,
+            non_empty: NonEmpty::Refuse,
+        } => Some(FolderWork::Create { path: path.clone() }),
+        FolderWork::Delete {
+            non_empty: NonEmpty::Allow,
+            ..
+        } => None,
+        FolderWork::Subscribe { path, subscription } => Some(FolderWork::Subscribe {
+            path: path.clone(),
+            subscription: match subscription {
+                Subscription::Subscribed => Subscription::Unsubscribed,
+                Subscription::Unsubscribed => Subscription::Subscribed,
+            },
+        }),
     }
 }
 

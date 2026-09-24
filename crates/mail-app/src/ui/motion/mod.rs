@@ -164,11 +164,13 @@ pub(super) fn undo_last(
     if let Some(mut motion) = motion() {
         motion.toast.set(None);
         motion.pull.set(None);
-        motion
-            .leaving
-            .write()
-            .retain(|row| row.summary.id != entry.thread);
-        motion.returning.set(Some(entry.thread));
+        if let Some(thread) = entry.thread {
+            motion
+                .leaving
+                .write()
+                .retain(|row| row.summary.id != thread);
+            motion.returning.set(Some(thread));
+        }
     }
     true
 }

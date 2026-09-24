@@ -8,7 +8,7 @@ use crate::provider::icon::{ChipPlace, ProvChip};
 use crate::provider::{Provider, provider};
 use crate::query::{self};
 use crate::space::{self, Pinned, Scope, Space};
-use crate::view::{Shell, is_label_place};
+use crate::view::{Shell, Source, is_label_place};
 use dioxus::prelude::*;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
@@ -178,21 +178,32 @@ pub(super) fn PlaceList(
     shell: Signal<Shell>,
     pages: Signal<u32>,
     badges: Memo<Vec<Option<u64>>>,
+    folded: Vec<LabelId>,
 ) -> Element {
     let places = shell.read().places.clone();
     let split = places
         .iter()
         .position(is_label_place)
         .unwrap_or(places.len());
+    // A label that is also a mailbox is drawn once, under Folders. See `folder_tree::arrange`.
+    let labels: Vec<(usize, String)> = places
+        .iter()
+        .enumerate()
+        .skip(split)
+        .filter(|(_, place)| {
+            !matches!(&place.source, Source::Mail(Filter::HasLabel(id)) if folded.contains(id))
+        })
+        .map(|(index, place)| (index, place.name.clone()))
+        .collect();
     rsx! {
         div { class: "s-h", "Places" }
         for (index, place) in places.iter().take(split).enumerate() {
             PlaceButton { index, name: place.name.clone(), icon: place_icon(&place.name), shell, pages, badges }
         }
-        if split < places.len() {
+        if !labels.is_empty() {
             div { class: "s-h", "Labels" }
-            for (index, place) in places.iter().enumerate().skip(split) {
-                PlaceButton { index, name: place.name.clone(), icon: Icon::Tag, shell, pages, badges }
+            for (index, name) in labels {
+                PlaceButton { index, name, icon: Icon::Tag, shell, pages, badges }
             }
         }
     }

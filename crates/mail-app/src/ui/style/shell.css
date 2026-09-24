@@ -183,3 +183,43 @@
 .list-bar .status.bad { color: var(--danger); font-weight: 600; }
 .bar-tools { display: flex; gap: 6px; align-items: center; margin-left: auto; position: relative; }
 .bar-tools .mini .ic { width: 14px; height: 14px; }
+/* Folders: a `<details>` per parent, so opening and closing is the document's own state. The
+   ⋯ shows on hover or focus, and the menu and the name field sit in the flow under the row:
+   the sidebar is narrower than a menu and clips what hangs out of it. */
+.fold { display: flex; flex-direction: column; min-width: 0; }
+.fold-kids { display: flex; flex-direction: column; gap: 2px; padding-left: 12px; }
+summary.fold-row { list-style: none; }
+summary.fold-row::-webkit-details-marker { display: none; }
+.fold-row { min-width: 0; }
+.fold-row.dim { opacity: 0.62; }
+.fold-row .chev {
+  width: 6px; height: 6px; flex: none; margin: 0 4px 0 3px;
+  border-right: 1.5px solid var(--f-ink-faint); border-bottom: 1.5px solid var(--f-ink-faint);
+  transform: rotate(-45deg); transition: transform var(--t-quick) var(--e-out);
+}
+.fold[open] > summary .chev { transform: rotate(45deg); }
+.fold-row .chev.none { border-color: transparent; }
+.fold-name {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left;
+  border: 0; background: none; padding: 0; font: inherit; color: inherit; cursor: inherit;
+}
+.fold-row .more {
+  margin-left: auto; flex: none; width: 20px; height: 18px; padding: 0; border: 0; border-radius: 6px;
+  background: none; color: var(--f-ink-faint); font: inherit; font-size: 13px; line-height: 1;
+  cursor: pointer; opacity: 0; transition: opacity var(--t-quick) var(--e-out);
+}
+.fold-row .count + .more { margin-left: 4px; }
+.fold-row:hover .more, .fold-row:focus-within .more, .fold-row .more[aria-expanded="true"] { opacity: 1; }
+.fold-row .more:hover { background: var(--f-pill); color: var(--f-ink); }
+.fold-edit { display: flex; flex: 1; min-width: 0; }
+.fold-edit .inp.inline { min-width: 0; padding: 0; font-size: 13.5px; color: var(--f-ink); }
+.fold-edit .inp.inline::placeholder { color: var(--f-ink-faint); }
+.fold-new { background: var(--f-pill); cursor: text; }
+.fold-menu { padding: 2px 0 4px; }
+.fold-menu .fmenu { position: static; width: auto; max-height: none; }
+.fold-acct {
+  padding: 6px 8px 2px; font-family: var(--font-data); font-size: 10.5px; color: var(--f-ink-faint);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.fold-note { padding: 2px 8px 4px 22px; font-size: 12px; line-height: 1.35; color: var(--f-ink-faint); }
+.fold-note.refused { color: var(--f-ink); font-weight: 550; }

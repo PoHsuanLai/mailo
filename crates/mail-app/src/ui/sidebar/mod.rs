@@ -4,9 +4,16 @@
 //! fetching moved into the list bar; how the Space looks is the editor's, opened from
 //! the foot.
 
+mod folder_act;
+mod folder_parts;
+mod folder_row;
+mod folder_tree;
+mod folders;
 mod panes;
 mod today;
 
+use self::folder_tree::{Show, arrange, scope};
+use self::folders::FolderList;
 use self::panes::{AccountTiles, PinnedList, PlaceList, counts};
 use self::today::TodayList;
 use super::icon::{Glyph, Icon};
@@ -41,6 +48,20 @@ pub(super) fn Places(
         let store = consume_context::<std::sync::Arc<mail_store::SqliteStore>>();
         counts(&store, &spaces.read().current_space())
     });
+    // The accounts the Folders section is for. A memo, so a keystroke in the search box — a
+    // shell change — does not read the folders again.
+    let in_scope = use_memo(move || scope(&shell.read()));
+    let show = use_signal(|| Show::Followed);
+    let folders = use_memo(move || {
+        let _ = revision();
+        let store = consume_context::<std::sync::Arc<mail_store::SqliteStore>>();
+        arrange(&folder_act::load(&store, &in_scope()), show())
+    });
+    let folded = folders
+        .read()
+        .as_ref()
+        .map(|section| section.labels.clone())
+        .unwrap_or_default();
     let space_index = spaces.read().current;
     let tiles = counted.read().clone();
     let slide_class = slide().map_or("slide", Slide::class);
@@ -67,7 +88,10 @@ pub(super) fn Places(
             // Keyed by the Space, so a switch mounts it afresh and the slide plays each time.
             div { key: "{space_index}", class: "{slide_class}",
                 AccountTiles { shell, pages, space: space.clone(), counted: tiles.clone() }
-                PlaceList { shell, pages, badges }
+                PlaceList { shell, pages, badges, folded }
+                if let Some(section) = folders() {
+                    FolderList { shell, pages, badges, revision, section, show }
+                }
                 PinnedList { shell, pages, space: space.clone(), pins: tiles.pins.clone() }
                 TodayList { shell, today, space_index, dirs: dirs.clone(), just_added }
             }
@@ -142,5 +166,9 @@ pub(super) fn Places(
         }
     }
 }
+#[cfg(test)]
+mod folder_store_tests;
+#[cfg(test)]
+mod folder_tests;
 #[cfg(test)]
 pub(in crate::ui) mod tests;

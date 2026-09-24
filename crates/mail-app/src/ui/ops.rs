@@ -197,7 +197,7 @@ pub(super) fn perform(store: &SqliteStore, thread: ThreadId, op: Op) -> Option<U
     }
     Some(Undo {
         said: crate::undo::said(&op, &chrono::Local),
-        thread,
+        thread: Some(thread),
         account,
         forward: applied.forward,
         inverse: applied.inverse,
