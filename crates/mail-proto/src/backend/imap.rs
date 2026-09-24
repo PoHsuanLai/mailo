@@ -449,9 +449,13 @@ impl Backend for ImapBackend {
                     },
                 ])
             }
-            ProtoOp::Watch { mailbox } => {
+            ProtoOp::Watch { mailbox, uidnext } => {
                 self.job = Job::Watching;
-                self.queue(vec![Self::select(&mailbox, true), ImapCommand::Idle])
+                let idle = match uidnext {
+                    Some(uidnext) => ImapCommand::IdleAfter { uidnext },
+                    None => ImapCommand::Idle,
+                };
+                self.queue(vec![Self::select(&mailbox, true), idle])
             }
             ProtoOp::Expunge { .. } => Progress::Failed(ProtoError::Unsupported(
                 "expunging is forbidden: Gmail may be configured to delete permanently, and \

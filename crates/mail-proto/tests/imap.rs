@@ -113,6 +113,32 @@ fn idle_is_interrupted_in_protocol_rather_than_dropped() {
     .unwrap();
 }
 
+/// Mail that landed between the last sync pass and this watch is in SELECT's `UIDNEXT`, and
+/// the walk ends there: `IDLE` would only have announced what arrived after it began.
+#[test]
+fn a_watch_that_selects_past_what_was_synced_does_not_idle() {
+    let watch = |uidnext| {
+        session(vec![
+            ImapCommand::Select {
+                mailbox: "INBOX".to_owned(),
+                read_only: true,
+                qresync: None,
+            },
+            ImapCommand::IdleAfter { uidnext },
+        ])
+    };
+    replay(
+        &mut watch(5),
+        include_str!("traces/imap/idle_after_new_mail.trace"),
+    )
+    .unwrap();
+    replay(
+        &mut watch(5),
+        include_str!("traces/imap/idle_after_nothing_new.trace"),
+    )
+    .unwrap();
+}
+
 /// Mozilla 344205: a server advertising IDLE and answering NO wedged Thunderbird for years,
 /// because it assumed the continuation and sent DONE anyway.
 #[test]

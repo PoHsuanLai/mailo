@@ -273,6 +273,7 @@ fn proto_ops() -> Vec<ProtoOp> {
         },
         ProtoOp::Watch {
             mailbox: mailbox_ref(),
+            uidnext: None,
         },
         ProtoOp::AddKeyword {
             remotes: vec![imap_ref()],

@@ -1,0 +1,14 @@
+# SYNTHETIC. Nothing arrived since the last sync pass: SELECT reports the same UIDNEXT the client
+# synced to, so the watch idles as it always has.
+S: * OK ready
+C: a001 EXAMINE "INBOX"
+S: * 4 EXISTS
+S: * OK [UIDVALIDITY 42] valid
+S: * OK [UIDNEXT 5] next
+S: a001 OK [READ-ONLY] done
+C: a002 IDLE
+S: + idling
+INTERRUPT
+C: DONE
+S: a002 OK IDLE terminated
+DONE

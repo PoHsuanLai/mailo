@@ -661,10 +661,17 @@ impl<B: Backend> AccountEngine<B> {
         if !matches!(self.backend.caps().watch, WatchMode::Idle) {
             return Ok(false);
         }
+        // What this client has already synced, so mail that landed between the last pass and
+        // this `IDLE` wakes the watch at once instead of waiting for the next, unrelated push.
+        let uidnext = match self.store.cursor(mailbox) {
+            Ok(Some(SyncCursor::Imap { uidnext, .. })) => Some(uidnext),
+            _ => None,
+        };
         match self
             .run(
                 ProtoOp::Watch {
                     mailbox: mailbox.clone(),
+                    uidnext,
                 },
                 cancel,
             )

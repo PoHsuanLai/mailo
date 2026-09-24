@@ -125,6 +125,15 @@ pub enum ImapCommand {
     },
     /// `IDLE`, which parks until the server says something or the caller interrupts.
     Idle,
+    /// `IDLE`, unless the `SELECT` before it reported a `UIDNEXT` above `uidnext`: then mail
+    /// arrived after the caller last looked, and the walk ends without idling.
+    ///
+    /// Decided inside the walk for the reason [`ImapCommand::RequireEmpty`] is: the `SELECT`
+    /// that says so is on this connection, and a server announces during `IDLE` only what
+    /// arrives while it runs.
+    IdleAfter {
+        uidnext: u32,
+    },
     Noop,
     Logout,
 }
@@ -300,13 +309,19 @@ impl ImapSession {
             self.phase = Phase::Finished;
             return Progress::Done(std::mem::take(&mut self.transcript));
         };
+        if let ImapCommand::IdleAfter { uidnext } = command
+            && reported_uidnext(&self.transcript.untagged).is_some_and(|now| now > uidnext)
+        {
+            self.phase = Phase::Finished;
+            return Progress::Done(std::mem::take(&mut self.transcript));
+        }
         let tag = self.next_tag();
         let line = match self.render(&command, &tag) {
             Ok(line) => line,
             Err(e) => return self.fail(e),
         };
         self.phase = match command {
-            ImapCommand::Idle => Phase::IdlePending {
+            ImapCommand::Idle | ImapCommand::IdleAfter { .. } => Phase::IdlePending {
                 index,
                 tag: tag.clone(),
             },
@@ -329,7 +344,7 @@ impl ImapSession {
             ImapCommand::Capability => "CAPABILITY".to_owned(),
             ImapCommand::Noop => "NOOP".to_owned(),
             ImapCommand::Logout => "LOGOUT".to_owned(),
-            ImapCommand::Idle => "IDLE".to_owned(),
+            ImapCommand::Idle | ImapCommand::IdleAfter { .. } => "IDLE".to_owned(),
             ImapCommand::List => "LIST \"\" \"*\"".to_owned(),
             ImapCommand::Lsub => "LSUB \"\" \"*\"".to_owned(),
             // Every name goes out as modified UTF-7, quoted: the wire name is the identity.
@@ -753,6 +768,18 @@ fn classify(text: &str, refused: Option<&ImapCommand>) -> ProtoError {
         kind: Refusal::Permanent,
         text: text.to_owned(),
     }
+}
+
+/// The last `UIDNEXT` the server reported on this connection, from `SELECT`'s response code.
+fn reported_uidnext(untagged: &[Untagged]) -> Option<u32> {
+    untagged
+        .iter()
+        .filter_map(|u| {
+            let at = u.text.find("[UIDNEXT ")? + "[UIDNEXT ".len();
+            let rest = &u.text[at..];
+            rest[..rest.find(']')?].trim().parse().ok()
+        })
+        .next_back()
 }
 
 /// Why a [`ImapCommand::RequireEmpty`] guard stops the walk, if it does.

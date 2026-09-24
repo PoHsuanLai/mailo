@@ -233,6 +233,13 @@ pub enum ProtoOp {
     },
     Watch {
         mailbox: MailboxRef,
+        /// The `UIDNEXT` this client has synced the mailbox to, when it has. A server reports
+        /// its own on `SELECT`; a higher one means mail arrived after the last pass looked, and
+        /// the watch returns at once rather than idling past it. `IDLE` announces only what
+        /// arrives while it is running, so without this such mail waited for the next,
+        /// unrelated wake-up.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        uidnext: Option<u32>,
     },
     /// Create, rename, delete or follow a mailbox. IMAP only.
     Folder(crate::folder::FolderWork),

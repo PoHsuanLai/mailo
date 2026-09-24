@@ -3672,3 +3672,17 @@ Found while building 10.5 and fixed there.
 
 Mail already stored with replacement characters is re-read from its raw bytes once, through the
 `messages_to_reparse` queue (migration 0012).
+
+### F149 — Mail that landed just before IDLE waited for the next unrelated wake-up
+
+Found through a test that failed only under load. A watch runs a sync pass, then opens a
+connection, `SELECT`s the Inbox and `IDLE`s. `IDLE` announces what arrives while it runs; mail
+that arrived after the pass looked and before `IDLE` began is visible only as a higher
+`UIDNEXT` in the `SELECT` response, which nothing read. That message sat unfetched and
+unannounced until some later push woke the watch, which on a quiet mailbox could be the server's
+IDLE timeout.
+
+`ProtoOp::Watch` now carries the `UIDNEXT` the client has synced to, and the walk's
+`IdleAfter` command ends without idling when `SELECT` reports a higher one. The test's fake server
+had the same blind spot — its IDLE compared against the count at `IDLE`, not at `SELECT` — which
+is why the race showed only when a loaded machine stretched the gap.

@@ -249,6 +249,9 @@ async fn session(mut sock: tokio::net::TcpStream, drop: Maildrop) {
     }
     let mut buf = Vec::new();
     let mut idle_tag: Option<String> = None;
+    // How many messages this connection's SELECT reported. A real server's IDLE reports any
+    // change since then, not only one that happens after IDLE begins.
+    let mut selected = 0;
     loop {
         let mut chunk = [0u8; 4096];
         let read = match sock.read(&mut chunk).await {
@@ -275,6 +278,7 @@ async fn session(mut sock: tokio::net::TcpStream, drop: Maildrop) {
                 format!("* LSUB () \"/\" \"INBOX\"\r\n{tag} OK done\r\n")
             } else if upper.starts_with("SELECT") || upper.starts_with("EXAMINE") {
                 let next = held.iter().map(|(uid, ..)| uid + 1).max().unwrap_or(1);
+                selected = held.len();
                 format!(
                     "* {} EXISTS\r\n\
                      * OK [UIDVALIDITY 42] uids valid\r\n\
@@ -288,8 +292,8 @@ async fn session(mut sock: tokio::net::TcpStream, drop: Maildrop) {
                 let uids: Vec<String> = held.iter().map(|(uid, ..)| uid.to_string()).collect();
                 format!("* SEARCH {}\r\n{tag} OK done\r\n", uids.join(" "))
             } else if upper.starts_with("IDLE") {
-                // Parked, as a real server parks, until the maildrop grows; then the new count,
-                // which is the only thing IDLE is for.
+                // Parked, as a real server parks, until the maildrop differs from what SELECT
+                // reported; then the new count, which is the only thing IDLE is for.
                 idle_tag = Some(tag.clone());
                 if sock.write_all(b"+ idling\r\n").await.is_err() {
                     return;
@@ -297,7 +301,7 @@ async fn session(mut sock: tokio::net::TcpStream, drop: Maildrop) {
                 let grown = loop {
                     tokio::time::sleep(std::time::Duration::from_millis(20)).await;
                     let now = drop.lock().unwrap().len();
-                    if now != held.len() {
+                    if now != selected {
                         break now;
                     }
                 };

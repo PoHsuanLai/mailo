@@ -1,0 +1,10 @@
+# SYNTHETIC. Mail arrived after the last sync pass and before this watch began: SELECT reports a
+# UIDNEXT above the one the client synced to (5), so the walk ends without IDLE. IDLE would only
+# announce mail arriving while it runs, and this message would wait for the next wake-up.
+S: * OK ready
+C: a001 EXAMINE "INBOX"
+S: * 7 EXISTS
+S: * OK [UIDVALIDITY 42] valid
+S: * OK [UIDNEXT 8] next
+S: a001 OK [READ-ONLY] done
+DONE

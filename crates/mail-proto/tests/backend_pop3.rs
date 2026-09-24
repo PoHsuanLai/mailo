@@ -268,7 +268,10 @@ fn submission_is_unsupported_not_silently_ignored() {
 #[test]
 fn watch_completes_at_once_because_pop3_has_no_push() {
     let mut backend = backend();
-    match backend.begin(ProtoOp::Watch { mailbox: mailbox() }) {
+    match backend.begin(ProtoOp::Watch {
+        mailbox: mailbox(),
+        uidnext: None,
+    }) {
         Progress::Done(ProtoOutcome::Woken) => {}
         other => panic!("expected Woken, got {other:?}"),
     }
