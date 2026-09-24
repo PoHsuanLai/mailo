@@ -144,7 +144,7 @@ fn pin_person(spaces: Option<Signal<Spaces>>, name: &str, email: &str) {
 
 /// Put an address on the clipboard. Quoted by `serde_json`, like every string the window
 /// hands a script.
-fn copy(email: &str) {
+pub(in crate::ui) fn copy(email: &str) {
     let quoted = serde_json::to_string(email).unwrap_or_else(|_| "\"\"".to_owned());
     let _ = dioxus::document::eval(&format!(
         "navigator.clipboard && navigator.clipboard.writeText({quoted})"

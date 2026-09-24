@@ -37,7 +37,7 @@ use life::{Anyway, Sent};
 use page::{Focus, Fold, Guard, Page, Phase, Saved, When};
 use props::Props;
 
-pub(in crate::ui) use desk::{Desk, ParkedDrafts, park_current, use_desk};
+pub(in crate::ui) use desk::{Desk, ParkedDrafts, park_current, show_queued, use_desk};
 pub(in crate::ui) use page::PageKind;
 pub(in crate::ui) use pill::SendPill;
 pub(in crate::ui) use wire::GLUE;

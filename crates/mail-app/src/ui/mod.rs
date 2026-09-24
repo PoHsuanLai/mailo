@@ -32,6 +32,7 @@ mod space_editor;
 mod style;
 mod switch;
 mod text;
+mod unsubscribe;
 
 #[cfg(test)]
 mod fixtures;

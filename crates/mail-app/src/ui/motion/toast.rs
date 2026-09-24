@@ -5,7 +5,7 @@
 //! moves out from under it.
 
 use super::super::icon::{Glyph, Icon};
-use super::{motion, undo_last};
+use super::{Follow, motion, undo_last};
 use crate::view::Shell;
 use dioxus::prelude::*;
 use mail_store::SqliteStore;
@@ -67,6 +67,36 @@ pub(in crate::ui) fn Toast(shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
         Some(pull) => format!("transform:translateX({:.0}px);transition:none", pull.dx),
         None => String::new(),
     };
+    match said.follow {
+        Follow::Undo => {}
+        Follow::Nothing => {
+            return rsx! {
+                div { class: "toast plain", role: "status", span { "{said.text}" } }
+            };
+        }
+        Follow::ArchiveFrom { sender, list } => {
+            let label = "Archive all from this list";
+            return rsx! {
+                div { class: "toast", role: "status",
+                    span { "{said.text}" }
+                    button {
+                        class: "tab go",
+                        r#type: "button",
+                        aria_label: "{label}",
+                        onclick: move |event| {
+                            event.stop_propagation();
+                            let store = consume_context::<Arc<SqliteStore>>();
+                            crate::ui::unsubscribe::archive_list(
+                                &store, shell, revision, &sender, &list,
+                            );
+                        },
+                        Glyph { icon: Icon::Archive, class: None }
+                        "{label}"
+                    }
+                }
+            };
+        }
+    }
     rsx! {
         div { class: "toast", role: "status",
             span { "{said.text}" }

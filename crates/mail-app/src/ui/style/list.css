@@ -137,6 +137,10 @@ label.search .inp { flex: 1; }
   transition: transform var(--t-move) var(--e-spring), background-color var(--t-quick) var(--e-out);
 }
 .toast .tab.armed { background: var(--accent); color: var(--accent-ink); }
+/* Nothing to take back or follow up: the words alone, padded on both sides. */
+.toast.plain { padding-right: 15px; }
+/* A follow-up is pressed, not pulled. */
+.toast .tab.go { cursor: pointer; margin-left: 10px; }
 .toast .tab .ic { width: 13px; height: 13px; }
 li.empty {
   list-style: none; padding: 28px 16px; text-align: center; color: var(--ink-soft);

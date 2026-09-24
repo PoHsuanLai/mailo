@@ -115,6 +115,25 @@ pub(in crate::ui) fn unpark(mut desk: Desk, draft: DraftId) {
     save_today(desk);
 }
 
+/// A send queued from somewhere other than a page — an unsubscribe message — on the pill like
+/// any other: waiting in the outbox, with Undo bringing it back as a page.
+pub(in crate::ui) fn show_queued(
+    mut desk: Desk,
+    store: &SqliteStore,
+    draft: DraftId,
+    now: DateTime<Utc>,
+) {
+    let Some(page) = life::load(store, draft, &mut Vec::new()) else {
+        return;
+    };
+    desk.outbox.set(Some(Outgoing {
+        draft,
+        due: now,
+        when: When::Now,
+        page,
+    }));
+}
+
 /// Take the last send back: withdraw it, and open the page again exactly as it was sent.
 pub(in crate::ui) fn undo_send(mut desk: Desk, mut shell: Signal<Shell>) -> Result<(), String> {
     let Some(outgoing) = desk.outbox.peek().clone() else {

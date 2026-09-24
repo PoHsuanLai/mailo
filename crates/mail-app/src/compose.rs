@@ -275,6 +275,22 @@ pub fn draft_exact(
     Ok(draft)
 }
 
+/// The address a message answering mail to `addressed` leaves from: the identity it reached,
+/// else the account's default. What a `mailto:` unsubscribe is sent as, so the window can say it
+/// before anything is sent.
+pub fn address_addressed(
+    store: &SqliteStore,
+    account: AccountId,
+    addressed: &[Address],
+) -> Result<Address, String> {
+    identity_of(
+        store,
+        account,
+        identity_addressed(store, account, addressed),
+    )
+    .map(|identity| identity.from)
+}
+
 /// The identity of `account` that one of `addressed` names, if any.
 ///
 /// Which address a message reached is which address is on the list, and a list's software

@@ -223,3 +223,16 @@ article.frame header .view-switch { margin-left: 0; }
 @keyframes peek-in { 0% { opacity: 0; transform: scale(.97) translateY(10px); }
   100% { opacity: 1; transform: scale(1) translateY(0); } }
 @keyframes fade-in { from { opacity: 0; } to { opacity: .16; } }
+
+/* ---- leaving a list: the head's button, and the popover that says what it will do ---- */
+.reader-meta .leave { margin-left: auto; position: relative; align-self: flex-start; }
+.leave .leave-ask { top: calc(100% + 6px); right: 0; width: 300px; max-height: none; padding: 5px 5px 9px; }
+.leave-ask .say { padding: 2px 8px 0; font-size: 13px; line-height: 1.45; color: var(--ink); }
+.leave-ask .leave-url {
+  margin: 8px 8px 0; padding: 6px 9px; border: 1px solid var(--line); border-radius: var(--r-btn);
+  background: var(--surface-2); font-family: var(--font-data); font-size: 11px; line-height: 1.5;
+  color: var(--ink); overflow-wrap: anywhere;
+}
+.leave-url .dim { color: var(--ink-faint); }
+.leave-ask .why { margin: 8px 8px 0; font-size: 12px; line-height: 1.4; color: var(--danger); }
+.leave-ask .acts { display: flex; justify-content: flex-end; gap: 6px; padding: 10px 8px 0; }

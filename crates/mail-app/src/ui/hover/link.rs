@@ -22,11 +22,7 @@ pub(in crate::ui) fn LinkPill() -> Element {
             registered,
             path,
         } => rsx! {
-            div { class: "linkpill", role: "status",
-                span { class: "dim", "{scheme}{sub}" }
-                b { "{registered}" }
-                span { class: "dim", "{path}" }
-            }
+            div { class: "linkpill", role: "status", {web(&scheme, &sub, &registered, &path)} }
         },
         Destination::Lies { goes_to, claims } => rsx! {
             div { class: "linkpill warn", role: "status",
@@ -41,6 +37,32 @@ pub(in crate::ui) fn LinkPill() -> Element {
         Destination::Other(href) => rsx! {
             div { class: "linkpill", role: "status", span { class: "dim", "{href}" } }
         },
+    }
+}
+
+/// A web address with its registered domain in bold and the rest dimmed: the part a lookalike
+/// cannot fake, made the part that is read.
+fn web(scheme: &str, sub: &str, registered: &str, path: &str) -> Element {
+    rsx! {
+        span { class: "dim", "{scheme}{sub}" }
+        b { "{registered}" }
+        span { class: "dim", "{path}" }
+    }
+}
+
+/// `url` drawn the way the pill draws a link's target. Only the address is read: its text is
+/// the address itself, so there is nothing for it to claim.
+pub(in crate::ui) fn url_spans(url: &str) -> Element {
+    match crate::trust::destination(url, url) {
+        Destination::Web {
+            scheme,
+            sub,
+            registered,
+            path,
+        } => web(&scheme, &sub, &registered, &path),
+        Destination::Lies { .. } | Destination::Other(_) => {
+            rsx! { span { class: "dim", "{url}" } }
+        }
     }
 }
 

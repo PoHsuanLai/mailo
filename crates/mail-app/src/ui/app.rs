@@ -576,12 +576,12 @@ pub(super) fn App() -> Element {
                 // A new message is a page in this column; a reply sits under its thread.
                 match (compose::composing(&shell.read()), shell.read().open) {
                     (Some((draft, PageKind::Reply)), Some(thread)) => rsx! {
-                        Reader { thread, shell,
+                        Reader { thread, shell, revision,
                             ComposerPage { key: "{draft}", draft, shell, revision }
                         }
                     },
                     (Some((draft, _)), _) => rsx! { ComposerPage { key: "{draft}", draft, shell, revision } },
-                    (None, Some(thread)) => rsx! { Reader { thread, shell } },
+                    (None, Some(thread)) => rsx! { Reader { thread, shell, revision } },
                     (None, None) => rsx! {
                         div { class: "reader-empty",
                             p { "Nothing open" }

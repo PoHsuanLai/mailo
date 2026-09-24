@@ -105,8 +105,24 @@ fn peek_tool(peek: Peek, current: Peek, icon: Icon, mut shell: Signal<Shell>) ->
     }
 }
 
+/// The key [`super::unsubscribe::Leave`] is mounted under: the thread and what each of its
+/// messages holds, so a body arriving asks again and another thread never shows this one's answer.
+fn leave_key(thread: ThreadId, bodies: &super::unsubscribe::Bodies) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    bodies.hash(&mut hasher);
+    format!("{thread}-{:x}", hasher.finish())
+}
+
+/// `revision` is the window's, moved when leaving a list queues a message; a reader drawn on its
+/// own has none.
 #[component]
-pub(super) fn Reader(thread: ThreadId, shell: Signal<Shell>, children: Element) -> Element {
+pub(super) fn Reader(
+    thread: ThreadId,
+    shell: Signal<Shell>,
+    revision: Option<Signal<u64>>,
+    children: Element,
+) -> Element {
     let store = use_context::<Arc<SqliteStore>>();
     // Where the last attachment went, or why it did not. Cleared by opening another
     // conversation, because this component is rebuilt for each one.
@@ -159,6 +175,12 @@ pub(super) fn Reader(thread: ThreadId, shell: Signal<Shell>, children: Element) 
         })
         .collect();
 
+    // What the list lookup is a function of. Ids and blob ids only: nothing here reads a blob.
+    let bodies: super::unsubscribe::Bodies = shown
+        .iter()
+        .map(|(message, _, _)| (message.id, message.body.raw()))
+        .collect();
+    let leave_key = leave_key(thread, &bodies);
     let subject = loaded.summary.subject.clone();
     let meta = shown.last().map(|(message, _, _)| {
         (
@@ -213,6 +235,7 @@ pub(super) fn Reader(thread: ThreadId, shell: Signal<Shell>, children: Element) 
                         div { class: "mono reader-addr", "{addr}" }
                         div { class: "mono when", "{when}" }
                     }
+                    super::unsubscribe::Leave { key: "{leave_key}", thread, bodies, revision }
                 }
             }
         }

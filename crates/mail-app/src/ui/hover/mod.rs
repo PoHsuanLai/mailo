@@ -15,7 +15,8 @@ mod link;
 mod sender;
 
 pub(super) use cards::{HoverLayer, Site};
-pub(super) use link::{LinkPill, link_out, link_over};
+pub(super) use link::{LinkPill, link_out, link_over, url_spans};
+pub(super) use sender::copy;
 
 use crate::hover::{At, Timer};
 use crate::trust::Destination;

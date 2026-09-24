@@ -42,6 +42,18 @@ pub(super) struct Leaving {
 pub(super) struct Said {
     pub text: String,
     pub serial: u64,
+    pub follow: Follow,
+}
+
+/// What the toast offers beside its words.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(in crate::ui) enum Follow {
+    /// The tab that takes the op back.
+    Undo,
+    /// After leaving a list: archive what it already sent, by its sender's address.
+    ArchiveFrom { sender: String, list: String },
+    /// Nothing to take back: an unsubscribe, once made, is the list's.
+    Nothing,
 }
 
 /// The motion state the window shares.
@@ -123,9 +135,16 @@ pub(super) fn act(
     revision += 1;
     if let Some(motion) = motion() {
         motion.landed(store, shell, thread, &op, before);
-        motion.say(said);
+        motion.say(said, Follow::Undo);
     }
     true
+}
+
+/// Put up the toast for something that is not an op on one row.
+pub(in crate::ui) fn tell(text: String, follow: Follow) {
+    if let Some(motion) = motion() {
+        motion.say(text, follow);
+    }
 }
 
 /// Take back the newest op. The toast's tab, and Ctrl Z.
@@ -273,9 +292,13 @@ impl Motion {
     }
 
     /// Put up the toast. The next op replaces it; otherwise it leaves on its own.
-    fn say(mut self, text: String) {
+    fn say(mut self, text: String, follow: Follow) {
         let serial = self.toast.peek().as_ref().map_or(0, |said| said.serial) + 1;
-        self.toast.set(Some(Said { text, serial }));
+        self.toast.set(Some(Said {
+            text,
+            serial,
+            follow,
+        }));
         dioxus::core::Runtime::current().spawn(self.owner, async move {
             tokio::time::sleep(TOAST).await;
             if self
