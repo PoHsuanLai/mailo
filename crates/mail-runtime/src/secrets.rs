@@ -37,11 +37,12 @@ pub struct KeyringSecrets;
 
 impl Secrets for KeyringSecrets {
     fn get(&self, key: &SecretKey) -> Result<Credential, RuntimeError> {
-        let entry = keyring::Entry::new(SERVICE, &entry_name(key))
-            .map_err(|e| RuntimeError::Secrets(e.to_string()))?;
-        let stored = entry
-            .get_password()
-            .map_err(|e| RuntimeError::Secrets(e.to_string()))?;
+        let name = entry_name(key);
+        let stored = off_runtime(move || {
+            keyring::Entry::new(SERVICE, &name)
+                .and_then(|entry| entry.get_password())
+                .map_err(|e| RuntimeError::Secrets(e.to_string()))
+        })?;
         // JSON rather than a bare string so an OAuth credential keeps its expiry and refresh
         // token. The keyring holds one opaque value per entry either way.
         serde_json::from_str(&stored)
@@ -49,25 +50,43 @@ impl Secrets for KeyringSecrets {
     }
 
     fn put(&self, key: &SecretKey, value: &Credential) -> Result<(), RuntimeError> {
-        let entry = keyring::Entry::new(SERVICE, &entry_name(key))
-            .map_err(|e| RuntimeError::Secrets(e.to_string()))?;
+        let name = entry_name(key);
         let encoded = serde_json::to_string(value)
             .map_err(|e| RuntimeError::Secrets(format!("cannot encode credential: {e}")))?;
-        entry
-            .set_password(&encoded)
-            .map_err(|e| RuntimeError::Secrets(e.to_string()))
+        off_runtime(move || {
+            keyring::Entry::new(SERVICE, &name)
+                .and_then(|entry| entry.set_password(&encoded))
+                .map_err(|e| RuntimeError::Secrets(e.to_string()))
+        })
     }
 
     fn forget(&self, key: &SecretKey) -> Result<(), RuntimeError> {
-        let entry = keyring::Entry::new(SERVICE, &entry_name(key))
-            .map_err(|e| RuntimeError::Secrets(e.to_string()))?;
-        match entry.delete_credential() {
-            Ok(()) => Ok(()),
-            // Already gone is the state we wanted.
-            Err(keyring::Error::NoEntry) => Ok(()),
-            Err(e) => Err(RuntimeError::Secrets(e.to_string())),
-        }
+        let name = entry_name(key);
+        off_runtime(move || {
+            let entry = keyring::Entry::new(SERVICE, &name)
+                .map_err(|e| RuntimeError::Secrets(e.to_string()))?;
+            match entry.delete_credential() {
+                Ok(()) => Ok(()),
+                // Already gone is the state we wanted.
+                Err(keyring::Error::NoEntry) => Ok(()),
+                Err(e) => Err(RuntimeError::Secrets(e.to_string())),
+            }
+        })
     }
+}
+
+/// Run `work` on a thread of its own and wait for it.
+///
+/// The keyring reaches the Secret Service through zbus's blocking API, and a build that turns on
+/// zbus's `tokio` feature anywhere (quire's settings crate does) makes that API start a Tokio
+/// runtime of its own for each call. Starting one on a thread already driving a runtime panics,
+/// and the keyring is read from inside every sync's runtime. A plain thread drives none, whichever
+/// executor zbus was built for.
+pub fn off_runtime<T: Send>(work: impl FnOnce() -> T + Send) -> T {
+    std::thread::scope(|scope| match scope.spawn(work).join() {
+        Ok(done) => done,
+        Err(panic) => std::panic::resume_unwind(panic),
+    })
 }
 
 /// An in-memory store. Tests only — it never reaches the user's keyring and never persists.
@@ -108,6 +127,23 @@ mod tests {
     use super::*;
     use chrono::{DateTime, TimeDelta};
     use mail_domain::AccountId;
+
+    /// What zbus's blocking API does under its `tokio` feature, done from inside a runtime as a
+    /// sync does: without `off_runtime` this panics "Cannot start a runtime from within a runtime".
+    #[test]
+    fn work_that_starts_a_runtime_can_be_run_from_inside_one() {
+        let outer = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        let answer = outer.block_on(async {
+            off_runtime(|| {
+                tokio::runtime::Runtime::new()
+                    .unwrap()
+                    .block_on(async { 42 })
+            })
+        });
+        assert_eq!(answer, 42);
+    }
 
     fn key(purpose: SecretPurpose) -> SecretKey {
         SecretKey {

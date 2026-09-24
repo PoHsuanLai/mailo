@@ -53,13 +53,22 @@ impl Desktop {
     /// anyone is listening for it. A bus that refuses the subscription still gets notifications;
     /// their clicks just open nothing, as before.
     pub fn connect() -> Self {
-        let Ok(connection) = zbus::blocking::Connection::session() else {
+        // Off any runtime the caller is driving, like every blocking zbus call: see
+        // `mail_runtime::secrets::off_runtime`. `show` and the listener have threads of their own.
+        let (connection, signals) = mail_runtime::secrets::off_runtime(|| {
+            let connection = zbus::blocking::Connection::session().ok()?;
+            let signals =
+                zbus::blocking::MessageIterator::for_match_rule(SIGNALS, &connection, None).ok();
+            Some((connection, signals))
+        })
+        .map_or((None, None), |(connection, signals)| {
+            (Some(connection), signals)
+        });
+        let Some(connection) = connection else {
             return Desktop { bus: None };
         };
         let shown = Arc::new(Mutex::new(Shown::default()));
-        if let Ok(signals) =
-            zbus::blocking::MessageIterator::for_match_rule(SIGNALS, &connection, None)
-        {
+        if let Some(signals) = signals {
             let shown = shown.clone();
             // Blocks on the bus for as long as the process lives; `mailo watch` is that process.
             std::thread::spawn(move || {

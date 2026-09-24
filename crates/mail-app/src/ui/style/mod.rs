@@ -477,11 +477,8 @@ pub(in crate::ui) mod tests {
     }
 
     /// Pairs quire's tokens fall short on, each reported to quire with its reason.
-    const QUIRE_GAPS: &[(&str, &str)] = &[(
-        "--danger-ink on --danger, dark,",
-        "quire's `--danger-ink` is white in both schemes; mailo's dark value was #1A0B08, and \
-         white on quire's dark `--danger` (#e0705a) measures 3.17, under the 4.5 text floor",
-    )];
+    /// Empty since quire v0.1.2 gave dark `--danger-ink` its own value (#1A0B08).
+    const QUIRE_GAPS: &[(&str, &str)] = &[];
 
     /// Rules that are not the palette. `:root` holds the hex the contrast test reads,
     /// including when it is nested in `@media`. An at-rule is a wrapper, as in
