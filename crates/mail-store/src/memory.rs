@@ -19,6 +19,7 @@ use serde::Serialize;
 
 use crate::{OutboxEntry, Settle, Store, StoreError, Term};
 
+mod contacts;
 mod folders;
 
 /// Everything held in memory. Cheap to construct, and never touches the disk.
@@ -50,6 +51,14 @@ struct Inner {
     /// What the user answered each message's read-receipt request. Dropped with the message,
     /// as the SQL foreign key does.
     receipts: BTreeMap<MessageId, ReceiptAnswer>,
+    /// The address book, by normalised address.
+    contacts: BTreeMap<String, crate::contact::learn::Row>,
+    /// Messages the address book has already counted.
+    counted: BTreeSet<MessageId>,
+    /// Confirmed submissions whose Sent copy has not arrived yet, by fingerprint.
+    sent_prints: Vec<String>,
+    /// Synced address books, by collection URL.
+    books: BTreeMap<String, crate::contact::AddressBook>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -102,6 +111,10 @@ impl Default for Inner {
             sync: BTreeMap::new(),
             folders: BTreeMap::new(),
             receipts: BTreeMap::new(),
+            contacts: BTreeMap::new(),
+            counted: BTreeSet::new(),
+            sent_prints: Vec::new(),
+            books: BTreeMap::new(),
         }
     }
 }
@@ -400,6 +413,44 @@ impl Store for MemoryStore {
         // The first answer stands, as `INSERT OR IGNORE` has it.
         Ok(*inner.receipts.entry(message).or_insert(answer))
     }
+
+    fn contacts_matching(&self, typed: &str, k: usize) -> Result<Vec<crate::Contact>, StoreError> {
+        Ok(self.inner.borrow().contacts_like(typed, k))
+    }
+
+    fn contact(&self, address: &str) -> Result<Option<crate::Contact>, StoreError> {
+        Ok(self.inner.borrow().one_contact(address))
+    }
+
+    fn contacts(&self) -> Result<Vec<crate::Contact>, StoreError> {
+        Ok(self.inner.borrow().every_contact())
+    }
+
+    fn put_contact(
+        &self,
+        address: &str,
+        name: Option<&str>,
+        origin: &crate::Origin,
+    ) -> Result<crate::Contact, StoreError> {
+        self.inner.borrow_mut().give_contact(address, name, origin)
+    }
+
+    fn delete_contact(&self, address: &str) -> Result<bool, StoreError> {
+        Ok(self.inner.borrow_mut().drop_contact(address))
+    }
+
+    fn address_book(&self, url: &str) -> Result<Option<crate::AddressBook>, StoreError> {
+        Ok(self.inner.borrow().read_book(url))
+    }
+
+    fn put_address_book(&self, book: &crate::AddressBook) -> Result<(), StoreError> {
+        self.inner.borrow_mut().write_book(book);
+        Ok(())
+    }
+
+    fn address_books(&self) -> Result<Vec<crate::AddressBook>, StoreError> {
+        Ok(self.inner.borrow().books.values().cloned().collect())
+    }
 }
 
 impl Inner {
@@ -657,6 +708,7 @@ impl Inner {
                 fetched.message.id
             };
             self.map_remote(account, &fetched.remote, id);
+            self.learn_fetched(account, id, &fetched.message);
             if let Some(thread) = self.thread_of(id) {
                 touched.insert(thread);
             }
@@ -913,11 +965,18 @@ impl Inner {
         match settle {
             Settle::Ok => {
                 // As the SQLite store does: a deleted mailbox is let go of once confirmed.
-                if let ProtoOp::Folder(mail_domain::FolderWork::Delete { path, .. }) =
-                    &self.outbox[&id].op
-                {
-                    let (account, path) = (self.outbox[&id].account, path.clone());
-                    self.forget_mailbox(account, &path);
+                let account = self.outbox[&id].account;
+                match self.outbox[&id].op.clone() {
+                    ProtoOp::Folder(mail_domain::FolderWork::Delete { path, .. }) => {
+                        self.forget_mailbox(account, &path);
+                    }
+                    ProtoOp::Submit {
+                        draft,
+                        mail_from,
+                        rcpt_to,
+                        ..
+                    } => self.learn_submission(account, draft, &mail_from, &rcpt_to, now),
+                    _ => {}
                 }
                 self.drop_entry(id)
             }

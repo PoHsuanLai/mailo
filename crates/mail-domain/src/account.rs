@@ -389,6 +389,8 @@ pub enum SecretPurpose {
     IncomingPassword,
     OutgoingPassword,
     OAuthRefresh,
+    /// The password of a CardDAV address book added under this account, where it has its own.
+    AddressBook,
 }
 
 /// A secret. Lives in the platform keyring and never in SQLite.

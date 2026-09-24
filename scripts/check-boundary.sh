@@ -6,7 +6,7 @@
 # check for OUTPUT instead: any line naming the dependency is a leak.
 set -uo pipefail
 
-PURE=(mail-domain mail-mime mail-proto)
+PURE=(mail-domain mail-mime mail-proto mail-pim)
 FORBIDDEN=(tokio rusqlite dioxus reqwest keyring)
 fail=0
 

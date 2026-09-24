@@ -289,7 +289,7 @@ fn run_all(
 /// backend, so an OAuth account fetched mail until its first token expired and then failed on
 /// every pass afterwards with an authentication error — while the refresh token that would have
 /// fixed it sat unused in the same keyring entry.
-async fn signed_in(
+pub(crate) async fn signed_in(
     account: &Configured,
     credential: Credential,
     secrets: &dyn Secrets,

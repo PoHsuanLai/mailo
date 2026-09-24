@@ -22,6 +22,7 @@ fn entry_name(key: &SecretKey) -> String {
         SecretPurpose::IncomingPassword => "incoming",
         SecretPurpose::OutgoingPassword => "outgoing",
         SecretPurpose::OAuthRefresh => "oauth",
+        SecretPurpose::AddressBook => "carddav",
     };
     format!("{}:{}", key.account, purpose)
 }

@@ -92,11 +92,16 @@ fn garbled_messages_held_whole_are_re_read_and_the_rest_are_left_alone() {
         (garbled.id, clean.id, headers_only.id)
     };
 
-    // Un-apply 0012, as a database last opened by the previous build would be.
+    // Un-apply 0012, as a database last opened by the previous build would be — and every
+    // migration after it, since the version is the highest one applied and a later one would
+    // leave 0012 looking done.
     {
         let db = rusqlite::Connection::open(&db_path).unwrap();
         db.execute_batch(
-            "DROP TABLE messages_to_reparse; DELETE FROM schema_version WHERE version = 12;",
+            "DROP TABLE messages_to_reparse;
+             DROP TABLE contacts; DROP TABLE contacts_counted; DROP TABLE contacts_sent;
+             DROP TABLE address_books; DROP TABLE contacts_to_backfill;
+             DELETE FROM schema_version WHERE version >= 12;",
         )
         .unwrap();
     }

@@ -297,9 +297,19 @@ impl SqliteStore {
                     params![id.as_i64()],
                     |r| Ok((r.get(0)?, r.get(1)?)),
                 )?;
-                if let ProtoOp::Folder(FolderWork::Delete { path, .. }) = json("ProtoOp", &op)? {
-                    let account = AccountId::from_uuid(super::row::uuid("AccountId", &account)?);
-                    self.forget_mailbox(account, &path)?;
+                let account = AccountId::from_uuid(super::row::uuid("AccountId", &account)?);
+                match json("ProtoOp", &op)? {
+                    ProtoOp::Folder(FolderWork::Delete { path, .. }) => {
+                        self.forget_mailbox(account, &path)?;
+                    }
+                    // Sent: its recipients were written to, whatever else happens to the copy.
+                    ProtoOp::Submit {
+                        draft,
+                        mail_from,
+                        rcpt_to,
+                        ..
+                    } => self.learn_submission(account, draft, &mail_from, &rcpt_to, now)?,
+                    _ => {}
                 }
                 // Confirmed. The local value and the server's now agree, so it is no longer
                 // pending and must not be re-layered over the next ingest.

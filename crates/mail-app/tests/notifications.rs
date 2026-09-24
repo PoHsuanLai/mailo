@@ -228,18 +228,28 @@ fn raw(uid: u32, from: &str, subject: &str, date: DateTime<Utc>) -> String {
 /// An IMAP server on a real socket, after the one in `mail-runtime/tests/imap_end_to_end.rs`:
 /// only as much of RFC 3501 as the client uses, with a maildrop that can grow, and an IDLE that
 /// reports the moment it does.
-async fn serve(drop: Maildrop) -> u16 {
+///
+/// Also returns how many times a client has begun to `IDLE`, so a test can add mail at a
+/// known point in the loop. Mail added between a pass's survey and the `EXAMINE` before its
+/// `IDLE` is counted in that `EXAMINE`, not announced by the `IDLE`; the client catches it by
+/// comparing `UIDNEXT` (F149), and `a_watch_…` waits for `IDLE` only to keep its ordering exact.
+async fn serve(drop: Maildrop) -> (u16, Idling) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
+    let idling = Idling::default();
+    let counting = idling.clone();
     tokio::spawn(async move {
         while let Ok((sock, _)) = listener.accept().await {
-            tokio::spawn(session(sock, drop.clone()));
+            tokio::spawn(session(sock, drop.clone(), counting.clone()));
         }
     });
-    port
+    (port, idling)
 }
 
-async fn session(mut sock: tokio::net::TcpStream, drop: Maildrop) {
+/// How many `IDLE`s the fake server has begun.
+type Idling = Arc<std::sync::atomic::AtomicUsize>;
+
+async fn session(mut sock: tokio::net::TcpStream, drop: Maildrop, idling: Idling) {
     if sock
         .write_all(b"* OK [CAPABILITY IMAP4rev1 IDLE] server ready\r\n")
         .await
@@ -298,6 +308,7 @@ async fn session(mut sock: tokio::net::TcpStream, drop: Maildrop) {
                 if sock.write_all(b"+ idling\r\n").await.is_err() {
                     return;
                 }
+                idling.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 let grown = loop {
                     tokio::time::sleep(std::time::Duration::from_millis(20)).await;
                     let now = drop.lock().unwrap().len();
@@ -469,7 +480,8 @@ async fn a_watch_announces_what_arrives_and_not_what_was_already_there() {
             vec![],
         ),
     ]));
-    let port = serve(drop.clone()).await;
+    let (port, idling) = serve(drop.clone()).await;
+    let idles = || idling.load(std::sync::atomic::Ordering::SeqCst);
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(open(dir.path()));
     with_account(&store, &plan(port));
@@ -477,8 +489,8 @@ async fn a_watch_announces_what_arrives_and_not_what_was_already_there() {
 
     let count = |store: &SqliteStore| store.count(&Filter::All, Utc::now()).unwrap();
     watching(port, &store, &recorder, async {
-        // The backfill lands, quietly.
-        eventually(|| count(&store) == 2).await;
+        // The backfill lands, quietly, and the loop settles into watching.
+        eventually(|| count(&store) == 2 && idles() > 0).await;
         // Then mail arrives while the loop is watching: one worth announcing, one already read
         // elsewhere, and one this user sent from another device.
         let now = Utc::now() + chrono::Duration::minutes(1);
@@ -519,7 +531,8 @@ async fn a_watch_announces_what_arrives_and_not_what_was_already_there() {
     let again = Recorder::default();
     watching(port, &store, &again, async {
         // A pass over what is already held, then IDLE with nothing new.
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        let before = idles();
+        eventually(|| idles() > before).await;
         assert!(again.seen().is_empty(), "{:?}", again.seen());
         let now = Utc::now() + chrono::Duration::minutes(1);
         drop.lock().unwrap().push((

@@ -99,6 +99,36 @@ impl BlobStore {
         }
     }
 
+    /// At most the first `limit` bytes behind `id`: enough of a raw message for its headers,
+    /// without reading a large attachment to find them.
+    pub fn head(&self, db: &Connection, id: BlobId, limit: usize) -> Result<Vec<u8>, StoreError> {
+        let row: Option<(Option<String>, Option<Vec<u8>>)> = db
+            .query_row(
+                "SELECT path, substr(inline, 1, ?2) FROM blobs WHERE id = ?1",
+                params![id.to_string(), limit as i64],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+            .map_err(|e| StoreError::Db(e.to_string()))?;
+        match row {
+            Some((_, Some(inline))) => Ok(inline),
+            Some((Some(rel), None)) => {
+                let full = self.resolve(&rel)?;
+                let file = fs::File::open(&full)
+                    .map_err(|e| StoreError::Blob(rel.clone(), e.to_string()))?;
+                let mut head = Vec::with_capacity(limit);
+                std::io::Read::read_to_end(&mut std::io::Read::take(file, limit as u64), &mut head)
+                    .map_err(|e| StoreError::Blob(rel, e.to_string()))?;
+                Ok(head)
+            }
+            Some((None, None)) => Err(StoreError::Blob(
+                id.to_string(),
+                "row has neither path nor inline bytes".to_owned(),
+            )),
+            None => Err(StoreError::Blob(id.to_string(), "no such blob".to_owned())),
+        }
+    }
+
     /// How many bytes are behind `id`, without reading them.
     ///
     /// The column has been there since migration 0001 and nothing asked for it, so the one

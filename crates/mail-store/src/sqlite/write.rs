@@ -370,6 +370,7 @@ impl SqliteStore {
                 }
             };
             self.map_remote(account, &fetched.remote, id)?;
+            self.learn_fetched(account, id, &fetched.message, Some(fetched.raw))?;
             if let Some(t) = self.thread_of(id)? {
                 touched.insert(t);
             }

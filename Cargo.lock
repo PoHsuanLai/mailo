@@ -3142,6 +3142,7 @@ dependencies = [
  "latchkey",
  "mail-domain",
  "mail-mime",
+ "mail-pim",
  "mail-proto",
  "mail-runtime",
  "mail-store",
@@ -3157,6 +3158,7 @@ dependencies = [
  "thiserror 2.0.20",
  "tokio",
  "unicode-segmentation",
+ "url",
  "uuid",
  "zbus",
 ]
@@ -3212,6 +3214,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "mail-pim"
+version = "0.1.0"
+dependencies = [
+ "encoding_rs",
+ "mail-domain",
+ "roxmltree",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "mail-proto"
 version = "0.1.0"
 dependencies = [
@@ -3237,10 +3249,12 @@ dependencies = [
  "keyring",
  "mail-domain",
  "mail-mime",
+ "mail-pim",
  "mail-proto",
  "mail-store",
  "oauth2",
  "reqwest",
+ "roxmltree",
  "rusqlite",
  "rustls",
  "rustls-pki-types",
@@ -4902,6 +4916,15 @@ dependencies = [
  "libc",
  "untrusted",
  "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "roxmltree"
+version = "0.21.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f1964b10c76125c36f8afe190065a4bf9a87bf324842c05701330bba9f1cacbb"
+dependencies = [
+ "memchr",
 ]
 
 [[package]]

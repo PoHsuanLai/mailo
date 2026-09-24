@@ -10,6 +10,7 @@ mail-domain.workspace = true
 mail-proto.workspace = true
 mail-store.workspace = true
 mail-mime.workspace = true
+mail-pim.workspace = true
 chrono.workspace = true
 thiserror.workspace = true
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "time", "sync"] }
@@ -32,6 +33,8 @@ keyring = "4"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
+# The fake CardDAV server in `tests/carddav.rs` reads the hrefs a multiget asks for.
+roxmltree = "0.21"
 tempfile = "3"
 
 [lints]

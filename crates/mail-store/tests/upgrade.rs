@@ -661,3 +661,96 @@ fn drafts_from_before_receipts_load_without_asking_for_one() {
         .unwrap();
     assert_eq!(left, 0, "an answer does not outlive its message");
 }
+
+/// Mail held before the address book existed is read into it once, on the first open after the
+/// upgrade — a sent draft as written to, and the Sent-folder copy of it not counted again.
+#[test]
+fn mail_held_before_the_address_book_fills_it_on_open() {
+    use mail_store::Store;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("mail.db");
+    {
+        let db = Connection::open(&path).unwrap();
+        for (version, sql) in migrate::MIGRATIONS.iter().take(12) {
+            db.execute_batch(sql).unwrap();
+            if *version > 1 {
+                db.execute(
+                    "INSERT INTO schema_version (version, applied_at) VALUES (?1, datetime('now'))",
+                    [version],
+                )
+                .unwrap();
+            }
+        }
+        // `seed`'s message is from a@b.test, in the inbox. Add the user's identity, a copy in
+        // Sent, and the sent draft it is a copy of.
+        let (account, _inbox) = seed(&db);
+        db.execute(
+            "INSERT INTO identities (id, account, from_name, from_email, is_default)
+             VALUES ('00000000-0000-4000-8000-0000000000b1', ?1, 'Me', 'me@example.test',
+                     '\"default\"')",
+            [&account],
+        )
+        .unwrap();
+        let thread: String = db
+            .query_row("SELECT id FROM threads", [], |r| r.get(0))
+            .unwrap();
+        db.execute(
+            r#"INSERT INTO messages (id, thread, account, msg_key, date, from_name, from_email,
+                   recipients, subject, in_reply_to, refs, rfc_message_id, read, star, mailbox,
+                   body_text, body_raw, attachments)
+               VALUES ('00000000-0000-4000-8000-0000000000c1', ?1, ?2, '"k2"',
+                   '2023-01-02T00:00:00.000000000Z', 'Me', 'me@example.test',
+                   '{"to":[{"name":"Bob","email":"bob@example.test"}]}', 'Plans', NULL, '[]',
+                   NULL, '"read"', '"unstarred"', '"sent"', NULL, NULL, '[]')"#,
+            [&thread, &account],
+        )
+        .unwrap();
+        let state = serde_json::to_string(&mail_domain::SendState::Sent {
+            at: chrono::DateTime::parse_from_rfc3339("2023-01-02T00:00:00Z")
+                .unwrap()
+                .to_utc(),
+            message: None,
+        })
+        .unwrap();
+        db.execute(
+            r#"INSERT INTO drafts (id, account, identity, recipients, subject, in_reply_to,
+                   forward_of, body_text, body_html, attachments, state, updated_at)
+               VALUES ('00000000-0000-4000-8000-0000000000d1', ?1,
+                   '00000000-0000-4000-8000-0000000000b1',
+                   '{"to":[{"name":"Bob Typed","email":"Bob@example.test"}],"cc":[],"bcc":[]}',
+                   'Plans', NULL, NULL, '', NULL, '[]', ?2, '2023-01-02T00:00:00.000000000Z')"#,
+            [&account, &state],
+        )
+        .unwrap();
+    }
+
+    let store = SqliteStore::open(&path, dir.path()).unwrap();
+    let book = store.contacts().unwrap();
+    let find = |address: &str| book.iter().find(|c| c.address == address).cloned();
+    assert_eq!(find("a@b.test").map(|c| c.received.count), Some(1));
+    let bob = find("bob@example.test").unwrap();
+    assert_eq!(
+        bob.written.count, 1,
+        "the draft and its Sent copy are one message"
+    );
+    assert_eq!(bob.name.as_deref(), Some("Bob Typed"));
+    assert_eq!(
+        find("me@example.test").map(|c| c.kind),
+        Some(mail_store::Kind::Own)
+    );
+    let pending: i64 = store
+        .connection()
+        .query_row("SELECT count(*) FROM contacts_to_backfill", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert_eq!(pending, 0, "the backfill runs once");
+    drop(store);
+
+    let again = SqliteStore::open(&path, dir.path()).unwrap();
+    assert_eq!(
+        again.contacts().unwrap(),
+        book,
+        "a second open counts nothing twice"
+    );
+}

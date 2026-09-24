@@ -1,0 +1,18 @@
+[package]
+name = "mail-pim"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+mail-domain.workspace = true
+thiserror.workspace = true
+# Charsets named by vCard 2.1's `CHARSET` parameter. Already in the tree through reqwest.
+encoding_rs = "0.8"
+# The WebDAV multistatus replies CardDAV answers in. A read-only tree with namespaces, which is
+# all a `PROPFIND` or `REPORT` answer needs; its one dependency, memchr, is already here.
+roxmltree = "0.21"
+
+[lints]
+workspace = true

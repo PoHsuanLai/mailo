@@ -3,6 +3,7 @@
 //! Does disk I/O. Opens no sockets. The schema is `migrations/0001_initial.sql`.
 
 pub mod blob;
+pub mod contact;
 pub mod error;
 pub mod memory;
 mod memory_search;
@@ -12,6 +13,7 @@ pub mod sql;
 pub mod sqlite;
 mod term;
 
+pub use contact::{AddressBook, BookCard, Contact, Kind, Origin, Tally};
 pub use memory::MemoryStore;
 pub use sql::{SqlFilter, SqlValue, compile};
 pub use sqlite::SqliteStore;
@@ -265,4 +267,47 @@ pub trait Store {
         answer: ReceiptAnswer,
         now: DateTime<Utc>,
     ) -> Result<ReceiptAnswer, StoreError>;
+
+    /// Autocomplete: the best `k` contacts with a word beginning with `typed`, best first.
+    ///
+    /// A word is any word of the name, the address's local part or any word of it, the domain,
+    /// or the whole address; `typed` is folded as search folds (case, diacritics), and when it
+    /// is several words each must begin one — `ren mül` finds "Renée Müller". Empty `typed`
+    /// matches everything.
+    ///
+    /// Only [`Contact::offered`] entries: never the user's own addresses, and never a list or
+    /// no-reply sender the user has not written to or added. Ordered by frecency, writing to
+    /// someone counting far more than hearing from them; ties by address.
+    fn contacts_matching(&self, typed: &str, k: usize) -> Result<Vec<Contact>, StoreError>;
+
+    /// One contact by address, in any case; `None` when there is none or it is not an address.
+    fn contact(&self, address: &str) -> Result<Option<Contact>, StoreError>;
+
+    /// Every contact, hidden ones included, in [`Store::contacts_matching`]'s order: for export,
+    /// and for a sync deciding what it put in the book.
+    fn contacts(&self) -> Result<Vec<Contact>, StoreError>;
+
+    /// Add or edit a contact by hand, or from an address book.
+    ///
+    /// A `name` given is kept against anything mail says later. `None` leaves the current name;
+    /// with [`Origin::History`] it also hands the name back to mail. Counts are kept either way.
+    /// Returns the contact as stored; [`StoreError::BadAddress`] for something with no `@`.
+    fn put_contact(
+        &self,
+        address: &str,
+        name: Option<&str>,
+        origin: &Origin,
+    ) -> Result<Contact, StoreError>;
+
+    /// Forget a contact. `true` when there was one. Mail arriving later may teach it again.
+    fn delete_contact(&self, address: &str) -> Result<bool, StoreError>;
+
+    /// Where the last sync of the address book at `url` got to.
+    fn address_book(&self, url: &str) -> Result<Option<AddressBook>, StoreError>;
+
+    /// Record where a sync of an address book got to, replacing what was there.
+    fn put_address_book(&self, book: &AddressBook) -> Result<(), StoreError>;
+
+    /// Every address book synced so far, by URL: what `mailo contacts sync` with no URL syncs.
+    fn address_books(&self) -> Result<Vec<AddressBook>, StoreError>;
 }

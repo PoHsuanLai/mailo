@@ -5,6 +5,7 @@ pub mod appearance;
 pub mod attach;
 pub mod cli;
 pub mod compose;
+pub mod contacts;
 mod contrast;
 pub mod editor;
 pub mod folder;

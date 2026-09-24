@@ -26,6 +26,9 @@ pub enum StoreError {
     BadCursor,
     #[error("message {message} has no part {section} still on the server")]
     NoPart { message: MessageId, section: String },
+    /// A contact was asked for under something that is not an address.
+    #[error("{0:?} is not an email address")]
+    BadAddress(String),
 }
 
 impl Retryable for StoreError {
@@ -38,6 +41,7 @@ impl Retryable for StoreError {
             | StoreError::NoMessage(_)
             | StoreError::NoDraft(_)
             | StoreError::NoPart { .. }
+            | StoreError::BadAddress(_)
             | StoreError::Decode { .. }
             | StoreError::BadCursor => Retry::Fatal(self.to_string()),
             // Downgrading into an upgraded database. Stop, do not migrate backwards.

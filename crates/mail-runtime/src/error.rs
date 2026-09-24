@@ -32,6 +32,9 @@ pub enum RuntimeError {
     /// A one-click unsubscribe did not go through. See [`crate::unsubscribe`].
     #[error("{0}")]
     Unsubscribe(crate::unsubscribe::UnsubscribeFailure),
+    /// A CardDAV exchange did not work. See [`crate::carddav`].
+    #[error("{0}")]
+    CardDav(crate::carddav::CardDavFailure),
 }
 
 impl Retryable for RuntimeError {
@@ -57,6 +60,7 @@ impl Retryable for RuntimeError {
             RuntimeError::Cancelled => Retry::Fatal("cancelled".to_owned()),
             RuntimeError::Graph { retry, .. } => retry.clone(),
             RuntimeError::Unsubscribe(failure) => failure.retry(),
+            RuntimeError::CardDav(failure) => failure.retry(),
         }
     }
 }

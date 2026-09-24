@@ -4,6 +4,7 @@
 //! satisfies those, which is what makes cancellation expressible at all — see [`drive`].
 
 pub mod assemble;
+pub mod carddav;
 pub mod drive;
 pub mod engine;
 pub mod error;

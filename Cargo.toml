@@ -4,6 +4,7 @@ members = [
   "crates/mail-domain",
   "crates/mail-mime",
   "crates/mail-proto",
+  "crates/mail-pim",
   "crates/mail-store",
   "crates/mail-runtime",
   "crates/mail-app",
@@ -23,6 +24,7 @@ rust-version = "1.89"
 latchkey    = { path = "crates/latchkey" }
 mail-domain = { path = "crates/mail-domain" }
 mail-mime   = { path = "crates/mail-mime" }
+mail-pim    = { path = "crates/mail-pim" }
 mail-proto  = { path = "crates/mail-proto" }
 mail-runtime = { path = "crates/mail-runtime" }
 mail-store  = { path = "crates/mail-store" }

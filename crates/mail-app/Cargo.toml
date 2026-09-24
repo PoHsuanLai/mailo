@@ -19,6 +19,7 @@ mail-domain.workspace = true
 mail-store.workspace = true
 mail-mime.workspace = true
 mail-proto.workspace = true
+mail-pim.workspace = true
 mail-runtime.workspace = true
 rusqlite = { version = "0.40", features = ["bundled"] }
 serde.workspace = true
@@ -52,6 +53,8 @@ uuid = { workspace = true }
 # Desktop notifications for new mail (`notify/desktop.rs`): the freedesktop interface on the
 # session bus. Already in the lock through the keyring's Secret Service store, with these features.
 zbus = "5"
+# `mailo contacts sync` takes a URL and hands it to the CardDAV client, which speaks `url`.
+url = "2"
 
 [dev-dependencies]
 tempfile = "3"

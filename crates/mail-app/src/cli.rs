@@ -133,6 +133,8 @@ pub enum Command {
         target: uuid::Uuid,
         step: UnsubscribeStep,
     },
+    /// The address book: autocomplete, hand edits, vCard files and CardDAV.
+    Contacts(crate::contacts::Contacts),
 }
 
 /// Whether `unsubscribe` acts or only says what it would do.
@@ -289,6 +291,7 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
             };
             Ok(Command::Unsubscribe { target, step })
         }
+        "contacts" => crate::contacts::parse(&args[1..]).map(Command::Contacts),
         "watch" => match args.get(1).map(String::as_str) {
             None => Ok(Command::Watch {
                 notify: WatchNotify::AsSet,
@@ -815,6 +818,15 @@ usage: mailo <command>
                              leave the list it came through: one-click where the
                              list offers it, else a queued message; --show only lists
                              the ways out. A web page is printed, never opened
+  contacts [words]            the best-matching contacts, as a recipient field offers them
+  contacts add <address> [name]
+  contacts remove <address>
+  contacts import <file.vcf>  vCard 2.1, 3.0 or 4.0, as phones and webmail export them
+  contacts export [file.vcf]  as vCard 4.0; to stdout when no file is named
+  contacts sync [url] [--account address] [--user login]
+                             sync a CardDAV address book (every one synced before, when
+                             no url is given). With --user, set MAILO_PASSWORD; without,
+                             the account's own sign-in is presented
   drafts                      drafts and where each one got to
   discard <draft-id>          delete a draft
   status
@@ -1038,6 +1050,7 @@ pub fn run_with_clients(
                 crate::unsubscribe::report(&outcome)
             ))
         }
+        Command::Contacts(contacts) => crate::contacts::run(store, contacts, saved, now),
         Command::Discard { draft } => {
             crate::compose::discard(store, *draft).map(|subject| format!("discarded {subject:?}\n"))
         }

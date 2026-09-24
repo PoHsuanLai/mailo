@@ -1,5 +1,6 @@
 //! The real [`Store`]: SQLite in WAL mode, with FTS5.
 
+mod contacts;
 mod draft;
 mod folders;
 mod outbox;
@@ -135,6 +136,7 @@ impl SqliteStore {
             blobs: BlobStore::new(blob_root.as_ref().to_path_buf()),
         };
         store.refresh_queued_summaries()?;
+        store.backfill_contacts()?;
         Ok(store)
     }
 
@@ -315,6 +317,7 @@ impl SqliteStore {
     }
 }
 
+use crate::contact::{AddressBook, Contact, Origin};
 use crate::{OutboxEntry, Settle, Store, Term, sql};
 use chrono::{DateTime, Utc};
 use mail_domain::{
@@ -703,5 +706,42 @@ impl Store for SqliteStore {
         now: DateTime<Utc>,
     ) -> Result<mail_domain::ReceiptAnswer, StoreError> {
         self.write_receipt_answer(message, answer, now)
+    }
+
+    fn contacts_matching(&self, typed: &str, k: usize) -> Result<Vec<Contact>, StoreError> {
+        self.contacts_like(typed, k)
+    }
+
+    fn contact(&self, address: &str) -> Result<Option<Contact>, StoreError> {
+        self.one_contact(address)
+    }
+
+    fn contacts(&self) -> Result<Vec<Contact>, StoreError> {
+        self.every_contact()
+    }
+
+    fn put_contact(
+        &self,
+        address: &str,
+        name: Option<&str>,
+        origin: &Origin,
+    ) -> Result<Contact, StoreError> {
+        self.give_contact(address, name, origin)
+    }
+
+    fn delete_contact(&self, address: &str) -> Result<bool, StoreError> {
+        self.drop_contact(address)
+    }
+
+    fn address_book(&self, url: &str) -> Result<Option<AddressBook>, StoreError> {
+        self.read_book(url)
+    }
+
+    fn put_address_book(&self, book: &AddressBook) -> Result<(), StoreError> {
+        self.write_book(book)
+    }
+
+    fn address_books(&self) -> Result<Vec<AddressBook>, StoreError> {
+        self.every_book()
     }
 }
