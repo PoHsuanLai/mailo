@@ -363,6 +363,52 @@ fn answering_for_a_message_that_is_not_there_is_an_error_in_both_stores() {
     }
 }
 
+// ---------------------------------------------------------------------------------------
+// Calendar invitations: the answer the user last gave one.
+// ---------------------------------------------------------------------------------------
+
+fn invite_answer(message: MessageId, attendance: Attendance, n: i64) -> InviteAnswer {
+    InviteAnswer {
+        message,
+        attendance,
+        sequence: 3,
+        comment: Some(format!("note {n}")),
+        answered_at: at(n),
+    }
+}
+
+#[test]
+fn an_invitation_answer_is_kept_and_a_later_one_replaces_it_in_both_stores() {
+    let b = both();
+    let message = ingest_one(&b);
+    for store in [&b.sqlite as &dyn Store, &b.memory] {
+        assert_eq!(store.invite_answer(message).unwrap(), None);
+        let first = invite_answer(message, Attendance::Tentative, 1);
+        store.answer_invite(&first).unwrap();
+        assert_eq!(store.invite_answer(message).unwrap(), Some(first));
+        // A person may change their mind about a meeting; the answer that stands is the last.
+        let second = InviteAnswer {
+            comment: None,
+            ..invite_answer(message, Attendance::Declined, 2)
+        };
+        store.answer_invite(&second).unwrap();
+        assert_eq!(store.invite_answer(message).unwrap(), Some(second));
+    }
+}
+
+#[test]
+fn answering_an_invitation_that_is_not_there_is_an_error_in_both_stores() {
+    let b = both();
+    let ghost = MessageId::generate();
+    for store in [&b.sqlite as &dyn Store, &b.memory] {
+        assert!(matches!(
+            store.answer_invite(&invite_answer(ghost, Attendance::Accepted, 1)),
+            Err(StoreError::NoMessage(id)) if id == ghost
+        ));
+        assert_eq!(store.invite_answer(ghost).unwrap(), None);
+    }
+}
+
 #[test]
 fn a_keyword_intent_resolves_to_the_same_operation_in_both_stores() {
     let b = both();

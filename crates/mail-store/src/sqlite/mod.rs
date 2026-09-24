@@ -3,6 +3,7 @@
 mod contacts;
 mod draft;
 mod folders;
+mod invite;
 mod outbox;
 mod read;
 mod receipt;
@@ -734,6 +735,17 @@ impl Store for SqliteStore {
         now: DateTime<Utc>,
     ) -> Result<mail_domain::ReceiptAnswer, StoreError> {
         self.write_receipt_answer(message, answer, now)
+    }
+
+    fn invite_answer(
+        &self,
+        message: MessageId,
+    ) -> Result<Option<mail_domain::InviteAnswer>, StoreError> {
+        self.load_invite_answer(message)
+    }
+
+    fn answer_invite(&self, answer: &mail_domain::InviteAnswer) -> Result<(), StoreError> {
+        self.write_invite_answer(answer)
     }
 
     fn contacts_matching(&self, typed: &str, k: usize) -> Result<Vec<Contact>, StoreError> {

@@ -940,3 +940,58 @@ fn addresses_and_bodies_a_mixed_body_batch_damaged_are_cleared_for_refetching() 
         (Some("-- \r\nsignature".to_owned()), Some("b".to_owned()))
     );
 }
+
+/// 0016: a database from before invitation answers upgrades with none; an answer can be kept
+/// straight away, replaced, and goes with its message.
+#[test]
+fn a_database_from_before_invitation_answers_upgrades_and_keeps_them_per_message() {
+    use mail_domain::{Attendance, InviteAnswer, MessageId};
+    use mail_store::Store;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("mail.db");
+    let message = {
+        let db = Connection::open(&path).unwrap();
+        for (version, sql) in migrate::MIGRATIONS.iter().take(15) {
+            db.execute_batch(sql).unwrap();
+            if *version > 1 {
+                db.execute(
+                    "INSERT INTO schema_version (version, applied_at) VALUES (?1, datetime('now'))",
+                    [version],
+                )
+                .unwrap();
+            }
+        }
+        let (_, message) = seed(&db);
+        message
+    };
+
+    let store = SqliteStore::open(&path, dir.path()).unwrap();
+    assert_eq!(version_of(&store.connection()), migrate::EXPECTED_VERSION);
+    let message = MessageId::from_uuid(message.parse().unwrap());
+    assert_eq!(store.invite_answer(message).unwrap(), None);
+    let at = chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap();
+    let answer = InviteAnswer {
+        message,
+        attendance: Attendance::Accepted,
+        sequence: 0,
+        comment: None,
+        answered_at: at,
+    };
+    store.answer_invite(&answer).unwrap();
+    let changed = InviteAnswer {
+        attendance: Attendance::Declined,
+        comment: Some("clash".to_owned()),
+        ..answer
+    };
+    store.answer_invite(&changed).unwrap();
+    assert_eq!(store.invite_answer(message).unwrap(), Some(changed));
+    store
+        .connection()
+        .execute("DELETE FROM messages", [])
+        .unwrap();
+    let left: i64 = store
+        .connection()
+        .query_row("SELECT count(*) FROM invite_answers", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(left, 0, "an answer does not outlive its message");
+}

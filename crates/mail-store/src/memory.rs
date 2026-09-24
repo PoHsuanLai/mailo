@@ -54,6 +54,8 @@ struct Inner {
     /// What the user answered each message's read-receipt request. Dropped with the message,
     /// as the SQL foreign key does.
     receipts: BTreeMap<MessageId, ReceiptAnswer>,
+    /// What the user last answered each message's calendar invitation. Dropped with the message.
+    invites: BTreeMap<MessageId, mail_domain::InviteAnswer>,
     /// The address book, by normalised address.
     contacts: BTreeMap<String, crate::contact::learn::Row>,
     /// Messages the address book has already counted.
@@ -115,6 +117,7 @@ impl Default for Inner {
             sync: BTreeMap::new(),
             folders: BTreeMap::new(),
             receipts: BTreeMap::new(),
+            invites: BTreeMap::new(),
             contacts: BTreeMap::new(),
             counted: BTreeSet::new(),
             sent_prints: Vec::new(),
@@ -480,6 +483,23 @@ impl Store for MemoryStore {
         Ok(*inner.receipts.entry(message).or_insert(answer))
     }
 
+    fn invite_answer(
+        &self,
+        message: MessageId,
+    ) -> Result<Option<mail_domain::InviteAnswer>, StoreError> {
+        Ok(self.inner.borrow().invites.get(&message).cloned())
+    }
+
+    fn answer_invite(&self, answer: &mail_domain::InviteAnswer) -> Result<(), StoreError> {
+        let mut inner = self.inner.borrow_mut();
+        if !inner.messages.contains_key(&answer.message) {
+            return Err(StoreError::NoMessage(answer.message));
+        }
+        // Replaced, as `INSERT OR REPLACE` has it.
+        inner.invites.insert(answer.message, answer.clone());
+        Ok(())
+    }
+
     fn contacts_matching(&self, typed: &str, k: usize) -> Result<Vec<crate::Contact>, StoreError> {
         Ok(self.inner.borrow().contacts_like(typed, k))
     }
@@ -755,6 +775,7 @@ impl Inner {
         self.remotes.retain(|row| row.message != id);
         self.pending.retain(|row| row.message != id);
         self.receipts.remove(&id);
+        self.invites.remove(&id);
         if !self.has_messages(prev.thread) {
             self.threads.remove(&prev.thread);
         }

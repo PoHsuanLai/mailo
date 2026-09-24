@@ -14,6 +14,7 @@ pub mod filter;
 pub mod folder;
 pub mod id;
 pub mod ingest;
+pub mod invite;
 pub mod message;
 pub mod op;
 pub mod parts;
@@ -44,6 +45,7 @@ pub use id::{
     ThreadId, ViewId,
 };
 pub use ingest::{Fetched, Import, Ingest, Kept};
+pub use invite::{Attendance, InviteAnswer};
 pub use message::{Message, MessageKey, Thread, ThreadSummary};
 pub use op::{Action, Applied, Change, Op, OpKind, Patch, RemoteIntent, Target};
 pub use parts::PartTree;

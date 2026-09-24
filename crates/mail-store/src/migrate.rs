@@ -40,10 +40,11 @@ pub const MIGRATIONS: &[(u32, &str)] = &[
         15,
         include_str!("../migrations/0015_unmix_body_batches.sql"),
     ),
+    (16, include_str!("../migrations/0016_invite_answers.sql")),
 ];
 
 /// The schema version this build expects.
-pub const EXPECTED_VERSION: u32 = 15;
+pub const EXPECTED_VERSION: u32 = 16;
 
 /// Bring `db` up to [`EXPECTED_VERSION`], creating it if it is empty.
 ///

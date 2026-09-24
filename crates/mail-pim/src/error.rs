@@ -1,4 +1,4 @@
-//! What can be wrong with a card or a DAV reply.
+//! What can be wrong with a card, a calendar or a DAV reply.
 
 use mail_domain::{Retry, Retryable};
 
@@ -15,6 +15,13 @@ pub enum PimError {
     /// `multistatus` at its root.
     #[error("the server's reply is not a {expected}")]
     Unexpected { expected: &'static str },
+    /// More text than a calendar object is allowed to be here.
+    #[error("the calendar is larger than {limit} bytes")]
+    TooLarge { limit: usize },
+    /// An invitation that cannot be answered as asked: it names no organiser, or does not list
+    /// the one answering.
+    #[error("{0}")]
+    Unanswerable(&'static str),
 }
 
 impl Retryable for PimError {

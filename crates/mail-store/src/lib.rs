@@ -25,9 +25,9 @@ pub use error::StoreError;
 use chrono::{DateTime, Utc};
 use mail_domain::{
     AccountCaps, AccountId, BlobId, Draft, DraftId, Filter, Folder, FolderContents, Import, Ingest,
-    MailboxRef, Message, MessageId, MessageKey, OutboxId, Page, Patch, ProtoOp, Query,
-    ReceiptAnswer, RemoteIntent, RemoteRef, Retry, SendState, SyncCursor, Template, TemplateId,
-    Thread, ThreadId, ThreadSummary,
+    InviteAnswer, MailboxRef, Message, MessageId, MessageKey, OutboxId, Page, Patch, ProtoOp,
+    Query, ReceiptAnswer, RemoteIntent, RemoteRef, Retry, SendState, SyncCursor, Template,
+    TemplateId, Thread, ThreadId, ThreadSummary,
 };
 
 /// One queued unit of remote work, with everything needed to retry or abandon it.
@@ -334,6 +334,16 @@ pub trait Store {
         answer: ReceiptAnswer,
         now: DateTime<Utc>,
     ) -> Result<ReceiptAnswer, StoreError>;
+
+    /// What the user last answered the calendar invitation in this message, if they have.
+    fn invite_answer(&self, message: MessageId) -> Result<Option<InviteAnswer>, StoreError>;
+
+    /// Record an answer to the invitation in [`InviteAnswer::message`], replacing any earlier
+    /// one: unlike a read receipt, a person may change their mind about a meeting, and each
+    /// answer is a reply the organiser receives. Not a [`Patch`], for the reason
+    /// [`Store::answer_receipt`] is not — the reply that left cannot be recalled.
+    /// [`StoreError::NoMessage`] when the message is unknown.
+    fn answer_invite(&self, answer: &InviteAnswer) -> Result<(), StoreError>;
 
     /// Autocomplete: the best `k` contacts with a word beginning with `typed`, best first.
     ///

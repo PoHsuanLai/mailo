@@ -952,6 +952,24 @@ fn draft_types_round_trip() {
     round_trip_each("ReplyScope", vec![ReplyScope::Sender, ReplyScope::All]);
     round_trip("Draft", draft());
     round_trip("Template", template());
+    round_trip_each(
+        "Attendance",
+        vec![
+            Attendance::Accepted,
+            Attendance::Tentative,
+            Attendance::Declined,
+        ],
+    );
+    round_trip(
+        "InviteAnswer",
+        InviteAnswer {
+            message: MessageId::from_uuid(uuid(8)),
+            attendance: Attendance::Declined,
+            sequence: 0,
+            comment: None,
+            answered_at: at(9),
+        },
+    );
 }
 
 #[test]
@@ -1356,6 +1374,19 @@ fixtures! {
         MessageKey::Gmail(1),
         MessageKey::Synthetic([7u8; 32]),
     ],
+    // Calendar invitations (`plan.md` 10.12): the answer the store keeps per message.
+    "attendances.json" => Vec<Attendance> = vec![
+        Attendance::Accepted,
+        Attendance::Tentative,
+        Attendance::Declined,
+    ],
+    "invite_answer.json" => InviteAnswer = InviteAnswer {
+        message: MessageId::from_uuid(uuid(8)),
+        attendance: Attendance::Tentative,
+        sequence: 2,
+        comment: Some("might be late".to_owned()),
+        answered_at: at(9),
+    },
 }
 
 /// `RemoteIntent` is not persisted today — `Store::enqueue` resolves it to a `ProtoOp` before

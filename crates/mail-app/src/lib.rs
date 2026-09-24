@@ -12,6 +12,7 @@ pub mod export;
 pub mod folder;
 pub mod hover;
 pub mod import;
+pub mod invite;
 pub mod ipc;
 pub mod notify;
 mod palette;

@@ -151,6 +151,8 @@ pub enum Command {
     },
     /// The address book: autocomplete, hand edits, vCard files and CardDAV.
     Contacts(crate::contacts::Contacts),
+    /// A calendar invitation: show it, answer it, or save it as an `.ics` file.
+    Invite(crate::invite::InviteCommand),
     /// Mail from an mbox, a Maildir or an `.eml`, kept locally or uploaded into a mailbox.
     Import {
         path: std::path::PathBuf,
@@ -402,6 +404,7 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
         }
         "contacts" => crate::contacts::parse(&args[1..]).map(Command::Contacts),
         "print" => parse_print(&args[1..]),
+        "invite" => crate::invite::parse(&args[1..]).map(Command::Invite),
         "watch" => match args.get(1).map(String::as_str) {
             None => Ok(Command::Watch {
                 notify: WatchNotify::AsSet,
@@ -1018,6 +1021,11 @@ usage: mailo <command>
   receipt <message-id> [--decline]
                              send the read receipt a message asks for, or
                              decline to; `show` says which messages ask
+  invite <message-id>         the calendar invitation a message carries
+  invite <message-id> accept|tentative|decline [--comment TEXT]
+                             answer it; the reply goes to the organiser at the next sync
+  invite <message-id> --ics FILE
+                             save the event as an .ics file for any calendar
   attach <draft-id> <path>    put a file on a draft
   attached <draft-id>         what it is carrying
   detach <draft-id> <n>       take one back off
@@ -1163,6 +1171,10 @@ pub fn run_with_clients(
                 // default: whoever reads the message is told it asks and how to answer.
                 if let Ok(state) = crate::receipt::state(store, &message) {
                     out.push_str(&crate::receipt::describe(&state, message.id));
+                }
+                // Likewise an invitation: said, with how to answer, and never answered for them.
+                if let Ok(state) = crate::invite::state(store, &message) {
+                    out.push_str(&crate::invite::describe(&state, message.id));
                 }
                 match message.body.text() {
                     Some(text) => {
@@ -1318,6 +1330,7 @@ pub fn run_with_clients(
                     .map(|path| format!("wrote {}\n", path.display())),
             }
         }
+        Command::Invite(invite) => crate::invite::run(store, invite, now),
         Command::Discard { draft } => {
             crate::compose::discard(store, *draft).map(|subject| format!("discarded {subject:?}\n"))
         }

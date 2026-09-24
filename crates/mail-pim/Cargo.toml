@@ -8,6 +8,11 @@ rust-version.workspace = true
 [dependencies]
 mail-domain.workspace = true
 thiserror.workspace = true
+chrono.workspace = true
+# The IANA zones an invitation's `TZID` names, and their rules, compiled in: no zoneinfo files
+# are read. MIT/Apache-2.0; its build script is only for optional features, so by default it
+# brings nothing but `phf`.
+chrono-tz = "0.10"
 # Charsets named by vCard 2.1's `CHARSET` parameter. Already in the tree through reqwest.
 encoding_rs = "0.8"
 # The WebDAV multistatus replies CardDAV answers in. A read-only tree with namespaces, which is
