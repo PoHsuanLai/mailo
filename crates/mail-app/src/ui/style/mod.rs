@@ -51,6 +51,7 @@ pub(super) const STYLE: &str = concat!(
     include_str!("composer.css"),
     include_str!("contacts.css"),
     include_str!("files.css"),
+    include_str!("accounts.css"),
     include_str!("controls.css"),
     include_str!("motion.css"),
 );

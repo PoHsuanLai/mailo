@@ -1,0 +1,24 @@
+/* The Add account sheet, on the mail-file sheets' scrim, paper, keys and foot: what was found set
+   as a two-column table (a data-face key, the value), and the "+" after the account tiles. */
+.acct-sheet .inp.acct-in { font-size: 13px; padding: 6px 10px; }
+.inp.secret { letter-spacing: .12em; }
+.inp.secret::placeholder { letter-spacing: normal; }
+.acct-found {
+  display: grid; grid-template-columns: max-content 1fr; gap: 5px 14px; align-items: baseline;
+  margin-top: 6px; padding: 10px 12px; border: 1px solid var(--line-soft);
+  border-radius: 10px; background: var(--surface);
+}
+.acct-k {
+  font-family: var(--font-data); font-size: 10px; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.acct-v { min-width: 0; font-size: 12.5px; line-height: 1.4; color: var(--ink); overflow-wrap: anywhere; }
+.acct-v.acct-source { color: var(--ink-soft); }
+.files-look.acct-busy { color: var(--ink-soft); animation: breathe 1.6s var(--e-out) infinite; }
+.capnote.acct-said { white-space: pre-wrap; overflow-wrap: anywhere; }
+.acct-done { display: grid; gap: 4px; margin-top: 4px; font-size: 13px; line-height: 1.45; color: var(--ink); }
+.acct-done p { margin: 0; }
+.acct-done p:first-child { font-weight: 700; }
+.pin.acct.acct-add .av { background: transparent; color: var(--f-ink-faint); border: 1px dashed var(--f-ink-faint); }
+.pin.acct.acct-add:hover .av { color: var(--f-ink); border-color: var(--f-ink); }
+.pin.acct.acct-add .av .ic { width: 14px; height: 14px; }

@@ -575,6 +575,10 @@ pub struct Shell {
     /// The Import or Export sheet while it is open, with the text its field holds. `None` is
     /// closed.
     pub files: Option<FileSheet>,
+    /// The Add account sheet's address while it is open. `None` is closed.
+    ///
+    /// Only the address: a password typed into the sheet lives in the sheet and goes with it.
+    pub adding: Option<String>,
     /// Ctrl F in the open thread. `None` is closed, and marks nothing.
     ///
     /// Belongs to the thread it was opened on: [`Self::open`] and [`Self::close`] drop it, so a
@@ -788,6 +792,7 @@ impl Default for Shell {
             command: None,
             contacts: None,
             files: None,
+            adding: None,
             find: None,
             undo: crate::undo::UndoStack::default(),
         }

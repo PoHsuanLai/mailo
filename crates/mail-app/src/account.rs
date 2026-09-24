@@ -23,6 +23,66 @@ pub fn add(
     saved: &OAuthRegistry,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<String, String> {
+    let password = std::env::var("MAILO_PASSWORD")
+        .ok()
+        .map(crate::password::Password::new);
+    add_with_password(
+        store,
+        address,
+        manual,
+        microsoft,
+        graph,
+        now,
+        Credentials {
+            password: password.as_ref(),
+            saved,
+            secrets: &KeyringSecrets,
+        },
+    )
+}
+
+/// Where [`add_with_password`] gets a credential, and where it keeps one.
+pub struct Credentials<'a> {
+    /// The password for a password account. `None`, or an empty one, is no password.
+    pub password: Option<&'a crate::password::Password>,
+    /// The OAuth clients earlier sign-ins recorded.
+    pub saved: &'a OAuthRegistry,
+    /// Where the password or the sign-in's token is put.
+    pub secrets: &'a dyn Secrets,
+}
+
+// By hand: the password's own `Debug` already redacts it, and the credential store has none.
+impl std::fmt::Debug for Credentials<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Credentials")
+            .field("password", &self.password)
+            .finish_non_exhaustive()
+    }
+}
+
+/// [`add`], with the password handed over rather than read from the environment, and the
+/// credential store named.
+///
+/// The window's Add account sheet calls this: setting `MAILO_PASSWORD` from a running window
+/// would mean writing the environment while other threads read it. `add` calls it with the
+/// variable's value and the platform keyring, so the command line behaves exactly as before.
+/// The password goes to `secrets` and nowhere else — not SQLite, not a file, not the text this
+/// returns. (Minting a Graph token for `--send graph` still reads the platform keyring; the
+/// window never asks for Graph.)
+pub fn add_with_password(
+    store: &SqliteStore,
+    address: &str,
+    manual: Option<&crate::cli::Setup>,
+    microsoft: bool,
+    graph: bool,
+    now: chrono::DateTime<chrono::Utc>,
+    credentials: Credentials<'_>,
+) -> Result<String, String> {
+    let Credentials {
+        password,
+        saved,
+        secrets,
+    } = credentials;
     // Normalised once, here, and used for the preset, the stored plan and the stored column
     // alike. `preset_for` deliberately keeps the address exactly as typed, and the accounts
     // table deliberately lowercases it — so without this the plan and the column disagree in
@@ -170,24 +230,24 @@ pub fn add(
     match &plan.auth {
         AuthPlan::Password { username, sasl } => {
             let login = username.resolve(&address);
-            match std::env::var("MAILO_PASSWORD") {
-                Ok(password) if !password.is_empty() => {
-                    KeyringSecrets
+            match password {
+                Some(password) if !password.is_empty() => {
+                    secrets
                         .put(
                             &SecretKey {
                                 account,
                                 purpose: SecretPurpose::IncomingPassword,
                             },
-                            &Credential::Password(password.clone()),
+                            &Credential::Password(password.expose().to_owned()),
                         )
                         .map_err(|e| format!("cannot save the password: {e}"))?;
-                    KeyringSecrets
+                    secrets
                         .put(
                             &SecretKey {
                                 account,
                                 purpose: SecretPurpose::OutgoingPassword,
                             },
-                            &Credential::Password(password),
+                            &Credential::Password(password.expose().to_owned()),
                         )
                         .map_err(|e| format!("cannot save the password: {e}"))?;
                     let _ = writeln!(out, "password stored in the keyring for login {login:?}");
@@ -214,7 +274,7 @@ pub fn add(
             Some((client_id, client_secret)) => {
                 let credential =
                     authorize(*issuer, &client_id, client_secret.as_deref(), scopes, now)?;
-                KeyringSecrets
+                secrets
                     .put(
                         &SecretKey {
                             account,
@@ -225,7 +285,7 @@ pub fn add(
                     .map_err(|e| format!("cannot save the token: {e}"))?;
                 // Incoming and outgoing share one OAuth credential: the scopes cover IMAP and
                 // SMTP together, and storing it twice would mean refreshing it twice.
-                KeyringSecrets
+                secrets
                     .put(
                         &SecretKey {
                             account,

@@ -16,6 +16,9 @@ pub(super) enum FieldKind {
     /// A slider from `min` to `max`, for a number with no need of digits: the Space's grain.
     /// The value it hands back is the slider's position, as text like every other field.
     Range { min: u8, max: u8 },
+    /// A boxed field that shows dots. It never draws a value: what is typed goes to `on_input`
+    /// and stays in the webview's own field, so the markup never holds a password.
+    Secret,
 }
 
 /// A text field. `extra` is a further class, kept so the list's search box stays `input.search`.
@@ -33,6 +36,7 @@ pub(super) fn Field(
         FieldKind::Boxed => "inp",
         FieldKind::Inline => "inp inline",
         FieldKind::Range { .. } => "inp range",
+        FieldKind::Secret => "inp secret",
     };
     let class = match extra {
         None => variant.to_owned(),
@@ -47,6 +51,21 @@ pub(super) fn Field(
                 max: "{max}",
                 aria_label: "{placeholder}",
                 value: "{value}",
+                oninput: move |event| on_input.call(event.value()),
+                onfocusin: move |_| on_focus.call(()),
+                onfocusout: move |_| on_blur.call(()),
+            }
+        };
+    }
+    if kind == FieldKind::Secret {
+        return rsx! {
+            input {
+                class: "{class}",
+                r#type: "password",
+                autocomplete: "off",
+                spellcheck: "false",
+                placeholder: "{placeholder}",
+                aria_label: "{placeholder}",
                 oninput: move |event| on_input.call(event.value()),
                 onfocusin: move |_| on_focus.call(()),
                 onfocusout: move |_| on_blur.call(()),

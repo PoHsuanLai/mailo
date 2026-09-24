@@ -4,6 +4,7 @@
 //! What is here is layout, event wiring, and the one thing a UI can get dangerously wrong —
 //! rendering a stranger's HTML.
 
+mod add_account;
 mod app;
 mod command;
 mod compose;

@@ -58,6 +58,9 @@ zbus = "5"
 rfd = { version = "=0.17.2", default-features = false, features = ["xdg-portal"] }
 # `mailo contacts sync` takes a URL and hands it to the CardDAV client, which speaks `url`.
 url = "2"
+# A typed password is overwritten when it is dropped (`password.rs`). Already in the lock through
+# rustls and the keyring.
+zeroize = "1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # Printing: the print operation over the printed document's own webview, made here rather than

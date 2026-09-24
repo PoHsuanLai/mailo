@@ -3275,6 +3275,7 @@ dependencies = [
  "uuid",
  "webkit2gtk",
  "zbus",
+ "zeroize",
 ]
 
 [[package]]

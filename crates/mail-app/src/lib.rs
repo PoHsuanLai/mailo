@@ -17,6 +17,7 @@ pub mod invite;
 pub mod ipc;
 pub mod notify;
 mod palette;
+pub mod password;
 pub mod print;
 mod provider;
 pub mod query;

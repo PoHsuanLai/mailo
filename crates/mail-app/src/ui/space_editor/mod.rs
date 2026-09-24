@@ -185,6 +185,16 @@ pub(super) fn SpaceEditor(
             MarksChoice { shell }
             Notifications {}
             div {
+                div { class: "ed-label", "Accounts" }
+                button {
+                    class: "mini",
+                    r#type: "button",
+                    onclick: move |_| super::add_account::open(shell),
+                    "Add account…"
+                }
+                p { class: "capnote", "A new account joins this Space when the Space shows only some accounts." }
+            }
+            div {
                 div { class: "ed-label", "Contacts" }
                 button {
                     class: "mini",

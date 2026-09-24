@@ -299,6 +299,10 @@ fn run_action(
             close(shell);
             super::contacts::open(shell);
         }
+        "Add account…" => {
+            close(shell);
+            super::add_account::open(shell);
+        }
         "Import mail…" => {
             close(shell);
             super::files::open_import(shell);

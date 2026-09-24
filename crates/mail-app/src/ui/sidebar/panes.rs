@@ -174,6 +174,14 @@ pub(super) fn AccountTiles(
                     }
                 }
             }
+            button {
+                class: "pin acct acct-add",
+                r#type: "button",
+                title: "Add account…",
+                aria_label: "Add account",
+                onclick: move |_| super::super::add_account::open(shell),
+                span { class: "av", Glyph { icon: Icon::Plus, class: None } }
+            }
         }
     }
 }
