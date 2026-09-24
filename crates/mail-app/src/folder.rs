@@ -91,9 +91,19 @@ pub fn list(store: &SqliteStore, account: Option<AccountId>) -> Result<String, S
         .filter(|c| account.is_none_or(|a| a == c.id))
     {
         let _ = writeln!(out, "{}", configured.address);
-        if let Incoming::Pop3 { .. } = configured.plan.incoming {
-            let _ = writeln!(out, "  POP3 has one mailbox, and no folders\n");
-            continue;
+        match configured.plan.incoming {
+            Incoming::Pop3 { .. } => {
+                let _ = writeln!(out, "  POP3 has one mailbox, and no folders\n");
+                continue;
+            }
+            Incoming::Local => {
+                let _ = writeln!(
+                    out,
+                    "  kept on this computer: no server folders, only labels\n"
+                );
+                continue;
+            }
+            Incoming::Imap { .. } => {}
         }
         let folders = store.folders(configured.id).map_err(|e| e.to_string())?;
         if folders.is_empty() {

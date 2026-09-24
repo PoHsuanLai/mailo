@@ -149,6 +149,16 @@ pub enum Command {
     },
     /// The address book: autocomplete, hand edits, vCard files and CardDAV.
     Contacts(crate::contacts::Contacts),
+    /// Mail from an mbox, a Maildir or an `.eml`, kept locally or uploaded into a mailbox.
+    Import {
+        path: std::path::PathBuf,
+        into: crate::import::Destination,
+    },
+    /// Messages chosen as `search` chooses them, written to files.
+    Export {
+        query: String,
+        target: crate::export::Target,
+    },
 }
 
 /// Whether `unsubscribe` acts or only says what it would do.
@@ -603,6 +613,8 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
             })
         }
         "sync" => Ok(Command::Sync),
+        "import" => parse_import(&args[1..]),
+        "export" => parse_export(&args[1..]),
         "folder" => parse_folder(&args[1..]),
         "icons" => match args.get(1).map(String::as_str) {
             Some("refresh") if args.len() == 2 => Ok(Command::IconsRefresh),
@@ -706,6 +718,58 @@ fn parse_template(args: &[String]) -> Result<Command, String> {
         ["list", ..] => Err(usage_for("list")),
         [other, ..] => Err(format!("unknown template command {other:?}\n\n{}", usage())),
     }
+}
+
+/// `import PATH [--to-mailbox ACCOUNT FOLDER]`.
+fn parse_import(args: &[String]) -> Result<Command, String> {
+    let words: Vec<&str> = args.iter().map(String::as_str).collect();
+    match words.as_slice() {
+        [path] => Ok(Command::Import {
+            path: (*path).into(),
+            into: crate::import::Destination::Local,
+        }),
+        [path, "--to-mailbox", account, folder] | ["--to-mailbox", account, folder, path] => {
+            Ok(Command::Import {
+                path: (*path).into(),
+                into: crate::import::Destination::Mailbox {
+                    account: (*account).to_owned(),
+                    folder: (*folder).to_owned(),
+                },
+            })
+        }
+        _ => Err(format!(
+            "import takes a file or a Maildir, and optionally --to-mailbox ACCOUNT FOLDER\n\n{}",
+            usage()
+        )),
+    }
+}
+
+/// `export QUERY... --mbox FILE | --maildir DIR | --eml DIR`.
+fn parse_export(args: &[String]) -> Result<Command, String> {
+    let wrong = || {
+        format!(
+            "export takes what to export, then one of --mbox FILE, --maildir DIR or --eml DIR\n\n{}",
+            usage()
+        )
+    };
+    let at = args
+        .iter()
+        .position(|a| matches!(a.as_str(), "--mbox" | "--maildir" | "--eml"))
+        .ok_or_else(wrong)?;
+    let [flag, path] = &args[at..] else {
+        return Err(wrong());
+    };
+    let query = args[..at].join(" ");
+    if query.trim().is_empty() {
+        return Err(wrong());
+    }
+    let path = std::path::PathBuf::from(path);
+    let target = match flag.as_str() {
+        "--mbox" => crate::export::Target::Mbox(path),
+        "--maildir" => crate::export::Target::Maildir(path),
+        _ => crate::export::Target::Eml(path),
+    };
+    Ok(Command::Export { query, target })
 }
 
 fn parse_folder(args: &[String]) -> Result<Command, String> {
@@ -935,6 +999,14 @@ usage: mailo <command>
                              a work or school Microsoft 365 mailbox on its own domain;
                              --send graph where the tenant has SMTP sending turned off
   sync                       fetch mail and send anything queued
+  import <file|maildir> [--to-mailbox <account> <folder>]
+                             mail from an mbox (Google Takeout's too), a Maildir or
+                             one .eml, kept in \"local folders\" on this computer, or
+                             uploaded into a folder on an IMAP account. Running it
+                             again adds nothing already there
+  export <search|inbox|sent|all…> --mbox FILE | --maildir DIR | --eml DIR
+                             write the messages a search finds; bodies not yet
+                             downloaded are skipped and counted
   folder [list] [account]    every folder the server lists
   folder new <account> <name>
   folder rename <account> <old> <new>
@@ -1042,6 +1114,9 @@ pub fn run_with_clients(
         // Dispatched in main: it needs an async runtime and the store by Arc, which would make
         // this function untestable without one.
         Command::Sync => Err("sync is dispatched before this point".to_owned()),
+        Command::Import { .. } | Command::Export { .. } => {
+            Err("import and export are dispatched before this point".to_owned())
+        }
         Command::Watch { .. } => Err("watch is dispatched before this point".to_owned()),
         // Dispatched in main, which owns the environment the config directory comes from.
         Command::Notify { .. } => Err("notify is dispatched before this point".to_owned()),

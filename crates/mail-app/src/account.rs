@@ -312,6 +312,48 @@ pub fn add(
     Ok(out)
 }
 
+/// The local-only account, created the first time something is kept in it.
+///
+/// No identity and no credential: it sends nothing and signs in nowhere. Its capabilities are
+/// stored like any account's, because everything that lists accounts reads them.
+pub fn local(store: &SqliteStore, now: chrono::DateTime<chrono::Utc>) -> Result<AccountId, String> {
+    let address = mail_domain::presets::LOCAL_FOLDERS;
+    let existing: Option<AccountId> = store
+        .connection()
+        .query_row(
+            "SELECT id FROM accounts WHERE address = ?1",
+            [address],
+            |row| row.get::<_, String>(0),
+        )
+        .ok()
+        .and_then(|id| id.parse().ok())
+        .map(AccountId::from_uuid);
+    if let Some(account) = existing {
+        return Ok(account);
+    }
+    let account = AccountId::generate();
+    let preset = mail_domain::presets::local_folders(now);
+    let plan_json = serde_json::to_string(&preset.plan)
+        .map_err(|e| format!("cannot encode the account plan: {e}"))?;
+    let caps_json = serde_json::to_string(&preset.expected_caps)
+        .map_err(|e| format!("cannot encode capabilities: {e}"))?;
+    store
+        .connection()
+        .execute(
+            "INSERT INTO accounts (id, address, plan, created_at) VALUES (?1, ?2, ?3, ?4)",
+            rusqlite_params(&[&account.to_string(), address, &plan_json, &now.to_rfc3339()]),
+        )
+        .map_err(|e| format!("cannot save the local account: {e}"))?;
+    store
+        .connection()
+        .execute(
+            "INSERT INTO account_caps (account, caps, observed_at) VALUES (?1, ?2, ?3)",
+            rusqlite_params(&[&account.to_string(), &caps_json, &now.to_rfc3339()]),
+        )
+        .map_err(|e| format!("cannot save the local account: {e}"))?;
+    Ok(account)
+}
+
 /// The OAuth client to sign in with: from the environment, or else the one recorded by an
 /// earlier sign-in.
 ///
@@ -448,12 +490,18 @@ pub fn list(store: &SqliteStore) -> Result<String, String> {
     // this command's job is to list accounts.
     let folders = crate::sync::mailboxes_by_account(store).unwrap_or_default();
     let plans = crate::sync::auth_by_account(store).unwrap_or_default();
+    let local = crate::sync::local_accounts(store);
 
     let mut out = String::new();
     for row in rows {
         let (id, address) = row.map_err(|e| e.to_string())?;
         let Ok(uuid) = id.parse() else { continue };
         let account = AccountId::from_uuid(uuid);
+        // Asked of the keyring for no reason otherwise: there is no credential to have.
+        if local.contains(&account) {
+            let _ = writeln!(out, "{address:<28} kept on this computer; nothing to sync");
+            continue;
+        }
         let has_password = KeyringSecrets
             .get(&SecretKey {
                 account,
@@ -552,6 +600,7 @@ fn default_identity(store: &SqliteStore, account: AccountId) -> Option<Identity>
 fn incoming_host(plan: &AccountPlan) -> Option<&str> {
     match &plan.incoming {
         Incoming::Imap { host, .. } | Incoming::Pop3 { host, .. } => Some(host.as_str()),
+        Incoming::Local => None,
     }
 }
 

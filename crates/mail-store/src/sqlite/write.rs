@@ -9,8 +9,8 @@ use super::read::Recipients;
 use super::row::{from_time, json, to_json, uuid};
 use crate::StoreError;
 use mail_domain::{
-    AccountId, Body, Change, Ingest, Membership, Message, MessageId, Patch, RemoteRef, ThreadId,
-    ThreadSummary, UidValidity,
+    AccountId, Body, Change, Import, Ingest, LabelOrigin, Membership, Message, MessageId, Patch,
+    RemoteRef, ThreadId, ThreadSummary, UidValidity,
 };
 use rusqlite::{OptionalExtension, params};
 use std::collections::BTreeSet;
@@ -486,6 +486,60 @@ impl SqliteStore {
         })
     }
 
+    /// Keep messages no server holds. See [`crate::Store::import`].
+    ///
+    /// The message half of [`SqliteStore::write_ingest`] without the `remote_map` row, and with
+    /// labels by name made the user's own rather than the provider's.
+    pub(super) fn write_import(
+        &self,
+        account: AccountId,
+        import: Import,
+    ) -> Result<Patch, StoreError> {
+        let db = self.connection();
+        let tx = db.unchecked_transaction()?;
+        let mut changes: Vec<Change> = Vec::new();
+        let mut touched: BTreeSet<ThreadId> = BTreeSet::new();
+
+        for kept in &import.messages {
+            let id = match self.message_by_key(account, &kept.key)? {
+                Some(id) => id,
+                None => {
+                    self.upsert_message(&kept.message)?;
+                    changes.push(Change::MessageUpsert(Box::new(kept.message.clone())));
+                    touched.insert(kept.message.thread);
+                    kept.message.id
+                }
+            };
+            // The address book learns from imported mail as from synced mail, once per message.
+            self.learn_fetched(account, id, &kept.message, Some(kept.raw))?;
+            if kept.labels.is_empty() {
+                continue;
+            }
+            let held = self.labels_of(&self.connection(), id)?;
+            for name in &kept.labels {
+                let label = self.label_named(account, name, LabelOrigin::User)?;
+                if held.contains(&label) {
+                    continue;
+                }
+                let change = Change::MessageLabel(id, label, Membership::In);
+                self.write_change(&change)?;
+                changes.push(change);
+                if let Some(t) = self.thread_of(id)? {
+                    touched.insert(t);
+                }
+            }
+        }
+
+        for thread in touched {
+            self.refresh_summary(thread)?;
+        }
+        tx.commit()?;
+        Ok(Patch {
+            id: mail_domain::ChangeId::generate(),
+            changes,
+        })
+    }
+
     /// What body, if any, is held for this message.
     fn body_of(&self, message: MessageId) -> Result<Option<Body>, StoreError> {
         let held: Option<Option<String>> = self
@@ -536,7 +590,7 @@ impl SqliteStore {
         Ok(())
     }
 
-    fn message_by_key(
+    pub(super) fn message_by_key(
         &self,
         account: AccountId,
         key: &mail_domain::MessageKey,
@@ -584,6 +638,16 @@ impl SqliteStore {
         account: AccountId,
         name: &str,
     ) -> Result<mail_domain::LabelId, StoreError> {
+        self.label_named(account, name, LabelOrigin::Provider)
+    }
+
+    /// The label called `name`, created with `origin` if the account has none by that name.
+    fn label_named(
+        &self,
+        account: AccountId,
+        name: &str,
+        origin: LabelOrigin,
+    ) -> Result<mail_domain::LabelId, StoreError> {
         let existing: Option<String> = self
             .connection()
             .query_row(
@@ -600,7 +664,7 @@ impl SqliteStore {
             account,
             name: name.to_owned(),
             color: None,
-            origin: mail_domain::LabelOrigin::Provider,
+            origin,
         };
         self.write_change(&Change::LabelUpsert(label.clone()))?;
         Ok(label.id)

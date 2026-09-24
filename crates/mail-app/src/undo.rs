@@ -139,7 +139,9 @@ pub fn reverse_intent(remote: &RemoteIntent, inverse: &Patch) -> Option<RemoteIn
         RemoteIntent::Folder(work) => reverse_folder(work).map(RemoteIntent::Folder),
         // A submission is not taken back by a patch; the outbox owns that. Nor is a keyword:
         // `$MDNSent` records a receipt answered, which no undo un-answers.
-        RemoteIntent::Send { .. } | RemoteIntent::AddKeyword { .. } => None,
+        RemoteIntent::Send { .. }
+        | RemoteIntent::AddKeyword { .. }
+        | RemoteIntent::Append { .. } => None,
     }
 }
 

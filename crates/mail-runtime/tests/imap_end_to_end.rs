@@ -1732,6 +1732,74 @@ to be continued\r\n\
         assert!(append.contains("Drafts"), "{append}");
     }
 
+    /// An import's upload: queued in the outbox, sent by the drain with its own flags and date,
+    /// and kept here at the address `APPENDUID` gave it, so a second import finds it held.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_queued_upload_is_sent_and_kept_at_the_address_the_server_gave() {
+        let seen: Shared = Arc::new(Mutex::new(Seen::default()));
+        let (port, _v, _p, _f, appended) = serve_appending(seen.clone(), Fault::None).await;
+        let mut it = engine_with(port, tempfile::tempdir().unwrap(), caps());
+        let (_tx, mut cancel) = watch::channel(false);
+
+        const IMPORTED: &[u8] = b"From: old@example.test\r\n\
+Message-ID: <imported-1@example.test>\r\n\
+Subject: from the archive\r\n\
+\r\n\
+kept for years\r\n";
+        let raw = it
+            .store
+            .blobs()
+            .put(&it.store.connection(), IMPORTED)
+            .unwrap();
+        let mailbox = MailboxRef {
+            account: ACCOUNT,
+            path: "Archive".to_owned(),
+        };
+        it.store
+            .enqueue(
+                ACCOUNT,
+                RemoteIntent::Append {
+                    mailbox: mailbox.clone(),
+                    flags: vec![SystemFlag::Seen],
+                    date: Some(Utc.timestamp_opt(1_600_000_000, 0).unwrap()),
+                    raw,
+                },
+                &Patch {
+                    id: ChangeId::generate(),
+                    changes: vec![],
+                },
+                now(),
+            )
+            .unwrap()
+            .expect("queued");
+
+        let report = it.engine.drain_outbox(&mut cancel, now()).await.unwrap();
+        assert_eq!(report.appended, 1, "{report:?}");
+        assert_eq!(appended.lock().unwrap()[0].as_bytes(), IMPORTED);
+        let line = seen
+            .lock()
+            .unwrap()
+            .commands
+            .iter()
+            .find(|c| c.to_uppercase().starts_with("APPEND"))
+            .cloned()
+            .expect("an APPEND was sent");
+        assert!(line.contains("(\\Seen)"), "{line}");
+        assert!(line.contains("\"13-Sep-2020 12:26:40 +0000\""), "{line}");
+
+        let key = MessageKey::Rfc("imported-1@example.test".to_owned());
+        assert!(it.store.holds(ACCOUNT, &key).unwrap());
+        assert_eq!(
+            it.store.remote_refs(&mailbox).unwrap(),
+            vec![RemoteRef::Imap {
+                mailbox: "Archive".to_owned(),
+                uidvalidity: 42,
+                uid: 103,
+            }]
+        );
+        assert!(it.store.outbox_due(ACCOUNT, now()).unwrap().is_empty());
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn an_account_with_no_drafts_folder_says_so_rather_than_guessing() {
         // Uploading into a path nobody confirmed is how a message lands somewhere the user will

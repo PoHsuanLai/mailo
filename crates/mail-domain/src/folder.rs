@@ -156,6 +156,9 @@ pub enum FolderError {
         "a POP3 account has exactly one mailbox; there are no folders to create, rename or delete"
     )]
     SingleMailbox,
+    /// Mail kept only on this computer has no server to hold folders; its places are labels.
+    #[error("this account's mail is kept on this computer; it has no server folders, only labels")]
+    KeptLocally,
     /// A special-use mailbox, or the inbox, or a folder holding one.
     #[error("{path} is the account's {} folder; the server and other clients depend on it", special.name())]
     Special { path: String, special: SpecialUse },

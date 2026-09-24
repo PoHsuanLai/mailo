@@ -1,0 +1,19 @@
+{
+  "address": "local folders",
+  "incoming": {
+    "kind": "local"
+  },
+  "outgoing": {
+    "kind": "nowhere"
+  },
+  "auth": {
+    "kind": "password",
+    "v": {
+      "username": {
+        "kind": "same_as_address"
+      },
+      "sasl": []
+    }
+  },
+  "identities": []
+}

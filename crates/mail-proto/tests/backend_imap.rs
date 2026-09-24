@@ -508,6 +508,7 @@ mod literal_bodies {
         let t = ImapTranscript {
             untagged: vec![untagged(b"* SEARCH 101 102\r\n")],
             capabilities: Vec::new(),
+            completed: Vec::new(),
         };
         assert!(t.untagged[0].text.contains("SEARCH"));
     }

@@ -82,6 +82,11 @@ pub enum ProtoOutcome {
     },
     /// Flags, labels or mailbox membership are now confirmed on the server.
     Applied,
+    /// A message was uploaded. `remote` is where it landed, when the server said
+    /// (`APPENDUID`, RFC 4315); `None` when it did not, and then only a later sync finds it.
+    Appended {
+        remote: Option<RemoteRef>,
+    },
     Submitted {
         /// Where the sent copy landed, when the server filed one. `None` on POP3.
         remote: Option<RemoteRef>,

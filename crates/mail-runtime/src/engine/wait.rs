@@ -9,7 +9,7 @@
 use super::AccountEngine;
 use crate::{Cancel, RuntimeError};
 use chrono::{DateTime, Utc};
-use mail_domain::{AccountId, MailboxRef, WatchMode};
+use mail_domain::{AccountId, Incoming, MailboxRef, WatchMode};
 use mail_proto::Backend;
 use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
@@ -47,7 +47,10 @@ impl<B: Backend> AccountEngine<B> {
         let (store, account, every) = (self.store.clone(), self.account, self.schedule.outbox);
         let alarm = || due_alarm(store.clone(), account, started, every);
 
-        if matches!(self.backend.caps().watch, WatchMode::Idle) {
+        // An account that keeps its mail here has no server to park in IDLE on, whatever its
+        // stored capabilities say: it only ever sleeps.
+        let server = !matches!(self.plan.incoming, Incoming::Local);
+        if server && matches!(self.backend.caps().watch, WatchMode::Idle) {
             let alarm = alarm();
             let (tx, mut inner) = watch::channel(false);
             let watched = self.watch(mailbox, &mut inner);

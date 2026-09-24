@@ -23,10 +23,10 @@ pub use error::StoreError;
 
 use chrono::{DateTime, Utc};
 use mail_domain::{
-    AccountCaps, AccountId, BlobId, Draft, DraftId, Filter, Folder, FolderContents, Ingest,
-    MailboxRef, Message, MessageId, OutboxId, Page, Patch, ProtoOp, Query, ReceiptAnswer,
-    RemoteIntent, RemoteRef, Retry, SendState, SyncCursor, Template, TemplateId, Thread, ThreadId,
-    ThreadSummary,
+    AccountCaps, AccountId, BlobId, Draft, DraftId, Filter, Folder, FolderContents, Import, Ingest,
+    MailboxRef, Message, MessageId, MessageKey, OutboxId, Page, Patch, ProtoOp, Query,
+    ReceiptAnswer, RemoteIntent, RemoteRef, Retry, SendState, SyncCursor, Template, TemplateId,
+    Thread, ThreadId, ThreadSummary,
 };
 
 /// One queued unit of remote work, with everything needed to retry or abandon it.
@@ -114,6 +114,25 @@ pub trait Store {
     /// Returns a [`Patch`] describing what actually moved, so the UI refreshes precisely
     /// instead of re-running every open query.
     fn ingest(&self, account: AccountId, ingest: Ingest) -> Result<Patch, StoreError>;
+
+    /// Keep messages that no server holds: imported mail, or an upload whose server did not say
+    /// where it put it.
+    ///
+    /// Deduplicated by [`MessageKey`] exactly as [`Store::ingest`] is, so importing the same
+    /// file twice holds each message once. A message already held gains any label it arrives
+    /// with and loses none; its flags and body are left alone. Writes no `remote_map` row, so
+    /// nothing done to these messages is ever queued for a server. Labels are created where
+    /// new, as the user's own ([`mail_domain::LabelOrigin::User`]): no server owns them.
+    ///
+    /// Returns what changed, like `ingest`: a new message is a
+    /// [`mail_domain::Change::MessageUpsert`] in it, and one already held is not.
+    fn import(&self, account: AccountId, import: Import) -> Result<Patch, StoreError>;
+
+    /// Whether this account already holds a message with this identity.
+    ///
+    /// What an upload asks before it queues anything, so re-importing into a server's mailbox
+    /// does not upload the same message twice.
+    fn holds(&self, account: AccountId, key: &MessageKey) -> Result<bool, StoreError>;
 
     /// Queue remote work, recording `undo` and marking the affected messages pending.
     ///

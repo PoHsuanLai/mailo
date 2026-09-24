@@ -66,3 +66,27 @@ pub struct Ingest {
     /// deleted elsewhere never disappears locally.
     pub gone: Vec<RemoteRef>,
 }
+
+/// One message kept by this client alone, with nothing on any server to point at.
+///
+/// What [`Fetched`] would be without a [`RemoteRef`]: imported mail in the local-only account, or
+/// a message just uploaded to a server that did not say what UID it got. Absorbing one writes no
+/// `remote_map` row, so nothing done to it later is ever queued for a server.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Kept {
+    pub key: MessageKey,
+    /// The raw bytes, already stored.
+    pub raw: BlobId,
+    pub message: Message,
+    /// Labels by name, created on the account where new. Added to a message already held,
+    /// never taken away: the same message found in two folders of an export is one message
+    /// with both labels.
+    #[serde(default)]
+    pub labels: Vec<String>,
+}
+
+/// A batch of [`Kept`] messages, deduplicated by [`MessageKey`] like an [`Ingest`].
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct Import {
+    pub messages: Vec<Kept>,
+}

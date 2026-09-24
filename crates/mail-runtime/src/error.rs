@@ -23,6 +23,10 @@ pub enum RuntimeError {
     /// The machine wanted something the transport in use cannot provide.
     #[error("unsupported io: {0}")]
     UnsupportedIo(String),
+    /// The account keeps its mail on this computer ([`mail_domain::Incoming::Local`]): there is
+    /// no server to do this with. The field says what was attempted: "send from", "connect to".
+    #[error("this account keeps its mail on this computer; there is no server to {0}")]
+    NoServer(&'static str),
     /// The engine was asked to stop.
     #[error("cancelled")]
     Cancelled,
@@ -56,6 +60,8 @@ impl Retryable for RuntimeError {
             RuntimeError::Store(e) => e.retry(),
             RuntimeError::Secrets(_) => Retry::NeedsReauth,
             RuntimeError::UnsupportedIo(why) => Retry::Fatal(why.clone()),
+            // Nothing will change: the account has no server and never will.
+            RuntimeError::NoServer(_) => Retry::Fatal(self.to_string()),
             // Not a failure: the user closed the app or switched accounts.
             RuntimeError::Cancelled => Retry::Fatal("cancelled".to_owned()),
             RuntimeError::Graph { retry, .. } => retry.clone(),

@@ -10,7 +10,7 @@ use crate::mutf7;
 use mail_domain::{
     AccountCaps, AccountId, ArchiveMeans, Condstore, ExpungeMeans, FetchSince, FolderRoles,
     FolderWork, Ingest, MailboxRef, MailboxRole, MoveExt, PartTree, ProtoOp, RemoteRef, Resync,
-    ServerLabels, SyncCursor, UidValidity,
+    ServerLabels, SyncCursor, SystemFlag, UidValidity,
 };
 
 /// Builds a session for one command walk, owning the credential so the backend never sees it.
@@ -54,6 +54,10 @@ enum Job {
         remote: RemoteRef,
     },
     Applied,
+    /// An upload into `mailbox`, whose completion may say where it landed.
+    Appending {
+        mailbox: String,
+    },
     Watching,
     /// A change to the set of mailboxes, kept so a refusal that says the change has already
     /// happened can be recognised as success.
@@ -462,7 +466,12 @@ impl Backend for ImapBackend {
                  that setting cannot be read over IMAP"
                     .to_owned(),
             )),
-            ProtoOp::Append { mailbox, raw, role } => {
+            ProtoOp::Append {
+                mailbox,
+                flags,
+                date,
+                raw,
+            } => {
                 // `Append` is not submission and does not belong with it: it uploads a message
                 // into a folder over *this* connection, where `Submit` hands one to an entirely
                 // different server. Refusing them together is why a draft composed here never
@@ -470,24 +479,27 @@ impl Backend for ImapBackend {
                 //
                 // The bytes are a `BlobId` in the op and `Vec<u8>` on the command, because
                 // reading a blob is I/O: the runtime resolves it before calling.
-                self.job = Job::Applied;
                 let _ = raw;
-                let flags = match role {
-                    MailboxRole::Drafts => vec!["\\Draft".to_owned(), "\\Seen".to_owned()],
-                    // A copy of something already sent is not unread mail waiting for the user.
-                    MailboxRole::Sent => vec!["\\Seen".to_owned()],
-                    _ => Vec::new(),
-                };
                 let Some(body) = self.staged.take() else {
                     return Progress::Failed(ProtoError::Malformed(
                         "append was not staged: call stage() with the message bytes".to_owned(),
                     ));
                 };
-                self.queue(vec![ImapCommand::Append {
-                    mailbox: mailbox.path,
-                    flags,
-                    raw: body,
-                }])
+                self.job = Job::Appending {
+                    mailbox: mailbox.path.clone(),
+                };
+                // `CAPABILITY` first, after signing in, so the session knows whether the
+                // server takes the literal without a `+` (`LITERAL+`). The list before sign-in
+                // is often a subset, so the greeting's cannot be trusted for it.
+                self.queue(vec![
+                    ImapCommand::Capability,
+                    ImapCommand::Append {
+                        mailbox: mailbox.path,
+                        flags: flags.iter().map(|f| wire_flag(*f).to_owned()).collect(),
+                        date,
+                        raw: body,
+                    },
+                ])
             }
             ProtoOp::Submit { .. } => Progress::Failed(ProtoError::Unsupported(
                 "submission is a separate backend".to_owned(),
@@ -754,6 +766,17 @@ impl Backend for ImapBackend {
                 }
                 Progress::Done(ProtoOutcome::Sections { remote, parts })
             }
+            Job::Appending { mailbox } => Progress::Done(ProtoOutcome::Appended {
+                remote: transcript
+                    .completed
+                    .iter()
+                    .find_map(|done| appenduid(&done.text))
+                    .map(|(uidvalidity, uid)| RemoteRef::Imap {
+                        mailbox,
+                        uidvalidity,
+                        uid,
+                    }),
+            }),
             Job::Applied | Job::Folder(_) => Progress::Done(ProtoOutcome::Applied),
             Job::Watching => Progress::Done(ProtoOutcome::Woken),
         }
@@ -1213,6 +1236,32 @@ fn quoted_labels(labels: &[String]) -> String {
 ///
 /// Never the name: Gmail localises them, so a German account has
 /// `[Google Mail]/Alle Nachrichten` and matching on "All Mail" finds nothing.
+/// A system flag as IMAP spells it.
+fn wire_flag(flag: SystemFlag) -> &'static str {
+    match flag {
+        SystemFlag::Seen => "\\Seen",
+        SystemFlag::Answered => "\\Answered",
+        SystemFlag::Flagged => "\\Flagged",
+        SystemFlag::Draft => "\\Draft",
+    }
+}
+
+/// `[APPENDUID <uidvalidity> <uid>]` in a tagged `OK` (RFC 4315 §3), as numbers.
+///
+/// Read from the response code, never assumed from `UIDPLUS` being advertised: servers exist
+/// that advertise it and omit the code. A uid *set* — which only a multi-message append
+/// returns — is not one message's address and yields nothing.
+fn appenduid(text: &str) -> Option<(u32, u32)> {
+    let upper = text.to_ascii_uppercase();
+    let at = upper.find("[APPENDUID ")?;
+    let rest = &text[at + "[APPENDUID ".len()..];
+    let inner = &rest[..rest.find(']')?];
+    let mut words = inner.split_whitespace();
+    let uidvalidity = words.next()?.parse().ok()?;
+    let uid = words.next()?.parse().ok()?;
+    Some((uidvalidity, uid))
+}
+
 fn folder_role(line: &str) -> Option<(String, MailboxRole)> {
     if !line.starts_with("* LIST") {
         return None;

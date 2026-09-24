@@ -218,6 +218,36 @@ fn main() {
         _ => {}
     }
 
+    // Import and export print progress as they go, to stderr, and an upload needs the network:
+    // dispatched here for the same reasons as `sync`.
+    if let Some(mail_app::cli::Command::Import { path, into }) = &command {
+        match import(&store, path, into) {
+            Ok(said) => print!("{said}"),
+            Err(message) => {
+                eprintln!("{message}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+    if let Some(mail_app::cli::Command::Export { query, target }) = &command {
+        let now = chrono::Utc::now();
+        let exported = mail_app::export::select(&store, query, now).and_then(|chosen| {
+            eprintln!("{} message(s) match", chosen.len());
+            mail_app::export::export(&store, &chosen, target, now, &mut |done| {
+                eprintln!("  {} written", done.written);
+            })
+        });
+        match exported {
+            Ok(done) => print!("{}", mail_app::export::said(&done, target)),
+            Err(message) => {
+                eprintln!("{message}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+
     // `watch` is `sync` that does not stop. It prints as it goes rather than at the end, because
     // "at the end" is when the user presses Ctrl-C.
     if let Some(mail_app::cli::Command::Notify { set }) = &command {
@@ -298,6 +328,44 @@ fn main() {
                 dirs,
                 start.unwrap_or(mail_app::ui::Start::Inbox),
             );
+        }
+    }
+}
+
+/// `mailo import`: keep the mail here, or queue it for a mailbox and send it now.
+fn import(
+    store: &std::sync::Arc<SqliteStore>,
+    path: &std::path::Path,
+    into: &mail_app::import::Destination,
+) -> Result<String, String> {
+    use mail_app::import::{self, Destination};
+    let now = chrono::Utc::now();
+    let source = import::detect(path)?;
+    let mut progress = |so_far: &import::Imported| {
+        eprintln!("  {} read, {} new", so_far.read, so_far.added);
+    };
+    match into {
+        Destination::Local => {
+            let total = import::into_local(store, &source, now, &mut progress)?;
+            Ok(import::said(&total, into))
+        }
+        Destination::Mailbox { account, folder } => {
+            let (id, total) =
+                import::queue_uploads(store, account, folder, &source, now, &mut progress)?;
+            let mut out = import::said(&total, into);
+            // Sent now, so the user sees it go; whatever fails stays queued for the next sync.
+            let report = mail_app::sync::drain(store, id, now)?;
+            out.push_str(&format!("{} uploaded\n", report.appended));
+            if report.still_queued > 0 {
+                out.push_str(&format!(
+                    "{} still queued; `mailo sync` tries again\n",
+                    report.still_queued
+                ));
+            }
+            for note in &report.needs_attention {
+                out.push_str(&format!("  needs attention: {note}\n"));
+            }
+            Ok(out)
         }
     }
 }

@@ -120,6 +120,16 @@ pub fn auth_by_account(
         .collect())
 }
 
+/// The accounts that keep their mail on this computer ([`Incoming::Local`]).
+pub fn local_accounts(store: &SqliteStore) -> Vec<AccountId> {
+    configured(store)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|account| matches!(account.plan.incoming, Incoming::Local))
+        .map(|account| account.id)
+        .collect()
+}
+
 /// How often a background sync should run, from the accounts' own capabilities.
 ///
 /// The shortest interval any account asks for, so an account that wants IDLE-like freshness is
@@ -212,7 +222,22 @@ fn run_all(
     mode: Mode,
     announce: Announce<'_>,
 ) -> Result<Ran, String> {
-    let accounts = configured(&store)?;
+    // An account that keeps its mail here has no server: nothing to fetch, nothing to drain,
+    // and no credential to ask the keyring for. Left out rather than reported, because a line
+    // saying so on every pass would be noise about something that is working as intended.
+    let all = configured(&store)?;
+    let any = !all.is_empty();
+    let accounts: Vec<Configured> = all
+        .into_iter()
+        .filter(|account| !matches!(account.plan.incoming, Incoming::Local))
+        .collect();
+    if accounts.is_empty() && any {
+        return Ok(Ran {
+            text: "nothing to sync: the only mail here is kept on this computer\n".to_owned(),
+            rejected: false,
+            hold: None,
+        });
+    }
     if accounts.is_empty() {
         return Ok(Ran {
             text: "no accounts. Add one with: mailo account add <address>\n".to_owned(),
@@ -409,6 +434,9 @@ async fn one(
     let (_tx, mut cancel) = watch::channel(false);
 
     let report = match &account.plan.incoming {
+        // `run_all` leaves these out before asking for a credential; nothing to do if one
+        // arrives here anyway.
+        Incoming::Local => Ok(SyncReport::default()),
         Incoming::Pop3 { .. } => {
             let username = username_for(&account.plan);
             let Credential::Password(password) = held.current() else {
@@ -586,31 +614,85 @@ pub fn fetch_part_with(
         .build()
         .map_err(|e| format!("cannot start the async runtime: {e}"))?;
     runtime.block_on(async {
-        let stored = secrets
-            .get(&SecretKey {
-                account: account.id,
-                purpose: SecretPurpose::IncomingPassword,
-            })
-            .map_err(|_| crate::view::no_credential(&account.address, &account.plan.auth))?;
-        let credential = signed_in(&account, stored, secrets.as_ref(), registry, now).await?;
         let (_tx, mut cancel) = watch::channel(false);
-        let held = Held::new(credential);
-        let renewal = renewal_for(
-            &account,
-            &held,
-            secrets.clone(),
-            registry,
-            clock_for(Mode::Once, now),
-        );
-        let mut engine = imap_engine(store, &account, held, secrets.clone());
-        if let Some(renewal) = renewal {
-            engine = engine.with_renewal(renewal);
-        }
+        let mut engine = signed_in_imap(store, &account, secrets, registry, now).await?;
         engine
             .fetch_part(message, section, &mut cancel)
             .await
             .map(|_| ())
             .map_err(|e| format!("cannot download the attachment: {e}"))
+    })
+}
+
+/// An IMAP engine for `account`, signed in with a fresh credential and kept fresh.
+async fn signed_in_imap(
+    store: &Arc<SqliteStore>,
+    account: &Configured,
+    secrets: Arc<dyn Secrets>,
+    registry: &OAuthRegistry,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<AccountEngine<ImapBackend>, String> {
+    let stored = secrets
+        .get(&SecretKey {
+            account: account.id,
+            purpose: SecretPurpose::IncomingPassword,
+        })
+        .map_err(|_| crate::view::no_credential(&account.address, &account.plan.auth))?;
+    let credential = signed_in(account, stored, secrets.as_ref(), registry, now).await?;
+    let held = Held::new(credential);
+    let renewal = renewal_for(
+        account,
+        &held,
+        secrets.clone(),
+        registry,
+        clock_for(Mode::Once, now),
+    );
+    let mut engine = imap_engine(store, account, held, secrets);
+    if let Some(renewal) = renewal {
+        engine = engine.with_renewal(renewal);
+    }
+    Ok(engine)
+}
+
+/// Run one IMAP account's outbox now, and nothing else: no fetch, no flag sweep.
+///
+/// What `mailo import --to-mailbox` runs after queueing its uploads, so they go while the user
+/// is watching rather than at the next sync. Blocking, with a runtime of its own, like [`run`].
+pub fn drain(
+    store: &Arc<SqliteStore>,
+    account: AccountId,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<SyncReport, String> {
+    let registry = OAuthRegistry::load_default().map_err(|e| e.to_string())?;
+    drain_with(store, Arc::new(KeyringSecrets), &registry, account, now)
+}
+
+/// The same, with the secret store named, so a test can run it.
+pub fn drain_with(
+    store: &Arc<SqliteStore>,
+    secrets: Arc<dyn Secrets>,
+    registry: &OAuthRegistry,
+    account: AccountId,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<SyncReport, String> {
+    let account = configured(store)?
+        .into_iter()
+        .find(|a| a.id == account)
+        .ok_or_else(|| "that account is no longer configured".to_owned())?;
+    if !matches!(account.plan.incoming, Incoming::Imap { .. }) {
+        return Err("only an IMAP account has mailboxes to upload into".to_owned());
+    }
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| format!("cannot start the async runtime: {e}"))?;
+    runtime.block_on(async {
+        let (_tx, mut cancel) = watch::channel(false);
+        let mut engine = signed_in_imap(store, &account, secrets, registry, now).await?;
+        engine
+            .drain_outbox(&mut cancel, now)
+            .await
+            .map_err(|e| e.to_string())
     })
 }
 
@@ -905,6 +987,9 @@ pub fn mailboxes_by_account(store: &SqliteStore) -> Result<Vec<(String, Vec<Stri
 /// POP3 has one mailbox by construction, and a server that answered no roles gets the inbox
 /// alone, which is what happened before this existed.
 fn to_sync(account: &Configured) -> Vec<MailboxRef> {
+    if matches!(account.plan.incoming, Incoming::Local) {
+        return Vec::new();
+    }
     let mut out = vec![MailboxRef {
         account: account.id,
         path: "INBOX".to_owned(),

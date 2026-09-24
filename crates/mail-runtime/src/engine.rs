@@ -11,7 +11,8 @@ use chrono::{DateTime, Utc};
 use mail_domain::{
     AccountCaps, AccountId, AccountPlan, BlobId, Condstore, Credential, FetchSince, Incoming,
     MailboxRef, MailboxRole, MessageId, Outgoing, PartTree, ProtoOp, RemoteRef, Resync, Retry,
-    Retryable, SecretKey, SecretPurpose, SendState, SyncCursor, Tls, UidValidity, WatchMode,
+    Retryable, SecretKey, SecretPurpose, SendState, SyncCursor, SystemFlag, Tls, UidValidity,
+    WatchMode,
 };
 use mail_mime::Posting;
 use mail_proto::backend::SmtpBackend;
@@ -105,6 +106,8 @@ pub struct SyncReport {
     /// one the header fetch built. A message already held that arrives again (a remap, a body
     /// filling in, the same mail under a second UID) is not here: it did not *arrive*.
     pub arrived: Vec<MessageId>,
+    /// Messages uploaded into a mailbox by this pass's outbox (`ProtoOp::Append`).
+    pub appended: usize,
 }
 
 /// The messages a patch stored for the first time.
@@ -241,13 +244,14 @@ impl<B: Backend> AccountEngine<B> {
         self
     }
 
-    /// Where the incoming server lives.
-    fn incoming(&self) -> (&str, u16, Tls) {
+    /// Where the incoming server lives. `None` for an account that keeps its mail here.
+    fn incoming(&self) -> Option<(&str, u16, Tls)> {
         match &self.plan.incoming {
-            Incoming::Imap { host, port, tls } => (host, *port, *tls),
+            Incoming::Imap { host, port, tls } => Some((host, *port, *tls)),
             Incoming::Pop3 {
                 host, port, tls, ..
-            } => (host, *port, *tls),
+            } => Some((host, *port, *tls)),
+            Incoming::Local => None,
         }
     }
 
@@ -256,7 +260,9 @@ impl<B: Backend> AccountEngine<B> {
     /// Public so a caller can check reachability before committing to a pass; the sync methods
     /// each open their own, because a session spends the greeting and cannot share one.
     pub async fn connect(&self) -> Result<Transport, RuntimeError> {
-        let (host, port, tls) = self.incoming();
+        let (host, port, tls) = self
+            .incoming()
+            .ok_or(RuntimeError::NoServer("connect to"))?;
         Transport::connect(host, port, tls).await
     }
 
@@ -324,6 +330,13 @@ impl<B: Backend> AccountEngine<B> {
         if matches!(op, ProtoOp::Submit { .. }) {
             return self.submit(op, cancel, leaving).await;
         }
+        // An upload's bytes are a blob, and reading one is this crate's to do. Staged here, per
+        // attempt, rather than by the caller: a retry after a renewed sign-in runs this again,
+        // and bytes staged once would already have been spent by the first attempt.
+        if let ProtoOp::Append { raw, .. } = &op {
+            let bytes = self.store.blobs().get(&self.store.connection(), *raw)?;
+            self.backend.stage_append(bytes);
+        }
         let mut transport = self.connect().await?;
         let mut step = BackendMachine {
             backend: &mut self.backend,
@@ -336,7 +349,7 @@ impl<B: Backend> AccountEngine<B> {
     fn outgoing(&self) -> Option<(&str, u16, Tls)> {
         match &self.plan.outgoing {
             Outgoing::Smtp { host, port, tls } => Some((host, *port, *tls)),
-            Outgoing::Graph => None,
+            Outgoing::Graph | Outgoing::Nowhere => None,
         }
     }
 
@@ -414,6 +427,9 @@ impl<B: Backend> AccountEngine<B> {
                 "submit() called with something other than a submission".to_owned(),
             ));
         };
+        if self.plan.outgoing == Outgoing::Nowhere {
+            return Err(RuntimeError::NoServer("send from"));
+        }
         // The bytes were frozen when the user pressed send, so a draft edited while the outbox
         // was backed off does not change what goes out.
         let frozen = self.store.blobs().get(&self.store.connection(), raw)?;
@@ -481,6 +497,15 @@ impl<B: Backend> AccountEngine<B> {
                 ProtoOp::Submit { draft, .. } => Some(*draft),
                 _ => None,
             };
+            let upload = match &entry.op {
+                ProtoOp::Append {
+                    mailbox,
+                    flags,
+                    raw,
+                    ..
+                } => Some((mailbox.clone(), flags.clone(), *raw)),
+                _ => None,
+            };
             if let Some(draft) = draft {
                 // From here it is on its way and can no longer be taken back: `unsend` refuses a
                 // draft that says so. Nothing set this before, so a send could be "cancelled"
@@ -489,8 +514,18 @@ impl<B: Backend> AccountEngine<B> {
             }
             // Stamped with the same instant the draft records as `Sent { at }`, so the two agree.
             match self.run_leaving(entry.op, cancel, draft.map(|_| now)).await {
-                Ok(_) => {
+                Ok(outcome) => {
                     self.store.outbox_settle(id, Settle::Ok, now)?;
+                    if let (Some(upload), ProtoOutcome::Appended { remote }) = (upload, outcome) {
+                        report.appended += 1;
+                        // The upload happened whatever this says. Failing the drain over the
+                        // local copy would report as lost a message the server now holds.
+                        if let Err(e) = self.keep_appended(upload, remote, now) {
+                            report.needs_attention.push(format!(
+                                "uploaded, but not kept here until the next sync: {e}"
+                            ));
+                        }
+                    }
                     if let Some(draft) = draft {
                         // `message: None` — SMTP reports that the message was accepted, not
                         // where a copy was filed. Gmail files it in Sent itself; a POP3 account
@@ -552,6 +587,49 @@ impl<B: Backend> AccountEngine<B> {
             .map(|due| due.len())
             .unwrap_or(0);
         Ok(report)
+    }
+
+    /// Keep a message this client just uploaded, so it is here before any sync fetches it.
+    ///
+    /// At the address the server gave it where it gave one (`APPENDUID`); the next sync then
+    /// finds that UID already mapped and fetches nothing. Where it gave none the message is kept
+    /// with no address, by identity, and the sync that finds it on the server maps it rather
+    /// than storing it twice. Either way re-importing the same file finds it already held and
+    /// uploads nothing.
+    fn keep_appended(
+        &self,
+        (mailbox, flags, raw): (MailboxRef, Vec<SystemFlag>, mail_domain::BlobId),
+        remote: Option<RemoteRef>,
+        now: DateTime<Utc>,
+    ) -> Result<(), RuntimeError> {
+        let bytes = self.store.blobs().get(&self.store.connection(), raw)?;
+        let role = self.role_of(&mailbox);
+        match remote {
+            Some(remote) => {
+                crate::assemble::appended(
+                    &self.store,
+                    self.account,
+                    crate::assemble::Destination { mailbox, role },
+                    remote,
+                    bytes,
+                    &flags,
+                    now,
+                )?;
+            }
+            None => {
+                let placement = mail_mime::archive::Placement::new(role, flags, Vec::new());
+                crate::assemble::keep(
+                    &self.store,
+                    self.account,
+                    vec![crate::assemble::Keep {
+                        raw: bytes,
+                        placement,
+                    }],
+                    now,
+                )?;
+            }
+        }
+        Ok(())
     }
 
     /// Record where a draft got to, without letting that record fail the drain.
@@ -653,15 +731,16 @@ impl<B: Backend> AccountEngine<B> {
             return Ok(false);
         };
         let _ = draft;
-        self.backend.stage_append(raw);
+        // Stored, so the op names bytes that exist: `run_once` reads them back to stage them.
+        let raw = self.store.blobs().put(&self.store.connection(), &raw)?;
         let op = ProtoOp::Append {
             mailbox: MailboxRef {
                 account: self.account,
                 path,
             },
-            // Resolved by the caller and carried for the record; the bytes travel staged.
-            raw: mail_domain::BlobId::generate(),
-            role: MailboxRole::Drafts,
+            flags: vec![SystemFlag::Draft, SystemFlag::Seen],
+            date: None,
+            raw,
         };
         self.run(op, cancel).await?;
         Ok(true)

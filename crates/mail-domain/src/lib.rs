@@ -43,12 +43,14 @@ pub use id::{
     AccountId, BlobId, ChangeId, DraftId, IdentityId, LabelId, MessageId, OutboxId, TemplateId,
     ThreadId, ViewId,
 };
-pub use ingest::{Fetched, Ingest};
+pub use ingest::{Fetched, Import, Ingest, Kept};
 pub use message::{Message, MessageKey, Thread, ThreadSummary};
 pub use op::{Action, Applied, Change, Op, OpKind, Patch, RemoteIntent, Target};
 pub use parts::PartTree;
 pub use receipt::{Keyword, ReceiptAnswer, ReceiptRequest};
-pub use remote::{FetchSince, MailboxRef, ProtoOp, RemoteRef, Resync, SyncCursor, UidValidity};
+pub use remote::{
+    FetchSince, MailboxRef, ProtoOp, RemoteRef, Resync, SyncCursor, SystemFlag, UidValidity,
+};
 pub use retry::{Retry, Retryable};
 pub use state::{
     Attachments, IsDefault, LabelOrigin, MailboxRole, MailboxSet, Membership, Pin, ReadState,

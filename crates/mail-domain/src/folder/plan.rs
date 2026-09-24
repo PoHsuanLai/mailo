@@ -54,8 +54,10 @@ pub struct FolderCtx<'a> {
 /// renamed with it by the store, and taken off every message when the folder is deleted —
 /// which on such a server is all a delete does. Never `\Deleted` and `EXPUNGE`.
 pub fn plan(work: &FolderWork, ctx: &FolderCtx<'_>) -> Result<Applied, FolderError> {
-    if let Incoming::Pop3 { .. } = ctx.incoming {
-        return Err(FolderError::SingleMailbox);
+    match ctx.incoming {
+        Incoming::Pop3 { .. } => return Err(FolderError::SingleMailbox),
+        Incoming::Local => return Err(FolderError::KeptLocally),
+        Incoming::Imap { .. } => {}
     }
     let (forward, inverse) = match work {
         FolderWork::Create { path } => create(path, ctx)?,

@@ -196,6 +196,16 @@ pub enum RemoteIntent {
     /// Addresses no message, like [`RemoteIntent::Send`], so it resolves to the identical
     /// [`crate::ProtoOp::Folder`] without consulting `remote_map`.
     Folder(FolderWork),
+    /// Upload a message into a mailbox, e.g. imported mail.
+    ///
+    /// Addresses no existing message either: the bytes are the new one. Resolves to the
+    /// identical [`crate::ProtoOp::Append`].
+    Append {
+        mailbox: MailboxRef,
+        flags: Vec<crate::remote::SystemFlag>,
+        date: Option<DateTime<Utc>>,
+        raw: BlobId,
+    },
 }
 
 /// The result of applying an [`Op`], or of planning a folder change with [`crate::folder::plan`].

@@ -924,6 +924,11 @@ pub fn queue(
         }
         SendState::Editing => {}
     }
+    // Refused before anything is built or queued: an entry in the outbox of an account with no
+    // server would sit there for ever, and the draft would say "queued" the whole time.
+    if crate::sync::local_accounts(store).contains(&draft.account) {
+        return Err(mail_runtime::RuntimeError::NoServer("send from").to_string());
+    }
     let identity = identity_of(store, draft.account, Some(draft.identity))?;
     let parent = draft.in_reply_to.and_then(|id| store.message(id).ok());
 

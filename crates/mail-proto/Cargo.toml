@@ -8,6 +8,7 @@ rust-version.workspace = true
 [dependencies]
 mail-domain.workspace = true
 mail-mime.workspace = true
+chrono.workspace = true
 thiserror.workspace = true
 base64 = "0.22"
 # A-labels for an envelope domain when the server did not list SMTPUTF8 (RFC 6531).

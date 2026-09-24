@@ -376,6 +376,47 @@ pub fn send_through_graph(mut preset: Preset) -> Preset {
     preset
 }
 
+/// The name the local-only account is stored under.
+///
+/// Not an address, on purpose: it contains a space, so no real mailbox can ever collide with it,
+/// and it is what `account list` prints and what `--account` would be given.
+pub const LOCAL_FOLDERS: &str = "local folders";
+
+/// The local-only account imported mail lands in: no server in either direction.
+///
+/// `auth` is a password plan with no mechanisms because the plan must name one and this account
+/// never authenticates to anything: sync skips an [`Incoming::Local`] account before any
+/// credential is asked for. The capabilities say everything is local, which is the truth rather
+/// than an expectation a connection will replace — there is no connection.
+pub fn local_folders(now: DateTime<Utc>) -> Preset {
+    Preset {
+        plan: AccountPlan {
+            address: LOCAL_FOLDERS.to_owned(),
+            incoming: Incoming::Local,
+            outgoing: Outgoing::Nowhere,
+            auth: AuthPlan::Password {
+                username: Username::SameAsAddress,
+                sasl: Vec::new(),
+            },
+            identities: Vec::new(),
+        },
+        expected_caps: AccountCaps {
+            labels: ServerLabels::LocalOnly,
+            threads: ServerThreads::Jwz,
+            watch: WatchMode::Poll { every: POLL_EVERY },
+            archive: ArchiveMeans::LocalOnly,
+            folders: FolderRoles(Vec::new()),
+            condstore: Condstore::Absent,
+            move_ext: MoveExt::Absent,
+            expunge: ExpungeMeans::Forbidden,
+            top: Supported::Absent,
+            pipelining: Supported::Absent,
+            connections: ConnectionBudget { max: 1 },
+            observed_at: now,
+        },
+    }
+}
+
 /// A managed Microsoft 365 mailbox, work or school.
 ///
 /// The plan's first outside test of "a provider is a value, not a type": adding this required an

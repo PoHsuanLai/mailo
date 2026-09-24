@@ -124,6 +124,7 @@ proptest! {
         let mut session = imap_session(vec![ImapCommand::Append {
             mailbox: "Drafts".to_owned(),
             flags: vec!["\\Draft".to_owned()],
+            date: None,
             raw: body,
         }]);
         prop_assert!(drive_to_rest(&mut session, chunks));

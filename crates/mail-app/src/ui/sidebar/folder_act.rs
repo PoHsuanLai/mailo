@@ -23,7 +23,8 @@ pub(in crate::ui) fn load(store: &SqliteStore, scope: &[AccountId]) -> Vec<Accou
         .filter(|row| scope.is_empty() || scope.contains(&row.id))
         .map(|row| {
             let mailboxes = match row.plan.incoming {
-                Incoming::Pop3 { .. } => Mailboxes::One,
+                // Local mail has no server folders to make either; its places are labels.
+                Incoming::Pop3 { .. } | Incoming::Local => Mailboxes::One,
                 Incoming::Imap { .. } => Mailboxes::Many {
                     folders: store.folders(row.id).unwrap_or_default(),
                     labels: store.labels(row.id).unwrap_or_default(),
@@ -132,6 +133,9 @@ pub(in crate::ui) fn refused(refusal: &Refusal) -> String {
         Refusal::Folder(error) => match error {
             FolderError::SingleMailbox => {
                 "A POP3 account has one mailbox, and no folders to make.".to_owned()
+            }
+            FolderError::KeptLocally => {
+                "This mail is kept on this computer: it has labels, not server folders.".to_owned()
             }
             FolderError::Special { path, special } => format!(
                 "“{path}” is the account's {} folder. Other mail apps depend on it, so it stays as it is.",

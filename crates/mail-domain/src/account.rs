@@ -74,6 +74,13 @@ pub enum Incoming {
         tls: Tls,
         leave: LeaveOnServer,
     },
+    /// No server at all: mail kept only on this computer, the way other clients keep "Local
+    /// Folders". Imported mail lands here.
+    ///
+    /// A variant rather than a missing value because every place that decides what to do with
+    /// an account has to decide this too: sync skips it, a folder change refuses it, and it
+    /// never has a `remote_map` row, so every change made to its mail is local and complete.
+    Local,
 }
 
 /// How mail leaves. SMTP is not a third incoming backend; both backends submit through it.
@@ -89,6 +96,9 @@ pub enum Outgoing {
     /// switched off — the default in many. HTTPS to a fixed host with the account's OAuth
     /// sign-in, so there is nothing to configure: no host, no port, no TLS mode.
     Graph,
+    /// Nothing leaves from this account. A [`Incoming::Local`] account's, which has no server
+    /// to submit to; a send from it is refused before anything is queued.
+    Nowhere,
 }
 
 /// Transport security.

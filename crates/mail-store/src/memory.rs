@@ -332,6 +332,14 @@ impl Store for MemoryStore {
         self.inner.borrow_mut().ingest(account, &ingest)
     }
 
+    fn import(&self, account: AccountId, import: mail_domain::Import) -> Result<Patch, StoreError> {
+        self.inner.borrow_mut().import(account, &import)
+    }
+
+    fn holds(&self, account: AccountId, key: &MessageKey) -> Result<bool, StoreError> {
+        Ok(self.inner.borrow().message_by_key(account, key).is_some())
+    }
+
     fn enqueue(
         &self,
         account: AccountId,
@@ -801,6 +809,64 @@ impl Inner {
         })
     }
 
+    /// Mirrors `SqliteStore::write_import`.
+    fn import(
+        &mut self,
+        account: AccountId,
+        import: &mail_domain::Import,
+    ) -> Result<Patch, StoreError> {
+        self.accounts.insert(account);
+        let mut changes = Vec::new();
+        for kept in &import.messages {
+            let id = if let Some(id) = self.message_by_key(account, &kept.key) {
+                id
+            } else {
+                self.upsert_message(&kept.message)?;
+                changes.push(Change::MessageUpsert(Box::new(kept.message.clone())));
+                kept.message.id
+            };
+            self.learn_fetched(account, id, &kept.message);
+            for name in &kept.labels {
+                let label = self.label_named(account, name);
+                let held = self
+                    .messages
+                    .get(&id)
+                    .is_some_and(|message| message.labels.contains(&label));
+                if held {
+                    continue;
+                }
+                let change = Change::MessageLabel(id, label, Membership::In);
+                self.write_change(&change)?;
+                changes.push(change);
+            }
+        }
+        Ok(Patch {
+            id: ChangeId::generate(),
+            changes,
+        })
+    }
+
+    /// The label called `name` on `account`, made the user's own if it is new.
+    fn label_named(&mut self, account: AccountId, name: &str) -> LabelId {
+        if let Some(label) = self
+            .labels
+            .values()
+            .find(|label| label.account == account && label.name == name)
+        {
+            return label.id;
+        }
+        let label = Label {
+            id: LabelId::generate(),
+            account,
+            name: name.to_owned(),
+            color: None,
+            origin: mail_domain::LabelOrigin::User,
+        };
+        let id = label.id;
+        self.labels.insert(id, label);
+        id
+    }
+
     fn message_by_key(&self, account: AccountId, key: &MessageKey) -> Option<MessageId> {
         self.by_key
             .get(&account)
@@ -917,12 +983,28 @@ impl Inner {
         if let RemoteIntent::Folder(work) = intent {
             return Ok(Some(ProtoOp::Folder(work.clone())));
         }
+        if let RemoteIntent::Append {
+            mailbox,
+            flags,
+            date,
+            raw,
+        } = intent
+        {
+            return Ok(Some(ProtoOp::Append {
+                mailbox: mailbox.clone(),
+                flags: flags.clone(),
+                date: *date,
+                raw: *raw,
+            }));
+        }
         let messages = match intent {
             RemoteIntent::SetFlags { messages, .. }
             | RemoteIntent::SetMailbox { messages, .. }
             | RemoteIntent::SetLabels { messages, .. }
             | RemoteIntent::AddKeyword { messages, .. } => messages,
-            RemoteIntent::Send { .. } | RemoteIntent::Folder(_) => unreachable!("handled above"),
+            RemoteIntent::Send { .. } | RemoteIntent::Folder(_) | RemoteIntent::Append { .. } => {
+                unreachable!("handled above")
+            }
         };
         let remotes = self.refs_for(account, messages)?;
         if remotes.is_empty() {
@@ -947,7 +1029,9 @@ impl Inner {
                 remotes,
                 keyword: *keyword,
             },
-            RemoteIntent::Send { .. } | RemoteIntent::Folder(_) => unreachable!("handled above"),
+            RemoteIntent::Send { .. } | RemoteIntent::Folder(_) | RemoteIntent::Append { .. } => {
+                unreachable!("handled above")
+            }
         }))
     }
 
@@ -1223,7 +1307,9 @@ fn pending_of(intent: &RemoteIntent) -> Vec<(MessageId, Vec<Change>)> {
         // A keyword has no local mirror on the message to re-layer: the answer it records is
         // kept by the store beside the message, written when the user answered.
         RemoteIntent::AddKeyword { .. } => Vec::new(),
-        RemoteIntent::Send { .. } | RemoteIntent::Folder(_) => Vec::new(),
+        RemoteIntent::Send { .. } | RemoteIntent::Folder(_) | RemoteIntent::Append { .. } => {
+            Vec::new()
+        }
     }
 }
 

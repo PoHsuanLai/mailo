@@ -611,7 +611,9 @@ mod microsoft {
                 assert_eq!(port, 587);
                 assert_eq!(tls, Tls::StartTlsRequired);
             }
-            Outgoing::Graph => panic!("SMTP unless --send graph says otherwise"),
+            Outgoing::Graph | Outgoing::Nowhere => {
+                panic!("SMTP unless --send graph says otherwise")
+            }
         }
     }
 

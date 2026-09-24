@@ -78,26 +78,80 @@ fn assemble_as(
             .blobs()
             .put(&store.connection(), &arrival.raw)
             .map_err(RuntimeError::Store)?;
-        parsed.push((arrival.remote, fields, blob));
+        let key = message_key(&fields, Tiebreak::Remote(&arrival.remote));
+        parsed.push((
+            arrival.remote,
+            Built {
+                fields,
+                blob,
+                key,
+                role,
+            },
+        ));
     }
+    let (remotes, built): (Vec<RemoteRef>, Vec<Built>) = parsed.into_iter().unzip();
+    let blobs: Vec<BlobId> = built.iter().map(|b| b.blob).collect();
+    let messages = build(store, account, built, fallback_date)?
+        .into_iter()
+        .zip(remotes.into_iter().zip(blobs))
+        .map(|(message, (remote, raw))| Fetched {
+            remote,
+            key: message.key.clone(),
+            raw,
+            message,
+        })
+        .collect();
 
+    Ok(Ingest {
+        mailbox,
+        validity: UidValidity::Same,
+        cursor,
+        messages,
+        flags: Vec::new(),
+        labels: Vec::new(),
+        label_names: Vec::new(),
+        gone: Vec::new(),
+    })
+}
+
+/// A parsed, stored message waiting for the ids and the thread only a batch can give it.
+struct Built {
+    fields: mail_mime::Parsed,
+    blob: BlobId,
+    key: MessageKey,
+    role: MailboxRole,
+}
+
+/// Turn parsed messages into domain [`Message`]s: threaded together and onto what is stored,
+/// attachments held, unread and unstarred.
+fn build(
+    store: &SqliteStore,
+    account: AccountId,
+    built: Vec<Built>,
+    fallback_date: DateTime<Utc>,
+) -> Result<Vec<Message>, RuntimeError> {
     // Thread them together, and onto conversations already stored. `existing` is what makes an
     // incremental sync join rather than renumber.
-    let inputs: Vec<threading::ThreadInput<'_>> = parsed
+    let inputs: Vec<threading::ThreadInput<'_>> = built
         .iter()
-        .map(|(_, fields, _)| threading::ThreadInput {
-            message_id: fields.rfc_message_id.as_deref(),
-            in_reply_to: fields.in_reply_to.as_deref(),
-            references: &fields.references,
-            subject: &fields.subject,
+        .map(|b| threading::ThreadInput {
+            message_id: b.fields.rfc_message_id.as_deref(),
+            in_reply_to: b.fields.in_reply_to.as_deref(),
+            references: &b.fields.references,
+            subject: &b.fields.subject,
         })
         .collect();
     let known = |id: &str| thread_of_rfc_id(store, account, id);
     let threads = threading::thread(&inputs, &known);
 
     let mut messages = Vec::new();
-    for ((remote, fields, blob), thread) in parsed.into_iter().zip(threads) {
-        let key = message_key(&fields, &remote);
+    for (b, thread) in built.into_iter().zip(threads) {
+        let Built {
+            fields,
+            blob,
+            key,
+            role,
+        } = b;
         let from = fields.from.clone().unwrap_or_else(|| Address {
             // A message with no From is malformed and still has to be listable; inventing a
             // plausible-looking sender would be worse than an obviously empty one.
@@ -136,49 +190,145 @@ fn assemble_as(
             })
             .collect::<Result<Vec<_>, RuntimeError>>()?;
 
-        let message = Message {
+        messages.push(Message {
             id: MessageId::generate(),
             thread,
             account,
-            key: key.clone(),
+            key,
             date: fields.date.unwrap_or(fallback_date),
             from,
-            reply_to: fields.reply_to.clone(),
-            to: fields.to.clone(),
-            cc: fields.cc.clone(),
-            bcc: fields.bcc.clone(),
-            subject: fields.subject.clone(),
-            in_reply_to: fields.in_reply_to.clone(),
-            references: fields.references.clone(),
-            rfc_message_id: fields.rfc_message_id.clone(),
+            reply_to: fields.reply_to,
+            to: fields.to,
+            cc: fields.cc,
+            bcc: fields.bcc,
+            subject: fields.subject,
+            in_reply_to: fields.in_reply_to,
+            references: fields.references,
+            rfc_message_id: fields.rfc_message_id,
             read: ReadState::Unread,
             star: Star::Unstarred,
             mailbox: role,
             labels: Vec::new(),
             body: Body::Present {
-                text: fields.text.clone(),
+                text: fields.text,
                 raw: blob,
             },
             attachments,
-        };
-        messages.push(Fetched {
-            remote,
-            key,
-            raw: blob,
-            message,
         });
     }
+    Ok(messages)
+}
 
-    Ok(Ingest {
-        mailbox,
-        validity: UidValidity::Same,
-        cursor,
-        messages,
-        flags: Vec::new(),
-        labels: Vec::new(),
-        label_names: Vec::new(),
-        gone: Vec::new(),
-    })
+/// One message to keep with no server address, and where the file it came from put it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Keep {
+    pub raw: Vec<u8>,
+    pub placement: mail_mime::archive::Placement,
+}
+
+/// What [`keep`] did with a batch.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Kept {
+    /// Messages new to the account.
+    pub added: usize,
+    /// Messages it already held, by identity; only their labels may have grown.
+    pub already: usize,
+    /// Bytes that were not a message at all.
+    pub unreadable: usize,
+}
+
+/// Keep a batch of messages that no server holds, through the same parse, identity and
+/// threading as a sync — imported mail, or an upload whose server did not say where it went.
+///
+/// The identity of a message with no `Message-ID` is a digest of its fields and its bytes, so
+/// importing the same file again finds the same identity and keeps nothing twice.
+pub fn keep(
+    store: &SqliteStore,
+    account: AccountId,
+    batch: Vec<Keep>,
+    fallback_date: DateTime<Utc>,
+) -> Result<Kept, RuntimeError> {
+    let mut report = Kept::default();
+    let mut built = Vec::new();
+    let mut placements = Vec::new();
+    for item in batch {
+        let Ok(fields) = mail_mime::parse(&item.raw) else {
+            report.unreadable += 1;
+            continue;
+        };
+        let blob = store
+            .blobs()
+            .put(&store.connection(), &item.raw)
+            .map_err(RuntimeError::Store)?;
+        let key = message_key(&fields, Tiebreak::Bytes(&item.raw));
+        built.push(Built {
+            fields,
+            blob,
+            key,
+            role: item.placement.role,
+        });
+        placements.push(item.placement);
+    }
+    let blobs: Vec<BlobId> = built.iter().map(|b| b.blob).collect();
+    let kept: Vec<mail_domain::Kept> = build(store, account, built, fallback_date)?
+        .into_iter()
+        .zip(placements.into_iter().zip(blobs))
+        .map(|(mut message, (placement, raw))| {
+            message.read = placement.read();
+            message.star = placement.star();
+            mail_domain::Kept {
+                key: message.key.clone(),
+                raw,
+                message,
+                labels: placement.labels,
+            }
+        })
+        .collect();
+    let offered = kept.len();
+    let patch = store
+        .import(account, Import { messages: kept })
+        .map_err(RuntimeError::Store)?;
+    report.added = patch
+        .changes
+        .iter()
+        .filter(|c| matches!(c, Change::MessageUpsert(_)))
+        .count();
+    report.already = offered - report.added;
+    Ok(report)
+}
+
+/// Keep a message just uploaded to `into`, at the address the server gave it (`APPENDUID`).
+///
+/// Recorded now rather than left for the next sync to find, so that importing the same file
+/// again sees the message as already there and uploads nothing — and so the next sync, finding
+/// this UID already mapped, does not fetch it back.
+pub fn appended(
+    store: &SqliteStore,
+    account: AccountId,
+    into: Destination,
+    remote: RemoteRef,
+    raw: Vec<u8>,
+    flags: &[SystemFlag],
+    fallback_date: DateTime<Utc>,
+) -> Result<Patch, RuntimeError> {
+    let mut ingest = assemble_as(
+        store,
+        account,
+        into,
+        None,
+        vec![Arrival { remote, raw }],
+        Provenance::Wire,
+        fallback_date,
+    )?;
+    for fetched in &mut ingest.messages {
+        if flags.contains(&SystemFlag::Seen) {
+            fetched.message.read = ReadState::Read;
+        }
+        if flags.contains(&SystemFlag::Flagged) {
+            fetched.message.star = Star::Starred;
+        }
+    }
+    store.ingest(account, ingest).map_err(RuntimeError::Store)
 }
 
 /// Headers only, for the pass that must not mark anything read.
@@ -209,12 +359,26 @@ pub fn assemble_headers(
     Ok(ingest)
 }
 
+/// The identity [`keep`] gives a message: what an import asks the store about before it
+/// uploads anything, so the answer matches what keeping it would have recorded.
+pub fn identity(fields: &mail_mime::Parsed, raw: &[u8]) -> MessageKey {
+    message_key(fields, Tiebreak::Bytes(raw))
+}
+
+/// What separates two messages whose fields are identical and which have no `Message-ID`.
+enum Tiebreak<'a> {
+    /// Where the server holds it.
+    Remote(&'a RemoteRef),
+    /// Its bytes, for a message no server holds.
+    Bytes(&'a [u8]),
+}
+
 /// The identity a message is deduplicated by.
 ///
 /// `Message-ID` where there is one. Where there is not — and real mail frequently has none —
 /// a digest of the fields that do exist, so two copies of the same message still collapse
 /// instead of arriving twice.
-fn message_key(fields: &mail_mime::Parsed, remote: &RemoteRef) -> MessageKey {
+fn message_key(fields: &mail_mime::Parsed, tiebreak: Tiebreak<'_>) -> MessageKey {
     if let Some(id) = &fields.rfc_message_id {
         return MessageKey::Rfc(id.clone());
     }
@@ -231,15 +395,18 @@ fn message_key(fields: &mail_mime::Parsed, remote: &RemoteRef) -> MessageKey {
     if let Some(date) = fields.date {
         hasher.update(date.to_rfc3339().as_bytes());
     }
-    // The remote address is included only as a last resort tiebreak: without it, two genuinely
+    // The address is included only as a last resort tiebreak: without it, two genuinely
     // different messages with no Message-ID, the same subject, sender and timestamp would
-    // collapse into one and the user would silently lose mail.
-    match remote {
-        RemoteRef::Pop { uidl } => hasher.update(uidl.as_bytes()),
-        RemoteRef::Imap { mailbox, uid, .. } => {
+    // collapse into one and the user would silently lose mail. A message no server holds has
+    // no address, and its bytes do the same job — the same file imported twice has the same
+    // bytes, so it still collapses.
+    match tiebreak {
+        Tiebreak::Remote(RemoteRef::Pop { uidl }) => hasher.update(uidl.as_bytes()),
+        Tiebreak::Remote(RemoteRef::Imap { mailbox, uid, .. }) => {
             hasher.update(mailbox.as_bytes());
             hasher.update(&uid.to_le_bytes())
         }
+        Tiebreak::Bytes(raw) => hasher.update(blake3::hash(raw).as_bytes()),
     };
     MessageKey::Synthetic(*hasher.finalize().as_bytes())
 }

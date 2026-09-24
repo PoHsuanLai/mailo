@@ -483,6 +483,14 @@ impl Store for SqliteStore {
         self.write_patch(patch)
     }
 
+    fn import(&self, account: AccountId, import: mail_domain::Import) -> Result<Patch, StoreError> {
+        self.write_import(account, import)
+    }
+
+    fn holds(&self, account: AccountId, key: &mail_domain::MessageKey) -> Result<bool, StoreError> {
+        Ok(self.message_by_key(account, key)?.is_some())
+    }
+
     fn ingest(&self, account: AccountId, ingest: Ingest) -> Result<Patch, StoreError> {
         self.write_ingest(account, ingest)
     }

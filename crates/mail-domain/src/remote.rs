@@ -6,7 +6,22 @@
 
 use crate::id::{AccountId, BlobId, DraftId};
 use crate::state::MailboxRole;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+
+/// An IMAP system flag a message can be uploaded with (RFC 3501 §2.3.2).
+///
+/// A closed set, and deliberately without `\Deleted`: an upload that arrives already marked for
+/// expunging is a message the next `EXPUNGE` anywhere destroys, and this client never expunges.
+/// `\Recent` is the server's to set.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SystemFlag {
+    Seen,
+    Answered,
+    Flagged,
+    Draft,
+}
 
 /// One server-side mailbox. `"INBOX"` for POP3, which has only one.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -163,11 +178,21 @@ pub enum ProtoOp {
         remotes: Vec<RemoteRef>,
         keyword: crate::receipt::Keyword,
     },
-    /// Upload a message we composed, e.g. a draft to the Drafts folder.
+    /// Upload a message into a mailbox: a draft to the Drafts folder, or imported mail.
+    ///
+    /// `flags` and `date` are the message's own, said explicitly rather than derived from the
+    /// destination: a draft is `\Draft \Seen` because it is a draft, and an imported message
+    /// read ten years ago is `\Seen` wherever it goes. It carried a `MailboxRole` until import
+    /// needed flags that no role implies; an outbox row of that shape still reads, flagless.
     Append {
         mailbox: MailboxRef,
+        #[serde(default)]
+        flags: Vec<SystemFlag>,
+        /// The internal date to give it, so an old message sorts where it belongs rather than
+        /// as the newest thing in the folder. `None` leaves it to the server: now.
+        #[serde(default)]
+        date: Option<DateTime<Utc>>,
         raw: BlobId,
-        role: MailboxRole,
     },
     /// Hand one composed message to the submission server.
     ///

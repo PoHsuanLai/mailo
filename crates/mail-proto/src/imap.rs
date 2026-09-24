@@ -76,16 +76,23 @@ pub enum ImapCommand {
         set: String,
         mailbox: String,
     },
-    /// `APPEND <mailbox> (<flags>) {<n>}` followed by the message itself.
+    /// `APPEND <mailbox> (<flags>) ["<date>"] {<n>}` followed by the message itself.
     ///
     /// The one command here that sends a literal, which is why it needs a phase of its own: the
     /// server answers `+` and only then may the bytes go. Writing them ahead of the
     /// continuation is how a client corrupts the next command, because a server that rejected
     /// the `APPEND` line is now reading a message as though it were commands.
+    ///
+    /// Unless the server has said it will not ask: with `LITERAL+` (RFC 7888), or `LITERAL-`
+    /// and a message of at most 4096 bytes, the literal is written `{n+}` and follows the line
+    /// at once. That saves a round trip per message. Decided from the capabilities this session
+    /// has seen, so a walk that wants it asks for `CAPABILITY` first.
     Append {
         mailbox: String,
         /// `\\Seen`, `\\Draft` and so on. Rendered verbatim inside the parentheses.
         flags: Vec<String>,
+        /// The internal date to give the message; the server uses now when absent.
+        date: Option<chrono::DateTime<chrono::Utc>>,
         raw: Vec<u8>,
     },
     /// `LSUB "" "*"`: the mailboxes the user follows (RFC 3501 §6.3.9).
@@ -148,6 +155,19 @@ pub struct ImapTranscript {
     /// The *most recent*, because Gmail advertises a reduced list before authentication and a
     /// fuller one after: believing the first is how a CONDSTORE server looks like it has none.
     pub capabilities: Vec<String>,
+    /// Every tagged `OK`, with the command it completed.
+    ///
+    /// Kept because some completions carry the answer: `APPEND`'s `[APPENDUID <validity> <uid>]`
+    /// (RFC 4315) is the only place a server says where the message it just stored went.
+    pub completed: Vec<Completed>,
+}
+
+/// A tagged `OK`, kept as text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Completed {
+    /// Which queued command it completed.
+    pub index: usize,
+    pub text: String,
 }
 
 /// One untagged response, kept as text.
@@ -320,11 +340,21 @@ impl ImapSession {
             Ok(line) => line,
             Err(e) => return self.fail(e),
         };
+        let mut line = line;
         self.phase = match command {
             ImapCommand::Idle | ImapCommand::IdleAfter { .. } => Phase::IdlePending {
                 index,
                 tag: tag.clone(),
             },
+            // Promised not to ask: the bytes follow the line in the same write.
+            ImapCommand::Append { raw, .. } if self.non_synchronizing(raw.len()) => {
+                line.extend_from_slice(&raw);
+                line.extend_from_slice(b"\r\n");
+                Phase::Running {
+                    index,
+                    tag: tag.clone(),
+                }
+            }
             // The bytes wait for the server's `+`; only the command line goes now.
             ImapCommand::Append { raw, .. } => Phase::AppendPending {
                 index,
@@ -337,6 +367,12 @@ impl ImapSession {
             },
         };
         Progress::Need(vec![IoNeed::Write(line), IoNeed::Read])
+    }
+
+    /// Whether a literal of `len` bytes may be sent without waiting for `+` (RFC 7888).
+    fn non_synchronizing(&self, len: usize) -> bool {
+        let caps = &self.transcript.capabilities;
+        has_capability(caps, "LITERAL+") || (has_capability(caps, "LITERAL-") && len <= 4096)
     }
 
     fn render(&self, command: &ImapCommand, tag: &str) -> Result<Vec<u8>, ProtoError> {
@@ -431,6 +467,7 @@ impl ImapSession {
             ImapCommand::Append {
                 mailbox,
                 flags,
+                date,
                 raw,
             } => {
                 for flag in flags {
@@ -440,11 +477,20 @@ impl ImapSession {
                         ));
                     }
                 }
+                // RFC 3501's date-time, always in UTC so the zone is never a guess.
+                let date = date
+                    .map(|d| format!(" \"{}\"", d.format("%d-%b-%Y %H:%M:%S +0000")))
+                    .unwrap_or_default();
+                let plus = if self.non_synchronizing(raw.len()) {
+                    "+"
+                } else {
+                    ""
+                };
                 // The length is of the bytes exactly as they will be written. A count that
                 // disagrees with what follows desynchronises the connection: the server reads
                 // the remainder of the message as commands, or waits for bytes never sent.
                 format!(
-                    "APPEND {} ({}) {{{}}}",
+                    "APPEND {} ({}){date} {{{}{plus}}}",
                     quoted(&mutf7::encode(mailbox)),
                     flags.join(" "),
                     raw.len()
@@ -565,6 +611,10 @@ impl ImapSession {
                 };
                 match status {
                     imap_proto::Status::Ok => {
+                        self.transcript.completed.push(Completed {
+                            index,
+                            text: text.clone(),
+                        });
                         if let Some(ImapCommand::RequireEmpty { mailbox }) =
                             self.commands.get(index)
                             && let Some(refusal) =

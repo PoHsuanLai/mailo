@@ -276,8 +276,9 @@ fn proto_ops() -> Vec<ProtoOp> {
         },
         ProtoOp::Append {
             mailbox: mailbox_ref(),
+            flags: vec![SystemFlag::Draft, SystemFlag::Seen],
+            date: None,
             raw: BlobId::from_uuid(uuid(7)),
-            role: MailboxRole::Drafts,
         },
         ProtoOp::Submit {
             draft: DraftId::from_uuid(uuid(9)),
@@ -1340,6 +1341,16 @@ fixtures! {
     "folders.json" => Vec<Folder> = folders(),
     "proto_ops_folders.json" => Vec<ProtoOp> = folder_ops(),
     "patch_folders.json" => Patch = folder_patch(),
+    // `Append` carried a `MailboxRole` until import needed flags no role implies; the old
+    // shape is still in `proto_ops.json` and must keep reading. This is the new one.
+    "proto_ops_append.json" => Vec<ProtoOp> = vec![ProtoOp::Append {
+        mailbox: mailbox_ref(),
+        flags: vec![SystemFlag::Seen, SystemFlag::Flagged],
+        date: Some(at(4)),
+        raw: BlobId::from_uuid(uuid(7)),
+    }],
+    // The local-only account imported mail lands in.
+    "account_plan_local.json" => AccountPlan = presets::local_folders(at(3)).plan,
     "message_keys.json" => Vec<MessageKey> = vec![
         MessageKey::Rfc("abc@example.test".to_owned()),
         MessageKey::Gmail(1),

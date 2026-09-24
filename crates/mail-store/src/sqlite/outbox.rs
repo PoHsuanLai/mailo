@@ -111,12 +111,27 @@ impl SqliteStore {
         if let RemoteIntent::Folder(work) = intent {
             return Ok(Some(ProtoOp::Folder(work.clone())));
         }
+        // Nor an upload: the bytes are the new message.
+        if let RemoteIntent::Append {
+            mailbox,
+            flags,
+            date,
+            raw,
+        } = intent
+        {
+            return Ok(Some(ProtoOp::Append {
+                mailbox: mailbox.clone(),
+                flags: flags.clone(),
+                date: *date,
+                raw: *raw,
+            }));
+        }
         let messages = match intent {
             RemoteIntent::SetFlags { messages, .. }
             | RemoteIntent::SetMailbox { messages, .. }
             | RemoteIntent::SetLabels { messages, .. }
             | RemoteIntent::AddKeyword { messages, .. } => messages,
-            RemoteIntent::Send { .. } | RemoteIntent::Folder(_) => {
+            RemoteIntent::Send { .. } | RemoteIntent::Folder(_) | RemoteIntent::Append { .. } => {
                 unreachable!("handled above")
             }
         };
@@ -145,7 +160,9 @@ impl SqliteStore {
                 remotes,
                 keyword: *keyword,
             },
-            RemoteIntent::Send { .. } | RemoteIntent::Folder(_) => unreachable!("handled above"),
+            RemoteIntent::Send { .. } | RemoteIntent::Folder(_) | RemoteIntent::Append { .. } => {
+                unreachable!("handled above")
+            }
         }))
     }
 
@@ -200,7 +217,9 @@ impl SqliteStore {
             // A keyword has no local mirror on the message to re-layer: the answer it records is
             // kept by the store beside the message, written when the user answered.
             RemoteIntent::AddKeyword { .. } => Vec::new(),
-            RemoteIntent::Send { .. } | RemoteIntent::Folder(_) => Vec::new(),
+            RemoteIntent::Send { .. } | RemoteIntent::Folder(_) | RemoteIntent::Append { .. } => {
+                Vec::new()
+            }
         }
     }
 
