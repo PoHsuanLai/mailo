@@ -30,6 +30,11 @@ serde = { workspace = true }
 serde_json = "1"
 uuid = { workspace = true }
 keyring = "4"
+# Account discovery's SRV and MX lookups (RFC 6186). MIT OR Apache-2.0; the system resolver's
+# configuration, over tokio. Its DNS-over-TLS/HTTPS features stay off.
+hickory-resolver = "0.26"
+# The registered domain of an MX host, for account discovery. Already here through mail-app.
+psl = "2"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }

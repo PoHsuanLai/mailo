@@ -26,6 +26,52 @@ fn main() {
         }
     };
 
+    // Discovery needs the network and, unless `--yes` was given, a person at a terminal to say
+    // yes to what it found; both are here rather than in `cli::run`, which is synchronous and
+    // tested without either. Nothing is stored and nothing is sent to a found server before
+    // the yes.
+    if let Some(mail_app::cli::Command::AccountDiscover { address }) = &command {
+        match mail_app::discover::show(address, |address| {
+            mail_app::discover::lookup(address, chrono::Utc::now())
+        }) {
+            Ok(said) => print!("{said}"),
+            Err(message) => {
+                eprintln!("{message}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+    let command = match command {
+        Some(command) => match mail_app::discover::before_add(
+            command,
+            |address| mail_app::discover::lookup(address, chrono::Utc::now()),
+            mail_app::discover::Terminal::of_stdin(),
+            |text| {
+                use std::io::Write as _;
+                print!("{text}");
+                let _ = std::io::stdout().flush();
+            },
+            |question| {
+                use std::io::Write as _;
+                print!("{question}");
+                let _ = std::io::stdout().flush();
+                let mut line = String::new();
+                match std::io::stdin().read_line(&mut line) {
+                    Ok(0) | Err(_) => None,
+                    Ok(_) => Some(line),
+                }
+            },
+        ) {
+            Ok(command) => Some(command),
+            Err(message) => {
+                eprintln!("{message}");
+                std::process::exit(1);
+            }
+        },
+        None => None,
+    };
+
     // `reply` takes its body from stdin, which is I/O and so does not belong in the parser.
     // Read here, once, before anything opens the database.
     let command = match command {

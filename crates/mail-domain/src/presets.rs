@@ -111,8 +111,11 @@ pub fn preset_for(address: &str, now: DateTime<Utc>) -> Option<Preset> {
         // The tenant fallback domain, which is the only Microsoft 365 address that can be
         // recognised from the address alone. A work or school mailbox almost always uses its
         // organisation's own domain — `you@yourcompany.com` — and nothing about that string
-        // says Microsoft. Those are configured with `--microsoft`, because the alternative is
-        // autodiscover, and guessing wrong sends a password to a host the user never named.
+        // says Microsoft. Those are configured with `--microsoft`, or found by discovery
+        // (`mail_proto::discover`) through the domain's MX record. Discovery never acts on what
+        // it found until the user has seen it and said yes, because guessing wrong sends a
+        // password to a host the user never named; this table, which needs no confirmation,
+        // stays limited to what the address itself proves.
         //
         // Personal outlook.com and hotmail.com are deliberately absent: see `OAuthIssuer::
         // Microsoft`.
@@ -161,6 +164,87 @@ fn gmail(address: &str, now: DateTime<Utc>) -> Preset {
             observed_at: now,
         },
     }
+}
+
+/// The preset for a provider recognised by the registered domain of an address's mail
+/// exchanger.
+///
+/// This is how a mailbox on its organisation's own domain is recognised: nothing about
+/// `you@yourcompany.example` says who hosts it, but its MX record does, and a hosted domain's MX
+/// points into the provider's own domain. Answering with the preset rather than with whatever a
+/// database lists for that domain is what makes such an account sign in with OAuth, which is the
+/// only thing either provider still accepts, instead of a password it will refuse.
+///
+/// `registered` is the registrable domain of the MX host (`google.com` for
+/// `aspmx.l.google.com`), already lowercased by the caller's public-suffix lookup.
+pub fn preset_for_mail_exchanger(
+    registered: &str,
+    address: &str,
+    now: DateTime<Utc>,
+) -> Option<Preset> {
+    Some(preset_for_issuer(
+        issuer_of_exchanger(registered)?,
+        address,
+        now,
+    ))
+}
+
+/// The OAuth issuer that hosts mail whose exchanger is in `registered`.
+fn issuer_of_exchanger(registered: &str) -> Option<OAuthIssuer> {
+    match registered.to_ascii_lowercase().as_str() {
+        "google.com" | "googlemail.com" | "gmail.com" => Some(OAuthIssuer::Google),
+        // Microsoft 365's inbound hosts are `<tenant>.mail.protection.outlook.com`.
+        "outlook.com" => Some(OAuthIssuer::Microsoft),
+        _ => None,
+    }
+}
+
+/// The preset that signs in with `issuer`.
+///
+/// Each issuer this workspace knows serves exactly one mail provider, so naming the issuer names
+/// the servers too.
+pub fn preset_for_issuer(issuer: OAuthIssuer, address: &str, now: DateTime<Utc>) -> Preset {
+    match issuer {
+        OAuthIssuer::Google => gmail(address, now),
+        OAuthIssuer::Microsoft => microsoft(address, now),
+    }
+}
+
+/// The issuer an autoconfig document's `<oAuth2><issuer>` names, when it is one we have a
+/// registration for. Any other issuer is somebody else's authorization server, and a client id
+/// for it cannot be guessed.
+pub fn issuer_named(issuer_host: &str) -> Option<OAuthIssuer> {
+    match issuer_host.trim().to_ascii_lowercase().as_str() {
+        "accounts.google.com" => Some(OAuthIssuer::Google),
+        "login.microsoftonline.com" => Some(OAuthIssuer::Microsoft),
+        _ => None,
+    }
+}
+
+/// The issuer whose tokens a mail server at `host` takes, for a document that offers OAuth2 on a
+/// server without naming the issuer.
+pub fn issuer_for_server(host: &str) -> Option<OAuthIssuer> {
+    let host = host.trim().to_ascii_lowercase();
+    if under(&host, "gmail.com") || under(&host, "googlemail.com") {
+        return Some(OAuthIssuer::Google);
+    }
+    if under(&host, "office365.com") || under(&host, "outlook.office.com") {
+        return Some(OAuthIssuer::Microsoft);
+    }
+    None
+}
+
+/// Whether an address's domain is one of Microsoft's personal (consumer) mail domains.
+///
+/// [`OAuthIssuer::Microsoft`] is for managed tenants only, and [`preset_for`] leaves these out
+/// on purpose. Discovery finds them anyway — their MX is Microsoft's and databases list them —
+/// so it asks this before handing out the tenant preset, and says why it will not rather than
+/// configuring an account that cannot send.
+pub fn is_personal_microsoft(domain: &str) -> bool {
+    matches!(
+        domain.trim().to_ascii_lowercase().as_str(),
+        "outlook.com" | "hotmail.com" | "live.com" | "msn.com"
+    )
 }
 
 /// Hosts where a password will not authenticate, whatever the user types.
@@ -585,6 +669,67 @@ mod tests {
                 "{address} should have no preset"
             );
         }
+    }
+
+    /// A custom domain whose mail exchanger is in Google's or Microsoft's own domain is that
+    /// provider's, and signs in the way the provider's preset does.
+    #[test]
+    fn a_mail_exchanger_in_a_providers_domain_gives_that_providers_preset() {
+        let google = preset_for_mail_exchanger("google.com", "me@firm.example", at())
+            .expect("google.com is known");
+        assert!(matches!(
+            google.plan.auth,
+            AuthPlan::OAuth {
+                issuer: OAuthIssuer::Google,
+                ..
+            }
+        ));
+        assert_eq!(google.plan.address, "me@firm.example");
+        let microsoft = preset_for_mail_exchanger("OUTLOOK.com", "me@firm.example", at())
+            .expect("outlook.com is known");
+        assert!(matches!(
+            microsoft.plan.auth,
+            AuthPlan::OAuth {
+                issuer: OAuthIssuer::Microsoft,
+                ..
+            }
+        ));
+        for other in [
+            "example.net",
+            "notgoogle.com",
+            "google.com.example.test",
+            "",
+        ] {
+            assert_eq!(
+                preset_for_mail_exchanger(other, "me@firm.example", at()),
+                None,
+                "{other}"
+            );
+        }
+    }
+
+    #[test]
+    fn only_the_two_known_issuers_are_recognised() {
+        assert_eq!(
+            issuer_named("accounts.google.com"),
+            Some(OAuthIssuer::Google)
+        );
+        assert_eq!(
+            issuer_named("login.microsoftonline.com"),
+            Some(OAuthIssuer::Microsoft)
+        );
+        assert_eq!(issuer_named("auth.example.net"), None);
+        assert_eq!(
+            issuer_for_server("imap.gmail.com"),
+            Some(OAuthIssuer::Google)
+        );
+        assert_eq!(
+            issuer_for_server("outlook.office365.com"),
+            Some(OAuthIssuer::Microsoft)
+        );
+        assert_eq!(issuer_for_server("imap.evil-gmail.com"), None);
+        assert!(is_personal_microsoft("Hotmail.com"));
+        assert!(!is_personal_microsoft("firm.example"));
     }
 
     #[test]

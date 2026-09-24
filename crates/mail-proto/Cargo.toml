@@ -19,6 +19,8 @@ idna = "1"
 # ships parser/gmail.rs. nom::streaming Err::Incomplete maps onto Progress::Need(Read).
 imap-proto = "0.16"
 nom = "7"
+# Mail client configuration documents (`discover::autoconfig`). Already here through mail-pim.
+roxmltree = "0.21"
 
 [lints]
 workspace = true
@@ -27,4 +29,6 @@ workspace = true
 proptest = "1"
 chrono.workspace = true
 nom = "7"
+# Mail client configuration documents (`discover::autoconfig`). Already here through mail-pim.
+roxmltree = "0.21"
 uuid = { workspace = true }

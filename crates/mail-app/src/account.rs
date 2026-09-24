@@ -44,6 +44,13 @@ pub fn add(
         Some(crate::cli::Setup::Pop3(manual)) => {
             mail_domain::presets::manual_pop3(&address, manual, now)
         }
+        // Found by discovery and already shown to the user, who said yes. The address is set
+        // again because it is the one normalised here that the stored column will hold.
+        Some(crate::cli::Setup::Discovered(found)) => {
+            let mut preset = (**found).clone();
+            preset.plan.address = address.clone();
+            preset
+        }
         None => match mail_domain::presets::preset_for(&address, now) {
             Some(preset) => preset,
             None => {

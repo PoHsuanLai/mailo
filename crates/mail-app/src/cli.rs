@@ -36,7 +36,12 @@ pub enum Command {
         microsoft: bool,
         /// `--send graph`: send through Microsoft Graph, for a tenant with SMTP AUTH off.
         graph: bool,
+        /// `--yes`: servers found by discovery may be used without asking. Without it they are
+        /// shown and asked about on a terminal, and refused anywhere else.
+        consent: Consent,
     },
+    /// What discovery finds for an address, printed and not acted on.
+    AccountDiscover { address: String },
     /// Configured accounts, and what each still needs.
     AccountList,
     /// Folders on every account, or on the one named.
@@ -701,9 +706,14 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                     .ok_or_else(|| format!("account add needs an address\n\n{}", usage()))?;
                 let rest = &args[3..];
                 let microsoft = rest.iter().any(|a| a == "--microsoft");
+                let consent = if rest.iter().any(|a| a == "--yes") {
+                    Consent::Given
+                } else {
+                    Consent::Ask
+                };
                 let mut graph = false;
                 let mut others: Vec<String> = Vec::new();
-                let mut words = rest.iter().filter(|a| *a != "--microsoft");
+                let mut words = rest.iter().filter(|a| *a != "--microsoft" && *a != "--yes");
                 while let Some(word) = words.next() {
                     if word != "--send" {
                         others.push(word.clone());
@@ -737,8 +747,15 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                     manual: parse_manual(&others)?,
                     microsoft,
                     graph,
+                    consent,
                 })
             }
+            Some("discover") => match &args[2..] {
+                [address] => Ok(Command::AccountDiscover {
+                    address: address.clone(),
+                }),
+                _ => Err(format!("account discover takes one address\n\n{}", usage())),
+            },
             None | Some("list") => Ok(Command::AccountList),
             Some(other) => Err(format!("unknown account command {other:?}\n\n{}", usage())),
         },
@@ -913,6 +930,18 @@ pub enum Setup {
     Imap(mail_domain::presets::Manual),
     /// `--pop3`: mail is downloaded from one mailbox, and left there.
     Pop3(mail_domain::presets::ManualPop3),
+    /// Found by discovery and confirmed by the user. Never parsed from arguments: the binary
+    /// puts it here after asking, so [`crate::account::add`] can store it like any other.
+    Discovered(Box<mail_domain::presets::Preset>),
+}
+
+/// Whether the user has already agreed to use what discovery finds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Consent {
+    /// `--yes`.
+    Given,
+    /// Show it and ask, or refuse where nobody can be asked.
+    Ask,
 }
 
 /// `--imap HOST[:PORT] | --pop3 HOST[:PORT]`, then `--smtp HOST[:PORT] [--login NAME]`, or `None`
@@ -1068,7 +1097,11 @@ usage: mailo <command>
   account [list]
   signature <address> [--clear]
                              set it from stdin, or take it off
-  account add <address>      (set MAILO_PASSWORD for a password account)
+  account add <address> [--yes]
+                             (set MAILO_PASSWORD for a password account). For a domain
+                             the preset table does not know, the servers are looked up
+                             and shown for confirmation first; --yes accepts them
+  account discover <address> what that lookup finds, without adding anything
   account add <address> --imap HOST[:PORT] --smtp HOST[:PORT] [--login NAME]
                              for a server the preset table does not know
   account add <address> --pop3 HOST[:PORT] --smtp HOST[:PORT] [--login NAME]
@@ -1204,6 +1237,10 @@ pub fn run_with_clients(
             Err("import and export are dispatched before this point".to_owned())
         }
         Command::Watch { .. } => Err("watch is dispatched before this point".to_owned()),
+        // Dispatched in main: it needs the network, an async runtime and a terminal to ask on.
+        Command::AccountDiscover { .. } => {
+            Err("account discover is dispatched before this point".to_owned())
+        }
         // Dispatched in main, which owns the environment the config directory comes from.
         Command::Notify { .. } => Err("notify is dispatched before this point".to_owned()),
         Command::Daemon { .. } | Command::Ping => {
@@ -1339,6 +1376,7 @@ pub fn run_with_clients(
             manual,
             microsoft,
             graph,
+            consent: _,
         } => crate::account::add(
             store,
             address,

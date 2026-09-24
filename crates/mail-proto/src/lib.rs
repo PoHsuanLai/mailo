@@ -1,4 +1,5 @@
-//! Sans-I/O protocol machines: IMAP, POP3, SMTP, OAuth, and the backends that drive them.
+//! Sans-I/O protocol machines: IMAP, POP3, SMTP, OAuth, and the backends that drive them; and
+//! what an account-discovery answer means (`discover`).
 //!
 //! Nothing here opens a socket, spawns a task, or reads a clock. A machine is fed bytes and
 //! returns what it needs next; `mail-runtime` owns the loop that satisfies those needs. Tests
@@ -6,6 +7,7 @@
 
 pub mod backend;
 pub mod diagnose;
+pub mod discover;
 pub mod imap;
 pub mod machine;
 pub mod mutf7;

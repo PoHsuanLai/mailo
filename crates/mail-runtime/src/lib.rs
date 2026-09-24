@@ -5,6 +5,7 @@
 
 pub mod assemble;
 pub mod carddav;
+pub mod discover;
 pub mod drive;
 pub mod engine;
 pub mod error;
