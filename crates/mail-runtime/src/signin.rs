@@ -292,6 +292,11 @@ pub(crate) fn graph_refresh(
 /// Spend `refresh_token` on a Graph token, and keep it as the account's outgoing credential.
 ///
 /// Named with Graph's scope alone: one resource per request, or Microsoft refuses it.
+///
+/// Only `Mail.Send` is named, not `Mail.ReadWrite` too, although a message over 4 MB needs it:
+/// Microsoft's token carries every permission already consented to for the resource, not only
+/// the ones named, while naming one that was never consented to — as a sign-in from before
+/// `send_through_graph` asked for it was not — would fail the refresh, and with it every send.
 pub(crate) async fn mint_graph(
     account: AccountId,
     registration: &Registration,

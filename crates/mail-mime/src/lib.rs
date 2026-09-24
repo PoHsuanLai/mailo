@@ -9,6 +9,7 @@ pub mod archive;
 pub mod block;
 pub mod build;
 mod charset;
+pub mod graph;
 pub mod imip;
 pub mod inline;
 pub mod mdn;
@@ -24,6 +25,7 @@ pub use block::{
     SafeUrl, Shape, Span, from_html, from_text, is_mapped, mapped_tags,
 };
 pub use build::{Disclosure, Posting, build, posting};
+pub use graph::{GraphBody, GraphDraft, GraphImportance, graph_draft};
 pub use imip::{CalendarPart, CalendarReply, calendar_part, calendar_reply};
 pub use inline::{INLINE_BUDGET, embed_inline, embeddable};
 pub use mdn::{OriginalHeaders, ReceiptAsk, Reporting, ReturnPath, receipt, receipt_asked};

@@ -443,18 +443,25 @@ pub fn microsoft_preset(address: &str, now: DateTime<Utc>) -> Preset {
 /// The delegated permission Graph's `sendMail` needs.
 pub const GRAPH_SEND_SCOPE: &str = "https://graph.microsoft.com/Mail.Send";
 
+/// The delegated permission a message over Graph's 4 MB request limit needs besides
+/// [`GRAPH_SEND_SCOPE`]: it is created as a draft in the mailbox, its attachments uploaded to
+/// the draft, and the draft sent.
+pub const GRAPH_WRITE_SCOPE: &str = "https://graph.microsoft.com/Mail.ReadWrite";
+
 /// `preset`, sending through Microsoft Graph instead of SMTP.
 ///
 /// For a tenant that refuses SMTP AUTH (`535 5.7.139`). The sign-in asks for Graph's
-/// `Mail.Send` in place of `SMTP.Send`: one consent covers both resources, and the runtime
-/// exchanges the refresh token for a Graph token when it sends, since one access token is only
-/// ever good for one of them.
+/// `Mail.Send` and `Mail.ReadWrite` in place of `SMTP.Send`: one consent covers both
+/// resources, and the runtime exchanges the refresh token for a Graph token when it sends, since
+/// one access token is only ever good for one of them.
 pub fn send_through_graph(mut preset: Preset) -> Preset {
     preset.plan.outgoing = Outgoing::Graph;
     if let AuthPlan::OAuth { scopes, .. } = &mut preset.plan.auth {
         scopes.retain(|s| !s.ends_with("/SMTP.Send"));
-        if !scopes.iter().any(|s| s == GRAPH_SEND_SCOPE) {
-            scopes.push(GRAPH_SEND_SCOPE.to_owned());
+        for scope in [GRAPH_SEND_SCOPE, GRAPH_WRITE_SCOPE] {
+            if !scopes.iter().any(|s| s == scope) {
+                scopes.push(scope.to_owned());
+            }
         }
     }
     preset
@@ -639,6 +646,10 @@ mod tests {
             panic!("{:?}", graph.plan.auth)
         };
         assert!(scopes.iter().any(|s| s == GRAPH_SEND_SCOPE));
+        assert!(
+            scopes.iter().any(|s| s == GRAPH_WRITE_SCOPE),
+            "a message over 4 MB is sent as a draft, which needs Mail.ReadWrite"
+        );
         assert!(!scopes.iter().any(|s| s.ends_with("/SMTP.Send")));
         assert!(
             scopes[0].ends_with("/IMAP.AccessAsUser.All"),
