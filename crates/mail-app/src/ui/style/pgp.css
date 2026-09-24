@@ -1,0 +1,85 @@
+/* ---- OpenPGP ----
+   What a message's signature and encryption say, under its head. Quiet when all is well; a bad
+   signature is the one line that must not be missed, so it alone takes the danger ground. A
+   signature nobody can check is neither: amber, never green. */
+.seal { display: grid; gap: 3px; margin: 2px 0 10px; }
+.seal-line {
+  margin: 0; display: flex; align-items: baseline; gap: 7px;
+  font-family: var(--font-data); font-size: 11px; line-height: 1.5; color: var(--ink-faint);
+}
+.seal-line::before {
+  content: ""; flex: none; width: 7px; height: 7px; border-radius: 999px;
+  background: var(--line); transform: translateY(-1px);
+}
+.seal-line.good { color: var(--ink-soft); }
+.seal-line.good::before { background: var(--ok); }
+.seal-line.unknown { color: var(--ink-soft); }
+.seal-line.unknown::before { background: var(--warn); }
+.seal-line.bad {
+  padding: 6px 10px; border-radius: var(--r-btn); font-family: var(--font-ui); font-size: 12.5px;
+  font-weight: 700; background: var(--danger); color: var(--danger-ink);
+}
+.seal-line.bad::before { background: var(--danger-ink); }
+
+/* The passphrase field: in the reader under a locked message, and in the composer's warning bar. */
+.unlock {
+  display: grid; gap: 6px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-btn);
+  background: var(--surface-2); font-size: 12.5px; color: var(--ink-soft);
+}
+.c-warn .unlock { flex: 1; padding: 0; border: 0; background: none; color: var(--ink); }
+.unlock .say { margin: 0; }
+.unlock .why { margin: 0; font-size: 12px; font-weight: 600; color: var(--danger); }
+.unlock-row { display: flex; align-items: center; gap: 8px; }
+.inp.unlock-field { flex: 1; min-width: 0; font-size: 13px; padding: 5px 9px; }
+
+/* The composer's bar, when OpenPGP is what stopped Send. */
+.c-warn.pgp-warn { flex-wrap: wrap; }
+.pgp-warn .grow { flex: 1 1 220px; min-width: 0; }
+
+/* The keys sheet: the Rules sheet's frame, a key a row. */
+.keys-wrap {
+  position: absolute; inset: 0; z-index: 35; display: grid; place-items: start center; padding-top: 5%;
+  background: var(--scrim);
+}
+.keys {
+  position: relative; width: min(680px, 92%); max-height: 88%; display: flex; flex-direction: column;
+  background: var(--raise); color: var(--ink); border: 1px solid var(--line);
+  border-radius: var(--r-panel); box-shadow: var(--shadow-2); overflow: hidden;
+  animation: cmdk-rise var(--t-big) var(--e-spring);
+}
+.keys-head { display: flex; align-items: center; gap: 10px; padding: 14px 14px 6px; }
+.keys-head h3 { margin: 0; font-family: var(--font-display); font-size: 17px; font-weight: 800; }
+.keys-head .mini { margin-left: auto; }
+.keys-head .k { font-family: var(--font-data); font-size: 10px; font-weight: 400; color: var(--ink-faint); }
+.keys-main { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; border-top: 1px solid var(--line-soft); }
+.keys-part { display: grid; gap: 7px; padding: 12px 14px 14px; }
+.keys-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.keys-none { margin: 0; padding: 14px 10px; text-align: center; font-size: 12.5px; color: var(--ink-faint); }
+.keys-row {
+  display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; align-items: center;
+  padding: 7px 8px; border-radius: 8px;
+}
+.keys-row:hover { background: var(--surface-2); }
+.keys-row.mine { box-shadow: inset 2px 0 0 var(--accent); }
+.keys-text { display: grid; gap: 1px; min-width: 0; }
+.keys-text b { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.keys-fpr { font-family: var(--font-data); font-size: 11px; letter-spacing: .04em; color: var(--ink-soft); }
+.keys-meta { font-size: 11.5px; color: var(--ink-faint); }
+.keys-row-acts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; opacity: .6; transition: opacity var(--t-quick) var(--e-out); }
+.keys-row:hover .keys-row-acts, .keys-row:focus-within .keys-row-acts { opacity: 1; }
+.keys-row-acts .ghost:disabled { opacity: .35; cursor: default; }
+.keys-tag {
+  align-self: center; padding: 1px 7px; border-radius: var(--r-pill); background: var(--accent-soft);
+  font-family: var(--font-data); font-size: 10px; color: var(--ink);
+}
+.keys-confirm {
+  grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
+  padding: 8px 10px; border-radius: var(--r-btn); font-size: 12.5px; line-height: 1.45;
+  background: color-mix(in oklab, var(--danger) 12%, var(--surface)); color: var(--ink);
+}
+.keys-confirm .say { margin: 0; flex: 1 1 260px; }
+.keys-confirm .acts { display: flex; gap: 6px; margin-left: auto; }
+.mini.danger { background: var(--danger); color: var(--danger-ink); border-color: transparent; }
+.mini.danger:hover { background: var(--danger); color: var(--danger-ink); }
+.keys-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 4px; }
+.keys-acts .mini .ic { width: 12px; height: 12px; }

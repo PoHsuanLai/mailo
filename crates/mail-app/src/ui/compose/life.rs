@@ -6,8 +6,10 @@
 use crate::compose::Leaves;
 use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::*;
+use mail_runtime::Secrets;
 use mail_store::{SqliteStore, Store};
 
+use super::openpgp::PgpBar;
 use super::page::List;
 use super::page::{Guard, Page, Phase, Saved, When, Wire};
 use super::recipients::commit_typed;
@@ -94,12 +96,18 @@ pub(in crate::ui) enum Sent {
         due: DateTime<Utc>,
         when: When,
     },
+    /// Saved and cleared to go, and to be signed or encrypted first. That reads the keyring and
+    /// may ask for a passphrase, so the caller does it off the thread that draws, with [`queue`].
+    Sealing { leaves: Leaves },
 }
 
-/// Send, if the guards allow it: no recipients shakes the To row, and a mentioned attachment
-/// with nothing attached shows the warning bar once.
+/// Send, if the guards allow it: no recipients shakes the To row, a mentioned attachment with
+/// nothing attached shows the warning bar once, and a draft OpenPGP cannot sign or encrypt as
+/// it asks says why in the same bar. A plain draft is queued here, with `secrets` as the
+/// keyring; a draft to be sealed comes back as [`Sent::Sealing`].
 pub(in crate::ui) fn send<Tz: TimeZone>(
     store: &SqliteStore,
+    secrets: &dyn Secrets,
     page: &mut Page,
     anyway: Anyway,
     now: DateTime<Utc>,
@@ -126,26 +134,62 @@ where
     page.guard = Guard::Clear;
     // A time that has gone is refused before anything is written, in the page's words.
     let leaves = super::later::leaves(page.when, now, zone)?;
-    save(store, page, now)?;
-    let due = match leaves {
+    let saved = save(store, page, now)?;
+    if page.openpgp != OpenPgp::None {
+        page.pgp_bar = super::openpgp::sealable(store, &saved, now)?;
+        if page.pgp_bar != PgpBar::Clear {
+            return Ok(Sent::Stopped);
+        }
+        page.pgp_bar = PgpBar::Sealing;
+        return Ok(Sent::Sealing { leaves });
+    }
+    page.pgp_bar = PgpBar::Clear;
+    let due = queue(
+        store,
+        secrets,
+        &crate::pgp::no_passphrase,
+        page.draft,
+        leaves,
+        now,
+    )?;
+    Ok(folded(page, due))
+}
+
+/// Queue the saved draft to leave as `leaves` says, signed and encrypted as it asks, with `ask`
+/// for its key's passphrase. Returns when it may leave. For a draft to be sealed this reads the
+/// keyring, and the window calls it on a blocking thread.
+pub(in crate::ui) fn queue(
+    store: &SqliteStore,
+    secrets: &dyn Secrets,
+    ask: crate::pgp::Ask<'_>,
+    draft: DraftId,
+    leaves: Leaves,
+    now: DateTime<Utc>,
+) -> Result<DateTime<Utc>, String> {
+    match leaves {
         // Right away is the grace period and Undo, as it always was.
         Leaves::Now => {
             let due = now + GRACE;
-            crate::compose::send(store, page.draft, due)?;
-            due
+            crate::compose::queue_with(store, secrets, ask, draft, Leaves::Now, due)?;
+            Ok(due)
         }
         Leaves::At(at) => {
-            crate::compose::queue(store, page.draft, Leaves::At(at), now)?;
-            at
+            crate::compose::queue_with(store, secrets, ask, draft, Leaves::At(at), now)?;
+            Ok(at)
         }
-    };
+    }
+}
+
+/// The page once its draft is queued to leave at `due`: folding away.
+pub(in crate::ui) fn folded(page: &mut Page, due: DateTime<Utc>) -> Sent {
+    page.pgp_bar = PgpBar::Clear;
     page.phase = Phase::Folding;
     page.float = super::page::Float::Closed;
-    Ok(Sent::Queued {
+    Sent::Queued {
         draft: page.draft,
         due,
         when: page.when,
-    })
+    }
 }
 
 /// Undo a send: the queued submission is withdrawn and the draft is editable again.

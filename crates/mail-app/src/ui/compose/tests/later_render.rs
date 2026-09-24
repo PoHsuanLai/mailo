@@ -80,6 +80,7 @@ fn window(dress: impl FnOnce(&mut Page), before: Before) -> (String, Work) {
             write.when = When::Tomorrow;
             let sent = life::send(
                 &built.store,
+                &mail_runtime::MapSecrets::default(),
                 &mut write,
                 Anyway::Yes,
                 Utc::now(),

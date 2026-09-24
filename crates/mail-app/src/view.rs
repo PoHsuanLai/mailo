@@ -517,6 +517,11 @@ pub struct RulesSheet {
     pub account: Option<AccountId>,
 }
 
+/// The OpenPGP keys sheet while it is open. Nothing about a key is kept here: the sheet reads
+/// the store, and a passphrase or a secret key never passes through the shell.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct KeysSheet;
+
 /// Everything the shell is currently showing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Shell {
@@ -590,6 +595,8 @@ pub struct Shell {
     pub adding: Option<String>,
     /// The Rules sheet while it is open. `None` is closed.
     pub rules: Option<RulesSheet>,
+    /// The OpenPGP keys sheet while it is open. `None` is closed.
+    pub keys: Option<KeysSheet>,
     /// Ctrl F in the open thread. `None` is closed, and marks nothing.
     ///
     /// Belongs to the thread it was opened on: [`Self::open`] and [`Self::close`] drop it, so a
@@ -806,6 +813,7 @@ impl Default for Shell {
             files: None,
             adding: None,
             rules: None,
+            keys: None,
             find: None,
             undo: crate::undo::UndoStack::default(),
         }

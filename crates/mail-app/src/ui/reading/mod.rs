@@ -136,6 +136,11 @@ pub(super) fn Reader(
     let original = use_signal(HashMap::<MessageId, bool>::new);
     // Quotes the reader has unfolded, keyed by message and path.
     let quotes = use_signal(blocks::OpenQuotes::new);
+    // Moved when an OpenPGP message has been opened and has a body of its own to show, so the
+    // messages are drawn again with it. The opening itself happens in `pgp::Seal`, off this
+    // thread; here it is only looked up.
+    let landed = use_signal(|| 0u64);
+    let _ = landed();
     #[cfg(test)]
     use_hook(|| {
         READER_MOUNTS.with(|mounts| mounts.set(mounts.get().saturating_add(1)));
@@ -159,15 +164,20 @@ pub(super) fn Reader(
         .iter()
         .filter_map(|id| store.message(*id).ok())
         .map(|message| {
-            let reading = crate::reader::render(&store, &message, policy);
+            // A protected message opened already shows what it was opened to; everything else,
+            // and one not opened yet, shows what is stored.
+            let render = |policy| {
+                super::pgp::reading(&message, policy)
+                    .unwrap_or_else(|| crate::reader::render(&store, &message, policy))
+            };
+            let reading = render(policy);
             // Once the reader is allowed to fetch, the display pass blocks nothing, so it can
             // no longer say whether this message had a remote image. The blocked policy can:
             // that is the same question the offer was answered with.
             let remote = if reading.blocked_remote() {
                 true
             } else if showing && reading.frame_html().is_some() {
-                crate::reader::render(&store, &message, mail_mime::SanitizePolicy::CURRENT)
-                    .blocked_remote()
+                render(mail_mime::SanitizePolicy::CURRENT).blocked_remote()
             } else {
                 false
             };
@@ -181,7 +191,12 @@ pub(super) fn Reader(
         .map(|(message, _, _)| (message.id, message.body.raw()))
         .collect();
     let leave_key = leave_key(thread, &bodies);
-    let subject = loaded.summary.subject.clone();
+    // An encrypted message's subject travels inside it; the outside says `...`.
+    let subject = shown
+        .iter()
+        .find(|(message, _, _)| message.subject == loaded.summary.subject)
+        .and_then(|(message, _, _)| super::pgp::subject(message))
+        .unwrap_or_else(|| loaded.summary.subject.clone());
     let meta = shown.last().map(|(message, _, _)| {
         (
             sender_initial(message),
@@ -290,6 +305,14 @@ pub(super) fn Reader(
                             ViewSwitch { message_id: message.id, original }
                         }
                     }
+                    // What the message's OpenPGP says, and its passphrase field. A sibling
+                    // before the frame, like the invitation under it, for the same reason.
+                    super::pgp::Seal {
+                        key: "{message.id}-{message.body.raw():?}",
+                        message: message.id,
+                        body: message.body.raw(),
+                        landed,
+                    }
                     // A calendar invitation, drawn by this window and never inside the sender's
                     // HTML. A sibling before the frame, not its parent: it lands after the first
                     // paint, and inserting a sibling does not move the iframe. Keyed on the
@@ -303,7 +326,10 @@ pub(super) fn Reader(
                     // Download fetches one still on the server and then writes it. The name is
                     // the one the file will be written under. There is no file chooser: it lands
                     // in the downloads directory, and the notice says where.
-                    if !attachment_rows(&message).is_empty() {
+                    // Not for a message OpenPGP opened: what is stored is its wrapping.
+                    if !attachment_rows(&message).is_empty()
+                        && !super::pgp::opened_to_a_body(&message)
+                    {
                         ul { class: "attachments",
                             for row in attachment_rows(&message) {
                                 li { key: "{row.index}",

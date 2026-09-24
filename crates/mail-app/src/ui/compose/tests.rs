@@ -6,6 +6,7 @@ mod later;
 mod later_render;
 mod life;
 mod local_from;
+mod openpgp;
 mod people;
 mod receipt;
 mod render;

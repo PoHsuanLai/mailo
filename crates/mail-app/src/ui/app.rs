@@ -342,6 +342,13 @@ pub(super) fn App() -> Element {
             }
             return;
         }
+        // And the OpenPGP keys sheet: its fields take letters, Esc closes it.
+        if shell.read().keys.is_some() {
+            if key == "Escape" {
+                super::pgp::keys::close(shell);
+            }
+            return;
+        }
         // The Space editor owns the keyboard while it is open. Its name field takes letters,
         // its handles take the arrows, and Esc puts the Space back as the sheet found it.
         if editing.read().is_some() {
@@ -638,6 +645,9 @@ pub(super) fn App() -> Element {
             }
             if shell.read().rules.is_some() {
                 super::rules::RulesSheet { shell, revision }
+            }
+            if shell.read().keys.is_some() {
+                super::pgp::keys::KeysSheet { shell }
             }
             div { class: "card",
             ThreadList {

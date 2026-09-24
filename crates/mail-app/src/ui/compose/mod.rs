@@ -15,6 +15,7 @@ mod items;
 mod later;
 mod life;
 mod opening;
+mod openpgp;
 mod page;
 mod pill;
 mod props;
@@ -37,6 +38,7 @@ use super::field::{Field, FieldKind};
 use super::icon::{Glyph, Icon};
 use body::Body;
 use life::{Anyway, Sent};
+use openpgp::{BarAct, PgpBar, PgpWarn, Sealed, seal_and_queue};
 use page::{Focus, Fold, Guard, Page, Phase, Saved, When};
 use props::Props;
 
@@ -49,6 +51,7 @@ pub(in crate::ui) use templates::{
 };
 pub(in crate::ui) use wire::GLUE;
 
+use crate::password::Password;
 use crate::view::Shell;
 
 /// How long the fold after Send runs before the page is taken away, if no animation says so.
@@ -155,13 +158,17 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
     let subject = read.subject.clone();
     let notice = read.notice.clone();
     let warn = read.guard == Guard::Warn;
+    let pgp_bar = read.pgp_bar.clone();
     let scheduled = read.when != When::Now;
     let send_label = if scheduled { "Schedule" } else { "Send" };
     let anyway_label = "Send anyway";
     let flowed = crate::editor::to_flowed(&read.session.doc);
     drop(read);
 
-    let send = move |anyway: Anyway| send_page(page, shell, desk, revision, anyway);
+    let send = move |anyway: Anyway| send_page(page, shell, desk, revision, anyway, None);
+    // Made here, so a send or a lookup the bar starts belongs to the page and not to the bar,
+    // which goes away as it starts.
+    let on_pgp = use_callback(move |act: BarAct| pgp_act(page, shell, desk, revision, act));
 
     rsx! {
         div {
@@ -256,6 +263,7 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                         button { class: "mini", r#type: "button", aria_label: "{anyway_label}", onclick: move |_| send(Anyway::Yes), "Send anyway" }
                     }
                 }
+                PgpWarn { bar: pgp_bar, on_act: on_pgp }
                 button {
                     class: "mini",
                     r#type: "button",
@@ -279,24 +287,122 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
     }
 }
 
-/// Send, through the guards. Queued, the page folds away and the pill takes over.
+/// Send, through the guards. Queued, the page folds away and the pill takes over. A draft to be
+/// signed or encrypted is sealed off the thread that draws, with `passphrase` for its key when
+/// one was typed; it is dropped once the send is done.
 fn send_page(
     mut page: Signal<Page>,
     shell: Signal<Shell>,
-    mut desk: Desk,
-    mut revision: Signal<u64>,
+    desk: Desk,
+    revision: Signal<u64>,
     anyway: Anyway,
+    passphrase: Option<Password>,
 ) {
     let store = consume_context::<Arc<SqliteStore>>();
+    let secrets = super::pgp::seams().secrets;
     let sent = life::send(
         &store,
+        secrets.as_ref(),
         &mut page.write(),
         anyway,
         chrono::Utc::now(),
         &chrono::Local,
     );
     match sent {
-        Ok(Sent::Queued { draft, due, when }) => {
+        Ok(Sent::Sealing { leaves }) => {
+            let draft = page.peek().draft;
+            // Spawned from a press, which is where a task is polled (F140).
+            spawn(async move {
+                match seal_and_queue(store, draft, leaves, passphrase).await {
+                    Ok(due) => {
+                        let sent = life::folded(&mut page.write(), due);
+                        queued(page, shell, desk, revision, sent);
+                    }
+                    Err(Sealed::Locked { key, tried }) => {
+                        page.write().pgp_bar = PgpBar::Locked { key, tried };
+                    }
+                    Err(Sealed::Refused(why)) => {
+                        let mut write = page.write();
+                        write.pgp_bar = PgpBar::Clear;
+                        write.notice = Some(why);
+                    }
+                }
+            });
+        }
+        Ok(sent) => queued(page, shell, desk, revision, sent),
+        Err(why) => page.write().notice = Some(why),
+    }
+}
+
+/// What the OpenPGP bar's buttons do.
+fn pgp_act(
+    mut page: Signal<Page>,
+    shell: Signal<Shell>,
+    desk: Desk,
+    revision: Signal<u64>,
+    act: BarAct,
+) {
+    // The bar is only ever reached past the other guards, so its sends go as "anyway".
+    match act {
+        BarAct::WithoutEncryption | BarAct::Plain => {
+            let mut write = page.write();
+            write.openpgp = match act {
+                BarAct::Plain => mail_domain::OpenPgp::None,
+                _ => openpgp::without_encryption(write.openpgp),
+            };
+            write.pgp_bar = PgpBar::Clear;
+            write.touch();
+            drop(write);
+            send_page(page, shell, desk, revision, Anyway::Yes, None);
+        }
+        BarAct::Unlock(passphrase) => {
+            send_page(page, shell, desk, revision, Anyway::Yes, Some(passphrase));
+        }
+        BarAct::CreateKey => super::pgp::keys::open(shell),
+        BarAct::LookUp(addresses) => {
+            page.write().pgp_bar = PgpBar::Looking(addresses.clone());
+            let store = consume_context::<Arc<SqliteStore>>();
+            let lookup = super::pgp::seams().lookup;
+            let draft = page.peek().draft;
+            spawn(async move {
+                let done = tokio::task::spawn_blocking(move || {
+                    let stored = store.draft(draft).map_err(|e| e.to_string())?;
+                    openpgp::look_up(
+                        &store,
+                        lookup.as_ref(),
+                        &stored,
+                        &addresses,
+                        chrono::Utc::now(),
+                    )
+                })
+                .await
+                .unwrap_or_else(|error| Err(format!("The lookup stopped: {error}")));
+                let mut write = page.write();
+                match done {
+                    Ok((bar, said)) => {
+                        write.pgp_bar = bar;
+                        write.notice = Some(said);
+                    }
+                    Err(why) => {
+                        write.pgp_bar = PgpBar::Clear;
+                        write.notice = Some(why);
+                    }
+                }
+            });
+        }
+    }
+}
+
+/// A press of Send's outcome: queued, the page folds away and the pill takes over.
+fn queued(
+    page: Signal<Page>,
+    shell: Signal<Shell>,
+    mut desk: Desk,
+    mut revision: Signal<u64>,
+    sent: Sent,
+) {
+    match sent {
+        Sent::Queued { draft, due, when } => {
             let mut back = page.peek().clone();
             back.phase = Phase::Writing;
             back.guard = Guard::Clear;
@@ -314,8 +420,8 @@ fn send_page(
                 close(page, shell, desk);
             });
         }
-        Ok(Sent::Stopped) => {}
-        Err(why) => page.write().notice = Some(why),
+        // Sealing is answered by the send that started it; a stop has already said why.
+        Sent::Stopped | Sent::Sealing { .. } => {}
     }
 }
 

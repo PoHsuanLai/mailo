@@ -31,6 +31,7 @@ mod move_to;
 mod ops;
 mod page;
 mod paint;
+mod pgp;
 mod print;
 mod reading;
 mod receipt;

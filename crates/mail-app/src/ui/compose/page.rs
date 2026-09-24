@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 
 use chrono::{DateTime, Datelike, Duration, TimeZone, Utc};
-use mail_domain::{AccountId, Address, Draft, DraftId, ReceiptRequest};
+use mail_domain::{AccountId, Address, Draft, DraftId, OpenPgp, ReceiptRequest};
 
 use super::opening::doc_of;
 use crate::editor::{Person, Pos, Range, Session};
@@ -128,6 +128,8 @@ pub(in crate::ui) enum Float {
     From,
     /// When to send.
     Sends,
+    /// Whether to sign or encrypt.
+    OpenPgp,
     /// "Pick a time…" under the Sends row, with what has been typed.
     PickTime(String),
     /// "Save as template…", with the name typed so far.
@@ -214,6 +216,10 @@ pub(in crate::ui) struct Page {
     pub when: When,
     /// Whether the message asks its recipients for a read receipt.
     pub receipt: ReceiptRequest,
+    /// What OpenPGP does to the message when it is sent.
+    pub openpgp: OpenPgp,
+    /// What stands between OpenPGP and Send, in the warning bar.
+    pub pgp_bar: super::openpgp::PgpBar,
     /// What the draft carries, as `(name, size)`.
     pub attached: Vec<(String, String)>,
     pub session: Session,
@@ -268,6 +274,8 @@ impl Page {
             typed_cc: String::new(),
             when: When::Now,
             receipt: draft.receipt,
+            openpgp: draft.openpgp,
+            pgp_bar: super::openpgp::PgpBar::Clear,
             attached,
             session: Session::with(doc_of(draft)),
             selection: None,
@@ -306,6 +314,7 @@ impl Page {
             text: crate::editor::to_flowed(doc),
             html: Some(crate::editor::to_html(doc)),
             receipt: self.receipt,
+            openpgp: self.openpgp,
             updated: now,
             ..base.clone()
         }

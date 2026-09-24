@@ -1,4 +1,4 @@
-//! The property rows under the title: From, To, Cc, Sends and Attached. Every choice is a
+//! The property rows under the title: From, To, Cc, Sends, OpenPGP and Attached. Every choice is a
 //! [`Menu`] and every input a [`Field`].
 
 use std::sync::Arc;
@@ -13,6 +13,7 @@ use super::super::menu::{Menu, MenuItem, MenuKey, Right, Tile, menu_key};
 use super::super::menus::{snooze_help, when_words};
 use super::float::hue;
 use super::later::{PICK_KEY, PICK_LABEL, PickTime};
+use super::openpgp::OpenPgpRow;
 use super::page::{CcRow, Float, Guard, List, Page, PageKind, When};
 use super::receipt::{KEY as RECEIPT_KEY, ReceiptRow, item as receipt_item};
 use super::recipients::{commit_typed, people_items, pick_person, pop_last, remove, typed};
@@ -65,6 +66,7 @@ pub(in crate::ui) fn Props(page: Signal<Page>, shell: Signal<Shell>) -> Element 
             }
             if !compact {
                 SendsRow { page }
+                OpenPgpRow { page }
             }
             ReceiptRow { page }
             if !attached.is_empty() {

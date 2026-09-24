@@ -215,6 +215,16 @@ pub(super) fn SpaceEditor(
                 p { class: "capnote", "What new mail sorts into, the vacation reply, and the server's copy." }
             }
             div {
+                div { class: "ed-label", "OpenPGP" }
+                button {
+                    class: "mini",
+                    r#type: "button",
+                    onclick: move |_| super::pgp::keys::open(shell),
+                    "OpenPGP keys…"
+                }
+                p { class: "capnote", "Your keys and your correspondents': make, import, export, verify, delete." }
+            }
+            div {
                 div { class: "ed-label", "Presets" }
                 Presets { editing, spaces }
             }
