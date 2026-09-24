@@ -245,7 +245,39 @@ pub(crate) async fn renew_incoming(
     Ok(renewed)
 }
 
-/// A Graph access token for an account that sends through [`mail_domain::Outgoing::Graph`].
+/// What an account's Graph token has to be good for, which decides the scopes it is minted with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GraphReach {
+    /// Sending only: an account that reads over IMAP. See [`mint_graph`] for why only
+    /// `Mail.Send` is named.
+    Send,
+    /// Reading and sending: an account whose plan says [`mail_domain::Incoming::Graph`]. Its
+    /// sign-in consented to `Mail.ReadWrite` because the preset asked for it, so naming it is
+    /// safe, and one token then serves both directions.
+    ReadAndSend,
+}
+
+impl GraphReach {
+    /// What `plan` uses Graph for.
+    pub fn of(plan: &mail_domain::AccountPlan) -> Self {
+        match plan.incoming {
+            mail_domain::Incoming::Graph => GraphReach::ReadAndSend,
+            _ => GraphReach::Send,
+        }
+    }
+
+    fn scopes(self) -> Vec<String> {
+        let mut scopes = vec![mail_domain::presets::GRAPH_SEND_SCOPE.to_owned()];
+        if self == GraphReach::ReadAndSend {
+            scopes.insert(0, mail_domain::presets::GRAPH_WRITE_SCOPE.to_owned());
+        }
+        scopes.push("offline_access".to_owned());
+        scopes
+    }
+}
+
+/// A Graph access token for an account that sends through [`mail_domain::Outgoing::Graph`], or
+/// reads through [`mail_domain::Incoming::Graph`].
 ///
 /// Kept as the account's *outgoing* credential, which `AccountEngine` already prefers for
 /// submission, beside the incoming one for Exchange's IMAP: Microsoft's tokens are each for one
@@ -255,6 +287,7 @@ pub(crate) async fn renew_incoming(
 pub async fn graph_token(
     account: AccountId,
     registration: &Registration,
+    reach: GraphReach,
     secrets: &dyn Secrets,
     http: &reqwest::Client,
     now: DateTime<Utc>,
@@ -272,7 +305,16 @@ pub async fn graph_token(
         Some(Freshness::Expired { refresh_token }) => refresh_token.to_owned(),
         None => sign_in_refresh(secrets, account)?,
     };
-    mint_graph(account, registration, &refresh_token, secrets, http, now).await
+    mint_graph(
+        account,
+        registration,
+        reach,
+        &refresh_token,
+        secrets,
+        http,
+        now,
+    )
+    .await
 }
 
 /// The refresh token a new Graph token is minted from: the Graph token's own, or the sign-in's.
@@ -293,13 +335,15 @@ pub(crate) fn graph_refresh(
 ///
 /// Named with Graph's scope alone: one resource per request, or Microsoft refuses it.
 ///
-/// Only `Mail.Send` is named, not `Mail.ReadWrite` too, although a message over 4 MB needs it:
-/// Microsoft's token carries every permission already consented to for the resource, not only
-/// the ones named, while naming one that was never consented to — as a sign-in from before
-/// `send_through_graph` asked for it was not — would fail the refresh, and with it every send.
+/// For a sending-only account only `Mail.Send` is named, not `Mail.ReadWrite` too, although a
+/// message over 4 MB needs it: Microsoft's token carries every permission already consented to
+/// for the resource, not only the ones named, while naming one that was never consented to — as
+/// a sign-in from before `send_through_graph` asked for it was not — would fail the refresh, and
+/// with it every send. An account that reads through Graph has always asked for both.
 pub(crate) async fn mint_graph(
     account: AccountId,
     registration: &Registration,
+    reach: GraphReach,
     refresh_token: &str,
     secrets: &dyn Secrets,
     http: &reqwest::Client,
@@ -310,10 +354,7 @@ pub(crate) async fn mint_graph(
         &registration.client_id,
         registration.client_secret.as_deref(),
         refresh_token,
-        &[
-            mail_domain::presets::GRAPH_SEND_SCOPE.to_owned(),
-            "offline_access".to_owned(),
-        ],
+        &reach.scopes(),
         http,
         now,
     )

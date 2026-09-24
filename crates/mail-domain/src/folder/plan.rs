@@ -57,7 +57,7 @@ pub fn plan(work: &FolderWork, ctx: &FolderCtx<'_>) -> Result<Applied, FolderErr
     match ctx.incoming {
         Incoming::Pop3 { .. } => return Err(FolderError::SingleMailbox),
         Incoming::Local => return Err(FolderError::KeptLocally),
-        Incoming::Imap { .. } => {}
+        Incoming::Imap { .. } | Incoming::Graph => {}
     }
     let (forward, inverse) = match work {
         FolderWork::Create { path } => create(path, ctx)?,

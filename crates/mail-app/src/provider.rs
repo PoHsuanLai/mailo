@@ -112,6 +112,7 @@ fn from_host(plan: &AccountPlan) -> Provider {
         Incoming::Imap { host, .. } | Incoming::Pop3 { host, .. } => host.as_str(),
         // No host, so no provider to recognise: the generic mark.
         Incoming::Local => "",
+        Incoming::Graph => return Provider::Microsoft,
     };
     if is_host(host, "gmail.com") || is_host(host, "googlemail.com") {
         Provider::Google

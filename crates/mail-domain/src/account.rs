@@ -81,6 +81,15 @@ pub enum Incoming {
     /// an account has to decide this too: sync skips it, a folder change refuses it, and it
     /// never has a `remote_map` row, so every change made to its mail is local and complete.
     Local,
+    /// Microsoft Graph's mail API, for a Microsoft 365 mailbox whose tenant has switched IMAP
+    /// off. HTTPS to a fixed host with the account's OAuth sign-in, so, like
+    /// [`Outgoing::Graph`], there is nothing to configure.
+    ///
+    /// Graph rather than Exchange Web Services: Exchange Online retires EWS from 2026-10-01, and
+    /// an on-premises Exchange offers IMAP. Folders are listed from `mailFolders`, each followed
+    /// with a delta query whose link is the folder's [`crate::SyncCursor::Graph`], and bodies
+    /// arrive as the message's own MIME, so everything downstream reads real RFC 5322 bytes.
+    Graph,
 }
 
 /// How mail leaves. SMTP is not a third incoming backend; both backends submit through it.

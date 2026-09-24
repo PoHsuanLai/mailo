@@ -536,6 +536,42 @@ mod microsoft {
     }
 
     #[test]
+    fn a_tenant_without_imap_reads_and_sends_through_graph() {
+        let parsed = cli::parse(&args(
+            "account add me@yourcompany.example --microsoft --receive graph",
+        ))
+        .unwrap();
+        assert!(matches!(
+            parsed,
+            cli::Command::AccountAdd {
+                microsoft: true,
+                graph: true,
+                receive: cli::Receive::Graph,
+                ..
+            }
+        ));
+        let plain = cli::parse(&args("account add me@yourcompany.example --microsoft")).unwrap();
+        assert!(matches!(
+            plain,
+            cli::Command::AccountAdd {
+                receive: cli::Receive::Imap,
+                ..
+            }
+        ));
+        // The one token is Graph's; SMTP would have nothing to sign in with.
+        let err = cli::parse(&args(
+            "account add me@yourcompany.example --microsoft --receive graph --send smtp",
+        ))
+        .unwrap_err();
+        assert!(
+            err.contains("--receive graph sends through Graph too"),
+            "{err}"
+        );
+        let err = cli::parse(&args("account add me@gmail.com --receive graph")).unwrap_err();
+        assert!(err.contains("add --microsoft"), "{err}");
+    }
+
+    #[test]
     fn sending_through_graph_is_only_for_microsoft() {
         let err = cli::parse(&args("account add me@gmail.com --send graph"))
             .expect_err("Graph is Microsoft's");

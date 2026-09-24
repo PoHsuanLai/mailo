@@ -632,38 +632,23 @@ impl Store for SqliteStore {
     fn remote_refs(&self, mailbox: &MailboxRef) -> Result<Vec<RemoteRef>, StoreError> {
         let db = self.connection();
         let mut stmt = db.prepare_cached(
-            "SELECT uidvalidity, uid, uidl FROM remote_map
+            "SELECT mailbox, uidvalidity, uid, uidl FROM remote_map
              WHERE account = ?1 AND mailbox = ?2",
         )?;
         let rows = stmt.query_map(
             rusqlite::params![mailbox.account.to_string(), mailbox.path],
-            |r| {
-                Ok((
-                    r.get::<_, Option<i64>>(0)?,
-                    r.get::<_, Option<i64>>(1)?,
-                    r.get::<_, Option<String>>(2)?,
-                ))
-            },
+            remote_columns,
         )?;
-        let mut out = Vec::new();
-        for row in rows {
-            let (uidvalidity, uid, uidl) = row?;
-            out.push(match (uid, uidl) {
-                (Some(uid), None) => RemoteRef::Imap {
-                    mailbox: mailbox.path.clone(),
-                    uidvalidity: uidvalidity.unwrap_or(0) as u32,
-                    uid: uid as u32,
-                },
-                (None, Some(uidl)) => RemoteRef::Pop { uidl },
-                _ => {
-                    return Err(StoreError::Decode {
-                        what: "remote_map row".to_owned(),
-                        why: "row has neither a uid nor a uidl".to_owned(),
-                    });
-                }
-            });
-        }
-        Ok(out)
+        rows.map(|row| remote_from_columns(row?)).collect()
+    }
+
+    fn remap(
+        &self,
+        account: AccountId,
+        from: &RemoteRef,
+        to: &RemoteRef,
+    ) -> Result<(), StoreError> {
+        self.write_remap(account, from, to)
     }
 
     fn draft(&self, id: DraftId) -> Result<Draft, StoreError> {
@@ -823,25 +808,12 @@ impl Store for SqliteStore {
 }
 
 /// The four `remote_map` columns that address a message, as `unfetched` selects them.
-type RemoteColumns = (String, Option<i64>, Option<i64>, Option<String>);
+type RemoteColumns = crate::remote_row::Columns;
 
-fn remote_columns(r: &rusqlite::Row<'_>) -> rusqlite::Result<RemoteColumns> {
+pub(super) fn remote_columns(r: &rusqlite::Row<'_>) -> rusqlite::Result<RemoteColumns> {
     Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
 }
 
-fn remote_from_columns(
-    (mailbox, uidvalidity, uid, uidl): RemoteColumns,
-) -> Result<RemoteRef, StoreError> {
-    match (uid, uidl) {
-        (Some(uid), None) => Ok(RemoteRef::Imap {
-            mailbox,
-            uidvalidity: uidvalidity.unwrap_or(0) as u32,
-            uid: uid as u32,
-        }),
-        (None, Some(uidl)) => Ok(RemoteRef::Pop { uidl }),
-        _ => Err(StoreError::Decode {
-            what: "remote_map row".to_owned(),
-            why: "row has neither a uid nor a uidl".to_owned(),
-        }),
-    }
+pub(super) fn remote_from_columns(columns: RemoteColumns) -> Result<RemoteRef, StoreError> {
+    crate::remote_row::remote(columns)
 }

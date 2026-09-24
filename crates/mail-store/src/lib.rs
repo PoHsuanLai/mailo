@@ -10,6 +10,7 @@ pub mod memory;
 mod memory_search;
 pub mod migrate;
 mod prefix;
+mod remote_row;
 pub mod rules;
 pub mod sql;
 pub mod sqlite;
@@ -230,6 +231,15 @@ pub trait Store {
     /// The other half of expunge detection: the server says what still exists, and this says
     /// what we think exists. What is in the second and not the first is gone.
     fn remote_refs(&self, mailbox: &MailboxRef) -> Result<Vec<RemoteRef>, StoreError>;
+
+    /// The server moved a message and gave it a new address: `from` is now `to`.
+    ///
+    /// For a protocol whose addresses change with the folder — Microsoft Graph's ids do — so the
+    /// next operation on the message names where it is rather than where it was. The message,
+    /// its flags and its role stay as they are. Nothing happens if `from` is not held, and if a
+    /// sync already mapped `to`, the row for `from` simply goes.
+    fn remap(&self, account: AccountId, from: &RemoteRef, to: &RemoteRef)
+    -> Result<(), StoreError>;
 
     /// Every server address `message` is known by, in any mailbox.
     ///

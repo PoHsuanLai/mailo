@@ -50,6 +50,18 @@ pub enum RemoteRef {
     Pop {
         uidl: String,
     },
+    /// A message in a Microsoft Graph mail folder.
+    ///
+    /// Graph's id is not an identity either, and less of one than a UID: it changes when the
+    /// message moves to another folder. Identity is the `internetMessageId`, through
+    /// [`crate::MessageKey`], as everywhere; a move this client makes is remapped to the id the
+    /// move returned, and one made elsewhere arrives as a removal from one folder and a new
+    /// message in another, which the key joins back into one.
+    Graph {
+        /// The folder's path as this client names it ([`MailboxRef::path`]), not Graph's id.
+        mailbox: String,
+        id: String,
+    },
 }
 
 /// How far a mailbox has been synced. Per mailbox, not per account.
@@ -65,6 +77,10 @@ pub enum SyncCursor {
     },
     /// POP3 keeps no cursor: every poll lists `UIDL` in full and diffs against `remote_map`.
     Pop,
+    /// Where a Graph delta query over one folder got to: the `@odata.deltaLink` that ends a
+    /// round, or the `@odata.nextLink` of a round a pass stopped partway through. Either is
+    /// followed as it is; Graph encodes everything the first request asked for into it.
+    Graph { delta_link: String },
 }
 
 /// Whether the server's `UIDVALIDITY` still matches what we stored.

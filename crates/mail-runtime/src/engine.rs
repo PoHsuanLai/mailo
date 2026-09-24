@@ -62,6 +62,9 @@ fn keep_now(node: &PartTree) -> bool {
     }
 }
 
+/// Bodies fetched per operation from Microsoft Graph, which asks for each one separately.
+const GRAPH_BODIES: usize = 10;
+
 fn by_band(wanted: &mut [(RemoteRef, u64)]) {
     wanted.sort_by_key(|(_, size)| BANDS.iter().position(|&band| *size <= band));
 }
@@ -202,6 +205,9 @@ pub struct AccountEngine<B: Backend> {
     /// account, and for an engine nobody gave one — which then signs in with what it was built
     /// with, as every engine did before a watch had to outlive an access token.
     renewal: Option<Renewal>,
+    /// Where an account that reads through Microsoft Graph sends its operations, in place of
+    /// `backend` and a connection. `None` for every other account.
+    graph: Option<crate::graph::read::Reader>,
 }
 
 impl<B: Backend> AccountEngine<B> {
@@ -222,7 +228,43 @@ impl<B: Backend> AccountEngine<B> {
             last: LastRun::default(),
             graph_url: crate::graph::SEND_MAIL.to_owned(),
             renewal: None,
+            graph: None,
         }
+    }
+
+    /// Read this account through Microsoft Graph: every operation goes to `reader`, over HTTPS,
+    /// and none to the backend, which is then [`crate::graph::read::OverHttp`].
+    pub fn with_graph_reader(mut self, reader: crate::graph::read::Reader) -> Self {
+        self.graph = Some(reader);
+        self
+    }
+
+    /// What the server is believed to support: the Graph reader's, where there is one.
+    fn caps(&self) -> &AccountCaps {
+        match &self.graph {
+            Some(reader) => reader.caps(),
+            None => self.backend.caps(),
+        }
+    }
+
+    /// Every address the last survey found, with a size where one is known.
+    fn surveyed(&self) -> Vec<(RemoteRef, u64)> {
+        match &self.graph {
+            Some(reader) => reader.surveyed(),
+            None => self.backend.surveyed(),
+        }
+    }
+
+    /// Whether the incoming server can be reached, checked once before a pass.
+    ///
+    /// A connection opened and dropped, for a server that has one. Graph has no connection to
+    /// open, and its first request answers the question soon enough.
+    pub async fn reachable(&self) -> Result<(), RuntimeError> {
+        if self.graph.is_some() {
+            return Ok(());
+        }
+        drop(self.connect().await?);
+        Ok(())
     }
 
     /// Renew the account's access tokens as they near expiry, and once after a refusal.
@@ -253,7 +295,7 @@ impl<B: Backend> AccountEngine<B> {
             Incoming::Pop3 {
                 host, port, tls, ..
             } => Some((host, *port, *tls)),
-            Incoming::Local => None,
+            Incoming::Local | Incoming::Graph => None,
         }
     }
 
@@ -332,6 +374,9 @@ impl<B: Backend> AccountEngine<B> {
         if matches!(op, ProtoOp::Submit { .. }) {
             return self.submit(op, cancel, leaving).await;
         }
+        if self.graph.is_some() {
+            return self.run_graph(op, cancel).await;
+        }
         // An upload's bytes are a blob, and reading one is this crate's to do. Staged here, per
         // attempt, rather than by the caller: a retry after a renewed sign-in runs this again,
         // and bytes staged once would already have been spent by the first attempt.
@@ -345,6 +390,47 @@ impl<B: Backend> AccountEngine<B> {
             op: Some(op),
         };
         drive(&mut step, &mut transport, cancel).await
+    }
+
+    /// Run one operation through Microsoft Graph, and remap whatever it moved.
+    ///
+    /// The token is Graph's, kept as the account's outgoing credential: an account that reads
+    /// through Graph presents the same one it sends with. Remapped here, per attempt, so a move
+    /// made before a later failure in the same batch is not forgotten.
+    async fn run_graph(
+        &mut self,
+        op: ProtoOp,
+        cancel: &mut Cancel,
+    ) -> Result<ProtoOutcome, RuntimeError> {
+        let access = match self.secret(SecretPurpose::OutgoingPassword) {
+            Ok(Credential::OAuth { access, .. }) => access,
+            _ => {
+                return Err(RuntimeError::Secrets(format!(
+                    "no Microsoft Graph sign-in is stored for {}",
+                    self.plan.address
+                )));
+            }
+        };
+        let staged = match &op {
+            ProtoOp::Append { raw, .. } => {
+                Some(self.store.blobs().get(&self.store.connection(), *raw)?)
+            }
+            _ => None,
+        };
+        let Some(reader) = self.graph.as_mut() else {
+            return Err(RuntimeError::UnsupportedIo(
+                "this account does not read through Microsoft Graph".to_owned(),
+            ));
+        };
+        let outcome = tokio::select! {
+            outcome = reader.run(op, &access, staged) => outcome,
+            () = cancelled(cancel) => Err(RuntimeError::Cancelled),
+        };
+        let moves = reader.take_moves();
+        for (from, to) in moves {
+            self.store.remap(self.account, &from, &to)?;
+        }
+        outcome
     }
 
     /// Where the submission server lives, for an account that submits over SMTP.
@@ -375,7 +461,7 @@ impl<B: Backend> AccountEngine<B> {
         // The incoming backend's capabilities. They describe the *account*, not the socket:
         // `SmtpBackend` reads none of the IMAP-shaped fields, and giving it a second, emptier
         // set would mean two answers to one question.
-        let caps = self.backend.caps().clone();
+        let caps = self.caps().clone();
         Ok(SmtpBackend::new(
             self.account,
             caps,
@@ -674,7 +760,11 @@ impl<B: Backend> AccountEngine<B> {
                 *caps
             }
             ProtoOutcome::Caps(caps) => *caps,
-            _ => self.backend.caps().clone(),
+            _ => self.caps().clone(),
+        };
+        let caps = match self.graph.as_mut() {
+            Some(reader) => reader.observed(now),
+            None => caps,
         };
         self.store.put_caps(self.account, &caps, now)?;
         Ok(caps)
@@ -694,6 +784,10 @@ impl<B: Backend> AccountEngine<B> {
             self.run(ProtoOp::ListFolders, cancel).await?
         {
             self.store.put_folders(self.account, listed)?;
+            let caps = match self.graph.as_mut() {
+                Some(reader) => reader.observed(now),
+                None => *caps,
+            };
             self.store.put_caps(self.account, &caps, now)?;
         }
         Ok(self.store.folders(self.account)?)
@@ -705,7 +799,7 @@ impl<B: Backend> AccountEngine<B> {
     /// morning would otherwise show no folders until tomorrow, and refuse to rename or delete
     /// any, so a sync pass asks as soon as it finds the list empty.
     pub fn folders_unlisted(&self) -> bool {
-        matches!(self.plan.incoming, Incoming::Imap { .. })
+        matches!(self.plan.incoming, Incoming::Imap { .. } | Incoming::Graph)
             && self
                 .store
                 .folders(self.account)
@@ -778,7 +872,7 @@ impl<B: Backend> AccountEngine<B> {
         mailbox: &MailboxRef,
         cancel: &mut Cancel,
     ) -> Result<bool, RuntimeError> {
-        if !matches!(self.backend.caps().watch, WatchMode::Idle) {
+        if !matches!(self.caps().watch, WatchMode::Idle) {
             return Ok(false);
         }
         // What this client has already synced, so mail that landed between the last pass and
@@ -811,7 +905,7 @@ impl<B: Backend> AccountEngine<B> {
     /// providers keeps its row. Daily is often enough to notice, and rare enough to cost
     /// nothing; re-reading on every pass would be a wasted round trip every few minutes.
     pub fn caps_are_stale(&self, now: DateTime<Utc>) -> bool {
-        now.signed_duration_since(self.backend.caps().observed_at)
+        now.signed_duration_since(self.caps().observed_at)
             > chrono::TimeDelta::try_hours(24).expect("24h is in range")
     }
 
@@ -828,7 +922,7 @@ impl<B: Backend> AccountEngine<B> {
         Ok(mail_store::rules::at_arrival(
             self.store.as_ref(),
             self.account,
-            self.backend.caps(),
+            self.caps(),
             arrived,
             now,
         )?)
@@ -846,6 +940,9 @@ impl<B: Backend> AccountEngine<B> {
         now: DateTime<Utc>,
         budget: usize,
     ) -> Result<SyncReport, RuntimeError> {
+        if self.graph.is_some() {
+            return self.sync_graph(mailbox, cancel, now, budget).await;
+        }
         let mut report = SyncReport::default();
 
         let outcome = self
@@ -874,7 +971,7 @@ impl<B: Backend> AccountEngine<B> {
         //
         // The ordering decision lives here rather than in the backend, because it is a product
         // judgement about what the user sees first, not a protocol fact.
-        let mut wanted = self.backend.surveyed();
+        let mut wanted = self.surveyed();
         if wanted.is_empty() {
             // A protocol that cannot enumerate up front: fall back to what we already hold,
             // which the store hands back newest first.
@@ -976,6 +1073,93 @@ impl<B: Backend> AccountEngine<B> {
         Ok(report)
     }
 
+    /// [`Self::sync`] for an account read through Microsoft Graph: one folder's delta.
+    ///
+    /// The delta is the survey, the header fetch and the flag sweep at once. What it says is
+    /// stored in the order that keeps a crash harmless: a reset first, where Graph asked for one;
+    /// then the messages new to this folder, from the headers the delta wrote; then flags,
+    /// removals and the cursor, last, so the place a later pass resumes from is never ahead of
+    /// what is stored.
+    async fn sync_graph(
+        &mut self,
+        mailbox: &MailboxRef,
+        cancel: &mut Cancel,
+        now: DateTime<Utc>,
+        budget: usize,
+    ) -> Result<SyncReport, RuntimeError> {
+        let mut report = SyncReport::default();
+        let since = match self.store.cursor(mailbox)? {
+            Some(cursor @ SyncCursor::Graph { .. }) => FetchSince::After { cursor },
+            _ => FetchSince::Beginning,
+        };
+        if let Some(reader) = self.graph.as_mut() {
+            reader.limit(budget);
+        }
+        let outcome = self
+            .run(
+                ProtoOp::FetchEnvelopes {
+                    mailbox: mailbox.clone(),
+                    since,
+                },
+                cancel,
+            )
+            .await?;
+        let ProtoOutcome::Ingested(ingest) = outcome else {
+            return Ok(report);
+        };
+        let mut ingest = *ingest;
+        let arrivals = self
+            .graph
+            .as_mut()
+            .map(|reader| reader.take_arrivals())
+            .unwrap_or_default();
+
+        if ingest.validity == UidValidity::Reset {
+            self.store.ingest(
+                self.account,
+                mail_domain::Ingest {
+                    mailbox: mailbox.clone(),
+                    validity: UidValidity::Reset,
+                    cursor: None,
+                    messages: Vec::new(),
+                    flags: Vec::new(),
+                    labels: Vec::new(),
+                    label_names: Vec::new(),
+                    gone: Vec::new(),
+                },
+            )?;
+            ingest.validity = UidValidity::Same;
+        }
+
+        // A message already mapped here arrived again because something about it changed: its
+        // flags, which the ingest below applies. Only the rest are new to this folder.
+        let held: std::collections::HashSet<RemoteRef> =
+            self.store.remote_refs(mailbox)?.into_iter().collect();
+        let new: Vec<crate::assemble::Arrival> = arrivals
+            .into_iter()
+            .filter(|(remote, _)| !held.contains(remote))
+            .map(|(remote, raw)| crate::assemble::Arrival { remote, raw })
+            .collect();
+        if !new.is_empty() {
+            report.headers_fetched += new.len();
+            let stored = crate::assemble::absorb_into(
+                &self.store,
+                self.account,
+                crate::assemble::Destination {
+                    mailbox: mailbox.clone(),
+                    role: self.role_of(mailbox),
+                },
+                None,
+                new,
+                true,
+                now,
+            )?;
+            report.arrived.extend(first_stored(&stored));
+        }
+        self.store.ingest(self.account, ingest)?;
+        Ok(report)
+    }
+
     /// Fetch bodies for messages we hold headers for, smallest band first.
     ///
     /// Separate from [`AccountEngine::sync`] so a caller can show a usable inbox after the
@@ -1015,6 +1199,33 @@ impl<B: Backend> AccountEngine<B> {
         if batch.is_empty() {
             return Ok(report);
         }
+        // Graph fetches one body per request, so a batch is fetched a few at a time and a failure
+        // loses only the few in hand; a session fetches its whole batch in one command.
+        if self.graph.is_some() {
+            for chunk in batch.chunks(GRAPH_BODIES) {
+                if !self
+                    .fetch_body_batch(chunk.to_vec(), mailbox, cancel, now, &mut report)
+                    .await?
+                {
+                    break;
+                }
+            }
+            return Ok(report);
+        }
+        self.fetch_body_batch(batch, mailbox, cancel, now, &mut report)
+            .await?;
+        Ok(report)
+    }
+
+    /// Fetch one batch of whole bodies and store them. Whether to go on with the next.
+    async fn fetch_body_batch(
+        &mut self,
+        batch: Vec<RemoteRef>,
+        mailbox: &MailboxRef,
+        cancel: &mut Cancel,
+        now: DateTime<Utc>,
+        report: &mut SyncReport,
+    ) -> Result<bool, RuntimeError> {
         match self
             .run(ProtoOp::FetchBody { remotes: batch }, cancel)
             .await
@@ -1041,10 +1252,14 @@ impl<B: Backend> AccountEngine<B> {
                 )?;
             }
             Ok(_) => {}
-            Err(RuntimeError::Cancelled) => return Ok(report),
-            Err(e) => report.needs_attention.push(e.to_string()),
+            Err(RuntimeError::Cancelled) => return Ok(false),
+            Err(e) => {
+                report.saw(&e.retry());
+                report.needs_attention.push(e.to_string());
+                return Ok(false);
+            }
         }
-        Ok(report)
+        Ok(true)
     }
 
     /// Fetch large messages as their text and structure, leaving attachments on the server.
@@ -1186,7 +1401,7 @@ impl<B: Backend> AccountEngine<B> {
     /// inbox and Sent were fetched and would have listed every user folder's mail in the inbox
     /// the day they were. It is `Archive` now: kept, and out of the inbox.
     fn role_of(&self, mailbox: &MailboxRef) -> MailboxRole {
-        self.backend.caps().folders.filed_as(&mailbox.path)
+        self.caps().folders.filed_as(&mailbox.path)
     }
 
     /// Run whichever scheduled sweeps are due.
@@ -1201,6 +1416,10 @@ impl<B: Backend> AccountEngine<B> {
         now: DateTime<Utc>,
     ) -> Result<SyncReport, RuntimeError> {
         let mut report = SyncReport::default();
+        // Graph's delta already said what changed and what left, in the same pass's sync.
+        if self.graph.is_some() {
+            return Ok(report);
+        }
 
         if due(self.last.flags, self.schedule.flags, now) {
             // No modseq means a full flag fetch: either the server has no CONDSTORE, or its
@@ -1313,7 +1532,7 @@ impl<B: Backend> AccountEngine<B> {
     /// The same trust as [`Self::trusted_modseq`] — a modseq the server gave us and nobody has
     /// withdrawn — plus the server offering `QRESYNC`, and the UIDVALIDITY the modseq belongs to.
     fn resync_from(&self, mailbox: &MailboxRef) -> Option<Resync> {
-        if self.backend.caps().condstore != Condstore::Qresync {
+        if self.caps().condstore != Condstore::Qresync {
             return None;
         }
         let modseq = self.trusted_modseq(mailbox)?;
@@ -1342,7 +1561,7 @@ impl<B: Backend> AccountEngine<B> {
     /// where it already is — withdrawing `CONDSTORE` from the account's capabilities — not in a
     /// second, quieter rule here that would make the two disagree.
     fn trusted_modseq(&self, mailbox: &MailboxRef) -> Option<u64> {
-        if !self.backend.caps().condstore.changedsince() {
+        if !self.caps().condstore.changedsince() {
             return None;
         }
         match self.store.cursor(mailbox) {
@@ -1373,7 +1592,7 @@ impl<B: Backend> AccountEngine<B> {
         // Sizes from this session's survey. A message it did not cover — no survey yet, or a
         // protocol that cannot take one — is "size unknown" and sorts into the last band.
         let sizes: std::collections::HashMap<RemoteRef, u64> =
-            self.backend.surveyed().into_iter().collect();
+            self.surveyed().into_iter().collect();
         Ok(self
             .store
             .unfetched_in(mailbox, limit)?
@@ -1406,6 +1625,18 @@ impl<B: Backend> std::fmt::Debug for AccountEngine<B> {
             .field("account", &self.account)
             .field("address", &self.plan.address)
             .finish()
+    }
+}
+
+/// Resolves when `cancel` says stop, or its sender has gone; never otherwise.
+async fn cancelled(cancel: &mut Cancel) {
+    loop {
+        if *cancel.borrow() {
+            return;
+        }
+        if cancel.changed().await.is_err() {
+            return;
+        }
     }
 }
 
@@ -1470,7 +1701,7 @@ mod tests {
             .iter()
             .map(|(remote, _)| match remote {
                 RemoteRef::Pop { uidl } => uidl.as_str(),
-                RemoteRef::Imap { .. } => unreachable!(),
+                RemoteRef::Imap { .. } | RemoteRef::Graph { .. } => unreachable!(),
             })
             .collect()
     }

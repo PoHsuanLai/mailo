@@ -50,7 +50,7 @@ impl<B: Backend> AccountEngine<B> {
         // An account that keeps its mail here has no server to park in IDLE on, whatever its
         // stored capabilities say: it only ever sleeps.
         let server = !matches!(self.plan.incoming, Incoming::Local);
-        if server && matches!(self.backend.caps().watch, WatchMode::Idle) {
+        if server && matches!(self.caps().watch, WatchMode::Idle) {
             let alarm = alarm();
             let (tx, mut inner) = watch::channel(false);
             let watched = self.watch(mailbox, &mut inner);

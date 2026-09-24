@@ -1,0 +1,8 @@
+[
+  {
+    "kind": "graph",
+    "v": {
+      "delta_link": "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?$deltatoken=abc"
+    }
+  }
+]

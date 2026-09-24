@@ -33,6 +33,8 @@
 //! properties Exchange writes those headers from (`PidTagInReplyToId`, 0x1042, and
 //! `PidTagInternetReferences`, 0x1039) through `singleValueExtendedProperties`.
 
+pub mod read;
+
 use crate::RuntimeError;
 use base64::Engine as _;
 use mail_domain::{Address, Inline, Retry};
@@ -450,7 +452,7 @@ fn json_len(value: &Value) -> usize {
 }
 
 /// A Graph id as one path segment. Ids are base64, so `/` and `+` can occur in them.
-fn segment(id: &str) -> String {
+pub(crate) fn segment(id: &str) -> String {
     let mut out = String::with_capacity(id.len());
     for byte in id.bytes() {
         if byte.is_ascii_alphanumeric() || b"-._~=".contains(&byte) {
@@ -469,7 +471,7 @@ fn too_large(why: String) -> RuntimeError {
     }
 }
 
-fn retry_after(response: &reqwest::Response) -> Option<Duration> {
+pub(crate) fn retry_after(response: &reqwest::Response) -> Option<Duration> {
     response
         .headers()
         .get(reqwest::header::RETRY_AFTER)
@@ -491,16 +493,7 @@ enum Asked {
 
 /// What a refusal means, from its status and Graph's error body.
 fn refusal(status: u16, body: &str, after: Option<Duration>, asked: Asked) -> RuntimeError {
-    // `{"error":{"code":"ErrorAccessDenied","message":"Access is denied. …"}}`
-    let detail = serde_json::from_str::<serde_json::Value>(body)
-        .ok()
-        .and_then(|v| {
-            let error = v.get("error")?;
-            let code = error.get("code")?.as_str()?.to_owned();
-            let message = error.get("message").and_then(|m| m.as_str()).unwrap_or("");
-            Some(format!("{code}: {message}"))
-        })
-        .unwrap_or_else(|| body.chars().take(300).collect());
+    let detail = detail(body);
     let why = format!("Microsoft Graph refused the message ({status}): {detail}");
     let retry = match status {
         // The upload address authorizes itself; refused, the session has lapsed, and the next
@@ -528,6 +521,21 @@ fn refusal(status: u16, body: &str, after: Option<Duration>, asked: Asked) -> Ru
         _ => Retry::Fatal(format!("Graph answered {status}")),
     };
     RuntimeError::Graph { why, retry }
+}
+
+/// What Graph's error body says, or the start of the body when it is not Graph's shape.
+///
+/// `{"error":{"code":"ErrorAccessDenied","message":"Access is denied. …"}}`
+pub(crate) fn detail(body: &str) -> String {
+    serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|v| {
+            let error = v.get("error")?;
+            let code = error.get("code")?.as_str()?.to_owned();
+            let message = error.get("message").and_then(|m| m.as_str()).unwrap_or("");
+            Some(format!("{code}: {message}"))
+        })
+        .unwrap_or_else(|| body.chars().take(300).collect())
 }
 
 /// `mime` with a `Bcc:` header naming every envelope recipient its `To` and `Cc` do not.

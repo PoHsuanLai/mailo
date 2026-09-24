@@ -14,24 +14,28 @@ use std::fmt::Write as _;
 /// The preset supplies hosts, ports and expected capabilities; the credential comes from the
 /// environment and goes straight to the keyring. Nothing about a password is persisted in
 /// SQLite, which is the whole reason `Credential` exists as a separate type.
+// Each argument is one of the command line's independent answers, passed through as it came.
+#[allow(clippy::too_many_arguments)]
 pub fn add(
     store: &SqliteStore,
     address: &str,
     manual: Option<&crate::cli::Setup>,
     microsoft: bool,
     graph: bool,
+    receive: crate::cli::Receive,
     saved: &OAuthRegistry,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<String, String> {
     let password = std::env::var("MAILO_PASSWORD")
         .ok()
         .map(crate::password::Password::new);
-    add_with_password(
+    add_receiving(
         store,
         address,
         manual,
         microsoft,
         graph,
+        receive,
         now,
         Credentials {
             password: password.as_ref(),
@@ -78,6 +82,31 @@ pub fn add_with_password(
     now: chrono::DateTime<chrono::Utc>,
     credentials: Credentials<'_>,
 ) -> Result<String, String> {
+    add_receiving(
+        store,
+        address,
+        manual,
+        microsoft,
+        graph,
+        crate::cli::Receive::Imap,
+        now,
+        credentials,
+    )
+}
+
+/// [`add_with_password`], with how mail is read named: `--receive graph` for a Microsoft tenant
+/// that has switched IMAP off.
+#[allow(clippy::too_many_arguments)]
+pub fn add_receiving(
+    store: &SqliteStore,
+    address: &str,
+    manual: Option<&crate::cli::Setup>,
+    microsoft: bool,
+    graph: bool,
+    receive: crate::cli::Receive,
+    now: chrono::DateTime<chrono::Utc>,
+    credentials: Credentials<'_>,
+) -> Result<String, String> {
     let Credentials {
         password,
         saved,
@@ -92,6 +121,11 @@ pub fn add_with_password(
     let address = address.to_lowercase();
     let preset = match manual {
         // Named explicitly, so no guessing from a domain that says nothing.
+        _ if microsoft && receive == crate::cli::Receive::Graph => {
+            mail_domain::presets::receive_through_graph(mail_domain::presets::microsoft_preset(
+                &address, now,
+            ))
+        }
         _ if microsoft && graph => mail_domain::presets::send_through_graph(
             mail_domain::presets::microsoft_preset(&address, now),
         ),
@@ -300,7 +334,11 @@ pub fn add_with_password(
                 if plan.outgoing == Outgoing::Graph {
                     let registration = Registration::new(*issuer, &client_id)
                         .with_secret(client_secret.as_deref());
-                    match graph_token(account, &registration, now) {
+                    let reach = signin::GraphReach::of(&plan);
+                    match graph_token(account, &registration, reach, now) {
+                        Ok(()) if reach == signin::GraphReach::ReadAndSend => {
+                            let _ = writeln!(out, "reading and sending go through Microsoft Graph");
+                        }
                         Ok(()) => {
                             let _ = writeln!(out, "sending goes through Microsoft Graph");
                         }
@@ -346,9 +384,10 @@ pub fn add_with_password(
                 // not reproduce this account: `--microsoft` is precisely the information the
                 // preset table does not have, and a re-run without it fails to find any preset
                 // at all. Advice that does not work when followed is worse than none.
-                let flags = match (microsoft, graph) {
-                    (true, true) => " --microsoft --send graph",
-                    (true, false) => " --microsoft",
+                let flags = match (microsoft, graph, receive) {
+                    (true, _, crate::cli::Receive::Graph) => " --microsoft --receive graph",
+                    (true, true, _) => " --microsoft --send graph",
+                    (true, false, _) => " --microsoft",
                     _ => "",
                 };
                 // The client id is deployment configuration and cannot be shipped in a source
@@ -457,6 +496,7 @@ pub fn saved_clients() -> OAuthRegistry {
 fn graph_token(
     account: AccountId,
     registration: &Registration,
+    reach: signin::GraphReach,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<(), String> {
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -465,7 +505,7 @@ fn graph_token(
         .map_err(|e| format!("cannot start the async runtime: {e}"))?;
     runtime.block_on(async {
         let http = signin::http_client().map_err(|e| e.to_string())?;
-        signin::graph_token(account, registration, &KeyringSecrets, &http, now)
+        signin::graph_token(account, registration, reach, &KeyringSecrets, &http, now)
             .await
             .map(|_| ())
             .map_err(|e| e.to_string())
@@ -667,7 +707,7 @@ fn default_identity(store: &SqliteStore, account: AccountId) -> Option<Identity>
 fn incoming_host(plan: &AccountPlan) -> Option<&str> {
     match &plan.incoming {
         Incoming::Imap { host, .. } | Incoming::Pop3 { host, .. } => Some(host.as_str()),
-        Incoming::Local => None,
+        Incoming::Local | Incoming::Graph => None,
     }
 }
 
@@ -728,6 +768,7 @@ mod tests {
                 None,
                 false,
                 false,
+                crate::cli::Receive::Imap,
                 &OAuthRegistry::default(),
                 now(),
             )
@@ -738,6 +779,7 @@ mod tests {
                 None,
                 false,
                 false,
+                crate::cli::Receive::Imap,
                 &OAuthRegistry::default(),
                 now(),
             )
@@ -760,6 +802,7 @@ mod tests {
                 None,
                 false,
                 false,
+                crate::cli::Receive::Imap,
                 &OAuthRegistry::default(),
                 now(),
             )
@@ -771,6 +814,7 @@ mod tests {
                 None,
                 false,
                 false,
+                crate::cli::Receive::Imap,
                 &OAuthRegistry::default(),
                 now(),
             )
@@ -789,6 +833,7 @@ mod tests {
                     None,
                     false,
                     false,
+                    crate::cli::Receive::Imap,
                     &OAuthRegistry::default(),
                     now(),
                 )
@@ -818,6 +863,7 @@ mod tests {
                 None,
                 false,
                 false,
+                crate::cli::Receive::Imap,
                 &OAuthRegistry::default(),
                 now(),
             )
@@ -836,6 +882,7 @@ mod tests {
                 None,
                 false,
                 false,
+                crate::cli::Receive::Imap,
                 &OAuthRegistry::default(),
                 now(),
             )
@@ -880,6 +927,7 @@ mod tests {
             None,
             false,
             false,
+            crate::cli::Receive::Imap,
             &OAuthRegistry::default(),
             now(),
         )
@@ -905,6 +953,7 @@ mod tests {
             None,
             false,
             false,
+            crate::cli::Receive::Imap,
             &OAuthRegistry::default(),
             now(),
         )
@@ -942,6 +991,7 @@ mod tests {
             Some(&pop3()),
             false,
             false,
+            crate::cli::Receive::Imap,
             &OAuthRegistry::default(),
             now(),
         )
@@ -962,6 +1012,7 @@ mod tests {
             Some(&pop3()),
             false,
             false,
+            crate::cli::Receive::Imap,
             &OAuthRegistry::default(),
             now(),
         )

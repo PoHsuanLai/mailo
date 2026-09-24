@@ -16,7 +16,9 @@ use crate::oauth::{self, Freshness};
 use crate::secrets::Secrets;
 use crate::signin::{self, Registration};
 use chrono::{DateTime, Utc};
-use mail_domain::{AccountId, AccountPlan, AuthPlan, Credential, Outgoing, Retry, Retryable};
+use mail_domain::{
+    AccountId, AccountPlan, AuthPlan, Credential, Incoming, Outgoing, Retry, Retryable,
+};
 use std::sync::{Arc, Mutex};
 
 /// Where a [`Renewal`] reads the time.
@@ -34,7 +36,8 @@ pub enum Token {
     /// The incoming server's: IMAP, and SMTP where the account submits over SMTP.
     Incoming,
     /// Microsoft Graph's, for an account whose plan says [`Outgoing::Graph`]. Anywhere else it
-    /// is the incoming one, since that is what an SMTP submission authenticates with.
+    /// is the incoming one, since that is what an SMTP submission authenticates with. An
+    /// account that reads through Graph presents this one for [`Token::Incoming`] too.
     Sending,
 }
 
@@ -98,6 +101,7 @@ pub struct Renewal {
     registration: Registration,
     incoming_scopes: Vec<String>,
     outgoing: Outgoing,
+    incoming: Incoming,
     secrets: Arc<dyn Secrets>,
     http: reqwest::Client,
     held: Held,
@@ -136,6 +140,7 @@ impl Renewal {
             registration,
             incoming_scopes,
             outgoing: plan.outgoing.clone(),
+            incoming: plan.incoming.clone(),
             secrets,
             http: signin::http_client()?,
             held,
@@ -174,6 +179,7 @@ impl Renewal {
                 let minted = signin::graph_token(
                     self.account,
                     &self.registration,
+                    self.reach(),
                     self.secrets.as_ref(),
                     &self.http,
                     now,
@@ -215,6 +221,7 @@ impl Renewal {
                 let minted = signin::mint_graph(
                     self.account,
                     &self.registration,
+                    self.reach(),
                     &refresh_token,
                     self.secrets.as_ref(),
                     &self.http,
@@ -291,10 +298,21 @@ impl Renewal {
     }
 
     /// `token` as this account actually has it: Graph's own only where Graph is used.
+    ///
+    /// An account that reads through Graph presents Graph's token for everything, so its
+    /// incoming token *is* the Graph one: one token, one resource, both directions.
     fn which(&self, token: Token) -> Token {
-        match (token, &self.outgoing) {
-            (Token::Sending, Outgoing::Graph) => Token::Sending,
+        match (token, &self.incoming, &self.outgoing) {
+            (_, Incoming::Graph, _) => Token::Sending,
+            (Token::Sending, _, Outgoing::Graph) => Token::Sending,
             _ => Token::Incoming,
+        }
+    }
+
+    fn reach(&self) -> signin::GraphReach {
+        match self.incoming {
+            Incoming::Graph => signin::GraphReach::ReadAndSend,
+            _ => signin::GraphReach::Send,
         }
     }
 

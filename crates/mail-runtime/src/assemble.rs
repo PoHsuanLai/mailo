@@ -406,6 +406,7 @@ fn message_key(fields: &mail_mime::Parsed, tiebreak: Tiebreak<'_>) -> MessageKey
             hasher.update(mailbox.as_bytes());
             hasher.update(&uid.to_le_bytes())
         }
+        Tiebreak::Remote(RemoteRef::Graph { id, .. }) => hasher.update(id.as_bytes()),
         Tiebreak::Bytes(raw) => hasher.update(blake3::hash(raw).as_bytes()),
     };
     MessageKey::Synthetic(*hasher.finalize().as_bytes())

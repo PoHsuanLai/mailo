@@ -175,7 +175,7 @@ const STARTTLS_ONLY: &str = r#"<clientConfig version="1.1"><emailProvider id="x"
 fn imap_host(found: &mail_proto::discover::Found) -> &str {
     match &found.preset.plan.incoming {
         Incoming::Imap { host, .. } | Incoming::Pop3 { host, .. } => host,
-        Incoming::Local => "",
+        Incoming::Local | Incoming::Graph => "",
     }
 }
 

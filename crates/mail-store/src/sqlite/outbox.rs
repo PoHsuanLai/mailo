@@ -41,30 +41,12 @@ impl SqliteStore {
              WHERE account = ?1 AND message = ?2",
         )?;
         for id in messages {
-            let rows = stmt.query_map(params![account.to_string(), id.to_string()], |r| {
-                Ok((
-                    r.get::<_, String>(0)?,
-                    r.get::<_, Option<i64>>(1)?,
-                    r.get::<_, Option<i64>>(2)?,
-                    r.get::<_, Option<String>>(3)?,
-                ))
-            })?;
+            let rows = stmt.query_map(
+                params![account.to_string(), id.to_string()],
+                super::remote_columns,
+            )?;
             for row in rows {
-                let (mailbox, uidvalidity, uid, uidl) = row?;
-                out.push(match (uid, uidl) {
-                    (Some(uid), None) => RemoteRef::Imap {
-                        mailbox,
-                        uidvalidity: uidvalidity.unwrap_or(0) as u32,
-                        uid: uid as u32,
-                    },
-                    (None, Some(uidl)) => RemoteRef::Pop { uidl },
-                    _ => {
-                        return Err(StoreError::Decode {
-                            what: "remote_map row".to_owned(),
-                            why: "row has neither a uid nor a uidl".to_owned(),
-                        });
-                    }
-                });
+                out.push(super::remote_from_columns(row?)?);
             }
         }
         Ok(out)

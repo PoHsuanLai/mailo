@@ -79,8 +79,8 @@ struct ThreadState {
 struct RemoteRow {
     account: AccountId,
     mailbox: String,
-    uidvalidity: Option<u32>,
-    uid: Option<u32>,
+    uidvalidity: Option<i64>,
+    uid: Option<i64>,
     uidl: Option<String>,
     message: MessageId,
 }
@@ -229,21 +229,27 @@ impl Store for MemoryStore {
 
     fn remote_refs(&self, mailbox: &MailboxRef) -> Result<Vec<RemoteRef>, StoreError> {
         let inner = self.inner.borrow();
-        Ok(inner
+        inner
             .remotes
             .iter()
             .filter(|row| row.account == mailbox.account && row.mailbox == mailbox.path)
-            .map(|row| match (row.uid, &row.uidl) {
-                (Some(uid), None) => RemoteRef::Imap {
-                    mailbox: row.mailbox.clone(),
-                    uidvalidity: row.uidvalidity.unwrap_or(0),
-                    uid,
-                },
-                _ => RemoteRef::Pop {
-                    uidl: row.uidl.clone().unwrap_or_default(),
-                },
-            })
-            .collect())
+            .map(row_to_remote)
+            .collect()
+    }
+
+    fn remap(
+        &self,
+        account: AccountId,
+        from: &RemoteRef,
+        to: &RemoteRef,
+    ) -> Result<(), StoreError> {
+        let mut inner = self.inner.borrow_mut();
+        let Some(message) = inner.message_by_remote(account, from) else {
+            return Ok(());
+        };
+        inner.remove_remote(account, from);
+        inner.map_remote(account, to, message);
+        Ok(())
     }
 
     fn placed(&self, message: MessageId) -> Result<Vec<mail_domain::Placed>, StoreError> {
@@ -259,21 +265,12 @@ impl Store for MemoryStore {
         if !inner.messages.contains_key(&message) {
             return Err(StoreError::NoMessage(message));
         }
-        Ok(inner
+        inner
             .remotes
             .iter()
             .filter(|row| row.message == message)
-            .map(|row| match (row.uid, &row.uidl) {
-                (Some(uid), None) => RemoteRef::Imap {
-                    mailbox: row.mailbox.clone(),
-                    uidvalidity: row.uidvalidity.unwrap_or(0),
-                    uid,
-                },
-                _ => RemoteRef::Pop {
-                    uidl: row.uidl.clone().unwrap_or_default(),
-                },
-            })
-            .collect())
+            .map(row_to_remote)
+            .collect()
     }
 
     fn hold_part(
@@ -457,16 +454,9 @@ impl Store for MemoryStore {
                     .iter()
                     .find(|row| row.message == m.id)
                     .and_then(|row| {
-                        let remote = match (row.uid, row.uidl.clone()) {
-                            (Some(uid), None) => mail_domain::RemoteRef::Imap {
-                                mailbox: row.mailbox.clone(),
-                                uidvalidity: row.uidvalidity.unwrap_or(0),
-                                uid,
-                            },
-                            (_, Some(uidl)) => mail_domain::RemoteRef::Pop { uidl },
-                            // The row invariant forbids this; skipping beats inventing a ref.
-                            (None, None) => return None,
-                        };
+                        // The row invariant forbids an unreadable one; skipping beats inventing
+                        // a ref.
+                        let remote = row_to_remote(row).ok()?;
                         Some((m.date, remote))
                     })
             })
@@ -1408,15 +1398,8 @@ fn after_cursor(key: &str, id: ThreadId, cursor_key: &str, cursor_id: &str, dir:
     }
 }
 
-fn remote_parts(remote: &RemoteRef) -> (String, Option<u32>, Option<u32>, Option<String>) {
-    match remote {
-        RemoteRef::Imap {
-            mailbox,
-            uidvalidity,
-            uid,
-        } => (mailbox.clone(), Some(*uidvalidity), Some(*uid), None),
-        RemoteRef::Pop { uidl } => ("INBOX".to_owned(), None, None, Some(uidl.clone())),
-    }
+fn remote_parts(remote: &RemoteRef) -> crate::remote_row::Columns {
+    crate::remote_row::columns(remote)
 }
 
 fn same_remote(row: &RemoteRow, account: AccountId, remote: &RemoteRef) -> bool {
@@ -1428,18 +1411,12 @@ fn same_remote(row: &RemoteRow, account: AccountId, remote: &RemoteRef) -> bool 
 }
 
 fn row_to_remote(row: &RemoteRow) -> Result<RemoteRef, StoreError> {
-    match (row.uid, row.uidl.clone()) {
-        (Some(uid), None) => Ok(RemoteRef::Imap {
-            mailbox: row.mailbox.clone(),
-            uidvalidity: row.uidvalidity.unwrap_or(0),
-            uid,
-        }),
-        (None, Some(uidl)) => Ok(RemoteRef::Pop { uidl }),
-        _ => Err(StoreError::Decode {
-            what: "remote_map row".to_owned(),
-            why: "row has neither a uid nor a uidl".to_owned(),
-        }),
-    }
+    crate::remote_row::remote((
+        row.mailbox.clone(),
+        row.uidvalidity,
+        row.uid,
+        row.uidl.clone(),
+    ))
 }
 
 fn pending_of(intent: &RemoteIntent) -> Vec<(MessageId, Vec<Change>)> {

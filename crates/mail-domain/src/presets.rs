@@ -467,6 +467,57 @@ pub fn send_through_graph(mut preset: Preset) -> Preset {
     preset
 }
 
+/// How often an account that reads through Graph looks for new mail.
+///
+/// Graph pushes change notifications only to a public HTTPS webhook, which a desktop client does
+/// not have, so this polls. A minute is cheap here and would not be over IMAP: a delta query
+/// that has nothing to report is one small request per folder, answered with no messages.
+pub const GRAPH_POLL_EVERY: Duration = Duration::from_secs(60);
+
+/// `preset`, receiving and sending through Microsoft Graph instead of IMAP and SMTP.
+///
+/// For a tenant that switched IMAP off. Every scope the sign-in asks for is Graph's —
+/// `Mail.ReadWrite` to read, flag and move, `Mail.Send` to send — so one token serves both
+/// directions: there is no second resource to exchange the refresh token for.
+///
+/// The capabilities are what Graph offers every mailbox, not a guess about one: folders rather
+/// than labels, a move that is a move, nothing ever expunged, and polling. The folder roles are
+/// left for the first listing, and `observed_at` is the epoch so that listing happens before the
+/// first sync rather than after it.
+pub fn receive_through_graph(mut preset: Preset) -> Preset {
+    preset.plan.incoming = Incoming::Graph;
+    preset.plan.outgoing = Outgoing::Graph;
+    if let AuthPlan::OAuth { scopes, .. } = &mut preset.plan.auth {
+        *scopes = [
+            GRAPH_WRITE_SCOPE,
+            GRAPH_SEND_SCOPE,
+            "offline_access",
+            "openid",
+        ]
+        .iter()
+        .map(|s| (*s).to_owned())
+        .collect();
+    }
+    preset.expected_caps = AccountCaps {
+        labels: ServerLabels::LocalOnly,
+        threads: ServerThreads::Jwz,
+        watch: WatchMode::Poll {
+            every: GRAPH_POLL_EVERY,
+        },
+        // Graph's well-known name, which every mailbox answers to whatever its language.
+        archive: ArchiveMeans::MoveToFolder("archive".to_owned()),
+        folders: FolderRoles(Vec::new()),
+        condstore: Condstore::Absent,
+        move_ext: MoveExt::Supported,
+        expunge: ExpungeMeans::Forbidden,
+        top: Supported::Absent,
+        pipelining: Supported::Absent,
+        connections: ConnectionBudget { max: 4 },
+        observed_at: DateTime::<Utc>::UNIX_EPOCH,
+    };
+    preset
+}
+
 /// The name the local-only account is stored under.
 ///
 /// Not an address, on purpose: it contains a space, so no real mailbox can ever collide with it,
@@ -659,6 +710,41 @@ mod tests {
             send_through_graph(graph.clone()),
             graph,
             "applying it twice changes nothing"
+        );
+    }
+
+    /// Reading through Graph asks for Graph's permissions only, so the sign-in's own token is a
+    /// Graph token and serves both directions; the capabilities are asked for before any fetch.
+    #[test]
+    fn receiving_through_graph_asks_for_graph_alone() {
+        let graph = receive_through_graph(microsoft_preset("me@contoso.example", at()));
+        assert_eq!(graph.plan.incoming, Incoming::Graph);
+        assert_eq!(graph.plan.outgoing, Outgoing::Graph);
+        let AuthPlan::OAuth { scopes, .. } = &graph.plan.auth else {
+            panic!("{:?}", graph.plan.auth)
+        };
+        assert_eq!(scopes[0], GRAPH_WRITE_SCOPE);
+        assert!(scopes.iter().any(|s| s == GRAPH_SEND_SCOPE));
+        assert!(
+            scopes
+                .iter()
+                .filter(|s| s.starts_with("https://"))
+                .all(|s| s.starts_with("https://graph.microsoft.com/")),
+            "one resource, so one token: {scopes:?}"
+        );
+        assert!(scopes.iter().any(|s| s == "offline_access"));
+        let caps = &graph.expected_caps;
+        assert_eq!(caps.expunge, ExpungeMeans::Forbidden);
+        assert_eq!(caps.labels, ServerLabels::LocalOnly);
+        assert_eq!(
+            caps.watch,
+            WatchMode::Poll {
+                every: GRAPH_POLL_EVERY
+            }
+        );
+        assert!(
+            (at() - caps.observed_at) > chrono::TimeDelta::try_days(1).unwrap(),
+            "stale, so the folders are listed before the first sync"
         );
     }
 

@@ -8,6 +8,7 @@ pub use crate::notify::Announce;
 use mail_domain::*;
 use mail_proto::backend::{Authenticate, ImapBackend, Pop3Backend};
 use mail_proto::{ImapAuth, ImapCommand, ImapSession, Pop3Command, Pop3Session};
+use mail_runtime::graph::read::{OverHttp, Reader};
 use mail_runtime::renewal::Now;
 use mail_runtime::{
     AccountEngine, Held, KeyringSecrets, OAuthRegistry, Renewal, Secrets, SyncReport, signin,
@@ -498,6 +499,22 @@ async fn one(
             )
             .await
         }
+        Incoming::Graph => {
+            let mut engine = graph_engine(store, account, secrets)?;
+            if let Some(renewal) = renewal {
+                engine = engine.with_renewal(renewal);
+            }
+            drive(
+                &mut engine,
+                account,
+                &mailboxes,
+                &mut cancel,
+                now,
+                mode,
+                announce,
+            )
+            .await
+        }
     };
     report.map(|mut report| {
         report.needs_attention.extend(sending);
@@ -505,25 +522,28 @@ async fn one(
     })
 }
 
-/// For an account that sends through Graph, a Graph token valid for this pass.
+/// For an account that sends or reads through Graph, a Graph token valid for this pass.
 ///
-/// Its own token beside the IMAP one: Microsoft issues each access token for one resource.
+/// Its own token beside the IMAP one: Microsoft issues each access token for one resource. An
+/// account that reads through Graph has no IMAP one, and reads with this.
 async fn sending_token(
     account: &Configured,
     secrets: &dyn Secrets,
     registry: &OAuthRegistry,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<(), String> {
-    let (Outgoing::Graph, AuthPlan::OAuth { issuer, .. }) =
-        (&account.plan.outgoing, &account.plan.auth)
-    else {
+    let AuthPlan::OAuth { issuer, .. } = &account.plan.auth else {
         return Ok(());
     };
+    if account.plan.outgoing != Outgoing::Graph && account.plan.incoming != Incoming::Graph {
+        return Ok(());
+    }
     let registration = registry
         .get(*issuer)
         .ok_or_else(|| "no OAuth client id is configured, so nothing can be sent".to_owned())?;
     let http = signin::http_client().map_err(|e| e.to_string())?;
-    signin::graph_token(account.id, registration, secrets, &http, now)
+    let reach = signin::GraphReach::of(&account.plan);
+    signin::graph_token(account.id, registration, reach, secrets, &http, now)
         .await
         .map(|_| ())
         .map_err(|e| format!("cannot sign in to Microsoft Graph for sending: {e}"))
@@ -572,6 +592,26 @@ fn imap_engine(
         store.clone(),
         secrets,
     )
+}
+
+/// An engine for an account that reads through Microsoft Graph.
+///
+/// It presents the Graph token kept as the account's outgoing credential, which the pass has
+/// just made sure of ([`sending_token`]); the incoming credential `one` read is not used.
+fn graph_engine(
+    store: &Arc<SqliteStore>,
+    account: &Configured,
+    secrets: Arc<dyn Secrets>,
+) -> Result<AccountEngine<OverHttp>, String> {
+    let reader = Reader::new(account.id, account.caps.clone()).map_err(|e| e.to_string())?;
+    Ok(AccountEngine::new(
+        account.id,
+        account.plan.clone(),
+        OverHttp::new(account.caps.clone()),
+        store.clone(),
+        secrets,
+    )
+    .with_graph_reader(reader))
 }
 
 /// Download one attachment a sync left on the server, and record it as held.
@@ -857,7 +897,7 @@ async fn pass<B: mail_proto::Backend>(
 ) -> Result<SyncReport, String> {
     // Reachability first, so an unreachable server reports once rather than three times as each
     // pass opens its own connection.
-    drop(engine.connect().await.map_err(|e| e.to_string())?);
+    engine.reachable().await.map_err(|e| e.to_string())?;
 
     // Ask what the server supports before deciding how to talk to it. Stored capabilities start
     // as the preset's expectation, and an expectation that is never checked is a guess the
@@ -1062,7 +1102,7 @@ pub fn folder_now_with(
                 account.address
             ));
         }
-        Incoming::Imap { .. } => {}
+        Incoming::Imap { .. } | Incoming::Graph => {}
     }
     if account.caps.labels == ServerLabels::Supported {
         return Err(format!(
@@ -1095,12 +1135,21 @@ pub fn folder_now_with(
             registry,
             clock_for(Mode::Once, now),
         );
+        let mut report = SyncReport::default();
+        if account.plan.incoming == Incoming::Graph {
+            sending_token(&account, secrets.as_ref(), registry, now).await?;
+            let mut engine = graph_engine(&store, &account, secrets.clone())?;
+            if let Some(renewal) = renewal {
+                engine = engine.with_renewal(renewal);
+            }
+            one_mailbox(&mut engine, &mailbox, &mut cancel, now, &mut report).await;
+            return Ok::<_, String>(report);
+        }
         let mut engine = imap_engine(&store, &account, held, secrets.clone());
         if let Some(renewal) = renewal {
             engine = engine.with_renewal(renewal);
         }
-        drop(engine.connect().await.map_err(|e| e.to_string())?);
-        let mut report = SyncReport::default();
+        engine.reachable().await.map_err(|e| e.to_string())?;
         one_mailbox(&mut engine, &mailbox, &mut cancel, now, &mut report).await;
         Ok::<_, String>(report)
     })?;
@@ -1177,8 +1226,10 @@ fn to_sync(account: &Configured, folders: &[Folder]) -> Vec<MailboxRef> {
             });
         }
     }
-    let folders_are_folders = matches!(account.plan.incoming, Incoming::Imap { .. })
-        && account.caps.labels != ServerLabels::Supported;
+    let folders_are_folders = matches!(
+        account.plan.incoming,
+        Incoming::Imap { .. } | Incoming::Graph
+    ) && account.caps.labels != ServerLabels::Supported;
     if folders_are_folders {
         for folder in folders
             .iter()

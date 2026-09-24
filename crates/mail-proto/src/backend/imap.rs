@@ -216,10 +216,11 @@ impl Backend for ImapBackend {
                     FetchSince::Beginning => "1:*".to_owned(),
                     FetchSince::After { cursor } => match cursor {
                         SyncCursor::Imap { uidnext, .. } => format!("{uidnext}:*"),
-                        // A POP cursor on an IMAP mailbox is a caller bug, not a fetch range.
-                        SyncCursor::Pop => {
+                        // Another protocol's cursor on an IMAP mailbox is a caller bug, not a
+                        // fetch range.
+                        SyncCursor::Pop | SyncCursor::Graph { .. } => {
                             return Progress::Failed(ProtoError::Malformed(
-                                "a POP cursor cannot resume an IMAP mailbox".to_owned(),
+                                "only an IMAP cursor can resume an IMAP mailbox".to_owned(),
                             ));
                         }
                     },
@@ -1044,7 +1045,7 @@ fn typed_fetches(
 fn uid_of(remote: &RemoteRef) -> Option<u32> {
     match remote {
         RemoteRef::Imap { uid, .. } => Some(*uid),
-        RemoteRef::Pop { .. } => None,
+        RemoteRef::Pop { .. } | RemoteRef::Graph { .. } => None,
     }
 }
 
@@ -1240,7 +1241,7 @@ fn uid_set(remotes: &[RemoteRef]) -> Option<String> {
         .iter()
         .filter_map(|r| match r {
             RemoteRef::Imap { uid, .. } => Some(uid.to_string()),
-            RemoteRef::Pop { .. } => None,
+            RemoteRef::Pop { .. } | RemoteRef::Graph { .. } => None,
         })
         .collect();
     (!uids.is_empty()).then(|| uids.join(","))
@@ -1255,7 +1256,7 @@ fn mailbox_of(remotes: &[RemoteRef], account: AccountId) -> MailboxRef {
         .iter()
         .find_map(|r| match r {
             RemoteRef::Imap { mailbox, .. } => Some(mailbox.clone()),
-            RemoteRef::Pop { .. } => None,
+            RemoteRef::Pop { .. } | RemoteRef::Graph { .. } => None,
         })
         .unwrap_or_else(|| "INBOX".to_owned());
     MailboxRef { account, path }

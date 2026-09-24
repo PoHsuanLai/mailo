@@ -235,6 +235,21 @@ fn mailbox_ref() -> MailboxRef {
     }
 }
 
+fn graph_ref() -> RemoteRef {
+    RemoteRef::Graph {
+        mailbox: "INBOX".to_owned(),
+        id: "AAMkAGI2TAAA=".to_owned(),
+    }
+}
+
+fn graph_cursor() -> SyncCursor {
+    SyncCursor::Graph {
+        delta_link:
+            "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?$deltatoken=abc"
+                .to_owned(),
+    }
+}
+
 fn imap_cursor() -> SyncCursor {
     SyncCursor::Imap {
         uidvalidity: 12,
@@ -638,6 +653,7 @@ fn account_types_round_trip() {
                 tls: Tls::StartTlsRequired,
                 leave: LeaveOnServer::Keep,
             },
+            Incoming::Graph,
         ],
     );
     round_trip(
@@ -771,6 +787,7 @@ fn remote_types_round_trip() {
             RemoteRef::Pop {
                 uidl: "UID-1".to_owned(),
             },
+            graph_ref(),
         ],
     );
     round_trip("MailboxRef", mailbox_ref());
@@ -784,6 +801,7 @@ fn remote_types_round_trip() {
                 modseq: None,
             },
             SyncCursor::Pop,
+            graph_cursor(),
         ],
     );
     round_trip_each("UidValidity", vec![UidValidity::Same, UidValidity::Reset]);
@@ -1449,6 +1467,10 @@ fixtures! {
         comment: Some("might be late".to_owned()),
         answered_at: at(9),
     },
+    // Microsoft Graph as an incoming protocol (`plan.md` 10.18).
+    "graph_incoming.json" => Vec<Incoming> = vec![Incoming::Graph],
+    "graph_remote_refs.json" => Vec<RemoteRef> = vec![graph_ref()],
+    "graph_sync_cursors.json" => Vec<SyncCursor> = vec![graph_cursor()],
 }
 
 /// `RemoteIntent` is not persisted today — `Store::enqueue` resolves it to a `ProtoOp` before

@@ -20,26 +20,8 @@ fn remote_key(
     account: AccountId,
     r: &RemoteRef,
 ) -> (String, String, Option<i64>, Option<i64>, Option<String>) {
-    match r {
-        RemoteRef::Imap {
-            mailbox,
-            uidvalidity,
-            uid,
-        } => (
-            account.to_string(),
-            mailbox.clone(),
-            Some(i64::from(*uidvalidity)),
-            Some(i64::from(*uid)),
-            None,
-        ),
-        RemoteRef::Pop { uidl } => (
-            account.to_string(),
-            "INBOX".to_owned(),
-            None,
-            None,
-            Some(uidl.clone()),
-        ),
-    }
+    let (mailbox, uidvalidity, uid, uidl) = crate::remote_row::columns(r);
+    (account.to_string(), mailbox, uidvalidity, uid, uidl)
 }
 
 impl SqliteStore {
@@ -751,6 +733,31 @@ impl SqliteStore {
              DO UPDATE SET message = excluded.message",
             params![acct, mailbox, uidvalidity, uid, uidl, message.to_string()],
         )?;
+        Ok(())
+    }
+
+    /// See [`crate::Store::remap`].
+    pub(super) fn write_remap(
+        &self,
+        account: AccountId,
+        from: &RemoteRef,
+        to: &RemoteRef,
+    ) -> Result<(), StoreError> {
+        let Some(message) = self.message_by_remote(account, from)? else {
+            return Ok(());
+        };
+        let db = self.connection();
+        let tx = db.unchecked_transaction()?;
+        let (acct, mailbox, uidvalidity, uid, uidl) = remote_key(account, from);
+        self.connection().execute(
+            "DELETE FROM remote_map WHERE account=?1 AND mailbox=?2
+             AND uidvalidity IS ?3 AND uid IS ?4 AND uidl IS ?5",
+            params![acct, mailbox, uidvalidity, uid, uidl],
+        )?;
+        // Onto the row a sync may already have written for the new address, if it got there
+        // first; the message it names is the one moved either way.
+        self.map_remote(account, to, message)?;
+        tx.commit()?;
         Ok(())
     }
 

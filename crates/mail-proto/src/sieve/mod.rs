@@ -66,6 +66,7 @@ pub fn endpoint(plan: &AccountPlan) -> Result<Endpoint, NoSieve> {
     let host = match &plan.incoming {
         Incoming::Imap { host, .. } | Incoming::Pop3 { host, .. } => host.clone(),
         Incoming::Local => return Err(NoSieve::Local),
+        Incoming::Graph => return Err(NoSieve::Provider(OAuthIssuer::Microsoft)),
     };
     // The same providers signed in to with a password, which a manually added account can be.
     if let Some(issuer) = provider_of(&host) {

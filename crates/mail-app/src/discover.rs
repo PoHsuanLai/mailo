@@ -93,6 +93,7 @@ pub fn describe(address: &str, origin: &str, found: &mail_domain::presets::Prese
             tls_said(*tls)
         ),
         Incoming::Local => "none".to_owned(),
+        Incoming::Graph => "Microsoft Graph".to_owned(),
     };
     let outgoing = match &plan.outgoing {
         Outgoing::Smtp { host, port, tls } => format!("SMTP {host}:{port}, {}", tls_said(*tls)),
@@ -204,6 +205,7 @@ pub fn before_add(
     let Command::AccountAdd {
         microsoft,
         graph,
+        receive,
         consent,
         ..
     } = command
@@ -234,6 +236,7 @@ pub fn before_add(
         manual: Some(Setup::Discovered(Box::new(found.preset))),
         microsoft,
         graph,
+        receive,
         consent,
     })
 }
@@ -269,6 +272,7 @@ mod tests {
             manual: None,
             microsoft: false,
             graph: false,
+            receive: crate::cli::Receive::Imap,
             consent,
         }
     }
@@ -445,6 +449,7 @@ mod tests {
                 manual: None,
                 microsoft: true,
                 graph: false,
+                receive: crate::cli::Receive::Imap,
                 consent: Consent::Ask,
             },
         ] {

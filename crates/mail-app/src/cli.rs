@@ -36,6 +36,8 @@ pub enum Command {
         microsoft: bool,
         /// `--send graph`: send through Microsoft Graph, for a tenant with SMTP AUTH off.
         graph: bool,
+        /// `--receive graph`: read through Microsoft Graph, for a tenant with IMAP off.
+        receive: Receive,
         /// `--yes`: servers found by discovery may be used without asking. Without it they are
         /// shown and asked about on a terminal, and refused anywhere else.
         consent: Consent,
@@ -721,13 +723,35 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                     Consent::Ask
                 };
                 let mut graph = false;
+                let mut send_named = false;
+                let mut receive = Receive::Imap;
                 let mut others: Vec<String> = Vec::new();
                 let mut words = rest.iter().filter(|a| *a != "--microsoft" && *a != "--yes");
                 while let Some(word) = words.next() {
+                    if word == "--receive" {
+                        receive = match words.next().map(String::as_str) {
+                            Some("graph") => Receive::Graph,
+                            Some("imap") => Receive::Imap,
+                            other => {
+                                return Err(format!(
+                                    "--receive takes imap or graph, not {other:?}\n\n{}",
+                                    usage()
+                                ));
+                            }
+                        };
+                        if !microsoft {
+                            return Err(format!(
+                                "--receive is for a Microsoft 365 account; add --microsoft\n\n{}",
+                                usage()
+                            ));
+                        }
+                        continue;
+                    }
                     if word != "--send" {
                         others.push(word.clone());
                         continue;
                     }
+                    send_named = true;
                     graph = match words.next().map(String::as_str) {
                         Some("graph") => true,
                         Some("smtp") => false,
@@ -745,6 +769,17 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                         ));
                     }
                 }
+                // Reading through Graph leaves no IMAP sign-in for SMTP to borrow: the one token
+                // is Graph's, so the account sends through Graph as well.
+                if receive == Receive::Graph {
+                    if send_named && !graph {
+                        return Err(format!(
+                            "--receive graph sends through Graph too; drop --send smtp\n\n{}",
+                            usage()
+                        ));
+                    }
+                    graph = true;
+                }
                 if microsoft && !others.is_empty() {
                     return Err(format!(
                         "--microsoft already knows the servers; drop the other options\n\n{}",
@@ -756,6 +791,7 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                     manual: parse_manual(&others)?,
                     microsoft,
                     graph,
+                    receive,
                     consent,
                 })
             }
@@ -942,6 +978,14 @@ pub enum Setup {
     /// Found by discovery and confirmed by the user. Never parsed from arguments: the binary
     /// puts it here after asking, so [`crate::account::add`] can store it like any other.
     Discovered(Box<mail_domain::presets::Preset>),
+}
+
+/// How a Microsoft 365 account receives: `--receive imap`, the default, or `--receive graph`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Receive {
+    Imap,
+    /// Through Microsoft Graph, for a tenant that switched IMAP off. Sends through Graph too.
+    Graph,
 }
 
 /// Whether the user has already agreed to use what discovery finds.
@@ -1135,9 +1179,11 @@ usage: mailo <command>
                              for a server the preset table does not know
   account add <address> --pop3 HOST[:PORT] --smtp HOST[:PORT] [--login NAME]
                              the same, for a server that offers only POP3
-  account add <address> --microsoft [--send graph]
+  account add <address> --microsoft [--send graph] [--receive graph]
                              a work or school Microsoft 365 mailbox on its own domain;
-                             --send graph where the tenant has SMTP sending turned off
+                             --send graph where the tenant has SMTP sending turned off,
+                             --receive graph where it has IMAP turned off (it then sends
+                             through Graph as well)
   sync                       fetch mail and send anything queued
   sync --folder <account> <path>
                              fetch one folder now, followed or not
@@ -1410,6 +1456,7 @@ pub fn run_with_clients(
             manual,
             microsoft,
             graph,
+            receive,
             consent: _,
         } => crate::account::add(
             store,
@@ -1417,6 +1464,7 @@ pub fn run_with_clients(
             manual.as_ref(),
             *microsoft,
             *graph,
+            *receive,
             saved,
             now,
         ),
