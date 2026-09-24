@@ -1,11 +1,11 @@
 //! The invitation card: what the event is, who is asked, and the three answers.
 
 use super::super::field::{Field, FieldKind};
-use super::super::icon::{Glyph, Icon};
 use super::super::menu::{MenuKey, menu_key};
 use super::super::motion::{Follow, tell};
 use super::{CHIPS, Card, Stand, answer, cached, lookup, save_ics};
 use dioxus::prelude::*;
+use ds::{Glyph, Icon};
 use mail_domain::{Attendance, BlobId, MessageId};
 use mail_store::SqliteStore;
 use std::sync::Arc;
@@ -122,7 +122,7 @@ pub(in crate::ui) fn InviteCard(card: Card, known: Signal<Option<Option<Card>>>)
             }
             dl { class: "inv-facts",
                 div { class: "inv-row",
-                    dt { Glyph { icon: Icon::Clock, class: None } }
+                    dt { Glyph { icon: Icon::Clock } }
                     dd {
                         span { class: "inv-when", "{card.when}" }
                         if let Some(theirs) = &card.theirs {
@@ -198,7 +198,7 @@ pub(in crate::ui) fn InviteCard(card: Card, known: Signal<Option<Option<Card>>>)
                 Stand::Closed(None) => rsx! {},
                 Stand::Answered { said, note } if now == Phase::Resting => rsx! {
                     div { class: "inv-answered",
-                        Glyph { icon: Icon::Check, class: None }
+                        Glyph { icon: Icon::Check }
                         span { class: "said", "{said}" }
                         if let Some(note) = note {
                             span { class: "inv-note", "“{note}”" }

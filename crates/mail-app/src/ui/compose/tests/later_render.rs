@@ -106,7 +106,8 @@ fn window(dress: impl FnOnce(&mut Page), before: Before) -> (String, Work) {
 }
 
 fn styled(markup: &str) {
-    let missing = crate::ui::style::tests::unstyled_classes(markup, crate::ui::style::STYLE);
+    let missing =
+        crate::ui::style::tests::unstyled_classes(markup, &crate::ui::style::tests::full_css());
     assert!(missing.is_empty(), "unstyled classes: {missing:?}");
 }
 

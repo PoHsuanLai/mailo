@@ -97,17 +97,18 @@ fn declarations(body: &str) -> BTreeMap<String, String> {
         .collect()
 }
 
-/// The tokens in one motion level: bare `:root`, with the level's block laid over it.
-fn tokens(css: &str, level: Option<&str>) -> BTreeMap<String, String> {
-    let all = rules(css);
+/// The tokens in one motion level: quire's `.ds` root, with the level's block laid over it.
+/// The motion tokens are quire's now; the rules that spend them are still mailo's.
+fn tokens(level: Option<&str>) -> BTreeMap<String, String> {
+    let all = rules(&strip_comments(ds::stylesheet()));
     let mut out = BTreeMap::new();
     for (selector, body) in &all {
-        if selector == ":root" {
+        if selector == ".ds" {
             out.extend(declarations(body));
         }
     }
     if let Some(level) = level {
-        let wanted = format!(":root[data-motion=\"{level}\"]");
+        let wanted = format!(".ds[*|data-motion={level}]");
         for (selector, body) in &all {
             if *selector == wanted {
                 out.extend(declarations(body));
@@ -224,8 +225,8 @@ fn overshoots(term: &str, tokens: &BTreeMap<String, String>) -> Result<bool, Str
 fn every_new_animation_answers_to_calm() {
     let css = strip_comments(STYLE);
     let all = rules(&css);
-    let standard = tokens(&css, None);
-    let calm = tokens(&css, Some("calm"));
+    let standard = tokens(None);
+    let calm = tokens(Some("calm"));
     let mut failures = Vec::new();
     for (selector, property) in NEW {
         // The last rule with this selector is the one that wins.
@@ -287,7 +288,7 @@ fn every_new_animation_answers_to_calm() {
 #[test]
 fn a_literal_duration_is_named() {
     // The check above is only worth something if it can fail.
-    let calm = tokens(&strip_comments(STYLE), Some("calm"));
+    let calm = tokens(Some("calm"));
     assert!(
         duration("560ms", &calm)
             .unwrap_err()
@@ -314,7 +315,7 @@ fn the_squash_shapes_flatten_under_calm() {
             "@keyframes {name} does not scale by {token}"
         );
     }
-    let calm = tokens(&css, Some("calm"));
+    let calm = tokens(Some("calm"));
     assert_eq!(calm.get("--squish").map(String::as_str), Some("1"));
     assert_eq!(calm.get("--overshoot").map(String::as_str), Some("1"));
 }
@@ -322,14 +323,21 @@ fn the_squash_shapes_flatten_under_calm() {
 #[test]
 fn reduced_motion_still_ends_every_animation() {
     // A leaving row is removed on its animationend, so reduced motion must shorten animations
-    // rather than remove them: `none` would leave the row until the fallback.
-    let css = strip_comments(STYLE);
-    let at = css
-        .find("@media (prefers-reduced-motion: reduce)")
-        .expect("no reduced-motion block");
-    let block = &css[at..at + css[at..].find("}\n").unwrap_or(css.len() - at)];
-    assert!(
-        block.contains("animation-duration: 1ms !important"),
-        "{block}"
+    // rather than remove them: `none` would leave the row until the fallback. The desktop's
+    // setting is quire's `reduced` level now (`Motion::with_desktop`), not a media query here:
+    // under it no duration token is zero, and the ones that time an animation are short.
+    let reduced = tokens(Some("reduced"));
+    let mut failures = Vec::new();
+    for (name, value) in reduced.iter().filter(|(name, _)| name.starts_with("--t-")) {
+        match millis(value) {
+            Some(ms) if ms > 0.0 => {}
+            other => failures.push(format!("{name}: {value} ({other:?})")),
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    assert_eq!(
+        reduced.get("--t-big").and_then(|value| millis(value)),
+        Some(60.0),
+        "the reduced level is not 60ms"
     );
 }

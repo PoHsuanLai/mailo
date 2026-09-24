@@ -1,7 +1,6 @@
 //! One folder's row, the menu under it, and what its picks do.
 
 use super::super::folder_open;
-use super::super::icon::Icon;
 use super::super::menu::Menu;
 use super::super::move_to;
 use super::folder_act::{act, messages_word, refused, renamed_path};
@@ -11,6 +10,7 @@ use super::folders::{FOCUS, Note, Open, Spot, Wires};
 use crate::folder::Refusal;
 use crate::view::{Source, folder_of};
 use dioxus::prelude::*;
+use ds::Icon;
 use mail_domain::{
     AccountId, Filter, FolderError, FolderWork, Holds, MailboxRef, NonEmpty, Subscription,
 };

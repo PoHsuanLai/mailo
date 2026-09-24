@@ -27,7 +27,7 @@
 .files-look.refused, .capnote.files-bad { color: var(--danger); }
 .files-into { position: relative; }
 .pval.files-dest { padding: 5px 8px; margin-left: -8px; font-weight: 600; }
-.pval.files-dest .ic { width: 14px; height: 14px; color: var(--ink-soft); }
+.pval.files-dest .ds-ic { width: 14px; height: 14px; color: var(--ink-soft); }
 .files-into .p-menu .fmenu { width: 300px; max-height: 260px; overflow-y: auto; }
 .files-format { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .files-foot {

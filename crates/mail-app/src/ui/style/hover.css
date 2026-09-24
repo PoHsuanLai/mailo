@@ -41,9 +41,9 @@
   margin-top: 9px; display: flex; gap: 7px; align-items: flex-start; padding: 7px 9px; border-radius: var(--r-btn);
   background: color-mix(in oklab, var(--danger) 12%, var(--raise)); color: var(--ink); font-size: 12px; line-height: 1.4;
 }
-.hc .flag .ic { width: 14px; height: 14px; color: var(--danger); margin-top: 1px; }
+.hc .flag .ds-ic { width: 14px; height: 14px; color: var(--danger); margin-top: 1px; }
 .hc .flag.info { background: var(--accent-soft); }
-.hc .flag.info .ic { color: var(--accent); }
+.hc .flag.info .ds-ic { color: var(--accent); }
 .hc .acts { margin-top: 8px; }
 /* The shared menu, laid flat inside the card: its rows are the card's actions. */
 .hc .acts .fmenu {
@@ -59,7 +59,7 @@
 
 /* Archive and Snooze light the place they would send the row to. */
 .item.dest {
-  background: var(--f-hover); color: var(--f-ink); box-shadow: 0 0 0 1.5px var(--accent) inset;
+  background: var(--f-pill-hover); color: var(--f-ink); box-shadow: 0 0 0 1.5px var(--accent) inset;
 }
 
 /* Where a link really goes, like a browser's status bar, and loud when its text lies. */
@@ -74,4 +74,4 @@
 .linkpill .dim { opacity: 0.62; }
 .linkpill.warn { background: var(--danger); color: var(--danger-ink); }
 .linkpill.warn b { color: var(--danger-ink); }
-.linkpill .ic { width: 13px; height: 13px; margin-right: 6px; }
+.linkpill .ds-ic { width: 13px; height: 13px; margin-right: 6px; }

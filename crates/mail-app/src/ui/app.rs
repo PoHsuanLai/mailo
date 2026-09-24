@@ -9,11 +9,14 @@ use super::reading::Reader;
 use super::sidebar::Places;
 use super::space_editor::SpaceEditor;
 use super::style::STYLE;
+use crate::space::{Space, Spaces};
 use crate::view::{
     Appearance, Listing, PageMenu, Shell, Shortcut, Source, SyncState, badge_filter, folder_filter,
     nothing_to_show, places_with, synced,
 };
 use dioxus::prelude::*;
+use ds::{Ds, Material};
+use ds_settings::Environment;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
@@ -596,6 +599,7 @@ pub(super) fn App() -> Element {
         (true, true) => "app no-side side-peek",
     };
     rsx! {
+        Frame { spaces,
         style { {STYLE} }
         div { class: frame_class,
             tabindex: "0",
@@ -607,9 +611,6 @@ pub(super) fn App() -> Element {
             },
             onpointerup: move |_| super::motion::drag::release(shell, revision),
             "data-peek": "{peek}",
-            div { class: "layer" }
-            div { class: "layer back" }
-            div { class: "grain" }
             if side_hidden() {
                 div {
                     class: "edge",
@@ -676,6 +677,51 @@ pub(super) fn App() -> Element {
             SendPill { shell }
             }
         }
+        }
+    }
+}
+
+/// What the window resolves its look from: the live settings and desktop preferences `launch`
+/// provides, else a fixed value a test provides, else the first run.
+///
+/// A test never reaches `ds_settings::use_environment`, so it never reads or watches the real
+/// config directory.
+fn environment() -> Environment {
+    if let Some(live) = try_consume_context::<ReadSignal<Environment>>() {
+        return live();
+    }
+    try_consume_context::<Environment>().unwrap_or_default()
+}
+
+/// The quire root the window draws inside, wearing the current Space.
+///
+/// Its own component so a Space change re-renders only the root's attributes and frame
+/// layers, not `App`: the children are `App`'s, unchanged. The Space's look is the frame; its
+/// motion is the root's motion level, since quire's `SpaceLook` has none (reported to quire);
+/// the rest of the appearance is `appearance.toml`'s. A switch or an edit only writes the
+/// Spaces, and `Ds` cross-fades the frame's layers itself.
+#[component]
+fn Frame(spaces: Signal<Spaces>, children: Element) -> Element {
+    let environment = environment();
+    let space = spaces.read().current_space();
+    let appearance = window_appearance(&environment, &space);
+    rsx! {
+        Ds {
+            appearance,
+            system: environment.system,
+            look: space.look,
+            material: Material::Window,
+            tint_alpha: Some(environment.tint_alpha()),
+            {children}
+        }
+    }
+}
+
+/// `appearance.toml`'s appearance, moving as `space` says unless the desktop asks for less.
+pub(super) fn window_appearance(environment: &Environment, space: &Space) -> ds::Appearance {
+    ds::Appearance {
+        motion: space.motion.with_desktop(environment.system),
+        ..environment.settings.appearance.appearance()
     }
 }
 

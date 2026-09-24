@@ -4,13 +4,13 @@
 //! parent is a `<details>`, so opening and closing it is the document's own state and needs
 //! nothing here to remember it.
 
-use super::super::icon::Icon;
 use super::super::menu::{Menu, MenuItem};
 use super::folder_parts::{Naming, Said, item};
 use super::folder_row::FolderRow;
 use super::folder_tree::{Section, Show};
 use crate::view::Shell;
 use dioxus::prelude::*;
+use ds::Icon;
 use mail_domain::AccountId;
 
 /// One folder, by account and path.

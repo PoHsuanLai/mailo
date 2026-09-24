@@ -12,13 +12,13 @@ use mail_domain::{DraftId, SendState};
 use mail_store::{SqliteStore, Store};
 
 use super::super::field::{Field, FieldKind};
-use super::super::icon::{Glyph, Icon};
 use super::super::menu::{MenuKey, menu_key};
 use super::super::menus::{when_in_sentence, when_words};
 use super::desk::{Desk, refusal, take_back};
 use super::page::{Float, Page, When};
 use crate::compose::Leaves;
 use crate::view::Shell;
+use ds::{Glyph, Icon};
 
 /// The Sends menu's key for "Pick a time…".
 pub(in crate::ui) const PICK_KEY: &str = "at";
@@ -128,7 +128,7 @@ pub(in crate::ui) fn PickTime(page: Signal<Page>) -> Element {
                         _ => {}
                     }
                 },
-                Glyph { icon: Icon::Clock, class: None }
+                Glyph { icon: Icon::Clock }
                 Field {
                     kind: FieldKind::Inline,
                     value: typed.clone(),
@@ -216,7 +216,7 @@ pub(in crate::ui) fn ScheduledDrafts(shell: Signal<Shell>) -> Element {
                         key: "{draft}",
                         class: "item today-item later",
                         title: "Waiting to be sent at {words}",
-                        span { class: "fav later", Glyph { icon: Icon::Clock, class: None } }
+                        span { class: "fav later", Glyph { icon: Icon::Clock } }
                         span { class: "t", "{one.title}" }
                         span { class: "when", "{words}" }
                         button {
@@ -231,7 +231,7 @@ pub(in crate::ui) fn ScheduledDrafts(shell: Signal<Shell>) -> Element {
                                     Err(why) => refused.set(Some((draft, why))),
                                 }
                             },
-                            Glyph { icon: Icon::X, class: None }
+                            Glyph { icon: Icon::X }
                         }
                     }
                     if let Some(why) = why {

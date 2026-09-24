@@ -4,11 +4,11 @@
 
 use std::collections::BTreeMap;
 
-use super::icon::Icon;
 use super::menu::{Menu, MenuItem, Right, Tile};
 use crate::view::{PageGroup, PageMenu, PageParts, Shell};
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
+use ds::Icon;
 use mail_domain::{LabelId, ReadState, ThreadSummary};
 
 /// One band of the loaded page.
@@ -219,7 +219,7 @@ pub(super) fn PageMenus(shell: Signal<Shell>) -> Element {
                 };
                 shell.write().page_menu = next;
             },
-            super::icon::Glyph { icon: Icon::Group, class: None }
+            ds::Glyph { icon: Icon::Group }
             "Group"
         }
         button {
@@ -235,7 +235,7 @@ pub(super) fn PageMenus(shell: Signal<Shell>) -> Element {
                 };
                 shell.write().page_menu = next;
             },
-            super::icon::Glyph { icon: Icon::Columns, class: None }
+            ds::Glyph { icon: Icon::Columns }
             "Properties"
         }
         if open == PageMenu::Group {

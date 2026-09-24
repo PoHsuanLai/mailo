@@ -1,5 +1,5 @@
 use crate::space::{load, save};
-use crate::view::{Appearance, Motion, Theme};
+use crate::view::{Motion, Theme};
 
 #[test]
 fn a_space_with_no_theme_or_motion_takes_the_windows_on_first_read() {
@@ -25,7 +25,7 @@ fn a_space_with_no_theme_or_motion_takes_the_windows_on_first_read() {
     let got: Vec<(&str, Theme, Motion)> = read
         .spaces
         .iter()
-        .map(|space| (space.name.as_str(), space.theme, space.motion))
+        .map(|space| (space.name.as_str(), space.look.theme, space.motion))
         .collect();
     assert_eq!(
         got,
@@ -38,6 +38,6 @@ fn a_space_with_no_theme_or_motion_takes_the_windows_on_first_read() {
 
     // Once saved, the Spaces carry their own: changing the window-wide file moves nothing.
     save(dir.path(), &read).unwrap_or_else(|e| panic!("{e}"));
-    crate::appearance::save(dir.path(), Appearance::default()).unwrap_or_else(|e| panic!("{e}"));
+    std::fs::write(dir.path().join("appearance.json"), "{}").unwrap_or_else(|e| panic!("{e}"));
     assert_eq!(load(dir.path()), read);
 }

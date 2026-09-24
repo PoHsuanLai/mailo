@@ -3,12 +3,12 @@
 //! A label and a snooze time are not things a button can carry, so the row opens one of these
 //! instead of performing the operation itself. Split from [`super::app`] (`CONVENTIONS.md` §8).
 
-use super::icon::Icon;
 use super::menu::{Menu, MenuItem, Right, Tile};
 use super::motion::act;
 use crate::view::Shell;
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
+use ds::Icon;
 use mail_domain::*;
 use mail_store::SqliteStore;
 use std::sync::Arc;

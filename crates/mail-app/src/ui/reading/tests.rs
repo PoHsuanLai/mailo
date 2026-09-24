@@ -4,7 +4,6 @@ use crate::ui::fixtures::{
     click, dispatching, held_and_remote, reader_markup, realistic, rebuild_into, seeded,
     thread_like,
 };
-use crate::ui::style::STYLE;
 use crate::view::{Reading, Shell};
 use dioxus::prelude::*;
 use dioxus_core::VirtualDom;
@@ -772,22 +771,15 @@ const READER_ONLY: &str = ".app { grid-template-columns: minmax(0, 1fr); } \
     .app > .reader { background: var(--surface); color: var(--ink); border-radius: var(--r-card); }";
 
 pub(super) fn dump_page(name: &str, body: &str) {
-    let target = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
-    std::fs::create_dir_all(&target).unwrap();
-    let plain = String::new();
-    let dark = crate::view::Theme::Dark
-        .attribute()
-        .expect("Theme::Dark names a data-theme value");
-    let forced = format!(" data-theme=\"{dark}\"{plain}");
-    for (suffix, root) in [("", plain.as_str()), ("-dark", forced.as_str())] {
-        let page = format!(
-            "<!doctype html>\n<html lang=\"en\"{root}><head><meta charset=\"utf-8\">\n\
-             <title>mailo</title>\n<style>{STYLE}</style>\n<style>{READER_ONLY}</style>\n</head>\n\
-             <body><div style=\"width: 760px; margin: 0 auto\">{body}</div></body></html>\n"
+    let look = crate::space::Space::default().look;
+    let head = format!("<style>{READER_ONLY}</style>");
+    for (suffix, scheme) in [("", ds::Scheme::Light), ("-dark", ds::Scheme::Dark)] {
+        let column = format!("<div style=\"width: 760px; margin: 0 auto\">{body}</div>");
+        let framed = crate::ui::fixtures::framed(&column, scheme, &look);
+        crate::ui::fixtures::write_page(
+            &format!("{name}{suffix}"),
+            &crate::ui::fixtures::page(&framed, &head),
         );
-        let out = target.join(format!("{name}{suffix}.html"));
-        std::fs::write(&out, page).unwrap();
-        println!("wrote {}", out.display());
     }
 }
 

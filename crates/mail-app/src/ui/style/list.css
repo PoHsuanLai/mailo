@@ -3,7 +3,7 @@ label.search {
   display: flex; align-items: center; gap: 8px; padding: 8px 14px;
   border-bottom: 1px solid var(--line-soft); color: var(--ink-faint);
 }
-label.search .ic { width: 15px; height: 15px; }
+label.search .ds-ic { width: 15px; height: 15px; }
 label.search .inp { flex: 1; }
 .list-g {
   list-style: none; padding: 10px 8px 4px; font-family: var(--font-data); font-size: 10px;
@@ -51,16 +51,16 @@ label.search .inp { flex: 1; }
   background: var(--accent-soft); color: var(--ink); white-space: nowrap;
 }
 .clip { display: inline-flex; align-items: center; gap: 2px; font-family: var(--font-data); font-size: 9.5px; color: var(--ink-faint); }
-.clip .ic { width: 11px; height: 11px; }
+.clip .ds-ic { width: 11px; height: 11px; }
 /* The star sits in the dot column, under the dot, and shows on hover or when on. */
 .star {
   position: absolute; left: 6px; bottom: 7px; width: 22px; height: 22px; border: 0; padding: 0; background: transparent;
   cursor: pointer; display: grid; place-items: center; opacity: 0; transition: opacity var(--t-quick) var(--e-out);
 }
 .row:hover .star, .star[data-on="true"], .star:focus-visible { opacity: 1; }
-.star .ic { width: 14px; height: 14px; stroke: var(--ink-faint); transition: stroke var(--t-quick) var(--e-out), fill var(--t-quick) var(--e-out); }
-.star[data-on="true"] .ic { stroke: var(--warn); fill: var(--warn); }
-.star.pop .ic { animation: star-pop var(--t-big) var(--e-spring); }
+.star .ds-ic { width: 14px; height: 14px; stroke: var(--ink-faint); transition: stroke var(--t-quick) var(--e-out), fill var(--t-quick) var(--e-out); }
+.star[data-on="true"] .ds-ic { stroke: var(--warn); fill: var(--warn); }
+.star.pop .ds-ic { animation: star-pop var(--t-big) var(--e-spring); }
 .sparks { position: absolute; inset: 0; pointer-events: none; }
 .sparks i { position: absolute; left: 50%; top: 50%; width: 3px; height: 3px; border-radius: 999px; background: var(--warn); opacity: 0; }
 .sparks.go i { animation: spark 520ms var(--e-out) forwards; }
@@ -80,14 +80,14 @@ label.search .inp { flex: 1; }
 }
 .strip button:hover { background: var(--accent-soft); color: var(--ink); }
 .strip button:active { transform: scale(.88) !important; }
-.strip .ic { width: 14px; height: 14px; }
+.strip .ds-ic { width: 14px; height: 14px; }
 .strip .fly {
   position: absolute; bottom: calc(100% + 7px); left: 50%; transform: translateX(-50%) translateY(3px); white-space: nowrap;
   background: var(--ink); color: var(--paper); font-family: var(--font-data); font-size: 10px; padding: 3px 7px; border-radius: 6px;
   opacity: 0; pointer-events: none;
   transition: opacity var(--t-quick) var(--e-out) 0ms, transform var(--t-quick) var(--e-spring) 0ms;
 }
-.strip button:hover .fly { opacity: 1; transform: translateX(-50%) translateY(0); transition-delay: var(--fly-delay, 350ms); }
+.strip button:hover .fly { opacity: 1; transform: translateX(-50%) translateY(0); transition-delay: var(--fly-delay, var(--d-fly)); }
 /* Leaving: archive folds, snooze curls away, and the rows below close the gap. A row is drawn
    with these until its own animationend; the store already has the change. Unread rows take
    15% longer, so what you had not read yet does not vanish faster than what you had. */
@@ -141,7 +141,7 @@ label.search .inp { flex: 1; }
 .toast.plain { padding-right: 15px; }
 /* A follow-up is pressed, not pulled. */
 .toast .tab.go { cursor: pointer; margin-left: 10px; }
-.toast .tab .ic { width: 13px; height: 13px; }
+.toast .tab .ds-ic { width: 13px; height: 13px; }
 li.empty {
   list-style: none; padding: 28px 16px; text-align: center; color: var(--ink-soft);
 }

@@ -4,7 +4,6 @@ use crate::ui::app::App;
 use crate::ui::fixtures::{
     ACCOUNT, INSIDE_THE_SHELL, Scripts, chord, click, dispatching, rebuild_into, seeded, work,
 };
-use crate::ui::style::STYLE;
 use chrono::TimeZone;
 use dioxus::html::input_data::keyboard_types::Modifiers;
 use dioxus::prelude::*;
@@ -241,7 +240,8 @@ async fn the_menu_prints_the_pages_chosen_and_everything_it_draws_is_styled() {
         page.contains("print-menu"),
         "the menu did not open:\n{page}"
     );
-    let missing = crate::ui::style::tests::unstyled_classes(&page, STYLE);
+    let missing =
+        crate::ui::style::tests::unstyled_classes(&page, &crate::ui::style::tests::full_css());
     assert!(missing.is_empty(), "unstyled classes: {missing:?}");
     assert!(
         page.contains("aria-pressed=\"true\" aria-label=\"Whole conversation\"")

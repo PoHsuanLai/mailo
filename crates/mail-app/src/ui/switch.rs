@@ -2,10 +2,9 @@
 //! sidebar slides.
 //!
 //! [`switch`] is the decision, on plain values. [`go`] is the same thing on the window's
-//! signals, plus the repaint and the write to `spaces.json`.
+//! signals, plus the write to `spaces.json`; the frame repaints itself from the Spaces.
 
 use super::frame::{keep, scope_ids};
-use super::paint::{Fade, paint_script};
 use crate::space::edit::Draft;
 use crate::space::{self, Recall, Space, Spaces};
 use crate::view::{PageMenu, Shell};
@@ -96,7 +95,7 @@ pub(super) fn switch(spaces: &mut Spaces, shell: &mut Shell, index: usize) -> Op
     })
 }
 
-/// The window's side of a switch: the decision, then the cross-fade, the slide and the file.
+/// The window's side of a switch: the decision, then the slide and the file.
 pub(super) fn go(
     mut spaces: Signal<Spaces>,
     mut shell: Signal<Shell>,
@@ -112,8 +111,8 @@ pub(super) fn go(
     let Some(way) = moved else {
         return;
     };
-    let space = spaces.read().current_space();
-    dioxus::document::eval(&paint_script(&space, Fade::Cross));
+    // No repaint to ask for: the window's `Ds` root reads the current Space and cross-fades its
+    // frame to the new one by itself.
     slide.set(Some(way));
     pages.set(1);
     keep(&spaces.read());

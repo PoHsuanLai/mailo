@@ -9,12 +9,12 @@
 //! and elsewhere the label a move into it files under, named by its path — the same one a rule
 //! finds or makes (`mail_store::rules`), so a folder is one label whichever way mail got there.
 
-use super::icon::{Glyph, Icon};
 use super::menu::{Menu, MenuItem, Right, Tile};
 use super::motion::drag::Drag;
 use super::motion::{act, motion};
 use crate::view::Shell;
 use dioxus::prelude::*;
+use ds::Glyph;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
@@ -136,7 +136,7 @@ pub(in crate::ui) fn items(destinations: &[Destination]) -> Vec<MenuItem> {
         .iter()
         .map(|d| MenuItem {
             key: d.path.clone(),
-            tile: Tile::Icon(Icon::FolderInput),
+            tile: Tile::Icon(crate::ui::FOLDER_INPUT),
             name: d.path.clone(),
             help: None,
             right: Right::None,
@@ -203,7 +203,7 @@ pub(in crate::ui) fn MoveTool(
             title: "Move to…",
             aria_expanded: if open() { "true" } else { "false" },
             onclick: move |_| open.toggle(),
-            Glyph { icon: Icon::FolderInput, class: None }
+            Glyph { icon: crate::ui::FOLDER_INPUT }
         }
         if open() {
             div { class: "move-tool",

@@ -3,7 +3,7 @@ use super::super::compose::{ComposerPage, use_desk};
 use super::super::reading::Reader;
 use super::super::style::STYLE;
 use super::store::{ACCOUNT, seeded};
-use crate::view::{Shell, Theme};
+use crate::view::Shell;
 use dioxus::prelude::*;
 use dioxus_core::{NoOpMutations, VirtualDom};
 use mail_domain::*;
@@ -20,31 +20,106 @@ pub(in crate::ui) fn markup(store: Arc<SqliteStore>) -> String {
     dioxus_ssr::render(&dom)
 }
 
+/// The settings a window in `scheme` would read: `appearance.toml` choosing that theme.
+///
+/// Provided to `App` as a plain context, so a render in either scheme never touches the real
+/// config directory.
+pub(in crate::ui) fn in_scheme(scheme: ds::Scheme) -> ds_settings::Environment {
+    let mut environment = ds_settings::Environment::default();
+    environment.settings.appearance.theme = match scheme {
+        ds::Scheme::Light => ds::Theme::Light,
+        ds::Scheme::Dark => ds::Theme::Dark,
+    };
+    environment
+}
+
+/// An empty quire root in `scheme`, wearing `look`: what a component rendered on its own is
+/// placed inside, since a `.ds` root is where every token it reads is declared.
+#[component]
+fn EmptyRoot(scheme: ds::Scheme, look: ds::SpaceLook) -> Element {
+    let appearance = in_scheme(scheme).settings.appearance.appearance();
+    rsx! {
+        ds::Ds {
+            appearance,
+            look,
+            material: ds::Material::Window,
+            stylesheet: ds::Inject::Host,
+        }
+    }
+}
+
+/// `body` inside a quire root in `scheme`, as the window holds it.
+///
+/// A body that is an `App` render has its own root, drawn in whatever scheme it was rendered
+/// in; a dark copy of it only flips `data-theme`, so its frame keeps the light Space's tint.
+/// Render `App` with [`in_scheme`] for a frame that is right in both.
+pub(in crate::ui) fn framed(body: &str, scheme: ds::Scheme, look: &ds::SpaceLook) -> String {
+    if body.contains("class=\"ds\"") {
+        return match scheme {
+            ds::Scheme::Light => body.to_owned(),
+            ds::Scheme::Dark => body.replace("data-theme=\"light\"", "data-theme=\"dark\""),
+        };
+    }
+    let mut dom = VirtualDom::new_with_props(
+        EmptyRoot,
+        EmptyRootProps {
+            scheme,
+            look: look.clone(),
+        },
+    );
+    dom.rebuild_in_place();
+    let root = dioxus_ssr::render(&dom);
+    let at = root.rfind("</div>").unwrap_or(root.len());
+    format!("{}{body}{}", &root[..at], &root[at..])
+}
+
+/// The value of `name` on the window's quire root (`div.ds`), as the first frame or a later
+/// render has it: what the frame is painted as, read the way a browser would.
+pub(in crate::ui) fn root_attr(page: &str, name: &str) -> Option<String> {
+    let at = page.find("<div class=\"ds\"")?;
+    let tag = &page[at..at + page[at..].find('>')?];
+    let needle = format!(" {name}=\"");
+    let from = tag.find(&needle)? + needle.len();
+    let value = &tag[from..];
+    Some(value[..value.find('"')?].to_owned())
+}
+
+/// A self-contained page a browser can photograph: quire's faces and stylesheet, mailo's
+/// stylesheet, `head` and `body`.
+pub(in crate::ui) fn page(body: &str, head: &str) -> String {
+    format!(
+        "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">\n\
+         <title>mailo</title>\n<style>{}</style>\n<style>{}</style>\n<style>{STYLE}</style>\n\
+         {head}</head>\n<body>{body}</body></html>\n",
+        ds::font_face_css(),
+        ds::stylesheet(),
+    )
+}
+
+/// Write `page` to `target/<name>.html`.
+pub(in crate::ui) fn write_page(name: &str, page: &str) {
+    let out = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../target")
+        .join(format!("{name}.html"));
+    if let Some(dir) = out.parent() {
+        std::fs::create_dir_all(dir).unwrap();
+    }
+    std::fs::write(&out, page).unwrap();
+    println!("wrote {}", out.display());
+}
+
 /// Wrap rendered markup in a self-contained page and write it to `target/`.
 ///
-/// Two files. `<name>.html` leaves `data-theme` unset, which is the
-/// desktop-decides path: the stylesheet's `prefers-color-scheme` guard is reachable only
-/// while that attribute is absent. `<name>-dark.html` sets `data-theme` as well. Every
-/// colour is a token now, in three theme states, so the dark file has to name the state.
-/// `color-scheme` on the root used to be enough, when the stylesheet leaned on `Canvas` and
-/// `CanvasText`; it no longer answers to that, and a dark file that does not ask renders light.
+/// Two files: `<name>.html` in the light scheme and `<name>-dark.html` in the dark. The scheme
+/// is the `.ds` root's `data-theme`, which quire always writes; a component rendered on its
+/// own is placed in a root of each ([`framed`]).
 pub(in crate::ui) fn dump(name: &str, body: &str) {
-    let target = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
-    let plain = String::new();
-    // `Dark` is the variant that names an attribute. `System` is the one that does not.
-    let dark = Theme::Dark
-        .attribute()
-        .expect("Theme::Dark names a data-theme value");
-    let forced = format!(" data-theme=\"{dark}\"{plain}");
-    for (suffix, root) in [("", plain.as_str()), ("-dark", forced.as_str())] {
-        let page = format!(
-            "<!doctype html>\n<html lang=\"en\"{root}><head><meta charset=\"utf-8\">\n\
-             <title>mailo</title>\n<style>{STYLE}</style>\n</head>\n\
-             <body>{body}</body></html>\n"
+    let look = crate::space::Space::default().look;
+    for (suffix, scheme) in [("", ds::Scheme::Light), ("-dark", ds::Scheme::Dark)] {
+        write_page(
+            &format!("{name}{suffix}"),
+            &page(&framed(body, scheme, &look), ""),
         );
-        let out = target.join(format!("{name}{suffix}.html"));
-        std::fs::write(&out, page).unwrap();
-        println!("wrote {}", out.display());
     }
 }
 
@@ -466,10 +541,11 @@ pub(in crate::ui) fn press(dom: &mut VirtualDom, key: &'static str, element: u32
 /// An element inside the shell, to deliver key presses to.
 ///
 /// The exact id does not matter — `bubbling: true` means the event climbs to the handler on
-/// the root, as it does in a browser — but it has to be *inside*: ids 1 and 2 are the
-/// stylesheet and the root's own placeholder, and an event dispatched there reaches nothing.
-/// Found by dispatching to each id in turn and watching which ones moved the database.
-pub(in crate::ui) const INSIDE_THE_SHELL: u32 = 3;
+/// the root, as it does in a browser — but it has to be *inside*: ids 1 to 5 are the quire
+/// root, its stylesheet and frame layers and mailo's stylesheet, all outside `.app`, and an
+/// event dispatched there reaches nothing. 6 is `.app` itself (the element that carries
+/// `data-peek`), found by reading the ids the first render hands out.
+pub(in crate::ui) const INSIDE_THE_SHELL: u32 = 6;
 
 /// Whether the harness should have a composer open on this render.
 ///
@@ -628,7 +704,6 @@ mod tests {
             .with_root_context(spaces)
             .with_root_context(crate::view::Appearance {
                 marks: crate::view::Marks::Icons,
-                ..crate::view::Appearance::default()
             });
         dom.rebuild_in_place();
         dump("shell-icons", &dioxus_ssr::render(&dom));

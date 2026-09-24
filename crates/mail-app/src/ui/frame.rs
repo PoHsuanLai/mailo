@@ -5,7 +5,6 @@
 use crate::appearance::WindowDirs;
 use crate::space::{self, Scope, Space, Spaces};
 use crate::today::{self, Today};
-use crate::view::Appearance;
 use mail_domain::AccountId;
 use mail_store::SqliteStore;
 use std::sync::Arc;
@@ -33,7 +32,12 @@ pub(super) fn load_boot() -> Boot {
     let ids = super::data::accounts(&store);
     if spaces.spaces.is_empty() {
         spaces = space::first_run(&ids);
-        let look = dioxus::prelude::try_consume_context::<Appearance>().unwrap_or_default();
+        // What mailo wrote before quire, read only: the window-wide theme and motion a first
+        // run's Spaces start from.
+        let look = dirs
+            .as_ref()
+            .map(|dirs| crate::appearance::legacy(&dirs.config))
+            .unwrap_or_default();
         space::inherit(&mut spaces, &look);
         if let Some(dirs) = &dirs {
             let _ = space::save(&dirs.config, &spaces);

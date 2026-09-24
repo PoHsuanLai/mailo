@@ -100,7 +100,8 @@ async fn the_people_menu_in_the_window_is_styled_and_titled() {
         markup.contains("From your contacts"),
         "no people menu:\n{markup}"
     );
-    let missing = crate::ui::style::tests::unstyled_classes(&markup, crate::ui::style::STYLE);
+    let missing =
+        crate::ui::style::tests::unstyled_classes(&markup, &crate::ui::style::tests::full_css());
     assert!(missing.is_empty(), "unstyled classes: {missing:?}");
 }
 

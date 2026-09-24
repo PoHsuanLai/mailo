@@ -333,6 +333,7 @@ async fn every_class_of_the_certificates_half_is_styled() {
         page.contains("keys-confirm") && page.contains("keys-sub"),
         "{page}"
     );
-    let missing = crate::ui::style::tests::unstyled_classes(&page, crate::ui::style::STYLE);
+    let missing =
+        crate::ui::style::tests::unstyled_classes(&page, &crate::ui::style::tests::full_css());
     assert!(missing.is_empty(), "unstyled classes: {missing:?}");
 }

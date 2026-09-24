@@ -8,7 +8,6 @@ use mail_store::SqliteStore;
 
 use super::super::data::account_rows;
 use super::super::field::{Field, FieldKind};
-use super::super::icon::{Glyph, Icon};
 use super::super::menu::{Menu, MenuItem, MenuKey, Right, Tile, menu_key};
 use super::super::menus::{snooze_help, when_words};
 use super::float::hue;
@@ -20,6 +19,7 @@ use super::recipients::{commit_typed, people_items, pick_person, pop_last, remov
 use crate::provider::icon::{ChipPlace, ProvChip};
 use crate::provider::provider;
 use crate::view::Shell;
+use ds::{Glyph, Icon};
 
 #[component]
 pub(in crate::ui) fn Props(page: Signal<Page>, shell: Signal<Shell>) -> Element {
@@ -45,7 +45,7 @@ pub(in crate::ui) fn Props(page: Signal<Page>, shell: Signal<Shell>) -> Element 
                     Some(_) => "prop-row shake again",
                 },
                 "data-row": "to",
-                div { class: "k", Glyph { icon: Icon::Send, class: None }, "To" }
+                div { class: "k", Glyph { icon: Icon::Send }, "To" }
                 div { class: "v",
                     Recipients { page, list: List::To }
                     if !cc_shown {
@@ -60,7 +60,7 @@ pub(in crate::ui) fn Props(page: Signal<Page>, shell: Signal<Shell>) -> Element 
             }
             if cc_shown {
                 div { class: "prop-row", "data-row": "cc",
-                    div { class: "k", Glyph { icon: Icon::Corner, class: None }, "Cc" }
+                    div { class: "k", Glyph { icon: Icon::Corner }, "Cc" }
                     div { class: "v", Recipients { page, list: List::Cc } }
                 }
             }
@@ -71,7 +71,7 @@ pub(in crate::ui) fn Props(page: Signal<Page>, shell: Signal<Shell>) -> Element 
             ReceiptRow { page }
             if !attached.is_empty() {
                 div { class: "prop-row",
-                    div { class: "k", Glyph { icon: Icon::Paperclip, class: None }, "Attached" }
+                    div { class: "k", Glyph { icon: Icon::Paperclip }, "Attached" }
                     div { class: "v",
                         for (index, (name, size)) in attached.into_iter().enumerate() {
                             span { key: "{index}", class: "pchip",
@@ -131,7 +131,7 @@ fn FromRow(page: Signal<Page>, shell: Signal<Shell>) -> Element {
         .collect();
     rsx! {
         div { class: "prop-row",
-            div { class: "k", Glyph { icon: Icon::Mail, class: None }, "From" }
+            div { class: "k", Glyph { icon: Icon::Mail }, "From" }
             div { class: "v",
                 button {
                     class: "pval",
@@ -249,7 +249,7 @@ fn SendsRow(page: Signal<Page>) -> Element {
     let shown = when.shown(now, &chrono::Local);
     rsx! {
         div { class: "prop-row",
-            div { class: "k", Glyph { icon: Icon::Clock, class: None }, "Sends" }
+            div { class: "k", Glyph { icon: Icon::Clock }, "Sends" }
             div { class: "v",
                 button {
                     class: "pval",
@@ -353,7 +353,7 @@ fn Recipients(page: Signal<Page>, list: List) -> Element {
                             r#type: "button",
                             aria_label: "Remove {person.name}",
                             onclick: move |_| remove(&mut page.write(), list, &address),
-                            Glyph { icon: Icon::X, class: None }
+                            Glyph { icon: Icon::X }
                         }
                     }
                 }

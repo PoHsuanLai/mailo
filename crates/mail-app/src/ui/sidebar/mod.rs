@@ -17,7 +17,6 @@ use self::folder_tree::{Show, arrange, scope};
 use self::folders::FolderList;
 use self::panes::{AccountTiles, PinnedList, PlaceList, counts};
 use self::today::TodayList;
-use super::icon::{Glyph, Icon};
 use super::switch::{self, Slide};
 use crate::appearance::WindowDirs;
 use crate::space::Spaces;
@@ -25,6 +24,7 @@ use crate::space::edit::Draft;
 use crate::today::Today;
 use crate::view::Shell;
 use dioxus::prelude::*;
+use ds::{Glyph, Icon};
 use mail_domain::ThreadId;
 
 /// The coloured sidebar.
@@ -64,6 +64,7 @@ pub(super) fn Places(
         .map(|section| section.labels.clone())
         .unwrap_or_default();
     let space_index = spaces.read().current;
+    let scheme = ds::use_env().scheme;
     let tiles = counted.read().clone();
     let slide_class = slide().map_or("slide", Slide::class);
     let name = space.name.clone();
@@ -82,7 +83,7 @@ pub(super) fn Places(
                 onclick: move |_| {
                     shell.write().command = Some(String::new());
                 },
-                Glyph { icon: Icon::Search, class: None }
+                Glyph { icon: Icon::Search }
                 span { class: "t", "Search or run a command" }
                 span { class: "k", "Ctrl T" }
             }
@@ -108,7 +109,7 @@ pub(super) fn Places(
                 div { class: "space-dots", role: "group", aria_label: "Spaces",
                     for (index, one) in spaces.read().spaces.iter().enumerate() {
                         {
-                            let grad = super::space_editor::both_gradients(&one.dots);
+                            let grad = super::space_editor::gradient_in(&one.look.dots, scheme);
                             let label = one.name.clone();
                             let current = index == space_index;
                             let key = index + 1;
@@ -141,7 +142,7 @@ pub(super) fn Places(
                             switch::add(spaces, shell, pages, slide, editing);
                         }
                     },
-                    Glyph { icon: Icon::Plus, class: None }
+                    Glyph { icon: Icon::Plus }
                 }
                 button {
                     class: "foot-btn",
@@ -150,7 +151,7 @@ pub(super) fn Places(
                     title: "Space settings",
                     aria_expanded: if editing.read().is_some() { "true" } else { "false" },
                     onclick: open_editor,
-                    Glyph { icon: Icon::Settings, class: None }
+                    Glyph { icon: Icon::Settings }
                 }
                 button {
                     class: "foot-btn",
@@ -161,7 +162,7 @@ pub(super) fn Places(
                         side_peek.set(false);
                         side_hidden.set(!side_hidden());
                     },
-                    Glyph { icon: Icon::PanelLeft, class: None }
+                    Glyph { icon: Icon::PanelLeft }
                 }
             }
         }

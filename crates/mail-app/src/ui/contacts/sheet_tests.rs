@@ -116,7 +116,8 @@ async fn every_class_the_contacts_draw_is_styled() {
     dispatching();
     let (store, _dir) = the_book();
     let markup = every_state(&store);
-    let missing = crate::ui::style::tests::unstyled_classes(&markup, crate::ui::style::STYLE);
+    let missing =
+        crate::ui::style::tests::unstyled_classes(&markup, &crate::ui::style::tests::full_css());
     assert!(missing.is_empty(), "unstyled classes: {missing:?}");
 }
 

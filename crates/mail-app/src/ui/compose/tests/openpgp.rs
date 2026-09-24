@@ -372,7 +372,8 @@ async fn every_class_of_the_bar_and_row_is_styled() {
     });
     markup += &window.render();
     assert!(markup.contains("unlock-field"), "{markup}");
-    let missing = crate::ui::style::tests::unstyled_classes(&markup, crate::ui::style::STYLE);
+    let missing =
+        crate::ui::style::tests::unstyled_classes(&markup, &crate::ui::style::tests::full_css());
     assert!(missing.is_empty(), "unstyled classes: {missing:?}");
 }
 

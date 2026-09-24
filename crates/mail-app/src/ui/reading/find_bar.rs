@@ -5,10 +5,10 @@
 //! matches and scroll the current one into view; Esc closes the field and its marks go with it.
 
 use super::super::field::{Field, FieldKind};
-use super::super::icon::{Glyph, Icon};
 use crate::search::{Find, Step};
 use crate::view::Shell;
 use dioxus::prelude::*;
+use ds::{Glyph, Icon};
 
 /// Focus the find field once it is in the page, and select what is in it.
 ///
@@ -79,7 +79,7 @@ pub(super) fn FindBar(shell: Signal<Shell>, total: usize, invalid: bool) -> Elem
                     _ => {}
                 }
             },
-            Glyph { icon: Icon::Search, class: None }
+            Glyph { icon: Icon::Search }
             Field {
                 kind: FieldKind::Inline,
                 value: find.query.clone(),
@@ -106,7 +106,7 @@ pub(super) fn FindBar(shell: Signal<Shell>, total: usize, invalid: bool) -> Elem
                     shell.write().find = None;
                     document::eval(REFOCUS);
                 },
-                Glyph { icon: Icon::X, class: None }
+                Glyph { icon: Icon::X }
             }
         }
     }

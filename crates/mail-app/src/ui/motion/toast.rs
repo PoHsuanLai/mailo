@@ -4,10 +4,10 @@
 //! followed by the window's own `pointermove` (see [`super::drag::moved`]), because the tab
 //! moves out from under it.
 
-use super::super::icon::{Glyph, Icon};
 use super::{Follow, motion, undo_last};
 use crate::view::Shell;
 use dioxus::prelude::*;
+use ds::{Glyph, Icon};
 use mail_store::SqliteStore;
 use std::sync::Arc;
 
@@ -90,7 +90,7 @@ pub(in crate::ui) fn Toast(shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                                 &store, shell, revision, &sender, &list,
                             );
                         },
-                        Glyph { icon: Icon::Archive, class: None }
+                        Glyph { icon: Icon::Archive }
                         "{label}"
                     }
                 }
@@ -125,7 +125,7 @@ pub(in crate::ui) fn Toast(shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                         undo_last(&store, shell, revision);
                     }
                 },
-                Glyph { icon: Icon::Undo, class: None }
+                Glyph { icon: Icon::Undo }
                 "Undo"
             }
         }

@@ -2,9 +2,6 @@
 
 use super::app::App;
 use super::fixtures::{dispatching, rebuild_into, seeded, work};
-use super::paint::appearance_script;
-use super::style::STYLE;
-use crate::view::Theme;
 use dioxus::prelude::*;
 use mail_store::SqliteStore;
 use std::sync::Arc;
@@ -231,37 +228,22 @@ async fn follow_any(
 #[tokio::test]
 #[ignore]
 async fn render_the_frame_to_a_file() {
+    // Rendered once per scheme, from `appearance.toml`'s theme, so the frame's Space tint is
+    // the one each scheme derives, not a relabelled copy of the light one.
     dispatching();
-    let built = work();
-    let space = crate::space::load(&built.dirs.config).current_space();
-    let mut dom = VirtualDom::new(App)
-        .with_root_context(built.store.clone())
-        .with_root_context(built.dirs);
-    let seen = rebuild_into(&mut dom);
-    let dana = seen.one(
-        "aria-label",
-        "Open Re: UIDL stability across a UIDVALIDITY change",
-    );
-    super::fixtures::click(&mut dom, dana);
-    let body = dioxus_ssr::render(&dom);
-    let target = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
-    std::fs::create_dir_all(&target).unwrap();
-    for (suffix, theme) in [("", Theme::Light), ("-dark", Theme::Dark)] {
-        let script = appearance_script(&crate::space::Space {
-            theme,
-            ..space.clone()
-        });
-        let theme_attr = theme
-            .attribute()
-            .map(|name| format!(" data-theme=\"{name}\""))
-            .unwrap_or_default();
-        let page = format!(
-            "<!doctype html>\n<html lang=\"en\"{theme_attr}>\
-             <head><meta charset=\"utf-8\"><style>{STYLE}</style><script>{script}</script></head>\
-             <body>{body}</body></html>\n"
+    for (suffix, scheme) in [("", ds::Scheme::Light), ("-dark", ds::Scheme::Dark)] {
+        let built = work();
+        let mut dom = VirtualDom::new(App)
+            .with_root_context(built.store.clone())
+            .with_root_context(built.dirs)
+            .with_root_context(super::fixtures::in_scheme(scheme));
+        let seen = rebuild_into(&mut dom);
+        let dana = seen.one(
+            "aria-label",
+            "Open Re: UIDL stability across a UIDVALIDITY change",
         );
-        let out = target.join(format!("frame{suffix}.html"));
-        std::fs::write(&out, page).unwrap();
-        println!("wrote {}", out.display());
+        super::fixtures::click(&mut dom, dana);
+        let body = dioxus_ssr::render(&dom);
+        super::fixtures::write_page(&format!("frame{suffix}"), &super::fixtures::page(&body, ""));
     }
 }

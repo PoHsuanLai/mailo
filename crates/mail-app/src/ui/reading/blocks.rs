@@ -8,7 +8,6 @@
 //! each leaf's key in [`Found`]. The frame takes no part in that: its props are
 //! the markup and a class, and a find changes neither.
 
-use super::super::icon::{Glyph, Icon};
 use super::super::marked::marked;
 use super::found::{Found, PRIMARY};
 use super::image::image;
@@ -16,6 +15,7 @@ use super::spans::spans;
 use super::table::table;
 use crate::view::{Reading, Shell};
 use dioxus::prelude::*;
+use ds::{Glyph, Icon};
 use mail_domain::MessageId;
 use mail_mime::{Block, Dir, Document, LINK_REL, LINK_TARGET, Reached, SafeUrl, Shape, Span};
 use std::collections::HashMap;
@@ -249,7 +249,7 @@ fn quote_block(
         div { key: "{path}", class: "b b-quote",
             if let Some(who) = attribution {
                 div { class: "who",
-                    Glyph { icon: Icon::Corner, class: None }
+                    Glyph { icon: Icon::Corner }
                     {spans(who, &format!("{path}/who"), found)}
                 }
             }

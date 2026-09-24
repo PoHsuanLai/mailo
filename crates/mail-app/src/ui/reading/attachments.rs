@@ -14,8 +14,8 @@ use dioxus::prelude::*;
 use mail_domain::{BlobId, MessageId};
 use mail_store::SqliteStore;
 
-use super::super::icon::{Glyph, Icon};
 use super::super::text::{AttachmentRow, Kept};
+use ds::{Glyph, Icon};
 
 /// The rows for one message. `saved` says where the last one went; `downloading` is the part
 /// being fetched, whose button stays disabled until the fetch ends.
@@ -31,7 +31,7 @@ pub(super) fn Attachments(
         ul { class: "attachments",
             for row in rows {
                 li { key: "{row.index}",
-                    Glyph { icon: Icon::Paperclip, class: None }
+                    Glyph { icon: Icon::Paperclip }
                     span { class: "name", "{row.name}" }
                     span { class: "size mono", "{row.size}" }
                     button {

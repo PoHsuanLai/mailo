@@ -1,10 +1,10 @@
 //! The rows of the page's menus: `/`, Turn into, `@`, people, and the object menu. Each is a
 //! [`MenuItem`] for the one shared [`super::super::menu::Menu`].
 
-use super::super::icon::Icon;
 use super::super::menu::{MenuItem, Right, Tile};
 use super::page::Page;
 use crate::editor::{Action, Item, ParaKind, Person, filter, turn_into};
+use ds::Icon;
 
 fn tile(item: &Item) -> Tile {
     match item.action {

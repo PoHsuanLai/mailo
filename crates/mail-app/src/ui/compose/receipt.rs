@@ -8,9 +8,9 @@
 use dioxus::prelude::*;
 use mail_domain::ReceiptRequest;
 
-use super::super::icon::{Glyph, Icon};
 use super::super::menu::{MenuItem, Right, Tile};
 use super::page::Page;
+use ds::{Glyph, Icon};
 
 /// The Sends menu's key for the receipt item. No `When` shares it.
 pub(in crate::ui) const KEY: &str = "receipt";
@@ -42,7 +42,7 @@ pub(in crate::ui) fn ReceiptRow(page: Signal<Page>) -> Element {
     let stop = "Stop asking for a read receipt";
     rsx! {
         div { class: "prop-row", "data-row": "receipt",
-            div { class: "k", Glyph { icon: Icon::Check, class: None }, "Receipt" }
+            div { class: "k", Glyph { icon: Icon::Check }, "Receipt" }
             div { class: "v",
                 span { class: "pchip receipt-chip",
                     "Asks for a read receipt"
@@ -51,7 +51,7 @@ pub(in crate::ui) fn ReceiptRow(page: Signal<Page>) -> Element {
                         r#type: "button",
                         aria_label: "{stop}",
                         onclick: move |_| page.write().toggle_receipt(),
-                        Glyph { icon: Icon::X, class: None }
+                        Glyph { icon: Icon::X }
                     }
                 }
             }

@@ -31,6 +31,12 @@ futures-util = { version = "0.3", default-features = false, features = ["std"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "charset", "http2"] }
 chrono.workspace = true
 dioxus = { version = "0.7", features = ["desktop"] }
+# quire, the shared design system, by path until it has a public release: it must be checked out
+# beside mailo, as `../quire` (README "Building"). `lint` is for the stylesheet and markup tests;
+# `webview-fonts` gives the `@font-face` rules as `data:` URIs while mailo is on the webview.
+ds = { path = "../../../quire/crates/ds", features = ["lint", "webview-fonts"] }
+# Settings I/O: `appearance.toml` (imported once from `appearance.json`), the settings portal.
+ds-settings = { path = "../../../quire/crates/ds-settings" }
 # ASCII-case-insensitive multi-pattern search for highlights. Already in the tree via `regex`.
 aho-corasick = "1.1"
 # `re:/pattern/`. Already in the tree; depended on directly so the size caps are ours.

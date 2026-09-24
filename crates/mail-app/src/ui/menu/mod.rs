@@ -7,8 +7,8 @@
 mod state;
 
 use super::field::{Field, FieldKind};
-use super::icon::{Glyph, Icon};
 use dioxus::prelude::*;
+use ds::{Glyph, Icon};
 pub(super) use state::{
     MenuEvent, MenuItem, MenuKey, MenuState, Piece, Right, Run, Shown, Tile, Tone, menu_key, pieces,
 };
@@ -173,7 +173,7 @@ pub(super) fn Menu(
                                 span { class: "sc",
                                     match &shown.item.right {
                                         Right::Shortcut(shortcut) => rsx! { "{shortcut}" },
-                                        Right::Check(true) => rsx! { Glyph { icon: Icon::Check, class: None } },
+                                        Right::Check(true) => rsx! { Glyph { icon: Icon::Check } },
                                         Right::Remove(label) => rsx! {
                                             button {
                                                 class: "rm",
@@ -186,7 +186,7 @@ pub(super) fn Menu(
                                                         remove.call(removed.clone());
                                                     }
                                                 },
-                                                Glyph { icon: Icon::X, class: None }
+                                                Glyph { icon: Icon::X }
                                             }
                                         },
                                         Right::Check(false) | Right::None => rsx! { "" },
@@ -226,7 +226,7 @@ fn tone_class(tone: Tone) -> &'static str {
 
 fn tile(tile: &Tile) -> Element {
     match tile {
-        Tile::Icon(icon) => rsx! { span { class: "tile", Glyph { icon: *icon, class: None } } },
+        Tile::Icon(icon) => rsx! { span { class: "tile", Glyph { icon: *icon } } },
         Tile::Avatar { letter, color } => rsx! {
             span {
                 class: "tile round",

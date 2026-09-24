@@ -30,11 +30,10 @@
 }
 .field.dragging { cursor: grabbing; }
 .field-dots { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-.field-dots[data-for="dark"] { display: none; }
 .field-hit { position: absolute; inset: 0; z-index: 1; }
 .handle {
   position: absolute; z-index: 2; width: 22px; height: 22px; margin: -11px 0 0 -11px;
-  border-radius: 999px; border: 3px solid var(--handle-ring); box-shadow: var(--handle-shadow);
+  border-radius: 999px; border: 3px solid var(--handle-ring); box-shadow: var(--shadow-handle);
   pointer-events: none; transition: transform var(--t-tap) var(--e-out);
 }
 .handle.on { transform: scale(1.15); }
@@ -49,8 +48,8 @@
 .stop i { width: 14px; height: 14px; border-radius: 999px; display: block; }
 .stop[aria-pressed="true"] { border-color: var(--ink-faint); color: var(--ink); }
 .stop .rm { border: 0; background: none; padding: 0; cursor: pointer; color: var(--ink-faint); line-height: 0; }
-.stop .rm .ic { width: 11px; height: 11px; }
-.stops .mini .ic { width: 12px; height: 12px; }
+.stop .rm .ds-ic { width: 11px; height: 11px; }
+.stops .mini .ds-ic { width: 12px; height: 12px; }
 
 .inp.range {
   display: block; width: 100%; padding: 0; margin: 0; border: 0; background: none;
@@ -84,15 +83,6 @@
 .mini.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
 .mini.primary:hover { background: var(--accent); color: var(--accent-ink); }
 
-/* A Space's gradient in the window's own theme. Each swatch carries both, as `--gl` and `--gd`
-   from `both_gradients`, because under System only the desktop knows which one applies. */
-.editor h3 .sw, .presets button, .sp { background: var(--gl); }
-:root[data-theme="dark"] .editor h3 .sw, :root[data-theme="dark"] .presets button, :root[data-theme="dark"] .sp { background: var(--gd); }
-:root[data-theme="dark"] .field-dots[data-for="light"] { display: none; }
-:root[data-theme="dark"] .field-dots[data-for="dark"] { display: block; }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .editor h3 .sw, :root:not([data-theme="light"]) .presets button,
-  :root:not([data-theme="light"]) .sp { background: var(--gd); }
-  :root:not([data-theme="light"]) .field-dots[data-for="light"] { display: none; }
-  :root:not([data-theme="light"]) .field-dots[data-for="dark"] { display: block; }
-}
+/* A Space's gradient in the scheme the window's root resolved to, as `--g` from `gradient_in`:
+   quire answers System in Rust, so each swatch carries only the gradient it shows. */
+.editor h3 .sw, .presets button, .sp { background: var(--g); }

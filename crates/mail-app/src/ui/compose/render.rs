@@ -7,11 +7,11 @@
 
 use dioxus::prelude::*;
 
-use super::super::icon::{Glyph, Icon};
 use super::super::menu::Menu;
 use super::float::{object_items, pick_object};
 use super::page::{Float, Fold, Page};
 use crate::editor::{Check, Mark, Node, Object, Op, ParaKind, Pos, Range, Run};
+use ds::{Glyph, Icon};
 
 #[cfg(test)]
 thread_local! {
@@ -237,7 +237,7 @@ fn Obj(n: usize, object: Object, menu: bool, quoted: Fold, page: Signal<Page>) -
                 {grip(n, menu, page)}
                 if src.as_str().is_empty() {
                     div { class: "pick",
-                        Glyph { icon: Icon::Paperclip, class: None }
+                        Glyph { icon: Icon::Paperclip }
                         span { "Add an image. It is embedded in the message, never fetched." }
                     }
                 } else {
@@ -269,7 +269,7 @@ fn Obj(n: usize, object: Object, menu: bool, quoted: Fold, page: Signal<Page>) -
         Object::Attachment(file) => rsx! {
             div { class: "obj o-att", contenteditable: "false", "data-n": "{n}",
                 {grip(n, menu, page)}
-                Glyph { icon: Icon::Paperclip, class: None }
+                Glyph { icon: Icon::Paperclip }
                 span { "{file.name()}" }
             }
         },
@@ -290,7 +290,7 @@ fn Obj(n: usize, object: Object, menu: bool, quoted: Fold, page: Signal<Page>) -
                             let mut write = page.write();
                             write.quoted = if open { Fold::Folded } else { Fold::Open };
                         },
-                        Glyph { icon: Icon::Corner, class: None }
+                        Glyph { icon: Icon::Corner }
                         span { "{who}, {when}" }
                         span { class: "rq-t", if open { "hide quoted text" } else { "show quoted text" } }
                     }

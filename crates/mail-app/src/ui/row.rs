@@ -4,7 +4,6 @@
 //! opens the reader and carries the hover strip. Split from [`super::app`] (`CONVENTIONS.md` §8).
 
 use super::hover::{Hook, corner, hover};
-use super::icon::{Glyph, Icon};
 use super::list_search::RowHit;
 use super::marked::{Numbering, marked};
 use super::menus::{LabelMenu, SnoozeMenu};
@@ -18,6 +17,7 @@ use crate::view::Marks;
 use crate::view::{Shell, hover_actions};
 use chrono::Local;
 use dioxus::prelude::*;
+use ds::{Glyph, Icon};
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
@@ -227,7 +227,7 @@ pub(super) fn Row(
                     }
                     if let Some(count) = files {
                         span { class: "clip",
-                            Glyph { icon: Icon::Paperclip, class: None }
+                            Glyph { icon: Icon::Paperclip }
                             "{count}"
                         }
                     }
@@ -246,7 +246,7 @@ pub(super) fn Row(
                     act_kind(&store, shell, revision, id, kind);
                 },
                 onanimationend: move |_| pop.set(false),
-                Glyph { icon: Icon::Star, class: None }
+                Glyph { icon: Icon::Star }
                 span { class: if pop() { "sparks go" } else { "sparks" },
                     for angle in [0, 60, 120, 180, 240, 300] {
                         i { key: "{angle}", style: "--a:{angle}deg" }
@@ -297,7 +297,7 @@ pub(super) fn Row(
                                 }
                             }
                         },
-                        Glyph { icon: op_icon(kind), class: None }
+                        Glyph { icon: op_icon(kind) }
                         span { class: "fly", "{fly(kind)}" }
                     }
                 }
@@ -312,7 +312,7 @@ pub(super) fn Row(
                         let already = shell.peek().filing == Some(id);
                         shell.write().filing = if already { None } else { Some(id) };
                     },
-                    Glyph { icon: Icon::FolderInput, class: None }
+                    Glyph { icon: crate::ui::FOLDER_INPUT }
                     span { class: "fly", "{move_label}" }
                 }
             }

@@ -27,7 +27,7 @@
 .inv-facts { display: grid; gap: 3px; margin: 10px 0 0; }
 .inv-row { display: grid; grid-template-columns: 74px 1fr; gap: 10px; align-items: baseline; }
 .inv-row dt { margin: 0; font-size: 11px; color: var(--ink-faint); }
-.inv-row dt .ic { width: 14px; height: 14px; color: var(--ink-faint); transform: translateY(2px); }
+.inv-row dt .ds-ic { width: 14px; height: 14px; color: var(--ink-faint); transform: translateY(2px); }
 .inv-row dd { margin: 0; min-width: 0; color: var(--ink-soft); overflow-wrap: anywhere; }
 .inv-when { display: block; font-weight: 700; color: var(--ink); }
 .inv-theirs { display: block; font-size: 11px; color: var(--ink-faint); }
@@ -71,7 +71,7 @@
   border-radius: var(--r-btn); background: color-mix(in oklab, var(--ok) 12%, var(--surface));
   color: var(--ink);
 }
-.inv-answered .ic { width: 14px; height: 14px; color: var(--ok); }
+.inv-answered .ds-ic { width: 14px; height: 14px; color: var(--ok); }
 .inv-answered .said { font-weight: 700; }
 .inv-answered .inv-note { color: var(--ink-soft); font-style: italic; min-width: 0; overflow-wrap: anywhere; }
 .inv-answered .link { margin-left: auto; }

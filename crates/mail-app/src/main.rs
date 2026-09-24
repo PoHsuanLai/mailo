@@ -436,13 +436,25 @@ fn main() {
                 .as_deref()
                 .map(mail_app::appearance::load)
                 .unwrap_or_default();
+            // What mailo wrote before quire: read only, for Spaces made before theme and motion
+            // were theirs.
+            let legacy = config
+                .as_deref()
+                .map(mail_app::appearance::legacy)
+                .unwrap_or_default();
+            // quire's `appearance.toml`, imported from `appearance.json` on the first run after
+            // the move. The window's `use_environment` reads and watches it from then on, and
+            // does not import by itself.
+            if let Some(dir) = config.as_deref() {
+                mail_app::appearance::quire(dir);
+            }
             let ids = account_ids(&store);
             let spaces = match &config {
                 Some(dir) => {
                     let loaded = mail_app::space::load(dir);
                     if loaded.spaces.is_empty() {
                         let mut made = mail_app::space::first_run(&ids);
-                        mail_app::space::inherit(&mut made, &look);
+                        mail_app::space::inherit(&mut made, &legacy);
                         let _ = mail_app::space::save(dir, &made);
                         made
                     } else {
@@ -451,7 +463,7 @@ fn main() {
                 }
                 None => {
                     let mut made = mail_app::space::first_run(&ids);
-                    mail_app::space::inherit(&mut made, &look);
+                    mail_app::space::inherit(&mut made, &legacy);
                     made
                 }
             };

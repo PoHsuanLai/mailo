@@ -378,9 +378,6 @@ fn an_op_in_a_folder_place_keeps_the_row_while_its_mail_is_still_there() {
 #[tokio::test]
 #[ignore = "writes target/folder-place*.html for a human or a headless browser to look at"]
 async fn render_a_folder_place_to_a_file() {
-    use crate::ui::paint::appearance_script;
-    use crate::ui::style::STYLE;
-    use crate::view::Theme;
     dispatching();
     let built = crate::ui::fixtures::work();
     let rows = crate::ui::data::account_rows(&built.store);
@@ -430,23 +427,11 @@ async fn render_a_folder_place_to_a_file() {
     click(&mut dom, seen.one("data-folder", PROJECTS));
     settle(&mut dom).await;
     let body = dioxus_ssr::render(&dom);
-    let target = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
-    for (suffix, theme) in [("", Theme::Light), ("-dark", Theme::Dark)] {
-        let script = appearance_script(&crate::space::Space {
-            theme,
-            ..space.clone()
-        });
-        let theme_attr = theme
-            .attribute()
-            .map(|name| format!(" data-theme=\"{name}\""))
-            .unwrap_or_default();
-        let page = format!(
-            "<!doctype html>\n<html lang=\"en\"{theme_attr}>\
-             <head><meta charset=\"utf-8\"><style>{STYLE}</style><script>{script}</script></head>\
-             <body>{body}</body></html>\n"
+    for (suffix, scheme) in [("", ds::Scheme::Light), ("-dark", ds::Scheme::Dark)] {
+        let framed = crate::ui::fixtures::framed(&body, scheme, &space.look);
+        crate::ui::fixtures::write_page(
+            &format!("folder-place{suffix}"),
+            &crate::ui::fixtures::page(&framed, ""),
         );
-        let out = target.join(format!("folder-place{suffix}.html"));
-        std::fs::write(&out, page).unwrap();
-        println!("wrote {}", out.display());
     }
 }

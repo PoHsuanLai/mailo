@@ -116,7 +116,8 @@ async fn new_from_template_lists_starts_and_deletes() {
         "the template is still kept"
     );
     assert!(markup.contains("No templates yet"), "{markup}");
-    let missing = crate::ui::style::tests::unstyled_classes(&markup, crate::ui::style::STYLE);
+    let missing =
+        crate::ui::style::tests::unstyled_classes(&markup, &crate::ui::style::tests::full_css());
     assert!(missing.is_empty(), "unstyled classes: {missing:?}");
 }
 

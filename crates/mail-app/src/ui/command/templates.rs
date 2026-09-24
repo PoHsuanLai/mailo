@@ -11,10 +11,10 @@ use mail_store::SqliteStore;
 
 use super::super::compose::{every_template, forget_template, template_rows};
 use super::super::field::{Field, FieldKind};
-use super::super::icon::{Glyph, Icon};
 use super::super::menu::{Menu, MenuEvent, MenuKey, MenuState, menu_key};
 use super::super::motion::{Follow, tell};
 use crate::view::Shell;
+use ds::{Glyph, Icon};
 
 #[cfg(test)]
 #[path = "templates_tests.rs"]
@@ -98,7 +98,7 @@ pub(super) fn TemplateMenu(
                     }
                 },
                 div { class: "cmdk-in",
-                    Glyph { icon: Icon::FilePen, class: None }
+                    Glyph { icon: Icon::FilePen }
                     Field {
                         kind: FieldKind::Inline,
                         value: typed,

@@ -13,13 +13,13 @@ pub(in crate::ui) use items::avatar_color;
 
 use super::debounce::{Settled, use_debounced};
 use super::field::{Field, FieldKind};
-use super::icon::Icon;
 use super::menu::{Menu, MenuItem, MenuKey, MenuState};
 use super::ops::start_new;
 use crate::search::Results;
 use crate::view::{PageMenu, Shell, Theme};
 use chrono::Utc;
 use dioxus::prelude::*;
+use ds::Icon;
 use items::{Pick, interpret, rows_of, search_now, tokens};
 use mail_store::SqliteStore;
 use std::collections::HashMap;
@@ -116,7 +116,7 @@ pub(super) fn CommandMenu(
                     }
                 },
                 div { class: "cmdk-in",
-                    super::icon::Glyph { icon: Icon::Search, class: None }
+                    ds::Glyph { icon: Icon::Search }
                     Field {
                         kind: FieldKind::Inline,
                         value: query.clone(),
@@ -327,23 +327,17 @@ fn run_action(
                 "Theme dark" => Theme::Dark,
                 _ => Theme::System,
             };
-            // The theme is the current Space's now, so this is a change to that Space.
+            // The theme is the current Space's now, so this is a change to that Space. The
+            // window's `Ds` root reads it from the Spaces; there is nothing to repaint by hand.
             let mut spaces = spaces;
-            let space = {
+            {
                 let mut all = spaces.write();
                 let current = all.current;
                 match all.spaces.get_mut(current) {
-                    Some(space) => {
-                        space.theme = theme;
-                        space.clone()
-                    }
+                    Some(space) => space.look.theme = theme,
                     None => return close(shell),
                 }
-            };
-            dioxus::document::eval(&super::paint::paint_script(
-                &space,
-                super::paint::Fade::None,
-            ));
+            }
             super::frame::keep(&spaces.read());
             close(shell);
         }

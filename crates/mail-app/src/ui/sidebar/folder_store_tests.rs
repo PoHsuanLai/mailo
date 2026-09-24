@@ -332,8 +332,10 @@ async fn the_menu_and_the_field_are_the_shared_ones_and_styled() {
         naming.contains("A folder name cannot contain “/”"),
         "the refusal is not said: {naming}"
     );
-    let missing =
-        crate::ui::style::tests::unstyled_classes(&(menu + &naming), crate::ui::style::STYLE);
+    let missing = crate::ui::style::tests::unstyled_classes(
+        &(menu + &naming),
+        &crate::ui::style::tests::full_css(),
+    );
     assert!(missing.is_empty(), "unstyled classes: {missing:?}");
 }
 
@@ -361,7 +363,8 @@ async fn several_accounts_are_each_named_over_their_folders() {
     let page = frame(store);
     assert!(page.contains("class=\"fold-acct\""), "{page}");
     assert!(page.contains("me@elsewhere.example"), "{page}");
-    let missing = crate::ui::style::tests::unstyled_classes(&page, crate::ui::style::STYLE);
+    let missing =
+        crate::ui::style::tests::unstyled_classes(&page, &crate::ui::style::tests::full_css());
     assert!(missing.is_empty(), "unstyled classes: {missing:?}");
 }
 
@@ -370,9 +373,6 @@ async fn several_accounts_are_each_named_over_their_folders() {
 #[tokio::test]
 #[ignore = "writes target/folders*.html for a human or a headless browser to look at"]
 async fn render_the_folders_to_a_file() {
-    use crate::ui::paint::appearance_script;
-    use crate::ui::style::STYLE;
-    use crate::view::Theme;
     dispatching();
     let built = crate::ui::fixtures::work();
     let account = crate::ui::data::account_rows(&built.store)[0].id;
@@ -411,25 +411,13 @@ async fn render_the_folders_to_a_file() {
     let closed = dioxus_ssr::render(&dom);
     click(&mut dom, seen.one("aria-label", "Actions for 2026"));
     let open = dioxus_ssr::render(&dom);
-    let target = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
     for (name, body) in [("folders", &closed), ("folders-menu", &open)] {
-        for (suffix, theme) in [("", Theme::Light), ("-dark", Theme::Dark)] {
-            let script = appearance_script(&crate::space::Space {
-                theme,
-                ..space.clone()
-            });
-            let theme_attr = theme
-                .attribute()
-                .map(|name| format!(" data-theme=\"{name}\""))
-                .unwrap_or_default();
-            let page = format!(
-                "<!doctype html>\n<html lang=\"en\"{theme_attr}>\
-                 <head><meta charset=\"utf-8\"><style>{STYLE}</style><script>{script}</script></head>\
-                 <body>{body}</body></html>\n"
+        for (suffix, scheme) in [("", ds::Scheme::Light), ("-dark", ds::Scheme::Dark)] {
+            let framed = crate::ui::fixtures::framed(body, scheme, &space.look);
+            crate::ui::fixtures::write_page(
+                &format!("{name}{suffix}"),
+                &crate::ui::fixtures::page(&framed, ""),
             );
-            let out = target.join(format!("{name}{suffix}.html"));
-            std::fs::write(&out, page).unwrap();
-            println!("wrote {}", out.display());
         }
     }
 }

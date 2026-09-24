@@ -6,11 +6,11 @@
 
 use super::store::gmail_caps;
 use crate::appearance::WindowDirs;
-use crate::palette::Dot;
-use crate::space::{self, CardAccent, Pinned, Scope, Space, Spaces};
+use crate::space::{self, Pinned, Scope, Space, Spaces};
 use crate::today::{self, Today};
 use crate::view::{Motion, Theme};
 use chrono::Datelike;
+use ds::{CardAccent, Dot, Grain, SpaceLook};
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 use std::collections::BTreeMap;
@@ -232,20 +232,22 @@ pub(in crate::ui) fn work() -> Work {
         recall: BTreeMap::new(),
         spaces: vec![Space {
             name: "Work".to_owned(),
-            dots: vec![
-                Dot {
-                    hue: 268.0,
-                    chroma: 0.72,
-                },
-                Dot {
-                    hue: 318.0,
-                    chroma: 0.55,
-                },
-            ],
-            grain: 35,
-            theme: Theme::System,
+            look: SpaceLook {
+                dots: vec![
+                    Dot {
+                        hue: 268.0,
+                        chroma: 0.72,
+                    },
+                    Dot {
+                        hue: 318.0,
+                        chroma: 0.55,
+                    },
+                ],
+                grain: Grain(35),
+                theme: Theme::System,
+                card_accent: CardAccent::SpaceHue,
+            },
             motion: Motion::Standard,
-            card_accent: CardAccent::Hint,
             scope: Scope::All,
             pins: vec![
                 Pinned::Person {

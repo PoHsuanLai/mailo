@@ -451,7 +451,8 @@ async fn every_class_the_add_account_sheet_draws_is_styled() {
     ] {
         assert!(markup.contains(class), "{class} was not drawn");
     }
-    let missing = crate::ui::style::tests::unstyled_classes(&markup, crate::ui::style::STYLE);
+    let missing =
+        crate::ui::style::tests::unstyled_classes(&markup, &crate::ui::style::tests::full_css());
     assert!(missing.is_empty(), "unstyled classes: {missing:?}");
     assert!(!markup.contains(PASSWORD), "a state drew the password");
 }

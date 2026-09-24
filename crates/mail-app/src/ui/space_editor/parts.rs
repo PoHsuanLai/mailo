@@ -1,14 +1,13 @@
 //! The editor's smaller controls: a segment, the stops, the presets, the readout and the
 //! provider marks.
 
-use super::super::icon::{Glyph, Icon};
 use super::change;
 use crate::appearance::WindowDirs;
-use crate::palette;
 use crate::space::edit::{Draft, MOST_DOTS};
 use crate::space::{PRESET_NAMES, PRESETS, Space, Spaces};
 use crate::view::{Appearance, Marks as MarksKind, Shell};
 use dioxus::prelude::*;
+use ds::{Capping, Glyph, Icon, Scheme};
 
 /// A row of mutually exclusive buttons, each saying with `aria-pressed` whether it is the one.
 #[component]
@@ -39,12 +38,12 @@ pub(super) fn Stops(editing: Signal<Option<Draft>>, spaces: Signal<Spaces>) -> E
     let Some(draft) = editing.read().clone() else {
         return rsx! {};
     };
-    let picked = palette::derive(&draft.space.dots, false).picked;
-    let several = draft.space.dots.len() > 1;
-    let room = draft.space.dots.len() < MOST_DOTS;
+    let picked = ds::derive(&draft.space.look.dots, Scheme::Light).picked;
+    let several = draft.space.look.dots.len() > 1;
+    let room = draft.space.look.dots.len() < MOST_DOTS;
     rsx! {
         div { class: "stops",
-            for (index, dot) in draft.space.dots.iter().enumerate() {
+            for (index, dot) in draft.space.look.dots.iter().enumerate() {
                 {
                     let fill = picked.get(index).cloned().unwrap_or_default();
                     let hue = dot.hue.round();
@@ -69,7 +68,7 @@ pub(super) fn Stops(editing: Signal<Option<Draft>>, spaces: Signal<Spaces>) -> E
                                             let _ = draft.remove(index);
                                         });
                                     },
-                                    Glyph { icon: Icon::X, class: None }
+                                    Glyph { icon: Icon::X }
                                 }
                             }
                         }
@@ -83,7 +82,7 @@ pub(super) fn Stops(editing: Signal<Option<Draft>>, spaces: Signal<Spaces>) -> E
                     onclick: move |_| change(editing, spaces, |draft| {
                         let _ = draft.add();
                     }),
-                    Glyph { icon: Icon::Plus, class: None }
+                    Glyph { icon: Icon::Plus }
                     "Colour"
                 }
             }
@@ -94,11 +93,12 @@ pub(super) fn Stops(editing: Signal<Option<Draft>>, spaces: Signal<Spaces>) -> E
 /// The presets, each a swatch of its own gradient, the six retired accents among them.
 #[component]
 pub(super) fn Presets(editing: Signal<Option<Draft>>, spaces: Signal<Spaces>) -> Element {
+    let scheme = ds::use_env().scheme;
     rsx! {
         div { class: "presets", role: "group", aria_label: "Presets",
             for (index, dots) in PRESETS.iter().enumerate() {
                 {
-                    let grad = super::both_gradients(dots);
+                    let grad = super::gradient_in(dots, scheme);
                     let name = PRESET_NAMES.get(index).copied().unwrap_or("Preset");
                     rsx! {
                         button {
@@ -116,11 +116,11 @@ pub(super) fn Presets(editing: Signal<Option<Draft>>, spaces: Signal<Spaces>) ->
     }
 }
 
-/// What `palette::readout` measured, one row per pair, in one theme.
+/// What `ds::readout` measured, one row per pair, in one scheme.
 #[component]
-pub(super) fn Readout(space: Space, dark: bool, heading: String) -> Element {
-    let checks = palette::readout(&space, dark);
-    let capped = palette::derive(&space.dots, dark).capped;
+pub(super) fn Readout(space: Space, scheme: Scheme, heading: String) -> Element {
+    let checks = ds::readout(&space.look, scheme);
+    let capped = ds::derive(&space.look.dots, scheme).capped == Capping::Capped;
     let note = if capped {
         "Chroma was lowered on at least one stop so the text above passes. Drop the dot lower on the field to see the uncapped colour."
     } else {
@@ -133,7 +133,7 @@ pub(super) fn Readout(space: Space, dark: bool, heading: String) -> Element {
             }
             for check in checks {
                 {
-                    let passes = check.passes();
+                    let passes = check.verdict() == ds::Verdict::Pass;
                     let measured = format!("{:.2}", check.measured);
                     let need = format!("{:.1}", check.need);
                     rsx! {
@@ -166,7 +166,7 @@ pub(super) fn Marks(shell: Signal<Shell>) -> Element {
                         r#type: "button",
                         aria_pressed: if now == marks { "true" } else { "false" },
                         onclick: move |_| {
-                            let look = Appearance { marks, ..shell.read().appearance };
+                            let look = Appearance { marks };
                             shell.write().appearance = look;
                             if let Some(dirs) = try_consume_context::<WindowDirs>() {
                                 let _ = crate::appearance::save(&dirs.config, look);

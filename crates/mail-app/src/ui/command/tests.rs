@@ -6,7 +6,6 @@ use super::*;
 use crate::search::{Results, Top};
 use crate::ui::fixtures::work;
 use crate::view::Shell;
-use crate::view::Theme;
 use dioxus_core::VirtualDom;
 use mail_domain::Filter;
 use std::collections::HashMap;
@@ -202,42 +201,44 @@ fn dana_is_marked_in_the_persons_name() {
 async fn render_the_menus_to_a_file() {
     use crate::ui::fixtures::{click, dispatching, rebuild_into};
 
+    use crate::ui::fixtures::in_scheme;
+
     dispatching();
-    let built = work();
-    let space = crate::space::load(&built.dirs.config).current_space();
+    // Rendered once per scheme, so the Space's tint and hue are the ones each scheme derives.
+    for (suffix, scheme) in [("", ds::Scheme::Light), ("-dark", ds::Scheme::Dark)] {
+        let built = work();
+        let mut dom = VirtualDom::new(App)
+            .with_root_context(built.store.clone())
+            .with_root_context(built.dirs.clone())
+            .with_root_context(in_scheme(scheme));
+        dom.rebuild_in_place();
+        settle(&mut dom).await;
+        let mut menus = VirtualDom::new(MenuPicture).with_root_context(built.store.clone());
+        menus.rebuild_in_place();
+        let command = inject(&dioxus_ssr::render(&dom), &dioxus_ssr::render(&menus));
 
-    let mut dom = VirtualDom::new(App)
-        .with_root_context(built.store.clone())
-        .with_root_context(built.dirs.clone());
-    dom.rebuild_in_place();
-    settle(&mut dom).await;
-    let mut menus = VirtualDom::new(MenuPicture).with_root_context(built.store.clone());
-    menus.rebuild_in_place();
-    let command = inject(&dioxus_ssr::render(&dom), &dioxus_ssr::render(&menus));
+        let mut dom = VirtualDom::new(App)
+            .with_root_context(built.store.clone())
+            .with_root_context(built.dirs)
+            .with_root_context(in_scheme(scheme));
+        let seen = rebuild_into(&mut dom);
+        let buttons = seen.all("aria-label", "Label");
+        let second = *buttons.get(1).expect("a second row with a Label button");
+        click(&mut dom, second);
+        settle(&mut dom).await;
+        let label = dioxus_ssr::render(&dom);
+        let rows: Vec<&str> = label.split("<li class=\"row\"").collect();
+        assert!(
+            rows.get(2)
+                .is_some_and(|row| row.contains("class=\"row-menu\"")),
+            "the label menu is not inside the second row"
+        );
 
-    let mut dom = VirtualDom::new(App)
-        .with_root_context(built.store.clone())
-        .with_root_context(built.dirs);
-    let seen = rebuild_into(&mut dom);
-    let buttons = seen.all("aria-label", "Label");
-    let second = *buttons.get(1).expect("a second row with a Label button");
-    click(&mut dom, second);
-    settle(&mut dom).await;
-    let label = dioxus_ssr::render(&dom);
-    let rows: Vec<&str> = label.split("<li class=\"row\"").collect();
-    assert!(
-        rows.get(2)
-            .is_some_and(|row| row.contains("class=\"row-menu\"")),
-        "the label menu is not inside the second row"
-    );
-
-    let target = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
-    std::fs::create_dir_all(&target).unwrap();
-    for (name, body) in [("menus", &command), ("menus-label", &label)] {
-        for (suffix, theme) in [("", Theme::Light), ("-dark", Theme::Dark)] {
-            let out = target.join(format!("{name}{suffix}.html"));
-            std::fs::write(&out, page(body, theme, &space)).unwrap();
-            println!("wrote {}", out.display());
+        for (name, body) in [("menus", &command), ("menus-label", &label)] {
+            crate::ui::fixtures::write_page(
+                &format!("{name}{suffix}"),
+                &crate::ui::fixtures::page(body, ""),
+            );
         }
     }
 }
@@ -247,24 +248,6 @@ async fn settle(dom: &mut VirtualDom) {
         .await
         .ok();
     dom.render_immediate(&mut dioxus_core::NoOpMutations);
-}
-
-fn page(body: &str, theme: Theme, space: &crate::space::Space) -> String {
-    use super::super::paint::appearance_script;
-    use super::super::style::STYLE;
-    let script = appearance_script(&crate::space::Space {
-        theme,
-        ..space.clone()
-    });
-    let theme_attr = theme
-        .attribute()
-        .map(|name| format!(" data-theme=\"{name}\""))
-        .unwrap_or_default();
-    format!(
-        "<!doctype html>\n<html lang=\"en\"{theme_attr}>\
-         <head><meta charset=\"utf-8\"><style>{STYLE}</style><script>{script}</script></head>\
-         <body>{body}</body></html>\n"
-    )
 }
 
 /// `extra` as the first child of `.app`, where the window mounts the overlay.

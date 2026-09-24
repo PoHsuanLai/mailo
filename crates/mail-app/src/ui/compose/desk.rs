@@ -9,7 +9,6 @@ use dioxus::prelude::*;
 use mail_domain::DraftId;
 use mail_store::{SqliteStore, Store};
 
-use super::super::icon::{Glyph, Icon};
 use super::super::motion::{Follow, tell};
 use super::life;
 use super::page::{Page, Phase, When};
@@ -17,6 +16,7 @@ use crate::appearance::WindowDirs;
 use crate::space::Spaces;
 use crate::today::Today;
 use crate::view::Shell;
+use ds::{Glyph, Icon};
 
 /// A send that is queued and may still be taken back.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -230,7 +230,7 @@ pub(in crate::ui) fn ParkedDrafts(shell: Signal<Shell>, space_index: usize) -> E
                 tabindex: "0",
                 title: "A draft you put aside",
                 onclick: move |_| reopen(desk, shell, draft),
-                span { class: "fav draft", Glyph { icon: Icon::Pen, class: None } }
+                span { class: "fav draft", Glyph { icon: Icon::Pen } }
                 span { class: "t", "{title}" }
             }
         }

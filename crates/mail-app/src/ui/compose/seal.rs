@@ -14,11 +14,11 @@ use dioxus::prelude::*;
 use mail_domain::{Draft, Fingerprint};
 use mail_store::SqliteStore;
 
-use super::super::icon::{Glyph, Icon};
 use super::super::pgp::{Busy, Scheme, Tried, Unlock, seams, short};
 use crate::password::Password;
 use crate::pgp::PgpError;
 use crate::smime::SmimeError;
+use ds::{Glyph, Icon};
 
 /// What the warning bar says about signing and encrypting.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -209,7 +209,7 @@ pub(in crate::ui) fn SealWarn(bar: SealBar, on_act: EventHandler<BarAct>) -> Ele
     };
     rsx! {
         div { class: "c-warn seal-warn", role: "alert",
-            Glyph { icon: Icon::Key, class: None }
+            Glyph { icon: Icon::Key }
             {body}
         }
     }

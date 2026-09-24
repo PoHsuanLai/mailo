@@ -195,60 +195,17 @@ pub fn badge_filter(source: &Source) -> Option<Filter> {
     }
 }
 
-/// Which palette the window resolves to.
+/// Which palette a Space resolves to: quire's, moved from here with its three states.
+pub use ds::Theme;
+
+/// How much the window moves while a Space is on screen.
 ///
-/// Three states and not a bool: "follow the desktop" is a different choice from "light",
-/// and a client that cannot express it either ignores the desktop or cannot be overridden
-/// when the desktop is wrong.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Copy, Hash, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum Theme {
-    /// Follow the desktop. No `data-theme`, so `prefers-color-scheme` decides.
-    #[default]
-    System,
-    /// The light palette, even when the desktop is dark.
-    Light,
-    /// The dark palette, even when the desktop is light.
-    Dark,
-}
-
-impl Theme {
-    /// The `data-theme` attribute, or [`None`] when the desktop decides.
-    ///
-    /// [`None`] is what makes the stylesheet's `prefers-color-scheme` guard reachable.
-    pub fn attribute(self) -> Option<&'static str> {
-        match self {
-            Theme::System => None,
-            Theme::Light => Some("light"),
-            Theme::Dark => Some("dark"),
-        }
-    }
-
-    /// What a picker calls it.
-    pub fn label(self) -> &'static str {
-        match self {
-            Theme::System => "System",
-            Theme::Light => "Light",
-            Theme::Dark => "Dark",
-        }
-    }
-
-    /// The palette a stored word names, or [`None`] for a word that is not one.
-    pub fn parse(word: &str) -> Option<Theme> {
-        match word {
-            "system" => Some(Theme::System),
-            "light" => Some(Theme::Light),
-            "dark" => Some(Theme::Dark),
-            _ => None,
-        }
-    }
-}
-
-/// How much the window moves.
-///
-/// One setting that rescales the whole motion system (see `tokens.css`) rather than a switch per
-/// animation. `Calm` keeps every state change visible but removes the overshoot; the desktop's
-/// reduced-motion setting goes further and is honoured whatever this says.
+/// mailo's own, and per Space: quire's [`ds::SpaceLook`] has no motion of its own, so this
+/// stays in [`crate::space::Space`] and becomes the root's `appearance.motion` through
+/// [`Motion::with_desktop`]. Three levels and no "follow the desktop": `Standard` is mailo's
+/// explicit default, never [`ds::Motion::System`]. `Calm` keeps every state change visible but
+/// removes the overshoot; the desktop's reduced-motion setting goes further and is honoured
+/// whatever this says.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Copy, Hash, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum Motion {
@@ -265,8 +222,7 @@ impl Motion {
     /// Every level, in the order a picker offers them.
     pub const ALL: [Motion; 3] = [Motion::Calm, Motion::Standard, Motion::Extra];
 
-    /// The `data-motion` value. `tokens.css` is written against `calm` and `extra`; `standard`
-    /// matches no rule there, which is what makes it the design as drawn.
+    /// The stored word.
     pub fn slug(self) -> &'static str {
         match self {
             Motion::Calm => "calm",
@@ -287,6 +243,26 @@ impl Motion {
     /// The level a stored word names, or [`None`] for a word that is not one.
     pub fn parse(word: &str) -> Option<Motion> {
         Self::ALL.into_iter().find(|level| level.slug() == word)
+    }
+
+    /// What the window's root is drawn at: this level, unless the desktop asks for reduced
+    /// motion, which wins whatever a Space says.
+    pub fn with_desktop(self, system: ds::SystemPrefs) -> ds::Motion {
+        match system.motion {
+            ds::ReducedMotion::Reduce => ds::Motion::Reduced,
+            ds::ReducedMotion::NoPreference => self.into(),
+        }
+    }
+}
+
+impl From<Motion> for ds::Motion {
+    /// One for one. `Standard` is an explicit choice, so it is quire's `Standard`, not `System`.
+    fn from(motion: Motion) -> Self {
+        match motion {
+            Motion::Calm => ds::Motion::Calm,
+            Motion::Standard => ds::Motion::Standard,
+            Motion::Extra => ds::Motion::Extra,
+        }
     }
 }
 
@@ -326,45 +302,20 @@ impl Marks {
     }
 }
 
-/// How the window looks, as data.
+/// The window's own preferences: what is mailo's rather than the design system's.
 ///
-/// A missing field is the first-run value. An unknown word for one field is that field's
-/// default, not a failure of the whole value. An unknown field is ignored: files written
-/// before the six accent hues were retired still carry `accent`, and reading one drops it
-/// while keeping the theme and motion beside it.
+/// Theme, accent and motion are quire's [`ds::Appearance`], in `appearance.toml`
+/// (`crate::appearance`); a Space's theme and motion are the Space's. What is left here is
+/// mail policy with no place in any quire type: whether a provider chip shows its icon.
 ///
-/// Theme and motion are per Space now. They stay here as what a Space that has none of its
-/// own inherits on first read (see `space::load`).
+/// A missing field is the first-run value, and an unknown word is that field's default, not a
+/// failure of the whole value. An unknown field is ignored.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Copy, Hash, Default)]
 #[serde(default)]
 pub struct Appearance {
-    /// Which palette the window resolves to.
-    #[serde(deserialize_with = "de_theme")]
-    pub theme: Theme,
-    /// How much the window moves.
-    #[serde(deserialize_with = "de_motion")]
-    pub motion: Motion,
     /// Provider marks: their icons, or the letter.
-    #[serde(default, deserialize_with = "de_marks")]
+    #[serde(deserialize_with = "de_marks")]
     pub marks: Marks,
-}
-
-/// A stored motion level. Anything that is not one of the three is [`Motion::default`].
-fn de_motion<'de, D>(deserializer: D) -> Result<Motion, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let word = String::deserialize(deserializer)?;
-    Ok(Motion::parse(&word).unwrap_or_default())
-}
-
-/// A stored theme. Anything that is not `system`, `light` or `dark` is [`Theme::default`].
-fn de_theme<'de, D>(deserializer: D) -> Result<Theme, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let word = String::deserialize(deserializer)?;
-    Ok(Theme::parse(&word).unwrap_or_default())
 }
 
 /// A stored provider-mark choice. Anything that is not `icons` or `letters` is [`Marks::default`].
@@ -378,27 +329,29 @@ where
 
 /// Where the open reader sits. Per session, and not persisted.
 ///
-/// Side is the grid's third column. Centre and full float over the window, which is a
-/// stylesheet change on `div.app` — the reader component stays where it is in the tree,
-/// because moving it would reload the sandboxed frame.
+/// Side is the grid's third column, and mailo's own: quire's [`ds::PeekMode`] is only the two
+/// that float. Floating is a stylesheet change on `div.app` — the reader component stays where
+/// it is in the tree, because moving it would reload the sandboxed frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Peek {
     /// The grid's third column.
     #[default]
     Side,
-    /// A panel over the middle of the window.
-    Center,
-    /// The whole window.
-    Full,
+    /// Over the window: a centred panel, or the whole of it.
+    Float(ds::PeekMode),
 }
 
 impl Peek {
+    /// A panel over the middle of the window.
+    pub const CENTER: Peek = Peek::Float(ds::PeekMode::Center);
+    /// The whole window.
+    pub const FULL: Peek = Peek::Float(ds::PeekMode::Full);
+
     /// `side`, `center` or `full`, written as `data-peek`.
     pub fn slug(self) -> &'static str {
         match self {
             Peek::Side => "side",
-            Peek::Center => "center",
-            Peek::Full => "full",
+            Peek::Float(mode) => mode.slug(),
         }
     }
 
@@ -406,8 +359,7 @@ impl Peek {
     pub fn label(self) -> &'static str {
         match self {
             Peek::Side => "Side peek",
-            Peek::Center => "Centre peek",
-            Peek::Full => "Full page",
+            Peek::Float(mode) => mode.label(),
         }
     }
 
@@ -3228,14 +3180,27 @@ mod appearance {
     use super::*;
 
     #[test]
-    fn the_theme_attribute_is_none_light_or_dark() {
-        const CASES: &[(Theme, Option<&str>)] = &[
-            (Theme::System, None),
-            (Theme::Light, Some("light")),
-            (Theme::Dark, Some("dark")),
+    fn system_follows_the_desktop_and_light_or_dark_do_not() {
+        // mailo used to leave `data-theme` off for System so a media query could decide.
+        // quire resolves the scheme in Rust and always writes one, so the guarantee is now
+        // about the resolution: System is the desktop's, Light and Dark are themselves.
+        use ds::{Appearance, Scheme, SystemPrefs, resolve};
+        const CASES: &[(Theme, Scheme, Scheme)] = &[
+            (Theme::System, Scheme::Dark, Scheme::Dark),
+            (Theme::System, Scheme::Light, Scheme::Light),
+            (Theme::Light, Scheme::Dark, Scheme::Light),
+            (Theme::Dark, Scheme::Light, Scheme::Dark),
         ];
-        for &(theme, attribute) in CASES {
-            assert_eq!(theme.attribute(), attribute, "{theme:?}");
+        for &(theme, desktop, expect) in CASES {
+            let system = SystemPrefs {
+                scheme: desktop,
+                ..SystemPrefs::default()
+            };
+            let resolved = resolve(Appearance::default(), theme, system);
+            assert_eq!(
+                resolved.scheme, expect,
+                "{theme:?} on a {desktop:?} desktop"
+            );
         }
     }
 
@@ -3252,5 +3217,26 @@ mod appearance {
         for &(word, expect) in CASES {
             assert_eq!(Theme::parse(word), expect, "{word:?}");
         }
+    }
+
+    #[test]
+    fn a_spaces_motion_is_quires_one_for_one_unless_the_desktop_reduces() {
+        use ds::{ReducedMotion, SystemPrefs};
+        let still = SystemPrefs::default();
+        let reduce = SystemPrefs {
+            motion: ReducedMotion::Reduce,
+            ..SystemPrefs::default()
+        };
+        const CASES: &[(Motion, ds::Motion)] = &[
+            (Motion::Calm, ds::Motion::Calm),
+            (Motion::Standard, ds::Motion::Standard),
+            (Motion::Extra, ds::Motion::Extra),
+        ];
+        for &(mine, theirs) in CASES {
+            assert_eq!(ds::Motion::from(mine), theirs, "{mine:?}");
+            assert_eq!(mine.with_desktop(still), theirs, "{mine:?}");
+            assert_eq!(mine.with_desktop(reduce), ds::Motion::Reduced, "{mine:?}");
+        }
+        assert_ne!(ds::Motion::from(Motion::default()), ds::Motion::System);
     }
 }

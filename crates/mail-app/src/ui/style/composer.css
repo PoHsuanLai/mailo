@@ -13,7 +13,7 @@
 }
 .cpage.focus {
   position: absolute; inset: 8px; z-index: 12; background: var(--surface);
-  border-radius: var(--r-card); box-shadow: var(--f-card-shadow);
+  border-radius: var(--r-card); box-shadow: var(--shadow-card);
 }
 .cpage.focus .c-scroll { padding-inline: max(24px, calc((100% - 70ch) / 2)); }
 .c-top { display: flex; align-items: center; gap: 6px; padding: 10px 14px; border-bottom: 1px solid var(--line-soft); }
@@ -36,7 +36,7 @@
 }
 .prop-row:hover { background: var(--surface); }
 .prop-row .k { display: flex; align-items: center; gap: 7px; font-family: var(--font-data); font-size: 11px; color: var(--ink-faint); }
-.prop-row .k .ic { width: 14px; height: 14px; }
+.prop-row .k .ds-ic { width: 14px; height: 14px; }
 .prop-row .v { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; min-width: 0; position: relative; }
 .prop-row.shake { animation: shake-x 420ms cubic-bezier(.36, .07, .19, .97); }
 .prop-row.shake.again { animation-name: shake-x2; }
@@ -47,12 +47,12 @@
   background: var(--surface); border: 1px solid var(--line); font-size: 12.5px; color: var(--ink);
   animation: chip-in var(--t-move) var(--e-spring); transition: box-shadow var(--t-move) var(--e-out);
 }
-.pchip .av { width: 18px; height: 18px; font-size: 9px; font-weight: 800; color: var(--av-ink); }
+.pchip .av { width: 18px; height: 18px; font-size: 9px; font-weight: 800; color: var(--on-hue); }
 .pchip .av.file { width: auto; min-width: 18px; padding: 0 5px; border-radius: 6px; background: var(--ink-soft); font-size: 8px; }
 .pchip .size { color: var(--ink-faint); }
 .pchip.receipt-chip { padding-left: 9px; color: var(--ink-soft); }
 .pchip .x { border: 0; background: none; padding: 0; cursor: pointer; color: var(--ink-faint); line-height: 0; }
-.pchip .x .ic { width: 11px; height: 11px; }
+.pchip .x .ds-ic { width: 11px; height: 11px; }
 .pchip.flash { box-shadow: 0 0 0 3px var(--accent-soft); animation: chip-in var(--t-move) var(--e-spring), chip-flash 1200ms var(--e-out); }
 @keyframes chip-in { 0% { transform: scale(.6); opacity: 0; } 70% { transform: scale(var(--overshoot)); opacity: 1; } 100% { transform: none; } }
 @keyframes chip-flash { 0%, 70% { box-shadow: 0 0 0 3px var(--accent-soft); } 100% { box-shadow: 0 0 0 0 transparent; } }
@@ -133,7 +133,7 @@
   display: flex; align-items: center; gap: 10px; padding: 14px; color: var(--ink-faint); font-size: 13px;
   border: 1px dashed var(--line); border-radius: 10px; background: var(--surface);
 }
-.o-img .pick .ic { width: 18px; height: 18px; }
+.o-img .pick .ds-ic { width: 18px; height: 18px; }
 .o-img figcaption { font-size: 12px; color: var(--ink-faint); margin-top: 5px; }
 .o-table .tbl { overflow-x: auto; border: 1px solid var(--line-soft); border-radius: 10px; background: var(--surface); }
 .o-table table { border-collapse: collapse; width: 100%; font-size: 13px; }
@@ -149,7 +149,7 @@
   color: var(--ink-faint); cursor: pointer; border: 0; background: none; padding: 2px 0;
 }
 .o-rq .rq-head:hover { color: var(--ink); }
-.o-rq .rq-head .ic { width: 12px; height: 12px; }
+.o-rq .rq-head .ds-ic { width: 12px; height: 12px; }
 .o-rq .rq-t { opacity: .7; }
 .o-rq .rq-body {
   border-left: 2px solid var(--line); padding-left: 12px; color: var(--ink-faint); font-size: 13.5px;
@@ -203,7 +203,7 @@
   font-size: 12.5px; background: color-mix(in oklab, var(--warn) 14%, var(--surface)); color: var(--ink);
   animation: rise var(--t-move) var(--e-out);
 }
-.c-warn .ic { width: 14px; height: 14px; color: var(--warn); }
+.c-warn .ds-ic { width: 14px; height: 14px; color: var(--warn); }
 .c-warn .attach { margin-left: auto; }
 .mini.attach { position: relative; overflow: hidden; }
 .inp.c-file { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; padding: 0; }
@@ -214,7 +214,7 @@
 }
 .btn:hover { transform: translateY(-1px) scale(1.015); box-shadow: var(--shadow-2); }
 .btn:active { transform: translateY(1px) scale(var(--squish)); }
-.btn .ic { width: 14px; height: 14px; }
+.btn .ds-ic { width: 14px; height: 14px; }
 
 /* reply lives under the thread */
 .inline-reply {
@@ -235,7 +235,7 @@
 /* a parked draft in Today */
 .today-item.draft { font-style: italic; }
 .fav.draft { background: var(--f-ink); }
-.fav.draft .ic { width: 11px; height: 11px; }
+.fav.draft .ds-ic { width: 11px; height: 11px; }
 
 /* undo send: the pill counts down, then shows the outbox's own state */
 .sendpill {
@@ -272,7 +272,7 @@
 /* send later: "Pick a time…" under the Sends row, and what it reads; the template name field */
 .fmenu.pick-time, .fmenu.tpl-save { width: 260px; }
 .pick-in { display: flex; align-items: center; gap: 8px; padding: 4px 8px; color: var(--ink-faint); }
-.pick-in .ic { width: 15px; height: 15px; flex: none; }
+.pick-in .ds-ic { width: 15px; height: 15px; flex: none; }
 .inp.pick-field, .inp.tpl-name { font-size: 13.5px; }
 .pick-says { margin: 0; padding: 2px 8px 7px 31px; font-size: 11.5px; line-height: 1.35; color: var(--ink-faint); }
 .pick-says.refused { color: var(--danger); }
@@ -284,5 +284,5 @@
 }
 .today-item.later .when + .x { margin-left: 2px; }
 .fav.later { background: var(--f-ink-soft); }
-.fav.later .ic { width: 11px; height: 11px; }
+.fav.later .ds-ic { width: 11px; height: 11px; }
 .today-hint.refused { color: var(--danger); }

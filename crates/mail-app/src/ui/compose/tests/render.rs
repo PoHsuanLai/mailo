@@ -161,7 +161,10 @@ async fn every_class_the_composer_draws_is_styled() {
     ];
     for dress in states {
         let (markup, _root) = window_with_page(dress);
-        let missing = crate::ui::style::tests::unstyled_classes(&markup, crate::ui::style::STYLE);
+        let missing = crate::ui::style::tests::unstyled_classes(
+            &markup,
+            &crate::ui::style::tests::full_css(),
+        );
         assert!(missing.is_empty(), "unstyled classes: {missing:?}");
     }
 }

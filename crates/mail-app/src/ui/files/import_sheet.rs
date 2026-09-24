@@ -7,12 +7,12 @@ use mail_store::SqliteStore;
 
 use super::super::debounce::use_debounced;
 use super::super::field::{Field, FieldKind};
-use super::super::icon::{Glyph, Icon};
 use super::super::menu::{Menu, MenuItem, Right, Tile};
 use super::pick::{Ask, choose};
 use super::work::{self, Dest, Looked};
 use super::{Phase, Progress, run, tilde_here};
 use crate::view::{FileSheet, Shell};
+use ds::{Glyph, Icon};
 
 /// The path the sheet's field holds.
 fn typed(shell: &Shell) -> String {
@@ -162,7 +162,7 @@ pub(super) fn ImportSheet(shell: Signal<Shell>, revision: Signal<u64>) -> Elemen
                             r#type: "button",
                             aria_label: "Import into: {chosen.label()}",
                             onclick: move |_| menu_open.set(!menu_open()),
-                            Glyph { icon: if chosen == Dest::Local { Icon::Inbox } else { Icon::Mail }, class: None }
+                            Glyph { icon: if chosen == Dest::Local { Icon::Inbox } else { Icon::Mail } }
                             "{chosen.label()}"
                             span { class: "car", "▾" }
                         }
@@ -199,7 +199,7 @@ pub(super) fn ImportSheet(shell: Signal<Shell>, revision: Signal<u64>) -> Elemen
                         r#type: "button",
                         disabled: !can_run,
                         onclick: start,
-                        Glyph { icon: Icon::Plus, class: None }
+                        Glyph { icon: Icon::Plus }
                         if busy { "Importing…" } else { "Import" }
                     }
                 }

@@ -7,12 +7,12 @@ use mail_store::SqliteStore;
 
 use super::super::debounce::use_debounced;
 use super::super::field::{Field, FieldKind};
-use super::super::icon::{Glyph, Icon};
 use super::super::space_editor::Seg;
 use super::pick::{Ask, choose};
 use super::work::{self, Counted, Format};
 use super::{Phase, Progress, run};
 use crate::view::{FileSheet, Shell};
+use ds::{Glyph, Icon};
 
 /// The query the sheet's field holds.
 fn typed(shell: &Shell) -> String {
@@ -189,7 +189,7 @@ pub(super) fn ExportSheet(shell: Signal<Shell>) -> Element {
                         r#type: "button",
                         disabled: !can_run,
                         onclick: start,
-                        Glyph { icon: Icon::Forward, class: None }
+                        Glyph { icon: Icon::Forward }
                         if busy { "Exporting…" } else { "Export" }
                     }
                 }

@@ -1,9 +1,9 @@
 //! The link pill: where a link in the reader really goes, read from the parsed blocks.
 
-use super::super::icon::{Glyph, Icon};
 use super::hover;
 use crate::trust::Destination;
 use dioxus::prelude::*;
+use ds::{Glyph, Icon};
 
 /// Where the link under the pointer goes, like a browser's status bar, and loud when its text
 /// names somewhere else. Drawn in the reader; the link reports itself from the parsed blocks.
@@ -26,7 +26,7 @@ pub(in crate::ui) fn LinkPill() -> Element {
         },
         Destination::Lies { goes_to, claims } => rsx! {
             div { class: "linkpill warn", role: "status",
-                Glyph { icon: Icon::X, class: None }
+                Glyph { icon: Icon::X }
                 span {
                     "Goes to "
                     b { "{goes_to}" }

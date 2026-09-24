@@ -4,9 +4,9 @@
 //! not in the mail database. A cosmetic choice must not be a write against
 //! someone's mail.
 
-use crate::appearance::write_json;
-use crate::palette::{Dot, NEUTRAL_DOT};
-use crate::view::{Appearance, Motion, Theme};
+use crate::appearance::{Legacy, write_json};
+use crate::view::{Motion, Theme};
+use ds::{CardAccent, Dot, Grain, NEUTRAL_DOT, SpaceLook};
 use mail_domain::AccountId;
 use serde::de::Deserializer;
 use serde::{Deserialize, Serialize};
@@ -24,19 +24,12 @@ pub use recall::Recall;
 const FILE_NAME: &str = "spaces.json";
 const DEFAULT_GRAIN: u8 = 35;
 
-/// Whether the card's accent follows the Space or stays Postmark.
+/// A Space's card accent when it has stored none: the Space's own hue.
 ///
-/// `Hint` borrows the Space's hue at a fraction of a free accent's chroma.
-/// `Postmark` keeps the ink-blue the rest of the window uses.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum CardAccent {
-    /// The card borrows the Space's hue.
-    #[default]
-    Hint,
-    /// The card keeps Postmark, whatever hue the Space is.
-    Postmark,
-}
+/// quire's [`CardAccent`] defaults to Postmark, the design system's first-run value for a
+/// workspace; mailo's Spaces have always lent the card their hue unless told not to, and a
+/// `spaces.json` written before quire says nothing, so that is what nothing still means here.
+pub const DEFAULT_CARD_ACCENT: CardAccent = CardAccent::SpaceHue;
 
 /// Which accounts a Space shows.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -61,22 +54,24 @@ pub enum Pinned {
     Search { name: String, query: String },
 }
 
-/// One context: a name, up to three dots, and whose mail it shows.
+/// One context: a name, how its frame looks, and whose mail it shows.
+///
+/// The look is quire's [`SpaceLook`]: one to three dots (empty input is the neutral dot; a
+/// fourth is dropped), a grain from 0 to 100 (35 on first run), the palette this Space resolves
+/// to independently of the window, and whether the card follows its hue. It is written flat
+/// into `spaces.json`, beside the fields that are mailo's, so the file keeps the shape it had
+/// before the look was quire's; it is read through [`SpaceRaw`], leniently, field by field.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(from = "SpaceRaw")]
 pub struct Space {
     /// What the switcher calls it. "Space 1" until someone renames it.
     pub name: String,
-    /// One to three dots. Empty input is the neutral dot; a fourth is dropped.
-    pub dots: Vec<Dot>,
-    /// How loud the grain is, from 0 to 100. The first-run value is 35.
-    pub grain: u8,
-    /// Which palette this Space resolves to, independently of the window.
-    pub theme: Theme,
-    /// How much the window moves while this Space is on screen.
+    /// The frame's dots, grain, theme and card accent: what the window's `Ds` root paints.
+    #[serde(flatten)]
+    pub look: SpaceLook,
+    /// How much the window moves while this Space is on screen. mailo's own: [`SpaceLook`]
+    /// has no motion (a gap reported to quire), so it stays beside the look.
     pub motion: Motion,
-    /// Whether the card follows this Space's hue.
-    pub card_accent: CardAccent,
     /// Whose mail this Space shows.
     pub scope: Scope,
     /// People and saved searches that stay put.
@@ -120,11 +115,13 @@ impl Default for Space {
     fn default() -> Self {
         Self {
             name: String::new(),
-            dots: vec![NEUTRAL_DOT],
-            grain: DEFAULT_GRAIN,
-            theme: Theme::default(),
+            look: SpaceLook {
+                dots: vec![NEUTRAL_DOT],
+                grain: Grain(DEFAULT_GRAIN),
+                theme: Theme::default(),
+                card_accent: DEFAULT_CARD_ACCENT,
+            },
             motion: Motion::default(),
-            card_accent: CardAccent::default(),
             scope: Scope::default(),
             pins: Vec::new(),
             colors: BTreeMap::new(),
@@ -169,7 +166,7 @@ struct SpaceRaw {
     theme: Theme,
     #[serde(default, deserialize_with = "de_motion")]
     motion: Motion,
-    #[serde(default, deserialize_with = "de_card_accent")]
+    #[serde(default = "default_card_accent", deserialize_with = "de_card_accent")]
     card_accent: CardAccent,
     #[serde(default, deserialize_with = "de_scope")]
     scope: Scope,
@@ -202,6 +199,10 @@ fn default_grain() -> u8 {
     DEFAULT_GRAIN
 }
 
+fn default_card_accent() -> CardAccent {
+    DEFAULT_CARD_ACCENT
+}
+
 impl From<SpaceRaw> for Space {
     fn from(raw: SpaceRaw) -> Self {
         let mut dots: Vec<Dot> = raw.dots.into_iter().map(clamp_dot).collect();
@@ -212,11 +213,13 @@ impl From<SpaceRaw> for Space {
         }
         Self {
             name: raw.name,
-            dots,
-            grain: raw.grain.min(100),
-            theme: raw.theme,
+            look: SpaceLook {
+                dots,
+                grain: Grain(raw.grain.min(100)),
+                theme: raw.theme,
+                card_accent: raw.card_accent,
+            },
             motion: raw.motion,
-            card_accent: raw.card_accent,
             scope: raw.scope,
             pins: raw.pins,
             colors: raw.colors,
@@ -299,10 +302,12 @@ where
     D: Deserializer<'de>,
 {
     let word = String::deserialize(deserializer)?;
+    // `hint` is what mailo wrote before the look was quire's; `space_hue` is quire's word
+    // for the same choice, and what is written now.
     Ok(match word.as_str() {
-        "hint" => CardAccent::Hint,
+        "hint" | "space_hue" => CardAccent::SpaceHue,
         "postmark" => CardAccent::Postmark,
-        _ => CardAccent::default(),
+        _ => DEFAULT_CARD_ACCENT,
     })
 }
 
@@ -329,13 +334,13 @@ pub fn load(dir: &Path) -> Spaces {
     let Ok(bytes) = std::fs::read(dir.join(FILE_NAME)) else {
         return Spaces::default();
     };
-    migrate::read_with(&bytes, &crate::appearance::load(dir))
+    migrate::read_with(&bytes, &crate::appearance::legacy(dir))
 }
 
 /// Give every Space `look`'s theme and motion. For Spaces made before any were stored.
-pub fn inherit(spaces: &mut Spaces, look: &Appearance) {
+pub fn inherit(spaces: &mut Spaces, look: &Legacy) {
     for space in &mut spaces.spaces {
-        space.theme = look.theme;
+        space.look.theme = look.theme;
         space.motion = look.motion;
     }
 }
@@ -347,19 +352,28 @@ pub fn inherit(spaces: &mut Spaces, look: &Appearance) {
 pub fn new_space(spaces: &Spaces) -> Space {
     let count = spaces.spaces.len();
     let current = spaces.current_space();
-    Space {
+    let mut made = Space {
         name: format!("Space {}", count + 1),
-        dots: PRESETS[count % PRESETS.len()].to_vec(),
-        theme: current.theme,
         motion: current.motion,
         scope: Scope::All,
         ..Space::default()
-    }
+    };
+    made.look.dots = PRESETS[count % PRESETS.len()].to_vec();
+    made.look.theme = current.look.theme;
+    made
 }
 
 /// Write `spaces` to `dir/spaces.json`, creating `dir` if needed.
 pub fn save(dir: &Path, spaces: &Spaces) -> Result<(), String> {
     write_json(dir, FILE_NAME, spaces)
+}
+
+/// The first-run look with the dots of preset `index`, in turn.
+fn preset_look(index: usize) -> SpaceLook {
+    SpaceLook {
+        dots: PRESETS[index % PRESETS.len()].to_vec(),
+        ..Space::default().look
+    }
 }
 
 /// One Space per account, named "Space 1" onward, tinted from [`PRESETS`] in order.
@@ -371,7 +385,7 @@ pub fn first_run(accounts: &[AccountId]) -> Spaces {
         return Spaces {
             spaces: vec![Space {
                 name: "Space 1".to_owned(),
-                dots: PRESETS[0].to_vec(),
+                look: preset_look(0),
                 scope: Scope::All,
                 ..Space::default()
             }],
@@ -384,7 +398,7 @@ pub fn first_run(accounts: &[AccountId]) -> Spaces {
         .enumerate()
         .map(|(index, id)| Space {
             name: format!("Space {}", index + 1),
-            dots: PRESETS[index % PRESETS.len()].to_vec(),
+            look: preset_look(index),
             scope: Scope::Accounts(vec![*id]),
             ..Space::default()
         })

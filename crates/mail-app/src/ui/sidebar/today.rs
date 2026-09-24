@@ -1,13 +1,13 @@
 //! Today: threads opened in this Space, as sidebar shortcuts.
 
 use super::super::hover::{Hook, corner, hover};
-use super::super::icon::{Glyph, Icon};
 use super::super::text::sender;
 use crate::appearance::WindowDirs;
 use crate::space;
 use crate::today::Today;
 use crate::view::Shell;
 use dioxus::prelude::*;
+use ds::{Glyph, Icon};
 use mail_domain::ThreadId;
 use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
@@ -117,7 +117,7 @@ pub(super) fn TodayList(
                                 save(&dirs_row, &today.read());
                                 leaving.set(Some(id));
                             },
-                            Glyph { icon: Icon::X, class: None }
+                            Glyph { icon: Icon::X }
                         }
                     }
                 }

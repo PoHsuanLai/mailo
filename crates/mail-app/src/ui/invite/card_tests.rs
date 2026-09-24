@@ -302,7 +302,8 @@ async fn every_class_the_card_draws_is_styled() {
     let noting = dioxus_ssr::render(&dom);
     assert!(noting.contains("inv-noting"), "{noting}");
     page += &noting;
-    let missing = crate::ui::style::tests::unstyled_classes(&page, crate::ui::style::STYLE);
+    let missing =
+        crate::ui::style::tests::unstyled_classes(&page, &crate::ui::style::tests::full_css());
     assert!(missing.is_empty(), "unstyled classes: {missing:?}");
 }
 

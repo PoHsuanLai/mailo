@@ -12,7 +12,6 @@ use mail_domain::{Draft, Template, TemplateId};
 use mail_store::SqliteStore;
 
 use super::super::field::{Field, FieldKind};
-use super::super::icon::{Glyph, Icon};
 use super::super::menu::{Menu, MenuItem, MenuKey, Right, Tile, menu_key};
 use super::super::motion::{Follow, tell};
 use super::desk::{self, Desk};
@@ -21,6 +20,7 @@ use super::life;
 use super::page::{Float, Page, PageKind, Phase, address};
 use crate::editor::{Caret, Node, Op, Range, runs_text};
 use crate::view::Shell;
+use ds::{Glyph, Icon};
 
 /// The `/` row that keeps the message as a template.
 pub(in crate::ui) const SAVE_KEY: &str = "template:save";
@@ -301,7 +301,7 @@ pub(in crate::ui) fn TemplateFloat(page: Signal<Page>, shell: Signal<Shell>) -> 
                             }
                             _ => {}
                         },
-                        Glyph { icon: Icon::FilePen, class: None }
+                        Glyph { icon: Icon::FilePen }
                         Field {
                             kind: FieldKind::Inline,
                             value: name,

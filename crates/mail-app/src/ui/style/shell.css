@@ -15,21 +15,14 @@
 }
 .app.no-side { grid-template-columns: 0 minmax(0, 1fr); padding-left: 8px; }
 .app.no-side .side { visibility: hidden; }
-/* Two layers so a switch can cross-fade: the old gradient is frozen on the front one while
-   the other, reading the new `--f-grad`, fades in. `paint.rs` drives the opacities. */
-.layer { position: absolute; inset: 0; z-index: -2; background: var(--f-grad); transition: opacity 380ms var(--e-out); }
-.layer.back { opacity: 0; }
+/* The frame's two gradient layers and its grain are the `Ds` root's (`.ds-layer`, `.ds-grain`):
+   it cross-fades them itself when the Space changes. */
 /* Hidden sidebar: the left edge brings it back as a floating panel while you are on it. */
 .edge { position: absolute; left: 0; top: 0; bottom: 0; width: 10px; z-index: 14; }
 .app.no-side.side-peek .side {
   visibility: visible; position: absolute; left: 8px; top: 8px; bottom: 8px; width: 226px; z-index: 15;
-  background: var(--f-solid); border-radius: var(--r-panel); box-shadow: var(--f-float-shadow);
+  background: var(--f-solid); border-radius: var(--r-panel); box-shadow: var(--shadow-pop);
   animation: slide-r var(--t-move) var(--e-spring);
-}
-.grain {
-  position: absolute; inset: 0; z-index: -1; pointer-events: none;
-  mix-blend-mode: overlay; opacity: var(--f-grain); background-size: 128px 128px;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='128' height='128'><filter id='g'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23g)'/></svg>");
 }
 .side, .card { min-height: 0; min-width: 0; }
 .side {
@@ -60,19 +53,19 @@
 .pin .n {
   position: absolute; top: 4px; right: 5px; font-family: var(--font-data); font-size: 9px; color: var(--f-ink-soft);
 }
-.pin[aria-pressed="true"] { background: var(--f-pill); box-shadow: var(--f-shadow-pill); }
+.pin[aria-pressed="true"] { background: var(--f-pill); box-shadow: var(--shadow-current); }
 .av {
   width: 26px; height: 26px; border-radius: 999px; display: grid; place-items: center;
-  color: var(--prov-paper); font-family: var(--font-display); font-weight: 700; font-size: 12px;
+  color: var(--mark-ground); font-family: var(--font-display); font-weight: 700; font-size: 12px;
 }
 .pin.acct .av { width: 28px; height: 28px; font-size: 12.5px; }
 .pin.acct[aria-pressed="false"] .av:not(.all) { filter: saturate(.55); opacity: .85; }
 .pin .av { transition: transform var(--t-quick) var(--e-spring); }
 .pin:hover .av { transform: rotate(-6deg) scale(1.08); }
 .av.all { background: transparent; color: var(--f-ink); }
-.av.all .ic { width: 14px; height: 14px; }
+.av.all .ds-ic { width: 14px; height: 14px; }
 .prov {
-  display: inline-grid; place-items: center; background: var(--prov-paper); color: var(--pc, var(--ink-soft));
+  display: inline-grid; place-items: center; background: var(--mark-ground); color: var(--pc, var(--ink-soft));
   font-family: var(--font-display); font-weight: 800; font-size: 9px; line-height: 1; flex: none;
   border-radius: 4px; box-shadow: 0 0 0 1px var(--line);
 }
@@ -84,7 +77,7 @@
   width: 11px; height: 11px; font-size: 7.5px; border-radius: 3px; margin-right: 4px; vertical-align: -1px;
   box-shadow: 0 0 0 1px var(--line);
 }
-.prov.img { background: var(--prov-paper); padding: 1.5px; }
+.prov.img { background: var(--mark-ground); padding: 1.5px; }
 .prov.img img { width: 100%; height: 100%; display: block; object-fit: contain; }
 .marks-refresh {
   display: block; margin-top: 6px; align-self: flex-start; border: 0; background: none; cursor: pointer;
@@ -110,7 +103,7 @@
 .item:hover { background: var(--f-pill-hover); color: var(--f-ink); }
 .item[aria-current="true"] {
   background: var(--f-pill); color: var(--f-ink); font-weight: 650;
-  box-shadow: var(--f-shadow-pill);
+  box-shadow: var(--shadow-current);
 }
 .item[aria-current="true"]::before {
   content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px; border-radius: 2px;
@@ -118,12 +111,12 @@
   /* The seal pops when the current place changes: the attribute moving is the trigger. */
   animation: seal-pop var(--t-big) var(--e-spring);
 }
-.item .ic { width: 15px; height: 15px; }
+.item .ds-ic { width: 15px; height: 15px; }
 .item .count { margin-left: auto; font-family: var(--font-data); font-size: 11px; color: var(--f-ink-faint); }
 .item.pinned { font-weight: 500; }
 .fav {
   width: 18px; height: 18px; border-radius: 6px; display: grid; place-items: center; flex: none;
-  color: var(--prov-paper); font-family: var(--font-display); font-weight: 700; font-size: 10px;
+  color: var(--mark-ground); font-family: var(--font-display); font-weight: 700; font-size: 10px;
 }
 .today-hint { font-size: 12px; color: var(--f-ink-faint); padding: 2px 8px; }
 .today-item .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
@@ -131,7 +124,7 @@
   margin-left: auto; border: 0; background: none; color: var(--f-ink-faint); cursor: pointer;
   width: 18px; height: 18px; display: grid; place-items: center; padding: 0;
 }
-.today-item .x .ic { width: 12px; height: 12px; }
+.today-item .x .ds-ic { width: 12px; height: 12px; }
 .today-item.entering { animation: tab-in var(--t-move) var(--e-spring); }
 .today-item.leaving { animation: tab-out var(--t-quick) var(--e-exit) forwards; }
 .side-foot {
@@ -156,7 +149,7 @@
   background: none; color: var(--f-ink-soft); display: grid; place-items: center; padding: 0;
 }
 .foot-btn:hover { background: var(--f-pill-hover); color: var(--f-ink); }
-.foot-btn .ic { width: 15px; height: 15px; }
+.foot-btn .ds-ic { width: 15px; height: 15px; }
 .seg {
   display: inline-flex; padding: 3px; gap: 2px; background: var(--surface-2);
   border: 1px solid var(--line); border-radius: var(--r-pill);
@@ -170,7 +163,7 @@
 .card {
   display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.08fr);
   min-width: 0; min-height: 0; background: var(--surface); color: var(--ink);
-  border-radius: var(--r-card); overflow: hidden; box-shadow: var(--f-card-shadow);
+  border-radius: var(--r-card); overflow: hidden; box-shadow: var(--shadow-card);
 }
 .app[data-peek="center"] .card, .app[data-peek="full"] .card { overflow: visible; }
 .list-col { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--surface); }
@@ -185,7 +178,7 @@
 }
 .list-bar .status.bad { color: var(--danger); font-weight: 600; }
 .bar-tools { display: flex; gap: 6px; align-items: center; margin-left: auto; position: relative; }
-.bar-tools .mini .ic { width: 14px; height: 14px; }
+.bar-tools .mini .ds-ic { width: 14px; height: 14px; }
 /* Folders: a `<details>` per parent, so opening and closing is the document's own state. The
    ⋯ shows on hover or focus, and the menu and the name field sit in the flow under the row:
    the sidebar is narrower than a menu and clips what hangs out of it. */

@@ -13,8 +13,8 @@ use mail_store::SqliteStore;
 use std::sync::Arc;
 
 use super::super::data::AccountRow;
-use super::super::icon::{Glyph, Icon};
 use crate::sync::Configured;
+use ds::{Glyph, Icon};
 
 /// Install an account's script: the signature of [`crate::rules::server::pushed`], with the
 /// takeover and the saved sign-in clients decided.
@@ -155,7 +155,7 @@ pub(super) fn ServerPart(row: AccountRow) -> Element {
                     aria_label: "{label}",
                     disabled: busy,
                     onclick: start,
-                    Glyph { icon: Icon::Send, class: None }
+                    Glyph { icon: Icon::Send }
                     "Put on server"
                 }
             }

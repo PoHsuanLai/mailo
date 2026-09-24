@@ -8,11 +8,11 @@ use mail_store::SqliteStore;
 use std::sync::Arc;
 
 use super::super::field::{Field, FieldKind};
-use super::super::icon::{Glyph, Icon};
 use super::super::menu::{Menu, MenuItem, Right, Tile};
 use super::super::move_to::destinations;
 use super::super::space_editor::Seg;
 use super::work::{self, Draft};
+use ds::{Glyph, Icon};
 
 /// Which menu the "Add an action" button has open.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,7 +51,7 @@ pub(in crate::ui) fn kinds(folders: bool) -> Vec<MenuItem> {
     if folders {
         out.push(item(
             "file",
-            Icon::FolderInput,
+            crate::ui::FOLDER_INPUT,
             "Move to folder…",
             Some("Out of the inbox, into one of your folders"),
         ));
@@ -86,7 +86,7 @@ fn plain(key: &str) -> Option<RuleAction> {
 fn icon_of(action: &RuleAction) -> Icon {
     match action {
         RuleAction::Label(_) => Icon::Tag,
-        RuleAction::File(_) => Icon::FolderInput,
+        RuleAction::File(_) => crate::ui::FOLDER_INPUT,
         RuleAction::Archive => Icon::Archive,
         RuleAction::Trash => Icon::Trash,
         RuleAction::Spam => Icon::OctagonAlert,
@@ -157,7 +157,7 @@ pub(super) fn RuleEditor(
             "Move to",
             folders
                 .iter()
-                .map(|path| item(&format!("file:{path}"), Icon::FolderInput, path, None))
+                .map(|path| item(&format!("file:{path}"), crate::ui::FOLDER_INPUT, path, None))
                 .collect(),
             folders.len() > 7,
         )),
@@ -207,7 +207,7 @@ pub(super) fn RuleEditor(
             ul { class: "rules-actions",
                 for (at, action) in draft.actions.iter().enumerate() {
                     li { key: "{at}", class: "rules-action",
-                        Glyph { icon: icon_of(action), class: None }
+                        Glyph { icon: icon_of(action) }
                         span { "{work::action_words(action)}" }
                         button {
                             class: "rm",
@@ -220,7 +220,7 @@ pub(super) fn RuleEditor(
                                     draft.actions.remove(at);
                                 }
                             },
-                            Glyph { icon: Icon::X, class: None }
+                            Glyph { icon: Icon::X }
                         }
                     }
                 }
@@ -233,7 +233,7 @@ pub(super) fn RuleEditor(
                             let next = if adding() == Adding::Closed { Adding::Kinds } else { Adding::Closed };
                             adding.set(next);
                         },
-                        Glyph { icon: Icon::Plus, class: None }
+                        Glyph { icon: Icon::Plus }
                         "Add an action"
                     }
                     if let Some((menu_title, items, filterable)) = menu {

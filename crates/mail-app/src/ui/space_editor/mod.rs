@@ -1,8 +1,9 @@
 //! The Space editor: a sheet over the frame, opened from the Space's name, "+" or the gear.
 //!
-//! Every change repaints the frame at once through the same script a switch uses, Save
-//! writes `spaces.json`, and Esc puts the Space back exactly as the sheet found it. The
-//! rules live on [`Draft`]; the colours all come from `palette`.
+//! Every change goes into the window's Spaces at once, so the frame's `Ds` root repaints with
+//! it (cross-fading, as a switch does), Save writes `spaces.json`, and Esc puts the Space back
+//! exactly as the sheet found it. The rules live on [`Draft`]; the colours all come from
+//! quire's `ds::space` palette.
 
 mod hue;
 mod notify;
@@ -15,16 +16,18 @@ use self::notify::Notifications;
 use self::parts::{Marks as MarksChoice, Presets, Readout, Stops};
 use super::field::{Field, FieldKind};
 use super::frame::keep;
-use super::paint::{Fade, paint_script};
-use crate::palette;
+use crate::space::Spaces;
 use crate::space::edit::Draft;
-use crate::space::{CardAccent, Spaces};
 use crate::view::{Motion, Shell, Theme};
 use dioxus::prelude::*;
+use ds::{CardAccent, Grain, Scheme};
 
-/// Apply `edit` to the draft, put the result in the window's Spaces, and repaint.
+/// Apply `edit` to the draft and put the result in the window's Spaces, which the frame's
+/// root reads.
 ///
-/// No write to disk: that is Save's. A change to a sheet that has closed does nothing.
+/// No write to disk: that is Save's. A change to a sheet that has closed does nothing. Every
+/// change cross-fades the frame, a drag's steps included: quire's root has one fade, and
+/// design/21-SPACES.md section 6 has the tint update live with it.
 pub(super) fn change(
     mut editing: Signal<Option<Draft>>,
     mut spaces: Signal<Spaces>,
@@ -39,21 +42,19 @@ pub(super) fn change(
         (draft.index, draft.space.clone())
     };
     if let Some(slot) = spaces.write().spaces.get_mut(index) {
-        *slot = space.clone();
+        *slot = space;
     }
-    dioxus::document::eval(&paint_script(&space, Fade::None));
 }
 
-/// Esc: put the Space back as the sheet found it, repaint, and close.
+/// Esc: put the Space back as the sheet found it, and close.
 pub(super) fn cancel(mut editing: Signal<Option<Draft>>, mut spaces: Signal<Spaces>) {
     let Some(draft) = editing.write().take() else {
         return;
     };
     let saved = draft.reverted();
     if let Some(slot) = spaces.write().spaces.get_mut(draft.index) {
-        *slot = saved.clone();
+        *slot = saved;
     }
-    dioxus::document::eval(&paint_script(&saved, Fade::None));
     dioxus::document::eval("document.querySelector('.app')?.focus()");
 }
 
@@ -64,25 +65,23 @@ fn save(mut editing: Signal<Option<Draft>>, spaces: Signal<Spaces>) {
     dioxus::document::eval("document.querySelector('.app')?.focus()");
 }
 
-/// `--gl` and `--gd`: `dots`' frame gradient in the light and in the dark.
+/// `--g`: `dots`' frame gradient in `scheme`, the one the window's root resolved to.
 ///
-/// The stylesheet picks one by the window's theme, so a swatch follows System without the
-/// editor having to know what the desktop is set to.
-pub(super) fn both_gradients(dots: &[crate::palette::Dot]) -> String {
-    let light = palette::gradient(&palette::derive(dots, false));
-    let dark = palette::gradient(&palette::derive(dots, true));
-    format!("--gl:{light};--gd:{dark}")
+/// quire resolves System in Rust and says which scheme it is (`ds::use_env`), so a swatch
+/// carries the one gradient it shows rather than both for the stylesheet to choose between.
+pub(super) fn gradient_in(dots: &[ds::Dot], scheme: Scheme) -> String {
+    format!("--g:{}", ds::gradient(&ds::derive(dots, scheme)))
 }
 
 /// What the Save button says it does.
 const SAVE_TITLE: &str = "Save this Space and close";
 
-/// The themes the readout measures a Space in: its own, or both when the desktop decides.
-fn measured_in(theme: Theme) -> &'static [(bool, &'static str)] {
+/// The schemes the readout measures a Space in: its own, or both when the desktop decides.
+fn measured_in(theme: Theme) -> &'static [(Scheme, &'static str)] {
     match theme {
-        Theme::Light => &[(false, "")],
-        Theme::Dark => &[(true, "")],
-        Theme::System => &[(false, "Light"), (true, "Dark")],
+        Theme::Light => &[(Scheme::Light, "")],
+        Theme::Dark => &[(Scheme::Dark, "")],
+        Theme::System => &[(Scheme::Light, "Light"), (Scheme::Dark, "Dark")],
     }
 }
 
@@ -93,15 +92,16 @@ pub(super) fn SpaceEditor(
     editing: Signal<Option<Draft>>,
     shell: Signal<Shell>,
 ) -> Element {
+    let scheme = ds::use_env().scheme;
     let Some(draft) = editing.read().clone() else {
         return rsx! {};
     };
     let space = draft.space.clone();
-    let sw = both_gradients(&space.dots);
-    let grain = space.grain;
-    let theme_now = space.theme;
+    let sw = gradient_in(&space.look.dots, scheme);
+    let grain = space.look.grain.0;
+    let theme_now = space.look.theme;
     let motion_now = space.motion;
-    let accent_now = space.card_accent;
+    let accent_now = space.look.card_accent;
     rsx! {
         div {
             class: "editor",
@@ -133,7 +133,7 @@ pub(super) fn SpaceEditor(
                     extra: None,
                     on_input: move |value: String| {
                         if let Ok(grain) = value.parse::<u8>() {
-                            change(editing, spaces, |draft| draft.space.grain = grain.min(100));
+                            change(editing, spaces, |draft| draft.space.look.grain = Grain(grain.min(100)));
                         }
                     },
                     on_focus: |_| {},
@@ -150,7 +150,7 @@ pub(super) fn SpaceEditor(
                         .collect::<Vec<_>>(),
                     on_pick: move |index: usize| {
                         let theme = [Theme::System, Theme::Light, Theme::Dark][index];
-                        change(editing, spaces, |draft| draft.space.theme = theme);
+                        change(editing, spaces, |draft| draft.space.look.theme = theme);
                     },
                 }
             }
@@ -173,12 +173,12 @@ pub(super) fn SpaceEditor(
                 Seg {
                     label: "Card accent".to_owned(),
                     options: vec![
-                        ("A hint of the Space".to_owned(), accent_now == CardAccent::Hint),
+                        ("A hint of the Space".to_owned(), accent_now == CardAccent::SpaceHue),
                         ("Postmark".to_owned(), accent_now == CardAccent::Postmark),
                     ],
                     on_pick: move |index: usize| {
-                        let accent = if index == 0 { CardAccent::Hint } else { CardAccent::Postmark };
-                        change(editing, spaces, |draft| draft.space.card_accent = accent);
+                        let accent = if index == 0 { CardAccent::SpaceHue } else { CardAccent::Postmark };
+                        change(editing, spaces, |draft| draft.space.look.card_accent = accent);
                     },
                 }
             }
@@ -230,8 +230,8 @@ pub(super) fn SpaceEditor(
             }
             div {
                 div { class: "ed-label", "Measured, this Space" }
-                for &(dark, heading) in measured_in(theme_now) {
-                    Readout { key: "{heading}", space: space.clone(), dark, heading: heading.to_owned() }
+                for &(scheme, heading) in measured_in(theme_now) {
+                    Readout { key: "{heading}", space: space.clone(), scheme, heading: heading.to_owned() }
                 }
             }
             div { class: "ed-foot",

@@ -170,7 +170,8 @@ async fn every_class_the_mail_file_sheets_draw_is_styled() {
     for class in ["files-dest", "files-bar", "files-bad", "seg"] {
         assert!(markup.contains(class), "{class} was not drawn");
     }
-    let missing = crate::ui::style::tests::unstyled_classes(&markup, crate::ui::style::STYLE);
+    let missing =
+        crate::ui::style::tests::unstyled_classes(&markup, &crate::ui::style::tests::full_css());
     assert!(missing.is_empty(), "unstyled classes: {missing:?}");
 }
 

@@ -8,9 +8,6 @@
 use crate::trust::destination;
 use crate::ui::app::App;
 use crate::ui::fixtures::{FakePointer, dispatching, pointer, rebuild_into, thread_like, work};
-use crate::ui::paint::appearance_script;
-use crate::ui::style::STYLE;
-use crate::view::Theme;
 use dioxus::prelude::*;
 use dioxus_core::{NoOpMutations, VirtualDom};
 
@@ -45,26 +42,14 @@ fn placing(hook: &str, kind: &str) -> String {
 }
 
 fn write(name: &str, body: &str, extra_script: &str) {
-    let built_space = crate::space::Space::default();
-    let target = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
-    std::fs::create_dir_all(&target).unwrap();
-    for (suffix, theme) in [("", Theme::Light), ("-dark", Theme::Dark)] {
-        let script = appearance_script(&crate::space::Space {
-            theme,
-            ..built_space.clone()
-        });
-        let theme_attr = theme
-            .attribute()
-            .map(|value| format!(" data-theme=\"{value}\""))
-            .unwrap_or_default();
-        let page = format!(
-            "<!doctype html>\n<html lang=\"en\"{theme_attr}><head><meta charset=\"utf-8\">\
-             <style>{STYLE}</style><script>{script}</script><script>{extra_script}</script></head>\
-             <body>{body}</body></html>\n"
+    let look = crate::space::Space::default().look;
+    for (suffix, scheme) in [("", ds::Scheme::Light), ("-dark", ds::Scheme::Dark)] {
+        let framed = crate::ui::fixtures::framed(body, scheme, &look);
+        let head = format!("<script>{extra_script}</script>");
+        crate::ui::fixtures::write_page(
+            &format!("{name}{suffix}"),
+            &crate::ui::fixtures::page(&framed, &head),
         );
-        let out = target.join(format!("{name}{suffix}.html"));
-        std::fs::write(&out, page).unwrap();
-        println!("wrote {}", out.display());
     }
 }
 

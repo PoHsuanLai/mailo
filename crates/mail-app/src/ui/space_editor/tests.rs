@@ -1,26 +1,32 @@
-use crate::space::{self, CardAccent, PRESET_NAMES, PRESETS, Space};
+use crate::space::{self, PRESET_NAMES, PRESETS, Space};
 use crate::ui::app::App;
 use crate::ui::fixtures::{
-    INSIDE_THE_SHELL, Scripts, Seen, Work, click, dispatching, press, rebuild_into, type_into, work,
+    INSIDE_THE_SHELL, Scripts, Seen, Work, click, dispatching, press, rebuild_into, root_attr,
+    type_into, work,
 };
-use crate::ui::paint::appearance_script;
 use crate::ui::sidebar::tests::{Button, buttons_in, pressed};
-use crate::ui::style::STYLE;
 use crate::view::{Motion, Theme};
 use dioxus::prelude::*;
 use dioxus_core::VirtualDom;
+use ds::{CardAccent, Grain, SpaceLook};
 
 /// The window on the Work Space, with the editor opened from the Space's name.
 ///
 /// The `Work` comes back too: it owns the temporary directories the window writes into.
 fn opened() -> (VirtualDom, Seen, Work, Scripts) {
+    opened_with(ds_settings::Environment::default())
+}
+
+/// The editor open on the Work Space, in a window reading `environment`.
+fn opened_with(environment: ds_settings::Environment) -> (VirtualDom, Seen, Work, Scripts) {
     dispatching();
     let built = work();
     let scripts = Scripts::default();
     let mut dom = VirtualDom::new(App)
         .with_root_context(built.store.clone())
         .with_root_context(built.dirs.clone())
-        .with_root_context(scripts.document());
+        .with_root_context(scripts.document())
+        .with_root_context(environment);
     let seen = rebuild_into(&mut dom);
     let name = seen.one("aria-label", "Edit the Work Space");
     let seen = click(&mut dom, name);
@@ -125,7 +131,7 @@ async fn the_editor_opens_on_the_spaces_own_choices() {
 
 #[tokio::test]
 async fn escape_puts_the_space_back_exactly_and_writes_nothing() {
-    let (mut dom, seen, built, scripts) = opened();
+    let (mut dom, seen, built, _scripts) = opened();
     let file = built.dirs.config.join("spaces.json");
     let stored = std::fs::read(&file).unwrap_or_else(|e| panic!("{e}"));
     let saved = space::load(&built.dirs.config).current_space();
@@ -137,7 +143,11 @@ async fn escape_puts_the_space_back_exactly_and_writes_nothing() {
         edited.contains("Edit the Elsewhere Space"),
         "the name did not reach the frame live: {edited}"
     );
-    let evals = scripts.all().len();
+    assert_eq!(
+        root_attr(&edited, "data-theme").as_deref(),
+        Some("dark"),
+        "choosing Dark did not repaint the frame live"
+    );
 
     press(&mut dom, "Escape", INSIDE_THE_SHELL);
     let page = dioxus_ssr::render(&dom);
@@ -155,27 +165,25 @@ async fn escape_puts_the_space_back_exactly_and_writes_nothing() {
         "Esc wrote spaces.json"
     );
     assert_eq!(space::load(&built.dirs.config).current_space(), saved);
-    // And the frame was repainted as the saved Space: System again, not the Dark tried.
-    let after = &scripts.all()[evals..];
-    assert!(
-        after
-            .iter()
-            .any(|script| script.contains("delete document.documentElement.dataset.theme;")),
-        "Esc did not repaint the saved Space: {after:#?}"
+    // And the frame was repainted as the saved Space: System again, which on a desktop with
+    // no preference is light, not the Dark tried.
+    assert_eq!(
+        root_attr(&page, "data-theme").as_deref(),
+        Some("light"),
+        "Esc did not repaint the saved Space"
     );
 }
 
 #[tokio::test]
 async fn save_writes_the_space_and_it_reads_back_the_same() {
-    let (mut dom, seen, built, scripts) = opened();
+    let (mut dom, seen, built, _scripts) = opened();
     let before = space::load(&built.dirs.config).current_space();
-    let evals = scripts.all().len();
 
     let _ = type_into(&mut dom, seen.one("value", "Work"), "Studio");
     let _ = click(&mut dom, seen.one("data-v", "Dark"));
+    let live = dioxus_ssr::render(&dom);
     let _ = click(&mut dom, seen.one("data-v", "Postmark"));
     let _ = type_into(&mut dom, seen.one("value", "35"), "80");
-    let live = scripts.all()[evals..].to_vec();
     let _ = click(&mut dom, seen.one("title", "Save this Space and close"));
 
     let page = dioxus_ssr::render(&dom);
@@ -185,45 +193,33 @@ async fn save_writes_the_space_and_it_reads_back_the_same() {
     );
     let want = Space {
         name: "Studio".to_owned(),
-        theme: Theme::Dark,
-        card_accent: CardAccent::Postmark,
-        grain: 80,
+        look: SpaceLook {
+            theme: Theme::Dark,
+            card_accent: CardAccent::Postmark,
+            grain: Grain(80),
+            ..before.look.clone()
+        },
         ..before.clone()
     };
     assert_ne!(before, want, "the edits above changed nothing");
     assert_eq!(space::load(&built.dirs.config).current_space(), want);
     assert_eq!(want.motion, Motion::Standard);
-    assert!(
-        live.iter()
-            .any(|script| script.contains("document.documentElement.dataset.theme = \"dark\";")),
-        "choosing Dark did not repaint the frame live: {live:#?}"
+    assert_eq!(
+        root_attr(&live, "data-theme").as_deref(),
+        Some("dark"),
+        "choosing Dark did not repaint the frame live"
     );
 }
 
 #[tokio::test]
 #[ignore]
 async fn render_the_space_editor_to_a_file() {
-    let (dom, _, built, _) = opened();
-    let body = dioxus_ssr::render(&dom);
-    let space = space::load(&built.dirs.config).current_space();
-    let target = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
-    std::fs::create_dir_all(&target).unwrap_or_else(|e| panic!("{e}"));
-    for (suffix, theme) in [("", Theme::Light), ("-dark", Theme::Dark)] {
-        let script = appearance_script(&Space {
-            theme,
-            ..space.clone()
-        });
-        let theme_attr = theme
-            .attribute()
-            .map(|name| format!(" data-theme=\"{name}\""))
-            .unwrap_or_default();
-        let page = format!(
-            "<!doctype html>\n<html lang=\"en\"{theme_attr}>\
-             <head><meta charset=\"utf-8\"><style>{STYLE}</style><script>{script}</script></head>\
-             <body>{body}</body></html>\n"
+    // Rendered once per scheme, so the swatches and the field are the ones each scheme shows.
+    for (suffix, scheme) in [("", ds::Scheme::Light), ("-dark", ds::Scheme::Dark)] {
+        let (dom, _, _built, _) = opened_with(crate::ui::fixtures::in_scheme(scheme));
+        crate::ui::fixtures::write_page(
+            &format!("space-editor{suffix}"),
+            &crate::ui::fixtures::page(&dioxus_ssr::render(&dom), ""),
         );
-        let out = target.join(format!("space-editor{suffix}.html"));
-        std::fs::write(&out, page).unwrap_or_else(|e| panic!("{e}"));
-        println!("wrote {}", out.display());
     }
 }

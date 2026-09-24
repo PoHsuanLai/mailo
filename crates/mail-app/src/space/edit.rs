@@ -5,7 +5,7 @@
 //! draft live and keeps [`Draft::saved`] for Esc.
 
 use super::{PRESETS, Space};
-use crate::palette::Dot;
+use ds::Dot;
 
 /// The most dots a Space holds. The gradient reads as a gradient up to three.
 pub const MOST_DOTS: usize = 3;
@@ -98,7 +98,7 @@ impl Draft {
 
     /// Move dot `dot` one stride in `way`. Hue wraps around the wheel; chroma stops at 0 and 1.
     pub fn nudge(&mut self, dot: usize, way: Nudge, stride: Stride) {
-        let Some(target) = self.space.dots.get_mut(dot) else {
+        let Some(target) = self.space.look.dots.get_mut(dot) else {
             return;
         };
         let times = stride.times();
@@ -114,7 +114,7 @@ impl Draft {
     /// Put dot `dot` where the pointer is: `x` across the field is hue, `y` down it is less
     /// chroma. Both are fractions of the field, clamped to it.
     pub fn place(&mut self, dot: usize, x: f32, y: f32) {
-        let Some(target) = self.space.dots.get_mut(dot) else {
+        let Some(target) = self.space.look.dots.get_mut(dot) else {
             return;
         };
         // 359, not 360: the loader reads 360 as 0, and a Space saved at the field's right edge
@@ -126,27 +126,27 @@ impl Draft {
 
     /// Add a dot after the last, turned along the wheel. Refused at [`MOST_DOTS`].
     pub fn add(&mut self) -> Result<(), Refused> {
-        if self.space.dots.len() >= MOST_DOTS {
+        if self.space.look.dots.len() >= MOST_DOTS {
             return Err(Refused::Full);
         }
-        let last = self.space.dots.last().copied().unwrap_or_default();
-        self.space.dots.push(Dot {
+        let last = self.space.look.dots.last().copied().unwrap_or_default();
+        self.space.look.dots.push(Dot {
             hue: (last.hue + NEW_DOT_TURN).rem_euclid(360.0),
             chroma: last.chroma,
         });
-        self.active = self.space.dots.len() - 1;
+        self.active = self.space.look.dots.len() - 1;
         Ok(())
     }
 
     /// Remove dot `dot`. Refused for the last one left.
     pub fn remove(&mut self, dot: usize) -> Result<(), Refused> {
-        if dot >= self.space.dots.len() {
+        if dot >= self.space.look.dots.len() {
             return Err(Refused::Missing);
         }
-        if self.space.dots.len() <= 1 {
+        if self.space.look.dots.len() <= 1 {
             return Err(Refused::Last);
         }
-        self.space.dots.remove(dot);
+        self.space.look.dots.remove(dot);
         self.active = 0;
         Ok(())
     }
@@ -154,7 +154,7 @@ impl Draft {
     /// Replace the dots with preset `index`. Anything past the list is ignored.
     pub fn preset(&mut self, index: usize) {
         if let Some(dots) = PRESETS.get(index) {
-            self.space.dots = dots.to_vec();
+            self.space.look.dots = dots.to_vec();
             self.active = 0;
         }
     }

@@ -1,7 +1,7 @@
 //! The pure half of [`super::Menu`]: the items, the keys, the cursor, the filter and the marks.
 //! Nothing here needs a document, so the key table in `tests.rs` runs without one.
 
-use super::super::icon::Icon;
+use ds::Icon;
 
 /// What the tile on the left is.
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -1,14 +1,14 @@
 //! The hue × chroma field: hue across, chroma down, and one handle per dot.
 //!
-//! Drawn as SVG from `palette::swatch`, so the field shows exactly the colours a dot there
-//! would pick. The pointer lands on one transparent layer over the whole field, so its
+//! Drawn as SVG from `ds::swatch`, so the field shows exactly the colours a dot there
+//! would pick, in the scheme the window's root resolved to. The pointer lands on one transparent layer over the whole field, so its
 //! coordinates are always the field's own; the handles take the keyboard.
 
 use super::change;
-use crate::palette::{self, Dot};
 use crate::space::Spaces;
 use crate::space::edit::{Draft, Nudge, Stride};
 use dioxus::prelude::*;
+use ds::{Dot, Scheme};
 
 /// The field's size in CSS pixels. `.field` in `shell.css` is exactly this, and the pointer's
 /// offset is divided by it: a field drawn at another size would put a dot beside the pointer.
@@ -24,11 +24,10 @@ const GRID_STEP: u32 = 18;
 /// How near the pointer has to land to pick a handle up rather than move the active one.
 const GRAB: f64 = 14.0;
 
-/// The swatches behind the handles, in one theme. Its own component so a drag, which
+/// The swatches behind the handles, in one scheme. Its own component so a drag, which
 /// re-renders the editor on every move, does not rebuild circles that have not changed.
 #[component]
-fn Swatches(dark: bool) -> Element {
-    let theme = if dark { "dark" } else { "light" };
+fn Swatches(scheme: Scheme) -> Element {
     let cells: Vec<(u32, u32, String)> = (0..GRID_H / GRID_STEP + 1)
         .flat_map(|row| (0..GRID_W / GRID_STEP).map(move |col| (col, row)))
         .map(|(col, row)| {
@@ -38,14 +37,13 @@ fn Swatches(dark: bool) -> Element {
                 hue: x as f32 / GRID_W as f32 * 360.0,
                 chroma: 1.0 - y as f32 / GRID_H as f32,
             };
-            (x, y, palette::swatch(dot, dark))
+            (x, y, ds::swatch(dot, scheme))
         })
         .filter(|(_, y, _)| *y < GRID_H)
         .collect();
     rsx! {
         svg {
             class: "field-dots",
-            "data-for": "{theme}",
             view_box: "0 0 {GRID_W} {GRID_H}",
             preserve_aspect_ratio: "none",
             "aria-hidden": "true",
@@ -83,10 +81,11 @@ fn focus_handle(index: usize) {
 #[component]
 pub(super) fn HueField(editing: Signal<Option<Draft>>, spaces: Signal<Spaces>) -> Element {
     let mut dragging = use_signal(|| None::<usize>);
+    let scheme = ds::use_env().scheme;
     let Some(draft) = editing.read().clone() else {
         return rsx! {};
     };
-    let picked = palette::derive(&draft.space.dots, false).picked;
+    let picked = ds::derive(&draft.space.look.dots, Scheme::Light).picked;
     let place = move |dot: usize, x: f64, y: f64| {
         change(editing, spaces, |draft| {
             draft.place(dot, (x / FIELD_W) as f32, (y / FIELD_H) as f32);
@@ -94,16 +93,14 @@ pub(super) fn HueField(editing: Signal<Option<Draft>>, spaces: Signal<Spaces>) -
     };
     rsx! {
         div { class: if dragging().is_some() { "field dragging" } else { "field" },
-            // Both fields, and the stylesheet shows the one for the window's theme: under
-            // System only the desktop knows which that is.
-            Swatches { dark: false }
-            Swatches { dark: true }
+            // The field in the scheme the window's root resolved, System included.
+            Swatches { scheme }
             div {
                 class: "field-hit",
                 onpointerdown: move |event| {
                     let point = event.element_coordinates();
                     let (dots, active) = match editing.read().as_ref() {
-                        Some(draft) => (draft.space.dots.clone(), draft.active),
+                        Some(draft) => (draft.space.look.dots.clone(), draft.active),
                         None => return,
                     };
                     let dot = grabbed(&dots, active, point.x, point.y);
@@ -127,7 +124,7 @@ pub(super) fn HueField(editing: Signal<Option<Draft>>, spaces: Signal<Spaces>) -
                     }
                 },
             }
-            for (index, dot) in draft.space.dots.iter().enumerate() {
+            for (index, dot) in draft.space.look.dots.iter().enumerate() {
                 {
                     let left = f64::from(dot.hue) / 360.0 * 100.0;
                     let top = (1.0 - f64::from(dot.chroma)) * 100.0;
@@ -169,7 +166,7 @@ pub(super) fn HueField(editing: Signal<Option<Draft>>, spaces: Signal<Spaces>) -
 #[cfg(test)]
 mod tests {
     use super::{FIELD_H, FIELD_W, grabbed};
-    use crate::palette::Dot;
+    use ds::Dot;
 
     #[test]
     fn a_press_near_a_handle_takes_it_and_elsewhere_moves_the_active_one() {

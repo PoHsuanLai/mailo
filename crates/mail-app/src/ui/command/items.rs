@@ -8,10 +8,10 @@
 
 use std::collections::HashMap;
 
-use super::super::icon::Icon;
 use super::super::menu::{MenuItem, Right, Run, Tile, Tone};
 use crate::search::{self, ActionHit, Command, MailHit, PersonHit, Results, Top};
 use chrono::{DateTime, Utc};
+use ds::Icon;
 use mail_domain::ThreadId;
 use mail_store::SqliteStore;
 
@@ -238,15 +238,25 @@ fn query_marks(query: &str, text: &str) -> Vec<u32> {
         .unwrap_or_default()
 }
 
+/// The eight avatar fills `tokens.css` declared as `--av-0` to `--av-7`.
+///
+/// quire has no token for them: its person colour is the `Avatar` component's own hash
+/// (`ds::PersonHue`, whose colour is not public), and these tiles move to that component with
+/// the menus. Until then the fills are the same eight, written as values, so the window looks
+/// as it did; a gap reported to quire, not a token mailo declares.
+const AVATAR_FILLS: [&str; 8] = [
+    "#5B4B8A", "#1F6B4A", "#8A4B2F", "#2F5D8A", "#8A3D55", "#3D6B4F", "#6B5420", "#3E4A78",
+];
+
 /// One of eight avatar fills, stable for an address.
 pub(in crate::ui) fn avatar_color(email: &str) -> String {
-    const COUNT: u32 = 8;
     let mut hash = 2166136261u32;
     for byte in email.to_ascii_lowercase().bytes() {
         hash ^= u32::from(byte);
         hash = hash.wrapping_mul(16777619);
     }
-    format!("var(--av-{})", hash % COUNT)
+    let index = usize::try_from(hash).unwrap_or_default() % AVATAR_FILLS.len();
+    AVATAR_FILLS[index].to_owned()
 }
 
 fn action_item(hit: &ActionHit, group: &str) -> MenuItem {
@@ -273,7 +283,7 @@ fn action_icon(label: &str) -> Icon {
     match label {
         "Compose" => Icon::Pen,
         "New from template" => Icon::FilePen,
-        "Print conversation" => Icon::Printer,
+        "Print conversation" => crate::ui::PRINTER,
         "Sync now" => Icon::Refresh,
         "Hide sidebar" => Icon::PanelLeft,
         "Theme light" | "Theme dark" | "Theme system" => Icon::Settings,
@@ -286,7 +296,7 @@ fn action_icon(label: &str) -> Icon {
         "Add account…" => Icon::Plus,
         "Import mail…" => Icon::Plus,
         "Export mail…" => Icon::Forward,
-        "Rules…" => Icon::FolderInput,
+        "Rules…" => crate::ui::FOLDER_INPUT,
         "Keys and certificates…" => Icon::Key,
         _ => Icon::Command,
     }

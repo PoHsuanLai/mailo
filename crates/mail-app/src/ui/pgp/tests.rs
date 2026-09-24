@@ -635,7 +635,8 @@ async fn a_plain_message_says_nothing_and_every_seal_class_is_styled() {
         drawn.contains("unlock-field") && drawn.contains("seal-line bad"),
         "{drawn}"
     );
-    let missing = crate::ui::style::tests::unstyled_classes(&drawn, crate::ui::style::STYLE);
+    let missing =
+        crate::ui::style::tests::unstyled_classes(&drawn, &crate::ui::style::tests::full_css());
     assert!(missing.is_empty(), "unstyled classes: {missing:?}");
 }
 

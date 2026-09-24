@@ -1,5 +1,4 @@
 use super::app::App;
-use super::paint::appearance_script;
 use crate::appearance::WindowDirs;
 use crate::space::Spaces;
 use crate::view::Appearance;
@@ -80,13 +79,13 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 </script>"#;
 
-/// A script that stamps the current Space onto `<html>` before the stylesheet is first applied.
+/// The faces the stylesheet names, as `@font-face` rules with the fonts inside them.
 ///
-/// It goes in the custom head, which is inserted before `</head>` and therefore runs ahead
-/// of the interpreter module, so the first frame is already in the right palette. The
-/// statements are [`appearance_script`]'s, which a later switch builds from the same pairs.
-fn appearance_head(space: &crate::space::Space) -> String {
-    format!("<script>\n{}\n</script>", appearance_script(space))
+/// quire's (`ds::font_face_css`, the `webview-fonts` feature): the faces ship in the binary
+/// as `data:` URIs, so the window never phones a font host. In the head, once, rather than in
+/// the page, where every render would diff a few hundred kilobytes of text it never changes.
+fn fonts_head() -> String {
+    format!("<style>{}</style>", ds::font_face_css())
 }
 
 /// Extra markup for the head, from `$MAILO_PROBE`, in debug builds only.
@@ -121,7 +120,6 @@ pub fn run(
     dirs: Option<WindowDirs>,
     start: super::Start,
 ) {
-    let space = spaces.current_space();
     let icons = crate::appearance::cache_dir()
         .map(|dir| crate::provider::icon::Loaded::read(&dir.join("providers")))
         .unwrap_or_default();
@@ -136,7 +134,7 @@ pub fn run(
                 .with_menu(None)
                 .with_custom_head(format!(
                     "{}<script>window.__mailo_nothing_mounted = {};</script>{KEEP_FOCUS}{}{}",
-                    appearance_head(&space),
+                    fonts_head(),
                     serde_json::to_string(NOTHING_MOUNTED)
                         .unwrap_or_else(|_| "\"The interface did not start.\"".to_owned()),
                     super::compose::GLUE,
@@ -154,114 +152,49 @@ pub fn run(
     launch.launch(ShellRoot);
 }
 
-/// Holds the icon cache in a signal so a refresh can replace it.
+/// Holds the icon cache in a signal so a refresh can replace it, and the window's settings.
 ///
 /// The files were read once, before the first frame. The signal is what a later
 /// refresh writes; the chips subscribe to it.
+///
+/// The settings are quire's: `appearance.toml` and the desktop's preferences, both watched, as
+/// one signal `App`'s root reads (`ds_settings::use_environment`). `main` imported
+/// `appearance.json` into the TOML file before the window opened. Only the launched window
+/// watches; a test renders `App` without this and never touches the real config directory.
 #[component]
 fn ShellRoot() -> Element {
     let loaded = try_consume_context::<crate::provider::icon::Loaded>().unwrap_or_default();
     let icons = use_signal(|| loaded);
     use_context_provider(|| icons);
+    let environment = ds_settings::use_environment(ds_settings::AppName::MAILO);
+    use_context_provider(|| environment);
     rsx! { App {} }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::appearance_head;
-    use crate::palette::{self, Dot};
-    use crate::space::Space;
-    use crate::ui::paint::appearance_script;
-    use crate::view::{Motion, Theme};
-
-    fn starts_with_look(head: &str, lines: &str) {
-        let expect = format!("<script>\n{lines}");
-        assert!(
-            head.starts_with(&expect),
-            "the appearance lines moved:\n{head}"
-        );
-    }
+    use super::fonts_head;
 
     #[test]
-    fn the_default_space_is_stamped_exactly() {
-        // The delete is deliberate. System used to omit `dataset.theme` entirely, which is
-        // right on first paint and wrong after a switch from a Light or Dark Space: the head
-        // and the switch share their statements, so both remove the attribute.
-        let head = appearance_head(&Space::default());
-        starts_with_look(
-            &head,
-            "document.documentElement.dataset.motion = \"standard\";\n\
-             delete document.documentElement.dataset.theme;",
+    fn the_head_carries_every_face_as_an_embedded_woff2() {
+        // "wOF2" is the WOFF2 signature; in base64 it begins "d09GMg". A face missing from the
+        // head is a silent fallback to the system face that only a screenshot would show.
+        let head = fonts_head();
+        let faces = head.matches("@font-face").count();
+        assert!(faces > 0, "{head:.200}");
+        assert_eq!(
+            head.matches("url(data:font/woff2;base64,d09GMg").count(),
+            faces,
+            "a face that is not an embedded woff2"
         );
-        assert!(
-            !head.contains("dataset.accent"),
-            "the retired accent is still stamped: {head}"
-        );
-    }
-
-    #[test]
-    fn a_dark_extra_space_is_stamped_exactly() {
-        let head = appearance_head(&Space {
-            theme: Theme::Dark,
-            motion: Motion::Extra,
-            ..Space::default()
-        });
-        starts_with_look(
-            &head,
-            "document.documentElement.dataset.motion = \"extra\";\n\
-             document.documentElement.dataset.theme = \"dark\";",
-        );
-    }
-
-    #[test]
-    fn system_deletes_the_theme_and_does_not_set_it() {
-        // Absence is the property. System deletes the attribute so a previous Light or Dark
-        // cannot linger, and it must not assign `dataset.theme` or the stylesheet's
-        // `prefers-color-scheme` guard is unreachable.
-        let script = appearance_script(&Space {
-            theme: Theme::System,
-            motion: Motion::Calm,
-            ..Space::default()
-        });
-        assert!(
-            script.contains("delete document.documentElement.dataset.theme"),
-            "{script}"
-        );
-        assert!(
-            !script.contains("dataset.theme ="),
-            "system set data-theme: {script}"
-        );
-        assert!(
-            script.starts_with("document.documentElement.dataset.motion = \"calm\";"),
-            "{script}"
-        );
-    }
-
-    #[test]
-    fn the_head_script_sets_the_quoted_frame_gradient() {
-        // Quoting is the whole assertion. A gradient pasted raw is not a JS string: the
-        // commas and parentheses are parsed as arguments, and the token is never set.
-        let space = Space {
-            dots: vec![
-                Dot {
-                    hue: 268.0,
-                    chroma: 0.72,
-                },
-                Dot {
-                    hue: 318.0,
-                    chroma: 0.55,
-                },
-            ],
-            theme: Theme::Light,
-            ..Space::default()
-        };
-        let gradient = palette::gradient(&palette::derive(&space.dots, false));
-        let quoted = serde_json::to_string(&gradient).expect("a string serializes");
-        let script = appearance_script(&space);
-        let needle = format!("document.documentElement.style.setProperty(\"--f-grad\", {quoted})");
-        assert!(
-            script.contains(&needle),
-            "the frame gradient was not the quoted palette value:\n{script}"
-        );
+        // Each `--font-*` stack leads with a face the head declares.
+        for family in [ds::Family::Display, ds::Family::Ui, ds::Family::Data] {
+            let first = family.stack().split(',').next().unwrap_or("");
+            let declared = format!("font-family: {first};");
+            assert!(
+                head.contains(&declared),
+                "{family:?} leads with {first}, not in the head"
+            );
+        }
     }
 }

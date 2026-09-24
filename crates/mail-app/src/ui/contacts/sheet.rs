@@ -12,9 +12,9 @@ use mail_store::SqliteStore;
 
 use super::super::command::avatar_color;
 use super::super::field::{Field, FieldKind};
-use super::super::icon::{Glyph, Icon};
 use super::book::{self, Row, SYNC_COMMAND};
 use crate::view::Shell;
+use ds::{Glyph, Icon};
 
 /// Rows drawn at once. A book of thousands is filtered, not scrolled through.
 const SHOWN: usize = 200;
@@ -76,7 +76,7 @@ pub(in crate::ui) fn ContactsSheet(shell: Signal<Shell>) -> Element {
                     }
                 }
                 label { class: "book-find",
-                    Glyph { icon: Icon::Search, class: None }
+                    Glyph { icon: Icon::Search }
                     Field {
                         kind: FieldKind::Inline,
                         value: filter.clone(),
@@ -101,7 +101,7 @@ pub(in crate::ui) fn ContactsSheet(shell: Signal<Shell>) -> Element {
                 div { class: "book-foot",
                     div { class: "book-io",
                         label { class: "mini attach",
-                            Glyph { icon: Icon::Plus, class: None }
+                            Glyph { icon: Icon::Plus }
                             "Import vCard…"
                             input {
                                 class: "inp c-file",
@@ -137,7 +137,7 @@ pub(in crate::ui) fn ContactsSheet(shell: Signal<Shell>) -> Element {
                                     Err(why) => why,
                                 }));
                             },
-                            Glyph { icon: Icon::Forward, class: None }
+                            Glyph { icon: Icon::Forward }
                             "Export vCard…"
                         }
                     }

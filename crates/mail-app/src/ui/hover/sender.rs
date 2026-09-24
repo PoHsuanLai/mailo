@@ -3,7 +3,6 @@
 
 use super::super::contacts::ContactPart;
 use super::super::history::History;
-use super::super::icon::{Glyph, Icon};
 use super::super::menu::{Menu, MenuItem, Right, Tile};
 use super::cards::{initial, who};
 use super::hover;
@@ -12,6 +11,7 @@ use crate::trust::spoof;
 use crate::view::Shell;
 use chrono::Local;
 use dioxus::prelude::*;
+use ds::{Glyph, Icon};
 use mail_domain::ThreadId;
 use mail_store::{SqliteStore, Store};
 
@@ -53,7 +53,7 @@ pub(super) fn sender_card(
         }
         if let Some(flag) = flag {
             div { class: "flag",
-                Glyph { icon: Icon::X, class: None }
+                Glyph { icon: Icon::X }
                 span {
                     "The name says "
                     b { "{flag.brand}" }
@@ -65,7 +65,7 @@ pub(super) fn sender_card(
         }
         if first {
             div { class: "flag info",
-                Glyph { icon: Icon::Mail, class: None }
+                Glyph { icon: Icon::Mail }
                 span { "First mail from this address. Nothing else in the store has come from it." }
             }
         }

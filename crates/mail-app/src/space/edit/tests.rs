@@ -1,12 +1,15 @@
 use super::{Draft, MOST_DOTS, Nudge, Refused, Stride};
-use crate::palette::Dot;
-use crate::space::{CardAccent, PRESETS, Space};
+use crate::space::{PRESETS, Space};
 use crate::view::{Motion, Theme};
+use ds::{CardAccent, Dot, Grain, SpaceLook};
 
 fn space(dots: &[Dot]) -> Space {
     Space {
         name: "Work".to_owned(),
-        dots: dots.to_vec(),
+        look: SpaceLook {
+            dots: dots.to_vec(),
+            ..Space::default().look
+        },
         ..Space::default()
     }
 }
@@ -37,7 +40,7 @@ fn an_arrow_moves_a_dot_one_degree_or_one_hundredth_and_shift_ten_times_that() {
     for &(name, way, stride, hue, chroma) in CASES {
         let mut draft = Draft::open(0, space(&[ONE]));
         draft.nudge(0, way, stride);
-        let got = draft.space.dots[0];
+        let got = draft.space.look.dots[0];
         assert!(
             close(got.hue, hue) && close(got.chroma, chroma),
             "{name}: got hue {} chroma {}, want {hue} {chroma}",
@@ -98,7 +101,7 @@ fn hue_wraps_and_chroma_stops_at_its_ends() {
     for &(name, dot, way, stride, hue, chroma) in CASES {
         let mut draft = Draft::open(0, space(&[dot]));
         draft.nudge(0, way, stride);
-        let got = draft.space.dots[0];
+        let got = draft.space.look.dots[0];
         assert!(
             close(got.hue, hue) && close(got.chroma, chroma),
             "{name}: got {got:?}, want hue {hue} chroma {chroma}"
@@ -127,10 +130,13 @@ fn a_fourth_stop_is_refused_and_the_dots_are_unchanged() {
     let mut draft = Draft::open(0, space(&[ONE]));
     assert_eq!(draft.add(), Ok(()));
     assert_eq!(draft.add(), Ok(()));
-    assert_eq!(draft.space.dots.len(), MOST_DOTS);
-    let before = draft.space.dots.clone();
+    assert_eq!(draft.space.look.dots.len(), MOST_DOTS);
+    let before = draft.space.look.dots.clone();
     assert_eq!(draft.add(), Err(Refused::Full));
-    assert_eq!(draft.space.dots, before, "a refused add changed the dots");
+    assert_eq!(
+        draft.space.look.dots, before,
+        "a refused add changed the dots"
+    );
     // The two that were added turned along the wheel from the one before, at its chroma.
     assert!(
         close(before[1].hue, 148.0) && close(before[2].hue, 196.0),
@@ -144,11 +150,11 @@ fn removing_the_last_stop_is_refused() {
     let mut draft = Draft::open(0, space(PRESETS[1]));
     assert_eq!(draft.remove(0), Ok(()));
     assert_eq!(draft.remove(0), Ok(()));
-    assert_eq!(draft.space.dots.len(), 1);
-    let before = draft.space.dots.clone();
+    assert_eq!(draft.space.look.dots.len(), 1);
+    let before = draft.space.look.dots.clone();
     assert_eq!(draft.remove(0), Err(Refused::Last));
     assert_eq!(
-        draft.space.dots, before,
+        draft.space.look.dots, before,
         "a refused remove changed the dots"
     );
     assert_eq!(draft.remove(3), Err(Refused::Missing));
@@ -158,21 +164,23 @@ fn removing_the_last_stop_is_refused() {
 fn escape_restores_the_saved_space_exactly() {
     let saved = Space {
         name: "Home".to_owned(),
-        dots: PRESETS[3].to_vec(),
-        grain: 60,
-        theme: Theme::Dark,
+        look: SpaceLook {
+            dots: PRESETS[3].to_vec(),
+            grain: Grain(60),
+            theme: Theme::Dark,
+            card_accent: CardAccent::Postmark,
+        },
         motion: Motion::Calm,
-        card_accent: CardAccent::Postmark,
         ..Space::default()
     };
     let mut draft = Draft::open(2, saved.clone());
     draft.space.name = "Elsewhere".to_owned();
     draft.nudge(0, Nudge::Right, Stride::Ten);
     draft.add().unwrap_or_else(|why| panic!("{why:?}"));
-    draft.space.grain = 5;
-    draft.space.theme = Theme::Light;
+    draft.space.look.grain = Grain(5);
+    draft.space.look.theme = Theme::Light;
     draft.space.motion = Motion::Extra;
-    draft.space.card_accent = CardAccent::Hint;
+    draft.space.look.card_accent = CardAccent::SpaceHue;
     draft.preset(9);
     assert_ne!(draft.space, saved, "the edits above changed nothing");
     assert_eq!(draft.reverted(), saved);
@@ -183,11 +191,11 @@ fn escape_restores_the_saved_space_exactly() {
 fn the_pointer_places_hue_across_and_chroma_down() {
     let mut draft = Draft::open(0, space(&[ONE, ONE]));
     draft.place(1, 0.25, 0.25);
-    let got = draft.space.dots[1];
+    let got = draft.space.look.dots[1];
     assert!(close(got.hue, 90.0) && close(got.chroma, 0.75), "{got:?}");
-    assert_eq!(draft.space.dots[0], ONE, "the other dot moved");
+    assert_eq!(draft.space.look.dots[0], ONE, "the other dot moved");
     draft.place(1, 1.4, -0.3);
-    let got = draft.space.dots[1];
+    let got = draft.space.look.dots[1];
     assert!(close(got.hue, 359.0) && close(got.chroma, 1.0), "{got:?}");
     assert_eq!(draft.active, 1);
 }

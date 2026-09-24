@@ -1,6 +1,6 @@
 //! The gradients a new Space is tinted from, and the six retired accent hues.
 
-use crate::palette::Dot;
+use ds::Dot;
 
 /// The eight gradients from the mockup, then the six Part A accent hues as single dots.
 ///

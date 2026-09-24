@@ -20,12 +20,12 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use super::super::data::account_rows;
-use super::super::icon::{Glyph, Icon};
 use super::certs::{CertJob, CertPart};
 use super::key_row::{Confirm, KeyRow};
 use super::{Busy, Seams, seams, short, who};
 use crate::pgp::WithSecret;
 use crate::view::{KeysSheet as Showing, Shell};
+use ds::{Glyph, Icon};
 
 /// What the sheet and its menu entry are called.
 pub(in crate::ui) const TITLE: &str = "Keys and certificates";
@@ -272,7 +272,7 @@ pub(in crate::ui) fn KeysSheet(shell: Signal<Shell>) -> Element {
                                         let address = address.clone();
                                         move |_| run.call(Job::Generate(address.clone()))
                                     },
-                                    Glyph { icon: Icon::Plus, class: None }
+                                    Glyph { icon: Icon::Plus }
                                     "Make a key for {address}"
                                 }
                             }

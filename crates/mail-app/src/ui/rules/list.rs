@@ -9,10 +9,10 @@ use std::sync::Arc;
 
 use super::super::files::work::grouped;
 use super::super::files::{Phase, run};
-use super::super::icon::{Glyph, Icon};
 use super::super::motion::{Follow, tell};
 use super::editor::RuleEditor;
 use super::work::{self, Draft, Listed, Step};
+use ds::{Glyph, Icon};
 
 /// The rules part of the sheet.
 #[component]
@@ -73,7 +73,7 @@ pub(super) fn RulesPart(account: AccountId, revision: Signal<u64>) -> Element {
                         r#type: "button",
                         aria_label: "{new_label}",
                         onclick: move |_| editing.set(Some(Draft::blank())),
-                        Glyph { icon: Icon::Plus, class: None }
+                        Glyph { icon: Icon::Plus }
                         "New rule"
                     }
                 }

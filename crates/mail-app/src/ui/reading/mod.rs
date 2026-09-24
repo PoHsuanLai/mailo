@@ -6,12 +6,12 @@ mod image;
 mod spans;
 mod table;
 
-use super::icon::{Glyph, Icon};
 use super::text::{address, attachment_rows, from_name, stamp};
 use crate::view::{Peek, Reading, Shell};
 use attachments::Attachments;
 use blocks::MessageView;
 use dioxus::prelude::*;
+use ds::{Glyph, Icon};
 pub(super) use find_bar::open_find;
 use find_bar::{FindBar, marking};
 use mail_domain::*;
@@ -102,7 +102,7 @@ fn peek_tool(peek: Peek, current: Peek, icon: Icon, mut shell: Signal<Shell>) ->
             aria_label: "{label}",
             aria_pressed: "{pressed}",
             onclick: move |_| shell.write().peek = peek,
-            Glyph { icon, class: None }
+            Glyph { icon }
         }
     }
 }
@@ -248,8 +248,8 @@ pub(super) fn Reader(
                     }
                     super::print::PrintTool { thread }
                     {peek_tool(Peek::Side, peek, Icon::Panel, shell)}
-                    {peek_tool(Peek::Center, peek, Icon::Square, shell)}
-                    {peek_tool(Peek::Full, peek, Icon::Maximize, shell)}
+                    {peek_tool(Peek::CENTER, peek, Icon::Square, shell)}
+                    {peek_tool(Peek::FULL, peek, Icon::Maximize, shell)}
                 }
             }
             if let Some(why) = problem {
@@ -278,7 +278,7 @@ pub(super) fn Reader(
             }
             if let Some(host) = from_host {
                 div { class: "consent",
-                    Glyph { icon: Icon::X, class: None }
+                    Glyph { icon: Icon::X }
                     span {
                         if showing {
                             "Showing remote images from {host}"
@@ -366,7 +366,7 @@ pub(super) fn Reader(
             }
             if any_frame {
                 div { class: "frame-note",
-                    Glyph { icon: Icon::Key, class: None }
+                    Glyph { icon: Icon::Key }
                     span { "sandboxed frame · no scripts, no same-origin" }
                 }
             }

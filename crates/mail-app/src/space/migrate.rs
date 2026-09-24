@@ -1,7 +1,7 @@
 //! Spaces written before theme and motion were theirs.
 
 use super::Spaces;
-use crate::view::Appearance;
+use crate::appearance::Legacy;
 use serde_json::Value;
 
 /// Parse `bytes`, giving each Space that has no `theme` or `motion` of its own `look`'s.
@@ -9,7 +9,7 @@ use serde_json::Value;
 /// Only a missing key inherits. A Space that stored a word, even one this build does not
 /// know, made a choice of its own, and that word falls to the field's default as it always
 /// has. Anything that is not Spaces JSON is an empty list, as before.
-pub(super) fn read_with(bytes: &[u8], look: &Appearance) -> Spaces {
+pub(super) fn read_with(bytes: &[u8], look: &Legacy) -> Spaces {
     let Ok(mut value) = serde_json::from_slice::<Value>(bytes) else {
         return Spaces::default();
     };

@@ -1,8 +1,8 @@
 //! The reader head's Print tool, and the small menu it opens.
 
-use super::super::icon::{Glyph, Icon};
 use super::{Job, print, save};
 use dioxus::prelude::*;
+use ds::Glyph;
 use mail_domain::ThreadId;
 use mail_mime::Pages;
 
@@ -26,7 +26,7 @@ pub(in crate::ui) fn PrintTool(thread: ThreadId) -> Element {
             aria_label: "{label}",
             aria_expanded: if open() { "true" } else { "false" },
             onclick: move |_| open.toggle(),
-            Glyph { icon: Icon::Printer, class: None }
+            Glyph { icon: crate::ui::PRINTER }
         }
         if open() {
             PrintMenu { thread, pages, open }

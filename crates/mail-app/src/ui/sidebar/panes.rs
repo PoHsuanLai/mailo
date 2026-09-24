@@ -2,7 +2,6 @@
 
 use super::super::data::account_rows;
 use super::super::hover::{Hook, corner, hover};
-use super::super::icon::{Glyph, Icon};
 use super::super::motion::{drag, motion};
 use crate::provider::icon::{ChipPlace, ProvChip};
 use crate::provider::{Provider, provider};
@@ -10,6 +9,7 @@ use crate::query::{self};
 use crate::space::{self, Pinned, Scope, Space};
 use crate::view::{Shell, Source, folder_of, is_label_place};
 use dioxus::prelude::*;
+use ds::{Glyph, Icon};
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 
@@ -138,7 +138,7 @@ pub(super) fn AccountTiles(
                         shell.write().account = None;
                         pages.set(1);
                     },
-                    span { class: "av all", Glyph { icon: Icon::Inbox, class: None } }
+                    span { class: "av all", Glyph { icon: Icon::Inbox } }
                     if counted.all > 0 {
                         span { class: "n", "{counted.all}" }
                     }
@@ -180,7 +180,7 @@ pub(super) fn AccountTiles(
                 title: "Add account…",
                 aria_label: "Add account",
                 onclick: move |_| super::super::add_account::open(shell),
-                span { class: "av", Glyph { icon: Icon::Plus, class: None } }
+                span { class: "av", Glyph { icon: Icon::Plus } }
             }
         }
     }
@@ -276,7 +276,7 @@ fn PlaceButton(
                     state.gulp.set(None);
                 }
             },
-            Glyph { icon, class: None }
+            Glyph { icon }
             span { "{name}" }
             if let Some(count) = count {
                 span {

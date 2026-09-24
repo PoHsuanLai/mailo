@@ -281,6 +281,7 @@ async fn every_class_on_the_sheet_is_styled() {
     );
     let page = dioxus_ssr::render(&dom);
     assert!(page.contains("keys-confirm"), "{page}");
-    let missing = crate::ui::style::tests::unstyled_classes(&page, crate::ui::style::STYLE);
+    let missing =
+        crate::ui::style::tests::unstyled_classes(&page, &crate::ui::style::tests::full_css());
     assert!(missing.is_empty(), "unstyled classes: {missing:?}");
 }

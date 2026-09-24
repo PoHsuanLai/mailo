@@ -508,7 +508,8 @@ async fn a_signature_from_an_authority_nobody_trusts_is_amber_and_says_why() {
     assert!(page.contains("the crane is signed by a stranger"), "{page}");
     let drawn = seals(&page);
     assert!(drawn.contains("seal-line detail"), "{drawn}");
-    let missing = crate::ui::style::tests::unstyled_classes(&drawn, crate::ui::style::STYLE);
+    let missing =
+        crate::ui::style::tests::unstyled_classes(&drawn, &crate::ui::style::tests::full_css());
     assert!(missing.is_empty(), "unstyled classes: {missing:?}");
 }
 

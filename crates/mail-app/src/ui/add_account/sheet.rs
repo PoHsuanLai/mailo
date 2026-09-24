@@ -8,11 +8,11 @@ use mail_store::SqliteStore;
 
 use super::super::field::{Field, FieldKind};
 use super::super::hover::copy;
-use super::super::icon::{Glyph, Icon};
 use super::flow::{self, Client, Offer, Opened, SignIn, SigningIn, Stage};
 use crate::password::Password;
 use crate::space::Spaces;
 use crate::view::Shell;
+use ds::{Glyph, Icon};
 
 /// Look up what is typed, off the thread that draws. Call it from an event handler (F140).
 fn look_up(shell: Signal<Shell>, mut stage: Signal<Stage>) {
@@ -219,7 +219,7 @@ pub(in crate::ui) fn AddAccountSheet(
                         aria_label: "{primary}",
                         disabled: !enabled,
                         onclick: press,
-                        Glyph { icon, class: None }
+                        Glyph { icon }
                         "{primary}"
                     }
                 }

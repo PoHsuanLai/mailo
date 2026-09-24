@@ -1,13 +1,13 @@
 //! The small pieces the rows share: the name field, a refusal in words, and the menu's items.
 
 use super::super::field::{Field, FieldKind};
-use super::super::icon::Icon;
 use super::super::menu::{MenuItem, Right, Tile};
 use super::folder_act::child_path;
 use super::folder_row::run;
 use super::folder_tree::{Kind, Node};
 use super::folders::{Note, Open, Spot, Wires};
 use dioxus::prelude::*;
+use ds::Icon;
 use mail_domain::{AccountId, FolderWork, Subscription};
 
 /// The field for a new folder's name, under the folder it goes in (or the header).

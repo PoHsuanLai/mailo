@@ -10,10 +10,10 @@
 use dioxus::prelude::*;
 use mail_domain::{Draft, OpenPgp, Smime};
 
-use super::super::icon::{Glyph, Icon};
 use super::super::menu::{Menu, MenuItem, Right, Tile};
 use super::page::{Float, Page};
 use super::seal::SealBar;
+use ds::{Glyph, Icon};
 
 /// What a protection does to the message.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -183,7 +183,7 @@ pub(in crate::ui) fn ProtectionRow(page: Signal<Page>) -> Element {
     let name = "Protection";
     rsx! {
         div { class: "prop-row", "data-row": "protection",
-            div { class: "k", Glyph { icon: Icon::Key, class: None }, "Protection" }
+            div { class: "k", Glyph { icon: Icon::Key }, "Protection" }
             div { class: "v",
                 button {
                     class: "pval",

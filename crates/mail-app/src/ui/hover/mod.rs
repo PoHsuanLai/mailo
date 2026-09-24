@@ -176,7 +176,7 @@ pub(super) fn key(name: &str, mut shell: Signal<crate::view::Shell>) -> bool {
         (" ", Hook::Thread(id)) => {
             hover.dismiss();
             let mut write = shell.write();
-            write.peek = crate::view::Peek::Center;
+            write.peek = crate::view::Peek::CENTER;
             write.open(id);
             true
         }

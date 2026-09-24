@@ -7,7 +7,6 @@
 use super::data::{AccountRow, account_rows, syncs_nothing};
 use super::field::{Field, FieldKind};
 use super::hover::{HoverLayer, Site, hover};
-use super::icon::{Glyph, Icon};
 use super::list_search::{Marking, RowHit, Scope, row_hit};
 use super::motion::{Ghost, Motion, Toast, motion};
 use super::ops::start_new;
@@ -16,6 +15,7 @@ use super::row::{DraftRow, Moving, Row};
 use crate::provider::provider;
 use crate::view::{Nothing, Shell, SyncState, synced};
 use dioxus::prelude::*;
+use ds::{Glyph, Icon};
 use mail_domain::*;
 use mail_store::SqliteStore;
 use std::collections::BTreeMap;
@@ -194,7 +194,7 @@ pub(super) fn ThreadList(
                                     revision += 1;
                                 });
                             },
-                            Glyph { icon: Icon::Refresh, class: None }
+                            Glyph { icon: Icon::Refresh }
                         }
                     }
                     button {
@@ -211,13 +211,13 @@ pub(super) fn ThreadList(
                                 Err(why) => eprintln!("compose: {why}"),
                             }
                         },
-                        Glyph { icon: Icon::Pen, class: None }
+                        Glyph { icon: Icon::Pen }
                         "Compose"
                     }
                 }
             }
             label { class: "search",
-                Glyph { icon: Icon::Search, class: None }
+                Glyph { icon: Icon::Search }
                 Field {
                     kind: FieldKind::Boxed,
                     value: shell.read().search.clone(),
