@@ -118,7 +118,16 @@ async fn look_up(open: &mut Open, address: &str) -> Seen {
     let field = open.seen.one("placeholder", "you@example.com");
     type_into(&mut open.dom, field, address);
     click(&mut open.dom, open.seen.one("aria-label", "Look up"));
-    settle(&mut open.dom).await
+    // The lookup runs on a blocking thread, and on a loaded machine it can outlast a quiet
+    // spell: keep drawing until the sheet has stopped saying it is looking.
+    let mut seen = settle(&mut open.dom).await;
+    for _ in 0..20 {
+        if !page(open).contains("Looking up the servers for") {
+            break;
+        }
+        seen = seen.merge(settle(&mut open.dom).await);
+    }
+    seen
 }
 
 fn page(open: &Open) -> String {

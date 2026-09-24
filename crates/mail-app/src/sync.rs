@@ -5,6 +5,7 @@
 //! also the only place in the application that needs an async runtime.
 
 pub use crate::notify::Announce;
+pub mod due;
 use mail_domain::*;
 use mail_proto::backend::{Authenticate, ImapBackend, Pop3Backend};
 use mail_proto::{ImapAuth, ImapCommand, ImapSession, Pop3Command, Pop3Session};
@@ -142,12 +143,9 @@ pub fn poll_interval(store: &SqliteStore) -> std::time::Duration {
         .ok()
         .into_iter()
         .flatten()
-        .filter_map(|a| match a.caps.watch {
-            WatchMode::Poll { every } => Some(every),
-            // IDLE is a long-lived connection this loop does not hold. Until it does, an account
-            // that supports it is polled like any other.
-            WatchMode::Idle => None,
-        })
+        // IDLE is a long-lived connection this loop does not hold. Until it does, an account that
+        // supports it is polled like any other, at `due::IDLE`.
+        .map(|a| due::every(&a.caps.watch))
         .min()
         .unwrap_or(default)
 }
@@ -184,6 +182,7 @@ pub fn watch(
         now,
         Mode::Watch,
         announce,
+        &|_| true,
     )
 }
 
@@ -211,10 +210,18 @@ pub fn run_with(
     registry: &OAuthRegistry,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<Ran, String> {
-    run_all(store, secrets, registry, now, Mode::Once, Announce::Quietly)
+    run_all(
+        store,
+        secrets,
+        registry,
+        now,
+        Mode::Once,
+        Announce::Quietly,
+        &|_| true,
+    )
 }
 
-/// The same, told whether to stop after one pass.
+/// The same, told whether to stop after one pass, and which accounts are due one ([`due`]).
 fn run_all(
     store: Arc<SqliteStore>,
     secrets: Arc<dyn Secrets>,
@@ -222,6 +229,7 @@ fn run_all(
     now: chrono::DateTime<chrono::Utc>,
     mode: Mode,
     announce: Announce<'_>,
+    due: &dyn Fn(AccountId) -> bool,
 ) -> Result<Ran, String> {
     // An account that keeps its mail here has no server: nothing to fetch, nothing to drain,
     // and no credential to ask the keyring for. Left out rather than reported, because a line
@@ -246,6 +254,7 @@ fn run_all(
             hold: None,
         });
     }
+    let accounts: Vec<Configured> = accounts.into_iter().filter(|a| due(a.id)).collect();
 
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()

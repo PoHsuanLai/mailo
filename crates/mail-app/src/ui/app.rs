@@ -516,6 +516,9 @@ pub(super) fn App() -> Element {
         // A beat before the first pass, so opening the window is not also a network round trip
         // competing with the first paint.
         let mut wait = std::time::Duration::from_secs(2);
+        // When each account's last timed pass started. The loop wakes at the shortest interval
+        // any account asks for, and an account is synced only once its own has passed.
+        let mut last = std::collections::HashMap::new();
         loop {
             tokio::time::sleep(wait).await;
 
@@ -525,11 +528,21 @@ pub(super) fn App() -> Element {
                 wait = interval;
                 continue;
             }
-            sync_state.set(SyncState::Running);
             let store = consume_context::<Arc<SqliteStore>>();
-            let done =
-                tokio::task::spawn_blocking(move || crate::sync::run(store, chrono::Utc::now()))
-                    .await;
+            let intervals = crate::sync::due::intervals(&store);
+            let started = std::time::Instant::now();
+            let due = crate::sync::due::due(&intervals, &last, started);
+            // With no account to sync at all, the pass still runs, to say why there is none.
+            if due.is_empty() && !intervals.is_empty() {
+                wait = interval;
+                continue;
+            }
+            last.extend(due.iter().map(|account| (*account, started)));
+            sync_state.set(SyncState::Running);
+            let done = tokio::task::spawn_blocking(move || {
+                crate::sync::due::run_due(store, chrono::Utc::now(), &due)
+            })
+            .await;
 
             // Order matters: a pass can both be refused and be told to slow down, and only one
             // of the two is worth stopping the loop for.

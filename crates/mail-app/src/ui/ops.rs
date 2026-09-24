@@ -153,27 +153,102 @@ pub(super) fn take_back(store: &SqliteStore, entry: &Undo) -> bool {
 /// hold its row out of the folder it is back in meanwhile, because a queued move is a message
 /// leaving. Settled as refused, which drops the entry and puts back the same values the undo
 /// just wrote.
+///
+/// Not when anything queued after it acts on the same messages. Settling it refused writes its
+/// undo, the state from before it, and drops its pending changes, and a later operation on those
+/// messages was made on top of it: that operation's own undo and pending changes assume the move
+/// is there. Rather than work out which of them survive it, the move is left queued and the
+/// server keeps it filed, which is what happened before this existed.
+///
+/// Nothing marks an entry as taken by a pass that is running, so there is a window this does
+/// not close: a sync already sending the move, the window's own or `mailo watch`'s, still
+/// reaches the server, and its confirmation then settles an entry that is no longer here. The
+/// message is back here and filed there, and the next sync shows it filed.
 fn withdraw_filing(store: &SqliteStore, entry: &Undo) {
-    if !matches!(entry.remote, Some(RemoteIntent::File { .. })) {
-        return;
-    }
-    let Ok(queued) = store.outbox_due(entry.account, chrono::Utc::now()) else {
+    let Some(RemoteIntent::File { messages, .. }) = &entry.remote else {
         return;
     };
-    for waiting in queued {
-        if matches!(waiting.op, ProtoOp::File { .. })
+    // The whole queue, not only what is due: a later operation waiting out a retry or a
+    // credential is later all the same.
+    let Ok(queued) = store.outbox_due(entry.account, queue_horizon()) else {
+        return;
+    };
+    let Some(filing) = queued.iter().find(|waiting| {
+        matches!(waiting.op, ProtoOp::File { .. })
             && waiting.attempts == 0
             && waiting.undo == entry.inverse
-        {
-            let _ = store.outbox_settle(
-                waiting.id,
-                mail_store::Settle::Failed {
-                    reason: "taken back before it was sent".to_owned(),
-                    retry: Retry::Fatal("taken back".to_owned()),
-                },
-                chrono::Utc::now(),
-            );
-        }
+    }) else {
+        return;
+    };
+    let mut ours = messages.clone();
+    ours.extend(messages_in(&filing.undo));
+    if queued
+        .iter()
+        .filter(|later| later.id > filing.id)
+        .any(|later| touches(later, &ours, &filing.op))
+    {
+        return;
+    }
+    let _ = store.outbox_settle(
+        filing.id,
+        mail_store::Settle::Failed {
+            reason: "taken back before it was sent".to_owned(),
+            retry: Retry::Fatal("taken back".to_owned()),
+        },
+        chrono::Utc::now(),
+    );
+}
+
+/// A moment after every queued entry's next attempt, so that `outbox_due` lists the whole queue.
+///
+/// Year 9999 rather than `DateTime::MAX_UTC`: the store compares times as fixed-width text, and
+/// a signed six-digit year sorts before every real one.
+fn queue_horizon() -> chrono::DateTime<chrono::Utc> {
+    chrono::DateTime::from_timestamp(253_402_300_799, 0).unwrap_or_else(chrono::Utc::now)
+}
+
+/// The messages a patch writes to.
+fn messages_in(patch: &Patch) -> Vec<MessageId> {
+    patch
+        .changes
+        .iter()
+        .filter_map(|change| match change {
+            Change::MessageRead(m, _)
+            | Change::MessageStar(m, _)
+            | Change::MessageMailbox(m, _)
+            | Change::MessageLabel(m, _, _)
+            | Change::MessageDelete(m) => Some(*m),
+            Change::MessageUpsert(message) => Some(message.id),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Whether a queued entry acts on any of `messages`, or on any server message `filing` names.
+///
+/// Its undo names the messages it changed here, and its operation the ones it will change there;
+/// either is enough. An operation this cannot read counts as touching them, because guessing
+/// wrong that way costs only a move the server is still sent.
+fn touches(later: &mail_store::OutboxEntry, messages: &[MessageId], filing: &ProtoOp) -> bool {
+    if messages_in(&later.undo)
+        .iter()
+        .any(|m| messages.contains(m))
+    {
+        return true;
+    }
+    let ProtoOp::File { remotes: ours, .. } = filing else {
+        return true;
+    };
+    match &later.op {
+        ProtoOp::SetFlags { remotes, .. }
+        | ProtoOp::SetMailbox { remotes, .. }
+        | ProtoOp::SetLabels { remotes, .. }
+        | ProtoOp::File { remotes, .. }
+        | ProtoOp::AddKeyword { remotes, .. }
+        | ProtoOp::Expunge { remotes } => remotes.iter().any(|r| ours.contains(r)),
+        // A new message, a sent one, or a mailbox: none of them is a message already held.
+        ProtoOp::Append { .. } | ProtoOp::Submit { .. } | ProtoOp::Folder(_) => false,
+        _ => true,
     }
 }
 

@@ -323,6 +323,67 @@ async fn moving_to_a_folder_files_it_there_and_undo_brings_it_back() {
     );
 }
 
+/// The folders of the moves still waiting for the server, oldest first.
+fn queued_folders(store: &SqliteStore) -> Vec<String> {
+    let later = Utc::now() + chrono::TimeDelta::days(1);
+    store
+        .outbox_due(IMAP, later)
+        .unwrap()
+        .into_iter()
+        .filter_map(|entry| match entry.op {
+            ProtoOp::File { folder, .. } => Some(folder),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Filed into `path`, as a pick in the menu does it, with the undo it hands the toast.
+fn file(store: &SqliteStore, thread: ThreadId, path: &str) -> crate::undo::Undo {
+    let label = folder_label(store, IMAP, path).unwrap();
+    crate::ui::ops::perform(store, thread, Op::File(label)).expect("the move was not made")
+}
+
+#[test]
+fn a_move_taken_back_with_nothing_after_it_never_reaches_the_server() {
+    let (store, _dir, threads) = store();
+    let moved = file(&store, threads[0], TO);
+    // Another conversation's move, queued later, is not this one's business.
+    file(&store, threads[1], "收據");
+    assert_eq!(queued_folders(&store), [TO, "收據"]);
+
+    assert!(crate::ui::ops::take_back(&store, &moved));
+    assert_eq!(queued_folders(&store), ["收據"], "the move is still queued");
+    assert_eq!(filed_in(&store, TO), 0);
+}
+
+#[test]
+fn a_move_with_a_later_one_on_the_same_conversation_stays_queued_when_taken_back() {
+    let (store, _dir, threads) = store();
+    let first = file(&store, threads[0], TO);
+    file(&store, threads[0], "收據");
+    assert_eq!(queued_folders(&store), [TO, "收據"]);
+
+    assert!(crate::ui::ops::take_back(&store, &first));
+    // Withdrawing the first would write the state from before it under the second, which was
+    // made on top of it. Both go, in the order they were made, and the second is where it ends.
+    assert_eq!(
+        queued_folders(&store),
+        [TO, "收據"],
+        "a move with a later one on the same messages was withdrawn"
+    );
+    assert_eq!(filed_in(&store, "收據"), 1, "the later move was undone");
+    assert_eq!(
+        filed_in(&store, TO),
+        0,
+        "the undo did not take the first back"
+    );
+    assert_eq!(
+        in_folder(&store, FROM),
+        1,
+        "the later move left it in {FROM}"
+    );
+}
+
 #[tokio::test]
 async fn a_row_dropped_on_a_folder_is_filed_there() {
     let (store, _dir, _) = store();
