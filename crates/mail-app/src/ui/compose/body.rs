@@ -10,7 +10,7 @@ use super::super::field::{Field, FieldKind};
 use super::super::menu::{Menu, MenuKey, menu_key};
 use super::float::{
     Picked, commit, current_kind, mention_items, pick_mention, pick_slash, pick_turn, slash_items,
-    turn_items,
+    suggest_mention, turn_items,
 };
 use super::page::{Float, Page};
 use super::render;
@@ -65,7 +65,12 @@ pub(in crate::ui) fn Body(page: Signal<Page>, on_attach: EventHandler<()>) -> El
                 aria_hidden: "true",
                 oninput: move |event| {
                     if let Some(heard) = wire::parse(&event.value()) {
-                        wire::hear(&mut page.write(), heard, now_ms());
+                        let store = try_consume_context::<std::sync::Arc<mail_store::SqliteStore>>();
+                        let mut write = page.write();
+                        wire::hear(&mut write, heard, now_ms());
+                        if let Some(store) = store {
+                            suggest_mention(&mut write, store.as_ref());
+                        }
                     }
                 },
             }

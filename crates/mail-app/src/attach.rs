@@ -166,9 +166,15 @@ pub fn save(
         .get(&store.connection(), blob)
         .map_err(|e| format!("cannot read the attachment: {e}"))?;
 
+    write_new(dir, &attachment.name, &bytes)
+}
+
+/// Write `bytes` into `dir` under `name` made safe, never over a file already there, returning
+/// the path written. How every file the window saves reaches the disk.
+pub fn write_new(dir: &Path, name: &str, bytes: &[u8]) -> Result<PathBuf, String> {
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    let path = free_path(dir, &safe_name(&attachment.name));
-    std::fs::write(&path, &bytes).map_err(|e| format!("{}: {e}", path.display()))?;
+    let path = free_path(dir, &safe_name(name));
+    std::fs::write(&path, bytes).map_err(|e| format!("{}: {e}", path.display()))?;
     Ok(path)
 }
 

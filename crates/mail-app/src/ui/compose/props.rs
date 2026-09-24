@@ -342,7 +342,10 @@ fn Recipients(page: Signal<Page>, list: List) -> Element {
                 value,
                 placeholder: placeholder.to_owned(),
                 extra: Some("pinput".to_owned()),
-                on_input: move |value: String| typed(&mut page.write(), list, value),
+                on_input: move |value: String| {
+                    let store = consume_context::<Arc<SqliteStore>>();
+                    typed(&mut page.write(), list, value, store.as_ref());
+                },
                 on_focus: |_| {},
                 on_blur: move |_| {
                     let mut write = page.write();
@@ -356,7 +359,7 @@ fn Recipients(page: Signal<Page>, list: List) -> Element {
                 if !items.is_empty() {
                     div { class: "p-menu",
                         Menu {
-                            title: "People you have written with".to_owned(),
+                            title: "From your contacts".to_owned(),
                             items: items.clone(),
                             filterable: false,
                             on_pick: move |key: String| pick_person(&mut page.write(), list, &key),

@@ -10,14 +10,11 @@ use mail_store::{SqliteStore, Store};
 use super::page::List;
 use super::page::{Guard, Page, Phase, Saved, When, Wire};
 use super::recipients::commit_typed;
-use crate::editor::{Person, missing_attachment};
+use crate::editor::missing_attachment;
 use crate::today::Today;
 
 /// How long a send waits in the outbox before it may leave, which is how long Undo has.
 pub(in crate::ui) const GRACE: chrono::TimeDelta = chrono::TimeDelta::seconds(5);
-
-/// How many recent conversations the people suggestions are drawn from.
-const PEOPLE_FROM: u32 = 200;
 
 /// The page for `draft`: the parked copy when there is one, exactly as it was left, else a page
 /// built from the stored draft.
@@ -38,46 +35,8 @@ pub(in crate::ui) fn load(
     }
     let stored = store.draft(draft).ok()?;
     let attached = crate::compose::attached_to(store, &stored);
-    Some(Page::of(&stored, people(store), attached))
-}
-
-/// The people this mailbox has written with: senders and participants of recent conversations,
-/// less the mailbox's own addresses.
-pub(in crate::ui) fn people(store: &SqliteStore) -> Vec<Person> {
-    let own: Vec<String> = crate::compose::sending_accounts(store)
-        .into_iter()
-        .map(|(address, _)| address.to_ascii_lowercase())
-        .collect();
-    let query = Query {
-        filter: Filter::All,
-        sort: Sort {
-            property: Property::Date,
-            dir: SortDir::Desc,
-        },
-        page: PageReq {
-            after: None,
-            limit: PEOPLE_FROM,
-        },
-    };
-    let Ok(threads) = store.threads(&query, Utc::now()) else {
-        return Vec::new();
-    };
-    let mut out: Vec<Person> = Vec::new();
-    for summary in &threads.items {
-        for address in std::iter::once(&summary.from).chain(&summary.participants) {
-            let email = address.email.to_ascii_lowercase();
-            if email.is_empty() || own.contains(&email) {
-                continue;
-            }
-            if !out
-                .iter()
-                .any(|known| known.address.eq_ignore_ascii_case(&email))
-            {
-                out.push(super::page::person(address));
-            }
-        }
-    }
-    out
+    // Nobody is suggested until something is typed: the book is asked then, for that text.
+    Some(Page::of(&stored, Vec::new(), attached))
 }
 
 /// Write the page to its draft. The dot goes clean only when the store took it.

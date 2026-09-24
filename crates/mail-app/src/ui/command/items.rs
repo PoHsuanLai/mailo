@@ -1,9 +1,10 @@
 //! The rows of the Ctrl T menu, built from one `search::run`.
 //!
-//! People, and the ranker's sender affinity, come from the one grouped sender history the hover
-//! cards read (`ui::history`): how many conversations, and whether you have written to them.
+//! The ranker's sender affinity comes from the one grouped sender history the hover cards read
+//! (`ui::history`): how many conversations, and whether you have written to them.
 //! [`crate::search::Affinity::default`] is an empty map, and an empty map has no people, so
-//! "dana" would never be a person.
+//! "dana" would never be a person. Who the People rows are is the contact book's answer
+//! (`people.rs`), the one the composer's To field gets.
 
 use std::collections::HashMap;
 
@@ -25,6 +26,7 @@ pub(in crate::ui) fn commands() -> Vec<Command> {
         "Go to Archive",
         "Go to Trash",
         "Hide sidebar",
+        "Contacts",
         "Theme light",
         "Theme dark",
         "Theme system",
@@ -176,7 +178,9 @@ fn person_item(
         .cloned()
         .filter(|name| !name.is_empty())
         .unwrap_or_else(|| hit.email.clone());
-    let threads = if hit.threads == 1 {
+    let threads = if hit.threads == 0 {
+        "no mail from them".to_owned()
+    } else if hit.threads == 1 {
         "1 thread".to_owned()
     } else {
         format!("{} threads", hit.threads)
@@ -268,6 +272,7 @@ fn action_icon(label: &str) -> Icon {
         "Go to Snoozed" => Icon::Clock,
         "Go to Archive" => Icon::Archive,
         "Go to Trash" => Icon::Trash,
+        "Contacts" => Icon::Group,
         _ => Icon::Command,
     }
 }
@@ -281,14 +286,16 @@ pub(in crate::ui) fn tokens(query: &str) -> Vec<String> {
     search::parse(query, &Utc, &|_| Vec::new()).operator_tokens
 }
 
-/// Run the menu's search.
+/// Run the menu's search. Its People are the contact book's, as [`super::people::from_book`]
+/// puts them.
 pub(in crate::ui) fn search_now(
     store: &SqliteStore,
     query: &str,
     now: DateTime<Utc>,
 ) -> (Results, HashMap<String, String>) {
     let history = super::super::history::history(store);
-    let (affinity, names) = (history.affinity(), history.names());
-    let results = search::run(query, store, &affinity, &commands(), now);
+    let (affinity, mut names) = (history.affinity(), history.names());
+    let mut results = search::run(query, store, &affinity, &commands(), now);
+    super::people::from_book(&mut results, &mut names, store, query, &history);
     (results, names)
 }

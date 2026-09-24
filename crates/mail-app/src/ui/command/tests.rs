@@ -79,6 +79,30 @@ fn at_dana(store: &SqliteStore) -> (Results, HashMap<String, String>) {
     search_now(store, "dana", Utc::now())
 }
 
+/// The addresses the Ctrl T menu's person rows name for `query`, top hit first, as drawn.
+pub(in crate::ui) fn people_for(store: &SqliteStore, query: &str) -> Vec<String> {
+    let (results, names) = search_now(store, query, Utc::now());
+    rows_of(&results, &names, query)
+        .into_iter()
+        .filter_map(|item| item.key.strip_prefix("person:").map(str::to_owned))
+        .collect()
+}
+
+#[test]
+fn a_person_the_ranker_put_on_top_is_the_books_best_match() {
+    // Nobody but the book says who "da" is: the menu's people are its answer, in its order.
+    let (store, _dir) = crate::ui::contacts::tests::the_book();
+    let drawn = people_for(&store, "da");
+    let book: Vec<String> = crate::ui::contacts::book::suggest(store.as_ref(), "da")
+        .into_iter()
+        .map(|person| person.address)
+        .collect();
+    assert!(!drawn.is_empty(), "no people for da");
+    assert_eq!(drawn, book[..drawn.len()], "the menu and the book disagree");
+    // Operators alone name nobody.
+    assert_eq!(people_for(&store, "from:dana"), Vec::<String>::new());
+}
+
 #[test]
 fn dana_has_a_person_and_a_mail_group() {
     let built = work();

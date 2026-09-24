@@ -217,7 +217,8 @@ pub(in crate::ui) struct Page {
     pub quoted: Fold,
     /// The address of a chip that just joined, which flashes once.
     pub flash: Option<String>,
-    /// People this mailbox has written with, for `@` and the recipient fields.
+    /// The contact book's suggestions for what is being typed now — in To, in Cc, or after an
+    /// `@` — best first. Asked again on each keystroke; the fields and `@` never type at once.
     pub people: Vec<Person>,
     pub notice: Option<String>,
 }

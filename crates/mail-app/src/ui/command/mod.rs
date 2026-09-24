@@ -6,6 +6,9 @@
 //! answer to one query, so Enter picks from the rows on screen, not from a query run afresh.
 
 mod items;
+pub(in crate::ui) mod people;
+
+pub(in crate::ui) use items::avatar_color;
 
 use super::debounce::{Settled, use_debounced};
 use super::field::{Field, FieldKind};
@@ -257,6 +260,10 @@ fn run_action(
         "Hide sidebar" => {
             side_hidden.set(!side_hidden());
             close(shell);
+        }
+        "Contacts" => {
+            close(shell);
+            super::contacts::open(shell);
         }
         "Theme light" | "Theme dark" | "Theme system" => {
             let theme = match label {

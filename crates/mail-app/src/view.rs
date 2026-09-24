@@ -509,6 +509,8 @@ pub struct Shell {
     pub page_menu: PageMenu,
     /// The command menu's query while it is open. `None` is closed.
     pub command: Option<String>,
+    /// The Contacts sheet's filter while it is open. `None` is closed.
+    pub contacts: Option<String>,
     /// Ctrl F in the open thread. `None` is closed, and marks nothing.
     ///
     /// Belongs to the thread it was opened on: [`Self::open`] and [`Self::close`] drop it, so a
@@ -720,6 +722,7 @@ impl Default for Shell {
             parts: PageParts::default(),
             page_menu: PageMenu::Closed,
             command: None,
+            contacts: None,
             find: None,
             undo: crate::undo::UndoStack::default(),
         }

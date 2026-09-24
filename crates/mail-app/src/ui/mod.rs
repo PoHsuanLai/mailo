@@ -7,6 +7,7 @@
 mod app;
 mod command;
 mod compose;
+mod contacts;
 mod data;
 mod debounce;
 mod field;

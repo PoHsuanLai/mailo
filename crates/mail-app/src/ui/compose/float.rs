@@ -98,6 +98,18 @@ pub(in crate::ui) fn query(page: &Page) -> Option<String> {
     (!too_long && !typed.contains("  ")).then_some(typed)
 }
 
+/// While the `@` menu is open, ask the contact book for what follows the `@`: the same
+/// question, and so the same people in the same order, as the To and Cc fields. The whole book's
+/// top when nothing follows it yet.
+pub(in crate::ui) fn suggest_mention(page: &mut Page, store: &dyn mail_store::Store) {
+    if !matches!(page.float, Float::Mention { .. }) {
+        return;
+    }
+    if let Some(typed) = query(page) {
+        page.people = super::super::contacts::book::suggest(store, &typed);
+    }
+}
+
 /// What a `/` choice asks of the page beyond the document.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::ui) enum Picked {

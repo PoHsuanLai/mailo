@@ -183,6 +183,16 @@ pub(super) fn SpaceEditor(
             MarksChoice { shell }
             Notifications {}
             div {
+                div { class: "ed-label", "Contacts" }
+                button {
+                    class: "mini",
+                    r#type: "button",
+                    onclick: move |_| super::contacts::open(shell),
+                    "Contacts…"
+                }
+                p { class: "capnote", "Who the composer suggests: import, export, rename, forget." }
+            }
+            div {
                 div { class: "ed-label", "Presets" }
                 Presets { editing, spaces }
             }

@@ -3,6 +3,7 @@
 
 mod faces;
 mod life;
+mod people;
 mod receipt;
 mod render;
 mod wire;

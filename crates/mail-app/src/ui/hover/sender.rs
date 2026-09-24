@@ -1,6 +1,7 @@
 //! The sender card: who they are, how often they write, and whether their name borrows a
 //! brand their address does not belong to. Its actions are the shared `Menu`.
 
+use super::super::contacts::ContactPart;
 use super::super::history::History;
 use super::super::icon::{Glyph, Icon};
 use super::super::menu::{Menu, MenuItem, Right, Tile};
@@ -37,6 +38,7 @@ pub(super) fn sender_card(
         .map(|sender| crate::view::listed(sender.last, chrono::Utc::now(), &Local))
         .unwrap_or_default();
     let items = sender_actions();
+    let given = from.name.clone().unwrap_or_default();
     rsx! {
         div { class: "person",
             span { class: "av", "{letter}" }
@@ -67,6 +69,8 @@ pub(super) fn sender_card(
                 span { "First mail from this address. Nothing else in the store has come from it." }
             }
         }
+        // Keyed, so a card for another sender starts afresh rather than keep this one's state.
+        {rsx! { ContactPart { key: "{email}", email: email.clone(), name: given } }}
         div { class: "acts",
             Menu {
                 title: String::new(),

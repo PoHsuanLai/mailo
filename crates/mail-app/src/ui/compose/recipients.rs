@@ -1,17 +1,32 @@
 //! The To and Cc rows: chips, what is typed beside them, and the people menu under them.
 
+use mail_store::Store;
+
+use super::super::contacts::book::suggest;
 use super::super::menu::MenuItem;
 use super::float::people_rows;
 use super::page::{CcRow, Float, List, Page, person};
-use crate::editor::{Person, resolve};
+use crate::editor::Person;
 
 /// Someone typed into `list`'s field. A comma commits what came before it.
-pub(in crate::ui) fn typed(page: &mut Page, list: List, value: String) {
+///
+/// The suggestions are asked of the contact book here, on the keystroke, not debounced. One
+/// read, measured in a debug build (`contacts::tests::a_suggestion_is_cheap_enough_for_every_
+/// keystroke`): under 0.7 ms at a thousand contacts for any text, and at ten thousand under
+/// 1 ms for most and about 6 ms for a first letter or a miss. The store's scale fixture's ten
+/// thousand messages come from 97 senders. A menu that lags the field by a quiet period would
+/// offer people for text that is no longer there.
+pub(in crate::ui) fn typed(page: &mut Page, list: List, value: String, store: &dyn Store) {
     if let Some(done) = value.strip_suffix(',') {
         *page.typed_mut(list) = done.to_owned();
         commit_typed(page, list);
         return;
     }
+    page.people = if value.trim().is_empty() {
+        Vec::new()
+    } else {
+        suggest(store, &value)
+    };
     *page.typed_mut(list) = value;
     page.float = if people_items(page, list).is_empty() {
         Float::Closed
@@ -20,7 +35,8 @@ pub(in crate::ui) fn typed(page: &mut Page, list: List, value: String) {
     };
 }
 
-/// People matching what is typed in `list`, less those already on the message.
+/// The book's suggestions for what is typed in `list`, in its order, less those already on the
+/// message.
 pub(in crate::ui) fn people_items(page: &Page, list: List) -> Vec<MenuItem> {
     let typed = match list {
         List::To => &page.typed_to,
@@ -36,8 +52,8 @@ pub(in crate::ui) fn people_items(page: &Page, list: List) -> Vec<MenuItem> {
             .any(|other| other.address.eq_ignore_ascii_case(&person.address))
     };
     people_rows(
-        resolve(typed, &page.people)
-            .into_iter()
+        page.people
+            .iter()
             .filter(|person| !listed(person))
             .collect(),
     )

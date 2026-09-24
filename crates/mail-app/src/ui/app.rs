@@ -312,6 +312,14 @@ pub(super) fn App() -> Element {
         // `Key`'s Display is the DOM key name — "e", "ArrowDown", "Escape" — which is the
         // vocabulary `view::shortcut` is written against.
         let key = event.key().to_string();
+        // The Contacts sheet owns it while it is open, over the Space editor when it was opened
+        // from there: its filter takes letters, and Esc closes it and nothing else.
+        if shell.read().contacts.is_some() {
+            if key == "Escape" {
+                super::contacts::close(shell);
+            }
+            return;
+        }
         // The Space editor owns the keyboard while it is open. Its name field takes letters,
         // its handles take the arrows, and Esc puts the Space back as the sheet found it.
         if editing.read().is_some() {
@@ -573,6 +581,9 @@ pub(super) fn App() -> Element {
             super::hover::HoverLayer { site: super::hover::Site::Frame, shell, revision, spaces: Some(spaces) }
             if shell.read().command.is_some() {
                 CommandMenu { shell, pages, revision, side_hidden, sync_state, spaces, in_a_field }
+            }
+            if shell.read().contacts.is_some() {
+                super::contacts::ContactsSheet { shell }
             }
             div { class: "card",
             ThreadList {

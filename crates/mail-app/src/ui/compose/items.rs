@@ -3,9 +3,8 @@
 
 use super::super::icon::Icon;
 use super::super::menu::{MenuItem, Right, Tile};
-use super::float::query;
 use super::page::Page;
-use crate::editor::{Action, Item, ParaKind, Person, filter, resolve, turn_into};
+use crate::editor::{Action, Item, ParaKind, Person, filter, turn_into};
 
 fn tile(item: &Item) -> Tile {
     match item.action {
@@ -67,10 +66,9 @@ pub(in crate::ui) fn turn_items(current: Option<ParaKind>) -> Vec<MenuItem> {
         .collect()
 }
 
-/// People matching the `@` query.
+/// The book's suggestions for the `@` query, as [`super::float::suggest_mention`] left them.
 pub(in crate::ui) fn mention_items(page: &Page) -> Vec<MenuItem> {
-    let typed = query(page).unwrap_or_default();
-    people_rows(resolve(&typed, &page.people))
+    people_rows(page.people.iter().collect())
 }
 
 /// Menu rows for people: an avatar, the name, the address.

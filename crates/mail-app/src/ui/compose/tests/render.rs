@@ -68,6 +68,13 @@ type Dress = Box<dyn FnOnce(&mut Page)>;
 
 /// The window with the composer open, laid out by the real app.
 fn window_with_page(dress: impl FnOnce(&mut Page)) -> (String, tempfile::TempDir) {
+    window_with(|page, _| dress(page))
+}
+
+/// The same, with the store to dress the page from.
+pub(super) fn window_with(
+    dress: impl FnOnce(&mut Page, &SqliteStore),
+) -> (String, tempfile::TempDir) {
     crate::ui::fixtures::dispatching();
     let built = work();
     // The Work Space's accounts have no identity rows; `account add` writes one for each.
@@ -97,7 +104,7 @@ fn window_with_page(dress: impl FnOnce(&mut Page)) -> (String, tempfile::TempDir
             .peek()
             .unwrap_or_else(|| panic!("c opened no page"))
     });
-    dom.in_runtime(|| dress(&mut page.write()));
+    dom.in_runtime(|| dress(&mut page.write(), &built.store));
     dom.render_immediate(&mut NoOpMutations);
     (dioxus_ssr::render(&dom), built.root)
 }
