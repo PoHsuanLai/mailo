@@ -1,11 +1,13 @@
 //! Motion keyed to state.
 //!
 //! Every animation here starts because something the window already knows became true, never
-//! because a timer stands in for it (Part E, decision 4):
+//! because a timer stands in for it (Part E, decision 4), and every one is timed by quire's
+//! motion clock (`ds::settle`, through `ds::Roster` and `ds::MotionTimer`), never by the
+//! webview's `animationend` (coherence rule 4):
 //!
-//! - a row is `going[data-op]` because an op was applied and the row no longer belongs to the
-//!   list — it stays drawn until its own `animationend` (a 900 ms fallback is the safety net);
-//! - the rows below it are `healing` because that row has gone;
+//! - a row leaves (`data-presence="leaving"`) because an op was applied and the row no longer
+//!   belongs to the list; the list's roster keeps it drawn until its exit settles;
+//! - the rows below it heal once it has gone, again the roster's doing;
 //! - a place `gulp`s because an op landed there, and a label `chip-land`s because it was added;
 //! - the undo toast is up because an op was applied, and it names it.
 //!
@@ -22,21 +24,42 @@ use crate::undo::{Undo, UndoHandle};
 use crate::view::Shell;
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
-use ds::{ToastHub, UndoToken};
+use ds::{Emphasis, Exit, MotionTimer, Roster, ToastHub, UndoToken};
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
+use std::collections::BTreeMap;
+
+/// A row as the list's roster knows it: the thread, and how many times an undo has brought it
+/// back while it was still leaving. The roster cannot take an exit back, so a thread restored
+/// mid-exit comes back under a new key and enters, while the old key finishes leaving unseen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct RowKey {
+    pub id: ThreadId,
+    pub round: u32,
+}
 
 /// A row that has left the list and is still being drawn while it goes.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct Leaving {
+    /// Its key in the roster.
+    pub key: RowKey,
     /// The row as it was drawn before the op.
     pub summary: ThreadSummary,
-    /// Where it stood in the list.
-    pub index: usize,
-    /// `data-op`: which exit it plays.
-    pub op: &'static str,
-    /// The rows under it, which heal into the gap once it has gone.
-    pub below: Vec<ThreadId>,
+}
+
+/// The list's roster and the timers of the motion an op starts, made by the list, which is
+/// inside the window's quire root and so reads its motion level. Every one belongs to the list
+/// and is dropped with it.
+#[derive(Clone, Copy)]
+pub(super) struct Clock {
+    pub roster: Roster<RowKey>,
+    /// How long the place an op landed in gulps.
+    pub gulp: MotionTimer,
+    /// How long a label that was just added lands.
+    pub landing: MotionTimer,
+    /// What each timer does once it has settled.
+    pub gulped: EventHandler<()>,
+    pub landed: EventHandler<()>,
 }
 
 /// What the toast says, and which op it belongs to.
@@ -70,8 +93,8 @@ pub(super) struct Toasts {
 #[derive(Clone, Copy)]
 pub(super) struct Motion {
     pub leaving: Signal<Vec<Leaving>>,
-    /// Rows healing into a gap, with their stagger.
-    pub healing: Signal<Vec<(ThreadId, usize)>>,
+    /// Threads an undo brought back while they were still leaving, and how many times.
+    pub rounds: Signal<BTreeMap<ThreadId, u32>>,
     /// The place an op just landed in.
     pub gulp: Signal<Option<String>>,
     /// A label just added to a row.
@@ -89,8 +112,11 @@ pub(super) struct Motion {
     pub drag: Signal<drag::Drag>,
     /// The ids the list drew last, in order. Not reactive: only an op reads it.
     pub order: CopyValue<Vec<ThreadId>>,
-    /// The scope that owns all of this. The fallback and the toast's timeout run there, so a
-    /// row that unmounts does not cancel them.
+    /// The list's roster and timers, once the list has mounted. Not reactive: only an op reads
+    /// it.
+    pub clock: CopyValue<Option<Clock>>,
+    /// The scope that owns all of this. The toast's timeout runs there, so a row that unmounts
+    /// does not cancel it.
     owner: ScopeId,
 }
 
@@ -98,7 +124,7 @@ pub(super) struct Motion {
 pub(super) fn use_motion() -> Motion {
     use_context_provider(|| Motion {
         leaving: Signal::new(Vec::new()),
-        healing: Signal::new(Vec::new()),
+        rounds: Signal::new(BTreeMap::new()),
         gulp: Signal::new(None),
         landing: Signal::new(None),
         returning: Signal::new(None),
@@ -107,6 +133,7 @@ pub(super) fn use_motion() -> Motion {
         dest: Signal::new(None),
         drag: Signal::new(drag::Drag::Idle),
         order: CopyValue::new(Vec::new()),
+        clock: CopyValue::new(None),
         owner: dioxus::core::current_scope_id(),
     })
 }
@@ -116,8 +143,6 @@ pub(super) fn motion() -> Option<Motion> {
     try_consume_context::<Motion>()
 }
 
-/// How long a row may take to leave before it is removed anyway.
-const FALLBACK: std::time::Duration = std::time::Duration::from_millis(900);
 /// How long mailo's own toast stays. quire's holds its own.
 const TOAST: std::time::Duration = std::time::Duration::from_secs(6);
 
@@ -215,10 +240,11 @@ fn restore(
             toasts.hub.hide();
         }
         if let Some(thread) = entry.thread {
-            motion
-                .leaving
-                .write()
-                .retain(|row| row.summary.id != thread);
+            let was_leaving = motion.leaving.peek().iter().any(|row| row.key.id == thread);
+            if was_leaving {
+                *motion.rounds.write().entry(thread).or_default() += 1;
+            }
+            motion.leaving.write().retain(|row| row.key.id != thread);
             motion.returning.set(Some(thread));
         }
     }
@@ -249,15 +275,13 @@ pub(super) fn key(
     super::hover::key(name, shell)
 }
 
-/// The row's exit, when `op` takes a row out of a list.
-fn exit(op: &Op) -> Option<&'static str> {
+/// The row's exit, when `op` takes a row out of a list: snooze curls away, everything else
+/// folds, as mailo's rows always have.
+fn exit(op: &Op) -> Option<Exit> {
     match op {
         // Filed into a folder is out of the inbox, the way archiving is.
-        Op::Archive | Op::File(_) => Some("archive"),
-        Op::Trash => Some("trash"),
-        Op::Spam => Some("spam"),
-        Op::Restore => Some("restore"),
-        Op::SetSnooze(Snooze::Until(_)) => Some("snooze"),
+        Op::Archive | Op::File(_) | Op::Trash | Op::Spam | Op::Restore => Some(Exit::Fold),
+        Op::SetSnooze(Snooze::Until(_)) => Some(Exit::Curl),
         _ => None,
     }
 }
@@ -293,37 +317,54 @@ impl Motion {
         op: &Op,
         before: Option<ThreadSummary>,
     ) {
+        let clock = *self.clock.peek();
         self.dest.set(None);
         if let Some(place) = destination(op, &shell.peek().labels) {
             self.gulp.set(Some(place));
+            if let Some(clock) = clock {
+                clock.gulp.start(clock.gulped);
+            }
         }
         if let Op::Label(label, Membership::In) = op {
             self.landing.set(Some((thread, *label)));
+            if let Some(clock) = clock {
+                clock.landing.start(clock.landed);
+            }
         }
-        let (Some(slug), Some(before)) = (exit(op), before) else {
+        let (Some(exit), Some(before)) = (exit(op), before) else {
             return;
         };
-        if self.stays(store, shell, thread) {
+        if self.stays(store, shell, thread) || !self.order.read().contains(&thread) {
             return;
         }
-        let order = self.order.read().clone();
-        let Some(index) = order.iter().position(|id| *id == thread) else {
-            return;
+        let key = RowKey {
+            id: thread,
+            round: self.rounds.peek().get(&thread).copied().unwrap_or(0),
         };
-        let below = order[index + 1..].to_vec();
+        let emphasis = if before.read == ReadState::Unread {
+            Emphasis::Strong
+        } else {
+            Emphasis::Plain
+        };
         let mut leaving = self.leaving.write();
-        leaving.retain(|row| row.summary.id != thread);
+        // A row's summary is kept while the roster still draws it leaving, and no longer.
+        let drawn = clock
+            .map(|clock| clock.roster.entries())
+            .unwrap_or_default();
+        leaving.retain(|row| {
+            row.key.id != thread
+                && drawn.iter().any(|entry| {
+                    entry.key == row.key && matches!(entry.presence, ds::Presence::Leaving(_))
+                })
+        });
         leaving.push(Leaving {
+            key,
             summary: before,
-            index,
-            op: slug,
-            below,
         });
         drop(leaving);
-        dioxus::core::Runtime::current().spawn(self.owner, async move {
-            tokio::time::sleep(FALLBACK).await;
-            finish(self, thread);
-        });
+        if let Some(clock) = clock {
+            clock.roster.leave(key, exit, emphasis);
+        }
     }
 
     /// Whether the row still belongs to the list it is in. A search is global, so a row there
@@ -407,43 +448,6 @@ fn folders_of(store: &SqliteStore, thread: &Thread) -> Vec<Placed> {
         .filter_map(|message| store.placed(*message).ok())
         .flatten()
         .collect()
-}
-
-/// A leaving row has finished: take it off the page, and let the rows under it heal.
-pub(super) fn finish(mut motion: Motion, thread: ThreadId) {
-    let Some(at) = motion
-        .leaving
-        .peek()
-        .iter()
-        .position(|row| row.summary.id == thread)
-    else {
-        return;
-    };
-    let gone = motion.leaving.write().remove(at);
-    motion.healing.set(
-        gone.below
-            .into_iter()
-            .take(12)
-            .enumerate()
-            .map(|(stagger, id)| (id, stagger))
-            .collect(),
-    );
-}
-
-/// The animation a row just finished, and what it means.
-pub(super) fn row_animation_ended(thread: ThreadId, name: &str) {
-    let Some(mut motion) = motion() else {
-        return;
-    };
-    match name {
-        "fold" | "curl" => finish(motion, thread),
-        "heal" => motion.healing.write().retain(|(id, _)| *id != thread),
-        "rise" if *motion.returning.peek() == Some(thread) => motion.returning.set(None),
-        "chip-land" if motion.landing.peek().is_some_and(|(id, _)| id == thread) => {
-            motion.landing.set(None);
-        }
-        _ => {}
-    }
 }
 
 #[cfg(test)]

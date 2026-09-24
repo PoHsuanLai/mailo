@@ -25,6 +25,7 @@ use ds::{
 
 #[component]
 pub(in crate::ui) fn Props(page: Signal<Page>, shell: Signal<Shell>) -> Element {
+    use_flash_clock(page);
     let read = page.read();
     let compact = read.kind == PageKind::Reply;
     let cc_shown = read.cc_row == CcRow::Shown;
@@ -311,6 +312,24 @@ pub(in crate::ui) fn pick_sends(page: &mut Page, key: &str) {
     page.float = Float::Closed;
 }
 
+/// A person who joins a list flashes their chip: `Page::flash` names them, and quire's timer
+/// for `chip-flash` clears it once the flash has settled. The flash is set by whatever added
+/// the person, so the timer starts when the name appears, not from a press here.
+fn use_flash_clock(mut page: Signal<Page>) {
+    let timer = ds::use_motion_timer(Anim::ChipFlash);
+    let done = use_callback(move |()| page.write().flash = None);
+    let mut started = use_signal(|| None::<String>);
+    use_effect(move || {
+        let flash = page.read().flash.clone();
+        if flash.is_some() && flash != *started.peek() {
+            timer.start(done);
+        }
+        if flash != *started.peek() {
+            started.set(flash);
+        }
+    });
+}
+
 /// The chips of one list, the field beside them, and the people menu under it.
 #[component]
 fn Recipients(page: Signal<Page>, list: List) -> Element {
@@ -346,16 +365,11 @@ fn Recipients(page: Signal<Page>, list: List) -> Element {
                     tone: AvatarTone::Person(ds::person_hue(&address)),
                     shape: AvatarShape::Round,
                 };
-                // The flash is the chip's own pulse; its end, heard around the chip, clears it.
+                // The flash is the chip's own pulse, for as long as the page's flash timer runs.
                 let pulse = flashing.then(|| PulseKey::rest(Anim::ChipFlash).fired());
                 rsx! {
                     span {
                         key: "{address}",
-                        onanimationend: move |_| {
-                            if flashing {
-                                page.write().flash = None;
-                            }
-                        },
                         Chip {
                             variant: ChipVariant::Person(avatar),
                             text: person.name.clone(),

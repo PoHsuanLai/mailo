@@ -21,7 +21,7 @@ pub(in crate::ui) use dom::{
     in_scheme, key, markup, page, press, reader_markup, rebuild_into, root_attr, thread_like,
     write_page,
 };
-pub(in crate::ui) use events::{FakePointer, Scripts, animation_end, chord, pointer, type_into};
+pub(in crate::ui) use events::{FakePointer, Scripts, chord, pointer, type_into};
 pub(in crate::ui) use reference::{Work, work};
 pub(in crate::ui) use store::{
     ACCOUNT, empty, gmail_caps, held_and_remote, inbox_query, realistic, seeded,

@@ -37,7 +37,7 @@ use mail_store::{SqliteStore, Store};
 
 use super::field::{Field, FieldKind};
 use body::Body;
-use ds::{Glyph, Icon, IconButton, IconButtonVariant};
+use ds::{Anim, Glyph, Icon, IconButton, IconButtonVariant, MotionTimer};
 use life::{Anyway, Sent};
 use page::{Focus, Fold, Guard, Page, Phase, Saved, When};
 use props::Props;
@@ -55,8 +55,19 @@ pub(in crate::ui) use wire::GLUE;
 use crate::password::Password;
 use crate::view::Shell;
 
-/// How long the fold after Send runs before the page is taken away, if no animation says so.
-const FOLD_MS: u64 = 650;
+/// The fold after Send: quire's timer for `compose-send`, and what happens once it has
+/// settled, which is that the page is taken away. Made by the page, so it belongs to it.
+#[derive(Clone, Copy)]
+struct Folding {
+    timer: MotionTimer,
+    then: EventHandler<()>,
+}
+
+impl Folding {
+    fn start(self) {
+        self.timer.start(self.then);
+    }
+}
 
 /// The draft being composed and where its page goes, or `None` when nothing is.
 pub(in crate::ui) fn composing(shell: &Shell) -> Option<(DraftId, PageKind)> {
@@ -99,6 +110,10 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
     let mut desk = use_context::<Desk>();
     let mut page = use_signal(|| initial.clone());
     let mut plain = use_signal(|| Fold::Folded);
+    let folding = Folding {
+        timer: ds::use_motion_timer(Anim::ComposeSend),
+        then: use_callback(move |()| close(page, shell, desk)),
+    };
     let opened_on = use_hook(|| shell.peek().open);
     use_hook(|| desk.current.set(Some(page)));
     // Leaving without Esc, say for another draft, still keeps this one.
@@ -166,19 +181,15 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
     let flowed = crate::editor::to_flowed(&read.session.doc);
     drop(read);
 
-    let send = move |anyway: Anyway| send_page(page, shell, desk, revision, anyway, None);
+    let send = move |anyway: Anyway| send_page(page, desk, revision, folding, anyway, None);
     // Made here, so a send or a lookup the bar starts belongs to the page and not to the bar,
     // which goes away as it starts.
-    let on_seal = use_callback(move |act: BarAct| seal_act(page, shell, desk, revision, act));
+    let on_seal =
+        use_callback(move |act: BarAct| seal_act(page, shell, desk, revision, folding, act));
 
     rsx! {
         div {
             class: "{root}",
-            onanimationend: move |_| {
-                if page.peek().phase == Phase::Folding {
-                    close(page, shell, desk);
-                }
-            },
             onkeydown: move |event: KeyboardEvent| {
                 let key = event.key().to_string();
                 let modifiers = event.modifiers();
@@ -302,9 +313,9 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
 /// one was typed; it is dropped once the send is done.
 fn send_page(
     mut page: Signal<Page>,
-    shell: Signal<Shell>,
     desk: Desk,
     revision: Signal<u64>,
+    folding: Folding,
     anyway: Anyway,
     passphrase: Option<Password>,
 ) {
@@ -326,7 +337,7 @@ fn send_page(
                 match seal_and_queue(store, draft, leaves, passphrase).await {
                     Ok(due) => {
                         let sent = life::folded(&mut page.write(), due);
-                        queued(page, shell, desk, revision, sent);
+                        queued(page, desk, revision, folding, sent);
                     }
                     Err(Sealed::Locked { key, tried }) => {
                         page.write().seal_bar = SealBar::Locked { key, tried };
@@ -339,7 +350,7 @@ fn send_page(
                 }
             });
         }
-        Ok(sent) => queued(page, shell, desk, revision, sent),
+        Ok(sent) => queued(page, desk, revision, folding, sent),
         Err(why) => page.write().notice = Some(why),
     }
 }
@@ -350,6 +361,7 @@ fn seal_act(
     shell: Signal<Shell>,
     desk: Desk,
     revision: Signal<u64>,
+    folding: Folding,
     act: BarAct,
 ) {
     // The bar is only ever reached past the other guards, so its sends go as "anyway".
@@ -363,10 +375,10 @@ fn seal_act(
             write.seal_bar = SealBar::Clear;
             write.touch();
             drop(write);
-            send_page(page, shell, desk, revision, Anyway::Yes, None);
+            send_page(page, desk, revision, folding, Anyway::Yes, None);
         }
         BarAct::Unlock(passphrase) => {
-            send_page(page, shell, desk, revision, Anyway::Yes, Some(passphrase));
+            send_page(page, desk, revision, folding, Anyway::Yes, Some(passphrase));
         }
         BarAct::OpenSheet => super::pgp::keys::open(shell),
         BarAct::LookUp(addresses) => {
@@ -406,9 +418,9 @@ fn seal_act(
 /// A press of Send's outcome: queued, the page folds away and the pill takes over.
 fn queued(
     page: Signal<Page>,
-    shell: Signal<Shell>,
     mut desk: Desk,
     mut revision: Signal<u64>,
+    folding: Folding,
     sent: Sent,
 ) {
     match sent {
@@ -425,10 +437,8 @@ fn queued(
             }));
             desk::unpark(desk, draft);
             revision += 1;
-            spawn(async move {
-                tokio::time::sleep(std::time::Duration::from_millis(FOLD_MS)).await;
-                close(page, shell, desk);
-            });
+            // The page folds away on quire's clock, and goes once the fold has settled.
+            folding.start();
         }
         // Sealing is answered by the send that started it; a stop has already said why.
         Sent::Stopped | Sent::Sealing { .. } => {}

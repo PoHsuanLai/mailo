@@ -172,25 +172,6 @@ impl dioxus::html::HasPointerData for FakePointer {
     }
 }
 
-/// An animation that has finished, by the name its `@keyframes` has.
-#[derive(Debug, Clone)]
-pub(in crate::ui) struct FakeAnimation(pub(in crate::ui) &'static str);
-
-impl dioxus::html::HasAnimationData for FakeAnimation {
-    fn animation_name(&self) -> String {
-        self.0.to_owned()
-    }
-    fn pseudo_element(&self) -> String {
-        String::new()
-    }
-    fn elapsed_time(&self) -> f32 {
-        0.4
-    }
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-}
-
 /// Send a pointer event named `name` (`"pointerover"`, `"pointerdown"`…) to `element`.
 pub(in crate::ui) fn pointer(
     dom: &mut VirtualDom,
@@ -199,14 +180,4 @@ pub(in crate::ui) fn pointer(
     at: FakePointer,
 ) -> Seen {
     dispatch(dom, name, PlatformEventData::new(Box::new(at)), element)
-}
-
-/// Report that the animation `name` ended on `element`.
-pub(in crate::ui) fn animation_end(
-    dom: &mut VirtualDom,
-    element: ElementId,
-    name: &'static str,
-) -> Seen {
-    let data = PlatformEventData::new(Box::new(FakeAnimation(name)));
-    dispatch(dom, "animationend", data, element)
 }

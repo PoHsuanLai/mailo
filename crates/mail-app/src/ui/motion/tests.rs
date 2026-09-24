@@ -4,8 +4,7 @@
 use super::drag::{drop_op, view_kind};
 use crate::ui::app::App;
 use crate::ui::fixtures::{
-    FakePointer, INSIDE_THE_SHELL, Seen, animation_end, chord, click, dispatching, pointer,
-    rebuild_into, work,
+    FakePointer, INSIDE_THE_SHELL, Seen, chord, click, dispatching, pointer, rebuild_into, work,
 };
 use dioxus::html::input_data::keyboard_types::Modifiers;
 use dioxus::prelude::*;
@@ -27,8 +26,14 @@ struct Mounted {
 }
 
 fn mounted() -> Mounted {
+    mounted_with(|_, _| {})
+}
+
+/// [`mounted`], with the store changed first by `before`.
+fn mounted_with(before: impl FnOnce(&SqliteStore, ThreadId)) -> Mounted {
     dispatching();
     let built = work();
+    before(&built.store, built.dana);
     let mut dom = VirtualDom::new(App)
         .with_root_context(built.store.clone())
         .with_root_context(built.dirs.clone());
@@ -53,6 +58,31 @@ async fn settle(dom: &mut VirtualDom) {
         }
         dom.render_immediate(&mut NoOpMutations);
     }
+}
+
+/// Draw whatever lands until `span` of quire's clock has passed: a roster's timers run on wall
+/// time, and a test waits for them the way the window does.
+async fn run_for(dom: &mut VirtualDom, span: std::time::Duration) {
+    let until = tokio::time::Instant::now() + span;
+    while tokio::time::Instant::now() < until {
+        let left = until - tokio::time::Instant::now();
+        if tokio::time::timeout(left, dom.wait_for_work())
+            .await
+            .is_ok()
+        {
+            dom.render_immediate(&mut NoOpMutations);
+        }
+    }
+    settle(dom).await;
+}
+
+/// The longest a row's exit takes to settle at the window's motion level: an unread row's fold.
+fn exit_settles() -> std::time::Duration {
+    ds::settle(
+        ds::Anim::FoldHeavy,
+        ds::MotionLevel::Standard,
+        ds::StaggerIndex::default(),
+    )
 }
 
 fn changes(store: &SqliteStore) -> i64 {
@@ -90,7 +120,7 @@ fn at(x: f64, y: f64) -> FakePointer {
 }
 
 #[tokio::test]
-async fn archiving_moves_the_store_at_once_and_the_row_leaves_on_its_animationend() {
+async fn archiving_moves_the_store_at_once_and_the_row_leaves_once_its_exit_settles() {
     let Mounted {
         mut dom,
         store,
@@ -98,7 +128,6 @@ async fn archiving_moves_the_store_at_once_and_the_row_leaves_on_its_animationen
         seen,
         ..
     } = mounted();
-    let row = seen.one("aria-label", &format!("Open {DANA}"));
     assert!(mailboxes(&store, dana).contains(MailboxRole::Inbox));
 
     click(&mut dom, dana_archive(&seen));
@@ -111,12 +140,12 @@ async fn archiving_moves_the_store_at_once_and_the_row_leaves_on_its_animationen
     let page = dioxus_ssr::render(&dom);
     let going = row_markup(&page, DANA).expect("the row is still drawn while it leaves");
     assert!(
-        going.contains("class=\"row going\"") && going.contains("data-op=\"archive\""),
-        "the leaving row is not going[data-op=archive]:\n{going}"
+        going.contains("data-presence=\"leaving\"") && going.contains("data-exit=\"fold\""),
+        "the leaving row is not leaving[data-exit=fold]:\n{going}"
     );
 
-    animation_end(&mut dom, row, "fold");
-    settle(&mut dom).await;
+    // Nothing the webview says ends it: the roster times the exit on quire's clock.
+    run_for(&mut dom, exit_settles()).await;
     let page = dioxus_ssr::render(&dom);
     assert!(
         row_markup(&page, DANA).is_none(),
@@ -124,7 +153,7 @@ async fn archiving_moves_the_store_at_once_and_the_row_leaves_on_its_animationen
     );
     let next = row_markup(&page, RELEASE).expect("the next row is there");
     assert!(
-        next.contains("class=\"row healing\""),
+        next.contains("data-presence=\"healing\""),
         "the row under the gap does not heal into it:\n{next}"
     );
 }
@@ -227,6 +256,158 @@ async fn dragging_a_row_onto_archive_archives_it() {
         page.contains("class=\"item gulp\""),
         "the place that received the row did not gulp"
     );
+
+    // The gulp ends on quire's clock, not on the webview's word.
+    run_for(
+        &mut dom,
+        ds::settle(
+            ds::Anim::Gulp,
+            ds::MotionLevel::Standard,
+            ds::StaggerIndex::default(),
+        ),
+    )
+    .await;
+    let page = dioxus_ssr::render(&dom);
+    assert!(
+        !page.contains("item gulp"),
+        "the place was still gulping once the gulp had settled"
+    );
+}
+
+#[tokio::test]
+async fn a_label_dropped_on_a_row_lands_until_its_chip_settles() {
+    let Mounted { mut dom, seen, .. } = mounted_with(|store, dana| {
+        let account = store.thread(dana).unwrap().summary.account;
+        store
+            .connection()
+            .execute(
+                "INSERT INTO labels (id, account, name, origin) VALUES (?1, ?2, 'travel', '\"user\"')",
+                rusqlite::params![LabelId::generate().to_string(), account.to_string()],
+            )
+            .unwrap();
+    });
+    settle(&mut dom).await;
+    let row = seen.one("aria-label", &format!("Open {DANA}"));
+    let travel = seen.one("data-place", "travel");
+
+    pointer(&mut dom, "pointerdown", row, at(420.0, 120.0));
+    pointer(&mut dom, "pointermove", row, at(120.0, 300.0));
+    pointer(&mut dom, "pointerenter", travel, at(120.0, 300.0));
+    pointer(&mut dom, "pointerup", travel, at(120.0, 300.0));
+    settle(&mut dom).await;
+    let page = dioxus_ssr::render(&dom);
+    let landing = row_markup(&page, DANA).expect("Dana's row is drawn");
+    assert!(
+        landing.contains("class=\"chip is-landing\" data-chip=\"travel\""),
+        "the label does not land on the row:\n{landing}"
+    );
+
+    run_for(
+        &mut dom,
+        ds::settle(
+            ds::Anim::ChipLand,
+            ds::MotionLevel::Standard,
+            ds::StaggerIndex::default(),
+        ),
+    )
+    .await;
+    let page = dioxus_ssr::render(&dom);
+    let landed = row_markup(&page, DANA).expect("Dana's row is drawn");
+    assert!(
+        landed.contains("class=\"chip\" data-chip=\"travel\""),
+        "the chip was still landing once it had settled:\n{landed}"
+    );
+}
+
+/// Today's entry for `thread`, as rendered, if it is drawn.
+fn today_entry(page: &str, thread: &str) -> Option<String> {
+    let at = page.find(&format!("data-hc=\"today:{thread}\""))?;
+    let start = page[..at].rfind("<div")?;
+    Some(page[start..at].to_owned())
+}
+
+#[tokio::test]
+async fn a_today_entry_opens_and_closes_on_quires_clock() {
+    let Mounted { mut dom, seen, .. } = mounted();
+    // A thread Today does not hold yet: the release thread, by the id its row carries.
+    let page = dioxus_ssr::render(&dom);
+    let release = row_markup(&page, RELEASE).expect("the release row is drawn");
+    let opened: String = release
+        .split("data-hc=\"thread:")
+        .nth(1)
+        .and_then(|rest| rest.split('"').next())
+        .map(str::to_owned)
+        .expect("the row names its thread");
+    assert!(today_entry(&page, &opened).is_none(), "already in Today");
+    let row = seen.one("aria-label", &format!("Open {RELEASE}"));
+    let mut painted = click(&mut dom, row);
+    // Drawn as `settle` would, keeping what was painted: the entry's close button among it.
+    for _ in 0..8 {
+        if tokio::time::timeout(std::time::Duration::from_millis(40), dom.wait_for_work())
+            .await
+            .is_err()
+        {
+            break;
+        }
+        let mut more = Seen::default();
+        dom.render_immediate(&mut more);
+        painted = painted.merge(more);
+    }
+    let page = dioxus_ssr::render(&dom);
+    let entry = today_entry(&page, &opened).expect("the opened thread is not in Today");
+    assert!(
+        entry.contains("class=\"item today-item entering\""),
+        "the entry did not open:\n{entry}"
+    );
+    let span = |anim| ds::settle(anim, ds::MotionLevel::Standard, ds::StaggerIndex::default());
+    run_for(&mut dom, span(ds::Anim::TabIn)).await;
+    let page = dioxus_ssr::render(&dom);
+    let entry = today_entry(&page, &opened).expect("the entry is drawn");
+    assert!(
+        entry.contains("class=\"item today-item\""),
+        "the entry was still opening once its entrance had settled:\n{entry}"
+    );
+
+    let close = seen
+        .merge(painted)
+        .one("aria-label", &format!("Close {opened}"));
+    click(&mut dom, close);
+    settle(&mut dom).await;
+    let page = dioxus_ssr::render(&dom);
+    let entry = today_entry(&page, &opened).expect("a closed entry is drawn while it goes");
+    assert!(
+        entry.contains("class=\"item today-item leaving\""),
+        "the entry did not close:\n{entry}"
+    );
+    run_for(&mut dom, span(ds::Anim::TabOut)).await;
+    let page = dioxus_ssr::render(&dom);
+    assert!(
+        today_entry(&page, &opened).is_none(),
+        "the entry was still drawn once its exit had settled"
+    );
+}
+
+#[tokio::test]
+async fn a_count_that_changes_bumps() {
+    let Mounted { mut dom, seen, .. } = mounted();
+    settle(&mut dom).await;
+    // The Inbox's count, with the pulse it is playing, if any.
+    let inbox = |page: &str| -> String {
+        let at = page.find("data-place=\"Inbox\"").expect("the Inbox place");
+        let end = page[at..].find("</button>").map_or(page.len(), |n| at + n);
+        let tail = &page[at..end];
+        tail.find("<span class=\"count")
+            .map(|n| tail[n..].split('>').next().unwrap_or("").to_owned())
+            .expect("the Inbox shows a count")
+    };
+    let before = inbox(&dioxus_ssr::render(&dom));
+    click(&mut dom, dana_archive(&seen));
+    settle(&mut dom).await;
+    let after = inbox(&dioxus_ssr::render(&dom));
+    assert!(
+        after.contains("class=\"count a-bump\"") && after != before,
+        "the Inbox's count changed and did not bump: {before} then {after}"
+    );
 }
 
 #[tokio::test]
@@ -312,5 +493,105 @@ fn what_each_place_accepts() {
     assert_eq!(
         drop_op(&view_kind(&labelled)),
         Some(Op::Label(label, Membership::In))
+    );
+}
+
+#[tokio::test]
+async fn each_press_on_the_star_replays_its_pop_and_sparks() {
+    let Mounted { mut dom, seen, .. } = mounted();
+    let page = dioxus_ssr::render(&dom);
+    let row = row_markup(&page, DANA).expect("Dana's row is drawn");
+    assert!(
+        row.contains("class=\"star-ic\"") && !row.contains("a-spark"),
+        "the star plays before it is pressed:\n{row}"
+    );
+    let star = seen
+        .all("aria-label", "Star")
+        .into_iter()
+        .chain(seen.all("aria-label", "Unstar"))
+        .next()
+        .expect("a star");
+    let mut aliases = Vec::new();
+    for _ in 0..2 {
+        click(&mut dom, star);
+        settle(&mut dom).await;
+        let page = dioxus_ssr::render(&dom);
+        let pressed = page
+            .find("class=\"star-ic a-star-pop\" data-pulse=\"")
+            .map(|at| &page[at + "class=\"star-ic a-star-pop\" data-pulse=\"".len()..][..1])
+            .expect("the pressed star does not pop")
+            .to_owned();
+        assert!(
+            page.contains(&format!("class=\"a-spark\" data-pulse=\"{pressed}\"")),
+            "the sparks do not fly with the pop"
+        );
+        aliases.push(pressed);
+    }
+    // quire restarts a keyframe by swapping to its other name; the same name would not replay.
+    assert_eq!(
+        aliases,
+        ["a", "b"],
+        "the second press did not restart the pop"
+    );
+}
+
+#[tokio::test]
+async fn an_undo_mid_exit_brings_the_row_back_for_good() {
+    let Mounted { mut dom, seen, .. } = mounted();
+    click(&mut dom, dana_archive(&seen));
+    settle(&mut dom).await;
+    chord(
+        &mut dom,
+        "z",
+        Modifiers::CONTROL,
+        ElementId(INSIDE_THE_SHELL as usize),
+    );
+    // The exit it interrupted settles on its own clock; the row must outlive it.
+    run_for(&mut dom, exit_settles()).await;
+    let page = dioxus_ssr::render(&dom);
+    let row = row_markup(&page, DANA).expect("the row an undo brought back is not drawn");
+    assert!(
+        !row.contains("data-presence=\"leaving\""),
+        "the row is still leaving after the undo:\n{row}"
+    );
+    assert_eq!(
+        page.matches(&format!("aria-label=\"Open {DANA}\"")).count(),
+        1,
+        "the row is drawn twice"
+    );
+}
+
+#[tokio::test]
+async fn the_list_rises_when_shown_and_rests_once_its_rows_have_arrived() {
+    let Mounted { mut dom, .. } = mounted();
+    settle(&mut dom).await;
+    let page = dioxus_ssr::render(&dom);
+    assert!(
+        page.contains("class=\"list\" data-presence=\"entering\""),
+        "the list is not being shown on its first frame"
+    );
+    let row = row_markup(&page, DANA).expect("Dana's row is drawn");
+    assert!(
+        row.contains("data-presence=\"entering\""),
+        "the first row is not arriving:\n{row}"
+    );
+
+    // The roster rests its first rows once the last of them has risen, on quire's clock; the
+    // list rests with them.
+    let last = ds::settle(
+        ds::Anim::RowIn,
+        ds::MotionLevel::Standard,
+        ds::StaggerIndex::new(12),
+    );
+    run_for(&mut dom, last).await;
+    let page = dioxus_ssr::render(&dom);
+    assert!(
+        page.contains("class=\"list\" data-presence=\"present\""),
+        "the list is still being shown after its rows arrived"
+    );
+    let row = row_markup(&page, DANA).expect("Dana's row is drawn");
+    assert!(
+        row.contains("data-presence=\"present\""),
+        "the first row did not come to rest:\n{row}"
     );
 }

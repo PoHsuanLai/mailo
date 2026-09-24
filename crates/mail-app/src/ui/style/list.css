@@ -1,75 +1,78 @@
 /* The list inside the card: the bar is in shell.css, the rows are here. */
 label.search {
-  display: flex; align-items: center; gap: 8px; padding: 8px 14px;
+  display: flex; align-items: center; gap: var(--s-8); padding: var(--s-8) var(--s-14);
   border-bottom: 1px solid var(--line-soft); color: var(--ink-faint);
 }
 label.search .inp { flex: 1; }
 .list-g {
-  list-style: none; padding: 10px 8px 4px; font-family: var(--font-data); font-size: 10px;
+  list-style: none; padding: var(--s-10) var(--s-8) var(--s-4); font-family: var(--font-data); font-size: var(--fs-caption);
   letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-faint);
 }
 /* A search's two headings, "Top results" and "Newest first": the sidebar's `.s-h`, in the
    list's own ink, with the rule running out to the edge. */
 .list-top-h {
-  list-style: none; display: flex; align-items: center; gap: 8px; padding: 10px 8px 4px;
-  font-family: var(--font-data); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
+  list-style: none; display: flex; align-items: center; gap: var(--s-8); padding: var(--s-10) var(--s-8) var(--s-4);
+  font-family: var(--font-data); font-size: var(--fs-caption); letter-spacing: 0.14em; text-transform: uppercase;
   color: var(--ink-faint);
 }
 .list-top-h::after { content: ""; flex: 1; height: 1px; background: var(--line); }
 /* Rows are the mockup's: each a small card on the paper, lifted on hover. */
-.list { list-style: none; margin: 0; padding: 8px; overflow-y: auto; flex: 1; min-height: 0; }
-.list.entering .row { animation: rise var(--t-move) var(--e-out) backwards; animation-delay: calc(var(--i, 0) * var(--stagger)); }
+.list { list-style: none; margin: 0; padding: var(--s-8); overflow-y: auto; flex: 1; min-height: 0; }
+/* Rows arriving while the list is being shown rise, staggered by the roster's `--i`. */
+.list[*|data-presence=entering] .row[*|data-presence=entering] {
+  animation: rise var(--t-move) var(--e-out) backwards; animation-delay: calc(var(--i, 0) * var(--stagger));
+}
 .row {
-  position: relative; display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: 10px; align-items: start;
-  padding: 10px 11px; margin-bottom: 5px; border-radius: var(--r-card); background: var(--surface);
+  position: relative; display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: var(--s-10); align-items: start;
+  padding: var(--s-10) var(--s-11); margin-bottom: var(--s-5); border-radius: var(--r-card); background: var(--surface);
   border: 1px solid transparent; cursor: pointer; user-select: none;
   transition: transform var(--t-quick) var(--e-out), box-shadow var(--t-quick) var(--e-out),
               background-color var(--t-quick) var(--e-out), border-color var(--t-quick) var(--e-out);
 }
 .row:hover { transform: translateY(var(--lift)); box-shadow: var(--shadow-2); border-color: var(--line); }
-.row[aria-selected="true"] { background: var(--raise); border-color: var(--accent); box-shadow: var(--shadow-1); }
-.row-dot { padding-top: 6px; }
+.row[*|aria-selected="true"] { background: var(--raise); border-color: var(--accent); box-shadow: var(--shadow-1); }
+.row-dot { padding-top: var(--s-6); }
 .dot {
-  display: block; width: 8px; height: 8px; border-radius: 999px; background: var(--accent);
+  display: block; width: 8px; height: 8px; border-radius: var(--r-pill); background: var(--accent);
   transition: transform var(--t-quick) var(--e-spring), opacity var(--t-quick) var(--e-out);
 }
-.row[data-read="read"] .dot { transform: scale(0) translateX(-6px); opacity: 0; }
+.row[*|data-read="read"] .dot { transform: scale(0) translateX(-6px); opacity: 0; }
 .row-main { min-width: 0; }
-.row-from { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
-.nm { font-weight: 700; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.row[data-read="read"] .nm { font-weight: 500; color: var(--ink-soft); }
-.via { display: inline-flex; align-items: center; font-family: var(--font-data); font-size: 9.5px; color: var(--ink-faint); flex: none; }
-.row-sub { font-size: 13.5px; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.row[data-read="unread"] .row-sub { font-weight: 600; }
-.row-snip { font-size: 12.5px; color: var(--ink-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.row-tail { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; }
-.row-time { font-family: var(--font-data); font-size: 10px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
-.chips { display: flex; gap: 4px; align-items: center; }
+.row-from { display: flex; align-items: baseline; gap: var(--s-7); min-width: 0; }
+.nm { font-weight: 700; font-size: var(--fs-body); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row[*|data-read="read"] .nm { font-weight: 500; color: var(--ink-soft); }
+.via { display: inline-flex; align-items: center; font-family: var(--font-data); font-size: var(--fs-micro); color: var(--ink-faint); flex: none; }
+.row-sub { font-size: var(--fs-body); line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row[*|data-read="unread"] .row-sub { font-weight: 600; }
+.row-snip { font-size: var(--fs-meta); color: var(--ink-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row-tail { display: flex; flex-direction: column; align-items: flex-end; gap: var(--s-5); }
+.row-time { font-family: var(--font-data); font-size: var(--fs-caption); color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+.chips { display: flex; gap: var(--s-4); align-items: center; }
 .chip {
-  font-family: var(--font-data); font-size: 9.5px; padding: 1.5px 7px; border-radius: var(--r-chip);
+  font-family: var(--font-data); font-size: var(--fs-micro); padding: var(--s-1-5) var(--s-7); border-radius: var(--r-chip);
   background: var(--accent-soft); color: var(--ink); white-space: nowrap;
 }
-.clip { display: inline-flex; align-items: center; gap: 2px; font-family: var(--font-data); font-size: 9.5px; color: var(--ink-faint); }
+.clip { display: inline-flex; align-items: center; gap: var(--s-2); font-family: var(--font-data); font-size: var(--fs-micro); color: var(--ink-faint); }
 /* The star sits in the dot column, under the dot, and shows on hover or when on. */
 .star {
   position: absolute; left: 6px; bottom: 7px; width: 22px; height: 22px; border: 0; padding: 0; background: transparent;
   cursor: pointer; display: grid; place-items: center; opacity: 0; transition: opacity var(--t-quick) var(--e-out);
 }
-.row:hover .star, .star[data-on="true"], .star:focus-visible { opacity: 1; }
+.row:hover .star, .star[*|data-on="true"], .star:focus-visible { opacity: 1; }
 .star .ds-ic { stroke: var(--ink-faint); transition: stroke var(--t-quick) var(--e-out), fill var(--t-quick) var(--e-out); }
-.star[data-on="true"] .ds-ic { stroke: var(--warn); fill: var(--warn); }
-.star.pop .ds-ic { animation: star-pop var(--t-big) var(--e-spring); }
+.star[*|data-on="true"] .ds-ic { stroke: var(--warn); fill: var(--warn); }
+/* The glyph pops and the sparks fly on quire's pulse classes (`a-star-pop`, `a-spark`). */
+.star-ic { display: grid; place-items: center; }
 .sparks { position: absolute; inset: 0; pointer-events: none; }
-.sparks i { position: absolute; left: 50%; top: 50%; width: 3px; height: 3px; border-radius: 999px; background: var(--warn); opacity: 0; }
-.sparks.go i { animation: spark 520ms var(--e-out) forwards; }
+.sparks i { position: absolute; left: 50%; top: 50%; width: 3px; height: 3px; border-radius: var(--r-pill); background: var(--warn); opacity: 0; }
 /* The strip is display-toggled by CSS alone, so it works without a re-render. */
 .strip {
-  position: absolute; right: 8px; top: 50%; transform: translateY(-50%); display: none; gap: 3px; padding: 3px;
-  border-radius: 999px; background: var(--raise); border: 1px solid var(--line); box-shadow: var(--shadow-2);
+  position: absolute; right: 8px; top: 50%; transform: translateY(-50%); display: none; gap: var(--s-3); padding: var(--s-3);
+  border-radius: var(--r-pill); background: var(--raise); border: 1px solid var(--line); box-shadow: var(--shadow-2);
 }
 .row:hover .strip, .row:focus-within .strip { display: flex; }
 .strip button {
-  position: relative; width: 26px; height: 26px; border: 0; border-radius: 999px; background: transparent; cursor: pointer;
+  position: relative; width: 26px; height: 26px; border: 0; border-radius: var(--r-pill); background: transparent; cursor: pointer;
   display: grid; place-items: center; padding: 0; color: var(--ink-soft); transform: scale(.7); opacity: 0;
   transition: background-color var(--t-quick) var(--e-out), color var(--t-quick) var(--e-out);
 }
@@ -80,28 +83,30 @@ label.search .inp { flex: 1; }
 .strip button:active { transform: scale(.88) !important; }
 .strip .fly {
   position: absolute; bottom: calc(100% + 7px); left: 50%; transform: translateX(-50%) translateY(3px); white-space: nowrap;
-  background: var(--ink); color: var(--paper); font-family: var(--font-data); font-size: 10px; padding: 3px 7px; border-radius: 6px;
+  background: var(--ink); color: var(--paper); font-family: var(--font-data); font-size: var(--fs-caption); padding: var(--s-3) var(--s-7); border-radius: var(--r-small);
   opacity: 0; pointer-events: none;
-  transition: opacity var(--t-quick) var(--e-out) 0ms, transform var(--t-quick) var(--e-spring) 0ms;
+  transition: opacity var(--t-quick) var(--e-out), transform var(--t-quick) var(--e-spring);
 }
 .strip button:hover .fly { opacity: 1; transform: translateX(-50%) translateY(0); transition-delay: var(--fly-delay, var(--d-fly)); }
-/* Leaving: archive folds, snooze curls away, and the rows below close the gap. A row is drawn
-   with these until its own animationend; the store already has the change. Unread rows take
-   15% longer, so what you had not read yet does not vanish faster than what you had. */
-.list .row.going { pointer-events: none; animation: fold var(--t-big) var(--e-exit) forwards; }
-.list .row.going[data-op="snooze"] { animation: curl calc(var(--t-big) * 1.33) var(--e-exit) forwards; }
-.list .row[data-read="unread"].going { animation-duration: calc(var(--t-big) * 1.15); }
-.list .row[data-read="unread"].going[data-op="snooze"] { animation-duration: calc(var(--t-big) * 1.53); }
-.list .row.healing { animation: heal var(--t-move) var(--e-spring) backwards; animation-delay: calc(var(--d, 0) * var(--stagger)); }
+/* Leaving: archive folds, snooze curls away, and the rows below close the gap. The list's
+   roster (`ds::Roster`) draws a row with these until its exit settles on quire's clock; the
+   store already has the change. Unread rows take the heavy durations, so what you had not read
+   yet does not vanish faster than what you had. */
+.list .row[*|data-presence=leaving] { pointer-events: none; animation: fold var(--t-big) var(--e-exit) forwards; }
+.list .row[*|data-presence=leaving][*|data-exit=curl] { animation: curl var(--t-curl) var(--e-exit) forwards; }
+.list .row[*|data-presence=leaving][*|data-read=unread] { animation-duration: var(--t-big-heavy); }
+.list .row[*|data-presence=leaving][*|data-exit=curl][*|data-read=unread] { animation-duration: var(--t-curl-heavy); }
+.list .row[*|data-presence=healing] { animation: heal var(--t-move) var(--e-spring) backwards; animation-delay: calc(var(--d, 0) * var(--d-heal)); }
 .list .row.returning { animation: rise var(--t-big) var(--e-spring) backwards; }
 .row .floater {
   position: absolute; right: 70px; top: 8px; pointer-events: none; font-family: var(--font-display);
-  font-weight: 800; font-size: 14px; color: var(--accent); animation: floatup calc(var(--t-big) * 2.1) var(--e-out) forwards;
+  font-weight: 800; font-size: var(--fs-reading); color: var(--accent); animation: floatup var(--t-float) var(--e-out) forwards;
 }
 .chip.is-landing { animation: chip-land var(--t-move) var(--e-spring); }
-/* The place that received it gulps; a count that changed bumps. */
+/* The place that received it gulps, for as long as the list's gulp timer runs; a count that
+   changed bumps, on quire's pulse class (`a-bump`), which needs a box to scale. */
 .item.gulp { animation: gulp var(--t-big) var(--e-spring); }
-.count.bump { display: inline-block; animation: bump var(--t-move) var(--e-spring); }
+.count.a-bump { display: inline-block; }
 
 /* Dragging a row onto a place. Places that take the drop are outlined while a drag is live;
    the one under the pointer lifts. A saved search takes nothing and stays as it is. */
@@ -114,21 +119,21 @@ label.search .inp { flex: 1; }
 /* The one toast mailo draws itself: after leaving a list, the way to archive what it sent.
    Every undo and every plain word is quire's toast, from the window root. */
 .toast {
-  position: absolute; left: 50%; bottom: 14px; z-index: 8; transform: translateX(-50%);
-  display: flex; align-items: center; gap: 10px; background: var(--ink); color: var(--paper); border-radius: 999px;
-  padding: 5px 5px 5px 15px; box-shadow: var(--shadow-2); font-size: 12.5px; font-weight: 600; white-space: nowrap;
-  animation: toast-in var(--t-big) var(--e-spring);
+  position: absolute; left: 50%; bottom: 14px; z-index: var(--z-link-pill); transform: translateX(-50%);
+  display: flex; align-items: center; gap: var(--s-10); background: var(--ink); color: var(--paper); border-radius: var(--r-pill);
+  padding: var(--s-5) var(--s-5) var(--s-5) var(--s-15); box-shadow: var(--shadow-2); font-size: var(--fs-meta); font-weight: 600; white-space: nowrap;
+  animation: pill-up var(--t-big) var(--e-spring);
 }
 li.empty {
-  list-style: none; padding: 28px 16px; text-align: center; color: var(--ink-soft);
+  list-style: none; padding: var(--s-26) var(--s-16); text-align: center; color: var(--ink-soft);
 }
-li.empty > p:first-child { font-family: var(--font-display); font-size: 16px; }
-li.empty p.mono { margin-top: 4px; color: var(--ink-faint); }
+li.empty > p:first-child { font-family: var(--font-display); font-size: var(--fs-title); }
+li.empty p.mono { margin-top: var(--s-4); color: var(--ink-faint); }
 .command {
-  margin: 8px auto 0; max-width: 36ch; padding: 6px 8px; border: 1px solid var(--line);
+  margin: var(--s-8) auto 0; max-width: 36ch; padding: var(--s-6) var(--s-8); border: 1px solid var(--line);
   border-radius: var(--r-panel); background: var(--surface-2); color: var(--ink);
   font: 12px/1.5 var(--font-data); white-space: pre-wrap; overflow-wrap: anywhere; text-align: left;
 }
-.list-col > .mini { align-self: center; margin: 10px; }
+.list-col > .mini { align-self: center; margin: var(--s-10); }
 /* A search's matches in the subject and the snippet: a wash, so the words stay readable. */
-.row mark.hit { background: var(--accent-soft); color: inherit; border-radius: 3px; padding: 0 1px; }
+.row mark.hit { background: var(--accent-soft); color: inherit; border-radius: var(--r-micro); padding: 0 var(--s-1); }

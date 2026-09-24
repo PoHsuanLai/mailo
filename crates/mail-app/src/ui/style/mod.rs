@@ -17,11 +17,15 @@
 //! against quire's tokens: the scheme is the root's `data-theme`, never a media query, and a
 //! Space that lends the card its hue writes `--accent` on the root, never here.
 //!
-//! `motion.css` stays until mailo's rows, toasts and chips move to quire's motion timers: its
-//! keyframes are still named by the rules that play them.
+//! Every keyframe is quire's too (coherence rule 1): the rules here only name them, and the
+//! motion that has to end is timed by quire's clock, never by the webview's `animationend`
+//! (rule 4). The few keyframes quire does not have yet are declared beside the one rule that
+//! plays each, and named as exceptions in the lint below.
 
 #[cfg(test)]
 mod calm;
+#[cfg(test)]
+mod exceptions;
 
 pub(super) const STYLE: &str = concat!(
     include_str!("shell.css"),
@@ -38,7 +42,6 @@ pub(super) const STYLE: &str = concat!(
     include_str!("rules.css"),
     include_str!("pgp.css"),
     include_str!("controls.css"),
-    include_str!("motion.css"),
 );
 
 #[cfg(test)]
@@ -46,6 +49,7 @@ pub(in crate::ui) mod tests {
     use std::collections::{BTreeMap, BTreeSet};
 
     use super::STYLE;
+    use ds::lint::{LintConfig, Offence, Profile, Rule, assert_clean, markup, stylesheet};
     use ds::ratio;
 
     /// Everything the window's markup is styled by: quire's stylesheet, then mailo's.
@@ -373,10 +377,17 @@ pub(in crate::ui) mod tests {
             !frames.contains("opacity:0"),
             "@keyframes {name} fades the panel: {frames}"
         );
-        let wrap = property(&rule_body(&css, ".cmdk-wrap"), "z-index");
-        let scrim = property(&rule_body(&css, ".scrim"), "z-index");
-        let wrap_z: i32 = wrap.parse().unwrap_or(0);
-        let scrim_z: i32 = scrim.parse().unwrap_or(0);
+        // Both layers are quire's `--z-*` tokens, resolved on the `.ds` root.
+        let layers = declared(ds::stylesheet(), ".ds");
+        let layer = |selector: &str| -> i32 {
+            let value = property(&rule_body(&css, selector), "z-index");
+            let value = exactly_var(&value)
+                .and_then(|name| layers.get(name))
+                .cloned()
+                .unwrap_or(value);
+            value.parse().unwrap_or(0)
+        };
+        let (wrap_z, scrim_z) = (layer(".cmdk-wrap"), layer(".scrim"));
         assert!(
             wrap_z > scrim_z,
             "command menu z-index {wrap_z} is not above the scrim {scrim_z}"
@@ -728,53 +739,38 @@ pub(in crate::ui) mod tests {
         "--fly-delay",
     ];
 
-    /// Class tokens in `html`, and the class selectors `css` actually defines.
+    /// The classes in `html` that no rule in `css` styles, by quire's markup lint
+    /// (`ds::lint::markup`, coherence rule 2): each named once, in order.
     pub(in crate::ui) fn unstyled_classes(html: &str, css: &str) -> Vec<String> {
-        let mut used = BTreeSet::new();
-        let mut rest = html;
-        while let Some(at) = rest.find("class=\"") {
-            rest = &rest[at + "class=\"".len()..];
-            let Some(end) = rest.find('"') else { break };
-            for token in rest[..end].split_whitespace() {
-                if !token.is_empty() {
-                    used.insert(token.to_owned());
-                }
-            }
-            rest = &rest[end..];
-        }
-        let mut styled = BTreeSet::new();
-        let chars: Vec<char> = strip_comments(css).chars().collect();
-        let mut index = 0;
-        while index < chars.len() {
-            // `.pin.acct` is two class selectors. A dot followed by a letter is one;
-            // a dot followed by a digit is a number (`0.5`), not a class.
-            if chars[index] == '.'
-                && chars
-                    .get(index + 1)
-                    .is_some_and(|next| next.is_ascii_alphabetic() || *next == '_' || *next == '-')
-            {
-                let start = index + 1;
-                let mut end = start;
-                while end < chars.len()
-                    && (chars[end].is_ascii_alphanumeric()
-                        || chars[end] == '-'
-                        || chars[end] == '_')
-                {
-                    end += 1;
-                }
-                if end > start {
-                    styled.insert(chars[start..end].iter().collect::<String>());
-                }
-                index = end;
-            } else {
-                index += 1;
-            }
-        }
-        used.difference(&styled).cloned().collect()
+        let found: BTreeSet<String> = markup(html, css, &LintConfig::default())
+            .into_iter()
+            .filter(|offence| offence.rule == Rule::UnstyledClass)
+            .filter_map(|offence| {
+                let (_, class) = offence.text.rsplit_once(": ")?;
+                Some(class.to_owned())
+            })
+            .collect();
+        found.into_iter().collect()
     }
 
-    #[tokio::test]
-    async fn every_class_on_the_frame_is_styled() {
+    /// What quire's markup lint still finds in `html` once mailo's named exceptions are
+    /// applied: raw controls, raw vectors and literal colours in a `style`, beside unstyled
+    /// classes.
+    pub(in crate::ui) fn markup_offences(html: &str) -> Vec<Offence> {
+        markup(
+            html,
+            &full_css(),
+            &LintConfig {
+                exceptions: super::exceptions::MARKUP,
+                ..LintConfig::default()
+            },
+        )
+    }
+
+    /// The window's first frame with a conversation open in the reader, the command menu's
+    /// open menus, and the Space editor, which the first frame never shows: opened here
+    /// through the Space's name as a person would.
+    async fn frame_markup() -> String {
         use crate::ui::app::App;
         use crate::ui::fixtures::work;
         use dioxus::prelude::*;
@@ -787,16 +783,57 @@ pub(in crate::ui) mod tests {
         let mut menus =
             VirtualDom::new(crate::ui::command::tests::OpenMenus).with_root_context(store);
         menus.rebuild_in_place();
-        // The Space editor is a sheet the first frame never shows. Opened here, through the
-        // Space's name as a person would, so its markup is in the set that must be styled.
         let editor = crate::ui::space_editor::tests::editor_open_markup();
         assert!(
             editor.contains("aria-label=\"Space editor\""),
             "the editor did not open: {editor}"
         );
-        let page = dioxus_ssr::render(&dom) + &dioxus_ssr::render(&menus) + &editor;
+        dioxus_ssr::render(&dom) + &dioxus_ssr::render(&menus) + &editor
+    }
+
+    #[tokio::test]
+    async fn every_class_on_the_frame_is_styled() {
+        let page = frame_markup().await;
         let missing = unstyled_classes(&page, &full_css());
         assert!(missing.is_empty(), "unstyled classes: {missing:?}");
+    }
+
+    /// Coherence rule 2 beyond classes: no raw control, raw vector or literal colour in a
+    /// `style` on the frame, except those `exceptions::MARKUP` names with their reasons.
+    #[tokio::test]
+    async fn the_frame_draws_no_raw_markup_beyond_its_exceptions() {
+        let page = frame_markup().await;
+        let offences = markup_offences(&page);
+        assert!(offences.is_empty(), "{offences:#?}");
+    }
+
+    /// Coherence rule 1: mailo's own stylesheet, at quire's strictest profile, spacing
+    /// included. Every exception is named with its reason, and one that no longer suppresses
+    /// anything fails here rather than hiding a later offence.
+    #[test]
+    fn our_stylesheet_lints_clean() {
+        let config = LintConfig {
+            profile: Profile::Strict,
+            own_vars: PER_ELEMENT.iter().map(|name| (*name).to_owned()).collect(),
+            exceptions: super::exceptions::STYLE,
+        };
+        assert_clean(STYLE, &config);
+        let every = stylesheet(
+            STYLE,
+            &LintConfig {
+                exceptions: &[],
+                ..config.clone()
+            },
+        );
+        let stale: Vec<_> = config
+            .exceptions
+            .iter()
+            .filter(|exception| !every.iter().any(|offence| exception.covers(offence)))
+            .collect();
+        assert!(
+            stale.is_empty(),
+            "exceptions that suppress nothing: {stale:#?}"
+        );
     }
 
     #[test]

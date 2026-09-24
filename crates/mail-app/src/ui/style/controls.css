@@ -1,8 +1,8 @@
 /* Machine facts -- a time, a host, a count -- in the data face, a size smaller. */
 .mono { font-family: var(--font-data); font-size: 0.78em; letter-spacing: -0.02em; }
-.eyebrow { font-family: var(--font-data); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-faint); }
+.eyebrow { font-family: var(--font-data); font-size: var(--fs-eyebrow); letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-faint); }
 .pending, .empty { color: var(--ink-soft); font-style: italic; }
-.ghost { font: inherit; font-size: 12px; padding: 2px 8px; border: 1px solid var(--line); border-radius: var(--r-pill); background: none; color: var(--ink-soft); cursor: pointer; }
-.ghost.danger { color: var(--danger); border-color: color-mix(in oklab, var(--danger) 45%, var(--line)); font-weight: 600; }
-.notice { margin: 0; padding: 6px 8px; border-radius: var(--r-card); background: var(--accent-soft); color: var(--ink); font-size: 13px; }
-.hint { font-size: 12px; color: var(--ink-faint); }
+.ghost { font: inherit; font-size: var(--fs-small); padding: var(--s-2) var(--s-8); border: 1px solid var(--line); border-radius: var(--r-pill); background: none; color: var(--ink-soft); cursor: pointer; }
+.ghost.danger { color: var(--danger); border-color: var(--danger); font-weight: 600; }
+.notice { margin: 0; padding: var(--s-6) var(--s-8); border-radius: var(--r-card); background: var(--accent-soft); color: var(--ink); font-size: var(--fs-control); }
+.hint { font-size: var(--fs-small); color: var(--ink-faint); }

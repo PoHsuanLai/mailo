@@ -1,31 +1,33 @@
 /* The Add account sheet, on the mail-file sheets' scrim, paper, keys and foot: what was found set
    as a two-column table (a data-face key, the value), and the "+" after the account tiles. */
-.acct-sheet .inp.acct-in { font-size: 13px; padding: 6px 10px; }
+.acct-sheet .inp.acct-in { font-size: var(--fs-control); padding: var(--s-6) var(--s-10); }
 .inp.secret { letter-spacing: .12em; }
 .inp.secret::placeholder { letter-spacing: normal; }
 .acct-found {
-  display: grid; grid-template-columns: max-content 1fr; gap: 5px 14px; align-items: baseline;
-  margin-top: 6px; padding: 10px 12px; border: 1px solid var(--line-soft);
-  border-radius: 10px; background: var(--surface);
+  display: grid; grid-template-columns: max-content 1fr; gap: var(--s-5) var(--s-14); align-items: baseline;
+  margin-top: var(--s-6); padding: var(--s-10) var(--s-12); border: 1px solid var(--line-soft);
+  border-radius: var(--r-field); background: var(--surface);
 }
 .acct-k {
-  font-family: var(--font-data); font-size: 10px; letter-spacing: .06em; text-transform: uppercase;
+  font-family: var(--font-data); font-size: var(--fs-caption); letter-spacing: .06em; text-transform: uppercase;
   color: var(--ink-faint);
 }
-.acct-v { min-width: 0; font-size: 12.5px; line-height: 1.4; color: var(--ink); overflow-wrap: anywhere; }
+.acct-v { min-width: 0; font-size: var(--fs-meta); line-height: 1.4; color: var(--ink); overflow-wrap: anywhere; }
 .acct-v.acct-source { color: var(--ink-soft); }
-.files-look.acct-busy { color: var(--ink-soft); animation: breathe 1.6s var(--e-out) infinite; }
+/* quire's `breathe` is the sync halo's, fading to nothing; a busy word must stay legible. */
+.files-look.acct-busy { color: var(--ink-soft); animation: busy var(--t-ambient) var(--e-in-out) infinite; }
+@keyframes busy { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
 .capnote.acct-said { white-space: pre-wrap; overflow-wrap: anywhere; }
 /* A browser sign-in's address: the data face, selectable, with its Copy beside it. */
 .acct-url {
-  display: flex; align-items: flex-start; gap: 8px; margin-top: 6px; padding: 6px 9px;
+  display: flex; align-items: flex-start; gap: var(--s-8); margin-top: var(--s-6); padding: var(--s-6) var(--s-9);
   border: 1px solid var(--line); border-radius: var(--r-btn); background: var(--surface-2);
 }
 .acct-link {
-  flex: 1; min-width: 0; font-family: var(--font-data); font-size: 11px; line-height: 1.5;
+  flex: 1; min-width: 0; font-family: var(--font-data); font-size: var(--fs-eyebrow); line-height: 1.5;
   color: var(--ink); overflow-wrap: anywhere; user-select: text; -webkit-user-select: text;
 }
-.acct-done { display: grid; gap: 4px; margin-top: 4px; font-size: 13px; line-height: 1.45; color: var(--ink); }
+.acct-done { display: grid; gap: var(--s-4); margin-top: var(--s-4); font-size: var(--fs-control); line-height: 1.45; color: var(--ink); }
 .acct-done p { margin: 0; }
 .acct-done p:first-child { font-weight: 700; }
 .pin.acct.acct-add .av { background: transparent; color: var(--f-ink-faint); border: 1px dashed var(--f-ink-faint); }

@@ -6,7 +6,7 @@ use crate::appearance::WindowDirs;
 use crate::today::Today;
 use crate::view::Shell;
 use dioxus::prelude::*;
-use ds::{Glyph, Icon};
+use ds::{Anim, Glyph, Icon};
 use mail_domain::ThreadId;
 use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
@@ -17,9 +17,25 @@ pub(super) fn TodayList(
     today: Signal<Today>,
     space_index: usize,
     dirs: Option<WindowDirs>,
-    just_added: Signal<Option<ThreadId>>,
+    mut just_added: Signal<Option<ThreadId>>,
 ) -> Element {
     let mut leaving = use_signal(|| None::<ThreadId>);
+    // An entry opens and closes on quire's clock: each timer runs for its animation's settle,
+    // and a closed entry stays drawn until its own has run.
+    let tab_in = ds::use_motion_timer(Anim::TabIn);
+    let tab_out = ds::use_motion_timer(Anim::TabOut);
+    let opened = use_callback(move |()| just_added.set(None));
+    let closed = use_callback(move |()| leaving.set(None));
+    // A thread opened into Today is the window's news, not a press here: its entrance starts
+    // when the entry is added, and ends when the entrance has settled.
+    let mut entered = use_signal(|| None::<ThreadId>);
+    use_effect(move || {
+        let added = just_added();
+        if added.is_some() && added != *entered.peek() {
+            tab_in.start(opened);
+        }
+        entered.set(added);
+    });
     let live = today.read().live(space_index, chrono::Utc::now());
     let mut shown = live.clone();
     if let Some(id) = leaving()
@@ -97,14 +113,6 @@ pub(super) fn TodayList(
                                 hover.leave();
                             }
                         },
-                        onanimationend: move |_| {
-                            if leaving() == Some(id) {
-                                leaving.set(None);
-                            }
-                            if just_added() == Some(id) {
-                                just_added.set(None);
-                            }
-                        },
                         span { class: "fav", style: "background:var({color})", "{letter}" }
                         span { class: "t", "{title}" }
                         button {
@@ -115,6 +123,7 @@ pub(super) fn TodayList(
                                 today.write().close(space_index, id);
                                 save(&dirs_row, &today.read());
                                 leaving.set(Some(id));
+                                tab_out.start(closed);
                             },
                             Glyph { icon: Icon::X, size: ds::IconSize::Tiny }
                         }

@@ -1,7 +1,7 @@
 /* The Contacts sheet: the command menu's scrim and rise, a panel of the card's paper, rows in the
    people menu's shape (avatar, name over address, origin in the data face). */
 .book-wrap {
-  position: absolute; inset: 0; z-index: 35; display: grid; place-items: start center; padding-top: 7%;
+  position: absolute; inset: 0; z-index: var(--z-menu); display: grid; place-items: start center; padding-top: 7%;
   background: var(--scrim);
 }
 .book {
@@ -10,56 +10,56 @@
   border-radius: var(--r-panel); box-shadow: var(--shadow-2); overflow: hidden;
   animation: cmdk-rise var(--t-big) var(--e-spring);
 }
-.book-head { display: flex; align-items: center; gap: 10px; padding: 14px 14px 6px; }
-.book-head h3 { margin: 0; font-family: var(--font-display); font-size: 17px; font-weight: 800; }
-.book-head .count { font-family: var(--font-data); font-size: 10.5px; color: var(--ink-faint); }
+.book-head { display: flex; align-items: center; gap: var(--s-10); padding: var(--s-14) var(--s-14) var(--s-6); }
+.book-head h3 { margin: 0; font-family: var(--font-display); font-size: var(--fs-heading-3); font-weight: 800; }
+.book-head .count { font-family: var(--font-data); font-size: var(--fs-note); color: var(--ink-faint); }
 .book-head .mini { margin-left: auto; }
-.book-head .k { font-family: var(--font-data); font-size: 10px; font-weight: 400; color: var(--ink-faint); }
+.book-head .k { font-family: var(--font-data); font-size: var(--fs-caption); font-weight: 400; color: var(--ink-faint); }
 .book-find {
-  display: flex; align-items: center; gap: 9px; margin: 6px 14px 8px; padding: 4px 10px;
-  border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink-faint);
+  display: flex; align-items: center; gap: var(--s-9); margin: var(--s-6) var(--s-14) var(--s-8); padding: var(--s-4) var(--s-10);
+  border: 1px solid var(--line); border-radius: var(--r-field); background: var(--surface); color: var(--ink-faint);
 }
 .book-find:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .book-rows {
-  list-style: none; margin: 0; padding: 0 6px 6px; overflow-y: auto; scrollbar-width: thin;
+  list-style: none; margin: 0; padding: 0 var(--s-6) var(--s-6); overflow-y: auto; scrollbar-width: thin;
   flex: 1; min-height: 0; border-top: 1px solid var(--line-soft);
 }
 .book-row {
-  display: grid; grid-template-columns: 30px 1fr auto; gap: 10px; align-items: center;
-  padding: 7px 8px; border-radius: 8px;
+  display: grid; grid-template-columns: 30px 1fr auto; gap: var(--s-10); align-items: center;
+  padding: var(--s-7) var(--s-8); border-radius: var(--r-menu-item);
 }
 .book-row:hover { background: var(--surface-2); }
 .book-row .av {
-  width: 28px; height: 28px; border-radius: 999px; display: grid; place-items: center;
-  font-family: var(--font-display); font-weight: 800; font-size: 12px; color: var(--on-hue);
+  width: 28px; height: 28px; border-radius: var(--r-pill); display: grid; place-items: center;
+  font-family: var(--font-display); font-weight: 800; font-size: var(--fs-small); color: var(--on-hue);
 }
 .book-row .who { display: grid; min-width: 0; }
 .book-row .who b {
-  font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-size: var(--fs-control); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .book-row .addr, .book-row .origin, .hc .contact .origin {
-  font-family: var(--font-data); font-size: 10.5px; color: var(--ink-faint);
+  font-family: var(--font-data); font-size: var(--fs-note); color: var(--ink-faint);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.book-row .origin { font-size: 10px; }
-.book-row .acts { display: flex; gap: 6px; opacity: 0.55; transition: opacity var(--t-quick) var(--e-out); }
+.book-row .origin { font-size: var(--fs-caption); }
+.book-row .acts { display: flex; gap: var(--s-6); opacity: 0.55; transition: opacity var(--t-quick) var(--e-out); }
 .book-row:hover .acts, .book-row:focus-within .acts { opacity: 1; }
-.book-none { padding: 18px 10px; text-align: center; font-size: 12.5px; color: var(--ink-faint); }
-.naming { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.naming .inp.book-name { flex: 1; min-width: 0; font-size: 13px; padding: 4px 8px; }
+.book-none { padding: var(--s-18) var(--s-10); text-align: center; font-size: var(--fs-meta); color: var(--ink-faint); }
+.naming { display: flex; align-items: center; gap: var(--s-6); min-width: 0; }
+.naming .inp.book-name { flex: 1; min-width: 0; font-size: var(--fs-control); padding: var(--s-4) var(--s-8); }
 .book-foot {
-  display: grid; gap: 7px; padding: 10px 14px 14px; border-top: 1px solid var(--line-soft);
+  display: grid; gap: var(--s-7); padding: var(--s-10) var(--s-14) var(--s-14); border-top: 1px solid var(--line-soft);
   background: var(--surface);
 }
-.book-io { display: flex; gap: 8px; flex-wrap: wrap; }
+.book-io { display: flex; gap: var(--s-8); flex-wrap: wrap; }
 .book-foot .command { margin: 0; max-width: none; }
 .capnote.said { color: var(--ink); }
 
 /* The sender card's part in the book, between what the card knows and what it can do. */
 .hc .contact {
-  margin-top: 9px; padding-top: 8px; border-top: 1px solid var(--line-soft); display: grid; gap: 5px;
+  margin-top: var(--s-9); padding-top: var(--s-8); border-top: 1px solid var(--line-soft); display: grid; gap: var(--s-5);
 }
-.hc .contact .standing { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.hc .contact .standing { display: flex; align-items: center; gap: var(--s-6); flex-wrap: wrap; }
 .hc .contact .standing .origin { margin-right: auto; }
-.hc .contact .naming .inp.book-name { padding: 3px 2px; font-size: 13px; }
-.hc .contact .capnote { font-size: 11px; }
+.hc .contact .naming .inp.book-name { padding: var(--s-3) var(--s-2); font-size: var(--fs-control); }
+.hc .contact .capnote { font-size: var(--fs-eyebrow); }

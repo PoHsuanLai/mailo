@@ -7,7 +7,7 @@ use super::hover::{Hook, corner, hover};
 use super::list_search::RowHit;
 use super::marked::{Numbering, marked};
 use super::menus::{LabelMenu, SnoozeMenu};
-use super::motion::{act_kind, drag, motion, row_animation_ended};
+use super::motion::{act_kind, drag, motion};
 use super::move_to::MoveMenu;
 use super::ops::{composes, start_composing};
 use super::text::{draft_state, label, sender};
@@ -17,7 +17,7 @@ use crate::view::Marks;
 use crate::view::{Shell, hover_actions};
 use chrono::Local;
 use dioxus::prelude::*;
-use ds::{Glyph, Icon, MountedRef};
+use ds::{Anim, Exit, Glyph, Icon, MountedRef};
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
@@ -46,6 +46,8 @@ pub(super) fn DraftRow(draft: Draft, shell: Signal<Shell>, index: usize) -> Elem
             class: "row",
             role: "option",
             "data-read": "read",
+            // A draft is not on the roster: it rises with the list whenever the list is shown.
+            "data-presence": "entering",
             style: "--i:{delay}",
             onclick: move |_| {
                 let store = consume_context::<Arc<SqliteStore>>();
@@ -72,18 +74,33 @@ pub(super) fn DraftRow(draft: Draft, shell: Signal<Shell>, index: usize) -> Elem
     }
 }
 
-/// What a row is doing besides being there. Each is a fact the window already has: an op took
-/// it out of the list, a row above it has gone, an undo brought it back.
+/// What a row is doing besides being there, as the list's roster has it. Each is a fact the
+/// window already has: the list was just shown, an op took it out of the list, a row above it
+/// has gone, an undo brought it back.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(super) enum Moving {
     #[default]
     Still,
-    /// Drawn after the store dropped it, until its exit ends. The `data-op` of the exit.
-    Going(&'static str),
-    /// Closing the gap a row above left, with its stagger.
-    Healing(usize),
+    /// Arrived, with its entrance stagger. It rises only while the list is being shown.
+    Entering(u8),
+    /// Drawn after the store dropped it, until its exit settles.
+    Going(Exit),
+    /// Closing the gap a row above left, with its heal step.
+    Healing(u8),
     /// Back from an undo.
     Returning,
+}
+
+impl Moving {
+    /// `data-presence`: the roster's word for it.
+    fn presence(self) -> &'static str {
+        match self {
+            Moving::Still => "present",
+            Moving::Entering(_) | Moving::Returning => "entering",
+            Moving::Going(_) => "leaving",
+            Moving::Healing(_) => "healing",
+        }
+    }
 }
 
 /// A conversation, as a row, including the hover strip and whichever menu it has open.
@@ -125,24 +142,32 @@ pub(super) fn Row(
     let move_at = actions.len();
     let move_label = "Move to…".to_owned();
     let filing = shell.read().filing == Some(id);
-    let mut pop = use_signal(|| false);
+    // A press on the star replays its pop and its sparks: quire's pulses, restarted by name.
+    let pop = ds::use_pulse(Anim::StarPop);
+    let sparks = ds::use_pulse(Anim::Spark);
+    let (pop_class, pop_alias) = match pop.attrs() {
+        Some((anim, alias)) => (format!("star-ic {anim}"), Some(alias)),
+        None => ("star-ic".to_owned(), None),
+    };
+    let (spark_class, spark_alias) = sparks.attrs().unzip();
     // The strip buttons whose menus float beside them: each hands over its element to anchor to.
     let mut snooze_at = use_signal(|| None::<MountedRef>);
     let mut move_at_button = use_signal(|| None::<MountedRef>);
     // Where the row's own corner is, for the thread card. Not a signal: nothing redraws for it.
     let mut at = use_hook(|| CopyValue::new((0.0_f64, 0.0_f64)));
     let going = matches!(moving, Moving::Going(_));
-    let (class, op, style) = match moving {
+    let (class, exit, style) = match moving {
         Moving::Still => ("row", None, format!("--i:{delay}")),
-        Moving::Going(op) => ("row going", Some(op), format!("--i:{delay}")),
-        Moving::Healing(stagger) => (
-            "row healing",
+        Moving::Entering(stagger) => ("row", None, format!("--i:{stagger}")),
+        Moving::Going(exit) => ("row", Some(exit.slug()), format!("--i:{delay}")),
+        Moving::Healing(step) => (
+            "row",
             None,
-            format!("--i:{delay};--d:{stagger};--dy:{}px", gap(&shell.read())),
+            format!("--i:{delay};--d:{step};--dy:{}px", gap(&shell.read())),
         ),
         Moving::Returning => ("row returning", None, format!("--i:{delay}")),
     };
-    let snoozing = op == Some("snooze");
+    let snoozing = moving == Moving::Going(Exit::Curl);
     let enter = move |hook: Hook, corner: (f64, f64)| {
         if !going && let Some(hover) = hover() {
             hover.enter(hook, corner);
@@ -155,7 +180,8 @@ pub(super) fn Row(
             role: "option",
             aria_label: "Open {subject}",
             "data-read": if unread { "unread" } else { "read" },
-            "data-op": op,
+            "data-presence": moving.presence(),
+            "data-exit": exit,
             "data-hc": "thread:{id}",
             aria_selected: if selected { "true" } else { "false" },
             style: "{style}",
@@ -178,9 +204,6 @@ pub(super) fn Row(
                     let point = event.client_coordinates();
                     drag::press(id, (point.x, point.y));
                 }
-            },
-            onanimationend: move |event: Event<AnimationData>| {
-                row_animation_ended(id, &event.animation_name());
             },
             span { class: "row-dot", span { class: "dot" } }
             div { class: "row-main",
@@ -237,22 +260,29 @@ pub(super) fn Row(
                 }
             }
             button {
-                class: if pop() { "star pop" } else { "star" },
+                class: "star",
                 "data-on": if starred { "true" } else { "false" },
                 aria_label: if starred { "Unstar" } else { "Star" },
                 aria_pressed: if starred { "true" } else { "false" },
                 onclick: move |event| {
                     event.stop_propagation();
-                    pop.set(true);
+                    pop.fire();
+                    sparks.fire();
                     let store = consume_context::<Arc<SqliteStore>>();
                     let kind = if starred { OpKind::Unstar } else { OpKind::Star };
                     act_kind(&store, shell, revision, id, kind);
                 },
-                onanimationend: move |_| pop.set(false),
-                Glyph { icon: Icon::Star, size: ds::IconSize::Compact }
-                span { class: if pop() { "sparks go" } else { "sparks" },
+                span { class: "{pop_class}", "data-pulse": pop_alias,
+                    Glyph { icon: Icon::Star, size: ds::IconSize::Compact }
+                }
+                span { class: "sparks",
                     for angle in [0, 60, 120, 180, 240, 300] {
-                        i { key: "{angle}", style: "--a:{angle}deg" }
+                        i {
+                            key: "{angle}",
+                            class: spark_class.clone(),
+                            "data-pulse": spark_alias,
+                            style: "--a:{angle}deg",
+                        }
                     }
                 }
             }
@@ -358,7 +388,7 @@ fn preview(kind: OpKind) -> Option<&'static str> {
 }
 
 /// How far the rows under a gap travel as they heal: one row, with its margin.
-fn gap(shell: &Shell) -> u32 {
+pub(super) fn gap(shell: &Shell) -> u32 {
     if shell.parts.snippet.shown() { 72 } else { 54 }
 }
 

@@ -317,13 +317,8 @@ impl dioxus::html::HtmlEventConverter for TestEvents {
         )
     }
 
-    fn convert_animation_data(&self, event: &PlatformEventData) -> dioxus::html::AnimationData {
-        dioxus::html::AnimationData::new(
-            event
-                .downcast::<super::events::FakeAnimation>()
-                .cloned()
-                .expect("these tests only dispatch FakeAnimation"),
-        )
+    fn convert_animation_data(&self, _: &PlatformEventData) -> dioxus::html::AnimationData {
+        unimplemented!("motion is timed by quire's clock; nothing here hears an animation end")
     }
     fn convert_cancel_data(&self, _: &PlatformEventData) -> dioxus::html::CancelData {
         unimplemented!("convert_cancel_data is not what these tests dispatch")

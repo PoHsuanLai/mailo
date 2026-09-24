@@ -212,6 +212,107 @@ async fn esc_parks_the_draft_in_today_and_the_entry_brings_it_back_exactly() {
     );
 }
 
+/// Draw what lands until `span` of quire's clock has passed.
+async fn run_for(window: &mut Window, span: std::time::Duration) -> String {
+    let until = tokio::time::Instant::now() + span;
+    while tokio::time::Instant::now() < until {
+        let left = until - tokio::time::Instant::now();
+        let _ = tokio::time::timeout(left, window.dom.wait_for_work()).await;
+        window.render();
+    }
+    window.render()
+}
+
+/// Coherence rule 2 on the composer: no raw control, raw vector or literal colour beyond the
+/// exceptions mailo names (`style::exceptions::MARKUP`).
+#[tokio::test]
+async fn the_composer_draws_no_raw_markup_beyond_its_exceptions() {
+    let (store, _dir) = seeded();
+    let draft = fresh_draft(&store);
+    let (mut window, _) = Window::open(store.clone(), draft.clone(), None);
+    let mut page = window.page();
+    window.dom.in_runtime(|| {
+        let mut write = page.write();
+        write.to = vec![dana()];
+        write.subject = "Friday".to_owned();
+        type_text(&mut write, "See you then.");
+    });
+    let html = window.render();
+    let offences = crate::ui::style::tests::markup_offences(&html);
+    assert!(offences.is_empty(), "{offences:#?}");
+}
+
+#[tokio::test]
+async fn a_person_who_joins_flashes_until_the_flash_settles() {
+    let (store, _dir) = seeded();
+    let draft = fresh_draft(&store);
+    let (mut window, _) = Window::open(store.clone(), draft.clone(), None);
+    let mut page = window.page();
+    window.render();
+    window.dom.in_runtime(|| {
+        let mut write = page.write();
+        write.to = vec![dana()];
+        write.flash = Some(dana().address);
+    });
+    let markup = window.render();
+    assert!(
+        markup.contains("a-chip-flash"),
+        "the person who joined does not flash:\n{markup}"
+    );
+
+    let flash = ds::settle(
+        ds::Anim::ChipFlash,
+        ds::MotionLevel::Standard,
+        ds::StaggerIndex::default(),
+    );
+    let markup = run_for(&mut window, flash).await;
+    assert!(
+        !markup.contains("a-chip-flash"),
+        "the chip still flashed once its flash had settled:\n{markup}"
+    );
+    let flash = window.dom.in_runtime(|| page.peek().flash.clone());
+    assert_eq!(flash, None, "the page still names someone to flash");
+}
+
+#[tokio::test]
+async fn a_sent_page_folds_away_on_quires_clock() {
+    let (store, _dir) = seeded();
+    let draft = fresh_draft(&store);
+    let (mut window, seen) = Window::open(store.clone(), draft.clone(), None);
+    let mut page = window.page();
+    window.dom.in_runtime(|| {
+        let mut write = page.write();
+        write.to = vec![dana()];
+        write.subject = "Friday".to_owned();
+        type_text(&mut write, "See you then.");
+    });
+    window.render();
+
+    click(&mut window.dom, seen.one("aria-label", "Send"));
+    let markup = window.render();
+    assert!(
+        markup.contains(r#"class="cpage sending""#),
+        "the page did not fold:\n{markup}"
+    );
+
+    // Nothing the webview says takes it away: the fold's timer does, once `compose-send` has
+    // settled.
+    let fold = ds::settle(
+        ds::Anim::ComposeSend,
+        ds::MotionLevel::Standard,
+        ds::StaggerIndex::default(),
+    );
+    let markup = run_for(&mut window, fold).await;
+    assert!(
+        !markup.contains("cpage"),
+        "the page was still drawn once its fold had settled:\n{markup}"
+    );
+    assert!(
+        markup.contains("Sending in"),
+        "the pill went with the page:\n{markup}"
+    );
+}
+
 #[tokio::test]
 async fn send_then_undo_withdraws_the_submission_and_restores_the_draft() {
     let (store, _dir) = seeded();

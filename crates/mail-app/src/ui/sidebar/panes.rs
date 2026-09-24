@@ -247,15 +247,22 @@ fn PlaceButton(
     // The count this place showed last, so a change can bump. Kept apart from the badge memo:
     // a bump is "the number changed", and only an effect sees both numbers.
     let mut shown = use_signal(|| count);
-    let mut bumping = use_signal(|| false);
+    // The bump is quire's pulse: each change replays it, and nothing has to hear it end.
+    let bump = ds::use_pulse(ds::Anim::Bump);
     use_effect(move || {
         let now = badges().get(index).copied().flatten();
         if now != *shown.peek() {
             let had = shown.peek().is_some();
             shown.set(now);
-            bumping.set(had && now.is_some());
+            if had && now.is_some() {
+                bump.fire();
+            }
         }
     });
+    let (count_class, count_alias) = match bump.attrs() {
+        Some((anim, alias)) => (format!("count {anim}"), Some(alias)),
+        None => ("count".to_owned(), None),
+    };
     let state = use_hook(motion);
     let accepts = shell.read().places.get(index).is_some_and(drag::accepts);
     let place = name.clone();
@@ -278,24 +285,10 @@ fn PlaceButton(
                 }
             },
             onpointerleave: move |_| drag::over(None, index),
-            onanimationend: move |event: Event<AnimationData>| {
-                if event.animation_name() == "gulp"
-                    && let Some(mut state) = motion()
-                {
-                    state.gulp.set(None);
-                }
-            },
             Glyph { icon, size: ds::IconSize::Nav }
             span { "{name}" }
             if let Some(count) = count {
-                span {
-                    class: if bumping() { "count bump" } else { "count" },
-                    onanimationend: move |event: Event<AnimationData>| {
-                        event.stop_propagation();
-                        bumping.set(false);
-                    },
-                    "{count}"
-                }
+                span { class: "{count_class}", "data-pulse": count_alias, "{count}" }
             }
         }
     }

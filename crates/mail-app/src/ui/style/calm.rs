@@ -8,28 +8,31 @@
 use super::STYLE;
 use std::collections::BTreeMap;
 
-/// `(rule, property that holds the timing)`. Selectors are compared whole.
+/// `(rule, property that holds the timing)`. Selectors are compared whole. A count's bump is
+/// quire's pulse class now (`a-bump`), timed by quire's own recipe, so it is not listed.
 const NEW: &[(&str, &str)] = &[
-    (".list .row.going", "animation"),
-    (".list .row.going[data-op=\"snooze\"]", "animation"),
+    (".list .row[*|data-presence=leaving]", "animation"),
     (
-        ".list .row[data-read=\"unread\"].going",
+        ".list .row[*|data-presence=leaving][*|data-exit=curl]",
+        "animation",
+    ),
+    (
+        ".list .row[*|data-presence=leaving][*|data-read=unread]",
         "animation-duration",
     ),
     (
-        ".list .row[data-read=\"unread\"].going[data-op=\"snooze\"]",
+        ".list .row[*|data-presence=leaving][*|data-exit=curl][*|data-read=unread]",
         "animation-duration",
     ),
-    (".list .row.healing", "animation"),
+    (".list .row[*|data-presence=healing]", "animation"),
     (".list .row.returning", "animation"),
     (".row .floater", "animation"),
     (".chip.is-landing", "animation"),
     (".item.gulp", "animation"),
-    (".count.bump", "animation"),
     (".toast", "animation"),
     (".hc", "animation"),
     (".linkpill", "animation"),
-    (".item[aria-current=\"true\"]::before", "animation"),
+    (".item[*|aria-current=\"true\"]::before", "animation"),
 ];
 
 fn strip_comments(css: &str) -> String {
@@ -298,31 +301,32 @@ fn a_literal_duration_is_named() {
 }
 
 #[test]
-fn the_squash_shapes_flatten_under_calm() {
-    // Gulp, bump and the seal scale by `--squish` and `--overshoot`, which Calm sets to 1.
+fn the_squash_shapes_are_quires_and_calm_still_reaches_them() {
+    // Gulp, bump and the seal are quire's keyframes now; mailo declares none (coherence rule 1)
+    // and only names them. Calm reaches them through the level's tokens: the spring they play
+    // on does not overshoot under it, and `--squish` and `--overshoot` are 1 there.
     let css = strip_comments(STYLE);
-    for (name, token) in [
-        ("gulp", "--squish"),
-        ("bump", "--squish"),
-        ("seal-pop", "--overshoot"),
-    ] {
-        let at = css
-            .find(&format!("@keyframes {name}"))
-            .unwrap_or_else(|| panic!("no @keyframes {name}"));
-        let body = &css[at..at + css[at..].find("100%").unwrap_or(0)];
+    let quire = strip_comments(ds::stylesheet());
+    for name in ["gulp", "bump", "seal-pop"] {
         assert!(
-            body.contains(&format!("var({token})")),
-            "@keyframes {name} does not scale by {token}"
+            !css.contains(&format!("@keyframes {name}")),
+            "mailo still declares @keyframes {name}"
+        );
+        assert!(
+            quire.contains(&format!("@keyframes {name}")),
+            "quire has no @keyframes {name}"
         );
     }
     let calm = tokens(Some("calm"));
+    assert_eq!(overshoots("var(--e-spring)", &calm), Ok(false));
     assert_eq!(calm.get("--squish").map(String::as_str), Some("1"));
     assert_eq!(calm.get("--overshoot").map(String::as_str), Some("1"));
 }
 
 #[test]
 fn reduced_motion_still_ends_every_animation() {
-    // A leaving row is removed on its animationend, so reduced motion must shorten animations
+    // A leaving row is removed once its exit settles on quire's clock, so reduced motion must
+    // shorten animations
     // rather than remove them: `none` would leave the row until the fallback. The desktop's
     // setting is quire's `reduced` level now (`Motion::with_desktop`), not a media query here:
     // under it no duration token is zero, and the ones that time an animation are short.
