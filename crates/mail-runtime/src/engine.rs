@@ -21,7 +21,7 @@ use mail_store::{Settle, SqliteStore, Store};
 use std::sync::Arc;
 use std::time::Duration;
 
-mod wait;
+pub(crate) mod wait;
 pub use wait::Woke;
 
 /// Bodies are fetched smallest band first.
@@ -120,7 +120,7 @@ pub struct SyncReport {
 /// Only meaningful for the patch of a header fetch: that path upserts a message only when its
 /// key is new, since a header carries no body to fill in. A body fetch's patch upserts messages
 /// already held, and must not be read with this.
-fn first_stored(patch: &mail_domain::Patch) -> impl Iterator<Item = MessageId> + '_ {
+pub(crate) fn first_stored(patch: &mail_domain::Patch) -> impl Iterator<Item = MessageId> + '_ {
     patch.changes.iter().filter_map(|change| match change {
         mail_domain::Change::MessageUpsert(message) => Some(message.id),
         _ => None,
@@ -295,7 +295,9 @@ impl<B: Backend> AccountEngine<B> {
             Incoming::Pop3 {
                 host, port, tls, ..
             } => Some((host, *port, *tls)),
-            Incoming::Local | Incoming::Graph => None,
+            // No socket to open for Graph or JMAP: both are HTTPS. JMAP has an engine of its
+            // own (`crate::jmap::JmapEngine`); an `AccountEngine` built for one connects nowhere.
+            Incoming::Local | Incoming::Graph | Incoming::Jmap { .. } => None,
         }
     }
 
@@ -437,7 +439,7 @@ impl<B: Backend> AccountEngine<B> {
     fn outgoing(&self) -> Option<(&str, u16, Tls)> {
         match &self.plan.outgoing {
             Outgoing::Smtp { host, port, tls } => Some((host, *port, *tls)),
-            Outgoing::Graph | Outgoing::Nowhere => None,
+            Outgoing::Graph | Outgoing::Jmap | Outgoing::Nowhere => None,
         }
     }
 
@@ -517,6 +519,13 @@ impl<B: Backend> AccountEngine<B> {
         };
         if self.plan.outgoing == Outgoing::Nowhere {
             return Err(RuntimeError::NoServer("send from"));
+        }
+        // Submitted by `crate::jmap::JmapEngine`, which holds the session this needs. Handing it
+        // to Graph below — the fallthrough for "not SMTP" — would post it to the wrong company.
+        if self.plan.outgoing == Outgoing::Jmap {
+            return Err(RuntimeError::UnsupportedIo(
+                "a JMAP account sends through its JMAP engine".to_owned(),
+            ));
         }
         // The bytes were frozen when the user pressed send, so a draft edited while the outbox
         // was backed off does not change what goes out.
@@ -1701,7 +1710,9 @@ mod tests {
             .iter()
             .map(|(remote, _)| match remote {
                 RemoteRef::Pop { uidl } => uidl.as_str(),
-                RemoteRef::Imap { .. } | RemoteRef::Graph { .. } => unreachable!(),
+                RemoteRef::Imap { .. } | RemoteRef::Graph { .. } | RemoteRef::Jmap { .. } => {
+                    unreachable!()
+                }
             })
             .collect()
     }

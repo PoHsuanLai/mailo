@@ -10,6 +10,9 @@
 //! since there is nobody to ask and silence is not consent.
 
 use crate::cli::{Command, Consent, Setup};
+
+mod jmap;
+pub use jmap::{before_add_jmap, find as find_jmap};
 use mail_domain::{AuthPlan, Incoming, OAuthIssuer, Outgoing, Tls, Username};
 use mail_proto::discover::{Found, Unusable};
 use mail_runtime::discover::NotFound;
@@ -94,10 +97,18 @@ pub fn describe(address: &str, origin: &str, found: &mail_domain::presets::Prese
         ),
         Incoming::Local => "none".to_owned(),
         Incoming::Graph => "Microsoft Graph".to_owned(),
+        Incoming::Jmap { session, auth } => format!(
+            "JMAP at {session}, {}",
+            match auth {
+                mail_domain::HttpAuth::Basic => "signing in with a password",
+                mail_domain::HttpAuth::Bearer => "signing in with a token",
+            }
+        ),
     };
     let outgoing = match &plan.outgoing {
         Outgoing::Smtp { host, port, tls } => format!("SMTP {host}:{port}, {}", tls_said(*tls)),
         Outgoing::Graph => "Microsoft Graph".to_owned(),
+        Outgoing::Jmap => "JMAP submission, on the same server".to_owned(),
         Outgoing::Nowhere => "none".to_owned(),
     };
     let sign_in = match &plan.auth {

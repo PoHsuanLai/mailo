@@ -33,9 +33,9 @@ pub mod view;
 
 pub use account::{
     AccountCaps, AccountPlan, ArchiveMeans, AuthPlan, Condstore, ConnectionBudget, Credential,
-    ExpungeMeans, FolderRoles, Identity, Incoming, LeaveOnServer, MoveExt, OAuthIssuer, Outgoing,
-    SaslMech, SecretKey, SecretPurpose, ServerLabels, ServerThreads, Supported, Tls, Username,
-    WatchMode,
+    ExpungeMeans, FolderRoles, HttpAuth, Identity, Incoming, LeaveOnServer, MoveExt, OAuthIssuer,
+    Outgoing, SaslMech, SecretKey, SecretPurpose, ServerLabels, ServerThreads, Supported, Tls,
+    Username, WatchMode,
 };
 pub use autocrypt::{AutocryptPeer, PreferEncrypt, Sighting};
 pub use content::{Address, Attachment, Body, Inline, Label, PartContent};
@@ -60,7 +60,8 @@ pub use pgp::{
 };
 pub use receipt::{Keyword, ReceiptAnswer, ReceiptRequest};
 pub use remote::{
-    FetchSince, MailboxRef, ProtoOp, RemoteRef, Resync, SyncCursor, SystemFlag, UidValidity,
+    FetchSince, JMAP_ALL, MailboxRef, ProtoOp, RemoteRef, Resync, SyncCursor, SystemFlag,
+    UidValidity,
 };
 pub use retry::{Retry, Retryable};
 pub use rule::{AfterMatch, Rule, RuleAction, RuleState, Vacation};

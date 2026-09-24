@@ -103,7 +103,7 @@ pub fn list(store: &SqliteStore, account: Option<AccountId>) -> Result<String, S
                 );
                 continue;
             }
-            Incoming::Imap { .. } | Incoming::Graph => {}
+            Incoming::Imap { .. } | Incoming::Graph | Incoming::Jmap { .. } => {}
         }
         let folders = store.folders(configured.id).map_err(|e| e.to_string())?;
         if folders.is_empty() {

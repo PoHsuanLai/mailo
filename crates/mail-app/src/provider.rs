@@ -104,12 +104,23 @@ pub fn provider(plan: &AccountPlan) -> Provider {
     from_host(plan)
 }
 
+/// The host of a JMAP session URL, or nothing when it has none.
+fn session_host(session: &str) -> &str {
+    let rest = session.split_once("://").map_or(session, |(_, rest)| rest);
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    let host = authority
+        .rsplit_once('@')
+        .map_or(authority, |(_, host)| host);
+    host.split(':').next().unwrap_or("")
+}
+
 fn from_host(plan: &AccountPlan) -> Provider {
     if matches!(plan.outgoing, Outgoing::Graph) {
         return Provider::Microsoft;
     }
     let host = match &plan.incoming {
         Incoming::Imap { host, .. } | Incoming::Pop3 { host, .. } => host.as_str(),
+        Incoming::Jmap { session, .. } => session_host(session),
         // No host, so no provider to recognise: the generic mark.
         Incoming::Local => "",
         Incoming::Graph => return Provider::Microsoft,

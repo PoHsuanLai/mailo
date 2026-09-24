@@ -1007,6 +1007,19 @@ pub enum Setup {
     Imap(mail_domain::presets::Manual),
     /// `--pop3`: mail is downloaded from one mailbox, and left there.
     Pop3(mail_domain::presets::ManualPop3),
+    /// `--jmap [URL]`: a JMAP server, at the session URL given, or — with none — at
+    /// `https://<domain>/.well-known/jmap`, found and confirmed before anything is sent there.
+    Jmap {
+        session: Option<String>,
+        /// `--login NAME`, when the server wants something other than the whole address.
+        login: Option<String>,
+        /// Which header the secret travels in. The command line parses [`HttpAuth::Basic`]
+        /// and [`crate::account::add`] makes it a bearer token when `MAILO_JMAP_TOKEN` is set;
+        /// the window says which it was given.
+        ///
+        /// [`HttpAuth::Basic`]: mail_domain::HttpAuth::Basic
+        auth: mail_domain::HttpAuth,
+    },
     /// Found by discovery and confirmed by the user. Never parsed from arguments: the binary
     /// puts it here after asking, so [`crate::account::add`] can store it like any other.
     Discovered(Box<mail_domain::presets::Preset>),
@@ -1038,6 +1051,9 @@ pub enum Consent {
 fn parse_manual(args: &[String]) -> Result<Option<Setup>, String> {
     if args.is_empty() {
         return Ok(None);
+    }
+    if args.iter().any(|a| a == "--jmap") {
+        return parse_jmap(args).map(Some);
     }
     let (mut imap, mut pop3, mut smtp, mut login) = (None, None, None, None);
     let mut rest = args.iter();
@@ -1088,6 +1104,59 @@ fn parse_manual(args: &[String]) -> Result<Option<Setup>, String> {
             usage()
         )),
     }
+}
+
+/// `--jmap [URL] [--login NAME]`, in either order.
+///
+/// The URL is optional because RFC 8620 says where a domain keeps its session; it is taken to
+/// be the word after `--jmap` when that word is not itself an option.
+fn parse_jmap(args: &[String]) -> Result<Setup, String> {
+    let (mut session, mut login) = (None, None);
+    let mut rest = args.iter().peekable();
+    while let Some(flag) = rest.next() {
+        match flag.as_str() {
+            "--jmap" => {
+                if let Some(url) = rest.next_if(|w| !w.starts_with("--")) {
+                    if !url.starts_with("https://") && !url.starts_with("http://") {
+                        return Err(format!(
+                            "--jmap takes the session URL, e.g. https://jmap.example.com/.well-known/jmap,                              not {url:?}
+
+{}",
+                            usage()
+                        ));
+                    }
+                    session = Some(url.clone());
+                }
+            }
+            "--login" => {
+                login = Some(
+                    rest.next()
+                        .ok_or_else(|| {
+                            format!(
+                                "--login needs a value
+
+{}",
+                                usage()
+                            )
+                        })?
+                        .clone(),
+                );
+            }
+            other => {
+                return Err(format!(
+                    "--jmap names the one server that both receives and sends; {other:?} does                      not go with it
+
+{}",
+                    usage()
+                ));
+            }
+        }
+    }
+    Ok(Setup::Jmap {
+        session,
+        login,
+        auth: mail_domain::HttpAuth::Basic,
+    })
 }
 
 /// `host` or `host:port`, with `default` when no port is given.
@@ -1229,6 +1298,10 @@ usage: mailo <command>
                              for a server the preset table does not know
   account add <address> --pop3 HOST[:PORT] --smtp HOST[:PORT] [--login NAME]
                              the same, for a server that offers only POP3
+  account add <address> --jmap [URL] [--login NAME]
+                             a JMAP server (RFC 8620): at the session URL given, or found at
+                             https://<domain>/.well-known/jmap and confirmed first. Set
+                             MAILO_PASSWORD, or MAILO_JMAP_TOKEN for a bearer token.
   account add <address> --microsoft [--send graph] [--receive graph]
                              a work or school Microsoft 365 mailbox on its own domain;
                              --send graph where the tenant has SMTP sending turned off,

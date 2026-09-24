@@ -529,6 +529,45 @@ impl SqliteStore {
         })
     }
 
+    /// Where the server says messages are filed. See [`crate::Store::refile`].
+    pub(super) fn write_refile(
+        &self,
+        account: AccountId,
+        filed: &[(RemoteRef, MailboxRole)],
+    ) -> Result<Patch, StoreError> {
+        let db = self.connection();
+        let tx = db.unchecked_transaction()?;
+        let mut changes: Vec<Change> = Vec::new();
+        let mut touched: BTreeSet<ThreadId> = BTreeSet::new();
+        for (remote, role) in filed {
+            let Some(id) = self.message_by_remote(account, remote)? else {
+                continue;
+            };
+            if self.role_of(id)? == Some(*role) {
+                continue;
+            }
+            let change = Change::MessageMailbox(id, *role);
+            if let Some(t) = self.write_change(&change)? {
+                touched.insert(t);
+            }
+            changes.push(change);
+        }
+        for thread in &touched {
+            for pending in self.pending_for_thread(*thread)? {
+                self.write_change(&pending)?;
+                changes.push(pending);
+            }
+        }
+        for thread in touched {
+            self.refresh_summary(thread)?;
+        }
+        tx.commit()?;
+        Ok(Patch {
+            id: mail_domain::ChangeId::generate(),
+            changes,
+        })
+    }
+
     /// Keep messages no server holds. See [`crate::Store::import`].
     ///
     /// The message half of [`SqliteStore::write_ingest`] without the `remote_map` row, and with

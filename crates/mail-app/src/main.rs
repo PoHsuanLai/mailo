@@ -71,6 +71,36 @@ fn main() {
         },
         None => None,
     };
+    // `--jmap` with no URL: the domain's well-known session, found and confirmed the same way.
+    let command = match command {
+        Some(command) => match mail_app::discover::before_add_jmap(
+            command,
+            mail_app::discover::find_jmap,
+            mail_app::discover::Terminal::of_stdin(),
+            |text| {
+                use std::io::Write as _;
+                print!("{text}");
+                let _ = std::io::stdout().flush();
+            },
+            |question| {
+                use std::io::Write as _;
+                print!("{question}");
+                let _ = std::io::stdout().flush();
+                let mut line = String::new();
+                match std::io::stdin().read_line(&mut line) {
+                    Ok(0) | Err(_) => None,
+                    Ok(_) => Some(line),
+                }
+            },
+        ) {
+            Ok(command) => Some(command),
+            Err(message) => {
+                eprintln!("{message}");
+                std::process::exit(1);
+            }
+        },
+        None => None,
+    };
 
     // `reply` takes its body from stdin, which is I/O and so does not belong in the parser.
     // Read here, once, before anything opens the database.

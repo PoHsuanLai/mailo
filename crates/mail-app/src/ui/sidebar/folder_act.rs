@@ -25,13 +25,15 @@ pub(in crate::ui) fn load(store: &SqliteStore, scope: &[AccountId]) -> Vec<Accou
             let mailboxes = match row.plan.incoming {
                 // Local mail has no server folders to make either; its places are labels.
                 Incoming::Pop3 { .. } | Incoming::Local => Mailboxes::One,
-                Incoming::Imap { .. } | Incoming::Graph => Mailboxes::Many {
-                    folders: store.folders(row.id).unwrap_or_default(),
-                    labels: store.labels(row.id).unwrap_or_default(),
-                    // Before the first connection nothing is known, and nothing is assumed.
-                    server_labels: crate::sync::caps_of(store, row.id)
-                        .map_or(ServerLabels::LocalOnly, |caps| caps.labels),
-                },
+                Incoming::Imap { .. } | Incoming::Graph | Incoming::Jmap { .. } => {
+                    Mailboxes::Many {
+                        folders: store.folders(row.id).unwrap_or_default(),
+                        labels: store.labels(row.id).unwrap_or_default(),
+                        // Before the first connection nothing is known, and nothing is assumed.
+                        server_labels: crate::sync::caps_of(store, row.id)
+                            .map_or(ServerLabels::LocalOnly, |caps| caps.labels),
+                    }
+                }
             };
             AccountFolders {
                 account: row.id,

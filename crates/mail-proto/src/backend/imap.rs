@@ -218,7 +218,7 @@ impl Backend for ImapBackend {
                         SyncCursor::Imap { uidnext, .. } => format!("{uidnext}:*"),
                         // Another protocol's cursor on an IMAP mailbox is a caller bug, not a
                         // fetch range.
-                        SyncCursor::Pop | SyncCursor::Graph { .. } => {
+                        SyncCursor::Pop | SyncCursor::Graph { .. } | SyncCursor::Jmap { .. } => {
                             return Progress::Failed(ProtoError::Malformed(
                                 "only an IMAP cursor can resume an IMAP mailbox".to_owned(),
                             ));
@@ -1045,7 +1045,7 @@ fn typed_fetches(
 fn uid_of(remote: &RemoteRef) -> Option<u32> {
     match remote {
         RemoteRef::Imap { uid, .. } => Some(*uid),
-        RemoteRef::Pop { .. } | RemoteRef::Graph { .. } => None,
+        RemoteRef::Pop { .. } | RemoteRef::Graph { .. } | RemoteRef::Jmap { .. } => None,
     }
 }
 
@@ -1241,7 +1241,7 @@ fn uid_set(remotes: &[RemoteRef]) -> Option<String> {
         .iter()
         .filter_map(|r| match r {
             RemoteRef::Imap { uid, .. } => Some(uid.to_string()),
-            RemoteRef::Pop { .. } | RemoteRef::Graph { .. } => None,
+            RemoteRef::Pop { .. } | RemoteRef::Graph { .. } | RemoteRef::Jmap { .. } => None,
         })
         .collect();
     (!uids.is_empty()).then(|| uids.join(","))
@@ -1256,7 +1256,7 @@ fn mailbox_of(remotes: &[RemoteRef], account: AccountId) -> MailboxRef {
         .iter()
         .find_map(|r| match r {
             RemoteRef::Imap { mailbox, .. } => Some(mailbox.clone()),
-            RemoteRef::Pop { .. } | RemoteRef::Graph { .. } => None,
+            RemoteRef::Pop { .. } | RemoteRef::Graph { .. } | RemoteRef::Jmap { .. } => None,
         })
         .unwrap_or_else(|| "INBOX".to_owned());
     MailboxRef { account, path }

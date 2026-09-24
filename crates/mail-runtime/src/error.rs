@@ -70,3 +70,11 @@ impl Retryable for RuntimeError {
         }
     }
 }
+
+/// A JMAP method's refusal is a protocol failure like any other, classified where its type is
+/// read (`mail_proto::jmap::MethodError`).
+impl From<mail_proto::jmap::MethodError> for RuntimeError {
+    fn from(error: mail_proto::jmap::MethodError) -> Self {
+        RuntimeError::Proto(error.into())
+    }
+}

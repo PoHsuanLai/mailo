@@ -14,6 +14,9 @@ use crate::state::MailboxRole;
 use chrono::{DateTime, Utc};
 use std::time::Duration;
 
+mod jmap;
+pub use jmap::{jmap, well_known};
+
 /// A preset's contribution: configuration, plus a starting guess at capability.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Preset {

@@ -9,17 +9,25 @@
 //! | IMAP     | folder path   | UIDVALIDITY    | UID     | NULL        |
 //! | POP3     | `INBOX`       | NULL           | NULL    | UIDL        |
 //! | Graph    | folder path   | [`GRAPH`]      | NULL    | Graph's id  |
+//! | JMAP     | [`JMAP_ALL`]  | [`JMAP`]       | NULL    | email id    |
 //!
 //! Graph's id goes where a UIDL goes because the table's `CHECK` wants exactly one of `uid` and
 //! `uidl`, and both are opaque strings the server chose. What tells the two apart is
 //! `uidvalidity`, which a POP3 row never has and a Graph row always has, set to a value no IMAP
 //! server can send — so no row changes meaning, and no migration rebuilds the table.
+//!
+//! A JMAP row is the same shape with its own marker, [`JMAP`]. Its mailbox is always
+//! [`JMAP_ALL`], but the mailbox is not what identifies it: the marker is, so a JMAP row can
+//! never be read as POP3 or Graph whatever its mailbox says.
 
 use crate::StoreError;
-use mail_domain::RemoteRef;
+use mail_domain::{JMAP_ALL, RemoteRef};
 
 /// The `uidvalidity` of a Graph row. Negative, where every real one is a `u32`.
 pub(crate) const GRAPH: i64 = -2;
+
+/// The `uidvalidity` of a JMAP row. Negative, and not [`GRAPH`].
+pub(crate) const JMAP: i64 = -3;
 
 /// The addressing columns of one `remote_map` row: mailbox, uidvalidity, uid, uidl.
 pub(crate) type Columns = (String, Option<i64>, Option<i64>, Option<String>);
@@ -39,6 +47,12 @@ pub(crate) fn columns(remote: &RemoteRef) -> Columns {
         ),
         RemoteRef::Pop { uidl } => ("INBOX".to_owned(), None, None, Some(uidl.clone())),
         RemoteRef::Graph { mailbox, id } => (mailbox.clone(), Some(GRAPH), None, Some(id.clone())),
+        RemoteRef::Jmap { email_id } => (
+            JMAP_ALL.to_owned(),
+            Some(JMAP),
+            None,
+            Some(email_id.clone()),
+        ),
     }
 }
 
@@ -51,6 +65,7 @@ pub(crate) fn remote((mailbox, uidvalidity, uid, uidl): Columns) -> Result<Remot
             uid: uid as u32,
         }),
         (Some(GRAPH), None, Some(id)) => Ok(RemoteRef::Graph { mailbox, id }),
+        (Some(JMAP), None, Some(email_id)) => Ok(RemoteRef::Jmap { email_id }),
         (_, None, Some(uidl)) => Ok(RemoteRef::Pop { uidl }),
         _ => Err(StoreError::Decode {
             what: "remote_map row".to_owned(),
@@ -78,6 +93,9 @@ mod tests {
                 mailbox: "INBOX".to_owned(),
                 id: "AAMk/a+b==".to_owned(),
             },
+            RemoteRef::Jmap {
+                email_id: "Mf40b5f831".to_owned(),
+            },
         ] {
             assert_eq!(remote_of(&remote), remote);
         }
@@ -91,6 +109,24 @@ mod tests {
                 uidl: "x".to_owned()
             }
         );
+    }
+
+    #[test]
+    fn a_row_under_the_jmap_mailbox_is_jmap_only_by_its_marker() {
+        // The mailbox alone is not a marker: without one the row is what its shape says.
+        assert_eq!(
+            remote((JMAP_ALL.to_owned(), None, None, Some("x".to_owned()))).unwrap(),
+            RemoteRef::Pop {
+                uidl: "x".to_owned()
+            }
+        );
+        assert_eq!(
+            remote((JMAP_ALL.to_owned(), Some(JMAP), None, Some("x".to_owned()))).unwrap(),
+            RemoteRef::Jmap {
+                email_id: "x".to_owned()
+            }
+        );
+        assert_ne!(JMAP, GRAPH);
     }
 
     fn remote_of(r: &RemoteRef) -> RemoteRef {

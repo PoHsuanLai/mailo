@@ -102,7 +102,7 @@ impl<B: Backend> AccountEngine<B> {
 ///
 /// Looks again every `every`, so a send queued after the wait began is noticed; between looks it
 /// sleeps until the earliest time it knows of, so a known one is not late by the interval.
-async fn due_alarm(
+pub(crate) async fn due_alarm(
     store: Arc<SqliteStore>,
     account: AccountId,
     after: DateTime<Utc>,

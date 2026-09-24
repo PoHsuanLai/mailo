@@ -6,6 +6,8 @@
 
 pub use crate::notify::Announce;
 pub mod due;
+
+mod jmap;
 use mail_domain::*;
 use mail_proto::backend::{Authenticate, ImapBackend, Pop3Backend};
 use mail_proto::{ImapAuth, ImapCommand, ImapSession, Pop3Command, Pop3Session};
@@ -524,6 +526,17 @@ async fn one(
             )
             .await
         }
+        // HTTPS rather than a socket, so an engine of its own; the same pass, the same wait.
+        Incoming::Jmap { .. } => {
+            let mut engine = mail_runtime::JmapEngine::new(
+                account.id,
+                account.plan.clone(),
+                store.clone(),
+                secrets,
+            )
+            .map_err(|e| e.to_string())?;
+            jmap::drive(&mut engine, account, &mut cancel, now, mode, announce).await
+        }
     };
     report.map(|mut report| {
         report.needs_attention.extend(sending);
@@ -845,38 +858,13 @@ pub async fn drive<B: mail_proto::Backend>(
     loop {
         let at = chrono::Utc::now();
         let report = pass(engine, mailboxes, cancel, at).await;
-        match &report {
-            Ok(done) => {
-                print!("{}", one_line(&account.address, done, at));
-                // After the line, so a notification never announces mail the terminal has not
-                // yet said was fetched. A failure here is said and does not stop the watch:
-                // mail that cannot be announced is still mail worth fetching.
-                if let Announce::To { store, notifier } = announce
-                    && let Err(why) =
-                        crate::notify::announce(store, account.id, &done.arrived, notifier, at)
-                {
-                    println!("{}: {why}", account.address);
-                }
-                use std::io::Write as _;
-                let _ = std::io::stdout().flush();
-                // The rule F128 built its loop on, and the reason this one is not a bare sleep:
-                // a credential the server has already refused must stop the loop rather than
-                // slow it. Sixty seconds of wrong passwords is still a locked account by
-                // morning.
-                if done.needs_reauth {
-                    return report;
-                }
-                if let Some(wait) = done.hold {
-                    // The server asked. Honour it before doing anything else (F130).
-                    tokio::time::sleep(wait).await;
-                    continue;
-                }
-            }
-            Err(why) => {
-                println!("{}: {why}", account.address);
-                tokio::time::sleep(AFTER_A_FAILURE).await;
+        match after_pass(account, &report, at, announce) {
+            AfterPass::Stop => return report,
+            AfterPass::Hold(wait) => {
+                tokio::time::sleep(wait).await;
                 continue;
             }
+            AfterPass::Wait => {}
         }
 
         // Then wait the way this server prefers — IDLE, or the poll interval, which is the whole
@@ -890,6 +878,58 @@ pub async fn drive<B: mail_proto::Backend>(
                 tokio::time::sleep(AFTER_A_FAILURE).await;
             }
         }
+    }
+}
+
+/// What a watch does once a pass has been reported.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AfterPass {
+    /// The credential was refused: stop, and wait for the user.
+    Stop,
+    /// Sleep this long before the next pass, without waiting on the server.
+    Hold(std::time::Duration),
+    /// Wait the way the server prefers.
+    Wait,
+}
+
+/// Report one pass of a watch, announce what it fetched, and say what to do next.
+///
+/// Shared by every protocol's loop, so a JMAP watch stops on a refused password and honours a
+/// rate limit exactly as an IMAP one does.
+fn after_pass(
+    account: &Configured,
+    report: &Result<SyncReport, String>,
+    at: chrono::DateTime<chrono::Utc>,
+    announce: Announce<'_>,
+) -> AfterPass {
+    let done = match report {
+        Ok(done) => done,
+        Err(why) => {
+            println!("{}: {why}", account.address);
+            return AfterPass::Hold(AFTER_A_FAILURE);
+        }
+    };
+    print!("{}", one_line(&account.address, done, at));
+    // After the line, so a notification never announces mail the terminal has not yet said was
+    // fetched. A failure here is said and does not stop the watch: mail that cannot be
+    // announced is still mail worth fetching.
+    if let Announce::To { store, notifier } = announce
+        && let Err(why) = crate::notify::announce(store, account.id, &done.arrived, notifier, at)
+    {
+        println!("{}: {why}", account.address);
+    }
+    use std::io::Write as _;
+    let _ = std::io::stdout().flush();
+    // The rule F128 built its loop on, and the reason this one is not a bare sleep: a credential
+    // the server has already refused must stop the loop rather than slow it. Sixty seconds of
+    // wrong passwords is still a locked account by morning.
+    if done.needs_reauth {
+        return AfterPass::Stop;
+    }
+    // The server asked. Honour it before doing anything else (F130).
+    match done.hold {
+        Some(wait) => AfterPass::Hold(wait),
+        None => AfterPass::Wait,
     }
 }
 
@@ -1116,6 +1156,13 @@ pub fn folder_now_with(
             ));
         }
         Incoming::Imap { .. } | Incoming::Graph => {}
+        // Every pass fetches the whole account, and a folder's mail arrives with its label.
+        Incoming::Jmap { .. } => {
+            return Err(format!(
+                "on {} folders are labels: every sync fetches the whole account",
+                account.address
+            ));
+        }
     }
     if account.caps.labels == ServerLabels::Supported {
         return Err(format!(
@@ -1217,8 +1264,16 @@ pub fn mailboxes_by_account(store: &SqliteStore) -> Result<Vec<(String, Vec<Stri
 /// there a folder is a label on mail already fetched from the inbox and Sent, and fetching it
 /// again as a mailbox would fetch the account's mail once per label.
 fn to_sync(account: &Configured, folders: &[Folder]) -> Vec<MailboxRef> {
-    if matches!(account.plan.incoming, Incoming::Local) {
-        return Vec::new();
+    match account.plan.incoming {
+        Incoming::Local => return Vec::new(),
+        // One mailbox, the whole account: JMAP reports changes across every mailbox at once.
+        Incoming::Jmap { .. } => {
+            return vec![MailboxRef {
+                account: account.id,
+                path: JMAP_ALL.to_owned(),
+            }];
+        }
+        Incoming::Imap { .. } | Incoming::Pop3 { .. } | Incoming::Graph => {}
     }
     let mut out = vec![MailboxRef {
         account: account.id,

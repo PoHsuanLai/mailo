@@ -1,0 +1,23 @@
+{
+  "address": "me@example.test",
+  "incoming": {
+    "kind": "jmap",
+    "v": {
+      "session": "https://jmap.example.test/.well-known/jmap",
+      "auth": "bearer"
+    }
+  },
+  "outgoing": {
+    "kind": "jmap"
+  },
+  "auth": {
+    "kind": "password",
+    "v": {
+      "username": {
+        "kind": "same_as_address"
+      },
+      "sasl": []
+    }
+  },
+  "identities": []
+}

@@ -26,9 +26,25 @@ pub fn add(
     saved: &OAuthRegistry,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<String, String> {
-    let password = std::env::var("MAILO_PASSWORD")
+    // A JMAP account given `MAILO_JMAP_TOKEN` signs in with that token as a bearer; the token
+    // then travels where a password would, through `Credentials`, so the window can do the same
+    // by naming `HttpAuth::Bearer` itself.
+    let token = std::env::var("MAILO_JMAP_TOKEN")
         .ok()
-        .map(crate::password::Password::new);
+        .filter(|t| !t.is_empty());
+    let bearer;
+    let (manual, secret) = match (manual, token) {
+        (Some(crate::cli::Setup::Jmap { session, login, .. }), Some(token)) => {
+            bearer = crate::cli::Setup::Jmap {
+                session: session.clone(),
+                login: login.clone(),
+                auth: HttpAuth::Bearer,
+            };
+            (Some(&bearer), Some(token))
+        }
+        (manual, _) => (manual, std::env::var("MAILO_PASSWORD").ok()),
+    };
+    let password = secret.map(crate::password::Password::new);
     add_receiving(
         store,
         address,
@@ -154,6 +170,28 @@ pub fn add_receiving(
         Some(crate::cli::Setup::Pop3(manual)) => {
             mail_domain::presets::manual_pop3(&address, manual, now)
         }
+        // The secret in `credentials.password` is a password sent as HTTP Basic, or a bearer
+        // token, as the setup says.
+        Some(crate::cli::Setup::Jmap {
+            session: Some(session),
+            login,
+            auth,
+        }) => {
+            let mut preset = mail_domain::presets::jmap(&address, session, *auth);
+            if let (Some(name), AuthPlan::Password { username, .. }) =
+                (login, &mut preset.plan.auth)
+            {
+                *username = Username::Literal(name.clone());
+            }
+            preset
+        }
+        // Discovery fills the URL in before this runs (`discover::before_add_jmap`); a caller
+        // that skipped it gets told how to name the server instead.
+        Some(crate::cli::Setup::Jmap { session: None, .. }) => {
+            return Err(format!(
+                "no JMAP session URL for {address}. Name it:\n\n                   mailo account add {address} --jmap https://jmap.example.com/.well-known/jmap"
+            ));
+        }
         // Found by discovery and already shown to the user, who said yes. The address is set
         // again because it is the one normalised here that the stored column will hold.
         Some(crate::cli::Setup::Discovered(found)) => {
@@ -277,6 +315,14 @@ pub fn add_receiving(
             "added"
         }
     );
+    // A JMAP bearer token is kept where a password would be.
+    let bearer = matches!(
+        plan.incoming,
+        Incoming::Jmap {
+            auth: HttpAuth::Bearer,
+            ..
+        }
+    );
     match &plan.auth {
         AuthPlan::Password { username, sasl } => {
             let login = username.resolve(&address);
@@ -300,7 +346,11 @@ pub fn add_receiving(
                             &Credential::Password(password.expose().to_owned()),
                         )
                         .map_err(|e| format!("cannot save the password: {e}"))?;
-                    let _ = writeln!(out, "password stored in the keyring for login {login:?}");
+                    if bearer {
+                        let _ = writeln!(out, "token stored in the keyring");
+                    } else {
+                        let _ = writeln!(out, "password stored in the keyring for login {login:?}");
+                    }
                     // Said here rather than at the first sync, where it arrives as an
                     // authentication failure with nothing to say it was never going to work.
                     if let Some(why) =
@@ -312,11 +362,19 @@ pub fn add_receiving(
                 _ => {
                     // Saying what is missing beats a half-configured account that fails later
                     // with a less obvious message.
-                    let _ = writeln!(
-                        out,
-                        "no password stored. Re-run with MAILO_PASSWORD set; \
-                         the login name will be {login:?} and the server offers {sasl:?}."
-                    );
+                    if matches!(plan.incoming, Incoming::Jmap { .. }) {
+                        let _ = writeln!(
+                            out,
+                            "no password stored. Re-run with MAILO_PASSWORD set (the login name \
+                             will be {login:?}), or with MAILO_JMAP_TOKEN for a bearer token."
+                        );
+                    } else {
+                        let _ = writeln!(
+                            out,
+                            "no password stored. Re-run with MAILO_PASSWORD set; \
+                             the login name will be {login:?} and the server offers {sasl:?}."
+                        );
+                    }
                 }
             }
         }
@@ -726,7 +784,9 @@ fn default_identity(store: &SqliteStore, account: AccountId) -> Option<Identity>
 fn incoming_host(plan: &AccountPlan) -> Option<&str> {
     match &plan.incoming {
         Incoming::Imap { host, .. } | Incoming::Pop3 { host, .. } => Some(host.as_str()),
-        Incoming::Local | Incoming::Graph => None,
+        // A URL, not a host; and a JMAP sign-in is HTTP authentication, which none of the
+        // password warnings (all about IMAP app passwords) are about.
+        Incoming::Local | Incoming::Graph | Incoming::Jmap { .. } => None,
     }
 }
 

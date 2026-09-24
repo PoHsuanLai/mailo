@@ -29,8 +29,8 @@ pub use error::StoreError;
 use chrono::{DateTime, Utc};
 use mail_domain::{
     AccountCaps, AccountId, AutocryptPeer, BlobId, Draft, DraftId, Filter, Fingerprint, Folder,
-    FolderContents, Import, Ingest, InviteAnswer, KeyId, KeyTrust, Label, MailboxRef, Message,
-    MessageId, MessageKey, OutboxId, Page, Patch, PgpKey, ProtoOp, Query, ReceiptAnswer,
+    FolderContents, Import, Ingest, InviteAnswer, KeyId, KeyTrust, Label, MailboxRef, MailboxRole,
+    Message, MessageId, MessageKey, OutboxId, Page, Patch, PgpKey, ProtoOp, Query, ReceiptAnswer,
     RemoteIntent, RemoteRef, Retry, Rule, RuleId, SendState, SmimeCert, SyncCursor, Template,
     TemplateId, Thread, ThreadId, ThreadSummary, Vacation,
 };
@@ -120,6 +120,22 @@ pub trait Store {
     /// Returns a [`Patch`] describing what actually moved, so the UI refreshes precisely
     /// instead of re-running every open query.
     fn ingest(&self, account: AccountId, ingest: Ingest) -> Result<Patch, StoreError>;
+
+    /// Server truth about where messages are filed, from a protocol that says so outright.
+    ///
+    /// JMAP lists the mailboxes each changed email is in, and that decides its role here
+    /// whether or not anything arrived: an email moved to Archive by another client changes
+    /// nothing but its mailboxes. An [`Ingest`] can only file a message as it *arrives*, which
+    /// needs its bytes, so this is the other half. Addresses the store does not hold are
+    /// skipped, and a message already filed so is left alone.
+    ///
+    /// Re-layers pending local changes afterwards, exactly as `ingest` does: a message archived
+    /// here and not yet moved there stays archived.
+    fn refile(
+        &self,
+        account: AccountId,
+        filed: &[(RemoteRef, MailboxRole)],
+    ) -> Result<Patch, StoreError>;
 
     /// Keep messages that no server holds: imported mail, or an upload whose server did not say
     /// where it put it.

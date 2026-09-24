@@ -647,7 +647,7 @@ mod microsoft {
                 assert_eq!(port, 587);
                 assert_eq!(tls, Tls::StartTlsRequired);
             }
-            Outgoing::Graph | Outgoing::Nowhere => {
+            Outgoing::Graph | Outgoing::Jmap | Outgoing::Nowhere => {
                 panic!("SMTP unless --send graph says otherwise")
             }
         }
@@ -895,5 +895,76 @@ mod composing {
     fn the_usage_mentions_it() {
         // A command nothing names is one nobody finds.
         assert!(cli::usage().contains("compose --to"), "{}", cli::usage());
+    }
+}
+
+/// `account add <address> --jmap [URL]` (`plan.md` 10.17).
+mod jmap_setup {
+    use super::*;
+
+    fn args(s: &str) -> Vec<String> {
+        s.split(' ').map(str::to_owned).collect()
+    }
+
+    #[test]
+    fn a_session_url_names_a_jmap_server_and_none_asks_for_discovery() {
+        let named = cli::parse(&args(
+            "account add me@example.test --jmap https://jmap.example.test/.well-known/jmap --login me",
+        ))
+        .unwrap();
+        assert!(matches!(
+            named,
+            cli::Command::AccountAdd {
+                manual: Some(cli::Setup::Jmap { session: Some(ref s), login: Some(ref l), auth: HttpAuth::Basic }),
+                ..
+            } if s == "https://jmap.example.test/.well-known/jmap" && l == "me"
+        ));
+        let bare = cli::parse(&args("account add me@example.test --jmap --yes")).unwrap();
+        assert!(matches!(
+            bare,
+            cli::Command::AccountAdd {
+                manual: Some(cli::Setup::Jmap { session: None, .. }),
+                ..
+            }
+        ));
+        // One server does both jobs; naming another is a mistake, not a preference.
+        assert!(
+            cli::parse(&args(
+                "account add me@example.test --jmap https://j.example.test/ --smtp s.example.test"
+            ))
+            .is_err()
+        );
+        assert!(
+            cli::parse(&args(
+                "account add me@example.test --jmap jmap.example.test"
+            ))
+            .is_err()
+        );
+        assert!(cli::usage().contains("--jmap"));
+    }
+
+    #[test]
+    fn a_jmap_account_is_stored_reading_and_sending_through_its_session() {
+        let (store, _dir, _thread) = seeded();
+        let command = cli::parse(&args(
+            "account add someone@example.test --jmap https://jmap.example.test/.well-known/jmap",
+        ))
+        .unwrap();
+        let said = exercise(&store, &command, now()).unwrap();
+        assert!(said.contains("someone@example.test"), "{said}");
+        let plan: String = store
+            .connection()
+            .query_row(
+                "SELECT plan FROM accounts WHERE address = 'someone@example.test'",
+                [],
+                |r| r.get(0),
+            )
+            .expect("the account was stored");
+        let plan: AccountPlan = serde_json::from_str(&plan).unwrap();
+        assert!(matches!(
+            plan.incoming,
+            Incoming::Jmap { ref session, .. } if session == "https://jmap.example.test/.well-known/jmap"
+        ));
+        assert_eq!(plan.outgoing, Outgoing::Jmap);
     }
 }

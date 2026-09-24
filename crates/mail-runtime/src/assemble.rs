@@ -421,6 +421,7 @@ fn message_key(fields: &mail_mime::Parsed, tiebreak: Tiebreak<'_>) -> MessageKey
     // bytes, so it still collapses.
     match tiebreak {
         Tiebreak::Remote(RemoteRef::Pop { uidl }) => hasher.update(uidl.as_bytes()),
+        Tiebreak::Remote(RemoteRef::Jmap { email_id }) => hasher.update(email_id.as_bytes()),
         Tiebreak::Remote(RemoteRef::Imap { mailbox, uid, .. }) => {
             hasher.update(mailbox.as_bytes());
             hasher.update(&uid.to_le_bytes())

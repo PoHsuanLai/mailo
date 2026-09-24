@@ -157,3 +157,62 @@ fn no_password_stores_nothing_and_says_so() {
             .is_err()
     );
 }
+
+#[test]
+fn a_jmap_bearer_token_goes_where_a_password_would_and_the_plan_says_bearer() {
+    // The window's path: the token handed over in `Credentials`, `HttpAuth::Bearer` named in
+    // the setup, and no environment variable read.
+    let dir = tempfile::tempdir().unwrap();
+    let store = SqliteStore::in_memory(dir.path()).unwrap();
+    let secrets = MapSecrets::default();
+    let token = Password::new(SECRET.to_owned());
+    let said = add_with_password(
+        &store,
+        "me@example.test",
+        Some(&crate::cli::Setup::Jmap {
+            session: Some("https://jmap.example.test/.well-known/jmap".to_owned()),
+            login: None,
+            auth: mail_domain::HttpAuth::Bearer,
+        }),
+        false,
+        false,
+        now(),
+        Credentials {
+            password: Some(&token),
+            saved: &OAuthRegistry::default(),
+            secrets: &secrets,
+            on_url: &|url| panic!("a JMAP account asked for a browser: {url}"),
+        },
+    )
+    .unwrap();
+    assert!(said.contains("token stored"), "{said}");
+    assert!(!said.contains(SECRET));
+    let account = account_of(&store, "me@example.test");
+    let kept = secrets
+        .get(&SecretKey {
+            account,
+            purpose: SecretPurpose::IncomingPassword,
+        })
+        .unwrap();
+    assert_eq!(kept, Credential::Password(SECRET.to_owned()));
+    let plan: String = store
+        .connection()
+        .query_row(
+            "SELECT plan FROM accounts WHERE id = ?1",
+            [account.to_string()],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let plan: mail_domain::AccountPlan = serde_json::from_str(&plan).unwrap();
+    assert!(matches!(
+        plan.incoming,
+        mail_domain::Incoming::Jmap {
+            auth: mail_domain::HttpAuth::Bearer,
+            ..
+        }
+    ));
+    assert!(
+        !everything_in(&store).contains(SECRET),
+        "the token reached SQLite"
+    );
+}

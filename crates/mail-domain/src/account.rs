@@ -90,9 +90,33 @@ pub enum Incoming {
     /// with a delta query whose link is the folder's [`crate::SyncCursor::Graph`], and bodies
     /// arrive as the message's own MIME, so everything downstream reads real RFC 5322 bytes.
     Graph,
+    /// JMAP (RFC 8620 and RFC 8621): HTTPS to one session resource, which names every other URL
+    /// the account uses — the API endpoint, blob download and upload, and push.
+    ///
+    /// A URL rather than a host and a port, because that is what the protocol hands out: the
+    /// session lives at `/.well-known/jmap` on the mail domain, or wherever that redirects.
+    Jmap {
+        /// The session resource, e.g. `https://jmap.example.com/.well-known/jmap`.
+        session: String,
+        /// How each request proves who is asking.
+        auth: HttpAuth,
+    },
 }
 
-/// How mail leaves. SMTP is not a third incoming backend; both backends submit through it.
+/// How an HTTP request carries the account's secret.
+///
+/// The secret itself is a [`Credential::Password`] either way, kept in the keyring under
+/// [`SecretPurpose::IncomingPassword`]; this says only which header it travels in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HttpAuth {
+    /// `Authorization: Basic`, with [`AccountPlan::username`] and the password.
+    Basic,
+    /// `Authorization: Bearer`, with an access token the provider issued for this client.
+    Bearer,
+}
+
+/// How mail leaves. SMTP is not an incoming backend; IMAP and POP3 accounts submit through it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "v", rename_all = "snake_case")]
 pub enum Outgoing {
@@ -105,6 +129,10 @@ pub enum Outgoing {
     /// switched off — the default in many. HTTPS to a fixed host with the account's OAuth
     /// sign-in, so there is nothing to configure: no host, no port, no TLS mode.
     Graph,
+    /// JMAP's `EmailSubmission` (RFC 8621 §7), on the server the account reads from: the
+    /// message is uploaded, filed in Drafts, and submitted with the envelope named separately,
+    /// so blind copies go where they should without a header that says so.
+    Jmap,
     /// Nothing leaves from this account. A [`Incoming::Local`] account's, which has no server
     /// to submit to; a send from it is refused before anything is queued.
     Nowhere,
@@ -262,6 +290,9 @@ pub enum ServerThreads {
 }
 
 /// How we learn that new mail arrived.
+///
+/// `Idle` is any push the server offers while a connection is held open: IMAP `IDLE`, and JMAP's
+/// event source (RFC 8620 §7.3), which unlike Gmail's IDLE reports flag changes as well.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "v", rename_all = "snake_case")]
 pub enum WatchMode {

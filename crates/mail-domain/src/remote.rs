@@ -62,7 +62,24 @@ pub enum RemoteRef {
         mailbox: String,
         id: String,
     },
+    /// A JMAP email (RFC 8621 §4), by the id the server gave it.
+    ///
+    /// No mailbox, unlike IMAP: a JMAP id names the email wherever it is filed, and an email in
+    /// three mailboxes is one email with one id. Its mailboxes are membership, the way Gmail's
+    /// labels are, and are synced as a role and labels rather than as addresses. Every JMAP
+    /// address is therefore held under the one mailbox [`JMAP_ALL`].
+    Jmap {
+        email_id: String,
+    },
 }
+
+/// The mailbox every JMAP address is held under: all of the account's mail at once.
+///
+/// JMAP syncs an account, not a mailbox — `Email/changes` reports every email that changed
+/// anywhere — so there is one cursor and one set of addresses per account, and this names it.
+/// `*` because no IMAP server lists it and POP3 uses `INBOX`, so an address row under it can
+/// only be a JMAP one.
+pub const JMAP_ALL: &str = "*";
 
 /// How far a mailbox has been synced. Per mailbox, not per account.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -81,6 +98,12 @@ pub enum SyncCursor {
     /// round, or the `@odata.nextLink` of a round a pass stopped partway through. Either is
     /// followed as it is; Graph encodes everything the first request asked for into it.
     Graph { delta_link: String },
+    /// JMAP's state strings (RFC 8620 §5.2): what `Email/changes` and `Mailbox/changes` are asked
+    /// to report changes since. Opaque; only the server can compare two of them.
+    Jmap {
+        email_state: String,
+        mailbox_state: String,
+    },
 }
 
 /// Whether the server's `UIDVALIDITY` still matches what we stored.

@@ -500,6 +500,14 @@ impl Store for SqliteStore {
         self.write_ingest(account, ingest)
     }
 
+    fn refile(
+        &self,
+        account: AccountId,
+        filed: &[(RemoteRef, mail_domain::MailboxRole)],
+    ) -> Result<Patch, StoreError> {
+        self.write_refile(account, filed)
+    }
+
     fn enqueue(
         &self,
         account: AccountId,

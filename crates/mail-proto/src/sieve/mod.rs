@@ -67,6 +67,13 @@ pub fn endpoint(plan: &AccountPlan) -> Result<Endpoint, NoSieve> {
         Incoming::Imap { host, .. } | Incoming::Pop3 { host, .. } => host.clone(),
         Incoming::Local => return Err(NoSieve::Local),
         Incoming::Graph => return Err(NoSieve::Provider(OAuthIssuer::Microsoft)),
+        // The host the session is served from, as for IMAP: JMAP servers that keep Sieve
+        // scripts commonly offer ManageSieve beside it, and one that does not refuses the
+        // connection, which says so.
+        Incoming::Jmap { session, .. } => match url_host(session) {
+            Some(host) => host,
+            None => return Err(NoSieve::Local),
+        },
     };
     // The same providers signed in to with a password, which a manually added account can be.
     if let Some(issuer) = provider_of(&host) {
@@ -77,6 +84,18 @@ pub fn endpoint(plan: &AccountPlan) -> Result<Endpoint, NoSieve> {
         port: PORT,
         tls: Tls::StartTlsRequired,
     })
+}
+
+/// The host of an `https://host[:port]/…` URL, without its port or any user part.
+fn url_host(url: &str) -> Option<String> {
+    let rest = url.split_once("://")?.1;
+    let authority = rest.split(['/', '?', '#']).next()?;
+    let host = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
+    let host = match host.strip_prefix('[') {
+        Some(v6) => v6.split(']').next()?,
+        None => host.split(':').next()?,
+    };
+    (!host.is_empty()).then(|| host.to_owned())
 }
 
 /// The provider a mail host belongs to, compared by whole domain labels so that a host merely

@@ -57,7 +57,9 @@ pub fn plan(work: &FolderWork, ctx: &FolderCtx<'_>) -> Result<Applied, FolderErr
     match ctx.incoming {
         Incoming::Pop3 { .. } => return Err(FolderError::SingleMailbox),
         Incoming::Local => return Err(FolderError::KeptLocally),
-        Incoming::Imap { .. } | Incoming::Graph => {}
+        // JMAP mailboxes are created, renamed and deleted by `Mailbox/set`, and an email's
+        // membership in one is a label here, exactly as on a server whose folders are labels.
+        Incoming::Imap { .. } | Incoming::Graph | Incoming::Jmap { .. } => {}
     }
     let (forward, inverse) = match work {
         FolderWork::Create { path } => create(path, ctx)?,

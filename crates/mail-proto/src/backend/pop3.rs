@@ -110,7 +110,7 @@ impl Pop3Backend {
             .iter()
             .map(|remote| match remote {
                 RemoteRef::Pop { uidl } => self.number_for(uidl).map(&command),
-                RemoteRef::Imap { .. } | RemoteRef::Graph { .. } => None,
+                RemoteRef::Imap { .. } | RemoteRef::Graph { .. } | RemoteRef::Jmap { .. } => None,
             })
             .collect()
     }

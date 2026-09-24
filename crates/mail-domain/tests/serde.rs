@@ -1379,6 +1379,16 @@ fixtures! {
     ],
     "mailbox_ref.json" => MailboxRef = mailbox_ref(),
     "sync_cursors.json" => Vec<SyncCursor> = vec![imap_cursor(), SyncCursor::Pop],
+    // JMAP (plan.md 10.17): an account read and sent over one session URL, its addresses, and
+    // its cursor. Additive variants; the files above are untouched.
+    "account_plan_jmap.json" => AccountPlan =
+        presets::jmap("me@example.test", "https://jmap.example.test/.well-known/jmap", HttpAuth::Bearer).plan,
+    "remote_refs_jmap.json" => Vec<RemoteRef> = vec![
+        RemoteRef::Jmap { email_id: "Mf40b5f831".to_owned() },
+    ],
+    "sync_cursors_jmap.json" => Vec<SyncCursor> = vec![
+        SyncCursor::Jmap { email_state: "e42".to_owned(), mailbox_state: "m7".to_owned() },
+    ],
     "uid_validity.json" => Vec<UidValidity> = vec![UidValidity::Same, UidValidity::Reset],
     "fetch_since.json" => Vec<FetchSince> = vec![
         FetchSince::Beginning,
@@ -1784,6 +1794,32 @@ fn folder_types_round_trip() {
         RemoteIntent::Folder(FolderWork::Create {
             path: "Receipts".to_owned(),
         }),
+    );
+}
+
+#[test]
+fn jmap_types_round_trip() {
+    round_trip_each("HttpAuth", vec![HttpAuth::Basic, HttpAuth::Bearer]);
+    round_trip(
+        "Incoming::Jmap",
+        Incoming::Jmap {
+            session: "https://jmap.example.test/.well-known/jmap".to_owned(),
+            auth: HttpAuth::Basic,
+        },
+    );
+    round_trip("Outgoing::Jmap", Outgoing::Jmap);
+    round_trip(
+        "RemoteRef::Jmap",
+        RemoteRef::Jmap {
+            email_id: "Mf40b5f831".to_owned(),
+        },
+    );
+    round_trip(
+        "SyncCursor::Jmap",
+        SyncCursor::Jmap {
+            email_state: "e42".to_owned(),
+            mailbox_state: "m7".to_owned(),
+        },
     );
 }
 

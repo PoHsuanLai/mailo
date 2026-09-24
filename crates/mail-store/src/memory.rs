@@ -408,6 +408,14 @@ impl Store for MemoryStore {
         self.inner.borrow_mut().ingest(account, &ingest)
     }
 
+    fn refile(
+        &self,
+        account: AccountId,
+        filed: &[(RemoteRef, mail_domain::MailboxRole)],
+    ) -> Result<Patch, StoreError> {
+        self.inner.borrow_mut().refile(account, filed)
+    }
+
     fn import(&self, account: AccountId, import: mail_domain::Import) -> Result<Patch, StoreError> {
         self.inner.borrow_mut().import(account, &import)
     }
@@ -1050,6 +1058,38 @@ impl Inner {
                 .insert((account, ingest.mailbox.path.clone()), cursor.clone());
         }
 
+        Ok(Patch {
+            id: ChangeId::generate(),
+            changes,
+        })
+    }
+
+    /// Mirrors `SqliteStore::write_refile`.
+    fn refile(
+        &mut self,
+        account: AccountId,
+        filed: &[(RemoteRef, mail_domain::MailboxRole)],
+    ) -> Result<Patch, StoreError> {
+        let mut changes = Vec::new();
+        let mut touched = BTreeSet::new();
+        for (remote, role) in filed {
+            let Some(id) = self.message_by_remote(account, remote) else {
+                continue;
+            };
+            if self.messages.get(&id).is_none_or(|m| m.mailbox == *role) {
+                continue;
+            }
+            let change = Change::MessageMailbox(id, *role);
+            self.write_change(&change)?;
+            changes.push(change);
+            if let Some(thread) = self.thread_of(id) {
+                touched.insert(thread);
+            }
+        }
+        for change in self.pending_for_threads(&touched) {
+            self.write_change(&change)?;
+            changes.push(change);
+        }
         Ok(Patch {
             id: ChangeId::generate(),
             changes,
