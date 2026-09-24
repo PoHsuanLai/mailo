@@ -17,8 +17,9 @@ license = "MIT OR Apache-2.0"
 # 1.85 is what the 2024 edition needs; 1.89 is what `std::fs::File::try_lock` needs, and the
 # daemon's "one per user" rule is built on it (`mail_app::ipc::bind`). The alternative was a
 # dependency — `fs4` or `rustix` — for a two-line call that std now has, on a release from
-# August 2025. Raised deliberately rather than by drift.
-rust-version = "1.89"
+# August 2025. 1.91 is what quire, the design system `mail-app` draws with, declares. Raised
+# deliberately rather than by drift.
+rust-version = "1.91"
 
 [workspace.dependencies]
 latchkey    = { path = "crates/latchkey" }
