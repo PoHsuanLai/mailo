@@ -4,7 +4,7 @@
 use unicode_segmentation::UnicodeSegmentation;
 
 pub(in crate::ui) use super::items::{
-    hue, mention_items, object_items, people_rows, slash_items, turn_items,
+    mention_items, object_items, people_rows, slash_items, turn_items,
 };
 use super::page::{CcRow, Float, Page};
 use crate::editor::{

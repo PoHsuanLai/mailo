@@ -78,22 +78,23 @@ pub struct Space {
     pub pins: Vec<Pinned>,
     /// Each account's avatar colour, stored so three blue providers do not look alike.
     ///
-    /// Missing entries take [`AVATAR`] in order. The colour is the account's, not the provider's.
+    /// Missing entries take quire's person swatches (`ds::PersonSwatch`) in order. The colour is
+    /// the account's, not the provider's.
     pub colors: BTreeMap<AccountId, String>,
 }
 
-/// Avatar colours, taken in order when a Space has not chosen one for an account.
-pub const AVATAR: &[&str] = &[
-    "#5B4FC4", "#2F7F6E", "#B0662E", "#3C8A5B", "#7A4A9E", "#C0782E", "#2E7F8C", "#6D7A3A",
-];
+/// The swatch an account at `index` takes when a Space has not chosen one, as stored.
+fn swatch(index: usize) -> String {
+    ds::PersonSwatch::nth(index).hex().css()
+}
 
-/// The colour `id` wears in `space`, or the preset at `index` when none was stored.
+/// The colour `id` wears in `space`, or the swatch at `index` when none was stored.
 pub fn avatar_color(space: &Space, id: AccountId, index: usize) -> String {
     space
         .colors
         .get(&id)
         .cloned()
-        .unwrap_or_else(|| AVATAR[index % AVATAR.len()].to_owned())
+        .unwrap_or_else(|| swatch(index))
 }
 
 /// Fill any account that has no colour yet. Returns whether the Space changed.
@@ -103,9 +104,7 @@ pub fn ensure_colors(space: &mut Space, accounts: &[AccountId]) -> bool {
         if space.colors.contains_key(id) {
             continue;
         }
-        space
-            .colors
-            .insert(*id, AVATAR[index % AVATAR.len()].to_owned());
+        space.colors.insert(*id, swatch(index));
         changed = true;
     }
     changed

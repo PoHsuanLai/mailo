@@ -7,11 +7,11 @@
 
 use dioxus::prelude::*;
 
-use super::super::menu::Menu;
+use super::super::menu::Floating;
 use super::float::{object_items, pick_object};
 use super::page::{Float, Fold, Page};
 use crate::editor::{Check, Mark, Node, Object, Op, ParaKind, Pos, Range, Run};
-use ds::{Glyph, Icon};
+use ds::{Glyph, Icon, MenuKind, MountedRef};
 
 #[cfg(test)]
 thread_local! {
@@ -187,12 +187,18 @@ fn Para(n: usize, kind: ParaKind, runs: Vec<Run>, page: Signal<Page>) -> Element
     }
 }
 
-/// The ⋮⋮ handle every object carries, and the object menu when it is open.
-fn grip(n: usize, menu: bool, mut page: Signal<Page>) -> Element {
+/// The ⋮⋮ handle every object carries, and the object menu, floating beside it, when it is open.
+fn grip(
+    n: usize,
+    menu: bool,
+    mut page: Signal<Page>,
+    mut handle: Signal<Option<MountedRef>>,
+) -> Element {
     rsx! {
         span {
             class: "ograb",
             title: "Options",
+            onmounted: move |event: MountedEvent| handle.set(Some(MountedRef(event.data()))),
             onmousedown: move |event| event.prevent_default(),
             onclick: move |_| {
                 let next = if menu { Float::Closed } else { Float::Object(n) };
@@ -201,17 +207,17 @@ fn grip(n: usize, menu: bool, mut page: Signal<Page>) -> Element {
             "⋮⋮"
         }
         if menu {
-            div { class: "o-menu",
-                Menu {
-                    title: "This object".to_owned(),
-                    items: object_items(),
-                    filterable: false,
-                    on_pick: move |key: String| pick_object(&mut page.write(), n, &key),
-                    on_close: move |_| page.write().float = Float::Closed,
-                    on_query: move |_| {},
-                    slim: true,
-                    active: None,
-                }
+            Floating {
+                kind: MenuKind::Slim,
+                anchor: handle(),
+                title: "This object".to_owned(),
+                items: object_items(),
+                on_pick: move |key: String| pick_object(&mut page.write(), n, &key),
+                on_close: move |_| {
+                    if page.peek().float == Float::Object(n) {
+                        page.write().float = Float::Closed;
+                    }
+                },
             }
         }
     }
@@ -220,10 +226,11 @@ fn grip(n: usize, menu: bool, mut page: Signal<Page>) -> Element {
 /// An object: atomic, not editable, and the only thing with a handle.
 #[component]
 fn Obj(n: usize, object: Object, menu: bool, quoted: Fold, page: Signal<Page>) -> Element {
+    let handle = use_signal(|| None::<MountedRef>);
     match object {
         Object::Divider => rsx! {
             div { class: "obj o-hr", contenteditable: "false", "data-n": "{n}",
-                {grip(n, menu, page)}
+                {grip(n, menu, page, handle)}
                 hr {}
             }
         },
@@ -234,10 +241,10 @@ fn Obj(n: usize, object: Object, menu: bool, quoted: Fold, page: Signal<Page>) -
         },
         Object::Image { src, alt } => rsx! {
             figure { class: "obj o-img", contenteditable: "false", "data-n": "{n}",
-                {grip(n, menu, page)}
+                {grip(n, menu, page, handle)}
                 if src.as_str().is_empty() {
                     div { class: "pick",
-                        Glyph { icon: Icon::Paperclip }
+                        Glyph { icon: Icon::Paperclip, size: ds::IconSize::Large }
                         span { "Add an image. It is embedded in the message, never fetched." }
                     }
                 } else {
@@ -250,7 +257,7 @@ fn Obj(n: usize, object: Object, menu: bool, quoted: Fold, page: Signal<Page>) -
         },
         Object::Table(table) => rsx! {
             div { class: "obj o-table", contenteditable: "false", "data-n": "{n}",
-                {grip(n, menu, page)}
+                {grip(n, menu, page, handle)}
                 div { class: "tbl",
                     table {
                         tbody {
@@ -268,7 +275,7 @@ fn Obj(n: usize, object: Object, menu: bool, quoted: Fold, page: Signal<Page>) -
         },
         Object::Attachment(file) => rsx! {
             div { class: "obj o-att", contenteditable: "false", "data-n": "{n}",
-                {grip(n, menu, page)}
+                {grip(n, menu, page, handle)}
                 Glyph { icon: Icon::Paperclip }
                 span { "{file.name()}" }
             }
@@ -282,7 +289,7 @@ fn Obj(n: usize, object: Object, menu: bool, quoted: Fold, page: Signal<Page>) -
                 .collect();
             rsx! {
                 div { class: "obj o-rq", contenteditable: "false", "data-n": "{n}",
-                    {grip(n, menu, page)}
+                    {grip(n, menu, page, handle)}
                     button {
                         class: "rq-head",
                         r#type: "button",
@@ -290,7 +297,7 @@ fn Obj(n: usize, object: Object, menu: bool, quoted: Fold, page: Signal<Page>) -
                             let mut write = page.write();
                             write.quoted = if open { Fold::Folded } else { Fold::Open };
                         },
-                        Glyph { icon: Icon::Corner }
+                        Glyph { icon: Icon::Corner, size: ds::IconSize::Tiny }
                         span { "{who}, {when}" }
                         span { class: "rq-t", if open { "hide quoted text" } else { "show quoted text" } }
                     }

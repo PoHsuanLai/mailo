@@ -38,15 +38,15 @@ document.addEventListener("DOMContentLoaded", () => {
     // caret without taking focus, so they must not be focused here either.
     const here = document.activeElement;
     if (here && here.closest && here.closest(".c-body, .c-props .inp, .c-scroll .inp, .bubble .inp")) { return; }
-    // An open menu owns the keyboard. Focusing `.app` here would take it back on the next
-    // tick, and the field would lose whatever was just typed.
+    // An open menu owns the keyboard, mailo's own or quire's floating one. Focusing `.app`
+    // here would take it back on the next tick, and the field would lose whatever was typed.
     const menuField = document.querySelector(".cmdk .inp, .fmenu .inp");
     if (menuField) {
       if (document.activeElement === menuField) { return; }
       menuField.focus();
       return;
     }
-    const menu = document.querySelector(".fmenu");
+    const menu = document.querySelector(".fmenu, .ds-menu");
     if (menu) {
       if (document.activeElement === menu) { return; }
       menu.focus();

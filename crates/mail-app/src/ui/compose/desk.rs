@@ -230,7 +230,7 @@ pub(in crate::ui) fn ParkedDrafts(shell: Signal<Shell>, space_index: usize) -> E
                 tabindex: "0",
                 title: "A draft you put aside",
                 onclick: move |_| reopen(desk, shell, draft),
-                span { class: "fav draft", Glyph { icon: Icon::Pen } }
+                span { class: "fav draft", Glyph { icon: Icon::Pen, size: ds::IconSize::Micro } }
                 span { class: "t", "{title}" }
             }
         }

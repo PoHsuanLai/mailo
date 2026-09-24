@@ -8,9 +8,8 @@ use mail_store::SqliteStore;
 
 use super::super::data::account_rows;
 use super::super::field::{Field, FieldKind};
-use super::super::menu::{Menu, MenuItem, MenuKey, Right, Tile, menu_key};
+use super::super::menu::{Floating, Menu, MenuItem, MenuKey, Right, Tile, menu_key};
 use super::super::menus::{snooze_help, when_words};
-use super::float::hue;
 use super::later::{PICK_KEY, PICK_LABEL, PickTime};
 use super::page::{CcRow, Float, Guard, List, Page, PageKind, When};
 use super::protection::ProtectionRow;
@@ -19,7 +18,10 @@ use super::recipients::{commit_typed, people_items, pick_person, pop_last, remov
 use crate::provider::icon::{ChipPlace, ProvChip};
 use crate::provider::provider;
 use crate::view::Shell;
-use ds::{Glyph, Icon};
+use ds::{
+    Anim, AvatarFace, AvatarShape, AvatarSize, AvatarTone, Button, ButtonVariant, Chip,
+    ChipVariant, Glyph, Icon, MenuKind, MountedRef, PulseKey,
+};
 
 #[component]
 pub(in crate::ui) fn Props(page: Signal<Page>, shell: Signal<Shell>) -> Element {
@@ -45,22 +47,21 @@ pub(in crate::ui) fn Props(page: Signal<Page>, shell: Signal<Shell>) -> Element 
                     Some(_) => "prop-row shake again",
                 },
                 "data-row": "to",
-                div { class: "k", Glyph { icon: Icon::Send }, "To" }
+                div { class: "k", Glyph { icon: Icon::Send, size: ds::IconSize::Compact }, "To" }
                 div { class: "v",
                     Recipients { page, list: List::To }
                     if !cc_shown {
-                        button {
-                            class: "plink",
-                            r#type: "button",
+                        Button {
+                            variant: ButtonVariant::Quiet,
+                            label: "Cc".to_owned(),
                             onclick: move |_| page.write().cc_row = CcRow::Shown,
-                            "Cc"
                         }
                     }
                 }
             }
             if cc_shown {
                 div { class: "prop-row", "data-row": "cc",
-                    div { class: "k", Glyph { icon: Icon::Corner }, "Cc" }
+                    div { class: "k", Glyph { icon: Icon::Corner, size: ds::IconSize::Compact }, "Cc" }
                     div { class: "v", Recipients { page, list: List::Cc } }
                 }
             }
@@ -71,13 +72,13 @@ pub(in crate::ui) fn Props(page: Signal<Page>, shell: Signal<Shell>) -> Element 
             ReceiptRow { page }
             if !attached.is_empty() {
                 div { class: "prop-row",
-                    div { class: "k", Glyph { icon: Icon::Paperclip }, "Attached" }
+                    div { class: "k", Glyph { icon: Icon::Paperclip, size: ds::IconSize::Compact }, "Attached" }
                     div { class: "v",
                         for (index, (name, size)) in attached.into_iter().enumerate() {
-                            span { key: "{index}", class: "pchip",
-                                span { class: "av file", "{kind_of(&name)}" }
-                                "{name}"
-                                span { class: "mono size", "{size}" }
+                            Chip {
+                                key: "{index}",
+                                variant: ChipVariant::Neutral,
+                                text: format!("{} · {name} · {size}", kind_of(&name)),
                             }
                         }
                     }
@@ -117,8 +118,7 @@ fn FromRow(page: Signal<Page>, shell: Signal<Shell>) -> Element {
                     .next()
                     .unwrap_or('?')
                     .to_ascii_uppercase(),
-                color: crate::space::AVATAR[hue(&row.address) % crate::space::AVATAR.len()]
-                    .to_owned(),
+                color: super::super::command::avatar_color(&row.address),
             },
             name: row.address.clone(),
             help: Some(provider(&row.plan).title().to_owned()),
@@ -129,39 +129,44 @@ fn FromRow(page: Signal<Page>, shell: Signal<Shell>) -> Element {
             detail: Vec::new(),
         })
         .collect();
+    let mut value = use_signal(|| None::<MountedRef>);
     rsx! {
         div { class: "prop-row",
-            div { class: "k", Glyph { icon: Icon::Mail }, "From" }
+            div { class: "k", Glyph { icon: Icon::Mail, size: ds::IconSize::Compact }, "From" }
             div { class: "v",
                 button {
                     class: "pval",
                     r#type: "button",
+                    onmounted: move |event: MountedEvent| value.set(Some(MountedRef(event.data()))),
                     onclick: move |_| {
                         let next = if open { Float::Closed } else { Float::From };
                         page.write().float = next;
                     },
                     if let Some(via) = via {
-                        ProvChip { provider: via, marks, place: ChipPlace::Row }
+                        ProvChip { provider: via, marks, place: ChipPlace::Inline }
                     }
                     "{address}"
                     span { class: "car", "▾" }
                 }
                 if open {
-                    div { class: "p-menu",
-                        Menu {
-                            title: "Send from".to_owned(),
-                            items,
-                            filterable: false,
-                            on_pick: move |key: String| move_to(page, &key),
-                            on_close: move |_| page.write().float = Float::Closed,
-                            on_query: move |_| {},
-                            slim: true,
-                            active: None,
-                        }
+                    Floating {
+                        kind: MenuKind::Dropdown,
+                        anchor: value(),
+                        title: "Send from".to_owned(),
+                        items,
+                        on_pick: move |key: String| move_to(page, &key),
+                        on_close: move |_| close(page, &Float::From),
                     }
                 }
             }
         }
+    }
+}
+
+/// A menu closed: the page's float goes back to closed, unless its pick already opened another.
+fn close(mut page: Signal<Page>, was: &Float) {
+    if page.peek().float == *was {
+        page.write().float = Float::Closed;
     }
 }
 
@@ -247,13 +252,15 @@ fn SendsRow(page: Signal<Page>) -> Element {
     let now = chrono::Utc::now();
     let items = sends_items(&page.read(), now, &chrono::Local);
     let shown = when.shown(now, &chrono::Local);
+    let mut value = use_signal(|| None::<MountedRef>);
     rsx! {
         div { class: "prop-row",
-            div { class: "k", Glyph { icon: Icon::Clock }, "Sends" }
+            div { class: "k", Glyph { icon: Icon::Clock, size: ds::IconSize::Compact }, "Sends" }
             div { class: "v",
                 button {
                     class: "pval",
                     r#type: "button",
+                    onmounted: move |event: MountedEvent| value.set(Some(MountedRef(event.data()))),
                     onclick: move |_| {
                         let next = if open || picking { Float::Closed } else { Float::Sends };
                         page.write().float = next;
@@ -265,22 +272,20 @@ fn SendsRow(page: Signal<Page>) -> Element {
                     span { class: "car", "▾" }
                 }
                 if open {
-                    div { class: "p-menu",
-                        Menu {
-                            title: "Send".to_owned(),
-                            items,
-                            filterable: false,
-                            on_pick: move |key: String| {
-                                pick_sends(&mut page.write(), &key);
-                                if matches!(page.peek().float, Float::PickTime(_)) {
-                                    dioxus::document::eval("setTimeout(() => document.querySelector('.pick-field')?.focus())");
-                                }
-                            },
-                            on_close: move |_| page.write().float = Float::Closed,
-                            on_query: move |_| {},
-                            slim: true,
-                            active: None,
-                        }
+                    Floating {
+                        kind: MenuKind::Dropdown,
+                        anchor: value(),
+                        title: "Send".to_owned(),
+                        items,
+                        on_pick: move |key: String| {
+                            pick_sends(&mut page.write(), &key);
+                            if matches!(page.peek().float, Float::PickTime(_)) {
+                                dioxus::document::eval("setTimeout(() => document.querySelector('.pick-field')?.focus())");
+                            }
+                        },
+                        // "Pick a time…" opens the field where the menu was: closing the menu
+                        // after that pick must not close the field.
+                        on_close: move |_| close(page, &Float::Sends),
                     }
                 }
                 if picking {
@@ -335,25 +340,27 @@ fn Recipients(page: Signal<Page>, list: List) -> Element {
             {
                 let address = person.address.clone();
                 let flashing = flash.as_deref() == Some(address.as_str());
-                let letter = person.name.chars().next().map(|ch| ch.to_uppercase().collect::<String>()).unwrap_or_default();
-                let color = crate::space::AVATAR[hue(&address) % crate::space::AVATAR.len()];
+                let avatar = AvatarFace {
+                    initial: person.name.chars().next().and_then(|ch| ch.to_uppercase().next()).unwrap_or('?'),
+                    size: AvatarSize::Size18,
+                    tone: AvatarTone::Person(ds::person_hue(&address)),
+                    shape: AvatarShape::Round,
+                };
+                // The flash is the chip's own pulse; its end, heard around the chip, clears it.
+                let pulse = flashing.then(|| PulseKey::rest(Anim::ChipFlash).fired());
                 rsx! {
                     span {
                         key: "{address}",
-                        class: if flashing { "pchip flash" } else { "pchip" },
                         onanimationend: move |_| {
                             if flashing {
                                 page.write().flash = None;
                             }
                         },
-                        span { class: "av", style: "background:{color}", "{letter}" }
-                        "{person.name}"
-                        button {
-                            class: "x",
-                            r#type: "button",
-                            aria_label: "Remove {person.name}",
-                            onclick: move |_| remove(&mut page.write(), list, &address),
-                            Glyph { icon: Icon::X }
+                        Chip {
+                            variant: ChipVariant::Person(avatar),
+                            text: person.name.clone(),
+                            onremove: move |()| remove(&mut page.write(), list, &address),
+                            pulse,
                         }
                     }
                 }

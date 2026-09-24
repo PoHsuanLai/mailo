@@ -238,25 +238,10 @@ fn query_marks(query: &str, text: &str) -> Vec<u32> {
         .unwrap_or_default()
 }
 
-/// The eight avatar fills `tokens.css` declared as `--av-0` to `--av-7`.
-///
-/// quire has no token for them: its person colour is the `Avatar` component's own hash
-/// (`ds::PersonHue`, whose colour is not public), and these tiles move to that component with
-/// the menus. Until then the fills are the same eight, written as values, so the window looks
-/// as it did; a gap reported to quire, not a token mailo declares.
-const AVATAR_FILLS: [&str; 8] = [
-    "#5B4B8A", "#1F6B4A", "#8A4B2F", "#2F5D8A", "#8A3D55", "#3D6B4F", "#6B5420", "#3E4A78",
-];
-
-/// One of eight avatar fills, stable for an address.
+/// A person's avatar fill, stable for an address: quire's person hash (design/03 section 13),
+/// the colour its `Avatar` gives the same address, as the text a tile's style takes.
 pub(in crate::ui) fn avatar_color(email: &str) -> String {
-    let mut hash = 2166136261u32;
-    for byte in email.to_ascii_lowercase().bytes() {
-        hash ^= u32::from(byte);
-        hash = hash.wrapping_mul(16777619);
-    }
-    let index = usize::try_from(hash).unwrap_or_default() % AVATAR_FILLS.len();
-    AVATAR_FILLS[index].to_owned()
+    ds::person_hue(email).hex().css()
 }
 
 fn action_item(hit: &ActionHit, group: &str) -> MenuItem {
@@ -283,7 +268,7 @@ fn action_icon(label: &str) -> Icon {
     match label {
         "Compose" => Icon::Pen,
         "New from template" => Icon::FilePen,
-        "Print conversation" => crate::ui::PRINTER,
+        "Print conversation" => Icon::Printer,
         "Sync now" => Icon::Refresh,
         "Hide sidebar" => Icon::PanelLeft,
         "Theme light" | "Theme dark" | "Theme system" => Icon::Settings,
@@ -296,7 +281,7 @@ fn action_icon(label: &str) -> Icon {
         "Add account…" => Icon::Plus,
         "Import mail…" => Icon::Plus,
         "Export mail…" => Icon::Forward,
-        "Rules…" => crate::ui::FOLDER_INPUT,
+        "Rules…" => Icon::FolderInput,
         "Keys and certificates…" => Icon::Key,
         _ => Icon::Command,
     }

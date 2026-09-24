@@ -36,9 +36,9 @@ async fn the_foot_dots_are_buttons_that_say_which_space_is_on() {
         "{page}"
     );
     assert!(
-        dots.iter().enumerate().all(|(index, button)| button
-            .attr("title")
-            .ends_with(&format!("(Ctrl {})", index + 1))),
+        dots.iter()
+            .enumerate()
+            .all(|(index, button)| button.attr("title").ends_with(&format!("(⌃{})", index + 1))),
         "a dot does not name its key: {page}"
     );
     assert!(page.contains("aria-label=\"New Space\""), "{page}");

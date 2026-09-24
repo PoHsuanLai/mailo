@@ -140,9 +140,23 @@ async fn undo_restores_the_mailboxes_exactly() {
     } = mounted();
     let before = mailboxes(&store, dana);
 
-    let seen_after = click(&mut dom, dana_archive(&seen));
+    let mut seen_after = click(&mut dom, dana_archive(&seen));
     assert_ne!(mailboxes(&store, dana), before, "the archive did nothing");
-    let undo = seen_after.one("aria-label", "Undo Archived");
+    // The toast is quire's, and its host lays it out a frame after the push: draw until it has.
+    for _ in 0..8 {
+        if seen_after.get("data-armed", "disarmed").is_some()
+            || tokio::time::timeout(std::time::Duration::from_millis(100), dom.wait_for_work())
+                .await
+                .is_err()
+        {
+            break;
+        }
+        let mut more = Seen::default();
+        dom.render_immediate(&mut more);
+        seen_after = seen_after.merge(more);
+    }
+    // The pull tab: the one element that says whether it is armed.
+    let undo = seen_after.one("data-armed", "disarmed");
     click(&mut dom, undo);
 
     assert_eq!(
@@ -193,7 +207,7 @@ async fn dragging_a_row_onto_archive_archives_it() {
     pointer(&mut dom, "pointermove", row, at(120.0, 300.0));
     let page = dioxus_ssr::render(&dom);
     assert!(
-        page.contains("class=\"ghost-row\""),
+        page.contains("class=\"ds-drag-ghost\""),
         "no ghost follows the pointer"
     );
     pointer(&mut dom, "pointerenter", archive, at(120.0, 300.0));

@@ -42,7 +42,7 @@ pub(in crate::ui) fn ReceiptRow(page: Signal<Page>) -> Element {
     let stop = "Stop asking for a read receipt";
     rsx! {
         div { class: "prop-row", "data-row": "receipt",
-            div { class: "k", Glyph { icon: Icon::Check }, "Receipt" }
+            div { class: "k", Glyph { icon: Icon::Check, size: ds::IconSize::Compact }, "Receipt" }
             div { class: "v",
                 span { class: "pchip receipt-chip",
                     "Asks for a read receipt"
@@ -51,7 +51,7 @@ pub(in crate::ui) fn ReceiptRow(page: Signal<Page>) -> Element {
                         r#type: "button",
                         aria_label: "{stop}",
                         onclick: move |_| page.write().toggle_receipt(),
-                        Glyph { icon: Icon::X }
+                        Glyph { icon: Icon::X, size: ds::IconSize::Micro }
                     }
                 }
             }

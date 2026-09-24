@@ -37,7 +37,7 @@ use mail_store::{SqliteStore, Store};
 
 use super::field::{Field, FieldKind};
 use body::Body;
-use ds::{Glyph, Icon};
+use ds::{Glyph, Icon, IconButton, IconButtonVariant};
 use life::{Anyway, Sent};
 use page::{Focus, Fold, Guard, Page, Phase, Saved, When};
 use props::Props;
@@ -204,17 +204,26 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                         span { "{status}" }
                     }
                     span { class: "grow" }
-                    button { class: "tool", r#type: "button", title: "Focus (Ctrl Shift F)",
+                    IconButton {
+                        variant: IconButtonVariant::Tool,
+                        icon: Icon::Maximize,
+                        label: "Focus".to_owned(),
+                        tooltip: "Focus (Ctrl Shift F)".to_owned(),
                         onclick: move |_| toggle_focus(page, desk),
-                        Glyph { icon: Icon::Maximize }
                     }
-                    button { class: "tool", r#type: "button", title: "Keep for later: it waits in Today (Esc)",
+                    IconButton {
+                        variant: IconButtonVariant::Tool,
+                        icon: Icon::Archive,
+                        label: "Keep for later".to_owned(),
+                        tooltip: "Keep for later: it waits in Today (Esc)".to_owned(),
                         onclick: move |_| desk::park(desk, page, shell),
-                        Glyph { icon: Icon::Archive }
                     }
-                    button { class: "tool", r#type: "button", title: "Discard",
+                    IconButton {
+                        variant: IconButtonVariant::Tool,
+                        icon: Icon::Trash,
+                        label: "Discard".to_owned(),
+                        tooltip: "Discard".to_owned(),
                         onclick: move |_| discard(page, shell, desk),
-                        Glyph { icon: Icon::Trash }
                     }
                 }
             }
@@ -258,7 +267,7 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
             div { class: "c-foot",
                 if warn {
                     div { class: "c-warn",
-                        Glyph { icon: Icon::Paperclip }
+                        Glyph { icon: Icon::Paperclip, size: ds::IconSize::Compact }
                         span { "You wrote about an attachment, and nothing is attached." }
                         Attach { page, label: "Attach a file" }
                         button { class: "mini", r#type: "button", aria_label: "{anyway_label}", onclick: move |_| send(Anyway::Yes), "Send anyway" }
@@ -276,10 +285,10 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                 span { class: "grow" }
                 button { class: "btn", r#type: "button", aria_label: "{send_label}", onclick: move |_| send(Anyway::No),
                     if scheduled {
-                        Glyph { icon: Icon::Clock }
+                        Glyph { icon: Icon::Clock, size: ds::IconSize::Compact }
                         "Schedule"
                     } else {
-                        Glyph { icon: Icon::Send }
+                        Glyph { icon: Icon::Send, size: ds::IconSize::Compact }
                         "Send"
                     }
                 }

@@ -7,28 +7,24 @@ use crate::space::edit::{Draft, MOST_DOTS};
 use crate::space::{PRESET_NAMES, PRESETS, Space, Spaces};
 use crate::view::{Appearance, Marks as MarksKind, Shell};
 use dioxus::prelude::*;
-use ds::{Capping, Glyph, Icon, Scheme};
+use ds::{Capping, Glyph, Icon, Scheme, SegmentedControl};
 
-/// A row of mutually exclusive buttons, each saying with `aria-pressed` whether it is the one.
+/// A row of mutually exclusive buttons, each saying with `aria-pressed` whether it is the one:
+/// quire's `SegmentedControl`, choosing by position. The caller's options say which is on.
 #[component]
 pub(in crate::ui) fn Seg(
     label: String,
     options: Vec<(String, bool)>,
     on_pick: EventHandler<usize>,
 ) -> Element {
+    let value = options.iter().position(|(_, on)| *on).unwrap_or(usize::MAX);
+    let options: Vec<(usize, String)> = options
+        .into_iter()
+        .enumerate()
+        .map(|(index, (name, _))| (index, name))
+        .collect();
     rsx! {
-        div { class: "seg", role: "group", aria_label: "{label}",
-            for (index, (name, on)) in options.into_iter().enumerate() {
-                button {
-                    key: "{index}",
-                    r#type: "button",
-                    "data-v": "{name}",
-                    aria_pressed: if on { "true" } else { "false" },
-                    onclick: move |_| on_pick.call(index),
-                    "{name}"
-                }
-            }
-        }
+        SegmentedControl::<usize> { label, options, value, onchange: move |index| on_pick.call(index) }
     }
 }
 
@@ -68,7 +64,7 @@ pub(super) fn Stops(editing: Signal<Option<Draft>>, spaces: Signal<Spaces>) -> E
                                             let _ = draft.remove(index);
                                         });
                                     },
-                                    Glyph { icon: Icon::X }
+                                    Glyph { icon: Icon::X, size: ds::IconSize::Micro }
                                 }
                             }
                         }
@@ -82,7 +78,7 @@ pub(super) fn Stops(editing: Signal<Option<Draft>>, spaces: Signal<Spaces>) -> E
                     onclick: move |_| change(editing, spaces, |draft| {
                         let _ = draft.add();
                     }),
-                    Glyph { icon: Icon::Plus }
+                    Glyph { icon: Icon::Plus, size: ds::IconSize::Tiny }
                     "Colour"
                 }
             }
@@ -159,22 +155,17 @@ pub(super) fn Marks(shell: Signal<Shell>) -> Element {
     rsx! {
         div {
             div { class: "ed-label", "Provider marks" }
-            div { class: "seg", role: "group", aria_label: "Provider marks",
-                for marks in MarksKind::ALL {
-                    button {
-                        key: "{marks.label()}",
-                        r#type: "button",
-                        aria_pressed: if now == marks { "true" } else { "false" },
-                        onclick: move |_| {
-                            let look = Appearance { marks };
-                            shell.write().appearance = look;
-                            if let Some(dirs) = try_consume_context::<WindowDirs>() {
-                                let _ = crate::appearance::save(&dirs.config, look);
-                            }
-                        },
-                        "{marks.label()}"
+            SegmentedControl::<MarksKind> {
+                label: "Provider marks",
+                options: MarksKind::ALL.into_iter().map(|marks| (marks, marks.label().to_owned())).collect::<Vec<_>>(),
+                value: now,
+                onchange: move |marks| {
+                    let look = Appearance { marks };
+                    shell.write().appearance = look;
+                    if let Some(dirs) = try_consume_context::<WindowDirs>() {
+                        let _ = crate::appearance::save(&dirs.config, look);
                     }
-                }
+                },
             }
             button {
                 class: "marks-refresh",

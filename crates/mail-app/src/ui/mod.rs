@@ -50,11 +50,4 @@ mod shell_tests;
 
 pub use launch::run;
 
-/// Stand-ins for the two Lucide glyphs mailo drew that quire's [`ds::Icon`] does not have yet,
-/// `printer` (the reader's Print) and `folder-input` (Move to…, a rule's File action). A gap
-/// reported to quire, not a local copy: when quire adds them, these two lines change and
-/// nothing else does.
-pub(crate) const PRINTER: ds::Icon = ds::Icon::File;
-/// See [`PRINTER`].
-pub(crate) const FOLDER_INPUT: ds::Icon = ds::Icon::Folder;
 pub use start::{Start, open_thread, start_of};

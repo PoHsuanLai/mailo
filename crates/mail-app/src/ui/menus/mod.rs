@@ -3,12 +3,12 @@
 //! A label and a snooze time are not things a button can carry, so the row opens one of these
 //! instead of performing the operation itself. Split from [`super::app`] (`CONVENTIONS.md` §8).
 
-use super::menu::{Menu, MenuItem, Right, Tile};
+use super::menu::{Floating, Menu, MenuItem, Right, Tile};
 use super::motion::act;
 use crate::view::Shell;
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
-use ds::Icon;
+use ds::{Icon, MenuKind, MountedRef};
 use mail_domain::*;
 use mail_store::SqliteStore;
 use std::sync::Arc;
@@ -136,16 +136,22 @@ pub(super) fn label_items(
     items
 }
 
-/// When to bring a conversation back.
+/// When to bring a conversation back, anchored to the button that asked.
 #[component]
-pub(super) fn SnoozeMenu(id: ThreadId, shell: Signal<Shell>, revision: Signal<u64>) -> Element {
+pub(super) fn SnoozeMenu(
+    id: ThreadId,
+    shell: Signal<Shell>,
+    revision: Signal<u64>,
+    anchor: Option<MountedRef>,
+) -> Element {
     let now = Utc::now();
     let items = snooze_items(now, &chrono::Local);
     rsx! {
-        Menu {
+        Floating {
+            kind: MenuKind::Rich,
+            anchor,
             title: "Snooze until".to_owned(),
             items,
-            filterable: false,
             on_pick: move |phrase: String| {
                 let store = consume_context::<Arc<SqliteStore>>();
                 // The same time `mailo snooze` resolves, applied through the same op; only the
@@ -161,9 +167,6 @@ pub(super) fn SnoozeMenu(id: ThreadId, shell: Signal<Shell>, revision: Signal<u6
                 }
             },
             on_close: move |_| shell.write().snoozing = None,
-            on_query: move |_| {},
-            slim: false,
-            active: None,
         }
     }
 }

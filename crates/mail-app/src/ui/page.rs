@@ -4,11 +4,11 @@
 
 use std::collections::BTreeMap;
 
-use super::menu::{Menu, MenuItem, Right, Tile};
+use super::menu::{Floating, Menu, MenuItem, Right, Tile};
 use crate::view::{PageGroup, PageMenu, PageParts, Shell};
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
-use ds::Icon;
+use ds::{Icon, MenuKind, MountedRef};
 use mail_domain::{LabelId, ReadState, ThreadSummary};
 
 /// One band of the loaded page.
@@ -205,10 +205,12 @@ pub(super) fn PageMenus(shell: Signal<Shell>) -> Element {
     let open = shell.read().page_menu;
     let group = shell.read().group;
     let parts = shell.read().parts;
+    let mut group_button = use_signal(|| None::<MountedRef>);
     rsx! {
         button {
             class: "mini",
             aria_label: "Group",
+            onmounted: move |event: MountedEvent| group_button.set(Some(MountedRef(event.data()))),
             aria_expanded: if open == PageMenu::Group { "true" } else { "false" },
             onclick: move |event| {
                 event.stop_propagation();
@@ -219,7 +221,7 @@ pub(super) fn PageMenus(shell: Signal<Shell>) -> Element {
                 };
                 shell.write().page_menu = next;
             },
-            ds::Glyph { icon: Icon::Group }
+            ds::Glyph { icon: Icon::Group, size: ds::IconSize::Compact }
             "Group"
         }
         button {
@@ -235,14 +237,15 @@ pub(super) fn PageMenus(shell: Signal<Shell>) -> Element {
                 };
                 shell.write().page_menu = next;
             },
-            ds::Glyph { icon: Icon::Columns }
+            ds::Glyph { icon: Icon::Columns, size: ds::IconSize::Compact }
             "Properties"
         }
         if open == PageMenu::Group {
-            Menu {
+            Floating {
+                kind: MenuKind::Rich,
+                anchor: group_button(),
                 title: "This page".to_owned(),
                 items: group_items(group),
-                filterable: false,
                 on_pick: move |key: String| {
                     if let Some(group) = group_from(&key) {
                         shell.write().group = group;
@@ -250,9 +253,6 @@ pub(super) fn PageMenus(shell: Signal<Shell>) -> Element {
                     }
                 },
                 on_close: move |_| shell.write().page_menu = PageMenu::Closed,
-                on_query: move |_| {},
-                slim: false,
-                active: None,
             }
         }
         if open == PageMenu::Properties {

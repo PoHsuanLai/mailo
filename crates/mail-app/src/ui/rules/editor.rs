@@ -51,7 +51,7 @@ pub(in crate::ui) fn kinds(folders: bool) -> Vec<MenuItem> {
     if folders {
         out.push(item(
             "file",
-            crate::ui::FOLDER_INPUT,
+            Icon::FolderInput,
             "Move to folder…",
             Some("Out of the inbox, into one of your folders"),
         ));
@@ -86,7 +86,7 @@ fn plain(key: &str) -> Option<RuleAction> {
 fn icon_of(action: &RuleAction) -> Icon {
     match action {
         RuleAction::Label(_) => Icon::Tag,
-        RuleAction::File(_) => crate::ui::FOLDER_INPUT,
+        RuleAction::File(_) => Icon::FolderInput,
         RuleAction::Archive => Icon::Archive,
         RuleAction::Trash => Icon::Trash,
         RuleAction::Spam => Icon::OctagonAlert,
@@ -157,7 +157,7 @@ pub(super) fn RuleEditor(
             "Move to",
             folders
                 .iter()
-                .map(|path| item(&format!("file:{path}"), crate::ui::FOLDER_INPUT, path, None))
+                .map(|path| item(&format!("file:{path}"), Icon::FolderInput, path, None))
                 .collect(),
             folders.len() > 7,
         )),
@@ -207,7 +207,7 @@ pub(super) fn RuleEditor(
             ul { class: "rules-actions",
                 for (at, action) in draft.actions.iter().enumerate() {
                     li { key: "{at}", class: "rules-action",
-                        Glyph { icon: icon_of(action) }
+                        Glyph { icon: icon_of(action), size: ds::IconSize::Small }
                         span { "{work::action_words(action)}" }
                         button {
                             class: "rm",
@@ -220,7 +220,7 @@ pub(super) fn RuleEditor(
                                     draft.actions.remove(at);
                                 }
                             },
-                            Glyph { icon: Icon::X }
+                            Glyph { icon: Icon::X, size: ds::IconSize::Micro }
                         }
                     }
                 }
@@ -233,7 +233,7 @@ pub(super) fn RuleEditor(
                             let next = if adding() == Adding::Closed { Adding::Kinds } else { Adding::Closed };
                             adding.set(next);
                         },
-                        Glyph { icon: Icon::Plus }
+                        Glyph { icon: Icon::Plus, size: ds::IconSize::Tiny }
                         "Add an action"
                     }
                     if let Some((menu_title, items, filterable)) = menu {

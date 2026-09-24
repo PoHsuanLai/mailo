@@ -194,7 +194,7 @@ pub(super) fn ThreadList(
                                     revision += 1;
                                 });
                             },
-                            Glyph { icon: Icon::Refresh }
+                            Glyph { icon: Icon::Refresh, size: ds::IconSize::Compact }
                         }
                     }
                     button {
@@ -211,13 +211,13 @@ pub(super) fn ThreadList(
                                 Err(why) => eprintln!("compose: {why}"),
                             }
                         },
-                        Glyph { icon: Icon::Pen }
+                        Glyph { icon: Icon::Pen, size: ds::IconSize::Compact }
                         "Compose"
                     }
                 }
             }
             label { class: "search",
-                Glyph { icon: Icon::Search }
+                Glyph { icon: Icon::Search, size: ds::IconSize::Nav }
                 Field {
                     kind: FieldKind::Boxed,
                     value: shell.read().search.clone(),

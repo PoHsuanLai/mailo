@@ -1,16 +1,16 @@
 //! The Folders section: an account's own mailboxes, nested, and what can be done to them.
 //!
-//! Each row's ⋯ opens the one [`Menu`]; naming is the one [`Field`], in place of the name. A
+//! Each row's ⋯ opens quire's menu beside it; naming is the one [`Field`], in place of the name. A
 //! parent is a `<details>`, so opening and closing it is the document's own state and needs
 //! nothing here to remember it.
 
-use super::super::menu::{Menu, MenuItem};
+use super::super::menu::{Floating, MenuItem};
 use super::folder_parts::{Naming, Said, item};
 use super::folder_row::FolderRow;
 use super::folder_tree::{Section, Show};
 use crate::view::Shell;
 use dioxus::prelude::*;
-use ds::Icon;
+use ds::{Icon, MenuKind, MountedRef};
 use mail_domain::AccountId;
 
 /// One folder, by account and path.
@@ -113,6 +113,7 @@ pub(super) fn FolderList(
         .iter()
         .map(|tree| item(&tree.account.to_string(), Icon::Plus, &tree.address, None))
         .collect();
+    let mut new_button = use_signal(|| None::<MountedRef>);
     rsx! {
         div { class: "s-h",
             "Folders"
@@ -131,6 +132,7 @@ pub(super) fn FolderList(
                 r#type: "button",
                 aria_label: "New folder",
                 title: "New folder",
+                onmounted: move |event: MountedEvent| new_button.set(Some(MountedRef(event.data()))),
                 onclick: move |_| {
                     if several {
                         open.set(Open::Accounts);
@@ -143,23 +145,24 @@ pub(super) fn FolderList(
             }
         }
         if *open.read() == Open::Accounts {
-            div { class: "fold-menu",
-                Menu {
-                    title: "New folder on".to_owned(),
-                    items: pick_items,
-                    filterable: false,
-                    on_pick: move |key: String| {
-                        if let Ok(uuid) = key.parse() {
-                            let account = AccountId::from_uuid(uuid);
-                            open.set(Open::Naming { account, parent: None, text: String::new() });
-                            dioxus::document::eval(FOCUS);
-                        }
-                    },
-                    on_close: move |_| open.set(Open::Closed),
-                    on_query: |_| {},
-                    slim: true,
-                    active: None,
-                }
+            Floating {
+                kind: MenuKind::Slim,
+                anchor: new_button(),
+                title: "New folder on".to_owned(),
+                items: pick_items,
+                on_pick: move |key: String| {
+                    if let Ok(uuid) = key.parse() {
+                        let account = AccountId::from_uuid(uuid);
+                        open.set(Open::Naming { account, parent: None, text: String::new() });
+                        dioxus::document::eval(FOCUS);
+                    }
+                },
+                // The pick opened the name field: closing the menu must leave it open.
+                on_close: move |_| {
+                    if *open.peek() == Open::Accounts {
+                        open.set(Open::Closed);
+                    }
+                },
             }
         }
         Naming { wires, at: None, delimiter_of: Callback::new(delimiter_of) }

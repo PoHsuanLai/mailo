@@ -9,10 +9,10 @@
 //! What a place accepts is decided by what the place *is* (Part C #25): a mailbox you can file
 //! into, a label you can apply, or a saved search, which is read-only and refuses.
 
-use super::toast::{Hand, clamp_pull};
-use super::{Motion, act, motion, undo_last};
+use super::{Motion, act, motion};
 use crate::view::{Place, Shell, Source, place_filter};
 use dioxus::prelude::*;
+use ds::{DragGhost, Point, Px};
 use mail_domain::*;
 use mail_store::SqliteStore;
 use std::sync::Arc;
@@ -78,21 +78,11 @@ pub(in crate::ui) fn press(thread: ThreadId, at: (f64, f64)) {
     }
 }
 
-/// The pointer moved anywhere in the window. Cheap when nothing is being dragged or pulled.
+/// The pointer moved anywhere in the window. Cheap when nothing is being dragged.
 pub(in crate::ui) fn moved(at: (f64, f64), held: bool) {
     let Some(mut state) = motion() else {
         return;
     };
-    let pulling = state.pull.peek().filter(|pull| pull.hand == Hand::Holding);
-    if let Some(mut pull) = pulling {
-        if held {
-            pull.dx = clamp_pull(at.0 - pull.from);
-        } else {
-            pull.hand = Hand::LetGo;
-        }
-        state.pull.set(Some(pull));
-        return;
-    }
     let drag = state.drag.peek().clone();
     match drag {
         Drag::Idle => {}
@@ -148,25 +138,12 @@ pub(in crate::ui) fn over(index: Option<usize>, leaving: usize) {
     }
 }
 
-/// The pointer was released anywhere in the window: drop onto the target, finish a pull, or
+/// The pointer was released anywhere in the window: drop onto the target, or
 /// forget an armed press.
 pub(in crate::ui) fn release(shell: Signal<Shell>, revision: Signal<u64>) {
     let Some(mut state) = motion() else {
         return;
     };
-    let pulled = state.pull.peek().filter(|pull| pull.hand == Hand::Holding);
-    if let Some(mut pull) = pulled {
-        pull.hand = Hand::LetGo;
-        state.pull.set(Some(pull));
-        if pull.armed() {
-            let store = consume_context::<Arc<SqliteStore>>();
-            undo_last(&store, shell, revision);
-            // `undo_last` cleared the pull; keep the let-go so the click that follows the
-            // release is not taken for a second undo.
-            state.pull.set(Some(pull));
-        }
-        return;
-    }
     let drag = std::mem::take(&mut *state.drag.write());
     let Drag::Live {
         thread,
@@ -214,11 +191,12 @@ pub(in crate::ui) fn Ghost() -> Element {
     else {
         return rsx! {};
     };
-    let (x, y) = (at.0 - 40.0, at.1 - 18.0);
+    // quire's ghost places itself up and to the left of the pointer.
+    let at = Point {
+        x: Px(at.0 as f32),
+        y: Px(at.1 as f32),
+    };
     rsx! {
-        div { class: "ghost-row", style: "left:{x:.0}px;top:{y:.0}px", aria_hidden: "true",
-            "{subject}"
-            div { class: "g-sub", "{sender}" }
-        }
+        DragGhost { title: subject, sub: sender, at }
     }
 }

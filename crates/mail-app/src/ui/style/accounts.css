@@ -30,4 +30,3 @@
 .acct-done p:first-child { font-weight: 700; }
 .pin.acct.acct-add .av { background: transparent; color: var(--f-ink-faint); border: 1px dashed var(--f-ink-faint); }
 .pin.acct.acct-add:hover .av { color: var(--f-ink); border-color: var(--f-ink); }
-.pin.acct.acct-add .av .ds-ic { width: 14px; height: 14px; }

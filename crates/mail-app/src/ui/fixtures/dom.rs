@@ -96,6 +96,16 @@ pub(in crate::ui) fn page(body: &str, head: &str) -> String {
     )
 }
 
+/// Run what a render left queued (effects, woken tasks) and draw again, until nothing is left
+/// or a few rounds have passed: a quire menu or toast asked for in one render is placed in the
+/// root's overlay by an effect, and only drawn on the render after it.
+pub(in crate::ui) fn drain(dom: &mut VirtualDom) {
+    for _ in 0..8 {
+        dom.process_events();
+        dom.render_immediate(&mut NoOpMutations);
+    }
+}
+
 /// Write `page` to `target/<name>.html`.
 pub(in crate::ui) fn write_page(name: &str, page: &str) {
     let out = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -433,6 +443,31 @@ impl Seen {
     pub(in crate::ui) fn merge(mut self, later: Seen) -> Seen {
         self.attrs.extend(later.attrs);
         self
+    }
+
+    /// The elements carrying a dynamic `then` attribute that were drawn after the element whose
+    /// `name` is `value`, in paint order. A quire segmented control computes only its group's
+    /// label and each segment's `aria-pressed`, so a segment is found as the nth after its group.
+    pub(in crate::ui) fn after(
+        &self,
+        name: &str,
+        value: &str,
+        then: &str,
+    ) -> Vec<dioxus_core::ElementId> {
+        let Some(start) = self
+            .attrs
+            .iter()
+            .position(|(got_name, got_value, _)| got_name == name && got_value == value)
+        else {
+            return Vec::new();
+        };
+        let mut ids = Vec::new();
+        for (got_name, _, id) in &self.attrs[start + 1..] {
+            if got_name == then && !ids.contains(id) {
+                ids.push(*id);
+            }
+        }
+        ids
     }
 
     /// The one element whose dynamic `name` attribute equals `value`.

@@ -129,7 +129,7 @@ async fn render_the_hover_cards_to_a_file() {
     pointer(&mut dom, "pointermove", row, held(160.0, 262.0));
     pointer(&mut dom, "pointerenter", archive, held(160.0, 262.0));
     let body = dioxus_ssr::render(&dom);
-    assert!(body.contains("ghost-row") && body.contains("class=\"toast\""));
+    assert!(body.contains("ds-drag-ghost") && body.contains("class=\"ds-toast\""));
     write("hover-motion", &body, "");
 
     let mut pills = String::new();

@@ -2,7 +2,7 @@
 
 use super::{Job, print, save};
 use dioxus::prelude::*;
-use ds::Glyph;
+use ds::{IconButton, IconButtonVariant, SegmentedControl, Switch};
 use mail_domain::ThreadId;
 use mail_mime::Pages;
 
@@ -20,13 +20,12 @@ pub(in crate::ui) fn PrintTool(thread: ThreadId) -> Element {
     let pages = use_signal(|| Pages::Flow);
     let label = "Print this conversation";
     rsx! {
-        button {
-            class: "tool",
-            r#type: "button",
-            aria_label: "{label}",
-            aria_expanded: if open() { "true" } else { "false" },
+        IconButton {
+            variant: IconButtonVariant::Tool,
+            icon: ds::Icon::Printer,
+            label: label.to_owned(),
+            expanded: if open() { Switch::On } else { Switch::Off },
             onclick: move |_| open.toggle(),
-            Glyph { icon: crate::ui::PRINTER }
         }
         if open() {
             PrintMenu { thread, pages, open }
@@ -60,17 +59,11 @@ fn PrintMenu(thread: ThreadId, pages: Signal<Pages>, open: Signal<bool>) -> Elem
                 }
             },
             div { class: "g", "Print" }
-            div { class: "seg", role: "group", aria_label: "Pages",
-                for (choice, name) in CHOICES {
-                    button {
-                        key: "{name}",
-                        r#type: "button",
-                        aria_label: "{name}",
-                        aria_pressed: if chosen == choice { "true" } else { "false" },
-                        onclick: move |_| pages.set(choice),
-                        "{name}"
-                    }
-                }
+            SegmentedControl::<Pages> {
+                label: "Pages",
+                options: CHOICES.into_iter().map(|(choice, name)| (choice, name.to_owned())).collect::<Vec<_>>(),
+                value: chosen,
+                onchange: move |choice| pages.set(choice),
             }
             div { class: "acts",
                 button {

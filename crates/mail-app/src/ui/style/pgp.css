@@ -99,4 +99,3 @@
 .mini.danger { background: var(--danger); color: var(--danger-ink); border-color: transparent; }
 .mini.danger:hover { background: var(--danger); color: var(--danger-ink); }
 .keys-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 4px; }
-.keys-acts .mini .ds-ic { width: 12px; height: 12px; }

@@ -3,7 +3,6 @@ label.search {
   display: flex; align-items: center; gap: 8px; padding: 8px 14px;
   border-bottom: 1px solid var(--line-soft); color: var(--ink-faint);
 }
-label.search .ds-ic { width: 15px; height: 15px; }
 label.search .inp { flex: 1; }
 .list-g {
   list-style: none; padding: 10px 8px 4px; font-family: var(--font-data); font-size: 10px;
@@ -51,14 +50,13 @@ label.search .inp { flex: 1; }
   background: var(--accent-soft); color: var(--ink); white-space: nowrap;
 }
 .clip { display: inline-flex; align-items: center; gap: 2px; font-family: var(--font-data); font-size: 9.5px; color: var(--ink-faint); }
-.clip .ds-ic { width: 11px; height: 11px; }
 /* The star sits in the dot column, under the dot, and shows on hover or when on. */
 .star {
   position: absolute; left: 6px; bottom: 7px; width: 22px; height: 22px; border: 0; padding: 0; background: transparent;
   cursor: pointer; display: grid; place-items: center; opacity: 0; transition: opacity var(--t-quick) var(--e-out);
 }
 .row:hover .star, .star[data-on="true"], .star:focus-visible { opacity: 1; }
-.star .ds-ic { width: 14px; height: 14px; stroke: var(--ink-faint); transition: stroke var(--t-quick) var(--e-out), fill var(--t-quick) var(--e-out); }
+.star .ds-ic { stroke: var(--ink-faint); transition: stroke var(--t-quick) var(--e-out), fill var(--t-quick) var(--e-out); }
 .star[data-on="true"] .ds-ic { stroke: var(--warn); fill: var(--warn); }
 .star.pop .ds-ic { animation: star-pop var(--t-big) var(--e-spring); }
 .sparks { position: absolute; inset: 0; pointer-events: none; }
@@ -80,7 +78,6 @@ label.search .inp { flex: 1; }
 }
 .strip button:hover { background: var(--accent-soft); color: var(--ink); }
 .strip button:active { transform: scale(.88) !important; }
-.strip .ds-ic { width: 14px; height: 14px; }
 .strip .fly {
   position: absolute; bottom: calc(100% + 7px); left: 50%; transform: translateX(-50%) translateY(3px); white-space: nowrap;
   background: var(--ink); color: var(--paper); font-family: var(--font-data); font-size: 10px; padding: 3px 7px; border-radius: 6px;
@@ -113,35 +110,15 @@ label.search .inp { flex: 1; }
   background: var(--accent-soft); color: var(--ink); transform: scale(1.045); box-shadow: var(--shadow-1);
   transition: transform var(--t-quick) var(--e-spring);
 }
-.ghost-row {
-  position: fixed; z-index: 50; pointer-events: none; width: 250px; padding: 9px 11px;
-  border-radius: var(--r-card); background: var(--raise); color: var(--ink); border: 1px solid var(--line);
-  box-shadow: var(--shadow-drag); font-size: 13px; font-weight: 700; transform: rotate(var(--tilt)) scale(1.02);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.ghost-row .g-sub { font-weight: 500; color: var(--ink-faint); font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
 
-/* The undo toast, with a tab to pull. */
+/* The one toast mailo draws itself: after leaving a list, the way to archive what it sent.
+   Every undo and every plain word is quire's toast, from the window root. */
 .toast {
   position: absolute; left: 50%; bottom: 14px; z-index: 8; transform: translateX(-50%);
-  display: flex; align-items: center; gap: 2px; background: var(--ink); color: var(--paper); border-radius: 999px;
+  display: flex; align-items: center; gap: 10px; background: var(--ink); color: var(--paper); border-radius: 999px;
   padding: 5px 5px 5px 15px; box-shadow: var(--shadow-2); font-size: 12.5px; font-weight: 600; white-space: nowrap;
   animation: toast-in var(--t-big) var(--e-spring);
 }
-.toast .hint {
-  font-family: var(--font-data); font-size: 10px; color: inherit; opacity: 0.7; letter-spacing: 0.06em; padding: 0 6px 0 10px;
-}
-.toast .tab {
-  display: flex; align-items: center; gap: 6px; cursor: grab; background: var(--paper); color: var(--ink); border: 0;
-  border-radius: 999px; padding: 5px 12px 5px 9px; font-size: 12px; font-weight: 700; touch-action: none;
-  transition: transform var(--t-move) var(--e-spring), background-color var(--t-quick) var(--e-out);
-}
-.toast .tab.armed { background: var(--accent); color: var(--accent-ink); }
-/* Nothing to take back or follow up: the words alone, padded on both sides. */
-.toast.plain { padding-right: 15px; }
-/* A follow-up is pressed, not pulled. */
-.toast .tab.go { cursor: pointer; margin-left: 10px; }
-.toast .tab .ds-ic { width: 13px; height: 13px; }
 li.empty {
   list-style: none; padding: 28px 16px; text-align: center; color: var(--ink-soft);
 }

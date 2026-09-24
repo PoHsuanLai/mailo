@@ -63,7 +63,7 @@ async fn three_accounts_show_an_all_tile_and_the_microsoft_tile_filters() {
     assert_eq!(tile_pressed, 1, "more than one tile is pressed:\n{page}");
     assert!(page.contains("aria-label=\"All accounts\""), "{page}");
     let marks: Vec<&str> = page
-        .split("class=\"prov on-tile\"")
+        .split("class=\"ds-provider\" data-size=\"tile\"")
         .skip(1)
         .filter_map(|rest| {
             rest.split_once('>')?
@@ -80,7 +80,22 @@ async fn three_accounts_show_an_all_tile_and_the_microsoft_tile_filters() {
 
     let tile = seen.one("aria-label", "p.lai@corp.example");
     let _ = super::fixtures::click(&mut dom, tile);
-    let filtered = dioxus_ssr::render(&dom);
+    // The list's query answers off the render, so one render after the click can still show the
+    // rows from before it. Draw as work arrives until only Microsoft's rows are left, or give up.
+    let only_microsoft = |page: &str| {
+        page.contains("m365</span>")
+            && !page.contains("gmail</span>")
+            && !page.contains("fastmail</span>")
+    };
+    let give_up = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+    let mut filtered = dioxus_ssr::render(&dom);
+    while !only_microsoft(&filtered) && tokio::time::Instant::now() < give_up {
+        let more = tokio::time::timeout(std::time::Duration::from_millis(200), dom.wait_for_work());
+        if more.await.is_ok() {
+            dom.render_immediate(&mut dioxus_core::NoOpMutations);
+        }
+        filtered = dioxus_ssr::render(&dom);
+    }
     assert!(
         filtered.contains("m365</span>"),
         "the Microsoft tile did not show its rows:\n{filtered}"

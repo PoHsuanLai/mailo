@@ -1,7 +1,7 @@
 //! One folder's row, the menu under it, and what its picks do.
 
 use super::super::folder_open;
-use super::super::menu::Menu;
+use super::super::menu::Floating;
 use super::super::move_to;
 use super::folder_act::{act, messages_word, refused, renamed_path};
 use super::folder_parts::{NameField, Naming, Said, actions, item};
@@ -10,7 +10,7 @@ use super::folders::{FOCUS, Note, Open, Spot, Wires};
 use crate::folder::Refusal;
 use crate::view::{Source, folder_of};
 use dioxus::prelude::*;
-use ds::Icon;
+use ds::{Icon, MenuKind, MountedRef};
 use mail_domain::{
     AccountId, Filter, FolderError, FolderWork, Holds, MailboxRef, NonEmpty, Subscription,
 };
@@ -98,7 +98,10 @@ pub(super) fn FolderRow(
         matches!(&now, Open::Actions(at) | Open::Confirm { spot: at, .. } if *at == spot);
     let items = actions(&node);
     let menu_spot = spot.clone();
+    let closing = spot.clone();
     let rename_spot = spot.clone();
+    // The ⋯ button: the menu and its confirmation float beside it, over the sidebar's edge.
+    let mut more = use_signal(|| None::<MountedRef>);
     let path = node.path.clone();
     let row = rsx! {
         span { class: "{chev}" }
@@ -155,6 +158,7 @@ pub(super) fn FolderRow(
             r#type: "button",
             aria_label: "Actions for {name}",
             aria_expanded: if menu_open { "true" } else { "false" },
+            onmounted: move |event: MountedEvent| more.set(Some(MountedRef(event.data()))),
             onclick: move |event| {
                 event.prevent_default();
                 event.stop_propagation();
@@ -168,41 +172,34 @@ pub(super) fn FolderRow(
     let below = rsx! {
         match now {
             Open::Actions(at) if at == spot => rsx! {
-                div { class: "fold-menu",
-                    Menu {
-                        title: name.clone(),
-                        items,
-                        filterable: false,
-                        on_pick: move |key: String| pick(wires, &key, account, path.clone(), delimiter),
-                        on_close: move |_| open.set(Open::Closed),
-                        on_query: |_| {},
-                        slim: true,
-                        active: None,
-                    }
+                Floating {
+                    kind: MenuKind::Slim,
+                    anchor: more(),
+                    title: name.clone(),
+                    items,
+                    on_pick: move |key: String| pick(wires, &key, account, path.clone(), delimiter),
+                    // A pick that opened a field or the confirmation keeps it open.
+                    on_close: move |_| close(open, |now| matches!(now, Open::Actions(at) if *at == closing)),
                 }
             },
             Open::Confirm { spot: at, messages } if at == spot => rsx! {
-                div { class: "fold-menu",
-                    Menu {
-                        title: format!("Holds {}. Delete them with the folder?", messages_word(messages)),
-                        items: vec![
-                            item("delete", Icon::Trash, "Delete folder and mail", Some("This cannot be undone")),
-                            item("keep", Icon::X, "Keep the folder", None),
-                        ],
-                        filterable: false,
-                        on_pick: move |key: String| {
-                            if key == "delete" {
-                                let work = FolderWork::Delete { path: at.path.clone(), non_empty: NonEmpty::Allow };
-                                run(wires, account, Some(at.path.clone()), work, delimiter);
-                            } else {
-                                open.set(Open::Closed);
-                            }
-                        },
-                        on_close: move |_| open.set(Open::Closed),
-                        on_query: |_| {},
-                        slim: true,
-                        active: None,
-                    }
+                Floating {
+                    kind: MenuKind::Slim,
+                    anchor: more(),
+                    title: format!("Holds {}. Delete them with the folder?", messages_word(messages)),
+                    items: vec![
+                        item("delete", Icon::Trash, "Delete folder and mail", Some("This cannot be undone")),
+                        item("keep", Icon::X, "Keep the folder", None),
+                    ],
+                    on_pick: move |key: String| {
+                        if key == "delete" {
+                            let work = FolderWork::Delete { path: at.path.clone(), non_empty: NonEmpty::Allow };
+                            run(wires, account, Some(at.path.clone()), work, delimiter);
+                        } else {
+                            open.set(Open::Closed);
+                        }
+                    },
+                    on_close: move |_| close(open, |now| matches!(now, Open::Confirm { .. })),
                 }
             },
             _ => rsx! {},
@@ -248,6 +245,14 @@ pub(super) fn FolderRow(
                 {below}
             }
         }
+    }
+}
+
+/// A menu closed: the section closes it too, unless a pick has already moved on to something
+/// else (a name field, the delete confirmation), which `still` tells apart.
+fn close(mut open: Signal<Open>, still: impl Fn(&Open) -> bool) {
+    if still(&open.peek()) {
+        open.set(Open::Closed);
     }
 }
 

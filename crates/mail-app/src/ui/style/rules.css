@@ -16,7 +16,7 @@
 .rules-head .mini { margin-left: auto; }
 .rules-head .k { font-family: var(--font-data); font-size: 10px; font-weight: 400; color: var(--ink-faint); }
 .rules-accounts { padding: 0 14px 8px; }
-.rules-accounts .seg { flex-wrap: wrap; }
+.rules-accounts > [role="group"] { flex-wrap: wrap; }
 .rules-main {
   flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; border-top: 1px solid var(--line-soft);
 }
@@ -28,7 +28,7 @@
 }
 .rules-none { margin: 0; padding: 14px 10px; text-align: center; font-size: 12.5px; color: var(--ink-faint); }
 .rules-faint { color: var(--ink-faint); }
-.rules-part > .seg, .rules-edit > .seg { justify-self: start; }
+.rules-part > [role="group"], .rules-edit > [role="group"] { justify-self: start; }
 
 /* One rule: the switch, what it is, and its actions, which brighten on hover like the book's. */
 .rules-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
@@ -79,19 +79,16 @@
   border: 1px solid var(--line); border-radius: var(--r-pill); background: var(--raise);
   font-size: 12.5px; color: var(--ink);
 }
-.rules-action .ds-ic { width: 13px; height: 13px; color: var(--ink-soft); }
+.rules-action .ds-ic { color: var(--ink-soft); }
 .rules-action .rm {
   display: grid; place-items: center; width: 18px; height: 18px; padding: 0; border: 0;
   border-radius: 999px; background: none; color: var(--ink-faint); cursor: pointer;
 }
 .rules-action .rm:hover { background: var(--surface-2); color: var(--ink); }
-.rules-action .rm .ds-ic { width: 11px; height: 11px; }
 .rules-add { position: relative; }
-.rules-add .mini .ds-ic { width: 12px; height: 12px; }
 .rules-menu .fmenu { top: calc(100% + 4px); left: 0; }
 .rules-acts { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
 .rules-acts .capnote { flex: 1; min-width: 0; }
-.rules-acts .mini .ds-ic { width: 12px; height: 12px; }
 .rules-part > .rules-acts:first-of-type { justify-content: flex-start; }
 
 /* The vacation reply and the server's part. */
@@ -107,6 +104,3 @@
 
 /* "Move to…": in the row it hangs from the strip like the label menu; in the reader's head it
    hangs from its tool. */
-.move-menu .hint { margin: 0; padding: 6px 8px; border-radius: 8px; background: var(--raise); }
-.move-tool { position: absolute; top: calc(100% + 6px); right: 0; z-index: 40; width: 280px; }
-.move-tool .fmenu { position: static; width: auto; }

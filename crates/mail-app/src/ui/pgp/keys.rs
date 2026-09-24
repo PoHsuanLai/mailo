@@ -272,7 +272,7 @@ pub(in crate::ui) fn KeysSheet(shell: Signal<Shell>) -> Element {
                                         let address = address.clone();
                                         move |_| run.call(Job::Generate(address.clone()))
                                     },
-                                    Glyph { icon: Icon::Plus }
+                                    Glyph { icon: Icon::Plus, size: ds::IconSize::Tiny }
                                     "Make a key for {address}"
                                 }
                             }

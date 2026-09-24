@@ -22,7 +22,15 @@ fn Sheet(open: FileSheet) -> Element {
         ..Shell::default()
     });
     let revision = use_signal(|| 0u64);
-    rsx! { FilesSheet { shell, revision } }
+    // Inside a quire root, as the window has it: the sheet's menu floats in its overlay.
+    rsx! {
+        ds::Ds {
+            appearance: ds::Appearance::default(),
+            material: ds::Material::Window,
+            stylesheet: ds::Inject::Host,
+            FilesSheet { shell, revision }
+        }
+    }
 }
 
 /// The sheet over `store`, suggesting and starting in `saves` rather than the downloads directory.
@@ -104,6 +112,7 @@ async fn the_import_sheet_says_what_is_at_the_path_and_where_it_goes() {
         &mut dom,
         seen.one("aria-label", "Import into: Local folders"),
     );
+    crate::ui::fixtures::drain(&mut dom);
     let page = dioxus_ssr::render(&dom);
     assert!(
         page.contains("This computer"),

@@ -31,7 +31,7 @@ pub(super) fn Attachments(
         ul { class: "attachments",
             for row in rows {
                 li { key: "{row.index}",
-                    Glyph { icon: Icon::Paperclip }
+                    Glyph { icon: Icon::Paperclip, size: ds::IconSize::Compact }
                     span { class: "name", "{row.name}" }
                     span { class: "size mono", "{row.size}" }
                     button {

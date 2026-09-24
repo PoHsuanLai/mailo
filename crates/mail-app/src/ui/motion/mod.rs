@@ -18,9 +18,11 @@ pub(super) use drag::Ghost;
 pub(super) use toast::Toast;
 
 use super::ops::{perform, resolve, take_back};
+use crate::undo::{Undo, UndoHandle};
 use crate::view::Shell;
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
+use ds::{ToastHub, UndoToken};
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 
@@ -48,12 +50,20 @@ pub(super) struct Said {
 /// What the toast offers beside its words.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::ui) enum Follow {
-    /// The tab that takes the op back.
-    Undo,
+    /// The tab that takes back the op the stack holds under this handle.
+    Undo(UndoHandle),
     /// After leaving a list: archive what it already sent, by its sender's address.
     ArchiveFrom { sender: String, list: String },
     /// Nothing to take back: an unsubscribe, once made, is the list's.
     Nothing,
+}
+
+/// quire's toast host, and what its undo does: made by a component that lives as long as the
+/// window, because the handler belongs to the scope that made it and must outlive the toast.
+#[derive(Clone, Copy)]
+pub(super) struct Toasts {
+    pub hub: ToastHub,
+    pub on_undo: EventHandler<UndoToken>,
 }
 
 /// The motion state the window shares.
@@ -68,11 +78,15 @@ pub(super) struct Motion {
     pub landing: Signal<Option<(ThreadId, LabelId)>>,
     /// A row an undo just brought back.
     pub returning: Signal<Option<ThreadId>>,
+    /// The toast mailo still draws itself: one with a follow-up that is not an undo. Every
+    /// other toast is quire's, through [`Motion::toasts`].
     pub toast: Signal<Option<Said>>,
+    /// The window root's toast host and the handler its undo calls, once the list has mounted
+    /// under the root. Not reactive: only a toast being said reads it.
+    pub toasts: CopyValue<Option<Toasts>>,
     /// The place a hovered Archive or Snooze button would send the row to.
     pub dest: Signal<Option<&'static str>>,
     pub drag: Signal<drag::Drag>,
-    pub pull: Signal<Option<toast::Pull>>,
     /// The ids the list drew last, in order. Not reactive: only an op reads it.
     pub order: CopyValue<Vec<ThreadId>>,
     /// The scope that owns all of this. The fallback and the toast's timeout run there, so a
@@ -89,9 +103,9 @@ pub(super) fn use_motion() -> Motion {
         landing: Signal::new(None),
         returning: Signal::new(None),
         toast: Signal::new(None),
+        toasts: CopyValue::new(None),
         dest: Signal::new(None),
         drag: Signal::new(drag::Drag::Idle),
-        pull: Signal::new(None),
         order: CopyValue::new(Vec::new()),
         owner: dioxus::core::current_scope_id(),
     })
@@ -104,7 +118,7 @@ pub(super) fn motion() -> Option<Motion> {
 
 /// How long a row may take to leave before it is removed anyway.
 const FALLBACK: std::time::Duration = std::time::Duration::from_millis(900);
-/// How long the toast stays.
+/// How long mailo's own toast stays. quire's holds its own.
 const TOAST: std::time::Duration = std::time::Duration::from_secs(6);
 
 /// Apply what a button means, and let the window show it.
@@ -131,11 +145,11 @@ pub(super) fn act(
         return false;
     };
     let said = undo.said.clone();
-    shell.write().undo.push(undo);
+    let handle = shell.write().undo.push(undo);
     revision += 1;
     if let Some(motion) = motion() {
         motion.landed(store, shell, thread, &op, before);
-        motion.say(said, Follow::Undo);
+        motion.say(said, Follow::Undo(handle));
     }
     true
 }
@@ -155,23 +169,51 @@ pub(in crate::ui) fn tell_through(motion: Option<Motion>, text: String) {
     }
 }
 
-/// Take back the newest op. The toast's tab, and Ctrl Z.
+/// Take back the newest op: Ctrl Z.
 pub(super) fn undo_last(
     store: &SqliteStore,
     mut shell: Signal<Shell>,
-    mut revision: Signal<u64>,
+    revision: Signal<u64>,
 ) -> bool {
     let Some(entry) = shell.write().undo.pop() else {
         return false;
     };
+    restore(store, shell, revision, motion(), entry)
+}
+
+/// Take back the op the toast named, by the handle its undo carried: the toast's tab.
+pub(super) fn undo_by(
+    store: &SqliteStore,
+    mut shell: Signal<Shell>,
+    revision: Signal<u64>,
+    motion: Option<Motion>,
+    handle: UndoHandle,
+) -> bool {
+    let Some(entry) = shell.write().undo.take(handle) else {
+        return false;
+    };
+    restore(store, shell, revision, motion, entry)
+}
+
+/// Put `entry` back, and take down the toast that offered it. Refused, it goes back on the
+/// stack.
+fn restore(
+    store: &SqliteStore,
+    mut shell: Signal<Shell>,
+    mut revision: Signal<u64>,
+    motion: Option<Motion>,
+    entry: Undo,
+) -> bool {
     if !take_back(store, &entry) {
         shell.write().undo.push(entry);
         return false;
     }
     revision += 1;
-    if let Some(mut motion) = motion() {
+    if let Some(mut motion) = motion {
         motion.toast.set(None);
-        motion.pull.set(None);
+        if let Some(toasts) = *motion.toasts.peek() {
+            toasts.hub.hide();
+        }
         if let Some(thread) = entry.thread {
             motion
                 .leaving
@@ -290,8 +332,26 @@ impl Motion {
         belongs(store, &shell.peek(), thread, Utc::now())
     }
 
-    /// Put up the toast. The next op replaces it; otherwise it leaves on its own.
+    /// Put up the toast. The next op replaces it; otherwise it leaves on its own. An undo or
+    /// plain words are quire's toast; a follow-up is mailo's own, and takes quire's down.
     fn say(mut self, text: String, follow: Follow) {
+        if let Some(toasts) = *self.toasts.peek() {
+            match follow {
+                Follow::Undo(handle) => {
+                    self.toast.set(None);
+                    toasts
+                        .hub
+                        .push_undoable(text, UndoToken(handle.0), toasts.on_undo);
+                    return;
+                }
+                Follow::Nothing => {
+                    self.toast.set(None);
+                    toasts.hub.push(text, None);
+                    return;
+                }
+                Follow::ArchiveFrom { .. } => toasts.hub.hide(),
+            }
+        }
         let serial = self.toast.peek().as_ref().map_or(0, |said| said.serial) + 1;
         self.toast.set(Some(Said {
             text,

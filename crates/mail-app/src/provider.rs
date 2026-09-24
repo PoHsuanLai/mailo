@@ -32,30 +32,6 @@ impl Provider {
         Provider::Imap,
     ];
 
-    /// The letter on the chip.
-    pub fn mark(self) -> &'static str {
-        match self {
-            Provider::Google => "G",
-            Provider::Microsoft => "M",
-            Provider::Fastmail => "F",
-            Provider::Icloud => "i",
-            Provider::Yahoo => "Y",
-            Provider::Imap => "@",
-        }
-    }
-
-    /// The letter's colour, or `None` for `@`, which is drawn in `--ink-soft`.
-    pub fn color(self) -> Option<&'static str> {
-        match self {
-            Provider::Google => Some("#1A73E8"),
-            Provider::Microsoft => Some("#0F6CBD"),
-            Provider::Fastmail => Some("#2A5DB0"),
-            Provider::Icloud => Some("#3A82F7"),
-            Provider::Yahoo => Some("#6001D2"),
-            Provider::Imap => None,
-        }
-    }
-
     /// The short name beside a row.
     pub fn short(self) -> &'static str {
         match self {
@@ -288,7 +264,7 @@ mod tests {
                     case.name, case.expect
                 ));
             }
-            if got.short().is_empty() || got.mark().is_empty() || got.title().is_empty() {
+            if got.short().is_empty() || got.title().is_empty() {
                 failures.push(format!("{}: a provider with no mark", case.name));
             }
         }

@@ -48,8 +48,6 @@
 .stop i { width: 14px; height: 14px; border-radius: 999px; display: block; }
 .stop[aria-pressed="true"] { border-color: var(--ink-faint); color: var(--ink); }
 .stop .rm { border: 0; background: none; padding: 0; cursor: pointer; color: var(--ink-faint); line-height: 0; }
-.stop .rm .ds-ic { width: 11px; height: 11px; }
-.stops .mini .ds-ic { width: 12px; height: 12px; }
 
 .inp.range {
   display: block; width: 100%; padding: 0; margin: 0; border: 0; background: none;
@@ -85,4 +83,4 @@
 
 /* A Space's gradient in the scheme the window's root resolved to, as `--g` from `gradient_in`:
    quire answers System in Rust, so each swatch carries only the gradient it shows. */
-.editor h3 .sw, .presets button, .sp { background: var(--g); }
+.editor h3 .sw, .presets button { background: var(--g); }

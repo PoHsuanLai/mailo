@@ -39,9 +39,9 @@ pub(in crate::ui) fn editor_open_markup() -> String {
     dioxus_ssr::render(&dom)
 }
 
-/// Each `.seg` group's `aria-label`, and its buttons.
+/// Each segmented control's `aria-label`, and its buttons.
 fn segments(page: &str) -> Vec<(String, Vec<Button>)> {
-    const OPEN: &str = "class=\"seg\" role=\"group\" aria-label=\"";
+    const OPEN: &str = "class=\"ds-segmented\" data-size=\"regular\" role=\"group\" aria-label=\"";
     let mut out = Vec::new();
     let mut rest = page;
     while let Some(at) = rest.find(OPEN) {
@@ -137,7 +137,10 @@ async fn escape_puts_the_space_back_exactly_and_writes_nothing() {
     let saved = space::load(&built.dirs.config).current_space();
 
     let _ = type_into(&mut dom, seen.one("value", "Work"), "Elsewhere");
-    let _ = click(&mut dom, seen.one("data-v", "Dark"));
+    let _ = click(
+        &mut dom,
+        seen.after("aria-label", "Theme", "aria-pressed")[2],
+    );
     let edited = dioxus_ssr::render(&dom);
     assert!(
         edited.contains("Edit the Elsewhere Space"),
@@ -180,9 +183,15 @@ async fn save_writes_the_space_and_it_reads_back_the_same() {
     let before = space::load(&built.dirs.config).current_space();
 
     let _ = type_into(&mut dom, seen.one("value", "Work"), "Studio");
-    let _ = click(&mut dom, seen.one("data-v", "Dark"));
+    let _ = click(
+        &mut dom,
+        seen.after("aria-label", "Theme", "aria-pressed")[2],
+    );
     let live = dioxus_ssr::render(&dom);
-    let _ = click(&mut dom, seen.one("data-v", "Postmark"));
+    let _ = click(
+        &mut dom,
+        seen.after("aria-label", "Card accent", "aria-pressed")[1],
+    );
     let _ = type_into(&mut dom, seen.one("value", "35"), "80");
     let _ = click(&mut dom, seen.one("title", "Save this Space and close"));
 

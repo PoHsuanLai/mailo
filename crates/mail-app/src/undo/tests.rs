@@ -97,6 +97,29 @@ fn the_stack_forgets_the_oldest_past_its_depth() {
 }
 
 #[test]
+fn a_handle_takes_back_its_own_entry_and_only_once() {
+    // The toast holds the handle of the op it named. A later op pushed on top must not be what
+    // its tab takes back.
+    let mut stack = UndoStack::default();
+    let account = AccountId::generate();
+    let entry = |thread| Undo {
+        said: "Archived".to_owned(),
+        thread: Some(thread),
+        account,
+        forward: patch(vec![]),
+        inverse: patch(vec![]),
+        remote: None,
+    };
+    let (first, second) = (ThreadId::generate(), ThreadId::generate());
+    let named = stack.push(entry(first));
+    let later = stack.push(entry(second));
+    assert_ne!(named, later);
+    assert_eq!(stack.take(named).and_then(|u| u.thread), Some(first));
+    assert_eq!(stack.take(named), None, "an entry is taken back once");
+    assert_eq!(stack.last().and_then(|u| u.thread), Some(second));
+}
+
+#[test]
 fn the_toast_says_what_happened() {
     let at = Utc.with_ymd_and_hms(2026, 9, 24, 9, 0, 0).unwrap();
     type Make = fn(chrono::DateTime<Utc>) -> Op;

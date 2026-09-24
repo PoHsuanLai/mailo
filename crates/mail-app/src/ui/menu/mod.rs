@@ -8,7 +8,10 @@ mod state;
 
 use super::field::{Field, FieldKind};
 use dioxus::prelude::*;
-use ds::{Glyph, Icon};
+use ds::{
+    Anchor, Availability, AvatarFace, AvatarShape, AvatarSize, AvatarTone, Check, Filter, Glyph,
+    Icon, MenuEntry, MenuKind, MountedRef, Point, Trail,
+};
 pub(super) use state::{
     MenuEvent, MenuItem, MenuKey, MenuState, Piece, Right, Run, Shown, Tile, Tone, menu_key, pieces,
 };
@@ -173,7 +176,7 @@ pub(super) fn Menu(
                                 span { class: "sc",
                                     match &shown.item.right {
                                         Right::Shortcut(shortcut) => rsx! { "{shortcut}" },
-                                        Right::Check(true) => rsx! { Glyph { icon: Icon::Check } },
+                                        Right::Check(true) => rsx! { Glyph { icon: Icon::Check, size: ds::IconSize::Compact } },
                                         Right::Remove(label) => rsx! {
                                             button {
                                                 class: "rm",
@@ -186,7 +189,7 @@ pub(super) fn Menu(
                                                         remove.call(removed.clone());
                                                     }
                                                 },
-                                                Glyph { icon: Icon::X }
+                                                Glyph { icon: Icon::X, size: ds::IconSize::Small }
                                             }
                                         },
                                         Right::Check(false) | Right::None => rsx! { "" },
@@ -198,6 +201,120 @@ pub(super) fn Menu(
                 }
             }
         }
+    }
+}
+
+/// A list of choices drawn by quire's `Menu`: floating over the window, anchored to the element
+/// that opened it, holding the keyboard while it is open. `anchor` is `None` only before that
+/// element has mounted, as in a document with no renderer, where the menu sits at the corner.
+///
+/// Every menu that owns its own cursor is one of these. [`Menu`] is left for the menus quire's
+/// cannot be yet: a cursor the field beside it drives, a typed filter the caller hears, or a
+/// row's own remove button.
+#[component]
+pub(in crate::ui) fn Floating(
+    kind: MenuKind,
+    anchor: Option<MountedRef>,
+    title: String,
+    items: Vec<MenuItem>,
+    /// Typing narrows the rows, as quire's ranker marks them.
+    #[props(default)]
+    filter: Filter,
+    /// A line under the rows that is not a choice: why there is nothing to choose.
+    #[props(default)]
+    note: Option<String>,
+    on_pick: EventHandler<String>,
+    on_close: EventHandler<()>,
+) -> Element {
+    let anchor = anchor.map_or(Anchor::Point(Point::default()), Anchor::Mounted);
+    let avatar = match kind {
+        MenuKind::Rich => AvatarSize::Size34,
+        MenuKind::Slim | MenuKind::Dropdown | MenuKind::Context => AvatarSize::Size20,
+    };
+    let mut entries = entries(&title, &items, avatar);
+    if let Some(note) = note {
+        entries.push(MenuEntry::Info {
+            title: note,
+            detail: None,
+        });
+    }
+    rsx! {
+        ds::Menu::<String> {
+            kind,
+            anchor,
+            entries,
+            filter,
+            onpick: on_pick,
+            onclose: on_close,
+        }
+    }
+}
+
+/// mailo's items as quire's entries: the title and each new group become headers, a key is
+/// the value a pick hands back, and a check is the item's check mark.
+pub(in crate::ui) fn entries(
+    title: &str,
+    items: &[MenuItem],
+    avatar: AvatarSize,
+) -> Vec<MenuEntry<String>> {
+    let mut out = Vec::new();
+    if !title.is_empty() {
+        out.push(MenuEntry::Header(title.to_owned()));
+    }
+    let mut last: Option<&str> = None;
+    for item in items {
+        if let Some(group) = item.group.as_deref()
+            && last != Some(group)
+        {
+            out.push(MenuEntry::Header(group.to_owned()));
+            last = Some(group);
+        }
+        let joined = |parts: &[Run]| {
+            parts
+                .iter()
+                .map(|run| run.text.as_str())
+                .collect::<String>()
+        };
+        let title = if item.title.is_empty() {
+            item.name.clone()
+        } else {
+            joined(&item.title)
+        };
+        let detail = if item.detail.is_empty() {
+            item.help.clone()
+        } else {
+            Some(joined(&item.detail))
+        };
+        let (trail, check) = match &item.right {
+            Right::Shortcut(keys) => (Trail::Note(keys.clone()), None),
+            Right::Check(true) => (Trail::None, Some(Check::Checked)),
+            Right::Check(false) => (Trail::None, Some(Check::Unchecked)),
+            Right::Remove(_) | Right::None => (Trail::None, None),
+        };
+        out.push(MenuEntry::Item {
+            value: item.key.clone(),
+            title,
+            detail,
+            tile: Some(quire_tile(&item.tile, avatar)),
+            trail,
+            check,
+            availability: Availability::Enabled,
+        });
+    }
+    out
+}
+
+fn quire_tile(tile: &Tile, size: AvatarSize) -> ds::Tile {
+    match tile {
+        Tile::Icon(icon) => ds::Tile::Icon(*icon),
+        Tile::Avatar { letter, color } => ds::Tile::Avatar(AvatarFace {
+            initial: *letter,
+            size,
+            tone: AvatarTone::Account(super::sidebar::hex_colour(color)),
+            shape: AvatarShape::Round,
+        }),
+        Tile::Glyph(ch) => ds::Tile::Text(ch.to_string()),
+        Tile::Text(text) => ds::Tile::Text((*text).to_owned()),
     }
 }
 
@@ -226,7 +343,9 @@ fn tone_class(tone: Tone) -> &'static str {
 
 fn tile(tile: &Tile) -> Element {
     match tile {
-        Tile::Icon(icon) => rsx! { span { class: "tile", Glyph { icon: *icon } } },
+        Tile::Icon(icon) => {
+            rsx! { span { class: "tile", Glyph { icon: *icon, size: ds::IconSize::Tile } } }
+        }
         Tile::Avatar { letter, color } => rsx! {
             span {
                 class: "tile round",

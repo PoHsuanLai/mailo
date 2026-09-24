@@ -3,7 +3,7 @@
 use super::hover;
 use crate::trust::Destination;
 use dioxus::prelude::*;
-use ds::{Glyph, Icon};
+use ds::LinkTarget;
 
 /// Where the link under the pointer goes, like a browser's status bar, and loud when its text
 /// names somewhere else. Drawn in the reader; the link reports itself from the parsed blocks.
@@ -15,6 +15,8 @@ pub(in crate::ui) fn LinkPill() -> Element {
     let Some(link) = state.link.read().clone() else {
         return rsx! {};
     };
+    // quire's pill for a web address, honest or lying; keyed by where it goes, so a new link
+    // plays its entrance. A target with no registered domain (a `mailto:`) has no quire form.
     match link {
         Destination::Web {
             scheme,
@@ -22,16 +24,15 @@ pub(in crate::ui) fn LinkPill() -> Element {
             registered,
             path,
         } => rsx! {
-            div { class: "linkpill", role: "status", {web(&scheme, &sub, &registered, &path)} }
+            ds::LinkPill {
+                key: "{scheme}{sub}{registered}{path}",
+                target: LinkTarget::Honest { scheme_sub: format!("{scheme}{sub}"), registered, path },
+            }
         },
         Destination::Lies { goes_to, claims } => rsx! {
-            div { class: "linkpill warn", role: "status",
-                Glyph { icon: Icon::X }
-                span {
-                    "Goes to "
-                    b { "{goes_to}" }
-                    ", not {claims}"
-                }
+            ds::LinkPill {
+                key: "{goes_to} {claims}",
+                target: LinkTarget::Lying { registered: goes_to, shown: claims },
             }
         },
         Destination::Other(href) => rsx! {

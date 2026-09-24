@@ -73,7 +73,7 @@ pub(super) fn RulesPart(account: AccountId, revision: Signal<u64>) -> Element {
                         r#type: "button",
                         aria_label: "{new_label}",
                         onclick: move |_| editing.set(Some(Draft::blank())),
-                        Glyph { icon: Icon::Plus }
+                        Glyph { icon: Icon::Plus, size: ds::IconSize::Tiny }
                         "New rule"
                     }
                 }

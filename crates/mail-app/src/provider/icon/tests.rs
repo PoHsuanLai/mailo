@@ -448,7 +448,7 @@ async fn the_chip_draws_the_cached_icon_or_the_letter() {
         );
         let name = format!("{marks:?} file={with_file} {place:?}");
         if image {
-            assert!(html.contains("prov img"), "{name}: {html}");
+            assert!(html.contains("data-kind=\"image\""), "{name}: {html}");
             assert!(html.contains(&format!("src=\"{uri}\"")), "{name}: {html}");
             assert!(!html.contains("file:"), "{name}: {html}");
             assert!(
@@ -457,7 +457,7 @@ async fn the_chip_draws_the_cached_icon_or_the_letter() {
             );
         } else {
             assert!(html.contains(">G<"), "{name}: {html}");
-            assert!(!html.contains("prov img"), "{name}: {html}");
+            assert!(!html.contains("data-kind=\"image\""), "{name}: {html}");
             assert!(!html.contains("data:image"), "{name}: {html}");
         }
     }

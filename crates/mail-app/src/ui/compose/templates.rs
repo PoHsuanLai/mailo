@@ -301,7 +301,7 @@ pub(in crate::ui) fn TemplateFloat(page: Signal<Page>, shell: Signal<Shell>) -> 
                             }
                             _ => {}
                         },
-                        Glyph { icon: Icon::FilePen }
+                        Glyph { icon: Icon::FilePen, size: ds::IconSize::Nav }
                         Field {
                             kind: FieldKind::Inline,
                             value: name,

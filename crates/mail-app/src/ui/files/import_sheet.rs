@@ -7,12 +7,12 @@ use mail_store::SqliteStore;
 
 use super::super::debounce::use_debounced;
 use super::super::field::{Field, FieldKind};
-use super::super::menu::{Menu, MenuItem, Right, Tile};
+use super::super::menu::{Floating, MenuItem, Right, Tile};
 use super::pick::{Ask, choose};
 use super::work::{self, Dest, Looked};
 use super::{Phase, Progress, run, tilde_here};
 use crate::view::{FileSheet, Shell};
-use ds::{Glyph, Icon};
+use ds::{Filter, Glyph, Icon, MenuKind, MountedRef};
 
 /// The path the sheet's field holds.
 fn typed(shell: &Shell) -> String {
@@ -51,6 +51,7 @@ pub(super) fn ImportSheet(shell: Signal<Shell>, revision: Signal<u64>) -> Elemen
     });
     let mut dest = use_signal(Dest::default);
     let mut menu_open = use_signal(|| false);
+    let mut into = use_signal(|| None::<MountedRef>);
     let phase = use_signal(|| Phase::Ready);
     let shown = looked();
     let (look_class, look_words) = match &shown {
@@ -161,32 +162,30 @@ pub(super) fn ImportSheet(shell: Signal<Shell>, revision: Signal<u64>) -> Elemen
                             class: "pval files-dest",
                             r#type: "button",
                             aria_label: "Import into: {chosen.label()}",
+                            onmounted: move |event: MountedEvent| into.set(Some(MountedRef(event.data()))),
                             onclick: move |_| menu_open.set(!menu_open()),
-                            Glyph { icon: if chosen == Dest::Local { Icon::Inbox } else { Icon::Mail } }
+                            Glyph { icon: if chosen == Dest::Local { Icon::Inbox } else { Icon::Mail }, size: ds::IconSize::Compact }
                             "{chosen.label()}"
                             span { class: "car", "▾" }
                         }
                         if menu_open() {
-                            div { class: "p-menu",
-                                Menu {
-                                    title: "Import into".to_owned(),
-                                    items,
-                                    filterable: true,
-                                    on_pick: move |key: String| {
-                                        let store = consume_context::<Arc<SqliteStore>>();
-                                        if let Some(found) = work::destinations(&store)
-                                            .into_iter()
-                                            .find(|one| one.key() == key)
-                                        {
-                                            dest.set(found);
-                                        }
-                                        menu_open.set(false);
-                                    },
-                                    on_close: move |_| menu_open.set(false),
-                                    on_query: move |_| {},
-                                    slim: true,
-                                    active: None,
-                                }
+                            Floating {
+                                kind: MenuKind::Dropdown,
+                                anchor: into(),
+                                title: "Import into".to_owned(),
+                                items,
+                                filter: Filter::Typing,
+                                on_pick: move |key: String| {
+                                    let store = consume_context::<Arc<SqliteStore>>();
+                                    if let Some(found) = work::destinations(&store)
+                                        .into_iter()
+                                        .find(|one| one.key() == key)
+                                    {
+                                        dest.set(found);
+                                    }
+                                    menu_open.set(false);
+                                },
+                                on_close: move |_| menu_open.set(false),
                             }
                         }
                     }

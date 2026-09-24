@@ -84,8 +84,7 @@ pub(in crate::ui) fn people_rows(people: Vec<&Person>) -> Vec<MenuItem> {
                     .next()
                     .and_then(|ch| ch.to_uppercase().next())
                     .unwrap_or('?'),
-                color: crate::space::AVATAR[hue(&person.address) % crate::space::AVATAR.len()]
-                    .to_owned(),
+                color: super::super::command::avatar_color(&person.address),
             },
             name: person.name.clone(),
             help: Some(person.address.clone()),
@@ -96,13 +95,6 @@ pub(in crate::ui) fn people_rows(people: Vec<&Person>) -> Vec<MenuItem> {
             detail: Vec::new(),
         })
         .collect()
-}
-
-/// A stable index for an avatar colour.
-pub(in crate::ui) fn hue(address: &str) -> usize {
-    address.bytes().fold(0usize, |acc, byte| {
-        acc.wrapping_mul(31).wrapping_add(byte as usize)
-    })
 }
 
 /// The ⋮⋮ menu for an object.

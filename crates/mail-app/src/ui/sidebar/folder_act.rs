@@ -93,10 +93,7 @@ pub(in crate::ui) fn act(
 ) -> Result<(), Refusal> {
     let done = perform(store, account, work, delimiter)?;
     let offer = match done.undo {
-        Some(undo) => {
-            shell.write().undo.push(undo);
-            Follow::Undo
-        }
+        Some(undo) => Follow::Undo(shell.write().undo.push(undo)),
         None => Follow::Nothing,
     };
     revision += 1;

@@ -14,31 +14,16 @@
   transition: grid-template-columns var(--t-move) var(--e-out), padding var(--t-move) var(--e-out);
 }
 .app.no-side { grid-template-columns: 0 minmax(0, 1fr); padding-left: 8px; }
-.app.no-side .side { visibility: hidden; }
 /* The frame's two gradient layers and its grain are the `Ds` root's (`.ds-layer`, `.ds-grain`):
    it cross-fades them itself when the Space changes. */
-/* Hidden sidebar: the left edge brings it back as a floating panel while you are on it. */
-.edge { position: absolute; left: 0; top: 0; bottom: 0; width: 10px; z-index: 14; }
-.app.no-side.side-peek .side {
-  visibility: visible; position: absolute; left: 8px; top: 8px; bottom: 8px; width: 226px; z-index: 15;
-  background: var(--f-solid); border-radius: var(--r-panel); box-shadow: var(--shadow-pop);
-  animation: slide-r var(--t-move) var(--e-spring);
-}
+/* Hidden sidebar: quire's edge strip brings it back as a floating panel while you are on it,
+   the sidebar saying which through its `data-side`. */
 .side, .card { min-height: 0; min-width: 0; }
 .side {
   position: relative;
   display: flex; flex-direction: column; gap: 8px;
   padding: 10px 10px 8px; min-height: 0; color: var(--f-ink); overflow: hidden;
 }
-.cmd {
-  display: flex; align-items: center; gap: 8px; width: 100%;
-  padding: 8px 10px; border: 0; border-radius: 10px; cursor: pointer;
-  background: var(--f-pill); color: var(--f-ink-soft); font: inherit; font-size: 13px; text-align: left;
-}
-.cmd:hover { color: var(--f-ink); }
-.cmd .t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cmd:active { transform: scale(var(--squish)); }
-.cmd .k { margin-left: auto; white-space: nowrap; flex: none; font-family: var(--font-data); font-size: 10px; color: var(--f-ink-faint); }
 .slide { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
 /* A switch slides the sidebar's contents in from the side the new Space's dot is on. */
 .slide.in-r { animation: slide-r var(--t-big) var(--e-spring); }
@@ -63,22 +48,6 @@
 .pin .av { transition: transform var(--t-quick) var(--e-spring); }
 .pin:hover .av { transform: rotate(-6deg) scale(1.08); }
 .av.all { background: transparent; color: var(--f-ink); }
-.av.all .ds-ic { width: 14px; height: 14px; }
-.prov {
-  display: inline-grid; place-items: center; background: var(--mark-ground); color: var(--pc, var(--ink-soft));
-  font-family: var(--font-display); font-weight: 800; font-size: 9px; line-height: 1; flex: none;
-  border-radius: 4px; box-shadow: 0 0 0 1px var(--line);
-}
-.prov.on-tile {
-  position: absolute; right: 7px; bottom: 7px; width: 14px; height: 14px; font-size: 9.5px;
-  border-radius: 5px; box-shadow: 0 0 0 1.5px var(--f-pill);
-}
-.prov.in-row {
-  width: 11px; height: 11px; font-size: 7.5px; border-radius: 3px; margin-right: 4px; vertical-align: -1px;
-  box-shadow: 0 0 0 1px var(--line);
-}
-.prov.img { background: var(--mark-ground); padding: 1.5px; }
-.prov.img img { width: 100%; height: 100%; display: block; object-fit: contain; }
 .marks-refresh {
   display: block; margin-top: 6px; align-self: flex-start; border: 0; background: none; cursor: pointer;
   font: inherit; font-size: 11px; color: var(--ink-soft); padding: 0;
@@ -111,9 +80,7 @@
   /* The seal pops when the current place changes: the attribute moving is the trigger. */
   animation: seal-pop var(--t-big) var(--e-spring);
 }
-.item .ds-ic { width: 15px; height: 15px; }
 .item .count { margin-left: auto; font-family: var(--font-data); font-size: 11px; color: var(--f-ink-faint); }
-.item.pinned { font-weight: 500; }
 .fav {
   width: 18px; height: 18px; border-radius: 6px; display: grid; place-items: center; flex: none;
   color: var(--mark-ground); font-family: var(--font-display); font-weight: 700; font-size: 10px;
@@ -124,7 +91,6 @@
   margin-left: auto; border: 0; background: none; color: var(--f-ink-faint); cursor: pointer;
   width: 18px; height: 18px; display: grid; place-items: center; padding: 0;
 }
-.today-item .x .ds-ic { width: 12px; height: 12px; }
 .today-item.entering { animation: tab-in var(--t-move) var(--e-spring); }
 .today-item.leaving { animation: tab-out var(--t-quick) var(--e-exit) forwards; }
 .side-foot {
@@ -137,29 +103,6 @@
 }
 .space-name:hover { background: var(--f-pill-hover); }
 .space-dots { display: flex; gap: 5px; align-items: center; flex: none; }
-.sp {
-  width: 18px; height: 18px; border-radius: 999px; flex: none; padding: 0; cursor: pointer;
-  border: 2px solid transparent; box-shadow: 0 0 0 1px var(--f-line);
-  transition: transform var(--t-quick) var(--e-spring), border-color var(--t-quick) var(--e-out);
-}
-.sp:hover { transform: scale(1.12); }
-.sp[aria-pressed="true"] { border-color: var(--f-ink); transform: scale(1.08); }
-.foot-btn {
-  width: 24px; height: 24px; border: 0; border-radius: 8px; cursor: pointer; flex: none;
-  background: none; color: var(--f-ink-soft); display: grid; place-items: center; padding: 0;
-}
-.foot-btn:hover { background: var(--f-pill-hover); color: var(--f-ink); }
-.foot-btn .ds-ic { width: 15px; height: 15px; }
-.seg {
-  display: inline-flex; padding: 3px; gap: 2px; background: var(--surface-2);
-  border: 1px solid var(--line); border-radius: var(--r-pill);
-}
-.seg button {
-  border: 0; background: transparent; padding: 5px 11px; border-radius: var(--r-pill);
-  font: inherit; font-size: 12px; font-weight: 600; line-height: 1.2; cursor: pointer; color: var(--ink-soft);
-  transition: background-color var(--t-quick) var(--e-out), color var(--t-quick) var(--e-out);
-}
-.seg button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
 .card {
   display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.08fr);
   min-width: 0; min-height: 0; background: var(--surface); color: var(--ink);
@@ -178,7 +121,6 @@
 }
 .list-bar .status.bad { color: var(--danger); font-weight: 600; }
 .bar-tools { display: flex; gap: 6px; align-items: center; margin-left: auto; position: relative; }
-.bar-tools .mini .ds-ic { width: 14px; height: 14px; }
 /* Folders: a `<details>` per parent, so opening and closing is the document's own state. The
    ⋯ shows on hover or focus, and the menu and the name field sit in the flow under the row:
    the sidebar is narrower than a menu and clips what hangs out of it. */
@@ -211,8 +153,6 @@ summary.fold-row::-webkit-details-marker { display: none; }
 .fold-edit .inp.inline { min-width: 0; padding: 0; font-size: 13.5px; color: var(--f-ink); }
 .fold-edit .inp.inline::placeholder { color: var(--f-ink-faint); }
 .fold-new { background: var(--f-pill); cursor: text; }
-.fold-menu { padding: 2px 0 4px; }
-.fold-menu .fmenu { position: static; width: auto; max-height: none; }
 .fold-acct {
   padding: 6px 8px 2px; font-family: var(--font-data); font-size: 10.5px; color: var(--f-ink-faint);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;

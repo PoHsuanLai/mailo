@@ -256,22 +256,22 @@ async fn moving_to_a_folder_files_it_there_and_undo_brings_it_back() {
 
     let rows = listed.all("aria-label", "Move to…");
     assert_eq!(rows.len(), 2, "each row offers Move to…");
-    let menu = click(&mut dom, rows[0]);
+    let clicked = click(&mut dom, rows[0]);
+    let menu = floated(&mut dom, clicked).await;
     let page = dioxus_ssr::render(&dom);
+    // quire's menu floats over the window, in the root's overlay, not inside the row.
     let drawn = &page[page
-        .find("class=\"row-menu move-menu")
+        .find("class=\"ds-popover ds-menu\"")
         .expect("the menu did not open")..];
-    // The menu is the last thing in its row.
-    let drawn = &drawn[..drawn.find("</li>").unwrap_or(drawn.len())];
     for path in [TO, FROM, "收據"] {
         assert!(
-            drawn.contains(&format!("<span>{path}</span>")),
+            drawn.contains(&format!("class=\"ds-menu-title\">{path}<")),
             "{path} is not offered"
         );
     }
     for not in ["INBOX", "Sent", "Trash", "Lists", "travel"] {
         assert!(
-            !drawn.contains(&format!("<span>{not}</span>")),
+            !drawn.contains(&format!("class=\"ds-menu-title\">{not}<")),
             "{not} is offered: {drawn}"
         );
     }
@@ -281,7 +281,7 @@ async fn moving_to_a_folder_files_it_there_and_undo_brings_it_back() {
         &mut dom,
         "Enter",
         Modifiers::empty(),
-        menu.one("class", "fmenu"),
+        menu.one("data-kind", "rich"),
     );
     settle(&mut dom).await;
     assert_eq!(
@@ -321,6 +321,24 @@ async fn moving_to_a_folder_files_it_there_and_undo_brings_it_back() {
         0,
         "the move is still queued after its undo"
     );
+}
+
+/// Draw until the menu a click opened has floated into the root's overlay: quire's menu is
+/// placed a frame after it is asked for.
+async fn floated(dom: &mut VirtualDom, mut drawn: Seen) -> Seen {
+    for _ in 0..8 {
+        if drawn.get("data-kind", "rich").is_some()
+            || tokio::time::timeout(std::time::Duration::from_millis(100), dom.wait_for_work())
+                .await
+                .is_err()
+        {
+            break;
+        }
+        let mut more = Seen::default();
+        dom.render_immediate(&mut more);
+        drawn = drawn.merge(more);
+    }
+    drawn
 }
 
 /// The folders of the moves still waiting for the server, oldest first.

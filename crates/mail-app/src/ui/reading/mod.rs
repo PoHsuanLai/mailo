@@ -11,7 +11,7 @@ use crate::view::{Peek, Reading, Shell};
 use attachments::Attachments;
 use blocks::MessageView;
 use dioxus::prelude::*;
-use ds::{Glyph, Icon};
+use ds::{Glyph, Icon, IconButton, IconButtonVariant, Switch};
 pub(super) use find_bar::open_find;
 use find_bar::{FindBar, marking};
 use mail_domain::*;
@@ -94,15 +94,18 @@ fn show_images() -> &'static str {
 
 fn peek_tool(peek: Peek, current: Peek, icon: Icon, mut shell: Signal<Shell>) -> Element {
     let label = peek.label();
-    let pressed = if current == peek { "true" } else { "false" };
+    let pressed = if current == peek {
+        Switch::On
+    } else {
+        Switch::Off
+    };
     rsx! {
-        button {
-            class: "tool",
-            r#type: "button",
-            aria_label: "{label}",
-            aria_pressed: "{pressed}",
+        IconButton {
+            variant: IconButtonVariant::Tool,
+            icon,
+            label: label.to_owned(),
+            pressed,
             onclick: move |_| shell.write().peek = peek,
-            Glyph { icon }
         }
     }
 }
@@ -264,11 +267,14 @@ pub(super) fn Reader(
                         div { class: "mono reader-addr", "{addr}" }
                         div { class: "mono when", "{when}" }
                     }
-                    super::unsubscribe::Leave { key: "{leave_key}", thread, bodies: bodies.clone(), revision }
+                    // Its own template, so the key is that template's root key and a new one
+                    // remounts it: rsx reads a key only on a template's root node, and one on a
+                    // nested component is dropped, in a release build and a debug one alike.
+                    {rsx! { super::unsubscribe::Leave { key: "{leave_key}", thread, bodies: bodies.clone(), revision } }}
                 }
             }
             // Under the head, where a question about this message belongs. Keyed like Leave.
-            super::receipt::Receipts { key: "{leave_key}", bodies }
+            {rsx! { super::receipt::Receipts { key: "{leave_key}", bodies } }}
         }
         div { class: "reader-body",
             if let Some(where_it_went) = saved() {
@@ -366,7 +372,7 @@ pub(super) fn Reader(
             }
             if any_frame {
                 div { class: "frame-note",
-                    Glyph { icon: Icon::Key }
+                    Glyph { icon: Icon::Key, size: ds::IconSize::Small }
                     span { "sandboxed frame · no scripts, no same-origin" }
                 }
             }

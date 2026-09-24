@@ -34,29 +34,47 @@ pub struct Undo {
     pub remote: Option<RemoteIntent>,
 }
 
+/// Which entry of the stack an undo means: what the toast carries back when it is pulled, so
+/// the pull takes back the op it named even when a later op has been pushed since.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct UndoHandle(pub u64);
+
 /// The most recent operations, newest last.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct UndoStack {
-    entries: Vec<Undo>,
+    entries: Vec<(UndoHandle, Undo)>,
+    /// The handle the next push is given.
+    next: u64,
 }
 
 impl UndoStack {
-    /// Remember `entry`, forgetting the oldest past [`DEPTH`].
-    pub fn push(&mut self, entry: Undo) {
-        self.entries.push(entry);
+    /// Remember `entry`, forgetting the oldest past [`DEPTH`]. The handle takes this entry
+    /// back later through [`UndoStack::take`].
+    pub fn push(&mut self, entry: Undo) -> UndoHandle {
+        let handle = UndoHandle(self.next);
+        self.next += 1;
+        self.entries.push((handle, entry));
         if self.entries.len() > DEPTH {
             self.entries.remove(0);
         }
+        handle
     }
 
     /// Take the newest entry.
     pub fn pop(&mut self) -> Option<Undo> {
-        self.entries.pop()
+        self.entries.pop().map(|(_, entry)| entry)
+    }
+
+    /// Take the entry `handle` names, wherever it is. `None` once it has been undone or
+    /// forgotten.
+    pub fn take(&mut self, handle: UndoHandle) -> Option<Undo> {
+        let at = self.entries.iter().position(|(held, _)| *held == handle)?;
+        Some(self.entries.remove(at).1)
     }
 
     /// The newest entry, left in place.
     pub fn last(&self) -> Option<&Undo> {
-        self.entries.last()
+        self.entries.last().map(|(_, entry)| entry)
     }
 
     pub fn len(&self) -> usize {

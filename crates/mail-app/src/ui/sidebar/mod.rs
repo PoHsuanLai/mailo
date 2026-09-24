@@ -15,6 +15,7 @@ mod today;
 pub(super) use self::folder_act::folder_places;
 use self::folder_tree::{Show, arrange, scope};
 use self::folders::FolderList;
+pub(in crate::ui) use self::panes::hex_colour;
 use self::panes::{AccountTiles, PinnedList, PlaceList, counts};
 use self::today::TodayList;
 use super::switch::{self, Slide};
@@ -24,7 +25,10 @@ use crate::space::edit::Draft;
 use crate::today::Today;
 use crate::view::Shell;
 use dioxus::prelude::*;
-use ds::{Glyph, Icon};
+use ds::{
+    CommandPill, FrameVars, Here, Icon, IconButton, IconButtonVariant, Key, Shortcut, SideState,
+    SpaceDot, Switch,
+};
 use mail_domain::ThreadId;
 
 /// The coloured sidebar.
@@ -73,19 +77,24 @@ pub(super) fn Places(
             switch::edit(spaces, editing);
         }
     };
+    // Hidden, the sidebar is out of the grid; peeking, it floats over the card from the edge.
+    let side = match (side_hidden(), side_peek()) {
+        (false, _) => SideState::Shown,
+        (true, false) => SideState::Hidden,
+        (true, true) => SideState::Peek,
+    };
     rsx! {
         nav {
-            class: "side",
+            class: "side ds-side",
+            "data-side": side.slug(),
             aria_label: "Sidebar",
             onpointerleave: move |_| side_peek.set(false),
-            button {
-                class: "cmd",
-                onclick: move |_| {
+            CommandPill {
+                label: "Search or run a command".to_owned(),
+                shortcut: Shortcut(vec![Key::Ctrl, Key::Char('t')]),
+                onclick: move |()| {
                     shell.write().command = Some(String::new());
                 },
-                Glyph { icon: Icon::Search }
-                span { class: "t", "Search or run a command" }
-                span { class: "k", "Ctrl T" }
             }
             // Keyed by the Space, so a switch mounts it afresh and the slide plays each time.
             div { key: "{space_index}", class: "{slide_class}",
@@ -109,20 +118,18 @@ pub(super) fn Places(
                 div { class: "space-dots", role: "group", aria_label: "Spaces",
                     for (index, one) in spaces.read().spaces.iter().enumerate() {
                         {
-                            let grad = super::space_editor::gradient_in(&one.look.dots, scheme);
-                            let label = one.name.clone();
-                            let current = index == space_index;
-                            let key = index + 1;
+                            let here = if index == space_index { Here::Current } else { Here::Elsewhere };
+                            // Ctrl and the Space's place, one to nine: the keys `App` switches on.
+                            let keys = char::from_digit(u32::try_from(index + 1).unwrap_or(0), 10)
+                                .map_or_else(Vec::new, |digit| vec![Key::Ctrl, Key::Char(digit)]);
                             rsx! {
-                                button {
+                                SpaceDot {
                                     key: "{index}",
-                                    class: "sp",
-                                    r#type: "button",
-                                    aria_label: "{label} Space",
-                                    title: "{label} (Ctrl {key})",
-                                    aria_pressed: if current { "true" } else { "false" },
-                                    style: "{grad}",
-                                    onclick: move |_| {
+                                    name: one.name.clone(),
+                                    frame: FrameVars::of(&one.look, scheme),
+                                    here,
+                                    shortcut: Shortcut(keys),
+                                    onclick: move |()| {
                                         if editing.read().is_none() {
                                             switch::go(spaces, shell, pages, slide, index);
                                         }
@@ -132,37 +139,38 @@ pub(super) fn Places(
                         }
                     }
                 }
-                button {
-                    class: "foot-btn",
-                    r#type: "button",
-                    aria_label: "New Space",
-                    title: "New Space",
+                IconButton {
+                    variant: IconButtonVariant::Foot,
+                    icon: Icon::Plus,
+                    label: "New Space".to_owned(),
+                    tooltip: "New Space".to_owned(),
                     onclick: move |_| {
                         if editing.read().is_none() {
                             switch::add(spaces, shell, pages, slide, editing);
                         }
                     },
-                    Glyph { icon: Icon::Plus }
                 }
-                button {
-                    class: "foot-btn",
-                    r#type: "button",
-                    aria_label: "Space settings",
-                    title: "Space settings",
-                    aria_expanded: if editing.read().is_some() { "true" } else { "false" },
-                    onclick: open_editor,
-                    Glyph { icon: Icon::Settings }
+                IconButton {
+                    variant: IconButtonVariant::Foot,
+                    icon: Icon::Settings,
+                    label: "Space settings".to_owned(),
+                    tooltip: "Space settings".to_owned(),
+                    expanded: if editing.read().is_some() { Switch::On } else { Switch::Off },
+                    onclick: move |_| {
+                        if editing.read().is_none() {
+                            switch::edit(spaces, editing);
+                        }
+                    },
                 }
-                button {
-                    class: "foot-btn",
-                    r#type: "button",
-                    aria_label: "Hide sidebar",
-                    title: "Hide the sidebar (Ctrl S)",
+                IconButton {
+                    variant: IconButtonVariant::Foot,
+                    icon: Icon::PanelLeft,
+                    label: "Hide sidebar".to_owned(),
+                    tooltip: "Hide the sidebar (Ctrl S)".to_owned(),
                     onclick: move |_| {
                         side_peek.set(false);
                         side_hidden.set(!side_hidden());
                     },
-                    Glyph { icon: Icon::PanelLeft }
                 }
             }
         }

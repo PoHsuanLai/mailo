@@ -19,7 +19,8 @@ fn opened(built: &Work) -> (VirtualDom, Seen) {
 
 /// The Notifications group's pressed button, as the page draws it.
 fn shown(page: &str) -> Vec<String> {
-    const OPEN: &str = "class=\"seg\" role=\"group\" aria-label=\"Notifications\"";
+    const OPEN: &str =
+        "class=\"ds-segmented\" data-size=\"regular\" role=\"group\" aria-label=\"Notifications\"";
     let at = page
         .find(OPEN)
         .unwrap_or_else(|| panic!("no Notifications switch in:\n{page}"));
@@ -40,7 +41,9 @@ async fn the_switch_reads_and_writes_the_setting_the_watch_reads() {
     let (mut dom, seen) = opened(&built);
     assert_eq!(shown(&dioxus_ssr::render(&dom)), ["On"]);
 
-    click(&mut dom, seen.one("data-v", "Off"));
+    // The switch's segments, On then Off, found after its group.
+    let segments = seen.after("aria-label", "Notifications", "aria-pressed");
+    click(&mut dom, segments[1]);
     assert_eq!(notify::load(config), Setting::Off, "Off was not kept");
     let page = dioxus_ssr::render(&dom);
     assert_eq!(shown(&page), ["Off"]);
@@ -50,7 +53,7 @@ async fn the_switch_reads_and_writes_the_setting_the_watch_reads() {
     );
 
     // The buttons are keyed, so the ids the first paint recorded still name them.
-    click(&mut dom, seen.one("data-v", "On"));
+    click(&mut dom, segments[0]);
     assert_eq!(notify::load(config), Setting::On, "On was not kept");
 }
 

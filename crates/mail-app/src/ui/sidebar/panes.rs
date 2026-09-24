@@ -9,7 +9,10 @@ use crate::query::{self};
 use crate::space::{self, Pinned, Scope, Space};
 use crate::view::{Shell, Source, folder_of, is_label_place};
 use dioxus::prelude::*;
-use ds::{Glyph, Icon};
+use ds::{
+    Anim, AvatarFace, AvatarShape, AvatarSize, AvatarTone, Colour, Glyph, Here, Hex, Icon,
+    ItemKind, PersonSwatch, Presence, PulseKey, SidebarItem,
+};
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 
@@ -104,6 +107,12 @@ fn initial(text: &str) -> String {
     if out.is_empty() { "?".to_owned() } else { out }
 }
 
+/// A stored `#rrggbb` as quire's colour. A Space file hand-edited to something else draws in
+/// the first swatch rather than failing.
+pub(in crate::ui) fn hex_colour(text: &str) -> Colour {
+    Colour::Solid(Hex::parse(text).unwrap_or_else(|| PersonSwatch::nth(0).hex()))
+}
+
 fn place_icon(name: &str) -> Icon {
     match name {
         "Inbox" => Icon::Inbox,
@@ -138,7 +147,7 @@ pub(super) fn AccountTiles(
                         shell.write().account = None;
                         pages.set(1);
                     },
-                    span { class: "av all", Glyph { icon: Icon::Inbox } }
+                    span { class: "av all", Glyph { icon: Icon::Inbox, size: ds::IconSize::Compact } }
                     if counted.all > 0 {
                         span { class: "n", "{counted.all}" }
                     }
@@ -180,7 +189,7 @@ pub(super) fn AccountTiles(
                 title: "Add account…",
                 aria_label: "Add account",
                 onclick: move |_| super::super::add_account::open(shell),
-                span { class: "av", Glyph { icon: Icon::Plus } }
+                span { class: "av", Glyph { icon: Icon::Plus, size: ds::IconSize::Compact } }
             }
         }
     }
@@ -276,7 +285,7 @@ fn PlaceButton(
                     state.gulp.set(None);
                 }
             },
-            Glyph { icon }
+            Glyph { icon, size: ds::IconSize::Nav }
             span { "{name}" }
             if let Some(count) = count {
                 span {
@@ -335,13 +344,17 @@ pub(super) fn PinnedList(
                     Pinned::Person { email, .. } => format!("from:{email}"),
                     Pinned::Search { query, .. } => query.clone(),
                 };
-                let letter = initial(&name);
-                let color = space::AVATAR[(index + 3) % space::AVATAR.len()];
+                let avatar = AvatarFace {
+                    initial: initial(&name).chars().next().unwrap_or('?'),
+                    size: AvatarSize::Size16,
+                    tone: AvatarTone::Account(PersonSwatch::nth(index + 3).colour()),
+                    shape: AvatarShape::Square,
+                };
                 let n = pins.get(index).copied().unwrap_or(0);
                 rsx! {
-                    button {
+                    // The item has no pointer hooks of its own, so the pin's card listens around it.
+                    div {
                         key: "{name}",
-                        class: "item pinned",
                         "data-hc": "pin:{index}",
                         onpointerenter: move |event| {
                             if let Some(hover) = hover() {
@@ -353,14 +366,19 @@ pub(super) fn PinnedList(
                                 hover.leave();
                             }
                         },
-                        onclick: move |_| {
-                            shell.write().search = query.clone();
-                            pages.set(1);
-                        },
-                        span { class: "fav", style: "background:{color}", "{letter}" }
-                        span { "{name}" }
-                        if n > 0 {
-                            span { class: "count", "{n}" }
+                        SidebarItem {
+                            kind: ItemKind::Pinned { avatar },
+                            label: name.clone(),
+                            here: Here::Elsewhere,
+                            count: (n > 0).then(|| u32::try_from(n).unwrap_or(u32::MAX)),
+                            presence: Presence::Present,
+                            preview: None,
+                            pulse: PulseKey::rest(Anim::Gulp),
+                            onclick: move |()| {
+                                shell.write().search = query.clone();
+                                pages.set(1);
+                            },
+                            onclose: None,
                         }
                     }
                 }

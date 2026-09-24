@@ -10,10 +10,10 @@
 use dioxus::prelude::*;
 use mail_domain::{Draft, OpenPgp, Smime};
 
-use super::super::menu::{Menu, MenuItem, Right, Tile};
+use super::super::menu::{Floating, MenuItem, Right, Tile};
 use super::page::{Float, Page};
 use super::seal::SealBar;
-use ds::{Glyph, Icon};
+use ds::{Glyph, Icon, MenuKind, MountedRef};
 
 /// What a protection does to the message.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -181,14 +181,16 @@ pub(in crate::ui) fn ProtectionRow(page: Signal<Page>) -> Element {
     let open = page.read().float == Float::Protection;
     let shown = label(protection);
     let name = "Protection";
+    let mut value = use_signal(|| None::<MountedRef>);
     rsx! {
         div { class: "prop-row", "data-row": "protection",
-            div { class: "k", Glyph { icon: Icon::Key }, "Protection" }
+            div { class: "k", Glyph { icon: Icon::Key, size: ds::IconSize::Compact }, "Protection" }
             div { class: "v",
                 button {
                     class: "pval",
                     r#type: "button",
                     aria_label: "{name}: {shown}",
+                    onmounted: move |event: MountedEvent| value.set(Some(MountedRef(event.data()))),
                     onclick: move |_| {
                         let next = if open { Float::Closed } else { Float::Protection };
                         page.write().float = next;
@@ -197,17 +199,17 @@ pub(in crate::ui) fn ProtectionRow(page: Signal<Page>) -> Element {
                     span { class: "car", "▾" }
                 }
                 if open {
-                    div { class: "p-menu",
-                        Menu {
-                            title: "Protection".to_owned(),
-                            items: items(protection),
-                            filterable: false,
-                            on_pick: move |key: String| pick(&mut page.write(), &key),
-                            on_close: move |_| page.write().float = Float::Closed,
-                            on_query: move |_| {},
-                            slim: true,
-                            active: None,
-                        }
+                    Floating {
+                        kind: MenuKind::Dropdown,
+                        anchor: value(),
+                        title: "Protection".to_owned(),
+                        items: items(protection),
+                        on_pick: move |key: String| pick(&mut page.write(), &key),
+                        on_close: move |_| {
+                            if page.peek().float == Float::Protection {
+                                page.write().float = Float::Closed;
+                            }
+                        },
                     }
                 }
             }

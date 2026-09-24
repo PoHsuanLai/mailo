@@ -314,9 +314,19 @@ async fn the_menu_and_the_field_are_the_shared_ones_and_styled() {
     let mut dom = VirtualDom::new(App).with_root_context(store);
     let seen = rebuild_into(&mut dom);
     let more = seen.one("aria-label", "Actions for Projects");
-    let seen = click(&mut dom, more);
+    let mut seen = click(&mut dom, more);
+    // quire's menu floats in the root's overlay, drawn on the render after it is asked for.
+    for _ in 0..8 {
+        dom.process_events();
+        let mut more = crate::ui::fixtures::Seen::default();
+        dom.render_immediate(&mut more);
+        seen = seen.merge(more);
+    }
     let menu = dioxus_ssr::render(&dom);
-    assert!(menu.contains("class=\"fmenu slim\""), "{menu}");
+    assert!(
+        menu.contains("class=\"ds-popover ds-menu\"") && menu.contains("data-kind=\"slim\""),
+        "{menu}"
+    );
     for item in ["New folder inside", "Rename", "Stop following", "Delete"] {
         assert!(menu.contains(item), "{item} missing: {menu}");
     }

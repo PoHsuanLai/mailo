@@ -122,7 +122,7 @@ pub(in crate::ui) fn InviteCard(card: Card, known: Signal<Option<Option<Card>>>)
             }
             dl { class: "inv-facts",
                 div { class: "inv-row",
-                    dt { Glyph { icon: Icon::Clock } }
+                    dt { Glyph { icon: Icon::Clock, size: ds::IconSize::Compact } }
                     dd {
                         span { class: "inv-when", "{card.when}" }
                         if let Some(theirs) = &card.theirs {
@@ -198,7 +198,7 @@ pub(in crate::ui) fn InviteCard(card: Card, known: Signal<Option<Option<Card>>>)
                 Stand::Closed(None) => rsx! {},
                 Stand::Answered { said, note } if now == Phase::Resting => rsx! {
                     div { class: "inv-answered",
-                        Glyph { icon: Icon::Check }
+                        Glyph { icon: Icon::Check, size: ds::IconSize::Compact }
                         span { class: "said", "{said}" }
                         if let Some(note) = note {
                             span { class: "inv-note", "“{note}”" }

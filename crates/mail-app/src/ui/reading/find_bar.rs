@@ -8,7 +8,7 @@ use super::super::field::{Field, FieldKind};
 use crate::search::{Find, Step};
 use crate::view::Shell;
 use dioxus::prelude::*;
-use ds::{Glyph, Icon};
+use ds::{Glyph, Icon, IconButton, IconButtonVariant};
 
 /// Focus the find field once it is in the page, and select what is in it.
 ///
@@ -79,7 +79,7 @@ pub(super) fn FindBar(shell: Signal<Shell>, total: usize, invalid: bool) -> Elem
                     _ => {}
                 }
             },
-            Glyph { icon: Icon::Search }
+            Glyph { icon: Icon::Search, size: ds::IconSize::Compact }
             Field {
                 kind: FieldKind::Inline,
                 value: find.query.clone(),
@@ -98,15 +98,14 @@ pub(super) fn FindBar(shell: Signal<Shell>, total: usize, invalid: bool) -> Elem
             if let Some(count) = count {
                 span { class: "find-count mono", aria_live: "polite", "{count}" }
             }
-            button {
-                class: "tool",
-                r#type: "button",
-                aria_label: "{close_label()}",
+            IconButton {
+                variant: IconButtonVariant::Tool,
+                icon: Icon::X,
+                label: close_label().to_owned(),
                 onclick: move |_| {
                     shell.write().find = None;
                     document::eval(REFOCUS);
                 },
-                Glyph { icon: Icon::X }
             }
         }
     }

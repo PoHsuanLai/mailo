@@ -171,13 +171,19 @@ fn PageHarness(draft: Draft) -> Element {
     DESK.with(|slot| slot.set(Some(desk)));
     SHELL.with(|slot| slot.set(Some(shell)));
     let open = composing(&shell.read());
+    // Inside a quire root, as the window has it: the page's menus float in its overlay.
     rsx! {
-        div { class: "app",
-            if let Some((id, _)) = open {
-                ComposerPage { key: "{id}", draft: id, shell, revision }
+        ds::Ds {
+            appearance: ds::Appearance::default(),
+            material: ds::Material::Window,
+            stylesheet: ds::Inject::Host,
+            div { class: "app",
+                if let Some((id, _)) = open {
+                    ComposerPage { key: "{id}", draft: id, shell, revision }
+                }
+                SendPill { shell }
+                super::ScheduledDrafts { shell }
             }
-            SendPill { shell }
-            super::ScheduledDrafts { shell }
         }
     }
 }
@@ -217,7 +223,7 @@ impl Window {
     }
 
     fn render(&mut self) -> String {
-        self.dom.render_immediate(&mut NoOpMutations);
+        crate::ui::fixtures::drain(&mut self.dom);
         dioxus_ssr::render(&self.dom)
     }
 }

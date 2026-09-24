@@ -209,7 +209,7 @@ pub(in crate::ui) fn SealWarn(bar: SealBar, on_act: EventHandler<BarAct>) -> Ele
     };
     rsx! {
         div { class: "c-warn seal-warn", role: "alert",
-            Glyph { icon: Icon::Key }
+            Glyph { icon: Icon::Key, size: ds::IconSize::Compact }
             {body}
         }
     }

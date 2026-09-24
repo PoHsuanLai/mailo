@@ -3,7 +3,6 @@
 use super::super::hover::{Hook, corner, hover};
 use super::super::text::sender;
 use crate::appearance::WindowDirs;
-use crate::space;
 use crate::today::Today;
 use crate::view::Shell;
 use dioxus::prelude::*;
@@ -72,7 +71,7 @@ pub(super) fn TodayList(
         for (index, id, title, letter) in rows {
             {
                 let dirs_row = dirs.clone();
-                let color = space::AVATAR[index % space::AVATAR.len()];
+                let color = ds::PersonSwatch::nth(index).var();
                 let class = if leaving() == Some(id) {
                     "item today-item leaving"
                 } else if just_added() == Some(id) {
@@ -106,7 +105,7 @@ pub(super) fn TodayList(
                                 just_added.set(None);
                             }
                         },
-                        span { class: "fav", style: "background:{color}", "{letter}" }
+                        span { class: "fav", style: "background:var({color})", "{letter}" }
                         span { class: "t", "{title}" }
                         button {
                             class: "x",
@@ -117,7 +116,7 @@ pub(super) fn TodayList(
                                 save(&dirs_row, &today.read());
                                 leaving.set(Some(id));
                             },
-                            Glyph { icon: Icon::X }
+                            Glyph { icon: Icon::X, size: ds::IconSize::Tiny }
                         }
                     }
                 }

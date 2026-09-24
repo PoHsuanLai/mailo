@@ -90,7 +90,7 @@ pub(super) fn window_with(
             .unwrap_or_else(|| panic!("c opened no page"))
     });
     dom.in_runtime(|| dress(&mut page.write(), &built.store));
-    dom.render_immediate(&mut NoOpMutations);
+    crate::ui::fixtures::drain(&mut dom);
     (dioxus_ssr::render(&dom), built.root)
 }
 

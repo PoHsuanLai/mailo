@@ -214,6 +214,41 @@ async fn the_head_offers_unsubscribe_only_when_the_thread_has_a_way_out() {
     }
 }
 
+/// One reader, whose thread the test moves through the signal it provides.
+#[component]
+fn Moving(first: ThreadId) -> Element {
+    let shell = use_signal(Shell::default);
+    let thread = use_context_provider(|| Signal::new(first));
+    rsx! { Reader { thread: thread(), shell } }
+}
+
+#[tokio::test]
+async fn the_answer_for_one_thread_is_never_shown_under_the_next() {
+    // The same reader, moved to another thread, must ask again: `Leave` is keyed on the thread
+    // and its bodies. A key on a nested component is dropped by rsx, which left the listed
+    // thread's Unsubscribe under the quiet one.
+    let (store, _dir) = seeded();
+    let listed = put(&store, "weekly@rust.test", MAILTO, Held::Body);
+    let quiet = put(&store, "quiet@example.test", NO_WAY_OUT, Held::Body);
+    let mut dom =
+        VirtualDom::new_with_props(Moving, MovingProps { first: listed }).with_root_context(store);
+    dom.rebuild_in_place();
+    settle(&mut dom, 400).await;
+    let before = dioxus_ssr::render(&dom);
+    assert!(before.contains("aria-label=\"Unsubscribe\""), "{before}");
+    let mut thread = dom.in_scope(
+        dioxus_core::ScopeId::APP,
+        consume_context::<Signal<ThreadId>>,
+    );
+    dom.in_runtime(|| thread.set(quiet));
+    settle(&mut dom, 400).await;
+    let after = dioxus_ssr::render(&dom);
+    assert!(
+        !after.contains("aria-label=\"Unsubscribe\""),
+        "the listed thread's way out is drawn under the quiet one: {after}"
+    );
+}
+
 /// The popover for `offer`, as it opens.
 #[component]
 fn Popover(offer: Offer) -> Element {

@@ -53,7 +53,7 @@ pub(super) fn sender_card(
         }
         if let Some(flag) = flag {
             div { class: "flag",
-                Glyph { icon: Icon::X }
+                Glyph { icon: Icon::X, size: ds::IconSize::Compact }
                 span {
                     "The name says "
                     b { "{flag.brand}" }
@@ -65,7 +65,7 @@ pub(super) fn sender_card(
         }
         if first {
             div { class: "flag info",
-                Glyph { icon: Icon::Mail }
+                Glyph { icon: Icon::Mail, size: ds::IconSize::Compact }
                 span { "First mail from this address. Nothing else in the store has come from it." }
             }
         }

@@ -1,6 +1,6 @@
 //! "Move to…": a conversation filed into one of its account's own folders.
 //!
-//! The row's strip and the reader's tools open the one [`Menu`] on the account's folders; a
+//! The row's strip and the reader's tools open the one menu on the account's folders; a
 //! folder row in the sidebar takes a dropped row. All three file through [`Op::File`], the op a
 //! rule's "move to folder" performs, applied by `motion::act`, so the undo and the toast are the
 //! ones every other op has.
@@ -9,17 +9,17 @@
 //! and elsewhere the label a move into it files under, named by its path — the same one a rule
 //! finds or makes (`mail_store::rules`), so a folder is one label whichever way mail got there.
 
-use super::menu::{Menu, MenuItem, Right, Tile};
+use super::menu::{Floating, MenuItem, Right, Tile};
 use super::motion::drag::Drag;
 use super::motion::{act, motion};
 use crate::view::Shell;
 use dioxus::prelude::*;
-use ds::Glyph;
+use ds::{Filter, IconButton, IconButtonVariant, MenuKind, MountedRef, Switch};
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
 
-/// Menus with more folders than this get a filter field.
+/// Menus with more folders than this filter as you type.
 const FILTER_OVER: usize = 7;
 
 /// One folder a conversation can be moved to.
@@ -136,7 +136,7 @@ pub(in crate::ui) fn items(destinations: &[Destination]) -> Vec<MenuItem> {
         .iter()
         .map(|d| MenuItem {
             key: d.path.clone(),
-            tile: Tile::Icon(crate::ui::FOLDER_INPUT),
+            tile: Tile::Icon(ds::Icon::FolderInput),
             name: d.path.clone(),
             help: None,
             right: Right::None,
@@ -148,40 +148,42 @@ pub(in crate::ui) fn items(destinations: &[Destination]) -> Vec<MenuItem> {
         .collect()
 }
 
-/// The folders `thread` can be moved to, and the move.
+/// The folders `thread` can be moved to, and the move, anchored to the button that opened it.
 #[component]
 pub(in crate::ui) fn MoveMenu(
     thread: ThreadId,
     shell: Signal<Shell>,
     revision: Signal<u64>,
+    anchor: Option<MountedRef>,
     on_close: EventHandler<()>,
 ) -> Element {
     let store = consume_context::<Arc<SqliteStore>>();
     let account = account_of(&store, thread);
     let found = account.map_or_else(Vec::new, |a| destinations(&store, a));
-    let empty = found.is_empty();
-    let filterable = found.len() > FILTER_OVER;
+    let note = found
+        .is_empty()
+        .then(|| "This account has no folders of its own to move to.".to_owned());
+    let filter = if found.len() > FILTER_OVER {
+        Filter::Typing
+    } else {
+        Filter::None
+    };
     rsx! {
-        div { class: "row-menu move-menu",
-            if empty {
-                p { class: "hint", "This account has no folders of its own to move to." }
-            }
-            Menu {
-                title: "Move to".to_owned(),
-                items: items(&found),
-                filterable,
-                on_pick: move |path: String| {
-                    let Some(account) = account else { return };
-                    let store = consume_context::<Arc<SqliteStore>>();
-                    let folder = MailboxRef { account, path };
-                    on_close.call(());
-                    file_into(&store, shell, revision, thread, &folder);
-                },
-                on_close: move |_| on_close.call(()),
-                on_query: |_| {},
-                slim: false,
-                active: None,
-            }
+        Floating {
+            kind: MenuKind::Rich,
+            anchor,
+            title: "Move to".to_owned(),
+            items: items(&found),
+            filter,
+            note,
+            on_pick: move |path: String| {
+                let Some(account) = account else { return };
+                let store = consume_context::<Arc<SqliteStore>>();
+                let folder = MailboxRef { account, path };
+                on_close.call(());
+                file_into(&store, shell, revision, thread, &folder);
+            },
+            on_close: move |_| on_close.call(()),
         }
     }
 }
@@ -194,21 +196,20 @@ pub(in crate::ui) fn MoveTool(
     revision: Signal<u64>,
 ) -> Element {
     let mut open = use_signal(|| false);
+    let mut tool = use_signal(|| None::<MountedRef>);
     let label = "Move to a folder";
     rsx! {
-        button {
-            class: "tool",
-            r#type: "button",
-            aria_label: "{label}",
-            title: "Move to…",
-            aria_expanded: if open() { "true" } else { "false" },
+        IconButton {
+            variant: IconButtonVariant::Tool,
+            icon: ds::Icon::FolderInput,
+            label: label.to_owned(),
+            tooltip: "Move to…".to_owned(),
+            expanded: if open() { Switch::On } else { Switch::Off },
+            mounted: move |event: MountedEvent| tool.set(Some(MountedRef(event.data()))),
             onclick: move |_| open.toggle(),
-            Glyph { icon: crate::ui::FOLDER_INPUT }
         }
         if open() {
-            div { class: "move-tool",
-                MoveMenu { thread, shell, revision, on_close: move |_| open.set(false) }
-            }
+            MoveMenu { thread, shell, revision, anchor: tool(), on_close: move |_| open.set(false) }
         }
     }
 }

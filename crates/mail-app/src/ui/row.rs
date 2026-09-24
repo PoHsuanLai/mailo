@@ -17,7 +17,7 @@ use crate::view::Marks;
 use crate::view::{Shell, hover_actions};
 use chrono::Local;
 use dioxus::prelude::*;
-use ds::{Glyph, Icon};
+use ds::{Glyph, Icon, MountedRef};
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
@@ -126,6 +126,9 @@ pub(super) fn Row(
     let move_label = "Move to…".to_owned();
     let filing = shell.read().filing == Some(id);
     let mut pop = use_signal(|| false);
+    // The strip buttons whose menus float beside them: each hands over its element to anchor to.
+    let mut snooze_at = use_signal(|| None::<MountedRef>);
+    let mut move_at_button = use_signal(|| None::<MountedRef>);
     // Where the row's own corner is, for the thread card. Not a signal: nothing redraws for it.
     let mut at = use_hook(|| CopyValue::new((0.0_f64, 0.0_f64)));
     let going = matches!(moving, Moving::Going(_));
@@ -227,7 +230,7 @@ pub(super) fn Row(
                     }
                     if let Some(count) = files {
                         span { class: "clip",
-                            Glyph { icon: Icon::Paperclip }
+                            Glyph { icon: Icon::Paperclip, size: ds::IconSize::Micro }
                             "{count}"
                         }
                     }
@@ -246,7 +249,7 @@ pub(super) fn Row(
                     act_kind(&store, shell, revision, id, kind);
                 },
                 onanimationend: move |_| pop.set(false),
-                Glyph { icon: Icon::Star }
+                Glyph { icon: Icon::Star, size: ds::IconSize::Compact }
                 span { class: if pop() { "sparks go" } else { "sparks" },
                     for angle in [0, 60, 120, 180, 240, 300] {
                         i { key: "{angle}", style: "--a:{angle}deg" }
@@ -261,6 +264,11 @@ pub(super) fn Row(
                         aria_label: "{label(kind)}",
                         title: "{label(kind)}",
                         style: "--j:{n}",
+                        onmounted: move |event: MountedEvent| {
+                            if kind == OpKind::Snooze {
+                                snooze_at.set(Some(MountedRef(event.data())));
+                            }
+                        },
                         onpointerenter: move |_| {
                             if let (Some(mut state), Some(place)) = (motion(), preview(kind)) {
                                 state.dest.set(Some(place));
@@ -297,7 +305,7 @@ pub(super) fn Row(
                                 }
                             }
                         },
-                        Glyph { icon: op_icon(kind) }
+                        Glyph { icon: op_icon(kind), size: ds::IconSize::Compact }
                         span { class: "fly", "{fly(kind)}" }
                     }
                 }
@@ -307,12 +315,13 @@ pub(super) fn Row(
                     title: "{move_label}",
                     aria_expanded: if filing { "true" } else { "false" },
                     style: "--j:{move_at}",
+                    onmounted: move |event: MountedEvent| move_at_button.set(Some(MountedRef(event.data()))),
                     onclick: move |event: Event<MouseData>| {
                         event.stop_propagation();
                         let already = shell.peek().filing == Some(id);
                         shell.write().filing = if already { None } else { Some(id) };
                     },
-                    Glyph { icon: crate::ui::FOLDER_INPUT }
+                    Glyph { icon: Icon::FolderInput, size: ds::IconSize::Compact }
                     span { class: "fly", "{move_label}" }
                 }
             }
@@ -320,13 +329,19 @@ pub(super) fn Row(
                 span { class: "floater", aria_hidden: "true", "zZ" }
             }
             if shell.read().snoozing == Some(id) {
-                SnoozeMenu { id, shell, revision }
+                SnoozeMenu { id, shell, revision, anchor: snooze_at() }
             }
             if shell.read().labelling == Some(id) {
                 LabelMenu { id, summary, shell, revision }
             }
             if filing {
-                MoveMenu { thread: id, shell, revision, on_close: move |_| shell.write().filing = None }
+                MoveMenu {
+                    thread: id,
+                    shell,
+                    revision,
+                    anchor: move_at_button(),
+                    on_close: move |_| shell.write().filing = None,
+                }
             }
         }
     }

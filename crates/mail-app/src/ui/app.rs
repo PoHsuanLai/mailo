@@ -612,11 +612,7 @@ pub(super) fn App() -> Element {
             onpointerup: move |_| super::motion::drag::release(shell, revision),
             "data-peek": "{peek}",
             if side_hidden() {
-                div {
-                    class: "edge",
-                    aria_hidden: "true",
-                    onpointerenter: move |_| side_peek.set(true),
-                }
+                ds::EdgeStrip { onenter: move |()| side_peek.set(true) }
             }
             if shell.read().open.is_some() && shell.read().peek.floats() {
                 button {

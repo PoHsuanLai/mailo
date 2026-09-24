@@ -128,7 +128,7 @@ pub(in crate::ui) fn PickTime(page: Signal<Page>) -> Element {
                         _ => {}
                     }
                 },
-                Glyph { icon: Icon::Clock }
+                Glyph { icon: Icon::Clock, size: ds::IconSize::Nav }
                 Field {
                     kind: FieldKind::Inline,
                     value: typed.clone(),
@@ -216,7 +216,7 @@ pub(in crate::ui) fn ScheduledDrafts(shell: Signal<Shell>) -> Element {
                         key: "{draft}",
                         class: "item today-item later",
                         title: "Waiting to be sent at {words}",
-                        span { class: "fav later", Glyph { icon: Icon::Clock } }
+                        span { class: "fav later", Glyph { icon: Icon::Clock, size: ds::IconSize::Micro } }
                         span { class: "t", "{one.title}" }
                         span { class: "when", "{words}" }
                         button {
@@ -231,7 +231,7 @@ pub(in crate::ui) fn ScheduledDrafts(shell: Signal<Shell>) -> Element {
                                     Err(why) => refused.set(Some((draft, why))),
                                 }
                             },
-                            Glyph { icon: Icon::X }
+                            Glyph { icon: Icon::X, size: ds::IconSize::Tiny }
                         }
                     }
                     if let Some(why) = why {

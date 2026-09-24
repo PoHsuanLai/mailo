@@ -244,14 +244,14 @@ async fn the_menu_prints_the_pages_chosen_and_everything_it_draws_is_styled() {
         crate::ui::style::tests::unstyled_classes(&page, &crate::ui::style::tests::full_css());
     assert!(missing.is_empty(), "unstyled classes: {missing:?}");
     assert!(
-        page.contains("aria-pressed=\"true\" aria-label=\"Whole conversation\"")
-            || page.contains("aria-label=\"Whole conversation\" aria-pressed=\"true\""),
+        page.contains("aria-pressed=\"true\">Whole conversation<"),
         "the flow is not the default:\n{page}"
     );
 
+    // The Pages segments, in order: the flow, then a page each.
     click(
         &mut dom,
-        seen_open.one("aria-label", "Each message on its own page"),
+        seen_open.after("aria-label", "Pages", "aria-pressed")[1],
     );
     click(&mut dom, seen_open.one("aria-label", "Print"));
     assert_eq!(
