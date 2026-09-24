@@ -1,6 +1,6 @@
 //! What the Add account sheet decides, as functions of what it is handed.
 //!
-//! The network and the keyring arrive as [`Seams`], so every rule here — look only when asked,
+//! The network, the keyring and the browser arrive as [`Seams`], so every rule here — look only when asked,
 //! add only when told to, a password to the add and nowhere else — is tested without either.
 
 use std::sync::Arc;
@@ -80,8 +80,12 @@ pub(in crate::ui) struct Request {
 
 /// Look an address up. Blocks: run it off the thread that draws.
 pub(in crate::ui) type Lookup = dyn Fn(&str) -> Result<Found, String> + Send + Sync;
-/// Add the account. Blocks, and for OAuth waits on a browser.
-pub(in crate::ui) type Add = dyn Fn(&SqliteStore, Request) -> Result<String, String> + Send + Sync;
+/// Add the account. Blocks, and for OAuth waits on a browser; the address to open goes to the
+/// third argument first.
+pub(in crate::ui) type Add =
+    dyn Fn(&SqliteStore, Request, &dyn Fn(&str)) -> Result<String, String> + Send + Sync;
+/// Open an address in the system browser.
+pub(in crate::ui) type Browse = dyn Fn(&str) -> Result<(), String> + Send + Sync;
 /// Whether an OAuth client id is at hand for an issuer.
 pub(in crate::ui) type HasClient = dyn Fn(OAuthIssuer) -> bool + Send + Sync;
 
@@ -91,6 +95,7 @@ pub(in crate::ui) struct Seams {
     pub lookup: Arc<Lookup>,
     pub add: Arc<Add>,
     pub client: Arc<HasClient>,
+    pub browse: Arc<Browse>,
 }
 
 impl Seams {
@@ -100,13 +105,14 @@ impl Seams {
         if cfg!(test) {
             return Seams {
                 lookup: Arc::new(|_| Err("no lookups in tests".to_owned())),
-                add: Arc::new(|_, _| Err("no accounts are added in tests".to_owned())),
+                add: Arc::new(|_, _, _| Err("no accounts are added in tests".to_owned())),
                 client: Arc::new(|_| false),
+                browse: Arc::new(|_| Err("no browser is opened in tests".to_owned())),
             };
         }
         Seams {
             lookup: Arc::new(|address| crate::discover::lookup(address, chrono::Utc::now())),
-            add: Arc::new(|store, request| {
+            add: Arc::new(|store, request, on_url| {
                 let Request {
                     address,
                     preset,
@@ -123,6 +129,7 @@ impl Seams {
                         password: password.as_ref(),
                         saved: &crate::account::saved_clients(),
                         secrets: &mail_runtime::KeyringSecrets,
+                        on_url,
                     },
                 )
             }),
@@ -130,6 +137,7 @@ impl Seams {
                 std::env::var("MAILO_OAUTH_CLIENT_ID").is_ok_and(|id| !id.is_empty())
                     || crate::account::saved_clients().get(issuer).is_some()
             }),
+            browse: Arc::new(|url| webbrowser::open(url).map_err(|e| e.to_string())),
         }
     }
 }
@@ -217,6 +225,32 @@ pub(in crate::ui) fn provider(issuer: OAuthIssuer) -> &'static str {
     }
 }
 
+/// A browser sign-in under way: the address it waits on, and whether a browser was opened there.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(in crate::ui) struct SigningIn {
+    pub url: String,
+    pub opened: Opened,
+}
+
+/// Whether the system browser took the sign-in's address.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(in crate::ui) enum Opened {
+    Browser,
+    /// It could not be opened, and why; the address is still shown, to open by hand.
+    Not(String),
+}
+
+/// Open the sign-in's `url` with `browse`, and say what the sheet should show for it.
+pub(in crate::ui) fn signing_in(url: &str, browse: &Browse) -> SigningIn {
+    SigningIn {
+        url: url.to_owned(),
+        opened: match browse(url) {
+            Ok(()) => Opened::Browser,
+            Err(why) => Opened::Not(why),
+        },
+    }
+}
+
 /// Use `offer`: the one call that sends anything, made only from Use these settings.
 ///
 /// A password account needs its password, and an OAuth account a client id; without them
@@ -226,6 +260,7 @@ pub(in crate::ui) fn confirm(
     offer: Offer,
     password: Password,
     add: &Add,
+    on_url: &dyn Fn(&str),
 ) -> Stage {
     let password = match offer.sign_in {
         SignIn::Password if password.is_empty() => {
@@ -247,7 +282,7 @@ pub(in crate::ui) fn confirm(
         preset: offer.preset.clone(),
         password,
     };
-    match add(store, request) {
+    match add(store, request, on_url) {
         Ok(said) => Stage::Added {
             said: in_words(&said),
             account: super::super::data::account_rows(store)

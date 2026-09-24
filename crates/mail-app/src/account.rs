@@ -41,8 +41,19 @@ pub fn add(
             password: password.as_ref(),
             saved,
             secrets: &KeyringSecrets,
+            on_url: &|url| {
+                // As `println!` would, but a closed stdout is not worth a panic mid-sign-in.
+                let _ = print_signin(url, &mut std::io::stdout().lock());
+            },
         },
     )
+}
+
+/// What the command line says when a sign-in needs a browser: the address to open, then that it
+/// is waiting. Written to `out` so a test can read it; [`add`] hands it stdout.
+fn print_signin(url: &str, out: &mut dyn std::io::Write) -> std::io::Result<()> {
+    writeln!(out, "Open this in a browser to sign in:\n\n  {url}\n")?;
+    writeln!(out, "Waiting for the redirect…")
 }
 
 /// Where [`add_with_password`] gets a credential, and where it keeps one.
@@ -53,6 +64,10 @@ pub struct Credentials<'a> {
     pub saved: &'a OAuthRegistry,
     /// Where the password or the sign-in's token is put.
     pub secrets: &'a dyn Secrets,
+    /// Handed the address to open when the account signs in in a browser, before the sign-in
+    /// waits for it. The command line prints it; the window shows it and opens a browser.
+    /// Called on the thread the add runs on.
+    pub on_url: &'a dyn Fn(&str),
 }
 
 // By hand: the password's own `Debug` already redacts it, and the credential store has none.
@@ -111,6 +126,7 @@ pub fn add_receiving(
         password,
         saved,
         secrets,
+        on_url,
     } = credentials;
     // Normalised once, here, and used for the preset, the stored plan and the stored column
     // alike. `preset_for` deliberately keeps the address exactly as typed, and the accounts
@@ -306,8 +322,14 @@ pub fn add_receiving(
         }
         AuthPlan::OAuth { issuer, scopes } => match client_for(*issuer, saved) {
             Some((client_id, client_secret)) => {
-                let credential =
-                    authorize(*issuer, &client_id, client_secret.as_deref(), scopes, now)?;
+                let credential = authorize(
+                    *issuer,
+                    &client_id,
+                    client_secret.as_deref(),
+                    scopes,
+                    on_url,
+                    now,
+                )?;
                 secrets
                     .put(
                         &SecretKey {
@@ -541,6 +563,7 @@ fn authorize(
     client_id: &str,
     client_secret: Option<&str>,
     scopes: &[String],
+    on_url: &dyn Fn(&str),
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<Credential, String> {
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -561,11 +584,7 @@ fn authorize(
         )
         .map_err(|e| e.to_string())?;
 
-        println!(
-            "Open this in a browser to sign in:\n\n  {}\n",
-            authorization.url
-        );
-        println!("Waiting for the redirect…");
+        on_url(&authorization.url);
 
         let code = listener
             .wait_for_code(&authorization.pending)
@@ -727,6 +746,21 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = SqliteStore::in_memory(dir.path()).unwrap();
         (store, dir)
+    }
+
+    /// The command line's sign-in prompt is byte for byte what `authorize` printed itself before
+    /// the address went through `on_url`: scripts that read it keep working.
+    #[test]
+    fn the_command_line_prints_the_sign_in_address_as_it_always_has() {
+        let url = "https://accounts.example.test/o/oauth2/auth?client_id=abc&state=xyz";
+        let mut out = Vec::new();
+        print_signin(url, &mut out).unwrap();
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "Open this in a browser to sign in:\n\n  \
+             https://accounts.example.test/o/oauth2/auth?client_id=abc&state=xyz\n\n\
+             Waiting for the redirect…\n"
+        );
     }
 
     /// A campus server that offers only POP3, and logs in with a student number.

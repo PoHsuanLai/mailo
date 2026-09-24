@@ -3273,6 +3273,7 @@ dependencies = [
  "unicode-segmentation",
  "url",
  "uuid",
+ "webbrowser",
  "webkit2gtk",
  "zbus",
  "zeroize",

@@ -16,6 +16,15 @@
 .acct-v.acct-source { color: var(--ink-soft); }
 .files-look.acct-busy { color: var(--ink-soft); animation: breathe 1.6s var(--e-out) infinite; }
 .capnote.acct-said { white-space: pre-wrap; overflow-wrap: anywhere; }
+/* A browser sign-in's address: the data face, selectable, with its Copy beside it. */
+.acct-url {
+  display: flex; align-items: flex-start; gap: 8px; margin-top: 6px; padding: 6px 9px;
+  border: 1px solid var(--line); border-radius: var(--r-btn); background: var(--surface-2);
+}
+.acct-link {
+  flex: 1; min-width: 0; font-family: var(--font-data); font-size: 11px; line-height: 1.5;
+  color: var(--ink); overflow-wrap: anywhere; user-select: text; -webkit-user-select: text;
+}
 .acct-done { display: grid; gap: 4px; margin-top: 4px; font-size: 13px; line-height: 1.45; color: var(--ink); }
 .acct-done p { margin: 0; }
 .acct-done p:first-child { font-weight: 700; }

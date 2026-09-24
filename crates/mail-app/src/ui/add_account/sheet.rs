@@ -7,8 +7,9 @@ use dioxus::prelude::*;
 use mail_store::SqliteStore;
 
 use super::super::field::{Field, FieldKind};
+use super::super::hover::copy;
 use super::super::icon::{Glyph, Icon};
-use super::flow::{self, Client, Offer, SignIn, Stage};
+use super::flow::{self, Client, Offer, Opened, SignIn, SigningIn, Stage};
 use crate::password::Password;
 use crate::space::Spaces;
 use crate::view::Shell;
@@ -33,12 +34,16 @@ fn look_up(shell: Signal<Shell>, mut stage: Signal<Stage>) {
 
 /// Use what was found: the password is taken out of the sheet, not copied, and handed to the
 /// add, which drops it when it is done. Call it from an event handler (F140).
+///
+/// A browser sign-in's address comes back from the blocking add over a channel, is opened in the
+/// system browser there, and lands in `signing` for the sheet to show while it waits.
 fn use_offer(
     shell: Signal<Shell>,
     mut stage: Signal<Stage>,
     mut secret: Signal<Password>,
     mut revision: Signal<u64>,
     mut spaces: Signal<Spaces>,
+    mut signing: Signal<Option<SigningIn>>,
 ) {
     let offer = match &*stage.peek() {
         Stage::Found(offer) | Stage::Refused(offer, _) => offer.clone(),
@@ -49,9 +54,21 @@ fn use_offer(
     let store = consume_context::<Arc<SqliteStore>>();
     let kept = offer.clone();
     stage.set(Stage::Adding(offer.clone()));
+    signing.set(None);
+    let (sender, mut received) = tokio::sync::mpsc::unbounded_channel();
+    // Ends when the add does, which drops the sender.
+    spawn(async move {
+        while let Some(now) = received.recv().await {
+            signing.set(Some(now));
+        }
+    });
     spawn(async move {
         let done = tokio::task::spawn_blocking(move || {
-            flow::confirm(&store, offer, password, seams.add.as_ref())
+            let on_url = |url: &str| {
+                // The sheet is gone if nobody is receiving, and then there is nobody to tell.
+                let _ = sender.send(flow::signing_in(url, seams.browse.as_ref()));
+            };
+            flow::confirm(&store, offer, password, seams.add.as_ref(), &on_url)
         })
         .await;
         let next = done.unwrap_or_else(|error| {
@@ -97,6 +114,7 @@ pub(in crate::ui) fn AddAccountSheet(
     let mut stage = use_signal(|| Stage::Blank);
     // Held here and only here, so it goes when the sheet does.
     let mut secret = use_signal(Password::default);
+    let signing = use_signal(|| None::<SigningIn>);
     let has_password = !secret.read().is_empty();
     let shown = stage.read().clone();
     let (primary, enabled) = match &shown {
@@ -128,7 +146,7 @@ pub(in crate::ui) fn AddAccountSheet(
         match now {
             Stage::Blank | Stage::Missed(_) => look_up(shell, stage),
             Stage::Found(_) | Stage::Refused(..) => {
-                use_offer(shell, stage, secret, revision, spaces)
+                use_offer(shell, stage, secret, revision, spaces, signing)
             }
             Stage::Added { .. } => super::close(shell),
             Stage::Looking | Stage::Adding(_) => {}
@@ -183,7 +201,7 @@ pub(in crate::ui) fn AddAccountSheet(
                         on_focus: |_| {},
                         on_blur: |_| {},
                     }
-                    Below { shown: shown.clone(), typed: typed.clone(), on_secret: move |value: String| {
+                    Below { shown: shown.clone(), typed: typed.clone(), signing: signing(), on_secret: move |value: String| {
                         secret.set(Password::new(value));
                     } }
                 }
@@ -212,7 +230,12 @@ pub(in crate::ui) fn AddAccountSheet(
 
 /// Everything under the address, for where the sheet stands.
 #[component]
-fn Below(shown: Stage, typed: String, on_secret: EventHandler<String>) -> Element {
+fn Below(
+    shown: Stage,
+    typed: String,
+    signing: Option<SigningIn>,
+    on_secret: EventHandler<String>,
+) -> Element {
     match shown {
         Stage::Blank => rsx! {
             p { class: "capnote", "{flow::before_looking(&typed, chrono::Utc::now())}" }
@@ -234,22 +257,27 @@ fn Below(shown: Stage, typed: String, on_secret: EventHandler<String>) -> Elemen
             Credential { offer, on_secret }
             p { class: "capnote files-bad acct-said", role: "alert", "{why}" }
         },
-        Stage::Adding(offer) => {
-            let waiting = match offer.sign_in {
-                SignIn::Password => {
-                    "Saving the account and putting the password in the system keyring…".to_owned()
-                }
-                SignIn::OAuth { issuer, .. } => format!(
-                    "Finish signing in with {} in your browser. The address to open is printed in \
-                     the terminal mailo was started from.",
-                    flow::provider(issuer)
-                ),
-            };
-            rsx! {
+        Stage::Adding(offer) => match (offer.sign_in, signing) {
+            (SignIn::OAuth { .. }, Some(signing)) => rsx! {
                 Found { offer }
-                p { class: "files-look acct-busy", role: "status", "{waiting}" }
+                Browser { signing }
+            },
+            (sign_in, _) => {
+                let waiting = match sign_in {
+                    SignIn::Password => {
+                        "Saving the account and putting the password in the system keyring…"
+                            .to_owned()
+                    }
+                    SignIn::OAuth { issuer, .. } => {
+                        format!("Starting the sign-in with {}…", flow::provider(issuer))
+                    }
+                };
+                rsx! {
+                    Found { offer }
+                    p { class: "files-look acct-busy", role: "status", "{waiting}" }
+                }
             }
-        }
+        },
         Stage::Added { said, .. } => rsx! {
             div { class: "acct-done", role: "status",
                 for line in said {
@@ -309,5 +337,33 @@ fn Credential(offer: Offer, on_secret: EventHandler<String>) -> Element {
         } => rsx! {
             p { class: "capnote files-bad acct-said", "{flow::missing_client(issuer)}" }
         },
+    }
+}
+
+/// A sign-in waiting in the browser: the address it waits on, to select or copy, and whether a
+/// browser was opened there.
+#[component]
+fn Browser(signing: SigningIn) -> Element {
+    let SigningIn { url, opened } = signing;
+    let copy_label = "Copy";
+    let how = match opened {
+        Opened::Browser => "If no browser opened, open this address in one:".to_owned(),
+        Opened::Not(why) => {
+            format!("mailo could not open a browser ({why}). Open this address in one:")
+        }
+    };
+    rsx! {
+        p { class: "files-look acct-busy", role: "status", "Finish signing in in your browser" }
+        p { class: "capnote", "{how}" }
+        div { class: "acct-url",
+            span { class: "acct-link", "{url}" }
+            button {
+                class: "mini",
+                r#type: "button",
+                aria_label: "{copy_label}",
+                onclick: move |_| copy(&url),
+                "{copy_label}"
+            }
+        }
     }
 }

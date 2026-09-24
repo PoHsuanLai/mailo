@@ -47,6 +47,8 @@ pub(super) struct Fake {
     pub handed: Mutex<Vec<String>>,
     /// Where the fake add keeps credentials: `add_with_password` into a map, never the keyring.
     pub secrets: MapSecrets,
+    /// Every address the browser fake was asked to open. No browser is.
+    pub browsed: Mutex<Vec<String>>,
 }
 
 impl Fake {
@@ -70,17 +72,18 @@ impl Fake {
     }
 }
 
-/// Seams over `fake`: lookups answer `answer`, adds run the real add into the fake keyring, and
-/// an OAuth client is at hand when `client` says so.
+/// Seams over `fake`: lookups answer `answer`, adds run the real add into the fake keyring, an
+/// OAuth client is at hand when `client` says so, and the browser only writes down its address.
 pub(super) fn seams(fake: &Arc<Fake>, answer: Result<Found, String>, client: bool) -> Seams {
     let looking = fake.clone();
     let adding = fake.clone();
+    let browsing = fake.clone();
     Seams {
         lookup: Arc::new(move |_| {
             looking.looked.fetch_add(1, Ordering::SeqCst);
             answer.clone()
         }),
-        add: Arc::new(move |store, request| {
+        add: Arc::new(move |store, request, on_url| {
             adding.added.fetch_add(1, Ordering::SeqCst);
             if let Some(password) = &request.password {
                 adding
@@ -100,11 +103,21 @@ pub(super) fn seams(fake: &Arc<Fake>, answer: Result<Found, String>, client: boo
                     password: request.password.as_ref(),
                     saved: &OAuthRegistry::default(),
                     secrets: &adding.secrets,
+                    on_url,
                 },
             )
         }),
         client: Arc::new(move |_| client),
+        browse: Arc::new(move |url| {
+            browsing.browsed.lock().unwrap().push(url.to_owned());
+            Ok(())
+        }),
     }
+}
+
+/// The `on_url` for an add that must never reach a browser sign-in.
+fn no_browser(url: &str) {
+    panic!("a browser sign-in was started: {url}");
 }
 
 fn offered(stage: Stage) -> Offer {
@@ -202,6 +215,7 @@ fn using_the_offer_hands_the_password_to_the_add_and_it_lands_in_the_keyring_fak
         offer,
         Password::new("s3cret-pass".to_owned()),
         seams.add.as_ref(),
+        &no_browser,
     );
     let Stage::Added { said, account } = &stage else {
         panic!("not added: {stage:?}");
@@ -223,11 +237,23 @@ fn nothing_is_added_without_a_password_or_a_client_id() {
     let fake = Arc::new(Fake::default());
     let seams_pw = seams(&fake, Ok(found("ada@example.test")), false);
     let offer = offered(flow::look("ada@example.test", &seams_pw, now()));
-    let stage = flow::confirm(&store, offer, Password::default(), seams_pw.add.as_ref());
+    let stage = flow::confirm(
+        &store,
+        offer,
+        Password::default(),
+        seams_pw.add.as_ref(),
+        &no_browser,
+    );
     assert!(matches!(stage, Stage::Refused(..)), "{stage:?}");
 
     let gmail = offered(flow::look("ada@gmail.com", &seams_pw, now()));
-    let stage = flow::confirm(&store, gmail, Password::default(), seams_pw.add.as_ref());
+    let stage = flow::confirm(
+        &store,
+        gmail,
+        Password::default(),
+        seams_pw.add.as_ref(),
+        &no_browser,
+    );
     let Stage::Refused(_, why) = stage else {
         panic!("added without a client id");
     };
@@ -243,12 +269,13 @@ fn a_refused_add_says_so_and_keeps_the_offer() {
     let seams = seams(&fake, Ok(found("ada@example.test")), false);
     let offer = offered(flow::look("ada@example.test", &seams, now()));
     let refuse: &flow::Add =
-        &|_, _| Err("cannot save the password: the keyring is locked".to_owned());
+        &|_, _, _| Err("cannot save the password: the keyring is locked".to_owned());
     let stage = flow::confirm(
         &store,
         offer.clone(),
         Password::new("pw".to_owned()),
         refuse,
+        &no_browser,
     );
     assert_eq!(
         stage,
@@ -301,4 +328,61 @@ fn a_new_account_joins_a_scoped_space_and_not_an_open_one() {
     assert!(flow::widen(&mut scoped, account));
     assert!(!flow::widen(&mut scoped, account), "added twice");
     assert_eq!(scoped.scope, Scope::Accounts(vec![other, account]));
+}
+
+const SIGN_IN: &str = "https://accounts.example.test/o/oauth2/auth?client_id=abc&state=xyz";
+
+#[test]
+fn the_sign_in_address_goes_from_the_add_to_whoever_is_waiting() {
+    let (store, _dir) = store();
+    let fake = Arc::new(Fake::default());
+    let seams = seams(&fake, Err("unused".to_owned()), true);
+    let gmail = offered(flow::look("ada@gmail.com", &seams, now()));
+    let signs_in: &flow::Add = &|_, _, on_url| {
+        on_url(SIGN_IN);
+        Err("the sign-in was abandoned".to_owned())
+    };
+    let heard = Mutex::new(Vec::new());
+    let stage = flow::confirm(&store, gmail, Password::default(), signs_in, &|url| {
+        heard.lock().unwrap().push(url.to_owned())
+    });
+    assert!(matches!(stage, Stage::Refused(..)), "{stage:?}");
+    assert_eq!(*heard.lock().unwrap(), [SIGN_IN]);
+    assert!(
+        fake.browsed.lock().unwrap().is_empty(),
+        "confirm itself opened a browser"
+    );
+}
+
+#[test]
+fn the_sheet_is_told_whether_a_browser_took_the_address() {
+    let opens: &flow::Browse = &|_| Ok(());
+    let fails: &flow::Browse = &|_| Err("no browser found".to_owned());
+    let cases: &[(&str, &flow::Browse, flow::Opened)] = &[
+        ("opened", opens, flow::Opened::Browser),
+        (
+            "failed",
+            fails,
+            flow::Opened::Not("no browser found".to_owned()),
+        ),
+    ];
+    for (name, browse, opened) in cases {
+        assert_eq!(
+            flow::signing_in(SIGN_IN, browse),
+            flow::SigningIn {
+                url: SIGN_IN.to_owned(),
+                opened: opened.clone(),
+            },
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn the_real_browser_seam_refuses_in_tests() {
+    let real = Seams::real();
+    assert_eq!(
+        flow::signing_in(SIGN_IN, real.browse.as_ref()).opened,
+        flow::Opened::Not("no browser is opened in tests".to_owned())
+    );
 }

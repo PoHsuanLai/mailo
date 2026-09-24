@@ -13,7 +13,7 @@ use super::AddAccountSheet;
 use super::flow::Seams;
 use super::flow_tests::{Fake, found, seams};
 use crate::space::{Scope, Space, Spaces};
-use crate::ui::fixtures::{Seen, click, dispatching, rebuild_into, type_into};
+use crate::ui::fixtures::{Scripts, Seen, click, dispatching, rebuild_into, type_into};
 use crate::view::Shell;
 
 const PASSWORD: &str = "s3cret-pass-4417";
@@ -71,10 +71,13 @@ struct Open {
     dom: VirtualDom,
     seen: Seen,
     snapshot: Snapshot,
+    /// Every script the sheet ran: the clipboard's, for one.
+    scripts: Scripts,
 }
 
 fn open(store: &Arc<SqliteStore>, seams: Seams, scope: Vec<mail_domain::AccountId>) -> Open {
     let snapshot = Snapshot::default();
+    let scripts = Scripts::default();
     let mut dom = VirtualDom::new_with_props(
         Sheet,
         SheetProps {
@@ -83,12 +86,14 @@ fn open(store: &Arc<SqliteStore>, seams: Seams, scope: Vec<mail_domain::AccountI
         },
     )
     .with_root_context(store.clone())
-    .with_root_context(seams);
+    .with_root_context(seams)
+    .with_root_context(scripts.document());
     let seen = rebuild_into(&mut dom);
     Open {
         dom,
         seen,
         snapshot,
+        scripts,
     }
 }
 
@@ -271,6 +276,99 @@ async fn a_new_account_joins_a_scoped_space() {
     );
 }
 
+/// The address a fake sign-in waits on. No `&`, so the page holds it as written.
+const SIGN_IN: &str = "https://accounts.example.test/o/oauth2/auth?client_id=abc";
+
+/// Seams over `fake` whose add hands over [`SIGN_IN`] and then waits in the browser until the
+/// returned sender says the sign-in was given up. The browser is `fake`'s, which only writes the
+/// address down.
+fn signing_in(fake: &Arc<Fake>) -> (Seams, std::sync::mpsc::Sender<()>) {
+    let (give_up, given_up) = std::sync::mpsc::channel::<()>();
+    let given_up = Mutex::new(given_up);
+    let mut seams = seams(fake, Err("unused".to_owned()), true);
+    seams.add = Arc::new(move |_, _, on_url| {
+        on_url(SIGN_IN);
+        let _ = given_up.lock().unwrap().recv();
+        Err("the sign-in was abandoned".to_owned())
+    });
+    (seams, give_up)
+}
+
+/// The sheet over `seams` with Sign in with Google pressed, drawn until the sign-in's address
+/// arrived from the blocking add or a few quiet spells passed; returns everything that drew.
+async fn press_sign_in(store: &Arc<SqliteStore>, seams: Seams) -> (Open, Seen) {
+    let mut open = open(store, seams, Vec::new());
+    let seen = look_up(&mut open, "ada@gmail.com").await;
+    let mut drawn = click(&mut open.dom, seen.one("aria-label", "Sign in with Google"));
+    for _ in 0..20 {
+        drawn = drawn.merge(settle(&mut open.dom).await);
+        if page(&open).contains(SIGN_IN) {
+            break;
+        }
+    }
+    (open, drawn)
+}
+
+#[tokio::test]
+async fn a_browser_sign_in_shows_its_address_to_copy_and_opens_it_through_the_seam() {
+    dispatching();
+    let (store, _dir) = store();
+    let fake = Arc::new(Fake::default());
+    let (seams, give_up) = signing_in(&fake);
+    let (mut open, seen) = press_sign_in(&store, seams).await;
+
+    let shown = page(&open);
+    assert!(
+        shown.contains("Finish signing in in your browser"),
+        "{shown}"
+    );
+    assert!(shown.contains(&format!(">{SIGN_IN}<")), "{shown}");
+    assert!(!shown.contains("printed in the terminal"), "{shown}");
+    assert_eq!(*fake.browsed.lock().unwrap(), [SIGN_IN], "the browser seam");
+
+    let before = open.scripts.all().len();
+    click(&mut open.dom, seen.one("aria-label", "Copy"));
+    let ran = open.scripts.all();
+    assert_eq!(ran.len(), before + 1, "{ran:?}");
+    assert!(
+        ran[before].contains("navigator.clipboard.writeText")
+            && ran[before].contains(&serde_json::to_string(SIGN_IN).unwrap()),
+        "{ran:?}"
+    );
+
+    give_up.send(()).unwrap();
+    settle(&mut open.dom).await;
+    let shown = page(&open);
+    assert!(
+        shown.contains("Not added: the sign-in was abandoned"),
+        "{shown}"
+    );
+    assert!(
+        !shown.contains(SIGN_IN),
+        "the address outlived the sign-in: {shown}"
+    );
+    assert_eq!(fake.browsed.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn a_browser_that_will_not_open_leaves_the_address_to_open_by_hand() {
+    dispatching();
+    let (store, _dir) = store();
+    let fake = Arc::new(Fake::default());
+    let (mut seams, give_up) = signing_in(&fake);
+    // The window's own seam, which under test refuses.
+    seams.browse = Seams::real().browse;
+    let (mut open, _) = press_sign_in(&store, seams).await;
+    let shown = page(&open);
+    assert!(
+        shown.contains("mailo could not open a browser (no browser is opened in tests)"),
+        "{shown}"
+    );
+    assert!(shown.contains(&format!(">{SIGN_IN}<")), "{shown}");
+    give_up.send(()).unwrap();
+    settle(&mut open.dom).await;
+}
+
 /// The sheet in each state worth looking at, as `(name, markup)`.
 async fn every_state() -> Vec<(&'static str, String)> {
     let mut all = Vec::new();
@@ -303,6 +401,12 @@ async fn every_state() -> Vec<(&'static str, String)> {
     look_up(&mut oauth, "ada@gmail.com").await;
     all.push(("oauth", page(&oauth)));
 
+    let (signs_in, give_up) = signing_in(&fake);
+    let (mut waiting, _) = press_sign_in(&store, signs_in).await;
+    all.push(("oauth-waiting", page(&waiting)));
+    give_up.send(()).unwrap();
+    settle(&mut waiting.dom).await;
+
     let mut missing = open(&store, seams(&fake, ok("unused@x.test"), false), Vec::new());
     look_up(&mut missing, "ada@gmail.com").await;
     all.push(("oauth-missing", page(&missing)));
@@ -331,6 +435,8 @@ async fn every_class_the_add_account_sheet_draws_is_styled() {
         "acct-done",
         "secret",
         "acct-said",
+        "acct-url",
+        "acct-link",
     ] {
         assert!(markup.contains(class), "{class} was not drawn");
     }

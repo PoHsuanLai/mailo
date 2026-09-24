@@ -102,6 +102,7 @@ fn add_with_password_keeps_the_password_in_the_store_it_is_handed_and_nowhere_el
             password: Some(&password),
             saved: &OAuthRegistry::default(),
             secrets: &secrets,
+            on_url: &|url| panic!("a password account asked for a browser: {url}"),
         },
     )
     .unwrap();
@@ -140,6 +141,7 @@ fn no_password_stores_nothing_and_says_so() {
                 password,
                 saved: &OAuthRegistry::default(),
                 secrets: &secrets,
+                on_url: &|url| panic!("a password account asked for a browser: {url}"),
             },
         )
         .unwrap();
