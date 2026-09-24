@@ -53,6 +53,7 @@ pub(super) enum Icon {
     Settings,
     PanelLeft,
     Plus,
+    Printer,
 }
 
 impl Icon {
@@ -94,6 +95,7 @@ impl Icon {
         Icon::Settings,
         Icon::PanelLeft,
         Icon::Plus,
+        Icon::Printer,
     ];
 
     /// The children of this glyph, in the design's order.
@@ -132,6 +134,7 @@ impl Icon {
             Icon::Settings => SETTINGS,
             Icon::PanelLeft => PANEL_LEFT,
             Icon::Plus => PLUS,
+            Icon::Printer => PRINTER,
         }
     }
 }
@@ -282,9 +285,10 @@ mod tests {
     fn the_set_matches_icons_js() {
         // The first 23 are the keys of `ICON` in mailo-design/icons.js (inbox through key).
         // The rest are the glyphs the frame's places, rows and foot draw, fetched from Lucide.
-        // Plus is the Spaces mockup's `ICON.plus`: the foot's "New Space".
+        // Plus is the Spaces mockup's `ICON.plus`: the foot's "New Space". Printer is Lucide's
+        // `printer`, the reader head's Print.
         const KEYS_IN_ICONS_JS: usize = 23;
-        const FRAME_GLYPHS: usize = 10;
+        const FRAME_GLYPHS: usize = 11;
         assert_eq!(
             Icon::ALL.len(),
             KEYS_IN_ICONS_JS + FRAME_GLYPHS,

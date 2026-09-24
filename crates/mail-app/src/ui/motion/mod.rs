@@ -147,6 +147,14 @@ pub(in crate::ui) fn tell(text: String, follow: Follow) {
     }
 }
 
+/// [`tell`], through motion state looked up earlier: for a task that outlives the component
+/// that started it, where the lookup would no longer find the window's.
+pub(in crate::ui) fn tell_through(motion: Option<Motion>, text: String) {
+    if let Some(motion) = motion {
+        motion.say(text, Follow::Nothing);
+    }
+}
+
 /// Take back the newest op. The toast's tab, and Ctrl Z.
 pub(super) fn undo_last(
     store: &SqliteStore,

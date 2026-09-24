@@ -256,3 +256,16 @@ pub(super) const PANEL_LEFT: &[Shape] = &[
 ];
 
 pub(super) const PLUS: &[Shape] = &[Shape::Path("M5 12h14"), Shape::Path("M12 5v14")];
+
+/// Lucide `printer`: the reader head's Print.
+pub(super) const PRINTER: &[Shape] = &[
+    Shape::Path("M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"),
+    Shape::Path("M6 9V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6"),
+    Shape::Rect {
+        x: "6",
+        y: "14",
+        width: "12",
+        height: "8",
+        rx: "1",
+    },
+];

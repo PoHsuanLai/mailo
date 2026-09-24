@@ -284,6 +284,13 @@ fn run_action(
             }
             close(shell);
         }
+        "Print conversation" => {
+            close(shell);
+            let open = shell.read().open;
+            if let Some(job) = super::print::job_for(open) {
+                super::print::print(job);
+            }
+        }
         "Hide sidebar" => {
             side_hidden.set(!side_hidden());
             close(shell);

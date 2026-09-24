@@ -218,6 +218,7 @@ pub(super) fn Reader(
                     span { class: "spacer" }
                 }
                 div { class: "bar-tools",
+                    super::print::PrintTool { thread }
                     {peek_tool(Peek::Side, peek, Icon::Panel, shell)}
                     {peek_tool(Peek::Center, peek, Icon::Square, shell)}
                     {peek_tool(Peek::Full, peek, Icon::Maximize, shell)}

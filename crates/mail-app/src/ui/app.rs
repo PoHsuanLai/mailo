@@ -355,6 +355,14 @@ pub(super) fn App() -> Element {
             super::reading::open_find(shell);
             return;
         }
+        if (key == "p" || key == "P") && event.modifiers().ctrl() {
+            // The open conversation, as one flow. Nothing open: nothing printed, nothing said.
+            let open = shell.read().open;
+            if let Some(job) = super::print::job_for(open) {
+                super::print::print(job);
+            }
+            return;
+        }
         if (key == "t" || key == "T") && event.modifiers().ctrl() {
             let open = shell.read().command.is_some();
             if open {

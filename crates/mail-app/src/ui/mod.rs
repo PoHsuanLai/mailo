@@ -28,6 +28,7 @@ mod motion;
 mod ops;
 mod page;
 mod paint;
+mod print;
 mod reading;
 mod receipt;
 mod row;

@@ -59,6 +59,12 @@ rfd = { version = "=0.17.2", default-features = false, features = ["xdg-portal"]
 # `mailo contacts sync` takes a URL and hands it to the CardDAV client, which speaks `url`.
 url = "2"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+# Printing: the print operation over the printed document's own webview, made here rather than
+# through `wry`'s `print()` because only the operation's `finished` signal says when that window
+# may close (`ui/print/window.rs`). Already in the lock through wry, at the version wry uses.
+webkit2gtk = "2.0"
+
 [dev-dependencies]
 tempfile = "3"
 # A paused clock, so a test drives the search box's debounce instead of sleeping through it.

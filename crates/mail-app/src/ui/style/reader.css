@@ -236,6 +236,11 @@ article.frame header .view-switch { margin-left: 0; }
 .leave-url .dim { color: var(--ink-faint); }
 .leave-ask .why { margin: 8px 8px 0; font-size: 12px; line-height: 1.4; color: var(--danger); }
 .leave-ask .acts { display: flex; justify-content: flex-end; gap: 6px; padding: 10px 8px 0; }
+/* ---- printing: the head's Print, and its menu of pages ---- */
+.bar-tools .print-menu { width: 330px; max-height: none; padding: 5px 5px 9px; outline: none; }
+.print-menu .seg { display: flex; margin: 4px 8px 0; }
+.print-menu .seg button { flex: 1; white-space: normal; text-align: center; }
+.print-menu .acts { display: flex; justify-content: flex-end; gap: 6px; padding: 10px 8px 0; }
 /* a message asking for a read receipt: a quiet bar under the head, never an interruption */
 .receipt {
   display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 11px;

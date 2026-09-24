@@ -20,6 +20,7 @@ pub(in crate::ui) fn commands() -> Vec<Command> {
     [
         "Compose",
         "New from template",
+        "Print conversation",
         "Sync now",
         "Go to Inbox",
         "Go to Starred",
@@ -249,6 +250,7 @@ fn action_item(hit: &ActionHit, group: &str) -> MenuItem {
     let shortcut = match hit.command.label.as_str() {
         "Compose" => Some("C".to_owned()),
         "Hide sidebar" => Some("Ctrl S".to_owned()),
+        "Print conversation" => Some("Ctrl P".to_owned()),
         _ => None,
     };
     MenuItem {
@@ -268,6 +270,7 @@ fn action_icon(label: &str) -> Icon {
     match label {
         "Compose" => Icon::Pen,
         "New from template" => Icon::FilePen,
+        "Print conversation" => Icon::Printer,
         "Sync now" => Icon::Refresh,
         "Hide sidebar" => Icon::PanelLeft,
         "Theme light" | "Theme dark" | "Theme system" => Icon::Settings,
