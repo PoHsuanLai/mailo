@@ -1,18 +1,18 @@
-/* The Space editor. Ported from the mockup's `.editor`, which sat beside the window; here it
-   is a sheet over the frame, above the foot it was opened from, so the frame behind it stays
-   in view while every change repaints it. It is on the card's paper, not the frame's. */
+/* The Space editor: a sheet over the frame, above the foot it was opened from, so the frame
+   behind it stays in view while every change repaints it. The sheet is two cards that scroll
+   together: quire's SpaceEditor, then mailo's own rows under it on the same paper. */
 .editor {
   position: absolute; left: 12px; bottom: 50px; z-index: var(--z-card); width: 300px;
   max-height: calc(100% - 66px); overflow-y: auto; scrollbar-width: thin;
-  display: grid; gap: var(--s-14); padding: var(--s-14);
-  background: var(--surface); color: var(--ink);
-  border: 1px solid var(--line); border-radius: var(--r-panel); box-shadow: var(--shadow-2);
+  display: grid; gap: var(--s-8); color: var(--ink);
   animation: cmdk-rise var(--t-move) var(--e-spring);
 }
 /* It moves on open and never fades: a frame caught mid-open still shows an opaque sheet. */
-.editor h3 { font-size: var(--fs-base); display: flex; align-items: center; gap: var(--s-8); margin: 0; }
-.editor h3 .sw { width: 14px; height: 14px; border-radius: var(--r-pill); flex: none; }
-.editor h3 .inp.ed-name { flex: 1; min-width: 0; font-family: var(--font-display); font-weight: 700; font-size: var(--fs-base); padding: var(--s-5) var(--s-8); }
+.ed-more {
+  display: grid; gap: var(--s-14); padding: var(--s-14);
+  background: var(--surface); color: var(--ink);
+  border: var(--hair) solid var(--line); border-radius: var(--r-panel); box-shadow: var(--shadow-1);
+}
 .ed-label {
   display: flex; align-items: center; margin-bottom: var(--s-6);
   font-family: var(--font-data); font-size: var(--fs-caption); letter-spacing: 0.14em; text-transform: uppercase;
@@ -20,66 +20,14 @@
 }
 .ed-label .r { margin-left: auto; letter-spacing: 0.02em; text-transform: none; }
 
-/* The hue x chroma field. Exactly `hue.rs`'s FIELD_W x FIELD_H: the pointer's offset is divided
-   by those, so a field drawn at any other size would put a dot beside the pointer. */
-.field {
-  position: relative; width: 270px; height: 176px; border-radius: var(--r-tile); overflow: hidden;
-  cursor: crosshair; touch-action: none; background: var(--surface-2);
-  box-shadow: inset 0 0 0 1px var(--line);
-}
-.field.dragging { cursor: grabbing; }
-.field-dots { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-.field-hit { position: absolute; inset: 0; z-index: var(--z-raise); }
-.handle {
-  position: absolute; z-index: 2; width: 22px; height: 22px; margin: calc(-1 * var(--s-11)) 0 0 calc(-1 * var(--s-11));
-  border-radius: var(--r-pill); border: 3px solid var(--handle-ring); box-shadow: var(--shadow-handle);
-  pointer-events: none; transition: transform var(--t-tap) var(--e-out);
-}
-.handle.on { transform: scale(1.15); }
-.handle:focus-visible { outline: 2.5px solid var(--accent); outline-offset: 2px; border-radius: var(--r-pill); }
-
-.stops { display: flex; gap: var(--s-6); align-items: center; margin-top: var(--s-8); flex-wrap: wrap; }
-.stop {
-  display: inline-flex; align-items: center; gap: var(--s-5); padding: var(--s-3) var(--s-5) var(--s-3) var(--s-4);
-  border: 1px solid var(--line); background: var(--surface-2); border-radius: var(--r-pill);
-  font-family: var(--font-data); font-size: var(--fs-caption); color: var(--ink-soft); cursor: pointer;
-}
-.stop i { width: 14px; height: 14px; border-radius: var(--r-pill); display: block; }
-.stop[*|aria-pressed="true"] { border-color: var(--ink-faint); color: var(--ink); }
-.stop .rm { border: 0; background: none; padding: 0; cursor: pointer; color: var(--ink-faint); line-height: 0; }
-
-.inp.range {
-  display: block; width: 100%; padding: 0; margin: 0; border: 0; background: none;
-  accent-color: var(--accent); box-shadow: none;
-}
-.inp.range:focus { box-shadow: none; }
-
-.presets { display: grid; grid-template-columns: repeat(7, 1fr); gap: var(--s-6); }
-.presets button {
-  aspect-ratio: 1; border-radius: var(--r-pill); border: 1px solid var(--line); cursor: pointer; padding: 0;
-  transition: transform var(--t-quick) var(--e-spring);
-}
-.presets button:hover { transform: scale(1.1); }
-
-.checks { display: grid; gap: var(--s-5); font-size: var(--fs-small); }
-.checks + .checks { margin-top: var(--s-8); }
-.check-h { font-family: var(--font-data); font-size: var(--fs-caption); color: var(--ink-faint); }
-.check { display: flex; align-items: center; gap: var(--s-8); color: var(--ink-soft); }
-.check .v { margin-left: auto; font-family: var(--font-data); font-size: var(--fs-note); font-variant-numeric: tabular-nums; }
-.pill { font-family: var(--font-data); font-size: var(--fs-micro); padding: var(--s-1) var(--s-7); border-radius: var(--r-pill); }
-.pill.ok { background: var(--c-green-soft); color: var(--ok); }
-.pill.bad { background: var(--c-red-soft); color: var(--danger); }
 .capnote { font-size: var(--fs-help); color: var(--ink-faint); line-height: 1.45; margin: 0; }
 
 /* Save stays in reach however far the sheet is scrolled. */
 .ed-foot {
-  position: sticky; bottom: -14px; z-index: 3; display: flex; justify-content: flex-end; gap: var(--s-8);
-  margin: 0 calc(-1 * var(--s-14)) calc(-1 * var(--s-14)); padding: var(--s-10) var(--s-14); background: var(--surface); border-top: 1px solid var(--line-soft);
+  position: sticky; bottom: 0; z-index: 3; display: flex; justify-content: flex-end; gap: var(--s-8);
+  padding: var(--s-10) var(--s-14); background: var(--surface); border: var(--hair) solid var(--line-soft);
+  border-radius: var(--r-panel); box-shadow: var(--shadow-1);
 }
 .ed-foot .k { font-family: var(--font-data); font-size: var(--fs-caption); font-weight: 400; color: var(--ink-faint); }
 .mini.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
 .mini.primary:hover { background: var(--accent); color: var(--accent-ink); }
-
-/* A Space's gradient in the scheme the window's root resolved to, as `--g` from `gradient_in`:
-   quire answers System in Rust, so each swatch carries only the gradient it shows. */
-.editor h3 .sw, .presets button { background: var(--g); }

@@ -12,20 +12,20 @@ mod templates;
 pub(in crate::ui) use items::avatar_color;
 
 use super::debounce::{Settled, use_debounced};
-use super::field::{Field, FieldKind};
-use super::menu::{Menu, MenuItem, MenuKey, MenuState};
+use super::menu::quire_groups;
 use super::ops::start_new;
 use crate::search::Results;
 use crate::view::{PageMenu, Shell, Theme};
 use chrono::Utc;
 use dioxus::prelude::*;
-use ds::Icon;
 use items::{Pick, interpret, rows_of, search_now, tokens};
 use mail_store::SqliteStore;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-/// The centred overlay. Open while `shell.command` is `Some`.
+/// The centred overlay: quire's `CommandPalette`, rising opaque. Open while `shell.command` is
+/// `Some`. It floats over the window on quire's palette layer, so the keys typed into it never
+/// reach the window's shortcuts.
 #[component]
 pub(super) fn CommandMenu(
     shell: Signal<Shell>,
@@ -34,7 +34,6 @@ pub(super) fn CommandMenu(
     side_hidden: Signal<bool>,
     sync_state: Signal<crate::view::SyncState>,
     spaces: Signal<crate::space::Spaces>,
-    in_a_field: Signal<bool>,
 ) -> Element {
     let query = shell.read().command.clone().unwrap_or_default();
     let debounced = use_debounced(shell, |shell| shell.command.clone().unwrap_or_default());
@@ -60,16 +59,8 @@ pub(super) fn CommandMenu(
     });
     let shown = drawn.read();
     let items = rows_of(&shown.results, &shown.names, &shown.settled.text);
-    let answered = shown.settled.clone();
     drop(shown);
     let chips = tokens(&query);
-    let mut keys = use_signal(|| MenuState::new(false));
-    let mut seen = use_signal(Settled::default);
-    if seen() != answered {
-        seen.set(answered);
-        keys.write().restart();
-    }
-    let active = keys.read().active().min(items.len().saturating_sub(1));
     let placeholder = "Search mail, people, actions · try from:dana or has:attachment".to_owned();
     // "New from template" lists the templates in this same overlay rather than running anything.
     let mut listing = use_signal(|| Listing::Search);
@@ -89,68 +80,38 @@ pub(super) fn CommandMenu(
         ),
     };
     if listing() == Listing::Templates {
-        return rsx! { templates::TemplateMenu { shell, revision, in_a_field } };
+        return rsx! { templates::TemplateMenu { shell, revision } };
     }
+    let groups = quire_groups(&items, ds::AvatarSize::Size34, None);
     rsx! {
-        div {
-            class: "cmdk-wrap",
-            onclick: move |_| close(shell),
-            div {
-                class: "cmdk",
-                role: "dialog",
-                aria_label: "Search and commands",
-                onclick: move |event| event.stop_propagation(),
-                onkeydown: move |event| {
-                    let Some(key) = super::menu::menu_key(&event.key().to_string()) else {
-                        return;
-                    };
-                    if matches!(key, MenuKey::Character(_) | MenuKey::Backspace) {
-                        return;
-                    }
-                    event.stop_propagation();
-                    let current = drawn.read().items();
-                    match keys.write().on_key(key, &current) {
-                        super::menu::MenuEvent::Pick(key) => choose(drawn.read().pick(&key)),
-                        super::menu::MenuEvent::Close => close(shell),
-                        _ => {}
-                    }
-                },
-                div { class: "cmdk-in",
-                    ds::Glyph { icon: Icon::Search }
-                    Field {
-                        kind: FieldKind::Inline,
-                        value: query.clone(),
-                        placeholder,
-                        extra: None,
-                        on_input: move |value| {
-                            shell.write().command = Some(value);
-                        },
-                        on_focus: move |_| in_a_field.set(true),
-                        on_blur: move |_| in_a_field.set(false),
-                    }
-                }
-                if !chips.is_empty() {
-                    div { class: "tokens",
-                        for chip in chips {
-                            span { key: "{chip}", class: "tok", "{chip}" }
-                        }
-                    }
-                }
-                Menu {
-                    title: String::new(),
-                    items,
-                    filterable: false,
-                    on_pick: move |key: String| {
-                        let pick = drawn.read().pick(&key);
-                        choose(pick);
-                    },
-                    on_close: move |_| close(shell),
-                    on_query: move |_| {},
-                    slim: false,
-                    active: Some(active),
-                }
-            }
+        ds::CommandPalette::<String> {
+            label: "Search and commands".to_owned(),
+            placeholder,
+            query,
+            tokens: chips,
+            groups,
+            empty: "Nothing matches.".to_owned(),
+            entrance: ds::PaletteEntrance::Opaque,
+            oninput: move |value| {
+                shell.write().command = Some(value);
+            },
+            onpick: move |key: String| {
+                let pick = drawn.read().pick(&key);
+                choose(pick);
+            },
+            onclose: move |()| close(shell),
+            onkey: move |event: KeyboardEvent| toggle_key(&event, shell),
         }
+    }
+}
+
+/// Ctrl T in the palette's field closes it, as Ctrl T in the window opens it. The field holds
+/// the keyboard while the palette is up, so the window's own shortcut never hears it.
+fn toggle_key(event: &KeyboardEvent, shell: Signal<Shell>) {
+    let key = event.key().to_string();
+    if event.modifiers().ctrl() && (key == "t" || key == "T") {
+        event.prevent_default();
+        close(shell);
     }
 }
 
@@ -180,11 +141,6 @@ impl Drawn {
             results,
             names,
         }
-    }
-
-    /// The rows this answer paints.
-    fn items(&self) -> Vec<MenuItem> {
-        rows_of(&self.results, &self.names, &self.settled.text)
     }
 
     /// What the row keyed `key` does, read back against this answer.

@@ -1,6 +1,7 @@
 //! The bar under the reader's head: a message asking for a receipt, and the two answers.
 
 use super::super::motion::{Follow, tell};
+use super::super::press::{available, on_primary};
 use super::{Bodies, Line, Standing, answer, cached, line, lookup};
 use crate::receipt::ReceiptState;
 use dioxus::prelude::*;
@@ -85,21 +86,19 @@ pub(in crate::ui) fn Bar(
                         p { class: "why", "{why}" }
                     }
                     div { class: "acts",
-                        button {
-                            class: "mini",
-                            r#type: "button",
-                            aria_label: "{decline}",
-                            disabled: working,
-                            onclick: move |_| give(message, ReceiptAnswer::Declined, phase, known),
-                            "{decline}"
+                        ds::Button {
+                            variant: ds::ButtonVariant::Mini,
+                            label: decline.to_string(),
+                            aria_label: decline.to_string(),
+                            availability: available(!working),
+                            onclick: on_primary(move || give(message, ReceiptAnswer::Declined, phase, known)),
                         }
-                        button {
-                            class: "mini primary",
-                            r#type: "button",
-                            aria_label: "{send}",
-                            disabled: working,
-                            onclick: move |_| give(message, ReceiptAnswer::Sent, phase, known),
-                            if working { "Working…" } else { "{send}" }
+                        ds::Button {
+                            variant: ds::ButtonVariant::Primary,
+                            label: if working { "Working…".to_owned() } else { send.to_string() },
+                            aria_label: send.to_string(),
+                            availability: available(!working),
+                            onclick: on_primary(move || give(message, ReceiptAnswer::Sent, phase, known)),
                         }
                     }
                 }

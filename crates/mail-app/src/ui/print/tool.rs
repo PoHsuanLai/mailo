@@ -1,5 +1,6 @@
 //! The reader head's Print tool, and the small menu it opens.
 
+use super::super::press::on_primary;
 use super::{Job, print, save};
 use dioxus::prelude::*;
 use ds::{IconButton, IconButtonVariant, SegmentedControl, Switch};
@@ -66,25 +67,23 @@ fn PrintMenu(thread: ThreadId, pages: Signal<Pages>, open: Signal<bool>) -> Elem
                 onchange: move |choice| pages.set(choice),
             }
             div { class: "acts",
-                button {
-                    class: "mini",
-                    r#type: "button",
-                    aria_label: "{save_label}",
-                    onclick: move |_| {
+                ds::Button {
+                    variant: ds::ButtonVariant::Mini,
+                    label: save_label.to_string(),
+                    aria_label: save_label.to_string(),
+                    onclick: on_primary(move || {
                         open.set(false);
                         save(job);
-                    },
-                    "{save_label}"
+                    }),
                 }
-                button {
-                    class: "mini primary",
-                    r#type: "button",
-                    aria_label: "{print_label}",
-                    onclick: move |_| {
+                ds::Button {
+                    variant: ds::ButtonVariant::Primary,
+                    label: print_label.to_string(),
+                    aria_label: print_label.to_string(),
+                    onclick: on_primary(move || {
                         open.set(false);
                         print(job);
-                    },
-                    "{print_label}"
+                    }),
                 }
             }
         }

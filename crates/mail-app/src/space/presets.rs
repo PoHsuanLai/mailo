@@ -1,123 +1,34 @@
-//! The gradients a new Space is tinted from, and the six retired accent hues.
+//! The gradients a new Space is tinted from: quire's eight presets, the ones its Space editor
+//! offers.
+//!
+//! The six Part A accent hues mailo once kept among them (Postmark, Graphite, Pine, Indigo,
+//! Oxblood, Vermilion) are retired: the editor is quire's, and it offers quire's eight. A Space
+//! made from one of them keeps its dots; only the preset is gone.
 
 use ds::Dot;
 
-/// The eight gradients from the mockup, then the six Part A accent hues as single dots.
-///
-/// The accent dots sit at chroma 0.7, except graphite, whose own colour is almost
-/// neutral and is stored at 0.08. Each hue is the OKLCH hue of that Part A swatch.
-pub const PRESETS: &[&[Dot]] = &[
-    &[
-        Dot {
-            hue: 268.0,
-            chroma: 0.72,
-        },
-        Dot {
-            hue: 318.0,
-            chroma: 0.55,
-        },
-    ],
-    &[
-        Dot {
-            hue: 152.0,
-            chroma: 0.62,
-        },
-        Dot {
-            hue: 62.0,
-            chroma: 0.55,
-        },
-        Dot {
-            hue: 28.0,
-            chroma: 0.5,
-        },
-    ],
-    &[Dot {
-        hue: 220.0,
-        chroma: 0.7,
-    }],
-    &[
-        Dot {
-            hue: 20.0,
-            chroma: 0.66,
-        },
-        Dot {
-            hue: 55.0,
-            chroma: 0.6,
-        },
-    ],
-    &[
-        Dot {
-            hue: 190.0,
-            chroma: 0.6,
-        },
-        Dot {
-            hue: 240.0,
-            chroma: 0.55,
-        },
-    ],
-    &[
-        Dot {
-            hue: 340.0,
-            chroma: 0.6,
-        },
-        Dot {
-            hue: 290.0,
-            chroma: 0.5,
-        },
-    ],
-    &[Dot {
-        hue: 95.0,
-        chroma: 0.5,
-    }],
-    &[Dot {
-        hue: 250.0,
-        chroma: 0.06,
-    }],
-    &[Dot {
-        hue: 257.437_8,
-        chroma: 0.7,
-    }],
-    &[Dot {
-        hue: 137.85431,
-        chroma: 0.08,
-    }],
-    &[Dot {
-        hue: 164.06635,
-        chroma: 0.7,
-    }],
-    &[Dot {
-        hue: 276.64212,
-        chroma: 0.7,
-    }],
-    &[Dot {
-        hue: 22.80671,
-        chroma: 0.7,
-    }],
-    &[Dot {
-        hue: 32.172_4,
-        chroma: 0.7,
-    }],
+/// quire's presets' dots, in their order (design/21-SPACES.md section 4).
+pub const PRESETS: [&[Dot]; 8] = [
+    ds::PRESETS[0].dots,
+    ds::PRESETS[1].dots,
+    ds::PRESETS[2].dots,
+    ds::PRESETS[3].dots,
+    ds::PRESETS[4].dots,
+    ds::PRESETS[5].dots,
+    ds::PRESETS[6].dots,
+    ds::PRESETS[7].dots,
 ];
 
-/// What the editor calls each preset, in [`PRESETS`] order.
-///
-/// The last six are the accent hues the window used to offer on their own, kept by name so
-/// someone who chose Pine still finds Pine.
-pub const PRESET_NAMES: &[&str] = &[
-    "Dusk",
-    "Orchard",
-    "Harbour",
-    "Ember",
-    "Lagoon",
-    "Heather",
-    "Moss",
-    "Stone",
-    "Postmark",
-    "Graphite",
-    "Pine",
-    "Indigo",
-    "Oxblood",
-    "Vermilion",
+/// What the editor calls each preset, in [`PRESETS`] order: quire's names.
+pub const PRESET_NAMES: [&str; 8] = [
+    ds::PRESETS[0].name,
+    ds::PRESETS[1].name,
+    ds::PRESETS[2].name,
+    ds::PRESETS[3].name,
+    ds::PRESETS[4].name,
+    ds::PRESETS[5].name,
+    ds::PRESETS[6].name,
+    ds::PRESETS[7].name,
 ];
 
 #[cfg(test)]

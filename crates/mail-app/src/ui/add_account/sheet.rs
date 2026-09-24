@@ -9,11 +9,12 @@ use mail_store::SqliteStore;
 
 use super::super::field::{Field, FieldKind};
 use super::super::hover::copy;
+use super::super::press::{SheetClose, available, on_primary};
 use super::flow::{self, Client, Hand, Offer, Opened, SignIn, SigningIn, Stage};
 use crate::password::Password;
 use crate::space::Spaces;
 use crate::view::Shell;
-use ds::{Button, ButtonVariant, Glyph, Icon, InputVariant, SegmentedControl, TextInput};
+use ds::{Button, ButtonVariant, Icon, InputVariant, SegmentedControl, TextInput};
 
 /// Look up what is typed, off the thread that draws. Call it from an event handler (F140).
 fn look_up(shell: Signal<Shell>, mut stage: Signal<Stage>) {
@@ -192,13 +193,7 @@ pub(in crate::ui) fn AddAccountSheet(
                 onclick: move |event| event.stop_propagation(),
                 div { class: "files-head",
                     h3 { "Add account" }
-                    button {
-                        class: "mini",
-                        r#type: "button",
-                        onclick: move |_| super::close(shell),
-                        "Close"
-                        span { class: "k", "Esc" }
-                    }
+                    SheetClose { on_close: move |()| super::close(shell) }
                 }
                 div { class: "files-main",
                     span { class: "files-k", "Address" }
@@ -216,21 +211,21 @@ pub(in crate::ui) fn AddAccountSheet(
                     } }
                 }
                 div { class: "files-foot",
-                    button {
-                        class: "mini",
-                        r#type: "button",
-                        aria_label: "{dismiss}",
-                        onclick: move |_| super::close(shell),
-                        "{dismiss}"
+                    ds::Button {
+                        variant: ds::ButtonVariant::Mini,
+                        label: dismiss.to_string(),
+                        aria_label: dismiss.to_string(),
+                        onclick: on_primary(move || super::close(shell)),
                     }
-                    button {
-                        class: "mini primary",
-                        r#type: "button",
-                        aria_label: "{primary}",
-                        disabled: !enabled,
-                        onclick: press,
-                        Glyph { icon }
-                        "{primary}"
+                    span { class: "go",
+                        ds::Button {
+                            variant: ds::ButtonVariant::Primary,
+                            label: primary.to_string(),
+                            icon,
+                            aria_label: primary.to_string(),
+                            availability: available(enabled),
+                            onclick: on_primary(move || press(())),
+                        }
                     }
                 }
             }
@@ -514,12 +509,11 @@ fn Browser(signing: SigningIn) -> Element {
         p { class: "capnote", "{how}" }
         div { class: "acct-url",
             span { class: "acct-link", "{url}" }
-            button {
-                class: "mini",
-                r#type: "button",
-                aria_label: "{copy_label}",
-                onclick: move |_| copy(&url),
-                "{copy_label}"
+            ds::Button {
+                variant: ds::ButtonVariant::Mini,
+                label: copy_label.to_string(),
+                aria_label: copy_label.to_string(),
+                onclick: on_primary(move || copy(&url)),
             }
         }
     }

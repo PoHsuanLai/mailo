@@ -10,9 +10,10 @@ use std::sync::Arc;
 use super::super::files::work::grouped;
 use super::super::files::{Phase, run};
 use super::super::motion::{Follow, tell};
+use super::super::press::{available, on_primary};
 use super::editor::RuleEditor;
 use super::work::{self, Draft, Listed, Step};
-use ds::{Glyph, Icon};
+use ds::Icon;
 
 /// The rules part of the sheet.
 #[component]
@@ -68,13 +69,12 @@ pub(super) fn RulesPart(account: AccountId, revision: Signal<u64>) -> Element {
                 RuleEditor { account, editing, changed, said }
             } else {
                 div { class: "rules-acts",
-                    button {
-                        class: "mini",
-                        r#type: "button",
-                        aria_label: "{new_label}",
-                        onclick: move |_| editing.set(Some(Draft::blank())),
-                        Glyph { icon: Icon::Plus, size: ds::IconSize::Tiny }
-                        "New rule"
+                    ds::Button {
+                        variant: ds::ButtonVariant::Mini,
+                        label: "New rule".to_owned(),
+                        icon: Icon::Plus,
+                        aria_label: new_label.to_string(),
+                        onclick: on_primary(move || editing.set(Some(Draft::blank()))),
                     }
                 }
             }
@@ -115,19 +115,19 @@ fn RuleRow(
     let edit = listed.clone();
     rsx! {
         li { class: "{class}",
-            button {
+            // quire's switch; the hint that says what on and off mean is mailo's, around it.
+            span {
                 class: "rules-switch",
-                r#type: "button",
-                role: "switch",
-                aria_checked: if on { "true" } else { "false" },
-                aria_label: "{name} on",
                 title: if on { "On: it sorts new mail" } else { "Off: kept, and skipped" },
-                onclick: move |_| {
-                    let store = consume_context::<Arc<SqliteStore>>();
-                    let state = if on { RuleState::Disabled } else { RuleState::Enabled };
-                    write(work::switch(&store, &toggled, state));
-                },
-                span {}
+                ds::Toggle {
+                    label: format!("{name} on"),
+                    value: if on { ds::Switch::On } else { ds::Switch::Off },
+                    onchange: move |_| {
+                        let store = consume_context::<Arc<SqliteStore>>();
+                        let state = if on { RuleState::Disabled } else { RuleState::Enabled };
+                        write(work::switch(&store, &toggled, state));
+                    },
+                }
             }
             div { class: "rules-text",
                 b { "{name}" }
@@ -135,45 +135,42 @@ fn RuleRow(
                 span { class: "rules-does", "{listed.does}" }
             }
             div { class: "rules-row-acts",
-                button {
-                    class: "ghost",
-                    r#type: "button",
-                    aria_label: "Move {name} up",
-                    disabled: first,
-                    onclick: move |_| {
+                ds::Button {
+                    variant: ds::ButtonVariant::Secondary,
+                    label: "↑".to_owned(),
+                    aria_label: format!("Move {name} up"),
+                    availability: available(!first),
+                    onclick: on_primary(move || {
                         let store = consume_context::<Arc<SqliteStore>>();
                         write(work::reorder(&store, rule.account, up, Step::Up));
-                    },
-                    "↑"
+                    }),
                 }
-                button {
-                    class: "ghost",
-                    r#type: "button",
-                    aria_label: "Move {name} down",
-                    disabled: last,
-                    onclick: move |_| {
+                ds::Button {
+                    variant: ds::ButtonVariant::Secondary,
+                    label: "↓".to_owned(),
+                    aria_label: format!("Move {name} down"),
+                    availability: available(!last),
+                    onclick: on_primary(move || {
                         let store = consume_context::<Arc<SqliteStore>>();
                         write(work::reorder(&store, rule.account, down, Step::Down));
-                    },
-                    "↓"
+                    }),
                 }
-                button {
-                    class: "ghost",
-                    r#type: "button",
-                    aria_label: "Edit {name}",
-                    onclick: move |_| {
+                ds::Button {
+                    variant: ds::ButtonVariant::Secondary,
+                    label: "Edit".to_owned(),
+                    aria_label: format!("Edit {name}"),
+                    onclick: on_primary(move || {
                         let mut editing = editing;
                         editing.set(Some(Draft::of(&edit)));
-                    },
-                    "Edit"
+                    }),
                 }
-                button {
-                    class: "ghost",
-                    r#type: "button",
-                    aria_label: "Run {name} on existing mail",
-                    title: "Run on existing mail",
-                    disabled: busy,
-                    onclick: move |_| {
+                ds::Button {
+                    variant: ds::ButtonVariant::Secondary,
+                    label: "Run".to_owned(),
+                    aria_label: format!("Run {name} on existing mail"),
+                    title: "Run on existing mail".to_owned(),
+                    availability: available(!busy),
+                    onclick: on_primary(move || {
                         let store = consume_context::<Arc<SqliteStore>>();
                         let of = work::conversations(&store, run_rule.account, Utc::now());
                         let rule = run_rule.clone();
@@ -186,14 +183,13 @@ fn RuleRow(
                             move |report| work::run(&store, &rule, Utc::now(), report),
                             move || revision += 1,
                         );
-                    },
-                    "Run"
+                    }),
                 }
-                button {
-                    class: "ghost danger",
-                    r#type: "button",
-                    aria_label: "Delete {name}",
-                    onclick: move |_| {
+                ds::Button {
+                    variant: ds::ButtonVariant::Danger,
+                    label: "Delete".to_owned(),
+                    aria_label: format!("Delete {name}"),
+                    onclick: on_primary(move || {
                         let store = consume_context::<Arc<SqliteStore>>();
                         match work::delete(&store, &gone) {
                             Ok(text) => tell(text, Follow::Nothing),
@@ -204,8 +200,7 @@ fn RuleRow(
                         }
                         let mut changed = changed;
                         changed += 1;
-                    },
-                    "Delete"
+                    }),
                 }
             }
         }

@@ -106,6 +106,17 @@ pub(in crate::ui) fn drain(dom: &mut VirtualDom) {
     }
 }
 
+/// [`drain`], keeping the attributes those renders set: what a quire overlay (a palette, a
+/// menu) drew on the renders after the one that asked for it.
+pub(in crate::ui) fn drain_seen(dom: &mut VirtualDom) -> Seen {
+    let mut seen = Seen::default();
+    for _ in 0..8 {
+        dom.process_events();
+        dom.render_immediate(&mut seen);
+    }
+    seen
+}
+
 /// Write `page` to `target/<name>.html`.
 pub(in crate::ui) fn write_page(name: &str, page: &str) {
     let out = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -402,16 +413,55 @@ pub(in crate::ui) fn dispatching() {
     });
 }
 
+/// A conversation row's hooks, as [`Seen::row_parts`] finds them.
+pub(in crate::ui) struct RowParts {
+    pub row: dioxus_core::ElementId,
+    pub name: dioxus_core::ElementId,
+    pub time: dioxus_core::ElementId,
+}
+
 /// Dynamic attributes set during one render, and which element each landed on.
 ///
-/// Static attributes live in the template and never appear here, so a control is found by an
-/// attribute the component computes — an `aria-label` built from a value, not a literal.
+/// Static attributes live in the template, so a control is found by an attribute the component
+/// computes — an `aria-label` built from a value, not a literal. A quire component's own
+/// controls often carry only static attributes (its class, its fixed name); those are kept
+/// apart, for the elements the render gave an id (a listener or a dynamic attribute), and found
+/// with [`Seen::fixed`].
 #[derive(Default)]
 pub(in crate::ui) struct Seen {
     attrs: Vec<(String, String, dioxus_core::ElementId)>,
+    statics: Vec<(String, String, dioxus_core::ElementId)>,
+    /// The template root loaded last: `assign_node_id` paths are relative to it.
+    root: Option<&'static dioxus_core::TemplateNode>,
 }
 
 impl Seen {
+    /// Every element the render gave an id whose template writes `name="value"`, in paint order.
+    pub(in crate::ui) fn fixed(&self, name: &str, value: &str) -> Vec<dioxus_core::ElementId> {
+        let mut ids = Vec::new();
+        for (got_name, got_value, id) in &self.statics {
+            if got_name == name && got_value == value && !ids.contains(id) {
+                ids.push(*id);
+            }
+        }
+        ids
+    }
+
+    fn keep_statics(
+        &mut self,
+        node: &'static dioxus_core::TemplateNode,
+        id: dioxus_core::ElementId,
+    ) {
+        if let dioxus_core::TemplateNode::Element { attrs, .. } = node {
+            for attr in attrs.iter() {
+                if let dioxus_core::TemplateAttribute::Static { name, value, .. } = attr {
+                    self.statics
+                        .push(((*name).to_owned(), (*value).to_owned(), id));
+                }
+            }
+        }
+    }
+
     fn ids(&self, name: &str, value: &str) -> Vec<dioxus_core::ElementId> {
         let mut ids = Vec::new();
         for (got_name, got_value, id) in &self.attrs {
@@ -437,6 +487,7 @@ impl Seen {
     /// a list that lands a frame or two after the click that asked for it.
     pub(in crate::ui) fn merge(mut self, later: Seen) -> Seen {
         self.attrs.extend(later.attrs);
+        self.statics.extend(later.statics);
         self
     }
 
@@ -463,6 +514,30 @@ impl Seen {
             }
         }
         ids
+    }
+
+    /// The conversation row whose box names the hook `thread` (`thread:{id}`): quire's
+    /// `ListRow` item, its sender's name and its time, the elements the row's hover hooks hang
+    /// on. The name is the first class the row computes; the time is found among the rows by
+    /// the row's own place.
+    pub(in crate::ui) fn row_parts(&self, thread: &str) -> RowParts {
+        let row = self
+            .after("data-hc", thread, "aria-label")
+            .first()
+            .copied()
+            .unwrap_or_else(|| panic!("no row for {thread}"));
+        let name = self
+            .after("data-hc", thread, "class")
+            .first()
+            .copied()
+            .unwrap_or_else(|| panic!("no name in the row for {thread}"));
+        let place = self
+            .fixed("class", "ds-row")
+            .iter()
+            .position(|id| *id == row)
+            .unwrap_or_else(|| panic!("the row for {thread} is not a quire row"));
+        let time = self.fixed("class", "ds-row-time")[place];
+        RowParts { row, name, time }
     }
 
     /// The one element whose dynamic `name` attribute equals `value`.
@@ -501,10 +576,33 @@ impl dioxus_core::WriteMutations for Seen {
     }
 
     fn append_children(&mut self, _: dioxus_core::ElementId, _: usize) {}
-    fn assign_node_id(&mut self, _: &'static [u8], _: dioxus_core::ElementId) {}
+    fn assign_node_id(&mut self, path: &'static [u8], id: dioxus_core::ElementId) {
+        let mut node = self.root;
+        for step in path {
+            node = match node {
+                Some(dioxus_core::TemplateNode::Element { children, .. }) => {
+                    children.get(usize::from(*step))
+                }
+                _ => None,
+            };
+        }
+        if let Some(node) = node {
+            self.keep_statics(node, id);
+        }
+    }
     fn create_placeholder(&mut self, _: dioxus_core::ElementId) {}
     fn create_text_node(&mut self, _: &str, _: dioxus_core::ElementId) {}
-    fn load_template(&mut self, _: dioxus_core::Template, _: usize, _: dioxus_core::ElementId) {}
+    fn load_template(
+        &mut self,
+        template: dioxus_core::Template,
+        index: usize,
+        id: dioxus_core::ElementId,
+    ) {
+        self.root = template.roots.get(index);
+        if let Some(root) = self.root {
+            self.keep_statics(root, id);
+        }
+    }
     fn replace_node_with(&mut self, _: dioxus_core::ElementId, _: usize) {}
     fn replace_placeholder_with_nodes(&mut self, _: &'static [u8], _: usize) {}
     fn insert_nodes_after(&mut self, _: dioxus_core::ElementId, _: usize) {}

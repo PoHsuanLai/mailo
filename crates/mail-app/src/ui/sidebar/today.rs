@@ -6,7 +6,7 @@ use crate::appearance::WindowDirs;
 use crate::today::Today;
 use crate::view::Shell;
 use dioxus::prelude::*;
-use ds::{Anim, Glyph, Icon};
+use ds::{Anim, AvatarFace, AvatarShape, AvatarSize, AvatarTone, Exit, ItemKind, Presence};
 use mail_domain::ThreadId;
 use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
@@ -51,13 +51,7 @@ pub(super) fn TodayList(
         .filter_map(|(index, id)| {
             let loaded = store.thread(id).ok()?;
             let title = loaded.summary.subject.clone();
-            let mut letter = String::new();
-            if let Some(ch) = sender(&loaded.summary).chars().next() {
-                letter.extend(ch.to_uppercase());
-            }
-            if letter.is_empty() {
-                letter.push('?');
-            }
+            let letter = initial(&sender(&loaded.summary));
             Some((index, id, title, letter))
         })
         .collect();
@@ -87,22 +81,20 @@ pub(super) fn TodayList(
         for (index, id, title, letter) in rows {
             {
                 let dirs_row = dirs.clone();
-                let color = ds::PersonSwatch::nth(index).var();
-                let class = if leaving() == Some(id) {
-                    "item today-item leaving"
+                let presence = if leaving() == Some(id) {
+                    Presence::Leaving(Exit::TabOut)
                 } else if just_added() == Some(id) {
-                    "item today-item entering"
+                    Presence::Entering
                 } else {
-                    "item today-item"
+                    Presence::Present
                 };
+                let avatar = today_face(letter, AvatarTone::Account(ds::PersonSwatch::nth(index).colour()));
                 rsx! {
+                    // quire's Today item, in mailo's box that carries the hover card's hook.
                     div {
                         key: "{id}",
-                        class: "{class}",
-                        role: "button",
+                        class: "today-at",
                         "data-hc": "today:{id}",
-                        tabindex: "0",
-                        onclick: move |_| shell.write().open(id),
                         onpointerenter: move |event| {
                             if let Some(hover) = hover() {
                                 hover.enter(Hook::Today(id), corner(&event));
@@ -113,24 +105,44 @@ pub(super) fn TodayList(
                                 hover.leave();
                             }
                         },
-                        span { class: "fav", style: "background:var({color})", "{letter}" }
-                        span { class: "t", "{title}" }
-                        button {
-                            class: "x",
-                            aria_label: "Close {id}",
-                            onclick: move |event| {
-                                event.stop_propagation();
+                        ds::SidebarItem {
+                            kind: ItemKind::Today { avatar },
+                            label: title,
+                            here: ds::Here::Elsewhere,
+                            count: None,
+                            presence,
+                            preview: None,
+                            pulse: ds::PulseKey::rest(Anim::Gulp),
+                            onclick: move |()| shell.write().open(id),
+                            onclose: move |()| {
                                 today.write().close(space_index, id);
                                 save(&dirs_row, &today.read());
                                 leaving.set(Some(id));
                                 tab_out.start(closed);
                             },
-                            Glyph { icon: Icon::X, size: ds::IconSize::Tiny }
                         }
                     }
                 }
             }
         }
+    }
+}
+
+/// The first character of `name`, upper-cased, or `?` for an empty name.
+pub(in crate::ui) fn initial(name: &str) -> char {
+    name.chars()
+        .next()
+        .and_then(|ch| ch.to_uppercase().next())
+        .unwrap_or('?')
+}
+
+/// A Today entry's face: one letter on `tone`, the sidebar's rounded square.
+pub(in crate::ui) fn today_face(initial: char, tone: AvatarTone) -> AvatarFace {
+    AvatarFace {
+        initial,
+        size: AvatarSize::Size16,
+        tone,
+        shape: AvatarShape::Square,
     }
 }
 

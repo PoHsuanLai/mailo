@@ -8,7 +8,9 @@ use mail_store::SqliteStore;
 
 use super::super::data::account_rows;
 use super::super::field::{Field, FieldKind};
-use super::super::menu::{Floating, Menu, MenuItem, MenuKey, Right, Tile, menu_key};
+use super::super::menu::{
+    Floating, MenuItem, MenuKey, Right, Tile, anchor_at, menu_key, quire_entries,
+};
 use super::super::menus::{snooze_help, when_words};
 use super::later::{PICK_KEY, PICK_LABEL, PickTime};
 use super::page::{CcRow, Float, Guard, List, Page, PageKind, When};
@@ -333,6 +335,8 @@ fn use_flash_clock(mut page: Signal<Page>) {
 /// The chips of one list, the field beside them, and the people menu under it.
 #[component]
 fn Recipients(page: Signal<Page>, list: List) -> Element {
+    // The field's box, which the people menu floats under.
+    let mut field_at = use_signal(|| None::<ds::MountedRef>);
     let read = page.read();
     let people = match list {
         List::To => read.to.clone(),
@@ -382,6 +386,7 @@ fn Recipients(page: Signal<Page>, list: List) -> Element {
         }
         div {
             class: "c-pin",
+            onmounted: move |event| field_at.set(Some(ds::MountedRef(event.data()))),
             onkeydown: move |event: KeyboardEvent| {
                 let key = event.key().to_string();
                 let mut write = page.write();
@@ -433,17 +438,24 @@ fn Recipients(page: Signal<Page>, list: List) -> Element {
             }
             if let Some(active) = menu {
                 if !items.is_empty() {
-                    div { class: "p-menu",
-                        Menu {
-                            title: "From your contacts".to_owned(),
-                            items: items.clone(),
-                            filterable: false,
-                            on_pick: move |key: String| pick_person(&mut page.write(), list, &key),
-                            on_close: move |_| page.write().float = Float::Closed,
-                            on_query: move |_| {},
-                            slim: true,
-                            active: Some(active.min(items.len().saturating_sub(1))),
-                        }
+                    // quire's menu under the field, its cursor the field's: the field keeps the
+                    // keyboard and picks with the row it knows.
+                    ds::Menu::<String> {
+                        kind: ds::MenuKind::Slim,
+                        anchor: anchor_at(field_at()),
+                        entries: quire_entries("From your contacts", &items, ds::AvatarSize::Size20, None),
+                        onpick: move |key: String| pick_person(&mut page.write(), list, &key),
+                        onclose: move |()| {
+                            if matches!(page.peek().float, Float::People { list: open, .. } if open == list) {
+                                page.write().float = Float::Closed;
+                            }
+                        },
+                        active: ds::Cursor::Controlled(Some(active.min(items.len().saturating_sub(1)))),
+                        on_active: move |to: Option<usize>| {
+                            if let Some(to) = to {
+                                page.write().float = Float::People { list, active: to };
+                            }
+                        },
                     }
                 }
             }

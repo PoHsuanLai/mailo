@@ -53,16 +53,6 @@ pub(in crate::ui) enum Offer {
     Nothing,
 }
 
-impl Offer {
-    fn word(self) -> Option<&'static str> {
-        match self {
-            Offer::Undo => Some("Undo"),
-            Offer::Cancel => Some("Cancel"),
-            Offer::Nothing => None,
-        }
-    }
-}
-
 /// What the pill shows.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::ui) struct Face {
@@ -131,7 +121,53 @@ where
     }
 }
 
-/// The pill at the bottom of the card.
+/// Where a stopped ring rests: two sevenths of it left, as mailo's pill always drew it.
+const STILL: ds::Fraction = ds::Fraction(702);
+
+impl Face {
+    /// The ring quire's pill draws for this face, and how far it has drained. `due` is when the
+    /// grace period ends, which a countdown drains towards.
+    fn ring(&self, due: DateTime<Utc>, now: DateTime<Utc>) -> (ds::SendRing, ds::Fraction) {
+        match self.ring {
+            Ring::Countdown => {
+                let grace = super::life::GRACE.num_milliseconds().max(1);
+                let left = (due - now).num_milliseconds().clamp(0, grace);
+                let gone = (grace - left) * 1000 / grace;
+                (
+                    ds::SendRing::Drain,
+                    ds::Fraction(u16::try_from(gone).unwrap_or(1000)),
+                )
+            }
+            Ring::Spin => (ds::SendRing::Spin, ds::Fraction(0)),
+            Ring::Full => (ds::SendRing::Drain, ds::Fraction(0)),
+            Ring::Still => (ds::SendRing::Drain, STILL),
+        }
+    }
+}
+
+impl Mood {
+    fn quire(self) -> ds::SendMood {
+        match self {
+            Mood::Calm => ds::SendMood::Calm,
+            Mood::Nudge => ds::SendMood::Nudge,
+            Mood::Shake => ds::SendMood::Shake,
+            Mood::Fatal => ds::SendMood::Fatal,
+        }
+    }
+}
+
+impl Offer {
+    fn quire(self) -> ds::PillAction {
+        match self {
+            Offer::Undo => ds::PillAction::Undo,
+            Offer::Cancel => ds::PillAction::Cancel,
+            Offer::Nothing => ds::PillAction::Nothing,
+        }
+    }
+}
+
+/// The pill at the bottom of the card: quire's `SendPill`, in a box of mailo's that centres it
+/// over the card rather than the window.
 #[component]
 pub(in crate::ui) fn SendPill(shell: Signal<Shell>) -> Element {
     let Some(desk) = try_use_context::<Desk>() else {
@@ -152,42 +188,30 @@ pub(in crate::ui) fn SendPill(shell: Signal<Shell>) -> Element {
     };
     let store = consume_context::<Arc<SqliteStore>>();
     let state = store.draft(out.draft).ok().map(|draft| draft.state);
-    let Some(face) = face(&out, state.as_ref(), Utc::now(), &chrono::Local) else {
+    let now = Utc::now();
+    let Some(face) = face(&out, state.as_ref(), now, &chrono::Local) else {
         return rsx! {};
     };
-    let class = match face.mood {
-        Mood::Calm => "sendpill",
-        Mood::Nudge => "sendpill nudge",
-        Mood::Shake => "sendpill shake",
-        Mood::Fatal => "sendpill fatal",
-    };
-    let ring = match face.ring {
-        Ring::Countdown => "run countdown",
-        Ring::Spin => "run spin",
-        Ring::Full => "run full",
-        Ring::Still => "run still",
+    let (ring, progress) = face.ring(out.due, now);
+    let phase = match state {
+        Some(SendState::Sent { .. }) => ds::SendPhase::Done,
+        _ => ds::SendPhase::Counting,
     };
     let draft = out.draft;
     rsx! {
-        div { class: "{class}", role: "status",
-            svg { view_box: "0 0 24 24",
-                circle { class: "track", cx: "12", cy: "12", r: "9" }
-                circle { class: "{ring}", cx: "12", cy: "12", r: "9" }
-            }
-            span { class: "sp-text", "{face.text}" }
-            if let Some(why) = out.refused {
-                span { class: "sp-why", "{why}" }
-            }
-            if let Some(word) = face.offer.word() {
-                button {
-                    r#type: "button",
-                    aria_label: "{word}",
-                    // Refused, it is said on the pill and in the toast; nothing else to do here.
-                    onclick: move |_| {
-                        let _ = take_back_said(desk, shell, draft);
-                    },
-                    "{word}"
-                }
+        div { class: "send-at",
+            ds::SendPill {
+                text: face.text,
+                progress,
+                phase,
+                mood: face.mood.quire(),
+                action: face.offer.quire(),
+                ring,
+                refusal: out.refused,
+                // Refused, it is said on the pill and in the toast; nothing else to do here.
+                onundo: move |()| {
+                    let _ = take_back_said(desk, shell, draft);
+                },
             }
         }
     }

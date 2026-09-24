@@ -12,8 +12,12 @@ const FOCUS: &str = "the webview matches :focus-visible and :focus-within; Phase
 const GLYPH_TINT: &str = "tints or nudges quire's `Glyph` inside mailo's own chrome; `Glyph` takes no colour of its own, and the rule never reaches into a quire component";
 /// Stacking inside the Space editor.
 const EDITOR_LAYER: &str = "orders the Space editor's handle and footer inside the editor's own stacking context; no design layer names a sheet's inner order";
-/// Every raw form control, for one reason.
-const RAW_CONTROL: &str = "quire's `Button` has no `title`, `aria-label` or `aria-expanded`, and `TextInput` no `onfocus`/`onblur` and no range or password kind (a reported quire gap); every raw control waits on it";
+/// A row's strip buttons, the selection bubble's marks and the frame's small words.
+const STRIP_AND_FRAME: &str = "three kinds of raw button: a row's strip, since quire's `HoverStrip` calls a button's `onclick` only once it has measured it, so a press in a document with no layout does nothing (a gap, reported); the selection bubble's B, I, U and S, whose faces are the marks themselves, where `Button` takes a text label; and the sidebar's Clear, Show all and + New, set in the frame's ink, which no `Button` variant wears (a gap, reported)";
+/// A button on the frame, in the frame's own ink.
+const FRAME_INK: &str = "set on the Space's colour in the frame's ink (`--f-ink`); quire's `Button` variants all wear the card's ink (a gap, reported)";
+/// An inline field.
+const INLINE_FIELD: &str = "an inline field set in the face of where it sits (the composer's subject in the display face, a recipient beside its chips); quire's `TextInput` takes its face from its own sheet only (a gap, reported)";
 /// The composer's wire.
 const WIRE: &str = "the composer's wire is the textarea the editor glue reads the page through, by design, not a field anyone types in";
 /// A Space's own colours, which are data.
@@ -25,16 +29,6 @@ pub(super) const STYLE: &[Exception] = &[
         rule: Rule::FocusPseudoClass,
         selector: ".app:focus, .app:focus-visible",
         reason: FOCUS,
-    },
-    Exception {
-        rule: Rule::BlitzUnsupported,
-        selector: ".pin.acct[*|aria-pressed=\"false\"] .av:not(.all)",
-        reason: "an account not in view is desaturated; quire has no muted-avatar tone yet (reported), and the webview draws the filter",
-    },
-    Exception {
-        rule: Rule::BlitzUnsupported,
-        selector: ".today-item .t",
-        reason: ELLIPSIS,
     },
     Exception {
         rule: Rule::BlitzUnsupported,
@@ -67,16 +61,6 @@ pub(super) const STYLE: &[Exception] = &[
         reason: ELLIPSIS,
     },
     Exception {
-        rule: Rule::RawZIndex,
-        selector: ".handle",
-        reason: EDITOR_LAYER,
-    },
-    Exception {
-        rule: Rule::FocusPseudoClass,
-        selector: ".handle:focus-visible",
-        reason: FOCUS,
-    },
-    Exception {
         rule: Rule::BlitzUnsupported,
         selector: ".ed-foot",
         reason: "the Space editor's footer sticks to the sheet's bottom while it scrolls, which the webview draws; Phase B keeps it outside the scroller",
@@ -85,36 +69,6 @@ pub(super) const STYLE: &[Exception] = &[
         rule: Rule::RawZIndex,
         selector: ".ed-foot",
         reason: EDITOR_LAYER,
-    },
-    Exception {
-        rule: Rule::BlitzUnsupported,
-        selector: ".nm",
-        reason: ELLIPSIS,
-    },
-    Exception {
-        rule: Rule::BlitzUnsupported,
-        selector: ".row-sub",
-        reason: ELLIPSIS,
-    },
-    Exception {
-        rule: Rule::BlitzUnsupported,
-        selector: ".row-snip",
-        reason: ELLIPSIS,
-    },
-    Exception {
-        rule: Rule::FocusPseudoClass,
-        selector: ".row:hover .star, .star[*|data-on=\"true\"], .star:focus-visible",
-        reason: FOCUS,
-    },
-    Exception {
-        rule: Rule::DsInternals,
-        selector: ".star .ds-ic",
-        reason: GLYPH_TINT,
-    },
-    Exception {
-        rule: Rule::DsInternals,
-        selector: ".star[*|data-on=\"true\"] .ds-ic",
-        reason: GLYPH_TINT,
     },
     Exception {
         rule: Rule::FocusPseudoClass,
@@ -137,16 +91,6 @@ pub(super) const STYLE: &[Exception] = &[
         reason: GLYPH_TINT,
     },
     Exception {
-        rule: Rule::Keyframes,
-        selector: "@keyframes cmdk-rise",
-        reason: "mailo's sheets rise without fading, so they are opaque on their first frame; quire's `rise` and `cmdk-in` fade (a gap, reported)",
-    },
-    Exception {
-        rule: Rule::BlitzUnsupported,
-        selector: ".cmdk .snip",
-        reason: ELLIPSIS,
-    },
-    Exception {
         rule: Rule::DsInternals,
         selector: ".fmenu .it .rm .ds-ic",
         reason: GLYPH_TINT,
@@ -165,11 +109,6 @@ pub(super) const STYLE: &[Exception] = &[
         rule: Rule::DsInternals,
         selector: ".attachments .ds-ic",
         reason: GLYPH_TINT,
-    },
-    Exception {
-        rule: Rule::Keyframes,
-        selector: "@keyframes fade-in",
-        reason: "the scrim settles at .16; quire's `fade` runs to 1 (a gap, reported)",
     },
     Exception {
         rule: Rule::DsInternals,
@@ -217,34 +156,9 @@ pub(super) const STYLE: &[Exception] = &[
         reason: "code in a message is sized against the text it sits in, which no absolute token can follow",
     },
     Exception {
-        rule: Rule::FontFamily,
-        selector: ".bubble .serif",
-        reason: "the selection bubble's Serif button shows the serif a message will be written in; quire has no serif face token (reported)",
-    },
-    Exception {
         rule: Rule::DsInternals,
         selector: ".c-warn .ds-ic",
         reason: GLYPH_TINT,
-    },
-    Exception {
-        rule: Rule::Keyframes,
-        selector: "@keyframes pill-up",
-        reason: "the send pill and mailo's own toast rise from below a `translateX(-50%)` centre; quire has no such entrance (a gap, reported)",
-    },
-    Exception {
-        rule: Rule::SvgPaintInCss,
-        selector: ".sendpill circle",
-        reason: "the send pill's countdown ring is mailo's own vector until quire's SendPill carries an outbox's states (the markup lint names it too)",
-    },
-    Exception {
-        rule: Rule::RawDuration,
-        selector: ".sendpill .run.countdown",
-        reason: "the ring drains over the send's grace period, the outbox's five seconds, which no motion level may shorten",
-    },
-    Exception {
-        rule: Rule::Keyframes,
-        selector: "@keyframes ring-drain",
-        reason: "the send pill's countdown drains its ring's stroke; quire has no countdown keyframe (a gap, reported)",
     },
     Exception {
         rule: Rule::FocusPseudoClass,
@@ -270,11 +184,6 @@ pub(super) const STYLE: &[Exception] = &[
         rule: Rule::DsInternals,
         selector: ".pval.files-dest .ds-ic",
         reason: GLYPH_TINT,
-    },
-    Exception {
-        rule: Rule::Keyframes,
-        selector: "@keyframes busy",
-        reason: "quire's `breathe` fades the sync halo to nothing; a busy account's words must stay legible (a gap, reported)",
     },
     Exception {
         rule: Rule::BlitzUnsupported,
@@ -317,112 +226,57 @@ pub(in crate::ui) const MARKUP: &[Exception] = &[
     Exception {
         rule: Rule::RawMarkup,
         selector: "button",
-        reason: RAW_CONTROL,
-    },
-    Exception {
-        rule: Rule::RawMarkup,
-        selector: "button.btn",
-        reason: RAW_CONTROL,
+        reason: STRIP_AND_FRAME,
     },
     Exception {
         rule: Rule::RawMarkup,
         selector: "button.item",
-        reason: RAW_CONTROL,
-    },
-    Exception {
-        rule: Rule::RawMarkup,
-        selector: "button.marks-refresh",
-        reason: RAW_CONTROL,
-    },
-    Exception {
-        rule: Rule::RawMarkup,
-        selector: "button.mini",
-        reason: RAW_CONTROL,
-    },
-    Exception {
-        rule: Rule::RawMarkup,
-        selector: "button.mini.primary",
-        reason: RAW_CONTROL,
+        reason: "a place is dragged onto: its element hears the pointer enter and leave; quire's `SidebarItem` (`ItemKind::Place`) takes no pointer hooks and writes no `data-place` (a gap, reported)",
     },
     Exception {
         rule: Rule::RawMarkup,
         selector: "button.pin.acct",
-        reason: RAW_CONTROL,
-    },
-    Exception {
-        rule: Rule::RawMarkup,
-        selector: "button.pin.acct.acct-add",
-        reason: RAW_CONTROL,
+        reason: "a local-folders account is on no provider, and quire's `AccountTile` always draws a `ProviderMark` (`AccountFace::One` takes a `Provider`, not an `Option`; a gap, reported)",
     },
     Exception {
         rule: Rule::RawMarkup,
         selector: "button.pval",
-        reason: RAW_CONTROL,
+        reason: "a property value opens its dropdown anchored to itself and ends in a caret; quire's `Button` draws a label and a leading icon, no trailing mark (a gap, reported)",
     },
     Exception {
         rule: Rule::RawMarkup,
         selector: "button.rm",
-        reason: RAW_CONTROL,
+        reason: "mailo's own menu (a toggle list that stays open as each row is picked, and a menu drawn inline in a card) keeps its row remove; quire's `Menu` closes on every pick and always floats (a gap, reported)",
     },
     Exception {
         rule: Rule::RawMarkup,
         selector: "button.space-name",
-        reason: RAW_CONTROL,
-    },
-    Exception {
-        rule: Rule::RawMarkup,
-        selector: "button.star",
-        reason: RAW_CONTROL,
-    },
-    Exception {
-        rule: Rule::RawMarkup,
-        selector: "button.x",
-        reason: RAW_CONTROL,
+        reason: FRAME_INK,
     },
     Exception {
         rule: Rule::RawMarkup,
         selector: "input.inp.c-file",
-        reason: RAW_CONTROL,
-    },
-    Exception {
-        rule: Rule::RawMarkup,
-        selector: "input.inp.ed-name",
-        reason: RAW_CONTROL,
+        reason: "a file picker: quire's `TextInput` has no file kind (a gap, reported)",
     },
     Exception {
         rule: Rule::RawMarkup,
         selector: "input.inp.inline",
-        reason: RAW_CONTROL,
+        reason: INLINE_FIELD,
     },
     Exception {
         rule: Rule::RawMarkup,
         selector: "input.inp.inline.c-title",
-        reason: RAW_CONTROL,
+        reason: INLINE_FIELD,
     },
     Exception {
         rule: Rule::RawMarkup,
         selector: "input.inp.inline.pinput",
-        reason: RAW_CONTROL,
-    },
-    Exception {
-        rule: Rule::RawMarkup,
-        selector: "input.inp.range",
-        reason: RAW_CONTROL,
-    },
-    Exception {
-        rule: Rule::RawMarkup,
-        selector: "input.inp.search",
-        reason: RAW_CONTROL,
+        reason: INLINE_FIELD,
     },
     Exception {
         rule: Rule::RawMarkup,
         selector: "textarea.c-wire",
         reason: WIRE,
-    },
-    Exception {
-        rule: Rule::RawMarkup,
-        selector: "svg.field-dots",
-        reason: "the Space editor's field of dots is a picture of the Space's colour field, drawn by the editor, not a glyph",
     },
     Exception {
         rule: Rule::HexColour,
@@ -431,33 +285,8 @@ pub(in crate::ui) const MARKUP: &[Exception] = &[
     },
     Exception {
         rule: Rule::HexColour,
-        selector: "button.ds-space-dot",
-        reason: "quire's own `SpaceDot` writes its gradient as an inline `background`, not a custom property (reported)",
-    },
-    Exception {
-        rule: Rule::HexColour,
-        selector: "div.handle",
-        reason: SPACE_COLOUR,
-    },
-    Exception {
-        rule: Rule::HexColour,
-        selector: "div.handle.on",
-        reason: SPACE_COLOUR,
-    },
-    Exception {
-        rule: Rule::HexColour,
-        selector: "i",
-        reason: SPACE_COLOUR,
-    },
-    Exception {
-        rule: Rule::HexColour,
         selector: "span.av",
         reason: "an account's avatar wears the colour the account was given, which is data",
-    },
-    Exception {
-        rule: Rule::HexColour,
-        selector: "span.sw",
-        reason: SPACE_COLOUR,
     },
     Exception {
         rule: Rule::HexColour,

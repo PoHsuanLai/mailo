@@ -6,7 +6,7 @@
 }
 .files {
   position: relative; width: min(560px, 90%); display: flex; flex-direction: column;
-  background: var(--raise); color: var(--ink); border: 1px solid var(--line);
+  background: var(--raise); color: var(--ink); border: var(--hair) solid var(--line);
   border-radius: var(--r-panel); box-shadow: var(--shadow-2);
   animation: cmdk-rise var(--t-big) var(--e-spring);
 }
@@ -20,8 +20,7 @@
   text-transform: uppercase; color: var(--ink-faint);
 }
 .files-path { display: flex; align-items: center; gap: var(--s-6); min-width: 0; }
-.files-path .inp.files-in { flex: 1; min-width: 0; font-size: var(--fs-control); padding: var(--s-6) var(--s-10); }
-.files-path .inp.files-to { font-family: var(--font-data); font-size: var(--fs-small); }
+.files-path .files-in { flex: 1; min-width: 0; }
 .files-look { margin: 0; font-size: var(--fs-small); line-height: 1.4; color: var(--ink-faint); }
 .files-look.found { color: var(--ink); font-weight: 600; }
 .files-look.refused, .capnote.files-bad { color: var(--danger); }
@@ -31,10 +30,10 @@
 .files-format { display: flex; align-items: center; gap: var(--s-10); flex-wrap: wrap; }
 .files-foot {
   display: flex; align-items: center; gap: var(--s-12); padding: var(--s-10) var(--s-14) var(--s-14);
-  border-top: 1px solid var(--line-soft); background: var(--surface);
+  border-top: var(--hair) solid var(--line-soft); background: var(--surface);
   border-radius: 0 0 var(--r-panel) var(--r-panel);
 }
-.files-foot > .mini.primary { margin-left: auto; }
+.files-foot > .go { margin-left: auto; }
 .files-foot .capnote { flex: 1; min-width: 0; }
 .files-progress { flex: 1; min-width: 0; display: grid; gap: var(--s-5); font-size: var(--fs-small); color: var(--ink-soft); }
 .files-bar { height: 4px; border-radius: var(--r-pill); background: var(--surface-2); overflow: hidden; }

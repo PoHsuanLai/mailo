@@ -2,10 +2,15 @@
 //!
 //! A draft and a conversation are different rows: a draft opens the composer, a conversation
 //! opens the reader and carries the hover strip. Split from [`super::app`] (`CONVENTIONS.md` §8).
+//!
+//! Each row is quire's `ListRow` inside mailo's `.row`, the box the row's own menus and the
+//! snooze float are placed against. The strip stays mailo's: quire's `HoverStrip` hands a press
+//! over only once it has measured the button (a gap, reported), and a row's archive must not wait
+//! on a measure.
 
 use super::hover::{Hook, corner, hover};
 use super::list_search::RowHit;
-use super::marked::{Numbering, marked};
+use super::marked::{Piece, pieces};
 use super::menus::{LabelMenu, SnoozeMenu};
 use super::motion::{act_kind, drag, motion};
 use super::move_to::MoveMenu;
@@ -17,9 +22,13 @@ use crate::view::Marks;
 use crate::view::{Shell, hover_actions};
 use chrono::Local;
 use dioxus::prelude::*;
-use ds::{Anim, Exit, Glyph, Icon, MountedRef};
+use ds::{
+    Anim, Emphasis, Exit, Glyph, Icon, MountedRef, PartHooks, Presence, PulseKey, Run, RunTone,
+    Selection, StaggerIndex, Switch, Text,
+};
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
+use std::ops::Range;
 use std::sync::Arc;
 
 /// A draft, as a row. Clicking it opens the composer on that draft.
@@ -39,36 +48,36 @@ pub(super) fn DraftRow(draft: Draft, shell: Signal<Shell>, index: usize) -> Elem
     };
     let state = draft_state(&draft.state);
     let when = crate::view::listed(draft.updated, chrono::Utc::now(), &Local);
-    let delay = index.min(8);
+    let parts = shell.read().parts;
+    let snippet = parts.snippet.shown().then(|| Text::from(state));
+    let time = if parts.time.shown() {
+        when
+    } else {
+        String::new()
+    };
     rsx! {
-        li {
-            key: "{id}",
-            class: "row",
-            role: "option",
-            "data-read": "read",
+        div { key: "{id}", class: "row", role: "none",
             // A draft is not on the roster: it rises with the list whenever the list is shown.
-            "data-presence": "entering",
-            style: "--i:{delay}",
-            onclick: move |_| {
-                let store = consume_context::<Arc<SqliteStore>>();
-                if let Ok(draft) = store.draft(id) {
-                    shell.write().compose(&draft);
-                }
-            },
-            span { class: "row-dot", span { class: "dot" } }
-            div { class: "row-main",
-                div { class: "row-from",
-                    span { class: "nm", "{who}" }
-                }
-                div { class: "row-sub", "{subject}" }
-                if shell.read().parts.snippet.shown() {
-                    div { class: "row-snip", "{state}" }
-                }
-            }
-            div { class: "row-tail",
-                if shell.read().parts.time.shown() {
-                    span { class: "row-time", "{when}" }
-                }
+            ds::ListRow {
+                selection: Selection::Unselected,
+                emphasis: Emphasis::Plain,
+                index: StaggerIndex::new(index.min(8)),
+                presence: Presence::Entering,
+                name: who,
+                via: None,
+                subject,
+                snippet,
+                time,
+                tags: rsx! {},
+                star: None,
+                star_pulse: PulseKey::rest(Anim::StarPop),
+                strip: None,
+                onclick: move |_| {
+                    let store = consume_context::<Arc<SqliteStore>>();
+                    if let Ok(draft) = store.draft(id) {
+                        shell.write().compose(&draft);
+                    }
+                },
             }
         }
     }
@@ -87,20 +96,44 @@ pub(super) enum Moving {
     Going(Exit),
     /// Closing the gap a row above left, with its heal step.
     Healing(u8),
-    /// Back from an undo.
+    /// Back from an undo once its exit had settled: it arrives again, as quire's row does.
     Returning,
 }
 
 impl Moving {
-    /// `data-presence`: the roster's word for it.
-    fn presence(self) -> &'static str {
+    /// quire's presence for it, and the stagger it rises by. `delay` is its place in the list,
+    /// `dy` how far a healing row travels.
+    fn presence(self, delay: usize, dy: u32) -> (Presence, StaggerIndex) {
         match self {
-            Moving::Still => "present",
-            Moving::Entering(_) | Moving::Returning => "entering",
-            Moving::Going(_) => "leaving",
-            Moving::Healing(_) => "healing",
+            Moving::Still => (Presence::Present, StaggerIndex::new(delay)),
+            Moving::Entering(stagger) => (Presence::Entering, StaggerIndex::new(stagger.into())),
+            Moving::Returning => (Presence::Entering, StaggerIndex::new(delay)),
+            Moving::Going(exit) => (Presence::Leaving(exit), StaggerIndex::new(delay)),
+            Moving::Healing(step) => (
+                Presence::Healing {
+                    dy: ds::Px(dy as f32),
+                    d: StaggerIndex::new(step.into()),
+                },
+                StaggerIndex::new(delay),
+            ),
         }
     }
+}
+
+/// `text` as quire's runs, with a search's `marks` as `Mark` runs; plain when nothing is marked.
+fn runs(text: &str, marks: &[Range<usize>]) -> Text {
+    if marks.is_empty() {
+        return Text::Plain(text.to_owned());
+    }
+    Text::Runs(
+        pieces(text, marks)
+            .into_iter()
+            .map(|piece| match piece {
+                Piece::Plain(plain) => Run::new(plain, RunTone::Plain),
+                Piece::Marked(inside) => Run::new(inside, RunTone::Mark),
+            })
+            .collect(),
+    )
 }
 
 /// A conversation, as a row, including the hover strip and whichever menu it has open.
@@ -142,218 +175,187 @@ pub(super) fn Row(
     let move_at = actions.len();
     let move_label = "Move to…".to_owned();
     let filing = shell.read().filing == Some(id);
-    // A press on the star replays its pop and its sparks: quire's pulses, restarted by name.
+    // A press on the star replays its pop, and its sparks when it stars: quire's pulse.
     let pop = ds::use_pulse(Anim::StarPop);
-    let sparks = ds::use_pulse(Anim::Spark);
-    let (pop_class, pop_alias) = match pop.attrs() {
-        Some((anim, alias)) => (format!("star-ic {anim}"), Some(alias)),
-        None => ("star-ic".to_owned(), None),
-    };
-    let (spark_class, spark_alias) = sparks.attrs().unzip();
     // The strip buttons whose menus float beside them: each hands over its element to anchor to.
     let mut snooze_at = use_signal(|| None::<MountedRef>);
     let mut move_at_button = use_signal(|| None::<MountedRef>);
     // Where the row's own corner is, for the thread card. Not a signal: nothing redraws for it.
     let mut at = use_hook(|| CopyValue::new((0.0_f64, 0.0_f64)));
     let going = matches!(moving, Moving::Going(_));
-    let (class, exit, style) = match moving {
-        Moving::Still => ("row", None, format!("--i:{delay}")),
-        Moving::Entering(stagger) => ("row", None, format!("--i:{stagger}")),
-        Moving::Going(exit) => ("row", Some(exit.slug()), format!("--i:{delay}")),
-        Moving::Healing(step) => (
-            "row",
-            None,
-            format!("--i:{delay};--d:{step};--dy:{}px", gap(&shell.read())),
-        ),
-        Moving::Returning => ("row returning", None, format!("--i:{delay}")),
-    };
+    let (presence, stagger) = moving.presence(delay, gap(&shell.read()));
     let snoozing = moving == Moving::Going(Exit::Curl);
     let enter = move |hook: Hook, corner: (f64, f64)| {
         if !going && let Some(hover) = hover() {
             hover.enter(hook, corner);
         }
     };
-    rsx! {
-        li {
-            key: "{id}",
-            class: "{class}",
-            role: "option",
-            aria_label: "Open {subject}",
-            "data-read": if unread { "unread" } else { "read" },
-            "data-presence": moving.presence(),
-            "data-exit": exit,
-            "data-hc": "thread:{id}",
-            aria_selected: if selected { "true" } else { "false" },
-            style: "{style}",
-            onclick: move |_| shell.write().open(id),
-            onpointerenter: move |event| {
-                at.set(corner(&event));
-                enter(Hook::Thread(id), *at.peek());
-            },
-            onpointerover: move |_| enter(Hook::Thread(id), *at.peek()),
-            onpointerleave: move |_| {
-                if let Some(hover) = hover() {
-                    hover.leave();
-                }
-            },
-            onpointerdown: move |event: Event<PointerData>| {
-                if let Some(hover) = hover() {
-                    hover.dismiss();
-                }
-                if !going {
-                    let point = event.client_coordinates();
-                    drag::press(id, (point.x, point.y));
-                }
-            },
-            span { class: "row-dot", span { class: "dot" } }
-            div { class: "row-main",
-                div { class: "row-from",
-                    span {
-                        class: "nm",
-                        "data-hc": "sender:{id}",
-                        onpointerover: move |event| {
-                            event.stop_propagation();
-                            enter(Hook::Sender(id), corner(&event));
-                        },
-                        "{who}"
-                    }
-                    if shell.read().parts.provider.shown() {
-                        if let Some(via) = via {
-                            ViaChip { via, marks: shell.read().appearance.marks }
-                        }
-                    }
-                }
-                div { class: "row-sub", {marked(&subject, &subject_marks, Numbering::default())} }
-                if shell.read().parts.snippet.shown() && !snippet.is_empty() {
-                    div { class: "row-snip", {marked(&snippet, &snippet_marks, Numbering::default())} }
+    // The name and the time open their own cards; leaving either is being back on the row.
+    // The innermost hook wins: an entry that bubbles (a harness's does) stops at the part.
+    let part = move |hook: Hook| PartHooks {
+        onpointerenter: EventHandler::new(move |event: PointerEvent| {
+            event.stop_propagation();
+            enter(hook, corner(&event));
+        }),
+        onpointerleave: EventHandler::new(move |event: PointerEvent| {
+            event.stop_propagation();
+            enter(Hook::Thread(id), *at.peek());
+        }),
+    };
+    let parts = shell.read().parts;
+    let snippet =
+        (parts.snippet.shown() && !snippet.is_empty()).then(|| runs(&snippet, &snippet_marks));
+    let time = if parts.time.shown() {
+        when
+    } else {
+        String::new()
+    };
+    let via = if parts.provider.shown() {
+        via.map(|via| rsx! { ViaChip { via, marks: shell.read().appearance.marks } })
+    } else {
+        None
+    };
+    let star = (
+        if starred { Switch::On } else { Switch::Off },
+        EventHandler::new(move |_: Switch| {
+            pop.fire();
+            let store = consume_context::<Arc<SqliteStore>>();
+            let kind = if starred {
+                OpKind::Unstar
+            } else {
+                OpKind::Star
+            };
+            act_kind(&store, shell, revision, id, kind);
+        }),
+    );
+    let tags = rsx! {
+        if parts.chips.shown() {
+            for name in chips {
+                span {
+                    key: "{name}",
+                    class: if landing.as_deref() == Some(name.as_str()) { "chip is-landing" } else { "chip" },
+                    "data-chip": "{name}",
+                    "{name}"
                 }
             }
-            div { class: "row-tail",
-                if shell.read().parts.time.shown() {
-                    span {
-                        class: "row-time",
-                        "data-hc": "time:{id}",
-                        onpointerover: move |event| {
-                            event.stop_propagation();
-                            enter(Hook::Time(id), corner(&event));
-                        },
-                        "{when}"
-                    }
-                }
-                span { class: "chips",
-                    if shell.read().parts.chips.shown() {
-                        for name in chips {
-                            span {
-                                key: "{name}",
-                                class: if landing.as_deref() == Some(name.as_str()) { "chip is-landing" } else { "chip" },
-                                "data-chip": "{name}",
-                                "{name}"
+        }
+        if let Some(count) = files {
+            span { class: "clip",
+                Glyph { icon: Icon::Paperclip, size: ds::IconSize::Micro }
+                "{count}"
+            }
+        }
+    };
+    let strip = rsx! {
+        span { class: "strip",
+            for (n, kind) in actions.iter().copied().enumerate() {
+                button {
+                    key: "{kind:?}",
+                    "data-op": "{kebab(kind)}",
+                    aria_label: "{label(kind)}",
+                    title: "{label(kind)}",
+                    style: "--j:{n}",
+                    onmounted: move |event: MountedEvent| {
+                        if kind == OpKind::Snooze {
+                            snooze_at.set(Some(MountedRef(event.data())));
+                        }
+                    },
+                    onpointerenter: move |_| {
+                        if let (Some(mut state), Some(place)) = (motion(), preview(kind)) {
+                            state.dest.set(Some(place));
+                        }
+                    },
+                    onpointerleave: move |_| {
+                        if let Some(mut state) = motion() {
+                            state.dest.set(None);
+                        }
+                    },
+                    onclick: move |event: Event<MouseData>| {
+                        event.stop_propagation();
+                        let store = consume_context::<Arc<SqliteStore>>();
+                        if kind == OpKind::AddLabel {
+                            let already = shell.peek().labelling == Some(id);
+                            shell.write().labelling = if already { None } else { Some(id) };
+                            return;
+                        }
+                        if kind == OpKind::Snooze {
+                            let already = shell.peek().snoozing == Some(id);
+                            shell.write().snoozing = if already { None } else { Some(id) };
+                            return;
+                        }
+                        match composes(kind) {
+                            Some(what) => match start_composing(&store, id, what) {
+                                Ok(draft) => {
+                                    shell.write().compose(&draft);
+                                    revision += 1;
+                                }
+                                Err(why) => eprintln!("reply: {why}"),
+                            },
+                            None => {
+                                act_kind(&store, shell, revision, id, kind);
                             }
                         }
-                    }
-                    if let Some(count) = files {
-                        span { class: "clip",
-                            Glyph { icon: Icon::Paperclip, size: ds::IconSize::Micro }
-                            "{count}"
-                        }
-                    }
+                    },
+                    Glyph { icon: op_icon(kind), size: ds::IconSize::Compact }
+                    span { class: "fly", "{fly(kind)}" }
                 }
             }
             button {
-                class: "star",
-                "data-on": if starred { "true" } else { "false" },
-                aria_label: if starred { "Unstar" } else { "Star" },
-                aria_pressed: if starred { "true" } else { "false" },
-                onclick: move |event| {
+                "data-op": "move-to",
+                aria_label: "{move_label}",
+                title: "{move_label}",
+                aria_expanded: if filing { "true" } else { "false" },
+                style: "--j:{move_at}",
+                onmounted: move |event: MountedEvent| move_at_button.set(Some(MountedRef(event.data()))),
+                onclick: move |event: Event<MouseData>| {
                     event.stop_propagation();
-                    pop.fire();
-                    sparks.fire();
-                    let store = consume_context::<Arc<SqliteStore>>();
-                    let kind = if starred { OpKind::Unstar } else { OpKind::Star };
-                    act_kind(&store, shell, revision, id, kind);
+                    let already = shell.peek().filing == Some(id);
+                    shell.write().filing = if already { None } else { Some(id) };
                 },
-                span { class: "{pop_class}", "data-pulse": pop_alias,
-                    Glyph { icon: Icon::Star, size: ds::IconSize::Compact }
-                }
-                span { class: "sparks",
-                    for angle in [0, 60, 120, 180, 240, 300] {
-                        i {
-                            key: "{angle}",
-                            class: spark_class.clone(),
-                            "data-pulse": spark_alias,
-                            style: "--a:{angle}deg",
-                        }
-                    }
-                }
+                Glyph { icon: Icon::FolderInput, size: ds::IconSize::Compact }
+                span { class: "fly", "{move_label}" }
             }
-            span { class: "strip",
-                for (n, kind) in actions.iter().copied().enumerate() {
-                    button {
-                        key: "{kind:?}",
-                        "data-op": "{kebab(kind)}",
-                        aria_label: "{label(kind)}",
-                        title: "{label(kind)}",
-                        style: "--j:{n}",
-                        onmounted: move |event: MountedEvent| {
-                            if kind == OpKind::Snooze {
-                                snooze_at.set(Some(MountedRef(event.data())));
-                            }
-                        },
-                        onpointerenter: move |_| {
-                            if let (Some(mut state), Some(place)) = (motion(), preview(kind)) {
-                                state.dest.set(Some(place));
-                            }
-                        },
-                        onpointerleave: move |_| {
-                            if let Some(mut state) = motion() {
-                                state.dest.set(None);
-                            }
-                        },
-                        onclick: move |event: Event<MouseData>| {
-                            event.stop_propagation();
-                            let store = consume_context::<Arc<SqliteStore>>();
-                            if kind == OpKind::AddLabel {
-                                let already = shell.peek().labelling == Some(id);
-                                shell.write().labelling = if already { None } else { Some(id) };
-                                return;
-                            }
-                            if kind == OpKind::Snooze {
-                                let already = shell.peek().snoozing == Some(id);
-                                shell.write().snoozing = if already { None } else { Some(id) };
-                                return;
-                            }
-                            match composes(kind) {
-                                Some(what) => match start_composing(&store, id, what) {
-                                    Ok(draft) => {
-                                        shell.write().compose(&draft);
-                                        revision += 1;
-                                    }
-                                    Err(why) => eprintln!("reply: {why}"),
-                                },
-                                None => {
-                                    act_kind(&store, shell, revision, id, kind);
-                                }
-                            }
-                        },
-                        Glyph { icon: op_icon(kind), size: ds::IconSize::Compact }
-                        span { class: "fly", "{fly(kind)}" }
+        }
+    };
+    rsx! {
+        // The box names the hover hook its row is, as every other hook's element does.
+        div { key: "{id}", class: "row", role: "none", "data-hc": "thread:{id}",
+            ds::ListRow {
+                selection: if selected { Selection::Selected } else { Selection::Unselected },
+                emphasis: if unread { Emphasis::Strong } else { Emphasis::Plain },
+                index: stagger,
+                presence,
+                name: who,
+                via,
+                subject: runs(&subject, &subject_marks),
+                snippet,
+                time,
+                tags,
+                star: Some(star),
+                star_pulse: pop.key(),
+                strip,
+                onclick: move |_| shell.write().open(id),
+                on_sender: part(Hook::Sender(id)),
+                on_time: part(Hook::Time(id)),
+                onpointerenter: EventHandler::new(move |event: PointerEvent| {
+                    at.set(corner(&event));
+                    enter(Hook::Thread(id), *at.peek());
+                }),
+                onpointerleave: EventHandler::new(move |_| {
+                    if let Some(hover) = hover() {
+                        hover.leave();
                     }
-                }
-                button {
-                    "data-op": "move-to",
-                    aria_label: "{move_label}",
-                    title: "{move_label}",
-                    aria_expanded: if filing { "true" } else { "false" },
-                    style: "--j:{move_at}",
-                    onmounted: move |event: MountedEvent| move_at_button.set(Some(MountedRef(event.data()))),
-                    onclick: move |event: Event<MouseData>| {
-                        event.stop_propagation();
-                        let already = shell.peek().filing == Some(id);
-                        shell.write().filing = if already { None } else { Some(id) };
-                    },
-                    Glyph { icon: Icon::FolderInput, size: ds::IconSize::Compact }
-                    span { class: "fly", "{move_label}" }
-                }
+                }),
+                onpointerdown: EventHandler::new(move |event: PointerEvent| {
+                    if let Some(hover) = hover() {
+                        hover.dismiss();
+                    }
+                    if !going {
+                        let point = event.client_coordinates();
+                        drag::press(id, (point.x, point.y));
+                    }
+                }),
+                aria_label: "Open {subject}",
             }
             if snoozing {
                 span { class: "floater", aria_hidden: "true", "zZ" }

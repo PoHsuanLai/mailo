@@ -52,6 +52,7 @@ pub(in crate::ui) use templates::{
 };
 pub(in crate::ui) use wire::GLUE;
 
+use super::press::on_primary;
 use crate::password::Password;
 use crate::view::Shell;
 
@@ -281,27 +282,29 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                         Glyph { icon: Icon::Paperclip, size: ds::IconSize::Compact }
                         span { "You wrote about an attachment, and nothing is attached." }
                         Attach { page, label: "Attach a file" }
-                        button { class: "mini", r#type: "button", aria_label: "{anyway_label}", onclick: move |_| send(Anyway::Yes), "Send anyway" }
+                        ds::Button {
+                            variant: ds::ButtonVariant::Mini,
+                            label: "Send anyway",
+                            aria_label: anyway_label.to_owned(),
+                            onclick: on_primary(move || send(Anyway::Yes)),
+                        }
                     }
                 }
                 SealWarn { bar: seal_bar, on_act: on_seal }
-                button {
-                    class: "mini",
-                    r#type: "button",
-                    aria_pressed: if plain() == Fold::Open { "true" } else { "false" },
-                    onclick: move |_| plain.set(if plain() == Fold::Open { Fold::Folded } else { Fold::Open }),
-                    "Plain text"
+                ds::Button {
+                    variant: ds::ButtonVariant::Mini,
+                    label: "Plain text",
+                    pressed: if plain() == Fold::Open { ds::Switch::On } else { ds::Switch::Off },
+                    onclick: on_primary(move || plain.set(if plain() == Fold::Open { Fold::Folded } else { Fold::Open })),
                 }
                 Attach { page, label: "Attach" }
                 span { class: "grow" }
-                button { class: "btn", r#type: "button", aria_label: "{send_label}", onclick: move |_| send(Anyway::No),
-                    if scheduled {
-                        Glyph { icon: Icon::Clock, size: ds::IconSize::Compact }
-                        "Schedule"
-                    } else {
-                        Glyph { icon: Icon::Send, size: ds::IconSize::Compact }
-                        "Send"
-                    }
+                ds::Button {
+                    variant: ds::ButtonVariant::Primary,
+                    label: if scheduled { "Schedule" } else { "Send" },
+                    icon: if scheduled { Icon::Clock } else { Icon::Send },
+                    aria_label: send_label.to_owned(),
+                    onclick: on_primary(move || send(Anyway::No)),
                 }
             }
         }

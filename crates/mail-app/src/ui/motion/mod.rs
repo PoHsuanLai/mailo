@@ -27,22 +27,14 @@ use dioxus::prelude::*;
 use ds::{Emphasis, Exit, MotionTimer, Roster, ToastHub, UndoToken};
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
-use std::collections::BTreeMap;
 
-/// A row as the list's roster knows it: the thread, and how many times an undo has brought it
-/// back while it was still leaving. The roster cannot take an exit back, so a thread restored
-/// mid-exit comes back under a new key and enters, while the old key finishes leaving unseen.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct RowKey {
-    pub id: ThreadId,
-    pub round: u32,
-}
-
-/// A row that has left the list and is still being drawn while it goes.
+/// A row that has left the list and is still being drawn while it goes. The roster knows a row
+/// by its thread; an undo while the row is still leaving takes its exit back
+/// (`Roster::stay`), so the row stays in place under the same key and nothing below heals.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct Leaving {
     /// Its key in the roster.
-    pub key: RowKey,
+    pub key: ThreadId,
     /// The row as it was drawn before the op.
     pub summary: ThreadSummary,
 }
@@ -52,7 +44,7 @@ pub(super) struct Leaving {
 /// and is dropped with it.
 #[derive(Clone, Copy)]
 pub(super) struct Clock {
-    pub roster: Roster<RowKey>,
+    pub roster: Roster<ThreadId>,
     /// How long the place an op landed in gulps.
     pub gulp: MotionTimer,
     /// How long a label that was just added lands.
@@ -93,8 +85,6 @@ pub(super) struct Toasts {
 #[derive(Clone, Copy)]
 pub(super) struct Motion {
     pub leaving: Signal<Vec<Leaving>>,
-    /// Threads an undo brought back while they were still leaving, and how many times.
-    pub rounds: Signal<BTreeMap<ThreadId, u32>>,
     /// The place an op just landed in.
     pub gulp: Signal<Option<String>>,
     /// A label just added to a row.
@@ -124,7 +114,6 @@ pub(super) struct Motion {
 pub(super) fn use_motion() -> Motion {
     use_context_provider(|| Motion {
         leaving: Signal::new(Vec::new()),
-        rounds: Signal::new(BTreeMap::new()),
         gulp: Signal::new(None),
         landing: Signal::new(None),
         returning: Signal::new(None),
@@ -240,11 +229,14 @@ fn restore(
             toasts.hub.hide();
         }
         if let Some(thread) = entry.thread {
-            let was_leaving = motion.leaving.peek().iter().any(|row| row.key.id == thread);
-            if was_leaving {
-                *motion.rounds.write().entry(thread).or_default() += 1;
+            // Still leaving: its exit is taken back and it stays where it was, so the rows
+            // below never heal. Once its exit has settled the roster no longer holds it, and
+            // listed again it enters, as a row back from an undo.
+            let was_leaving = motion.leaving.peek().iter().any(|row| row.key == thread);
+            if was_leaving && let Some(clock) = *motion.clock.peek() {
+                let _ = clock.roster.stay(thread);
             }
-            motion.leaving.write().retain(|row| row.key.id != thread);
+            motion.leaving.write().retain(|row| row.key != thread);
             motion.returning.set(Some(thread));
         }
     }
@@ -337,10 +329,7 @@ impl Motion {
         if self.stays(store, shell, thread) || !self.order.read().contains(&thread) {
             return;
         }
-        let key = RowKey {
-            id: thread,
-            round: self.rounds.peek().get(&thread).copied().unwrap_or(0),
-        };
+        let key = thread;
         let emphasis = if before.read == ReadState::Unread {
             Emphasis::Strong
         } else {
@@ -352,7 +341,7 @@ impl Motion {
             .map(|clock| clock.roster.entries())
             .unwrap_or_default();
         leaving.retain(|row| {
-            row.key.id != thread
+            row.key != thread
                 && drawn.iter().any(|entry| {
                     entry.key == row.key && matches!(entry.presence, ds::Presence::Leaving(_))
                 })

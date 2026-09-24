@@ -8,9 +8,10 @@ use super::data::{AccountRow, account_rows, syncs_nothing};
 use super::field::{Field, FieldKind};
 use super::hover::{HoverLayer, Site, hover};
 use super::list_search::{Marking, RowHit, Scope, row_hit};
-use super::motion::{Clock, Ghost, Leaving, Motion, RowKey, Toast, motion};
+use super::motion::{Clock, Ghost, Leaving, Motion, Toast, motion};
 use super::ops::start_new;
 use super::page::{PageMenus, group_page};
+use super::press::{available, on_primary};
 use super::row::{DraftRow, Moving, Row, gap};
 use crate::provider::provider;
 use crate::view::{Nothing, Shell, SyncState, synced};
@@ -113,16 +114,7 @@ pub(super) fn ThreadList(
         .collect();
     let state = use_hook(motion);
     let listed = threads();
-    let rounds = state
-        .map(|state| state.rounds.read().clone())
-        .unwrap_or_default();
-    let keys: Vec<RowKey> = listed
-        .iter()
-        .map(|summary| RowKey {
-            id: summary.id,
-            round: rounds.get(&summary.id).copied().unwrap_or(0),
-        })
-        .collect();
+    let keys: Vec<ThreadId> = listed.iter().map(|summary| summary.id).collect();
     let pitch = RowPitch(ds::Px(gap(&shell.peek()) as f32));
     let roster = use_roster_clock(keys.clone(), pitch, state);
     let leaving = state
@@ -132,7 +124,11 @@ pub(super) fn ThreadList(
     // The list is being shown while `entering` holds and its rows are still arriving; it rests
     // once they have, and a row that arrives after that is not an entrance.
     use_list_rest(entering, roster);
-    let list_presence = if entering() { "entering" } else { "present" };
+    let list_presence = if entering() {
+        ds::ListPresence::Entering
+    } else {
+        ds::ListPresence::Present
+    };
     let returning = state.and_then(|state| *state.returning.read());
     let moving: BTreeMap<ThreadId, Moving> = drawn
         .iter()
@@ -202,11 +198,13 @@ pub(super) fn ThreadList(
                 div { class: "bar-tools",
                     PageMenus { shell }
                     if !quiet {
-                        button {
-                            class: "mini",
-                            aria_label: "Sync now",
-                            disabled: !sync_state.read().may_start(),
-                            onclick: move |_| {
+                        ds::Button {
+                            variant: ds::ButtonVariant::Mini,
+                            label: String::new(),
+                            icon: Icon::Refresh,
+                            aria_label: "Sync now".to_owned(),
+                            availability: available(sync_state.read().may_start()),
+                            onclick: on_primary(move || {
                                 if !sync_state.read().may_start() {
                                     return;
                                 }
@@ -227,14 +225,15 @@ pub(super) fn ThreadList(
                                     });
                                     revision += 1;
                                 });
-                            },
-                            Glyph { icon: Icon::Refresh, size: ds::IconSize::Compact }
+                            }),
                         }
                     }
-                    button {
-                        class: "mini",
-                        title: "Write a new message (c)",
-                        onclick: move |_| {
+                    ds::Button {
+                        variant: ds::ButtonVariant::Mini,
+                        label: "Compose".to_owned(),
+                        icon: Icon::Pen,
+                        title: "Write a new message (c)".to_owned(),
+                        onclick: on_primary(move || {
                             let store = consume_context::<Arc<SqliteStore>>();
                             let known = shell.peek().accounts.clone();
                             match start_new(&store, &known) {
@@ -244,9 +243,7 @@ pub(super) fn ThreadList(
                                 }
                                 Err(why) => eprintln!("compose: {why}"),
                             }
-                        },
-                        Glyph { icon: Icon::Pen, size: ds::IconSize::Compact }
-                        "Compose"
+                        }),
                     }
                 }
             }
@@ -265,9 +262,11 @@ pub(super) fn ThreadList(
                     on_blur: move |_| in_a_field.set(false),
                 }
             }
-            ul {
-                class: "list",
-                "data-presence": list_presence,
+            // quire's list in mailo's scroller: its presence picks the entrance a row plays.
+            div { class: "list",
+            ds::AnimatedList {
+                label: "{place}",
+                presence: list_presence,
                 if threads().is_empty() && drafts().is_empty() {
                     li { class: "empty",
                         p { "{nothing().message()}" }
@@ -327,11 +326,14 @@ pub(super) fn ThreadList(
                     }
                 }
             }
+            }
             if more() {
-                button {
-                    class: "mini",
-                    onclick: move |_| pages += 1,
-                    "Show more"
+                div { class: "more",
+                    ds::Button {
+                        variant: ds::ButtonVariant::Mini,
+                        label: "Show more".to_owned(),
+                        onclick: on_primary(move || pages += 1),
+                    }
                 }
             }
             HoverLayer { site: Site::List, shell, revision, spaces: None }
@@ -370,7 +372,11 @@ fn dress(
 
 /// The list's roster over `keys`, and the timers an op starts, handed to the window's motion
 /// state so an op anywhere can start them.
-fn use_roster_clock(keys: Vec<RowKey>, pitch: RowPitch, state: Option<Motion>) -> Roster<RowKey> {
+fn use_roster_clock(
+    keys: Vec<ThreadId>,
+    pitch: RowPitch,
+    state: Option<Motion>,
+) -> Roster<ThreadId> {
     let roster = ds::use_roster(keys, pitch);
     let gulp = ds::use_motion_timer(Anim::Gulp);
     let landing = ds::use_motion_timer(Anim::ChipLand);
@@ -402,7 +408,7 @@ fn use_roster_clock(keys: Vec<RowKey>, pitch: RowPitch, state: Option<Motion>) -
 /// Once the list being shown has no row still arriving, it is at rest. Marked from an effect,
 /// after the render that saw it, and only once a row has been seen arriving: a place's rows
 /// come from a query that may land a frame after the place was chosen.
-fn use_list_rest(mut entering: Signal<bool>, roster: Roster<RowKey>) {
+fn use_list_rest(mut entering: Signal<bool>, roster: Roster<ThreadId>) {
     let mut seen = use_signal(|| false);
     use_effect(move || {
         let arriving = roster
@@ -422,11 +428,11 @@ fn use_list_rest(mut entering: Signal<bool>, roster: Roster<RowKey>) {
 
 /// What the list draws, in order: every row the roster holds, with the summary to draw it by
 /// and what it is doing. A listed row is drawn as the store has it; a row that has left is
-/// drawn as it was, until its exit settles. A row an undo brought back mid-exit is drawn once,
-/// under its new key.
+/// drawn as it was, until its exit settles. A row an undo brought back mid-exit stays under its
+/// own key (`Roster::stay`), drawn once.
 fn drawn(
-    roster: &Roster<RowKey>,
-    keys: &[RowKey],
+    roster: &Roster<ThreadId>,
+    keys: &[ThreadId],
     listed: Vec<ThreadSummary>,
     leaving: &[Leaving],
 ) -> Vec<(ThreadSummary, Moving)> {
@@ -437,7 +443,7 @@ fn drawn(
             let summary = if keys.contains(&entry.key) {
                 listed
                     .iter()
-                    .find(|summary| summary.id == entry.key.id)?
+                    .find(|summary| summary.id == entry.key)?
                     .clone()
             } else {
                 leaving

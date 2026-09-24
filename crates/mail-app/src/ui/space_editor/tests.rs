@@ -62,15 +62,21 @@ async fn the_editor_opens_on_the_spaces_own_choices() {
     let page = dioxus_ssr::render(&dom);
     assert!(page.contains("aria-label=\"Space editor\""), "{page}");
 
+    // Appearance and Accent are quire's `SpaceEditor`'s own rows and names; Motion and
+    // Provider marks are mailo's rows under it.
     let groups = [
-        ("Theme", ["System", "Light", "Dark"].as_slice(), "System"),
+        (
+            "Appearance",
+            ["System", "Light", "Dark"].as_slice(),
+            "System",
+        ),
         (
             "Motion",
             ["Calm", "Standard", "Extra"].as_slice(),
             "Standard",
         ),
         (
-            "Card accent",
+            "Accent",
             ["A hint of the Space", "Postmark"].as_slice(),
             "A hint of the Space",
         ),
@@ -96,36 +102,27 @@ async fn the_editor_opens_on_the_spaces_own_choices() {
         );
     }
 
-    let presets = buttons_in(&page, "presets");
+    // quire's eight presets, each named for itself (they replaced the six retired accents).
+    let presets = buttons_in(&page, "ds-presets");
     let names: Vec<&str> = presets
         .iter()
         .map(|button| button.attr("aria-label"))
         .collect();
     assert_eq!(names, PRESET_NAMES, "{page}");
     assert_eq!(presets.len(), PRESETS.len());
-    for hue in [
-        "Postmark",
-        "Graphite",
-        "Pine",
-        "Indigo",
-        "Oxblood",
-        "Vermilion",
-    ] {
-        assert!(names.contains(&hue), "{hue} is not among the presets");
-    }
     assert!(page.contains("Refresh icons"), "{page}");
     assert!(
         page.contains("Sidebar text on the colour"),
         "no readout: {page}"
     );
     assert_eq!(
-        page.matches("role=\"slider\"").count(),
+        page.matches("class=\"ds-handle\" role=\"slider\"").count(),
         2,
         "the Work Space has two dots: {page}"
     );
     assert!(
-        page.contains("class=\"inp range\""),
-        "grain is not a Field: {page}"
+        page.contains("class=\"ds-slider\" role=\"slider\" tabindex=\"0\" aria-label=\"Grain\""),
+        "grain is not quire's Slider: {page}"
     );
 }
 
@@ -139,7 +136,7 @@ async fn escape_puts_the_space_back_exactly_and_writes_nothing() {
     let _ = type_into(&mut dom, seen.one("value", "Work"), "Elsewhere");
     let _ = click(
         &mut dom,
-        seen.after("aria-label", "Theme", "aria-pressed")[2],
+        seen.after("aria-label", "Appearance", "aria-pressed")[2],
     );
     let edited = dioxus_ssr::render(&dom);
     assert!(
@@ -185,14 +182,18 @@ async fn save_writes_the_space_and_it_reads_back_the_same() {
     let _ = type_into(&mut dom, seen.one("value", "Work"), "Studio");
     let _ = click(
         &mut dom,
-        seen.after("aria-label", "Theme", "aria-pressed")[2],
+        seen.after("aria-label", "Appearance", "aria-pressed")[2],
     );
     let live = dioxus_ssr::render(&dom);
     let _ = click(
         &mut dom,
-        seen.after("aria-label", "Card accent", "aria-pressed")[1],
+        seen.after("aria-label", "Accent", "aria-pressed")[1],
     );
-    let _ = type_into(&mut dom, seen.one("value", "35"), "80");
+    // Grain is quire's Slider: a key moves it one step, 35 to 80 in 45.
+    let grain = seen.one("aria-label", "Grain");
+    for _ in 35..80 {
+        press(&mut dom, "ArrowRight", u32::try_from(grain.0).unwrap_or(0));
+    }
     let _ = click(&mut dom, seen.one("title", "Save this Space and close"));
 
     let page = dioxus_ssr::render(&dom);

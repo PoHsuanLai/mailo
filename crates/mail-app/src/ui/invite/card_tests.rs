@@ -215,7 +215,7 @@ fn past_six_attendees_the_rest_fold_into_a_count() {
     let calendar = ics("REQUEST", 0, "CONFIRMED", "ada@example.test", &people, "");
     let page = drawn(card(&calendar, None));
     assert_eq!(page.matches("class=\"att yes\"").count(), 6, "{page}");
-    assert!(page.contains(">+4</button>"), "{page}");
+    assert!(page.contains(">+4</span></button>"), "{page}");
     assert!(
         page.contains("Person 5") && !page.contains("Person 6"),
         "{page}"

@@ -10,6 +10,7 @@ use std::sync::Arc;
 use super::super::field::{Field, FieldKind};
 use super::super::menu::{Menu, MenuItem, Right, Tile};
 use super::super::move_to::destinations;
+use super::super::press::{available, on_primary};
 use super::super::space_editor::Seg;
 use super::work::{self, Draft};
 use ds::{Glyph, Icon};
@@ -179,7 +180,7 @@ pub(super) fn RuleEditor(
                 kind: FieldKind::Boxed,
                 value: draft.name.clone(),
                 placeholder: "Bills".to_owned(),
-                extra: Some("rules-in rules-name".to_owned()),
+                extra: Some("rules-in".to_owned()),
                 on_input: move |value: String| {
                     if let Some(draft) = editing.write().as_mut() {
                         draft.name = value;
@@ -193,7 +194,7 @@ pub(super) fn RuleEditor(
                 kind: FieldKind::Boxed,
                 value: draft.query.clone(),
                 placeholder: "from:bank.example subject:statement".to_owned(),
-                extra: Some("rules-in rules-query".to_owned()),
+                extra: Some("rules-in".to_owned()),
                 on_input: move |value: String| {
                     if let Some(draft) = editing.write().as_mut() {
                         draft.query = value;
@@ -209,32 +210,30 @@ pub(super) fn RuleEditor(
                     li { key: "{at}", class: "rules-action",
                         Glyph { icon: icon_of(action), size: ds::IconSize::Small }
                         span { "{work::action_words(action)}" }
-                        button {
-                            class: "rm",
-                            r#type: "button",
-                            aria_label: "Remove {work::action_words(action)}",
-                            onclick: move |_| {
+                        ds::IconButton {
+                            variant: ds::IconButtonVariant::Strip,
+                            icon: Icon::X,
+                            label: format!("Remove {}", work::action_words(action)),
+                            onclick: on_primary(move || {
                                 if let Some(draft) = editing.write().as_mut()
                                     && at < draft.actions.len()
                                 {
                                     draft.actions.remove(at);
                                 }
-                            },
-                            Glyph { icon: Icon::X, size: ds::IconSize::Micro }
+                            }),
                         }
                     }
                 }
                 li { class: "rules-add",
-                    button {
-                        class: "mini",
-                        r#type: "button",
-                        aria_expanded: if adding() == Adding::Closed { "false" } else { "true" },
-                        onclick: move |_| {
+                    ds::Button {
+                        variant: ds::ButtonVariant::Mini,
+                        label: "Add an action",
+                        icon: Icon::Plus,
+                        expanded: if adding() == Adding::Closed { ds::Expanded::Closed } else { ds::Expanded::Open },
+                        onclick: on_primary(move || {
                             let next = if adding() == Adding::Closed { Adding::Kinds } else { Adding::Closed };
                             adding.set(next);
-                        },
-                        Glyph { icon: Icon::Plus, size: ds::IconSize::Tiny }
-                        "Add an action"
+                        }),
                     }
                     if let Some((menu_title, items, filterable)) = menu {
                         div { class: "rules-menu",
@@ -281,21 +280,20 @@ pub(super) fn RuleEditor(
                 if let Some(why) = refused() {
                     p { class: "capnote files-bad", role: "alert", "{why}" }
                 }
-                button {
-                    class: "mini",
-                    r#type: "button",
-                    onclick: move |_| {
+                ds::Button {
+                    variant: ds::ButtonVariant::Mini,
+                    label: "Cancel".to_owned(),
+                    onclick: on_primary(move || {
                         editing.set(None);
                         refused.set(None);
-                    },
-                    "Cancel"
+                    }),
                 }
-                button {
-                    class: "mini primary",
-                    r#type: "button",
-                    aria_label: "Save {title}",
-                    disabled: !readable,
-                    onclick: move |_| {
+                ds::Button {
+                    variant: ds::ButtonVariant::Primary,
+                    label: "Save".to_owned(),
+                    aria_label: format!("Save {title}"),
+                    availability: available(!(!readable)),
+                    onclick: on_primary(move || {
                         let Some(draft) = editing.peek().clone() else { return };
                         let store = consume_context::<Arc<SqliteStore>>();
                         match work::save(&store, account, &draft, &chrono::Local) {
@@ -307,8 +305,7 @@ pub(super) fn RuleEditor(
                             }
                             Err(why) => refused.set(Some(why)),
                         }
-                    },
-                    "Save"
+                    }),
                 }
             }
         }

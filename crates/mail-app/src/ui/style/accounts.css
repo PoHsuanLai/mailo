@@ -5,7 +5,7 @@
 .inp.secret::placeholder { letter-spacing: normal; }
 .acct-found {
   display: grid; grid-template-columns: max-content 1fr; gap: var(--s-5) var(--s-14); align-items: baseline;
-  margin-top: var(--s-6); padding: var(--s-10) var(--s-12); border: 1px solid var(--line-soft);
+  margin-top: var(--s-6); padding: var(--s-10) var(--s-12); border: var(--hair) solid var(--line-soft);
   border-radius: var(--r-field); background: var(--surface);
 }
 .acct-k {
@@ -14,14 +14,12 @@
 }
 .acct-v { min-width: 0; font-size: var(--fs-meta); line-height: 1.4; color: var(--ink); overflow-wrap: anywhere; }
 .acct-v.acct-source { color: var(--ink-soft); }
-/* quire's `breathe` is the sync halo's, fading to nothing; a busy word must stay legible. */
 .files-look.acct-busy { color: var(--ink-soft); animation: busy var(--t-ambient) var(--e-in-out) infinite; }
-@keyframes busy { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
 .capnote.acct-said { white-space: pre-wrap; overflow-wrap: anywhere; }
 /* A browser sign-in's address: the data face, selectable, with its Copy beside it. */
 .acct-url {
   display: flex; align-items: flex-start; gap: var(--s-8); margin-top: var(--s-6); padding: var(--s-6) var(--s-9);
-  border: 1px solid var(--line); border-radius: var(--r-btn); background: var(--surface-2);
+  border: var(--hair) solid var(--line); border-radius: var(--r-btn); background: var(--surface-2);
 }
 .acct-link {
   flex: 1; min-width: 0; font-family: var(--font-data); font-size: var(--fs-eyebrow); line-height: 1.5;
@@ -30,7 +28,5 @@
 .acct-done { display: grid; gap: var(--s-4); margin-top: var(--s-4); font-size: var(--fs-control); line-height: 1.45; color: var(--ink); }
 .acct-done p { margin: 0; }
 .acct-done p:first-child { font-weight: 700; }
-.pin.acct.acct-add .av { background: transparent; color: var(--f-ink-faint); border: 1px dashed var(--f-ink-faint); }
-.pin.acct.acct-add:hover .av { color: var(--f-ink); border-color: var(--f-ink); }
 /* Between looking up and typing a JMAP server in: quire's quiet button, under the rest. */
 .acct-alt { display: flex; margin-top: var(--s-4); }

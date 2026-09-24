@@ -12,6 +12,7 @@ use mail_store::SqliteStore;
 
 use super::super::command::avatar_color;
 use super::super::field::{Field, FieldKind};
+use super::super::press::{SheetClose, on_primary};
 use super::book::{self, Row, SYNC_COMMAND};
 use crate::view::Shell;
 use ds::{Glyph, Icon};
@@ -67,13 +68,7 @@ pub(in crate::ui) fn ContactsSheet(shell: Signal<Shell>) -> Element {
                 div { class: "book-head",
                     h3 { "Contacts" }
                     span { class: "count", "{count}" }
-                    button {
-                        class: "mini",
-                        r#type: "button",
-                        onclick: move |_| super::close(shell),
-                        "Close"
-                        span { class: "k", "Esc" }
-                    }
+                    SheetClose { on_close: move |()| super::close(shell) }
                 }
                 label { class: "book-find",
                     Glyph { icon: Icon::Search }
@@ -126,19 +121,18 @@ pub(in crate::ui) fn ContactsSheet(shell: Signal<Shell>) -> Element {
                                 },
                             }
                         }
-                        button {
-                            class: "mini",
-                            r#type: "button",
-                            onclick: move |_| {
+                        ds::Button {
+                            variant: ds::ButtonVariant::Mini,
+                            label: "Export vCard…".to_owned(),
+                            icon: Icon::Forward,
+                            onclick: on_primary(move || {
                                 let store = consume_context::<Arc<SqliteStore>>();
                                 let dir = crate::attach::downloads_dir();
                                 said.set(Some(match book::export(store.as_ref(), &dir) {
                                     Ok(path) => format!("Saved to {}", path.display()),
                                     Err(why) => why,
                                 }));
-                            },
-                            Glyph { icon: Icon::Forward }
-                            "Export vCard…"
+                            }),
                         }
                     }
                     if let Some(said) = said() {
@@ -193,31 +187,32 @@ fn BookRow(
                 span { class: "origin", "{origin}" }
             }
             div { class: "acts",
-                button {
-                    class: "ghost",
-                    r#type: "button",
-                    aria_label: "{action}: {address}",
+                ds::Button {
+                    variant: ds::ButtonVariant::Secondary,
+                    label: action.to_owned(),
+                    aria_label: format!("{action}: {address}"),
                     onclick: {
                         let address = address.clone();
                         let typed = row.name.clone().unwrap_or_default();
-                        move |_| naming.set(Some(Naming { address: address.clone(), typed: typed.clone() }))
+                        on_primary(move || naming.set(Some(Naming { address: address.clone(), typed: typed.clone() })))
                     },
-                    "{action}"
                 }
-                button {
-                    class: "ghost danger",
-                    r#type: "button",
-                    aria_label: "Forget {address}",
-                    title: "Mail may teach it again",
-                    onclick: move |_| {
+                ds::Button {
+                    variant: ds::ButtonVariant::Danger,
+                    label: "Forget".to_owned(),
+                    aria_label: format!("Forget {address}"),
+                    title: "Mail may teach it again".to_owned(),
+                    onclick: on_primary({
+                        let address = address.clone();
+                        move || {
                         let store = consume_context::<Arc<SqliteStore>>();
                         said.set(Some(match book::forget(store.as_ref(), &address) {
                             Ok(_) => format!("Forgot {address}. Mail may teach it again."),
                             Err(why) => why,
                         }));
                         changed += 1;
-                    },
-                    "Forget"
+                        }
+                    }),
                 }
             }
         }
@@ -250,7 +245,7 @@ fn NameField(
         }
     };
     let mut keep_on_enter = keep.clone();
-    let mut keep_on_click = keep;
+    let keep_on_click = keep;
     rsx! {
         div {
             class: "naming",
@@ -278,12 +273,11 @@ fn NameField(
                 on_focus: |_| {},
                 on_blur: |_| {},
             }
-            button {
-                class: "mini primary",
-                r#type: "button",
-                aria_label: "Save the name for {address}",
-                onclick: move |_| keep_on_click(),
-                "Save"
+            ds::Button {
+                variant: ds::ButtonVariant::Primary,
+                label: "Save".to_owned(),
+                aria_label: format!("Save the name for {address}"),
+                onclick: on_primary(keep_on_click),
             }
         }
     }

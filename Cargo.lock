@@ -1973,7 +1973,7 @@ checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
 [[package]]
 name = "ds"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.1.2#7a7ae4500267787c67f9d1e80c372f9ed4227c53"
+source = "git+https://github.com/PoHsuanLai/quire?tag=v0.1.5#d3618f0f555e70d04ba0cc49c16b8bd51ac3374a"
 dependencies = [
  "cssparser 0.37.0",
  "dioxus",
@@ -1987,7 +1987,7 @@ dependencies = [
 [[package]]
 name = "ds-settings"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.1.2#7a7ae4500267787c67f9d1e80c372f9ed4227c53"
+source = "git+https://github.com/PoHsuanLai/quire?tag=v0.1.5#d3618f0f555e70d04ba0cc49c16b8bd51ac3374a"
 dependencies = [
  "dioxus",
  "dirs",
@@ -2005,7 +2005,7 @@ dependencies = [
 [[package]]
 name = "ds-settings-derive"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.1.2#7a7ae4500267787c67f9d1e80c372f9ed4227c53"
+source = "git+https://github.com/PoHsuanLai/quire?tag=v0.1.5#d3618f0f555e70d04ba0cc49c16b8bd51ac3374a"
 dependencies = [
  "proc-macro2",
  "quote",

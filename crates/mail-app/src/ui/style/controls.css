@@ -2,7 +2,12 @@
 .mono { font-family: var(--font-data); font-size: 0.78em; letter-spacing: -0.02em; }
 .eyebrow { font-family: var(--font-data); font-size: var(--fs-eyebrow); letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-faint); }
 .pending, .empty { color: var(--ink-soft); font-style: italic; }
-.ghost { font: inherit; font-size: var(--fs-small); padding: var(--s-2) var(--s-8); border: 1px solid var(--line); border-radius: var(--r-pill); background: none; color: var(--ink-soft); cursor: pointer; }
+/* A boxed field is quire's TextInput in this box, which carries the field's place in the layout. */
+.field { display: grid; min-width: 0; }
+/* A sheet's Close: quire's button, and the key that does the same beside it. */
+.sheet-close { margin-left: auto; display: inline-flex; align-items: center; gap: var(--s-6); }
+.sheet-close .k { font-family: var(--font-data); font-size: var(--fs-caption); font-weight: 400; color: var(--ink-faint); }
+.ghost { font: inherit; font-size: var(--fs-small); padding: var(--s-2) var(--s-8); border: var(--hair) solid var(--line); border-radius: var(--r-pill); background: none; color: var(--ink-soft); cursor: pointer; }
 .ghost.danger { color: var(--danger); border-color: var(--danger); font-weight: 600; }
 .notice { margin: 0; padding: var(--s-6) var(--s-8); border-radius: var(--r-card); background: var(--accent-soft); color: var(--ink); font-size: var(--fs-control); }
 .hint { font-size: var(--fs-small); color: var(--ink-faint); }

@@ -20,12 +20,13 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use super::super::data::account_rows;
+use super::super::press::{SheetClose, available, on_primary};
 use super::certs::{CertJob, CertPart};
 use super::key_row::{Confirm, KeyRow};
 use super::{Busy, Seams, seams, short, who};
 use crate::pgp::WithSecret;
 use crate::view::{KeysSheet as Showing, Shell};
-use ds::{Glyph, Icon};
+use ds::Icon;
 
 /// What the sheet and its menu entry are called.
 pub(in crate::ui) const TITLE: &str = "Keys and certificates";
@@ -233,13 +234,7 @@ pub(in crate::ui) fn KeysSheet(shell: Signal<Shell>) -> Element {
                 onclick: move |event| event.stop_propagation(),
                 div { class: "keys-head",
                     h3 { "{TITLE}" }
-                    button {
-                        class: "mini",
-                        r#type: "button",
-                        onclick: move |_| close(shell),
-                        "Close"
-                        span { class: "k", "Esc" }
-                    }
+                    SheetClose { on_close: move |()| close(shell) }
                 }
                 match said() {
                     Some(Ok(text)) => rsx! { p { class: "capnote said keys-said", role: "status", "{text}" } },
@@ -262,27 +257,25 @@ pub(in crate::ui) fn KeysSheet(shell: Signal<Shell>) -> Element {
                         }
                         div { class: "keys-acts",
                             for address in keyless {
-                                button {
+                                ds::Button {
                                     key: "{address}",
-                                    class: "mini",
-                                    r#type: "button",
-                                    aria_label: "Make a key for {address}",
-                                    disabled: working,
+                                    variant: ds::ButtonVariant::Mini,
+                                    label: format!("Make a key for {address}"),
+                                    icon: Icon::Plus,
+                                    aria_label: format!("Make a key for {address}"),
+                                    availability: available(!working),
                                     onclick: {
                                         let address = address.clone();
-                                        move |_| run.call(Job::Generate(address.clone()))
+                                        on_primary(move || run.call(Job::Generate(address.clone())))
                                     },
-                                    Glyph { icon: Icon::Plus, size: ds::IconSize::Tiny }
-                                    "Make a key for {address}"
                                 }
                             }
-                            button {
-                                class: "mini",
-                                r#type: "button",
-                                aria_label: "{import_label}",
-                                disabled: working,
-                                onclick: move |_| run.call(Job::Import),
-                                "{import_label}"
+                            ds::Button {
+                                variant: ds::ButtonVariant::Mini,
+                                label: import_label.to_string(),
+                                aria_label: import_label.to_string(),
+                                availability: available(!working),
+                                onclick: on_primary(move || run.call(Job::Import)),
                             }
                         }
                     }

@@ -30,6 +30,7 @@ mod move_to;
 mod ops;
 mod page;
 mod pgp;
+mod press;
 mod print;
 mod reading;
 mod receipt;

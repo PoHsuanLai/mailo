@@ -170,7 +170,7 @@ pub(super) fn Menu(
                                 span {
                                     b { {runs(&title)} }
                                     if !detail.is_empty() {
-                                        small { class: "snip", {runs(&detail)} }
+                                        small { {runs(&detail)} }
                                     }
                                 }
                                 span { class: "sc",
@@ -302,6 +302,143 @@ pub(in crate::ui) fn entries(
         });
     }
     out
+}
+
+/// quire's entries for a floating menu: its title and each new group as headers, then mailo's
+/// items as [`quire_rows`].
+pub(in crate::ui) fn quire_entries(
+    title: &str,
+    items: &[MenuItem],
+    avatar: AvatarSize,
+    on_remove: Option<EventHandler<String>>,
+) -> Vec<MenuEntry<String>> {
+    let mut out = Vec::new();
+    if !title.is_empty() {
+        out.push(MenuEntry::Header(title.to_owned()));
+    }
+    let mut last: Option<&str> = None;
+    for item in items {
+        if let Some(group) = item.group.as_deref()
+            && last != Some(group)
+        {
+            out.push(MenuEntry::Header(group.to_owned()));
+            last = Some(group);
+        }
+        out.push(quire_row(item, avatar, on_remove));
+    }
+    out
+}
+
+/// Where a floating menu goes: against the element `at`, or the window's corner before that
+/// element has mounted (a document with no renderer).
+pub(in crate::ui) fn anchor_at(at: Option<MountedRef>) -> Anchor {
+    at.map_or(Anchor::Point(Point::default()), Anchor::Mounted)
+}
+
+/// mailo's items as quire's rows, each carrying its own runs: a marked piece is a `Mark` run, a
+/// strong or faint run keeps its tone, and a name with no marks and no tone stays plain, so the
+/// menu's own filter can still mark it. A [`Right::Remove`] is the row's trailing ×, which hands
+/// the item's key to `on_remove` and picks nothing.
+pub(in crate::ui) fn quire_rows(
+    items: &[MenuItem],
+    avatar: AvatarSize,
+    on_remove: Option<EventHandler<String>>,
+) -> Vec<MenuEntry<String>> {
+    items
+        .iter()
+        .map(|item| quire_row(item, avatar, on_remove))
+        .collect()
+}
+
+/// [`quire_rows`] under their group titles, as quire's palette takes them: one group per run of
+/// items that share a title, in the order the items come; an item with no group joins the one
+/// before it, or an untitled first group.
+pub(in crate::ui) fn quire_groups(
+    items: &[MenuItem],
+    avatar: AvatarSize,
+    on_remove: Option<EventHandler<String>>,
+) -> Vec<(String, Vec<MenuEntry<String>>)> {
+    let mut groups: Vec<(String, Vec<MenuEntry<String>>)> = Vec::new();
+    for item in items {
+        let row = quire_row(item, avatar, on_remove);
+        match (item.group.as_deref(), groups.last_mut()) {
+            (Some(group), Some((title, rows))) if title == group => rows.push(row),
+            (None, Some((_, rows))) => rows.push(row),
+            (group, _) => groups.push((group.unwrap_or_default().to_owned(), vec![row])),
+        }
+    }
+    groups
+}
+
+fn quire_row(
+    item: &MenuItem,
+    avatar: AvatarSize,
+    on_remove: Option<EventHandler<String>>,
+) -> MenuEntry<String> {
+    let title = if item.title.is_empty() {
+        text_of(&[Run {
+            text: item.name.clone(),
+            marks: item.marks.clone(),
+            tone: Tone::Plain,
+        }])
+    } else {
+        text_of(&item.title)
+    };
+    let detail = if item.detail.is_empty() {
+        item.help.clone().map(ds::Text::from)
+    } else {
+        Some(text_of(&item.detail))
+    };
+    let (trail, check) = match &item.right {
+        Right::Shortcut(keys) => (Trail::Note(keys.clone()), None),
+        Right::Check(true) => (Trail::None, Some(Check::Checked)),
+        Right::Check(false) => (Trail::None, Some(Check::Unchecked)),
+        Right::Remove(_) | Right::None => (Trail::None, None),
+    };
+    let trailing = match (&item.right, on_remove) {
+        (Right::Remove(label), Some(remove)) => {
+            let key = item.key.clone();
+            Some(ds::RowAction {
+                icon: Icon::X,
+                label: label.clone(),
+                on_press: EventHandler::new(move |_| remove.call(key.clone())),
+            })
+        }
+        _ => None,
+    };
+    MenuEntry::Row(ds::MenuRow {
+        tile: Some(quire_tile(&item.tile, avatar)),
+        detail,
+        trail,
+        check,
+        trailing,
+        ..ds::MenuRow::new(item.key.clone(), title)
+    })
+}
+
+/// Runs as quire's text: plain when nothing in them is marked or toned.
+fn text_of(parts: &[Run]) -> ds::Text {
+    let plain = parts
+        .iter()
+        .all(|run| run.marks.is_empty() && run.tone == Tone::Plain);
+    if plain {
+        return ds::Text::Plain(parts.iter().map(|run| run.text.as_str()).collect());
+    }
+    let mut runs = Vec::new();
+    for run in parts {
+        let tone = match run.tone {
+            Tone::Plain => ds::RunTone::Plain,
+            Tone::Strong => ds::RunTone::Strong,
+            Tone::Faint => ds::RunTone::Faint,
+        };
+        for piece in pieces(&run.text, &run.marks) {
+            runs.push(match piece {
+                Piece::Plain(text) => ds::Run::new(text, tone),
+                Piece::Mark(text) => ds::Run::new(text, ds::RunTone::Mark),
+            });
+        }
+    }
+    ds::Text::Runs(runs)
 }
 
 fn quire_tile(tile: &Tile, size: AvatarSize) -> ds::Tile {

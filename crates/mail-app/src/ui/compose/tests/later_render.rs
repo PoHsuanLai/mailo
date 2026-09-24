@@ -101,7 +101,8 @@ fn window(dress: impl FnOnce(&mut Page), before: Before) -> (String, Work) {
         });
     }
     dom.in_runtime(|| dress(&mut page.write()));
-    dom.render_immediate(&mut NoOpMutations);
+    // A menu floats in the root's overlay, drawn on the renders after the one that asks.
+    crate::ui::fixtures::drain(&mut dom);
     (dioxus_ssr::render(&dom), built)
 }
 
@@ -115,10 +116,7 @@ fn styled(markup: &str) {
 async fn every_class_send_later_and_templates_draw_is_styled() {
     let (markup, _built) = window(|_| {}, Before::Schedule);
     assert!(markup.contains("Scheduled for tomorrow 08:00"), "{markup}");
-    assert!(
-        markup.contains(r#"class="item today-item later""#),
-        "{markup}"
-    );
+    assert!(markup.contains(r#"class="today-at later""#), "{markup}");
     styled(&markup);
 
     let (markup, _built) = window(
@@ -129,8 +127,9 @@ async fn every_class_send_later_and_templates_draw_is_styled() {
         Before::KeepTemplates,
     );
     assert!(markup.contains("Weekly update"), "{markup}");
+    // Each row's × is quire's trailing row action.
     assert!(
-        markup.contains(r#"class="rm""#),
+        markup.contains(r#"aria-label="Delete template “Weekly update”""#),
         "no delete on the rows:\n{markup}"
     );
     styled(&markup);

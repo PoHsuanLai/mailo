@@ -152,11 +152,6 @@ impl MenuState {
         }
     }
 
-    /// Put the cursor back on the first row. The command menu does this on every new query.
-    pub(in crate::ui) fn restart(&mut self) {
-        self.active = 0;
-    }
-
     /// Move, pick, close, or type. `shown` is the list the cursor is walking.
     pub(in crate::ui) fn on_key(&mut self, key: MenuKey, shown: &[MenuItem]) -> MenuEvent {
         if self.active >= shown.len() {

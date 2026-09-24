@@ -362,7 +362,7 @@ async fn neither_the_list_nor_a_hover_card_reads_a_list_header() {
     let thread = put(&store, "weekly@rust.test", MAILTO, Held::Body);
     let mut dom = VirtualDom::new(App).with_root_context(store.clone());
     let seen = rebuild_into(&mut dom);
-    let row = seen.one("data-hc", &format!("thread:{thread}"));
+    let row = seen.row_parts(&format!("thread:{thread}")).row;
     let resting = || FakePointer {
         client: (400.0, 120.0),
         offset: (10.0, 10.0),
@@ -400,8 +400,9 @@ async fn render_the_unsubscribe_to_a_file() {
             "<section class=\"reader\" style=\"width:620px;height:270px;margin:16px\">\
              <div class=\"reader-head\"><h2>This week in the list</h2><div class=\"reader-meta\">\
              <div class=\"reader-av\">N</div><div><div class=\"reader-from\">News</div></div>\
-             <div class=\"leave\"><button class=\"mini\" type=\"button\" aria-expanded=\"true\">\
-             Unsubscribe</button>{open}</div></div></div></section>"
+             <div class=\"leave\"><button type=\"button\" class=\"ds-button\" data-variant=\"mini\" \
+             aria-label=\"Unsubscribe\" aria-expanded=\"true\"><span>Unsubscribe</span></button>{open}\
+             </div></div></div></section>"
         ));
     }
     crate::ui::fixtures::dump("unsubscribe", &body);

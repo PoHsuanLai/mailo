@@ -10,6 +10,7 @@ use dioxus::prelude::*;
 use mail_store::{SqliteStore, Store};
 
 use super::super::field::{Field, FieldKind};
+use super::super::press::on_primary;
 use super::book::{self, Standing};
 
 /// What the part is doing.
@@ -54,8 +55,8 @@ pub(in crate::ui) fn ContactPart(email: String, name: String) -> Element {
         }
     };
     let mut keep_on_enter = keep.clone();
-    let mut keep_on_click = keep;
-    let forget = {
+    let keep_on_click = keep;
+    let mut forget = {
         let email = email.clone();
         move |_| {
             let store = consume_context::<Arc<SqliteStore>>();
@@ -91,35 +92,32 @@ pub(in crate::ui) fn ContactPart(email: String, name: String) -> Element {
                             on_focus: |_| {},
                             on_blur: |_| {},
                         }
-                        button {
-                            class: "mini primary",
-                            r#type: "button",
-                            aria_label: "Save the name for {email}",
-                            onclick: move |_| keep_on_click(),
-                            "Save"
+                        ds::Button {
+                            variant: ds::ButtonVariant::Primary,
+                            label: "Save".to_owned(),
+                            aria_label: format!("Save the name for {email}"),
+                            onclick: on_primary(keep_on_click),
                         }
                     }
                 },
                 shown => rsx! {
                     div { class: "standing",
                         span { class: "origin", "{standing.label()}" }
-                        button {
-                            class: "ghost",
-                            r#type: "button",
-                            aria_label: "{standing.name_action()}: {email}",
+                        ds::Button {
+                            variant: ds::ButtonVariant::Secondary,
+                            label: standing.name_action().to_owned(),
+                            aria_label: format!("{}: {email}", standing.name_action()),
                             onclick: {
                                 let current = current.clone();
-                                move |_| doing.set(Doing::Naming(current.clone()))
+                                on_primary(move || doing.set(Doing::Naming(current.clone())))
                             },
-                            "{standing.name_action()}"
                         }
                         if standing != Standing::Unknown {
-                            button {
-                                class: "ghost danger",
-                                r#type: "button",
-                                aria_label: "Forget {email}",
-                                onclick: forget,
-                                "Forget"
+                            ds::Button {
+                                variant: ds::ButtonVariant::Danger,
+                                label: "Forget",
+                                aria_label: format!("Forget {email}"),
+                                onclick: on_primary(move || forget(())),
                             }
                             span { class: "capnote", "Mail may teach it again" }
                         }

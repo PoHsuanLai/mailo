@@ -2,7 +2,7 @@
    sender's HTML. It reads as a ticket stub: the head names what is asked, the facts sit in a
    quiet column, and the answers are the only loud thing on it. ---- */
 .invite {
-  margin: 0 0 var(--s-14); padding: var(--s-12) var(--s-14) var(--s-12); border: 1px solid var(--line);
+  margin: 0 0 var(--s-14); padding: var(--s-12) var(--s-14) var(--s-12); border: var(--hair) solid var(--line);
   border-left: 3px solid var(--accent); border-radius: var(--r-btn); background: var(--surface);
   box-shadow: var(--shadow-1); font-size: var(--fs-control); line-height: 1.45; color: var(--ink);
   animation: rise var(--t-move) var(--e-out);
@@ -35,7 +35,7 @@
 .inv-people { display: flex; flex-wrap: wrap; gap: var(--s-4); margin: var(--s-10) 0 0; padding: 0; list-style: none; }
 .att {
   display: inline-flex; align-items: center; gap: var(--s-5); max-width: 220px; padding: var(--s-2) var(--s-8) var(--s-2) var(--s-6);
-  border: 1px solid var(--line-soft); border-radius: var(--r-pill); background: var(--surface-2);
+  border: var(--hair) solid var(--line-soft); border-radius: var(--r-pill); background: var(--surface-2);
   font-size: var(--fs-help); color: var(--ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .att .dot { flex: none; width: 7px; height: 7px; border-radius: var(--r-pill); background: var(--line); }
@@ -56,7 +56,7 @@
 
 .inv-summary { margin: var(--s-10) 0 0; font-weight: 700; }
 .inv-comment { margin: var(--s-4) 0 0; color: var(--ink-soft); font-style: italic; }
-.inv-about { margin: var(--s-10) 0 0; padding-top: var(--s-9); border-top: 1px solid var(--line-soft); }
+.inv-about { margin: var(--s-10) 0 0; padding-top: var(--s-9); border-top: var(--hair) solid var(--line-soft); }
 .inv-desc { margin: 0; white-space: pre-line; color: var(--ink-soft); overflow-wrap: anywhere; }
 .inv-desc.folded {
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden;

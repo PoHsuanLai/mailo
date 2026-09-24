@@ -284,7 +284,7 @@ async fn ctrl_f_opens_the_field_on_the_open_thread_and_esc_closes_it() {
     // Nothing open: there is no thread to find in, so the chord goes to the list's box.
     chord(&mut dom, "f", Modifiers::CONTROL, shell);
     assert!(
-        scripts.all().iter().any(|s| s.contains("input.search")),
+        scripts.all().iter().any(|s| s.contains(".search input")),
         "Ctrl F with nothing open did not reach the search box: {:?}",
         scripts.all()
     );

@@ -431,10 +431,10 @@ async fn the_chip_draws_the_cached_icon_or_the_letter() {
         .uri(Provider::Google)
         .unwrap_or_else(|| panic!("no uri"));
     let cases = [
-        (Marks::Icons, true, ChipPlace::Tile, true),
+        (Marks::Icons, true, ChipPlace::Inline, true),
         (Marks::Icons, true, ChipPlace::Row, true),
-        (Marks::Letters, true, ChipPlace::Tile, false),
-        (Marks::Icons, false, ChipPlace::Tile, false),
+        (Marks::Letters, true, ChipPlace::Inline, false),
+        (Marks::Icons, false, ChipPlace::Inline, false),
     ];
     for (marks, with_file, place, image) in cases {
         let html = render_chip(

@@ -7,7 +7,7 @@
 use dioxus::prelude::*;
 
 use super::super::field::{Field, FieldKind};
-use super::super::menu::{Menu, MenuKey, menu_key};
+use super::super::menu::{Menu, MenuKey, anchor_at, menu_key, quire_entries};
 use super::float::{
     Picked, commit, current_kind, mention_items, pick_mention, pick_slash, pick_turn,
     suggest_mention, turn_items,
@@ -35,6 +35,8 @@ pub(in crate::ui) fn Body(
     shell: Signal<Shell>,
     on_attach: EventHandler<()>,
 ) -> Element {
+    // The caret's box, which the glue moves to the caret: quire's menus float against it.
+    let mut at_caret = use_signal(|| None::<ds::MountedRef>);
     let read = page.read();
     let only_empty = matches!(read.session.doc.nodes.as_slice(),
         [Node::Para { runs, .. }] if runs.is_empty());
@@ -81,37 +83,60 @@ pub(in crate::ui) fn Body(
                 },
             }
             match float {
+                // quire's menus, their cursor the editor's: the caret keeps the keyboard, and
+                // the page's keys move `active` and pick with it. A pick is followed by quire's
+                // close, which must not undo a float the pick opened (Save as template…).
                 Float::Slash { active, .. } => rsx! {
-                    div { class: "c-float", "data-anchor": "below",
-                        Menu {
-                            title: String::new(),
-                            items: page_slash_items(&page.read()),
-                            filterable: false,
-                            on_pick: move |key: String| pick(page, on_attach, &key),
-                            on_close: move |_| page.write().float = Float::Closed,
-                            on_query: move |_| {},
-                            slim: false,
-                            active: Some(active),
-                        }
+                    div {
+                        class: "c-float",
+                        "data-anchor": "below",
+                        onmounted: move |event| at_caret.set(Some(ds::MountedRef(event.data()))),
+                    }
+                    ds::Menu::<String> {
+                        kind: ds::MenuKind::Rich,
+                        anchor: anchor_at(at_caret()),
+                        entries: quire_entries("", &page_slash_items(&page.read()), ds::AvatarSize::Size34, None),
+                        onpick: move |key: String| pick(page, on_attach, &key),
+                        onclose: move |()| close_float(page),
+                        active: ds::Cursor::Controlled(Some(active)),
+                        on_active: move |to: Option<usize>| {
+                            if let Some(to) = to {
+                                set_active(page, to);
+                            }
+                        },
                     }
                 },
                 Float::Mention { active, .. } => rsx! {
-                    div { class: "c-float", "data-anchor": "below",
-                        Menu {
-                            title: "Mention, and add to Cc".to_owned(),
-                            items: mention_items(&page.read()),
-                            filterable: false,
-                            on_pick: move |key: String| pick_mention(&mut page.write(), &key),
-                            on_close: move |_| page.write().float = Float::Closed,
-                            on_query: move |_| {},
-                            slim: true,
-                            active: Some(active),
-                        }
+                    div {
+                        class: "c-float",
+                        "data-anchor": "below",
+                        onmounted: move |event| at_caret.set(Some(ds::MountedRef(event.data()))),
+                    }
+                    ds::Menu::<String> {
+                        kind: ds::MenuKind::Slim,
+                        anchor: anchor_at(at_caret()),
+                        entries: quire_entries(
+                            "Mention, and add to Cc",
+                            &mention_items(&page.read()),
+                            ds::AvatarSize::Size20,
+                            None,
+                        ),
+                        onpick: move |key: String| pick_mention(&mut page.write(), &key),
+                        onclose: move |()| close_float(page),
+                        active: ds::Cursor::Controlled(Some(active)),
+                        on_active: move |to: Option<usize>| {
+                            if let Some(to) = to {
+                                set_active(page, to);
+                            }
+                        },
                     }
                 },
                 Float::SaveTemplate(_) | Float::Templates { .. } => rsx! {
-                    div { class: "c-float", "data-anchor": "below",
-                        TemplateFloat { page, shell }
+                    div {
+                        class: "c-float",
+                        "data-anchor": "below",
+                        onmounted: move |event| at_caret.set(Some(ds::MountedRef(event.data()))),
+                        TemplateFloat { page, shell, at: at_caret() }
                     }
                 },
                 _ if selected => rsx! { Bubble { page } },
@@ -212,6 +237,17 @@ fn keys(
     if done {
         event.prevent_default();
         event.stop_propagation();
+    }
+}
+
+/// quire's menu closed (Esc, a press outside, or after a pick): the `/` or `@` menu goes, and
+/// whatever a pick opened in its place stays.
+fn close_float(mut page: Signal<Page>) {
+    if matches!(
+        page.peek().float,
+        Float::Slash { .. } | Float::Mention { .. }
+    ) {
+        page.write().float = Float::Closed;
     }
 }
 

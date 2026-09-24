@@ -18,6 +18,7 @@ use self::folders::FolderList;
 pub(in crate::ui) use self::panes::hex_colour;
 use self::panes::{AccountTiles, PinnedList, PlaceList, counts};
 use self::today::TodayList;
+pub(in crate::ui) use self::today::{initial, today_face};
 use super::switch::{self, Slide};
 use crate::appearance::WindowDirs;
 use crate::space::Spaces;

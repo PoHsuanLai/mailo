@@ -17,7 +17,7 @@ mod refresh;
 mod tests;
 
 pub(crate) use cache::Loaded;
-pub(crate) use chip::{ChipPlace, ProvChip};
+pub(crate) use chip::{ChipPlace, ProvChip, mark_of, mark_style};
 pub(crate) use refresh::{fetch_if_missing, providers_of, refresh, report};
 
 use mail_domain::{Retry, Retryable};

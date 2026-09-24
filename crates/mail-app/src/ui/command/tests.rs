@@ -1,6 +1,7 @@
 //! The Ctrl T menu over the reference fixture, and the pages its screenshots are taken from.
 
 use super::super::app::App;
+use super::super::menu::Menu;
 use super::items::{Pick, interpret, rows_of, search_now, tokens};
 use super::*;
 use crate::search::{Results, Top};
@@ -22,9 +23,14 @@ pub(in crate::ui) fn MenuPicture() -> Element {
     let side_hidden = use_signal(|| false);
     let sync_state = use_signal(|| crate::view::SyncState::Idle);
     let spaces = use_signal(crate::space::Spaces::default);
-    let in_a_field = use_signal(|| false);
+    // Inside a quire root, as the window has it: the palette floats in its overlay.
     rsx! {
-        CommandMenu { shell, pages, revision, side_hidden, sync_state, spaces, in_a_field }
+        ds::Ds {
+            appearance: ds::Appearance::default(),
+            material: ds::Material::Window,
+            stylesheet: ds::Inject::Host,
+            CommandMenu { shell, pages, revision, side_hidden, sync_state, spaces }
+        }
     }
 }
 
@@ -43,7 +49,6 @@ pub(in crate::ui) fn OpenMenus() -> Element {
     let side_hidden = use_signal(|| false);
     let sync_state = use_signal(|| crate::view::SyncState::Idle);
     let spaces = use_signal(crate::space::Spaces::default);
-    let in_a_field = use_signal(|| false);
     let summary = crate::search::Source::listed(
         store.as_ref(),
         &Filter::All,
@@ -53,7 +58,12 @@ pub(in crate::ui) fn OpenMenus() -> Element {
     .into_iter()
     .next();
     rsx! {
-        CommandMenu { shell, pages, revision, side_hidden, sync_state, spaces, in_a_field }
+        ds::Ds {
+            appearance: ds::Appearance::default(),
+            material: ds::Material::Window,
+            stylesheet: ds::Inject::Host,
+            CommandMenu { shell, pages, revision, side_hidden, sync_state, spaces }
+        }
         if let Some(summary) = summary {
             {
                 let id = summary.id;
@@ -176,19 +186,23 @@ fn from_dana_is_a_chip() {
     assert_eq!(tokens("from:dana spec"), vec!["from:dana".to_owned()]);
 }
 
-/// The People row's name is drawn with the typed characters as `<mark>` nodes.
-#[test]
-fn dana_is_marked_in_the_persons_name() {
+/// The People row's name is drawn with the typed characters as `<mark>` nodes: quire's palette
+/// row, whose title is the runs mailo marked.
+#[tokio::test]
+async fn dana_is_marked_in_the_persons_name() {
     let built = work();
     let mut menus = VirtualDom::new(MenuPicture).with_root_context(built.store);
     menus.rebuild_in_place();
+    crate::ui::fixtures::drain(&mut menus);
     let page = dioxus_ssr::render(&menus);
     let people = page.find(">People<").expect("no People group on dana");
     let after = &page[people..];
-    let name = &after[after.find("<b>").expect("a person item has a name")..];
+    let name = &after[after
+        .find("<b class=\"ds-menu-title\">")
+        .expect("a person item has a name")..];
     let name = &name[..name.find("</b>").expect("the name closes")];
     assert!(
-        name.contains("<mark>Dana</mark>"),
+        name.contains("<mark class=\"ds-mark\">Dana</mark>"),
         "the person's name marks nothing: {name}"
     );
 }
@@ -213,9 +227,26 @@ async fn render_the_menus_to_a_file() {
             .with_root_context(in_scheme(scheme));
         dom.rebuild_in_place();
         settle(&mut dom).await;
-        let mut menus = VirtualDom::new(MenuPicture).with_root_context(built.store.clone());
-        menus.rebuild_in_place();
-        let command = inject(&dioxus_ssr::render(&dom), &dioxus_ssr::render(&menus));
+        // Ctrl T in the window, then "dana" in quire's palette, which floats in the root's
+        // overlay and answers once the field has been still.
+        crate::ui::fixtures::chord(
+            &mut dom,
+            "t",
+            dioxus::html::input_data::keyboard_types::Modifiers::CONTROL,
+            dioxus_core::ElementId(crate::ui::fixtures::INSIDE_THE_SHELL as usize),
+        );
+        let opened = crate::ui::fixtures::drain_seen(&mut dom);
+        // The card and its field are both named for what they are; the field is drawn last.
+        let field = *opened
+            .all("aria-label", "Search and commands")
+            .last()
+            .expect("the palette's field");
+        crate::ui::fixtures::type_into(&mut dom, field, "dana");
+        for _ in 0..6 {
+            settle(&mut dom).await;
+        }
+        crate::ui::fixtures::drain(&mut dom);
+        let command = dioxus_ssr::render(&dom);
 
         let mut dom = VirtualDom::new(App)
             .with_root_context(built.store.clone())
@@ -227,7 +258,8 @@ async fn render_the_menus_to_a_file() {
         click(&mut dom, second);
         settle(&mut dom).await;
         let label = dioxus_ssr::render(&dom);
-        let rows: Vec<&str> = label.split("<li class=\"row\"").collect();
+        // Each row is quire's `ListRow` in mailo's `.row` box, which holds the row's menu.
+        let rows: Vec<&str> = label.split("<div class=\"row\"").collect();
         assert!(
             rows.get(2)
                 .is_some_and(|row| row.contains("class=\"row-menu\"")),
@@ -248,16 +280,4 @@ async fn settle(dom: &mut VirtualDom) {
         .await
         .ok();
     dom.render_immediate(&mut dioxus_core::NoOpMutations);
-}
-
-/// `extra` as the first child of `.app`, where the window mounts the overlay.
-fn inject(page: &str, extra: &str) -> String {
-    let Some(at) = page.find("class=\"app\"") else {
-        return page.to_owned() + extra;
-    };
-    let Some(rel) = page[at..].find('>') else {
-        return page.to_owned() + extra;
-    };
-    let close = at + rel;
-    format!("{}{extra}{}", &page[..=close], &page[close + 1..])
 }

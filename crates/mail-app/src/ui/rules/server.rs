@@ -13,8 +13,9 @@ use mail_store::SqliteStore;
 use std::sync::Arc;
 
 use super::super::data::AccountRow;
+use super::super::press::{available, on_primary};
 use crate::sync::Configured;
-use ds::{Glyph, Icon};
+use ds::Icon;
 
 /// Install an account's script: the signature of [`crate::rules::server::pushed`], with the
 /// takeover and the saved sign-in clients decided.
@@ -111,7 +112,7 @@ pub(super) fn ServerPart(row: AccountRow) -> Element {
     }
     let busy = pushing() == Pushing::Running;
     let label = format!("Put {}'s rules on the server", row.address);
-    let start = {
+    let mut start = {
         let row = row.clone();
         move |_| {
             if *pushing.peek() == Pushing::Running {
@@ -149,14 +150,13 @@ pub(super) fn ServerPart(row: AccountRow) -> Element {
                     Pushing::Running => rsx! { p { class: "capnote", role: "status", "Putting them on the server…" } },
                     Pushing::Ready => rsx! {},
                 }
-                button {
-                    class: "mini primary",
-                    r#type: "button",
-                    aria_label: "{label}",
-                    disabled: busy,
-                    onclick: start,
-                    Glyph { icon: Icon::Send }
-                    "Put on server"
+                ds::Button {
+                    variant: ds::ButtonVariant::Primary,
+                    label: "Put on server",
+                    icon: Icon::Send,
+                    aria_label: label.to_string(),
+                    availability: available(!busy),
+                    onclick: on_primary(move || start(())),
                 }
             }
         }

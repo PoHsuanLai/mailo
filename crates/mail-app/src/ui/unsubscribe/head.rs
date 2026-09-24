@@ -3,6 +3,7 @@
 use super::super::compose::{Desk, show_queued};
 use super::super::hover::{copy, url_spans};
 use super::super::motion::{Follow, tell};
+use super::super::press::{available, on_primary};
 use super::{Ask, Bodies, Offer, ask, cached, client, leave, lookup, said};
 use crate::unsubscribe::Outcome;
 use dioxus::prelude::*;
@@ -62,16 +63,15 @@ pub(in crate::ui) fn Leave(
     let label = "Unsubscribe";
     rsx! {
         div { class: "leave",
-            button {
-                class: "mini",
-                r#type: "button",
-                aria_label: "{label}",
-                aria_expanded: if open { "true" } else { "false" },
-                onclick: move |_| {
+            ds::Button {
+                variant: ds::ButtonVariant::Mini,
+                label,
+                aria_label: label.to_owned(),
+                expanded: if open { ds::Expanded::Open } else { ds::Expanded::Closed },
+                onclick: on_primary(move || {
                     let next = if *phase.peek() == Phase::Closed { Phase::Asking } else { Phase::Closed };
                     phase.set(next);
-                },
-                "{label}"
+                }),
             }
             if open {
                 Confirm { offer, asked, phase, revision }
@@ -108,34 +108,31 @@ pub(in crate::ui) fn Confirm(
                 p { class: "why", "{why}" }
             }
             div { class: "acts",
-                button {
-                    class: "mini",
-                    r#type: "button",
-                    aria_label: "{cancel}",
-                    onclick: move |_| phase.set(Phase::Closed),
-                    "{cancel}"
+                ds::Button {
+                    variant: ds::ButtonVariant::Mini,
+                    label: cancel.to_string(),
+                    aria_label: cancel.to_string(),
+                    onclick: on_primary(move || phase.set(Phase::Closed)),
                 }
                 match (&asked, asked.action()) {
                     (Ask::Web { url }, _) => {
                         let url = url.clone();
                         rsx! {
-                            button {
-                                class: "mini primary",
-                                r#type: "button",
-                                aria_label: "{copy_label}",
-                                onclick: move |_| copy(&url),
-                                "{copy_label}"
+                            ds::Button {
+                                variant: ds::ButtonVariant::Primary,
+                                label: copy_label.to_string(),
+                                aria_label: copy_label.to_string(),
+                                onclick: on_primary(move || copy(&url)),
                             }
                         }
                     }
                     (_, Some(action)) => rsx! {
-                        button {
-                            class: "mini primary",
-                            r#type: "button",
-                            aria_label: "{action}",
-                            disabled: working,
-                            onclick: move |_| take(offer.clone(), phase, revision),
-                            if working { "Working…" } else { "{action}" }
+                        ds::Button {
+                            variant: ds::ButtonVariant::Primary,
+                            label: if working { "Working…".to_owned() } else { action.to_string() },
+                            aria_label: action.to_string(),
+                            availability: available(!working),
+                            onclick: on_primary(move || take(offer.clone(), phase, revision)),
                         }
                     },
                     (_, None) => rsx! {},

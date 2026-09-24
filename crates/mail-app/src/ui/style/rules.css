@@ -7,7 +7,7 @@
 }
 .rules {
   position: relative; width: min(640px, 92%); max-height: 88%; display: flex; flex-direction: column;
-  background: var(--raise); color: var(--ink); border: 1px solid var(--line);
+  background: var(--raise); color: var(--ink); border: var(--hair) solid var(--line);
   border-radius: var(--r-panel); box-shadow: var(--shadow-2); overflow: hidden;
   animation: cmdk-rise var(--t-big) var(--e-spring);
 }
@@ -18,9 +18,9 @@
 .rules-accounts { padding: 0 var(--s-14) var(--s-8); }
 .rules-accounts > [*|role="group"] { flex-wrap: wrap; }
 .rules-main {
-  flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; border-top: 1px solid var(--line-soft);
+  flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; border-top: var(--hair) solid var(--line-soft);
 }
-.rules-part { display: grid; gap: var(--s-7); padding: var(--s-12) var(--s-14) var(--s-14); border-bottom: 1px solid var(--line-soft); }
+.rules-part { display: grid; gap: var(--s-7); padding: var(--s-12) var(--s-14) var(--s-14); border-bottom: var(--hair) solid var(--line-soft); }
 .rules-part:last-child { border-bottom: 0; background: var(--surface); }
 .rules-part h4 {
   margin: 0; font-family: var(--font-data); font-size: var(--fs-caption); font-weight: 400; letter-spacing: .08em;
@@ -48,35 +48,24 @@
 .rules-row-acts { display: flex; gap: var(--s-4); opacity: .55; transition: opacity var(--t-quick) var(--e-out); }
 .rules-row:hover .rules-row-acts, .rules-row:focus-within .rules-row-acts { opacity: 1; }
 .rules-row-acts .ghost:disabled { opacity: .35; cursor: default; }
-.rules-switch {
-  width: 28px; height: 16px; padding: var(--s-2); border: 1px solid var(--line); border-radius: var(--r-pill);
-  background: var(--surface-2); cursor: pointer; display: flex;
-  transition: background var(--t-quick) var(--e-out);
-}
-.rules-switch span {
-  width: 10px; height: 10px; border-radius: var(--r-pill); background: var(--ink-faint);
-  transition: transform var(--t-quick) var(--e-out), background var(--t-quick) var(--e-out);
-}
-.rules-switch[*|aria-checked="true"] { background: var(--accent); border-color: transparent; }
-.rules-switch[*|aria-checked="true"] span { transform: translateX(12px); background: var(--accent-ink); }
+/* quire's Toggle, in a box that carries its hint. */
+.rules-switch { display: inline-flex; align-items: center; }
 
 /* The editor: labelled fields, the live answer under the condition, the actions as chips. */
 .rules-edit {
   display: grid; gap: var(--s-6); margin-top: var(--s-4); padding: var(--s-10) var(--s-12) var(--s-12);
-  border: 1px solid var(--line); border-radius: var(--r-card); background: var(--surface);
+  border: var(--hair) solid var(--line); border-radius: var(--r-card); background: var(--surface);
 }
 .rules-edit h4 { margin-bottom: var(--s-2); }
 .rules-edit .files-k, .rules-form .files-k { margin-top: var(--s-4); }
-.inp.rules-in { width: 100%; box-sizing: border-box; font-size: var(--fs-control); padding: var(--s-6) var(--s-10); }
-.inp.rules-name { font-weight: 600; }
-.inp.rules-query { font-family: var(--font-data); font-size: var(--fs-small); }
+.rules-in { display: flex; width: 100%; }
 .rules-look { margin: 0; font-size: var(--fs-small); line-height: 1.4; color: var(--ink-faint); }
 .rules-look.found { color: var(--ink-soft); }
 .rules-look.refused { color: var(--danger); font-weight: 600; }
 .rules-actions { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--s-6); align-items: center; }
 .rules-action {
   display: inline-flex; align-items: center; gap: var(--s-6); padding: var(--s-3) var(--s-4) var(--s-3) var(--s-9);
-  border: 1px solid var(--line); border-radius: var(--r-pill); background: var(--raise);
+  border: var(--hair) solid var(--line); border-radius: var(--r-pill); background: var(--raise);
   font-size: var(--fs-meta); color: var(--ink);
 }
 .rules-action .ds-ic { color: var(--ink-soft); }
@@ -97,7 +86,7 @@
 .rules-dates { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-10); }
 .rules-dates > div { display: grid; gap: var(--s-4); min-width: 0; }
 .rules-said {
-  flex: 1; min-width: 0; margin: 0; padding: var(--s-7) var(--s-9); border: 1px solid var(--line-soft);
+  flex: 1; min-width: 0; margin: 0; padding: var(--s-7) var(--s-9); border: var(--hair) solid var(--line-soft);
   border-radius: var(--r-btn); background: var(--raise); font-family: var(--font-data); font-size: var(--fs-eyebrow);
   line-height: 1.5; color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere;
 }

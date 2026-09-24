@@ -14,6 +14,7 @@ use mail_domain::{CertFingerprint, CertSource, KeyTrust, SecretHeld, SmimeCert};
 use mail_runtime::Secrets;
 use mail_store::SqliteStore;
 
+use super::super::press::{available, on_primary};
 use super::key_row::{Confirm, ConfirmBar};
 use super::keys::{Done, Job, write};
 use super::{Busy, Seams, Tried, Unlock, cert_short, whose};
@@ -195,25 +196,23 @@ pub(in crate::ui) fn CertPart(
                                     run.call(Job::Cert(CertJob::ImportWith(path.clone(), password)));
                                 },
                             }
-                            button {
-                                class: "mini",
-                                r#type: "button",
-                                aria_label: "Cancel: Import {file}",
-                                onclick: move |_| confirm.set(Confirm::Nothing),
-                                "Cancel"
+                            ds::Button {
+                                variant: ds::ButtonVariant::Mini,
+                                label: "Cancel".to_owned(),
+                                aria_label: format!("Cancel: Import {file}"),
+                                onclick: on_primary(move || confirm.set(Confirm::Nothing)),
                             }
                         }
                     }
                 }
             }
             div { class: "keys-acts",
-                button {
-                    class: "mini",
-                    r#type: "button",
-                    aria_label: "{import_label}",
-                    disabled: working,
-                    onclick: move |_| run.call(Job::Cert(CertJob::Import)),
-                    "{import_label}"
+                ds::Button {
+                    variant: ds::ButtonVariant::Mini,
+                    label: import_label.to_string(),
+                    aria_label: import_label.to_string(),
+                    availability: available(!working),
+                    onclick: on_primary(move || run.call(Job::Cert(CertJob::Import))),
                 }
             }
         }
@@ -262,11 +261,11 @@ fn CertRow(cert: SmimeCert, confirm: Signal<Confirm>, run: Callback<Job>, busy: 
                 if mine {
                     span { class: "keys-tag", "yours" }
                 }
-                button {
-                    class: "ghost",
-                    r#type: "button",
-                    aria_label: "Copy the certificate {id}",
-                    onclick: move |_| {
+                ds::Button {
+                    variant: ds::ButtonVariant::Secondary,
+                    label: "Copy".to_owned(),
+                    aria_label: format!("Copy the certificate {id}"),
+                    onclick: on_primary(move || {
                         if let Ok(pem) = crate::smime::certs::export(&copied) {
                             super::super::hover::copy(&pem);
                             super::super::motion::tell(
@@ -274,50 +273,45 @@ fn CertRow(cert: SmimeCert, confirm: Signal<Confirm>, run: Callback<Job>, busy: 
                                 super::super::motion::Follow::Nothing,
                             );
                         }
-                    },
-                    "Copy"
+                    }),
                 }
-                button {
-                    class: "ghost",
-                    r#type: "button",
-                    aria_label: "Save the certificate {id}",
-                    disabled: working,
-                    onclick: move |_| run.call(Job::Cert(CertJob::Save(saved.clone()))),
-                    "Save…"
+                ds::Button {
+                    variant: ds::ButtonVariant::Secondary,
+                    label: "Save…".to_owned(),
+                    aria_label: format!("Save the certificate {id}"),
+                    availability: available(!working),
+                    onclick: on_primary(move || run.call(Job::Cert(CertJob::Save(saved.clone())))),
                 }
                 if trusted {
-                    button {
-                        class: "ghost",
-                        r#type: "button",
-                        aria_label: "Stop trusting {id}",
-                        disabled: working,
-                        onclick: move |_| run.call(Job::Cert(CertJob::Trust(fingerprint, KeyTrust::Unverified))),
-                        "Don't trust"
+                    ds::Button {
+                        variant: ds::ButtonVariant::Secondary,
+                        label: "Don't trust".to_owned(),
+                        aria_label: format!("Stop trusting {id}"),
+                        availability: available(!working),
+                        onclick: on_primary(move || run.call(Job::Cert(CertJob::Trust(fingerprint, KeyTrust::Unverified)))),
                     }
                 } else {
-                    button {
-                        class: "ghost",
-                        r#type: "button",
-                        aria_label: "Trust {id}",
-                        title: "Only after checking the fingerprint with its owner: it then vouches for every certificate it issued",
-                        disabled: working,
-                        onclick: move |_| run.call(Job::Cert(CertJob::Trust(fingerprint, KeyTrust::Verified))),
-                        "Trust"
+                    ds::Button {
+                        variant: ds::ButtonVariant::Secondary,
+                        label: "Trust".to_owned(),
+                        aria_label: format!("Trust {id}"),
+                        title: "Only after checking the fingerprint with its owner: it then vouches for every certificate it issued".to_owned(),
+                        availability: available(!working),
+                        onclick: on_primary(move || run.call(Job::Cert(CertJob::Trust(fingerprint, KeyTrust::Verified)))),
                     }
                 }
-                button {
-                    class: "ghost danger",
-                    r#type: "button",
-                    aria_label: "Delete {id}",
-                    disabled: working,
-                    onclick: move |_| {
+                ds::Button {
+                    variant: ds::ButtonVariant::Danger,
+                    label: "Delete".to_owned(),
+                    aria_label: format!("Delete {id}"),
+                    availability: available(!working),
+                    onclick: on_primary(move || {
                         if deleted.secret == SecretHeld::Held {
                             confirm.set(Confirm::DeleteCert(fingerprint));
                         } else {
                             run.call(Job::Cert(CertJob::Delete(deleted.clone(), WithSecret::Refuse)));
                         }
-                    },
-                    "Delete"
+                    }),
                 }
             }
             if confirm() == Confirm::DeleteCert(fingerprint) {

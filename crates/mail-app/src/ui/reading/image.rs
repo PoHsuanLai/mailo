@@ -2,6 +2,7 @@
 //!
 //! Moved out of `blocks.rs` unchanged when that file grew the marks (`CONVENTIONS.md` §8).
 
+use super::super::press::on_primary;
 use crate::view::Shell;
 use dioxus::prelude::*;
 use mail_mime::ImgSrc;
@@ -23,12 +24,11 @@ pub(super) fn image(
         ImgSrc::Blocked { host } => rsx! {
             div { key: "{path}", class: "b b-img blocked", style: "{placeholder_ratio(width, height)}",
                 span { "Image from " strong { "{host}" } " — " }
-                button {
-                    class: "mini",
-                    r#type: "button",
-                    aria_label: "load images",
-                    onclick: move |_| shell.write().show_remote_images = true,
-                    "load images"
+                ds::Button {
+                    variant: ds::ButtonVariant::Mini,
+                    label: "load images".to_owned(),
+                    aria_label: "load images".to_owned(),
+                    onclick: on_primary(move || shell.write().show_remote_images = true),
                 }
             }
         },

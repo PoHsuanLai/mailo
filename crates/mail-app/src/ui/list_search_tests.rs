@@ -36,7 +36,7 @@ fn window() -> Window {
         .with_root_context(store)
         .with_root_context(dirs);
     let seen = rebuild_into(&mut dom);
-    let search = seen.one("placeholder", "Search all mail");
+    let search = seen.one("aria-placeholder", "Search all mail");
     Window {
         dom,
         search,
@@ -79,7 +79,7 @@ impl Window {
 
 /// Each row's subject cell, markup and all, in list order.
 fn subjects(page: &str) -> Vec<String> {
-    page.split(r#"<div class="row-sub">"#)
+    page.split(r#"<div class="ds-row-sub ds-truncate">"#)
         .skip(1)
         .filter_map(|rest| rest.split_once("</div>"))
         .map(|(subject, _)| subject.to_owned())
@@ -106,7 +106,7 @@ const TOP_RESULTS: &str = r#"<li class="list-top-h">Top results</li>"#;
 const NEWEST_FIRST: &str = r#"<li class="list-top-h">Newest first</li>"#;
 
 const UIDVAL: &str =
-    r#"Re: UIDL stability across a <mark class="hit" data-hit="0">UIDVAL</mark>IDITY change"#;
+    r#"Re: UIDL stability across a <mark class="ds-mark">UIDVAL</mark>IDITY change"#;
 
 #[tokio::test(start_paused = true)]
 async fn half_a_word_puts_its_thread_first_with_the_typed_part_marked() {
@@ -155,7 +155,7 @@ async fn a_word_lists_newest_first_under_its_top_results() {
     let plain = |rows: Vec<String>| -> Vec<String> {
         rows.into_iter()
             .map(|row| {
-                row.replace(r#"<mark class="hit" data-hit="0">"#, "")
+                row.replace(r#"<mark class="ds-mark">"#, "")
                     .replace("</mark>", "")
             })
             .collect()
@@ -171,7 +171,7 @@ async fn a_word_lists_newest_first_under_its_top_results() {
     let strip = subjects(strip);
     assert_eq!(
         strip.first().map(String::as_str),
-        Some(r#"Re: Re: Keyset <mark class="hit" data-hit="0">cursors</mark>, not offsets"#),
+        Some(r#"Re: Re: Keyset <mark class="ds-mark">cursors</mark>, not offsets"#),
         "the subject hit leads the strip, marked: {strip:?}"
     );
 }
@@ -202,8 +202,8 @@ async fn a_bare_pattern_runs_over_this_page_and_says_so() {
     assert_eq!(
         subjects(&page),
         vec![
-            r#"<mark class="hit" data-hit="0">Re: </mark>UIDL stability across a UIDVALIDITY change"#,
-            r#"<mark class="hit" data-hit="0">Re: </mark>Re: Keyset cursors, not offsets"#,
+            r#"<mark class="ds-mark">Re:</mark> UIDL stability across a UIDVALIDITY change"#,
+            r#"<mark class="ds-mark">Re:</mark> Re: Keyset cursors, not offsets"#,
         ],
     );
     assert!(

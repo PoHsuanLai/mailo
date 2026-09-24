@@ -7,6 +7,7 @@ use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
 use mail_domain::{CertFingerprint, Fingerprint, KeySource, KeyTrust, PgpKey, SecretHeld};
 
+use super::super::press::{available, on_primary};
 use super::keys::Job;
 use super::{Busy, short, who};
 use crate::pgp::WithSecret;
@@ -108,11 +109,11 @@ pub(in crate::ui) fn KeyRow(
                 if mine {
                     span { class: "keys-tag", "yours" }
                 }
-                button {
-                    class: "ghost",
-                    r#type: "button",
-                    aria_label: "Copy the public key {id}",
-                    onclick: move |_| {
+                ds::Button {
+                    variant: ds::ButtonVariant::Secondary,
+                    label: "Copy public".to_owned(),
+                    aria_label: format!("Copy the public key {id}"),
+                    onclick: on_primary(move || {
                         if let Ok(armored) = crate::pgp::keys::export_public(&copy_key) {
                             super::super::hover::copy(&armored);
                             super::super::motion::tell(
@@ -120,51 +121,46 @@ pub(in crate::ui) fn KeyRow(
                                 super::super::motion::Follow::Nothing,
                             );
                         }
-                    },
-                    "Copy public"
+                    }),
                 }
-                button {
-                    class: "ghost",
-                    r#type: "button",
-                    aria_label: "Save the public key {id}",
-                    disabled: working,
-                    onclick: move |_| run.call(Job::SavePublic(save_key.clone())),
-                    "Save public…"
+                ds::Button {
+                    variant: ds::ButtonVariant::Secondary,
+                    label: "Save public…".to_owned(),
+                    aria_label: format!("Save the public key {id}"),
+                    availability: available(!working),
+                    onclick: on_primary(move || run.call(Job::SavePublic(save_key.clone()))),
                 }
                 if mine {
-                    button {
-                        class: "ghost",
-                        r#type: "button",
-                        aria_label: "Export the secret key {id}",
-                        disabled: working,
-                        onclick: move |_| confirm.set(Confirm::ExportSecret(fingerprint)),
-                        "Export secret…"
+                    ds::Button {
+                        variant: ds::ButtonVariant::Secondary,
+                        label: "Export secret…".to_owned(),
+                        aria_label: format!("Export the secret key {id}"),
+                        availability: available(!working),
+                        onclick: on_primary(move || confirm.set(Confirm::ExportSecret(fingerprint))),
                     }
                 }
                 if !verified {
-                    button {
-                        class: "ghost",
-                        r#type: "button",
-                        aria_label: "Mark {id} verified",
-                        title: "Only after comparing the fingerprint with its owner",
-                        disabled: working,
-                        onclick: move |_| run.call(Job::Verify(fingerprint)),
-                        "Verify"
+                    ds::Button {
+                        variant: ds::ButtonVariant::Secondary,
+                        label: "Verify".to_owned(),
+                        aria_label: format!("Mark {id} verified"),
+                        title: "Only after comparing the fingerprint with its owner".to_owned(),
+                        availability: available(!working),
+                        onclick: on_primary(move || run.call(Job::Verify(fingerprint))),
                     }
                 }
-                button {
-                    class: "ghost danger",
-                    r#type: "button",
-                    aria_label: "Delete {id}",
-                    disabled: working,
-                    onclick: move |_| {
+                ds::Button {
+                    variant: ds::ButtonVariant::Danger,
+                    label: "Delete".to_owned(),
+                    aria_label: format!("Delete {id}"),
+                    availability: available(!working),
+                    onclick: on_primary(move || {
                         if delete_key.secret == SecretHeld::Held {
                             confirm.set(Confirm::Delete(fingerprint));
                         } else {
                             run.call(Job::Delete(delete_key.clone(), WithSecret::Refuse));
                         }
-                    },
-                    "Delete"
+                    }),
                 }
             }
             match asking {
@@ -213,19 +209,17 @@ pub(in crate::ui) fn ConfirmBar(
         div { class: "keys-confirm", role: "alert",
             p { class: "say", "{sentence}" }
             div { class: "acts",
-                button {
-                    class: "mini",
-                    r#type: "button",
-                    aria_label: "Cancel: {act}",
-                    onclick: move |_| confirm.set(Confirm::Nothing),
-                    "Cancel"
+                ds::Button {
+                    variant: ds::ButtonVariant::Mini,
+                    label: "Cancel".to_owned(),
+                    aria_label: format!("Cancel: {act}"),
+                    onclick: on_primary(move || confirm.set(Confirm::Nothing)),
                 }
-                button {
-                    class: "mini danger",
-                    r#type: "button",
-                    aria_label: "{act}",
-                    onclick: move |_| on_yes.call(()),
-                    "{act}"
+                ds::Button {
+                    variant: ds::ButtonVariant::Danger,
+                    label: act.to_string(),
+                    aria_label: act.to_string(),
+                    onclick: on_primary(move || on_yes.call(())),
                 }
             }
         }

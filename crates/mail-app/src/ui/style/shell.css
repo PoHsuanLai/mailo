@@ -29,6 +29,8 @@
 .slide.in-r { animation: slide-r var(--t-big) var(--e-spring); }
 .slide.in-l { animation: slide-l var(--t-big) var(--e-spring); }
 .pins { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--s-6); padding: var(--s-2) 0 var(--s-8); }
+/* mailo's own tile for an account on no provider, which quire's AccountTile cannot draw: it always draws a
+   provider. */
 .pin, .pin.acct {
   aspect-ratio: 1; transition: background-color var(--t-quick) var(--e-out), transform var(--t-tap) var(--e-out); border: 0; border-radius: var(--r-tile); cursor: pointer;
   background: var(--f-pill-hover); display: grid; place-items: center; position: relative; color: var(--f-ink);
@@ -43,11 +45,6 @@
   width: 26px; height: 26px; border-radius: var(--r-pill); display: grid; place-items: center;
   color: var(--mark-ground); font-family: var(--font-display); font-weight: 700; font-size: var(--fs-small);
 }
-.pin.acct .av { width: 28px; height: 28px; font-size: var(--fs-meta); }
-.pin.acct[*|aria-pressed="false"] .av:not(.all) { filter: saturate(.55); opacity: .85; }
-.pin .av { transition: transform var(--t-quick) var(--e-spring); }
-.pin:hover .av { transform: rotate(-6deg) scale(1.08); }
-.av.all { background: transparent; color: var(--f-ink); }
 .marks-refresh {
   display: block; margin-top: var(--s-6); align-self: flex-start; border: 0; background: none; cursor: pointer;
   font: inherit; font-size: var(--fs-eyebrow); color: var(--ink-soft); padding: 0;
@@ -58,7 +55,7 @@
   font-family: var(--font-data); font-size: var(--fs-caption); letter-spacing: 0.14em; text-transform: uppercase;
   color: var(--f-ink-faint);
 }
-.s-h::after { content: ""; flex: 1; height: 1px; background: var(--f-line); }
+.s-h::after { content: ""; flex: 1; height: var(--hair); background: var(--f-line); }
 .s-h button {
   border: 0; background: none; cursor: pointer; font: inherit; font-size: var(--fs-caption); letter-spacing: 0.04em;
   color: var(--f-ink-faint); padding: 0 var(--s-2); text-transform: none;
@@ -86,14 +83,9 @@
   color: var(--mark-ground); font-family: var(--font-display); font-weight: 700; font-size: var(--fs-caption);
 }
 .today-hint { font-size: var(--fs-small); color: var(--f-ink-faint); padding: var(--s-2) var(--s-8); }
-.today-item .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.today-item .x {
-  margin-left: auto; border: 0; background: none; color: var(--f-ink-faint); cursor: pointer;
-  width: 18px; height: 18px; display: grid; place-items: center; padding: 0;
-}
-/* Opening and closing, at quire's recipes for them, whose settle times the entry's timers. */
-.today-item.entering { animation: tab-in var(--t-big) var(--e-spring); }
-.today-item.leaving { animation: tab-out var(--t-move) var(--e-exit) forwards; }
+/* A Today entry is quire's SidebarItem; this is mailo's box around it, which carries the hover
+   card's hook and the entry's hint. */
+.today-at { display: block; min-width: 0; }
 .side-foot {
   display: flex; align-items: center; gap: var(--s-6); padding-top: var(--s-6); min-width: 0;
 }

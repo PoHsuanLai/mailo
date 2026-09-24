@@ -17,6 +17,7 @@ use mail_store::SqliteStore;
 use std::sync::Arc;
 
 use super::data::account_rows;
+use super::press::SheetClose;
 use super::space_editor::Seg;
 use crate::view::{RulesSheet as Showing, Shell};
 use away::AwayPart;
@@ -66,13 +67,7 @@ pub(in crate::ui) fn RulesSheet(shell: Signal<Shell>, revision: Signal<u64>) -> 
                 onclick: move |event| event.stop_propagation(),
                 div { class: "rules-head",
                     h3 { "Rules" }
-                    button {
-                        class: "mini",
-                        r#type: "button",
-                        onclick: move |_| close(shell),
-                        "Close"
-                        span { class: "k", "Esc" }
-                    }
+                    SheetClose { on_close: move |()| close(shell) }
                 }
                 if several {
                     div { class: "rules-accounts",

@@ -115,7 +115,7 @@ async fn settle(dom: &mut VirtualDom) -> Seen {
 
 /// Type `address` and press Look up; returns the render after the lookup landed.
 async fn look_up(open: &mut Open, address: &str) -> Seen {
-    let field = open.seen.one("placeholder", "you@example.com");
+    let field = open.seen.one("aria-placeholder", "you@example.com");
     type_into(&mut open.dom, field, address);
     // What the click itself drew is kept: a quick answer can land in that same render, and its
     // button is then drawn there and nowhere later. After that, work is waited for rather than a
@@ -405,7 +405,7 @@ async fn a_session_typed_by_hand_with_a_token_adds_with_bearer_and_keeps_the_tok
     );
     type_into(
         &mut open.dom,
-        open.seen.one("placeholder", "you@example.com"),
+        open.seen.one("aria-placeholder", "you@example.com"),
         "ada@example.test",
     );
     let seen = click(&mut open.dom, open.seen.one("id", "acct-by-hand"));
@@ -668,7 +668,7 @@ async fn every_state() -> Vec<(&'static str, String)> {
     let mut typing = open(&store, seams(&fake, ok("unused@x.test"), false), Vec::new());
     type_into(
         &mut typing.dom,
-        typing.seen.one("placeholder", "you@example.com"),
+        typing.seen.one("aria-placeholder", "you@example.com"),
         "ada@example.test",
     );
     let seen = click(&mut typing.dom, typing.seen.one("id", "acct-by-hand"));

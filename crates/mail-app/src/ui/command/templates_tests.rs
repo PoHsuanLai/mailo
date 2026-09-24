@@ -8,7 +8,7 @@ use mail_store::Store;
 
 use super::super::CommandMenu;
 use super::*;
-use crate::ui::fixtures::{ACCOUNT, chord, click, dispatching, rebuild_into, seeded};
+use crate::ui::fixtures::{ACCOUNT, chord, click, dispatching, drain_seen, rebuild_into, seeded};
 
 thread_local! {
     static SHELL: Cell<Option<Signal<Shell>>> = const { Cell::new(None) };
@@ -27,9 +27,14 @@ fn Open(typed: String) -> Element {
     let side_hidden = use_signal(|| false);
     let sync_state = use_signal(|| crate::view::SyncState::Idle);
     let spaces = use_signal(crate::space::Spaces::default);
-    let in_a_field = use_signal(|| false);
+    // Inside a quire root, as the window has it: the palette floats in its overlay.
     rsx! {
-        CommandMenu { shell, pages, revision, side_hidden, sync_state, spaces, in_a_field }
+        ds::Ds {
+            appearance: ds::Appearance::default(),
+            material: ds::Material::Window,
+            stylesheet: ds::Inject::Host,
+            CommandMenu { shell, pages, revision, side_hidden, sync_state, spaces }
+        }
     }
 }
 
@@ -57,22 +62,23 @@ async fn new_from_template_lists_starts_and_deletes() {
         },
     )
     .with_root_context(store.clone());
-    let seen = rebuild_into(&mut dom);
+    // The palette floats in the root's overlay, drawn on the renders after the first.
+    let seen = rebuild_into(&mut dom).merge(drain_seen(&mut dom));
     let shell = SHELL.with(Cell::get).unwrap_or_else(|| panic!("no shell"));
     let field = seen.one(
-        "placeholder",
+        "aria-placeholder",
         "Search mail, people, actions · try from:dana or has:attachment",
     );
 
     // The action is the top row for its own name; Enter takes it.
-    let listed = chord(&mut dom, "Enter", Default::default(), field);
+    let listed = chord(&mut dom, "Enter", Default::default(), field).merge(drain_seen(&mut dom));
     let markup = dioxus_ssr::render(&dom);
     assert!(
         markup.contains(">Weekly<"),
         "the template is not listed:\n{markup}"
     );
     assert!(markup.contains("Here is what moved this week."), "{markup}");
-    let field = listed.one("placeholder", "New from template · type to narrow");
+    let field = listed.one("aria-placeholder", "New from template · type to narrow");
 
     let drafts_before = store.drafts(ACCOUNT).map(|all| all.len()).unwrap_or(0);
     chord(&mut dom, "Enter", Default::default(), field);
@@ -100,16 +106,18 @@ async fn new_from_template_lists_starts_and_deletes() {
         },
     )
     .with_root_context(store.clone());
-    let seen = rebuild_into(&mut dom);
+    let seen = rebuild_into(&mut dom).merge(drain_seen(&mut dom));
     let field = seen.one(
-        "placeholder",
+        "aria-placeholder",
         "Search mail, people, actions · try from:dana or has:attachment",
     );
-    let listed = chord(&mut dom, "Enter", Default::default(), field);
+    let listed = chord(&mut dom, "Enter", Default::default(), field).merge(drain_seen(&mut dom));
     click(
         &mut dom,
         listed.one("aria-label", "Delete template “Weekly”"),
     );
+    // The palette in the overlay redraws on the renders after the press.
+    crate::ui::fixtures::drain(&mut dom);
     let markup = dioxus_ssr::render(&dom);
     assert!(
         crate::template::all(&store).is_ok_and(|all| all.is_empty()),
@@ -177,9 +185,9 @@ async fn render_new_from_template_to_a_file() {
         },
     )
     .with_root_context(built.store.clone());
-    let seen = rebuild_into(&mut menu);
+    let seen = rebuild_into(&mut menu).merge(drain_seen(&mut menu));
     let field = seen.one(
-        "placeholder",
+        "aria-placeholder",
         "Search mail, people, actions · try from:dana or has:attachment",
     );
     chord(&mut menu, "Enter", Default::default(), field);

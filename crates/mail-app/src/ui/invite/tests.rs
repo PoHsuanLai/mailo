@@ -241,7 +241,7 @@ async fn accept_with_a_note_queues_one_reply_and_change_answer_queues_another() 
     let mut seen = click(&mut dom, seen.one("aria-label", "Accept"));
     settle(&mut dom, &mut seen, 50).await;
     assert_eq!(submissions(&store).len(), before, "choosing sent");
-    let field = seen.one("placeholder", "Add a note (optional)");
+    let field = seen.one("aria-placeholder", "Add a note (optional)");
     type_into(&mut dom, field, "See you there");
     let mut seen = chord(&mut dom, "Enter", Modifiers::empty(), field);
     settle(&mut dom, &mut seen, 400).await;
@@ -293,7 +293,7 @@ async fn escape_takes_the_note_back_and_sends_nothing() {
     let (mut dom, seen, _) = reader_on(store.clone(), thread, dir.path()).await;
     let mut seen = click(&mut dom, seen.one("aria-label", "Maybe"));
     settle(&mut dom, &mut seen, 50).await;
-    let field = seen.one("placeholder", "Add a note (optional)");
+    let field = seen.one("aria-placeholder", "Add a note (optional)");
     let mut seen = chord(&mut dom, "Escape", Modifiers::empty(), field);
     settle(&mut dom, &mut seen, 100).await;
     assert!(!markup(&dom).contains("Add a note"), "the note stayed open");

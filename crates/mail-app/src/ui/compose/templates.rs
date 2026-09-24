@@ -12,7 +12,7 @@ use mail_domain::{Draft, Template, TemplateId};
 use mail_store::SqliteStore;
 
 use super::super::field::{Field, FieldKind};
-use super::super::menu::{Menu, MenuItem, MenuKey, Right, Tile, menu_key};
+use super::super::menu::{MenuItem, MenuKey, Right, Tile, anchor_at, menu_key, quire_entries};
 use super::super::motion::{Follow, tell};
 use super::desk::{self, Desk};
 use super::float::{commit, query, slash_items};
@@ -275,9 +275,14 @@ pub(in crate::ui) fn key(page: Signal<Page>, shell: Signal<Shell>, name: &str) -
     true
 }
 
-/// At the caret: the name field for "Save as template…", or the list to start from.
+/// At the caret: the name field for "Save as template…", or the list to start from, which
+/// floats against `at`, the caret's box.
 #[component]
-pub(in crate::ui) fn TemplateFloat(page: Signal<Page>, shell: Signal<Shell>) -> Element {
+pub(in crate::ui) fn TemplateFloat(
+    page: Signal<Page>,
+    shell: Signal<Shell>,
+    at: Option<ds::MountedRef>,
+) -> Element {
     let float = page.read().float.clone();
     match float {
         Float::SaveTemplate(name) => {
@@ -328,17 +333,25 @@ pub(in crate::ui) fn TemplateFloat(page: Signal<Page>, shell: Signal<Shell>) -> 
                 };
             }
             let active = active.min(rows.len() - 1);
+            let remove = EventHandler::new(move |key: String| forget_here(page, &key));
+            // quire's menu, its cursor the page's keys': each row's × deletes, picking nothing.
             rsx! {
-                Menu {
-                    title: "Start from a template".to_owned(),
-                    items: rows,
-                    filterable: false,
-                    on_pick: move |key: String| start_here(page, shell, &key),
-                    on_close: move |_| page.write().float = Float::Closed,
-                    on_query: move |_| {},
-                    slim: false,
-                    active: Some(active),
-                    on_remove: move |key: String| forget_here(page, &key),
+                ds::Menu::<String> {
+                    kind: ds::MenuKind::Rich,
+                    anchor: anchor_at(at),
+                    entries: quire_entries("Start from a template", &rows, ds::AvatarSize::Size34, Some(remove)),
+                    onpick: move |key: String| start_here(page, shell, &key),
+                    onclose: move |()| {
+                        if matches!(page.peek().float, Float::Templates { .. }) {
+                            page.write().float = Float::Closed;
+                        }
+                    },
+                    active: ds::Cursor::Controlled(Some(active)),
+                    on_active: move |to: Option<usize>| {
+                        if let Some(to) = to {
+                            page.write().float = Float::Templates { active: to };
+                        }
+                    },
                 }
             }
         }

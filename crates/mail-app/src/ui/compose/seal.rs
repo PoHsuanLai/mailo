@@ -15,6 +15,7 @@ use mail_domain::{Draft, Fingerprint};
 use mail_store::SqliteStore;
 
 use super::super::pgp::{Busy, Scheme, Tried, Unlock, seams, short};
+use super::super::press::on_primary;
 use crate::password::Password;
 use crate::pgp::PgpError;
 use crate::smime::SmimeError;
@@ -118,12 +119,11 @@ pub(in crate::ui) enum BarAct {
 /// A button in the bar.
 fn act(words: &'static str, on_act: EventHandler<BarAct>, what: fn() -> BarAct) -> Element {
     rsx! {
-        button {
-            class: "mini",
-            r#type: "button",
-            aria_label: "{words}",
-            onclick: move |_| on_act.call(what()),
-            "{words}"
+        ds::Button {
+            variant: ds::ButtonVariant::Mini,
+            label: words.to_string(),
+            aria_label: words.to_string(),
+            onclick: on_primary(move || on_act.call(what())),
         }
     }
 }
@@ -148,12 +148,11 @@ pub(in crate::ui) fn SealWarn(bar: SealBar, on_act: EventHandler<BarAct>) -> Ele
             let look = "Look up keys";
             rsx! {
                 span { class: "grow", "No OpenPGP key for {listed}, so this cannot be encrypted to them. Nothing was sent." }
-                button {
-                    class: "mini",
-                    r#type: "button",
-                    aria_label: "{look}",
-                    onclick: move |_| on_act.call(BarAct::LookUp(addresses.clone())),
-                    "{look}"
+                ds::Button {
+                    variant: ds::ButtonVariant::Mini,
+                    label: look.to_string(),
+                    aria_label: look.to_string(),
+                    onclick: on_primary(move || on_act.call(BarAct::LookUp(addresses.clone()))),
                 }
                 {act(without, on_act, || BarAct::WithoutEncryption)}
             }

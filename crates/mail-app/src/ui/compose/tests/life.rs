@@ -353,7 +353,11 @@ async fn send_then_undo_withdraws_the_submission_and_restores_the_draft() {
         Some(0)
     );
 
-    click(&mut window.dom, painted.one("aria-label", "Undo"));
+    // quire's pill names its button by its word alone, a static class and its text.
+    click(
+        &mut window.dom,
+        painted.fixed("class", "ds-send-pill-undo")[0],
+    );
     let markup = window.render();
     assert_eq!(
         queued(&store),
@@ -379,4 +383,32 @@ async fn send_then_undo_withdraws_the_submission_and_restores_the_draft() {
         markup.contains(r#"class="cpage""#),
         "the page is not back:\n{markup}"
     );
+}
+
+#[tokio::test]
+#[ignore = "writes target/composer-failed.html and its -dark twin for a person to look at"]
+async fn render_a_failed_send_to_a_file() {
+    let (store, _dir) = seeded();
+    let draft = fresh_draft(&store);
+    let (mut window, seen) = Window::open(store.clone(), draft.clone(), None);
+    let mut page = window.page();
+    window.dom.in_runtime(|| {
+        let mut write = page.write();
+        write.to = vec![dana()];
+        write.subject = "Friday".to_owned();
+        type_text(&mut write, "See you then.");
+    });
+    window.render();
+    click(&mut window.dom, seen.one("aria-label", "Send"));
+    window.render();
+    let failed = SendState::Failed {
+        reason: "the server said no".to_owned(),
+        retry: mail_domain::Retry::Fatal("rejected".to_owned()),
+    };
+    store
+        .set_send_state(draft.id, &failed, Utc::now())
+        .unwrap_or_else(|why| panic!("failing the send: {why}"));
+    // The pill reads the store on its own half-second tick.
+    let markup = run_for(&mut window, std::time::Duration::from_millis(1200)).await;
+    crate::ui::fixtures::dump("composer-failed", &markup);
 }

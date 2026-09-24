@@ -197,11 +197,14 @@ async fn scheduling_holds_the_draft_until_its_time_and_cancel_brings_back_the_pa
         [(draft.id, at)]
     );
     assert!(
-        markup.contains(r#"class="item today-item later""#),
+        markup.contains(r#"class="today-at later""#),
         "not in Today:\n{markup}"
     );
 
-    click(&mut window.dom, painted.one("aria-label", "Cancel"));
+    click(
+        &mut window.dom,
+        painted.fixed("class", "ds-send-pill-undo")[0],
+    );
     let markup = window.render();
     assert_eq!(
         store.draft(draft.id).map(|d| d.state).ok(),
@@ -229,7 +232,7 @@ async fn scheduling_holds_the_draft_until_its_time_and_cancel_brings_back_the_pa
         "the pill stayed:\n{markup}"
     );
     assert!(
-        !markup.contains("today-item later"),
+        !markup.contains("today-at later"),
         "Today still lists it:\n{markup}"
     );
 }
@@ -284,7 +287,10 @@ async fn cancel_of_a_send_already_on_the_wire_says_so_and_changes_nothing() {
         .set_send_state(draft.id, &SendState::Sending, Utc::now())
         .unwrap_or_else(|why| panic!("{why}"));
 
-    click(&mut window.dom, painted.one("aria-label", "Cancel"));
+    click(
+        &mut window.dom,
+        painted.fixed("class", "ds-send-pill-undo")[0],
+    );
     let markup = window.render();
     assert!(
         markup.contains("Too late to take it back: that message is already being sent"),

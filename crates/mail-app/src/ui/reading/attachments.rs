@@ -34,20 +34,9 @@ pub(super) fn Attachments(
                     Glyph { icon: Icon::Paperclip, size: ds::IconSize::Compact }
                     span { class: "name", "{row.name}" }
                     span { class: "size mono", "{row.size}" }
-                    button {
-                        class: "mini",
-                        disabled: downloading() == Some((message, row.index)),
-                        onclick: {
-                            let index = row.index;
-                            let name = row.name.clone();
-                            let kept = row.kept;
-                            move |_| match kept {
-                                Kept::Here => save_here(message, index, saved),
-                                Kept::Opened => save_opened(message, body, index, saved, downloading),
-                                Kept::OnServer => download(message, index, &name, saved, downloading),
-                            }
-                        },
-                        if downloading() == Some((message, row.index)) {
+                    ds::Button {
+                        variant: ds::ButtonVariant::Mini,
+                        label: if downloading() == Some((message, row.index)) {
                             match row.kept {
                                 Kept::OnServer => "Downloading…",
                                 Kept::Here | Kept::Opened => "Saving…",
@@ -57,7 +46,18 @@ pub(super) fn Attachments(
                                 Kept::Here | Kept::Opened => "Save",
                                 Kept::OnServer => "Download",
                             }
-                        }
+                        },
+                        availability: super::super::press::available(downloading() != Some((message, row.index))),
+                        onclick: {
+                            let index = row.index;
+                            let name = row.name.clone();
+                            let kept = row.kept;
+                            super::super::press::on_primary(move || match kept {
+                                Kept::Here => save_here(message, index, saved),
+                                Kept::Opened => save_opened(message, body, index, saved, downloading),
+                                Kept::OnServer => download(message, index, &name, saved, downloading),
+                            })
+                        },
                     }
                 }
             }

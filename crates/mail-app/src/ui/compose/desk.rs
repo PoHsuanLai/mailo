@@ -10,13 +10,13 @@ use mail_domain::DraftId;
 use mail_store::{SqliteStore, Store};
 
 use super::super::motion::{Follow, tell};
+use super::super::sidebar::{initial, today_face};
 use super::life;
 use super::page::{Page, Phase, When};
 use crate::appearance::WindowDirs;
 use crate::space::Spaces;
 use crate::today::Today;
 use crate::view::Shell;
-use ds::{Glyph, Icon};
 
 /// A send that is queued and may still be taken back.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -223,15 +223,24 @@ pub(in crate::ui) fn ParkedDrafts(shell: Signal<Shell>, space_index: usize) -> E
         .collect();
     rsx! {
         for (draft, title) in entries {
+            // quire's Today item; the hint and the draft's slant are mailo's box around it.
             div {
                 key: "{draft}",
-                class: "item today-item draft",
-                role: "button",
-                tabindex: "0",
+                class: "today-at draft",
                 title: "A draft you put aside",
-                onclick: move |_| reopen(desk, shell, draft),
-                span { class: "fav draft", Glyph { icon: Icon::Pen, size: ds::IconSize::Micro } }
-                span { class: "t", "{title}" }
+                ds::SidebarItem {
+                    kind: ds::ItemKind::Today {
+                        avatar: today_face(initial(&title), ds::AvatarTone::Ink),
+                    },
+                    label: title,
+                    here: ds::Here::Elsewhere,
+                    count: None,
+                    presence: ds::Presence::Present,
+                    preview: None,
+                    pulse: ds::PulseKey::rest(ds::Anim::Gulp),
+                    onclick: move |()| reopen(desk, shell, draft),
+                    onclose: None,
+                }
             }
         }
     }

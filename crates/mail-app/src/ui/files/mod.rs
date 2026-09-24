@@ -49,7 +49,7 @@ pub(in crate::ui) fn open_export(mut shell: Signal<Shell>) {
 
 fn focus() {
     dioxus::document::eval(
-        "requestAnimationFrame(()=>document.querySelector('.files-main .inp')?.focus())",
+        "requestAnimationFrame(()=>document.querySelector('.files-main input')?.focus())",
     );
 }
 

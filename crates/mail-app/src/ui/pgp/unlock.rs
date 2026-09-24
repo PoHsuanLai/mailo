@@ -13,6 +13,7 @@ use std::rc::Rc;
 use dioxus::prelude::*;
 
 use super::super::field::{Field, FieldKind};
+use super::super::press::{available, on_primary};
 use super::{Busy, Tried};
 use crate::password::Password;
 
@@ -62,13 +63,12 @@ pub(in crate::ui) fn Unlock(
                     on_focus: |_| {},
                     on_blur: |_| {},
                 }
-                button {
-                    class: "mini primary",
-                    r#type: "button",
-                    aria_label: "{act}",
-                    disabled: working == Busy::Working,
-                    onclick: move |_| give(),
-                    if working == Busy::Working { "Working…" } else { "{act}" }
+                ds::Button {
+                    variant: ds::ButtonVariant::Primary,
+                    label: if working == Busy::Working { "Working…".to_owned() } else { act.to_string() },
+                    aria_label: act.to_string(),
+                    availability: available(working != Busy::Working),
+                    onclick: on_primary(give),
                 }
             }
         }

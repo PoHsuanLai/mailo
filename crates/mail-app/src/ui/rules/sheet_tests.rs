@@ -107,7 +107,7 @@ async fn a_condition_the_rules_cannot_read_says_why_and_save_is_refused() {
     let mut dom = sheet(&store, ACCOUNT, push);
     let seen = rebuild_into(&mut dom);
     let opened = click(&mut dom, seen.one("aria-label", "New rule"));
-    let query = opened.one("placeholder", "from:bank.example subject:statement");
+    let query = opened.one("aria-placeholder", "from:bank.example subject:statement");
 
     type_into(&mut dom, query, "frm:ada");
     let page = dioxus_ssr::render(&dom);
@@ -253,7 +253,7 @@ async fn every_state(store: &Arc<SqliteStore>) -> String {
     let editing = click(&mut rules, seen.one("aria-label", "Edit Bills"));
     type_into(
         &mut rules,
-        editing.one("placeholder", "from:bank.example subject:statement"),
+        editing.one("aria-placeholder", "from:bank.example subject:statement"),
         "frm:bank",
     );
     click(&mut rules, editing.one("aria-expanded", "false"));
@@ -382,7 +382,7 @@ async fn render_the_rules_sheet_to_files() {
     let editing = click(&mut dom, seen.one("aria-label", "Edit Rust newsletter"));
     type_into(
         &mut dom,
-        editing.one("placeholder", "from:bank.example subject:statement"),
+        editing.one("aria-placeholder", "from:bank.example subject:statement"),
         "from:newsletter@thisweekinrust.example frm:weekly",
     );
     click(&mut dom, editing.one("aria-expanded", "false"));

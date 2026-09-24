@@ -14,6 +14,7 @@ use mail_store::{SqliteStore, Store};
 use super::super::field::{Field, FieldKind};
 use super::super::menu::{MenuKey, menu_key};
 use super::super::menus::{when_in_sentence, when_words};
+use super::super::sidebar::{initial, today_face};
 use super::desk::{Desk, refusal, take_back};
 use super::page::{Float, Page, When};
 use crate::compose::Leaves;
@@ -212,26 +213,34 @@ pub(in crate::ui) fn ScheduledDrafts(shell: Signal<Shell>) -> Element {
                 let draft = one.draft;
                 let why = refused().filter(|(which, _)| *which == draft).map(|(_, why)| why);
                 rsx! {
+                    // quire's Today item with its time and Cancel; the hint is mailo's box.
                     div {
                         key: "{draft}",
-                        class: "item today-item later",
+                        class: "today-at later",
                         title: "Waiting to be sent at {words}",
-                        span { class: "fav later", Glyph { icon: Icon::Clock, size: ds::IconSize::Micro } }
-                        span { class: "t", "{one.title}" }
-                        span { class: "when", "{words}" }
-                        button {
-                            class: "x",
-                            r#type: "button",
-                            aria_label: "Cancel sending {one.title}",
-                            title: "Cancel: it goes back to being a draft",
-                            onclick: move |event| {
-                                event.stop_propagation();
-                                match cancel_waiting(desk, shell, draft) {
-                                    Ok(()) => refused.set(None),
-                                    Err(why) => refused.set(Some((draft, why))),
-                                }
+                        ds::SidebarItem {
+                            kind: ds::ItemKind::Today {
+                                avatar: today_face(initial(&one.title), ds::AvatarTone::Stack),
                             },
-                            Glyph { icon: Icon::X, size: ds::IconSize::Tiny }
+                            label: one.title.clone(),
+                            here: ds::Here::Elsewhere,
+                            count: None,
+                            presence: ds::Presence::Present,
+                            preview: None,
+                            pulse: ds::PulseKey::rest(ds::Anim::Gulp),
+                            // A message waiting for its time opens nothing; Cancel is its one act.
+                            onclick: move |()| {},
+                            onclose: None,
+                            trailing: ds::TodayTrailing {
+                                time: words.clone(),
+                                cancel: format!("Cancel sending {}", one.title),
+                                on_cancel: EventHandler::new(move |()| {
+                                    match cancel_waiting(desk, shell, draft) {
+                                        Ok(()) => refused.set(None),
+                                        Err(why) => refused.set(Some((draft, why))),
+                                    }
+                                }),
+                            },
                         }
                     }
                     if let Some(why) = why {

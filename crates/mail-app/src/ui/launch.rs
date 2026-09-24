@@ -40,7 +40,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (here && here.closest && here.closest(".c-body, .c-props .inp, .c-scroll .inp, .bubble .inp")) { return; }
     // An open menu owns the keyboard, mailo's own or quire's floating one. Focusing `.app`
     // here would take it back on the next tick, and the field would lose whatever was typed.
-    const menuField = document.querySelector(".cmdk .inp, .fmenu .inp");
+    const menuField = document.querySelector(".ds-palette input, .fmenu .inp");
     if (menuField) {
       if (document.activeElement === menuField) { return; }
       menuField.focus();

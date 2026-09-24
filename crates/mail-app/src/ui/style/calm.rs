@@ -9,23 +9,9 @@ use super::STYLE;
 use std::collections::BTreeMap;
 
 /// `(rule, property that holds the timing)`. Selectors are compared whole. A count's bump is
-/// quire's pulse class now (`a-bump`), timed by quire's own recipe, so it is not listed.
+/// quire's pulse class now (`a-bump`), timed by quire's own recipe, so it is not listed; nor are
+/// a row's exits, heal and arrival, which are quire's `ListRow`'s.
 const NEW: &[(&str, &str)] = &[
-    (".list .row[*|data-presence=leaving]", "animation"),
-    (
-        ".list .row[*|data-presence=leaving][*|data-exit=curl]",
-        "animation",
-    ),
-    (
-        ".list .row[*|data-presence=leaving][*|data-read=unread]",
-        "animation-duration",
-    ),
-    (
-        ".list .row[*|data-presence=leaving][*|data-exit=curl][*|data-read=unread]",
-        "animation-duration",
-    ),
-    (".list .row[*|data-presence=healing]", "animation"),
-    (".list .row.returning", "animation"),
     (".row .floater", "animation"),
     (".chip.is-landing", "animation"),
     (".item.gulp", "animation"),
@@ -304,7 +290,9 @@ fn a_literal_duration_is_named() {
 fn the_squash_shapes_are_quires_and_calm_still_reaches_them() {
     // Gulp, bump and the seal are quire's keyframes now; mailo declares none (coherence rule 1)
     // and only names them. Calm reaches them through the level's tokens: the spring they play
-    // on does not overshoot under it, and `--squish` and `--overshoot` are 1 there.
+    // on does not overshoot under it, and `--squish` and `--overshoot` are 1 there. Since quire
+    // v0.1.5 the shapes themselves scale by `--overshoot` (mailo gaps 3), so Calm and Reduced
+    // flatten them to a plain settle, where before they kept their squash at every level.
     let css = strip_comments(STYLE);
     let quire = strip_comments(ds::stylesheet());
     for name in ["gulp", "bump", "seal-pop"] {
@@ -312,9 +300,15 @@ fn the_squash_shapes_are_quires_and_calm_still_reaches_them() {
             !css.contains(&format!("@keyframes {name}")),
             "mailo still declares @keyframes {name}"
         );
+        let needle = format!("@keyframes {name}");
+        let Some(at) = quire.find(&needle) else {
+            panic!("quire has no {needle}");
+        };
+        let body = &quire[at..];
+        let body = &body[..body.find("} }").map_or(body.len(), |end| end + 3)];
         assert!(
-            quire.contains(&format!("@keyframes {name}")),
-            "quire has no @keyframes {name}"
+            body.contains("var(--overshoot)"),
+            "{needle} does not scale with the motion level: {body}"
         );
     }
     let calm = tokens(Some("calm"));

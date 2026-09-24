@@ -3,7 +3,7 @@
 use super::super::data::account_rows;
 use super::super::hover::{Hook, corner, hover};
 use super::super::motion::{drag, motion};
-use crate::provider::icon::{ChipPlace, ProvChip};
+use crate::provider::icon::{mark_of, mark_style};
 use crate::provider::{Provider, provider};
 use crate::query::{self};
 use crate::space::{self, Pinned, Scope, Space};
@@ -99,12 +99,8 @@ fn pin_filter(pin: &Pinned, labels: &[(String, LabelId)]) -> Filter {
     }
 }
 
-fn initial(text: &str) -> String {
-    let mut out = String::new();
-    if let Some(ch) = text.chars().next() {
-        out.extend(ch.to_uppercase());
-    }
-    if out.is_empty() { "?".to_owned() } else { out }
+fn initial(text: &str) -> char {
+    super::today::initial(text)
 }
 
 /// A stored `#rrggbb` as quire's colour. A Space file hand-edited to something else draws in
@@ -136,21 +132,19 @@ pub(super) fn AccountTiles(
     counted: Counts,
 ) -> Element {
     let several = counted.rows.len() > 1;
+    let marks = shell.read().appearance.marks;
+    let pressed = |on: bool| if on { ds::Switch::On } else { ds::Switch::Off };
     rsx! {
         div { class: "pins", role: "group", aria_label: "Accounts in this Space",
             if several {
-                button {
-                    class: "pin acct",
-                    aria_pressed: if shell.read().account.is_none() { "true" } else { "false" },
-                    aria_label: "All accounts",
-                    onclick: move |_| {
+                ds::AccountTile {
+                    account: ds::AccountFace::All,
+                    pressed: pressed(shell.read().account.is_none()),
+                    unread: count_of(counted.all),
+                    onclick: move |()| {
                         shell.write().account = None;
                         pages.set(1);
                     },
-                    span { class: "av all", Glyph { icon: Icon::Inbox, size: ds::IconSize::Compact } }
-                    if counted.all > 0 {
-                        span { class: "n", "{counted.all}" }
-                    }
                 }
             }
             for (index, row) in counted.rows.iter().enumerate() {
@@ -158,41 +152,63 @@ pub(super) fn AccountTiles(
                     let id = row.0;
                     let address = row.1.clone();
                     let n = row.2;
-                    let via = row.3;
                     let on = !several || shell.read().account == Some(id);
-                    let color = space::avatar_color(&space, id, index);
+                    let colour = hex_colour(&space::avatar_color(&space, id, index));
                     let letter = initial(&address);
-                    rsx! {
-                        button {
-                            key: "{id}",
-                            class: "pin acct",
-                            aria_pressed: if on { "true" } else { "false" },
-                            aria_label: "{address}",
-                            onclick: move |_| {
-                                shell.write().account = Some(id);
-                                pages.set(1);
-                            },
-                            span { class: "av", style: "background:{color}", "{letter}" }
-                            if let Some(via) = via {
-                                ProvChip { provider: via, marks: shell.read().appearance.marks, place: ChipPlace::Tile }
+                    let mut pick = move |()| {
+                        shell.write().account = Some(id);
+                        pages.set(1);
+                    };
+                    match row.3 {
+                        Some(via) => rsx! {
+                            ds::AccountTile {
+                                key: "{id}",
+                                account: ds::AccountFace::One {
+                                    initial: letter,
+                                    colour,
+                                    provider: mark_of(via),
+                                    address: Some(address),
+                                },
+                                pressed: pressed(on),
+                                unread: count_of(n),
+                                onclick: pick,
+                                mark: mark_style(via, marks),
                             }
-                            if n > 0 {
-                                span { class: "n", "{n}" }
+                        },
+                        // Local folders are on no provider, and quire's tile always draws one:
+                        // this tile stays mailo's, on quire's avatar.
+                        None => rsx! {
+                            button {
+                                key: "{id}",
+                                class: "pin acct",
+                                aria_pressed: if on { "true" } else { "false" },
+                                aria_label: "{address}",
+                                onclick: move |_| pick(()),
+                                ds::Avatar {
+                                    initial: letter,
+                                    size: AvatarSize::Size28,
+                                    tone: AvatarTone::Account(colour),
+                                    muting: if on { ds::AvatarMuting::Plain } else { ds::AvatarMuting::Muted },
+                                }
+                                if n > 0 {
+                                    span { class: "n", "{n}" }
+                                }
                             }
-                        }
+                        },
                     }
                 }
             }
-            button {
-                class: "pin acct acct-add",
-                r#type: "button",
-                title: "Add account…",
-                aria_label: "Add account",
-                onclick: move |_| super::super::add_account::open(shell),
-                span { class: "av", Glyph { icon: Icon::Plus, size: ds::IconSize::Compact } }
+            ds::AddAccountTile {
+                title: "Add account…".to_owned(),
+                onclick: move |()| super::super::add_account::open(shell),
             }
         }
     }
+}
+
+/// An unread count as a tile's badge holds it.
+fn count_of(n: u64) -> u32 {
+    u32::try_from(n).unwrap_or(u32::MAX)
 }
 
 #[component]
@@ -338,7 +354,7 @@ pub(super) fn PinnedList(
                     Pinned::Search { query, .. } => query.clone(),
                 };
                 let avatar = AvatarFace {
-                    initial: initial(&name).chars().next().unwrap_or('?'),
+                    initial: initial(&name),
                     size: AvatarSize::Size16,
                     tone: AvatarTone::Account(PersonSwatch::nth(index + 3).colour()),
                     shape: AvatarShape::Square,

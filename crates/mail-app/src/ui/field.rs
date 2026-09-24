@@ -1,8 +1,12 @@
 //! The one text field.
 //!
 //! A boxed variant and an inline one. Property rows and the inside of a menu use the inline
-//! variant; everything else is boxed. The class is always `inp`, so a stray `<input>` is visible
-//! in the frame dump.
+//! variant; everything else is boxed. A boxed field is quire's `TextInput`, in a box of mailo's
+//! that carries `extra` for its place in the layout (and `onfocus`/`onblur`, so the window knows
+//! when typing is going on). An inline field and a secret stay mailo's `input.inp`: an inline
+//! field is set in the face and ink of where it sits (the composer's subject in the display face,
+//! a folder's name on the frame), which `TextInput` takes from nothing but its own sheet, and a
+//! secret never writes its value into the markup, where `TextInput`'s password does.
 
 use dioxus::prelude::*;
 
@@ -13,9 +17,6 @@ pub(super) enum FieldKind {
     Boxed,
     /// No chrome, for a property row or the inside of a menu.
     Inline,
-    /// A slider from `min` to `max`, for a number with no need of digits: the Space's grain.
-    /// The value it hands back is the slider's position, as text like every other field.
-    Range { min: u8, max: u8 },
     /// A boxed field that shows dots. It never draws a value: what is typed goes to `on_input`
     /// and stays in the webview's own field, so the markup never holds a password.
     Secret,
@@ -32,31 +33,33 @@ pub(super) fn Field(
     on_focus: EventHandler<()>,
     on_blur: EventHandler<()>,
 ) -> Element {
+    if kind == FieldKind::Boxed {
+        let class = match extra {
+            None => "field".to_owned(),
+            Some(extra) => format!("field {extra}"),
+        };
+        return rsx! {
+            span { class: "{class}",
+                ds::TextInput {
+                    variant: ds::InputVariant::Boxed,
+                    label: placeholder.clone(),
+                    value,
+                    placeholder,
+                    oninput: move |value| on_input.call(value),
+                    onfocus: move |()| on_focus.call(()),
+                    onblur: move |()| on_blur.call(()),
+                }
+            }
+        };
+    }
     let variant = match kind {
-        FieldKind::Boxed => "inp",
-        FieldKind::Inline => "inp inline",
-        FieldKind::Range { .. } => "inp range",
+        FieldKind::Boxed | FieldKind::Inline => "inp inline",
         FieldKind::Secret => "inp secret",
     };
     let class = match extra {
         None => variant.to_owned(),
         Some(extra) => format!("{variant} {extra}"),
     };
-    if let FieldKind::Range { min, max } = kind {
-        return rsx! {
-            input {
-                class: "{class}",
-                r#type: "range",
-                min: "{min}",
-                max: "{max}",
-                aria_label: "{placeholder}",
-                value: "{value}",
-                oninput: move |event| on_input.call(event.value()),
-                onfocusin: move |_| on_focus.call(()),
-                onfocusout: move |_| on_blur.call(()),
-            }
-        };
-    }
     if kind == FieldKind::Secret {
         return rsx! {
             input {
@@ -98,6 +101,7 @@ mod tests {
             rest = &rest[at..];
             let end = rest.find('>').unwrap_or(rest.len());
             let tag = &rest[..end];
+            // mailo's `input.inp`, or quire's `input.ds-input` a boxed field draws.
             assert!(tag.contains("inp"), "an input is not a field: {tag}");
             found += 1;
             rest = &rest[end..];

@@ -5,6 +5,7 @@
 use std::collections::BTreeMap;
 
 use super::menu::{Floating, Menu, MenuItem, Right, Tile};
+use super::press::on_primary;
 use crate::view::{PageGroup, PageMenu, PageParts, Shell};
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
@@ -207,38 +208,36 @@ pub(super) fn PageMenus(shell: Signal<Shell>) -> Element {
     let parts = shell.read().parts;
     let mut group_button = use_signal(|| None::<MountedRef>);
     rsx! {
-        button {
-            class: "mini",
-            aria_label: "Group",
-            onmounted: move |event: MountedEvent| group_button.set(Some(MountedRef(event.data()))),
-            aria_expanded: if open == PageMenu::Group { "true" } else { "false" },
-            onclick: move |event| {
-                event.stop_propagation();
+        ds::Button {
+            variant: ds::ButtonVariant::Mini,
+            label: "Group",
+            icon: Icon::Group,
+            aria_label: "Group".to_owned(),
+            mounted: move |event: MountedEvent| group_button.set(Some(MountedRef(event.data()))),
+            expanded: if open == PageMenu::Group { ds::Expanded::Open } else { ds::Expanded::Closed },
+            onclick: on_primary(move || {
                 let next = if shell.peek().page_menu == PageMenu::Group {
                     PageMenu::Closed
                 } else {
                     PageMenu::Group
                 };
                 shell.write().page_menu = next;
-            },
-            ds::Glyph { icon: Icon::Group, size: ds::IconSize::Compact }
-            "Group"
+            }),
         }
-        button {
-            class: "mini",
-            aria_label: "Properties",
-            aria_expanded: if open == PageMenu::Properties { "true" } else { "false" },
-            onclick: move |event| {
-                event.stop_propagation();
+        ds::Button {
+            variant: ds::ButtonVariant::Mini,
+            label: "Properties",
+            icon: Icon::Columns,
+            aria_label: "Properties".to_owned(),
+            expanded: if open == PageMenu::Properties { ds::Expanded::Open } else { ds::Expanded::Closed },
+            onclick: on_primary(move || {
                 let next = if shell.peek().page_menu == PageMenu::Properties {
                     PageMenu::Closed
                 } else {
                     PageMenu::Properties
                 };
                 shell.write().page_menu = next;
-            },
-            ds::Glyph { icon: Icon::Columns, size: ds::IconSize::Compact }
-            "Properties"
+            }),
         }
         if open == PageMenu::Group {
             Floating {

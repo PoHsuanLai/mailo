@@ -31,7 +31,7 @@ const REFOCUS: &str = "document.querySelector('.app')?.focus()";
 /// open. With nothing open there is no thread to find in, so it goes to the list's search box.
 pub(in crate::ui) fn open_find(mut shell: Signal<Shell>) {
     if shell.peek().open.is_none() {
-        document::eval("document.querySelector('input.search')?.focus()");
+        document::eval("document.querySelector('.search input')?.focus()");
         return;
     }
     if shell.peek().find.is_none() {

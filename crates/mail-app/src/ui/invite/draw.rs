@@ -3,6 +3,7 @@
 use super::super::field::{Field, FieldKind};
 use super::super::menu::{MenuKey, menu_key};
 use super::super::motion::{Follow, tell};
+use super::super::press::{available, on_primary};
 use super::{CHIPS, Card, Stand, answer, cached, lookup, save_ics};
 use dioxus::prelude::*;
 use ds::{Glyph, Icon};
@@ -111,13 +112,14 @@ pub(in crate::ui) fn InviteCard(card: Card, known: Signal<Option<Option<Card>>>)
             div { class: "inv-head",
                 span { class: card.tag.class(), "{card.tag.word()}" }
                 h3 { class: "inv-title", "{card.title}" }
-                button {
-                    class: "mini inv-save",
-                    r#type: "button",
-                    aria_label: "{save}",
-                    disabled: working,
-                    onclick: move |_| save_file(message, title.clone(), phase),
-                    "{save}"
+                span { class: "inv-save",
+                    ds::Button {
+                        variant: ds::ButtonVariant::Mini,
+                        label: save,
+                        aria_label: save.to_owned(),
+                        availability: available(!working),
+                        onclick: on_primary(move || save_file(message, title.clone(), phase)),
+                    }
                 }
             }
             dl { class: "inv-facts",
@@ -162,12 +164,11 @@ pub(in crate::ui) fn InviteCard(card: Card, known: Signal<Option<Option<Card>>>)
                     }
                     if hidden > 0 {
                         li { class: "att rest",
-                            button {
-                                class: "link",
-                                r#type: "button",
-                                aria_label: "{everyone_label}",
-                                onclick: move |_| everyone.set(true),
-                                "+{hidden}"
+                            ds::Button {
+                                variant: ds::ButtonVariant::Quiet,
+                                label: format!("+{hidden}"),
+                                aria_label: everyone_label.clone(),
+                                onclick: on_primary(move || everyone.set(true)),
                             }
                         }
                     }
@@ -183,12 +184,11 @@ pub(in crate::ui) fn InviteCard(card: Card, known: Signal<Option<Option<Card>>>)
                 div { class: "inv-about",
                     p { class: "{desc_class}", "{description}" }
                     if long {
-                        button {
-                            class: "link",
-                            r#type: "button",
-                            aria_label: "{more_label}",
-                            onclick: move |_| more.toggle(),
-                            "{more_label}"
+                        ds::Button {
+                            variant: ds::ButtonVariant::Quiet,
+                            label: more_label,
+                            aria_label: more_label.to_owned(),
+                            onclick: on_primary(move || more.toggle()),
                         }
                     }
                 }
@@ -203,12 +203,11 @@ pub(in crate::ui) fn InviteCard(card: Card, known: Signal<Option<Option<Card>>>)
                         if let Some(note) = note {
                             span { class: "inv-note", "“{note}”" }
                         }
-                        button {
-                            class: "link",
-                            r#type: "button",
-                            aria_label: "{change}",
-                            onclick: move |_| phase.set(Phase::Changing),
-                            "{change}"
+                        ds::Button {
+                            variant: ds::ButtonVariant::Quiet,
+                            label: change,
+                            aria_label: change.to_owned(),
+                            onclick: on_primary(move || phase.set(Phase::Changing)),
                         }
                     }
                 },
@@ -219,15 +218,14 @@ pub(in crate::ui) fn InviteCard(card: Card, known: Signal<Option<Option<Card>>>)
             if offered {
                 div { class: "inv-acts", role: "group", aria_label: "Answer",
                     for (attendance, label) in CHOICES {
-                        button {
+                        ds::Button {
                             key: "{label}",
-                            class: if attendance == Attendance::Accepted { "mini primary" } else { "mini" },
-                            r#type: "button",
-                            aria_label: "{label}",
-                            aria_pressed: if chosen == Some(attendance) { "true" } else { "false" },
-                            disabled: working,
-                            onclick: move |_| phase.set(Phase::Noting { attendance, note: String::new() }),
-                            "{label}"
+                            variant: if attendance == Attendance::Accepted { ds::ButtonVariant::Primary } else { ds::ButtonVariant::Mini },
+                            label,
+                            aria_label: label.to_owned(),
+                            pressed: if chosen == Some(attendance) { ds::Switch::On } else { ds::Switch::Off },
+                            availability: available(!working),
+                            onclick: on_primary(move || phase.set(Phase::Noting { attendance, note: String::new() })),
                         }
                     }
                 }
@@ -289,19 +287,17 @@ fn Noting(
                 on_focus: |_| {},
                 on_blur: |_| {},
             }
-            button {
-                class: "mini",
-                r#type: "button",
-                aria_label: "{cancel}",
-                onclick: move |_| phase.set(Phase::Resting),
-                "Cancel"
+            ds::Button {
+                variant: ds::ButtonVariant::Mini,
+                label: "Cancel".to_owned(),
+                aria_label: cancel.to_string(),
+                onclick: on_primary(move || phase.set(Phase::Resting)),
             }
-            button {
-                class: "mini primary",
-                r#type: "button",
-                aria_label: "{send}",
-                onclick: move |_| on_send.call((attendance, note.clone())),
-                "Send"
+            ds::Button {
+                variant: ds::ButtonVariant::Primary,
+                label: "Send".to_owned(),
+                aria_label: send.to_string(),
+                onclick: on_primary(move || on_send.call((attendance, note.clone()))),
             }
         }
     }

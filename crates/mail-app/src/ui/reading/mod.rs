@@ -6,6 +6,7 @@ mod image;
 mod spans;
 mod table;
 
+use super::press::on_primary;
 use super::text::{address, attachment_rows, from_name, stamp};
 use crate::view::{Peek, Reading, Shell};
 use attachments::Attachments;
@@ -57,19 +58,23 @@ fn ViewSwitch(message_id: MessageId, mut original: Signal<HashMap<MessageId, boo
     let original_label = "Original";
     rsx! {
         span { class: "view-switch", role: "group", aria_label: "How to show this message",
-            button {
-                r#type: "button",
-                aria_label: "{reader}",
-                aria_pressed: if showing { "false" } else { "true" },
-                onclick: move |_| { original.write().insert(message_id, false); },
-                "Reader"
+            ds::Button {
+                variant: ds::ButtonVariant::Mini,
+                label: reader,
+                aria_label: reader.to_owned(),
+                pressed: if showing { ds::Switch::Off } else { ds::Switch::On },
+                onclick: on_primary(move || {
+                    original.write().insert(message_id, false);
+                }),
             }
-            button {
-                r#type: "button",
-                aria_label: "{original_label}",
-                aria_pressed: if showing { "true" } else { "false" },
-                onclick: move |_| { original.write().insert(message_id, true); },
-                "Original"
+            ds::Button {
+                variant: ds::ButtonVariant::Mini,
+                label: original_label,
+                aria_label: original_label.to_owned(),
+                pressed: if showing { ds::Switch::On } else { ds::Switch::Off },
+                onclick: on_primary(move || {
+                    original.write().insert(message_id, true);
+                }),
             }
         }
     }
@@ -293,12 +298,11 @@ pub(super) fn Reader(
                         }
                     }
                     if !showing {
-                        button {
-                            class: "images",
-                            r#type: "button",
-                            aria_label: "{show_images()}",
-                            onclick: move |_| shell.write().show_remote_images = true,
-                            "{show_images()}"
+                        ds::Button {
+                            variant: ds::ButtonVariant::Mini,
+                            label: show_images(),
+                            aria_label: show_images(),
+                            onclick: on_primary(move || shell.write().show_remote_images = true),
                         }
                     }
                 }

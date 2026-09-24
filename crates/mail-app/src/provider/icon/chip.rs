@@ -1,4 +1,4 @@
-//! The provider mark on an account tile or a row: quire's `ProviderMark`, given the cached icon
+//! The provider mark on a row or in a field: quire's `ProviderMark`, given the cached icon
 //! when the setting says icons.
 
 use super::Loaded;
@@ -9,8 +9,6 @@ use ds::{ImageSource, MarkSize, MarkStyle, ProviderMark};
 /// Where the chip sits, which is the mark's size.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ChipPlace {
-    /// The account tile.
-    Tile,
     /// The provider name on a row.
     Row,
     /// Inline in a field: the composer's From.
@@ -29,7 +27,7 @@ pub(crate) fn current() -> Loaded {
 }
 
 /// quire's name for `provider`: the two tables are the same six, letter for letter.
-fn mark_of(provider: Provider) -> ds::Provider {
+pub(crate) fn mark_of(provider: Provider) -> ds::Provider {
     match provider {
         Provider::Google => ds::Provider::Google,
         Provider::Microsoft => ds::Provider::Microsoft,
@@ -40,17 +38,21 @@ fn mark_of(provider: Provider) -> ds::Provider {
     }
 }
 
+/// How `provider` is drawn under the provider-marks setting: the cached icon when the setting
+/// says icons and one is held, else the letter. Reads the startup load, so call it in a render.
+pub(crate) fn mark_style(provider: Provider, marks: crate::view::Marks) -> MarkStyle {
+    let uri = match marks {
+        crate::view::Marks::Icons => current().uri(provider),
+        crate::view::Marks::Letters => None,
+    };
+    uri.map_or(MarkStyle::Letter, |uri| MarkStyle::Image(ImageSource(uri)))
+}
+
 /// The mark on a tile or a row: the cached icon, or the letter.
 #[component]
 pub(crate) fn ProvChip(provider: Provider, marks: crate::view::Marks, place: ChipPlace) -> Element {
-    let loaded = current();
-    let uri = match marks {
-        crate::view::Marks::Icons => loaded.uri(provider),
-        crate::view::Marks::Letters => None,
-    };
-    let style = uri.map_or(MarkStyle::Letter, |uri| MarkStyle::Image(ImageSource(uri)));
+    let style = mark_style(provider, marks);
     let size = match place {
-        ChipPlace::Tile => MarkSize::Tile,
         ChipPlace::Row => MarkSize::Row,
         ChipPlace::Inline => MarkSize::Inline,
     };

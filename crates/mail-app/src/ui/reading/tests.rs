@@ -209,7 +209,8 @@ fn attachment_items(markup: &str) -> Vec<&str> {
 fn row_has(item: &str, name: &str, size: &str, action: &str) -> Result<(), String> {
     let name_cell = format!(r#"class="name">{name}</span>"#);
     let size_cell = format!(r#"class="size mono">{size}</span>"#);
-    let button = format!(">{action}</button>");
+    // quire's Button sets its label in a span.
+    let button = format!(">{action}</span></button>");
     let mut missing = Vec::new();
     for needle in [
         name_cell.as_str(),

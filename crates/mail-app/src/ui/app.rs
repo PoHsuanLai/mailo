@@ -629,7 +629,7 @@ pub(super) fn App() -> Element {
             SpaceEditor { spaces, editing, shell }
             super::hover::HoverLayer { site: super::hover::Site::Frame, shell, revision, spaces: Some(spaces) }
             if shell.read().command.is_some() {
-                CommandMenu { shell, pages, revision, side_hidden, sync_state, spaces, in_a_field }
+                CommandMenu { shell, pages, revision, side_hidden, sync_state, spaces }
             }
             if shell.read().contacts.is_some() {
                 super::contacts::ContactsSheet { shell }

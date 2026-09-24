@@ -7,12 +7,13 @@ use mail_store::SqliteStore;
 
 use super::super::debounce::use_debounced;
 use super::super::field::{Field, FieldKind};
+use super::super::press::{SheetClose, available, on_primary};
 use super::super::space_editor::Seg;
 use super::pick::{Ask, choose};
 use super::work::{self, Counted, Format};
 use super::{Phase, Progress, run};
 use crate::view::{FileSheet, Shell};
-use ds::{Glyph, Icon};
+use ds::Icon;
 
 /// The query the sheet's field holds.
 fn typed(shell: &Shell) -> String {
@@ -119,13 +120,7 @@ pub(super) fn ExportSheet(shell: Signal<Shell>) -> Element {
                 onclick: move |event| event.stop_propagation(),
                 div { class: "files-head",
                     h3 { "Export mail" }
-                    button {
-                        class: "mini",
-                        r#type: "button",
-                        onclick: move |_| super::close(shell),
-                        "Close"
-                        span { class: "k", "Esc" }
-                    }
+                    SheetClose { on_close: move |()| super::close(shell) }
                 }
                 div { class: "files-main",
                     span { class: "files-k", "Which" }
@@ -162,35 +157,35 @@ pub(super) fn ExportSheet(shell: Signal<Shell>) -> Element {
                             kind: FieldKind::Boxed,
                             value: target_path.clone(),
                             placeholder: "Where to write it".to_owned(),
-                            extra: Some("files-in files-to".to_owned()),
+                            extra: Some("files-in".to_owned()),
                             on_input: move |value: String| place.set(Place::Typed(value)),
                             on_focus: |_| {},
                             on_blur: |_| {},
                         }
-                        button {
-                            class: "mini",
-                            r#type: "button",
-                            title: "Choose the directory it goes in",
-                            onclick: move |_| {
+                        ds::Button {
+                            variant: ds::ButtonVariant::Mini,
+                            label: "Folder…".to_owned(),
+                            title: "Choose the directory it goes in".to_owned(),
+                            onclick: on_primary(move || {
                                 choose(Ask::Folder, super::save_dir(), move |dir| {
                                     let settled = debounced.settled.peek().text.clone();
                                     let path = work::suggested(&dir, &settled, format());
                                     place.set(Place::Typed(path.display().to_string()));
                                 });
-                            },
-                            "Folder…"
+                            }),
                         }
                     }
                 }
                 div { class: "files-foot",
                     Progress { phase: phase(), verb: "Exporting" }
-                    button {
-                        class: "mini primary",
-                        r#type: "button",
-                        disabled: !can_run,
-                        onclick: start,
-                        Glyph { icon: Icon::Forward }
-                        if busy { "Exporting…" } else { "Export" }
+                    span { class: "go",
+                        ds::Button {
+                            variant: ds::ButtonVariant::Primary,
+                            label: if busy { "Exporting…" } else { "Export" },
+                            icon: Icon::Forward,
+                            availability: available(can_run),
+                            onclick: on_primary(move || start(())),
+                        }
                     }
                 }
             }

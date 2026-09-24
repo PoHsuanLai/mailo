@@ -29,10 +29,16 @@ const RESTING: FakePointer = FakePointer {
     held: false,
 };
 
-/// Place the open card against `[data-hc=hook]`, as `HoverLayer` does from the pointer.
+/// Place the open card against the hook's element, as `HoverLayer` does from the pointer: a
+/// row's sender and time are quire's `ListRow` parts inside the row's box.
 fn placing(hook: &str, kind: &str) -> String {
+    let query = match hook.split_once(':') {
+        Some(("sender", id)) => format!("[data-hc=\"thread:{id}\"] .ds-row-name"),
+        Some(("time", id)) => format!("[data-hc=\"thread:{id}\"] .ds-row-time"),
+        _ => format!("[data-hc=\"{hook}\"]"),
+    };
     format!(
-        "addEventListener('load',()=>{{const h=document.querySelector('[data-hc=\"{hook}\"]');\
+        "addEventListener('load',()=>{{const h=document.querySelector('{query}');\
          const c=document.querySelector('.hc');if(!h||!c)return;const r=h.getBoundingClientRect();\
          const k='{kind}';if(k==='thread'){{c.style.top=Math.max(8,r.top-12)+'px';}}\
          else if(k==='sender'){{c.style.left=r.left+'px';c.style.top=(r.top+22)+'px';}}\
@@ -94,8 +100,15 @@ async fn render_the_hover_cards_to_a_file() {
             .with_root_context(built.dirs.clone());
         let seen = rebuild_into(&mut dom);
         for (step, hook) in hooks.iter().enumerate() {
-            let element = seen.one("data-hc", hook);
-            if step == 0 {
+            // A row's parts are quire's `ListRow`'s, hooked through its `PartHooks`; the rest
+            // are mailo's elements, named by their hook.
+            let element = match hook.split_once(':') {
+                Some(("thread", _)) => seen.row_parts(hook).row,
+                Some(("sender", id)) => seen.row_parts(&format!("thread:{id}")).name,
+                Some(("time", id)) => seen.row_parts(&format!("thread:{id}")).time,
+                _ => seen.one("data-hc", hook),
+            };
+            if step == 0 || hook.starts_with("sender:") || hook.starts_with("time:") {
                 pointer(&mut dom, "pointerenter", element, RESTING.clone());
             }
             pointer(&mut dom, "pointerover", element, RESTING.clone());
@@ -118,7 +131,7 @@ async fn render_the_hover_cards_to_a_file() {
     let build_bot = seen.all("aria-label", "Archive")[3];
     crate::ui::fixtures::click(&mut dom, build_bot);
     wait(&mut dom, 200).await;
-    let row = seen.one("data-hc", &format!("thread:{dana}"));
+    let row = seen.row_parts(&format!("thread:{dana}")).row;
     let archive = seen.one("data-place", "Archive");
     let held = |x: f64, y: f64| FakePointer {
         client: (x, y),

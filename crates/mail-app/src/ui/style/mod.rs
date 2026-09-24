@@ -49,7 +49,7 @@ pub(in crate::ui) mod tests {
     use std::collections::{BTreeMap, BTreeSet};
 
     use super::STYLE;
-    use ds::lint::{LintConfig, Offence, Profile, Rule, assert_clean, markup, stylesheet};
+    use ds::lint::{LintConfig, Offence, Profile, Rule, assert_clean, markup};
     use ds::ratio;
 
     /// Everything the window's markup is styled by: quire's stylesheet, then mailo's.
@@ -358,39 +358,50 @@ pub(in crate::ui) mod tests {
     /// before it ends (a headless screenshot, a slow first paint) shows the panel translucent:
     /// the scrim and the rows behind it bleed through and the whole menu reads washed out.
     /// The open rise may move the panel, never fade it, and the overlay sits above the scrim.
-    #[test]
-    fn the_command_panel_is_opaque_on_its_first_frame() {
-        let css = strip_comments(STYLE);
-        let body = rule_body(&css, ".cmdk");
-        let animation = property(&body, "animation");
+    /// The panel is quire's `CommandPalette` now: its entrance must be `Opaque` (`cmdk-rise`),
+    /// and it draws on the palette layer, which must be above the reader's scrim.
+    #[tokio::test]
+    async fn the_command_panel_is_opaque_on_its_first_frame() {
+        let built = crate::ui::fixtures::work();
+        let mut menus = dioxus::prelude::VirtualDom::new(crate::ui::command::tests::MenuPicture)
+            .with_root_context(built.store);
+        menus.rebuild_in_place();
+        crate::ui::fixtures::drain(&mut menus);
+        let page = dioxus_ssr::render(&menus);
+        let at = page
+            .find("class=\"ds-palette\"")
+            .expect("the command panel is not quire's palette");
+        let card = &page[at..at + page[at..].find('>').unwrap_or(0)];
+        let name = card
+            .split("data-entrance=\"")
+            .nth(1)
+            .and_then(|rest| rest.split('"').next())
+            .unwrap_or("");
         assert!(
-            !animation.contains("peek-in"),
-            ".cmdk animates with {animation:?}; peek-in starts transparent"
+            !name.contains("peek-in"),
+            "the palette enters with {name:?}; peek-in starts transparent"
         );
-        let name = animation
-            .split_whitespace()
-            .next()
-            .unwrap_or("")
-            .trim_end_matches(',');
-        let frames = keyframes(&css, name).replace(' ', "");
+        let quire = strip_comments(ds::stylesheet());
+        let frames = keyframes(&quire, name).replace(' ', "");
         assert!(
             !frames.contains("opacity:0"),
             "@keyframes {name} fades the panel: {frames}"
         );
         // Both layers are quire's `--z-*` tokens, resolved on the `.ds` root.
+        let css = strip_comments(STYLE);
         let layers = declared(ds::stylesheet(), ".ds");
-        let layer = |selector: &str| -> i32 {
-            let value = property(&rule_body(&css, selector), "z-index");
-            let value = exactly_var(&value)
+        let z = |value: &str| -> i32 {
+            let value = exactly_var(value)
                 .and_then(|name| layers.get(name))
                 .cloned()
-                .unwrap_or(value);
+                .unwrap_or_else(|| value.to_owned());
             value.parse().unwrap_or(0)
         };
-        let (wrap_z, scrim_z) = (layer(".cmdk-wrap"), layer(".scrim"));
+        let palette_z = z("var(--z-palette)");
+        let scrim_z = z(&property(&rule_body(&css, ".scrim"), "z-index"));
         assert!(
-            wrap_z > scrim_z,
-            "command menu z-index {wrap_z} is not above the scrim {scrim_z}"
+            palette_z > scrim_z,
+            "command menu z-index {palette_z} is not above the scrim {scrim_z}"
         );
     }
 
@@ -692,7 +703,7 @@ pub(in crate::ui) mod tests {
         let faces = font_faces(ds::font_face_css());
         let shipped: BTreeSet<&str> = faces.iter().map(|(family, _)| family.as_str()).collect();
         let tokens = declared(ds::stylesheet(), ".ds");
-        for token in ["--font-display", "--font-ui", "--font-data"] {
+        for token in ["--font-display", "--font-ui", "--font-data", "--font-serif"] {
             let Some(stack) = tokens.get(token) else {
                 panic!("{token} is missing");
             };
@@ -707,8 +718,9 @@ pub(in crate::ui) mod tests {
                 "{token} leads with {first:?}, which no @font-face declares; shipped: {shipped:?}"
             );
         }
-        // Three families, each in both subsets; Karla and Space Mono in two styles or weights.
-        assert_eq!(faces.len(), 10, "{shipped:?}");
+        // Four families, each in both subsets; Karla and Space Mono in two styles or weights,
+        // Noto Serif upright and italic (quire v0.1.5's serif face).
+        assert_eq!(faces.len(), 14, "{shipped:?}");
     }
 
     #[test]
@@ -783,6 +795,8 @@ pub(in crate::ui) mod tests {
         let mut menus =
             VirtualDom::new(crate::ui::command::tests::OpenMenus).with_root_context(store);
         menus.rebuild_in_place();
+        // The palette floats in the root's overlay, drawn the render after it asks.
+        crate::ui::fixtures::drain(&mut menus);
         let editor = crate::ui::space_editor::tests::editor_open_markup();
         assert!(
             editor.contains("aria-label=\"Space editor\""),
@@ -812,28 +826,14 @@ pub(in crate::ui) mod tests {
     /// anything fails here rather than hiding a later offence.
     #[test]
     fn our_stylesheet_lints_clean() {
+        // `assert_clean` fails on a stale exception itself (`Stale::Fail`, the default).
         let config = LintConfig {
             profile: Profile::Strict,
             own_vars: PER_ELEMENT.iter().map(|name| (*name).to_owned()).collect(),
             exceptions: super::exceptions::STYLE,
+            ..LintConfig::default()
         };
         assert_clean(STYLE, &config);
-        let every = stylesheet(
-            STYLE,
-            &LintConfig {
-                exceptions: &[],
-                ..config.clone()
-            },
-        );
-        let stale: Vec<_> = config
-            .exceptions
-            .iter()
-            .filter(|exception| !every.iter().any(|offence| exception.covers(offence)))
-            .collect();
-        assert!(
-            stale.is_empty(),
-            "exceptions that suppress nothing: {stale:#?}"
-        );
     }
 
     #[test]

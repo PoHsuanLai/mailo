@@ -24,7 +24,7 @@ pub(in crate::ui) fn seams() -> flow::Seams {
 pub(in crate::ui) fn open(mut shell: Signal<Shell>) {
     shell.write().adding = Some(String::new());
     dioxus::document::eval(
-        "requestAnimationFrame(()=>document.querySelector('.acct-sheet .files-main .inp')?.focus())",
+        "requestAnimationFrame(()=>document.querySelector('.acct-sheet .files-main input')?.focus())",
     );
 }
 

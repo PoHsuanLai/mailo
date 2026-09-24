@@ -5,7 +5,7 @@
 .reader { position: relative; }
 .hc {
   position: absolute; z-index: var(--z-card); width: 300px; background: var(--raise); color: var(--ink);
-  border: 1px solid var(--line); border-radius: var(--r-panel); box-shadow: var(--shadow-drag);
+  border: var(--hair) solid var(--line); border-radius: var(--r-panel); box-shadow: var(--shadow-drag);
   padding: var(--s-12) var(--s-13); font-size: var(--fs-control); line-height: 1.45;
   animation: hc-in var(--t-move) var(--e-spring);
 }
@@ -25,12 +25,12 @@
 }
 .hc .msg p.none { font-style: italic; color: var(--ink-faint); }
 .hc .foot {
-  margin-top: var(--s-10); padding-top: var(--s-8); border-top: 1px solid var(--line-soft); display: flex; align-items: center;
+  margin-top: var(--s-10); padding-top: var(--s-8); border-top: var(--hair) solid var(--line-soft); display: flex; align-items: center;
   gap: var(--s-6); font-family: var(--font-data); font-size: var(--fs-caption); color: var(--ink-faint);
 }
 .hc .foot .k { margin-left: auto; }
 .hc kbd {
-  font-family: var(--font-data); font-size: var(--fs-micro); padding: 0 var(--s-4); border: 1px solid var(--line);
+  font-family: var(--font-data); font-size: var(--fs-micro); padding: 0 var(--s-4); border: var(--hair) solid var(--line);
   border-radius: var(--r-tiny); color: var(--ink-soft);
 }
 .hc .person { display: flex; gap: var(--s-10); align-items: center; }

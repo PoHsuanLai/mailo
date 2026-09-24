@@ -46,12 +46,12 @@ pub(in crate::ui) fn ReceiptRow(page: Signal<Page>) -> Element {
             div { class: "v",
                 span { class: "pchip receipt-chip",
                     "Asks for a read receipt"
-                    button {
-                        class: "x",
-                        r#type: "button",
-                        aria_label: "{stop}",
-                        onclick: move |_| page.write().toggle_receipt(),
-                        Glyph { icon: Icon::X, size: ds::IconSize::Micro }
+                    ds::IconButton {
+                        variant: ds::IconButtonVariant::Strip,
+                        icon: Icon::X,
+                        label: stop,
+                        tooltip: stop.to_owned(),
+                        onclick: super::super::press::on_primary(move || page.write().toggle_receipt()),
                     }
                 }
             }

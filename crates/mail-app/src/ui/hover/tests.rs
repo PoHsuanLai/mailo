@@ -95,13 +95,13 @@ async fn the_sender_card_flags_a_borrowed_name() {
         .with_root_context(built.dirs.clone());
     let seen = rebuild_into(&mut dom);
     let spoofed = crate::ui::fixtures::thread_like(&built.store, SPOOF);
-    let row = seen.one("data-hc", &format!("thread:{spoofed}"));
-    let name = seen.one("data-hc", &format!("sender:{spoofed}"));
+    // quire's row: the name's hooks are its own `PartHooks`, heard as the pointer enters it.
+    let parts = seen.row_parts(&format!("thread:{spoofed}"));
     // Into the row, then onto the name inside it. The innermost hook wins: the sender card,
     // not the thread card.
-    pointer(&mut dom, "pointerenter", row, over((12.0, 10.0)));
-    pointer(&mut dom, "pointerover", row, over((12.0, 10.0)));
-    pointer(&mut dom, "pointerover", name, over((4.0, 4.0)));
+    pointer(&mut dom, "pointerenter", parts.row, over((12.0, 10.0)));
+    pointer(&mut dom, "pointerover", parts.row, over((12.0, 10.0)));
+    pointer(&mut dom, "pointerenter", parts.name, over((4.0, 4.0)));
     wait(&mut dom, 700).await;
     let page = dioxus_ssr::render(&dom);
     let shown = card(&page).expect("no sender card");

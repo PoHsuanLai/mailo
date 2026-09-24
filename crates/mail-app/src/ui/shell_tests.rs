@@ -15,6 +15,17 @@ fn page_of(store: Arc<SqliteStore>, dirs: Option<crate::appearance::WindowDirs>)
     dioxus_ssr::render(&dom)
 }
 
+/// Each account tile on `page`, as the markup after its class: quire's `AccountTile`s (not the
+/// Add tile after them), and mailo's own tile for local folders, which are on no provider.
+fn account_tiles(page: &str) -> Vec<&str> {
+    let quire = page
+        .split("class=\"ds-icon-button ds-account-tile\" data-variant=\"pin\"")
+        .skip(1)
+        .filter(|rest| !rest.starts_with(" data-face=\"add\""));
+    let local = page.split("class=\"pin acct\"").skip(1);
+    quire.chain(local).collect()
+}
+
 fn row_containing(page: &str, subject: &str) -> String {
     let mut from = 0;
     let at = loop {
@@ -48,11 +59,10 @@ async fn three_accounts_show_an_all_tile_and_the_microsoft_tile_filters() {
         .with_root_context(built.dirs);
     let seen = rebuild_into(&mut dom);
     let page = dioxus_ssr::render(&dom);
-    let tiles = page.matches("class=\"pin acct\"").count();
+    let tiles = account_tiles(&page).len();
     assert_eq!(tiles, 4, "three accounts and All:\n{page}");
-    let tile_pressed = page
-        .split("class=\"pin acct\"")
-        .skip(1)
+    let tile_pressed = account_tiles(&page)
+        .into_iter()
         .filter(|rest| {
             rest.split_once('>')
                 .unwrap_or_default()
@@ -114,7 +124,7 @@ fn one_account_has_no_all_tile() {
         !page.contains("All accounts"),
         "a single account still offered All:\n{page}"
     );
-    assert_eq!(page.matches("class=\"pin acct\"").count(), 1, "{page}");
+    assert_eq!(account_tiles(&page).len(), 1, "{page}");
 }
 
 #[test]
@@ -124,11 +134,17 @@ fn the_work_rows_carry_the_read_state_the_chip_and_the_archive_strip() {
     let _ = (built.root.path(), built.dana);
     let page = page_of(built.store, Some(built.dirs));
     let sam = row_containing(&page, "Notes from the sync review");
-    assert!(sam.contains("data-read=\"read\""), "Sam is read:\n{sam}");
-    assert!(sam.contains("data-on=\"true\""), "Sam is starred:\n{sam}");
+    assert!(
+        sam.contains("data-emphasis=\"plain\""),
+        "Sam is read:\n{sam}"
+    );
+    assert!(
+        sam.contains("aria-pressed=\"true\""),
+        "Sam is starred:\n{sam}"
+    );
     let dana = row_containing(&page, "UIDL stability");
     assert!(
-        dana.contains("data-read=\"unread\""),
+        dana.contains("data-emphasis=\"strong\""),
         "Dana is unread:\n{dana}"
     );
     assert!(dana.contains(">spec<"), "Dana's chip is spec:\n{dana}");
@@ -161,7 +177,8 @@ async fn closing_a_today_entry_writes_the_file_and_not_the_mail() {
     let opened = super::fixtures::click(&mut dom, first);
     let second = follow(&mut dom, opened, "Open Notes from the sync review", second).await;
     let shown = super::fixtures::click(&mut dom, second);
-    let close_label = format!("Close {}", built.sam);
+    // quire's Today item names its close by the entry's label: the thread's subject.
+    let close_label = "Close Notes from the sync review".to_owned();
     let close = follow_any(&mut dom, shown, &close_label).await;
     let stored = std::fs::read_to_string(built.dirs.state.join("today.json")).unwrap_or_default();
     assert_eq!(

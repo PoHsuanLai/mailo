@@ -8,6 +8,7 @@ use mail_store::SqliteStore;
 use super::super::debounce::use_debounced;
 use super::super::field::{Field, FieldKind};
 use super::super::menu::{Floating, MenuItem, Right, Tile};
+use super::super::press::{SheetClose, available, on_primary};
 use super::pick::{Ask, choose};
 use super::work::{self, Dest, Looked};
 use super::{Phase, Progress, run, tilde_here};
@@ -112,13 +113,7 @@ pub(super) fn ImportSheet(shell: Signal<Shell>, revision: Signal<u64>) -> Elemen
                 onclick: move |event| event.stop_propagation(),
                 div { class: "files-head",
                     h3 { "Import mail" }
-                    button {
-                        class: "mini",
-                        r#type: "button",
-                        onclick: move |_| super::close(shell),
-                        "Close"
-                        span { class: "k", "Esc" }
-                    }
+                    SheetClose { on_close: move |()| super::close(shell) }
                 }
                 div { class: "files-main",
                     span { class: "files-k", "From" }
@@ -132,27 +127,25 @@ pub(super) fn ImportSheet(shell: Signal<Shell>, revision: Signal<u64>) -> Elemen
                             on_focus: |_| {},
                             on_blur: |_| {},
                         }
-                        button {
-                            class: "mini",
-                            r#type: "button",
-                            title: "Choose an mbox or .eml file",
-                            onclick: move |_| {
+                        ds::Button {
+                            variant: ds::ButtonVariant::Mini,
+                            label: "File…".to_owned(),
+                            title: "Choose an mbox or .eml file".to_owned(),
+                            onclick: on_primary(move || {
                                 choose(Ask::File, super::save_dir(), move |path| {
                                     set_typed(shell, path.display().to_string());
                                 });
-                            },
-                            "File…"
+                            }),
                         }
-                        button {
-                            class: "mini",
-                            r#type: "button",
-                            title: "Choose a Maildir directory",
-                            onclick: move |_| {
+                        ds::Button {
+                            variant: ds::ButtonVariant::Mini,
+                            label: "Folder…".to_owned(),
+                            title: "Choose a Maildir directory".to_owned(),
+                            onclick: on_primary(move || {
                                 choose(Ask::Folder, super::save_dir(), move |path| {
                                     set_typed(shell, path.display().to_string());
                                 });
-                            },
-                            "Folder…"
+                            }),
                         }
                     }
                     p { class: "{look_class}", aria_live: "polite", "{look_words}" }
@@ -193,13 +186,14 @@ pub(super) fn ImportSheet(shell: Signal<Shell>, revision: Signal<u64>) -> Elemen
                 }
                 div { class: "files-foot",
                     Progress { phase: phase(), verb: "Importing" }
-                    button {
-                        class: "mini primary",
-                        r#type: "button",
-                        disabled: !can_run,
-                        onclick: start,
-                        Glyph { icon: Icon::Plus }
-                        if busy { "Importing…" } else { "Import" }
+                    span { class: "go",
+                        ds::Button {
+                            variant: ds::ButtonVariant::Primary,
+                            label: if busy { "Importing…" } else { "Import" },
+                            icon: Icon::Plus,
+                            availability: available(can_run),
+                            onclick: on_primary(move || start(())),
+                        }
                     }
                 }
             }

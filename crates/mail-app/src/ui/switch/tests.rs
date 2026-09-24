@@ -279,7 +279,11 @@ async fn the_first_frame_and_a_switch_paint_a_space_the_same() {
         (
             "system postmark",
             SpaceLook {
-                dots: PRESETS[10].to_vec(),
+                // Pine, the retired accent preset, as a Space made from it keeps it.
+                dots: vec![ds::Dot {
+                    hue: 164.066_35,
+                    chroma: 0.7,
+                }],
                 card_accent: CardAccent::Postmark,
                 ..Space::default().look
             },

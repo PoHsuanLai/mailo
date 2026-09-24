@@ -13,6 +13,7 @@ use std::sync::Arc;
 use super::super::data::AccountRow;
 use super::super::field::{Field, FieldKind};
 use super::super::menus::when_words;
+use super::super::press::on_primary;
 use super::super::space_editor::Seg;
 use super::server::{configured, reach};
 
@@ -319,15 +320,14 @@ pub(super) fn AwayPart(row: AccountRow) -> Element {
                     Some(Err(why)) => rsx! { p { class: "capnote files-bad", role: "alert", "{why}" } },
                     None => rsx! {},
                 }
-                button {
-                    class: "mini primary",
-                    r#type: "button",
-                    onclick: move |_| {
+                ds::Button {
+                    variant: ds::ButtonVariant::Primary,
+                    label: "Keep reply".to_owned(),
+                    onclick: on_primary(move || {
                         let store = consume_context::<Arc<SqliteStore>>();
                         let form = away.peek().clone();
                         said.set(Some(save(&store, &keep, &form, Utc::now(), &chrono::Local)));
-                    },
-                    "Keep reply"
+                    }),
                 }
             }
         }
