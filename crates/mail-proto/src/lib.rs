@@ -21,7 +21,9 @@ pub use diagnose::{explain, explain_text};
 pub use imap::{
     Completed, ImapAuth, ImapCommand, ImapSession, ImapTranscript, Untagged, has_capability,
 };
-pub use machine::{Backend, IoNeed, IoReady, Machine, Progress, ProtoError, ProtoOutcome, Refusal};
+pub use machine::{
+    Backend, IoNeed, IoReady, Machine, Moved, Progress, ProtoError, ProtoOutcome, Refusal,
+};
 pub use pop3::{ListEntry, Pop3Command, Pop3Reply, Pop3Session, UidlEntry};
 pub use smtp::{
     Advertised, EhloExtensions, ReplyText, SizeLimit, SmtpReply, SmtpSession, Submission,

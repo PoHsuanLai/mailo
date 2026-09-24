@@ -9,7 +9,7 @@ use common::replay;
 use mail_domain::*;
 use mail_proto::backend::{Authenticate, ImapBackend};
 use mail_proto::{
-    Backend, ImapAuth, ImapCommand, ImapSession, IoReady, Machine, Progress, ProtoError,
+    Backend, ImapAuth, ImapCommand, ImapSession, IoReady, Machine, Moved, Progress, ProtoError,
     ProtoOutcome,
 };
 
@@ -315,10 +315,174 @@ fn filing_elsewhere_moves_into_the_folder() {
             folder: "其他文件".to_owned(),
         }),
     };
-    assert!(matches!(
+    // No `COPYUID`: moved, and where to is for a sync to find.
+    assert_eq!(
         replay(&mut driven, trace).unwrap(),
-        ProtoOutcome::Applied
-    ));
+        ProtoOutcome::Moved(vec![
+            Moved {
+                from: imap_ref("INBOX", 7),
+                to: None,
+            },
+            Moved {
+                from: imap_ref("INBOX", 9),
+                to: None,
+            },
+        ])
+    );
+}
+
+/// A server with UIDPLUS says where each moved message landed, before the tagged `OK`
+/// (RFC 6851 §4.3), and the answer pairs each UID with its new one in order.
+#[test]
+fn a_move_answered_with_copyuid_says_where_each_message_went() {
+    let trace = concat!(
+        "# SYNTHETIC. RFC 6851 MOVE with RFC 4315 COPYUID in an untagged OK, a range included.\n",
+        "S: * OK ready\n",
+        "C: a001 LOGIN \"ada@example.test\" \"hunter2\"\n",
+        "S: a001 OK logged in\n",
+        "C: a002 SELECT \"INBOX\"\n",
+        "S: a002 OK [READ-WRITE] SELECT completed\n",
+        "C: a003 UID MOVE 9,7,8 \"Archive\"\n",
+        "S: * OK [COPYUID 432 7:9 1203,1201:1202] moved\n",
+        "S: * 1 EXPUNGE\n",
+        "S: * 1 EXPUNGE\n",
+        "S: * 1 EXPUNGE\n",
+        "S: a003 OK moved\n",
+        "DONE\n"
+    );
+    let mut driven = Driven {
+        backend: password_backend(caps(
+            ServerLabels::LocalOnly,
+            ArchiveMeans::MoveToFolder("Archive".to_owned()),
+        )),
+        op: Some(ProtoOp::SetMailbox {
+            remotes: vec![
+                imap_ref("INBOX", 9),
+                imap_ref("INBOX", 7),
+                imap_ref("INBOX", 8),
+            ],
+            role: MailboxRole::Archive,
+        }),
+    };
+    let landed = |uid| {
+        Some(RemoteRef::Imap {
+            mailbox: "Archive".to_owned(),
+            uidvalidity: 432,
+            uid,
+        })
+    };
+    assert_eq!(
+        replay(&mut driven, trace).unwrap(),
+        ProtoOutcome::Moved(vec![
+            Moved {
+                from: imap_ref("INBOX", 9),
+                to: landed(1202),
+            },
+            Moved {
+                from: imap_ref("INBOX", 7),
+                to: landed(1203),
+            },
+            Moved {
+                from: imap_ref("INBOX", 8),
+                to: landed(1201),
+            },
+        ])
+    );
+}
+
+/// Without MOVE, `UID COPY` carries `COPYUID` in its tagged `OK` (RFC 4315 §3).
+#[test]
+fn a_copy_answered_with_copyuid_in_its_completion_says_where_it_went() {
+    let mut roles = caps(
+        ServerLabels::LocalOnly,
+        ArchiveMeans::MoveToFolder("Archive".to_owned()),
+    );
+    roles.move_ext = MoveExt::Absent;
+    let trace = concat!(
+        "# SYNTHETIC. RFC 4315 COPYUID on the tagged completion of UID COPY.\n",
+        "S: * OK ready\n",
+        "C: a001 LOGIN \"ada@example.test\" \"hunter2\"\n",
+        "S: a001 OK logged in\n",
+        "C: a002 SELECT \"INBOX\"\n",
+        "S: a002 OK [READ-WRITE] SELECT completed\n",
+        "C: a003 UID COPY 42 \"Archive\"\n",
+        "S: a003 OK [COPYUID 9 42 5] copied\n",
+        "DONE\n"
+    );
+    let mut driven = Driven {
+        backend: password_backend(roles),
+        op: Some(ProtoOp::SetMailbox {
+            remotes: vec![imap_ref("INBOX", 42)],
+            role: MailboxRole::Archive,
+        }),
+    };
+    assert_eq!(
+        replay(&mut driven, trace).unwrap(),
+        ProtoOutcome::Moved(vec![Moved {
+            from: imap_ref("INBOX", 42),
+            to: Some(RemoteRef::Imap {
+                mailbox: "Archive".to_owned(),
+                uidvalidity: 9,
+                uid: 5,
+            }),
+        }])
+    );
+}
+
+/// A `COPYUID` whose sets do not pair up is no answer: an address guessed wrong would send the
+/// next operation to another message.
+#[test]
+fn a_copyuid_that_does_not_pair_up_says_nothing() {
+    let trace = concat!(
+        "# SYNTHETIC. Two source UIDs, one destination UID.\n",
+        "S: * OK ready\n",
+        "C: a001 LOGIN \"ada@example.test\" \"hunter2\"\n",
+        "S: a001 OK logged in\n",
+        "C: a002 SELECT \"INBOX\"\n",
+        "S: a002 OK [READ-WRITE] SELECT completed\n",
+        "C: a003 UID MOVE 7,9 \"Archive\"\n",
+        "S: * OK [COPYUID 432 7,9 1203] moved\n",
+        "S: a003 OK moved\n",
+        "DONE\n"
+    );
+    let mut driven = Driven {
+        backend: password_backend(caps(
+            ServerLabels::LocalOnly,
+            ArchiveMeans::MoveToFolder("Archive".to_owned()),
+        )),
+        op: Some(ProtoOp::SetMailbox {
+            remotes: vec![imap_ref("INBOX", 7), imap_ref("INBOX", 9)],
+            role: MailboxRole::Archive,
+        }),
+    };
+    let ProtoOutcome::Moved(moved) = replay(&mut driven, trace).unwrap() else {
+        panic!("a move answers Moved");
+    };
+    assert!(moved.iter().all(|m| m.to.is_none()), "{moved:?}");
+}
+
+/// Back to the inbox on Gmail is `\Inbox` added, and nothing taken away after it.
+#[test]
+fn moving_back_to_the_inbox_on_gmail_only_adds_the_inbox_label() {
+    let trace = concat!(
+        "# SYNTHETIC. Restoring from All Mail: one STORE, no -X-GM-LABELS (\\Inbox) after it.\n",
+        "S: * OK Gimap ready\n",
+        "C: a001 AUTHENTICATE XOAUTH2 dXNlcj1hZGFAZXhhbXBsZS50ZXN0AWF1dGg9QmVhcmVyIHlhMjkudG9rZW4BAQ==\n",
+        "S: a001 OK authenticated\n",
+        "C: a002 SELECT \"[Gmail]/All Mail\"\n",
+        "S: a002 OK [READ-WRITE] SELECT completed\n",
+        "C: a003 UID STORE 42 +X-GM-LABELS (\\Inbox)\n",
+        "S: a003 OK Success\n",
+        "DONE\n"
+    );
+    let mut driven = Driven {
+        backend: backend(caps(ServerLabels::Supported, ArchiveMeans::DropInbox)),
+        op: Some(ProtoOp::SetMailbox {
+            remotes: vec![imap_ref("[Gmail]/All Mail", 42)],
+            role: MailboxRole::Inbox,
+        }),
+    };
+    assert_eq!(replay(&mut driven, trace).unwrap(), ProtoOutcome::Applied);
 }
 
 /// On a server with folders, each role goes to its own folder. Trash went to the archive
@@ -359,7 +523,7 @@ fn trash_and_spam_go_to_their_own_folders_not_the_archive() {
             }),
         };
         assert!(
-            matches!(replay(&mut driven, &trace).unwrap(), ProtoOutcome::Applied),
+            matches!(replay(&mut driven, &trace).unwrap(), ProtoOutcome::Moved(_)),
             "{role:?}"
         );
     }

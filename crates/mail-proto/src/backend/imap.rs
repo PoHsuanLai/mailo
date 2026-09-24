@@ -5,7 +5,7 @@
 
 use super::folders::{already_so, folder_commands};
 use crate::imap::{ImapCommand, ImapSession};
-use crate::machine::{Backend, IoReady, Machine, Progress, ProtoError, ProtoOutcome};
+use crate::machine::{Backend, IoReady, Machine, Moved, Progress, ProtoError, ProtoOutcome};
 use crate::mutf7;
 use mail_domain::{
     AccountCaps, AccountId, ArchiveMeans, Condstore, ExpungeMeans, FetchSince, FolderRoles,
@@ -54,6 +54,11 @@ enum Job {
         remote: RemoteRef,
     },
     Applied,
+    /// A move of `remotes` into `target`, whose answer may say where each landed.
+    Moving {
+        remotes: Vec<RemoteRef>,
+        target: String,
+    },
     /// An upload into `mailbox`, whose completion may say where it landed.
     Appending {
         mailbox: String,
@@ -148,13 +153,26 @@ impl ImapBackend {
     /// once the outbox has settled, and the user's archive quietly comes undone. It is still the
     /// right trade — the alternative is `\Deleted` on a server whose expunge semantics we cannot
     /// read — but it is a known limitation, not a non-issue.
+    ///
+    /// Either way the answer is [`ProtoOutcome::Moved`], naming where each message landed when
+    /// the server said (`COPYUID`), so the next operation on it is sent there and not to a UID
+    /// that no longer holds it. After a `COPY` the original is still in the source, but the
+    /// message this client shows is the one it filed, and that is the copy.
     fn move_into(
         &mut self,
         source: &MailboxRef,
+        remotes: &[RemoteRef],
         set: String,
         target: String,
     ) -> Progress<ProtoOutcome> {
-        self.job = Job::Applied;
+        self.job = Job::Moving {
+            remotes: remotes
+                .iter()
+                .filter(|r| matches!(r, RemoteRef::Imap { mailbox, .. } if *mailbox == source.path))
+                .cloned()
+                .collect(),
+            target: target.clone(),
+        };
         let action = match self.caps.move_ext {
             MoveExt::Supported => ImapCommand::UidMove {
                 set,
@@ -387,17 +405,23 @@ impl Backend for ImapBackend {
                         // nothing is deleted.
                         let label = gmail_label(role);
                         self.job = Job::Applied;
-                        self.queue(vec![
+                        let mut commands = vec![
                             Self::select(&source, false),
                             ImapCommand::UidStore {
                                 set: set.clone(),
                                 what: format!("+X-GM-LABELS ({label})"),
                             },
-                            ImapCommand::UidStore {
+                        ];
+                        // Back to the inbox is `\Inbox` added and nothing taken away. Taking it
+                        // away after, as every other role does, removed the label just added,
+                        // and the message stayed archived on the server.
+                        if role != MailboxRole::Inbox {
+                            commands.push(ImapCommand::UidStore {
                                 set,
                                 what: "-X-GM-LABELS (\\Inbox)".to_owned(),
-                            },
-                        ])
+                            });
+                        }
+                        self.queue(commands)
                     }
                     ArchiveMeans::MoveToFolder(archive) => {
                         // The folder serving *this* role. It was the archive folder whatever
@@ -421,7 +445,7 @@ impl Backend for ImapBackend {
                                 "filing into {role:?}: this server named no folder for it"
                             )));
                         };
-                        self.move_into(&source, set, target)
+                        self.move_into(&source, &remotes, set, target)
                     }
                 }
             }
@@ -448,7 +472,7 @@ impl Backend for ImapBackend {
                             },
                         ])
                     }
-                    ArchiveMeans::MoveToFolder(_) => self.move_into(&source, set, folder),
+                    ArchiveMeans::MoveToFolder(_) => self.move_into(&source, &remotes, set, folder),
                 }
             }
             ProtoOp::FetchFlags {
@@ -833,6 +857,17 @@ impl Backend for ImapBackend {
                         uid,
                     }),
             }),
+            Job::Moving { remotes, target } => {
+                // Untagged for `UID MOVE`, which sends it before the expunges (RFC 6851 §4.3);
+                // in the tagged `OK` for `UID COPY` (RFC 4315 §3).
+                let landed = transcript
+                    .untagged
+                    .iter()
+                    .map(|u| u.text.as_str())
+                    .chain(transcript.completed.iter().map(|done| done.text.as_str()))
+                    .find_map(copyuid);
+                Progress::Done(ProtoOutcome::Moved(landed_at(remotes, &target, landed)))
+            }
             Job::Applied | Job::Folder(_) => Progress::Done(ProtoOutcome::Applied),
             Job::Watching => Progress::Done(ProtoOutcome::Woken),
         }
@@ -1250,7 +1285,8 @@ fn uid_set(remotes: &[RemoteRef]) -> Option<String> {
 /// The mailbox these references live in.
 ///
 /// One message may be in several, and a `UID STORE` addresses one selected mailbox, so the
-/// caller groups by mailbox before calling — this takes the first as the group's mailbox.
+/// caller splits by mailbox first (the engine's `per_mailbox`, FINDINGS F154) — this takes the
+/// first as the group's mailbox.
 fn mailbox_of(remotes: &[RemoteRef], account: AccountId) -> MailboxRef {
     let path = remotes
         .iter()
@@ -1316,6 +1352,75 @@ fn appenduid(text: &str) -> Option<(u32, u32)> {
     let uidvalidity = words.next()?.parse().ok()?;
     let uid = words.next()?.parse().ok()?;
     Some((uidvalidity, uid))
+}
+
+/// `[COPYUID <uidvalidity> <source set> <destination set>]` (RFC 4315 §3), as the destination's
+/// `UIDVALIDITY` and each source UID paired with its destination UID.
+///
+/// The two sets are paired in order, which is what the RFC promises. Sets whose sizes differ, or
+/// which do not parse, yield nothing: an address guessed wrong is worse than none, because an
+/// operation sent to it lands on another message.
+fn copyuid(text: &str) -> Option<(u32, Vec<(u32, u32)>)> {
+    let upper = text.to_ascii_uppercase();
+    let at = upper.find("[COPYUID ")?;
+    let rest = &text[at + "[COPYUID ".len()..];
+    let inner = &rest[..rest.find(']')?];
+    let mut words = inner.split_whitespace();
+    let uidvalidity = words.next()?.parse().ok()?;
+    let from = uid_list(words.next()?)?;
+    let to = uid_list(words.next()?)?;
+    (from.len() == to.len()).then(|| (uidvalidity, from.into_iter().zip(to).collect()))
+}
+
+/// Most UIDs one `COPYUID` set is expanded to. A move names the UIDs it moved, and a range far
+/// wider than any batch this client sends is not an answer to one of them.
+const MOST_COPIED: u64 = 100_000;
+
+/// A UID set — `4,7:9` — as the UIDs it names, in the order written; a range `a:b` runs from `a`
+/// to `b` whichever is larger.
+fn uid_list(set: &str) -> Option<Vec<u32>> {
+    let mut out = Vec::new();
+    for part in set.split(',') {
+        let (a, b) = match part.split_once(':') {
+            Some((a, b)) => (a.parse::<u32>().ok()?, b.parse::<u32>().ok()?),
+            None => {
+                let one = part.parse::<u32>().ok()?;
+                (one, one)
+            }
+        };
+        let span = u64::from(a.abs_diff(b)) + 1;
+        if out.len() as u64 + span > MOST_COPIED {
+            return None;
+        }
+        if a <= b {
+            out.extend(a..=b);
+        } else {
+            out.extend((b..=a).rev());
+        }
+    }
+    Some(out)
+}
+
+/// Where each of `remotes` landed in `target`, by the server's `COPYUID` if it gave one.
+fn landed_at(
+    remotes: Vec<RemoteRef>,
+    target: &str,
+    copied: Option<(u32, Vec<(u32, u32)>)>,
+) -> Vec<Moved> {
+    let (uidvalidity, pairs) = copied.unwrap_or_default();
+    remotes
+        .into_iter()
+        .map(|from| {
+            let to = uid_of(&from)
+                .and_then(|uid| pairs.iter().find(|(source, _)| *source == uid))
+                .map(|(_, uid)| RemoteRef::Imap {
+                    mailbox: target.to_owned(),
+                    uidvalidity,
+                    uid: *uid,
+                });
+            Moved { from, to }
+        })
+        .collect()
 }
 
 fn folder_role(line: &str) -> Option<(String, MailboxRole)> {

@@ -7,13 +7,13 @@
 
 use super::SqliteStore;
 use super::row::{from_time, json, to_json};
-use crate::{OutboxEntry, Settle, StoreError};
+use crate::{Dispatch, OutboxEntry, Settle, StoreError};
 use chrono::{DateTime, TimeDelta, Utc};
 use mail_domain::{
     AccountId, Change, FolderWork, Membership, MessageId, OutboxId, Patch, ProtoOp, RemoteIntent,
     RemoteRef, Retry,
 };
-use rusqlite::params;
+use rusqlite::{OptionalExtension, params};
 
 /// Backoff for a retryable failure: 1s, 2s, 4s … capped at an hour.
 ///
@@ -65,6 +65,33 @@ impl SqliteStore {
             }
         }
         Ok(out)
+    }
+
+    /// Where `message` is on the server now: `None` when it is no longer held.
+    fn addresses_now(
+        &self,
+        account: AccountId,
+        message: MessageId,
+    ) -> Result<Option<Vec<RemoteRef>>, StoreError> {
+        let held: bool = self.connection().query_row(
+            "SELECT EXISTS (SELECT 1 FROM messages WHERE id = ?1)",
+            params![message.to_string()],
+            |r| r.get(0),
+        )?;
+        if !held {
+            return Ok(None);
+        }
+        self.refs_for(account, &[message]).map(Some)
+    }
+
+    /// Whether any of `messages` is waiting for a sync to find where a move put it.
+    fn any_unplaced(&self, account: AccountId, messages: &[MessageId]) -> Result<bool, StoreError> {
+        for message in messages {
+            if self.is_unplaced(account, *message)? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     /// Turn intent into a wire operation, or `None` when there is nothing to say.
@@ -119,9 +146,10 @@ impl SqliteStore {
             }
         };
         let remotes = self.refs_for(account, messages)?;
-        if remotes.is_empty() {
-            // Normal, not exceptional: a message composed locally and not yet sent has no
-            // server address at all.
+        // Normal, not exceptional: a message composed locally and not yet sent has no server
+        // address at all. One the server moved to where it did not say has none either, but is
+        // there: queued with no address, it waits to be addressed when the sync finds it.
+        if remotes.is_empty() && !self.any_unplaced(account, messages)? {
             return Ok(None);
         }
         Ok(Some(match intent {
@@ -237,16 +265,25 @@ impl SqliteStore {
         let Some(op) = self.resolve_intent(account, &intent)? else {
             return Ok(None);
         };
+        let messages = crate::dispatch::addressed(&intent, &|m: MessageId| {
+            Ok(!self.refs_for(account, &[m])?.is_empty() || self.is_unplaced(account, m)?)
+        })?;
+        let messages = if messages.is_empty() {
+            None
+        } else {
+            Some(to_json("messages", &messages)?)
+        };
         let db = self.connection();
         let tx = db.unchecked_transaction()?;
         self.connection().execute(
-            "INSERT INTO outbox (account, op, undo, attempts, next_attempt, created_at)
-             VALUES (?1, ?2, ?3, 0, ?4, ?4)",
+            "INSERT INTO outbox (account, op, undo, attempts, next_attempt, created_at, messages)
+             VALUES (?1, ?2, ?3, 0, ?4, ?4, ?5)",
             params![
                 account.to_string(),
                 to_json("ProtoOp", &op)?,
                 to_json("Patch", undo)?,
                 from_time(now),
+                messages,
             ],
         )?;
         let id = OutboxId::from_i64(self.connection().last_insert_rowid());
@@ -277,31 +314,80 @@ impl SqliteStore {
         // server in the order the user performed them, or the result is whichever won the race.
         let db = self.connection();
         let mut stmt = db.prepare_cached(
-            "SELECT id, op, undo, attempts, next_attempt FROM outbox
+            "SELECT id, op, undo, attempts, next_attempt, messages FROM outbox
              WHERE account = ?1 AND next_attempt <= ?2 ORDER BY id",
         )?;
-        let rows = stmt.query_map(params![account.to_string(), from_time(now)], |r| {
-            Ok((
-                r.get::<_, i64>(0)?,
-                r.get::<_, String>(1)?,
-                r.get::<_, String>(2)?,
-                r.get::<_, i64>(3)?,
-                r.get::<_, String>(4)?,
-            ))
-        })?;
+        let rows = stmt
+            .query_map(params![account.to_string(), from_time(now)], |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, i64>(3)?,
+                    r.get::<_, String>(4)?,
+                    r.get::<_, Option<String>>(5)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        drop(stmt);
+        let lookup = |m: MessageId| self.addresses_now(account, m);
         let mut out = Vec::new();
-        for row in rows {
-            let (id, op, undo, attempts, next) = row?;
+        for (id, op, undo, attempts, next, messages) in rows {
+            let queued: ProtoOp = json("ProtoOp", &op)?;
+            // Where it would go now. One that would wait is listed as it was queued.
+            let op = match crate::dispatch::own(queued.clone(), &messages_from(messages)?, &lookup)?
+            {
+                Dispatch::Send(op) => op,
+                Dispatch::Wait | Dispatch::Moot => queued,
+            };
             out.push(OutboxEntry {
                 id: OutboxId::from_i64(id),
                 account,
-                op: json("ProtoOp", &op)?,
+                op,
                 undo: json("Patch", &undo)?,
                 attempts: attempts as u32,
                 next_attempt: super::row::time("next_attempt", &next)?,
             });
         }
         Ok(out)
+    }
+
+    /// See [`crate::Store::outbox_dispatch`].
+    pub(super) fn dispatch(&self, id: OutboxId) -> Result<Dispatch, StoreError> {
+        let row: Option<(String, String, Option<String>)> = self
+            .connection()
+            .query_row(
+                "SELECT account, op, messages FROM outbox WHERE id = ?1",
+                params![id.as_i64()],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .optional()?;
+        let Some((account, op, messages)) = row else {
+            return Ok(Dispatch::Wait);
+        };
+        let account = AccountId::from_uuid(super::row::uuid("AccountId", &account)?);
+        let earlier = {
+            let db = self.connection();
+            let mut stmt = db.prepare_cached(
+                "SELECT messages FROM outbox
+                 WHERE account = ?1 AND id < ?2 AND messages IS NOT NULL ORDER BY id",
+            )?;
+            let rows = stmt.query_map(params![account.to_string(), id.as_i64()], |r| {
+                r.get::<_, String>(0)
+            })?;
+            let mut earlier = Vec::new();
+            for text in rows {
+                earlier.push(messages_from(Some(text?))?);
+            }
+            earlier
+        };
+        let lookup = |m: MessageId| self.addresses_now(account, m);
+        crate::dispatch::in_queue(
+            &earlier,
+            json("ProtoOp", &op)?,
+            &messages_from(messages)?,
+            &lookup,
+        )
     }
 
     /// See [`crate::Store::outbox_next`].
@@ -418,4 +504,9 @@ impl SqliteStore {
             .execute("DELETE FROM outbox WHERE id = ?1", params![id.as_i64()])?;
         Ok(())
     }
+}
+
+/// The `messages` column: which messages an entry is about, none when it names none.
+fn messages_from(text: Option<String>) -> Result<Vec<MessageId>, StoreError> {
+    text.map_or(Ok(Vec::new()), |text| json("messages", &text))
 }

@@ -688,6 +688,70 @@ async fn a_move_takes_the_new_id_graph_gives_the_message() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_second_move_queued_before_the_first_went_uses_the_id_the_first_returned() {
+    // Graph gives a moved message a new id, and the old one then names nothing. Both moves are
+    // queued before either is sent, so only addressing each as it leaves finds the new one.
+    let (port, seen) = serve(Arc::new(|request, port| {
+        if request.method == "POST" && request.path().ends_with("/move") {
+            let id = if request.path().contains("/G2/") {
+                "G2-ARCHIVED"
+            } else {
+                "G2-TRASHED"
+            };
+            return Answer {
+                status: "201 Created",
+                headers: String::new(),
+                body: json!({ "id": id }).to_string(),
+            };
+        }
+        inbox_script()(request, port)
+    }))
+    .await;
+    let mut it = account(port);
+    let (_tx, mut cancel) = cancel();
+    it.engine.refresh_folders(&mut cancel, now()).await.unwrap();
+    it.engine
+        .sync(&inbox(), &mut cancel, now(), 200)
+        .await
+        .unwrap();
+    let message = held(&it.store, 2).unwrap();
+    for role in [MailboxRole::Archive, MailboxRole::Trash] {
+        queue(
+            &it.store,
+            RemoteIntent::SetMailbox {
+                messages: vec![message.id],
+                role,
+            },
+        );
+    }
+    let drained = it.engine.drain_outbox(&mut cancel, now()).await.unwrap();
+    assert_eq!(drained.outbox_settled, 2, "{:?}", drained.needs_attention);
+
+    let moves: Vec<String> = seen
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|r| r.path().ends_with("/move"))
+        .map(|r| r.path().to_owned())
+        .collect();
+    assert_eq!(
+        moves,
+        vec![
+            "/v1.0/me/messages/G2/move".to_owned(),
+            "/v1.0/me/messages/G2-ARCHIVED/move".to_owned(),
+        ]
+    );
+    assert!(
+        matches!(
+            it.store.remotes_of(message.id).unwrap().as_slice(),
+            [RemoteRef::Graph { id, .. }] if id == "G2-TRASHED"
+        ),
+        "{:?}",
+        it.store.remotes_of(message.id)
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn throttling_waits_as_long_as_graph_asks() {
     let (port, _seen) = serve(Arc::new(|request, port| {
         if request.path().ends_with("/messages/delta") {

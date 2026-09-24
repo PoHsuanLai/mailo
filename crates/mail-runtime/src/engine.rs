@@ -16,11 +16,12 @@ use mail_domain::{
 };
 use mail_mime::Posting;
 use mail_proto::backend::SmtpBackend;
-use mail_proto::{Backend, ProtoOutcome, Submission};
-use mail_store::{Settle, SqliteStore, Store};
+use mail_proto::{Backend, Moved, ProtoOutcome, Submission};
+use mail_store::{Dispatch, OutboxEntry, Settle, SqliteStore, Store};
 use std::sync::Arc;
 use std::time::Duration;
 
+mod split;
 pub(crate) mod wait;
 pub use wait::Woke;
 
@@ -328,6 +329,32 @@ impl<B: Backend> AccountEngine<B> {
         self.run_leaving(op, cancel, None).await
     }
 
+    /// [`Self::run_leaving`], once per IMAP mailbox the operation's messages are in
+    /// ([`split::per_mailbox`], FINDINGS F154).
+    ///
+    /// Where a split one is interrupted, what already went out stays out and is recorded: a
+    /// move's new addresses are kept as each part answers, so the retry of the whole, addressed
+    /// again when it is sent, finds those messages where they now are, and a flag set twice is
+    /// the same flag.
+    async fn run_per_mailbox(
+        &mut self,
+        op: ProtoOp,
+        cancel: &mut Cancel,
+        leaving: Option<DateTime<Utc>>,
+    ) -> Result<ProtoOutcome, RuntimeError> {
+        let mut parts = split::per_mailbox(op);
+        if parts.len() == 1 {
+            let op = parts.pop().expect("one part");
+            return self.run_leaving(op, cancel, leaving).await;
+        }
+        for part in parts {
+            if let ProtoOutcome::Moved(moved) = self.run_leaving(part, cancel, leaving).await? {
+                self.moved(&moved)?;
+            }
+        }
+        Ok(ProtoOutcome::Applied)
+    }
+
     /// [`Self::run`], with the moment a submission leaves: its `Date` is set to `leaving` on
     /// the way out. `None` for everything that is not a submission.
     async fn run_leaving(
@@ -580,6 +607,11 @@ impl<B: Backend> AccountEngine<B> {
     ///
     /// Insertion order is load-bearing: two operations on one thread must reach the server in
     /// the order the user performed them, or the result is whichever won the race.
+    ///
+    /// Each entry is addressed as it is reached ([`Store::outbox_dispatch`]), after every move
+    /// before it in this drain has told the store where its messages went. One whose message
+    /// has no address is left queued, untried, and goes in a later pass: a pass syncs before it
+    /// drains, and that sync is what finds a message a server moved without saying where.
     pub async fn drain_outbox(
         &mut self,
         cancel: &mut Cancel,
@@ -588,6 +620,9 @@ impl<B: Backend> AccountEngine<B> {
         let mut report = SyncReport::default();
         for entry in self.store.outbox_due(self.account, now)? {
             let id = entry.id;
+            let Some(entry) = self.addressed(entry, now)? else {
+                continue;
+            };
             // Noted before the op is consumed. A submission also has a draft whose visible
             // state must follow what happened on the wire; nothing else in the outbox does.
             let draft = match &entry.op {
@@ -610,8 +645,16 @@ impl<B: Backend> AccountEngine<B> {
                 self.mark_draft(draft, SendState::Sending, now);
             }
             // Stamped with the same instant the draft records as `Sent { at }`, so the two agree.
-            match self.run_leaving(entry.op, cancel, draft.map(|_| now)).await {
+            match self
+                .run_per_mailbox(entry.op, cancel, draft.map(|_| now))
+                .await
+            {
                 Ok(outcome) => {
+                    // Before the settle, so the next entry, addressed as it is reached, finds
+                    // the message where the move put it.
+                    if let ProtoOutcome::Moved(moved) = &outcome {
+                        self.moved(moved)?;
+                    }
                     self.store.outbox_settle(id, Settle::Ok, now)?;
                     if let (Some(upload), ProtoOutcome::Appended { remote }) = (upload, outcome) {
                         report.appended += 1;
@@ -684,6 +727,36 @@ impl<B: Backend> AccountEngine<B> {
             .map(|due| due.len())
             .unwrap_or(0);
         Ok(report)
+    }
+
+    /// `entry` pointed at where its messages are now, or `None` when there is nothing to send it
+    /// yet: it is waiting for a sync to find a message, and stays queued as it is, or there was
+    /// nothing left for it to say and it has been settled.
+    fn addressed(
+        &self,
+        entry: OutboxEntry,
+        now: DateTime<Utc>,
+    ) -> Result<Option<OutboxEntry>, RuntimeError> {
+        match self.store.outbox_dispatch(entry.id)? {
+            Dispatch::Send(op) => Ok(Some(OutboxEntry { op, ..entry })),
+            Dispatch::Wait => Ok(None),
+            Dispatch::Moot => {
+                self.store.outbox_settle(entry.id, Settle::Ok, now)?;
+                Ok(None)
+            }
+        }
+    }
+
+    /// Record where a move put each message: its new address where the server said, and none
+    /// where it did not, so what follows it waits for the sync rather than go to the old one.
+    fn moved(&self, moved: &[Moved]) -> Result<(), RuntimeError> {
+        for one in moved {
+            match &one.to {
+                Some(to) => self.store.remap(self.account, &one.from, to)?,
+                None => self.store.unmap(self.account, &one.from)?,
+            }
+        }
+        Ok(())
     }
 
     /// Keep a message this client just uploaded, so it is here before any sync fetches it.

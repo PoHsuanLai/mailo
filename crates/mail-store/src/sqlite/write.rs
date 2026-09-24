@@ -800,6 +800,49 @@ impl SqliteStore {
         Ok(())
     }
 
+    /// See [`crate::Store::unmap`].
+    pub(super) fn write_unmap(
+        &self,
+        account: AccountId,
+        remote: &RemoteRef,
+    ) -> Result<(), StoreError> {
+        let Some(message) = self.message_by_remote(account, remote)? else {
+            return Ok(());
+        };
+        let db = self.connection();
+        let tx = db.unchecked_transaction()?;
+        let (acct, mailbox, uidvalidity, uid, uidl) = remote_key(account, remote);
+        self.connection().execute(
+            "DELETE FROM remote_map WHERE account=?1 AND mailbox=?2
+             AND uidvalidity IS ?3 AND uid IS ?4 AND uidl IS ?5",
+            params![acct, mailbox, uidvalidity, uid, uidl],
+        )?;
+        // With no address left it is still mail the server holds, not mail it never had: an
+        // operation queued on it before the sync finds it waits for that sync.
+        self.connection().execute(
+            "INSERT OR IGNORE INTO unplaced (account, message)
+             SELECT ?1, ?2 WHERE NOT EXISTS
+                 (SELECT 1 FROM remote_map WHERE account = ?1 AND message = ?2)",
+            params![acct, message.to_string()],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Whether `message` was moved by the server to no known address, and is waiting for a sync
+    /// to find it ([`crate::Store::unmap`]).
+    pub(super) fn is_unplaced(
+        &self,
+        account: AccountId,
+        message: MessageId,
+    ) -> Result<bool, StoreError> {
+        Ok(self.connection().query_row(
+            "SELECT EXISTS (SELECT 1 FROM unplaced WHERE account = ?1 AND message = ?2)",
+            params![account.to_string(), message.to_string()],
+            |r| r.get(0),
+        )?)
+    }
+
     /// Local changes on this thread's messages that the server has not confirmed.
     fn pending_for_thread(&self, thread: ThreadId) -> Result<Vec<Change>, StoreError> {
         let db = self.connection();

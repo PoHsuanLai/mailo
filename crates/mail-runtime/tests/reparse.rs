@@ -108,6 +108,10 @@ fn garbled_messages_held_whole_are_re_read_and_the_rest_are_left_alone() {
              ALTER TABLE drafts DROP COLUMN openpgp;
              DROP TABLE smime_certs;
              ALTER TABLE drafts DROP COLUMN smime;
+             ALTER TABLE outbox DROP COLUMN messages;
+             DROP TRIGGER unplaced_found_ins;
+             DROP TRIGGER unplaced_found_upd;
+             DROP TABLE unplaced;
              DELETE FROM schema_version WHERE version >= 12;",
         )
         .unwrap();

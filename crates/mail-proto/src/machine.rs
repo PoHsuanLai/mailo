@@ -82,6 +82,12 @@ pub enum ProtoOutcome {
     },
     /// Flags, labels or mailbox membership are now confirmed on the server.
     Applied,
+    /// Messages were moved into another mailbox, and each address they had names nothing now.
+    ///
+    /// Its own variant rather than [`ProtoOutcome::Applied`], because the caller must act on it:
+    /// an operation queued behind the move and sent to the old address is answered OK and does
+    /// nothing, since a UID set naming no message is not an error (RFC 9051 §6.4.8).
+    Moved(Vec<Moved>),
     /// A message was uploaded. `remote` is where it landed, when the server said
     /// (`APPENDUID`, RFC 4315); `None` when it did not, and then only a later sync finds it.
     Appended {
@@ -139,6 +145,16 @@ pub enum ProtoOutcome {
         remote: RemoteRef,
         parts: Vec<(String, Vec<u8>)>,
     },
+}
+
+/// One message moved into another mailbox: the address it had, and the one it has now.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Moved {
+    pub from: RemoteRef,
+    /// Where the server said it put the message (`COPYUID`, RFC 4315), or `None` where it did
+    /// not say. Then only a later sync of the destination finds it, and `from` is still not
+    /// where it is.
+    pub to: Option<RemoteRef>,
 }
 
 /// Turns a [`ProtoOp`] into a walk of the relevant session, then into domain values.

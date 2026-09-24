@@ -4,6 +4,7 @@
 
 pub mod blob;
 pub mod contact;
+mod dispatch;
 pub mod error;
 mod filing;
 pub mod memory;
@@ -46,6 +47,26 @@ pub struct OutboxEntry {
     pub undo: Patch,
     pub attempts: u32,
     pub next_attempt: DateTime<Utc>,
+}
+
+/// What a queued operation asks of the server at the moment it is sent.
+///
+/// Its messages' server addresses are looked up then, not when it was queued: an earlier
+/// operation may have moved a message since, and the address it was queued with names where the
+/// message was (FINDINGS F153).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Dispatch {
+    /// Send this: the queued operation, pointed at where its messages are now.
+    Send(ProtoOp),
+    /// Not yet. A message it names is held here at no server address — moved by a server that
+    /// did not say where to — or an earlier queued operation on one of its messages is waiting.
+    /// Left queued as it is, its attempts and its next attempt untouched, so the pass after the
+    /// sync that finds the message sends it; it is not a failure and costs no backoff. Also the
+    /// answer for an entry no longer queued, for which there is equally nothing to send.
+    Wait,
+    /// Nothing to send: every message it named has gone from this client. Settle it
+    /// [`Settle::Ok`], which drops it.
+    Moot,
 }
 
 /// How a queued operation finished.
@@ -163,6 +184,10 @@ pub trait Store {
     /// many-to-one) and `labels` (id to server-side name) both exist. `Op::apply` cannot do it:
     /// see `RemoteIntent`'s own documentation.
     ///
+    /// The addresses resolved here are only what the entry was queued with. The entry also keeps
+    /// the messages that had one, and is pointed at where they are when it is sent
+    /// ([`Store::outbox_dispatch`]); a message with no address now is left out of it for good.
+    ///
     /// Returns `Ok(None)` when the intent resolves to nothing to say — every named message is
     /// unknown to the server, which is normal for a message composed locally and not yet sent.
     fn enqueue(
@@ -175,6 +200,11 @@ pub trait Store {
 
     /// Queued work whose `next_attempt` has arrived, in insertion order.
     ///
+    /// Each operation on messages is pointed at where its messages are now, as
+    /// [`Store::outbox_dispatch`] would send it; one that would wait is listed as it was queued.
+    /// A drain asks [`Store::outbox_dispatch`] again for each entry as it reaches it, because an
+    /// entry sent before it may have moved one of its messages.
+    ///
     /// Insertion order is load-bearing: two operations on one thread, with an [`Ingest`]
     /// landing between them, otherwise have no defined result.
     fn outbox_due(
@@ -182,6 +212,13 @@ pub trait Store {
         account: AccountId,
         now: DateTime<Utc>,
     ) -> Result<Vec<OutboxEntry>, StoreError>;
+
+    /// What queued entry `id` asks of the server now: see [`Dispatch`].
+    ///
+    /// Asked by a drain for each entry immediately before sending it. Its messages' addresses
+    /// are read from `remote_map` at that moment, so a move sent earlier in the same drain,
+    /// remapped by [`Store::remap`] or let go of by [`Store::unmap`], is already accounted for.
+    fn outbox_dispatch(&self, id: OutboxId) -> Result<Dispatch, StoreError>;
 
     /// The next moment, strictly after `after`, that queued work nobody has tried yet becomes
     /// due — in practice a send the user asked to go later, or one inside the window's grace
@@ -259,6 +296,14 @@ pub trait Store {
     /// sync already mapped `to`, the row for `from` simply goes.
     fn remap(&self, account: AccountId, from: &RemoteRef, to: &RemoteRef)
     -> Result<(), StoreError>;
+
+    /// The server moved a message and did not say where: `remote` no longer addresses it.
+    ///
+    /// Only the address goes; the message, its flags and its role stay as they are, and the
+    /// sync that finds it in its new mailbox maps it again by its identity. Meanwhile a queued
+    /// operation on it waits ([`Dispatch::Wait`]) rather than be sent to an address that names
+    /// nothing, or something else. Nothing happens if `remote` is not held.
+    fn unmap(&self, account: AccountId, remote: &RemoteRef) -> Result<(), StoreError>;
 
     /// Every server address `message` is known by, in any mailbox.
     ///

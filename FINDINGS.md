@@ -3724,3 +3724,54 @@ given. Trash and Spam went to Archive on the server while this client showed the
 Spam, and Restore moved a message from Archive to Archive. Each role now moves to its own folder
 from `FolderRoles`, the same table `filed_as` reads. A role with no known folder fails as
 unsupported, so the outbox undoes the local change instead of filing into a guess.
+
+### F153 — A second queued move named the address the first had moved away from
+
+Found by the UI session while building the withdrawal of a queued move. `Store::enqueue`
+looked up an operation's server addresses when it was queued, and `remote_map` is never
+changed optimistically. Move a message to Archive and then to Trash before the first move
+reaches the server, and both operations named INBOX UID 10. The first moved it. The second then
+asked INBOX to move a UID it no longer held. RFC 9051 does not treat that as an error, so the
+server answered OK and the operation settled. The second move was lost without a word, and the
+next sync showed the message in Archive. A flag change queued behind a move was lost the same
+way, and so were Graph moves, whose ids change on a move.
+
+Each outbox entry now keeps its messages (migration 0020, with earlier rows filled in from
+`pending_changes`; a row that cannot be, such as a keyword, is sent as it was queued). Its
+addresses are looked up when it is sent (`Store::outbox_dispatch`), and an entry whose messages
+have all gone from this client is settled with nothing sent. A successful IMAP move records
+where each message went, from `COPYUID` (RFC 4315), and the next operation in the same drain
+goes there; a Graph move already remapped its id, and a queued follow-up now uses it.
+
+Where the server does not say, the old address is dropped (`Store::unmap`) and the message is
+marked `unplaced` until a sync finds it again. An operation on it — queued before the move
+went, or made by the user after it and before that sync — waits: it stays queued untouched,
+spends no attempt and no backoff, holds back later operations on the same message so their
+order is kept, and goes in the first pass after the sync that finds the message (a pass syncs
+before it drains). Before the mark, an operation made in that gap looked like one on mail the
+server never held, and was applied here and never sent. Waiting has no timeout: if no sync ever
+finds the message again, because its folder is not synced or it was deleted elsewhere, the
+operation waits for good and nothing tells the user.
+
+A Gmail move back to the inbox also removed the `\Inbox` label it had just added, so the
+message stayed archived; it now only adds it.
+
+### F154 — One command named UIDs from several mailboxes
+
+Found while fixing F153. This is F151's shape on the outbox side. The IMAP backend runs each
+operation in the first mailbox its addresses name, and puts every UID into one `UID STORE` or
+`UID MOVE`. A message held at two addresses (a copy in two folders, or Gmail's INBOX and Sent
+Mail), or a conversation with messages in several folders, therefore sent another mailbox's
+UIDs to that first mailbox. A UID the mailbox did not hold was ignored. A UID it did hold named
+a different message, which was then starred, marked read, archived or moved in place of the one
+meant.
+
+Every operation on messages is now split into one per mailbox before it is sent (the engine's
+`per_mailbox`). As each part is answered, the new addresses its moves report are recorded, so
+the retry of an operation interrupted partway finds those messages where they now are.
+
+Checked read-only against a copy of the live store on 2026-09-24. On the Gmail account, 5
+conversations have messages in both INBOX and Sent Mail. Sent Mail UIDs run from 1 to 152 and
+INBOX UIDs from 86 up. So an earlier star, read, archive or move on one of those conversations
+could have acted on inbox messages with UIDs 86–152 on the server. The local store keeps no
+record of settled operations, so whether that happened cannot be told from here.

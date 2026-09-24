@@ -1200,3 +1200,92 @@ fn a_database_from_before_smime_upgrades_with_plain_drafts_and_no_certificates()
         vec![cert]
     );
 }
+
+#[test]
+fn operations_queued_before_the_outbox_kept_their_messages_are_addressed_when_sent() {
+    use mail_domain::{
+        AccountId, ChangeId, Keyword, MailboxRole, OutboxId, Patch, ProtoOp, RemoteRef,
+    };
+    use mail_store::{Dispatch, Store};
+
+    let imap = |mailbox: &str, uid| RemoteRef::Imap {
+        mailbox: mailbox.to_owned(),
+        uidvalidity: 7,
+        uid,
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("mail.db");
+    let account = {
+        let db = Connection::open(&path).unwrap();
+        for (version, sql) in migrate::MIGRATIONS.iter().take(19) {
+            db.execute_batch(sql).unwrap();
+            if *version > 1 {
+                db.execute(
+                    "INSERT INTO schema_version (version, applied_at) VALUES (?1, datetime('now'))",
+                    [version],
+                )
+                .unwrap();
+            }
+        }
+        let (account, message) = seed(&db);
+        db.execute(
+            "INSERT INTO remote_map (account, mailbox, uidvalidity, uid, uidl, message)
+             VALUES (?1, 'INBOX', 7, 10, NULL, ?2)",
+            [&account, &message],
+        )
+        .unwrap();
+        let undo = serde_json::to_string(&Patch {
+            id: ChangeId::generate(),
+            changes: Vec::new(),
+        })
+        .unwrap();
+        let queue = |op: &ProtoOp| {
+            db.execute(
+                "INSERT INTO outbox (account, op, undo, attempts, next_attempt, created_at)
+                 VALUES (?1, ?2, ?3, 0, '2023-01-01T00:00:00.000000000Z',
+                     '2023-01-01T00:00:00.000000000Z')",
+                rusqlite::params![account, serde_json::to_string(op).unwrap(), undo],
+            )
+            .unwrap();
+            db.last_insert_rowid()
+        };
+        // A move, whose pending change names its message.
+        let moved = queue(&ProtoOp::SetMailbox {
+            remotes: vec![imap("INBOX", 10)],
+            role: MailboxRole::Archive,
+        });
+        db.execute(
+            "INSERT INTO pending_changes (message, outbox, changes) VALUES (?1, ?2, '[]')",
+            rusqlite::params![message, moved],
+        )
+        .unwrap();
+        // A keyword, which has none.
+        queue(&ProtoOp::AddKeyword {
+            remotes: vec![imap("INBOX", 10)],
+            keyword: Keyword::MdnSent,
+        });
+        AccountId::from_uuid(account.parse().unwrap())
+    };
+
+    let store = SqliteStore::open(&path, dir.path()).unwrap();
+    assert_eq!(version_of(&store.connection()), migrate::EXPECTED_VERSION);
+    store
+        .remap(account, &imap("INBOX", 10), &imap("Archive", 77))
+        .unwrap();
+    // The move learnt its message from its pending change, and goes where the message is now.
+    assert_eq!(
+        store.outbox_dispatch(OutboxId::from_i64(1)).unwrap(),
+        Dispatch::Send(ProtoOp::SetMailbox {
+            remotes: vec![imap("Archive", 77)],
+            role: MailboxRole::Archive,
+        })
+    );
+    // The keyword could not, and is sent as it was queued, as before.
+    assert_eq!(
+        store.outbox_dispatch(OutboxId::from_i64(2)).unwrap(),
+        Dispatch::Send(ProtoOp::AddKeyword {
+            remotes: vec![imap("INBOX", 10)],
+            keyword: Keyword::MdnSent,
+        })
+    );
+}

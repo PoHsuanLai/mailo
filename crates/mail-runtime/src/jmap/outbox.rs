@@ -16,7 +16,7 @@ use mail_proto::jmap::{
     self, CORE, EmailSummary, Filed, Identity, Ids, MAIL, SUBMISSION, SetResult, Submission,
 };
 use mail_proto::{ProtoError, ProtoOutcome, Refusal};
-use mail_store::{Settle, Store};
+use mail_store::{Dispatch, Settle, Store};
 use serde_json::{Map, Value};
 
 impl JmapEngine {
@@ -28,6 +28,18 @@ impl JmapEngine {
     ) -> Result<(), RuntimeError> {
         for entry in self.store.outbox_due(self.account, now)? {
             let id = entry.id;
+            // Addressed as it is reached, as `AccountEngine::drain_outbox` does. A JMAP id does
+            // not change when an email moves, so this finds the same one; it matters only for a
+            // message this client no longer holds, or holds at no address.
+            let op = match self.store.outbox_dispatch(id)? {
+                Dispatch::Send(op) => op,
+                Dispatch::Wait => continue,
+                Dispatch::Moot => {
+                    self.store.outbox_settle(id, Settle::Ok, now)?;
+                    continue;
+                }
+            };
+            let entry = mail_store::OutboxEntry { op, ..entry };
             let draft = match &entry.op {
                 ProtoOp::Submit { draft, .. } => Some(*draft),
                 _ => None,

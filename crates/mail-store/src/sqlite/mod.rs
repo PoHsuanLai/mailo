@@ -534,6 +534,10 @@ impl Store for SqliteStore {
         self.next_fresh(account, after)
     }
 
+    fn outbox_dispatch(&self, id: OutboxId) -> Result<crate::Dispatch, StoreError> {
+        self.dispatch(id)
+    }
+
     fn unfetched(
         &self,
         account: AccountId,
@@ -659,6 +663,10 @@ impl Store for SqliteStore {
         to: &RemoteRef,
     ) -> Result<(), StoreError> {
         self.write_remap(account, from, to)
+    }
+
+    fn unmap(&self, account: AccountId, remote: &RemoteRef) -> Result<(), StoreError> {
+        self.write_unmap(account, remote)
     }
 
     fn draft(&self, id: DraftId) -> Result<Draft, StoreError> {
