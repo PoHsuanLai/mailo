@@ -577,14 +577,14 @@ pub fn new_message(
         recipients,
         subject,
         body,
-        (receipt, OpenPgp::None),
+        (receipt, OpenPgp::None, Smime::None),
         now,
     )
 }
 
-/// [`new_message`], asking OpenPGP to sign, encrypt, or both when it is sent.
+/// [`new_message`], asking OpenPGP or S/MIME to sign, encrypt, or both when it is sent.
 ///
-/// Says straight away what would stop an OpenPGP send — no key of the sender's own, a recipient
+/// Says straight away what would stop an OpenPGP or S/MIME send — no key of the sender's own, a recipient
 /// with no key, a blind recipient on an encrypted message — rather than leaving it to be found at
 /// Send. The draft is kept either way: it is the user's to fix.
 pub fn new_sealed_message(
@@ -593,16 +593,22 @@ pub fn new_sealed_message(
     [to, cc, bcc]: [&[Address]; 3],
     subject: &str,
     body: &str,
-    (receipt, openpgp): (ReceiptRequest, OpenPgp),
+    (receipt, openpgp, smime): (ReceiptRequest, OpenPgp, Smime),
     now: DateTime<Utc>,
 ) -> Result<String, String> {
     let account = account_for(store, from)?;
     let mut draft = draft_new(store, account, to, subject, body, now)?;
-    if !cc.is_empty() || !bcc.is_empty() || receipt != draft.receipt || openpgp != draft.openpgp {
+    if !cc.is_empty()
+        || !bcc.is_empty()
+        || receipt != draft.receipt
+        || openpgp != draft.openpgp
+        || smime != draft.smime
+    {
         draft.cc = cc.to_vec();
         draft.bcc = bcc.to_vec();
         draft.receipt = receipt;
         draft.openpgp = openpgp;
+        draft.smime = smime;
         save(store, &draft)?;
     }
     let mut out = format!("draft {}\n", draft.id);
@@ -637,9 +643,26 @@ pub fn new_sealed_message(
             let _ = writeln!(out, "  signed and encrypted with OpenPGP when it is sent");
         }
     }
-    if draft.openpgp != OpenPgp::None {
+    match draft.smime {
+        Smime::None => {}
+        Smime::Sign => {
+            let _ = writeln!(out, "  signed with S/MIME when it is sent");
+        }
+        Smime::Encrypt => {
+            let _ = writeln!(out, "  encrypted with S/MIME when it is sent");
+        }
+        Smime::SignAndEncrypt => {
+            let _ = writeln!(out, "  signed and encrypted with S/MIME when it is sent");
+        }
+    }
+    if draft.openpgp != OpenPgp::None || draft.smime != Smime::None {
         let identity = identity_of(store, draft.account, Some(draft.identity))?;
-        if let Err(e) = crate::pgp::check(store, &draft, &identity, now) {
+        let refused = crate::pgp::check(store, &draft, &identity, now)
+            .map_err(|e| e.to_string())
+            .and_then(|()| {
+                crate::smime::check(store, &draft, &identity, now).map_err(|e| e.to_string())
+            });
+        if let Err(e) = refused {
             let _ = writeln!(out, "  but it cannot be sent that way yet: {e}");
         }
     }
@@ -915,6 +938,44 @@ pub fn send(store: &SqliteStore, draft: DraftId, now: DateTime<Utc>) -> Result<S
         draft,
         now,
     )
+    .map_err(|e| e.to_string())
+}
+
+/// Why a send was refused, typed so a caller can act on it: an OpenPGP key that needs its
+/// passphrase ([`SendError::locked`]) is asked for and the send tried again. Its text is what the
+/// command line has always printed.
+#[derive(Debug, thiserror::Error)]
+pub enum SendError {
+    #[error("{0}")]
+    Pgp(#[from] crate::pgp::PgpError),
+    #[error("{0}")]
+    Smime(#[from] crate::smime::SmimeError),
+    /// Anything else: the draft already sent, no server to send from, the store.
+    #[error("{0}")]
+    Other(String),
+}
+
+impl From<String> for SendError {
+    fn from(said: String) -> Self {
+        SendError::Other(said)
+    }
+}
+
+// The window's older callers keep a `String` error; the text is the same either way.
+impl From<SendError> for String {
+    fn from(error: SendError) -> Self {
+        error.to_string()
+    }
+}
+
+impl SendError {
+    /// The OpenPGP key whose passphrase was not given, or was wrong, when that is why.
+    pub fn locked(&self) -> Option<Fingerprint> {
+        match self {
+            SendError::Pgp(crate::pgp::PgpError::Locked(fingerprint)) => Some(*fingerprint),
+            _ => None,
+        }
+    }
 }
 
 /// [`send`], with the keyring an OpenPGP draft's secret key is read from and whoever is asked
@@ -925,7 +986,7 @@ pub fn send_with(
     ask: crate::pgp::Ask<'_>,
     draft: DraftId,
     now: DateTime<Utc>,
-) -> Result<String, String> {
+) -> Result<String, SendError> {
     let (draft, post) = queue_with(store, secrets, ask, draft, Leaves::Now, now)?;
     let mut out = format!("queued {} for delivery\n", draft.id);
     let _ = writeln!(out, "  from    {}", post.mail_from);
@@ -954,7 +1015,7 @@ pub fn send_later_with(
     draft: DraftId,
     phrase: &str,
     now: DateTime<Utc>,
-) -> Result<String, String> {
+) -> Result<String, SendError> {
     let at = crate::view::snooze_until(phrase, now, &Local)?;
     let (draft, post) = queue_with(store, secrets, ask, draft, Leaves::At(at), now)?;
     Ok(said_later(&draft, &post, at, &Local))
@@ -1020,6 +1081,7 @@ pub fn queue(
         leaves,
         now,
     )
+    .map_err(|e| e.to_string())
 }
 
 /// [`queue`], with the keyring and the passphrase prompt named.
@@ -1034,7 +1096,7 @@ pub fn queue_with(
     draft: DraftId,
     leaves: Leaves,
     now: DateTime<Utc>,
-) -> Result<(Draft, mail_mime::Posting), String> {
+) -> Result<(Draft, mail_mime::Posting), SendError> {
     // Before anything is taken back, so a time that has gone leaves an existing schedule alone.
     if let Leaves::At(at) = leaves
         && at <= now
@@ -1042,12 +1104,15 @@ pub fn queue_with(
         return Err(format!(
             "{} has already passed; to send it now, leave out --at",
             crate::view::stamp(at, &Local, crate::view::Stamp::Full)
-        ));
+        )
+        .into());
     }
     let mut draft = store.draft(draft).map_err(|e| e.to_string())?;
     match draft.state {
-        SendState::Sent { at, .. } => return Err(format!("that draft was already sent at {at}")),
-        SendState::Sending => return Err("that message is already being sent".to_owned()),
+        SendState::Sent { at, .. } => {
+            return Err(format!("that draft was already sent at {at}").into());
+        }
+        SendState::Sending => return Err("that message is already being sent".to_owned().into()),
         SendState::Queued | SendState::Scheduled { .. } | SendState::Failed { .. } => {
             draft = unsend(store, draft.id, now)?;
         }
@@ -1056,7 +1121,9 @@ pub fn queue_with(
     // Refused before anything is built or queued: an entry in the outbox of an account with no
     // server would sit there for ever, and the draft would say "queued" the whole time.
     if crate::sync::local_accounts(store).contains(&draft.account) {
-        return Err(mail_runtime::RuntimeError::NoServer("send from").to_string());
+        return Err(mail_runtime::RuntimeError::NoServer("send from")
+            .to_string()
+            .into());
     }
     let identity = identity_of(store, draft.account, Some(draft.identity))?;
     let parent = draft.in_reply_to.and_then(|id| store.message(id).ok());
@@ -1074,10 +1141,12 @@ pub fn queue_with(
 
     let mut post =
         posting(&draft, &identity, parent.as_ref(), &parts).map_err(|e| e.to_string())?;
-    // Before anything is taken back or queued, so a send OpenPGP refuses (no key for a recipient,
-    // no passphrase) leaves the draft as it was.
-    post.message = crate::pgp::outgoing(store, secrets, ask, &draft, &identity, post.message, now)
-        .map_err(|e| e.to_string())?;
+    // Before anything is taken back or queued, so a send OpenPGP or S/MIME refuses (no key for a
+    // recipient, no passphrase, both asked at once) leaves the draft as it was. S/MIME is checked
+    // first so a draft asking both is refused before OpenPGP seals anything.
+    crate::smime::check(store, &draft, &identity, now)?;
+    post.message = crate::pgp::outgoing(store, secrets, ask, &draft, &identity, post.message, now)?;
+    post.message = crate::smime::outgoing(store, secrets, &draft, &identity, post.message, now)?;
     let raw = store
         .blobs()
         .put(&store.connection(), &post.message)
@@ -1107,7 +1176,7 @@ pub fn queue_with(
         )
         .map_err(|e| e.to_string())?;
     if queued.is_none() {
-        return Err("the submission could not be queued".to_owned());
+        return Err("the submission could not be queued".to_owned().into());
     }
     let state = match leaves {
         Leaves::Now => SendState::Queued,

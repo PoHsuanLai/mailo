@@ -9,8 +9,8 @@ use crate::StoreError;
 use mail_domain::{AutocryptPeer, Fingerprint, KeyId, KeyTrust, PgpKey};
 use rusqlite::{OptionalExtension, params};
 
-const KEY_COLUMNS: &str =
-    "fingerprint, key_ids, user_ids, emails, key, source, first_seen, last_seen, trust, secret";
+const KEY_COLUMNS: &str = "fingerprint, key_ids, user_ids, emails, key, source, first_seen, \
+     last_seen, trust, secret, created, expires";
 
 impl SqliteStore {
     /// Keys matching `clause` (with `?1` bound to `param`), or every key for an empty clause.
@@ -78,7 +78,7 @@ impl SqliteStore {
         tx.execute(
             &format!(
                 "INSERT OR REPLACE INTO pgp_keys ({KEY_COLUMNS})
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)"
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)"
             ),
             params![
                 merged.fingerprint.to_string(),
@@ -91,6 +91,8 @@ impl SqliteStore {
                 from_time(merged.last_seen),
                 to_json("KeyTrust", &merged.trust)?,
                 to_json("SecretHeld", &merged.secret)?,
+                merged.created.map(from_time),
+                merged.expires.map(from_time),
             ],
         )?;
         tx.commit()?;
@@ -213,5 +215,13 @@ fn read_key(row: &rusqlite::Row<'_>) -> Result<PgpKey, StoreError> {
         last_seen: time("pgp_keys.last_seen", &row.get::<_, String>(7)?)?,
         trust: json("KeyTrust", &row.get::<_, String>(8)?)?,
         secret: json("SecretHeld", &row.get::<_, String>(9)?)?,
+        created: row
+            .get::<_, Option<String>>(10)?
+            .map(|t| time("pgp_keys.created", &t))
+            .transpose()?,
+        expires: row
+            .get::<_, Option<String>>(11)?
+            .map(|t| time("pgp_keys.expires", &t))
+            .transpose()?,
     })
 }

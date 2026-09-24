@@ -25,6 +25,7 @@ pub mod receipt;
 pub mod remote;
 pub mod retry;
 pub mod rule;
+pub mod smime;
 pub mod state;
 pub mod template;
 pub mod threading;
@@ -63,6 +64,10 @@ pub use remote::{
 };
 pub use retry::{Retry, Retryable};
 pub use rule::{AfterMatch, Rule, RuleAction, RuleState, Vacation};
+pub use smime::{
+    BadSignature, CertFingerprint, CertProblem, CertSource, Smime, SmimeCert, SmimeEncryption,
+    SmimeVerification,
+};
 pub use state::{
     Attachments, IsDefault, LabelOrigin, MailboxRole, MailboxSet, Membership, Pin, ReadState,
     Snooze, Star, Threading,

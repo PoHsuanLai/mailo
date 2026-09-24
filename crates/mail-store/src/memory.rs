@@ -24,6 +24,7 @@ mod contacts;
 mod folders;
 mod pgp;
 mod rules;
+mod smime;
 mod templates;
 
 /// Everything held in memory. Cheap to construct, and never touches the disk.
@@ -72,6 +73,8 @@ struct Inner {
     pgp_keys: BTreeMap<mail_domain::Fingerprint, mail_domain::PgpKey>,
     /// Autocrypt peer state, by lower-cased address.
     autocrypt: BTreeMap<String, mail_domain::AutocryptPeer>,
+    /// S/MIME certificates, by fingerprint.
+    smime_certs: BTreeMap<mail_domain::CertFingerprint, mail_domain::SmimeCert>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -134,6 +137,7 @@ impl Default for Inner {
             books: BTreeMap::new(),
             pgp_keys: BTreeMap::new(),
             autocrypt: BTreeMap::new(),
+            smime_certs: BTreeMap::new(),
         }
     }
 }
@@ -593,6 +597,49 @@ impl Store for MemoryStore {
     fn put_autocrypt_peer(&self, peer: &mail_domain::AutocryptPeer) -> Result<(), StoreError> {
         self.inner.borrow_mut().put_autocrypt_peer(peer);
         Ok(())
+    }
+
+    fn smime_certs(&self) -> Result<Vec<mail_domain::SmimeCert>, StoreError> {
+        // By fingerprint, as the SQLite side sorts them.
+        Ok(self.inner.borrow().smime_certs.values().cloned().collect())
+    }
+
+    fn smime_cert(
+        &self,
+        fingerprint: mail_domain::CertFingerprint,
+    ) -> Result<Option<mail_domain::SmimeCert>, StoreError> {
+        Ok(self.inner.borrow().smime_certs.get(&fingerprint).cloned())
+    }
+
+    fn smime_certs_for(&self, address: &str) -> Result<Vec<mail_domain::SmimeCert>, StoreError> {
+        Ok(self.inner.borrow().smime_certs_for(address))
+    }
+
+    fn put_smime_cert(
+        &self,
+        cert: mail_domain::SmimeCert,
+    ) -> Result<mail_domain::SmimeCert, StoreError> {
+        Ok(self.inner.borrow_mut().put_smime_cert(cert))
+    }
+
+    fn set_smime_trust(
+        &self,
+        fingerprint: mail_domain::CertFingerprint,
+        trust: mail_domain::KeyTrust,
+    ) -> Result<(), StoreError> {
+        self.inner.borrow_mut().set_smime_trust(fingerprint, trust)
+    }
+
+    fn delete_smime_cert(
+        &self,
+        fingerprint: mail_domain::CertFingerprint,
+    ) -> Result<bool, StoreError> {
+        Ok(self
+            .inner
+            .borrow_mut()
+            .smime_certs
+            .remove(&fingerprint)
+            .is_some())
     }
 
     fn contacts_matching(&self, typed: &str, k: usize) -> Result<Vec<crate::Contact>, StoreError> {

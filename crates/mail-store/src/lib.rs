@@ -13,6 +13,7 @@ mod pgp;
 mod prefix;
 mod remote_row;
 pub mod rules;
+mod smime;
 pub mod sql;
 pub mod sqlite;
 mod term;
@@ -30,8 +31,8 @@ use mail_domain::{
     AccountCaps, AccountId, AutocryptPeer, BlobId, Draft, DraftId, Filter, Fingerprint, Folder,
     FolderContents, Import, Ingest, InviteAnswer, KeyId, KeyTrust, Label, MailboxRef, Message,
     MessageId, MessageKey, OutboxId, Page, Patch, PgpKey, ProtoOp, Query, ReceiptAnswer,
-    RemoteIntent, RemoteRef, Retry, Rule, RuleId, SendState, SyncCursor, Template, TemplateId,
-    Thread, ThreadId, ThreadSummary, Vacation,
+    RemoteIntent, RemoteRef, Retry, Rule, RuleId, SendState, SmimeCert, SyncCursor, Template,
+    TemplateId, Thread, ThreadId, ThreadSummary, Vacation,
 };
 
 /// One queued unit of remote work, with everything needed to retry or abandon it.
@@ -432,6 +433,39 @@ pub trait Store {
 
     /// Replace the Autocrypt state for the peer's address.
     fn put_autocrypt_peer(&self, peer: &AutocryptPeer) -> Result<(), StoreError>;
+
+    /// Every S/MIME certificate held — the user's own, correspondents', issuers' — by
+    /// fingerprint.
+    fn smime_certs(&self) -> Result<Vec<SmimeCert>, StoreError>;
+
+    /// One certificate by fingerprint.
+    fn smime_cert(
+        &self,
+        fingerprint: mail_domain::CertFingerprint,
+    ) -> Result<Option<SmimeCert>, StoreError>;
+
+    /// The certificates for `address`, compared whole and without regard to case, best first:
+    /// trusted by the user, then by how it arrived ([`mail_domain::CertSource::rank`]), then the
+    /// one valid longest, then the most recently seen.
+    fn smime_certs_for(&self, address: &str) -> Result<Vec<SmimeCert>, StoreError>;
+
+    /// Keep a certificate, folded into the record of the same certificate if there is one
+    /// ([`SmimeCert::merged`]), and return what is now stored.
+    fn put_smime_cert(&self, cert: SmimeCert) -> Result<SmimeCert, StoreError>;
+
+    /// Mark a certificate trusted by the user, or take that back. [`StoreError::NoSmimeCert`]
+    /// when there is no such certificate.
+    fn set_smime_trust(
+        &self,
+        fingerprint: mail_domain::CertFingerprint,
+        trust: KeyTrust,
+    ) -> Result<(), StoreError>;
+
+    /// Forget a certificate. `true` when there was one. Mail arriving later may bring it back.
+    fn delete_smime_cert(
+        &self,
+        fingerprint: mail_domain::CertFingerprint,
+    ) -> Result<bool, StoreError>;
 
     /// Autocomplete: the best `k` contacts with a word beginning with `typed`, best first.
     ///

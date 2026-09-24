@@ -142,6 +142,7 @@ pub(in crate::ui) fn seeded() -> (Arc<SqliteStore>, tempfile::TempDir) {
                     attachments: vec![],
                     receipt: ReceiptRequest::Unrequested,
                     openpgp: OpenPgp::None,
+                    smime: mail_domain::Smime::None,
                     state: SendState::Editing,
                     updated: chrono::Utc::now(),
                 }))],

@@ -134,6 +134,29 @@ impl Cert {
             last_seen: now,
             trust: KeyTrust::Unverified,
             secret: SecretHeld::Absent,
+            created: Some(self.created()),
+            expires: self.expires(),
+        }
+    }
+
+    /// When the primary key was made.
+    pub fn created(&self) -> DateTime<Utc> {
+        let secs = self.inner.primary_key.created_at().as_secs();
+        DateTime::from_timestamp(i64::from(secs), 0).unwrap_or_default()
+    }
+
+    /// When the key expires, by its newest self-signature — a direct-key signature or a user id
+    /// binding. `None` when it does not.
+    pub fn expires(&self) -> Option<DateTime<Utc>> {
+        let details = &self.inner.details;
+        let newest = details
+            .direct_signatures
+            .iter()
+            .chain(details.users.iter().flat_map(|u| u.signatures.iter()))
+            .max_by_key(|sig| sig.created().map(Timestamp::as_secs).unwrap_or(0))?;
+        match newest.key_expiration_time().map(|d| d.as_secs()) {
+            None | Some(0) => None,
+            Some(secs) => Some(self.created() + chrono::TimeDelta::seconds(i64::from(secs))),
         }
     }
 

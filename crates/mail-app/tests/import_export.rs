@@ -453,6 +453,7 @@ fn sync_never_touches_the_local_account() {
         updated: now(),
         receipt: ReceiptRequest::Unrequested,
         openpgp: OpenPgp::None,
+        smime: mail_domain::Smime::None,
     };
     store
         .apply(

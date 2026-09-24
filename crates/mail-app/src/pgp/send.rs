@@ -37,6 +37,9 @@ pub fn check(
     if draft.openpgp == OpenPgp::None {
         return Ok(());
     }
+    if draft.smime != Smime::None {
+        return Err(PgpError::BothProtections);
+    }
     if own_key(store, &identity.from.email)?.is_none() {
         return Err(PgpError::NoOwnKey(identity.from.email.clone()));
     }

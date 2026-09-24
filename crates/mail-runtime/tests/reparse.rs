@@ -106,6 +106,8 @@ fn garbled_messages_held_whole_are_re_read_and_the_rest_are_left_alone() {
              DROP TABLE rules; DROP TABLE vacations;
              DROP TABLE pgp_keys; DROP TABLE autocrypt_peers;
              ALTER TABLE drafts DROP COLUMN openpgp;
+             DROP TABLE smime_certs;
+             ALTER TABLE drafts DROP COLUMN smime;
              DELETE FROM schema_version WHERE version >= 12;",
         )
         .unwrap();

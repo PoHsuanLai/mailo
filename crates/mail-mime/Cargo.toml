@@ -34,15 +34,40 @@ pgp = { version = "0.20", default-features = false }
 # rPGP's own `rand` generation: its APIs take a `rand 0.8` `CryptoRng + Rng`.
 rand = "0.8"
 # Web Key Directory: the SHA-1 of a local part names the key's file. Already in the tree via rPGP.
-sha1 = "0.10"
+sha1 = { version = "0.10", features = ["oid"] }
 # rPGP's key builder takes its algorithm preferences as `SmallVec`s. Already in the tree.
 smallvec = "1"
+# S/MIME (`smime/`): the RustCrypto formats and primitives, all MIT OR Apache-2.0 and pure.
+# CMS (RFC 5652) and X.509 structures; the builders make SignedData and EnvelopedData.
+cms = { version = "0.2", features = ["builder", "std"] }
+x509-cert = { version = "0.2", features = ["builder", "std"] }
+der = { version = "0.7", features = ["std", "pem", "zeroize", "derive", "oid"] }
+spki = "0.7"
+const-oid = { version = "0.9", features = ["db"] }
+# PKCS#12 identity files: the PFX structures and their key derivation, PBES2 (PKCS#5) for the
+# modern encryption, DES for the legacy triple-DES bag encryption older exports still use.
+pkcs12 = { version = "0.1", features = ["kdf"] }
+pkcs5 = { version = "0.7", features = ["pbes2", "alloc"] }
+pkcs8 = { version = "0.10", features = ["std"] }
+des = "0.8"
+rsa = { version = "0.9", features = ["sha2"] }
+p256 = { version = "0.13", features = ["ecdsa"] }
+p384 = { version = "0.13", features = ["ecdsa"] }
+aes = "0.8"
+cbc = { version = "0.1", features = ["std"] }
+aes-gcm = "0.10"
+sha2 = { version = "0.10", features = ["oid"] }
+hmac = "0.12"
+signature = "2"
+zeroize = "1"
 
 [dev-dependencies]
 uuid.workspace = true
 mail-domain.workspace = true
 chrono.workspace = true
 proptest = "1"
+# A directory for the S/MIME interoperability test to hand files to OpenSSL in.
+tempfile = "3"
 html5ever = "0.40"
 
 [lints]

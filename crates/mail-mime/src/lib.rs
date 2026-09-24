@@ -18,6 +18,7 @@ pub mod parse;
 pub mod print;
 pub mod reconstruct;
 pub mod sanitize;
+pub mod smime;
 pub mod stamp;
 pub mod unsubscribe;
 
@@ -68,6 +69,13 @@ pub enum MimeError {
     /// A recipient's key has no part that can be encrypted to (revoked, expired, sign-only).
     #[error("the OpenPGP key {0} cannot be encrypted to")]
     CannotEncryptTo(mail_domain::Fingerprint),
+    /// S/MIME data that could not be read or made: a malformed certificate, message or PKCS#12
+    /// file, an algorithm refused or not supported. The text says which.
+    #[error("S/MIME: {0}")]
+    Smime(String),
+    /// A PKCS#12 file's password is wrong.
+    #[error("that password does not open the PKCS#12 file")]
+    WrongPassword,
 }
 
 impl mail_domain::Retryable for MimeError {

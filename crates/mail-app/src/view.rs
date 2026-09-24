@@ -1858,6 +1858,7 @@ mod composer_tests {
             attachments: Vec::new(),
             receipt: ReceiptRequest::Unrequested,
             openpgp: OpenPgp::None,
+            smime: mail_domain::Smime::None,
             state: SendState::Editing,
             updated: chrono::Utc::now(),
         }
@@ -3107,6 +3108,7 @@ mod discarding {
             attachments: vec![],
             receipt: ReceiptRequest::Unrequested,
             openpgp: OpenPgp::None,
+            smime: mail_domain::Smime::None,
             state: SendState::Editing,
             updated: Utc.with_ymd_and_hms(2026, 9, 22, 0, 0, 0).unwrap(),
         };

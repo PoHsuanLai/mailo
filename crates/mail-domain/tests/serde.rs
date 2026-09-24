@@ -191,6 +191,7 @@ fn draft() -> Draft {
         }],
         receipt: ReceiptRequest::Unrequested,
         openpgp: OpenPgp::None,
+        smime: Smime::None,
         state: SendState::Failed {
             reason: "550 rejected".to_owned(),
             retry: Retry::After(Duration::from_secs(90)),
@@ -218,6 +219,7 @@ fn template() -> Template {
         }],
         receipt: ReceiptRequest::Requested,
         openpgp: OpenPgp::None,
+        smime: Smime::None,
         updated: at(5),
     }
 }
@@ -1518,6 +1520,128 @@ fixtures! {
         Encryption::Locked { key: fingerprint() },
         Encryption::Unreadable { why: "modification detected".to_owned() },
     ],
+    // S/MIME (`plan.md` 10.16). `draft_openpgp.json` predates the field and loads as plain.
+    "draft_smime.json" => Draft = Draft { smime: Smime::SignAndEncrypt, ..draft() },
+    "template_smime.json" => Template = Template { smime: Smime::Sign, ..template() },
+    "smime_modes.json" => Vec<Smime> = vec![
+        Smime::None,
+        Smime::Sign,
+        Smime::Encrypt,
+        Smime::SignAndEncrypt,
+    ],
+    "smime_cert.json" => SmimeCert = smime_cert(),
+    // The key's own dates (10.16's migration, for the window). `pgp_key.json` predates them and
+    // loads with neither.
+    "pgp_key_dated.json" => PgpKey = PgpKey {
+        created: Some(at(2)),
+        expires: Some(at(30)),
+        ..pgp_key()
+    },
+    "secret_key_smime.json" => SecretKey = SecretKey {
+        account: account(),
+        purpose: SecretPurpose::Smime(cert_fingerprint()),
+    },
+    "credentials_smime.json" => Vec<Credential> = vec![Credential::SmimeKey(
+        "-----BEGIN PRIVATE KEY-----".to_owned(),
+    )],
+    "smime_verifications.json" => Vec<SmimeVerification> = vec![
+        SmimeVerification::NoSignature,
+        SmimeVerification::Good { signer: cert_fingerprint(), coverage: Coverage::Whole },
+        SmimeVerification::Doubtful {
+            signer: cert_fingerprint(),
+            problems: vec![
+                CertProblem::Untrusted,
+                CertProblem::Expired { not_after: at(3) },
+                CertProblem::NotYetValid { not_before: at(4) },
+                CertProblem::NotForEmail,
+                CertProblem::NotFrom { from: "a@example.test".to_owned() },
+            ],
+            coverage: Coverage::Part,
+        },
+        SmimeVerification::Bad { why: BadSignature::Altered, coverage: Coverage::Whole },
+        SmimeVerification::Bad { why: BadSignature::Forged, coverage: Coverage::Whole },
+        SmimeVerification::Bad {
+            why: BadSignature::Weak { algorithm: "SHA-1".to_owned() },
+            coverage: Coverage::Whole,
+        },
+        SmimeVerification::Bad {
+            why: BadSignature::Unsupported { algorithm: "1.2.3".to_owned() },
+            coverage: Coverage::Whole,
+        },
+        SmimeVerification::Bad {
+            why: BadSignature::Malformed { why: "truncated".to_owned() },
+            coverage: Coverage::Whole,
+        },
+        SmimeVerification::UnknownSigner { coverage: Coverage::Whole },
+    ],
+    "smime_encryptions.json" => Vec<SmimeEncryption> = vec![
+        SmimeEncryption::NotEncrypted,
+        SmimeEncryption::Decrypted,
+        SmimeEncryption::CannotDecrypt { to: vec!["serial 01 from CN=CA".to_owned()] },
+        SmimeEncryption::Unreadable { why: "3DES".to_owned() },
+    ],
+}
+
+fn cert_fingerprint() -> CertFingerprint {
+    CertFingerprint([0x5A; 32])
+}
+
+fn smime_cert() -> SmimeCert {
+    SmimeCert {
+        fingerprint: cert_fingerprint(),
+        subject: "CN=Peer,E=peer@example.test".to_owned(),
+        issuer: "CN=Example CA".to_owned(),
+        serial: "0A1B".to_owned(),
+        emails: vec!["peer@example.test".to_owned()],
+        not_before: at(1),
+        not_after: at(20),
+        der: vec![0x30, 0x82],
+        chain: vec![vec![0x30, 0x81]],
+        source: CertSource::Received,
+        first_seen: at(4),
+        last_seen: at(6),
+        trust: KeyTrust::Unverified,
+        secret: SecretHeld::Absent,
+    }
+}
+
+#[test]
+fn smime_values_round_trip_and_a_certificate_fingerprint_persists_as_its_hex() {
+    round_trip("SmimeCert", smime_cert());
+    round_trip_each(
+        "SecretPurpose",
+        vec![
+            SecretPurpose::Smime(cert_fingerprint()),
+            SecretPurpose::AddressBook,
+        ],
+    );
+    round_trip_each(
+        "CertSource",
+        vec![
+            CertSource::Identity,
+            CertSource::Imported,
+            CertSource::Received,
+        ],
+    );
+    assert_eq!(
+        serde_json::to_value(cert_fingerprint()).unwrap(),
+        serde_json::json!("5A".repeat(32))
+    );
+    let debug = format!(
+        "{:?}",
+        Credential::SmimeKey("PRIVATE-KEY-MATERIAL".to_owned())
+    );
+    assert!(!debug.contains("PRIVATE-KEY-MATERIAL"), "{debug}");
+}
+
+#[test]
+fn a_draft_from_before_smime_loads_as_plain() {
+    let old: Draft = serde_json::from_str(
+        &std::fs::read_to_string(fixture_dir().join("draft_openpgp.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(old.smime, Smime::None);
+    assert_eq!(old.openpgp, OpenPgp::SignAndEncrypt);
 }
 
 fn fingerprint() -> Fingerprint {
@@ -1538,6 +1662,8 @@ fn pgp_key() -> PgpKey {
         last_seen: at(6),
         trust: KeyTrust::Unverified,
         secret: SecretHeld::Absent,
+        created: None,
+        expires: None,
     }
 }
 

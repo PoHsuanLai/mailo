@@ -1,0 +1,33 @@
+{
+  "id": "0d0d0d0d-0d0d-0d0d-0d0d-0d0d0d0d0d0d",
+  "account": "01010101-0101-0101-0101-010101010101",
+  "identity": "02020202-0202-0202-0202-020202020202",
+  "name": "weekly",
+  "to": [
+    {
+      "name": "A Name",
+      "email": "team@example.test"
+    }
+  ],
+  "cc": [],
+  "bcc": [
+    {
+      "name": "A Name",
+      "email": "archive@example.test"
+    }
+  ],
+  "subject": "Weekly report",
+  "text": "This week:",
+  "html": null,
+  "attachments": [
+    {
+      "name": "plan.pdf",
+      "mime": "application/pdf",
+      "blob": "0a0a0a0a-0a0a-0a0a-0a0a-0a0a0a0a0a0a"
+    }
+  ],
+  "receipt": "requested",
+  "openpgp": "none",
+  "smime": "sign",
+  "updated": "2026-01-05T04:05:06Z"
+}

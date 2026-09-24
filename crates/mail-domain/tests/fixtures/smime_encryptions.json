@@ -1,0 +1,22 @@
+[
+  {
+    "kind": "not_encrypted"
+  },
+  {
+    "kind": "decrypted"
+  },
+  {
+    "kind": "cannot_decrypt",
+    "v": {
+      "to": [
+        "serial 01 from CN=CA"
+      ]
+    }
+  },
+  {
+    "kind": "unreadable",
+    "v": {
+      "why": "3DES"
+    }
+  }
+]

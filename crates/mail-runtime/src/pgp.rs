@@ -26,9 +26,11 @@ pub fn secret_key(
 ) -> Result<SecretCert, RuntimeError> {
     match secrets.get(&entry(account, fingerprint))? {
         Credential::OpenPgp(armored) => Ok(SecretCert::from_armored(&armored)?),
-        Credential::Password(_) | Credential::OAuth { .. } => Err(RuntimeError::Secrets(format!(
-            "the keyring entry for OpenPGP key {fingerprint} holds something else"
-        ))),
+        Credential::Password(_) | Credential::OAuth { .. } | Credential::SmimeKey(_) => {
+            Err(RuntimeError::Secrets(format!(
+                "the keyring entry for OpenPGP key {fingerprint} holds something else"
+            )))
+        }
     }
 }
 
@@ -88,7 +90,7 @@ pub fn learn_autocrypt(
         && peer.autocrypt_timestamp == Some(at)
         && peer.key == Some(header.key.fingerprint())
     {
-        store.put_pgp_key(header.key.record(KeySource::Autocrypt, at, &[from]))?;
+        keep(store, header.key.record(KeySource::Autocrypt, at, &[from]))?;
     }
     if let Some(peer) = after
         && Some(&peer) != before.as_ref()
@@ -119,9 +121,45 @@ pub fn learn_gossip(
         let fingerprint = header.key.fingerprint();
         let after = autocrypt::gossip(before.clone(), &header.addr, fingerprint, at);
         if Some(&after) != before.as_ref() {
-            store.put_pgp_key(header.key.record(KeySource::Gossip, at, &[&header.addr]))?;
+            keep(
+                store,
+                header.key.record(KeySource::Gossip, at, &[&header.addr]),
+            )?;
             store.put_autocrypt_peer(&after)?;
         }
     }
     Ok(())
+}
+
+/// Keep `record`, and count it as a change to the keys held ([`crate::epoch`]) when it is a key
+/// not held before, or its bytes or addresses are new.
+fn keep(store: &dyn Store, record: mail_domain::PgpKey) -> Result<(), RuntimeError> {
+    let before = store.pgp_key(record.fingerprint)?;
+    let after = store.put_pgp_key(record)?;
+    if before.is_none_or(|b| b.key != after.key || b.emails != after.emails) {
+        crate::epoch::keys_changed();
+    }
+    Ok(())
+}
+
+/// Read the dates of every kept key that has none recorded — those kept before they were — from
+/// the key's own bytes, and keep them. How many were dated. Once per key: after it, the query
+/// finds nothing to do. A key whose bytes no longer parse is left as it is.
+pub fn date_keys(store: &dyn Store) -> Result<usize, RuntimeError> {
+    let mut dated = 0;
+    for key in store.pgp_keys()? {
+        if key.created.is_some() {
+            continue;
+        }
+        let Ok(cert) = mail_mime::openpgp::Cert::from_bytes(&key.key) else {
+            continue;
+        };
+        store.put_pgp_key(mail_domain::PgpKey {
+            created: Some(cert.created()),
+            expires: cert.expires(),
+            ..key
+        })?;
+        dated += 1;
+    }
+    Ok(dated)
 }

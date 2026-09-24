@@ -60,3 +60,25 @@ opt-level = 2
 
 [profile.dev.package.mail-mime]
 opt-level = 2
+
+# S/MIME (`mail-mime::smime`) generates RSA keys in its tests and derives PKCS#12 keys with
+# 100 000 rounds of SHA-256. Unoptimised, a 2048-bit key takes tens of seconds and a PKCS#12 file
+# several; built optimised even in dev, a fraction of a second. Pure arithmetic crates with their
+# own tests, so nothing is lost by not stepping through them.
+[profile.dev.package.num-bigint-dig]
+opt-level = 2
+
+[profile.dev.package.rsa]
+opt-level = 2
+
+[profile.dev.package.sha2]
+opt-level = 2
+
+[profile.dev.package.sha1]
+opt-level = 2
+
+[profile.dev.package.pkcs5]
+opt-level = 2
+
+[profile.dev.package.pbkdf2]
+opt-level = 2

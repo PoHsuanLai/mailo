@@ -26,6 +26,7 @@ fn entry_name(key: &SecretKey) -> String {
         // Named by the key alone: see `SecretPurpose::OpenPgp` for why the account is not part
         // of it. The prefix cannot collide with an account's entries, which begin with a UUID.
         SecretPurpose::OpenPgp(fingerprint) => return format!("openpgp:{fingerprint}"),
+        SecretPurpose::Smime(fingerprint) => return format!("smime:{fingerprint}"),
     };
     format!("{}:{}", key.account, purpose)
 }

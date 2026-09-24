@@ -9,7 +9,7 @@
 //! the return value of [`open`] — it is the caller's to show and not to keep.
 
 mod autocrypt;
-mod entity;
+pub(crate) mod entity;
 mod keys;
 mod open;
 mod seal;

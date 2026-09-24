@@ -88,6 +88,10 @@ fn assemble_as(
                 fields.date,
                 fallback_date,
             );
+            // An S/MIME signature carries its signer's certificate; keeping it is what lets the
+            // user answer encrypted. The same rules: not from our own copies, and a failure is
+            // no reason to lose the message.
+            let _ = crate::smime::learn_signer(store, &arrival.raw, &from.email, fallback_date);
         }
         let blob = store
             .blobs()

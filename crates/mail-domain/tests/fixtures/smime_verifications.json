@@ -1,0 +1,105 @@
+[
+  {
+    "kind": "no_signature"
+  },
+  {
+    "kind": "good",
+    "v": {
+      "signer": "5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A",
+      "coverage": "whole"
+    }
+  },
+  {
+    "kind": "doubtful",
+    "v": {
+      "signer": "5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A",
+      "problems": [
+        {
+          "kind": "untrusted"
+        },
+        {
+          "kind": "expired",
+          "v": {
+            "not_after": "2026-01-03T04:05:06Z"
+          }
+        },
+        {
+          "kind": "not_yet_valid",
+          "v": {
+            "not_before": "2026-01-04T04:05:06Z"
+          }
+        },
+        {
+          "kind": "not_for_email"
+        },
+        {
+          "kind": "not_from",
+          "v": {
+            "from": "a@example.test"
+          }
+        }
+      ],
+      "coverage": "part"
+    }
+  },
+  {
+    "kind": "bad",
+    "v": {
+      "why": {
+        "kind": "altered"
+      },
+      "coverage": "whole"
+    }
+  },
+  {
+    "kind": "bad",
+    "v": {
+      "why": {
+        "kind": "forged"
+      },
+      "coverage": "whole"
+    }
+  },
+  {
+    "kind": "bad",
+    "v": {
+      "why": {
+        "kind": "weak",
+        "v": {
+          "algorithm": "SHA-1"
+        }
+      },
+      "coverage": "whole"
+    }
+  },
+  {
+    "kind": "bad",
+    "v": {
+      "why": {
+        "kind": "unsupported",
+        "v": {
+          "algorithm": "1.2.3"
+        }
+      },
+      "coverage": "whole"
+    }
+  },
+  {
+    "kind": "bad",
+    "v": {
+      "why": {
+        "kind": "malformed",
+        "v": {
+          "why": "truncated"
+        }
+      },
+      "coverage": "whole"
+    }
+  },
+  {
+    "kind": "unknown_signer",
+    "v": {
+      "coverage": "whole"
+    }
+  }
+]

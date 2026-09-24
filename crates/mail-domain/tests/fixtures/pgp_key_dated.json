@@ -1,0 +1,25 @@
+{
+  "fingerprint": "0123456789ABCDEF0123456789ABCDEF01234567",
+  "key_ids": [
+    "89ABCDEF01234567",
+    "1111111111111111"
+  ],
+  "user_ids": [
+    "Peer <peer@example.test>"
+  ],
+  "emails": [
+    "peer@example.test"
+  ],
+  "key": [
+    153,
+    0,
+    51
+  ],
+  "source": "autocrypt",
+  "first_seen": "2026-01-04T04:05:06Z",
+  "last_seen": "2026-01-06T04:05:06Z",
+  "trust": "unverified",
+  "secret": "absent",
+  "created": "2026-01-02T04:05:06Z",
+  "expires": "2026-01-30T04:05:06Z"
+}

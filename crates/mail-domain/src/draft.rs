@@ -7,6 +7,7 @@ use crate::message::Message;
 use crate::pgp::OpenPgp;
 use crate::receipt::ReceiptRequest;
 use crate::retry::Retry;
+use crate::smime::Smime;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -73,6 +74,11 @@ pub struct Draft {
     /// persisted before OpenPGP existed still load, as plain.
     #[serde(default)]
     pub openpgp: OpenPgp,
+    /// Whether S/MIME signs it, encrypts it, or both, when it is sent. Defaulted so drafts
+    /// persisted before S/MIME existed still load, as plain. Never asked together with
+    /// `openpgp`: sending refuses a draft that asks both.
+    #[serde(default)]
+    pub smime: Smime,
     pub state: SendState,
     pub updated: DateTime<Utc>,
 }
@@ -142,6 +148,7 @@ impl Draft {
             attachments: Vec::new(),
             receipt: ReceiptRequest::Unrequested,
             openpgp: OpenPgp::None,
+            smime: Smime::None,
             state: SendState::Editing,
             updated: now,
         }
@@ -175,6 +182,7 @@ impl Draft {
             attachments: Vec::new(),
             receipt: ReceiptRequest::Unrequested,
             openpgp: OpenPgp::None,
+            smime: Smime::None,
             state: SendState::Editing,
             updated: now,
         }
@@ -205,6 +213,7 @@ impl Draft {
             attachments: Vec::new(),
             receipt: ReceiptRequest::Unrequested,
             openpgp: OpenPgp::None,
+            smime: Smime::None,
             state: SendState::Editing,
             updated: now,
         }

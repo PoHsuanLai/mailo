@@ -249,3 +249,29 @@ fn a_secret_key_goes_into_the_keyring_whole_and_comes_back_out() {
     pgp::forget_secret_key(&secrets, ACCOUNT, mine.fingerprint()).unwrap();
     assert!(pgp::secret_key(&secrets, ACCOUNT, mine.fingerprint()).is_err());
 }
+
+#[test]
+fn keys_kept_before_their_dates_were_recorded_are_dated_from_their_bytes_once() {
+    let (store, _dir) = store();
+    let key = key_for("peer@example.test", 40).public();
+    let record = key.record(KeySource::Imported, day(3), &[]);
+    assert_eq!(
+        record.created,
+        Some(day(1)),
+        "a new record carries the key's own date"
+    );
+    store
+        .put_pgp_key(PgpKey {
+            created: None,
+            expires: None,
+            ..record.clone()
+        })
+        .unwrap();
+    assert_eq!(pgp::date_keys(&store).unwrap(), 1);
+    let dated = store.pgp_key(record.fingerprint).unwrap().unwrap();
+    assert_eq!(
+        (dated.created, dated.expires),
+        (record.created, record.expires)
+    );
+    assert_eq!(pgp::date_keys(&store).unwrap(), 0, "nothing left to do");
+}

@@ -60,6 +60,8 @@ fn key(fingerprint: u8, secret: SecretHeld) -> PgpKey {
         first_seen: chrono::Utc::now(),
         last_seen: chrono::Utc::now(),
         trust: KeyTrust::Unverified,
+        created: None,
+        expires: None,
         secret,
     }
 }

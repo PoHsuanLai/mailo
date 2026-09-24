@@ -1,0 +1,26 @@
+{
+  "fingerprint": "5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A",
+  "subject": "CN=Peer,E=peer@example.test",
+  "issuer": "CN=Example CA",
+  "serial": "0A1B",
+  "emails": [
+    "peer@example.test"
+  ],
+  "not_before": "2026-01-01T04:05:06Z",
+  "not_after": "2026-01-20T04:05:06Z",
+  "der": [
+    48,
+    130
+  ],
+  "chain": [
+    [
+      48,
+      129
+    ]
+  ],
+  "source": "received",
+  "first_seen": "2026-01-04T04:05:06Z",
+  "last_seen": "2026-01-06T04:05:06Z",
+  "trust": "unverified",
+  "secret": "absent"
+}

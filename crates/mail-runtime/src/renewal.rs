@@ -334,6 +334,6 @@ impl Renewal {
 fn access_of(credential: &Credential) -> Option<String> {
     match credential {
         Credential::OAuth { access, .. } => Some(access.clone()),
-        Credential::Password(_) | Credential::OpenPgp(_) => None,
+        Credential::Password(_) | Credential::OpenPgp(_) | Credential::SmimeKey(_) => None,
     }
 }

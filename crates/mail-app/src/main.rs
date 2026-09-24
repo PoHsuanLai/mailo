@@ -100,6 +100,7 @@ fn main() {
             body: _,
             receipt,
             openpgp,
+            smime,
         }) => {
             let mut body = String::new();
             if let Err(e) = std::io::Read::read_to_string(&mut std::io::stdin(), &mut body) {
@@ -115,6 +116,7 @@ fn main() {
                 body,
                 receipt,
                 openpgp,
+                smime,
             })
         }
         Some(mail_app::cli::Command::Forward {
@@ -189,6 +191,10 @@ fn main() {
     // query. A failure is reported and does not stop the command: the mail is still readable.
     if let Err(e) = mail_runtime::reparse_queued(&store) {
         eprintln!("could not re-read stored headers: {e}");
+    }
+    // OpenPGP keys kept before their dates were recorded have them read from their bytes, once.
+    if let Err(e) = mail_runtime::pgp::date_keys(&store) {
+        eprintln!("could not read the dates of stored OpenPGP keys: {e}");
     }
 
     let store = std::sync::Arc::new(store);

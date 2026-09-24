@@ -144,7 +144,11 @@ pub enum Command {
         receipt: ReceiptRequest,
         /// `--sign`, `--encrypt`, or both: what OpenPGP does to it when it is sent.
         openpgp: OpenPgp,
+        /// The same with `--smime`: what S/MIME does to it instead.
+        smime: Smime,
     },
+    /// S/MIME certificates: list, import, export, delete, trust, and one message's status.
+    Smime(crate::smime::SmimeCommand),
     /// OpenPGP keys: list, make, import, export, delete, look up, verify.
     Pgp(crate::pgp::PgpCommand),
     /// Answer a message's request for a read receipt: send one, or decline.
@@ -426,6 +430,7 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
         "vacation" => crate::rules::server::parse_vacation(&args[1..]).map(Command::Vacation),
         "sieve" => crate::rules::server::parse_sieve(&args[1..]).map(Command::Sieve),
         "pgp" => crate::pgp::parse(&args[1..]).map(Command::Pgp),
+        "smime" => crate::smime::parse(&args[1..]).map(Command::Smime),
         "watch" => match args.get(1).map(String::as_str) {
             None => Ok(Command::Watch {
                 notify: WatchNotify::AsSet,
@@ -512,7 +517,7 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
             let (mut to, mut cc, mut bcc) = (Vec::new(), Vec::new(), Vec::new());
             let mut subject = String::new();
             let mut receipt = ReceiptRequest::Unrequested;
-            let (mut sign, mut encrypt) = (false, false);
+            let (mut sign, mut encrypt, mut smime) = (false, false, false);
             let mut rest = args[1..].iter();
             while let Some(flag) = rest.next() {
                 let missing = format!("{flag} needs a value\n\n{}", usage());
@@ -524,6 +529,7 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                     }
                     "--sign" => sign = true,
                     "--encrypt" => encrypt = true,
+                    "--smime" => smime = true,
                     "--from" => {
                         from = Some(rest.next().ok_or(missing)?.clone());
                     }
@@ -559,11 +565,23 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                 // Filled in by the caller, which owns stdin. Parsing stays pure.
                 body: String::new(),
                 receipt,
-                openpgp: match (sign, encrypt) {
-                    (false, false) => OpenPgp::None,
-                    (true, false) => OpenPgp::Sign,
-                    (false, true) => OpenPgp::Encrypt,
-                    (true, true) => OpenPgp::SignAndEncrypt,
+                openpgp: match (sign, encrypt, smime) {
+                    (_, _, true) | (false, false, _) => OpenPgp::None,
+                    (true, false, false) => OpenPgp::Sign,
+                    (false, true, false) => OpenPgp::Encrypt,
+                    (true, true, false) => OpenPgp::SignAndEncrypt,
+                },
+                smime: match (sign, encrypt, smime) {
+                    (_, _, false) => Smime::None,
+                    (false, false, true) => {
+                        return Err(format!(
+                            "--smime says how to --sign or --encrypt; give one of them too\n\n{}",
+                            usage()
+                        ));
+                    }
+                    (true, false, true) => Smime::Sign,
+                    (false, true, true) => Smime::Encrypt,
+                    (true, true, true) => Smime::SignAndEncrypt,
                 },
             })
         }
@@ -1112,9 +1130,10 @@ usage: mailo <command>
   forward <message-id> --to a@b[,c@d]
                              forward it; the covering note is read from stdin
   compose --to a@b[,c@d] [--cc …] [--bcc …] [--subject S] [--from address]
-          [--request-receipt] [--sign] [--encrypt]
+          [--request-receipt] [--sign] [--encrypt] [--smime]
                              a new message; the body is read from stdin. --sign and
-                             --encrypt make it OpenPGP (PGP/MIME) when it is sent
+                             --encrypt make it OpenPGP (PGP/MIME) when it is sent, or
+                             S/MIME with --smime
   pgp keys                    the OpenPGP keys held, yours and your correspondents'
   pgp generate <address>      make a key for one of your identities
   pgp import <file>           import keys, public or secret, armored or binary
@@ -1123,6 +1142,14 @@ usage: mailo <command>
   pgp delete <fingerprint|address> [--with-secret]
   pgp lookup <address>        ask the address's domain for its key (Web Key Directory)
   pgp verify <fingerprint>    mark a key as checked with its owner
+  smime list                  the S/MIME certificates held, yours and your correspondents'
+  smime import <file>         import your identity (.p12/.pfx, asks its password) or a
+                             certificate (PEM or DER)
+  smime export <fingerprint|address>
+                             print a certificate, PEM
+  smime delete <fingerprint|address> [--with-secret]
+  smime trust <fingerprint>   trust a certificate, and what it issued; `untrust` undoes it
+  smime show <message-id>     what a message's S/MIME signature and encryption say
   receipt <message-id> [--decline]
                              send the read receipt a message asks for, or
                              decline to; `show` says which messages ask
@@ -1327,6 +1354,26 @@ pub fn run_with_clients(
                         None
                     }
                 };
+                // S/MIME likewise, when OpenPGP found nothing to open.
+                let opened_text = match opened_text {
+                    Some(text) => Some(text),
+                    None => match crate::smime::open_message(
+                        store,
+                        &mail_runtime::KeyringSecrets,
+                        &message,
+                        now,
+                    ) {
+                        Ok(Some(protected)) => {
+                            out.push_str(&crate::smime::describe(&protected));
+                            protected.shown.and_then(|parsed| parsed.text)
+                        }
+                        Ok(None) => None,
+                        Err(e) => {
+                            let _ = writeln!(out, "    S/MIME: {e}");
+                            None
+                        }
+                    },
+                };
                 if let Some(text) = opened_text {
                     let _ = writeln!(out, "{}", text.trim_end());
                     continue;
@@ -1381,7 +1428,8 @@ pub fn run_with_clients(
             &crate::pgp::terminal_passphrase,
             *draft,
             now,
-        ),
+        )
+        .map_err(|e| e.to_string()),
         Command::Send {
             draft,
             at: Some(when),
@@ -1392,7 +1440,8 @@ pub fn run_with_clients(
             *draft,
             when,
             now,
-        ),
+        )
+        .map_err(|e| e.to_string()),
         Command::Unsend { draft } => crate::compose::unsend_report(store, *draft, now),
         Command::TemplateSave { draft, name } => {
             crate::template::save_report(store, *draft, name, now)
@@ -1463,13 +1512,21 @@ pub fn run_with_clients(
             body,
             receipt,
             openpgp,
+            smime,
         } => crate::compose::new_sealed_message(
             store,
             from.as_deref(),
             [to, cc, bcc],
             subject,
             body,
-            (*receipt, *openpgp),
+            (*receipt, *openpgp, *smime),
+            now,
+        ),
+        Command::Smime(smime) => crate::smime::run(
+            store,
+            &mail_runtime::KeyringSecrets,
+            &crate::smime::terminal_password,
+            smime,
             now,
         ),
         Command::Pgp(crate::pgp::PgpCommand::Lookup { .. }) => {

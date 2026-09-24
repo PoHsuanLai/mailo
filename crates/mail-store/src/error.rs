@@ -1,7 +1,8 @@
 //! Store failures.
 
 use mail_domain::{
-    DraftId, Fingerprint, MessageId, Retry, Retryable, RuleId, TemplateId, ThreadId,
+    CertFingerprint, DraftId, Fingerprint, MessageId, Retry, Retryable, RuleId, TemplateId,
+    ThreadId,
 };
 use std::time::Duration;
 
@@ -25,6 +26,8 @@ pub enum StoreError {
     RuleNameTaken(String),
     #[error("no OpenPGP key {0}")]
     NoPgpKey(Fingerprint),
+    #[error("no S/MIME certificate {0}")]
+    NoSmimeCert(CertFingerprint),
     #[error("blob {0}: {1}")]
     Blob(String, String),
     /// A stored value no longer matches its type. Almost always a missing migration or a
@@ -55,6 +58,7 @@ impl Retryable for StoreError {
             | StoreError::NoRule(_)
             | StoreError::RuleNameTaken(_)
             | StoreError::NoPgpKey(_)
+            | StoreError::NoSmimeCert(_)
             | StoreError::NoPart { .. }
             | StoreError::BadAddress(_)
             | StoreError::Decode { .. }

@@ -3,16 +3,16 @@
 //! A signature covers exact bytes, so this works on the bytes themselves rather than on a
 //! parsed tree that has already decoded, re-folded or normalized them away.
 
-pub(super) use crate::stamp::fields;
+pub(crate) use crate::stamp::fields;
 use crate::stamp::split_head;
 
 /// Deepest nesting walked when looking for a signed or encrypted part. Real mail nests a few
 /// levels; a message nested thousands deep is an attack on the stack, not a message.
-pub(super) const MAX_DEPTH: usize = 16;
+pub(crate) const MAX_DEPTH: usize = 16;
 
 /// One entity: its header block, and its body after the blank line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct Entity<'a> {
+pub(crate) struct Entity<'a> {
     /// The whole entity, header and body: the bytes a signature over it covers.
     pub raw: &'a [u8],
     pub head: &'a [u8],
@@ -60,17 +60,17 @@ impl<'a> Entity<'a> {
 }
 
 /// Whether `field` is named `name`, compared whole and without regard to case.
-pub(super) fn is_named(field: &[u8], name: &str) -> bool {
+pub(crate) fn is_named(field: &[u8], name: &str) -> bool {
     field_name(field).eq_ignore_ascii_case(name.as_bytes())
 }
 
-pub(super) fn field_name(field: &[u8]) -> &[u8] {
+pub(crate) fn field_name(field: &[u8]) -> &[u8] {
     let colon = field.iter().position(|&b| b == b':').unwrap_or(field.len());
     field[..colon].trim_ascii()
 }
 
 /// A field's value, continuation lines joined, trimmed.
-pub(super) fn value(field: &[u8]) -> String {
+pub(crate) fn value(field: &[u8]) -> String {
     let colon = field.iter().position(|&b| b == b':').map_or(0, |at| at + 1);
     let unfolded: Vec<u8> = field[colon..]
         .iter()
@@ -82,7 +82,7 @@ pub(super) fn value(field: &[u8]) -> String {
 
 /// Whether a field describes the content rather than the message: `Content-*` and
 /// `MIME-Version`. These are what move into the signed or encrypted part.
-pub(super) fn is_content_field(field: &[u8]) -> bool {
+pub(crate) fn is_content_field(field: &[u8]) -> bool {
     let name = field_name(field);
     name.len() > 8 && name[..8].eq_ignore_ascii_case(b"content-")
         || name.eq_ignore_ascii_case(b"MIME-Version")
@@ -90,7 +90,7 @@ pub(super) fn is_content_field(field: &[u8]) -> bool {
 
 /// `Content-Type`, parsed: the media type lower-cased, and its parameters.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct ContentType {
+pub(crate) struct ContentType {
     pub mime: String,
     params: Vec<(String, String)>,
 }
@@ -186,7 +186,7 @@ fn unquote(value: &str) -> String {
 ///
 /// The line break before a boundary line belongs to the boundary, not to the part before it —
 /// which is what makes the bytes a signature covers well defined.
-pub(super) fn parts<'a>(body: &'a [u8], boundary: &str) -> Vec<&'a [u8]> {
+pub(crate) fn parts<'a>(body: &'a [u8], boundary: &str) -> Vec<&'a [u8]> {
     let delimiter = format!("--{boundary}");
     let delimiter = delimiter.as_bytes();
     let mut out = Vec::new();
@@ -231,7 +231,7 @@ pub(super) fn parts<'a>(body: &'a [u8], boundary: &str) -> Vec<&'a [u8]> {
 }
 
 /// `bytes` with every line ending a CRLF: the canonical form RFC 3156 signs.
-pub(super) fn crlf(bytes: &[u8]) -> Vec<u8> {
+pub(crate) fn crlf(bytes: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(bytes.len() + bytes.len() / 40);
     let mut previous = 0u8;
     for &b in bytes {

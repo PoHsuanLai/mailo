@@ -378,8 +378,8 @@ async fn auth_for(
             user: account.plan.username(),
             password,
         }),
-        Credential::OpenPgp(_) => Err(format!(
-            "the credential stored for {} is an OpenPGP key, not a sign-in",
+        Credential::OpenPgp(_) | Credential::SmimeKey(_) => Err(format!(
+            "the credential stored for {} is a private key, not a sign-in",
             account.address
         )),
     }

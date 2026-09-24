@@ -140,6 +140,7 @@ fn draft(replying_to: Option<MessageId>, blob: Option<BlobId>) -> Draft {
             .collect(),
         receipt: ReceiptRequest::Unrequested,
         openpgp: mail_domain::OpenPgp::None,
+        smime: mail_domain::Smime::None,
         state: SendState::Editing,
         updated: at(),
     }

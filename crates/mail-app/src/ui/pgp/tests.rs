@@ -193,6 +193,8 @@ fn every_verdict_is_said_in_words_and_a_bad_one_is_unmissable() {
         first_seen: now(),
         last_seen: now(),
         trust: KeyTrust::Unverified,
+        created: None,
+        expires: None,
         secret: SecretHeld::Absent,
     };
     let protected = |encryption, verification| Protected {

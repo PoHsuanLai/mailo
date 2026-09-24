@@ -169,6 +169,44 @@ pub fn save(
     write_new(dir, &attachment.name, &bytes)
 }
 
+/// One attachment of a message opened for reading — decrypted, or with its signature taken off —
+/// whose bytes are in the opened message rather than in the store: the stored parts of an
+/// encrypted message are ciphertext, and [`save`] would write that.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpenedAttachment {
+    /// As the message names it, untrusted: [`save_opened`] makes it safe.
+    pub name: String,
+    /// The declared media type, untrusted.
+    pub mime: String,
+    pub bytes: Vec<u8>,
+}
+
+/// Attachment `index` of an opened message, numbered as the reader lists an opened message's
+/// attachments: in the order [`mail_mime::Parsed::attachments`] holds them, which is the order a
+/// stored message's own attachments are numbered in too.
+pub fn opened_attachment(
+    shown: &mail_mime::Parsed,
+    index: usize,
+) -> Result<OpenedAttachment, String> {
+    let part = shown.attachments.get(index).ok_or_else(|| {
+        format!(
+            "that message has {} attachment(s); there is no number {index}",
+            shown.attachments.len()
+        )
+    })?;
+    Ok(OpenedAttachment {
+        name: part.name.clone(),
+        mime: part.mime.clone(),
+        bytes: part.bytes.clone(),
+    })
+}
+
+/// Save an opened message's attachment into `dir`, as [`save`] saves a stored one: under its
+/// name made safe, never over a file already there.
+pub fn save_opened(attachment: &OpenedAttachment, dir: &Path) -> Result<PathBuf, String> {
+    write_new(dir, &attachment.name, &attachment.bytes)
+}
+
 /// Write `bytes` into `dir` under `name` made safe, never over a file already there, returning
 /// the path written. How every file the window saves reaches the disk.
 pub fn write_new(dir: &Path, name: &str, bytes: &[u8]) -> Result<PathBuf, String> {

@@ -13,6 +13,7 @@ mod reparse;
 mod row;
 mod rules;
 mod search;
+mod smime;
 mod template;
 mod write;
 
@@ -817,6 +818,43 @@ impl Store for SqliteStore {
 
     fn put_autocrypt_peer(&self, peer: &mail_domain::AutocryptPeer) -> Result<(), StoreError> {
         self.write_autocrypt_peer(peer)
+    }
+
+    fn smime_certs(&self) -> Result<Vec<mail_domain::SmimeCert>, StoreError> {
+        self.load_smime_certs()
+    }
+
+    fn smime_cert(
+        &self,
+        fingerprint: mail_domain::CertFingerprint,
+    ) -> Result<Option<mail_domain::SmimeCert>, StoreError> {
+        self.load_smime_cert(fingerprint)
+    }
+
+    fn smime_certs_for(&self, address: &str) -> Result<Vec<mail_domain::SmimeCert>, StoreError> {
+        self.load_smime_certs_for(address)
+    }
+
+    fn put_smime_cert(
+        &self,
+        cert: mail_domain::SmimeCert,
+    ) -> Result<mail_domain::SmimeCert, StoreError> {
+        self.write_smime_cert(cert)
+    }
+
+    fn set_smime_trust(
+        &self,
+        fingerprint: mail_domain::CertFingerprint,
+        trust: mail_domain::KeyTrust,
+    ) -> Result<(), StoreError> {
+        self.write_smime_trust(fingerprint, trust)
+    }
+
+    fn delete_smime_cert(
+        &self,
+        fingerprint: mail_domain::CertFingerprint,
+    ) -> Result<bool, StoreError> {
+        self.remove_smime_cert(fingerprint)
     }
 
     fn contacts_matching(&self, typed: &str, k: usize) -> Result<Vec<Contact>, StoreError> {

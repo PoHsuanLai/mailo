@@ -19,7 +19,6 @@ use mail_mime::MimeError;
 use mail_runtime::{RuntimeError, Secrets};
 use mail_store::{SqliteStore, Store, StoreError};
 use std::fmt::Write as _;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Asked for the passphrase of the user's key with this fingerprint, when a protected key has
 /// to sign or decrypt. `None` is "not given": the send is refused or the message stays locked.
@@ -58,6 +57,11 @@ pub enum PgpError {
     Locked(Fingerprint),
     #[error("{0} is not the address of any of your identities")]
     NoIdentity(String),
+    /// A draft asks for OpenPGP and S/MIME at once (`crate::smime::send`).
+    #[error(
+        "a message is protected with OpenPGP or with S/MIME, not both; choose one before sending"
+    )]
+    BothProtections,
     #[error("{address} already has an OpenPGP key, {fingerprint}")]
     AlreadyHasKey {
         address: String,
@@ -98,16 +102,16 @@ impl From<MimeError> for PgpError {
     }
 }
 
-/// Bumped whenever this process changes what keys it holds or trusts, so an opened message
-/// cached under the old keys is opened again.
-static EPOCH: AtomicU64 = AtomicU64::new(0);
-
-fn epoch() -> u64 {
-    EPOCH.load(Ordering::Relaxed)
+/// A count that moves whenever the keys or certificates this process holds or trusts change —
+/// imported, made, deleted, trusted, or learnt from arriving mail. Shared by OpenPGP and S/MIME
+/// (`mail_runtime::epoch`): a cache of opened messages keeps the count it was made under and
+/// opens them again when it has moved.
+pub fn epoch() -> u64 {
+    mail_runtime::epoch::keys()
 }
 
 fn epoch_changed() {
-    EPOCH.fetch_add(1, Ordering::Relaxed);
+    mail_runtime::epoch::keys_changed();
 }
 
 /// The passphrase for `fingerprint` as the command line gets one: `MAILO_PGP_PASSPHRASE` when it
@@ -127,7 +131,7 @@ pub fn terminal_passphrase(fingerprint: Fingerprint) -> Option<String> {
 
 /// A line read from the controlling terminal with echo off. `None` without a terminal.
 #[cfg(unix)]
-fn ask_tty(prompt: &str) -> Option<String> {
+pub(crate) fn ask_tty(prompt: &str) -> Option<String> {
     use std::io::{BufRead, Write};
     use std::process::{Command, Stdio};
     let tty = std::fs::OpenOptions::new()
@@ -162,7 +166,7 @@ fn ask_tty(prompt: &str) -> Option<String> {
 }
 
 #[cfg(not(unix))]
-fn ask_tty(_: &str) -> Option<String> {
+pub(crate) fn ask_tty(_: &str) -> Option<String> {
     None
 }
 

@@ -459,7 +459,9 @@ pub enum Freshness<'a> {
 pub fn assess(credential: &Credential, now: DateTime<Utc>) -> Freshness<'_> {
     match credential {
         // Neither expires on a schedule.
-        Credential::Password(_) | Credential::OpenPgp(_) => Freshness::Ready,
+        Credential::Password(_) | Credential::OpenPgp(_) | Credential::SmimeKey(_) => {
+            Freshness::Ready
+        }
         Credential::OAuth {
             refresh,
             expires_at,

@@ -77,6 +77,7 @@ fn full_draft(in_reply_to: Option<MessageId>) -> Draft {
         attachments: vec![],
         receipt: ReceiptRequest::Requested,
         openpgp: OpenPgp::None,
+        smime: mail_domain::Smime::None,
         state: SendState::Editing,
         updated: at(10),
     }

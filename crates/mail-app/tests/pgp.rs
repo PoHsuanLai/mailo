@@ -112,7 +112,7 @@ fn frozen(store: &SqliteStore) -> Vec<u8> {
 }
 
 fn send(store: &SqliteStore, secrets: &MapSecrets, draft: DraftId) -> Result<String, String> {
-    compose::send_with(store, secrets, &pgp::no_passphrase, draft, now())
+    compose::send_with(store, secrets, &pgp::no_passphrase, draft, now()).map_err(|e| e.to_string())
 }
 
 /// Store `raw` as a message that arrived in the inbox, the way a sync does, and return it.
@@ -544,7 +544,12 @@ mod sending {
             now(),
         )
         .unwrap_err();
-        assert!(wrong.contains("needs its passphrase"), "{wrong}");
+        // Typed, so the window can ask for the passphrase of exactly that key and try again.
+        assert_eq!(wrong.locked(), Some(locked.fingerprint()));
+        assert!(
+            wrong.to_string().contains("needs its passphrase"),
+            "{wrong}"
+        );
         assert!(submissions(&store).is_empty());
 
         let asked = std::cell::Cell::new(0);
@@ -566,7 +571,11 @@ mod sending {
             [&to(&[BEA]), &[], &[]],
             "hi",
             "body",
-            (ReceiptRequest::Unrequested, OpenPgp::SignAndEncrypt),
+            (
+                ReceiptRequest::Unrequested,
+                OpenPgp::SignAndEncrypt,
+                Smime::None,
+            ),
             now(),
         )
         .unwrap();

@@ -1105,7 +1105,98 @@ fn a_database_from_before_openpgp_upgrades_with_plain_drafts_and_no_keys() {
         last_seen: at,
         trust: KeyTrust::Unverified,
         secret: SecretHeld::Absent,
+        created: None,
+        expires: None,
     };
     store.put_pgp_key(key.clone()).unwrap();
     assert_eq!(store.pgp_keys_for("me@example.test").unwrap(), vec![key]);
+}
+
+/// 0019: a draft saved before S/MIME opens as plain, keeping what it asked OpenPGP to do, and
+/// the certificate table starts empty and takes a certificate straight away.
+#[test]
+fn a_database_from_before_smime_upgrades_with_plain_drafts_and_no_certificates() {
+    use mail_domain::{
+        CertFingerprint, CertSource, DraftId, Fingerprint, KeyTrust, OpenPgp, SecretHeld, Smime,
+        SmimeCert,
+    };
+    use mail_store::Store;
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("mail.db");
+    let draft = {
+        let db = Connection::open(&path).unwrap();
+        for (version, sql) in migrate::MIGRATIONS.iter().take(18) {
+            db.execute_batch(sql).unwrap();
+            if *version > 1 {
+                db.execute(
+                    "INSERT INTO schema_version (version, applied_at) VALUES (?1, datetime('now'))",
+                    [version],
+                )
+                .unwrap();
+            }
+        }
+        let (account, _) = seed(&db);
+        let identity = uuid::Uuid::new_v4().to_string();
+        db.execute(
+            "INSERT INTO identities (id, account, from_name, from_email, is_default)
+             VALUES (?1, ?2, NULL, 'me@example.test', '\"default\"')",
+            [&identity, &account],
+        )
+        .unwrap();
+        let draft = uuid::Uuid::new_v4();
+        db.execute(
+            r#"INSERT INTO drafts (id, account, identity, recipients, subject, in_reply_to,
+                 forward_of, body_text, body_html, attachments, state, updated_at, receipt,
+                 openpgp)
+               VALUES (?1, ?2, ?3, '{"reply_to":[],"to":[],"cc":[],"bcc":[]}', 'old', NULL,
+                 NULL, 'text', NULL, '[]', '{"kind":"editing"}',
+                 '2023-01-01T00:00:00.000000000Z', '"unrequested"', '"sign"')"#,
+            rusqlite::params![draft.to_string(), account, identity],
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO pgp_keys (fingerprint, key_ids, user_ids, emails, key, source,
+                 first_seen, last_seen, trust, secret)
+             VALUES (?1, '[]', '[]', '[\"me@example.test\"]', x'9833', '\"imported\"',
+                 '2023-01-01T00:00:00.000000000Z', '2023-01-01T00:00:00.000000000Z',
+                 '\"unverified\"', '\"absent\"')",
+            [Fingerprint::V4([4; 20]).to_string()],
+        )
+        .unwrap();
+        DraftId::from_uuid(draft)
+    };
+
+    let store = SqliteStore::open(&path, dir.path()).unwrap();
+    assert_eq!(version_of(&store.connection()), migrate::EXPECTED_VERSION);
+    // A key kept before its dates were recorded reads back without them, for the application
+    // to fill from the key's bytes.
+    let old_key = store.pgp_key(Fingerprint::V4([4; 20])).unwrap().unwrap();
+    assert_eq!((old_key.created, old_key.expires), (None, None));
+    let loaded = store.draft(draft).unwrap();
+    assert_eq!(loaded.smime, Smime::None);
+    assert_eq!(loaded.openpgp, OpenPgp::Sign);
+    assert!(store.smime_certs().unwrap().is_empty());
+    let at = chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap();
+    let cert = SmimeCert {
+        fingerprint: CertFingerprint([3; 32]),
+        subject: "CN=Me".to_owned(),
+        issuer: "CN=CA".to_owned(),
+        serial: "01".to_owned(),
+        emails: vec!["me@example.test".to_owned()],
+        not_before: at,
+        not_after: at,
+        der: vec![0x30, 0x00],
+        chain: Vec::new(),
+        source: CertSource::Imported,
+        first_seen: at,
+        last_seen: at,
+        trust: KeyTrust::Unverified,
+        secret: SecretHeld::Absent,
+    };
+    store.put_smime_cert(cert.clone()).unwrap();
+    assert_eq!(
+        store.smime_certs_for("me@example.test").unwrap(),
+        vec![cert]
+    );
 }

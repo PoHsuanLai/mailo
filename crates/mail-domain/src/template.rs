@@ -17,6 +17,7 @@ use crate::draft::{Draft, PendingAttachment, SendState};
 use crate::id::{AccountId, DraftId, IdentityId, TemplateId};
 use crate::pgp::OpenPgp;
 use crate::receipt::ReceiptRequest;
+use crate::smime::Smime;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -49,6 +50,9 @@ pub struct Template {
     /// template kept from an encrypted draft never starts a plain one.
     #[serde(default)]
     pub openpgp: OpenPgp,
+    /// The same for S/MIME, carried for the same reason.
+    #[serde(default)]
+    pub smime: Smime,
     pub updated: DateTime<Utc>,
 }
 
@@ -81,6 +85,7 @@ impl Template {
             attachments: draft.attachments.clone(),
             receipt: draft.receipt,
             openpgp: draft.openpgp,
+            smime: draft.smime,
             updated: now,
         }
     }
@@ -102,6 +107,7 @@ impl Template {
             attachments: self.attachments.clone(),
             receipt: self.receipt,
             openpgp: self.openpgp,
+            smime: self.smime,
             state: SendState::Editing,
             updated: now,
         }
@@ -146,6 +152,7 @@ mod tests {
             }],
             receipt: ReceiptRequest::Requested,
             openpgp: OpenPgp::SignAndEncrypt,
+            smime: Smime::Sign,
             state: SendState::Sent {
                 at: at(8),
                 message: None,
@@ -169,6 +176,7 @@ mod tests {
         assert_eq!(kept.attachments, original.attachments);
         assert_eq!(kept.receipt, ReceiptRequest::Requested);
         assert_eq!(kept.openpgp, OpenPgp::SignAndEncrypt);
+        assert_eq!(kept.smime, Smime::Sign);
         assert_eq!(kept.identity, original.identity);
         assert_eq!(kept.account, original.account);
         assert_eq!(kept.updated, at(9));
@@ -187,6 +195,7 @@ mod tests {
             OpenPgp::SignAndEncrypt,
             "never silently plain"
         );
+        assert_eq!(started.smime, Smime::Sign, "never silently plain");
     }
 
     #[test]

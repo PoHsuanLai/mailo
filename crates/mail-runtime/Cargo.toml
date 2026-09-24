@@ -35,6 +35,12 @@ keyring = "4"
 hickory-resolver = "0.26"
 # The registered domain of an MX host, for account discovery. Already here through mail-app.
 psl = "2"
+# The operating system's certificate authorities, as S/MIME trust anchors (`smime.rs`). Apache-2.0
+# OR ISC OR MIT; reads the platform's bundle (on Linux the files OpenSSL would, found by
+# `openssl-probe`, also permissive).
+rustls-native-certs = "0.8"
+# An S/MIME private key on its way to and from the keyring is wiped after. Already in the tree.
+zeroize = "1"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }

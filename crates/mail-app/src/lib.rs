@@ -26,6 +26,7 @@ pub mod reader;
 pub mod receipt;
 pub mod rules;
 pub mod search;
+pub mod smime;
 pub mod snooze;
 pub mod space;
 pub mod sync;

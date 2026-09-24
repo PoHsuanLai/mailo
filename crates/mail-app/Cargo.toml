@@ -64,18 +64,28 @@ url = "2"
 # A typed password is overwritten when it is dropped (`password.rs`). Already in the lock through
 # rustls and the keyring.
 zeroize = "1"
+# The OS random number generator for OpenPGP key generation and sealing (`pgp/`) and S/MIME
+# sealing (`smime/`). rPGP's own `rand` generation; already in the tree. For every target: it had
+# been listed under Linux alone, where `pgp/` would not have built anywhere else.
+rand = "0.8"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # Printing: the print operation over the printed document's own webview, made here rather than
 # through `wry`'s `print()` because only the operation's `finished` signal says when that window
 # may close (`ui/print/window.rs`). Already in the lock through wry, at the version wry uses.
 webkit2gtk = "2.0"
-# The OS random number generator for OpenPGP key generation and sealing (`pgp/`). rPGP's own
-# `rand` generation; already in the tree.
-rand = "0.8"
 
 [dev-dependencies]
 tempfile = "3"
+# The throwaway certificate authority `tests/smime.rs` builds its fixtures with
+# (`mail-mime/tests/smime_support`). All already in the tree through `mail-mime`.
+x509-cert = { version = "0.2", features = ["builder"] }
+der = "0.7"
+spki = "0.7"
+const-oid = "0.9"
+cms = "0.2"
+rsa = "0.9"
+p256 = { version = "0.13", features = ["ecdsa"] }
 # A paused clock, so a test drives the search box's debounce instead of sleeping through it.
 tokio = { version = "1", features = ["test-util"] }
 dioxus-ssr = "0.7"

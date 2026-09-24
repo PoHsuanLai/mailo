@@ -87,6 +87,7 @@ fn template(name: &str) -> Template {
         }],
         receipt: ReceiptRequest::Requested,
         openpgp: OpenPgp::SignAndEncrypt,
+        smime: mail_domain::Smime::Sign,
         updated: at(10),
     }
 }

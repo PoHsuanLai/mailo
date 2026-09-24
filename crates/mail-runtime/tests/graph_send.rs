@@ -183,6 +183,7 @@ fn draft() -> Draft {
         attachments: Vec::new(),
         receipt: ReceiptRequest::Unrequested,
         openpgp: OpenPgp::None,
+        smime: mail_domain::Smime::None,
         state: SendState::Editing,
         updated: now(),
     }

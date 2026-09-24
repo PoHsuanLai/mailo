@@ -225,6 +225,14 @@ pub struct PgpKey {
     pub last_seen: DateTime<Utc>,
     pub trust: KeyTrust,
     pub secret: SecretHeld,
+    /// When the primary key was made, from the key itself. `None` only for a key kept before
+    /// this was recorded, until the store is next opened and it is read from the key's bytes.
+    #[serde(default)]
+    pub created: Option<DateTime<Utc>>,
+    /// When the key stops being valid, from its newest self-signature. `None` when it does not
+    /// expire — or, with `created` also `None`, when that is not recorded yet.
+    #[serde(default)]
+    pub expires: Option<DateTime<Utc>>,
 }
 
 impl PgpKey {
@@ -259,6 +267,17 @@ impl PgpKey {
                 key_ids.push(*id);
             }
         }
+        // The dates go with the bytes they were read from, unless that copy never had them.
+        let (dated, other) = if newer_wins {
+            (&newer, &self)
+        } else {
+            (&self, &newer)
+        };
+        let (created, expires) = if dated.created.is_some() {
+            (dated.created, dated.expires)
+        } else {
+            (other.created, other.expires)
+        };
         let (key, source) = if newer_wins {
             (newer.key, newer.source)
         } else {
@@ -275,6 +294,8 @@ impl PgpKey {
             last_seen: self.last_seen.max(newer.last_seen),
             trust: self.trust.max_of(newer.trust),
             secret: self.secret.max_of(newer.secret),
+            created,
+            expires,
         }
     }
 
@@ -398,6 +419,8 @@ mod tests {
             last_seen: at,
             trust: KeyTrust::Unverified,
             secret: SecretHeld::Absent,
+            created: Some(at),
+            expires: None,
         }
     }
 
@@ -438,6 +461,24 @@ mod tests {
         // The window still widens: it was seen again.
         assert_eq!(merged.last_seen, key(KeySource::Gossip, 10, b"").last_seen);
         assert_eq!(merged.user_ids, vec!["user 0", "user 10"]);
+    }
+
+    #[test]
+    fn a_copy_with_no_dates_takes_them_from_the_other_and_the_bytes_decide_otherwise() {
+        let mut undated = key(KeySource::Imported, 0, b"old");
+        undated.created = None;
+        let mut dated = key(KeySource::Gossip, 5, b"gossip");
+        dated.expires = Some(dated.last_seen);
+        let merged = undated.clone().merged(dated.clone());
+        assert_eq!(merged.key, b"old");
+        assert_eq!(
+            (merged.created, merged.expires),
+            (dated.created, dated.expires)
+        );
+        // A dated copy whose bytes win keeps its own dates, a `None` expiry included.
+        let newer = key(KeySource::Imported, 9, b"new");
+        let merged = dated.merged(newer.clone());
+        assert_eq!((merged.created, merged.expires), (newer.created, None));
     }
 
     #[test]

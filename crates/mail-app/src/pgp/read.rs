@@ -32,6 +32,18 @@ pub struct Protected {
     pub raw: Option<Vec<u8>>,
 }
 
+impl Protected {
+    /// Attachment `index` of the opened message, numbered as the reader lists its attachments
+    /// ([`crate::attach::opened_attachment`]). Refused for a message that could not be opened.
+    pub fn attachment(&self, index: usize) -> Result<crate::attach::OpenedAttachment, String> {
+        let shown = self
+            .shown
+            .as_ref()
+            .ok_or("that message could not be opened, so its attachments cannot be read")?;
+        crate::attach::opened_attachment(shown, index)
+    }
+}
+
 /// How many opened messages to keep in memory.
 const CACHE_SIZE: usize = 32;
 

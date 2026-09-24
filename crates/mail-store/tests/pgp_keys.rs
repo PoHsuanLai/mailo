@@ -29,6 +29,9 @@ fn key(byte: u8, email: &str, source: KeySource, seen: i64) -> PgpKey {
         last_seen: at(seen),
         trust: KeyTrust::Unverified,
         secret: SecretHeld::Absent,
+        // The key's own dates round-trip too: an odd key expires, an even one does not.
+        created: Some(at(seen - 1_000)),
+        expires: (byte % 2 == 1).then(|| at(90_000)),
     }
 }
 
@@ -240,6 +243,7 @@ fn a_draft_keeps_what_it_asks_openpgp_to_do() {
         attachments: Vec::new(),
         receipt: ReceiptRequest::Unrequested,
         openpgp: OpenPgp::SignAndEncrypt,
+        smime: mail_domain::Smime::None,
         state: SendState::Editing,
         updated: at(0),
     };

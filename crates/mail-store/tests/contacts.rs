@@ -450,6 +450,7 @@ fn draft(to: Vec<Address>, subject: &str) -> Draft {
         updated: at(0),
         receipt: ReceiptRequest::Unrequested,
         openpgp: OpenPgp::None,
+        smime: mail_domain::Smime::None,
     }
 }
 
