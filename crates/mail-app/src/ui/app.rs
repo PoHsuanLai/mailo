@@ -10,8 +10,8 @@ use super::sidebar::Places;
 use super::space_editor::SpaceEditor;
 use super::style::STYLE;
 use crate::view::{
-    Appearance, Listing, PageMenu, Place, Shell, Shortcut, Source, SyncState, badge_filter,
-    is_label_place, nothing_to_show, synced,
+    Appearance, Listing, PageMenu, Shell, Shortcut, Source, SyncState, badge_filter, folder_filter,
+    nothing_to_show, places_with, synced,
 };
 use dioxus::prelude::*;
 use mail_domain::*;
@@ -57,6 +57,8 @@ pub(super) fn App() -> Element {
     let mut seen_open = use_signal(|| None::<mail_domain::ThreadId>);
     let mut scoped = use_signal(|| false);
     let mut label_ids = use_signal(Vec::<mail_domain::LabelId>::new);
+    // The server folders that are places, after the labels, as `view::places_with` orders them.
+    let mut folder_refs = use_signal(Vec::<(String, MailboxRef)>::new);
     // Hover previews and the motion keyed to ops: shared state, provided once for the window.
     super::hover::use_hover();
     super::motion::use_motion();
@@ -67,14 +69,9 @@ pub(super) fn App() -> Element {
         let known = crate::query::known_labels(&store);
         let ids: Vec<mail_domain::LabelId> = known.iter().map(|(_, id)| *id).collect();
         label_ids.set(ids);
-        let mut places = crate::view::default_places();
-        for (name, id) in &known {
-            places.push(Place {
-                name: name.clone(),
-                source: Source::Mail(Filter::HasLabel(*id)),
-                unread: None,
-            });
-        }
+        let folders = super::sidebar::folder_places(&store);
+        let places = places_with(&known, &folders);
+        folder_refs.set(folders);
         let mut write = shell.write();
         write.labels = known;
         write.places = places;
@@ -85,6 +82,8 @@ pub(super) fn App() -> Element {
     // because "page 3" of the Inbox means nothing once the user is looking at Archive.
     let pages = use_signal(|| 1u32);
     let mut sync_state = use_signal(|| SyncState::Idle);
+    // Opening a folder fetches it, and says so where a sync does.
+    super::folder_open::use_fetching(sync_state);
 
     // One count per place, recomputed after any write. `Store::count` answers each in a single
     // indexed query, which is why the sidebar can afford to ask on every revision.
@@ -121,6 +120,9 @@ pub(super) fn App() -> Element {
                 Filter::HasLabel(*id),
                 Filter::Read(ReadState::Unread),
             ])));
+        }
+        for (_, mailbox) in folder_refs.read().iter() {
+            filters.push(badge_filter(&Source::Mail(folder_filter(mailbox))));
         }
         filters
     });
@@ -174,25 +176,24 @@ pub(super) fn App() -> Element {
         if shell.peek().accounts != sending {
             shell.write().accounts = sending;
         }
-        let mut next: Vec<Place> = shell
-            .peek()
-            .places
-            .iter()
-            .filter(|place| !is_label_place(place))
-            .cloned()
-            .collect();
-        if next.is_empty() {
-            next = crate::view::default_places();
+        // Folders the same way: a folder made, renamed or listed for the first time is a place
+        // at once.
+        let folders = super::sidebar::folder_places(&store);
+        if *folder_refs.peek() != folders {
+            folder_refs.set(folders.clone());
         }
-        for (name, id) in &known {
-            next.push(Place {
-                name: name.clone(),
-                source: Source::Mail(Filter::HasLabel(*id)),
-                unread: None,
-            });
-        }
+        let next = places_with(&known, &folders);
         if shell.peek().places != next {
-            let selected = shell.peek().selected.min(next.len().saturating_sub(1));
+            // The same place stays chosen when one is added before it: a new label moves every
+            // folder down by one, and the list must not jump to the folder above.
+            let selected = {
+                let current = shell.peek();
+                current
+                    .places
+                    .get(current.selected)
+                    .and_then(|was| next.iter().position(|place| place.source == was.source))
+                    .unwrap_or_else(|| current.selected.min(next.len().saturating_sub(1)))
+            };
             let mut write = shell.write();
             write.places = next;
             write.selected = selected;

@@ -19,7 +19,7 @@ pub(super) use toast::Toast;
 
 use super::ops::{perform, resolve, take_back};
 use crate::view::Shell;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
@@ -278,20 +278,7 @@ impl Motion {
     /// Whether the row still belongs to the list it is in. A search is global, so a row there
     /// stays whatever happened to it; a place is its filter, asked of the row as it is now.
     fn stays(&self, store: &SqliteStore, shell: Signal<Shell>, thread: ThreadId) -> bool {
-        let current = shell.peek();
-        if !current.search.trim().is_empty() {
-            return true;
-        }
-        let Ok(after) = store.thread(thread) else {
-            return false;
-        };
-        let filter = current.query(1).filter;
-        filter.fit(&MatchCtx {
-            summary: &after.summary,
-            corpus: None,
-            folders: &[],
-            now: Utc::now(),
-        })
+        belongs(store, &shell.peek(), thread, Utc::now())
     }
 
     /// Put up the toast. The next op replaces it; otherwise it leaves on its own.
@@ -314,6 +301,53 @@ impl Motion {
             }
         });
     }
+}
+
+/// Whether `thread`, as the store now holds it, is still in the list `shell` shows.
+///
+/// A search is global, so a row there stays whatever happened to it; a place is its filter,
+/// asked of the thread with the folders the server holds its messages in, so a folder's place
+/// keeps a row that was starred and lets go of one whose mail has left the folder.
+pub(in crate::ui) fn belongs(
+    store: &SqliteStore,
+    shell: &Shell,
+    thread: ThreadId,
+    now: DateTime<Utc>,
+) -> bool {
+    if !shell.search.trim().is_empty() {
+        return true;
+    }
+    let Ok(after) = store.thread(thread) else {
+        return false;
+    };
+    let folders = folders_of(store, &after);
+    shell.query(1).filter.fit(&MatchCtx {
+        summary: &after.summary,
+        corpus: None,
+        folders: &folders,
+        now,
+    })
+}
+
+/// Every server folder a message of `thread` is addressed in.
+fn folders_of(store: &SqliteStore, thread: &Thread) -> Vec<MailboxRef> {
+    let account = thread.summary.account;
+    let mut folders: Vec<MailboxRef> = thread
+        .messages
+        .iter()
+        .filter_map(|message| store.remotes_of(*message).ok())
+        .flatten()
+        .filter_map(|remote| match remote {
+            RemoteRef::Imap { mailbox, .. } => Some(MailboxRef {
+                account,
+                path: mailbox,
+            }),
+            RemoteRef::Pop { .. } => None,
+        })
+        .collect();
+    folders.sort_by(|a, b| a.path.cmp(&b.path));
+    folders.dedup();
+    folders
 }
 
 /// A leaving row has finished: take it off the page, and let the rows under it heal.

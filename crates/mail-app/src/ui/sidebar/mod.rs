@@ -12,6 +12,7 @@ mod folders;
 mod panes;
 mod today;
 
+pub(super) use self::folder_act::folder_places;
 use self::folder_tree::{Show, arrange, scope};
 use self::folders::FolderList;
 use self::panes::{AccountTiles, PinnedList, PlaceList, counts};
@@ -166,6 +167,8 @@ pub(super) fn Places(
         }
     }
 }
+#[cfg(test)]
+mod folder_place_tests;
 #[cfg(test)]
 mod folder_store_tests;
 #[cfg(test)]

@@ -12,6 +12,7 @@ mod data;
 mod debounce;
 mod field;
 mod files;
+mod folder_open;
 mod frame;
 mod history;
 mod hover;

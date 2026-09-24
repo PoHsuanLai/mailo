@@ -3,13 +3,13 @@
 
 use super::super::data::account_rows;
 use super::super::motion::{Follow, tell};
-use super::folder_tree::{AccountFolders, Mailboxes};
+use super::folder_tree::{AccountFolders, Mailboxes, placed};
 use crate::folder::{Refusal, change};
 use crate::undo::{Undo, reverse_folder};
 use crate::view::Shell;
 use dioxus::prelude::*;
 use mail_domain::{
-    AccountId, FolderError, FolderWork, Incoming, NonEmpty, ServerLabels, Subscription,
+    AccountId, FolderError, FolderWork, Incoming, MailboxRef, NonEmpty, ServerLabels, Subscription,
 };
 use mail_store::{SqliteStore, Store};
 
@@ -40,6 +40,14 @@ pub(in crate::ui) fn load(store: &SqliteStore, scope: &[AccountId]) -> Vec<Accou
             }
         })
         .collect()
+}
+
+/// Every folder that is a place, across every account, named as its row is.
+///
+/// Every account and not the Space's: the places are the window's, and a Space narrows which
+/// of them the sidebar draws.
+pub(in crate::ui) fn folder_places(store: &SqliteStore) -> Vec<(String, MailboxRef)> {
+    placed(&load(store, &[]))
 }
 
 /// A change that happened: what the toast says, and how to take it back, when it can be.

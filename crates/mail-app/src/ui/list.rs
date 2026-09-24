@@ -63,6 +63,13 @@ pub(super) fn ThreadList(
                     .map(|row| row.shown())
             })
     });
+    let address = address.or_else(|| {
+        let known: Vec<(AccountId, String)> = rows()
+            .into_iter()
+            .map(|row| (row.id, row.address))
+            .collect();
+        super::folder_open::title_address(&shell.read(), &known)
+    });
     let names: BTreeMap<LabelId, String> = shell
         .read()
         .labels
@@ -152,7 +159,8 @@ pub(super) fn ThreadList(
                     }
                 }
                 if let Some(note) = note {
-                    span { class: if bad { "status bad" } else { "status" }, "{note}" }
+                    // One line, cut short when it must be; the whole of it on hover.
+                    span { class: if bad { "status bad" } else { "status" }, title: "{note}", "{note}" }
                 }
                 if let Some(said) = search_note {
                     span { class: if invalid { "status bad" } else { "status" }, "{said}" }
@@ -169,6 +177,7 @@ pub(super) fn ThreadList(
                                     return;
                                 }
                                 sync_state.set(SyncState::Running);
+                                super::folder_open::forget();
                                 let store = consume_context::<Arc<SqliteStore>>();
                                 spawn(async move {
                                     // `spawn_blocking`, not this task: sync::run opens sockets and

@@ -128,6 +128,55 @@ pub fn is_label_place(place: &Place) -> bool {
     matches!(place.source, Source::Mail(Filter::HasLabel(_)))
 }
 
+/// The filter a server folder's place lists: the account's threads with a message the server
+/// holds at exactly `path`.
+///
+/// For a folder with no role and no label behind it. The inbox and the role places list by
+/// role, and where folders are labels (Gmail) a folder is listed through its label.
+pub fn folder_filter(mailbox: &MailboxRef) -> Filter {
+    Filter::And(vec![
+        Filter::Account(mailbox.account),
+        Filter::InFolder(mailbox.clone()),
+    ])
+}
+
+/// The folder a place lists, when it is a server folder's place.
+pub fn folder_of(place: &Place) -> Option<&MailboxRef> {
+    match &place.source {
+        Source::Mail(Filter::And(parts)) => match parts.as_slice() {
+            [Filter::Account(account), Filter::InFolder(mailbox)]
+                if *account == mailbox.account =>
+            {
+                Some(mailbox)
+            }
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// The sidebar: the default places, then one per label, then one per server folder, in that
+/// order — which is also the order the badges are counted in, index for index.
+///
+/// A folder's place is named by its last level, which is what its row and the list's title say.
+pub fn places_with(labels: &[(String, LabelId)], folders: &[(String, MailboxRef)]) -> Vec<Place> {
+    let labelled = labels.iter().map(|(name, id)| Place {
+        name: name.clone(),
+        source: Source::Mail(Filter::HasLabel(*id)),
+        unread: None,
+    });
+    let foldered = folders.iter().map(|(name, mailbox)| Place {
+        name: name.clone(),
+        source: Source::Mail(folder_filter(mailbox)),
+        unread: None,
+    });
+    default_places()
+        .into_iter()
+        .chain(labelled)
+        .chain(foldered)
+        .collect()
+}
+
 /// What a place's badge counts, or `None` when it has no badge.
 ///
 /// Unread threads, and only for mail: "3 unread drafts" is not a thing, because a draft is not

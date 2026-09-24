@@ -8,7 +8,7 @@ use crate::provider::icon::{ChipPlace, ProvChip};
 use crate::provider::{Provider, provider};
 use crate::query::{self};
 use crate::space::{self, Pinned, Scope, Space};
-use crate::view::{Shell, Source, is_label_place};
+use crate::view::{Shell, Source, folder_of, is_label_place};
 use dioxus::prelude::*;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
@@ -186,17 +186,19 @@ pub(super) fn PlaceList(
     folded: Vec<LabelId>,
 ) -> Element {
     let places = shell.read().places.clone();
+    // Labels and then folders follow the default places; folders are drawn under Folders.
     let split = places
         .iter()
-        .position(is_label_place)
+        .position(|place| is_label_place(place) || folder_of(place).is_some())
         .unwrap_or(places.len());
     // A label that is also a mailbox is drawn once, under Folders. See `folder_tree::arrange`.
     let labels: Vec<(usize, String)> = places
         .iter()
         .enumerate()
         .skip(split)
-        .filter(|(_, place)| {
-            !matches!(&place.source, Source::Mail(Filter::HasLabel(id)) if folded.contains(id))
+        .filter(|(_, place)| match &place.source {
+            Source::Mail(Filter::HasLabel(id)) => !folded.contains(id),
+            _ => false,
         })
         .map(|(index, place)| (index, place.name.clone()))
         .collect();

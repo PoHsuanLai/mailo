@@ -1,5 +1,6 @@
 //! One folder's row, the menu under it, and what its picks do.
 
+use super::super::folder_open;
 use super::super::icon::Icon;
 use super::super::menu::Menu;
 use super::folder_act::{act, messages_word, refused, renamed_path};
@@ -7,9 +8,9 @@ use super::folder_parts::{NameField, Naming, Said, actions, item};
 use super::folder_tree::{Kind, Node};
 use super::folders::{FOCUS, Note, Open, Spot, Wires};
 use crate::folder::Refusal;
-use crate::view::Source;
+use crate::view::{Source, folder_of};
 use dioxus::prelude::*;
-use mail_domain::{AccountId, Filter, FolderError, FolderWork, NonEmpty, Subscription};
+use mail_domain::{AccountId, Filter, FolderError, FolderWork, MailboxRef, NonEmpty, Subscription};
 use mail_store::SqliteStore;
 use std::sync::Arc;
 
@@ -21,7 +22,8 @@ pub(super) fn FolderRow(
     delimiter: Option<char>,
     wires: Wires,
 ) -> Element {
-    let (mut shell, mut pages, badges) = (wires.shell, wires.pages, wires.badges);
+    let (mut shell, mut pages, badges, revision) =
+        (wires.shell, wires.pages, wires.badges, wires.revision);
     let (mut open, mut note) = (wires.open, wires.note);
     let spot = Spot {
         account,
@@ -32,13 +34,18 @@ pub(super) fn FolderRow(
         Kind::Listed { label, .. } => *label,
         Kind::Implied => None,
     };
-    // Its mail is the label's, and the label is a place: listing it is choosing that place.
-    let place = label.and_then(|id| {
-        shell
-            .read()
-            .places
-            .iter()
-            .position(|p| p.source == Source::Mail(Filter::HasLabel(id)))
+    // Where folders are labels its mail is the label's, and the label is a place: listing it
+    // is choosing that place. Elsewhere the folder is a place of its own, and choosing it
+    // fetches it too.
+    let mailbox = MailboxRef {
+        account,
+        path: node.path.clone(),
+    };
+    let fetched = label.is_none().then(|| mailbox.clone());
+    let data_path = node.path.clone();
+    let place = shell.read().places.iter().position(|p| match label {
+        Some(id) => p.source == Source::Mail(Filter::HasLabel(id)),
+        None => folder_of(p) == Some(&mailbox),
     });
     let count = place.and_then(|index| badges().get(index).copied().flatten());
     let current = place.is_some_and(|index| shell.read().selected == index);
@@ -98,21 +105,21 @@ pub(super) fn FolderRow(
             button {
                 class: "fold-name",
                 r#type: "button",
+                "data-folder": "{data_path}",
                 onclick: move |event| {
                     // Inside a `<summary>`, a click would also open or close the parent.
                     event.prevent_default();
                     event.stop_propagation();
                     shell.write().select(index);
                     pages.set(1);
+                    if let Some(mailbox) = fetched.clone() {
+                        folder_open::opened(mailbox, revision);
+                    }
                 },
                 "{name}"
             }
         } else {
-            span {
-                class: "fold-name",
-                title: "Only the Inbox and Sent are fetched, so this folder's mail is not here to list",
-                "{name}"
-            }
+            span { class: "fold-name", "{name}" }
         }
         if let Some(count) = count {
             span { class: "count", "{count}" }

@@ -7,7 +7,7 @@
 use crate::view::Shell;
 use mail_domain::folder::delimiter_of;
 use mail_domain::{
-    AccountId, Folder, Holds, Label, LabelId, LabelOrigin, ServerLabels, Subscription,
+    AccountId, Folder, Holds, Label, LabelId, LabelOrigin, MailboxRef, ServerLabels, Subscription,
 };
 
 /// Whether folders the user does not follow are drawn.
@@ -142,6 +142,47 @@ pub(in crate::ui) fn arrange(accounts: &[AccountFolders], show: Show) -> Option<
         hidden,
         labels: taken,
     })
+}
+
+/// The folders that are places of their own, each with the name its place goes by.
+///
+/// A folder the section draws, that holds mail, on a server whose folders are not labels: a
+/// Gmail folder is listed through its label's place, and a level that only holds other levels
+/// has nothing to list. Followed or not, since "Show all" draws the others and they open too.
+/// Named by the last level, as the row is; ordered by account, then path.
+pub(in crate::ui) fn placed(accounts: &[AccountFolders]) -> Vec<(String, MailboxRef)> {
+    accounts
+        .iter()
+        .flat_map(|one| match &one.mailboxes {
+            Mailboxes::Many {
+                folders,
+                server_labels,
+                ..
+            } if *server_labels != ServerLabels::Supported => {
+                let mut own: Vec<&Folder> = folders
+                    .iter()
+                    .filter(|f| f.protected().is_none() && f.holds == Holds::Mail)
+                    .collect();
+                own.sort_by(|a, b| a.path.cmp(&b.path));
+                own.into_iter()
+                    .map(|f| {
+                        (
+                            leaf_of(f),
+                            MailboxRef {
+                                account: one.account,
+                                path: f.path.clone(),
+                            },
+                        )
+                    })
+                    .collect()
+            }
+            _ => Vec::new(),
+        })
+        .collect()
+}
+
+fn leaf_of(folder: &Folder) -> String {
+    super::folder_act::leaf(&folder.path, folder.delimiter).to_owned()
 }
 
 /// The server's label that is this mailbox, where labels are mailboxes.
