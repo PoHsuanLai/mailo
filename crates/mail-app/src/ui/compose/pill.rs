@@ -103,7 +103,7 @@ where
     };
     match state? {
         SendState::Editing => None,
-        SendState::Queued => Some(calm(
+        SendState::Queued | SendState::Scheduled { .. } => Some(calm(
             "Waiting in the outbox".to_owned(),
             Ring::Spin,
             Offer::Undo,

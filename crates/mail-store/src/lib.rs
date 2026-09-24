@@ -25,7 +25,8 @@ use chrono::{DateTime, Utc};
 use mail_domain::{
     AccountCaps, AccountId, BlobId, Draft, DraftId, Filter, Folder, FolderContents, Ingest,
     MailboxRef, Message, MessageId, OutboxId, Page, Patch, ProtoOp, Query, ReceiptAnswer,
-    RemoteIntent, RemoteRef, Retry, SendState, SyncCursor, Thread, ThreadId, ThreadSummary,
+    RemoteIntent, RemoteRef, Retry, SendState, SyncCursor, Template, TemplateId, Thread, ThreadId,
+    ThreadSummary,
 };
 
 /// One queued unit of remote work, with everything needed to retry or abandon it.
@@ -141,6 +142,21 @@ pub trait Store {
         now: DateTime<Utc>,
     ) -> Result<Vec<OutboxEntry>, StoreError>;
 
+    /// The next moment, strictly after `after`, that queued work nobody has tried yet becomes
+    /// due — in practice a send the user asked to go later, or one inside the window's grace
+    /// period for Undo.
+    ///
+    /// What a watch sleeps until, so a scheduled send leaves on time rather than at the next
+    /// time the server happens to say something. Strictly after, because an entry already due
+    /// and still here after a pass is waiting on something a wake-up cannot fix, and counting
+    /// it would wake the watch in a loop. Never-tried only, because a retry already has its own
+    /// backoff and a pass is not worth waking for a one-second one.
+    fn outbox_next(
+        &self,
+        account: AccountId,
+        after: DateTime<Utc>,
+    ) -> Result<Option<DateTime<Utc>>, StoreError>;
+
     /// Remote addresses of messages we hold headers for but no body.
     ///
     /// `Body::Absent` is a normal state, not an error: a POP3 first sync fetches headers with
@@ -219,6 +235,25 @@ pub trait Store {
         state: &SendState,
         now: DateTime<Utc>,
     ) -> Result<(), StoreError>;
+
+    /// One template by id.
+    fn template(&self, id: TemplateId) -> Result<Template, StoreError>;
+
+    /// Every template on an account, by name without regard to ASCII case, then by id.
+    ///
+    /// By name rather than by recency, unlike drafts: a template is looked up, not resumed, and
+    /// a list that reorders itself every time one is used is one nobody can learn.
+    fn templates(&self, account: AccountId) -> Result<Vec<Template>, StoreError>;
+
+    /// Keep a template, replacing any with the same id.
+    ///
+    /// Not through [`Store::apply`]: a template is not mail and not an undoable edit of any, and
+    /// it never has a server side to reconcile with.
+    fn put_template(&self, template: &Template) -> Result<(), StoreError>;
+
+    /// Delete a template. [`StoreError::NoTemplate`] when there is none by that id, so a typo
+    /// in an id is not reported as done.
+    fn delete_template(&self, id: TemplateId) -> Result<(), StoreError>;
 
     /// Every mailbox this account's server lists, by path, with folder work still in the
     /// outbox laid on top.

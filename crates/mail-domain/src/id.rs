@@ -59,6 +59,10 @@ uuid_id!(
     DraftId
 );
 uuid_id!(
+    /// One template: a message kept to start new ones from. Local only, never on a server.
+    TemplateId
+);
+uuid_id!(
     /// One flat label. Provider folders and Gmail categories become labels too; see
     /// [`crate::LabelOrigin`].
     LabelId

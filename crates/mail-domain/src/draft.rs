@@ -26,6 +26,15 @@ pub struct PendingAttachment {
 pub enum SendState {
     Editing,
     Queued,
+    /// Queued, and held in the outbox until `at`: a send the user asked to go later.
+    ///
+    /// Apart from [`SendState::Queued`] because what the user needs to see is different — not
+    /// "on its way", but "leaving at nine tomorrow, and you can still take it back". The outbox
+    /// entry carries the same instant as its `next_attempt`, which is what actually holds it;
+    /// this is the record of it the draft can show.
+    Scheduled {
+        at: DateTime<Utc>,
+    },
     Sending,
     Failed {
         reason: String,

@@ -754,3 +754,57 @@ fn mail_held_before_the_address_book_fills_it_on_open() {
         "a second open counts nothing twice"
     );
 }
+
+/// 0014: a database from before templates upgrades with none, keeps its drafts, and can keep a
+/// template straight away.
+#[test]
+fn a_database_from_before_templates_upgrades_with_none_and_keeps_its_drafts() {
+    use mail_store::Store;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("mail.db");
+    let (account, identity, draft) = {
+        let db = Connection::open(&path).unwrap();
+        for (version, sql) in migrate::MIGRATIONS.iter().take(13) {
+            db.execute_batch(sql).unwrap();
+            if *version > 1 {
+                db.execute(
+                    "INSERT INTO schema_version (version, applied_at) VALUES (?1, datetime('now'))",
+                    [version],
+                )
+                .unwrap();
+            }
+        }
+        let (account, _) = seed(&db);
+        let identity = uuid::Uuid::new_v4().to_string();
+        db.execute(
+            "INSERT INTO identities (id, account, from_name, from_email, is_default)
+             VALUES (?1, ?2, 'Me', 'me@example.test', '\"default\"')",
+            [&identity, &account],
+        )
+        .unwrap();
+        // A draft row as every build before this one wrote it, with a state they knew.
+        let draft = uuid::Uuid::new_v4().to_string();
+        db.execute(
+            "INSERT INTO drafts (id, account, identity, recipients, subject, body_text,
+                 attachments, state, updated_at)
+             VALUES (?1, ?2, ?3, '{\"to\":[{\"name\":null,\"email\":\"you@example.test\"}]}',
+                 'kept', 'hello', '[]', '{\"kind\":\"queued\"}', '2026-09-01T00:00:00Z')",
+            [&draft, &account, &identity],
+        )
+        .unwrap();
+        (account, identity, draft)
+    };
+
+    let store = SqliteStore::open(&path, dir.path()).unwrap();
+    let account = mail_domain::AccountId::from_uuid(account.parse().unwrap());
+    assert_eq!(store.templates(account).unwrap(), vec![]);
+    let old = store
+        .draft(mail_domain::DraftId::from_uuid(draft.parse().unwrap()))
+        .unwrap();
+    assert_eq!(old.state, mail_domain::SendState::Queued);
+
+    let kept = mail_domain::Template::from_draft(&old, "", old.updated);
+    assert_eq!(kept.identity.to_string(), identity);
+    store.put_template(&kept).unwrap();
+    assert_eq!(store.templates(account).unwrap(), vec![kept]);
+}

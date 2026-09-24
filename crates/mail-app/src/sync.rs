@@ -730,12 +730,12 @@ pub async fn drive<B: mail_proto::Backend>(
             }
         }
 
-        // Then wait the way this server prefers. `watch` answers `false` at once when the
-        // account has no push, which is what makes the sleep below the whole of the waiting for
-        // a POP3 account and a safety floor for an IMAP one.
-        match engine.watch(&inbox, cancel).await {
-            Ok(true) => continue,
-            Ok(false) => tokio::time::sleep(poll_every).await,
+        // Then wait the way this server prefers — IDLE, or the poll interval, which is the whole
+        // of the waiting for a POP3 account and a safety floor for an IMAP one — or until a send
+        // in the outbox comes due, so one scheduled for nine leaves at nine and not whenever the
+        // server next has news.
+        match engine.wait(&inbox, cancel, poll_every).await {
+            Ok(_) => continue,
             Err(e) => {
                 println!("{}: {e}", account.address);
                 tokio::time::sleep(AFTER_A_FAILURE).await;

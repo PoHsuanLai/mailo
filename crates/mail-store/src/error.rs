@@ -1,6 +1,6 @@
 //! Store failures.
 
-use mail_domain::{DraftId, MessageId, Retry, Retryable, ThreadId};
+use mail_domain::{DraftId, MessageId, Retry, Retryable, TemplateId, ThreadId};
 use std::time::Duration;
 
 /// Something went wrong locally.
@@ -14,6 +14,8 @@ pub enum StoreError {
     NoMessage(MessageId),
     #[error("no such draft: {0}")]
     NoDraft(DraftId),
+    #[error("no such template: {0}")]
+    NoTemplate(TemplateId),
     #[error("blob {0}: {1}")]
     Blob(String, String),
     /// A stored value no longer matches its type. Almost always a missing migration or a
@@ -40,6 +42,7 @@ impl Retryable for StoreError {
             StoreError::NoThread(_)
             | StoreError::NoMessage(_)
             | StoreError::NoDraft(_)
+            | StoreError::NoTemplate(_)
             | StoreError::NoPart { .. }
             | StoreError::BadAddress(_)
             | StoreError::Decode { .. }

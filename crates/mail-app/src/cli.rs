@@ -59,8 +59,22 @@ pub enum Command {
         scope: ReplyScope,
         body: String,
     },
-    /// Queue a draft for delivery on the next sync.
-    Send { draft: DraftId },
+    /// Queue a draft for delivery on the next sync, or, with `at`, not before the time it names
+    /// (in the words `snooze` takes).
+    Send { draft: DraftId, at: Option<String> },
+    /// Take back a send that has not left yet, and make it an editable draft again.
+    Unsend { draft: DraftId },
+    /// Keep a draft as a template.
+    TemplateSave { draft: DraftId, name: String },
+    /// Every template.
+    TemplateList,
+    /// Start a new draft from a template, to `to` instead of the template's own `To` when given.
+    TemplateUse {
+        template: TemplateId,
+        to: Vec<Address>,
+    },
+    /// Delete a template.
+    TemplateDelete { template: TemplateId },
     /// Every draft, and where it got to.
     Drafts,
     /// Delete a draft.
@@ -241,10 +255,39 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
             let uuid = raw
                 .parse()
                 .map_err(|_| format!("{raw:?} is not a draft id"))?;
+            // `--at` takes the rest of the line, as `snooze` does: "2026-09-25 09:00" is two
+            // words, and quoting it would be one more thing to remember.
+            let at = match args.get(2).map(String::as_str) {
+                None => None,
+                Some("--at") => {
+                    let when = args[3..].join(" ");
+                    if when.trim().is_empty() {
+                        return Err(format!(
+                            "--at needs a time: mailo send {raw} --at tomorrow\n\n{}",
+                            usage()
+                        ));
+                    }
+                    Some(when)
+                }
+                Some(other) => return Err(format!("unknown option {other:?}\n\n{}", usage())),
+            };
             Ok(Command::Send {
+                draft: DraftId::from_uuid(uuid),
+                at,
+            })
+        }
+        "unsend" => {
+            let raw = args
+                .get(1)
+                .ok_or_else(|| format!("unsend needs a draft id\n\n{}", usage()))?;
+            let uuid = raw
+                .parse()
+                .map_err(|_| format!("{raw:?} is not a draft id"))?;
+            Ok(Command::Unsend {
                 draft: DraftId::from_uuid(uuid),
             })
         }
+        "template" => parse_template(&args[1..]),
         "forward" => {
             let raw = args
                 .get(1)
@@ -625,6 +668,46 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
 ///
 /// Every change names its account. A folder name means nothing without one, and guessing the
 /// account for something that deletes is not a default worth having.
+/// `mailo template save|list|use|delete`.
+fn parse_template(args: &[String]) -> Result<Command, String> {
+    let words: Vec<&str> = args.iter().map(String::as_str).collect();
+    let usage_for = |shape: &str| format!("usage: mailo template {shape}\n\n{}", usage());
+    let id = |raw: &str, what: &str| -> Result<uuid::Uuid, String> {
+        raw.parse()
+            .map_err(|_| format!("{raw:?} is not a {what} id"))
+    };
+    match words.as_slice() {
+        [] | ["list"] => Ok(Command::TemplateList),
+        // The rest of the line is the name, so it needs no quotes.
+        ["save", draft, name @ ..] => Ok(Command::TemplateSave {
+            draft: DraftId::from_uuid(id(draft, "draft")?),
+            name: name.join(" "),
+        }),
+        ["use", template] => Ok(Command::TemplateUse {
+            template: TemplateId::from_uuid(id(template, "template")?),
+            to: Vec::new(),
+        }),
+        ["use", template, "--to", list] => {
+            let to = crate::view::parse_addresses(list)?;
+            if to.is_empty() {
+                return Err("--to had no addresses in it".to_owned());
+            }
+            Ok(Command::TemplateUse {
+                template: TemplateId::from_uuid(id(template, "template")?),
+                to,
+            })
+        }
+        ["delete", template] => Ok(Command::TemplateDelete {
+            template: TemplateId::from_uuid(id(template, "template")?),
+        }),
+        ["save", ..] => Err(usage_for("save <draft-id> [name]")),
+        ["use", ..] => Err(usage_for("use <template-id> [--to a@b[,c@d]]")),
+        ["delete", ..] => Err(usage_for("delete <template-id>")),
+        ["list", ..] => Err(usage_for("list")),
+        [other, ..] => Err(format!("unknown template command {other:?}\n\n{}", usage())),
+    }
+}
+
 fn parse_folder(args: &[String]) -> Result<Command, String> {
     let words: Vec<&str> = args.iter().map(String::as_str).collect();
     let usage_for = |shape: &str| format!("usage: mailo folder {shape}\n\n{}", usage());
@@ -807,7 +890,17 @@ usage: mailo <command>
   attach <draft-id> <path>    put a file on a draft
   attached <draft-id>         what it is carrying
   detach <draft-id> <n>       take one back off
-  send <draft-id>             queue a draft for the next sync
+  send <draft-id> [--at <when>]
+                             queue a draft for the next sync; --at holds it until
+                             then, in the words snooze takes (tomorrow, +2h,
+                             2026-09-25 09:00 …)
+  unsend <draft-id>           take back a send that has not left; a draft again
+  template save <draft-id> [name]
+                             keep a draft to start messages from; local only
+  template list
+  template use <template-id> [--to a@b[,c@d]]
+                             a new draft from it; prints the draft's id
+  template delete <template-id>
   snooze <thread-id> <when>   put it off: later, tonight, tomorrow, weekend,
                              monday…sunday, +2h, +3d, or a date like 2026-09-25
   wake <thread-id>            bring a snoozed conversation back now
@@ -960,7 +1053,21 @@ pub fn run_with_clients(
             scope,
             body,
         } => crate::compose::reply(store, *message, *scope, body, now),
-        Command::Send { draft } => crate::compose::send(store, *draft, now),
+        Command::Send { draft, at: None } => crate::compose::send(store, *draft, now),
+        Command::Send {
+            draft,
+            at: Some(when),
+        } => crate::compose::send_later(store, *draft, when, now),
+        Command::Unsend { draft } => crate::compose::unsend_report(store, *draft, now),
+        Command::TemplateSave { draft, name } => {
+            crate::template::save_report(store, *draft, name, now)
+        }
+        Command::TemplateList => crate::template::list(store),
+        Command::TemplateUse { template, to } => {
+            crate::template::start_report(store, *template, to, now)
+        }
+        Command::TemplateDelete { template } => crate::template::delete(store, *template)
+            .map(|name| format!("deleted template {name:?}\n")),
         Command::Drafts => crate::compose::drafts(store),
         Command::ListSnoozed { limit } => {
             let page = store

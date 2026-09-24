@@ -20,6 +20,9 @@ use mail_store::{Settle, SqliteStore, Store};
 use std::sync::Arc;
 use std::time::Duration;
 
+mod wait;
+pub use wait::Woke;
+
 /// Bodies are fetched smallest band first.
 ///
 /// Measured on a real maildrop: 90% of messages are 10% of the bytes and the hundred largest are
@@ -150,6 +153,12 @@ pub struct Schedule {
     pub flags: Duration,
     /// Disappearances: the full address list, diffed against `remote_map`.
     pub expunges: Duration,
+    /// How often a waiting watch looks in the outbox for a send that has come due.
+    ///
+    /// Local and cheap — one indexed query, no network — and the bound on how late a send
+    /// scheduled by *another* process leaves: the watch only knows the times that were queued
+    /// when it began waiting, and this is how it notices the rest.
+    pub outbox: Duration,
 }
 
 impl Default for Schedule {
@@ -161,6 +170,7 @@ impl Default for Schedule {
             // Rarely: it is the most expensive of the three, and a message deleted elsewhere
             // lingering for a few minutes costs the user nothing.
             expunges: Duration::from_secs(900),
+            outbox: Duration::from_secs(15),
         }
     }
 }
@@ -263,21 +273,32 @@ impl<B: Backend> AccountEngine<B> {
         op: ProtoOp,
         cancel: &mut Cancel,
     ) -> Result<ProtoOutcome, RuntimeError> {
+        self.run_leaving(op, cancel, None).await
+    }
+
+    /// [`Self::run`], with the moment a submission leaves: its `Date` is set to `leaving` on
+    /// the way out. `None` for everything that is not a submission.
+    async fn run_leaving(
+        &mut self,
+        op: ProtoOp,
+        cancel: &mut Cancel,
+        leaving: Option<DateTime<Utc>>,
+    ) -> Result<ProtoOutcome, RuntimeError> {
         let Some(renewal) = &self.renewal else {
-            return self.run_once(op, cancel).await;
+            return self.run_once(op, cancel, leaving).await;
         };
         let token = match op {
             ProtoOp::Submit { .. } => Token::Sending,
             _ => Token::Incoming,
         };
         renewal.ahead(token).await?;
-        let first = self.run_once(op.clone(), cancel).await;
+        let first = self.run_once(op.clone(), cancel, leaving).await;
         let refused = matches!(&first, Err(e) if matches!(e.retry(), Retry::NeedsReauth));
         let Some(renewal) = self.renewal.as_ref().filter(|_| refused) else {
             return first;
         };
         match renewal.after_refusal(token).await? {
-            AfterRefusal::TryAgain => self.run_once(op, cancel).await,
+            AfterRefusal::TryAgain => self.run_once(op, cancel, leaving).await,
             AfterRefusal::StillRefused => first,
         }
     }
@@ -295,12 +316,13 @@ impl<B: Backend> AccountEngine<B> {
         &mut self,
         op: ProtoOp,
         cancel: &mut Cancel,
+        leaving: Option<DateTime<Utc>>,
     ) -> Result<ProtoOutcome, RuntimeError> {
         // Submission is a different server on a different port speaking a different protocol.
         // Sending it to the incoming backend is how `ProtoOp::Submit` got refused by POP3 as
         // "unsupported" — a true statement about the wrong backend.
         if matches!(op, ProtoOp::Submit { .. }) {
-            return self.submit(op, cancel).await;
+            return self.submit(op, cancel, leaving).await;
         }
         let mut transport = self.connect().await?;
         let mut step = BackendMachine {
@@ -370,10 +392,16 @@ impl<B: Backend> AccountEngine<B> {
     }
 
     /// Submit one composed message, over a connection to the outgoing server.
+    ///
+    /// `leaving` replaces the frozen `Date`, so a message held in the outbox — scheduled, or
+    /// waiting out a lid that was shut — says when it left rather than when Send was pressed.
+    /// Only that one field changes (`mail_mime::restamp`), and it is safe to change because this
+    /// client signs nothing: there is no DKIM signature over the header for it to break.
     async fn submit(
         &mut self,
         op: ProtoOp,
         cancel: &mut Cancel,
+        leaving: Option<DateTime<Utc>>,
     ) -> Result<ProtoOutcome, RuntimeError> {
         let ProtoOp::Submit {
             raw,
@@ -388,7 +416,11 @@ impl<B: Backend> AccountEngine<B> {
         };
         // The bytes were frozen when the user pressed send, so a draft edited while the outbox
         // was backed off does not change what goes out.
-        let message = self.store.blobs().get(&self.store.connection(), raw)?;
+        let frozen = self.store.blobs().get(&self.store.connection(), raw)?;
+        let message = match leaving {
+            Some(at) => mail_mime::restamp(&frozen, at),
+            None => frozen,
+        };
         let Some((host, port, tls)) = self.outgoing() else {
             return self.submit_to_graph(&message, rcpt_to).await;
         };
@@ -449,7 +481,14 @@ impl<B: Backend> AccountEngine<B> {
                 ProtoOp::Submit { draft, .. } => Some(*draft),
                 _ => None,
             };
-            match self.run(entry.op, cancel).await {
+            if let Some(draft) = draft {
+                // From here it is on its way and can no longer be taken back: `unsend` refuses a
+                // draft that says so. Nothing set this before, so a send could be "cancelled"
+                // while the server was already accepting it.
+                self.mark_draft(draft, SendState::Sending, now);
+            }
+            // Stamped with the same instant the draft records as `Sent { at }`, so the two agree.
+            match self.run_leaving(entry.op, cancel, draft.map(|_| now)).await {
                 Ok(_) => {
                     self.store.outbox_settle(id, Settle::Ok, now)?;
                     if let Some(draft) = draft {

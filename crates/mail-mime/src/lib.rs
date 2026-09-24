@@ -13,6 +13,7 @@ pub mod mdn;
 pub mod parse;
 pub mod reconstruct;
 pub mod sanitize;
+pub mod stamp;
 pub mod unsubscribe;
 
 pub use block::{
@@ -25,6 +26,7 @@ pub use mdn::{OriginalHeaders, ReceiptAsk, Reporting, ReturnPath, receipt, recei
 pub use parse::{Parsed, ParsedPart, RemotePart, parse, parse_reconstructed};
 pub use reconstruct::{decode_part, reconstruct, sections_for};
 pub use sanitize::{RemoteImages, SafeHtml, SanitizePolicy, sanitize};
+pub use stamp::restamp;
 pub use unsubscribe::{
     HttpsUrl, ListHeaders, ListId, Mailto, ONE_CLICK, Unsubscribe, list_headers,
 };

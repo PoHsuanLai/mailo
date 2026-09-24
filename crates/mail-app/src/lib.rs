@@ -21,6 +21,7 @@ pub mod search;
 pub mod snooze;
 pub mod space;
 pub mod sync;
+pub mod template;
 mod today;
 pub mod trust;
 pub mod ui;

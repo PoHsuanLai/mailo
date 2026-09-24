@@ -22,6 +22,7 @@ pub mod receipt;
 pub mod remote;
 pub mod retry;
 pub mod state;
+pub mod template;
 pub mod threading;
 pub mod view;
 
@@ -39,8 +40,8 @@ pub use folder::{
     Subscription,
 };
 pub use id::{
-    AccountId, BlobId, ChangeId, DraftId, IdentityId, LabelId, MessageId, OutboxId, ThreadId,
-    ViewId,
+    AccountId, BlobId, ChangeId, DraftId, IdentityId, LabelId, MessageId, OutboxId, TemplateId,
+    ThreadId, ViewId,
 };
 pub use ingest::{Fetched, Ingest};
 pub use message::{Message, MessageKey, Thread, ThreadSummary};
@@ -53,5 +54,6 @@ pub use state::{
     Attachments, IsDefault, LabelOrigin, MailboxRole, MailboxSet, Membership, Pin, ReadState,
     Snooze, Star, Threading,
 };
+pub use template::Template;
 pub use threading::{ThreadInput, normalize_id, thread};
 pub use view::{Cursor, GroupKey, Page, PageReq, Property, Query, Sort, SortDir, View, ViewKind};

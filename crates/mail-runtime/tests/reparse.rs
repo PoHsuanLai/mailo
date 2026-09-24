@@ -101,6 +101,7 @@ fn garbled_messages_held_whole_are_re_read_and_the_rest_are_left_alone() {
             "DROP TABLE messages_to_reparse;
              DROP TABLE contacts; DROP TABLE contacts_counted; DROP TABLE contacts_sent;
              DROP TABLE address_books; DROP TABLE contacts_to_backfill;
+             DROP TABLE templates;
              DELETE FROM schema_version WHERE version >= 12;",
         )
         .unwrap();

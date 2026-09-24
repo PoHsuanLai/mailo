@@ -9,6 +9,7 @@ mod receipt;
 mod reparse;
 mod row;
 mod search;
+mod template;
 mod write;
 
 use crate::blob::BlobStore;
@@ -323,7 +324,7 @@ use chrono::{DateTime, Utc};
 use mail_domain::{
     AccountCaps, AccountId, Cursor, Draft, DraftId, Filter, Ingest, MailboxRef, Message, MessageId,
     OutboxId, Page, Patch, Property, Query, RemoteIntent, RemoteRef, SendState, SortDir,
-    SyncCursor, Thread, ThreadId, ThreadSummary,
+    SyncCursor, Template, TemplateId, Thread, ThreadId, ThreadSummary,
 };
 
 /// The `thread_summary` column a [`Property`] sorts on.
@@ -504,6 +505,14 @@ impl Store for SqliteStore {
         self.due(account, now)
     }
 
+    fn outbox_next(
+        &self,
+        account: AccountId,
+        after: DateTime<Utc>,
+    ) -> Result<Option<DateTime<Utc>>, StoreError> {
+        self.next_fresh(account, after)
+    }
+
     fn unfetched(
         &self,
         account: AccountId,
@@ -662,6 +671,22 @@ impl Store for SqliteStore {
         now: DateTime<Utc>,
     ) -> Result<(), StoreError> {
         SqliteStore::set_send_state(self, id, state, now)
+    }
+
+    fn template(&self, id: TemplateId) -> Result<Template, StoreError> {
+        self.load_template(id)
+    }
+
+    fn templates(&self, account: AccountId) -> Result<Vec<Template>, StoreError> {
+        self.load_templates(account)
+    }
+
+    fn put_template(&self, template: &Template) -> Result<(), StoreError> {
+        self.write_template(template)
+    }
+
+    fn delete_template(&self, id: TemplateId) -> Result<(), StoreError> {
+        self.remove_template(id)
     }
 
     fn folders(&self, account: AccountId) -> Result<Vec<mail_domain::Folder>, StoreError> {

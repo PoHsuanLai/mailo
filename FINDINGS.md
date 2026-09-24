@@ -3686,3 +3686,16 @@ IDLE timeout.
 `IdleAfter` command ends without idling when `SELECT` reports a higher one. The test's fake server
 had the same blind spot — its IDLE compared against the count at `IDLE`, not at `SELECT` — which
 is why the race showed only when a loaded machine stretched the gap.
+
+### F150 — A send could go twice, and nothing ever said a message was being sent
+
+Found while building 10.8 and fixed there.
+
+- `mailo send` on a draft that was already queued or failing added a second `Submit` to the
+  outbox beside the first, so the recipient got the message twice. Queuing now takes back any
+  earlier submission of the same draft first.
+- `SendState::Sending` existed and nothing set it. `unsend` checked for it to refuse taking back
+  a message the server was already accepting, so that check could never fire. `drain_outbox` now
+  marks the draft `Sending` before handing it over.
+- The `Date` a message carried was the moment it was frozen, so a send held until morning — or
+  by a closed laptop — was dated when it was written. It is now re-stamped as it leaves.

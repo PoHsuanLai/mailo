@@ -35,10 +35,11 @@ pub const MIGRATIONS: &[(u32, &str)] = &[
         include_str!("../migrations/0012_reparse_raw_headers.sql"),
     ),
     (13, include_str!("../migrations/0013_contacts.sql")),
+    (14, include_str!("../migrations/0014_templates.sql")),
 ];
 
 /// The schema version this build expects.
-pub const EXPECTED_VERSION: u32 = 13;
+pub const EXPECTED_VERSION: u32 = 14;
 
 /// Bring `db` up to [`EXPECTED_VERSION`], creating it if it is empty.
 ///

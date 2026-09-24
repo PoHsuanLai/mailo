@@ -378,7 +378,7 @@ pub fn attach_bytes(
     now: DateTime<Utc>,
 ) -> Result<Draft, String> {
     let mut draft = store.draft(draft).map_err(|e| e.to_string())?;
-    if matches!(draft.state, SendState::Queued | SendState::Sending) {
+    if on_its_way(&draft.state) {
         return Err(
             "that draft is on its way; what goes out was frozen when you sent it".to_owned(),
         );
@@ -679,7 +679,7 @@ pub fn discard(store: &SqliteStore, draft: DraftId) -> Result<String, String> {
     // Mid-flight. Deleting the row would leave the outbox draining something that is no longer
     // there — and `Sending` in particular may already be on the wire, where nothing here can
     // recall it.
-    if matches!(draft.state, SendState::Queued | SendState::Sending) {
+    if on_its_way(&draft.state) {
         return Err(
             "that draft is queued for delivery; it cannot be discarded until the send settles"
                 .to_owned(),
@@ -822,15 +822,107 @@ where
     out
 }
 
+/// Whether a draft has a submission in the outbox that has not been settled: queued, held for
+/// later, or on the wire. Its bytes are frozen, so editing or discarding it would be editing
+/// something that is no longer what goes out.
+fn on_its_way(state: &SendState) -> bool {
+    matches!(
+        state,
+        SendState::Queued | SendState::Scheduled { .. } | SendState::Sending
+    )
+}
+
+/// When a queued message may leave the outbox.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Leaves {
+    /// As soon as a pass drains the outbox.
+    Now,
+    /// Not before this instant. The draft shows [`SendState::Scheduled`] until it goes.
+    At(DateTime<Utc>),
+}
+
 /// Queue a draft for delivery.
 ///
 /// Builds the bytes and the envelope together, freezes the bytes in the blob store, and puts a
 /// submission in the outbox. Nothing here touches the network: the next `mailo sync` delivers
 /// it, and until it does the message is safe across a restart.
 pub fn send(store: &SqliteStore, draft: DraftId, now: DateTime<Utc>) -> Result<String, String> {
-    let draft = store.draft(draft).map_err(|e| e.to_string())?;
-    if let SendState::Sent { at, .. } = draft.state {
-        return Err(format!("that draft was already sent at {at}"));
+    let (draft, post) = queue(store, draft, Leaves::Now, now)?;
+    let mut out = format!("queued {} for delivery\n", draft.id);
+    let _ = writeln!(out, "  from    {}", post.mail_from);
+    let _ = writeln!(out, "  to      {}", post.rcpt_to.join(", "));
+    let _ = writeln!(out, "  subject {}", draft.subject);
+    let _ = writeln!(out, "\ndeliver it with: mailo sync");
+    Ok(out)
+}
+
+/// Queue a draft to leave at `phrase` — the words `mailo snooze` takes: `tomorrow`, `tonight`,
+/// `+2h`, `2026-09-25 09:00` — as the CLI reports it.
+pub fn send_later(
+    store: &SqliteStore,
+    draft: DraftId,
+    phrase: &str,
+    now: DateTime<Utc>,
+) -> Result<String, String> {
+    send_later_in(store, draft, phrase, now, &Local)
+}
+
+/// The same, with the zone `phrase` is read in and the answer written in named.
+pub fn send_later_in<Tz: chrono::TimeZone>(
+    store: &SqliteStore,
+    draft: DraftId,
+    phrase: &str,
+    now: DateTime<Utc>,
+    zone: &Tz,
+) -> Result<String, String>
+where
+    Tz::Offset: std::fmt::Display,
+{
+    let at = crate::view::snooze_until(phrase, now, zone)?;
+    let (draft, post) = queue(store, draft, Leaves::At(at), now)?;
+    let when = crate::view::stamp(at, zone, crate::view::Stamp::Full);
+    let mut out = format!("{} will leave at {when}\n", draft.id);
+    let _ = writeln!(out, "  from    {}", post.mail_from);
+    let _ = writeln!(out, "  to      {}", post.rcpt_to.join(", "));
+    let _ = writeln!(out, "  subject {}", draft.subject);
+    let _ = writeln!(
+        out,
+        "\nit goes with the first `mailo sync` after then, or on the minute from a running \
+         `mailo watch`.\ntake it back before then with: mailo unsend {}",
+        draft.id
+    );
+    Ok(out)
+}
+
+/// Freeze a draft's bytes and put its submission in the outbox, to leave as `leaves` says.
+///
+/// Returns the draft and what was queued. A draft that is already queued, held or failing is
+/// taken back first and queued afresh, so pressing Send twice — or changing the time of a
+/// scheduled one — leaves one submission in the outbox rather than two, which the recipient
+/// would have received twice.
+pub fn queue(
+    store: &SqliteStore,
+    draft: DraftId,
+    leaves: Leaves,
+    now: DateTime<Utc>,
+) -> Result<(Draft, mail_mime::Posting), String> {
+    // Before anything is taken back, so a time that has gone leaves an existing schedule alone.
+    if let Leaves::At(at) = leaves
+        && at <= now
+    {
+        return Err(format!(
+            "{} has already passed; to send it now, leave out --at",
+            crate::view::stamp(at, &Local, crate::view::Stamp::Full)
+        ));
+    }
+    let mut draft = store.draft(draft).map_err(|e| e.to_string())?;
+    match draft.state {
+        SendState::Sent { at, .. } => return Err(format!("that draft was already sent at {at}")),
+        SendState::Sending => return Err("that message is already being sent".to_owned()),
+        SendState::Queued | SendState::Scheduled { .. } | SendState::Failed { .. } => {
+            draft = unsend(store, draft.id, now)?;
+        }
+        SendState::Editing => {}
     }
     let identity = identity_of(store, draft.account, Some(draft.identity))?;
     let parent = draft.in_reply_to.and_then(|id| store.message(id).ok());
@@ -867,22 +959,45 @@ pub fn send(store: &SqliteStore, draft: DraftId, now: DateTime<Utc>) -> Result<S
                 id: ChangeId::generate(),
                 changes: Vec::new(),
             },
-            now,
+            // The entry's `next_attempt`, which is the whole of what holds a scheduled send:
+            // the outbox does not hand out an entry before it.
+            match leaves {
+                Leaves::Now => now,
+                Leaves::At(at) => at,
+            },
         )
         .map_err(|e| e.to_string())?;
     if queued.is_none() {
         return Err("the submission could not be queued".to_owned());
     }
+    let state = match leaves {
+        Leaves::Now => SendState::Queued,
+        Leaves::At(at) => SendState::Scheduled { at },
+    };
     store
-        .set_send_state(draft.id, &SendState::Queued, now)
+        .set_send_state(draft.id, &state, now)
         .map_err(|e| e.to_string())?;
+    Ok((
+        Draft {
+            state,
+            updated: now,
+            ..draft
+        },
+        post,
+    ))
+}
 
-    let mut out = format!("queued {} for delivery\n", draft.id);
-    let _ = writeln!(out, "  from    {}", post.mail_from);
-    let _ = writeln!(out, "  to      {}", post.rcpt_to.join(", "));
-    let _ = writeln!(out, "  subject {}", draft.subject);
-    let _ = writeln!(out, "\ndeliver it with: mailo sync");
-    Ok(out)
+/// Take back a send that has not left, as the CLI reports it.
+pub fn unsend_report(
+    store: &SqliteStore,
+    draft: DraftId,
+    now: DateTime<Utc>,
+) -> Result<String, String> {
+    let back = unsend(store, draft, now)?;
+    Ok(format!(
+        "{} is a draft again and will not be sent.\nsend it with: mailo send {}\n",
+        back.id, back.id
+    ))
 }
 
 /// Take back a send that has not left: the queued submission goes, the draft is editable again.
@@ -895,7 +1010,10 @@ pub fn unsend(store: &SqliteStore, draft: DraftId, now: DateTime<Utc>) -> Result
     match stored.state {
         SendState::Sending => return Err("that message is already being sent".to_owned()),
         SendState::Sent { .. } => return Err("that message was already sent".to_owned()),
-        SendState::Editing | SendState::Queued | SendState::Failed { .. } => {}
+        SendState::Editing
+        | SendState::Queued
+        | SendState::Scheduled { .. }
+        | SendState::Failed { .. } => {}
     }
     let back = Draft {
         state: SendState::Editing,
@@ -919,6 +1037,14 @@ pub fn unsend(store: &SqliteStore, draft: DraftId, now: DateTime<Utc>) -> Result
 
 /// Every draft, and where it got to.
 pub fn drafts(store: &SqliteStore) -> Result<String, String> {
+    drafts_in(store, &Local)
+}
+
+/// The same, with the zone a scheduled send's time is written in named.
+pub fn drafts_in<Tz: chrono::TimeZone>(store: &SqliteStore, zone: &Tz) -> Result<String, String>
+where
+    Tz::Offset: std::fmt::Display,
+{
     let accounts: Vec<AccountId> = {
         let db = store.connection();
         let mut stmt = db
@@ -939,7 +1065,7 @@ pub fn drafts(store: &SqliteStore) -> Result<String, String> {
     let mut out = String::new();
     for account in accounts {
         for draft in store.drafts(account).map_err(|e| e.to_string())? {
-            let _ = writeln!(
+            let _ = write!(
                 out,
                 "{}  {:<9}  {}",
                 draft.id,
@@ -950,6 +1076,14 @@ pub fn drafts(store: &SqliteStore) -> Result<String, String> {
                     &draft.subject
                 }
             );
+            if let SendState::Scheduled { at } = draft.state {
+                let _ = write!(
+                    out,
+                    "  (leaves {})",
+                    crate::view::stamp(at, zone, crate::view::Stamp::Full)
+                );
+            }
+            out.push('\n');
         }
     }
     if out.is_empty() {
@@ -962,6 +1096,7 @@ fn state_word(state: &SendState) -> &'static str {
     match state {
         SendState::Editing => "editing",
         SendState::Queued => "queued",
+        SendState::Scheduled { .. } => "scheduled",
         SendState::Sending => "sending",
         SendState::Failed { .. } => "failed",
         SendState::Sent { .. } => "sent",

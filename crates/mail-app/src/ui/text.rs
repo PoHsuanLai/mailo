@@ -6,6 +6,7 @@ pub(super) fn draft_state(state: &SendState) -> &'static str {
     match state {
         SendState::Editing => "draft",
         SendState::Queued => "queued",
+        SendState::Scheduled { .. } => "scheduled",
         SendState::Sending => "sending",
         SendState::Failed { .. } => "failed",
         SendState::Sent { .. } => "sent",

@@ -281,6 +281,22 @@ impl SqliteStore {
         Ok(out)
     }
 
+    /// See [`crate::Store::outbox_next`].
+    pub(super) fn next_fresh(
+        &self,
+        account: AccountId,
+        after: DateTime<Utc>,
+    ) -> Result<Option<DateTime<Utc>>, StoreError> {
+        let next: Option<String> = self.connection().query_row(
+            "SELECT min(next_attempt) FROM outbox
+             WHERE account = ?1 AND attempts = 0 AND next_attempt > ?2",
+            params![account.to_string(), from_time(after)],
+            |r| r.get(0),
+        )?;
+        next.map(|at| super::row::time("next_attempt", &at))
+            .transpose()
+    }
+
     pub(super) fn settle(
         &self,
         id: OutboxId,

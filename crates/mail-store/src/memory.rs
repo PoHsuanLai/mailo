@@ -13,7 +13,8 @@ use mail_domain::{
     AccountCaps, AccountId, Change, ChangeId, Cursor, Draft, DraftId, Filter, Ingest, Label,
     LabelId, MailboxRef, MatchCtx, Membership, Message, MessageId, MessageKey, OutboxId, Page,
     Patch, Pin, Property, ProtoOp, Query, ReceiptAnswer, RemoteIntent, RemoteRef, Retry, SendState,
-    Snooze, SortDir, SyncCursor, Thread, ThreadId, ThreadSummary, UidValidity,
+    Snooze, SortDir, SyncCursor, Template, TemplateId, Thread, ThreadId, ThreadSummary,
+    UidValidity,
 };
 use serde::Serialize;
 
@@ -21,6 +22,7 @@ use crate::{OutboxEntry, Settle, Store, StoreError, Term};
 
 mod contacts;
 mod folders;
+mod templates;
 
 /// Everything held in memory. Cheap to construct, and never touches the disk.
 #[derive(Debug, Default)]
@@ -40,6 +42,7 @@ struct Inner {
     remotes: Vec<RemoteRow>,
     labels: BTreeMap<LabelId, Label>,
     drafts: BTreeMap<DraftId, Draft>,
+    templates: BTreeMap<TemplateId, Template>,
     /// What each account's server turned out to support.
     caps: BTreeMap<AccountId, AccountCaps>,
     outbox: BTreeMap<OutboxId, OutboxRow>,
@@ -103,6 +106,7 @@ impl Default for Inner {
             remotes: Vec::new(),
             labels: BTreeMap::new(),
             drafts: BTreeMap::new(),
+            templates: BTreeMap::new(),
             caps: BTreeMap::new(),
             outbox: BTreeMap::new(),
             // SQLite rowids start at 1. Matching that keeps insertion order obvious in tests.
@@ -286,6 +290,23 @@ impl Store for MemoryStore {
         Ok(())
     }
 
+    fn template(&self, id: TemplateId) -> Result<Template, StoreError> {
+        self.inner.borrow().template(id)
+    }
+
+    fn templates(&self, account: AccountId) -> Result<Vec<Template>, StoreError> {
+        Ok(self.inner.borrow().templates_of(account))
+    }
+
+    fn put_template(&self, template: &Template) -> Result<(), StoreError> {
+        self.inner.borrow_mut().put_template(template);
+        Ok(())
+    }
+
+    fn delete_template(&self, id: TemplateId) -> Result<(), StoreError> {
+        self.inner.borrow_mut().delete_template(id)
+    }
+
     fn message(&self, id: MessageId) -> Result<Message, StoreError> {
         let inner = self.inner.borrow();
         let mut message = inner
@@ -327,6 +348,21 @@ impl Store for MemoryStore {
         now: DateTime<Utc>,
     ) -> Result<Vec<OutboxEntry>, StoreError> {
         Ok(self.inner.borrow().outbox_due(account, now))
+    }
+
+    fn outbox_next(
+        &self,
+        account: AccountId,
+        after: DateTime<Utc>,
+    ) -> Result<Option<DateTime<Utc>>, StoreError> {
+        Ok(self
+            .inner
+            .borrow()
+            .outbox
+            .values()
+            .filter(|row| row.account == account && row.attempts == 0 && row.next_attempt > after)
+            .map(|row| row.next_attempt)
+            .min())
     }
 
     fn unfetched(

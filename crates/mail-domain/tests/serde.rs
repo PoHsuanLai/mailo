@@ -198,6 +198,28 @@ fn draft() -> Draft {
     }
 }
 
+fn template() -> Template {
+    Template {
+        id: TemplateId::from_uuid(uuid(13)),
+        account: account(),
+        identity: IdentityId::from_uuid(uuid(2)),
+        name: "weekly".to_owned(),
+        to: vec![address("team@example.test")],
+        cc: vec![],
+        bcc: vec![address("archive@example.test")],
+        subject: "Weekly report".to_owned(),
+        text: "This week:".to_owned(),
+        html: None,
+        attachments: vec![PendingAttachment {
+            name: "plan.pdf".to_owned(),
+            mime: "application/pdf".to_owned(),
+            blob: BlobId::from_uuid(uuid(10)),
+        }],
+        receipt: ReceiptRequest::Requested,
+        updated: at(5),
+    }
+}
+
 fn imap_ref() -> RemoteRef {
     RemoteRef::Imap {
         mailbox: "[Gmail]/All Mail".to_owned(),
@@ -911,6 +933,7 @@ fn draft_types_round_trip() {
             SendState::Editing,
             SendState::Queued,
             SendState::Sending,
+            SendState::Scheduled { at: at(8) },
             SendState::Failed {
                 reason: "550".to_owned(),
                 retry: Retry::NeedsReauth,
@@ -927,6 +950,7 @@ fn draft_types_round_trip() {
     );
     round_trip_each("ReplyScope", vec![ReplyScope::Sender, ReplyScope::All]);
     round_trip("Draft", draft());
+    round_trip("Template", template());
 }
 
 #[test]
@@ -963,6 +987,7 @@ fn id_types_round_trip() {
     round_trip("ThreadId", ThreadId::from_uuid(uuid(6)));
     round_trip("MessageId", MessageId::from_uuid(uuid(5)));
     round_trip("DraftId", DraftId::from_uuid(uuid(9)));
+    round_trip("TemplateId", TemplateId::from_uuid(uuid(13)));
     round_trip("LabelId", LabelId::from_uuid(uuid(3)));
     round_trip("ViewId", ViewId::from_uuid(uuid(11)));
     round_trip("BlobId", BlobId::from_uuid(uuid(7)));
@@ -1304,6 +1329,9 @@ fixtures! {
         SendState::Sent { at: at(7), message: Some(MessageId::from_uuid(uuid(5))) },
         SendState::Sent { at: at(7), message: None },
     ],
+    // Send later (`plan.md` 10.8): a send held in the outbox until a time the user chose.
+    "send_states_scheduled.json" => Vec<SendState> = vec![SendState::Scheduled { at: at(8) }],
+    "template.json" => Template = template(),
     "mailbox_sets.json" => Vec<MailboxSet> = vec![
         MailboxSet::empty(),
         MailboxSet::only(MailboxRole::Inbox),

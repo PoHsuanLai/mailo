@@ -20,7 +20,7 @@ pub mod unsubscribe;
 
 pub use assemble::{Arrival, Destination, absorb, absorb_into, assemble};
 pub use drive::{Cancel, drive};
-pub use engine::{AccountEngine, SyncReport};
+pub use engine::{AccountEngine, SyncReport, Woke};
 pub use error::RuntimeError;
 pub use loopback::Loopback;
 pub use renewal::{AfterRefusal, Held, Renewal, Token};
