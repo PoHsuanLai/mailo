@@ -1557,6 +1557,22 @@ numbered in landing order at integration, not in this file.
 behind `#[ignore]` where a real server decides), gated by fmt, clippy, the workspace tests,
 `check-boundary.sh` and `cargo deny check licenses`, and committed one item per commit.
 
+**Status, 2026-09-24: every data half has landed** (10.1–10.18; 10.19 dropped). The protocol
+items are the last three: Graph incoming 63c6299, OpenPGP c209c14, S/MIME 2a7e6d5 and JMAP
+00b995c. Window halves are in the UI session's hands; OpenPGP's is in (7981844), and JMAP's
+waits for the design-system migration. What no test here can settle, because a real server
+decides it:
+- Graph incoming: whether the message delta takes `$expand` of extended properties together
+  with `$orderby`.
+- JMAP: every part of it against a real server (Fastmail, Stalwart), and ManageSieve on the
+  session's host.
+- S/MIME: interop, checked only against the `openssl` binary (`#[ignore]`d tests).
+
+Known limits, by choice:
+- no revocation checking for S/MIME;
+- Graph polls every minute, because its push needs a public webhook;
+- JMAP takes a static bearer token, with no OAuth renewal.
+
 
 ## Test strategy
 
