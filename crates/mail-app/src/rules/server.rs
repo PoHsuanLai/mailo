@@ -319,11 +319,24 @@ fn push(
     saved: &OAuthRegistry,
     now: DateTime<Utc>,
 ) -> Result<String, String> {
+    pushed(store, account, takeover, saved, now).map(|pushed| said(&account.address, &pushed))
+}
+
+/// Compile the account's rules and vacation reply and install them, with the account's own
+/// sign-in, returning what the server did rather than words about it: the window says it its
+/// own way. What `mailo sieve push` runs.
+pub(crate) fn pushed(
+    store: &SqliteStore,
+    account: &crate::sync::Configured,
+    takeover: Takeover,
+    saved: &OAuthRegistry,
+    now: DateTime<Utc>,
+) -> Result<Pushed, String> {
     let at = endpoint(&account.plan).map_err(|why| format!("{}: {why}", account.address))?;
     let rules = store.rules(account.id).map_err(|e| e.to_string())?;
     let vacation = store.vacation(account.id).map_err(|e| e.to_string())?;
     let places = Places::from_caps(&account.caps);
-    let pushed = runtime()?.block_on(async {
+    runtime()?.block_on(async {
         let auth = auth(account, saved, now).await?;
         let (_tx, mut cancel) = tokio::sync::watch::channel(false);
         mail_runtime::sieve::push(
@@ -338,8 +351,7 @@ fn push(
         )
         .await
         .map_err(|e| format!("{}:{}: {e}", at.host, at.port))
-    })?;
-    Ok(said(&account.address, &pushed))
+    })
 }
 
 /// What a push did, for a person.

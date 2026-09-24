@@ -218,6 +218,9 @@ pub(super) fn Reader(
                     span { class: "spacer" }
                 }
                 div { class: "bar-tools",
+                    if let Some(revision) = revision {
+                        super::move_to::MoveTool { thread, shell, revision }
+                    }
                     super::print::PrintTool { thread }
                     {peek_tool(Peek::Side, peek, Icon::Panel, shell)}
                     {peek_tool(Peek::Center, peek, Icon::Square, shell)}

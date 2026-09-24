@@ -32,6 +32,7 @@ pub(in crate::ui) fn commands() -> Vec<Command> {
         "Add account…",
         "Import mail…",
         "Export mail…",
+        "Rules…",
         "Theme light",
         "Theme dark",
         "Theme system",
@@ -284,6 +285,7 @@ fn action_icon(label: &str) -> Icon {
         "Add account…" => Icon::Plus,
         "Import mail…" => Icon::Plus,
         "Export mail…" => Icon::Forward,
+        "Rules…" => Icon::FolderInput,
         _ => Icon::Command,
     }
 }

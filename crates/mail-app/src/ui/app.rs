@@ -335,6 +335,13 @@ pub(super) fn App() -> Element {
             }
             return;
         }
+        // The Rules sheet likewise: its fields take letters, Esc closes it.
+        if shell.read().rules.is_some() {
+            if key == "Escape" {
+                super::rules::close(shell);
+            }
+            return;
+        }
         // The Space editor owns the keyboard while it is open. Its name field takes letters,
         // its handles take the arrows, and Esc puts the Space back as the sheet found it.
         if editing.read().is_some() {
@@ -388,6 +395,7 @@ pub(super) fn App() -> Element {
                 || current.page_menu != PageMenu::Closed
                 || current.snoozing.is_some()
                 || current.labelling.is_some()
+                || current.filing.is_some()
         };
         if menu_open {
             if key == "Escape" {
@@ -396,6 +404,7 @@ pub(super) fn App() -> Element {
                 write.page_menu = PageMenu::Closed;
                 write.snoozing = None;
                 write.labelling = None;
+                write.filing = None;
                 dioxus::document::eval("document.querySelector('.app')?.focus()");
             }
             return;
@@ -613,6 +622,9 @@ pub(super) fn App() -> Element {
             }
             if shell.read().adding.is_some() {
                 super::add_account::AddAccountSheet { shell, revision, spaces }
+            }
+            if shell.read().rules.is_some() {
+                super::rules::RulesSheet { shell, revision }
             }
             div { class: "card",
             ThreadList {

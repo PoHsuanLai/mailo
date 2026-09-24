@@ -210,7 +210,8 @@ pub(super) fn key(
 /// The row's exit, when `op` takes a row out of a list.
 fn exit(op: &Op) -> Option<&'static str> {
     match op {
-        Op::Archive => Some("archive"),
+        // Filed into a folder is out of the inbox, the way archiving is.
+        Op::Archive | Op::File(_) => Some("archive"),
         Op::Trash => Some("trash"),
         Op::Spam => Some("spam"),
         Op::Restore => Some("restore"),

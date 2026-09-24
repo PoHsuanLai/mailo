@@ -142,7 +142,8 @@ pub fn reverse_intent(remote: &RemoteIntent, inverse: &Patch) -> Option<RemoteIn
         //
         // Nor a filing: the message has left the mailbox this client knew it by, and the server
         // address that would name it in the folder arrives only with that folder's next sync.
-        // The undo puts it back here; the server keeps it filed.
+        // The undo puts it back here; a filing the server has been sent stays filed there, and
+        // one still waiting is taken out of the outbox by the window's undo (`ui::ops`).
         RemoteIntent::Send { .. }
         | RemoteIntent::AddKeyword { .. }
         | RemoteIntent::Append { .. }

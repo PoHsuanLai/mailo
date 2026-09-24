@@ -205,6 +205,16 @@ pub(super) fn SpaceEditor(
                 p { class: "capnote", "Who the composer suggests: import, export, rename, forget." }
             }
             div {
+                div { class: "ed-label", "Rules" }
+                button {
+                    class: "mini",
+                    r#type: "button",
+                    onclick: move |_| super::rules::open(shell),
+                    "Rules…"
+                }
+                p { class: "capnote", "What new mail sorts into, the vacation reply, and the server's copy." }
+            }
+            div {
                 div { class: "ed-label", "Presets" }
                 Presets { editing, spaces }
             }

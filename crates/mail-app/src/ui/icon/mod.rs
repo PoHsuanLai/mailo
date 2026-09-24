@@ -54,6 +54,7 @@ pub(super) enum Icon {
     PanelLeft,
     Plus,
     Printer,
+    FolderInput,
 }
 
 impl Icon {
@@ -96,6 +97,7 @@ impl Icon {
         Icon::PanelLeft,
         Icon::Plus,
         Icon::Printer,
+        Icon::FolderInput,
     ];
 
     /// The children of this glyph, in the design's order.
@@ -135,6 +137,7 @@ impl Icon {
             Icon::PanelLeft => PANEL_LEFT,
             Icon::Plus => PLUS,
             Icon::Printer => PRINTER,
+            Icon::FolderInput => FOLDER_INPUT,
         }
     }
 }
@@ -286,9 +289,9 @@ mod tests {
         // The first 23 are the keys of `ICON` in mailo-design/icons.js (inbox through key).
         // The rest are the glyphs the frame's places, rows and foot draw, fetched from Lucide.
         // Plus is the Spaces mockup's `ICON.plus`: the foot's "New Space". Printer is Lucide's
-        // `printer`, the reader head's Print.
+        // `printer`, the reader head's Print; FolderInput is Lucide's `folder-input`, Move to….
         const KEYS_IN_ICONS_JS: usize = 23;
-        const FRAME_GLYPHS: usize = 11;
+        const FRAME_GLYPHS: usize = 12;
         assert_eq!(
             Icon::ALL.len(),
             KEYS_IN_ICONS_JS + FRAME_GLYPHS,

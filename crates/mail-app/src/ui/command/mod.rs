@@ -313,6 +313,10 @@ fn run_action(
             close(shell);
             super::files::open_export(shell);
         }
+        "Rules…" => {
+            close(shell);
+            super::rules::open(shell);
+        }
         "Theme light" | "Theme dark" | "Theme system" => {
             let theme = match label {
                 "Theme light" => Theme::Light,

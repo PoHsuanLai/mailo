@@ -133,6 +133,7 @@ pub(super) fn take_back(store: &SqliteStore, entry: &Undo) -> bool {
     if store.apply(entry.account, &entry.inverse).is_err() {
         return false;
     }
+    withdraw_filing(store, entry);
     if let Some(reverse) = entry
         .remote
         .as_ref()
@@ -144,11 +145,68 @@ pub(super) fn take_back(store: &SqliteStore, entry: &Undo) -> bool {
     true
 }
 
+/// A move to a folder taken back before the server heard of it is taken out of the outbox too.
+///
+/// A filing has no reverse the server can be sent (`undo::reverse_intent`), so once it has gone
+/// the server keeps it filed. Until it has been tried, though, it is only a queued intention, and
+/// leaving it queued would move the message on the next sync after the user said not to — and
+/// hold its row out of the folder it is back in meanwhile, because a queued move is a message
+/// leaving. Settled as refused, which drops the entry and puts back the same values the undo
+/// just wrote.
+fn withdraw_filing(store: &SqliteStore, entry: &Undo) {
+    if !matches!(entry.remote, Some(RemoteIntent::File { .. })) {
+        return;
+    }
+    let Ok(queued) = store.outbox_due(entry.account, chrono::Utc::now()) else {
+        return;
+    };
+    for waiting in queued {
+        if matches!(waiting.op, ProtoOp::File { .. })
+            && waiting.attempts == 0
+            && waiting.undo == entry.inverse
+        {
+            let _ = store.outbox_settle(
+                waiting.id,
+                mail_store::Settle::Failed {
+                    reason: "taken back before it was sent".to_owned(),
+                    retry: Retry::Fatal("taken back".to_owned()),
+                },
+                chrono::Utc::now(),
+            );
+        }
+    }
+}
+
 /// Whether `account` has a server to tell: every account but local folders.
 fn has_server(store: &SqliteStore, account: AccountId) -> bool {
     !super::data::account_rows(store)
         .iter()
         .any(|row| row.id == account && row.is_local())
+}
+
+/// What the server was last seen to support, or, before the first sync, nothing: a change is
+/// then made here alone and the server hears nothing, rather than hearing a guess.
+pub(super) fn caps_here(
+    store: &SqliteStore,
+    account: AccountId,
+    now: chrono::DateTime<chrono::Utc>,
+) -> AccountCaps {
+    crate::sync::caps_of(store, account).unwrap_or(AccountCaps {
+        labels: ServerLabels::LocalOnly,
+        threads: ServerThreads::Jwz,
+        watch: WatchMode::Poll {
+            every: std::time::Duration::from_secs(300),
+        },
+        archive: ArchiveMeans::LocalOnly,
+        folders: FolderRoles::default(),
+        condstore: Condstore::Absent,
+        move_ext: MoveExt::Absent,
+        expunge: ExpungeMeans::Forbidden,
+        top: Supported::Absent,
+        pipelining: Supported::Absent,
+        connections: ConnectionBudget::default(),
+        observed_at: now,
+    })
 }
 
 /// Apply one resolved operation: locally, and to the server when it has a server half.
@@ -167,24 +225,7 @@ pub(super) fn perform(store: &SqliteStore, thread: ThreadId, op: Op) -> Option<U
     // `caps`, and under `ArchiveMeans::LocalOnly` it returns `None` for Archive and Trash.
     // This used to be a hardcoded struct of safe defaults, so archiving in the window changed
     // nothing on the server and the conversation came back on the next full sync. See F139.
-    //
-    // The defaults below are still the answer before the first sync, when nothing is known.
-    let caps = crate::sync::caps_of(store, account).unwrap_or(AccountCaps {
-        labels: ServerLabels::LocalOnly,
-        threads: ServerThreads::Jwz,
-        watch: WatchMode::Poll {
-            every: std::time::Duration::from_secs(300),
-        },
-        archive: ArchiveMeans::LocalOnly,
-        folders: FolderRoles::default(),
-        condstore: Condstore::Absent,
-        move_ext: MoveExt::Absent,
-        expunge: ExpungeMeans::Forbidden,
-        top: Supported::Absent,
-        pipelining: Supported::Absent,
-        connections: ConnectionBudget::default(),
-        observed_at: chrono::Utc::now(),
-    });
+    let caps = caps_here(store, account, chrono::Utc::now());
     let applied = op.apply(
         &Target::Threads(vec![thread]),
         &loaded,

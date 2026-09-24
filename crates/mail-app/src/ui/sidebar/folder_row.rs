@@ -3,6 +3,7 @@
 use super::super::folder_open;
 use super::super::icon::Icon;
 use super::super::menu::Menu;
+use super::super::move_to;
 use super::folder_act::{act, messages_word, refused, renamed_path};
 use super::folder_parts::{NameField, Naming, Said, actions, item};
 use super::folder_tree::{Kind, Node};
@@ -10,7 +11,9 @@ use super::folders::{FOCUS, Note, Open, Spot, Wires};
 use crate::folder::Refusal;
 use crate::view::{Source, folder_of};
 use dioxus::prelude::*;
-use mail_domain::{AccountId, Filter, FolderError, FolderWork, MailboxRef, NonEmpty, Subscription};
+use mail_domain::{
+    AccountId, Filter, FolderError, FolderWork, Holds, MailboxRef, NonEmpty, Subscription,
+};
 use mail_store::SqliteStore;
 use std::sync::Arc;
 
@@ -61,6 +64,29 @@ pub(super) fn FolderRow(
     } else {
         "item fold-row"
     };
+    // A folder that holds mail takes a dragged row: filed into it, as "Move to…" files.
+    let takes = matches!(
+        node.kind,
+        Kind::Listed {
+            holds: Holds::Mail,
+            ..
+        }
+    );
+    let mut over = use_signal(|| false);
+    let class = match (takes && move_to::dragging(), over()) {
+        (true, true) => format!("{class} is-drop-target"),
+        (true, false) => format!("{class} can-drop"),
+        (false, _) => class.to_owned(),
+    };
+    let target = mailbox.clone();
+    let on_up = move |event: Event<PointerData>| {
+        over.set(false);
+        if takes && move_to::drop_on(shell, revision, &target) {
+            event.stop_propagation();
+        }
+    };
+    let on_enter = move |_: Event<PointerData>| over.set(takes && move_to::dragging());
+    let on_leave = move |_: Event<PointerData>| over.set(false);
     let parent = !node.children.is_empty();
     let chev = if parent { "chev" } else { "chev none" };
     let now = open.read().clone();
@@ -192,7 +218,14 @@ pub(super) fn FolderRow(
     if parent {
         rsx! {
             details { class: "fold", open: true,
-                summary { class: "{class}", aria_current: if current { "true" } else { "false" }, {row} }
+                summary {
+                    class: "{class}",
+                    aria_current: if current { "true" } else { "false" },
+                    onpointerenter: on_enter,
+                    onpointerleave: on_leave,
+                    onpointerup: on_up,
+                    {row}
+                }
                 {below}
                 div { class: "fold-kids", role: "group",
                     for child in children {
@@ -204,7 +237,14 @@ pub(super) fn FolderRow(
     } else {
         rsx! {
             div { class: "fold",
-                div { class: "{class}", aria_current: if current { "true" } else { "false" }, {row} }
+                div {
+                    class: "{class}",
+                    aria_current: if current { "true" } else { "false" },
+                    onpointerenter: on_enter,
+                    onpointerleave: on_leave,
+                    onpointerup: on_up,
+                    {row}
+                }
                 {below}
             }
         }

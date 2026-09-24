@@ -1,0 +1,112 @@
+/* The Rules sheet: the Import sheet's scrim, rise and paper, taller; each part a titled band
+   (rules, vacation, the server), the rules as rows in the book's shape with a switch in front
+   and the condition in the data face, the editor in the flow under them. */
+.rules-wrap {
+  position: absolute; inset: 0; z-index: 35; display: grid; place-items: start center; padding-top: 5%;
+  background: var(--scrim);
+}
+.rules {
+  position: relative; width: min(640px, 92%); max-height: 88%; display: flex; flex-direction: column;
+  background: var(--raise); color: var(--ink); border: 1px solid var(--line);
+  border-radius: var(--r-panel); box-shadow: var(--shadow-2); overflow: hidden;
+  animation: cmdk-rise var(--t-big) var(--e-spring);
+}
+.rules-head { display: flex; align-items: center; gap: 10px; padding: 14px 14px 6px; }
+.rules-head h3 { margin: 0; font-family: var(--font-display); font-size: 17px; font-weight: 800; }
+.rules-head .mini { margin-left: auto; }
+.rules-head .k { font-family: var(--font-data); font-size: 10px; font-weight: 400; color: var(--ink-faint); }
+.rules-accounts { padding: 0 14px 8px; }
+.rules-accounts .seg { flex-wrap: wrap; }
+.rules-main {
+  flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; border-top: 1px solid var(--line-soft);
+}
+.rules-part { display: grid; gap: 7px; padding: 12px 14px 14px; border-bottom: 1px solid var(--line-soft); }
+.rules-part:last-child { border-bottom: 0; background: var(--surface); }
+.rules-part h4 {
+  margin: 0; font-family: var(--font-data); font-size: 10px; font-weight: 400; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--ink-faint);
+}
+.rules-none { margin: 0; padding: 14px 10px; text-align: center; font-size: 12.5px; color: var(--ink-faint); }
+.rules-faint { color: var(--ink-faint); }
+.rules-part > .seg, .rules-edit > .seg { justify-self: start; }
+
+/* One rule: the switch, what it is, and its actions, which brighten on hover like the book's. */
+.rules-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.rules-row {
+  display: grid; grid-template-columns: 30px 1fr auto; gap: 10px; align-items: center;
+  padding: 7px 8px; border-radius: 8px;
+}
+.rules-row:hover { background: var(--surface-2); }
+.rules-row.off .rules-text { opacity: .55; }
+.rules-text { display: grid; gap: 1px; min-width: 0; }
+.rules-text b { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rules-when {
+  font-family: var(--font-data); font-size: 11px; color: var(--ink-soft);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.rules-does { font-size: 11.5px; color: var(--ink-faint); }
+.rules-row-acts { display: flex; gap: 4px; opacity: .55; transition: opacity var(--t-quick) var(--e-out); }
+.rules-row:hover .rules-row-acts, .rules-row:focus-within .rules-row-acts { opacity: 1; }
+.rules-row-acts .ghost:disabled { opacity: .35; cursor: default; }
+.rules-switch {
+  width: 28px; height: 16px; padding: 2px; border: 1px solid var(--line); border-radius: var(--r-pill);
+  background: var(--surface-2); cursor: pointer; display: flex;
+  transition: background var(--t-quick) var(--e-out);
+}
+.rules-switch span {
+  width: 10px; height: 10px; border-radius: 999px; background: var(--ink-faint);
+  transition: transform var(--t-quick) var(--e-out), background var(--t-quick) var(--e-out);
+}
+.rules-switch[aria-checked="true"] { background: var(--accent); border-color: transparent; }
+.rules-switch[aria-checked="true"] span { transform: translateX(12px); background: var(--accent-ink); }
+
+/* The editor: labelled fields, the live answer under the condition, the actions as chips. */
+.rules-edit {
+  display: grid; gap: 6px; margin-top: 4px; padding: 10px 12px 12px;
+  border: 1px solid var(--line); border-radius: var(--r-card); background: var(--surface);
+}
+.rules-edit h4 { margin-bottom: 2px; }
+.rules-edit .files-k, .rules-form .files-k { margin-top: 4px; }
+.inp.rules-in { width: 100%; box-sizing: border-box; font-size: 13px; padding: 6px 10px; }
+.inp.rules-name { font-weight: 600; }
+.inp.rules-query { font-family: var(--font-data); font-size: 12px; }
+.rules-look { margin: 0; font-size: 12px; line-height: 1.4; color: var(--ink-faint); }
+.rules-look.found { color: var(--ink-soft); }
+.rules-look.refused { color: var(--danger); font-weight: 600; }
+.rules-actions { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.rules-action {
+  display: inline-flex; align-items: center; gap: 6px; padding: 3px 4px 3px 9px;
+  border: 1px solid var(--line); border-radius: var(--r-pill); background: var(--raise);
+  font-size: 12.5px; color: var(--ink);
+}
+.rules-action .ic { width: 13px; height: 13px; color: var(--ink-soft); }
+.rules-action .rm {
+  display: grid; place-items: center; width: 18px; height: 18px; padding: 0; border: 0;
+  border-radius: 999px; background: none; color: var(--ink-faint); cursor: pointer;
+}
+.rules-action .rm:hover { background: var(--surface-2); color: var(--ink); }
+.rules-action .rm .ic { width: 11px; height: 11px; }
+.rules-add { position: relative; }
+.rules-add .mini .ic { width: 12px; height: 12px; }
+.rules-menu .fmenu { top: calc(100% + 4px); left: 0; }
+.rules-acts { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.rules-acts .capnote { flex: 1; min-width: 0; }
+.rules-acts .mini .ic { width: 12px; height: 12px; }
+.rules-part > .rules-acts:first-of-type { justify-content: flex-start; }
+
+/* The vacation reply and the server's part. */
+.rules-form { display: grid; gap: 6px; }
+.inp.rules-body { width: 100%; box-sizing: border-box; min-height: 84px; resize: vertical; font-size: 13px; line-height: 1.45; }
+.rules-dates { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.rules-dates > div { display: grid; gap: 4px; min-width: 0; }
+.rules-said {
+  flex: 1; min-width: 0; margin: 0; padding: 7px 9px; border: 1px solid var(--line-soft);
+  border-radius: var(--r-btn); background: var(--raise); font-family: var(--font-data); font-size: 11px;
+  line-height: 1.5; color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+
+/* "Move to…": in the row it hangs from the strip like the label menu; in the reader's head it
+   hangs from its tool. */
+.move-menu .hint { margin: 0; padding: 6px 8px; border-radius: 8px; background: var(--raise); }
+.move-tool { position: absolute; top: calc(100% + 6px); right: 0; z-index: 40; width: 280px; }
+.move-tool .fmenu { position: static; width: auto; }

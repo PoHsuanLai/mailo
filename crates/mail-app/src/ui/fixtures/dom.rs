@@ -353,6 +353,13 @@ impl Seen {
         self.ids(name, value)
     }
 
+    /// This render's attributes and then `later`'s: what several renders set between them, for
+    /// a list that lands a frame or two after the click that asked for it.
+    pub(in crate::ui) fn merge(mut self, later: Seen) -> Seen {
+        self.attrs.extend(later.attrs);
+        self
+    }
+
     /// The one element whose dynamic `name` attribute equals `value`.
     pub(in crate::ui) fn one(&self, name: &str, value: &str) -> dioxus_core::ElementId {
         let ids = self.ids(name, value);

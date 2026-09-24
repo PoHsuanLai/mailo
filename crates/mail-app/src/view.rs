@@ -510,6 +510,13 @@ pub enum FileSheet {
     Export { query: String },
 }
 
+/// The Rules sheet while it is open: which account's rules, vacation reply and server script
+/// it shows. `None` is the first account there is.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RulesSheet {
+    pub account: Option<AccountId>,
+}
+
 /// Everything the shell is currently showing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Shell {
@@ -533,6 +540,8 @@ pub struct Shell {
     pub labelling: Option<ThreadId>,
     /// The conversation whose snooze menu is open, if any.
     pub snoozing: Option<ThreadId>,
+    /// The conversation whose "Move to…" menu is open, if any. By thread, like `labelling`.
+    pub filing: Option<ThreadId>,
     /// The composer, when one is open.
     ///
     /// `Option` rather than a `mode` enum on `Shell`: composing does not replace reading, it
@@ -579,6 +588,8 @@ pub struct Shell {
     ///
     /// Only the address: a password typed into the sheet lives in the sheet and goes with it.
     pub adding: Option<String>,
+    /// The Rules sheet while it is open. `None` is closed.
+    pub rules: Option<RulesSheet>,
     /// Ctrl F in the open thread. `None` is closed, and marks nothing.
     ///
     /// Belongs to the thread it was opened on: [`Self::open`] and [`Self::close`] drop it, so a
@@ -781,6 +792,7 @@ impl Default for Shell {
             composing: None,
             labelling: None,
             snoozing: None,
+            filing: None,
             accounts: Vec::new(),
             labels: Vec::new(),
             appearance: Appearance::default(),
@@ -793,6 +805,7 @@ impl Default for Shell {
             contacts: None,
             files: None,
             adding: None,
+            rules: None,
             find: None,
             undo: crate::undo::UndoStack::default(),
         }

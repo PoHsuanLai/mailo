@@ -9,6 +9,7 @@ use super::list_search::RowHit;
 use super::marked::{Numbering, marked};
 use super::menus::{LabelMenu, SnoozeMenu};
 use super::motion::{act_kind, drag, motion, row_animation_ended};
+use super::move_to::MoveMenu;
 use super::ops::{composes, start_composing};
 use super::text::{draft_state, label, sender};
 use crate::provider::Provider;
@@ -120,6 +121,10 @@ pub(super) fn Row(
         .collect();
     let selected = shell.read().open == Some(id);
     let delay = index.min(8);
+    // After the ops, in the strip's own stagger.
+    let move_at = actions.len();
+    let move_label = "Move to…".to_owned();
+    let filing = shell.read().filing == Some(id);
     let mut pop = use_signal(|| false);
     // Where the row's own corner is, for the thread card. Not a signal: nothing redraws for it.
     let mut at = use_hook(|| CopyValue::new((0.0_f64, 0.0_f64)));
@@ -296,6 +301,20 @@ pub(super) fn Row(
                         span { class: "fly", "{fly(kind)}" }
                     }
                 }
+                button {
+                    "data-op": "move-to",
+                    aria_label: "{move_label}",
+                    title: "{move_label}",
+                    aria_expanded: if filing { "true" } else { "false" },
+                    style: "--j:{move_at}",
+                    onclick: move |event: Event<MouseData>| {
+                        event.stop_propagation();
+                        let already = shell.peek().filing == Some(id);
+                        shell.write().filing = if already { None } else { Some(id) };
+                    },
+                    Glyph { icon: Icon::FolderInput, class: None }
+                    span { class: "fly", "{move_label}" }
+                }
             }
             if snoozing {
                 span { class: "floater", aria_hidden: "true", "zZ" }
@@ -305,6 +324,9 @@ pub(super) fn Row(
             }
             if shell.read().labelling == Some(id) {
                 LabelMenu { id, summary, shell, revision }
+            }
+            if filing {
+                MoveMenu { thread: id, shell, revision, on_close: move |_| shell.write().filing = None }
             }
         }
     }
