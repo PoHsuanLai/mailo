@@ -26,9 +26,11 @@ mod ops;
 mod page;
 mod paint;
 mod reading;
+mod receipt;
 mod row;
 mod sidebar;
 mod space_editor;
+mod start;
 mod style;
 mod switch;
 mod text;
@@ -40,3 +42,4 @@ mod fixtures;
 mod shell_tests;
 
 pub use launch::run;
+pub use start::{Start, open_thread, start_of};

@@ -235,9 +235,11 @@ pub(super) fn Reader(
                         div { class: "mono reader-addr", "{addr}" }
                         div { class: "mono when", "{when}" }
                     }
-                    super::unsubscribe::Leave { key: "{leave_key}", thread, bodies, revision }
+                    super::unsubscribe::Leave { key: "{leave_key}", thread, bodies: bodies.clone(), revision }
                 }
             }
+            // Under the head, where a question about this message belongs. Keyed like Leave.
+            super::receipt::Receipts { key: "{leave_key}", bodies }
         }
         div { class: "reader-body",
             if let Some(where_it_went) = saved() {

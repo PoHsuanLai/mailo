@@ -26,9 +26,16 @@ pub(super) fn App() -> Element {
     // handle held here is a handle that invites a query back onto the thread that draws.
     // The launched look, when `main` provided one. A test that builds `App` with only the
     // store keeps the first-run appearance.
-    let mut shell = use_signal(|| Shell {
-        appearance: try_consume_context::<Appearance>().unwrap_or_default(),
-        ..Shell::default()
+    // Opened on a conversation when the window was started to show one (`mailo open`).
+    let mut shell = use_signal(|| {
+        let mut shell = Shell {
+            appearance: try_consume_context::<Appearance>().unwrap_or_default(),
+            ..Shell::default()
+        };
+        if let Some(super::Start::Thread(thread)) = try_consume_context::<super::Start>() {
+            super::open_thread(&mut shell, thread);
+        }
+        shell
     });
     // Bumped after any write, to re-run the queries. Explicit rather than implicit so it is
     // obvious what causes a refresh.

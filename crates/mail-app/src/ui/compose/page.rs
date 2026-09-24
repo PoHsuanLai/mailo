@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 
 use chrono::{DateTime, Datelike, Duration, TimeZone, Utc};
-use mail_domain::{AccountId, Address, Draft, DraftId};
+use mail_domain::{AccountId, Address, Draft, DraftId, ReceiptRequest};
 
 use super::opening::doc_of;
 use crate::editor::{Person, Pos, Range, Session};
@@ -196,6 +196,8 @@ pub(in crate::ui) struct Page {
     pub typed_cc: String,
     pub cc_row: CcRow,
     pub when: When,
+    /// Whether the message asks its recipients for a read receipt.
+    pub receipt: ReceiptRequest,
     /// What the draft carries, as `(name, size)`.
     pub attached: Vec<(String, String)>,
     pub session: Session,
@@ -248,6 +250,7 @@ impl Page {
             typed_to: String::new(),
             typed_cc: String::new(),
             when: When::Now,
+            receipt: draft.receipt,
             attached,
             session: Session::with(doc_of(draft)),
             selection: None,
@@ -285,9 +288,19 @@ impl Page {
             subject: self.subject.clone(),
             text: crate::editor::to_flowed(doc),
             html: Some(crate::editor::to_html(doc)),
+            receipt: self.receipt,
             updated: now,
             ..base.clone()
         }
+    }
+
+    /// Ask for a read receipt, or stop asking.
+    pub(in crate::ui) fn toggle_receipt(&mut self) {
+        self.receipt = match self.receipt {
+            ReceiptRequest::Unrequested => ReceiptRequest::Requested,
+            ReceiptRequest::Requested => ReceiptRequest::Unrequested,
+        };
+        self.touch();
     }
 
     /// The recipients of `list`.

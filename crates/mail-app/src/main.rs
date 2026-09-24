@@ -3,9 +3,18 @@ use mail_store::SqliteStore;
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
 
-    // No arguments opens the window; anything else is the CLI. One binary because they are one
-    // application over one store, and a separate CLI would drift from what the UI does.
-    let command = if args.is_empty() {
+    // No arguments opens the window, and `open <thread>` opens it on a conversation; anything
+    // else is the CLI. One binary because they are one application over one store, and a
+    // separate CLI would drift from what the UI does.
+    let start = match mail_app::ui::start_of(&args) {
+        Some(Ok(start)) => Some(start),
+        Some(Err(message)) => {
+            eprintln!("{message}");
+            std::process::exit(2);
+        }
+        None => None,
+    };
+    let command = if start.is_some() {
         None
     } else {
         match mail_app::cli::parse(&args) {
@@ -282,7 +291,13 @@ fn main() {
                 mail_app::appearance::state_dir()
                     .map(|state| mail_app::appearance::WindowDirs { config, state })
             });
-            mail_app::ui::run(store, look, spaces, dirs);
+            mail_app::ui::run(
+                store,
+                look,
+                spaces,
+                dirs,
+                start.unwrap_or(mail_app::ui::Start::Inbox),
+            );
         }
     }
 }

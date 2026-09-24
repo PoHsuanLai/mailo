@@ -50,6 +50,7 @@
 .pchip .av { width: 18px; height: 18px; font-size: 9px; font-weight: 800; color: var(--av-ink); }
 .pchip .av.file { width: auto; min-width: 18px; padding: 0 5px; border-radius: 6px; background: var(--ink-soft); font-size: 8px; }
 .pchip .size { color: var(--ink-faint); }
+.pchip.receipt-chip { padding-left: 9px; color: var(--ink-soft); }
 .pchip .x { border: 0; background: none; padding: 0; cursor: pointer; color: var(--ink-faint); line-height: 0; }
 .pchip .x .ic { width: 11px; height: 11px; }
 .pchip.flash { box-shadow: 0 0 0 3px var(--accent-soft); animation: chip-in var(--t-move) var(--e-spring), chip-flash 1200ms var(--e-out); }

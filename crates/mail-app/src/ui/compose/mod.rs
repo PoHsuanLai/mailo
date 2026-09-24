@@ -17,6 +17,7 @@ mod opening;
 mod page;
 mod pill;
 mod props;
+mod receipt;
 mod recipients;
 mod render;
 mod wire;

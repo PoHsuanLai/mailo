@@ -5,9 +5,11 @@
 //! rules live on [`Draft`]; the colours all come from `palette`.
 
 mod hue;
+mod notify;
 mod parts;
 
 use self::hue::HueField;
+use self::notify::Notifications;
 use self::parts::{Marks as MarksChoice, Presets, Readout, Seg, Stops};
 use super::field::{Field, FieldKind};
 use super::frame::keep;
@@ -179,6 +181,7 @@ pub(super) fn SpaceEditor(
                 }
             }
             MarksChoice { shell }
+            Notifications {}
             div {
                 div { class: "ed-label", "Presets" }
                 Presets { editing, spaces }
@@ -209,5 +212,7 @@ pub(super) fn SpaceEditor(
     }
 }
 
+#[cfg(test)]
+mod notify_tests;
 #[cfg(test)]
 pub(in crate::ui) mod tests;

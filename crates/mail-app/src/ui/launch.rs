@@ -113,8 +113,14 @@ fn probe() -> &'static str {
     ""
 }
 
-/// Launch the shell, already wearing `look` and `spaces`.
-pub fn run(store: Arc<SqliteStore>, look: Appearance, spaces: Spaces, dirs: Option<WindowDirs>) {
+/// Launch the shell, already wearing `look` and `spaces`, open where `start` says.
+pub fn run(
+    store: Arc<SqliteStore>,
+    look: Appearance,
+    spaces: Spaces,
+    dirs: Option<WindowDirs>,
+    start: super::Start,
+) {
     let space = spaces.current_space();
     let icons = crate::appearance::cache_dir()
         .map(|dir| crate::provider::icon::Loaded::read(&dir.join("providers")))
@@ -140,7 +146,8 @@ pub fn run(store: Arc<SqliteStore>, look: Appearance, spaces: Spaces, dirs: Opti
         .with_context(store)
         .with_context(look)
         .with_context(spaces)
-        .with_context(icons);
+        .with_context(icons)
+        .with_context(start);
     if let Some(dirs) = dirs {
         launch = launch.with_context(dirs);
     }

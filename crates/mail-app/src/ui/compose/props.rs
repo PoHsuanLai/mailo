@@ -12,6 +12,7 @@ use super::super::icon::{Glyph, Icon};
 use super::super::menu::{Menu, MenuItem, MenuKey, Right, Tile, menu_key};
 use super::float::hue;
 use super::page::{CcRow, Float, Guard, List, Page, PageKind, When};
+use super::receipt::{KEY as RECEIPT_KEY, ReceiptRow, item as receipt_item};
 use super::recipients::{commit_typed, people_items, pick_person, pop_last, remove, typed};
 use crate::provider::icon::{ChipPlace, ProvChip};
 use crate::provider::provider;
@@ -63,6 +64,7 @@ pub(in crate::ui) fn Props(page: Signal<Page>, shell: Signal<Shell>) -> Element 
             if !compact {
                 SendsRow { page }
             }
+            ReceiptRow { page }
             if !attached.is_empty() {
                 div { class: "prop-row",
                     div { class: "k", Glyph { icon: Icon::Paperclip, class: None }, "Attached" }
@@ -181,8 +183,9 @@ fn move_to(mut page: Signal<Page>, key: &str) {
 #[component]
 fn SendsRow(page: Signal<Page>) -> Element {
     let when = page.read().when;
+    let receipt = page.read().receipt;
     let open = page.read().float == Float::Sends;
-    let items: Vec<MenuItem> = When::ALL
+    let mut items: Vec<MenuItem> = When::ALL
         .into_iter()
         .map(|choice| MenuItem {
             key: choice.key().to_owned(),
@@ -200,6 +203,7 @@ fn SendsRow(page: Signal<Page>) -> Element {
             detail: Vec::new(),
         })
         .collect();
+    items.push(receipt_item(receipt));
     rsx! {
         div { class: "prop-row",
             div { class: "k", Glyph { icon: Icon::Clock, class: None }, "Sends" }
@@ -223,14 +227,7 @@ fn SendsRow(page: Signal<Page>) -> Element {
                             title: "Send".to_owned(),
                             items,
                             filterable: false,
-                            on_pick: move |key: String| {
-                                let mut write = page.write();
-                                if let Some(choice) = When::from_key(&key) {
-                                    write.when = choice;
-                                    write.touch();
-                                }
-                                write.float = Float::Closed;
-                            },
+                            on_pick: move |key: String| pick_sends(&mut page.write(), &key),
                             on_close: move |_| page.write().float = Float::Closed,
                             on_query: move |_| {},
                             slim: true,
@@ -241,6 +238,17 @@ fn SendsRow(page: Signal<Page>) -> Element {
             }
         }
     }
+}
+
+/// A choice from the Sends menu: when it goes, or whether it asks for a read receipt.
+pub(in crate::ui) fn pick_sends(page: &mut Page, key: &str) {
+    if let Some(choice) = When::from_key(key) {
+        page.when = choice;
+        page.touch();
+    } else if key == RECEIPT_KEY {
+        page.toggle_receipt();
+    }
+    page.float = Float::Closed;
 }
 
 /// The chips of one list, the field beside them, and the people menu under it.
