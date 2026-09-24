@@ -995,3 +995,53 @@ fn a_database_from_before_invitation_answers_upgrades_and_keeps_them_per_message
         .unwrap();
     assert_eq!(left, 0, "an answer does not outlive its message");
 }
+
+/// 0017: a database from before rules upgrades with none and no vacation reply, keeps its mail,
+/// and can keep a rule straight away.
+#[test]
+fn a_database_from_before_rules_upgrades_with_none_and_keeps_its_mail() {
+    use mail_store::Store;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("mail.db");
+    let (account, message) = {
+        let db = Connection::open(&path).unwrap();
+        for (version, sql) in migrate::MIGRATIONS.iter().take(16) {
+            db.execute_batch(sql).unwrap();
+            if *version > 1 {
+                db.execute(
+                    "INSERT INTO schema_version (version, applied_at) VALUES (?1, datetime('now'))",
+                    [version],
+                )
+                .unwrap();
+            }
+        }
+        seed(&db)
+    };
+
+    let store = SqliteStore::open(&path, dir.path()).unwrap();
+    let account = mail_domain::AccountId::from_uuid(account.parse().unwrap());
+    assert_eq!(store.rules(account).unwrap(), vec![]);
+    assert_eq!(store.vacation(account).unwrap(), None);
+    let kept: i64 = store
+        .connection()
+        .query_row(
+            "SELECT count(*) FROM messages WHERE id = ?1",
+            [&message],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(kept, 1, "the mail is still there");
+
+    let rule = mail_domain::Rule {
+        id: mail_domain::RuleId::generate(),
+        account,
+        name: "Bills".to_owned(),
+        position: 1,
+        state: mail_domain::RuleState::Enabled,
+        filter: mail_domain::Filter::All,
+        actions: vec![mail_domain::RuleAction::Archive],
+        after: mail_domain::AfterMatch::Continue,
+    };
+    store.put_rule(&rule).unwrap();
+    assert_eq!(store.rules(account).unwrap(), vec![rule]);
+}

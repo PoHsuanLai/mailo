@@ -15,6 +15,7 @@ pub mod oauth;
 pub mod renewal;
 pub mod reparse;
 pub mod secrets;
+pub mod sieve;
 pub mod signin;
 pub mod transport;
 pub mod unsubscribe;

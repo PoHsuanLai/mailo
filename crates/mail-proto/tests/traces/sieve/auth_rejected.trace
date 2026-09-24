@@ -1,0 +1,15 @@
+# SYNTHETIC. Written from RFC 5804 (ManageSieve), with capability lines in the shape a
+# Pigeonhole server sends them. Not a recording.
+# A wrong password. The reply to AUTHENTICATE is a rejected credential whatever
+# its words say.
+S: "SASL" "PLAIN"
+S: "STARTTLS"
+S: OK
+C: STARTTLS
+S: OK
+TLS
+S: "SASL" "PLAIN"
+S: OK
+C: AUTHENTICATE "PLAIN" "AG1lQGV4YW1wbGUudGVzdABzM2NyZXQ="
+S: NO "Authentication failed."
+FAIL AuthRejected

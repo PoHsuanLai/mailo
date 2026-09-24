@@ -337,25 +337,15 @@ pub(in crate::ui) fn belongs(
     })
 }
 
-/// Every server folder a message of `thread` is addressed in.
-fn folders_of(store: &SqliteStore, thread: &Thread) -> Vec<MailboxRef> {
-    let account = thread.summary.account;
-    let mut folders: Vec<MailboxRef> = thread
+/// Every server folder a message of `thread` is addressed in, with whether it is still filed
+/// there: what `Filter::InFolder` weighs (`Store::placed`).
+fn folders_of(store: &SqliteStore, thread: &Thread) -> Vec<Placed> {
+    thread
         .messages
         .iter()
-        .filter_map(|message| store.remotes_of(*message).ok())
+        .filter_map(|message| store.placed(*message).ok())
         .flatten()
-        .filter_map(|remote| match remote {
-            RemoteRef::Imap { mailbox, .. } => Some(MailboxRef {
-                account,
-                path: mailbox,
-            }),
-            RemoteRef::Pop { .. } => None,
-        })
-        .collect();
-    folders.sort_by(|a, b| a.path.cmp(&b.path));
-    folders.dedup();
-    folders
+        .collect()
 }
 
 /// A leaving row has finished: take it off the page, and let the rows under it heal.

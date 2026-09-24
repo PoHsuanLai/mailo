@@ -73,10 +73,17 @@ fn a_folder_place_lists_its_account_and_exactly_its_path() {
             "{path}"
         );
         let fits = |account: AccountId, folders: &[MailboxRef]| {
+            // Each address one message's, filed as held there (a user folder: archived).
+            let placed = Placed::of_message(
+                MailboxRole::Archive,
+                folders.to_vec(),
+                &FolderRoles::default(),
+                &[],
+            );
             filter.fit(&MatchCtx {
                 summary: &summary(account),
                 corpus: None,
-                folders,
+                folders: &placed,
                 now: at(0),
             })
         };

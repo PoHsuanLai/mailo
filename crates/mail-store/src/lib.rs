@@ -10,6 +10,7 @@ pub mod memory;
 mod memory_search;
 pub mod migrate;
 mod prefix;
+pub mod rules;
 pub mod sql;
 pub mod sqlite;
 mod term;
@@ -25,9 +26,9 @@ pub use error::StoreError;
 use chrono::{DateTime, Utc};
 use mail_domain::{
     AccountCaps, AccountId, BlobId, Draft, DraftId, Filter, Folder, FolderContents, Import, Ingest,
-    InviteAnswer, MailboxRef, Message, MessageId, MessageKey, OutboxId, Page, Patch, ProtoOp,
-    Query, ReceiptAnswer, RemoteIntent, RemoteRef, Retry, SendState, SyncCursor, Template,
-    TemplateId, Thread, ThreadId, ThreadSummary,
+    InviteAnswer, Label, MailboxRef, Message, MessageId, MessageKey, OutboxId, Page, Patch,
+    ProtoOp, Query, ReceiptAnswer, RemoteIntent, RemoteRef, Retry, Rule, RuleId, SendState,
+    SyncCursor, Template, TemplateId, Thread, ThreadId, ThreadSummary, Vacation,
 };
 
 /// One queued unit of remote work, with everything needed to retry or abandon it.
@@ -236,6 +237,15 @@ pub trait Store {
     /// and any of its addresses can fetch it.
     fn remotes_of(&self, message: MessageId) -> Result<Vec<RemoteRef>, StoreError>;
 
+    /// Every mailbox `message` has a server address in, each with whether the message is still
+    /// filed there here: what [`mail_domain::Filter::InFolder`] weighs, for a caller asking about
+    /// one message rather than running a filter — a rule, an export.
+    ///
+    /// The role it is filed as, against [`mail_domain::FolderRoles::filed_as`] of each path by
+    /// the account's last reported roles, and whether a move of it into another folder is still
+    /// queued. [`StoreError::NoMessage`] for a message not held.
+    fn placed(&self, message: MessageId) -> Result<Vec<mail_domain::Placed>, StoreError>;
+
     /// The attachment of `message` left on the server as `section` has arrived: it is `blob`,
     /// `size` bytes decoded.
     ///
@@ -286,6 +296,38 @@ pub trait Store {
     /// Delete a template. [`StoreError::NoTemplate`] when there is none by that id, so a typo
     /// in an id is not reported as done.
     fn delete_template(&self, id: TemplateId) -> Result<(), StoreError>;
+
+    /// Every label on an account, by name.
+    ///
+    /// On the trait because a rule names its labels and folders by name, and acting on one means
+    /// finding the label that bears it — on either store.
+    fn labels(&self, account: AccountId) -> Result<Vec<Label>, StoreError>;
+
+    /// An account's rules, in the order they run: by position, then by name.
+    fn rules(&self, account: AccountId) -> Result<Vec<Rule>, StoreError>;
+
+    /// Keep a rule, replacing any with the same id.
+    ///
+    /// [`StoreError::RuleNameTaken`] when another rule on the account already has its name,
+    /// because the name is how the command line finds a rule.
+    fn put_rule(&self, rule: &Rule) -> Result<(), StoreError>;
+
+    /// Delete a rule. [`StoreError::NoRule`] when there is none by that id.
+    fn delete_rule(&self, id: RuleId) -> Result<(), StoreError>;
+
+    /// The account's vacation reply, if one is set.
+    fn vacation(&self, account: AccountId) -> Result<Option<Vacation>, StoreError>;
+
+    /// Set the account's vacation reply, or clear it with `None`.
+    ///
+    /// Only the record of it: the reply itself runs on the server, and putting it there is a
+    /// separate step that rewrites the account's script.
+    fn put_vacation(
+        &self,
+        account: AccountId,
+        vacation: Option<&Vacation>,
+        now: DateTime<Utc>,
+    ) -> Result<(), StoreError>;
 
     /// Every mailbox this account's server lists, by path, with folder work still in the
     /// outbox laid on top.

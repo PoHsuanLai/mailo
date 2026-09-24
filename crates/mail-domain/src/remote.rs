@@ -172,6 +172,13 @@ pub enum ProtoOp {
         add: Vec<String>,
         remove: Vec<String>,
     },
+    /// File messages into the folder at `folder`: out of the inbox and into it. On a server
+    /// where mailboxes are labels that is the label added and `\Inbox` removed; elsewhere a
+    /// `MOVE` into the folder.
+    File {
+        remotes: Vec<RemoteRef>,
+        folder: String,
+    },
     /// Add a keyword to messages: `UID STORE +FLAGS (…)` on IMAP. A server that cannot keep
     /// keywords, and POP3, which has no flags at all, treat it as done.
     AddKeyword {

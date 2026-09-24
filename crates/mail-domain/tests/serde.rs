@@ -404,6 +404,61 @@ fn filters() -> Vec<Filter> {
     ]
 }
 
+fn rules() -> Vec<Rule> {
+    vec![
+        Rule {
+            id: RuleId::from_uuid(uuid(20)),
+            account: account(),
+            name: "Bills".to_owned(),
+            position: 1,
+            state: RuleState::Enabled,
+            filter: Filter::And(vec![
+                Filter::From(TextMatch::Contains("bank.example".to_owned())),
+                Filter::Not(Box::new(Filter::Read(ReadState::Read))),
+            ]),
+            actions: vec![
+                RuleAction::Label("Money".to_owned()),
+                RuleAction::File("Money/Bills".to_owned()),
+                RuleAction::MarkRead,
+                RuleAction::Star,
+            ],
+            after: AfterMatch::Stop,
+        },
+        Rule {
+            id: RuleId::from_uuid(uuid(21)),
+            account: account(),
+            name: "Tidy".to_owned(),
+            position: 2,
+            state: RuleState::Disabled,
+            filter: Filter::All,
+            actions: vec![RuleAction::Archive, RuleAction::Trash, RuleAction::Spam],
+            after: AfterMatch::Continue,
+        },
+    ]
+}
+
+fn vacation() -> Vacation {
+    Vacation {
+        account: account(),
+        subject: "Away".to_owned(),
+        body: "Back on the 8th.".to_owned(),
+        days: Vacation::DEFAULT_DAYS,
+        addresses: vec!["me@example.test".to_owned()],
+        from: Some("me@example.test".to_owned()),
+        during: DateRange {
+            from: Some(at(1)),
+            to: Some(at(8)),
+        },
+    }
+}
+
+#[test]
+fn rule_types_round_trip() {
+    round_trip_each("Rule", rules());
+    round_trip("Vacation", vacation());
+    round_trip("Op::File", Op::File(LabelId::from_uuid(uuid(3))));
+}
+
 fn view() -> View {
     View {
         id: ViewId::from_uuid(uuid(11)),
@@ -1369,6 +1424,13 @@ fixtures! {
     }],
     // The local-only account imported mail lands in.
     "account_plan_local.json" => AccountPlan = presets::local_folders(at(3)).plan,
+    // Rules and vacation replies (`plan.md` 10.11), and the op that files into a folder.
+    "rules.json" => Vec<Rule> = rules(),
+    "vacation.json" => Vacation = vacation(),
+    "proto_ops_file.json" => Vec<ProtoOp> = vec![ProtoOp::File {
+        remotes: vec![imap_ref()],
+        folder: "Money/Bills".to_owned(),
+    }],
     "message_keys.json" => Vec<MessageKey> = vec![
         MessageKey::Rfc("abc@example.test".to_owned()),
         MessageKey::Gmail(1),
@@ -1414,6 +1476,10 @@ fn remote_intent_round_trips() {
         RemoteIntent::AddKeyword {
             messages: vec![m],
             keyword: Keyword::MdnSent,
+        },
+        RemoteIntent::File {
+            messages: vec![m],
+            label: l,
         },
     ] {
         let json = serde_json::to_value(&value).expect("serialize");

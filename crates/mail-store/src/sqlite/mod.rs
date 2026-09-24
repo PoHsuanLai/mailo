@@ -5,10 +5,12 @@ mod draft;
 mod folders;
 mod invite;
 mod outbox;
+mod placed;
 mod read;
 mod receipt;
 mod reparse;
 mod row;
+mod rules;
 mod search;
 mod template;
 mod write;
@@ -599,6 +601,10 @@ impl Store for SqliteStore {
         Ok(())
     }
 
+    fn placed(&self, message: MessageId) -> Result<Vec<mail_domain::Placed>, StoreError> {
+        self.load_placed(message)
+    }
+
     fn remotes_of(&self, message: MessageId) -> Result<Vec<RemoteRef>, StoreError> {
         let account = self.message(message)?.account;
         self.refs_for(account, &[message])
@@ -691,6 +697,36 @@ impl Store for SqliteStore {
 
     fn delete_template(&self, id: TemplateId) -> Result<(), StoreError> {
         self.remove_template(id)
+    }
+
+    fn labels(&self, account: AccountId) -> Result<Vec<mail_domain::Label>, StoreError> {
+        // The inherent method of the same name, which the search box already calls.
+        SqliteStore::labels(self, account)
+    }
+
+    fn rules(&self, account: AccountId) -> Result<Vec<mail_domain::Rule>, StoreError> {
+        self.load_rules(account)
+    }
+
+    fn put_rule(&self, rule: &mail_domain::Rule) -> Result<(), StoreError> {
+        self.write_rule(rule)
+    }
+
+    fn delete_rule(&self, id: mail_domain::RuleId) -> Result<(), StoreError> {
+        self.remove_rule(id)
+    }
+
+    fn vacation(&self, account: AccountId) -> Result<Option<mail_domain::Vacation>, StoreError> {
+        self.load_vacation(account)
+    }
+
+    fn put_vacation(
+        &self,
+        account: AccountId,
+        vacation: Option<&mail_domain::Vacation>,
+        now: DateTime<Utc>,
+    ) -> Result<(), StoreError> {
+        self.write_vacation(account, vacation, now)
     }
 
     fn folders(&self, account: AccountId) -> Result<Vec<mail_domain::Folder>, StoreError> {

@@ -22,6 +22,7 @@ mod provider;
 pub mod query;
 pub mod reader;
 pub mod receipt;
+pub mod rules;
 pub mod search;
 pub mod snooze;
 pub mod space;

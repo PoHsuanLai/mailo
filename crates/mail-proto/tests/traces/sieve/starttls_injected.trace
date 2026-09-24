@@ -1,0 +1,12 @@
+# SYNTHETIC. Written from RFC 5804 (ManageSieve), with capability lines in the shape a
+# Pigeonhole server sends them. Not a recording.
+# Bytes that arrive in plaintext after the server's OK to STARTTLS, before the
+# handshake, would otherwise be read as the TLS session's capabilities. Here they
+# arrive in the same read as the OK and advertise a mechanism the real server
+# never offered. They are refused.
+S: "SASL" "PLAIN"
+S: "STARTTLS"
+S: OK "ready"
+C: STARTTLS
+S64: T0sgImJlZ2luIFRMUyINCiJTQVNMIiAiUExBSU4iDQpPSyAiaW5qZWN0ZWQiDQo=
+FAIL Malformed

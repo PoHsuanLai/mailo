@@ -22,6 +22,7 @@ use crate::{OutboxEntry, Settle, Store, StoreError, Term};
 
 mod contacts;
 mod folders;
+mod rules;
 mod templates;
 
 /// Everything held in memory. Cheap to construct, and never touches the disk.
@@ -43,6 +44,8 @@ struct Inner {
     labels: BTreeMap<LabelId, Label>,
     drafts: BTreeMap<DraftId, Draft>,
     templates: BTreeMap<TemplateId, Template>,
+    rules: BTreeMap<mail_domain::RuleId, mail_domain::Rule>,
+    vacations: BTreeMap<AccountId, mail_domain::Vacation>,
     /// What each account's server turned out to support.
     caps: BTreeMap<AccountId, AccountCaps>,
     outbox: BTreeMap<OutboxId, OutboxRow>,
@@ -109,6 +112,8 @@ impl Default for Inner {
             labels: BTreeMap::new(),
             drafts: BTreeMap::new(),
             templates: BTreeMap::new(),
+            rules: BTreeMap::new(),
+            vacations: BTreeMap::new(),
             caps: BTreeMap::new(),
             outbox: BTreeMap::new(),
             // SQLite rowids start at 1. Matching that keeps insertion order obvious in tests.
@@ -241,6 +246,14 @@ impl Store for MemoryStore {
             .collect())
     }
 
+    fn placed(&self, message: MessageId) -> Result<Vec<mail_domain::Placed>, StoreError> {
+        let inner = self.inner.borrow();
+        if !inner.messages.contains_key(&message) {
+            return Err(StoreError::NoMessage(message));
+        }
+        Ok(inner.placed_of(message))
+    }
+
     fn remotes_of(&self, message: MessageId) -> Result<Vec<RemoteRef>, StoreError> {
         let inner = self.inner.borrow();
         if !inner.messages.contains_key(&message) {
@@ -330,6 +343,36 @@ impl Store for MemoryStore {
 
     fn delete_template(&self, id: TemplateId) -> Result<(), StoreError> {
         self.inner.borrow_mut().delete_template(id)
+    }
+
+    fn labels(&self, account: AccountId) -> Result<Vec<Label>, StoreError> {
+        Ok(self.inner.borrow().labels_of_account(account))
+    }
+
+    fn rules(&self, account: AccountId) -> Result<Vec<mail_domain::Rule>, StoreError> {
+        Ok(self.inner.borrow().rules_of(account))
+    }
+
+    fn put_rule(&self, rule: &mail_domain::Rule) -> Result<(), StoreError> {
+        self.inner.borrow_mut().put_rule(rule)
+    }
+
+    fn delete_rule(&self, id: mail_domain::RuleId) -> Result<(), StoreError> {
+        self.inner.borrow_mut().delete_rule(id)
+    }
+
+    fn vacation(&self, account: AccountId) -> Result<Option<mail_domain::Vacation>, StoreError> {
+        Ok(self.inner.borrow().vacations.get(&account).cloned())
+    }
+
+    fn put_vacation(
+        &self,
+        account: AccountId,
+        vacation: Option<&mail_domain::Vacation>,
+        _now: DateTime<Utc>,
+    ) -> Result<(), StoreError> {
+        self.inner.borrow_mut().put_vacation(account, vacation);
+        Ok(())
     }
 
     fn message(&self, id: MessageId) -> Result<Message, StoreError> {
@@ -592,7 +635,11 @@ impl Inner {
             let Some((summary, body)) = self.view(id) else {
                 continue;
             };
-            let folders = self.addressed_in(id);
+            let folders: Vec<mail_domain::Placed> = self
+                .messages_of(id)
+                .iter()
+                .flat_map(|m| self.placed_of(m.id))
+                .collect();
             let ctx = MatchCtx {
                 summary: &summary,
                 corpus: body.as_deref(),
@@ -620,24 +667,44 @@ impl Inner {
         Some((summary, body))
     }
 
-    /// Every mailbox a message of this thread has a server address in: what
-    /// [`mail_domain::Filter::InFolder`] asks about, read from the same rows `remote_map` holds.
-    fn addressed_in(&self, thread: ThreadId) -> Vec<MailboxRef> {
-        let mut out: Vec<MailboxRef> = Vec::new();
-        for row in &self.remotes {
-            let held = self
-                .messages
-                .get(&row.message)
-                .is_some_and(|m| m.thread == thread);
-            let mailbox = MailboxRef {
-                account: row.account,
-                path: row.mailbox.clone(),
-            };
-            if held && !out.contains(&mailbox) {
-                out.push(mailbox);
-            }
-        }
-        out
+    /// Every mailbox one message has a server address in, with whether it is still filed there:
+    /// what [`mail_domain::Filter::InFolder`] weighs, read from the same rows `remote_map`
+    /// holds, the account's reported roles, and the queued `File` moves pending on it. Kept in
+    /// step with `sqlite/placed.rs` and `sql::IN_FOLDER`, which the parity proptest holds it to.
+    fn placed_of(&self, message: MessageId) -> Vec<mail_domain::Placed> {
+        let Some(held) = self.messages.get(&message) else {
+            return Vec::new();
+        };
+        let roles = self
+            .caps
+            .get(&held.account)
+            .map(|caps| caps.folders.clone())
+            .unwrap_or_default();
+        let moving: Vec<String> = self
+            .pending
+            .iter()
+            .filter(|row| row.message == message)
+            .filter_map(|row| match self.outbox.get(&row.outbox).map(|o| &o.op) {
+                Some(ProtoOp::File { folder, .. }) => Some(folder.clone()),
+                _ => None,
+            })
+            .collect();
+        let mut paths: Vec<&str> = self
+            .remotes
+            .iter()
+            .filter(|row| row.message == message)
+            .map(|row| row.mailbox.as_str())
+            .collect();
+        paths.sort_unstable();
+        paths.dedup();
+        let addresses = paths
+            .into_iter()
+            .map(|path| MailboxRef {
+                account: held.account,
+                path: path.to_owned(),
+            })
+            .collect();
+        mail_domain::Placed::of_message(held.mailbox, addresses, &roles, &moving)
     }
 
     fn summary_of(&self, id: ThreadId) -> Option<ThreadSummary> {
@@ -1105,6 +1172,7 @@ impl Inner {
             RemoteIntent::SetFlags { messages, .. }
             | RemoteIntent::SetMailbox { messages, .. }
             | RemoteIntent::SetLabels { messages, .. }
+            | RemoteIntent::File { messages, .. }
             | RemoteIntent::AddKeyword { messages, .. } => messages,
             RemoteIntent::Send { .. } | RemoteIntent::Folder(_) | RemoteIntent::Append { .. } => {
                 unreachable!("handled above")
@@ -1133,6 +1201,14 @@ impl Inner {
                 remotes,
                 keyword: *keyword,
             },
+            // The label's name is the folder's path. A label deleted since the op was queued
+            // leaves nothing to file into, and nothing is sent.
+            RemoteIntent::File { label, .. } => {
+                match self.label_names(std::slice::from_ref(label)).pop() {
+                    Some(folder) => ProtoOp::File { remotes, folder },
+                    None => return Ok(None),
+                }
+            }
             RemoteIntent::Send { .. } | RemoteIntent::Folder(_) | RemoteIntent::Append { .. } => {
                 unreachable!("handled above")
             }
@@ -1404,6 +1480,18 @@ fn pending_of(intent: &RemoteIntent) -> Vec<(MessageId, Vec<Change>)> {
                     changes.push(Change::MessageLabel(*id, *label, Membership::Out));
                 }
                 (*id, changes)
+            })
+            .collect(),
+        RemoteIntent::File { messages, label } => messages
+            .iter()
+            .map(|id| {
+                (
+                    *id,
+                    vec![
+                        Change::MessageMailbox(*id, mail_domain::MailboxRole::Archive),
+                        Change::MessageLabel(*id, *label, Membership::In),
+                    ],
+                )
             })
             .collect(),
         // A submission re-layers nothing: it has no existing message to be overwritten by the

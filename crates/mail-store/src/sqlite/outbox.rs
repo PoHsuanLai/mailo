@@ -130,6 +130,7 @@ impl SqliteStore {
             RemoteIntent::SetFlags { messages, .. }
             | RemoteIntent::SetMailbox { messages, .. }
             | RemoteIntent::SetLabels { messages, .. }
+            | RemoteIntent::File { messages, .. }
             | RemoteIntent::AddKeyword { messages, .. } => messages,
             RemoteIntent::Send { .. } | RemoteIntent::Folder(_) | RemoteIntent::Append { .. } => {
                 unreachable!("handled above")
@@ -160,6 +161,14 @@ impl SqliteStore {
                 remotes,
                 keyword: *keyword,
             },
+            // The label's name is the folder's path. A label deleted since the op was queued
+            // leaves nothing to file into, and nothing is sent.
+            RemoteIntent::File { label, .. } => {
+                match self.label_names(std::slice::from_ref(label))?.pop() {
+                    Some(folder) => ProtoOp::File { remotes, folder },
+                    None => return Ok(None),
+                }
+            }
             RemoteIntent::Send { .. } | RemoteIntent::Folder(_) | RemoteIntent::Append { .. } => {
                 unreachable!("handled above")
             }
@@ -209,6 +218,19 @@ impl SqliteStore {
                         changes.push(Change::MessageLabel(*m, *l, Membership::Out));
                     }
                     (*m, changes)
+                })
+                .collect(),
+            // Filed: out of the inbox and into the label, as `Op::File` did it locally.
+            RemoteIntent::File { messages, label } => messages
+                .iter()
+                .map(|m| {
+                    (
+                        *m,
+                        vec![
+                            Change::MessageMailbox(*m, mail_domain::MailboxRole::Archive),
+                            Change::MessageLabel(*m, *label, Membership::In),
+                        ],
+                    )
                 })
                 .collect(),
             // Nothing to re-layer. `pending_changes` exists so a local edit survives the next

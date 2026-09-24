@@ -874,68 +874,125 @@ fn text_matches_thread_recipients() {
     assert!(!Filter::Text(TextMatch::Contains("babbage".into())).fit(&ctx));
 }
 
-/// [`Filter::InFolder`] asks where the thread's messages are on the server, which a summary does
-/// not carry: it is answered from `MatchCtx::folders`, one row per case here.
+/// [`Filter::InFolder`] asks where the thread's messages are on the server and whether they are
+/// still filed as held there, which a summary does not carry: it is answered from
+/// `MatchCtx::folders`, built here for each case's messages as a store builds it.
 #[test]
-fn in_folder_matches_a_server_address_in_exactly_that_mailbox() {
-    use mail_domain::MailboxRef;
+fn in_folder_matches_a_message_held_there_and_filed_as_held() {
+    use mail_domain::{FolderRoles, MailboxRef, Placed};
     let at = |account: AccountId, path: &str| MailboxRef {
         account,
         path: path.to_owned(),
     };
+    let roles = FolderRoles(vec![("Trash".to_owned(), MailboxRole::Trash)]);
     let projects = at(ACCOUNT_A, "Projects/2026");
-    let cases: Vec<(&str, Vec<MailboxRef>, Filter, bool)> = vec![
+    let inbox = at(ACCOUNT_A, "INBOX");
+    // One message: its role here, its addresses, and the folders queued moves take it into.
+    struct M(MailboxRole, Vec<MailboxRef>, Vec<&'static str>);
+    use MailboxRole::{Archive, Inbox, Spam, Trash};
+    let cases: Vec<(&str, Vec<M>, Filter, bool)> = vec![
         (
             "a message there",
-            vec![at(ACCOUNT_A, "INBOX"), projects.clone()],
+            vec![M(Archive, vec![projects.clone()], vec![])],
             Filter::InFolder(projects.clone()),
             true,
         ),
         (
             "no address anywhere: composed here, or never synced",
-            vec![],
+            vec![M(Archive, vec![], vec![])],
             Filter::InFolder(projects.clone()),
             false,
         ),
         (
             "another folder",
-            vec![at(ACCOUNT_A, "INBOX")],
+            vec![M(Inbox, vec![inbox.clone()], vec![])],
             Filter::InFolder(projects.clone()),
             false,
         ),
         (
             "the same path on another account is another mailbox",
-            vec![at(ACCOUNT_B, "Projects/2026")],
+            vec![M(Archive, vec![at(ACCOUNT_B, "Projects/2026")], vec![])],
             Filter::InFolder(projects.clone()),
             false,
         ),
         (
             "a path is spelled exactly: a parent is not its children",
-            vec![projects.clone()],
+            vec![M(Archive, vec![projects.clone()], vec![])],
             Filter::InFolder(at(ACCOUNT_A, "Projects")),
             false,
         ),
         (
             "a path is spelled exactly: case is the server's",
-            vec![projects.clone()],
+            vec![M(Archive, vec![projects.clone()], vec![])],
             Filter::InFolder(at(ACCOUNT_A, "projects/2026")),
             false,
         ),
         (
             "non-ASCII paths are compared decoded",
-            vec![at(ACCOUNT_A, "收件匣/報告")],
+            vec![M(Archive, vec![at(ACCOUNT_A, "收件匣/報告")], vec![])],
             Filter::InFolder(at(ACCOUNT_A, "收件匣/報告")),
             true,
         ),
         (
-            "the role is not consulted: an Inbox thread with no INBOX address",
-            vec![projects.clone()],
-            Filter::InFolder(at(ACCOUNT_A, "INBOX")),
+            "a copy in the inbox and a folder, filed in the inbox, is listed in the folder too",
+            vec![M(Inbox, vec![inbox.clone(), projects.clone()], vec![])],
+            Filter::InFolder(projects.clone()),
+            true,
+        ),
+        (
+            "archived from the inbox: gone from INBOX, still in the folder",
+            vec![M(Archive, vec![inbox.clone(), projects.clone()], vec![])],
+            Filter::InFolder(projects.clone()),
+            true,
+        ),
+        (
+            "archived from the inbox, with no other copy: its INBOX address stays, the listing does not",
+            vec![M(Archive, vec![inbox.clone()], vec![])],
+            Filter::InFolder(inbox.clone()),
             false,
         ),
         (
+            "trashed: out of every folder it was in",
+            vec![M(Trash, vec![inbox.clone(), projects.clone()], vec![])],
+            Filter::InFolder(projects.clone()),
+            false,
+        ),
+        (
+            "marked spam from a folder view",
+            vec![M(Spam, vec![projects.clone()], vec![])],
+            Filter::InFolder(projects.clone()),
+            false,
+        ),
+        (
+            "moved to another folder, and the move not yet confirmed",
+            vec![M(Archive, vec![projects.clone()], vec!["Elsewhere"])],
+            Filter::InFolder(projects.clone()),
+            false,
+        ),
+        (
+            "moved into the folder it is already in: not leaving it",
+            vec![M(Archive, vec![projects.clone()], vec!["Projects/2026"])],
+            Filter::InFolder(projects.clone()),
+            true,
+        ),
+        (
+            "a role folder's own role: held in Trash and filed as Trash",
+            vec![M(Trash, vec![at(ACCOUNT_A, "Trash")], vec![])],
+            Filter::InFolder(at(ACCOUNT_A, "Trash")),
+            true,
+        ),
+        (
+            "one message of the thread still there is enough",
+            vec![
+                M(Trash, vec![projects.clone()], vec![]),
+                M(Archive, vec![projects.clone()], vec![]),
+            ],
+            Filter::InFolder(projects.clone()),
+            true,
+        ),
+        (
             "and it composes like any other clause",
-            vec![projects.clone()],
+            vec![M(Archive, vec![projects.clone()], vec![])],
             Filter::And(vec![
                 Filter::InFolder(projects.clone()),
                 not(Filter::InMailbox(MailboxRole::Inbox)),
@@ -944,7 +1001,14 @@ fn in_folder_matches_a_server_address_in_exactly_that_mailbox() {
         ),
     ];
     let s = summary(|_| {});
-    for (name, folders, filter, want) in cases {
+    for (name, messages, filter, want) in cases {
+        let folders: Vec<Placed> = messages
+            .into_iter()
+            .flat_map(|M(role, addresses, moving)| {
+                let moving: Vec<String> = moving.into_iter().map(str::to_owned).collect();
+                Placed::of_message(role, addresses, &roles, &moving)
+            })
+            .collect();
         let ctx = MatchCtx {
             summary: &s,
             corpus: None,

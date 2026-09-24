@@ -1,0 +1,10 @@
+# SYNTHETIC. Written from RFC 5804 (ManageSieve), with capability lines in the shape a
+# Pigeonhole server sends them. Not a recording.
+# STARTTLS is required and the server does not offer it. No credential may be
+# written: the session ends at the capabilities.
+S: "IMPLEMENTATION" "Example Sieve"
+S: "SASL" "PLAIN LOGIN"
+S: "SIEVE" "fileinto vacation"
+S: "VERSION" "1.0"
+S: OK "ready"
+FAIL Unsupported

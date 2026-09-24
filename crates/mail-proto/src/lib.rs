@@ -12,6 +12,7 @@ pub mod imap;
 pub mod machine;
 pub mod mutf7;
 pub mod pop3;
+pub mod sieve;
 pub mod smtp;
 
 pub use diagnose::{explain, explain_text};

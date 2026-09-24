@@ -136,6 +136,38 @@ impl ImapBackend {
         }
     }
 
+    /// Move `set` out of `source` into `target`.
+    ///
+    /// `MOVE` where the server has it (RFC 6851): atomic, names no flag, and the only way to
+    /// actually move a message. It is not the `\Deleted` + `EXPUNGE` dance in disguise — it is
+    /// the primitive that dance was always a poor imitation of, which is why it is safe here
+    /// while `ProtoOp::Expunge` stays refused.
+    ///
+    /// Without it, `COPY` and stop, and the original stays in the source mailbox. That is not
+    /// cosmetic: the next survey reports the message as still in the inbox, server truth wins
+    /// once the outbox has settled, and the user's archive quietly comes undone. It is still the
+    /// right trade — the alternative is `\Deleted` on a server whose expunge semantics we cannot
+    /// read — but it is a known limitation, not a non-issue.
+    fn move_into(
+        &mut self,
+        source: &MailboxRef,
+        set: String,
+        target: String,
+    ) -> Progress<ProtoOutcome> {
+        self.job = Job::Applied;
+        let action = match self.caps.move_ext {
+            MoveExt::Supported => ImapCommand::UidMove {
+                set,
+                mailbox: target,
+            },
+            MoveExt::Absent => ImapCommand::UidCopy {
+                set,
+                mailbox: target,
+            },
+        };
+        self.queue(vec![Self::select(source, false), action])
+    }
+
     /// One `UID FETCH` over a batch, on one authenticated connection.
     ///
     /// A batch rather than one message per operation: a connection authenticates once and then
@@ -366,33 +398,56 @@ impl Backend for ImapBackend {
                             },
                         ])
                     }
-                    ArchiveMeans::MoveToFolder(target) => {
-                        let target = target.clone();
-                        self.job = Job::Applied;
-                        // `MOVE` where the server has it (RFC 6851): atomic, names no flag, and
-                        // the only way to actually move a message. It is not the `\Deleted` +
-                        // `EXPUNGE` dance in disguise — it is the primitive that dance was
-                        // always a poor imitation of, which is why it is safe here while
-                        // `ProtoOp::Expunge` stays refused.
-                        //
-                        // Without it, `COPY` and stop, and the original stays in the source
-                        // mailbox. That is not cosmetic: the next survey reports the message as
-                        // still in the inbox, server truth wins once the outbox has settled, and
-                        // the user's archive quietly comes undone. It is still the right trade —
-                        // the alternative is `\Deleted` on a server whose expunge semantics we
-                        // cannot read — but it is a known limitation, not a non-issue.
-                        let action = match self.caps.move_ext {
-                            MoveExt::Supported => ImapCommand::UidMove {
-                                set,
-                                mailbox: target,
-                            },
-                            MoveExt::Absent => ImapCommand::UidCopy {
-                                set,
-                                mailbox: target,
-                            },
+                    ArchiveMeans::MoveToFolder(archive) => {
+                        // The folder serving *this* role. It was the archive folder whatever
+                        // the role, so trashing a message filed it in Archive and restoring one
+                        // moved it from Archive to Archive.
+                        let target = match role {
+                            MailboxRole::Archive => Some(archive.clone()),
+                            MailboxRole::Inbox => Some(
+                                self.caps
+                                    .folders
+                                    .path(MailboxRole::Inbox)
+                                    .unwrap_or("INBOX")
+                                    .to_owned(),
+                            ),
+                            other => self.caps.folders.path(other).map(str::to_owned),
                         };
-                        self.queue(vec![Self::select(&source, false), action])
+                        let Some(target) = target else {
+                            // Moving into a guessed name loses the message if the guess is
+                            // wrong; refusing undoes the local move and says why.
+                            return Progress::Failed(ProtoError::Unsupported(format!(
+                                "filing into {role:?}: this server named no folder for it"
+                            )));
+                        };
+                        self.move_into(&source, set, target)
                     }
+                }
+            }
+            ProtoOp::File { remotes, folder } => {
+                let Some(set) = uid_set(&remotes) else {
+                    return Progress::Done(ProtoOutcome::Applied);
+                };
+                let source = mailbox_of(&remotes, self.account);
+                match &self.caps.archive {
+                    ArchiveMeans::LocalOnly => Progress::Done(ProtoOutcome::Applied),
+                    // Gmail: the folder is a label. Added, and the inbox's taken away — which
+                    // is what its own web client's "Move to" does.
+                    ArchiveMeans::DropInbox => {
+                        self.job = Job::Applied;
+                        self.queue(vec![
+                            Self::select(&source, false),
+                            ImapCommand::UidStore {
+                                set: set.clone(),
+                                what: format!("+X-GM-LABELS ({})", quoted_labels(&[folder])),
+                            },
+                            ImapCommand::UidStore {
+                                set,
+                                what: "-X-GM-LABELS (\\Inbox)".to_owned(),
+                            },
+                        ])
+                    }
+                    ArchiveMeans::MoveToFolder(_) => self.move_into(&source, set, folder),
                 }
             }
             ProtoOp::FetchFlags {

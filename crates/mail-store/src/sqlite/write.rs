@@ -184,7 +184,7 @@ impl SqliteStore {
     }
 
     /// The folder roles the account's server last reported, or none before it has reported any.
-    fn folder_roles(&self, account: AccountId) -> Result<FolderRoles, StoreError> {
+    pub(super) fn folder_roles(&self, account: AccountId) -> Result<FolderRoles, StoreError> {
         let stored: Option<String> = self
             .connection()
             .query_row(

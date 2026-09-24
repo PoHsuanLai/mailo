@@ -122,12 +122,38 @@ fn predicate(filter: &Filter, now: DateTime<Utc>, params: &mut Vec<SqlValue>) ->
     }
 }
 
-/// The threads with a message addressed in one mailbox, for [`Filter::InFolder`]. Binds the
-/// account, then the path exactly as `remote_map.mailbox` holds it (decoded from modified
-/// UTF-7).
+/// The threads with a message held in one mailbox and still filed there, for
+/// [`Filter::InFolder`]. Binds the account, then the path exactly as `remote_map.mailbox` holds
+/// it (decoded from modified UTF-7).
+///
+/// The three conditions `Placed::filed_here` states, in SQL:
+///
+/// - an address there;
+/// - the message's role is what `FolderRoles::filed_as` gives the path of **any** of its
+///   addresses: `inbox` for `INBOX` in any ASCII case (SQLite's `upper` folds ASCII only, as
+///   `eq_ignore_ascii_case` does), else the role of the first entry for the exact path in the
+///   account's reported `folders`, else `archive`;
+/// - no queued `ProtoOp::File` pending on the message into a folder other than this one.
+///
+/// Addresses are server truth and are never moved ahead of the server. So a move from one
+/// folder into another, once the server has confirmed it (its pending row is gone) and before
+/// the next sync of the old folder has seen the message leave, lists the message in the old
+/// folder again: its address there is still held, and a user folder's role is `archive` either
+/// side of the move. The next sync of that folder removes the address and the row with it.
+/// A move out of the inbox does not do this, because the role changes with it.
 const IN_FOLDER: &str = "SELECT m.thread FROM remote_map r \
      JOIN messages m ON m.id = r.message \
-     WHERE r.account = ? AND r.mailbox = ?";
+     WHERE r.account = ? AND r.mailbox = ? \
+     AND EXISTS (SELECT 1 FROM remote_map h WHERE h.message = m.id \
+         AND json_extract(m.mailbox, '$') = CASE \
+             WHEN upper(h.mailbox) = 'INBOX' THEN 'inbox' \
+             ELSE COALESCE((SELECT json_extract(f.value, '$[1]') \
+                 FROM account_caps c, json_each(c.caps, '$.folders') f \
+                 WHERE c.account = h.account AND json_extract(f.value, '$[0]') = h.mailbox \
+                 ORDER BY f.key LIMIT 1), 'archive') END) \
+     AND NOT EXISTS (SELECT 1 FROM pending_changes p JOIN outbox o ON o.id = p.outbox \
+         WHERE p.message = m.id AND json_extract(o.op, '$.kind') = 'file' \
+         AND json_extract(o.op, '$.v.folder') <> r.mailbox)";
 
 fn combine(
     children: &[Filter],

@@ -1,0 +1,67 @@
+[
+  {
+    "id": "14141414-1414-1414-1414-141414141414",
+    "account": "01010101-0101-0101-0101-010101010101",
+    "name": "Bills",
+    "position": 1,
+    "state": "enabled",
+    "filter": {
+      "kind": "and",
+      "v": [
+        {
+          "kind": "from",
+          "v": {
+            "kind": "contains",
+            "v": "bank.example"
+          }
+        },
+        {
+          "kind": "not",
+          "v": {
+            "kind": "read",
+            "v": "read"
+          }
+        }
+      ]
+    },
+    "actions": [
+      {
+        "kind": "label",
+        "v": "Money"
+      },
+      {
+        "kind": "file",
+        "v": "Money/Bills"
+      },
+      {
+        "kind": "mark_read"
+      },
+      {
+        "kind": "star"
+      }
+    ],
+    "after": "stop"
+  },
+  {
+    "id": "15151515-1515-1515-1515-151515151515",
+    "account": "01010101-0101-0101-0101-010101010101",
+    "name": "Tidy",
+    "position": 2,
+    "state": "disabled",
+    "filter": {
+      "kind": "all"
+    },
+    "actions": [
+      {
+        "kind": "archive"
+      },
+      {
+        "kind": "trash"
+      },
+      {
+        "kind": "spam"
+      }
+    ],
+    "after": "continue"
+  }
+]

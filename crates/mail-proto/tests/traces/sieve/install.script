@@ -1,0 +1,4 @@
+require ["fileinto"];
+if header :contains "subject" "invoice" {
+    fileinto "Bills";
+}

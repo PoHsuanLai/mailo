@@ -106,6 +106,8 @@ pub struct SyncReport {
     /// one the header fetch built. A message already held that arrives again (a remap, a body
     /// filling in, the same mail under a second UID) is not here: it did not *arrive*.
     pub arrived: Vec<MessageId>,
+    /// Arrived messages a rule acted on, with the rules that did, in order.
+    pub ruled: Vec<(MessageId, Vec<String>)>,
     /// Messages uploaded into a mailbox by this pass's outbox (`ProtoOp::Append`).
     pub appended: usize,
 }
@@ -811,6 +813,25 @@ impl<B: Backend> AccountEngine<B> {
     pub fn caps_are_stale(&self, now: DateTime<Utc>) -> bool {
         now.signed_duration_since(self.backend.caps().observed_at)
             > chrono::TimeDelta::try_hours(24).expect("24h is in range")
+    }
+
+    /// Run the account's rules over what a pass stored for the first time.
+    ///
+    /// `arrived` is [`SyncReport::arrived`], so each message meets the rules once, when it first
+    /// appears. Their actions are applied here and queued for the server with what the server
+    /// was last seen to support; the outbox drain that ends the pass sends them.
+    pub fn run_rules(
+        &self,
+        arrived: &[MessageId],
+        now: DateTime<Utc>,
+    ) -> Result<mail_store::rules::Ran, RuntimeError> {
+        Ok(mail_store::rules::at_arrival(
+            self.store.as_ref(),
+            self.account,
+            self.backend.caps(),
+            arrived,
+            now,
+        )?)
     }
 
     /// A first or incremental sync: survey, then headers, then bodies smallest band first.

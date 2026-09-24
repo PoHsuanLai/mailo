@@ -1,0 +1,18 @@
+[
+  {
+    "kind": "file",
+    "v": {
+      "remotes": [
+        {
+          "kind": "imap",
+          "v": {
+            "mailbox": "[Gmail]/All Mail",
+            "uidvalidity": 12,
+            "uid": 4294967295
+          }
+        }
+      ],
+      "folder": "Money/Bills"
+    }
+  }
+]

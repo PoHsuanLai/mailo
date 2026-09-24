@@ -3714,3 +3714,13 @@ over 1 MiB could also be rebuilt from another message's structure.
 Body passes are now per mailbox (`unfetched_in`). Migration 0015 clears the three damaged shapes
 so the next sync fetches them again, in the manner of 0008. Checked read-only against a copy of
 the live store on 2026-09-24: none of the three shapes was present.
+
+### F152 — On a folder server, Trash and Spam were moved into Archive
+
+Found while building 10.11 and fixed there. `ImapBackend` handled `SetMailbox` for an account
+whose archive means moving to a folder (`ArchiveMeans::MoveToFolder`, which covers Exchange and
+most non-Gmail servers) by moving the message into the archive folder whatever role it was
+given. Trash and Spam went to Archive on the server while this client showed them in Trash and
+Spam, and Restore moved a message from Archive to Archive. Each role now moves to its own folder
+from `FolderRoles`, the same table `filed_as` reads. A role with no known folder fails as
+unsupported, so the outbox undoes the local change instead of filing into a guess.

@@ -378,3 +378,203 @@ fn a_move_made_here_and_not_yet_sent_is_not_undone_by_the_server() {
     assert_eq!(sqlite, memory);
     assert_eq!(sqlite, MailboxRole::Archive);
 }
+
+// ---------------------------------------------------------------------------------------------
+// Held there and still filed there: a move made here takes a message out of the folder view at
+// once, while its server address stays until the server has moved it.
+// ---------------------------------------------------------------------------------------------
+
+const ELSEWHERE: LabelId = LabelId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000e1"));
+
+/// What the window does: the op applied here, its remote half queued with its undo.
+fn act(store: &dyn Store, op: Op, n: u128) {
+    let m = store
+        .message(MessageId::from_uuid(uuid::Uuid::from_u128(n)))
+        .unwrap();
+    let thread = store.thread(m.thread).unwrap();
+    let messages: Vec<Message> = thread
+        .messages
+        .iter()
+        .map(|id| store.message(*id).unwrap())
+        .collect();
+    let caps = moving_caps();
+    let applied = op.apply(
+        &Target::Messages(vec![m.id]),
+        &thread,
+        &messages,
+        &caps,
+        at(1),
+    );
+    store.apply(ACCOUNT, &applied.forward).unwrap();
+    let intent = applied.remote.expect("a server with folders is told");
+    store
+        .enqueue(ACCOUNT, intent, &applied.inverse, at(1))
+        .unwrap()
+        .expect("the message has an address, so the move is queued");
+}
+
+fn moving_caps() -> AccountCaps {
+    AccountCaps {
+        archive: ArchiveMeans::MoveToFolder("Archive".to_owned()),
+        ..caps(vec![("Trash", MailboxRole::Trash)])
+    }
+}
+
+/// Every listing a folder view would show, in order: INBOX, then Projects.
+type Views = Vec<(BTreeSet<ThreadId>, BTreeSet<ThreadId>)>;
+
+fn moved_out_and_back(store: &dyn Store) -> Views {
+    store.put_caps(ACCOUNT, &moving_caps(), at(0)).unwrap();
+    store
+        .apply(
+            ACCOUNT,
+            &Patch {
+                id: ChangeId::generate(),
+                changes: vec![Change::LabelUpsert(Label {
+                    id: ELSEWHERE,
+                    account: ACCOUNT,
+                    name: "Elsewhere".to_owned(),
+                    color: None,
+                    origin: LabelOrigin::Provider,
+                })],
+            },
+        )
+        .unwrap();
+    deliver(store, &message(1, MailboxRole::Inbox), imap("INBOX", 1));
+    for n in 2..=4 {
+        deliver(
+            store,
+            &message(n, MailboxRole::Archive),
+            imap(PROJECTS, n as u32),
+        );
+    }
+    // One message the server holds in both, filed in the inbox here.
+    deliver(store, &message(5, MailboxRole::Inbox), imap("INBOX", 5));
+    deliver(store, &message(5, MailboxRole::Archive), imap(PROJECTS, 5));
+    let view = |store: &dyn Store| {
+        (
+            listed(store, Filter::InFolder(mailbox("INBOX"))),
+            listed(store, Filter::InFolder(mailbox(PROJECTS))),
+        )
+    };
+    let mut seen = vec![view(store)];
+    act(store, Op::Archive, 1);
+    seen.push(view(store));
+    act(store, Op::Archive, 5);
+    seen.push(view(store));
+    assert!(
+        !listed(store, Filter::InMailbox(MailboxRole::Inbox)).contains(&thread(5)),
+        "the inbox by role drops it at once"
+    );
+    act(store, Op::Trash, 2);
+    seen.push(view(store));
+    act(store, Op::File(ELSEWHERE), 3);
+    seen.push(view(store));
+    // Filing into the folder it is already in is not leaving it.
+    act(store, Op::File(label_named(store, PROJECTS)), 4);
+    seen.push(view(store));
+
+    // The server refuses every move for good: each undo is applied, and each comes back.
+    for entry in store.outbox_due(ACCOUNT, at(10_000)).unwrap() {
+        store
+            .outbox_settle(
+                entry.id,
+                mail_store::Settle::Failed {
+                    reason: "NO no such folder".to_owned(),
+                    retry: Retry::Fatal("NO no such folder".to_owned()),
+                },
+                at(2),
+            )
+            .unwrap();
+    }
+    seen.push(view(store));
+    seen
+}
+
+/// The label a folder path is, made where new: what `Op::File` names.
+fn label_named(store: &dyn Store, path: &str) -> LabelId {
+    if let Some(label) = store
+        .labels(ACCOUNT)
+        .unwrap()
+        .into_iter()
+        .find(|l| l.name == path)
+    {
+        return label.id;
+    }
+    let id = LabelId::generate();
+    store
+        .apply(
+            ACCOUNT,
+            &Patch {
+                id: ChangeId::generate(),
+                changes: vec![Change::LabelUpsert(Label {
+                    id,
+                    account: ACCOUNT,
+                    name: path.to_owned(),
+                    color: None,
+                    origin: LabelOrigin::Provider,
+                })],
+            },
+        )
+        .unwrap();
+    id
+}
+
+#[test]
+fn a_move_from_a_folder_view_leaves_it_at_once_and_a_refused_one_comes_back() {
+    let (sqlite, memory) = both(moved_out_and_back);
+    let set = |ns: &[u128]| ns.iter().map(|n| thread(*n)).collect::<BTreeSet<_>>();
+    assert_eq!(
+        sqlite,
+        vec![
+            // The copy held in both is listed in both.
+            (set(&[1, 5]), set(&[2, 3, 4, 5])),
+            // Archived from the inbox: its INBOX address stays, the inbox view drops it.
+            (set(&[5]), set(&[2, 3, 4, 5])),
+            // The copy in both archived from the inbox: still in the folder, as on the server.
+            // Also still in the `INBOX` folder view until the server has moved it: archived is
+            // what its `Projects` copy is filed as, so it is filed as held, and the rule asks
+            // no more than that. The inbox by role (`InMailbox(Inbox)`) drops it at once.
+            (set(&[5]), set(&[2, 3, 4, 5])),
+            // Trashed from the folder view.
+            (set(&[5]), set(&[3, 4, 5])),
+            // Moved to another folder, the move queued and unconfirmed.
+            (set(&[5]), set(&[4, 5])),
+            // Filed where it already is: still there.
+            (set(&[5]), set(&[4, 5])),
+            // Every move refused and undone: all back where they were.
+            (set(&[1, 5]), set(&[2, 3, 4, 5])),
+        ]
+    );
+    assert_eq!(memory, sqlite, "the in-memory store answers the same");
+}
+
+/// The server address itself is never moved ahead of the server: the outbox still addresses
+/// the message where the server holds it.
+#[test]
+fn a_move_made_here_leaves_the_server_address_alone() {
+    let (sqlite, memory) = both(|store| {
+        store.put_caps(ACCOUNT, &moving_caps(), at(0)).unwrap();
+        deliver(store, &message(1, MailboxRole::Inbox), imap("INBOX", 1));
+        act(store, Op::Archive, 1);
+        let id = MessageId::from_uuid(uuid::Uuid::from_u128(1));
+        (
+            store.remotes_of(id).unwrap(),
+            store
+                .outbox_due(ACCOUNT, at(10_000))
+                .unwrap()
+                .into_iter()
+                .map(|e| e.op)
+                .collect::<Vec<_>>(),
+        )
+    });
+    assert_eq!(sqlite.0, vec![imap("INBOX", 1)]);
+    assert_eq!(
+        sqlite.1,
+        vec![ProtoOp::SetMailbox {
+            remotes: vec![imap("INBOX", 1)],
+            role: MailboxRole::Archive,
+        }]
+    );
+    assert_eq!(memory, sqlite);
+}

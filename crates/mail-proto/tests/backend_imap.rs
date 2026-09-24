@@ -262,6 +262,123 @@ fn archiving_on_gmail_removes_the_inbox_label() {
     ));
 }
 
+/// Filing into a folder on Gmail is the folder's label added and the inbox's taken away.
+#[test]
+fn filing_on_gmail_adds_the_folders_label_and_drops_the_inbox() {
+    let trace = concat!(
+        "# SYNTHETIC. Gmail's own \"Move to\": the label in, \\Inbox out, nothing deleted.\n",
+        "S: * OK Gimap ready\n",
+        "C: a001 AUTHENTICATE XOAUTH2 dXNlcj1hZGFAZXhhbXBsZS50ZXN0AWF1dGg9QmVhcmVyIHlhMjkudG9rZW4BAQ==\n",
+        "S: a001 OK authenticated\n",
+        "C: a002 SELECT \"INBOX\"\n",
+        "S: a002 OK [READ-WRITE] SELECT completed\n",
+        "C: a003 UID STORE 42 +X-GM-LABELS (\"Money/Bills\")\n",
+        "S: a003 OK Success\n",
+        "C: a004 UID STORE 42 -X-GM-LABELS (\\Inbox)\n",
+        "S: a004 OK Success\n",
+        "DONE\n"
+    );
+    let mut driven = Driven {
+        backend: backend(caps(ServerLabels::Supported, ArchiveMeans::DropInbox)),
+        op: Some(ProtoOp::File {
+            remotes: vec![imap_ref("INBOX", 42)],
+            folder: "Money/Bills".to_owned(),
+        }),
+    };
+    assert!(matches!(
+        replay(&mut driven, trace).unwrap(),
+        ProtoOutcome::Applied
+    ));
+}
+
+/// Elsewhere it is a `MOVE` into the folder, its name in modified UTF-7.
+#[test]
+fn filing_elsewhere_moves_into_the_folder() {
+    let trace = concat!(
+        "# SYNTHETIC. RFC 6851 MOVE into a folder with a non-ASCII name.\n",
+        "S: * OK ready\n",
+        "C: a001 LOGIN \"ada@example.test\" \"hunter2\"\n",
+        "S: a001 OK logged in\n",
+        "C: a002 SELECT \"INBOX\"\n",
+        "S: a002 OK [READ-WRITE] SELECT completed\n",
+        "C: a003 UID MOVE 7,9 \"&UXZO1mWHTvY-\"\n",
+        "S: a003 OK moved\n",
+        "DONE\n"
+    );
+    let mut driven = Driven {
+        backend: password_backend(caps(
+            ServerLabels::LocalOnly,
+            ArchiveMeans::MoveToFolder("Archive".to_owned()),
+        )),
+        op: Some(ProtoOp::File {
+            remotes: vec![imap_ref("INBOX", 7), imap_ref("INBOX", 9)],
+            folder: "其他文件".to_owned(),
+        }),
+    };
+    assert!(matches!(
+        replay(&mut driven, trace).unwrap(),
+        ProtoOutcome::Applied
+    ));
+}
+
+/// On a server with folders, each role goes to its own folder. Trash went to the archive
+/// folder, because the archive folder was the only one this arm knew.
+#[test]
+fn trash_and_spam_go_to_their_own_folders_not_the_archive() {
+    let mut roles = caps(
+        ServerLabels::LocalOnly,
+        ArchiveMeans::MoveToFolder("Archive".to_owned()),
+    );
+    roles.folders = FolderRoles(vec![
+        ("Deleted Items".to_owned(), MailboxRole::Trash),
+        ("Junk".to_owned(), MailboxRole::Spam),
+    ]);
+    for (role, folder) in [
+        (MailboxRole::Trash, "Deleted Items"),
+        (MailboxRole::Spam, "Junk"),
+        (MailboxRole::Archive, "Archive"),
+        (MailboxRole::Inbox, "INBOX"),
+    ] {
+        // One rule both ways: where a role is sent is where a message held there is filed.
+        assert_eq!(roles.folders.filed_as(folder), role, "{folder}");
+        let trace = format!(
+            "S: * OK ready\n\
+             C: a001 LOGIN \"ada@example.test\" \"hunter2\"\n\
+             S: a001 OK logged in\n\
+             C: a002 SELECT \"Archive\"\n\
+             S: a002 OK [READ-WRITE] SELECT completed\n\
+             C: a003 UID MOVE 5 \"{folder}\"\n\
+             S: a003 OK moved\n\
+             DONE\n"
+        );
+        let mut driven = Driven {
+            backend: password_backend(roles.clone()),
+            op: Some(ProtoOp::SetMailbox {
+                remotes: vec![imap_ref("Archive", 5)],
+                role,
+            }),
+        };
+        assert!(
+            matches!(replay(&mut driven, &trace).unwrap(), ProtoOutcome::Applied),
+            "{role:?}"
+        );
+    }
+
+    // A role the server named no folder for is refused, not filed into a guess.
+    let mut driven = Driven {
+        backend: password_backend(caps(
+            ServerLabels::LocalOnly,
+            ArchiveMeans::MoveToFolder("Archive".to_owned()),
+        )),
+        op: Some(ProtoOp::SetMailbox {
+            remotes: vec![imap_ref("INBOX", 5)],
+            role: MailboxRole::Trash,
+        }),
+    };
+    let err = replay(&mut driven, "FAIL Unsupported\n").unwrap_err();
+    assert!(matches!(err, ProtoError::Unsupported(_)), "{err}");
+}
+
 /// A receipt answered or declined is `$MDNSent` on the server (RFC 3503), so every other
 /// client knows not to ask again.
 #[test]

@@ -139,9 +139,14 @@ pub fn reverse_intent(remote: &RemoteIntent, inverse: &Patch) -> Option<RemoteIn
         RemoteIntent::Folder(work) => reverse_folder(work).map(RemoteIntent::Folder),
         // A submission is not taken back by a patch; the outbox owns that. Nor is a keyword:
         // `$MDNSent` records a receipt answered, which no undo un-answers.
+        //
+        // Nor a filing: the message has left the mailbox this client knew it by, and the server
+        // address that would name it in the folder arrives only with that folder's next sync.
+        // The undo puts it back here; the server keeps it filed.
         RemoteIntent::Send { .. }
         | RemoteIntent::AddKeyword { .. }
-        | RemoteIntent::Append { .. } => None,
+        | RemoteIntent::Append { .. }
+        | RemoteIntent::File { .. } => None,
     }
 }
 
@@ -200,6 +205,7 @@ where
         Op::SetSnooze(Snooze::Inactive) => "Back in the inbox".to_owned(),
         Op::SetPin(Pin::Rank(_)) => "Pinned".to_owned(),
         Op::SetPin(Pin::Unpinned) => "Unpinned".to_owned(),
+        Op::File(_) => "Moved to folder".to_owned(),
     }
 }
 

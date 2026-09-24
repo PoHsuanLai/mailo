@@ -1,0 +1,17 @@
+# SYNTHETIC. Written from RFC 5804 (ManageSieve), with capability lines in the shape a
+# Pigeonhole server sends them. Not a recording.
+# A bearer token the server rejects: XOAUTH2 answers with a challenge holding its
+# error, the client answers it with an empty string, and the final NO follows.
+S: "SASL" "PLAIN XOAUTH2"
+S: "STARTTLS"
+S: OK
+C: STARTTLS
+S: OK
+TLS
+S: "SASL" "PLAIN XOAUTH2"
+S: OK
+C: AUTHENTICATE "XOAUTH2" "dXNlcj1tZUBleGFtcGxlLnRlc3QBYXV0aD1CZWFyZXIgeWEyOS50b2tlbgEB"
+S64: ezI0fQ0KZXlKemRHRjBkWE1pT2lJME1ERWlmUT09DQo=
+C: ""
+S: NO "Authentication failed."
+FAIL AuthRejected

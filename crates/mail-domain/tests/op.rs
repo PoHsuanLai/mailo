@@ -171,6 +171,8 @@ fn kind_strips_the_payload() {
         (Op::SetSnooze(Snooze::Inactive), OpKind::Snooze),
         (Op::SetPin(Pin::Unpinned), OpKind::Pin),
         (Op::SetPin(Pin::Rank(7)), OpKind::Pin),
+        // Filing leaves the inbox the way archiving does.
+        (Op::File(LABEL_B), OpKind::Archive),
     ];
 
     for (op, expected) in CASES {
@@ -538,6 +540,24 @@ fn apply_over_a_whole_thread() {
             ],
         },
         ApplyCase {
+            // m2 is already archived and m3 already has B: each half is undone only where it
+            // changed something.
+            name: "file into the folder a label names",
+            op: Op::File(LABEL_B),
+            forward: vec![
+                Change::MessageMailbox(mid(1), MailboxRole::Archive),
+                Change::MessageMailbox(mid(3), MailboxRole::Archive),
+                Change::MessageLabel(mid(1), LABEL_B, Membership::In),
+                Change::MessageLabel(mid(2), LABEL_B, Membership::In),
+            ],
+            inverse: vec![
+                Change::MessageMailbox(mid(1), MailboxRole::Inbox),
+                Change::MessageMailbox(mid(3), MailboxRole::Trash),
+                Change::MessageLabel(mid(1), LABEL_B, Membership::Out),
+                Change::MessageLabel(mid(2), LABEL_B, Membership::Out),
+            ],
+        },
+        ApplyCase {
             name: "remove a label nobody carries",
             op: Op::Label(LABEL_C, Membership::Out),
             forward: Vec::new(),
@@ -687,6 +707,11 @@ fn local_only_capabilities_queue_no_remote_work() {
             "add a label under ServerLabels::LocalOnly",
             Op::Label(LABEL_C, Membership::In),
             account_caps(ArchiveMeans::DropInbox, ServerLabels::LocalOnly),
+        ),
+        (
+            "file under ArchiveMeans::LocalOnly",
+            Op::File(LABEL_C),
+            account_caps(ArchiveMeans::LocalOnly, ServerLabels::Supported),
         ),
         (
             "remove a label under ServerLabels::LocalOnly",
@@ -853,6 +878,7 @@ fn arb_op() -> impl Strategy<Value = Op> {
             .prop_map(|(l, m)| Op::Label(l, m)),
         arb_snooze().prop_map(Op::SetSnooze),
         arb_pin().prop_map(Op::SetPin),
+        arb_label().prop_map(Op::File),
     ]
 }
 
@@ -910,6 +936,33 @@ proptest! {
         if applied.forward.changes.is_empty() {
             prop_assert_eq!(canonical(forward), canonical(state));
         }
+    }
+}
+
+/// Filing is one intent naming each changed message once, although each changes twice.
+#[test]
+fn filing_queues_one_intent_naming_each_message_once() {
+    let messages = mixed_thread();
+    let thread = thread_of(&messages, Snooze::Inactive, Pin::Unpinned);
+    let target = Target::Threads(vec![THREAD]);
+    for caps in [
+        account_caps(ArchiveMeans::DropInbox, ServerLabels::Supported),
+        // A server with folders but no labels still files: the folder is where it moves.
+        account_caps(
+            ArchiveMeans::MoveToFolder("Archive".to_owned()),
+            ServerLabels::LocalOnly,
+        ),
+    ] {
+        let applied = Op::File(LABEL_C).apply(&target, &thread, &messages, &caps, now());
+        assert_eq!(
+            applied.remote,
+            Some(RemoteIntent::File {
+                messages: vec![mid(1), mid(3), mid(2)],
+                label: LABEL_C,
+            }),
+            "{:?}",
+            caps.archive
+        );
     }
 }
 

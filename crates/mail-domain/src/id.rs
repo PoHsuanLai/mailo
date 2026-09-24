@@ -63,6 +63,11 @@ uuid_id!(
     TemplateId
 );
 uuid_id!(
+    /// One rule: a filter and what to do with the mail it matches. Local, and compiled to a
+    /// server's Sieve script where the server takes one.
+    RuleId
+);
+uuid_id!(
     /// One flat label. Provider folders and Gmail categories become labels too; see
     /// [`crate::LabelOrigin`].
     LabelId

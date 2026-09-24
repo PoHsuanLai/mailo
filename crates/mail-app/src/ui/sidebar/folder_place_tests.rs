@@ -345,11 +345,20 @@ fn an_op_in_a_folder_place_keeps_the_row_while_its_mail_is_still_there() {
         "a starred row left"
     );
 
-    // Trashed here, the server still holds it in the folder until the move is made and seen:
-    // the list read after the op still has it, so the row does not play an exit only to
-    // come back.
-    super::super::ops::perform(&store, draft, Op::Trash).unwrap();
-    assert!(belongs(&store, &shell, draft, Utc::now()));
+    // Trashed here, it leaves the folder's list at once (10.11): `InFolder` is held there *and*
+    // filed as held, and a trashed message is filed as none of its folders. The server still
+    // holds it in the folder until the move is made and seen, and its address stays.
+    let trashed = super::super::ops::perform(&store, draft, Op::Trash).unwrap();
+    assert!(
+        !belongs(&store, &shell, draft, Utc::now()),
+        "a trashed row stayed"
+    );
+    // Undone, as a refused move is, it is back.
+    assert!(super::super::ops::take_back(&store, &trashed));
+    assert!(
+        belongs(&store, &shell, draft, Utc::now()),
+        "an undone trash did not come back"
+    );
 
     // Once the server has moved it and a sync has seen it go, it is out of the folder.
     let mut gone = batch(IMAP, PROJECTS);

@@ -70,16 +70,22 @@ pub enum Filter {
     Read(ReadState),
     Starred(Star),
     HasLabel(LabelId),
-    /// True when one of the thread's messages has a server address in this mailbox: a
-    /// `remote_map` row for the account and the path exactly as the server spells it.
+    /// True when one of the thread's messages is held in this mailbox **and still filed there
+    /// here**. All three of:
     ///
-    /// **Server truth as of the last sync, not the local intent [`Filter::InMailbox`] carries.**
-    /// A message archived here a moment ago has the `Archive` role at once, and keeps its
-    /// `INBOX` address until the server has moved it and a sync has seen it go; a message
-    /// composed here has a role and no address at all. So `InFolder("INBOX")` and
-    /// `InMailbox(Inbox)` agree on a settled mailbox and differ while work is queued. The
-    /// inbox and the other roles are listed by role; this is for every other folder, which
-    /// has no role to list by.
+    /// - it has a server address in the mailbox: a `remote_map` row for the account and the
+    ///   path exactly as the server spells it;
+    /// - its role is what one of its addresses is filed as ([`crate::FolderRoles::filed_as`]),
+    ///   so a copy held in two folders is listed in both, archiving it from the inbox leaves it
+    ///   in the other folder as the server does, and trashing or marking it spam here takes it
+    ///   out of every folder at once (see [`Filed`]);
+    /// - no move of it into another folder ([`crate::Op::File`]) is still queued.
+    ///
+    /// The address is server truth and is never changed optimistically — it is what the
+    /// outbox addresses the message by. The other two are the local intent laid over it, the
+    /// way [`Filter::InMailbox`] carries it: a message moved out of a folder view leaves the
+    /// listing the moment it is moved, and comes back if the server refuses the move and its
+    /// undo is applied. [`Placed`] is that per-message fact, as the store hands it in.
     ///
     /// On an account whose folders are labels (Gmail), [`Filter::HasLabel`] is how a folder
     /// is listed: only `INBOX` and `Sent` are fetched there, so no other path has addresses.
@@ -132,16 +138,85 @@ pub enum Filter {
 /// match something the SQL side finds, and search quietly misses a message. A caller that has
 /// no corpus passes `None`, and [`Filter::Text`] then sees only the summary fields.
 ///
-/// `folders` is every mailbox any of the thread's messages has a server address in, which is
-/// what [`Filter::InFolder`] asks about. A summary does not carry it — it is `remote_map`, not
-/// message state — so it is handed in beside the summary, like the corpus. A caller that does
-/// not have it passes `&[]`, and then no `InFolder` clause matches.
+/// `folders` is every server address any of the thread's messages has, each with what
+/// [`Filter::InFolder`] weighs beside it. A summary does not carry it — it is `remote_map` and
+/// the outbox, not message state — so it is handed in beside the summary, like the corpus. A
+/// caller that does not have it passes `&[]`, and then no `InFolder` clause matches.
 #[derive(Debug, Clone, Copy)]
 pub struct MatchCtx<'a> {
     pub summary: &'a ThreadSummary,
     pub corpus: Option<&'a str>,
-    pub folders: &'a [MailboxRef],
+    pub folders: &'a [Placed],
     pub now: DateTime<Utc>,
+}
+
+/// One message's server address, with what decides whether the message is still filed there.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Placed {
+    /// Where the server holds it.
+    pub mailbox: MailboxRef,
+    pub filed: Filed,
+    pub leaving: Leaving,
+}
+
+/// Whether a message is filed here as one of the places the server holds it is filed.
+///
+/// A property of the message, not of one address: a copy held in `INBOX` and `Projects` and
+/// filed in the inbox is filed as held, and is listed in both folders, because the server lists
+/// it in both. Archived here, it is still filed as `Projects` is, and stays there — which is
+/// what the server does with an archive, which moves the inbox copy only. Trashed or marked
+/// spam, it is filed as neither, and leaves both.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Filed {
+    /// Its role is [`crate::FolderRoles::filed_as`] of one of its addresses' paths.
+    AsHeld,
+    /// Filed somewhere none of its addresses is: moved here, and the server not yet caught up.
+    Away,
+}
+
+/// Whether a move of a message into another folder is queued and not yet settled.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Leaving {
+    Staying,
+    /// A [`crate::Op::File`] into a folder other than this address's is in the outbox.
+    Elsewhere,
+}
+
+impl Placed {
+    /// Every address of one message filed as `role` here, on an account whose folders `roles`
+    /// names, with `moving` the target folders of the `File` moves still queued for it.
+    pub fn of_message(
+        role: MailboxRole,
+        addresses: Vec<MailboxRef>,
+        roles: &crate::FolderRoles,
+        moving: &[String],
+    ) -> Vec<Placed> {
+        let filed = if addresses.iter().any(|m| roles.filed_as(&m.path) == role) {
+            Filed::AsHeld
+        } else {
+            Filed::Away
+        };
+        addresses
+            .into_iter()
+            .map(|mailbox| {
+                let leaving = if moving.iter().any(|to| *to != mailbox.path) {
+                    Leaving::Elsewhere
+                } else {
+                    Leaving::Staying
+                };
+                Placed {
+                    mailbox,
+                    filed,
+                    leaving,
+                }
+            })
+            .collect()
+    }
+
+    /// Whether the message is listed in this mailbox: held there, filed as held, not leaving.
+    pub fn filed_here(&self) -> bool {
+        self.filed == Filed::AsHeld && self.leaving == Leaving::Staying
+    }
 }
 
 impl Filter {
@@ -170,7 +245,10 @@ impl Filter {
             Filter::Read(state) => s.read == *state,
             Filter::Starred(star) => s.star == *star,
             Filter::HasLabel(label) => s.labels.contains(label),
-            Filter::InFolder(mailbox) => ctx.folders.contains(mailbox),
+            Filter::InFolder(mailbox) => ctx
+                .folders
+                .iter()
+                .any(|placed| placed.mailbox == *mailbox && placed.filed_here()),
             Filter::From(m) => address_fits(m, &s.from),
             Filter::To(m) => to_fits(m, s),
             Filter::Subject(m) => text_fits(m, &s.subject),

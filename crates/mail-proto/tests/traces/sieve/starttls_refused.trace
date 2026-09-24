@@ -1,0 +1,10 @@
+# SYNTHETIC. Written from RFC 5804 (ManageSieve), with capability lines in the shape a
+# Pigeonhole server sends them. Not a recording.
+# The server offers STARTTLS and then refuses it. There is no falling back to
+# signing in without it.
+S: "SASL" "PLAIN"
+S: "STARTTLS"
+S: OK "ready"
+C: STARTTLS
+S: NO "TLS is not available right now"
+FAIL Unsupported

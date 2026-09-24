@@ -1,0 +1,14 @@
+{
+  "account": "01010101-0101-0101-0101-010101010101",
+  "subject": "Away",
+  "body": "Back on the 8th.",
+  "days": 7,
+  "addresses": [
+    "me@example.test"
+  ],
+  "from": "me@example.test",
+  "during": {
+    "from": "2026-01-01T04:05:06Z",
+    "to": "2026-01-08T04:05:06Z"
+  }
+}

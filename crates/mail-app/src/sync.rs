@@ -711,6 +711,13 @@ fn one_line(address: &str, report: &SyncReport, now: chrono::DateTime<chrono::Ut
         "{address}: {} headers, {} bodies, {} queued operations settled, {} sent",
         report.headers_fetched, report.bodies_fetched, report.outbox_settled, report.submitted
     );
+    if !report.ruled.is_empty() {
+        let _ = writeln!(
+            out,
+            "  rules acted on {} new message(s)",
+            report.ruled.len()
+        );
+    }
     // Said plainly, because the alternative is what this used to do: someone runs `send` and
     // then `sync`, reads "0 sent", and has no reason to think their mail is still sitting here.
     // It is not an error — it will be retried — but silence reads as success.
@@ -884,6 +891,17 @@ async fn pass<B: mail_proto::Backend>(
     let mut report = SyncReport::default();
     for mailbox in mailboxes {
         one_mailbox(engine, mailbox, cancel, now, &mut report).await;
+    }
+
+    // Rules, over what arrived in any folder this pass, before the drain so that what they
+    // queue leaves in the same pass. After the bodies, so a rule about words in the body finds
+    // them for every message the pass had room to fetch.
+    match engine.run_rules(&report.arrived, now) {
+        Ok(ran) => report.ruled.extend(ran.acted),
+        Err(e) => {
+            report.saw(&e.retry());
+            report.needs_attention.push(format!("rules: {e}"));
+        }
     }
 
     let drained = engine

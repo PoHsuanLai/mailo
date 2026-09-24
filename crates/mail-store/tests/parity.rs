@@ -78,7 +78,45 @@ struct Spec {
     labels: Vec<bool>,
     /// Which of [`FOLDERS`] hold a copy on the server: none, one, or several.
     folders: Vec<bool>,
+    /// A queued move into one of [`MOVES`], not yet confirmed by the server.
+    moving: Option<usize>,
     date: i64,
+}
+
+/// Folders a queued `File` moves a message into: one it may already be held in, and one it is
+/// not. Only the second takes it out of `InFolder` for the folder it is in.
+const MOVES: &[(&str, LabelId)] = &[
+    (
+        "Projects/2026",
+        LabelId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000c1")),
+    ),
+    (
+        "Elsewhere",
+        LabelId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000c2")),
+    ),
+];
+
+/// The roles the account's server reported. The non-ASCII folder is Trash, so a message held
+/// there is filed as Trash and one held there as anything else is not in it; the second entry
+/// for the same path is never the one consulted.
+fn caps() -> AccountCaps {
+    AccountCaps {
+        labels: ServerLabels::LocalOnly,
+        threads: ServerThreads::Jwz,
+        watch: WatchMode::Idle,
+        archive: ArchiveMeans::MoveToFolder("Archive".to_owned()),
+        folders: FolderRoles(vec![
+            ("收件匣/報告".to_owned(), MailboxRole::Trash),
+            ("收件匣/報告".to_owned(), MailboxRole::Spam),
+        ]),
+        condstore: Condstore::Absent,
+        move_ext: MoveExt::Supported,
+        expunge: ExpungeMeans::Forbidden,
+        top: Supported::Absent,
+        pipelining: Supported::Absent,
+        connections: ConnectionBudget::default(),
+        observed_at: at(0),
+    }
 }
 
 /// Server mailboxes a message can have an address in. `INBOX` beside a user folder, a nested
@@ -101,7 +139,7 @@ fn spec() -> impl Strategy<Value = Spec> {
         0u8..6,
         prop::collection::vec(any::<bool>(), 2..=2),
         prop::collection::vec(any::<bool>(), FOLDERS.len()..=FOLDERS.len()),
-        0i64..4_000,
+        (prop::option::of(0..MOVES.len()), 0i64..4_000),
     )
         .prop_map(
             |(
@@ -116,7 +154,7 @@ fn spec() -> impl Strategy<Value = Spec> {
                 mailbox,
                 labels,
                 folders,
-                date,
+                (moving, date),
             )| {
                 Spec {
                     thread,
@@ -130,6 +168,7 @@ fn spec() -> impl Strategy<Value = Spec> {
                     mailbox,
                     labels,
                     folders,
+                    moving,
                     date,
                 }
             },
@@ -211,8 +250,13 @@ fn build(specs: &[Spec]) -> Both {
         )
         .unwrap();
     let memory = MemoryStore::new();
+    sqlite.put_caps(ACCOUNT, &caps(), at(0)).unwrap();
+    memory.put_caps(ACCOUNT, &caps(), at(0)).unwrap();
 
-    for (id, name) in [(LABEL_A, "work"), (LABEL_B, "personal")] {
+    let named = [(LABEL_A, "work"), (LABEL_B, "personal")]
+        .into_iter()
+        .chain(MOVES.iter().map(|(path, id)| (*id, *path)));
+    for (id, name) in named {
         let label = Label {
             id,
             account: ACCOUNT,
@@ -330,6 +374,33 @@ fn build(specs: &[Spec]) -> Both {
         };
         sqlite.ingest(ACCOUNT, ingest.clone()).unwrap();
         memory.ingest(ACCOUNT, ingest).unwrap();
+    }
+
+    // Moves queued and not yet confirmed, as the window or a rule queues them: the op applied
+    // here, its remote half in the outbox. A message with no address queues nothing.
+    for (message, s) in &held {
+        let Some(to) = s.moving else { continue };
+        for store in [&sqlite as &dyn Store, &memory] {
+            let thread = store.thread(message.thread).unwrap();
+            let messages: Vec<Message> = thread
+                .messages
+                .iter()
+                .map(|id| store.message(*id).unwrap())
+                .collect();
+            let applied = Op::File(MOVES[to].1).apply(
+                &Target::Messages(vec![message.id]),
+                &thread,
+                &messages,
+                &caps(),
+                now(),
+            );
+            store.apply(ACCOUNT, &applied.forward).unwrap();
+            if let Some(intent) = applied.remote {
+                store
+                    .enqueue(ACCOUNT, intent, &applied.inverse, now())
+                    .unwrap();
+            }
+        }
     }
     Both {
         sqlite,

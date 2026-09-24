@@ -1,0 +1,32 @@
+# SYNTHETIC. Written from RFC 5804 (ManageSieve), with capability lines in the shape a
+# Pigeonhole server sends them. Not a recording.
+# Status: the upgrade is made before anything else, the listing is read, and this
+# client's own script is fetched as a literal that arrives in pieces.
+S: "IMPLEMENTATION" "Example Sieve"
+S: "SASL" ""
+S: "SIEVE" "fileinto vacation imap4flags date relational"
+S: "STARTTLS"
+S: "VERSION" "1.0"
+S: OK "ready"
+C: STARTTLS
+S: OK "begin TLS negotiation now"
+TLS
+# The capabilities again, now inside TLS: these are the ones that count.
+S: "IMPLEMENTATION" "Example Sieve"
+S: "SASL" "PLAIN LOGIN"
+S: "SIEVE" "fileinto vacation imap4flags date relational"
+S: "VERSION" "1.0"
+S: OK "TLS negotiation successful"
+C: AUTHENTICATE "PLAIN" "AG1lQGV4YW1wbGUudGVzdABzM2NyZXQ="
+S: OK "Logged in."
+C: LISTSCRIPTS
+S: "webmail"
+S: "mailo" ACTIVE
+S: OK "Listscripts completed."
+C: GETSCRIPT "mailo"
+SPLIT
+S64: ezE1fQ0Ka2VlcDsNCiMgZG9uZQ0KDQo=
+S: OK "Getscript completed."
+C: LOGOUT
+S: OK "Logout completed."
+DONE

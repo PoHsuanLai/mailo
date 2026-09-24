@@ -176,6 +176,12 @@ pub enum Command {
         out: PrintTo,
         pages: mail_mime::Pages,
     },
+    /// What to do with mail as it arrives.
+    Rules(crate::rules::RulesCmd),
+    /// An away reply, run by the server.
+    Vacation(crate::rules::server::VacationCmd),
+    /// Rules on the server, over ManageSieve.
+    Sieve(crate::rules::server::SieveCmd),
 }
 
 /// Where `mailo print` puts the document.
@@ -410,6 +416,9 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
         "contacts" => crate::contacts::parse(&args[1..]).map(Command::Contacts),
         "print" => parse_print(&args[1..]),
         "invite" => crate::invite::parse(&args[1..]).map(Command::Invite),
+        "rules" => crate::rules::parse(&args[1..]).map(Command::Rules),
+        "vacation" => crate::rules::server::parse_vacation(&args[1..]).map(Command::Vacation),
+        "sieve" => crate::rules::server::parse_sieve(&args[1..]).map(Command::Sieve),
         "watch" => match args.get(1).map(String::as_str) {
             None => Ok(Command::Watch {
                 notify: WatchNotify::AsSet,
@@ -1091,6 +1100,26 @@ usage: mailo <command>
                              sync a CardDAV address book (every one synced before, when
                              no url is given). With --user, set MAILO_PASSWORD; without,
                              the account's own sign-in is presented
+  rules [list] [--account A]  every rule, in the order it runs
+  rules add NAME <search words…> [--label L] [--folder PATH] [--archive] [--trash]
+            [--spam] [--read] [--star] [--stop] [--account A]
+                             run on each sync over new inbox mail the search matches;
+                             --stop keeps later rules from seeing it
+  rules remove|enable|disable NAME [--account A]
+  rules run NAME [--batch N] [--account A]
+                             run a rule now over the mail already here
+  sieve [status] [--account A]
+                             what the server's ManageSieve runs, and whether it is
+                             what this client would put there
+  sieve push [--account A] [--replace-active]
+                             install the rules the server can run, and the vacation
+                             reply, as the active script. Refuses to switch off a
+                             script made elsewhere unless --replace-active
+  vacation [show] [--account A]
+  vacation on --subject S --body-file FILE [--days N] [--from DATE] [--until DATE]
+              [--account A]  an away reply, run by the server; --until is the day
+                             you are back (DATE is 2026-10-08 or 2026-10-08T09:00)
+  vacation off [--account A]
   drafts                      drafts and where each one got to
   discard <draft-id>          delete a draft
   status
@@ -1368,6 +1397,11 @@ pub fn run_with_clients(
             }
         }
         Command::Invite(invite) => crate::invite::run(store, invite, now),
+        Command::Rules(rules) => crate::rules::run(store, rules, now),
+        Command::Vacation(vacation) => {
+            crate::rules::server::run_vacation(store, vacation, saved, now)
+        }
+        Command::Sieve(sieve) => crate::rules::server::run_sieve(store, sieve, saved, now),
         Command::Discard { draft } => {
             crate::compose::discard(store, *draft).map(|subject| format!("discarded {subject:?}\n"))
         }

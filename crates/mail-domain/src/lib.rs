@@ -22,6 +22,7 @@ pub mod presets;
 pub mod receipt;
 pub mod remote;
 pub mod retry;
+pub mod rule;
 pub mod state;
 pub mod template;
 pub mod threading;
@@ -35,14 +36,14 @@ pub use account::{
 };
 pub use content::{Address, Attachment, Body, Inline, Label, PartContent};
 pub use draft::{Draft, PendingAttachment, ReplyScope, SendState};
-pub use filter::{DateRange, Filter, MatchCtx, TextMatch};
+pub use filter::{DateRange, Filed, Filter, Leaving, MatchCtx, Placed, TextMatch};
 pub use folder::{
     Folder, FolderContents, FolderCtx, FolderError, FolderWork, Holds, NonEmpty, SpecialUse,
     Subscription,
 };
 pub use id::{
-    AccountId, BlobId, ChangeId, DraftId, IdentityId, LabelId, MessageId, OutboxId, TemplateId,
-    ThreadId, ViewId,
+    AccountId, BlobId, ChangeId, DraftId, IdentityId, LabelId, MessageId, OutboxId, RuleId,
+    TemplateId, ThreadId, ViewId,
 };
 pub use ingest::{Fetched, Import, Ingest, Kept};
 pub use invite::{Attendance, InviteAnswer};
@@ -54,6 +55,7 @@ pub use remote::{
     FetchSince, MailboxRef, ProtoOp, RemoteRef, Resync, SyncCursor, SystemFlag, UidValidity,
 };
 pub use retry::{Retry, Retryable};
+pub use rule::{AfterMatch, Rule, RuleAction, RuleState, Vacation};
 pub use state::{
     Attachments, IsDefault, LabelOrigin, MailboxRole, MailboxSet, Membership, Pin, ReadState,
     Snooze, Star, Threading,

@@ -60,6 +60,14 @@ pub enum Op {
     Label(LabelId, Membership),
     SetSnooze(Snooze),
     SetPin(Pin),
+    /// Out of the inbox into the folder this label names: a label and an archive in one, which
+    /// is what moving to a folder is where mailboxes are labels, and what a `MOVE` into that
+    /// folder leaves behind locally everywhere else.
+    ///
+    /// One op rather than the two, because on a server with folders they are one command: a
+    /// label and an archive queued apart would move the message into Archive and then find
+    /// nothing left in the inbox to file.
+    File(LabelId),
 }
 
 /// An operation with its payload stripped: "which action", without "that action's arguments".
@@ -196,6 +204,14 @@ pub enum RemoteIntent {
     /// Addresses no message, like [`RemoteIntent::Send`], so it resolves to the identical
     /// [`crate::ProtoOp::Folder`] without consulting `remote_map`.
     Folder(FolderWork),
+    /// File messages into the folder a label names: out of the inbox, into that folder.
+    ///
+    /// Resolved by the store to [`crate::ProtoOp::File`] with the label's name, which is the
+    /// folder's path.
+    File {
+        messages: Vec<MessageId>,
+        label: LabelId,
+    },
     /// Upload a message into a mailbox, e.g. imported mail.
     ///
     /// Addresses no existing message either: the bytes are the new one. Resolves to the
@@ -274,6 +290,7 @@ impl Op {
             Op::SetRead(state) => set_read(&selected, *state),
             Op::SetStar(star) => set_star(&selected, *star),
             Op::Label(label, membership) => set_label(&selected, *label, *membership),
+            Op::File(label) => file_into(&selected, *label),
             Op::SetSnooze(snooze) => {
                 let prior = thread.summary.snooze;
                 if thread_targeted && prior != *snooze {
@@ -300,16 +317,20 @@ impl Op {
 
         // Only changed messages need syncing: a no-op locally is a no-op remotely, and
         // queueing it would cost a round trip to tell the server what it already believes.
-        let touched: Vec<MessageId> = forward
-            .iter()
-            .filter_map(|c| match c {
-                Change::MessageRead(m, _)
-                | Change::MessageStar(m, _)
-                | Change::MessageMailbox(m, _)
-                | Change::MessageLabel(m, _, _) => Some(*m),
-                _ => None,
-            })
-            .collect();
+        //
+        // Each message once, in the order first touched: `File` changes a message twice (its
+        // mailbox and its label), and naming it twice would address it twice on the wire.
+        let mut touched: Vec<MessageId> = Vec::new();
+        for change in &forward {
+            if let Change::MessageRead(m, _)
+            | Change::MessageStar(m, _)
+            | Change::MessageMailbox(m, _)
+            | Change::MessageLabel(m, _, _) = change
+                && !touched.contains(m)
+            {
+                touched.push(*m);
+            }
+        }
 
         let remote = if touched.is_empty() {
             None
@@ -374,6 +395,17 @@ impl Op {
                     })
                 }
             },
+            // Where a message is filed decides both halves, so it follows archiving: nothing to
+            // say to a server that has no notion of where a message is.
+            Op::File(label) => match caps.archive {
+                ArchiveMeans::LocalOnly => None,
+                ArchiveMeans::DropInbox | ArchiveMeans::MoveToFolder(_) => {
+                    Some(RemoteIntent::File {
+                        messages,
+                        label: *label,
+                    })
+                }
+            },
             // Neither has any server representation: they are this app's own state.
             Op::SetSnooze(_) | Op::SetPin(_) => None,
         }
@@ -394,6 +426,8 @@ impl Op {
             Op::Label(_, Membership::Out) => OpKind::RemoveLabel,
             Op::SetSnooze(_) => OpKind::Snooze,
             Op::SetPin(_) => OpKind::Pin,
+            // Filing is archiving into a named place: the row leaves the inbox the same way.
+            Op::File(_) => OpKind::Archive,
         }
     }
 }
@@ -429,6 +463,18 @@ fn move_into(selected: &[&Message], role: MailboxRole) -> (Vec<Change>, Vec<Chan
             inverse.push(Change::MessageMailbox(m.id, m.mailbox));
         }
     }
+    (forward, inverse)
+}
+
+/// File every selected message into the folder `label` names: out to Archive, and into the label.
+///
+/// Both halves are undone per message, and each only where it changed something — a message
+/// already archived keeps its place on undo, and one that already had the label keeps it.
+fn file_into(selected: &[&Message], label: LabelId) -> (Vec<Change>, Vec<Change>) {
+    let (mut forward, mut inverse) = move_into(selected, MailboxRole::Archive);
+    let (labelled, unlabelled) = set_label(selected, label, Membership::In);
+    forward.extend(labelled);
+    inverse.extend(unlabelled);
     (forward, inverse)
 }
 
