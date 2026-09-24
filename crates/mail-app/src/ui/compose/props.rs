@@ -10,7 +10,9 @@ use super::super::data::account_rows;
 use super::super::field::{Field, FieldKind};
 use super::super::icon::{Glyph, Icon};
 use super::super::menu::{Menu, MenuItem, MenuKey, Right, Tile, menu_key};
+use super::super::menus::{snooze_help, when_words};
 use super::float::hue;
+use super::later::{PICK_KEY, PICK_LABEL, PickTime};
 use super::page::{CcRow, Float, Guard, List, Page, PageKind, When};
 use super::receipt::{KEY as RECEIPT_KEY, ReceiptRow, item as receipt_item};
 use super::recipients::{commit_typed, people_items, pick_person, pop_last, remove, typed};
@@ -180,30 +182,67 @@ fn move_to(mut page: Signal<Page>, key: &str) {
     }
 }
 
-#[component]
-fn SendsRow(page: Signal<Page>) -> Element {
-    let when = page.read().when;
-    let receipt = page.read().receipt;
-    let open = page.read().float == Float::Sends;
+/// The Sends menu: right away, the two named times, "Pick a time…", and the receipt. A named
+/// time's help is the date it resolves to, written as the snooze menu writes one.
+pub(in crate::ui) fn sends_items<Tz: chrono::TimeZone>(
+    page: &Page,
+    now: chrono::DateTime<chrono::Utc>,
+    zone: &Tz,
+) -> Vec<MenuItem>
+where
+    Tz::Offset: std::fmt::Display,
+{
+    let when = page.when;
+    let row = |key: &str, icon, name: String, help: String, on: bool| MenuItem {
+        key: key.to_owned(),
+        tile: Tile::Icon(icon),
+        name,
+        help: Some(help),
+        right: Right::Check(on),
+        group: None,
+        marks: Vec::new(),
+        title: Vec::new(),
+        detail: Vec::new(),
+    };
     let mut items: Vec<MenuItem> = When::ALL
         .into_iter()
-        .map(|choice| MenuItem {
-            key: choice.key().to_owned(),
-            tile: Tile::Icon(if choice == When::Now {
+        .map(|choice| {
+            let help = match choice.due(now, zone) {
+                Some(at) => snooze_help(at, zone),
+                None => "as soon as you press Send".to_owned(),
+            };
+            let icon = if choice == When::Now {
                 Icon::Send
             } else {
                 Icon::Clock
-            }),
-            name: choice.label().to_owned(),
-            help: Some(choice.help().to_owned()),
-            right: Right::Check(choice == when),
-            group: None,
-            marks: Vec::new(),
-            title: Vec::new(),
-            detail: Vec::new(),
+            };
+            row(
+                choice.key(),
+                icon,
+                choice.label().to_owned(),
+                help,
+                choice == when,
+            )
         })
         .collect();
-    items.push(receipt_item(receipt));
+    let (help, on) = match when {
+        When::At(at) => (when_words(at, now, zone), true),
+        _ => ("tomorrow 9, fri 17:00, +2h".to_owned(), false),
+    };
+    items.push(row(PICK_KEY, Icon::Clock, PICK_LABEL.to_owned(), help, on));
+    items.push(receipt_item(page.receipt));
+    items
+}
+
+#[component]
+fn SendsRow(page: Signal<Page>) -> Element {
+    let when = page.read().when;
+    let float = page.read().float.clone();
+    let open = float == Float::Sends;
+    let picking = matches!(float, Float::PickTime(_));
+    let now = chrono::Utc::now();
+    let items = sends_items(&page.read(), now, &chrono::Local);
+    let shown = when.shown(now, &chrono::Local);
     rsx! {
         div { class: "prop-row",
             div { class: "k", Glyph { icon: Icon::Clock, class: None }, "Sends" }
@@ -212,10 +251,10 @@ fn SendsRow(page: Signal<Page>) -> Element {
                     class: "pval",
                     r#type: "button",
                     onclick: move |_| {
-                        let next = if open { Float::Closed } else { Float::Sends };
+                        let next = if open || picking { Float::Closed } else { Float::Sends };
                         page.write().float = next;
                     },
-                    "{when.label()}"
+                    "{shown}"
                     if when != When::Now {
                         span { class: "mono", "scheduled" }
                     }
@@ -227,13 +266,21 @@ fn SendsRow(page: Signal<Page>) -> Element {
                             title: "Send".to_owned(),
                             items,
                             filterable: false,
-                            on_pick: move |key: String| pick_sends(&mut page.write(), &key),
+                            on_pick: move |key: String| {
+                                pick_sends(&mut page.write(), &key);
+                                if matches!(page.peek().float, Float::PickTime(_)) {
+                                    dioxus::document::eval("setTimeout(() => document.querySelector('.pick-field')?.focus())");
+                                }
+                            },
                             on_close: move |_| page.write().float = Float::Closed,
                             on_query: move |_| {},
                             slim: true,
                             active: None,
                         }
                     }
+                }
+                if picking {
+                    div { class: "p-menu", PickTime { page } }
                 }
             }
         }
@@ -245,6 +292,10 @@ pub(in crate::ui) fn pick_sends(page: &mut Page, key: &str) {
     if let Some(choice) = When::from_key(key) {
         page.when = choice;
         page.touch();
+    } else if key == PICK_KEY {
+        // The field opens where the menu was; the choice is made when a time is entered.
+        page.float = Float::PickTime(String::new());
+        return;
     } else if key == RECEIPT_KEY {
         page.toggle_receipt();
     }

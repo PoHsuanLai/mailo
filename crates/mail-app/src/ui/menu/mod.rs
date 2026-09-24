@@ -46,6 +46,8 @@ pub(super) fn Menu(
     on_query: EventHandler<String>,
     slim: bool,
     active: Option<usize>,
+    /// What a [`Right::Remove`] × does with its item's key. Only menus that offer one pass it.
+    on_remove: Option<EventHandler<String>>,
 ) -> Element {
     let mut state = use_signal(|| MenuState::new(filterable));
     let mut held = use_signal(|| items.clone());
@@ -149,6 +151,7 @@ pub(super) fn Menu(
                         };
                         let selected = index == cursor;
                         let checked = matches!(shown.item.right, Right::Check(true));
+                        let removed = key.clone();
                         rsx! {
                             div {
                                 key: "{key}",
@@ -171,6 +174,21 @@ pub(super) fn Menu(
                                     match &shown.item.right {
                                         Right::Shortcut(shortcut) => rsx! { "{shortcut}" },
                                         Right::Check(true) => rsx! { Glyph { icon: Icon::Check, class: None } },
+                                        Right::Remove(label) => rsx! {
+                                            button {
+                                                class: "rm",
+                                                r#type: "button",
+                                                aria_label: "{label}",
+                                                title: "{label}",
+                                                onclick: move |event| {
+                                                    event.stop_propagation();
+                                                    if let Some(remove) = on_remove {
+                                                        remove.call(removed.clone());
+                                                    }
+                                                },
+                                                Glyph { icon: Icon::X, class: None }
+                                            }
+                                        },
                                         Right::Check(false) | Right::None => rsx! { "" },
                                     }
                                 }

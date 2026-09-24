@@ -7,6 +7,7 @@
 
 mod items;
 pub(in crate::ui) mod people;
+mod templates;
 
 pub(in crate::ui) use items::avatar_color;
 
@@ -70,6 +71,26 @@ pub(super) fn CommandMenu(
     }
     let active = keys.read().active().min(items.len().saturating_sub(1));
     let placeholder = "Search mail, people, actions · try from:dana or has:attachment".to_owned();
+    // "New from template" lists the templates in this same overlay rather than running anything.
+    let mut listing = use_signal(|| Listing::Search);
+    let mut choose = move |pick: Option<Pick>| match pick {
+        Some(Pick::Action(label)) if label == templates::ACTION => {
+            listing.set(Listing::Templates);
+            shell.write().command = Some(String::new());
+        }
+        pick => act(
+            shell,
+            pages,
+            revision,
+            side_hidden,
+            sync_state,
+            spaces,
+            pick,
+        ),
+    };
+    if listing() == Listing::Templates {
+        return rsx! { templates::TemplateMenu { shell, revision, in_a_field } };
+    }
     rsx! {
         div {
             class: "cmdk-wrap",
@@ -89,10 +110,7 @@ pub(super) fn CommandMenu(
                     event.stop_propagation();
                     let current = drawn.read().items();
                     match keys.write().on_key(key, &current) {
-                        super::menu::MenuEvent::Pick(key) => act(
-                            shell, pages, revision, side_hidden, sync_state, spaces,
-                            drawn.read().pick(&key),
-                        ),
+                        super::menu::MenuEvent::Pick(key) => choose(drawn.read().pick(&key)),
                         super::menu::MenuEvent::Close => close(shell),
                         _ => {}
                     }
@@ -124,7 +142,7 @@ pub(super) fn CommandMenu(
                     filterable: false,
                     on_pick: move |key: String| {
                         let pick = drawn.read().pick(&key);
-                        act(shell, pages, revision, side_hidden, sync_state, spaces, pick);
+                        choose(pick);
                     },
                     on_close: move |_| close(shell),
                     on_query: move |_| {},
@@ -134,6 +152,15 @@ pub(super) fn CommandMenu(
             }
         }
     }
+}
+
+/// What the overlay is listing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Listing {
+    /// Mail, people and actions for the query.
+    Search,
+    /// Templates, after "New from template".
+    Templates,
 }
 
 /// One answer, and the settled text it answers.

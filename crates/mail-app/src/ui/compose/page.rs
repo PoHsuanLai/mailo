@@ -18,32 +18,38 @@ pub(in crate::ui) enum PageKind {
     Reply,
 }
 
-/// When Send sends. Scheduled sends wait in the outbox until then.
+/// When Send sends. A scheduled send is held in the outbox until then.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::ui) enum When {
     Now,
     Tomorrow,
     Monday,
+    /// A time typed into "Pick a time…".
+    At(DateTime<Utc>),
 }
 
 impl When {
+    /// The choices the Sends menu names. [`When::At`] is typed, not listed.
     pub(in crate::ui) const ALL: [When; 3] = [When::Now, When::Tomorrow, When::Monday];
 
-    /// What the Sends row and its menu say.
+    /// What the Sends menu calls a choice, worded the way the snooze menu words its times.
     pub(in crate::ui) fn label(self) -> &'static str {
         match self {
             When::Now => "Right away",
-            When::Tomorrow => "Tomorrow · 08:00",
-            When::Monday => "Monday · 09:00",
+            When::Tomorrow => "Tomorrow 08:00",
+            When::Monday => "Monday 09:00",
+            When::At(_) => super::later::PICK_LABEL,
         }
     }
 
-    /// The menu's line of help.
-    pub(in crate::ui) fn help(self) -> &'static str {
+    /// What the Sends row says: the choice's name, or for a typed time, that time.
+    pub(in crate::ui) fn shown<Tz: TimeZone>(self, now: DateTime<Utc>, zone: &Tz) -> String
+    where
+        Tz::Offset: std::fmt::Display,
+    {
         match self {
-            When::Now => "as soon as you press Send",
-            When::Tomorrow => "before work",
-            When::Monday => "start of the week",
+            When::At(at) => super::super::menus::when_words(at, now, zone),
+            _ => self.label().to_owned(),
         }
     }
 
@@ -53,6 +59,7 @@ impl When {
             When::Now => "now",
             When::Tomorrow => "tomorrow",
             When::Monday => "monday",
+            When::At(_) => super::later::PICK_KEY,
         }
     }
 
@@ -69,6 +76,7 @@ impl When {
         let local = now.with_timezone(zone).date_naive();
         let (day, hour) = match self {
             When::Now => return None,
+            When::At(at) => return Some(at),
             When::Tomorrow => (local.succ_opt()?, 8),
             When::Monday => {
                 let ahead = 7 - local.weekday().num_days_from_monday() as i64;
@@ -120,6 +128,14 @@ pub(in crate::ui) enum Float {
     From,
     /// When to send.
     Sends,
+    /// "Pick a time…" under the Sends row, with what has been typed.
+    PickTime(String),
+    /// "Save as template…", with the name typed so far.
+    SaveTemplate(String),
+    /// "Start from a template": the templates, at the caret.
+    Templates {
+        active: usize,
+    },
     /// People matching what is typed in a recipient field.
     People {
         list: List,
@@ -346,7 +362,8 @@ pub(in crate::ui) fn person(address: &Address) -> Person {
     }
 }
 
-fn address(person: &Person) -> Address {
+/// The address a person chip stands for.
+pub(in crate::ui) fn address(person: &Person) -> Address {
     Address {
         name: Some(person.name.clone()).filter(|name| {
             let local = person.address.split('@').next().unwrap_or("");

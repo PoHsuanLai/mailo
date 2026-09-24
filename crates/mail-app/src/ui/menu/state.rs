@@ -21,6 +21,8 @@ pub(in crate::ui) enum Tile {
 pub(in crate::ui) enum Right {
     Shortcut(String),
     Check(bool),
+    /// A trailing ×, labelled with these words, that hands the item's key to `on_remove`.
+    Remove(String),
     None,
 }
 

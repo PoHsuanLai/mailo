@@ -16,6 +16,7 @@ fn outgoing(when: When, due: DateTime<Utc>) -> Outgoing {
         due,
         when,
         page,
+        refused: None,
     }
 }
 
@@ -119,18 +120,31 @@ fn the_pill_wears_the_face_of_the_send() {
 }
 
 #[test]
-fn a_scheduled_send_reads_scheduled_for() {
-    let due = When::Tomorrow
-        .due(at(0), &Utc)
-        .unwrap_or_else(|| panic!("tomorrow exists"));
-    let got = face(
-        &outgoing(When::Tomorrow, due),
-        Some(&SendState::Queued),
-        at(0),
-        &Utc,
-    );
-    assert_eq!(
-        got.map(|face| (face.text, face.offer)),
-        Some(("Scheduled for Thu 24 Sep, 08:00".to_owned(), Offer::Undo))
-    );
+fn a_scheduled_send_reads_scheduled_for_with_cancel() {
+    // 2026-09-23 is a Wednesday. The wording is the snooze menu's, in a sentence.
+    let cases: &[(When, &str)] = &[
+        (When::Tomorrow, "Scheduled for tomorrow 08:00"),
+        (When::Monday, "Scheduled for Mon 09:00"),
+        (When::At(at(7 * 60)), "Scheduled for today 17:00"),
+        (When::At(at(60 * 24 * 20)), "Scheduled for Tue 13 Oct 10:00"),
+    ];
+    for (when, want) in cases {
+        let due = when
+            .due(at(0), &Utc)
+            .unwrap_or_else(|| panic!("{when:?} is a time"));
+        let got = face(
+            &outgoing(*when, due),
+            Some(&SendState::Scheduled { at: due }),
+            at(0),
+            &Utc,
+        )
+        .unwrap_or_else(|| panic!("no pill for {when:?}"));
+        assert_eq!(got.text, *want, "{when:?}");
+        assert_ne!(got.text, "Waiting in the outbox");
+        assert_eq!(
+            (got.ring, got.offer),
+            (Ring::Full, Offer::Cancel),
+            "{when:?}"
+        );
+    }
 }

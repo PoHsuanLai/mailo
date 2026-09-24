@@ -3,6 +3,7 @@
 //! Every write goes through `crate::compose`, the module the command line uses, so the window and
 //! `mailo send` cannot disagree about what a draft is.
 
+use crate::compose::Leaves;
 use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
@@ -103,7 +104,10 @@ pub(in crate::ui) fn send<Tz: TimeZone>(
     anyway: Anyway,
     now: DateTime<Utc>,
     zone: &Tz,
-) -> Result<Sent, String> {
+) -> Result<Sent, String>
+where
+    Tz::Offset: std::fmt::Display,
+{
     if !commit_typed(page, List::To) || !commit_typed(page, List::Cc) {
         return Ok(Sent::Stopped);
     }
@@ -120,9 +124,21 @@ pub(in crate::ui) fn send<Tz: TimeZone>(
         return Ok(Sent::Stopped);
     }
     page.guard = Guard::Clear;
+    // A time that has gone is refused before anything is written, in the page's words.
+    let leaves = super::later::leaves(page.when, now, zone)?;
     save(store, page, now)?;
-    let due = page.when.due(now, zone).unwrap_or(now + GRACE);
-    crate::compose::send(store, page.draft, due)?;
+    let due = match leaves {
+        // Right away is the grace period and Undo, as it always was.
+        Leaves::Now => {
+            let due = now + GRACE;
+            crate::compose::send(store, page.draft, due)?;
+            due
+        }
+        Leaves::At(at) => {
+            crate::compose::queue(store, page.draft, Leaves::At(at), now)?;
+            at
+        }
+    };
     page.phase = Phase::Folding;
     page.float = super::page::Float::Closed;
     Ok(Sent::Queued {

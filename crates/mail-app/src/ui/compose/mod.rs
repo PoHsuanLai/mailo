@@ -12,6 +12,7 @@ mod body;
 mod desk;
 mod float;
 mod items;
+mod later;
 mod life;
 mod opening;
 mod page;
@@ -20,6 +21,7 @@ mod props;
 mod receipt;
 mod recipients;
 mod render;
+mod templates;
 mod wire;
 
 #[cfg(test)]
@@ -39,8 +41,12 @@ use page::{Focus, Fold, Guard, Page, Phase, Saved, When};
 use props::Props;
 
 pub(in crate::ui) use desk::{Desk, ParkedDrafts, park_current, show_queued, use_desk};
+pub(in crate::ui) use later::ScheduledDrafts;
 pub(in crate::ui) use page::PageKind;
 pub(in crate::ui) use pill::SendPill;
+pub(in crate::ui) use templates::{
+    every as every_template, forget as forget_template, template_rows,
+};
 pub(in crate::ui) use wire::GLUE;
 
 use crate::view::Shell;
@@ -224,7 +230,7 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                     p { class: "notice", "{notice}" }
                 }
                 Props { page, shell }
-                Body { page, on_attach: move |_| page.write().notice = Some("Pick the file with Attach, below.".to_owned()) }
+                Body { page, shell, on_attach: move |_| page.write().notice = Some("Pick the file with Attach, below.".to_owned()) }
                 if !reply {
                     div { class: "c-hint",
                         span { kbd { "/" } " headings, lists, images…" }
@@ -299,6 +305,7 @@ fn send_page(
                 due,
                 when,
                 page: back,
+                refused: None,
             }));
             desk::unpark(desk, draft);
             revision += 1;

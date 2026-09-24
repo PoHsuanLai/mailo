@@ -19,6 +19,7 @@ use mail_store::SqliteStore;
 pub(in crate::ui) fn commands() -> Vec<Command> {
     [
         "Compose",
+        "New from template",
         "Sync now",
         "Go to Inbox",
         "Go to Starred",
@@ -264,6 +265,7 @@ fn action_item(hit: &ActionHit, group: &str) -> MenuItem {
 fn action_icon(label: &str) -> Icon {
     match label {
         "Compose" => Icon::Pen,
+        "New from template" => Icon::FilePen,
         "Sync now" => Icon::Refresh,
         "Hide sidebar" => Icon::PanelLeft,
         "Theme light" | "Theme dark" | "Theme system" => Icon::Settings,

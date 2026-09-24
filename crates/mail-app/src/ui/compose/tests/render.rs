@@ -77,7 +77,25 @@ pub(super) fn window_with(
 ) -> (String, tempfile::TempDir) {
     crate::ui::fixtures::dispatching();
     let built = work();
-    // The Work Space's accounts have no identity rows; `account add` writes one for each.
+    with_identities(&built);
+    let mut dom = VirtualDom::new(App)
+        .with_root_context(built.store.clone())
+        .with_root_context(built.dirs.clone());
+    dom.rebuild_in_place();
+    key(&mut dom, "c");
+    let desk = dom.in_scope(dioxus_core::ScopeId::APP, consume_context::<Desk>);
+    let mut page = dom.in_runtime(|| {
+        desk.current
+            .peek()
+            .unwrap_or_else(|| panic!("c opened no page"))
+    });
+    dom.in_runtime(|| dress(&mut page.write(), &built.store));
+    dom.render_immediate(&mut NoOpMutations);
+    (dioxus_ssr::render(&dom), built.root)
+}
+
+/// The Work Space's accounts have no identity rows; `account add` writes one for each.
+pub(super) fn with_identities(built: &crate::ui::fixtures::Work) {
     let accounts: Vec<(String, String)> = crate::ui::data::account_rows(&built.store)
         .into_iter()
         .map(|row| (row.id.to_string(), row.address))
@@ -93,20 +111,6 @@ pub(super) fn window_with(
             )
             .unwrap_or_else(|why| panic!("an identity: {why}"));
     }
-    let mut dom = VirtualDom::new(App)
-        .with_root_context(built.store.clone())
-        .with_root_context(built.dirs.clone());
-    dom.rebuild_in_place();
-    key(&mut dom, "c");
-    let desk = dom.in_scope(dioxus_core::ScopeId::APP, consume_context::<Desk>);
-    let mut page = dom.in_runtime(|| {
-        desk.current
-            .peek()
-            .unwrap_or_else(|| panic!("c opened no page"))
-    });
-    dom.in_runtime(|| dress(&mut page.write(), &built.store));
-    dom.render_immediate(&mut NoOpMutations);
-    (dioxus_ssr::render(&dom), built.root)
 }
 
 #[tokio::test]
@@ -150,6 +154,10 @@ async fn every_class_the_composer_draws_is_styled() {
             page.float = Float::Sends;
             page.guard = Guard::Shake(1);
         }),
+        Box::new(|page: &mut Page| page.float = Float::PickTime("tomorrow 9".to_owned())),
+        Box::new(|page: &mut Page| page.float = Float::PickTime("2020-01-01 10:00".to_owned())),
+        Box::new(|page: &mut Page| page.float = Float::SaveTemplate("Weekly".to_owned())),
+        Box::new(|page: &mut Page| page.float = Float::Templates { active: 0 }),
     ];
     for dress in states {
         let (markup, _root) = window_with_page(dress);

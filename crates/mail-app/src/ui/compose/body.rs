@@ -9,13 +9,15 @@ use dioxus::prelude::*;
 use super::super::field::{Field, FieldKind};
 use super::super::menu::{Menu, MenuKey, menu_key};
 use super::float::{
-    Picked, commit, current_kind, mention_items, pick_mention, pick_slash, pick_turn, slash_items,
+    Picked, commit, current_kind, mention_items, pick_mention, pick_slash, pick_turn,
     suggest_mention, turn_items,
 };
 use super::page::{Float, Page};
 use super::render;
+use super::templates::{self, TemplateFloat, page_slash_items};
 use super::wire::{self, caret_attr};
 use crate::editor::{InputEvent, Mark, Node, Op, Presence, Range, to_html};
+use crate::view::Shell;
 
 /// Milliseconds on the wall clock, which is what groups typing into undo steps.
 pub(in crate::ui) fn now_ms() -> u64 {
@@ -28,7 +30,11 @@ fn today_words() -> String {
 }
 
 #[component]
-pub(in crate::ui) fn Body(page: Signal<Page>, on_attach: EventHandler<()>) -> Element {
+pub(in crate::ui) fn Body(
+    page: Signal<Page>,
+    shell: Signal<Shell>,
+    on_attach: EventHandler<()>,
+) -> Element {
     let read = page.read();
     let only_empty = matches!(read.session.doc.nodes.as_slice(),
         [Node::Para { runs, .. }] if runs.is_empty());
@@ -56,7 +62,7 @@ pub(in crate::ui) fn Body(page: Signal<Page>, on_attach: EventHandler<()>) -> El
                 "data-seq": "{seq}",
                 "data-caret": "{caret}",
                 "data-doc": "{doc}",
-                onkeydown: move |event| keys(page, on_attach, event),
+                onkeydown: move |event| keys(page, shell, on_attach, event),
                 {render::body(page)}
             }
             textarea {
@@ -79,7 +85,7 @@ pub(in crate::ui) fn Body(page: Signal<Page>, on_attach: EventHandler<()>) -> El
                     div { class: "c-float", "data-anchor": "below",
                         Menu {
                             title: String::new(),
-                            items: slash_items(&super::float::query(&page.read()).unwrap_or_default()),
+                            items: page_slash_items(&page.read()),
                             filterable: false,
                             on_pick: move |key: String| pick(page, on_attach, &key),
                             on_close: move |_| page.write().float = Float::Closed,
@@ -103,6 +109,11 @@ pub(in crate::ui) fn Body(page: Signal<Page>, on_attach: EventHandler<()>) -> El
                         }
                     }
                 },
+                Float::SaveTemplate(_) | Float::Templates { .. } => rsx! {
+                    div { class: "c-float", "data-anchor": "below",
+                        TemplateFloat { page, shell }
+                    }
+                },
                 _ if selected => rsx! { Bubble { page } },
                 _ => rsx! {},
             }
@@ -111,6 +122,15 @@ pub(in crate::ui) fn Body(page: Signal<Page>, on_attach: EventHandler<()>) -> El
 }
 
 fn pick(mut page: Signal<Page>, on_attach: EventHandler<()>, key: &str) {
+    if templates::pick(&mut page.write(), key) {
+        // The name field takes the keys once it is there.
+        if matches!(page.peek().float, Float::SaveTemplate(_)) {
+            dioxus::document::eval(
+                "setTimeout(() => document.querySelector('.tpl-name')?.focus())",
+            );
+        }
+        return;
+    }
     let picked = pick_slash(&mut page.write(), key, &today_words());
     if picked == Picked::Attach {
         on_attach.call(());
@@ -118,16 +138,24 @@ fn pick(mut page: Signal<Page>, on_attach: EventHandler<()>, key: &str) {
 }
 
 /// Keys the browser would otherwise take: the menus' arrows and Enter, and the inline marks.
-fn keys(mut page: Signal<Page>, on_attach: EventHandler<()>, event: KeyboardEvent) {
+fn keys(
+    mut page: Signal<Page>,
+    shell: Signal<Shell>,
+    on_attach: EventHandler<()>,
+    event: KeyboardEvent,
+) {
     let key = event.key().to_string();
     let modifiers = event.modifiers();
     let ctrl = modifiers.ctrl() || modifiers.meta();
     let float = page.read().float.clone();
+    if templates::key(page, shell, &key) {
+        event.prevent_default();
+        event.stop_propagation();
+        return;
+    }
     if let Float::Slash { active, .. } | Float::Mention { active, .. } = float {
         let items = match float {
-            Float::Slash { .. } => {
-                slash_items(&super::float::query(&page.read()).unwrap_or_default())
-            }
+            Float::Slash { .. } => page_slash_items(&page.read()),
             _ => mention_items(&page.read()),
         };
         let taken = match menu_key(&key) {

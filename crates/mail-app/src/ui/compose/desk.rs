@@ -10,6 +10,7 @@ use mail_domain::DraftId;
 use mail_store::{SqliteStore, Store};
 
 use super::super::icon::{Glyph, Icon};
+use super::super::motion::{Follow, tell};
 use super::life;
 use super::page::{Page, Phase, When};
 use crate::appearance::WindowDirs;
@@ -26,6 +27,8 @@ pub(in crate::ui) struct Outgoing {
     pub when: When,
     /// The page as it was sent, so Undo brings back exactly this.
     pub page: Page,
+    /// Why the last Undo or Cancel was refused, said on the pill.
+    pub refused: Option<String>,
 }
 
 /// The drafts the window is holding.
@@ -131,19 +134,57 @@ pub(in crate::ui) fn show_queued(
         due: now,
         when: When::Now,
         page,
+        refused: None,
     }));
 }
 
-/// Take the last send back: withdraw it, and open the page again exactly as it was sent.
-pub(in crate::ui) fn undo_send(mut desk: Desk, mut shell: Signal<Shell>) -> Result<(), String> {
-    let Some(outgoing) = desk.outbox.peek().clone() else {
-        return Ok(());
-    };
+/// Undo or Cancel, with a refusal said in words: on the pill, when it is showing this send, and
+/// in the toast. Nothing changes when it is refused.
+pub(in crate::ui) fn take_back_said(
+    mut desk: Desk,
+    shell: Signal<Shell>,
+    draft: DraftId,
+) -> Result<(), String> {
+    take_back(desk, shell, draft).map_err(|why| {
+        let said = refusal(&why);
+        if let Some(out) = desk.outbox.write().as_mut()
+            && out.draft == draft
+        {
+            out.refused = Some(said.clone());
+        }
+        tell(said.clone(), Follow::Nothing);
+        said
+    })
+}
+
+/// What a refused Undo or Cancel says.
+pub(in crate::ui) fn refusal(why: &str) -> String {
+    format!("Too late to take it back: {why}")
+}
+
+/// Withdraw a send that has not left, and open its page again: the page as it was sent when the
+/// pill still holds it, else the draft as the store has it.
+pub(in crate::ui) fn take_back(
+    mut desk: Desk,
+    mut shell: Signal<Shell>,
+    draft: DraftId,
+) -> Result<(), String> {
     let store = consume_context::<Arc<SqliteStore>>();
-    let draft = life::unsend(&store, outgoing.draft, Utc::now())?;
-    let mut page = outgoing.page;
+    let draft = life::unsend(&store, draft, Utc::now())?;
+    let held = desk
+        .outbox
+        .peek()
+        .clone()
+        .filter(|out| out.draft == draft.id);
+    let mut page = match held {
+        Some(out) => {
+            desk.outbox.set(None);
+            out.page
+        }
+        None => life::load(&store, draft.id, &mut desk.parked.write())
+            .ok_or_else(|| "that draft is gone".to_owned())?,
+    };
     page.phase = Phase::Writing;
-    desk.outbox.set(None);
     // Still folding on screen: it unfolds where it is.
     let current = *desk.current.peek();
     if let Some(mut showing) = current

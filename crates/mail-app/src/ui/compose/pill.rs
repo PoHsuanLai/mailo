@@ -10,7 +10,8 @@ use dioxus::prelude::*;
 use mail_domain::{Retry, SendState};
 use mail_store::{SqliteStore, Store};
 
-use super::desk::{Desk, Outgoing, undo_send};
+use super::super::menus::when_in_sentence;
+use super::desk::{Desk, Outgoing, take_back_said};
 use super::page::When;
 use crate::view::Shell;
 
@@ -42,11 +43,24 @@ pub(in crate::ui) enum Mood {
     Fatal,
 }
 
-/// Whether Undo is on offer.
+/// What the pill's button offers, if anything.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::ui) enum Offer {
+    /// Take back a send in its grace period, or one waiting in the outbox.
     Undo,
+    /// Take back a send held for later. The same act as Undo, named for a send hours away.
+    Cancel,
     Nothing,
+}
+
+impl Offer {
+    fn word(self) -> Option<&'static str> {
+        match self {
+            Offer::Undo => Some("Undo"),
+            Offer::Cancel => Some("Cancel"),
+            Offer::Nothing => None,
+        }
+    }
 }
 
 /// What the pill shows.
@@ -74,26 +88,14 @@ where
         mood: Mood::Calm,
         offer,
     };
-    if now < out.due && matches!(state, Some(SendState::Queued)) {
-        return Some(match out.when {
-            When::Now => {
-                let left = (out.due - now).num_milliseconds().max(0);
-                let seconds = (left + 999) / 1000;
-                calm(
-                    format!("Sending in {seconds} s"),
-                    Ring::Countdown,
-                    Offer::Undo,
-                )
-            }
-            When::Tomorrow | When::Monday => calm(
-                format!(
-                    "Scheduled for {}",
-                    out.due.with_timezone(zone).format("%a %-d %b, %H:%M")
-                ),
-                Ring::Full,
-                Offer::Undo,
-            ),
-        });
+    if now < out.due && out.when == When::Now && matches!(state, Some(SendState::Queued)) {
+        let left = (out.due - now).num_milliseconds().max(0);
+        let seconds = (left + 999) / 1000;
+        return Some(calm(
+            format!("Sending in {seconds} s"),
+            Ring::Countdown,
+            Offer::Undo,
+        ));
     }
     let failed = |text: String, mood| Face {
         text,
@@ -103,10 +105,15 @@ where
     };
     match state? {
         SendState::Editing => None,
-        SendState::Queued | SendState::Scheduled { .. } => Some(calm(
+        SendState::Queued => Some(calm(
             "Waiting in the outbox".to_owned(),
             Ring::Spin,
             Offer::Undo,
+        )),
+        SendState::Scheduled { at } => Some(calm(
+            format!("Scheduled for {}", when_in_sentence(*at, now, zone)),
+            Ring::Full,
+            Offer::Cancel,
         )),
         SendState::Sending => Some(calm("Sending…".to_owned(), Ring::Spin, Offer::Nothing)),
         SendState::Sent { at, .. } => {
@@ -154,13 +161,13 @@ pub(in crate::ui) fn SendPill(shell: Signal<Shell>) -> Element {
         Mood::Shake => "sendpill shake",
         Mood::Fatal => "sendpill fatal",
     };
-    let undo = "Undo";
     let ring = match face.ring {
         Ring::Countdown => "run countdown",
         Ring::Spin => "run spin",
         Ring::Full => "run full",
         Ring::Still => "run still",
     };
+    let draft = out.draft;
     rsx! {
         div { class: "{class}", role: "status",
             svg { view_box: "0 0 24 24",
@@ -168,16 +175,18 @@ pub(in crate::ui) fn SendPill(shell: Signal<Shell>) -> Element {
                 circle { class: "{ring}", cx: "12", cy: "12", r: "9" }
             }
             span { class: "sp-text", "{face.text}" }
-            if face.offer == Offer::Undo {
+            if let Some(why) = out.refused {
+                span { class: "sp-why", "{why}" }
+            }
+            if let Some(word) = face.offer.word() {
                 button {
                     r#type: "button",
-                    aria_label: "{undo}",
+                    aria_label: "{word}",
+                    // Refused, it is said on the pill and in the toast; nothing else to do here.
                     onclick: move |_| {
-                        if let Err(why) = undo_send(desk, shell) {
-                            eprintln!("undo send: {why}");
-                        }
+                        let _ = take_back_said(desk, shell, draft);
                     },
-                    "Undo"
+                    "{word}"
                 }
             }
         }

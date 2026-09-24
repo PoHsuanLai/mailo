@@ -2,10 +2,13 @@
 //! handler, the guards, the draft's life against a real store, and the pill's faces.
 
 mod faces;
+mod later;
+mod later_render;
 mod life;
 mod people;
 mod receipt;
 mod render;
+mod templates;
 mod wire;
 
 use std::cell::Cell;
@@ -136,7 +139,8 @@ thread_local! {
 fn BodyHarness(initial: Page) -> Element {
     let page = use_signal(|| initial.clone());
     BODY_PAGE.with(|slot| slot.set(Some(page)));
-    rsx! { Body { page, on_attach: |_| {} } }
+    let shell = use_signal(Shell::default);
+    rsx! { Body { page, shell, on_attach: |_| {} } }
 }
 
 fn body_dom(page: Page) -> (VirtualDom, Signal<Page>) {
@@ -168,6 +172,7 @@ fn PageHarness(draft: Draft) -> Element {
                 ComposerPage { key: "{id}", draft: id, shell, revision }
             }
             SendPill { shell }
+            super::ScheduledDrafts { shell }
         }
     }
 }
@@ -242,6 +247,7 @@ fn when_a_scheduled_send_is_due() {
         (When::Now, None),
         (When::Tomorrow, Some("2026-09-24 08:00")),
         (When::Monday, Some("2026-09-28 09:00")),
+        (When::At(at(90)), Some("2026-09-23 11:30")),
     ];
     for (when, want) in cases {
         let got = when

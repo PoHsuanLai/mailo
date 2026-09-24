@@ -266,3 +266,23 @@
 .sendpill.fatal { background: var(--danger); color: var(--danger-ink); }
 @keyframes nudge { 0%, 100% { margin-bottom: 0; } 40% { margin-bottom: 5px; } }
 @keyframes shake-pill { 20% { margin-left: -6px; } 40% { margin-left: 5px; } 60% { margin-left: -3px; } 80% { margin-left: 2px; } }
+/* why an Undo or Cancel was refused */
+.sendpill .sp-why { font-weight: 500; opacity: .8; white-space: normal; max-width: 280px; }
+
+/* send later: "Pick a time…" under the Sends row, and what it reads; the template name field */
+.fmenu.pick-time, .fmenu.tpl-save { width: 260px; }
+.pick-in { display: flex; align-items: center; gap: 8px; padding: 4px 8px; color: var(--ink-faint); }
+.pick-in .ic { width: 15px; height: 15px; flex: none; }
+.inp.pick-field, .inp.tpl-name { font-size: 13.5px; }
+.pick-says { margin: 0; padding: 2px 8px 7px 31px; font-size: 11.5px; line-height: 1.35; color: var(--ink-faint); }
+.pick-says.refused { color: var(--danger); }
+.fmenu.tpl-list { width: 280px; }
+
+/* a message waiting for its time, in Today */
+.today-item.later .when {
+  margin-left: auto; font-family: var(--font-data); font-size: 10.5px; color: var(--f-ink-faint); white-space: nowrap;
+}
+.today-item.later .when + .x { margin-left: 2px; }
+.fav.later { background: var(--f-ink-soft); }
+.fav.later .ic { width: 11px; height: 11px; }
+.today-hint.refused { color: var(--danger); }

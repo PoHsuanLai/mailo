@@ -63,6 +63,7 @@ pub(super) fn TodayList(
             }
         }
         super::super::compose::ParkedDrafts { shell, space_index }
+        super::super::compose::ScheduledDrafts { shell }
         if shown.is_empty() && today.read().parked(space_index).is_empty() {
             p { class: "today-hint",
                 "Threads you open land here, like tabs. They drop off after 12 idle hours; the mail stays where it is."

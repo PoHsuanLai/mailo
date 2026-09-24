@@ -2566,6 +2566,7 @@ mod keyboard {
 /// | `tomorrow` | 09:00 tomorrow |
 /// | `weekend` | 09:00 on the coming Saturday |
 /// | `monday` … `sunday` | 09:00 on the next such day |
+/// | `today 17:00`, `tomorrow 9`, `fri 17:00` | that day, at that hour |
 /// | `+90m`, `+2h`, `+3d` | that much from now |
 /// | `2026-09-25` | 09:00 that day |
 /// | `2026-09-25 14:30` | exactly that |
@@ -2627,10 +2628,44 @@ where
             .map(|t| t.with_timezone(&Utc))
             .ok_or_else(|| "that local time does not exist".to_owned());
     }
+    if let Some((day, clock)) = phrase.split_once(char::is_whitespace)
+        && let Some((hour, minute)) = clock_of(clock.trim())
+    {
+        let date = match day {
+            "today" => Some(today),
+            "tomorrow" => today.succ_opt(),
+            "weekend" | "saturday" | "sat" => Some(next_weekday(today, Weekday::Sat)),
+            _ => weekday_named(day)
+                .map(|named| next_weekday(today, named))
+                .or_else(|| chrono::NaiveDate::parse_from_str(day, "%Y-%m-%d").ok()),
+        };
+        if let Some(naive) = date.and_then(|date| date.and_hms_opt(hour, minute, 0)) {
+            return zone
+                .from_local_datetime(&naive)
+                .earliest()
+                .map(|t| t.with_timezone(&Utc))
+                .ok_or_else(|| "that local time does not exist".to_owned());
+        }
+    }
     Err(format!(
-        "{phrase:?} is not a time I know. Try: later, tonight, tomorrow, weekend, \
-         monday…sunday, +2h, +3d, 2026-09-25, or \"2026-09-25 14:30\""
+        "{phrase:?} is not a time I know. Try: later, tonight, tomorrow, tomorrow 9, weekend, \
+         monday…sunday, fri 17:00, +2h, +3d, 2026-09-25, or \"2026-09-25 14:30\""
     ))
+}
+
+/// `9`, `17`, `9:30`, `17:00`: an hour of the day, with its minutes when they are written.
+fn clock_of(text: &str) -> Option<(u32, u32)> {
+    let (hour, minute) = match text.split_once(':') {
+        Some((hour, minute)) if minute.len() == 2 => (hour, minute),
+        Some(_) => return None,
+        None => (text, "00"),
+    };
+    let all_digits = |part: &str| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit());
+    if !all_digits(hour) || hour.len() > 2 || !all_digits(minute) {
+        return None;
+    }
+    let (hour, minute) = (hour.parse().ok()?, minute.parse().ok()?);
+    (hour < 24 && minute < 60).then_some((hour, minute))
 }
 
 /// `90m`, `2h`, `3d` — the part after a `+`.
