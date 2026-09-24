@@ -175,17 +175,34 @@ where
 ///
 /// Oldest first rather than alphabetical so the list does not reorder itself when an account is
 /// added — a picker whose first entry moves is a picker that sends from the wrong address.
+///
+/// Local folders are not one: they have no server to send through, so they are never offered
+/// as a From, and a new message never starts on them.
 pub fn sending_accounts(store: &SqliteStore) -> Vec<(String, AccountId)> {
     let db = store.connection();
-    let Ok(mut stmt) = db.prepare("SELECT address, id FROM accounts ORDER BY created_at") else {
-        return Vec::new();
-    };
-    let Ok(rows) = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+    let Ok(mut stmt) = db.prepare("SELECT address, id, plan FROM accounts ORDER BY created_at")
     else {
         return Vec::new();
     };
+    let Ok(rows) = stmt.query_map([], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, String>(2)?,
+        ))
+    }) else {
+        return Vec::new();
+    };
+    // Read row by row rather than through `sync::configured`, which gives up on the whole list
+    // when one plan does not parse: an account whose plan cannot be read is still offered, as it
+    // always was, and only a plan that says Local is left out.
+    let keeps_locally = |plan: &str| {
+        serde_json::from_str::<AccountPlan>(plan)
+            .is_ok_and(|plan| matches!(plan.incoming, Incoming::Local))
+    };
     rows.filter_map(|row| row.ok())
-        .filter_map(|(address, id)| Some((address, AccountId::from_uuid(id.parse().ok()?))))
+        .filter(|(_, _, plan)| !keeps_locally(plan))
+        .filter_map(|(address, id, _)| Some((address, AccountId::from_uuid(id.parse().ok()?))))
         .collect()
 }
 

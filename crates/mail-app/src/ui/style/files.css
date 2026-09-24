@@ -1,0 +1,45 @@
+/* The Import and Export sheets: the Contacts sheet's scrim, rise and paper; a column of labelled
+   rows (a small data-face key over each field), and a foot that holds the progress and the run. */
+.files-wrap {
+  position: absolute; inset: 0; z-index: 35; display: grid; place-items: start center; padding-top: 7%;
+  background: var(--scrim);
+}
+.files {
+  position: relative; width: min(560px, 90%); display: flex; flex-direction: column;
+  background: var(--raise); color: var(--ink); border: 1px solid var(--line);
+  border-radius: var(--r-panel); box-shadow: var(--shadow-2);
+  animation: cmdk-rise var(--t-big) var(--e-spring);
+}
+.files-head { display: flex; align-items: center; gap: 10px; padding: 14px 14px 4px; }
+.files-head h3 { margin: 0; font-family: var(--font-display); font-size: 17px; font-weight: 800; }
+.files-head .mini { margin-left: auto; }
+.files-head .k { font-family: var(--font-data); font-size: 10px; font-weight: 400; color: var(--ink-faint); }
+.files-main { display: grid; gap: 6px; padding: 8px 14px 14px; }
+.files-k {
+  margin-top: 6px; font-family: var(--font-data); font-size: 10px; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--ink-faint);
+}
+.files-path { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.files-path .inp.files-in { flex: 1; min-width: 0; font-size: 13px; padding: 6px 10px; }
+.files-path .inp.files-to { font-family: var(--font-data); font-size: 12px; }
+.files-look { margin: 0; font-size: 12px; line-height: 1.4; color: var(--ink-faint); }
+.files-look.found { color: var(--ink); font-weight: 600; }
+.files-look.refused, .capnote.files-bad { color: var(--danger); }
+.files-into { position: relative; }
+.pval.files-dest { padding: 5px 8px; margin-left: -8px; font-weight: 600; }
+.pval.files-dest .ic { width: 14px; height: 14px; color: var(--ink-soft); }
+.files-into .p-menu .fmenu { width: 300px; max-height: 260px; overflow-y: auto; }
+.files-format { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.files-foot {
+  display: flex; align-items: center; gap: 12px; padding: 10px 14px 14px;
+  border-top: 1px solid var(--line-soft); background: var(--surface);
+  border-radius: 0 0 var(--r-panel) var(--r-panel);
+}
+.files-foot > .mini.primary { margin-left: auto; }
+.files-foot .capnote { flex: 1; min-width: 0; }
+.files-progress { flex: 1; min-width: 0; display: grid; gap: 5px; font-size: 12px; color: var(--ink-soft); }
+.files-bar { height: 4px; border-radius: var(--r-pill); background: var(--surface-2); overflow: hidden; }
+.files-bar span {
+  display: block; height: 100%; background: var(--accent); border-radius: inherit;
+  transition: width var(--t-quick) var(--e-out);
+}

@@ -320,6 +320,13 @@ pub(super) fn App() -> Element {
             }
             return;
         }
+        // The Import and Export sheets likewise: their fields take letters, Esc closes them.
+        if shell.read().files.is_some() {
+            if key == "Escape" {
+                super::files::close(shell);
+            }
+            return;
+        }
         // The Space editor owns the keyboard while it is open. Its name field takes letters,
         // its handles take the arrows, and Esc puts the Space back as the sheet found it.
         if editing.read().is_some() {
@@ -584,6 +591,9 @@ pub(super) fn App() -> Element {
             }
             if shell.read().contacts.is_some() {
                 super::contacts::ContactsSheet { shell }
+            }
+            if shell.read().files.is_some() {
+                super::files::FilesSheet { shell, revision }
             }
             div { class: "card",
             ThreadList {

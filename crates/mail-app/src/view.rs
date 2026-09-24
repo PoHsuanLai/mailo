@@ -449,6 +449,18 @@ pub enum PageMenu {
     Properties,
 }
 
+/// Which of the two mail-file sheets is open, and what its field holds.
+///
+/// The field's text lives here, beside the command menu's query, because the debounce that
+/// reads it takes a function of the shell.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FileSheet {
+    /// "Import mail…": the path typed so far.
+    Import { path: String },
+    /// "Export mail…": which messages, as a search or a place's name.
+    Export { query: String },
+}
+
 /// Everything the shell is currently showing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Shell {
@@ -511,6 +523,9 @@ pub struct Shell {
     pub command: Option<String>,
     /// The Contacts sheet's filter while it is open. `None` is closed.
     pub contacts: Option<String>,
+    /// The Import or Export sheet while it is open, with the text its field holds. `None` is
+    /// closed.
+    pub files: Option<FileSheet>,
     /// Ctrl F in the open thread. `None` is closed, and marks nothing.
     ///
     /// Belongs to the thread it was opened on: [`Self::open`] and [`Self::close`] drop it, so a
@@ -723,6 +738,7 @@ impl Default for Shell {
             page_menu: PageMenu::Closed,
             command: None,
             contacts: None,
+            files: None,
             find: None,
             undo: crate::undo::UndoStack::default(),
         }

@@ -4,7 +4,7 @@
 //! ask for another page. Split from [`super::app`] (`CONVENTIONS.md` §8). The queries stay in
 //! `App`; this reads the memos it is handed rather than cloning their answers in the parent.
 
-use super::data::{AccountRow, account_rows};
+use super::data::{AccountRow, account_rows, syncs_nothing};
 use super::field::{Field, FieldKind};
 use super::hover::{HoverLayer, Site, hover};
 use super::icon::{Glyph, Icon};
@@ -60,7 +60,7 @@ pub(super) fn ThreadList(
                 rows()
                     .iter()
                     .find(|row| row.id == id)
-                    .map(|row| row.address.clone())
+                    .map(|row| row.shown())
             })
     });
     let names: BTreeMap<LabelId, String> = shell
@@ -70,7 +70,13 @@ pub(super) fn ThreadList(
         .map(|(name, id)| (*id, name.clone()))
         .collect();
     let inbox = place == "Inbox" && shell.read().search.trim().is_empty();
-    let note = sync_state.read().message().map(|text| text.to_owned());
+    // Local folders are never synced: with only them in view there is no Sync, and no word of one.
+    let quiet = syncs_nothing(&rows(), shell.read().account, &shell.read().scope);
+    let note = if quiet {
+        None
+    } else {
+        sync_state.read().message().map(|text| text.to_owned())
+    };
     let search_note = marking.read().note();
     let invalid = matches!(marking.read().scope, Scope::Invalid(_));
     let bad = sync_state.read().is_failure();
@@ -153,32 +159,34 @@ pub(super) fn ThreadList(
                 }
                 div { class: "bar-tools",
                     PageMenus { shell }
-                    button {
-                        class: "mini",
-                        aria_label: "Sync now",
-                        disabled: !sync_state.read().may_start(),
-                        onclick: move |_| {
-                            if !sync_state.read().may_start() {
-                                return;
-                            }
-                            sync_state.set(SyncState::Running);
-                            let store = consume_context::<Arc<SqliteStore>>();
-                            spawn(async move {
-                                // `spawn_blocking`, not this task: sync::run opens sockets and
-                                // builds its own runtime, and `Runtime::block_on` inside an async
-                                // context panics.
-                                let done = tokio::task::spawn_blocking(move || {
-                                    crate::sync::run(store, chrono::Utc::now())
-                                })
-                                .await;
-                                sync_state.set(match done {
-                                    Ok(result) => synced(result.map(|ran| ran.text)),
-                                    Err(e) => synced(Err(format!("the sync pass stopped: {e}"))),
+                    if !quiet {
+                        button {
+                            class: "mini",
+                            aria_label: "Sync now",
+                            disabled: !sync_state.read().may_start(),
+                            onclick: move |_| {
+                                if !sync_state.read().may_start() {
+                                    return;
+                                }
+                                sync_state.set(SyncState::Running);
+                                let store = consume_context::<Arc<SqliteStore>>();
+                                spawn(async move {
+                                    // `spawn_blocking`, not this task: sync::run opens sockets and
+                                    // builds its own runtime, and `Runtime::block_on` inside an async
+                                    // context panics.
+                                    let done = tokio::task::spawn_blocking(move || {
+                                        crate::sync::run(store, chrono::Utc::now())
+                                    })
+                                    .await;
+                                    sync_state.set(match done {
+                                        Ok(result) => synced(result.map(|ran| ran.text)),
+                                        Err(e) => synced(Err(format!("the sync pass stopped: {e}"))),
+                                    });
+                                    revision += 1;
                                 });
-                                revision += 1;
-                            });
-                        },
-                        Glyph { icon: Icon::Refresh, class: None }
+                            },
+                            Glyph { icon: Icon::Refresh, class: None }
+                        }
                     }
                     button {
                         class: "mini",

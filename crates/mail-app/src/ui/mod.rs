@@ -11,6 +11,7 @@ mod contacts;
 mod data;
 mod debounce;
 mod field;
+mod files;
 mod frame;
 mod history;
 mod hover;

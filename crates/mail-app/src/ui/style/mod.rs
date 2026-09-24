@@ -49,6 +49,7 @@ pub(super) const STYLE: &str = concat!(
     include_str!("hover.css"),
     include_str!("composer.css"),
     include_str!("contacts.css"),
+    include_str!("files.css"),
     include_str!("controls.css"),
     include_str!("motion.css"),
 );

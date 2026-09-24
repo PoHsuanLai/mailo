@@ -207,8 +207,9 @@ pub fn fetch_and_save(
     Ok(format!("Saved to {}", path.display()))
 }
 
-/// A path in `dir` that nothing is using yet.
-fn free_path(dir: &Path, name: &str) -> PathBuf {
+/// A path in `dir` that nothing is using yet: `name`, or `name (2)` and so on. A file and a
+/// directory are the same kind of obstacle, so an export directory is named by it too.
+pub fn free_path(dir: &Path, name: &str) -> PathBuf {
     let first = dir.join(name);
     if !first.exists() {
         return first;

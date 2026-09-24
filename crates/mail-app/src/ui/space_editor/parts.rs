@@ -12,7 +12,7 @@ use dioxus::prelude::*;
 
 /// A row of mutually exclusive buttons, each saying with `aria-pressed` whether it is the one.
 #[component]
-pub(super) fn Seg(
+pub(in crate::ui) fn Seg(
     label: String,
     options: Vec<(String, bool)>,
     on_pick: EventHandler<usize>,

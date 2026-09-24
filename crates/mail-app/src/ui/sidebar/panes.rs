@@ -15,7 +15,9 @@ use mail_store::{SqliteStore, Store};
 
 #[derive(Clone, PartialEq, Eq)]
 pub(super) struct Counts {
-    pub rows: Vec<(AccountId, String, u64, Provider)>,
+    /// Each account's id, its name as the tile says it, its unread count, and its provider —
+    /// none for local folders, which are on no provider.
+    pub rows: Vec<(AccountId, String, u64, Option<Provider>)>,
     pub all: u64,
     pub pins: Vec<u64>,
 }
@@ -62,7 +64,8 @@ pub(super) fn counts(store: &SqliteStore, space: &Space) -> Counts {
                     now,
                 )
                 .unwrap_or(0);
-            (row.id, row.address.clone(), n, provider(&row.plan))
+            let via = (!row.is_local()).then(|| provider(&row.plan));
+            (row.id, row.shown(), n, via)
         })
         .collect();
     let pins = space
@@ -161,7 +164,9 @@ pub(super) fn AccountTiles(
                                 pages.set(1);
                             },
                             span { class: "av", style: "background:{color}", "{letter}" }
-                            ProvChip { provider: via, marks: shell.read().appearance.marks, place: ChipPlace::Tile }
+                            if let Some(via) = via {
+                                ProvChip { provider: via, marks: shell.read().appearance.marks, place: ChipPlace::Tile }
+                            }
                             if n > 0 {
                                 span { class: "n", "{n}" }
                             }

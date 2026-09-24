@@ -102,8 +102,10 @@ fn FromRow(page: Signal<Page>, shell: Signal<Shell>) -> Element {
     let current = rows.iter().find(|row| row.id == from);
     let address = current.map(|row| row.address.clone()).unwrap_or_default();
     let via = current.map(|row| provider(&row.plan));
+    // Local folders send nothing, so they are no From to choose.
     let items: Vec<MenuItem> = rows
         .iter()
+        .filter(|row| !row.is_local())
         .map(|row| MenuItem {
             key: row.id.to_string(),
             tile: Tile::Avatar {

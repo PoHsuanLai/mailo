@@ -28,6 +28,8 @@ pub(in crate::ui) fn commands() -> Vec<Command> {
         "Go to Trash",
         "Hide sidebar",
         "Contacts",
+        "Import mail…",
+        "Export mail…",
         "Theme light",
         "Theme dark",
         "Theme system",
@@ -275,6 +277,8 @@ fn action_icon(label: &str) -> Icon {
         "Go to Archive" => Icon::Archive,
         "Go to Trash" => Icon::Trash,
         "Contacts" => Icon::Group,
+        "Import mail…" => Icon::Plus,
+        "Export mail…" => Icon::Forward,
         _ => Icon::Command,
     }
 }

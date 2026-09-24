@@ -53,6 +53,9 @@ uuid = { workspace = true }
 # Desktop notifications for new mail (`notify/desktop.rs`): the freedesktop interface on the
 # session bus. Already in the lock through the keyring's Secret Service store, with these features.
 zbus = "5"
+# The native file dialog beside the Import and Export sheets' typed path. Already in the lock
+# through dioxus-desktop, at this version and with exactly these features (the desktop portal).
+rfd = { version = "=0.17.2", default-features = false, features = ["xdg-portal"] }
 # `mailo contacts sync` takes a URL and hands it to the CardDAV client, which speaks `url`.
 url = "2"
 

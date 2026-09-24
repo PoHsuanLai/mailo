@@ -8,9 +8,11 @@ mod hue;
 mod notify;
 mod parts;
 
+pub(in crate::ui) use parts::Seg;
+
 use self::hue::HueField;
 use self::notify::Notifications;
-use self::parts::{Marks as MarksChoice, Presets, Readout, Seg, Stops};
+use self::parts::{Marks as MarksChoice, Presets, Readout, Stops};
 use super::field::{Field, FieldKind};
 use super::frame::keep;
 use super::paint::{Fade, paint_script};

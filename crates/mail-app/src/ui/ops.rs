@@ -136,11 +136,19 @@ pub(super) fn take_back(store: &SqliteStore, entry: &Undo) -> bool {
     if let Some(reverse) = entry
         .remote
         .as_ref()
+        .filter(|_| has_server(store, entry.account))
         .and_then(|remote| crate::undo::reverse_intent(remote, &entry.inverse))
     {
         let _ = store.enqueue(entry.account, reverse, &entry.forward, chrono::Utc::now());
     }
     true
+}
+
+/// Whether `account` has a server to tell: every account but local folders.
+fn has_server(store: &SqliteStore, account: AccountId) -> bool {
+    !super::data::account_rows(store)
+        .iter()
+        .any(|row| row.id == account && row.is_local())
 }
 
 /// Apply one resolved operation: locally, and to the server when it has a server half.
@@ -192,7 +200,13 @@ pub(super) fn perform(store: &SqliteStore, thread: ThreadId, op: Op) -> Option<U
     //
     // A failure to enqueue is not a failure of the operation: the local change is real and the
     // user can see it. It surfaces where every other stalled submission does, in the outbox.
-    if let Some(intent) = applied.remote.clone() {
+    //
+    // Local folders have no server half: their outbox is never drained, so nothing is put in it.
+    if let Some(intent) = applied
+        .remote
+        .clone()
+        .filter(|_| has_server(store, account))
+    {
         let _ = store.enqueue(account, intent, &applied.inverse, chrono::Utc::now());
     }
     Some(Undo {

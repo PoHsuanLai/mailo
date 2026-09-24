@@ -110,6 +110,44 @@ pub(super) fn account_rows(store: &SqliteStore) -> Vec<AccountRow> {
         .collect()
 }
 
+impl AccountRow {
+    /// Whether this is local folders: mail kept on this computer, never synced, never sent from.
+    /// The same test as [`crate::sync::local_accounts`].
+    pub(in crate::ui) fn is_local(&self) -> bool {
+        matches!(self.plan.incoming, Incoming::Local)
+    }
+
+    /// The account's name as the window writes it: its address, or "Local folders".
+    pub(in crate::ui) fn shown(&self) -> String {
+        if self.is_local() {
+            LOCAL_FOLDERS.to_owned()
+        } else {
+            self.address.clone()
+        }
+    }
+}
+
+/// Whether what the list shows is only local folders, so there is nothing for a sync to do: the
+/// pressed tile is local folders, or no tile is pressed and every account in the Space's `scope`
+/// (empty meaning all) is. The list then has no Sync button and says nothing about syncing.
+pub(super) fn syncs_nothing(
+    rows: &[AccountRow],
+    pressed: Option<AccountId>,
+    scope: &[AccountId],
+) -> bool {
+    let in_view: Vec<&AccountRow> = rows
+        .iter()
+        .filter(|row| match pressed {
+            Some(id) => row.id == id,
+            None => scope.is_empty() || scope.contains(&row.id),
+        })
+        .collect();
+    !in_view.is_empty() && in_view.iter().all(|row| row.is_local())
+}
+
+/// What the window calls the local-only account, wherever it names it.
+pub(super) const LOCAL_FOLDERS: &str = "Local folders";
+
 fn fallback_plan(address: &str) -> AccountPlan {
     AccountPlan {
         address: address.to_owned(),

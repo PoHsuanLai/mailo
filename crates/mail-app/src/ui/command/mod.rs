@@ -292,6 +292,16 @@ fn run_action(
             close(shell);
             super::contacts::open(shell);
         }
+        "Import mail…" => {
+            close(shell);
+            super::files::open_import(shell);
+        }
+        "Export mail…" => {
+            // Closed first: the sheet opens on the search the window is showing, not on what
+            // was typed into this menu.
+            close(shell);
+            super::files::open_export(shell);
+        }
         "Theme light" | "Theme dark" | "Theme system" => {
             let theme = match label {
                 "Theme light" => Theme::Light,
