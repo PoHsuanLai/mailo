@@ -24,6 +24,8 @@ pub(super) enum Kept {
     Here,
     /// Still on the server: `Attachment::blob` is `None`.
     OnServer,
+    /// Inside a protected message opened for reading: in memory only, never stored.
+    Opened,
 }
 
 /// One attachment row: its safe name, its size as shown, and where it is.
@@ -54,7 +56,7 @@ pub(super) fn attachment_rows(message: &Message) -> Vec<AttachmentRow> {
                 None => Kept::OnServer,
             };
             let size = match kept {
-                Kept::Here => crate::attach::human_size(a.size),
+                Kept::Here | Kept::Opened => crate::attach::human_size(a.size),
                 Kept::OnServer => format!("up to {}", crate::attach::human_size(a.size)),
             };
             AttachmentRow {

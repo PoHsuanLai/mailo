@@ -517,8 +517,8 @@ pub struct RulesSheet {
     pub account: Option<AccountId>,
 }
 
-/// The OpenPGP keys sheet while it is open. Nothing about a key is kept here: the sheet reads
-/// the store, and a passphrase or a secret key never passes through the shell.
+/// The keys and certificates sheet while it is open. Nothing about a key is kept here: the sheet
+/// reads the store, and a passphrase, a password or a secret key never passes through the shell.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct KeysSheet;
 
@@ -595,7 +595,7 @@ pub struct Shell {
     pub adding: Option<String>,
     /// The Rules sheet while it is open. `None` is closed.
     pub rules: Option<RulesSheet>,
-    /// The OpenPGP keys sheet while it is open. `None` is closed.
+    /// The keys and certificates sheet while it is open. `None` is closed.
     pub keys: Option<KeysSheet>,
     /// Ctrl F in the open thread. `None` is closed, and marks nothing.
     ///

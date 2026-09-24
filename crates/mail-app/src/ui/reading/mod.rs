@@ -1,3 +1,4 @@
+mod attachments;
 mod blocks;
 mod find_bar;
 mod found;
@@ -6,8 +7,9 @@ mod spans;
 mod table;
 
 use super::icon::{Glyph, Icon};
-use super::text::{Kept, address, attachment_rows, from_name, stamp};
+use super::text::{address, attachment_rows, from_name, stamp};
 use crate::view::{Peek, Reading, Shell};
+use attachments::Attachments;
 use blocks::MessageView;
 use dioxus::prelude::*;
 pub(super) use find_bar::open_find;
@@ -126,19 +128,19 @@ pub(super) fn Reader(
     let store = use_context::<Arc<SqliteStore>>();
     // Where the last attachment went, or why it did not. Cleared by opening another
     // conversation, because this component is rebuilt for each one.
-    let mut saved = use_signal(|| None::<String>);
+    let saved = use_signal(|| None::<String>);
     // Which attachment is being fetched, if one is. That part's button stays disabled until
     // the fetch ends, so a second click cannot start a second download of it.
-    let mut downloading = use_signal(|| None::<(MessageId, usize)>);
+    let downloading = use_signal(|| None::<(MessageId, usize)>);
     // Which HTML message is showing its Original frame. Keyed by message, so
     // opening another one does not carry the choice over. The frame itself is
     // not created and destroyed with this flag.
     let original = use_signal(HashMap::<MessageId, bool>::new);
     // Quotes the reader has unfolded, keyed by message and path.
     let quotes = use_signal(blocks::OpenQuotes::new);
-    // Moved when an OpenPGP message has been opened and has a body of its own to show, so the
-    // messages are drawn again with it. The opening itself happens in `pgp::Seal`, off this
-    // thread; here it is only looked up.
+    // Moved when an OpenPGP or S/MIME message has been opened and has a body of its own to show,
+    // so the messages are drawn again with it. The opening itself happens in `pgp::Seal`, off
+    // this thread; here it is only looked up.
     let landed = use_signal(|| 0u64);
     let _ = landed();
     #[cfg(test)]
@@ -223,6 +225,14 @@ pub(super) fn Reader(
         .collect();
     let (founds, total) = found::find_in(&documents, &highlight, finding.as_ref());
     let invalid = problem.is_some();
+    // A protected message opened to a body lists what is attached inside it; its stored parts
+    // are its wrapping.
+    let attached: Vec<_> = shown
+        .iter()
+        .map(|(message, _, _)| {
+            super::pgp::attachments(message).unwrap_or_else(|| attachment_rows(message))
+        })
+        .collect();
 
     rsx! {
         div { class: "reader-head",
@@ -287,7 +297,7 @@ pub(super) fn Reader(
                     }
                 }
             }
-            for ((message, reading, _), found) in shown.into_iter().zip(founds) {
+            for (((message, reading, _), found), attached) in shown.into_iter().zip(founds).zip(attached) {
                 article { key: "{message.id}", class: "frame",
                     header {
                         strong { "{from_name(&message)}" }
@@ -305,8 +315,8 @@ pub(super) fn Reader(
                             ViewSwitch { message_id: message.id, original }
                         }
                     }
-                    // What the message's OpenPGP says, and its passphrase field. A sibling
-                    // before the frame, like the invitation under it, for the same reason.
+                    // What the message's OpenPGP or S/MIME says, and its passphrase field. A
+                    // sibling before the frame, like the invitation under it, for the same reason.
                     super::pgp::Seal {
                         key: "{message.id}-{message.body.raw():?}",
                         message: message.id,
@@ -322,101 +332,17 @@ pub(super) fn Reader(
                         message: message.id,
                         body: message.body.raw(),
                     }
-                    // What is attached, if anything. Save writes a part that is already here;
-                    // Download fetches one still on the server and then writes it. The name is
-                    // the one the file will be written under. There is no file chooser: it lands
-                    // in the downloads directory, and the notice says where.
-                    // Not for a message OpenPGP opened: what is stored is its wrapping.
-                    if !attachment_rows(&message).is_empty()
-                        && !super::pgp::opened_to_a_body(&message)
-                    {
-                        ul { class: "attachments",
-                            for row in attachment_rows(&message) {
-                                li { key: "{row.index}",
-                                    Glyph { icon: Icon::Paperclip, class: None }
-                                    span { class: "name", "{row.name}" }
-                                    span { class: "size mono", "{row.size}" }
-                                    button {
-                                        class: "mini",
-                                        disabled: downloading() == Some((message.id, row.index)),
-                                        onclick: {
-                                            let id = message.id;
-                                            let index = row.index;
-                                            let name = row.name.clone();
-                                            let kept = row.kept;
-                                            move |_| match kept {
-                                                Kept::Here => {
-                                                    let store = consume_context::<Arc<SqliteStore>>();
-                                                    let where_to = crate::attach::downloads_dir();
-                                                    saved.set(Some(
-                                                        match crate::attach::save(
-                                                            &store, id, index, &where_to,
-                                                        ) {
-                                                            Ok(path) => {
-                                                                format!("Saved to {}", path.display())
-                                                            }
-                                                            Err(why) => why,
-                                                        },
-                                                    ));
-                                                }
-                                                Kept::OnServer => {
-                                                    if downloading() == Some((id, index)) {
-                                                        return;
-                                                    }
-                                                    saved.set(Some(format!("Downloading {name}…")));
-                                                    downloading.set(Some((id, index)));
-                                                    // Cloned out of the context into the blocking
-                                                    // thread: the fetch outlives this click, and
-                                                    // `fetch_part` holds the store for the whole
-                                                    // download.
-                                                    let store_arc =
-                                                        consume_context::<Arc<SqliteStore>>();
-                                                    let dir = crate::attach::downloads_dir();
-                                                    spawn(async move {
-                                                        // `spawn_blocking`, not this task:
-                                                        // `fetch_part` opens sockets and builds its
-                                                        // own runtime, and `Runtime::block_on`
-                                                        // inside an async context panics.
-                                                        let done = tokio::task::spawn_blocking(move || {
-                                                            crate::attach::fetch_and_save(
-                                                                &store_arc,
-                                                                id,
-                                                                index,
-                                                                &dir,
-                                                                |section| {
-                                                                    crate::sync::fetch_part(
-                                                                        &store_arc,
-                                                                        id,
-                                                                        section,
-                                                                        chrono::Utc::now(),
-                                                                    )
-                                                                },
-                                                            )
-                                                        })
-                                                        .await;
-                                                        let sentence = match done {
-                                                            Ok(Ok(sentence) | Err(sentence)) => sentence,
-                                                            Err(error) => format!(
-                                                                "The download stopped before it finished: {error}"
-                                                            ),
-                                                        };
-                                                        saved.set(Some(sentence));
-                                                        downloading.set(None);
-                                                    });
-                                                }
-                                            }
-                                        },
-                                        if downloading() == Some((message.id, row.index)) {
-                                            "Downloading…"
-                                        } else {
-                                            match row.kept {
-                                                Kept::Here => "Save",
-                                                Kept::OnServer => "Download",
-                                            }
-                                        }
-                                    }
-                                }
-                            }
+                    // What is attached, if anything: what was sent, or what a protected
+                    // message was opened to holds. Keyed like the seal, so a body arriving asks
+                    // again.
+                    if !attached.is_empty() {
+                        Attachments {
+                            key: "{message.id}-{message.body.raw():?}",
+                            message: message.id,
+                            body: message.body.raw(),
+                            rows: attached,
+                            saved,
+                            downloading,
                         }
                     }
                     // The iframe, when this message has one, is the first element MessageView

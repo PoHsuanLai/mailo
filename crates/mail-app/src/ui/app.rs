@@ -342,7 +342,7 @@ pub(super) fn App() -> Element {
             }
             return;
         }
-        // And the OpenPGP keys sheet: its fields take letters, Esc closes it.
+        // And the keys and certificates sheet: its fields take letters, Esc closes it.
         if shell.read().keys.is_some() {
             if key == "Escape" {
                 super::pgp::keys::close(shell);

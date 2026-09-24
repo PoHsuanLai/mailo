@@ -15,13 +15,14 @@ mod items;
 mod later;
 mod life;
 mod opening;
-mod openpgp;
 mod page;
 mod pill;
 mod props;
+mod protection;
 mod receipt;
 mod recipients;
 mod render;
+mod seal;
 mod templates;
 mod wire;
 
@@ -38,9 +39,9 @@ use super::field::{Field, FieldKind};
 use super::icon::{Glyph, Icon};
 use body::Body;
 use life::{Anyway, Sent};
-use openpgp::{BarAct, PgpBar, PgpWarn, Sealed, seal_and_queue};
 use page::{Focus, Fold, Guard, Page, Phase, Saved, When};
 use props::Props;
+use seal::{BarAct, SealBar, SealWarn, Sealed, seal_and_queue};
 
 pub(in crate::ui) use desk::{Desk, ParkedDrafts, park_current, show_queued, use_desk};
 pub(in crate::ui) use later::ScheduledDrafts;
@@ -158,7 +159,7 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
     let subject = read.subject.clone();
     let notice = read.notice.clone();
     let warn = read.guard == Guard::Warn;
-    let pgp_bar = read.pgp_bar.clone();
+    let seal_bar = read.seal_bar.clone();
     let scheduled = read.when != When::Now;
     let send_label = if scheduled { "Schedule" } else { "Send" };
     let anyway_label = "Send anyway";
@@ -168,7 +169,7 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
     let send = move |anyway: Anyway| send_page(page, shell, desk, revision, anyway, None);
     // Made here, so a send or a lookup the bar starts belongs to the page and not to the bar,
     // which goes away as it starts.
-    let on_pgp = use_callback(move |act: BarAct| pgp_act(page, shell, desk, revision, act));
+    let on_seal = use_callback(move |act: BarAct| seal_act(page, shell, desk, revision, act));
 
     rsx! {
         div {
@@ -263,7 +264,7 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                         button { class: "mini", r#type: "button", aria_label: "{anyway_label}", onclick: move |_| send(Anyway::Yes), "Send anyway" }
                     }
                 }
-                PgpWarn { bar: pgp_bar, on_act: on_pgp }
+                SealWarn { bar: seal_bar, on_act: on_seal }
                 button {
                     class: "mini",
                     r#type: "button",
@@ -319,11 +320,11 @@ fn send_page(
                         queued(page, shell, desk, revision, sent);
                     }
                     Err(Sealed::Locked { key, tried }) => {
-                        page.write().pgp_bar = PgpBar::Locked { key, tried };
+                        page.write().seal_bar = SealBar::Locked { key, tried };
                     }
                     Err(Sealed::Refused(why)) => {
                         let mut write = page.write();
-                        write.pgp_bar = PgpBar::Clear;
+                        write.seal_bar = SealBar::Clear;
                         write.notice = Some(why);
                     }
                 }
@@ -334,8 +335,8 @@ fn send_page(
     }
 }
 
-/// What the OpenPGP bar's buttons do.
-fn pgp_act(
+/// What the signing and encrypting bar's buttons do.
+fn seal_act(
     mut page: Signal<Page>,
     shell: Signal<Shell>,
     desk: Desk,
@@ -346,11 +347,11 @@ fn pgp_act(
     match act {
         BarAct::WithoutEncryption | BarAct::Plain => {
             let mut write = page.write();
-            write.openpgp = match act {
-                BarAct::Plain => mail_domain::OpenPgp::None,
-                _ => openpgp::without_encryption(write.openpgp),
+            write.protection = match act {
+                BarAct::Plain => protection::Protection::None,
+                _ => write.protection.without_encryption(),
             };
-            write.pgp_bar = PgpBar::Clear;
+            write.seal_bar = SealBar::Clear;
             write.touch();
             drop(write);
             send_page(page, shell, desk, revision, Anyway::Yes, None);
@@ -358,16 +359,16 @@ fn pgp_act(
         BarAct::Unlock(passphrase) => {
             send_page(page, shell, desk, revision, Anyway::Yes, Some(passphrase));
         }
-        BarAct::CreateKey => super::pgp::keys::open(shell),
+        BarAct::OpenSheet => super::pgp::keys::open(shell),
         BarAct::LookUp(addresses) => {
-            page.write().pgp_bar = PgpBar::Looking(addresses.clone());
+            page.write().seal_bar = SealBar::Looking(addresses.clone());
             let store = consume_context::<Arc<SqliteStore>>();
             let lookup = super::pgp::seams().lookup;
             let draft = page.peek().draft;
             spawn(async move {
                 let done = tokio::task::spawn_blocking(move || {
                     let stored = store.draft(draft).map_err(|e| e.to_string())?;
-                    openpgp::look_up(
+                    seal::look_up(
                         &store,
                         lookup.as_ref(),
                         &stored,
@@ -380,11 +381,11 @@ fn pgp_act(
                 let mut write = page.write();
                 match done {
                     Ok((bar, said)) => {
-                        write.pgp_bar = bar;
+                        write.seal_bar = bar;
                         write.notice = Some(said);
                     }
                     Err(why) => {
-                        write.pgp_bar = PgpBar::Clear;
+                        write.seal_bar = SealBar::Clear;
                         write.notice = Some(why);
                     }
                 }

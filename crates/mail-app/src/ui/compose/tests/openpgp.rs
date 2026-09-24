@@ -5,8 +5,9 @@ use mail_runtime::MapSecrets;
 use mail_store::Store;
 use rand::SeedableRng;
 
-use super::super::openpgp::{PgpBar, items, pick};
 use super::super::page::Float;
+use super::super::protection::{Mode, Protection, items, pick};
+use super::super::seal::SealBar;
 use super::*;
 use crate::ui::fixtures::{ACCOUNT, Seen, click, rebuild_into, seeded, type_into};
 
@@ -88,15 +89,28 @@ async fn until(window: &mut Window, seen: &mut Seen, done: impl Fn(&str) -> bool
 #[test]
 fn the_row_writes_the_drafts_openpgp() {
     let mut page = page_of("");
-    assert_eq!(page.openpgp, OpenPgp::None);
-    let names: Vec<String> = items(page.openpgp)
+    assert_eq!(page.protection, Protection::None);
+    let names: Vec<(Option<String>, String)> = items(page.protection)
         .into_iter()
-        .map(|item| item.name)
+        .map(|item| (item.group, item.name))
         .collect();
-    assert_eq!(names, ["None", "Sign", "Encrypt", "Sign and encrypt"]);
-    page.float = Float::OpenPgp;
+    let pgp = Some("OpenPGP".to_owned());
+    let smime = Some("S/MIME".to_owned());
+    assert_eq!(
+        names,
+        [
+            (None, "None".to_owned()),
+            (pgp.clone(), "Sign".to_owned()),
+            (pgp.clone(), "Encrypt".to_owned()),
+            (pgp, "Sign and encrypt".to_owned()),
+            (smime.clone(), "Sign".to_owned()),
+            (smime.clone(), "Encrypt".to_owned()),
+            (smime, "Sign and encrypt".to_owned()),
+        ]
+    );
+    page.float = Float::Protection;
     pick(&mut page, "pgp-sign-encrypt");
-    assert_eq!(page.openpgp, OpenPgp::SignAndEncrypt);
+    assert_eq!(page.protection, Protection::OpenPgp(Mode::SignAndEncrypt));
     assert_eq!(page.float, Float::Closed);
     assert_eq!(page.saved, super::super::page::Saved::Dirty);
     assert_eq!(
@@ -107,8 +121,8 @@ fn the_row_writes_the_drafts_openpgp() {
     let mut draft = draft_of("");
     draft.openpgp = OpenPgp::Sign;
     assert_eq!(
-        Page::of(&draft, Vec::new(), Vec::new()).openpgp,
-        OpenPgp::Sign
+        Page::of(&draft, Vec::new(), Vec::new()).protection,
+        Protection::OpenPgp(Mode::Sign)
     );
 }
 
@@ -118,8 +132,8 @@ async fn the_row_is_drawn_and_its_choice_saved() {
     let draft = asking(&store, OpenPgp::None);
     let (mut window, seen) = window(store.clone(), draft.clone(), Arc::default());
     let markup = window.render();
-    assert!(markup.contains("data-row=\"openpgp\""), "{markup}");
-    click(&mut window.dom, seen.one("aria-label", "OpenPGP: None"));
+    assert!(markup.contains("data-row=\"protection\""), "{markup}");
+    click(&mut window.dom, seen.one("aria-label", "Protection: None"));
     let markup = window.render();
     assert!(markup.contains("Sign and encrypt"), "{markup}");
     let mut page = window.page();
@@ -147,7 +161,7 @@ async fn no_key_for_a_recipient_names_them_and_holds_the_send_until_a_choice() {
             .contains("No OpenPGP key for dana@example.test, so this cannot be encrypted to them."),
         "{markup}"
     );
-    assert!(markup.contains("class=\"c-warn pgp-warn\""), "{markup}");
+    assert!(markup.contains("class=\"c-warn seal-warn\""), "{markup}");
     assert!(markup.contains("Look up keys"), "{markup}");
     assert!(queued(&store).is_empty(), "sent without a key");
 
@@ -220,7 +234,7 @@ async fn a_key_found_by_looking_up_clears_the_bar_and_the_send_goes_encrypted() 
     let mut looked = click(&mut window.dom, last(&after, "aria-label", "Look up keys"));
     let markup = until(&mut window, &mut looked, |page| page.contains("Found dana")).await;
     assert_eq!(*asked.lock().unwrap(), ["dana@example.test"]);
-    assert!(!markup.contains("pgp-warn"), "{markup}");
+    assert!(!markup.contains("seal-warn"), "{markup}");
     assert!(queued(&store).is_empty(), "a lookup sent it");
 
     let mut sent = click(&mut window.dom, seen.one("aria-label", "Send"));
@@ -288,8 +302,8 @@ async fn a_locked_key_is_asked_for_in_the_bar_and_a_wrong_passphrase_said() {
     assert!(queued(&store).is_empty());
     let page = window.page();
     assert!(matches!(
-        window.dom.in_runtime(|| page.peek().pgp_bar.clone()),
-        PgpBar::Locked { .. }
+        window.dom.in_runtime(|| page.peek().seal_bar.clone()),
+        SealBar::Locked { .. }
     ));
 
     let field = after.one("aria-label", &format!("Passphrase: {prompt}"));
@@ -348,10 +362,10 @@ async fn every_class_of_the_bar_and_row_is_styled() {
     let (mut window, seen) = window(store, draft, secrets);
     click(&mut window.dom, seen.one("aria-label", "Send"));
     let mut markup = window.render();
-    assert!(markup.contains("pgp-warn"), "{markup}");
+    assert!(markup.contains("seal-warn"), "{markup}");
     let mut page = window.page();
     window.dom.in_runtime(|| {
-        page.write().pgp_bar = PgpBar::Locked {
+        page.write().seal_bar = SealBar::Locked {
             key: Fingerprint::V4([1; 20]),
             tried: crate::ui::pgp::Tried::Wrong,
         };
@@ -371,11 +385,14 @@ async fn render_the_composer_bar_to_a_file() {
     let mut body = String::new();
     let bars = [
         None,
-        Some(PgpBar::Locked {
+        Some(SealBar::Locked {
             key: Fingerprint::V4([0x5C; 20]),
             tried: crate::ui::pgp::Tried::Wrong,
         }),
-        Some(PgpBar::Blind(vec!["cara@example.test".to_owned()])),
+        Some(SealBar::Blind(
+            crate::ui::pgp::Scheme::OpenPgp,
+            vec!["cara@example.test".to_owned()],
+        )),
     ];
     for bar in bars {
         let draft = asking(&store, OpenPgp::SignAndEncrypt);
@@ -383,7 +400,7 @@ async fn render_the_composer_bar_to_a_file() {
         click(&mut window.dom, seen.one("aria-label", "Send"));
         if let Some(bar) = bar {
             let mut page = window.page();
-            window.dom.in_runtime(|| page.write().pgp_bar = bar);
+            window.dom.in_runtime(|| page.write().seal_bar = bar);
         }
         body.push_str(&format!(
             "<section class=\"reader\" style=\"width:720px;height:520px;margin:16px\">{}</section>",

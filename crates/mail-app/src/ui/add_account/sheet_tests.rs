@@ -117,17 +117,19 @@ async fn settle(dom: &mut VirtualDom) -> Seen {
 async fn look_up(open: &mut Open, address: &str) -> Seen {
     let field = open.seen.one("placeholder", "you@example.com");
     type_into(&mut open.dom, field, address);
-    click(&mut open.dom, open.seen.one("aria-label", "Look up"));
-    // The lookup runs on a blocking thread, and on a loaded machine it can outlast a quiet
-    // spell: keep drawing until the sheet has stopped saying it is looking.
-    let mut seen = settle(&mut open.dom).await;
-    for _ in 0..20 {
-        if !page(open).contains("Looking up the servers for") {
-            break;
-        }
-        seen = seen.merge(settle(&mut open.dom).await);
+    // What the click itself drew is kept: a quick answer can land in that same render, and its
+    // button is then drawn there and nowhere later. After that, work is waited for rather than a
+    // quiet spell while the sheet says it is looking, since on a loaded machine a spell can pass
+    // with the answer still on its way.
+    let mut seen = click(&mut open.dom, open.seen.one("aria-label", "Look up"));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while page(open).contains("Looking up the servers for") && std::time::Instant::now() < deadline
+    {
+        let _ =
+            tokio::time::timeout(std::time::Duration::from_secs(1), open.dom.wait_for_work()).await;
+        open.dom.render_immediate(&mut seen);
     }
-    seen
+    seen.merge(settle(&mut open.dom).await)
 }
 
 fn page(open: &Open) -> String {

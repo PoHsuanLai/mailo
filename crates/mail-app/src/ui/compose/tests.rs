@@ -10,6 +10,7 @@ mod openpgp;
 mod people;
 mod receipt;
 mod render;
+mod smime;
 mod templates;
 mod wire;
 

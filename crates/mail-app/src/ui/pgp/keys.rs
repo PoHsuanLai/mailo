@@ -1,26 +1,34 @@
-//! The OpenPGP keys sheet: the user's own keys, then their correspondents', and what can be done
-//! to each.
+//! The keys and certificates sheet: OpenPGP keys, then S/MIME certificates, the user's own first
+//! in each, and what can be done to each.
 //!
-//! Ctrl T "OpenPGP keys…" and the Space editor open it. Every change goes through
-//! [`crate::pgp::keys`], the functions `mailo pgp` uses, and runs on a blocking thread: a key is
-//! made, imported, exported or forgotten in the keyring, and a file is read or written, none of
-//! which the thread that draws may wait on. The two acts that cannot be taken back — writing a
-//! secret key to a file, and deleting one — are each asked again in the sheet, in words, before
-//! anything happens.
+//! Ctrl T "Keys and certificates…" and the Space editor open it. Every change goes through
+//! [`crate::pgp::keys`] or [`crate::smime::certs`], the functions `mailo pgp` and `mailo smime`
+//! use, and runs on a blocking thread: a key is made, imported, exported or forgotten in the
+//! keyring, and a file is read or written, none of which the thread that draws may wait on. The
+//! acts that cannot be taken back — writing a secret key to a file, and deleting one — are each
+//! asked again in the sheet, in words, before anything happens.
+//!
+//! Nothing here clears what the reader found when it opened a message: every change moves the
+//! count of key changes, and the reader opens a message again when that has moved.
 
 use chrono::Utc;
 use dioxus::prelude::*;
-use mail_domain::{Fingerprint, KeySource, KeyTrust, PgpKey, SecretHeld};
+use mail_domain::{Fingerprint, PgpKey, SecretHeld};
 use mail_runtime::Secrets;
 use mail_store::{SqliteStore, Store};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use super::super::data::account_rows;
 use super::super::icon::{Glyph, Icon};
-use super::{Busy, Seams, forget_all, seams, short, who};
+use super::certs::{CertJob, CertPart};
+use super::key_row::{Confirm, KeyRow};
+use super::{Busy, Seams, seams, short, who};
 use crate::pgp::WithSecret;
 use crate::view::{KeysSheet as Showing, Shell};
+
+/// What the sheet and its menu entry are called.
+pub(in crate::ui) const TITLE: &str = "Keys and certificates";
 
 /// Open the sheet.
 pub(in crate::ui) fn open(mut shell: Signal<Shell>) {
@@ -54,18 +62,8 @@ pub(in crate::ui) fn keyless(store: &SqliteStore) -> Vec<String> {
         .collect()
 }
 
-/// A question the sheet is asking again before it acts.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(in crate::ui) enum Confirm {
-    Nothing,
-    /// Write this key's secret half to a file.
-    ExportSecret(Fingerprint),
-    /// Delete this key and its secret half.
-    Delete(Fingerprint),
-}
-
 /// Something the sheet does off the thread that draws.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(in crate::ui) enum Job {
     Generate(String),
     Import,
@@ -73,23 +71,34 @@ pub(in crate::ui) enum Job {
     SaveSecret(PgpKey),
     Delete(PgpKey, WithSecret),
     Verify(Fingerprint),
+    Cert(CertJob),
+}
+
+/// What a job came to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(in crate::ui) enum Done {
+    /// What the sheet says afterwards.
+    Said(String),
+    /// The file at this path is an identity that needs its password: the sheet asks for it.
+    Password(PathBuf),
 }
 
 /// Do `job`. Blocks — on the keyring, a file dialog, the disk — so the sheet runs it on a
-/// blocking thread. Returns what the sheet says afterwards.
-pub(in crate::ui) fn work(store: &SqliteStore, seams: &Seams, job: Job) -> Result<String, String> {
+/// blocking thread.
+pub(in crate::ui) fn work(store: &SqliteStore, seams: &Seams, job: Job) -> Result<Done, String> {
     let secrets = seams.secrets.as_ref();
     let said = match job {
+        Job::Cert(job) => return super::certs::work(store, seams, job),
         Job::Generate(address) => generate(store, secrets, &address)?,
         Job::Import => {
             let Some(path) = (seams.pick)() else {
-                return Ok("Nothing was imported.".to_owned());
+                return Ok(Done::Said("Nothing was imported.".to_owned()));
             };
             import(store, secrets, &path)?
         }
         Job::SavePublic(key) => {
             let Some(path) = (seams.save)(&file_name(&key, "public")) else {
-                return Ok("Nothing was saved.".to_owned());
+                return Ok(Done::Said("Nothing was saved.".to_owned()));
             };
             let armored = crate::pgp::keys::export_public(&key).map_err(|e| e.to_string())?;
             write(&path, &armored)?;
@@ -101,7 +110,7 @@ pub(in crate::ui) fn work(store: &SqliteStore, seams: &Seams, job: Job) -> Resul
         }
         Job::SaveSecret(key) => {
             let Some(path) = (seams.save)(&file_name(&key, "secret")) else {
-                return Ok("Nothing was saved.".to_owned());
+                return Ok(Done::Said("Nothing was saved.".to_owned()));
             };
             let armored =
                 crate::pgp::keys::export_secret(store, secrets, &key).map_err(|e| e.to_string())?;
@@ -122,10 +131,7 @@ pub(in crate::ui) fn work(store: &SqliteStore, seams: &Seams, job: Job) -> Resul
             format!("Marked {} as verified", short(fingerprint))
         }
     };
-    // What was said about a message's signature, or that it could not be read, was said under
-    // the old keys.
-    forget_all();
-    Ok(said)
+    Ok(Done::Said(said))
 }
 
 fn generate(store: &SqliteStore, secrets: &dyn Secrets, address: &str) -> Result<String, String> {
@@ -159,8 +165,9 @@ fn file_name(key: &PgpKey, half: &str) -> String {
     format!("{}-{half}.asc", key.fingerprint.key_id())
 }
 
-/// Write `text` to `path`. A secret key is readable by its owner only.
-fn write(path: &Path, text: &str) -> Result<(), String> {
+/// Write `text` to `path`. A secret key is readable by its owner only, and so is every file the
+/// sheet writes.
+pub(super) fn write(path: &Path, text: &str) -> Result<(), String> {
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create(true).truncate(true);
     #[cfg(unix)]
@@ -172,17 +179,6 @@ fn write(path: &Path, text: &str) -> Result<(), String> {
         .map_err(|e| format!("{}: {e}", path.display()))
 }
 
-/// Where a key came from, in words.
-fn source(key: &PgpKey) -> &'static str {
-    match key.source {
-        KeySource::Generated => "made here",
-        KeySource::Imported => "imported",
-        KeySource::Wkd => "from its domain",
-        KeySource::Autocrypt => "from their mail",
-        KeySource::Gossip => "passed on by someone else",
-    }
-}
-
 /// The sheet. Mounted while `shell.keys` is `Some`.
 #[component]
 pub(in crate::ui) fn KeysSheet(shell: Signal<Shell>) -> Element {
@@ -190,11 +186,15 @@ pub(in crate::ui) fn KeysSheet(shell: Signal<Shell>) -> Element {
     let mut changed = use_signal(|| 0u64);
     let mut said = use_signal(|| None::<Result<String, String>>);
     let mut busy = use_signal(|| Busy::Idle);
-    let confirm = use_signal(|| Confirm::Nothing);
+    let mut confirm = use_signal(|| Confirm::Nothing);
     let _ = changed();
     let store = consume_context::<Arc<SqliteStore>>();
     let (keys, failed) = match store.pgp_keys() {
         Ok(keys) => (ordered(keys), None),
+        Err(why) => (Vec::new(), Some(why.to_string())),
+    };
+    let (certs, certs_failed) = match store.smime_certs() {
+        Ok(certs) => (super::certs::ordered(certs), None),
         Err(why) => (Vec::new(), Some(why.to_string())),
     };
     let keyless = keyless(&store);
@@ -204,13 +204,18 @@ pub(in crate::ui) fn KeysSheet(shell: Signal<Shell>) -> Element {
             return;
         }
         busy.set(Busy::Working);
+        said.set(None);
         let store = consume_context::<Arc<SqliteStore>>();
         let seams = seams();
         spawn(async move {
             let done = tokio::task::spawn_blocking(move || work(&store, &seams, job))
                 .await
                 .unwrap_or_else(|error| Err(format!("It stopped before it finished: {error}")));
-            said.set(Some(done));
+            match done {
+                Ok(Done::Said(text)) => said.set(Some(Ok(text))),
+                Ok(Done::Password(path)) => confirm.set(Confirm::Password(path)),
+                Err(why) => said.set(Some(Err(why))),
+            }
             busy.set(Busy::Idle);
             changed += 1;
         });
@@ -224,10 +229,10 @@ pub(in crate::ui) fn KeysSheet(shell: Signal<Shell>) -> Element {
             div {
                 class: "keys",
                 role: "dialog",
-                aria_label: "OpenPGP keys",
+                aria_label: TITLE,
                 onclick: move |event| event.stop_propagation(),
                 div { class: "keys-head",
-                    h3 { "OpenPGP keys" }
+                    h3 { "{TITLE}" }
                     button {
                         class: "mini",
                         r#type: "button",
@@ -236,8 +241,14 @@ pub(in crate::ui) fn KeysSheet(shell: Signal<Shell>) -> Element {
                         span { class: "k", "Esc" }
                     }
                 }
+                match said() {
+                    Some(Ok(text)) => rsx! { p { class: "capnote said keys-said", role: "status", "{text}" } },
+                    Some(Err(why)) => rsx! { p { class: "capnote files-bad keys-said", role: "alert", "{why}" } },
+                    None => rsx! {},
+                }
                 div { class: "keys-main",
                     section { class: "keys-part",
+                        h4 { class: "keys-sub", "OpenPGP" }
                         p { class: "capnote",
                             "Yours sign what you send and open what is sent to you. Theirs let you encrypt to them and check what they sign."
                         }
@@ -248,11 +259,6 @@ pub(in crate::ui) fn KeysSheet(shell: Signal<Shell>) -> Element {
                             if let Some(why) = failed {
                                 li { class: "keys-none", "{why}" }
                             }
-                        }
-                        match said() {
-                            Some(Ok(text)) => rsx! { p { class: "capnote said", role: "status", "{text}" } },
-                            Some(Err(why)) => rsx! { p { class: "capnote files-bad", role: "alert", "{why}" } },
-                            None => rsx! {},
                         }
                         div { class: "keys-acts",
                             for address in keyless {
@@ -275,187 +281,12 @@ pub(in crate::ui) fn KeysSheet(shell: Signal<Shell>) -> Element {
                                 r#type: "button",
                                 aria_label: "{import_label}",
                                 disabled: working,
-                                onclick: move |_| {
-                                    said.set(None);
-                                    run.call(Job::Import);
-                                },
+                                onclick: move |_| run.call(Job::Import),
                                 "{import_label}"
                             }
                         }
                     }
-                }
-            }
-        }
-    }
-}
-
-/// One key, its actions, and the question asked before one that cannot be undone.
-#[component]
-fn KeyRow(pgp: PgpKey, confirm: Signal<Confirm>, run: Callback<Job>, busy: Busy) -> Element {
-    let working = busy == Busy::Working;
-    let fingerprint = pgp.fingerprint;
-    let name = who(&pgp);
-    let id = short(fingerprint);
-    let mine = pgp.secret == SecretHeld::Held;
-    let verified = pgp.trust == KeyTrust::Verified;
-    let mut meta = vec![
-        pgp.emails.join(", "),
-        format!("added {}", pgp.first_seen.format("%Y-%m-%d")),
-        source(&pgp).to_owned(),
-        if verified {
-            "verified by you"
-        } else {
-            "not verified"
-        }
-        .to_owned(),
-    ];
-    if mine {
-        meta.push("secret key held here".to_owned());
-    }
-    let meta = meta
-        .into_iter()
-        .filter(|part| !part.is_empty())
-        .collect::<Vec<_>>()
-        .join(" · ");
-    let asking = confirm();
-    let row_class = if mine { "keys-row mine" } else { "keys-row" };
-    let (copy_key, save_key, secret_key, delete_key, gone) = (
-        pgp.clone(),
-        pgp.clone(),
-        pgp.clone(),
-        pgp.clone(),
-        pgp.clone(),
-    );
-    let mut confirm = confirm;
-    rsx! {
-        li { class: "{row_class}",
-            div { class: "keys-text",
-                b { "{name}" }
-                span { class: "keys-fpr", "{id}" }
-                span { class: "keys-meta", "{meta}" }
-            }
-            div { class: "keys-row-acts",
-                if mine {
-                    span { class: "keys-tag", "yours" }
-                }
-                button {
-                    class: "ghost",
-                    r#type: "button",
-                    aria_label: "Copy the public key {id}",
-                    onclick: move |_| {
-                        if let Ok(armored) = crate::pgp::keys::export_public(&copy_key) {
-                            super::super::hover::copy(&armored);
-                            super::super::motion::tell(
-                                "Public key copied".to_owned(),
-                                super::super::motion::Follow::Nothing,
-                            );
-                        }
-                    },
-                    "Copy public"
-                }
-                button {
-                    class: "ghost",
-                    r#type: "button",
-                    aria_label: "Save the public key {id}",
-                    disabled: working,
-                    onclick: move |_| run.call(Job::SavePublic(save_key.clone())),
-                    "Save public…"
-                }
-                if mine {
-                    button {
-                        class: "ghost",
-                        r#type: "button",
-                        aria_label: "Export the secret key {id}",
-                        disabled: working,
-                        onclick: move |_| confirm.set(Confirm::ExportSecret(fingerprint)),
-                        "Export secret…"
-                    }
-                }
-                if !verified {
-                    button {
-                        class: "ghost",
-                        r#type: "button",
-                        aria_label: "Mark {id} verified",
-                        title: "Only after comparing the fingerprint with its owner",
-                        disabled: working,
-                        onclick: move |_| run.call(Job::Verify(fingerprint)),
-                        "Verify"
-                    }
-                }
-                button {
-                    class: "ghost danger",
-                    r#type: "button",
-                    aria_label: "Delete {id}",
-                    disabled: working,
-                    onclick: move |_| {
-                        if delete_key.secret == SecretHeld::Held {
-                            confirm.set(Confirm::Delete(fingerprint));
-                        } else {
-                            run.call(Job::Delete(delete_key.clone(), WithSecret::Refuse));
-                        }
-                    },
-                    "Delete"
-                }
-            }
-            match asking {
-                Confirm::ExportSecret(asked) if asked == fingerprint => rsx! {
-                    ConfirmBar {
-                        sentence: format!(
-                            "This writes the secret half of {id} to a file. Anyone who has that file can read your encrypted mail and sign as you: keep it offline, and never mail it."
-                        ),
-                        act: "Save the secret key…".to_owned(),
-                        confirm,
-                        on_yes: move |_| {
-                            confirm.set(Confirm::Nothing);
-                            run.call(Job::SaveSecret(secret_key.clone()));
-                        },
-                    }
-                },
-                Confirm::Delete(asked) if asked == fingerprint => rsx! {
-                    ConfirmBar {
-                        sentence: format!(
-                            "Deleting {id} also deletes its secret key from your keyring. It cannot be recovered, and mail encrypted to it can never be read again. Export it first if you may need it."
-                        ),
-                        act: "Delete the key and its secret".to_owned(),
-                        confirm,
-                        on_yes: move |_| {
-                            confirm.set(Confirm::Nothing);
-                            run.call(Job::Delete(gone.clone(), WithSecret::Confirmed));
-                        },
-                    }
-                },
-                _ => rsx! {},
-            }
-        }
-    }
-}
-
-/// The question asked again, with its two answers.
-#[component]
-fn ConfirmBar(
-    sentence: String,
-    act: String,
-    confirm: Signal<Confirm>,
-    on_yes: EventHandler<()>,
-) -> Element {
-    let mut confirm = confirm;
-    rsx! {
-        div { class: "keys-confirm", role: "alert",
-            p { class: "say", "{sentence}" }
-            div { class: "acts",
-                button {
-                    class: "mini",
-                    r#type: "button",
-                    aria_label: "Cancel: {act}",
-                    onclick: move |_| confirm.set(Confirm::Nothing),
-                    "Cancel"
-                }
-                button {
-                    class: "mini danger",
-                    r#type: "button",
-                    aria_label: "{act}",
-                    onclick: move |_| on_yes.call(()),
-                    "{act}"
+                    CertPart { certs, failed: certs_failed, confirm, run, busy: busy() }
                 }
             }
         }

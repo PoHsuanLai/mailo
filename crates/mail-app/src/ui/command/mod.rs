@@ -317,7 +317,7 @@ fn run_action(
             close(shell);
             super::rules::open(shell);
         }
-        "OpenPGP keys…" => {
+        "Keys and certificates…" => {
             close(shell);
             super::pgp::keys::open(shell);
         }

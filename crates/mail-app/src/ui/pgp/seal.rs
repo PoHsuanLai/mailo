@@ -1,4 +1,5 @@
-//! Under a message's head: what its OpenPGP says, and the passphrase field when its key is locked.
+//! Under a message's head: what its OpenPGP or S/MIME says, and the passphrase field when its
+//! OpenPGP key is locked.
 
 use dioxus::prelude::*;
 use mail_domain::{BlobId, MessageId};
@@ -8,7 +9,7 @@ use std::sync::Arc;
 use super::{Busy, Look, Unlock, cached, lookup, seams, short, unlock};
 use crate::password::Password;
 
-/// One message's OpenPGP, once it is known.
+/// One message's protection, once it is known.
 ///
 /// Draws nothing until then: finding out reads the stored blob and may decrypt, so it runs on a
 /// blocking thread and lands here, or is already kept from the last time the message was open.
@@ -51,12 +52,12 @@ pub(in crate::ui) fn Seal(
     match known() {
         None | Some(Look::Plain) => rsx! {},
         Some(Look::Failed(why)) => rsx! {
-            div { class: "seal", role: "status", aria_label: "OpenPGP",
+            div { class: "seal", role: "status", aria_label: "Signature and encryption",
                 p { class: "seal-line bad", "{why}" }
             }
         },
         Some(Look::Opened(opened)) => rsx! {
-            div { class: "seal", role: "status", aria_label: "OpenPGP",
+            div { class: "seal", role: "status", aria_label: opened.scheme.name(),
                 for (at, said) in opened.said.into_iter().enumerate() {
                     p { key: "{at}", class: said.tone.class(), "{said.text}" }
                 }

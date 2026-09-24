@@ -36,7 +36,7 @@ pub(super) fn sheet(store: &Arc<SqliteStore>, seams: super::Seams) -> (VirtualDo
 }
 
 /// Let work on its blocking thread land and redraw.
-async fn settle(dom: &mut VirtualDom, seen: &mut Seen) {
+pub(super) async fn settle(dom: &mut VirtualDom, seen: &mut Seen) {
     for _ in 0..30 {
         let quiet = std::time::Duration::from_millis(100);
         if tokio::time::timeout(quiet, dom.wait_for_work())

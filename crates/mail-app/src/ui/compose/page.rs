@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 
 use chrono::{DateTime, Datelike, Duration, TimeZone, Utc};
-use mail_domain::{AccountId, Address, Draft, DraftId, OpenPgp, ReceiptRequest};
+use mail_domain::{AccountId, Address, Draft, DraftId, ReceiptRequest};
 
 use super::opening::doc_of;
 use crate::editor::{Person, Pos, Range, Session};
@@ -128,8 +128,8 @@ pub(in crate::ui) enum Float {
     From,
     /// When to send.
     Sends,
-    /// Whether to sign or encrypt.
-    OpenPgp,
+    /// Whether to sign or encrypt, and with what.
+    Protection,
     /// "Pick a time…" under the Sends row, with what has been typed.
     PickTime(String),
     /// "Save as template…", with the name typed so far.
@@ -216,10 +216,10 @@ pub(in crate::ui) struct Page {
     pub when: When,
     /// Whether the message asks its recipients for a read receipt.
     pub receipt: ReceiptRequest,
-    /// What OpenPGP does to the message when it is sent.
-    pub openpgp: OpenPgp,
-    /// What stands between OpenPGP and Send, in the warning bar.
-    pub pgp_bar: super::openpgp::PgpBar,
+    /// How the message is signed or encrypted when it is sent: OpenPGP or S/MIME, never both.
+    pub protection: super::protection::Protection,
+    /// What stands between that and Send, in the warning bar.
+    pub seal_bar: super::seal::SealBar,
     /// What the draft carries, as `(name, size)`.
     pub attached: Vec<(String, String)>,
     pub session: Session,
@@ -274,8 +274,8 @@ impl Page {
             typed_cc: String::new(),
             when: When::Now,
             receipt: draft.receipt,
-            openpgp: draft.openpgp,
-            pgp_bar: super::openpgp::PgpBar::Clear,
+            protection: super::protection::Protection::of(draft),
+            seal_bar: super::seal::SealBar::Clear,
             attached,
             session: Session::with(doc_of(draft)),
             selection: None,
@@ -314,7 +314,8 @@ impl Page {
             text: crate::editor::to_flowed(doc),
             html: Some(crate::editor::to_html(doc)),
             receipt: self.receipt,
-            openpgp: self.openpgp,
+            openpgp: self.protection.openpgp(),
+            smime: self.protection.smime(),
             updated: now,
             ..base.clone()
         }

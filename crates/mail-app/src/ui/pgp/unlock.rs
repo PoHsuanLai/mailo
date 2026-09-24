@@ -1,4 +1,5 @@
-//! The passphrase field: a key's passphrase typed, and handed on once, to the call that needs it.
+//! The passphrase field: a key's passphrase, or an identity file's password, typed and handed on
+//! once, to the call that needs it.
 //!
 //! What is typed is held in a [`Password`] kept by this component's hook — not a signal, so
 //! nothing that subscribes to state can read it, and nothing that snapshots state can copy it.
@@ -15,13 +16,15 @@ use super::super::field::{Field, FieldKind};
 use super::{Busy, Tried};
 use crate::password::Password;
 
-/// The field and its button: `prompt` says what it is for, `act` is the button's words.
-/// `on_unlock` is handed the passphrase and owns it from then on.
+/// The field and its button: `prompt` says what it is for, `act` is the button's words, `noun`
+/// what the secret is called ("Passphrase" when not given). `on_unlock` is handed what was typed
+/// and owns it from then on.
 #[component]
 pub(in crate::ui) fn Unlock(
     prompt: String,
     tried: Tried,
     act: String,
+    noun: Option<String>,
     working: Busy,
     on_unlock: EventHandler<Password>,
 ) -> Element {
@@ -34,7 +37,8 @@ pub(in crate::ui) fn Unlock(
         }
     };
     let on_enter = give.clone();
-    let label = format!("Passphrase: {prompt}");
+    let noun = noun.unwrap_or_else(|| "Passphrase".to_owned());
+    let label = format!("{noun}: {prompt}");
     rsx! {
         div { class: "unlock", role: "group", aria_label: "{prompt}",
             p { class: "say", "{prompt}" }

@@ -55,7 +55,7 @@ pub(in crate::ui) fn someone_elses(address: &str, seed: u64) -> SecretCert {
 }
 
 /// `raw` sealed as `mode`, signed by `signer` when given, to `to`.
-fn sealed(
+pub(super) fn sealed(
     raw: &str,
     mode: OpenPgp,
     signer: Option<&SecretCert>,
@@ -116,7 +116,7 @@ pub(super) fn arrive(store: &SqliteStore, raw: Vec<u8>) -> Message {
 }
 
 /// My own secret key, as the keyring holds it.
-fn mine(secrets: &MapSecrets, key: &PgpKey) -> SecretCert {
+pub(super) fn mine(secrets: &MapSecrets, key: &PgpKey) -> SecretCert {
     mail_runtime::pgp::secret_key(secrets, ACCOUNT, key.fingerprint).unwrap()
 }
 
@@ -132,7 +132,7 @@ fn Open(thread: ThreadId) -> Element {
 }
 
 /// The reader on `thread`, with `secrets` as the keyring.
-fn reader(
+pub(super) fn reader(
     store: Arc<SqliteStore>,
     secrets: Arc<MapSecrets>,
     thread: ThreadId,
@@ -145,14 +145,18 @@ fn reader(
     (dom, seen)
 }
 
-fn markup(dom: &VirtualDom) -> String {
+pub(super) fn markup(dom: &VirtualDom) -> String {
     dioxus_ssr::render(dom).replace("&#39;", "'")
 }
 
 /// Let the dom's tasks run until `done` holds of its markup, keeping every attribute the renders
 /// set, or give up after fifteen seconds: a protected key's passphrase is slow to check on
 /// purpose.
-async fn until(dom: &mut VirtualDom, seen: &mut Seen, done: impl Fn(&str) -> bool) -> String {
+pub(super) async fn until(
+    dom: &mut VirtualDom,
+    seen: &mut Seen,
+    done: impl Fn(&str) -> bool,
+) -> String {
     let give_up = tokio::time::Instant::now() + std::time::Duration::from_secs(15);
     loop {
         let page = markup(dom);
@@ -166,7 +170,7 @@ async fn until(dom: &mut VirtualDom, seen: &mut Seen, done: impl Fn(&str) -> boo
 }
 
 /// The seal's lines, in order, as `(class, words)`.
-fn lines(page: &str) -> Vec<(String, String)> {
+pub(super) fn lines(page: &str) -> Vec<(String, String)> {
     let mut out = Vec::new();
     let mut rest = page;
     while let Some(at) = rest.find("class=\"seal-line") {
@@ -636,7 +640,7 @@ async fn a_plain_message_says_nothing_and_every_seal_class_is_styled() {
 }
 
 /// Every `div.seal` in `page`, whole: what this module draws, and nothing of the reader around it.
-fn seals(page: &str) -> String {
+pub(super) fn seals(page: &str) -> String {
     let mut out = String::new();
     let mut rest = page;
     while let Some(at) = rest.find("<div class=\"seal\"") {
@@ -644,9 +648,9 @@ fn seals(page: &str) -> String {
         let mut depth = 0usize;
         let mut end = 0;
         while end < rest.len() {
-            if rest[end..].starts_with("<div") {
+            if rest.as_bytes()[end..].starts_with(b"<div") {
                 depth += 1;
-            } else if rest[end..].starts_with("</div>") {
+            } else if rest.as_bytes()[end..].starts_with(b"</div>") {
                 depth -= 1;
                 if depth == 0 {
                     end += "</div>".len();
