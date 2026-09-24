@@ -17,6 +17,7 @@ mod frame;
 mod history;
 mod hover;
 mod icon;
+mod invite;
 mod launch;
 mod list;
 mod list_query;

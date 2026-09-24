@@ -287,6 +287,15 @@ pub(super) fn Reader(
                             ViewSwitch { message_id: message.id, original }
                         }
                     }
+                    // A calendar invitation, drawn by this window and never inside the sender's
+                    // HTML. A sibling before the frame, not its parent: it lands after the first
+                    // paint, and inserting a sibling does not move the iframe. Keyed on the
+                    // message and its body, so a body arriving asks again.
+                    super::invite::Invitation {
+                        key: "{message.id}-{message.body.raw():?}",
+                        message: message.id,
+                        body: message.body.raw(),
+                    }
                     // What is attached, if anything. Save writes a part that is already here;
                     // Download fetches one still on the server and then writes it. The name is
                     // the one the file will be written under. There is no file chooser: it lands

@@ -1,0 +1,86 @@
+/* ---- a calendar invitation: a card at the top of the message, drawn by us, never inside the
+   sender's HTML. It reads as a ticket stub: the head names what is asked, the facts sit in a
+   quiet column, and the answers are the only loud thing on it. ---- */
+.invite {
+  margin: 0 0 14px; padding: 12px 14px 12px; border: 1px solid var(--line);
+  border-left: 3px solid var(--accent); border-radius: var(--r-btn); background: var(--surface);
+  box-shadow: var(--shadow-1); font-size: 13px; line-height: 1.45; color: var(--ink);
+  animation: rise var(--t-move) var(--e-out);
+}
+.invite:has(.inv-tag.cancelled) { border-left-color: var(--danger); }
+.inv-head { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.inv-tag {
+  flex: none; padding: 2px 8px; border-radius: var(--r-chip); background: var(--accent-soft);
+  color: var(--ink); font-family: var(--font-data); font-size: 9.5px; letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.inv-tag.updated { background: color-mix(in oklab, var(--warn) 22%, var(--surface)); }
+.inv-tag.answer { background: color-mix(in oklab, var(--ok) 20%, var(--surface)); }
+.inv-tag.cancelled { background: var(--danger); color: var(--danger-ink); font-weight: 700; }
+.inv-title {
+  flex: 1 1 200px; min-width: 0; margin: 0; font-family: var(--font-display); font-size: 16px;
+  font-weight: 700; line-height: 1.2; overflow-wrap: anywhere;
+}
+.invite:has(.inv-tag.cancelled) .inv-title { color: var(--ink-soft); text-decoration: line-through; text-decoration-color: var(--danger); }
+.inv-head .inv-save { margin-left: auto; }
+
+.inv-facts { display: grid; gap: 3px; margin: 10px 0 0; }
+.inv-row { display: grid; grid-template-columns: 74px 1fr; gap: 10px; align-items: baseline; }
+.inv-row dt { margin: 0; font-size: 11px; color: var(--ink-faint); }
+.inv-row dt .ic { width: 14px; height: 14px; color: var(--ink-faint); transform: translateY(2px); }
+.inv-row dd { margin: 0; min-width: 0; color: var(--ink-soft); overflow-wrap: anywhere; }
+.inv-when { display: block; font-weight: 700; color: var(--ink); }
+.inv-theirs { display: block; font-size: 11px; color: var(--ink-faint); }
+
+.inv-people { display: flex; flex-wrap: wrap; gap: 4px; margin: 10px 0 0; padding: 0; list-style: none; }
+.att {
+  display: inline-flex; align-items: center; gap: 5px; max-width: 220px; padding: 2px 8px 2px 6px;
+  border: 1px solid var(--line-soft); border-radius: var(--r-pill); background: var(--surface-2);
+  font-size: 11.5px; color: var(--ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.att .dot { flex: none; width: 7px; height: 7px; border-radius: 999px; background: var(--line); }
+.att.yes .dot { background: var(--ok); }
+.att.no .dot { background: var(--danger); }
+.att.maybe .dot { background: var(--warn); }
+.att.waiting .dot { background: transparent; box-shadow: 0 0 0 1.5px var(--ink-faint) inset; }
+.att.no { text-decoration: line-through; text-decoration-color: var(--ink-faint); }
+.att.rest { padding: 0; border-style: dashed; background: none; }
+.att.rest .link { padding: 2px 9px; font-family: var(--font-data); font-size: 10.5px; }
+
+.invite .link {
+  border: 0; padding: 0; background: none; cursor: pointer; font: inherit; font-size: 12px;
+  font-weight: 700; color: var(--accent); text-decoration: underline; text-underline-offset: 2px;
+  text-decoration-color: var(--accent-soft);
+}
+.invite .link:hover { text-decoration-color: var(--accent); }
+
+.inv-summary { margin: 10px 0 0; font-weight: 700; }
+.inv-comment { margin: 4px 0 0; color: var(--ink-soft); font-style: italic; }
+.inv-about { margin: 10px 0 0; padding-top: 9px; border-top: 1px solid var(--line-soft); }
+.inv-desc { margin: 0; white-space: pre-line; color: var(--ink-soft); overflow-wrap: anywhere; }
+.inv-desc.folded {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden;
+}
+.inv-about .link { margin-top: 3px; }
+
+.inv-why { margin: 10px 0 0; font-size: 12px; color: var(--ink-faint); }
+.inv-why.failed { color: var(--danger); }
+.inv-before { margin: 10px 0 0; font-size: 12px; color: var(--ink-soft); }
+.inv-answered {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; margin: 12px 0 0; padding: 7px 10px;
+  border-radius: var(--r-btn); background: color-mix(in oklab, var(--ok) 12%, var(--surface));
+  color: var(--ink);
+}
+.inv-answered .ic { width: 14px; height: 14px; color: var(--ok); }
+.inv-answered .said { font-weight: 700; }
+.inv-answered .inv-note { color: var(--ink-soft); font-style: italic; min-width: 0; overflow-wrap: anywhere; }
+.inv-answered .link { margin-left: auto; }
+
+.inv-acts { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 0; }
+.inv-acts .mini { padding: 6px 13px; }
+.inv-acts .mini[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.inv-noting {
+  display: flex; align-items: center; gap: 6px; margin: 8px 0 0;
+  animation: rise var(--t-quick) var(--e-out);
+}
+.inv-noting .inv-note-field { flex: 1 1 auto; min-width: 0; font-size: 12.5px; }
