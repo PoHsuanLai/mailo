@@ -15,6 +15,7 @@
 use crate::content::Address;
 use crate::draft::{Draft, PendingAttachment, SendState};
 use crate::id::{AccountId, DraftId, IdentityId, TemplateId};
+use crate::pgp::OpenPgp;
 use crate::receipt::ReceiptRequest;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -43,6 +44,11 @@ pub struct Template {
     /// Whether messages started from it ask for a read receipt, as the draft it was kept from
     /// did.
     pub receipt: ReceiptRequest,
+    /// Whether messages started from it are signed or encrypted, as the draft it was kept from
+    /// asked. Defaulted so templates kept before OpenPGP existed load as plain; carried so a
+    /// template kept from an encrypted draft never starts a plain one.
+    #[serde(default)]
+    pub openpgp: OpenPgp,
     pub updated: DateTime<Utc>,
 }
 
@@ -74,6 +80,7 @@ impl Template {
             html: draft.html.clone(),
             attachments: draft.attachments.clone(),
             receipt: draft.receipt,
+            openpgp: draft.openpgp,
             updated: now,
         }
     }
@@ -94,6 +101,7 @@ impl Template {
             html: self.html.clone(),
             attachments: self.attachments.clone(),
             receipt: self.receipt,
+            openpgp: self.openpgp,
             state: SendState::Editing,
             updated: now,
         }
@@ -137,6 +145,7 @@ mod tests {
                 blob: BlobId::generate(),
             }],
             receipt: ReceiptRequest::Requested,
+            openpgp: OpenPgp::SignAndEncrypt,
             state: SendState::Sent {
                 at: at(8),
                 message: None,
@@ -159,6 +168,7 @@ mod tests {
         assert_eq!(kept.html, original.html);
         assert_eq!(kept.attachments, original.attachments);
         assert_eq!(kept.receipt, ReceiptRequest::Requested);
+        assert_eq!(kept.openpgp, OpenPgp::SignAndEncrypt);
         assert_eq!(kept.identity, original.identity);
         assert_eq!(kept.account, original.account);
         assert_eq!(kept.updated, at(9));
@@ -172,6 +182,11 @@ mod tests {
         assert_eq!(started.to, original.to);
         assert_eq!(started.attachments, original.attachments);
         assert_eq!(started.receipt, ReceiptRequest::Requested);
+        assert_eq!(
+            started.openpgp,
+            OpenPgp::SignAndEncrypt,
+            "never silently plain"
+        );
     }
 
     #[test]

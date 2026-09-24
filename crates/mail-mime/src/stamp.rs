@@ -43,7 +43,7 @@ pub fn restamp(message: &[u8], at: DateTime<Utc>) -> Vec<u8> {
 /// The header block, and everything from the blank line that ends it.
 ///
 /// A message with no blank line is all header, which is what a reader would make of it too.
-fn split_head(message: &[u8]) -> (&[u8], &[u8]) {
+pub(crate) fn split_head(message: &[u8]) -> (&[u8], &[u8]) {
     let mut start = 0;
     while start < message.len() {
         let end = message[start..]
@@ -60,7 +60,7 @@ fn split_head(message: &[u8]) -> (&[u8], &[u8]) {
 }
 
 /// Each header field, with its continuation lines and line endings.
-fn fields(head: &[u8]) -> Vec<&[u8]> {
+pub(crate) fn fields(head: &[u8]) -> Vec<&[u8]> {
     let mut out = Vec::new();
     let mut field_start = 0;
     let mut line_start = 0;

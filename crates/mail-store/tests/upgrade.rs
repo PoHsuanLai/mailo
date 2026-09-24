@@ -1045,3 +1045,67 @@ fn a_database_from_before_rules_upgrades_with_none_and_keeps_its_mail() {
     store.put_rule(&rule).unwrap();
     assert_eq!(store.rules(account).unwrap(), vec![rule]);
 }
+
+/// 0018: a draft saved before OpenPGP opens as plain, and the key and Autocrypt tables start
+/// empty and take a key straight away.
+#[test]
+fn a_database_from_before_openpgp_upgrades_with_plain_drafts_and_no_keys() {
+    use mail_domain::{DraftId, Fingerprint, KeySource, KeyTrust, OpenPgp, PgpKey, SecretHeld};
+    use mail_store::Store;
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("mail.db");
+    let draft = {
+        let db = Connection::open(&path).unwrap();
+        for (version, sql) in migrate::MIGRATIONS.iter().take(17) {
+            db.execute_batch(sql).unwrap();
+            if *version > 1 {
+                db.execute(
+                    "INSERT INTO schema_version (version, applied_at) VALUES (?1, datetime('now'))",
+                    [version],
+                )
+                .unwrap();
+            }
+        }
+        let (account, _) = seed(&db);
+        let identity = uuid::Uuid::new_v4().to_string();
+        db.execute(
+            "INSERT INTO identities (id, account, from_name, from_email, is_default)
+             VALUES (?1, ?2, NULL, 'me@example.test', '\"default\"')",
+            [&identity, &account],
+        )
+        .unwrap();
+        let draft = uuid::Uuid::new_v4();
+        db.execute(
+            r#"INSERT INTO drafts (id, account, identity, recipients, subject, in_reply_to,
+                 forward_of, body_text, body_html, attachments, state, updated_at, receipt)
+               VALUES (?1, ?2, ?3, '{"reply_to":[],"to":[],"cc":[],"bcc":[]}', 'old', NULL,
+                 NULL, 'text', NULL, '[]', '{"kind":"editing"}',
+                 '2023-01-01T00:00:00.000000000Z', '"unrequested"')"#,
+            rusqlite::params![draft.to_string(), account, identity],
+        )
+        .unwrap();
+        DraftId::from_uuid(draft)
+    };
+
+    let store = SqliteStore::open(&path, dir.path()).unwrap();
+    assert_eq!(version_of(&store.connection()), migrate::EXPECTED_VERSION);
+    assert_eq!(store.draft(draft).unwrap().openpgp, OpenPgp::None);
+    assert!(store.pgp_keys().unwrap().is_empty());
+    assert_eq!(store.autocrypt_peer("me@example.test").unwrap(), None);
+    let at = chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap();
+    let key = PgpKey {
+        fingerprint: Fingerprint::V4([3; 20]),
+        key_ids: vec![Fingerprint::V4([3; 20]).key_id()],
+        user_ids: vec!["Me <me@example.test>".to_owned()],
+        emails: vec!["me@example.test".to_owned()],
+        key: vec![0x98, 0x33],
+        source: KeySource::Imported,
+        first_seen: at,
+        last_seen: at,
+        trust: KeyTrust::Unverified,
+        secret: SecretHeld::Absent,
+    };
+    store.put_pgp_key(key.clone()).unwrap();
+    assert_eq!(store.pgp_keys_for("me@example.test").unwrap(), vec![key]);
+}

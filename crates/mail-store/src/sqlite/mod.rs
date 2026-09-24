@@ -5,6 +5,7 @@ mod draft;
 mod folders;
 mod invite;
 mod outbox;
+mod pgp;
 mod placed;
 mod read;
 mod receipt;
@@ -767,6 +768,55 @@ impl Store for SqliteStore {
 
     fn answer_invite(&self, answer: &mail_domain::InviteAnswer) -> Result<(), StoreError> {
         self.write_invite_answer(answer)
+    }
+
+    fn pgp_keys(&self) -> Result<Vec<mail_domain::PgpKey>, StoreError> {
+        self.load_pgp_keys()
+    }
+
+    fn pgp_key(
+        &self,
+        fingerprint: mail_domain::Fingerprint,
+    ) -> Result<Option<mail_domain::PgpKey>, StoreError> {
+        self.load_pgp_key(fingerprint)
+    }
+
+    fn pgp_keys_for(&self, address: &str) -> Result<Vec<mail_domain::PgpKey>, StoreError> {
+        self.load_pgp_keys_for(address)
+    }
+
+    fn pgp_keys_by_id(
+        &self,
+        id: mail_domain::KeyId,
+    ) -> Result<Vec<mail_domain::PgpKey>, StoreError> {
+        self.load_pgp_keys_by_id(id)
+    }
+
+    fn put_pgp_key(&self, key: mail_domain::PgpKey) -> Result<mail_domain::PgpKey, StoreError> {
+        self.write_pgp_key(key)
+    }
+
+    fn set_pgp_trust(
+        &self,
+        fingerprint: mail_domain::Fingerprint,
+        trust: mail_domain::KeyTrust,
+    ) -> Result<(), StoreError> {
+        self.write_pgp_trust(fingerprint, trust)
+    }
+
+    fn delete_pgp_key(&self, fingerprint: mail_domain::Fingerprint) -> Result<bool, StoreError> {
+        self.remove_pgp_key(fingerprint)
+    }
+
+    fn autocrypt_peer(
+        &self,
+        address: &str,
+    ) -> Result<Option<mail_domain::AutocryptPeer>, StoreError> {
+        self.load_autocrypt_peer(address)
+    }
+
+    fn put_autocrypt_peer(&self, peer: &mail_domain::AutocryptPeer) -> Result<(), StoreError> {
+        self.write_autocrypt_peer(peer)
     }
 
     fn contacts_matching(&self, typed: &str, k: usize) -> Result<Vec<Contact>, StoreError> {

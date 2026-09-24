@@ -1,0 +1,46 @@
+{
+  "id": "09090909-0909-0909-0909-090909090909",
+  "account": "01010101-0101-0101-0101-010101010101",
+  "identity": "02020202-0202-0202-0202-020202020202",
+  "to": [
+    {
+      "name": "A Name",
+      "email": "you@example.test"
+    }
+  ],
+  "cc": [],
+  "bcc": [
+    {
+      "name": "A Name",
+      "email": "secret@example.test"
+    }
+  ],
+  "subject": "Re: Lunch",
+  "in_reply_to": "05050505-0505-0505-0505-050505050505",
+  "forward_of": null,
+  "text": "yes",
+  "html": "<p>yes</p>",
+  "attachments": [
+    {
+      "name": "map.png",
+      "mime": "image/png",
+      "blob": "0a0a0a0a-0a0a-0a0a-0a0a-0a0a0a0a0a0a"
+    }
+  ],
+  "receipt": "unrequested",
+  "openpgp": "sign_and_encrypt",
+  "state": {
+    "kind": "failed",
+    "v": {
+      "reason": "550 rejected",
+      "retry": {
+        "kind": "after",
+        "v": {
+          "secs": 90,
+          "nanos": 0
+        }
+      }
+    }
+  },
+  "updated": "2026-01-05T04:05:06Z"
+}

@@ -22,6 +22,7 @@ use crate::{OutboxEntry, Settle, Store, StoreError, Term};
 
 mod contacts;
 mod folders;
+mod pgp;
 mod rules;
 mod templates;
 
@@ -67,6 +68,10 @@ struct Inner {
     sent_prints: Vec<String>,
     /// Synced address books, by collection URL.
     books: BTreeMap<String, crate::contact::AddressBook>,
+    /// OpenPGP public keys, by fingerprint.
+    pgp_keys: BTreeMap<mail_domain::Fingerprint, mail_domain::PgpKey>,
+    /// Autocrypt peer state, by lower-cased address.
+    autocrypt: BTreeMap<String, mail_domain::AutocryptPeer>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -127,6 +132,8 @@ impl Default for Inner {
             counted: BTreeSet::new(),
             sent_prints: Vec::new(),
             books: BTreeMap::new(),
+            pgp_keys: BTreeMap::new(),
+            autocrypt: BTreeMap::new(),
         }
     }
 }
@@ -530,6 +537,61 @@ impl Store for MemoryStore {
         }
         // Replaced, as `INSERT OR REPLACE` has it.
         inner.invites.insert(answer.message, answer.clone());
+        Ok(())
+    }
+
+    fn pgp_keys(&self) -> Result<Vec<mail_domain::PgpKey>, StoreError> {
+        Ok(self.inner.borrow().all_pgp_keys())
+    }
+
+    fn pgp_key(
+        &self,
+        fingerprint: mail_domain::Fingerprint,
+    ) -> Result<Option<mail_domain::PgpKey>, StoreError> {
+        Ok(self.inner.borrow().pgp_keys.get(&fingerprint).cloned())
+    }
+
+    fn pgp_keys_for(&self, address: &str) -> Result<Vec<mail_domain::PgpKey>, StoreError> {
+        Ok(self.inner.borrow().pgp_keys_for(address))
+    }
+
+    fn pgp_keys_by_id(
+        &self,
+        id: mail_domain::KeyId,
+    ) -> Result<Vec<mail_domain::PgpKey>, StoreError> {
+        Ok(self.inner.borrow().pgp_keys_by_id(id))
+    }
+
+    fn put_pgp_key(&self, key: mail_domain::PgpKey) -> Result<mail_domain::PgpKey, StoreError> {
+        Ok(self.inner.borrow_mut().put_pgp_key(key))
+    }
+
+    fn set_pgp_trust(
+        &self,
+        fingerprint: mail_domain::Fingerprint,
+        trust: mail_domain::KeyTrust,
+    ) -> Result<(), StoreError> {
+        self.inner.borrow_mut().set_pgp_trust(fingerprint, trust)
+    }
+
+    fn delete_pgp_key(&self, fingerprint: mail_domain::Fingerprint) -> Result<bool, StoreError> {
+        Ok(self
+            .inner
+            .borrow_mut()
+            .pgp_keys
+            .remove(&fingerprint)
+            .is_some())
+    }
+
+    fn autocrypt_peer(
+        &self,
+        address: &str,
+    ) -> Result<Option<mail_domain::AutocryptPeer>, StoreError> {
+        Ok(self.inner.borrow().autocrypt_peer(address))
+    }
+
+    fn put_autocrypt_peer(&self, peer: &mail_domain::AutocryptPeer) -> Result<(), StoreError> {
+        self.inner.borrow_mut().put_autocrypt_peer(peer);
         Ok(())
     }
 

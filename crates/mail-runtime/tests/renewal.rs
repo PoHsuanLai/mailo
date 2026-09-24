@@ -735,6 +735,7 @@ fn queued(graph_port: u16, registration: Registration, graph: Credential) -> Sen
         html: None,
         attachments: Vec::new(),
         receipt: ReceiptRequest::Unrequested,
+        openpgp: OpenPgp::None,
         state: SendState::Editing,
         updated: t0(),
     };

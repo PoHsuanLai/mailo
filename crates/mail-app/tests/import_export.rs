@@ -452,6 +452,7 @@ fn sync_never_touches_the_local_account() {
         state: SendState::Editing,
         updated: now(),
         receipt: ReceiptRequest::Unrequested,
+        openpgp: OpenPgp::None,
     };
     store
         .apply(

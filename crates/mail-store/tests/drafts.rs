@@ -76,6 +76,7 @@ fn full_draft(in_reply_to: Option<MessageId>) -> Draft {
         html: Some("<p>quoted</p>".to_owned()),
         attachments: vec![],
         receipt: ReceiptRequest::Requested,
+        openpgp: OpenPgp::None,
         state: SendState::Editing,
         updated: at(10),
     }

@@ -1,6 +1,8 @@
 //! Store failures.
 
-use mail_domain::{DraftId, MessageId, Retry, Retryable, RuleId, TemplateId, ThreadId};
+use mail_domain::{
+    DraftId, Fingerprint, MessageId, Retry, Retryable, RuleId, TemplateId, ThreadId,
+};
 use std::time::Duration;
 
 /// Something went wrong locally.
@@ -21,6 +23,8 @@ pub enum StoreError {
     /// Rule names are how rules are named on the command line, so one account has one of each.
     #[error("there is already a rule called {0:?}")]
     RuleNameTaken(String),
+    #[error("no OpenPGP key {0}")]
+    NoPgpKey(Fingerprint),
     #[error("blob {0}: {1}")]
     Blob(String, String),
     /// A stored value no longer matches its type. Almost always a missing migration or a
@@ -50,6 +54,7 @@ impl Retryable for StoreError {
             | StoreError::NoTemplate(_)
             | StoreError::NoRule(_)
             | StoreError::RuleNameTaken(_)
+            | StoreError::NoPgpKey(_)
             | StoreError::NoPart { .. }
             | StoreError::BadAddress(_)
             | StoreError::Decode { .. }

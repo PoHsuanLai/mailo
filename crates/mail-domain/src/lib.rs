@@ -8,6 +8,7 @@
 //! See `plan.md` for the design and `CONVENTIONS.md` for the rules this code follows.
 
 pub mod account;
+pub mod autocrypt;
 pub mod content;
 pub mod draft;
 pub mod filter;
@@ -18,6 +19,7 @@ pub mod invite;
 pub mod message;
 pub mod op;
 pub mod parts;
+pub mod pgp;
 pub mod presets;
 pub mod receipt;
 pub mod remote;
@@ -34,6 +36,7 @@ pub use account::{
     SaslMech, SecretKey, SecretPurpose, ServerLabels, ServerThreads, Supported, Tls, Username,
     WatchMode,
 };
+pub use autocrypt::{AutocryptPeer, PreferEncrypt, Sighting};
 pub use content::{Address, Attachment, Body, Inline, Label, PartContent};
 pub use draft::{Draft, PendingAttachment, ReplyScope, SendState};
 pub use filter::{DateRange, Filed, Filter, Leaving, MatchCtx, Placed, TextMatch};
@@ -50,6 +53,10 @@ pub use invite::{Attendance, InviteAnswer};
 pub use message::{Message, MessageKey, Thread, ThreadSummary};
 pub use op::{Action, Applied, Change, Op, OpKind, Patch, RemoteIntent, Target};
 pub use parts::PartTree;
+pub use pgp::{
+    Coverage, Encryption, Fingerprint, KeyId, KeySource, KeyTrust, OpenPgp, PgpKey, SecretHeld,
+    Verification,
+};
 pub use receipt::{Keyword, ReceiptAnswer, ReceiptRequest};
 pub use remote::{
     FetchSince, MailboxRef, ProtoOp, RemoteRef, Resync, SyncCursor, SystemFlag, UidValidity,

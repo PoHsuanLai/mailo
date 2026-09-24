@@ -13,6 +13,7 @@ pub mod graph;
 pub mod imip;
 pub mod inline;
 pub mod mdn;
+pub mod openpgp;
 pub mod parse;
 pub mod print;
 pub mod reconstruct;
@@ -51,11 +52,27 @@ pub enum MimeError {
     MissingPart(String),
     #[error("cannot build a message with no recipients")]
     NoRecipients,
+    /// OpenPGP data that could not be read or made: a malformed key, a damaged message, a
+    /// cryptographic failure. The text is the OpenPGP library's.
+    #[error("OpenPGP: {0}")]
+    OpenPgp(String),
+    /// The secret key needs its passphrase, and none was given or the one given is wrong.
+    #[error("the OpenPGP key {0} needs its passphrase")]
+    KeyLocked(mail_domain::Fingerprint),
+    /// Signing was asked for with no secret key to sign with.
+    #[error("there is no OpenPGP key to sign with")]
+    NoSigningKey,
+    /// Encryption was asked for with no key to encrypt to.
+    #[error("there is no OpenPGP key to encrypt to")]
+    NoRecipientKeys,
+    /// A recipient's key has no part that can be encrypted to (revoked, expired, sign-only).
+    #[error("the OpenPGP key {0} cannot be encrypted to")]
+    CannotEncryptTo(mail_domain::Fingerprint),
 }
 
 impl mail_domain::Retryable for MimeError {
     fn retry(&self) -> mail_domain::Retry {
-        // All four are facts about the bytes, not about the network. Retrying re-runs the
+        // All of these are facts about the bytes or the keys, not about the network. Retrying re-runs the
         // same failure on the same input forever.
         mail_domain::Retry::Fatal(self.to_string())
     }

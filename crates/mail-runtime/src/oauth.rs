@@ -458,7 +458,8 @@ pub enum Freshness<'a> {
 /// Whether a credential can be used as it stands.
 pub fn assess(credential: &Credential, now: DateTime<Utc>) -> Freshness<'_> {
     match credential {
-        Credential::Password(_) => Freshness::Ready,
+        // Neither expires on a schedule.
+        Credential::Password(_) | Credential::OpenPgp(_) => Freshness::Ready,
         Credential::OAuth {
             refresh,
             expires_at,

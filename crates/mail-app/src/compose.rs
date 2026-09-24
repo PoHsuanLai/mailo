@@ -565,18 +565,44 @@ pub fn move_draft_to(
 pub fn new_message(
     store: &SqliteStore,
     from: Option<&str>,
-    [to, cc, bcc]: [&[Address]; 3],
+    recipients: [&[Address]; 3],
     subject: &str,
     body: &str,
     receipt: ReceiptRequest,
     now: DateTime<Utc>,
 ) -> Result<String, String> {
+    new_sealed_message(
+        store,
+        from,
+        recipients,
+        subject,
+        body,
+        (receipt, OpenPgp::None),
+        now,
+    )
+}
+
+/// [`new_message`], asking OpenPGP to sign, encrypt, or both when it is sent.
+///
+/// Says straight away what would stop an OpenPGP send — no key of the sender's own, a recipient
+/// with no key, a blind recipient on an encrypted message — rather than leaving it to be found at
+/// Send. The draft is kept either way: it is the user's to fix.
+pub fn new_sealed_message(
+    store: &SqliteStore,
+    from: Option<&str>,
+    [to, cc, bcc]: [&[Address]; 3],
+    subject: &str,
+    body: &str,
+    (receipt, openpgp): (ReceiptRequest, OpenPgp),
+    now: DateTime<Utc>,
+) -> Result<String, String> {
     let account = account_for(store, from)?;
     let mut draft = draft_new(store, account, to, subject, body, now)?;
-    if !cc.is_empty() || !bcc.is_empty() || receipt != draft.receipt {
+    if !cc.is_empty() || !bcc.is_empty() || receipt != draft.receipt || openpgp != draft.openpgp {
         draft.cc = cc.to_vec();
         draft.bcc = bcc.to_vec();
         draft.receipt = receipt;
+        draft.openpgp = openpgp;
         save(store, &draft)?;
     }
     let mut out = format!("draft {}\n", draft.id);
@@ -598,6 +624,24 @@ pub fn new_message(
     );
     if draft.receipt == ReceiptRequest::Requested {
         let _ = writeln!(out, "  asks for a read receipt");
+    }
+    match draft.openpgp {
+        OpenPgp::None => {}
+        OpenPgp::Sign => {
+            let _ = writeln!(out, "  signed with OpenPGP when it is sent");
+        }
+        OpenPgp::Encrypt => {
+            let _ = writeln!(out, "  encrypted with OpenPGP when it is sent");
+        }
+        OpenPgp::SignAndEncrypt => {
+            let _ = writeln!(out, "  signed and encrypted with OpenPGP when it is sent");
+        }
+    }
+    if draft.openpgp != OpenPgp::None {
+        let identity = identity_of(store, draft.account, Some(draft.identity))?;
+        if let Err(e) = crate::pgp::check(store, &draft, &identity, now) {
+            let _ = writeln!(out, "  but it cannot be sent that way yet: {e}");
+        }
     }
     let _ = writeln!(out, "\nsend it with: mailo send {}", draft.id);
     Ok(out)
@@ -864,7 +908,25 @@ pub enum Leaves {
 /// submission in the outbox. Nothing here touches the network: the next `mailo sync` delivers
 /// it, and until it does the message is safe across a restart.
 pub fn send(store: &SqliteStore, draft: DraftId, now: DateTime<Utc>) -> Result<String, String> {
-    let (draft, post) = queue(store, draft, Leaves::Now, now)?;
+    send_with(
+        store,
+        &mail_runtime::KeyringSecrets,
+        &crate::pgp::no_passphrase,
+        draft,
+        now,
+    )
+}
+
+/// [`send`], with the keyring an OpenPGP draft's secret key is read from and whoever is asked
+/// for its passphrase named.
+pub fn send_with(
+    store: &SqliteStore,
+    secrets: &dyn mail_runtime::Secrets,
+    ask: crate::pgp::Ask<'_>,
+    draft: DraftId,
+    now: DateTime<Utc>,
+) -> Result<String, String> {
+    let (draft, post) = queue_with(store, secrets, ask, draft, Leaves::Now, now)?;
     let mut out = format!("queued {} for delivery\n", draft.id);
     let _ = writeln!(out, "  from    {}", post.mail_from);
     let _ = writeln!(out, "  to      {}", post.rcpt_to.join(", "));
@@ -884,6 +946,20 @@ pub fn send_later(
     send_later_in(store, draft, phrase, now, &Local)
 }
 
+/// [`send_later`], with the keyring and the passphrase prompt named, as [`send_with`] has them.
+pub fn send_later_with(
+    store: &SqliteStore,
+    secrets: &dyn mail_runtime::Secrets,
+    ask: crate::pgp::Ask<'_>,
+    draft: DraftId,
+    phrase: &str,
+    now: DateTime<Utc>,
+) -> Result<String, String> {
+    let at = crate::view::snooze_until(phrase, now, &Local)?;
+    let (draft, post) = queue_with(store, secrets, ask, draft, Leaves::At(at), now)?;
+    Ok(said_later(&draft, &post, at, &Local))
+}
+
 /// The same, with the zone `phrase` is read in and the answer written in named.
 pub fn send_later_in<Tz: chrono::TimeZone>(
     store: &SqliteStore,
@@ -897,6 +973,19 @@ where
 {
     let at = crate::view::snooze_until(phrase, now, zone)?;
     let (draft, post) = queue(store, draft, Leaves::At(at), now)?;
+    Ok(said_later(&draft, &post, at, zone))
+}
+
+/// What a scheduled send reports.
+fn said_later<Tz: chrono::TimeZone>(
+    draft: &Draft,
+    post: &mail_mime::Posting,
+    at: DateTime<Utc>,
+    zone: &Tz,
+) -> String
+where
+    Tz::Offset: std::fmt::Display,
+{
     let when = crate::view::stamp(at, zone, crate::view::Stamp::Full);
     let mut out = format!("{} will leave at {when}\n", draft.id);
     let _ = writeln!(out, "  from    {}", post.mail_from);
@@ -908,7 +997,7 @@ where
          `mailo watch`.\ntake it back before then with: mailo unsend {}",
         draft.id
     );
-    Ok(out)
+    out
 }
 
 /// Freeze a draft's bytes and put its submission in the outbox, to leave as `leaves` says.
@@ -919,6 +1008,29 @@ where
 /// would have received twice.
 pub fn queue(
     store: &SqliteStore,
+    draft: DraftId,
+    leaves: Leaves,
+    now: DateTime<Utc>,
+) -> Result<(Draft, mail_mime::Posting), String> {
+    queue_with(
+        store,
+        &mail_runtime::KeyringSecrets,
+        &crate::pgp::no_passphrase,
+        draft,
+        leaves,
+        now,
+    )
+}
+
+/// [`queue`], with the keyring and the passphrase prompt named.
+///
+/// The keyring is read only for a draft that asks to be signed or encrypted; `ask` is asked only
+/// when that key is passphrase-protected. The OpenPGP work happens here, as the bytes are
+/// frozen, so what the outbox holds is already signed and encrypted — see `pgp::send`.
+pub fn queue_with(
+    store: &SqliteStore,
+    secrets: &dyn mail_runtime::Secrets,
+    ask: crate::pgp::Ask<'_>,
     draft: DraftId,
     leaves: Leaves,
     now: DateTime<Utc>,
@@ -960,7 +1072,12 @@ pub fn queue(
         parts.push((attachment.blob, bytes));
     }
 
-    let post = posting(&draft, &identity, parent.as_ref(), &parts).map_err(|e| e.to_string())?;
+    let mut post =
+        posting(&draft, &identity, parent.as_ref(), &parts).map_err(|e| e.to_string())?;
+    // Before anything is taken back or queued, so a send OpenPGP refuses (no key for a recipient,
+    // no passphrase) leaves the draft as it was.
+    post.message = crate::pgp::outgoing(store, secrets, ask, &draft, &identity, post.message, now)
+        .map_err(|e| e.to_string())?;
     let raw = store
         .blobs()
         .put(&store.connection(), &post.message)

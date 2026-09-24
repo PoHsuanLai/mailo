@@ -258,6 +258,7 @@ fn schedule(store: &SqliteStore, at: DateTime<Utc>) -> Draft {
         html: None,
         attachments: vec![],
         receipt: ReceiptRequest::Unrequested,
+        openpgp: OpenPgp::None,
         state: SendState::Editing,
         updated: written(),
     };

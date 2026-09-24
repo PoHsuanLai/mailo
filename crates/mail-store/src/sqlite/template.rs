@@ -13,7 +13,7 @@ use rusqlite::params;
 /// The columns a [`Template`] is read back from, in the order [`SqliteStore::read_template`]
 /// expects.
 const TEMPLATE_COLUMNS: &str = "id, account, identity, name, recipients, subject, body_text, \
-     body_html, attachments, receipt, updated_at";
+     body_html, attachments, receipt, updated_at, openpgp";
 
 impl SqliteStore {
     pub(super) fn write_template(&self, template: &Template) -> Result<(), StoreError> {
@@ -26,8 +26,8 @@ impl SqliteStore {
         self.connection().execute(
             "INSERT OR REPLACE INTO templates
                (id, account, identity, name, recipients, subject, body_text, body_html,
-                attachments, receipt, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                attachments, receipt, updated_at, openpgp)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 template.id.to_string(),
                 template.account.to_string(),
@@ -40,6 +40,7 @@ impl SqliteStore {
                 to_json("Template.attachments", &template.attachments)?,
                 to_json("Template.receipt", &template.receipt)?,
                 from_time(template.updated),
+                to_json("Template.openpgp", &template.openpgp)?,
             ],
         )?;
         Ok(())
@@ -100,6 +101,7 @@ impl SqliteStore {
             html: row.get(7)?,
             attachments,
             receipt: json("Template.receipt", &row.get::<_, String>(9)?)?,
+            openpgp: json("Template.openpgp", &row.get::<_, String>(11)?)?,
             updated: time("Template.updated_at", &row.get::<_, String>(10)?)?,
         })
     }

@@ -395,6 +395,11 @@ impl SieveSession {
         let (mechanism, raw) = match &self.login.credential {
             Credential::Password(password) => ("PLAIN", plain(&self.login.username, password)),
             Credential::OAuth { access, .. } => ("XOAUTH2", xoauth2(&self.login.username, access)),
+            Credential::OpenPgp(_) => {
+                return Step::Fail(ProtoError::Unsupported(
+                    "an OpenPGP key is not a sign-in credential".to_owned(),
+                ));
+            }
         };
         if !self.caps.sasl.iter().any(|m| m == mechanism) {
             return Step::Fail(ProtoError::Unsupported(format!(

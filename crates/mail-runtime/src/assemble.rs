@@ -74,6 +74,21 @@ fn assemble_as(
         let Ok(fields) = fields else {
             continue;
         };
+        // Autocrypt keys ride in on the header of mail their owners send. Read here, where every
+        // message arrives, from the header alone; nothing is decrypted. Not from our own sent
+        // or draft copies, whose header is ours. A failure to record one is not a reason to
+        // lose the message, so it is not an error here.
+        if !matches!(role, MailboxRole::Sent | MailboxRole::Drafts)
+            && let Some(from) = &fields.from
+        {
+            let _ = crate::pgp::learn_autocrypt(
+                store,
+                &arrival.raw,
+                &from.email,
+                fields.date,
+                fallback_date,
+            );
+        }
         let blob = store
             .blobs()
             .put(&store.connection(), &arrival.raw)

@@ -24,6 +24,19 @@ chardetng = "1"
 # output, so it must tokenize it with the same parser that produced it. If an ammonia bump
 # moves this, move this line in the same commit.
 html5ever = "0.40"
+# OpenPGP (`openpgp/`): rPGP, MIT OR Apache-2.0. Sequoia is LGPL and stays out (plan.md 10.15).
+# Pure — it takes the random number generator and every instant as arguments, as this crate's
+# callers already hand it the clock. Default features off: the only default is BZip2 compression,
+# whose C-derived implementation is under the bzip2-1.0.6 licence the allow-list does not name.
+# GnuPG compresses with ZIP or ZLIB, which rPGP reads without it; a BZip2-compressed message is
+# reported as unreadable rather than guessed at.
+pgp = { version = "0.20", default-features = false }
+# rPGP's own `rand` generation: its APIs take a `rand 0.8` `CryptoRng + Rng`.
+rand = "0.8"
+# Web Key Directory: the SHA-1 of a local part names the key's file. Already in the tree via rPGP.
+sha1 = "0.10"
+# rPGP's key builder takes its algorithm preferences as `SmallVec`s. Already in the tree.
+smallvec = "1"
 
 [dev-dependencies]
 uuid.workspace = true

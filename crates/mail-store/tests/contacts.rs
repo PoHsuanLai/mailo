@@ -449,6 +449,7 @@ fn draft(to: Vec<Address>, subject: &str) -> Draft {
         state: SendState::Queued,
         updated: at(0),
         receipt: ReceiptRequest::Unrequested,
+        openpgp: OpenPgp::None,
     }
 }
 

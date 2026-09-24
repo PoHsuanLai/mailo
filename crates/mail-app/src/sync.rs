@@ -561,7 +561,9 @@ fn imap_engine(
     // used at all without registering an OAuth client.
     let mechanism = match held.current() {
         Credential::OAuth { .. } => ImapCommand::AuthenticateXoauth2,
-        Credential::Password(_) => ImapCommand::Login,
+        // An OpenPGP key is never stored under a sign-in purpose; if one were, the session
+        // refuses it before a byte of it is sent (`mail_proto::imap`'s credential check).
+        Credential::Password(_) | Credential::OpenPgp(_) => ImapCommand::Login,
     };
     let (username, sasl) = (username_for(&account.plan), sasl_for(&account.plan));
     let backend = ImapBackend::new(

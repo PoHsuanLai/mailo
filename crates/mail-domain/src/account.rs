@@ -426,6 +426,14 @@ pub enum SecretPurpose {
     OAuthRefresh,
     /// The password of a CardDAV address book added under this account, where it has its own.
     AddressBook,
+    /// The secret half of the user's OpenPGP key with this fingerprint, as a
+    /// [`Credential::OpenPgp`].
+    ///
+    /// Keyed by the fingerprint, not by the account or identity: one key may serve identities on
+    /// several accounts, and a key replaced on an identity must still decrypt the mail that was
+    /// encrypted to it. The keyring entry is therefore named by the fingerprint alone, and
+    /// [`SecretKey::account`] records only which account it was kept for.
+    OpenPgp(crate::pgp::Fingerprint),
 }
 
 /// A secret. Lives in the platform keyring and never in SQLite.
@@ -440,6 +448,10 @@ pub enum Credential {
         /// When `access` stops working. The runtime refreshes ahead of this.
         expires_at: DateTime<Utc>,
     },
+    /// An OpenPGP transferable secret key, ASCII-armored. Protected by its own passphrase when
+    /// it was imported with one, and by the keyring alone when it was generated here.
+    #[serde(rename = "openpgp")]
+    OpenPgp(String),
 }
 
 // Written by hand, not derived: a derived Debug puts the password in every log line, panic
@@ -448,6 +460,7 @@ impl fmt::Debug for Credential {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Credential::Password(_) => f.write_str("Credential::Password(<redacted>)"),
+            Credential::OpenPgp(_) => f.write_str("Credential::OpenPgp(<redacted>)"),
             Credential::OAuth { expires_at, .. } => f
                 .debug_struct("Credential::OAuth")
                 .field("access", &"<redacted>")

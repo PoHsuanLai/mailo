@@ -54,6 +54,7 @@ fn draft_of(text: &str) -> Draft {
         html: None,
         attachments: Vec::new(),
         receipt: ReceiptRequest::Unrequested,
+        openpgp: OpenPgp::None,
         state: SendState::Editing,
         updated: at(0),
     }

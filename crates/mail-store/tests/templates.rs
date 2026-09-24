@@ -86,6 +86,7 @@ fn template(name: &str) -> Template {
             blob: BlobId::generate(),
         }],
         receipt: ReceiptRequest::Requested,
+        openpgp: OpenPgp::SignAndEncrypt,
         updated: at(10),
     }
 }

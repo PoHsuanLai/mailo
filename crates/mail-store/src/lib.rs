@@ -9,6 +9,7 @@ mod filing;
 pub mod memory;
 mod memory_search;
 pub mod migrate;
+mod pgp;
 mod prefix;
 mod remote_row;
 pub mod rules;
@@ -26,10 +27,11 @@ pub use error::StoreError;
 
 use chrono::{DateTime, Utc};
 use mail_domain::{
-    AccountCaps, AccountId, BlobId, Draft, DraftId, Filter, Folder, FolderContents, Import, Ingest,
-    InviteAnswer, Label, MailboxRef, Message, MessageId, MessageKey, OutboxId, Page, Patch,
-    ProtoOp, Query, ReceiptAnswer, RemoteIntent, RemoteRef, Retry, Rule, RuleId, SendState,
-    SyncCursor, Template, TemplateId, Thread, ThreadId, ThreadSummary, Vacation,
+    AccountCaps, AccountId, AutocryptPeer, BlobId, Draft, DraftId, Filter, Fingerprint, Folder,
+    FolderContents, Import, Ingest, InviteAnswer, KeyId, KeyTrust, Label, MailboxRef, Message,
+    MessageId, MessageKey, OutboxId, Page, Patch, PgpKey, ProtoOp, Query, ReceiptAnswer,
+    RemoteIntent, RemoteRef, Retry, Rule, RuleId, SendState, SyncCursor, Template, TemplateId,
+    Thread, ThreadId, ThreadSummary, Vacation,
 };
 
 /// One queued unit of remote work, with everything needed to retry or abandon it.
@@ -396,6 +398,40 @@ pub trait Store {
     /// [`Store::answer_receipt`] is not — the reply that left cannot be recalled.
     /// [`StoreError::NoMessage`] when the message is unknown.
     fn answer_invite(&self, answer: &InviteAnswer) -> Result<(), StoreError>;
+
+    /// Every OpenPGP public key held — the user's own and correspondents' — by fingerprint.
+    fn pgp_keys(&self) -> Result<Vec<PgpKey>, StoreError>;
+
+    /// One key by fingerprint.
+    fn pgp_key(&self, fingerprint: Fingerprint) -> Result<Option<PgpKey>, StoreError>;
+
+    /// The keys for `address`, compared whole and without regard to case, best first: verified
+    /// by the user, then by how the key arrived ([`mail_domain::KeySource::rank`]), then the
+    /// most recently seen.
+    fn pgp_keys_for(&self, address: &str) -> Result<Vec<PgpKey>, StoreError>;
+
+    /// The keys a message could mean by `id` — a primary key's id or a subkey's — best first as
+    /// [`Store::pgp_keys_for`] orders them.
+    fn pgp_keys_by_id(&self, id: KeyId) -> Result<Vec<PgpKey>, StoreError>;
+
+    /// Keep a key, folded into the record of the same key if there is one
+    /// ([`PgpKey::merged`]), and return what is now stored.
+    ///
+    /// Not a [`Patch`]: a key is not mail, and keeping one is not an edit to undo.
+    fn put_pgp_key(&self, key: PgpKey) -> Result<PgpKey, StoreError>;
+
+    /// Mark a key verified by the user, or take that back. [`StoreError::NoPgpKey`] when there
+    /// is no such key.
+    fn set_pgp_trust(&self, fingerprint: Fingerprint, trust: KeyTrust) -> Result<(), StoreError>;
+
+    /// Forget a key. `true` when there was one. Mail arriving later may bring it back.
+    fn delete_pgp_key(&self, fingerprint: Fingerprint) -> Result<bool, StoreError>;
+
+    /// The Autocrypt state kept for `address`, compared without regard to case.
+    fn autocrypt_peer(&self, address: &str) -> Result<Option<AutocryptPeer>, StoreError>;
+
+    /// Replace the Autocrypt state for the peer's address.
+    fn put_autocrypt_peer(&self, peer: &AutocryptPeer) -> Result<(), StoreError>;
 
     /// Autocomplete: the best `k` contacts with a word beginning with `typed`, best first.
     ///

@@ -41,6 +41,10 @@ tokio = { version = "1", features = ["full"] }
 # The fake CardDAV server in `tests/carddav.rs` reads the hrefs a multiget asks for.
 roxmltree = "0.21"
 tempfile = "3"
+# Seeded key generation for the OpenPGP tests, and the WKD hash they check a request path by.
+# Both already in the tree through rPGP.
+rand = "0.8"
+sha1 = "0.10"
 
 [lints]
 workspace = true

@@ -139,6 +139,7 @@ fn draft(replying_to: Option<MessageId>, blob: Option<BlobId>) -> Draft {
             .into_iter()
             .collect(),
         receipt: ReceiptRequest::Unrequested,
+        openpgp: mail_domain::OpenPgp::None,
         state: SendState::Editing,
         updated: at(),
     }

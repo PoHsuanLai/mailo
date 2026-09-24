@@ -190,6 +190,7 @@ fn draft() -> Draft {
             blob: BlobId::from_uuid(uuid(10)),
         }],
         receipt: ReceiptRequest::Unrequested,
+        openpgp: OpenPgp::None,
         state: SendState::Failed {
             reason: "550 rejected".to_owned(),
             retry: Retry::After(Duration::from_secs(90)),
@@ -216,6 +217,7 @@ fn template() -> Template {
             blob: BlobId::from_uuid(uuid(10)),
         }],
         receipt: ReceiptRequest::Requested,
+        openpgp: OpenPgp::None,
         updated: at(5),
     }
 }
@@ -1471,6 +1473,114 @@ fixtures! {
     "graph_incoming.json" => Vec<Incoming> = vec![Incoming::Graph],
     "graph_remote_refs.json" => Vec<RemoteRef> = vec![graph_ref()],
     "graph_sync_cursors.json" => Vec<SyncCursor> = vec![graph_cursor()],
+    // OpenPGP (`plan.md` 10.15). `draft.json` predates the draft's field and keeps loading as
+    // `OpenPgp::None`; this pins the field's own spelling.
+    "draft_openpgp.json" => Draft = Draft { openpgp: OpenPgp::SignAndEncrypt, ..draft() },
+    // Templates carry it too; `template.json` predates the field and loads as plain.
+    "template_openpgp.json" => Template = Template { openpgp: OpenPgp::Encrypt, ..template() },
+    "openpgp_modes.json" => Vec<OpenPgp> = vec![
+        OpenPgp::None,
+        OpenPgp::Sign,
+        OpenPgp::Encrypt,
+        OpenPgp::SignAndEncrypt,
+    ],
+    "pgp_key.json" => PgpKey = pgp_key(),
+    "autocrypt_peer.json" => AutocryptPeer = AutocryptPeer {
+        address: "peer@example.test".to_owned(),
+        last_seen: Some(at(6)),
+        autocrypt_timestamp: Some(at(5)),
+        key: Some(fingerprint()),
+        prefer_encrypt: PreferEncrypt::Mutual,
+        gossip_timestamp: None,
+        gossip_key: None,
+    },
+    "secret_key_openpgp.json" => SecretKey = SecretKey {
+        account: account(),
+        purpose: SecretPurpose::OpenPgp(fingerprint()),
+    },
+    "credentials_openpgp.json" => Vec<Credential> = vec![Credential::OpenPgp(
+        "-----BEGIN PGP PRIVATE KEY BLOCK-----".to_owned(),
+    )],
+    "verifications.json" => Vec<Verification> = vec![
+        Verification::NoSignature,
+        Verification::Good {
+            signer: fingerprint(),
+            trust: KeyTrust::Verified,
+            coverage: Coverage::Whole,
+        },
+        Verification::Bad { coverage: Coverage::Part },
+        Verification::UnknownKey { issuer: KeyId([0xAB; 8]), coverage: Coverage::Whole },
+    ],
+    "encryptions.json" => Vec<Encryption> = vec![
+        Encryption::NotEncrypted,
+        Encryption::Decrypted,
+        Encryption::CannotDecrypt { to: vec![KeyId([0xCD; 8])] },
+        Encryption::Locked { key: fingerprint() },
+        Encryption::Unreadable { why: "modification detected".to_owned() },
+    ],
+}
+
+fn fingerprint() -> Fingerprint {
+    "0123456789ABCDEF0123456789ABCDEF01234567"
+        .parse()
+        .expect("literal fingerprint")
+}
+
+fn pgp_key() -> PgpKey {
+    PgpKey {
+        fingerprint: fingerprint(),
+        key_ids: vec![fingerprint().key_id(), KeyId([0x11; 8])],
+        user_ids: vec!["Peer <peer@example.test>".to_owned()],
+        emails: vec!["peer@example.test".to_owned()],
+        key: vec![0x99, 0x00, 0x33],
+        source: KeySource::Autocrypt,
+        first_seen: at(4),
+        last_seen: at(6),
+        trust: KeyTrust::Unverified,
+        secret: SecretHeld::Absent,
+    }
+}
+
+#[test]
+fn openpgp_values_round_trip_and_a_fingerprint_persists_as_its_hex() {
+    round_trip("PgpKey", pgp_key());
+    round_trip_each(
+        "SecretPurpose",
+        vec![
+            SecretPurpose::OpenPgp(fingerprint()),
+            SecretPurpose::AddressBook,
+        ],
+    );
+    round_trip_each(
+        "KeySource",
+        vec![
+            KeySource::Generated,
+            KeySource::Imported,
+            KeySource::Wkd,
+            KeySource::Autocrypt,
+            KeySource::Gossip,
+        ],
+    );
+    assert_eq!(
+        serde_json::to_value(fingerprint()).unwrap(),
+        serde_json::json!("0123456789ABCDEF0123456789ABCDEF01234567")
+    );
+    assert!(serde_json::from_value::<Fingerprint>(serde_json::json!("0123")).is_err());
+    // The secret never reaches a log line through `Debug`.
+    let debug = format!(
+        "{:?}",
+        Credential::OpenPgp("SECRET-KEY-MATERIAL".to_owned())
+    );
+    assert!(!debug.contains("SECRET-KEY-MATERIAL"), "{debug}");
+}
+
+#[test]
+fn a_draft_from_before_openpgp_loads_as_plain() {
+    let old: Draft = serde_json::from_str(
+        &std::fs::read_to_string(fixture_dir().join("draft_receipt.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(old.openpgp, OpenPgp::None);
 }
 
 /// `RemoteIntent` is not persisted today — `Store::enqueue` resolves it to a `ProtoOp` before

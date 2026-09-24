@@ -99,6 +99,7 @@ fn main() {
             subject,
             body: _,
             receipt,
+            openpgp,
         }) => {
             let mut body = String::new();
             if let Err(e) = std::io::Read::read_to_string(&mut std::io::stdin(), &mut body) {
@@ -113,6 +114,7 @@ fn main() {
                 subject,
                 body,
                 receipt,
+                openpgp,
             })
         }
         Some(mail_app::cli::Command::Forward {
@@ -290,6 +292,32 @@ fn main() {
             return;
         }
         _ => {}
+    }
+
+    // A Web Key Directory lookup needs the network: dispatched here with the other commands that
+    // do, so `mail_app::cli::run` stays something a test can call without one.
+    if let Some(mail_app::cli::Command::Pgp(mail_app::pgp::PgpCommand::Lookup { address })) =
+        &command
+    {
+        match mail_app::pgp::lookup(&store, address, chrono::Utc::now()) {
+            Ok(said) => print!("{said}"),
+            Err(message) => {
+                eprintln!("{message}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+    // An encrypted message to someone with no key yet: their domain is asked, once, as the
+    // draft is made — the other moment the brief names besides an explicit lookup.
+    if let Some(mail_app::cli::Command::Compose {
+        to, cc, openpgp, ..
+    }) = &command
+        && openpgp.encrypts()
+    {
+        let addresses: Vec<String> = to.iter().chain(cc).map(|a| a.email.clone()).collect();
+        let said = mail_app::pgp::discover(&store, &addresses, chrono::Utc::now());
+        eprint!("{said}");
     }
 
     // Import and export print progress as they go, to stderr, and an upload needs the network:

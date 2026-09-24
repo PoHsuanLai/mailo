@@ -1,0 +1,26 @@
+[
+  {
+    "kind": "no_signature"
+  },
+  {
+    "kind": "good",
+    "v": {
+      "signer": "0123456789ABCDEF0123456789ABCDEF01234567",
+      "trust": "verified",
+      "coverage": "whole"
+    }
+  },
+  {
+    "kind": "bad",
+    "v": {
+      "coverage": "part"
+    }
+  },
+  {
+    "kind": "unknown_key",
+    "v": {
+      "issuer": "ABABABABABABABAB",
+      "coverage": "whole"
+    }
+  }
+]

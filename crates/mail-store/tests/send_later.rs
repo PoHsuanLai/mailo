@@ -55,6 +55,7 @@ fn draft() -> Draft {
         html: None,
         attachments: vec![],
         receipt: ReceiptRequest::Unrequested,
+        openpgp: OpenPgp::None,
         state: SendState::Editing,
         updated: at(0),
     }

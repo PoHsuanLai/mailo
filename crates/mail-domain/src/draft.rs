@@ -4,6 +4,7 @@
 use crate::content::Address;
 use crate::id::{AccountId, BlobId, DraftId, IdentityId, MessageId};
 use crate::message::Message;
+use crate::pgp::OpenPgp;
 use crate::receipt::ReceiptRequest;
 use crate::retry::Retry;
 use chrono::{DateTime, Utc};
@@ -68,6 +69,10 @@ pub struct Draft {
     /// receipts existed still load.
     #[serde(default)]
     pub receipt: ReceiptRequest,
+    /// Whether the message is signed, encrypted, or both, when it is sent. Defaulted so drafts
+    /// persisted before OpenPGP existed still load, as plain.
+    #[serde(default)]
+    pub openpgp: OpenPgp,
     pub state: SendState,
     pub updated: DateTime<Utc>,
 }
@@ -136,6 +141,7 @@ impl Draft {
             html: None,
             attachments: Vec::new(),
             receipt: ReceiptRequest::Unrequested,
+            openpgp: OpenPgp::None,
             state: SendState::Editing,
             updated: now,
         }
@@ -168,6 +174,7 @@ impl Draft {
             html: None,
             attachments: Vec::new(),
             receipt: ReceiptRequest::Unrequested,
+            openpgp: OpenPgp::None,
             state: SendState::Editing,
             updated: now,
         }
@@ -197,6 +204,7 @@ impl Draft {
             html: None,
             attachments: Vec::new(),
             receipt: ReceiptRequest::Unrequested,
+            openpgp: OpenPgp::None,
             state: SendState::Editing,
             updated: now,
         }

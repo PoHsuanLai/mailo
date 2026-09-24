@@ -1,0 +1,9 @@
+{
+  "address": "peer@example.test",
+  "last_seen": "2026-01-06T04:05:06Z",
+  "autocrypt_timestamp": "2026-01-05T04:05:06Z",
+  "key": "0123456789ABCDEF0123456789ABCDEF01234567",
+  "prefer_encrypt": "mutual",
+  "gossip_timestamp": null,
+  "gossip_key": null
+}

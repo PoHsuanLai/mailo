@@ -376,7 +376,7 @@ fn sign_in_refresh(secrets: &dyn Secrets, account: AccountId) -> Result<String, 
         purpose: SecretPurpose::OAuthRefresh,
     })? {
         Credential::OAuth { refresh, .. } => Ok(refresh),
-        Credential::Password(_) => Err(RuntimeError::Secrets(
+        Credential::Password(_) | Credential::OpenPgp(_) => Err(RuntimeError::Secrets(
             "sending through Graph needs a Microsoft sign-in".to_owned(),
         )),
     }

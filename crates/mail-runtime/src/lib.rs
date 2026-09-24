@@ -12,6 +12,7 @@ pub mod error;
 pub mod graph;
 pub mod loopback;
 pub mod oauth;
+pub mod pgp;
 pub mod renewal;
 pub mod reparse;
 pub mod secrets;
@@ -19,6 +20,7 @@ pub mod sieve;
 pub mod signin;
 pub mod transport;
 pub mod unsubscribe;
+pub mod wkd;
 
 pub use assemble::{Arrival, Destination, absorb, absorb_into, assemble};
 pub use drive::{Cancel, drive};

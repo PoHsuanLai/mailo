@@ -1,0 +1,28 @@
+[
+  {
+    "kind": "not_encrypted"
+  },
+  {
+    "kind": "decrypted"
+  },
+  {
+    "kind": "cannot_decrypt",
+    "v": {
+      "to": [
+        "CDCDCDCDCDCDCDCD"
+      ]
+    }
+  },
+  {
+    "kind": "locked",
+    "v": {
+      "key": "0123456789ABCDEF0123456789ABCDEF01234567"
+    }
+  },
+  {
+    "kind": "unreadable",
+    "v": {
+      "why": "modification detected"
+    }
+  }
+]

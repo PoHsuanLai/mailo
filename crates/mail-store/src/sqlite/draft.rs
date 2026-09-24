@@ -13,7 +13,7 @@ use rusqlite::params;
 
 /// The columns a [`Draft`] is read back from, in the order [`SqliteStore::read_draft`] expects.
 const DRAFT_COLUMNS: &str = "id, account, identity, recipients, subject, in_reply_to, \
-     forward_of, body_text, body_html, attachments, state, updated_at, receipt";
+     forward_of, body_text, body_html, attachments, state, updated_at, receipt, openpgp";
 
 impl SqliteStore {
     /// Insert or replace a draft.
@@ -33,8 +33,8 @@ impl SqliteStore {
         self.connection().execute(
             "INSERT OR REPLACE INTO drafts
                (id, account, identity, recipients, subject, in_reply_to, forward_of,
-                body_text, body_html, attachments, state, updated_at, receipt)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                body_text, body_html, attachments, state, updated_at, receipt, openpgp)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             params![
                 draft.id.to_string(),
                 draft.account.to_string(),
@@ -49,6 +49,7 @@ impl SqliteStore {
                 to_json("SendState", &draft.state)?,
                 from_time(draft.updated),
                 to_json("ReceiptRequest", &draft.receipt)?,
+                to_json("OpenPgp", &draft.openpgp)?,
             ],
         )?;
         Ok(())
@@ -127,6 +128,7 @@ impl SqliteStore {
             html: row.get(8)?,
             attachments,
             receipt: json("ReceiptRequest", &row.get::<_, String>(12)?)?,
+            openpgp: json("OpenPgp", &row.get::<_, String>(13)?)?,
             state,
             updated: time("Draft.updated_at", &row.get::<_, String>(11)?)?,
         })

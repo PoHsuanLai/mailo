@@ -1639,6 +1639,7 @@ mod appending {
             html: None,
             attachments: vec![],
             receipt: ReceiptRequest::Unrequested,
+            openpgp: OpenPgp::None,
             state: SendState::Editing,
             updated: now(),
         }

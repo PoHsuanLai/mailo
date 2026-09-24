@@ -23,6 +23,9 @@ fn entry_name(key: &SecretKey) -> String {
         SecretPurpose::OutgoingPassword => "outgoing",
         SecretPurpose::OAuthRefresh => "oauth",
         SecretPurpose::AddressBook => "carddav",
+        // Named by the key alone: see `SecretPurpose::OpenPgp` for why the account is not part
+        // of it. The prefix cannot collide with an account's entries, which begin with a UUID.
+        SecretPurpose::OpenPgp(fingerprint) => return format!("openpgp:{fingerprint}"),
     };
     format!("{}:{}", key.account, purpose)
 }

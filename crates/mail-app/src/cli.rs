@@ -142,7 +142,11 @@ pub enum Command {
         body: String,
         /// `--request-receipt`: ask the recipients to confirm they displayed it.
         receipt: ReceiptRequest,
+        /// `--sign`, `--encrypt`, or both: what OpenPGP does to it when it is sent.
+        openpgp: OpenPgp,
     },
+    /// OpenPGP keys: list, make, import, export, delete, look up, verify.
+    Pgp(crate::pgp::PgpCommand),
     /// Answer a message's request for a read receipt: send one, or decline.
     Receipt {
         message: MessageId,
@@ -421,6 +425,7 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
         "rules" => crate::rules::parse(&args[1..]).map(Command::Rules),
         "vacation" => crate::rules::server::parse_vacation(&args[1..]).map(Command::Vacation),
         "sieve" => crate::rules::server::parse_sieve(&args[1..]).map(Command::Sieve),
+        "pgp" => crate::pgp::parse(&args[1..]).map(Command::Pgp),
         "watch" => match args.get(1).map(String::as_str) {
             None => Ok(Command::Watch {
                 notify: WatchNotify::AsSet,
@@ -507,6 +512,7 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
             let (mut to, mut cc, mut bcc) = (Vec::new(), Vec::new(), Vec::new());
             let mut subject = String::new();
             let mut receipt = ReceiptRequest::Unrequested;
+            let (mut sign, mut encrypt) = (false, false);
             let mut rest = args[1..].iter();
             while let Some(flag) = rest.next() {
                 let missing = format!("{flag} needs a value\n\n{}", usage());
@@ -516,6 +522,8 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                     "--request-receipt" | "--receipt-request" => {
                         receipt = ReceiptRequest::Requested;
                     }
+                    "--sign" => sign = true,
+                    "--encrypt" => encrypt = true,
                     "--from" => {
                         from = Some(rest.next().ok_or(missing)?.clone());
                     }
@@ -551,6 +559,12 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                 // Filled in by the caller, which owns stdin. Parsing stays pure.
                 body: String::new(),
                 receipt,
+                openpgp: match (sign, encrypt) {
+                    (false, false) => OpenPgp::None,
+                    (true, false) => OpenPgp::Sign,
+                    (false, true) => OpenPgp::Encrypt,
+                    (true, true) => OpenPgp::SignAndEncrypt,
+                },
             })
         }
         "receipt" => {
@@ -1098,8 +1112,17 @@ usage: mailo <command>
   forward <message-id> --to a@b[,c@d]
                              forward it; the covering note is read from stdin
   compose --to a@b[,c@d] [--cc …] [--bcc …] [--subject S] [--from address]
-          [--request-receipt]
-                             a new message; the body is read from stdin
+          [--request-receipt] [--sign] [--encrypt]
+                             a new message; the body is read from stdin. --sign and
+                             --encrypt make it OpenPGP (PGP/MIME) when it is sent
+  pgp keys                    the OpenPGP keys held, yours and your correspondents'
+  pgp generate <address>      make a key for one of your identities
+  pgp import <file>           import keys, public or secret, armored or binary
+  pgp export <fingerprint|address> [--secret]
+                             print a key; --secret prints its secret half, with a warning
+  pgp delete <fingerprint|address> [--with-secret]
+  pgp lookup <address>        ask the address's domain for its key (Web Key Directory)
+  pgp verify <fingerprint>    mark a key as checked with its owner
   receipt <message-id> [--decline]
                              send the read receipt a message asks for, or
                              decline to; `show` says which messages ask
@@ -1284,6 +1307,30 @@ pub fn run_with_clients(
                 if let Ok(state) = crate::invite::state(store, &message) {
                     out.push_str(&crate::invite::describe(&state, message.id));
                 }
+                // OpenPGP: the signature checked and the encryption opened now, as it is shown,
+                // never before. The decrypted text is printed and kept nowhere.
+                let protected = crate::pgp::open_message(
+                    store,
+                    &mail_runtime::KeyringSecrets,
+                    &message,
+                    &crate::pgp::terminal_passphrase,
+                    now,
+                );
+                let opened_text = match protected {
+                    Ok(Some(protected)) => {
+                        out.push_str(&crate::pgp::describe(&protected));
+                        protected.shown.and_then(|parsed| parsed.text)
+                    }
+                    Ok(None) => None,
+                    Err(e) => {
+                        let _ = writeln!(out, "    OpenPGP: {e}");
+                        None
+                    }
+                };
+                if let Some(text) = opened_text {
+                    let _ = writeln!(out, "{}", text.trim_end());
+                    continue;
+                }
                 match message.body.text() {
                     Some(text) => {
                         let _ = writeln!(out, "{}", text.trim_end());
@@ -1326,11 +1373,26 @@ pub fn run_with_clients(
             scope,
             body,
         } => crate::compose::reply(store, *message, *scope, body, now),
-        Command::Send { draft, at: None } => crate::compose::send(store, *draft, now),
+        // The terminal is asked for a passphrase only if the draft is signed or encrypted with a
+        // protected key.
+        Command::Send { draft, at: None } => crate::compose::send_with(
+            store,
+            &mail_runtime::KeyringSecrets,
+            &crate::pgp::terminal_passphrase,
+            *draft,
+            now,
+        ),
         Command::Send {
             draft,
             at: Some(when),
-        } => crate::compose::send_later(store, *draft, when, now),
+        } => crate::compose::send_later_with(
+            store,
+            &mail_runtime::KeyringSecrets,
+            &crate::pgp::terminal_passphrase,
+            *draft,
+            when,
+            now,
+        ),
         Command::Unsend { draft } => crate::compose::unsend_report(store, *draft, now),
         Command::TemplateSave { draft, name } => {
             crate::template::save_report(store, *draft, name, now)
@@ -1400,15 +1462,20 @@ pub fn run_with_clients(
             subject,
             body,
             receipt,
-        } => crate::compose::new_message(
+            openpgp,
+        } => crate::compose::new_sealed_message(
             store,
             from.as_deref(),
             [to, cc, bcc],
             subject,
             body,
-            *receipt,
+            (*receipt, *openpgp),
             now,
         ),
+        Command::Pgp(crate::pgp::PgpCommand::Lookup { .. }) => {
+            Err("pgp lookup is dispatched before this point".to_owned())
+        }
+        Command::Pgp(pgp) => crate::pgp::run(store, &mail_runtime::KeyringSecrets, pgp, now),
         Command::Receipt { message, answer } => {
             crate::receipt::answer(store, *message, *answer, now)
         }
