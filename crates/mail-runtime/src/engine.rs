@@ -116,6 +116,23 @@ pub struct SyncReport {
     pub appended: usize,
 }
 
+/// Refuse queued entry `id`, given up because a message it names was never found
+/// ([`Dispatch::Lost`], FINDINGS F155): settled as [`Retry::Fatal`], so its undo puts back what
+/// the server has, and said, so the person whose change it was is told it did not happen.
+pub(crate) fn given_up(
+    store: &dyn Store,
+    id: mail_domain::OutboxId,
+    reason: String,
+    now: DateTime<Utc>,
+    report: &mut SyncReport,
+) -> Result<(), RuntimeError> {
+    let retry = Retry::Fatal(reason.clone());
+    report.saw(&retry);
+    report.needs_attention.push(reason.clone());
+    store.outbox_settle(id, Settle::Failed { reason, retry }, now)?;
+    Ok(())
+}
+
 /// The messages a patch stored for the first time.
 ///
 /// Only meaningful for the patch of a header fetch: that path upserts a message only when its
@@ -209,6 +226,10 @@ pub struct AccountEngine<B: Backend> {
     /// Where an account that reads through Microsoft Graph sends its operations, in place of
     /// `backend` and a connection. `None` for every other account.
     graph: Option<crate::graph::read::Reader>,
+    /// The mailboxes synced in full since the last drain: the folders a message the server moved
+    /// without saying where has been looked for, counted when the drain begins
+    /// ([`Store::unplaced_pass`], FINDINGS F155).
+    synced: Vec<String>,
 }
 
 impl<B: Backend> AccountEngine<B> {
@@ -230,6 +251,7 @@ impl<B: Backend> AccountEngine<B> {
             graph_url: crate::graph::SEND_MAIL.to_owned(),
             renewal: None,
             graph: None,
+            synced: Vec::new(),
         }
     }
 
@@ -348,8 +370,9 @@ impl<B: Backend> AccountEngine<B> {
             return self.run_leaving(op, cancel, leaving).await;
         }
         for part in parts {
+            let into = mail_proto::backend::imap::move_target(self.caps(), &part);
             if let ProtoOutcome::Moved(moved) = self.run_leaving(part, cancel, leaving).await? {
-                self.moved(&moved)?;
+                self.moved(&moved, into.as_deref())?;
             }
         }
         Ok(ProtoOutcome::Applied)
@@ -612,17 +635,28 @@ impl<B: Backend> AccountEngine<B> {
     /// before it in this drain has told the store where its messages went. One whose message
     /// has no address is left queued, untried, and goes in a later pass: a pass syncs before it
     /// drains, and that sync is what finds a message a server moved without saying where.
+    ///
+    /// Not for ever. A drain after syncs first counts them against every message still waiting
+    /// to be found ([`Store::unplaced_pass`]); once the syncs that should have found one have
+    /// not, an operation on it is refused, its local change undone, and the reason said
+    /// (FINDINGS F155). A drain with no sync before it, such as `mailo`'s upload, counts nothing.
     pub async fn drain_outbox(
         &mut self,
         cancel: &mut Cancel,
         now: DateTime<Utc>,
     ) -> Result<SyncReport, RuntimeError> {
         let mut report = SyncReport::default();
+        let synced = std::mem::take(&mut self.synced);
+        if !synced.is_empty() {
+            self.store.unplaced_pass(self.account, &synced)?;
+        }
         for entry in self.store.outbox_due(self.account, now)? {
             let id = entry.id;
-            let Some(entry) = self.addressed(entry, now)? else {
+            let Some(entry) = self.addressed(entry, now, &mut report)? else {
                 continue;
             };
+            // Where a move files its messages, for a server that does not say where they went.
+            let into = mail_proto::backend::imap::move_target(self.caps(), &entry.op);
             // Noted before the op is consumed. A submission also has a draft whose visible
             // state must follow what happened on the wire; nothing else in the outbox does.
             let draft = match &entry.op {
@@ -653,7 +687,7 @@ impl<B: Backend> AccountEngine<B> {
                     // Before the settle, so the next entry, addressed as it is reached, finds
                     // the message where the move put it.
                     if let ProtoOutcome::Moved(moved) = &outcome {
-                        self.moved(moved)?;
+                        self.moved(moved, into.as_deref())?;
                     }
                     self.store.outbox_settle(id, Settle::Ok, now)?;
                     if let (Some(upload), ProtoOutcome::Appended { remote }) = (upload, outcome) {
@@ -731,11 +765,13 @@ impl<B: Backend> AccountEngine<B> {
 
     /// `entry` pointed at where its messages are now, or `None` when there is nothing to send it
     /// yet: it is waiting for a sync to find a message, and stays queued as it is, or there was
-    /// nothing left for it to say and it has been settled.
+    /// nothing left for it to say and it has been settled, or it has waited through the syncs
+    /// that should have found its message and has been refused, and `report` says why.
     fn addressed(
         &self,
         entry: OutboxEntry,
         now: DateTime<Utc>,
+        report: &mut SyncReport,
     ) -> Result<Option<OutboxEntry>, RuntimeError> {
         match self.store.outbox_dispatch(entry.id)? {
             Dispatch::Send(op) => Ok(Some(OutboxEntry { op, ..entry })),
@@ -744,16 +780,21 @@ impl<B: Backend> AccountEngine<B> {
                 self.store.outbox_settle(entry.id, Settle::Ok, now)?;
                 Ok(None)
             }
+            Dispatch::Lost(reason) => {
+                given_up(&*self.store, entry.id, reason, now, report)?;
+                Ok(None)
+            }
         }
     }
 
     /// Record where a move put each message: its new address where the server said, and none
     /// where it did not, so what follows it waits for the sync rather than go to the old one.
-    fn moved(&self, moved: &[Moved]) -> Result<(), RuntimeError> {
+    /// `into` is the folder it was moved into, whose syncs are the ones to find it.
+    fn moved(&self, moved: &[Moved], into: Option<&str>) -> Result<(), RuntimeError> {
         for one in moved {
             match &one.to {
                 Some(to) => self.store.remap(self.account, &one.from, to)?,
-                None => self.store.unmap(self.account, &one.from)?,
+                None => self.store.unmap(self.account, &one.from, into)?,
             }
         }
         Ok(())
@@ -1151,6 +1192,12 @@ impl<B: Backend> AccountEngine<B> {
             }
             // Remove what this band covered, so a later band does not refetch it.
             wanted.retain(|(remote, _)| !batch.contains(remote));
+        }
+        // Every message the server listed is held now, so a message it moved here without
+        // saying where would have been found by this sync. One the budget stopped short of is
+        // not counted: the message may be among the rest.
+        if wanted.is_empty() {
+            self.synced.push(mailbox.path.clone());
         }
         Ok(report)
     }

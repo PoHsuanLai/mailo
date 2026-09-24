@@ -7,7 +7,9 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::*;
-use mail_store::{Dispatch, MemoryStore, Settle, SqliteStore, Store};
+use mail_store::{
+    Dispatch, MemoryStore, PASSES_TO_FIND, SYNCS_TO_FIND, Settle, SqliteStore, Store,
+};
 
 const ACCOUNT: AccountId =
     AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
@@ -149,7 +151,9 @@ fn first_move_lands(store: &dyn Store, first: OutboxId, to: Option<RemoteRef>) {
     assert_eq!(remotes(&sent), vec![imap("INBOX", 10)]);
     match to {
         Some(to) => store.remap(ACCOUNT, &imap("INBOX", 10), &to).unwrap(),
-        None => store.unmap(ACCOUNT, &imap("INBOX", 10)).unwrap(),
+        None => store
+            .unmap(ACCOUNT, &imap("INBOX", 10), Some("Archive"))
+            .unwrap(),
     }
     store.outbox_settle(first, Settle::Ok, at(1)).unwrap();
 }
@@ -342,7 +346,9 @@ fn a_later_operation_on_a_waiting_message_waits_behind_it_and_others_do_not() {
             },
         );
         // An earlier move of `m` that no server said anything about.
-        store.unmap(ACCOUNT, &imap("INBOX", 10)).unwrap();
+        store
+            .unmap(ACCOUNT, &imap("INBOX", 10), Some("Archive"))
+            .unwrap();
         (
             store.outbox_dispatch(both_moved).unwrap(),
             store.outbox_dispatch(n_read).unwrap(),
@@ -410,4 +416,277 @@ fn a_send_is_dispatched_exactly_as_it_was_queued() {
     for (dispatched, queued) in [sqlite, memory] {
         assert_eq!(dispatched, Dispatch::Send(queued));
     }
+}
+
+// ---- F155: a wait for a sync that never finds the message has an end ----
+
+/// Queue `intent` with `undo`, having applied the local change it undoes, as the window does.
+fn queue_undoable(
+    store: &dyn Store,
+    intent: RemoteIntent,
+    forward: Change,
+    undo: Change,
+) -> OutboxId {
+    store
+        .apply(
+            ACCOUNT,
+            &Patch {
+                id: ChangeId::generate(),
+                changes: vec![forward],
+            },
+        )
+        .unwrap();
+    store
+        .enqueue(
+            ACCOUNT,
+            intent,
+            &Patch {
+                id: ChangeId::generate(),
+                changes: vec![undo],
+            },
+            at(0),
+        )
+        .unwrap()
+        .expect("queued")
+}
+
+/// `n` passes of the account, each of which synced `synced` in full.
+fn passes(store: &dyn Store, n: u32, synced: &[&str]) {
+    let synced: Vec<String> = synced.iter().map(|s| s.to_string()).collect();
+    for _ in 0..n {
+        store.unplaced_pass(ACCOUNT, &synced).unwrap();
+    }
+}
+
+fn given_up(dispatch: &Dispatch) -> &str {
+    match dispatch {
+        Dispatch::Lost(why) => why,
+        other => panic!("not given up: {other:?}"),
+    }
+}
+
+#[test]
+fn a_message_the_syncs_of_its_folder_never_find_is_given_up_and_its_change_undone() {
+    let (sqlite, memory) = both(|store| {
+        let (m, n) = (message(1), message(2));
+        deliver(store, &m, imap("INBOX", 10));
+        deliver(store, &n, imap("INBOX", 11));
+        let first = queue(store, file_into(&m, MailboxRole::Archive));
+        // Trashed before the archive reached the server; the window moved it here at once.
+        let trashed = queue_undoable(
+            store,
+            file_into(&m, MailboxRole::Trash),
+            Change::MessageMailbox(m.id, MailboxRole::Trash),
+            Change::MessageMailbox(m.id, MailboxRole::Archive),
+        );
+        // Behind it: one more change to `m`, one to `m` and `n` together, and then one to `n`
+        // alone, which waits only because the one before it does.
+        let starred = queue(
+            store,
+            RemoteIntent::SetFlags {
+                messages: vec![m.id],
+                read: None,
+                star: Some(Star::Starred),
+            },
+        );
+        let both_read = queue(
+            store,
+            RemoteIntent::SetFlags {
+                messages: vec![m.id, n.id],
+                read: Some(ReadState::Read),
+                star: None,
+            },
+        );
+        let n_starred = queue(
+            store,
+            RemoteIntent::SetFlags {
+                messages: vec![n.id],
+                read: None,
+                star: Some(Star::Starred),
+            },
+        );
+        first_move_lands(store, first, None);
+
+        // Syncs of Archive that do not find it, one short of the bound: still waiting.
+        passes(store, SYNCS_TO_FIND - 1, &["INBOX", "Archive"]);
+        let before = (
+            store.outbox_dispatch(trashed).unwrap(),
+            store.outbox_dispatch(n_starred).unwrap(),
+        );
+        passes(store, 1, &["INBOX", "Archive"]);
+        let lost = store.outbox_dispatch(trashed).unwrap();
+        let reason = given_up(&lost).to_owned();
+        store
+            .outbox_settle(
+                trashed,
+                Settle::Failed {
+                    reason: reason.clone(),
+                    retry: Retry::Fatal(reason),
+                },
+                at(2),
+            )
+            .unwrap();
+        (
+            before,
+            lost,
+            store.message(m.id).unwrap().mailbox,
+            store.outbox_dispatch(starred).unwrap(),
+            store.outbox_dispatch(both_read).unwrap(),
+            store.outbox_dispatch(n_starred).unwrap(),
+        )
+    });
+    assert_eq!(sqlite, memory);
+    let (before, lost, mailbox, starred, both_read, n_starred) = sqlite;
+    assert_eq!(before, (Dispatch::Wait, Dispatch::Wait));
+    let why = given_up(&lost);
+    assert!(
+        why.contains("3 syncs of Archive") && why.contains("undone"),
+        "{why}"
+    );
+    assert_eq!(
+        mailbox,
+        MailboxRole::Archive,
+        "the undo puts back what the server has"
+    );
+    // Nothing is held behind it any more. What names the message is given up in its turn, for
+    // the same reason; what does not is sent.
+    assert!(matches!(starred, Dispatch::Lost(_)), "{starred:?}");
+    assert!(matches!(both_read, Dispatch::Lost(_)), "{both_read:?}");
+    assert_eq!(remotes(&n_starred), vec![imap("INBOX", 11)]);
+}
+
+#[test]
+fn a_sync_that_finds_the_message_before_the_bound_sends_the_waiting_operation() {
+    let (sqlite, memory) = both(|store| {
+        let m = message(1);
+        deliver(store, &m, imap("INBOX", 10));
+        let first = queue(store, file_into(&m, MailboxRole::Archive));
+        let second = queue(store, file_into(&m, MailboxRole::Trash));
+        first_move_lands(store, first, None);
+        passes(store, SYNCS_TO_FIND - 1, &["Archive"]);
+        // The next sync of Archive finds it; the passes after it no longer count against it.
+        deliver(store, &m, imap("Archive", 77));
+        passes(store, PASSES_TO_FIND, &["Archive"]);
+        store.outbox_dispatch(second).unwrap()
+    });
+    assert_eq!(sqlite, memory);
+    assert_eq!(
+        sqlite,
+        Dispatch::Send(ProtoOp::SetMailbox {
+            remotes: vec![imap("Archive", 77)],
+            role: MailboxRole::Trash,
+        })
+    );
+}
+
+#[test]
+fn passes_that_did_not_sync_the_folder_are_not_syncs_that_missed_the_message() {
+    let (sqlite, memory) = both(|store| {
+        let m = message(1);
+        deliver(store, &m, imap("INBOX", 10));
+        let first = queue(store, file_into(&m, MailboxRole::Archive));
+        let second = queue(store, file_into(&m, MailboxRole::Trash));
+        first_move_lands(store, first, None);
+        // Many passes, none of which synced Archive in full.
+        passes(store, SYNCS_TO_FIND * 3, &["INBOX", "Sent"]);
+        let waiting = store.outbox_dispatch(second).unwrap();
+        // A folder this client never syncs is still not waited on for good.
+        passes(store, PASSES_TO_FIND - SYNCS_TO_FIND * 3, &["INBOX"]);
+        (waiting, store.outbox_dispatch(second).unwrap())
+    });
+    assert_eq!(sqlite, memory);
+    let (waiting, lost) = sqlite;
+    assert_eq!(waiting, Dispatch::Wait);
+    let why = given_up(&lost);
+    assert!(why.contains("Archive has not been synced"), "{why}");
+}
+
+#[test]
+fn a_message_moved_again_while_it_waited_is_looked_for_afresh() {
+    let (sqlite, memory) = both(|store| {
+        let m = message(1);
+        deliver(store, &m, imap("INBOX", 10));
+        let first = queue(store, file_into(&m, MailboxRole::Archive));
+        let second = queue(store, file_into(&m, MailboxRole::Trash));
+        first_move_lands(store, first, None);
+        passes(store, SYNCS_TO_FIND - 1, &["Archive"]);
+        // Found, then moved on to Trash, and again the server did not say where.
+        deliver(store, &m, imap("Archive", 77));
+        store
+            .unmap(ACCOUNT, &imap("Archive", 77), Some("Trash"))
+            .unwrap();
+        store.outbox_settle(second, Settle::Ok, at(2)).unwrap();
+        let third = queue(store, file_into(&m, MailboxRole::Inbox));
+        // Syncs of Archive no longer count, and those of Trash have only begun to.
+        passes(store, SYNCS_TO_FIND, &["Archive"]);
+        passes(store, SYNCS_TO_FIND - 1, &["Trash"]);
+        store.outbox_dispatch(third).unwrap()
+    });
+    assert_eq!(sqlite, memory);
+    assert_eq!(sqlite, Dispatch::Wait);
+}
+
+#[test]
+fn how_long_a_message_has_been_looked_for_survives_a_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("mail.db");
+    let (m, second) = {
+        let store = SqliteStore::open(&path, dir.path()).unwrap();
+        store
+            .connection()
+            .execute(
+                "INSERT INTO accounts (id, address, plan, created_at)
+                 VALUES (?1, 'me@example.test', '{}', datetime('now'))",
+                [ACCOUNT.to_string()],
+            )
+            .unwrap();
+        let m = message(1);
+        deliver(&store, &m, imap("INBOX", 10));
+        let first = queue(&store, file_into(&m, MailboxRole::Archive));
+        let second = queue(&store, file_into(&m, MailboxRole::Trash));
+        first_move_lands(&store, first, None);
+        passes(&store, SYNCS_TO_FIND - 1, &["Archive"]);
+        (m, second)
+    };
+    let store = SqliteStore::open(&path, dir.path()).unwrap();
+    assert_eq!(store.outbox_dispatch(second).unwrap(), Dispatch::Wait);
+    passes(&store, 1, &["Archive"]);
+    assert!(
+        matches!(store.outbox_dispatch(second).unwrap(), Dispatch::Lost(_)),
+        "the syncs before the restart still count"
+    );
+    assert!(store.remotes_of(m.id).unwrap().is_empty());
+}
+
+#[test]
+fn an_operation_on_a_message_given_up_is_refused_even_behind_one_still_waiting() {
+    let (sqlite, memory) = both(|store| {
+        let (m, n) = (message(1), message(2));
+        deliver(store, &m, imap("INBOX", 10));
+        deliver(store, &n, imap("INBOX", 11));
+        let n_trashed = queue(store, file_into(&n, MailboxRole::Trash));
+        let both_read = queue(
+            store,
+            RemoteIntent::SetFlags {
+                messages: vec![m.id, n.id],
+                read: Some(ReadState::Read),
+                star: None,
+            },
+        );
+        // Both moved where the server did not say; only Archive is synced, and misses `m`.
+        store
+            .unmap(ACCOUNT, &imap("INBOX", 10), Some("Archive"))
+            .unwrap();
+        store
+            .unmap(ACCOUNT, &imap("INBOX", 11), Some("Projects"))
+            .unwrap();
+        passes(store, SYNCS_TO_FIND, &["Archive"]);
+        (
+            store.outbox_dispatch(n_trashed).unwrap(),
+            store.outbox_dispatch(both_read).unwrap(),
+        )
+    });
+    assert_eq!(sqlite, memory);
+    assert_eq!(sqlite.0, Dispatch::Wait, "`n` is still looked for");
+    given_up(&sqlite.1);
 }

@@ -3775,3 +3775,50 @@ conversations have messages in both INBOX and Sent Mail. Sent Mail UIDs run from
 INBOX UIDs from 86 up. So an earlier star, read, archive or move on one of those conversations
 could have acted on inbox messages with UIDs 86–152 on the server. The local store keeps no
 record of settled operations, so whether that happened cannot be told from here.
+
+### F155 — An operation waiting for a sync to find its message could wait for good
+
+Found while fixing F153, and left open there. An operation on a message the server moved without
+saying where (no `COPYUID`) waited until a sync found the message. If none ever did, because the
+message was deleted elsewhere or its folder is not one this client syncs, the operation stayed
+queued for good. It held back every later operation on that message, and nothing told the user.
+The window went on showing a change the server never got.
+
+The wait now has an end, counted in passes and not in time. A laptop shut for a week has made no
+passes, so nothing in its queue expires. Each `unplaced` row keeps the folder the move put the
+message in and two counts (migration 0021), and a drain that follows syncs updates them first
+(`Store::unplaced_pass`). A complete sync of that folder that did not find the message counts as
+a miss. A pass that did not sync that folder in full counts as a pass that did not look. A sync
+the header budget cut short is not complete, and a drain with no sync before it counts nothing.
+An operation on the message is given up (`Dispatch::Lost`) after 3 misses (`SYNCS_TO_FIND`) or
+after 20 passes that did not look (`PASSES_TO_FIND`). It is then settled `Retry::Fatal` with the
+reason in words. Its undo puts back what the server has, and the reason goes to
+`needs_attention`, where every refused operation is reported. A later operation on the same
+message is given up in its turn. An operation on other messages is no longer held behind it and
+is sent.
+
+Why these numbers: a server answers `MOVE` only once the message is in the destination, under a
+UID at or above the next `SELECT`'s `UIDNEXT`, and the next sync of that folder fetches every
+UID it does not hold. So one sync ought to find the message, and three leave room for a server
+whose front ends see a mailbox a moment late. The second bound is for a folder this client never
+syncs (one the user does not follow, or Spam), whose syncs would otherwise never come. It is
+large so that a folder that fails a pass or two is not given up on. At one pass every one to
+five minutes while the app runs, it is twenty minutes to an hour and a half of running. A row
+from before 0021 has no folder recorded, so only the second bound ends its wait.
+
+### F156 — A retried move sent its finished part into the folder it was already in
+
+Found while fixing F155. A move split per mailbox (F154) whose first part succeeded and whose
+second failed with a retryable error is retried whole. The retry is addressed where the messages
+are now, so the first part's messages were found in the destination. The IMAP backend then
+selected the destination and sent `UID MOVE` into that same mailbox. RFC 6851 and RFC 9051 do
+not say what a `MOVE` whose source is its destination does. A server may refuse it. A permanent
+refusal is fatal, so the whole entry was undone here although part of it had happened. A server
+may carry it out as a move, giving the message a new UID, and without `COPYUID` it then has no
+address until the next sync. Without the `MOVE` extension the backend sends `COPY`, which puts a
+second copy of the message in the folder. Flag and label changes retried the same way were
+harmless, since `+FLAGS`, `-FLAGS` and Gmail's `±X-GM-LABELS` change nothing the second time.
+
+The backend now sends nothing for a move into the mailbox the messages are already in, with
+`MOVE` or `COPY`, and the part counts as done. The same holds for a move the user makes into the
+folder a message is already in.

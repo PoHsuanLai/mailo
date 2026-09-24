@@ -165,6 +165,14 @@ impl ImapBackend {
         set: String,
         target: String,
     ) -> Progress<ProtoOutcome> {
+        // Already where it is going: nothing to do, and nothing sent. The retry of a move split
+        // per mailbox, interrupted after its first part, finds that part's messages in the
+        // destination (FINDINGS F156). RFC 6851 and RFC 9051 say nothing of a `MOVE` whose
+        // source is its destination, so what a server does with one is its own affair; `COPY`,
+        // which stands in where `MOVE` is absent, puts a second copy of the message there.
+        if same_folder(&source.path, &target) {
+            return Progress::Done(ProtoOutcome::Applied);
+        }
         self.job = Job::Moving {
             remotes: remotes
                 .iter()
@@ -424,21 +432,7 @@ impl Backend for ImapBackend {
                         self.queue(commands)
                     }
                     ArchiveMeans::MoveToFolder(archive) => {
-                        // The folder serving *this* role. It was the archive folder whatever
-                        // the role, so trashing a message filed it in Archive and restoring one
-                        // moved it from Archive to Archive.
-                        let target = match role {
-                            MailboxRole::Archive => Some(archive.clone()),
-                            MailboxRole::Inbox => Some(
-                                self.caps
-                                    .folders
-                                    .path(MailboxRole::Inbox)
-                                    .unwrap_or("INBOX")
-                                    .to_owned(),
-                            ),
-                            other => self.caps.folders.path(other).map(str::to_owned),
-                        };
-                        let Some(target) = target else {
+                        let Some(target) = role_folder(&self.caps, archive, role) else {
                             // Moving into a guessed name loses the message if the guess is
                             // wrong; refusing undoes the local move and says why.
                             return Progress::Failed(ProtoError::Unsupported(format!(
@@ -1399,6 +1393,45 @@ fn uid_list(set: &str) -> Option<Vec<u32>> {
         }
     }
     Some(out)
+}
+
+/// The folder `op` moves its messages into, on a server whose folders are folders
+/// ([`ArchiveMeans::MoveToFolder`]); `None` for anything else, and for a role the server named
+/// no folder for, which is refused rather than moved.
+///
+/// Public so the runtime can tell which folder's sync should find a message the server moved
+/// without saying where (no `COPYUID`), from the same answer the move itself was sent with.
+pub fn move_target(caps: &AccountCaps, op: &ProtoOp) -> Option<String> {
+    let ArchiveMeans::MoveToFolder(archive) = &caps.archive else {
+        return None;
+    };
+    match op {
+        ProtoOp::SetMailbox { role, .. } => role_folder(caps, archive, *role),
+        ProtoOp::File { folder, .. } => Some(folder.clone()),
+        _ => None,
+    }
+}
+
+/// The folder serving `role` on a server whose archive is the folder `archive`.
+///
+/// Per role: it was the archive folder whatever the role, so trashing a message filed it in
+/// Archive and restoring one moved it from Archive to Archive (FINDINGS F152).
+fn role_folder(caps: &AccountCaps, archive: &str, role: MailboxRole) -> Option<String> {
+    match role {
+        MailboxRole::Archive => Some(archive.to_owned()),
+        MailboxRole::Inbox => Some(
+            caps.folders
+                .path(MailboxRole::Inbox)
+                .unwrap_or("INBOX")
+                .to_owned(),
+        ),
+        other => caps.folders.path(other).map(str::to_owned),
+    }
+}
+
+/// Whether two paths name one mailbox: exactly, or `INBOX` in any case (RFC 9051 §5.1).
+fn same_folder(a: &str, b: &str) -> bool {
+    a == b || (a.eq_ignore_ascii_case("INBOX") && b.eq_ignore_ascii_case("INBOX"))
 }
 
 /// Where each of `remotes` landed in `target`, by the server's `COPYUID` if it gave one.

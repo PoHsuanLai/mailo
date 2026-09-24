@@ -20,6 +20,7 @@ pub mod sqlite;
 mod term;
 
 pub use contact::{AddressBook, BookCard, Contact, Kind, Origin, Tally};
+pub use dispatch::{PASSES_TO_FIND, SYNCS_TO_FIND};
 pub use memory::MemoryStore;
 pub use sql::{SqlFilter, SqlValue, compile};
 pub use sqlite::SqliteStore;
@@ -67,6 +68,11 @@ pub enum Dispatch {
     /// Nothing to send: every message it named has gone from this client. Settle it
     /// [`Settle::Ok`], which drops it.
     Moot,
+    /// Given up: a message it names has waited as [`Dispatch::Wait`] through the syncs that
+    /// should have found it ([`SYNCS_TO_FIND`], [`PASSES_TO_FIND`], FINDINGS F155). Settle it
+    /// [`Settle::Failed`] with [`Retry::Fatal`] and this reason, in words for the user: its undo
+    /// puts back what the server has, and the rest of the queue is no longer held behind it.
+    Lost(String),
 }
 
 /// How a queued operation finished.
@@ -303,7 +309,23 @@ pub trait Store {
     /// sync that finds it in its new mailbox maps it again by its identity. Meanwhile a queued
     /// operation on it waits ([`Dispatch::Wait`]) rather than be sent to an address that names
     /// nothing, or something else. Nothing happens if `remote` is not held.
-    fn unmap(&self, account: AccountId, remote: &RemoteRef) -> Result<(), StoreError>;
+    ///
+    /// `into` is the folder the move filed it in, where known: the syncs of that folder are the
+    /// ones that should find it, and only they count against the wait ([`Store::unplaced_pass`]).
+    /// Moved again before it was found, it starts waiting afresh.
+    fn unmap(
+        &self,
+        account: AccountId,
+        remote: &RemoteRef,
+        into: Option<&str>,
+    ) -> Result<(), StoreError>;
+
+    /// One pass of `account` has synced the folders `synced` in full. Every message of the
+    /// account still waiting to be found ([`Store::unmap`]) was not found by it, and this counts
+    /// that against its wait: as a sync that missed it where its folder is among `synced`, and
+    /// as a pass that did not look otherwise. Counted in passes rather than time, so a queue does
+    /// not expire while the computer is shut; see [`Dispatch::Lost`].
+    fn unplaced_pass(&self, account: AccountId, synced: &[String]) -> Result<(), StoreError>;
 
     /// Every server address `message` is known by, in any mailbox.
     ///

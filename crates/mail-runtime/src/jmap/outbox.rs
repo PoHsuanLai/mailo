@@ -38,6 +38,12 @@ impl JmapEngine {
                     self.store.outbox_settle(id, Settle::Ok, now)?;
                     continue;
                 }
+                // Not reached: only an IMAP move leaves a message with no address. Refused all
+                // the same, as `AccountEngine::drain_outbox` refuses it, rather than kept for good.
+                Dispatch::Lost(reason) => {
+                    crate::engine::given_up(&*self.store, id, reason, now, report)?;
+                    continue;
+                }
             };
             let entry = mail_store::OutboxEntry { op, ..entry };
             let draft = match &entry.op {

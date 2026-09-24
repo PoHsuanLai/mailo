@@ -665,8 +665,17 @@ impl Store for SqliteStore {
         self.write_remap(account, from, to)
     }
 
-    fn unmap(&self, account: AccountId, remote: &RemoteRef) -> Result<(), StoreError> {
-        self.write_unmap(account, remote)
+    fn unmap(
+        &self,
+        account: AccountId,
+        remote: &RemoteRef,
+        into: Option<&str>,
+    ) -> Result<(), StoreError> {
+        self.write_unmap(account, remote, into)
+    }
+
+    fn unplaced_pass(&self, account: AccountId, synced: &[String]) -> Result<(), StoreError> {
+        self.count_unplaced_pass(account, synced)
     }
 
     fn draft(&self, id: DraftId) -> Result<Draft, StoreError> {

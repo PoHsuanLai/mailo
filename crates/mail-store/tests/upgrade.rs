@@ -1289,3 +1289,82 @@ fn operations_queued_before_the_outbox_kept_their_messages_are_addressed_when_se
         })
     );
 }
+
+#[test]
+fn a_message_waiting_to_be_found_before_its_wait_was_counted_is_given_up_after_enough_passes() {
+    use mail_domain::{AccountId, ChangeId, MailboxRole, OutboxId, Patch, ProtoOp, RemoteRef};
+    use mail_store::{Dispatch, PASSES_TO_FIND, SYNCS_TO_FIND, Store};
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("mail.db");
+    let (account, message) = {
+        let db = Connection::open(&path).unwrap();
+        for (version, sql) in migrate::MIGRATIONS.iter().take(20) {
+            db.execute_batch(sql).unwrap();
+            if *version > 1 {
+                db.execute(
+                    "INSERT INTO schema_version (version, applied_at) VALUES (?1, datetime('now'))",
+                    [version],
+                )
+                .unwrap();
+            }
+        }
+        let (account, message) = seed(&db);
+        // Moved by a server that did not say where, and a move queued behind it, waiting.
+        db.execute(
+            "INSERT INTO unplaced (account, message) VALUES (?1, ?2)",
+            [&account, &message],
+        )
+        .unwrap();
+        let op = ProtoOp::SetMailbox {
+            remotes: vec![RemoteRef::Imap {
+                mailbox: "INBOX".to_owned(),
+                uidvalidity: 7,
+                uid: 10,
+            }],
+            role: MailboxRole::Trash,
+        };
+        let undo = Patch {
+            id: ChangeId::generate(),
+            changes: Vec::new(),
+        };
+        db.execute(
+            "INSERT INTO outbox (account, op, undo, attempts, next_attempt, created_at, messages)
+             VALUES (?1, ?2, ?3, 0, '2023-01-01T00:00:00.000000000Z',
+                 '2023-01-01T00:00:00.000000000Z', ?4)",
+            rusqlite::params![
+                account,
+                serde_json::to_string(&op).unwrap(),
+                serde_json::to_string(&undo).unwrap(),
+                format!("[\"{message}\"]"),
+            ],
+        )
+        .unwrap();
+        (AccountId::from_uuid(account.parse().unwrap()), message)
+    };
+
+    let store = SqliteStore::open(&path, dir.path()).unwrap();
+    assert_eq!(version_of(&store.connection()), migrate::EXPECTED_VERSION);
+    let counted: (Option<String>, u32, u32) = store
+        .connection()
+        .query_row(
+            "SELECT mailbox, syncs, passes FROM unplaced WHERE message = ?1",
+            [&message],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(counted, (None, 0, 0), "where it went was never kept");
+    let entry = OutboxId::from_i64(1);
+    assert_eq!(store.outbox_dispatch(entry).unwrap(), Dispatch::Wait);
+    // No folder's syncs can be the ones that should find it, so only passes end the wait.
+    let synced = vec!["INBOX".to_owned(), "Archive".to_owned()];
+    for _ in 0..SYNCS_TO_FIND.max(PASSES_TO_FIND - 1) {
+        store.unplaced_pass(account, &synced).unwrap();
+    }
+    assert_eq!(store.outbox_dispatch(entry).unwrap(), Dispatch::Wait);
+    store.unplaced_pass(account, &synced).unwrap();
+    assert!(matches!(
+        store.outbox_dispatch(entry).unwrap(),
+        Dispatch::Lost(_)
+    ));
+}

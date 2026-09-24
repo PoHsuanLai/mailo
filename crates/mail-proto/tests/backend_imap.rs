@@ -509,7 +509,7 @@ fn trash_and_spam_go_to_their_own_folders_not_the_archive() {
             "S: * OK ready\n\
              C: a001 LOGIN \"ada@example.test\" \"hunter2\"\n\
              S: a001 OK logged in\n\
-             C: a002 SELECT \"Archive\"\n\
+             C: a002 SELECT \"Work\"\n\
              S: a002 OK [READ-WRITE] SELECT completed\n\
              C: a003 UID MOVE 5 \"{folder}\"\n\
              S: a003 OK moved\n\
@@ -518,7 +518,7 @@ fn trash_and_spam_go_to_their_own_folders_not_the_archive() {
         let mut driven = Driven {
             backend: password_backend(roles.clone()),
             op: Some(ProtoOp::SetMailbox {
-                remotes: vec![imap_ref("Archive", 5)],
+                remotes: vec![imap_ref("Work", 5)],
                 role,
             }),
         };
@@ -541,6 +541,97 @@ fn trash_and_spam_go_to_their_own_folders_not_the_archive() {
     };
     let err = replay(&mut driven, "FAIL Unsupported\n").unwrap_err();
     assert!(matches!(err, ProtoError::Unsupported(_)), "{err}");
+}
+
+/// F156: a move into the folder its messages are already in sends nothing, with `MOVE` or
+/// without it.
+///
+/// The retry of a move split per mailbox, interrupted after its first part, finds that part's
+/// messages already in the destination. RFC 6851 and RFC 9051 do not say what a `MOVE` whose
+/// source is its destination does, so a server may refuse it or give the message a new UID;
+/// the `COPY` that stands in where `MOVE` is absent would put a second copy beside it.
+#[test]
+fn a_move_into_the_folder_the_message_is_already_in_sends_nothing() {
+    for move_ext in [MoveExt::Supported, MoveExt::Absent] {
+        let mut roles = caps(
+            ServerLabels::LocalOnly,
+            ArchiveMeans::MoveToFolder("Archive".to_owned()),
+        );
+        roles.move_ext = move_ext;
+        roles.folders = FolderRoles(vec![("Trash".to_owned(), MailboxRole::Trash)]);
+        for op in [
+            ProtoOp::SetMailbox {
+                remotes: vec![imap_ref("Archive", 5)],
+                role: MailboxRole::Archive,
+            },
+            ProtoOp::SetMailbox {
+                remotes: vec![imap_ref("Trash", 5)],
+                role: MailboxRole::Trash,
+            },
+            // `INBOX` is one mailbox in any case (RFC 9051 §5.1).
+            ProtoOp::SetMailbox {
+                remotes: vec![imap_ref("inbox", 5)],
+                role: MailboxRole::Inbox,
+            },
+            ProtoOp::File {
+                remotes: vec![imap_ref("Projects", 5)],
+                folder: "Projects".to_owned(),
+            },
+        ] {
+            let mut driven = Driven {
+                backend: password_backend(roles.clone()),
+                op: Some(op.clone()),
+            };
+            assert_eq!(
+                replay(&mut driven, "DONE\n").unwrap(),
+                ProtoOutcome::Applied,
+                "{move_ext:?} {op:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn the_folder_a_move_files_into_is_the_one_it_is_sent_to() {
+    let mut roles = caps(
+        ServerLabels::LocalOnly,
+        ArchiveMeans::MoveToFolder("Archive".to_owned()),
+    );
+    roles.folders = FolderRoles(vec![("Deleted Items".to_owned(), MailboxRole::Trash)]);
+    let target = |op: ProtoOp| mail_proto::backend::imap::move_target(&roles, &op);
+    let moved = |role| ProtoOp::SetMailbox {
+        remotes: vec![imap_ref("INBOX", 5)],
+        role,
+    };
+    assert_eq!(
+        target(moved(MailboxRole::Archive)).as_deref(),
+        Some("Archive")
+    );
+    assert_eq!(
+        target(moved(MailboxRole::Trash)).as_deref(),
+        Some("Deleted Items")
+    );
+    assert_eq!(target(moved(MailboxRole::Spam)), None, "no folder named");
+    assert_eq!(
+        target(ProtoOp::File {
+            remotes: vec![imap_ref("INBOX", 5)],
+            folder: "Projects".to_owned(),
+        })
+        .as_deref(),
+        Some("Projects")
+    );
+    let flags = ProtoOp::SetFlags {
+        remotes: vec![imap_ref("INBOX", 5)],
+        read: Some(ReadState::Read),
+        star: None,
+    };
+    assert_eq!(target(flags), None);
+    // Gmail files by label, and moves nothing.
+    let gmail = caps(ServerLabels::Supported, ArchiveMeans::DropInbox);
+    assert_eq!(
+        mail_proto::backend::imap::move_target(&gmail, &moved(MailboxRole::Trash)),
+        None
+    );
 }
 
 /// A receipt answered or declined is `$MDNSent` on the server (RFC 3503), so every other

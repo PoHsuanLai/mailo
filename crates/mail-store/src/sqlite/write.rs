@@ -805,6 +805,7 @@ impl SqliteStore {
         &self,
         account: AccountId,
         remote: &RemoteRef,
+        into: Option<&str>,
     ) -> Result<(), StoreError> {
         let Some(message) = self.message_by_remote(account, remote)? else {
             return Ok(());
@@ -818,29 +819,88 @@ impl SqliteStore {
             params![acct, mailbox, uidvalidity, uid, uidl],
         )?;
         // With no address left it is still mail the server holds, not mail it never had: an
-        // operation queued on it before the sync finds it waits for that sync.
+        // operation queued on it before the sync finds it waits for that sync. Moved again while
+        // it waited, it is looked for afresh, in the folder this move put it in.
         self.connection().execute(
-            "INSERT OR IGNORE INTO unplaced (account, message)
-             SELECT ?1, ?2 WHERE NOT EXISTS
+            "INSERT OR REPLACE INTO unplaced (account, message, mailbox, syncs, passes)
+             SELECT ?1, ?2, ?3, 0, 0 WHERE NOT EXISTS
                  (SELECT 1 FROM remote_map WHERE account = ?1 AND message = ?2)",
-            params![acct, message.to_string()],
+            params![acct, message.to_string(), into],
         )?;
         tx.commit()?;
         Ok(())
     }
 
-    /// Whether `message` was moved by the server to no known address, and is waiting for a sync
-    /// to find it ([`crate::Store::unmap`]).
+    /// How long `message` has been looked for, where it was moved to no known address and is
+    /// waiting for a sync to find it ([`crate::Store::unmap`]); `None` when it is not waiting.
+    pub(super) fn unplaced_of(
+        &self,
+        account: AccountId,
+        message: MessageId,
+    ) -> Result<Option<crate::dispatch::Unplaced>, StoreError> {
+        Ok(self
+            .connection()
+            .query_row(
+                "SELECT mailbox, syncs, passes FROM unplaced WHERE account = ?1 AND message = ?2",
+                params![account.to_string(), message.to_string()],
+                |r| {
+                    Ok(crate::dispatch::Unplaced {
+                        mailbox: r.get(0)?,
+                        syncs: r.get(1)?,
+                        passes: r.get(2)?,
+                    })
+                },
+            )
+            .optional()?)
+    }
+
+    /// Whether `message` is waiting for a sync to find it.
     pub(super) fn is_unplaced(
         &self,
         account: AccountId,
         message: MessageId,
     ) -> Result<bool, StoreError> {
-        Ok(self.connection().query_row(
-            "SELECT EXISTS (SELECT 1 FROM unplaced WHERE account = ?1 AND message = ?2)",
-            params![account.to_string(), message.to_string()],
-            |r| r.get(0),
-        )?)
+        Ok(self.unplaced_of(account, message)?.is_some())
+    }
+
+    /// See [`crate::Store::unplaced_pass`].
+    pub(super) fn count_unplaced_pass(
+        &self,
+        account: AccountId,
+        synced: &[String],
+    ) -> Result<(), StoreError> {
+        let db = self.connection();
+        let tx = db.unchecked_transaction()?;
+        let rows = {
+            let mut stmt = db.prepare_cached(
+                "SELECT message, mailbox, syncs, passes FROM unplaced WHERE account = ?1",
+            )?;
+            stmt.query_map(params![account.to_string()], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    crate::dispatch::Unplaced {
+                        mailbox: r.get(1)?,
+                        syncs: r.get(2)?,
+                        passes: r.get(3)?,
+                    },
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?
+        };
+        for (message, mut unplaced) in rows {
+            unplaced.after_pass(synced);
+            db.execute(
+                "UPDATE unplaced SET syncs = ?3, passes = ?4 WHERE account = ?1 AND message = ?2",
+                params![
+                    account.to_string(),
+                    message,
+                    unplaced.syncs,
+                    unplaced.passes
+                ],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
     }
 
     /// Local changes on this thread's messages that the server has not confirmed.

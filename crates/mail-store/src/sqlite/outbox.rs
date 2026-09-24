@@ -7,6 +7,7 @@
 
 use super::SqliteStore;
 use super::row::{from_time, json, to_json};
+use crate::dispatch::Place;
 use crate::{Dispatch, OutboxEntry, Settle, StoreError};
 use chrono::{DateTime, TimeDelta, Utc};
 use mail_domain::{
@@ -67,21 +68,23 @@ impl SqliteStore {
         Ok(out)
     }
 
-    /// Where `message` is on the server now: `None` when it is no longer held.
-    fn addresses_now(
-        &self,
-        account: AccountId,
-        message: MessageId,
-    ) -> Result<Option<Vec<RemoteRef>>, StoreError> {
+    /// Where `message` is on the server now.
+    fn addresses_now(&self, account: AccountId, message: MessageId) -> Result<Place, StoreError> {
         let held: bool = self.connection().query_row(
             "SELECT EXISTS (SELECT 1 FROM messages WHERE id = ?1)",
             params![message.to_string()],
             |r| r.get(0),
         )?;
         if !held {
-            return Ok(None);
+            return Ok(Place::Gone);
         }
-        self.refs_for(account, &[message]).map(Some)
+        let found = self.refs_for(account, &[message])?;
+        if found.is_empty()
+            && let Some(unplaced) = self.unplaced_of(account, message)?
+        {
+            return Ok(Place::Unplaced(unplaced));
+        }
+        Ok(Place::At(found))
     }
 
     /// Whether any of `messages` is waiting for a sync to find where a move put it.
@@ -338,7 +341,7 @@ impl SqliteStore {
             let op = match crate::dispatch::own(queued.clone(), &messages_from(messages)?, &lookup)?
             {
                 Dispatch::Send(op) => op,
-                Dispatch::Wait | Dispatch::Moot => queued,
+                Dispatch::Wait | Dispatch::Moot | Dispatch::Lost(_) => queued,
             };
             out.push(OutboxEntry {
                 id: OutboxId::from_i64(id),

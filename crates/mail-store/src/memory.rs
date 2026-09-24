@@ -44,8 +44,8 @@ struct Inner {
     by_key: HashMap<AccountId, HashMap<MessageKey, MessageId>>,
     remotes: Vec<RemoteRow>,
     /// Messages the server moved to where it did not say, until a sync finds them: the
-    /// `unplaced` table.
-    unplaced: BTreeSet<(AccountId, MessageId)>,
+    /// `unplaced` table, with how long each has been looked for.
+    unplaced: BTreeMap<(AccountId, MessageId), crate::dispatch::Unplaced>,
     labels: BTreeMap<LabelId, Label>,
     drafts: BTreeMap<DraftId, Draft>,
     templates: BTreeMap<TemplateId, Template>,
@@ -122,7 +122,7 @@ impl Default for Inner {
             messages: BTreeMap::new(),
             by_key: HashMap::new(),
             remotes: Vec::new(),
-            unplaced: BTreeSet::new(),
+            unplaced: BTreeMap::new(),
             labels: BTreeMap::new(),
             drafts: BTreeMap::new(),
             templates: BTreeMap::new(),
@@ -269,7 +269,12 @@ impl Store for MemoryStore {
         Ok(())
     }
 
-    fn unmap(&self, account: AccountId, remote: &RemoteRef) -> Result<(), StoreError> {
+    fn unmap(
+        &self,
+        account: AccountId,
+        remote: &RemoteRef,
+        into: Option<&str>,
+    ) -> Result<(), StoreError> {
         let mut inner = self.inner.borrow_mut();
         let Some(message) = inner.message_by_remote(account, remote) else {
             return Ok(());
@@ -281,7 +286,24 @@ impl Store for MemoryStore {
             .iter()
             .any(|row| row.account == account && row.message == message)
         {
-            inner.unplaced.insert((account, message));
+            inner.unplaced.insert(
+                (account, message),
+                crate::dispatch::Unplaced {
+                    mailbox: into.map(str::to_owned),
+                    syncs: 0,
+                    passes: 0,
+                },
+            );
+        }
+        Ok(())
+    }
+
+    fn unplaced_pass(&self, account: AccountId, synced: &[String]) -> Result<(), StoreError> {
+        let mut inner = self.inner.borrow_mut();
+        for ((of, _), unplaced) in inner.unplaced.iter_mut() {
+            if *of == account {
+                unplaced.after_pass(synced);
+            }
         }
         Ok(())
     }
@@ -974,7 +996,7 @@ impl Inner {
             map.remove(&prev.key);
         }
         self.remotes.retain(|row| row.message != id);
-        self.unplaced.retain(|(_, message)| *message != id);
+        self.unplaced.retain(|(_, message), _| *message != id);
         self.pending.retain(|row| row.message != id);
         self.receipts.remove(&id);
         self.invites.remove(&id);
@@ -1276,7 +1298,8 @@ impl Inner {
             return Err(StoreError::Db(format!("no such account: {account}")));
         }
         let messages = crate::dispatch::addressed(intent, &|m: MessageId| {
-            Ok(!self.refs_for(account, &[m])?.is_empty() || self.unplaced.contains(&(account, m)))
+            Ok(!self.refs_for(account, &[m])?.is_empty()
+                || self.unplaced.contains_key(&(account, m)))
         })?;
         let id = OutboxId::from_i64(self.next_outbox);
         self.next_outbox += 1;
@@ -1355,7 +1378,7 @@ impl Inner {
         if remotes.is_empty()
             && !messages
                 .iter()
-                .any(|m| self.unplaced.contains(&(account, *m)))
+                .any(|m| self.unplaced.contains_key(&(account, *m)))
         {
             return Ok(None);
         }
@@ -1415,16 +1438,23 @@ impl Inner {
             .collect()
     }
 
-    /// Where `message` is on the server now: `None` when it is no longer held.
+    /// Where `message` is on the server now.
     fn addresses_now(
         &self,
         account: AccountId,
         message: MessageId,
-    ) -> Result<Option<Vec<RemoteRef>>, StoreError> {
+    ) -> Result<crate::dispatch::Place, StoreError> {
+        use crate::dispatch::Place;
         if !self.messages.contains_key(&message) {
-            return Ok(None);
+            return Ok(Place::Gone);
         }
-        self.refs_for(account, &[message]).map(Some)
+        let found = self.refs_for(account, &[message])?;
+        if found.is_empty()
+            && let Some(unplaced) = self.unplaced.get(&(account, message))
+        {
+            return Ok(Place::Unplaced(unplaced.clone()));
+        }
+        Ok(Place::At(found))
     }
 
     fn outbox_due(
@@ -1441,7 +1471,7 @@ impl Inner {
             // As `sqlite::outbox`: where it would go now, or as queued if it would wait.
             let op = match crate::dispatch::own(row.op.clone(), &row.messages, &lookup)? {
                 Dispatch::Send(op) => op,
-                Dispatch::Wait | Dispatch::Moot => row.op.clone(),
+                Dispatch::Wait | Dispatch::Moot | Dispatch::Lost(_) => row.op.clone(),
             };
             out.push(OutboxEntry {
                 id: *id,
