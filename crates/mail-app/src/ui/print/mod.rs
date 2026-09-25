@@ -11,11 +11,16 @@
 //! goes, and says where.
 
 mod tool;
+// The print window is a WebKitGTK webview of its own, and the print operation is WebKit's: the
+// `webview` frontend's alone for now. On `native`, Print says so and Save for printing works.
+#[cfg(feature = "webview")]
 mod window;
 
 pub(super) use tool::PrintTool;
 
-use super::motion::{Motion, motion, tell_through};
+#[cfg(feature = "webview")]
+use super::motion::Motion;
+use super::motion::{motion, tell_through};
 use crate::print::Printed;
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
@@ -93,6 +98,23 @@ pub(in crate::ui) fn started() -> Vec<Job> {
 pub(in crate::ui) fn print(job: Job) {
     #[cfg(test)]
     STARTED.with(|started| started.borrow_mut().push(job));
+    #[cfg(feature = "webview")]
+    print_in_window(job);
+    #[cfg(feature = "native")]
+    {
+        let _ = job;
+        tell_through(motion(), NOT_ON_NATIVE.to_owned());
+    }
+}
+
+/// What Print says on the `native` frontend, which has no print window yet.
+#[cfg(feature = "native")]
+pub(in crate::ui) const NOT_ON_NATIVE: &str =
+    "Printing is not available in this window yet; Save for printing works.";
+
+/// [`print`] on the webview: the document in a print window of its own.
+#[cfg(feature = "webview")]
+fn print_in_window(job: Job) {
     let said = motion();
     if window::busy() {
         tell_through(said, "A printout is already open.".to_owned());
@@ -120,6 +142,7 @@ pub(in crate::ui) fn print(job: Job) {
 }
 
 /// [`build`] on a blocking thread, or `None` once the reason it failed has been said.
+#[cfg(feature = "webview")]
 async fn built(said: Option<Motion>, store: Arc<SqliteStore>, job: Job) -> Option<Printed> {
     let done =
         tokio::task::spawn_blocking(move || build(&store, job, &chrono::Local, Utc::now())).await;

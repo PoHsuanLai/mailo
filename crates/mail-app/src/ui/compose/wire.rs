@@ -16,6 +16,7 @@ use super::page::Page;
 use crate::editor::{Caret, InputEvent, Pos, Range};
 
 /// The head script. Kept under a hundred lines by a test, so it cannot become an editor.
+#[cfg_attr(not(feature = "webview"), allow(dead_code))]
 pub(in crate::ui) const GLUE: &str = r#"<script>
 // The composer's glue: forwards what the browser is about to do, puts the caret where Rust says.
 (() => {

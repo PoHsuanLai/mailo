@@ -53,4 +53,10 @@ mod shell_tests;
 
 pub use launch::run;
 
+/// The window on Blitz, for a test to drive through `ds_native::Harness`.
+#[cfg(feature = "native")]
+pub mod native {
+    pub use super::launch::native::{contexts, root};
+}
+
 pub use start::{Start, open_thread, start_of};

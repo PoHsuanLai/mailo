@@ -3,12 +3,16 @@
 //! Every such request goes through [`Host`], as a typed [`Ask`], and nowhere else. On the
 //! webview an ask is the script it has always been, evaluated in the page, word for word
 //! ([`Ask::script`]). A renderer with no script engine answers the same asks its own way,
-//! so no call site changes when the renderer does (Phase B's seam, `ui/host.rs`).
+//! so no call site changes when the renderer does (Phase B's seam, `ui/host`). On Blitz (the
+//! `native` feature) the launched window names [`Host::Native`], `native.rs`.
 //!
 //! Tests hand the window a [`Recorder`] as its `Host`: every ask is kept, in order, and none is
 //! run, so a test asserts "the window asked to focus the find field" without a webview.
 
 use dioxus::prelude::*;
+
+#[cfg(feature = "native")]
+mod native;
 
 /// When a field is focused, relative to the render that draws it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -30,6 +34,17 @@ pub(in crate::ui) enum Drawn {
     FindField,
     /// The sidebar's folder name field, `.fold-edit input` (New folder, Rename).
     FolderName,
+}
+
+impl Drawn {
+    /// The field, as the selector its script looks for.
+    #[cfg_attr(not(feature = "native"), allow(dead_code))]
+    pub(in crate::ui) fn selector(self) -> &'static str {
+        match self {
+            Drawn::FindField => ".find input",
+            Drawn::FolderName => ".fold-edit input",
+        }
+    }
 }
 
 /// One thing the window asks of its host.
@@ -98,14 +113,28 @@ impl Ask {
 }
 
 /// Whatever draws the window, as a root context. Without one, the webview.
+///
+/// On `native` the launched window provides [`Host::Native`] ([`use_window_host`]). A test that
+/// renders `App` alone provides none and gets the webview's scripts under either feature, handed
+/// to whatever document the test gave it; on Blitz with no host at all an `eval` does nothing.
 #[derive(Clone, Default)]
 pub(in crate::ui) enum Host {
     /// The webview: each ask is its script, evaluated in the page.
     #[default]
     Webview,
+    /// Blitz: each ask is answered in the document, with no script.
+    #[cfg(feature = "native")]
+    Native(native::Blitz),
     /// A test's recorder: each ask is kept and none is run.
     #[cfg(test)]
     Recording(Recorder),
+}
+
+/// Name the launched window's host, once, above `App`: Blitz's on `native`, none on the
+/// webview, whose asks are the page's scripts without one.
+pub(in crate::ui) fn use_window_host() {
+    #[cfg(feature = "native")]
+    use_context_provider(|| Host::Native(native::Blitz::new()));
 }
 
 impl Host {
@@ -120,8 +149,32 @@ impl Host {
             Host::Webview => {
                 let _ = dioxus::document::eval(&ask.script());
             }
+            #[cfg(feature = "native")]
+            Host::Native(blitz) => blitz.ask(ask),
             #[cfg(test)]
             Host::Recording(recorder) => recorder.0.borrow_mut().push(ask),
+        }
+    }
+
+    /// `.app`, the element the keyboard lands on, has mounted. Blitz keeps its handle, to give
+    /// it the keyboard back later, and gives it the keyboard now; the webview's `KEEP_FOCUS`
+    /// script already does both, so there it is nothing.
+    pub(in crate::ui) fn app_mounted(event: MountedEvent) {
+        #[cfg(feature = "native")]
+        if let Host::Native(blitz) = Host::current() {
+            blitz.mounted(event.data());
+        }
+        #[cfg(not(feature = "native"))]
+        let _ = event;
+    }
+
+    /// The window was clicked, or its state changed (a menu, a panel or a sheet opened or
+    /// closed). On Blitz, if that left the keyboard nowhere, it goes back to `.app` a frame
+    /// later; on the webview `KEEP_FOCUS` already does that on its timer, so it is nothing.
+    pub(in crate::ui) fn hold_focus() {
+        #[cfg(feature = "native")]
+        if let Host::Native(blitz) = Host::current() {
+            blitz.keep_focus();
         }
     }
 

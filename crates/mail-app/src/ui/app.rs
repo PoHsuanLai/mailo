@@ -312,6 +312,17 @@ pub(super) fn App() -> Element {
     // sit between them.
     let in_a_field = use_signal(|| false);
 
+    // On Blitz nothing puts the keyboard back when the element holding it goes away: a menu
+    // quire closes on Escape, a sheet, the palette. The webview's `KEEP_FOCUS` script does it on
+    // a timer; here every change of the shell or the Space editor asks, and `.app` takes the
+    // keyboard only if it is nowhere (`ui/host/native.rs`). Compiled into `native` alone.
+    #[cfg(feature = "native")]
+    use_effect(move || {
+        let _ = shell.read();
+        let _ = editing.read();
+        super::host::Host::hold_focus();
+    });
+
     let on_key = move |event: Event<KeyboardData>| {
         // `Key`'s Display is the DOM key name — "e", "ArrowDown", "Escape" — which is the
         // vocabulary `view::shortcut` is written against.
@@ -603,13 +614,17 @@ pub(super) fn App() -> Element {
         style { {STYLE} }
         div { class: frame_class,
             tabindex: "0",
+            onmounted: super::host::Host::app_mounted,
             onkeydown: on_key,
             onpointermove: move |event| {
                 let at = event.client_coordinates();
                 let held = !event.held_buttons().is_empty();
                 super::motion::drag::moved((at.x, at.y), held);
             },
-            onpointerup: move |_| super::motion::drag::release(shell, revision),
+            onpointerup: move |_| {
+                super::motion::drag::release(shell, revision);
+                super::host::Host::hold_focus();
+            },
             "data-peek": "{peek}",
             if side_hidden() {
                 ds::EdgeStrip { onenter: move |()| side_peek.set(true) }
@@ -723,7 +738,8 @@ pub(super) fn window_appearance(environment: &Environment, space: &Space) -> ds:
 
 #[cfg(test)]
 mod tests {
-    use super::super::launch::KEEP_FOCUS;
+    #[cfg(feature = "webview")]
+    use super::super::launch::webview::KEEP_FOCUS;
     use super::App;
     use crate::ui::fixtures::{
         ACCOUNT, FakeKey, INSIDE_THE_SHELL, dispatching, empty, inbox_query, markup, press,
@@ -1037,6 +1053,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "webview")]
     #[tokio::test]
     async fn the_focus_script_targets_the_element_that_carries_the_handler() {
         // Two halves of one mechanism in two files: the script focuses `.app`, and `.app` is the

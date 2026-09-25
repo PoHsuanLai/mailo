@@ -91,9 +91,21 @@ pub(in crate::ui) fn page(body: &str, head: &str) -> String {
         "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">\n\
          <title>mailo</title>\n<style>{}</style>\n<style>{}</style>\n<style>{STYLE}</style>\n\
          {head}</head>\n<body>{body}</body></html>\n",
-        ds::font_face_css(),
+        faces(),
         ds::stylesheet(),
     )
+}
+
+/// quire's faces as `@font-face` rules, which only the webview build carries; on `native` the
+/// page a browser photographs falls back to the system faces.
+#[cfg(feature = "webview")]
+fn faces() -> &'static str {
+    ds::font_face_css()
+}
+
+#[cfg(not(feature = "webview"))]
+fn faces() -> &'static str {
+    ""
 }
 
 /// Run what a render left queued (effects, woken tasks) and draw again, until nothing is left

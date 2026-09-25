@@ -56,6 +56,36 @@ jobs:
       - name: The sans-I/O boundary
         run: ./scripts/check-boundary.sh
 
+  # The other frontend: the window drawn by quire's `ds-native` (Blitz, wgpu), behind the
+  # `native` feature while the webview stays the default. The data side and the CLI are the same
+  # code under either feature and are tested by `check`; this job builds and lints the crate on
+  # Blitz and drives the window headlessly (`tests/native_harness.rs`, no GPU, no display).
+  #
+  # No webkit2gtk here: nothing on this side links it. The one system library the Blitz stack
+  # links at build time is fontconfig (parley's font discovery, `yeslogic-fontconfig-sys`);
+  # Wayland, X11 and xkbcommon are opened at run time, and wgpu finds its drivers the same way.
+  native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: System libraries for the Blitz window
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libfontconfig1-dev
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: native
+      - name: Check
+        run: cargo check -p mail-app --no-default-features --features native --all-targets
+      - name: Clippy
+        run: cargo clippy -p mail-app --no-default-features --features native --all-targets -- -D warnings
+      - name: Tests, the window driven headlessly among them
+        run: cargo test -p mail-app --no-default-features --features native
+
   # Real sockets, against servers this repository did not write: a Twisted IMAP4Server, an
   # aiosmtpd SMTP server, and a POP3 server. Separate from `check` because it needs Python and a
   # few seconds of setup, and because a failure here means something different — the protocol

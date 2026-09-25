@@ -1,3 +1,4 @@
+#[cfg(feature = "webview")]
 use super::window::{Heard, Move, Phase, decide};
 use super::{Job, PrintTool, build, job_for, save_into, started};
 use crate::ui::app::App;
@@ -12,6 +13,7 @@ use mail_domain::*;
 use mail_mime::Pages;
 use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
+#[cfg(feature = "webview")]
 use std::time::Duration;
 
 const SUBJECT: &str = "Quarterly figures, and what they mean";
@@ -268,6 +270,7 @@ async fn the_menu_prints_the_pages_chosen_and_everything_it_draws_is_styled() {
 }
 
 #[test]
+#[cfg(feature = "webview")]
 fn a_print_window_closes_when_it_is_done_and_not_before() {
     let limit = Duration::from_secs(600);
     let heard = |loaded: bool, finished: bool, failed: Option<&str>| {

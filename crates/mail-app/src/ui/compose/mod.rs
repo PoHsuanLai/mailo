@@ -50,6 +50,8 @@ pub(in crate::ui) use pill::SendPill;
 pub(in crate::ui) use templates::{
     every as every_template, forget as forget_template, template_rows,
 };
+// The composer's script is the webview's head; `native` has no script engine to hand it to.
+#[cfg_attr(not(feature = "webview"), allow(unused_imports))]
 pub(in crate::ui) use wire::GLUE;
 
 use super::press::on_primary;

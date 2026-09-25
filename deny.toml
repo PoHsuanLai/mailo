@@ -24,12 +24,17 @@ confidence-threshold = 0.9
 #
 # `docs/licensing-references.md` puts MPL at tier **R**: file-level copyleft, fine to link or
 # depend on, never to paste source from. That position is about the *licence*, so encoding it
-# per-crate would be busywork — six crates arrive under it by two unrelated routes, and the
-# versions already churn:
+# per-crate would be busywork — the crates arrive under it by several unrelated routes, which
+# differ between the two frontends, and the versions churn:
 #
-#   cssparser 0.38, cssparser-macros, dtoa-short   ← ammonia ← mail-mime   (the HTML sanitizer)
-#   cssparser 0.29, selectors                      ← kuchikiki ← wry ← dioxus-desktop
-#   option-ext                                     ← dirs ← tray-icon ← dioxus-desktop
+#   both:     cssparser 0.38, cssparser-macros, dtoa-short   ← ammonia ← mail-mime (the sanitizer)
+#             cssparser 0.37                                 ← ds (quire's stylesheet lint)
+#             nucleo-matcher                                 ← mail-app (the menus' fuzzy match)
+#             option-ext                                     ← dirs
+#   webview:  cssparser 0.29, selectors 0.24                 ← kuchikiki ← wry ← dioxus-desktop
+#   native:   stylo and its crates, selectors 0.40, app_units, to_shmem, uluru
+#                                                            ← blitz-dom ← ds-native (the CSS
+#                                                              engine Blitz draws with, Servo's)
 #
 # Depending on them obliges us to make *those files'* source available, which crates.io already
 # does, and obliges nothing of ours. The rule that actually constrains this repository — do not
@@ -51,13 +56,35 @@ allow = ["CDLA-Permissive-2.0"]
 # Its licence is `(MIT OR Apache-2.0) AND NCSA`, and the AND is why the usual pair is not
 # enough. NCSA is the University of Illinois/NCSA licence, permissive and BSD-shaped. Nothing of
 # it reaches a shipped binary — it is the fuzz target of an AV1 encoder that the image decoder
-# happens to depend on.
+# happens to depend on. The `webview` frontend's alone: a `native` build has no dioxus-desktop and
+# never meets it, and cargo-deny says so there (`license-exception-not-encountered`). It goes
+# when the webview does.
 [[licenses.exceptions]]
 name = "libfuzzer-sys"
 allow = ["NCSA", "MIT", "Apache-2.0"]
 
+# The Windows clipboard, for the `native` frontend: clipboard-win and its error type
+# ← arboard ← blitz-shell ← ds-native (copy and paste in every field, `ds_native::clipboard`).
+# Boost's licence, permissive with no obligation on a binary; scoped to the two crates rather than
+# allowed wholesale because it arrives by this one route, and on Linux is not even compiled.
+[[licenses.exceptions]]
+name = "clipboard-win"
+allow = ["BSL-1.0"]
+
+[[licenses.exceptions]]
+name = "error-code"
+allow = ["BSL-1.0"]
+
 # Unsupported test DOM, pinned to html5ever 0.39. A second parser generation
 # reading ammonia's 0.40 output is where mutation-XSS lives.
+#
+# The ban is on this crate, not on html5ever 0.39, which the `native` frontend does carry:
+# blitz-html (← dioxus-native ← ds-native) parses an `<iframe srcdoc>` into a sub-document with
+# it. That copy is renderer-side and reads only what mail-mime's ammonia pass already wrote
+# (the reader's Original view), into a separate document with no scripts, no shared DOM and no
+# shared cascade. A parser differential there can at worst change markup inside the frame; it
+# cannot reach the window's own document, which is what this ban protects. Nothing in mailo
+# parses mail with 0.39, and nothing may: mail-mime's sanitizer stays on ammonia's html5ever.
 [[bans.deny]]
 name = "markup5ever_rcdom"
 reason = "Unsupported test DOM on html5ever 0.39; parsing ammonia 0.40 output with it is the mutation-XSS route this parser refused."

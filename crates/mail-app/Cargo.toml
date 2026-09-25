@@ -13,6 +13,22 @@ path = "src/lib.rs"
 name = "mailo"
 path = "src/main.rs"
 
+# A webview heartbeat probe: it opens a Dioxus desktop window of its own.
+[[example]]
+name = "rerender"
+required-features = ["webview"]
+
+# Which frontend draws the window. Exactly one: `lib.rs` refuses to build with neither or both.
+# Only the window's launch and its host seam depend on the choice; the data side and the CLI are
+# the same code under either.
+[features]
+default = ["webview"]
+# Dioxus desktop, a WebKitGTK webview: the window as it has always been, and the default until
+# the composer runs on Blitz.
+webview = ["dioxus/desktop", "ds/webview-fonts", "dep:webkit2gtk"]
+# quire's `ds-native`: Blitz, drawn with wgpu. `--no-default-features --features native`.
+native = ["dep:ds-native", "dep:blitz-dom", "dep:dioxus-native-dom"]
+
 [dependencies]
 latchkey.workspace = true
 mail-domain.workspace = true
@@ -30,14 +46,20 @@ tokio = { version = "1", features = ["rt", "macros", "time", "net", "io-util"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "charset", "http2"] }
 chrono.workspace = true
-dioxus = { version = "0.7", features = ["desktop"] }
+# The renderer is a feature's: `webview` adds `desktop`; `native` draws through `ds-native`.
+dioxus = { version = "0.7" }
 # quire, the shared design system (github.com/PoHsuanLai/quire), pinned to a release tag.
-# `lint` is for the stylesheet and markup tests; `webview-fonts` gives the `@font-face` rules as
-# `data:` URIs while mailo is on the webview. To try an unreleased quire, point both lines at a
-# checkout with a `[patch]` in a local, uncommitted `.cargo/config.toml`, never here.
-ds = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.1.6", features = ["lint", "webview-fonts"] }
+# `lint` is for the stylesheet and markup tests; the `webview` feature adds `webview-fonts`, the
+# `@font-face` rules as `data:` URIs, which only a webview needs. To try an unreleased quire,
+# point every quire line at a checkout with a `[patch]` in a local, uncommitted
+# `.cargo/config.toml`, never here.
+ds = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.1.7", features = ["lint"] }
 # Settings I/O: `appearance.toml` (imported once from `appearance.json`), the settings portal.
-ds-settings = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.1.6" }
+ds-settings = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.1.7" }
+# The `native` frontend: quire's Blitz host (the window, its fonts, focus, clipboard, harness).
+ds-native = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.1.7", optional = true }
+blitz-dom = { workspace = true, optional = true }
+dioxus-native-dom = { workspace = true, optional = true }
 # ASCII-case-insensitive multi-pattern search for highlights. Already in the tree via `regex`.
 aho-corasick = "1.1"
 # `re:/pattern/`. Already in the tree; depended on directly so the size caps are ours.
@@ -80,7 +102,8 @@ rand = "0.8"
 # Printing: the print operation over the printed document's own webview, made here rather than
 # through `wry`'s `print()` because only the operation's `finished` signal says when that window
 # may close (`ui/print/window.rs`). Already in the lock through wry, at the version wry uses.
-webkit2gtk = "2.0"
+# The `webview` feature's alone: on `native`, Print says it is not there yet.
+webkit2gtk = { version = "2.0", optional = true }
 
 [dev-dependencies]
 tempfile = "3"

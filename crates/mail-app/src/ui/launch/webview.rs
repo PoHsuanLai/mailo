@@ -1,10 +1,7 @@
-use super::app::App;
-use crate::appearance::WindowDirs;
-use crate::space::Spaces;
-use crate::view::Appearance;
-use dioxus::prelude::*;
-use mail_store::SqliteStore;
-use std::sync::Arc;
+//! The `webview` frontend, the default: Dioxus desktop over WebKitGTK.
+//!
+//! What only a webview needs is here: the page head with the fonts, the keep-focus script, the
+//! "nothing mounted" note and the debug probe. None of it is compiled into `native`.
 
 /// What to put on the page if the interface never mounts.
 ///
@@ -31,7 +28,7 @@ const NOTHING_MOUNTED: &str = "The interface did not start.\n\n\
 /// async task, which is the one thing that does not work here — a future spawned from a
 /// component body is never polled, so neither `spawn` nor `document::eval` nor `use_future` ever
 /// runs. Injected into the page head instead, where it needs nothing from Dioxus at all.
-pub(super) const KEEP_FOCUS: &str = r#"<script>
+pub(in crate::ui) const KEEP_FOCUS: &str = r#"<script>
 document.addEventListener("DOMContentLoaded", () => {
   const hold = () => {
     // The composer's editor and its fields own the keyboard. Its / and @ menus open beside the
@@ -112,17 +109,16 @@ fn probe() -> &'static str {
     ""
 }
 
-/// Launch the shell, already wearing `look` and `spaces`, open where `start` says.
-pub fn run(
-    store: Arc<SqliteStore>,
-    look: Appearance,
-    spaces: Spaces,
-    dirs: Option<WindowDirs>,
-    start: super::Start,
-) {
-    let icons = crate::appearance::cache_dir()
-        .map(|dir| crate::provider::icon::Loaded::read(&dir.join("providers")))
-        .unwrap_or_default();
+/// Open the window on the webview, handing it what `opening` holds as root contexts.
+pub(super) fn run(opening: super::Opening) {
+    let super::Opening {
+        store,
+        look,
+        spaces,
+        dirs,
+        start,
+        icons,
+    } = opening;
     let mut launch = dioxus::LaunchBuilder::desktop()
         .with_cfg(
             dioxus::desktop::Config::new()
@@ -137,7 +133,7 @@ pub fn run(
                     fonts_head(),
                     serde_json::to_string(NOTHING_MOUNTED)
                         .unwrap_or_else(|_| "\"The interface did not start.\"".to_owned()),
-                    super::compose::GLUE,
+                    crate::ui::compose::GLUE,
                     probe()
                 )),
         )
@@ -149,26 +145,7 @@ pub fn run(
     if let Some(dirs) = dirs {
         launch = launch.with_context(dirs);
     }
-    launch.launch(ShellRoot);
-}
-
-/// Holds the icon cache in a signal so a refresh can replace it, and the window's settings.
-///
-/// The files were read once, before the first frame. The signal is what a later
-/// refresh writes; the chips subscribe to it.
-///
-/// The settings are quire's: `appearance.toml` and the desktop's preferences, both watched, as
-/// one signal `App`'s root reads (`ds_settings::use_environment`). `main` imported
-/// `appearance.json` into the TOML file before the window opened. Only the launched window
-/// watches; a test renders `App` without this and never touches the real config directory.
-#[component]
-fn ShellRoot() -> Element {
-    let loaded = try_consume_context::<crate::provider::icon::Loaded>().unwrap_or_default();
-    let icons = use_signal(|| loaded);
-    use_context_provider(|| icons);
-    let environment = ds_settings::use_environment(ds_settings::AppName::MAILO);
-    use_context_provider(|| environment);
-    rsx! { App {} }
+    launch.launch(super::ShellRoot);
 }
 
 #[cfg(test)]

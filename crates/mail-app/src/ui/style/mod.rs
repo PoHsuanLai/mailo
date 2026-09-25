@@ -678,6 +678,7 @@ pub(in crate::ui) mod tests {
     }
 
     /// Every `@font-face` in `css`, as (family, `src`).
+    #[cfg(feature = "webview")]
     fn font_faces(css: &str) -> Vec<(String, String)> {
         css.split("@font-face")
             .skip(1)
@@ -697,6 +698,7 @@ pub(in crate::ui) mod tests {
     }
 
     #[test]
+    #[cfg(feature = "webview")]
     fn each_font_token_leads_with_a_face_we_ship() {
         // The faces are quire's `webview-fonts` rules, which the window's head carries; the
         // `--font-*` stacks are quire's tokens on `.ds`.
@@ -724,6 +726,7 @@ pub(in crate::ui) mod tests {
     }
 
     #[test]
+    #[cfg(feature = "webview")]
     fn each_face_is_an_embedded_woff2() {
         // "wOF2" is the WOFF2 signature; in base64 it begins "d09GMg". A truncated or
         // mis-encoded file, or a TTF renamed to .woff2, fails here rather than as a silent
