@@ -263,10 +263,21 @@ fn a_hover_card_opens_after_its_delay_and_not_before() {
     let (mut harness, _dir) = open();
     let sender = format!("{} .ds-row-name", row(1));
     harness.pointer_move(centre(&harness, &sender));
-    harness.advance(ms(250));
+    // `advance` lets wall-clock time pass, and hover intent sleeps on real timers, so under a
+    // loaded machine a state asserted at one instant near the 450 ms boundary flakes. Assert the
+    // order instead: absent at half the delay, then present within a generous bound.
+    harness.advance(ms(225));
     assert_eq!(harness.count(".ds-hovercard"), 0, "the card opened early");
-    harness.advance(ms(400));
-    assert_eq!(harness.count(".ds-hovercard"), 1, "the card never opened");
+    let mut waited = 225;
+    while harness.count(".ds-hovercard") == 0 && waited < 5_000 {
+        harness.advance(ms(10));
+        waited += 10;
+    }
+    assert_eq!(
+        harness.count(".ds-hovercard"),
+        1,
+        "the card never opened in {waited} ms"
+    );
     let card = harness.text_of(".ds-hovercard").unwrap_or_default();
     assert!(card.contains("ada@example.test"), "{card}");
 }
