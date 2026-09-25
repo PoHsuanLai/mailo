@@ -1,5 +1,5 @@
-//! The message body on Blitz (`native`): quire's `EditSurface` around the same paragraphs the
-//! webview draws, with the page's own caret and selection over them.
+//! The message body on Blitz (`native`): quire's `EditSurface` as `.c-body` itself, holding the
+//! same paragraphs the webview draws, with the page's own caret and selection over them.
 //!
 //! The surface owns the focus and the IME and hands over input; it never edits text and never
 //! draws a caret. Each input goes, in order:
@@ -12,9 +12,11 @@
 //!
 //! The caret and the selection are the page's (`Page::session.caret`, `Page::selection`), and
 //! are drawn a frame after each change from the rects the surface's handle reports, less the
-//! surface's own corner: the selection in a layer under the text, the caret and the IME's
-//! preedit in one over it. The caret's rect in the window is also where the IME's candidate
-//! window goes and where the `/` and `@` menus float (`Marks::at`).
+//! corner the marks layers are placed from (`.c-edit`'s, where the floats are placed too): the
+//! selection in a layer before the surface, which Blitz paints under the positioned surface's
+//! text as CSS 2.1 stacks them, and the caret and the IME's preedit in one after it. The caret is
+//! drawn at its rect as given, `--caret-w` wide. The caret's rect in the window is also where the
+//! IME's candidate window goes and where the `/` and `@` menus float (`Marks::at`).
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -22,8 +24,8 @@ use std::sync::Arc;
 
 use dioxus::prelude::*;
 use ds::{
-    Composition, EditFocus, EditHandle, EditInput, EditPointer, EditSurface, Point, Px, Rect,
-    TextPosition, TextRange, use_edit_handle,
+    Composition, EditFocus, EditHandle, EditInput, EditPointer, EditSurface, ExtraClass,
+    HostMeasure, Measured, Point, Px, Rect, TextPosition, TextRange, use_edit_handle,
 };
 
 use super::adapt::{self, Asked, Reach, Step};
@@ -47,11 +49,12 @@ const GAP: f32 = 6.0;
 pub(super) struct Marks {
     /// The caret in the window's coordinates: where the IME's candidates and the menus go.
     pub at: Option<Rect>,
-    /// The caret from the surface's corner.
+    /// The caret from the marks' corner.
     pub caret: Option<Rect>,
-    /// The selection's boxes from the surface's corner, one per line and one per object.
+    /// The selection's boxes from the marks' corner, one per line and one per object.
     pub selection: Vec<Rect>,
-    /// The surface's height, which the bubble's distance from the bottom is measured against.
+    /// The height the bubble's distance from the bottom is measured against: from the marks'
+    /// corner to the surface's bottom.
     pub height: f32,
 }
 
@@ -102,6 +105,8 @@ pub(super) fn Surface(
     let taken = use_hook(|| Rc::new(Cell::new(false)));
     // Measure a frame after every change to the page; only the latest measure is kept.
     let latest = use_hook(|| Rc::new(Cell::new(0u64)));
+    // The selection's layer: its corner is the one every mark and float is placed from.
+    let mut corner = use_signal(|| None::<Rc<MountedData>>);
     use_effect(move || {
         let read = page.read();
         let doc = &read.session.doc;
@@ -115,7 +120,7 @@ pub(super) fn Surface(
         latest.set(turn);
         let latest = Rc::clone(&latest);
         spawn(async move {
-            let Some(measured) = measure(handle, caret, range).await else {
+            let Some(measured) = measure(handle, corner, caret, range).await else {
                 return;
             };
             let mut marks = marks;
@@ -139,14 +144,16 @@ pub(super) fn Surface(
                     event.stop_propagation();
                 }
             },
-            // Under the text: the selection.
+            // Under the text: the selection, before the surface, neither with a z-index.
             div { class: "c-marks", aria_hidden: "true",
+                onmounted: move |event| corner.set(Some(event.data())),
                 for (index, rect) in shown.selection.iter().enumerate() {
                     div { key: "{index}", class: "c-sel", style: boxed(rect) }
                 }
             }
             EditSurface {
                 label: "Message",
+                extra_class: ExtraClass::parse(class).ok(),
                 handle,
                 ime_area: shown.at,
                 on_input: move |input: EditInput| {
@@ -154,16 +161,13 @@ pub(super) fn Surface(
                 },
                 on_pointer: move |pointer: EditPointer| pointed(page, &pointer),
                 on_focus: move |now: EditFocus| focus.set(now),
-                div { class, {render::body(page)} }
+                {render::body(page)}
             }
             // Over the text: the caret, and what the IME is composing, at the caret.
             div { class: "c-marks", aria_hidden: "true",
                 if let Some(rect) = caret {
-                    // Its width is the stylesheet's: the rect of a caret is zero wide.
-                    div {
-                        class: "c-caret",
-                        style: "left:{rect.origin.x.0:.2}px;top:{rect.origin.y.0:.2}px;height:{rect.size.height.0:.2}px",
-                    }
+                    // At its rect as given: `--caret-w` wide, whole device pixels.
+                    div { class: "c-caret", style: boxed(&rect) }
                 }
                 if let (Some(text), Some(rect)) = (showing, shown.caret) {
                     span {
@@ -180,21 +184,35 @@ pub(super) fn Surface(
 /// The caret and the selection a frame from now, once the document is laid out and free.
 async fn measure(
     handle: EditHandle,
+    corner: Signal<Option<Rc<MountedData>>>,
     caret: TextPosition,
     range: Option<TextRange>,
 ) -> Option<Marks> {
     for _ in 0..TRIES {
         ds::sleep(ds::FRAME_SLACK).await;
-        if let Some(marks) = read_marks(handle, &caret, range.as_ref()) {
+        let origin = corner.peek().as_deref().and_then(origin_of);
+        if let Some(marks) = origin.and_then(|at| read_marks(handle, at, &caret, range.as_ref())) {
             return Some(marks);
         }
     }
     None
 }
 
+/// Where `layer` is in the window: the corner of the box the marks and the floats are placed
+/// in. `.c-body` hangs its gutter outside that box (its negative margin), so the surface's own
+/// corner is not it.
+fn origin_of(layer: &MountedData) -> Option<Point> {
+    let HostMeasure(read) = try_consume_context::<HostMeasure>()?;
+    match read(layer) {
+        Measured::At(rect) => Some(rect.origin),
+        Measured::Busy | Measured::Unknown => None,
+    }
+}
+
 /// One try at the marks: `None` while the document is busy or not laid out yet.
 fn read_marks(
     handle: EditHandle,
+    origin: Point,
     caret: &TextPosition,
     range: Option<&TextRange>,
 ) -> Option<Marks> {
@@ -206,8 +224,8 @@ fn read_marks(
     };
     let inside = |rect: Rect| Rect {
         origin: Point {
-            x: Px(rect.origin.x.0 - bounds.origin.x.0),
-            y: Px(rect.origin.y.0 - bounds.origin.y.0),
+            x: Px(rect.origin.x.0 - origin.x.0),
+            y: Px(rect.origin.y.0 - origin.y.0),
         },
         size: rect.size,
     };
@@ -215,7 +233,7 @@ fn read_marks(
         at: Some(at),
         caret: Some(inside(at)),
         selection: selection.into_iter().map(inside).collect(),
-        height: bounds.size.height.0,
+        height: bounds.origin.y.0 + bounds.size.height.0 - origin.y.0,
     })
 }
 

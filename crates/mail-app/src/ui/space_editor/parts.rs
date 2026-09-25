@@ -43,12 +43,11 @@ pub(super) fn Marks(shell: Signal<Shell>) -> Element {
                     }
                 },
             }
-            span { class: "marks-refresh",
-                ds::Button {
-                    variant: ds::ButtonVariant::Quiet,
-                    label: "Refresh icons",
-                    onclick: super::super::press::on_primary(refresh_icons),
-                }
+            ds::Button {
+                variant: ds::ButtonVariant::Quiet,
+                extra_class: ds::ExtraClass::parse("marks-refresh").ok(),
+                label: "Refresh icons",
+                onclick: super::super::press::on_primary(refresh_icons),
             }
         }
     }

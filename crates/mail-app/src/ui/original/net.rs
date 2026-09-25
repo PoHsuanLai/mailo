@@ -6,7 +6,8 @@
 //!   request from the app document cannot be told apart by who drew it: a hover card and the
 //!   reader are the same document. A remote image is never fetched because something was hovered.
 //! - **A frame: refused unless the reader's [`Consent`] admits it**: `http`/`https`, on the
-//!   consented thread's allowlist, for one message per frame (`consent.rs`). `file:`, `cid:` and
+//!   allowlist of the consented message the frame shows, which its `data-frame-tag` names
+//!   (`NetRequest::frame_tag`; `consent.rs`). An untagged frame is refused. `file:`, `cid:` and
 //!   every other scheme are refused whatever a list says.
 //! - **Admitted: fetched by [`Fetch`]**, and handed to the frame only if the consent still stands
 //!   when the bytes land.
@@ -17,8 +18,8 @@
 //! raster image of a kind `mail-mime` embeds, by its declared type and by its first bytes.
 
 use super::consent::Consent;
-use ds_native::{AppNet, FrameId, NetDecision, NetReply, NetRequest, RequestOrigin};
-use std::hash::{DefaultHasher, Hash, Hasher};
+use ds_native::{AppNet, NetDecision, NetReply, NetRequest};
+use mail_domain::MessageId;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
@@ -95,27 +96,20 @@ impl MailNet {
         MailNet { consent, fetch }
     }
 
-    /// The frame that asked, as the consent names frames. Nothing else asks.
-    fn frame(request: &NetRequest) -> Option<u64> {
-        match request.origin() {
-            RequestOrigin::Top => None,
-            RequestOrigin::Frame(frame) => Some(key(frame)),
-        }
+    /// The message the frame that asked shows, by its `data-frame-tag`. The window's own
+    /// document and an untagged frame show none.
+    fn message(request: &NetRequest) -> Option<MessageId> {
+        let tag = request.frame_tag()?;
+        uuid::Uuid::parse_str(tag.as_str())
+            .ok()
+            .map(MessageId::from_uuid)
     }
-}
-
-/// A frame's document as a number. `FrameId` is opaque; its hash is the one thing it gives out
-/// that distinguishes two frames.
-fn key(frame: FrameId) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    frame.hash(&mut hasher);
-    hasher.finish()
 }
 
 impl AppNet for MailNet {
     fn decide(&self, request: &NetRequest) -> NetDecision {
-        match Self::frame(request) {
-            Some(frame) if self.consent.admits(frame, request.url()).is_some() => {
+        match Self::message(request) {
+            Some(message) if self.consent.admits(message, request.url()).is_some() => {
                 NetDecision::Allow
             }
             _ => NetDecision::Deny,
@@ -125,10 +119,10 @@ impl AppNet for MailNet {
     fn fetch(&self, request: NetRequest, reply: NetReply) {
         // Asked again rather than trusted from `decide`: the same answer for the same request,
         // and the ticket that says whether the bytes may still be shown when they land.
-        let Some(frame) = Self::frame(&request) else {
+        let Some(message) = Self::message(&request) else {
             return;
         };
-        let Some(ticket) = self.consent.admits(frame, request.url()) else {
+        let Some(ticket) = self.consent.admits(message, request.url()) else {
             return;
         };
         let consent = self.consent.clone();

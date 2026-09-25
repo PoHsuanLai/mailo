@@ -294,7 +294,7 @@ async fn the_section_draws_nested_folders_and_leaves_out_places_and_unfollowed_o
     }
     // 2026 is inside Projects: after its row, inside its group.
     let projects = page.find("Actions for Projects").unwrap();
-    let group = page[projects..].find("fold-kids").unwrap() + projects;
+    let group = page[projects..].find("ds-tree-item-children").unwrap() + projects;
     assert!(page[group..].contains("Actions for 2026"), "{page}");
     assert!(page.contains("Show all"), "{page}");
 }

@@ -95,10 +95,35 @@ pub(super) struct Hover {
 
 /// Make the hover state for the window. Called once, from `App`.
 pub(super) fn use_hover() -> Hover {
-    use_context_provider(|| Hover {
+    let hover = use_context_provider(|| Hover {
         link: Signal::new(None),
         driver: CopyValue::new(None),
-    })
+    });
+    #[cfg(feature = "native")]
+    use_frame_pill(hover);
+    hover
+}
+
+/// On Blitz, a link in an Original frame is reported by quire as the pointer crosses it, outside
+/// any component (`ui/original/links.rs`): this sets the same `link` a Reader view link sets, read
+/// through the same honesty check, and clears it as the pointer leaves. One report per crossing,
+/// so nothing to debounce.
+#[cfg(feature = "native")]
+fn use_frame_pill(mut hover: Hover) {
+    let pill = use_hook(try_consume_context::<super::original::FramePill>);
+    use_future(move || {
+        let pill = pill.clone();
+        async move {
+            let Some(mut pill) = pill else {
+                return;
+            };
+            while let Some(pointed) = pill.next().await {
+                hover
+                    .link
+                    .set(pointed.map(|link| crate::trust::destination(&link.text, &link.href)));
+            }
+        }
+    });
 }
 
 /// The window's hover state, when there is a window around the caller.

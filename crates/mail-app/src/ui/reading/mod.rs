@@ -355,7 +355,13 @@ pub(super) fn Reader(
                             variant: ds::ButtonVariant::Mini,
                             label: show_images(),
                             aria_label: show_images(),
-                            onclick: on_primary(move || shell.write().show_remote_images = true),
+                            // The press takes the button away, and on Blitz the keyboard with
+                            // it (quire focuses the pressed button a frame later, gone or not):
+                            // it is handed back to the window, as a closing panel hands it back.
+                            onclick: on_primary(move || {
+                                shell.write().show_remote_images = true;
+                                super::host::Host::focus_app();
+                            }),
                         }
                     }
                 }

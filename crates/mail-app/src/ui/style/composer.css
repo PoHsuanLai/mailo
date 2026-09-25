@@ -89,11 +89,11 @@
 .c-body .o-sig .mono { display: none; }
 .c-body .o-sig ~ p { color: var(--ink-faint); font-size: var(--fs-control); }
 /* On Blitz the page draws its own caret and selection (compose/surface.rs): boxes placed from
-   the surface's rects, the selection under the text (and see-through, where a renderer paints it
-   over) and the caret over it */
+   the surface's rects, the selection's layer before the surface (under its text: `.c-body` is
+   positioned, and neither sets a z-index) and the caret's after it, `--caret-w` wide */
 .c-marks { position: absolute; left: 0; top: 0; width: 0; height: 0; pointer-events: none; }
-.c-sel { position: absolute; background: var(--accent-soft); border-radius: var(--r-micro); opacity: .6; }
-.c-caret { position: absolute; width: 2px; background: var(--accent); }
+.c-sel { position: absolute; background: var(--accent-soft); border-radius: var(--r-micro); }
+.c-caret { position: absolute; width: var(--caret-w); background: var(--accent); }
 .c-preedit {
   position: absolute; white-space: pre; font-size: var(--fs-compose); color: var(--ink); background: var(--paper);
   text-decoration: underline;
@@ -175,8 +175,6 @@
 }
 .c-warn .ds-ic { color: var(--warn); }
 .c-warn .attach { margin-left: auto; }
-/* Attach's button in its row: exactly the button's box, whether or not the row pushes it along. */
-.attach { display: flex; }
 .btn {
   display: inline-flex; align-items: center; gap: var(--s-6); border: 0; cursor: pointer; border-radius: var(--r-btn); padding: var(--s-8) var(--s-14);
   font-weight: 700; font-size: var(--fs-control); background: var(--accent); color: var(--accent-ink); box-shadow: var(--shadow-1);

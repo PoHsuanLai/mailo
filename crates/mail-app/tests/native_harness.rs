@@ -11,12 +11,13 @@
 #![cfg(feature = "native")]
 
 use ds::{Key, Point};
+use ds_native::harness::settle_until;
 use ds_native::{Harness, HarnessConfig, NetPolicy, Viewport};
 use mail_domain::*;
 use mail_runtime::{Arrival, absorb};
 use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const ACCOUNT: AccountId =
     AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
@@ -34,6 +35,11 @@ const INBOX: [(&str, &str); 4] = [
     ("alan@example.test", "Lunch on Thursday"),
     ("edsger@example.test", "Notes from the review"),
 ];
+
+/// How long quire waits, at the default motion level, for `token`.
+fn delay(token: ds::DelayToken) -> Duration {
+    token.delay(ds::MotionLevel::Standard)
+}
 
 fn ms(n: u64) -> Duration {
     Duration::from_millis(n)
@@ -262,21 +268,20 @@ fn a_menu_opens_on_click_and_closes_on_escape() {
 fn a_hover_card_opens_after_its_delay_and_not_before() {
     let (mut harness, _dir) = open();
     let sender = format!("{} .ds-row-name", row(1));
+    let open_after = delay(ds::DelayToken::HoverOpen);
+    let asked = Instant::now();
     harness.pointer_move(centre(&harness, &sender));
     // `advance` lets wall-clock time pass, and hover intent sleeps on real timers, so under a
-    // loaded machine a state asserted at one instant near the 450 ms boundary flakes. Assert the
-    // order instead: absent at half the delay, then present within a generous bound.
-    harness.advance(ms(225));
+    // loaded machine a state asserted at one instant near the boundary flakes (quire's
+    // CONVENTIONS §11). Assert the order instead: absent at half the delay, then present within
+    // the settle bound, and never before the whole delay since the pointer arrived.
+    harness.advance(open_after / 2);
     assert_eq!(harness.count(".ds-hovercard"), 0, "the card opened early");
-    let mut waited = 225;
-    while harness.count(".ds-hovercard") == 0 && waited < 5_000 {
-        harness.advance(ms(10));
-        waited += 10;
-    }
-    assert_eq!(
-        harness.count(".ds-hovercard"),
-        1,
-        "the card never opened in {waited} ms"
+    let opened = settle_until(&mut harness, |harness| harness.count(".ds-hovercard") == 1);
+    assert!(
+        opened.duration_since(asked) >= open_after,
+        "the card opened {:?} after the pointer arrived, inside the {open_after:?} wait",
+        opened.duration_since(asked)
     );
     let card = harness.text_of(".ds-hovercard").unwrap_or_default();
     assert!(card.contains("ada@example.test"), "{card}");
@@ -319,6 +324,8 @@ fn the_toast_hides_after_its_hold() {
     let (mut harness, _dir) = open();
     open_row(&mut harness, 1);
     assert_eq!(harness.count(".ds-toast"), 0);
+    let hold = delay(ds::DelayToken::ToastHold);
+    let asked = Instant::now();
     harness.key(Key::Char('e'));
     harness.advance(ms(300));
     assert_eq!(
@@ -326,18 +333,20 @@ fn the_toast_hides_after_its_hold() {
         Some("shown"),
         "archiving put up no toast"
     );
-    // quire's hold is 5.2 s at the default motion level.
-    harness.advance(ms(4000));
+    // Still up at half its hold (quire's CONVENTIONS §11: a "not yet" only at or under half the
+    // window), then gone within the settle bound, and never before the whole hold.
+    harness.advance(hold / 2 - ms(300));
     assert_eq!(
         harness.count(".ds-toast"),
         1,
         "the toast left before its hold"
     );
-    harness.advance(ms(2500));
-    assert_eq!(
-        harness.count(".ds-toast"),
-        0,
-        "the toast stayed past its hold"
+    harness.advance(hold / 2 - ms(1000));
+    let gone = settle_until(&mut harness, |harness| harness.count(".ds-toast") == 0);
+    assert!(
+        gone.duration_since(asked) >= hold,
+        "the toast left {:?} after the archive, inside its {hold:?} hold",
+        gone.duration_since(asked)
     );
 }
 
@@ -791,6 +800,75 @@ fn send_queues_the_typed_body_as_text_and_html() {
     for part in ["text/plain", "text/html", "hey there"] {
         assert!(bytes.contains(part), "no {part} in:\n{bytes}");
     }
+}
+
+/// The run's start and end on its line, and the line's middle: where a test presses.
+fn run_ends(harness: &Harness) -> (Point, Point) {
+    let text = harness.rect(".c-body > p span").expect("the run");
+    let middle = text.origin.y.0 + text.size.height.0 / 2.0;
+    (
+        Point {
+            x: ds::Px(text.origin.x.0 + 1.0),
+            y: ds::Px(middle),
+        },
+        Point {
+            x: ds::Px(text.origin.x.0 + text.size.width.0 + 40.0),
+            y: ds::Px(middle),
+        },
+    )
+}
+
+#[test]
+fn shift_click_selects_from_the_caret_to_where_it_lands() {
+    let (mut harness, _dir, _store) = composing();
+    type_text(&mut harness, "hello world");
+    let (start, end) = run_ends(&harness);
+    harness.click(start);
+    harness.advance(ms(100));
+    assert_eq!(harness.count(".c-sel"), 0, "a plain click selected");
+    harness.click_with(end, dioxus::prelude::Modifiers::SHIFT);
+    harness.advance(ms(100));
+    assert!(
+        harness.count(".c-sel") >= 1,
+        "Shift+click drew no selection"
+    );
+    // The selection is the whole line: typing replaces it.
+    type_text(&mut harness, "X");
+    assert_eq!(paragraphs(&harness), vec!["X"]);
+}
+
+#[test]
+fn a_drag_selects_what_it_passes_over() {
+    let (mut harness, _dir, _store) = composing();
+    type_text(&mut harness, "hello world");
+    let (start, end) = run_ends(&harness);
+    harness.drag(start, end, 6);
+    harness.advance(ms(100));
+    assert!(harness.count(".c-sel") >= 1, "the drag drew no selection");
+    assert_eq!(harness.count(".c-caret"), 0, "a caret beside a selection");
+    type_text(&mut harness, "Y");
+    assert_eq!(paragraphs(&harness), vec!["Y"]);
+}
+
+#[test]
+fn home_and_end_go_to_the_line_s_ends_and_delete_takes_the_next_letter() {
+    let (mut harness, _dir, _store) = composing();
+    type_text(&mut harness, "middle");
+    press(&mut harness, &[], Key::Home, 1);
+    type_text(&mut harness, "A");
+    press(&mut harness, &[], Key::End, 1);
+    type_text(&mut harness, "Z");
+    assert_eq!(paragraphs(&harness), vec!["AmiddleZ"]);
+    // Delete, from the line's start, takes the letter after the caret.
+    press(&mut harness, &[], Key::Home, 1);
+    press(&mut harness, &[], Key::Delete, 1);
+    assert_eq!(paragraphs(&harness), vec!["middleZ"]);
+    // Shift+End selects to the line's end.
+    press(&mut harness, &[Key::Shift], Key::End, 1);
+    harness.advance(ms(100));
+    assert!(harness.count(".c-sel") >= 1, "Shift+End drew no selection");
+    press(&mut harness, &[], Key::Backspace, 1);
+    assert_eq!(paragraphs(&harness), vec![""]);
 }
 
 /// A picture of the composer on Blitz, with text, a bold run, a selection and the bubble,

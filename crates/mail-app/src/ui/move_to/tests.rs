@@ -420,10 +420,7 @@ async fn a_row_dropped_on_a_folder_is_filed_there() {
     pointer(&mut dom, "pointermove", row, at(300.0, 160.0, true));
     pointer(&mut dom, "pointermove", row, at(120.0, 300.0, true));
     let lit = dioxus_ssr::render(&dom);
-    assert!(
-        lit.contains("fold-row can-drop"),
-        "no folder offers to take it: {lit}"
-    );
+    assert!(folder_accepts(&lit), "no folder offers to take it: {lit}");
     pointer(&mut dom, "pointerenter", target, at(120.0, 300.0, true));
     pointer(&mut dom, "pointerup", target, at(120.0, 300.0, false));
     settle(&mut dom).await;
@@ -437,10 +434,17 @@ async fn a_row_dropped_on_a_folder_is_filed_there() {
     // The target lists it once the server has moved it; nothing claims that before.
     assert_eq!(in_folder(&store, "收據"), from_before);
     let page = dioxus_ssr::render(&dom);
-    let left = page
-        .find("fold-row can-drop")
-        .map(|at| &page[at.saturating_sub(300)..at + 50]);
-    assert!(left.is_none(), "the drag outlived the drop: {left:?}");
+    assert!(!folder_accepts(&page), "the drag outlived the drop: {page}");
+}
+
+/// Whether a folder's row (quire's tree item) is drawn as taking the row being dragged.
+fn folder_accepts(page: &str) -> bool {
+    page.match_indices("class=\"ds-tree-item-row ds-drop-place\"")
+        .any(|(at, _)| {
+            let tag = &page[at..];
+            let end = tag.find('>').unwrap_or(tag.len());
+            tag[..end].contains("data-drop=\"accepts\"")
+        })
 }
 
 #[tokio::test]

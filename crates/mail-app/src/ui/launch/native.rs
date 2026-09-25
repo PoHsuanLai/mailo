@@ -46,6 +46,7 @@ pub(super) fn run(opening: Opening) {
         .with_frame_links(original.links())
         .with_contexts(contexts(store, look, spaces, dirs, start))
         .with_context(original.consent())
+        .with_context(original.pill())
         .with_context(original.images())
         .with_context(icons);
     ds_native::launch(ShellRoot, config);

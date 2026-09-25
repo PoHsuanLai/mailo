@@ -2,23 +2,27 @@
 //!
 //! - The window itself, `.app`: its mounted handle is kept as it mounts, focused then so the
 //!   keyboard has somewhere to land from the first key, and given the keyboard back through
-//!   `ds::focus_soon`, which waits out a busy document.
-//! - A field or element named by selector: quire's `TextInput` hands out no mounted handle, and
-//!   `ds-native` makes none for an element found by a query, so there is nothing to give
-//!   `ds::focus_soon`. The element is found in the Blitz document reached through `.app`'s
-//!   handle and focused (and selected, or scrolled into view) with the same document writes
-//!   `ds_native::focus` makes, retried a frame later while the document is busy or the element
-//!   is not drawn yet, as the webview's scripts retried for twenty frames.
+//!   `ds::focus_soon`, which waits out a busy document. After a click on nothing focusable the
+//!   keyboard stays on `.app` by itself: `ds_native::launch`'s `FocusFallback::Ancestor`. When
+//!   what had the keyboard goes away (a menu closed on Escape), [`Blitz::hand_back`] gives it to
+//!   `.app` through quire's own click-focus `restore`.
+//! - A field or element named by selector: `ds::focus_by_selector`, which waits up to twenty
+//!   frames for the element to be drawn, as the webview's scripts did, and tells a `TextInput`
+//!   it found its `onfocus` once.
+//! - A scroll into view: the element is found in the Blitz document reached through `.app`'s
+//!   handle and scrolled, retried a frame later while the document is busy or the element is
+//!   not drawn yet.
 //! - The clipboard: `ds_native::clipboard::write_text`.
 
 use super::Ask;
-use blitz_dom::{BaseDocument, NodeId, ScrollBehavior, ScrollLogicalPosition};
+use blitz_dom::{ScrollBehavior, ScrollLogicalPosition};
 use dioxus::prelude::*;
 use dioxus_native_dom::NodeHandle;
+use ds::Select;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-/// Frames an ask waits for its element to be drawn, as the webview's `focusFind` did.
+/// Frames a scroll waits for its element to be drawn, as the webview's scripts did.
 const TRIES: usize = 20;
 
 /// Blitz's side of the seam: `.app`'s handle once it has mounted, and the scope the work runs in.
@@ -31,15 +35,7 @@ pub(in crate::ui) struct Blitz {
     owner: ScopeId,
 }
 
-/// What is done to the element a selector found.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Act {
-    Focus,
-    FocusAndSelect,
-    ScrollIntoView,
-}
-
-/// One try at an ask.
+/// One try at a scroll.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Tried {
     Done,
@@ -69,24 +65,22 @@ impl Blitz {
         self.as_shell(|| ds::focus_soon(app));
     }
 
-    /// A pointer was released over the window: once the click is done, give `.app` the keyboard
-    /// back if the click left it nowhere in particular.
+    /// The window's state changed (a menu, a panel or a sheet opened or closed): a frame later,
+    /// if that left the keyboard nowhere, `.app` takes it back.
     ///
-    /// Blitz clears the focus on a click that lands on nothing it can focus, and `.app`'s
-    /// `tabindex` does not make it catch that click, so after a click on a row every key would
-    /// go to the document's root and `.app`'s key handler would never hear it. This is the part
-    /// of the webview's `KEEP_FOCUS` script Blitz needs: only when the focus is nowhere, never
-    /// taken from a field, a menu or the palette.
-    pub(in crate::ui) fn keep_focus(&self) {
+    /// `FocusFallback::Ancestor` covers a click on nothing focusable, not an element that had the
+    /// keyboard going away under it: a menu quire closes on Escape, a sheet, the palette. Blitz
+    /// then leaves the focus nowhere, and every key would go to the document's root. quire's own
+    /// click-focus `restore` does the rest: it focuses `.app` only if the focus is nowhere, so a
+    /// field, a menu or the palette that has it keeps it.
+    pub(in crate::ui) fn hand_back(&self) {
         let Some(app) = self.app.borrow().clone() else {
             return;
         };
         self.as_shell(|| {
             spawn(async move {
                 ds::sleep(ds::FRAME_SLACK).await;
-                if focus_is_nowhere(&app) {
-                    ds::focus_soon(app);
-                }
+                let _ = (ds_native::CLICK_FOCUS.restore)(&app);
             });
         });
     }
@@ -99,9 +93,9 @@ impl Blitz {
                     self.as_shell(|| ds::focus_soon(app));
                 }
             }
-            Ask::Focus { selector, .. } => self.find(selector, Act::Focus),
-            Ask::FocusAndSelect(field) => self.find(field.selector(), Act::FocusAndSelect),
-            Ask::ScrollIntoView(selector) => self.find(selector, Act::ScrollIntoView),
+            Ask::Focus { selector, .. } => self.focus(selector, Select::None),
+            Ask::FocusAndSelect(field) => self.focus(field.selector(), Select::All),
+            Ask::ScrollIntoView(selector) => self.scroll(selector),
             Ask::Copy(text) => {
                 // Best-effort, as the webview's `navigator.clipboard` was: a desktop with no
                 // clipboard leaves the address where it was, and nothing else depends on it.
@@ -110,8 +104,19 @@ impl Blitz {
         }
     }
 
-    /// Find `selector` in the document and do `act` to it, now or on a later frame.
-    fn find(&self, selector: &'static str, act: Act) {
+    /// Focus the first element `selector` matches once it is drawn, and do `select` with its
+    /// text. Best-effort, as the webview's scripts were: an element that never shows is no error.
+    fn focus(&self, selector: &'static str, select: Select) {
+        self.as_shell(|| {
+            spawn(async move {
+                let _ = ds::focus_by_selector(selector, select).await;
+            });
+        });
+    }
+
+    /// Bring the first element `selector` matches into the middle of its scroller, now or on a
+    /// later frame.
+    fn scroll(&self, selector: &'static str) {
         let Some(app) = self.app.borrow().clone() else {
             return;
         };
@@ -119,11 +124,9 @@ impl Blitz {
             spawn(async move {
                 // A scroll is asked for the render that moved the hit, which has not been laid
                 // out yet: a frame first, as the webview's two `requestAnimationFrame`s waited.
-                if act == Act::ScrollIntoView {
-                    ds::sleep(ds::FRAME_SLACK).await;
-                }
+                ds::sleep(ds::FRAME_SLACK).await;
                 for _ in 0..TRIES {
-                    match attempt(&app, selector, act) {
+                    match scroll_into_view(&app, selector) {
                         Tried::Done | Tried::Never => return,
                         Tried::Later => ds::sleep(ds::FRAME_SLACK).await,
                     }
@@ -133,8 +136,8 @@ impl Blitz {
     }
 }
 
-/// One try at `act` on the first element `selector` matches in `app`'s document.
-fn attempt(app: &MountedData, selector: &str, act: Act) -> Tried {
+/// One try at scrolling the first element `selector` matches in `app`'s document into view.
+fn scroll_into_view(app: &MountedData, selector: &str) -> Tried {
     let Some(handle) = app.downcast::<NodeHandle>() else {
         return Tried::Never;
     };
@@ -145,51 +148,16 @@ fn attempt(app: &MountedData, selector: &str, act: Act) -> Tried {
         Some(doc) => match doc.query_selector(selector) {
             Err(_) => return Tried::Never,
             Ok(None) => return Tried::Later,
-            Ok(Some(node)) if act == Act::FocusAndSelect && !laid_out_field(&doc, node) => {
-                return Tried::Later;
-            }
             Ok(Some(node)) => node,
         },
     };
     let mut doc = handle.doc_mut();
-    match act {
-        Act::Focus => {
-            doc.set_focus_to(found);
-        }
-        Act::FocusAndSelect => {
-            doc.set_focus_to(found);
-            doc.with_text_input(found, |mut driver| driver.select_all());
-        }
-        Act::ScrollIntoView => doc.scroll_into_view(
-            found,
-            ScrollBehavior::Instant,
-            ScrollLogicalPosition::Center,
-            ScrollLogicalPosition::Nearest,
-        ),
-    }
+    doc.scroll_into_view(
+        found,
+        ScrollBehavior::Instant,
+        ScrollLogicalPosition::Center,
+        ScrollLogicalPosition::Nearest,
+    );
     doc.shell_provider.request_redraw();
     Tried::Done
-}
-
-/// Whether `app`'s document has no element focused: Blitz reports its root element then. A
-/// busy document is not known to be loose, so it is left alone.
-fn focus_is_nowhere(app: &MountedData) -> bool {
-    let Some(handle) = app.downcast::<NodeHandle>() else {
-        return false;
-    };
-    let Some(doc) = handle.try_doc() else {
-        return false;
-    };
-    let root = doc.try_root_element().map(|root| root.id);
-    match doc.get_focussed_node_id() {
-        None => true,
-        Some(focused) => Some(focused) == root,
-    }
-}
-
-/// Whether `node` is a text field Blitz has laid out, so its text can be selected.
-fn laid_out_field(doc: &BaseDocument, node: NodeId) -> bool {
-    doc.get_node(node)
-        .and_then(|node| node.element_data())
-        .is_some_and(|element| element.text_input_data().is_some())
 }

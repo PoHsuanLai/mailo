@@ -387,8 +387,8 @@ pub(in crate::ui) mod tests {
             !frames.contains("opacity:0"),
             "@keyframes {name} fades the panel: {frames}"
         );
-        // Both layers are quire's `--z-*` tokens, resolved on the `.ds` root.
-        let css = strip_comments(STYLE);
+        // Both layers are quire's `--z-*` tokens, resolved on the `.ds` root: the scrim's is the
+        // layer the shell hands quire's inline scrim.
         let layers = declared(ds::stylesheet(), ".ds");
         let z = |value: &str| -> i32 {
             let value = exactly_var(value)
@@ -398,7 +398,7 @@ pub(in crate::ui) mod tests {
             value.parse().unwrap_or(0)
         };
         let palette_z = z("var(--z-palette)");
-        let scrim_z = z(&property(&rule_body(&css, ".scrim"), "z-index"));
+        let scrim_z = z(&format!("var({})", crate::ui::app::SCRIM_LAYER.var().0));
         assert!(
             palette_z > scrim_z,
             "command menu z-index {palette_z} is not above the scrim {scrim_z}"

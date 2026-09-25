@@ -179,14 +179,13 @@ pub(super) fn ExportSheet(shell: Signal<Shell>) -> Element {
                 }
                 div { class: "files-foot",
                     Progress { phase: phase(), verb: "Exporting" }
-                    span { class: "go",
-                        ds::Button {
-                            variant: ds::ButtonVariant::Primary,
-                            label: if busy { "Exporting…" } else { "Export" },
-                            icon: Icon::Forward,
-                            availability: available(can_run),
-                            onclick: on_primary(move || start(())),
-                        }
+                    ds::Button {
+                        variant: ds::ButtonVariant::Primary,
+                        extra_class: ds::ExtraClass::parse("go").ok(),
+                        label: if busy { "Exporting…" } else { "Export" },
+                        icon: Icon::Forward,
+                        availability: available(can_run),
+                        onclick: on_primary(move || start(())),
                     }
                 }
             }

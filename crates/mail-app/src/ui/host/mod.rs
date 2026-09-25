@@ -168,13 +168,13 @@ impl Host {
         let _ = event;
     }
 
-    /// The window was clicked, or its state changed (a menu, a panel or a sheet opened or
-    /// closed). On Blitz, if that left the keyboard nowhere, it goes back to `.app` a frame
-    /// later; on the webview `KEEP_FOCUS` already does that on its timer, so it is nothing.
-    pub(in crate::ui) fn hold_focus() {
-        #[cfg(feature = "native")]
+    /// The window's state changed (a menu, a panel or a sheet opened or closed). On Blitz, if
+    /// that left the keyboard nowhere, it goes back to `.app` a frame later. The webview's
+    /// `KEEP_FOCUS` does that on its timer, so it has no such ask.
+    #[cfg(feature = "native")]
+    pub(in crate::ui) fn hand_focus_back() {
         if let Host::Native(blitz) = Host::current() {
-            blitz.keep_focus();
+            blitz.hand_back();
         }
     }
 

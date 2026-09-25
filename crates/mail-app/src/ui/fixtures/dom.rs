@@ -432,6 +432,9 @@ pub(in crate::ui) struct RowParts {
     pub time: dioxus_core::ElementId,
 }
 
+/// The name a listener is kept under among [`Seen`]'s attributes, its event as the value.
+const LISTENER: &str = "(listener)";
+
 /// Dynamic attributes set during one render, and which element each landed on.
 ///
 /// Static attributes live in the template, so a control is found by an attribute the component
@@ -552,13 +555,21 @@ impl Seen {
         RowParts { row, name, time }
     }
 
-    /// The folder name at `path`: quire's button inside the box that carries `data-folder`
-    /// (the first element after it with a `data-variant`), which is what a click lands on.
+    /// The folder name at `path`: the button in quire's tree item row that carries
+    /// `data-place="{path}"` (the first element after the row, and before the next place, that
+    /// listens for a click), which is what a click lands on.
     pub(in crate::ui) fn folder(&self, path: &str) -> dioxus_core::ElementId {
-        self.one("data-folder", path);
-        self.after("data-folder", path, "data-variant")
-            .first()
-            .copied()
+        let row = self.one("data-place", path);
+        let start = self
+            .attrs
+            .iter()
+            .position(|(name, value, _)| name == "data-place" && value == path)
+            .unwrap_or_default();
+        self.attrs[start + 1..]
+            .iter()
+            .take_while(|(name, _, _)| name != "data-place")
+            .find(|(name, value, id)| name == LISTENER && value == "click" && *id != row)
+            .map(|(_, _, id)| *id)
             .unwrap_or_else(|| panic!("no button in the folder name for {path}"))
     }
 
@@ -630,7 +641,11 @@ impl dioxus_core::WriteMutations for Seen {
     fn insert_nodes_after(&mut self, _: dioxus_core::ElementId, _: usize) {}
     fn insert_nodes_before(&mut self, _: dioxus_core::ElementId, _: usize) {}
     fn set_node_text(&mut self, _: &str, _: dioxus_core::ElementId) {}
-    fn create_event_listener(&mut self, _: &'static str, _: dioxus_core::ElementId) {}
+    fn create_event_listener(&mut self, name: &'static str, id: dioxus_core::ElementId) {
+        // Kept beside the attributes, in order, so an element with a handler and no attribute
+        // of its own (a quire tree item's name) can be found after one that has them.
+        self.attrs.push((LISTENER.to_owned(), name.to_owned(), id));
+    }
     fn remove_event_listener(&mut self, _: &'static str, _: dioxus_core::ElementId) {}
     fn remove_node(&mut self, _: dioxus_core::ElementId) {}
     fn push_root(&mut self, _: dioxus_core::ElementId) {}

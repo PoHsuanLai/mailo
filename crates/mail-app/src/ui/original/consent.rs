@@ -7,15 +7,13 @@
 //! What a grant admits is narrow on purpose:
 //! - only `http` and `https`, and only a URL the sanitizer kept in a fetch attribute of one of
 //!   the consented thread's messages ([`crate::view::Reading::frame_fetches`]);
-//! - per frame: a frame may fetch only a set of URLs one message of the thread could ask for.
-//!   Its candidates start as every message and narrow with each URL it asks for, so a frame that
-//!   asked for one message's image cannot then fetch another message's. (The frame's document is
-//!   named by the renderer; which message it shows is not, so the frame is known by what it asks.)
+//! - per message: a frame may fetch only what its own message's markup asks for. Each Original
+//!   frame carries its message's id as its `data-frame-tag`, and the network reads the tag of the
+//!   frame that asked (`net.rs`), so one message's frame cannot fetch another message's image.
 //! - while it stands: a new grant, or none, makes every earlier admission stale, and a fetch
 //!   that lands after that is dropped rather than shown.
 
 use mail_domain::{MessageId, ThreadId};
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 /// The reader's consent, shared between the reader that grants it and the network that reads it.
@@ -54,9 +52,6 @@ struct Grant {
     by: Option<(Holder, ThreadId)>,
     /// Each consented message and the URLs its frame may fetch, normalised.
     messages: Vec<(MessageId, Vec<String>)>,
-    /// Each frame that has fetched, by the renderer's name for it, and the messages it could
-    /// still be showing.
-    frames: HashMap<u64, Vec<MessageId>>,
 }
 
 impl Consent {
@@ -120,30 +115,17 @@ impl Consent {
         }
     }
 
-    /// Whether the frame the renderer calls `frame` may fetch `url` now.
+    /// Whether the frame showing `message` may fetch `url` now.
     #[cfg_attr(not(feature = "native"), allow(dead_code))]
-    pub(crate) fn admits(&self, frame: u64, url: &str) -> Option<Ticket> {
+    pub(crate) fn admits(&self, message: MessageId, url: &str) -> Option<Ticket> {
         let url = normal(url)?;
-        let mut grant = self.grant();
+        let grant = self.grant();
         grant.by?;
-        let candidates: Vec<MessageId> = match grant.frames.get(&frame) {
-            Some(candidates) => candidates.clone(),
-            None => grant.messages.iter().map(|(id, _)| *id).collect(),
-        };
-        let left: Vec<MessageId> = candidates
-            .into_iter()
-            .filter(|id| {
-                grant
-                    .messages
-                    .iter()
-                    .any(|(message, urls)| message == id && urls.contains(&url))
-            })
-            .collect();
-        if left.is_empty() {
-            return None;
-        }
-        grant.frames.insert(frame, left);
-        Some(Ticket(grant.generation))
+        grant
+            .messages
+            .iter()
+            .any(|(id, urls)| *id == message && urls.contains(&url))
+            .then_some(Ticket(grant.generation))
     }
 
     /// Whether what `ticket` admitted may still be shown.
@@ -164,7 +146,6 @@ impl Grant {
         self.generation = self.generation.wrapping_add(1);
         self.by = None;
         self.messages.clear();
-        self.frames.clear();
     }
 }
 

@@ -260,7 +260,7 @@ async fn dragging_a_row_onto_archive_archives_it() {
     );
     let page = dioxus_ssr::render(&dom);
     assert!(
-        page.contains("class=\"ds-sidebar-item a-gulp\""),
+        page.contains("class=\"ds-sidebar-item ds-drop-place a-gulp\""),
         "the place that received the row did not gulp"
     );
 
@@ -276,7 +276,7 @@ async fn dragging_a_row_onto_archive_archives_it() {
     .await;
     let page = dioxus_ssr::render(&dom);
     assert!(
-        !page.contains("ds-sidebar-item a-gulp"),
+        !page.contains("ds-drop-place a-gulp"),
         "the place was still gulping once the gulp had settled"
     );
 }

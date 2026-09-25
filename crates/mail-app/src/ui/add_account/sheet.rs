@@ -217,15 +217,14 @@ pub(in crate::ui) fn AddAccountSheet(
                         aria_label: dismiss.to_string(),
                         onclick: on_primary(move || super::close(shell)),
                     }
-                    span { class: "go",
-                        ds::Button {
-                            variant: ds::ButtonVariant::Primary,
-                            label: primary.to_string(),
-                            icon,
-                            aria_label: primary.to_string(),
-                            availability: available(enabled),
-                            onclick: on_primary(move || press(())),
-                        }
+                    ds::Button {
+                        variant: ds::ButtonVariant::Primary,
+                        extra_class: ds::ExtraClass::parse("go").ok(),
+                        label: primary.to_string(),
+                        icon,
+                        aria_label: primary.to_string(),
+                        availability: available(enabled),
+                        onclick: on_primary(move || press(())),
                     }
                 }
             }

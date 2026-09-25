@@ -35,15 +35,6 @@ label.search .search { flex: 1; }
   font-weight: 800; font-size: var(--fs-reading); color: var(--accent); animation: floatup var(--t-float) var(--e-out) forwards;
 }
 .chip.is-landing { animation: chip-land var(--t-move) var(--e-spring); }
-/* Dragging a row onto a folder. Folders that take the drop are outlined while a drag is live;
-   the one under the pointer lifts. A place's outline, gulp, count bump and drop target are
-   quire's `SidebarItem` (`DropState::Accepts` and `Target`); a folder row is mailo's own. */
-.item.can-drop { box-shadow: 0 0 0 1px var(--f-line) inset; }
-.item.is-drop-target {
-  background: var(--accent-soft); color: var(--ink); transform: scale(1.045); box-shadow: var(--shadow-1);
-  transition: transform var(--t-quick) var(--e-spring);
-}
-
 /* The one toast mailo draws itself: after leaving a list, the way to archive what it sent.
    Every undo and every plain word is quire's toast, from the window root. */
 .toast {

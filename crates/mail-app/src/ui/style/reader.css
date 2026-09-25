@@ -108,8 +108,6 @@ article.frame + article.frame { margin-top: var(--s-18); padding-top: var(--s-14
 .app[*|data-peek="full"] .reader {
   position: absolute; inset: 0; z-index: var(--z-peek); animation: peek-in var(--t-move) var(--e-out);
 }
-/* The box quire's inline scrim dims in: the whole window, on the peek's layer. */
-.scrim { position: absolute; inset: 0; z-index: var(--z-peek); }
 
 /* Parsed blocks. One measure, the shell's type, no sender CSS. */
 .reader-body .blocks { max-width: 66ch; display: grid; gap: var(--s-11); }

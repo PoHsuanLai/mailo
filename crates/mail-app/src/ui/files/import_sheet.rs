@@ -186,14 +186,13 @@ pub(super) fn ImportSheet(shell: Signal<Shell>, revision: Signal<u64>) -> Elemen
                 }
                 div { class: "files-foot",
                     Progress { phase: phase(), verb: "Importing" }
-                    span { class: "go",
-                        ds::Button {
-                            variant: ds::ButtonVariant::Primary,
-                            label: if busy { "Importing…" } else { "Import" },
-                            icon: Icon::Plus,
-                            availability: available(can_run),
-                            onclick: on_primary(move || start(())),
-                        }
+                    ds::Button {
+                        variant: ds::ButtonVariant::Primary,
+                        extra_class: ds::ExtraClass::parse("go").ok(),
+                        label: if busy { "Importing…" } else { "Import" },
+                        icon: Icon::Plus,
+                        availability: available(can_run),
+                        onclick: on_primary(move || start(())),
                     }
                 }
             }

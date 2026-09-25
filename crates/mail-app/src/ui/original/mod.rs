@@ -6,7 +6,8 @@
 //! cascade, no script engine anywhere in the program. What it may reach is mailo's to say:
 //! - [`Consent`]: the reader's consent to remote images, as the network reads it (both builds);
 //! - `net.rs`: the frame's network on Blitz, refusing everything the consent does not admit;
-//! - `links.rs`: a link clicked in the frame, opened in the browser and never in the frame;
+//! - `links.rs`: a link clicked in the frame, opened in the browser and never in the frame, and
+//!   the link under the pointer in a frame, for the reader's link pill ([`FramePill`]);
 //! - [`ReaderNet`]: on Blitz, how mailo itself fetches the Reader view's consented images, which
 //!   the window's own document may not (`reading/remote.rs`).
 //!
@@ -20,7 +21,7 @@ mod net;
 
 pub use consent::Consent;
 #[cfg(feature = "native")]
-pub use links::Browse;
+pub use links::{Browse, FramePill};
 #[cfg(feature = "native")]
 pub(crate) use net::data_uri;
 #[cfg(feature = "native")]
@@ -46,6 +47,7 @@ pub struct Original {
     consent: Consent,
     net: std::sync::Arc<net::MailNet>,
     links: ds_native::FrameLinks,
+    pill: FramePill,
     images: ReaderNet,
 }
 
@@ -65,9 +67,11 @@ impl Original {
     /// view fetches nothing until [`Original::with_images`] says what fetches for it.
     pub fn new(fetch: std::sync::Arc<dyn Fetch>, browse: std::sync::Arc<dyn Browse>) -> Self {
         let consent = Consent::new();
+        let (pill, hovered) = links::FramePill::new();
         Original {
             net: std::sync::Arc::new(net::MailNet::new(consent.clone(), fetch)),
-            links: links::frame_links(browse),
+            links: links::frame_links(browse, hovered),
+            pill,
             images: ReaderNet(std::sync::Arc::new(net::Refuse)),
             consent,
         }
@@ -100,17 +104,24 @@ impl Original {
         ds_native::NetPolicy::Custom(self.net.clone())
     }
 
-    /// What a link clicked in a frame does.
+    /// What a link clicked in a frame does, and where the pointer crossing one is reported.
     pub fn links(&self) -> ds_native::FrameLinks {
         self.links.clone()
     }
 
-    /// `config` with all three: how a test's harness gets what the window gets.
+    /// The link under the pointer in a frame, as the window's root context: the reader's link
+    /// pill reads it.
+    pub fn pill(&self) -> FramePill {
+        self.pill.clone()
+    }
+
+    /// `config` with all of these: how a test's harness gets what the window gets.
     pub fn harness(&self, config: ds_native::HarnessConfig) -> ds_native::HarnessConfig {
         config
             .with_net(self.net())
             .with_frame_links(self.links())
             .with_context(self.consent())
+            .with_context(self.pill())
             .with_context(self.images())
     }
 }

@@ -511,18 +511,17 @@ fn discard(mut page: Signal<Page>, mut shell: Signal<Shell>, desk: Desk) {
 #[component]
 fn Attach(page: Signal<Page>, label: &'static str) -> Element {
     rsx! {
-        span { class: "attach",
-            ds::Button {
-                variant: ds::ButtonVariant::Mini,
-                label,
-                aria_label: label.to_owned(),
-                icon: Icon::Paperclip,
-                onclick: on_primary(move || {
-                    super::pick::choose(super::pick::Ask::Attachments, None, move |paths| {
-                        attach(page, paths);
-                    });
-                }),
-            }
+        ds::Button {
+            variant: ds::ButtonVariant::Mini,
+            extra_class: ds::ExtraClass::parse("attach").ok(),
+            label,
+            aria_label: label.to_owned(),
+            icon: Icon::Paperclip,
+            onclick: on_primary(move || {
+                super::pick::choose(super::pick::Ask::Attachments, None, move |paths| {
+                    attach(page, paths);
+                });
+            }),
         }
     }
 }

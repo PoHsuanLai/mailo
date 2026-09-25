@@ -334,7 +334,7 @@ dependencies = [
  "objc2-foundation 0.3.2",
  "parking_lot",
  "percent-encoding",
- "windows-sys 0.52.0",
+ "windows-sys 0.60.2",
  "x11rb",
 ]
 
@@ -2492,7 +2492,7 @@ version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ab8ecd87370524b461f8557c119c405552c396ed91fc0a8eec68679eab26f94a"
 dependencies = [
- "libloading 0.7.4",
+ "libloading 0.8.9",
 ]
 
 [[package]]
@@ -2548,7 +2548,7 @@ checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
 [[package]]
 name = "ds"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.1.8#b209068ba37ed1bb09c5adb5862f74947d150277"
+source = "git+https://github.com/PoHsuanLai/quire?tag=v0.1.9#42ae30754eb72fe1f1c459166ffeffb5142db41c"
 dependencies = [
  "cssparser 0.37.0",
  "dioxus",
@@ -2562,7 +2562,7 @@ dependencies = [
 [[package]]
 name = "ds-native"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.1.8#b209068ba37ed1bb09c5adb5862f74947d150277"
+source = "git+https://github.com/PoHsuanLai/quire?tag=v0.1.9#42ae30754eb72fe1f1c459166ffeffb5142db41c"
 dependencies = [
  "anyrender",
  "anyrender_vello_cpu",
@@ -2588,7 +2588,7 @@ dependencies = [
 [[package]]
 name = "ds-settings"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.1.8#b209068ba37ed1bb09c5adb5862f74947d150277"
+source = "git+https://github.com/PoHsuanLai/quire?tag=v0.1.9#42ae30754eb72fe1f1c459166ffeffb5142db41c"
 dependencies = [
  "dioxus",
  "dirs",
@@ -2606,7 +2606,7 @@ dependencies = [
 [[package]]
 name = "ds-settings-derive"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.1.8#b209068ba37ed1bb09c5adb5862f74947d150277"
+source = "git+https://github.com/PoHsuanLai/quire?tag=v0.1.9#42ae30754eb72fe1f1c459166ffeffb5142db41c"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3616,7 +3616,7 @@ dependencies = [
  "log",
  "presser",
  "thiserror 2.0.20",
- "windows 0.61.3",
+ "windows 0.62.2",
 ]
 
 [[package]]
@@ -9078,7 +9078,7 @@ version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d8c27177b12a6399ffc08b98f76f7c9a1f4fe9fc967c784c5a071fa8d93cf7e1"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

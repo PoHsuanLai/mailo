@@ -21,6 +21,10 @@ use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
 
+/// The stacking layer of the scrim under a floating peek: the peek's own, so the peeked reader,
+/// drawn after it, is above it, and every floating surface (the command menu, a menu) above both.
+pub(in crate::ui) const SCRIM_LAYER: ds::ZLayer = ds::ZLayer::Peek;
+
 #[component]
 pub(super) fn App() -> Element {
     // No store handle in the component body any more. Since phase 8c every read this component
@@ -315,12 +319,14 @@ pub(super) fn App() -> Element {
     // On Blitz nothing puts the keyboard back when the element holding it goes away: a menu
     // quire closes on Escape, a sheet, the palette. The webview's `KEEP_FOCUS` script does it on
     // a timer; here every change of the shell or the Space editor asks, and `.app` takes the
-    // keyboard only if it is nowhere (`ui/host/native.rs`). Compiled into `native` alone.
+    // keyboard only if it is nowhere (`ui/host/native.rs`). A click on nothing focusable needs
+    // none of this: quire's `FocusFallback::Ancestor` keeps the keyboard on `.app`. Compiled
+    // into `native` alone.
     #[cfg(feature = "native")]
     use_effect(move || {
         let _ = shell.read();
         let _ = editing.read();
-        super::host::Host::hold_focus();
+        super::host::Host::hand_focus_back();
     });
 
     let on_key = move |event: Event<KeyboardData>| {
@@ -623,22 +629,19 @@ pub(super) fn App() -> Element {
             },
             onpointerup: move |_| {
                 super::motion::drag::release(shell, revision);
-                super::host::Host::hold_focus();
             },
             "data-peek": "{peek}",
             if side_hidden() {
                 ds::EdgeStrip { onenter: move |()| side_peek.set(true) }
             }
             if shell.read().open.is_some() && shell.read().peek.floats() {
-                // quire's inline scrim, in mailo's box on the peek's layer: the peeked reader,
-                // drawn later on the same layer, sits above it, and the panes' own positioned
-                // rows below.
-                div { class: "scrim",
-                    ds::Scrim {
-                        flow: ds::Flow::Inline,
-                        label: close_label.to_owned(),
-                        onclose: move |()| shell.write().close(),
-                    }
+                // quire's inline scrim on the peek's layer: the peeked reader, drawn later on the
+                // same layer, sits above it, and the panes' own positioned rows below.
+                ds::Scrim {
+                    flow: ds::Flow::Inline,
+                    layer: Some(SCRIM_LAYER),
+                    label: close_label.to_owned(),
+                    onclose: move |()| shell.write().close(),
                 }
             }
             Places {
@@ -1121,7 +1124,9 @@ mod tests {
     }
 
     fn scrim_count(page: &str) -> usize {
-        shell_markup(page).matches(r#"class="scrim""#).count()
+        shell_markup(page)
+            .matches(r#"class="ds-scrim" data-flow="inline""#)
+            .count()
     }
 
     fn iframe_srcdoc(page: &str) -> String {

@@ -26,16 +26,6 @@ pub(super) const STYLE: &[Exception] = &[
     },
     Exception {
         rule: Rule::BlitzUnsupported,
-        selector: ".fold-name",
-        reason: ELLIPSIS,
-    },
-    Exception {
-        rule: Rule::FocusPseudoClass,
-        selector: ".fold-row:hover .more, .fold-row:focus-within .more, .fold-row .more.open",
-        reason: FOCUS,
-    },
-    Exception {
-        rule: Rule::BlitzUnsupported,
         selector: ".fold-acct",
         reason: ELLIPSIS,
     },

@@ -39,12 +39,13 @@ const OFFER: &str = "https://shop.example.test/autumn?ref=mail";
 /// A laid-out newsletter: tables, two remote images, an inline one (`cid:`) and a link. The
 /// images carry no size or alt, so one that did not load lays out 0 wide. The sanitizer strips
 /// `class` (F146), so the frame's elements are found by where they sit: [`LOGO`], [`HERO`],
-/// [`BADGE`], [`LINK`].
+/// [`BADGE`], [`LINK`], and [`LIAR`], a link whose text names somewhere it does not go.
 const NEWSLETTER: &str = r##"<table width="600" cellpadding="0" cellspacing="0" bgcolor="#f4efe6"><tr><td>
 <table width="100%"><tr>
 <td><img src="cid:logo@shop"></td>
 <td align="right"><font color="#7a5c3a">Autumn letter &middot; No. 14</font>
-<a href="https://shop.example.test/autumn?ref=mail">See the collection</a></td>
+<a href="https://shop.example.test/autumn?ref=mail">See the collection</a>
+<a href="https://g00gle-security.xyz/verify">google.com</a></td>
 </tr></table>
 <h1>The autumn collection is here</h1>
 <img src="https://images.example.test/autumn/hero.png">
@@ -262,8 +263,10 @@ const LOGO: &str = "table table img";
 const HERO: &str = "h1 + img";
 /// The badge, alone in its paragraph.
 const BADGE: &str = "p > img";
-/// The one link, in the header, where a 320 px frame shows it without scrolling.
+/// The honest link, in the header, where a 320 px frame shows it without scrolling.
 const LINK: &str = "a";
+/// The link beside it, whose text names one domain and whose target is another.
+const LIAR: &str = "a + a";
 
 const ORIGINAL: &str = ".view-switch .ds-button:nth-child(2)";
 const SHOW_IMAGES: &str = ".consent .ds-button";
@@ -420,6 +423,62 @@ fn a_link_in_the_frame_opens_in_the_browser_and_the_frame_stays() {
     assert_eq!(frame.id(), before, "the frame navigated");
     assert_eq!(frame.count(HERO), 1);
     assert_eq!(window.fetched.count(), 0, "the click fetched");
+}
+
+/// The link pill shows where a link in the frame goes as the pointer comes onto it, read by the
+/// same honesty check as a Reader view link, and goes as the pointer leaves.
+#[test]
+fn hovering_a_link_in_the_frame_shows_where_it_goes() {
+    let mut window = newsletter_original();
+    let (honest, liar) = {
+        let frame = window.harness.frame(FRAME).expect("a frame document");
+        (
+            frame.centre(LINK).expect("the link is drawn"),
+            frame.centre(LIAR).expect("the second link is drawn"),
+        )
+    };
+    assert_eq!(window.harness.count(".ds-link-pill"), 0);
+    window.harness.pointer_move(honest);
+    window.harness.advance(ms(100));
+    assert_eq!(
+        window
+            .harness
+            .attr(".ds-link-pill", "data-truth")
+            .as_deref(),
+        Some("honest"),
+        "no pill for the frame's link:\n{}",
+        window.harness.html()
+    );
+    let said = window.harness.text_of(".ds-link-pill").unwrap_or_default();
+    assert!(said.contains("example.test"), "{said}");
+    // From one link to the next: the pill follows, and says the text lies.
+    window.harness.pointer_move(liar);
+    window.harness.advance(ms(100));
+    assert_eq!(
+        window
+            .harness
+            .attr(".ds-link-pill", "data-truth")
+            .as_deref(),
+        Some("lying")
+    );
+    let said = window.harness.text_of(".ds-link-pill").unwrap_or_default();
+    assert!(said.contains("g00gle-security.xyz"), "{said}");
+    // Off every link: the pill goes, and nothing was opened.
+    let off = window
+        .harness
+        .centre(".consent")
+        .expect("the consent strip");
+    window.harness.pointer_move(off);
+    window.harness.advance(ms(100));
+    assert_eq!(window.harness.count(".ds-link-pill"), 0, "the pill stayed");
+    assert!(
+        window
+            .opened
+            .0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .is_empty()
+    );
 }
 
 /// (a) No shared DOM in the real window: the sender's elements are found in the frame and never

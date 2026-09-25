@@ -184,13 +184,22 @@ async fn settle(dom: &mut VirtualDom) {
     }
 }
 
-/// The folder row whose path is `path`: from its name to its ⋯.
+/// The folder row whose path is `path`: from quire's tree item row that names it to its ⋯.
 fn row<'a>(page: &'a str, path: &str, name: &str) -> &'a str {
     let start = page
-        .find(&format!("data-folder=\"{path}\""))
+        .find(&format!("data-place=\"{path}\""))
         .unwrap_or_else(|| panic!("no row for {path}: {page}"));
     let end = page[start..].find(&format!("Actions for {name}")).unwrap() + start;
     &page[start..end]
+}
+
+/// The count a row's badge shows: quire's item count, `data-place="item"`.
+fn count(row: &str) -> Option<&str> {
+    let at = row.find("data-place=\"item\"")?;
+    let text = &row[at..];
+    let open = text.find('>')? + 1;
+    let close = text[open..].find('<')? + open;
+    Some(&text[open..close])
 }
 
 /// The list pane: from the list bar to the end.
@@ -208,12 +217,13 @@ async fn choosing_a_folder_lists_what_the_server_holds_there_and_its_badge_count
         !list(&before).contains("Q3 plan draft"),
         "listed before it was chosen"
     );
-    assert!(
-        row(&before, PROJECTS, "2026").contains("class=\"count\">2<"),
+    assert_eq!(
+        count(row(&before, PROJECTS, "2026")),
+        Some("2"),
         "the badge does not count its two unread threads: {}",
         row(&before, PROJECTS, "2026")
     );
-    assert!(row(&before, RECEIPTS, RECEIPTS).contains("class=\"count\">1<"));
+    assert_eq!(count(row(&before, RECEIPTS, RECEIPTS)), Some("1"));
     assert!(
         !before.contains("not here to list"),
         "the old tooltip is still there"
@@ -236,8 +246,8 @@ async fn choosing_a_folder_lists_what_the_server_holds_there_and_its_badge_count
     for subject in ["Your receipt for September", "A newsletter from last year"] {
         assert!(!listed.contains(subject), "{subject} is listed: {listed}");
     }
-    // The row's own element carries it, just before its name.
-    let name = page.find("data-folder=\"Projects/2026\"").unwrap();
+    // The row's own element carries it, beside the place it names.
+    let name = page.find("data-place=\"Projects/2026\"").unwrap();
     let current = page[..name].rfind("aria-current=").unwrap();
     assert!(
         page[current..].starts_with("aria-current=\"true\""),

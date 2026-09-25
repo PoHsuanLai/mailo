@@ -188,7 +188,8 @@ async fn the_composed_message_draws_every_kind_of_node() {
 }
 
 /// On Blitz the same nodes, marked for quire's `EditSurface`: `data-edit-node` where the
-/// webview writes `data-n`, every object an atom, and no `contenteditable` and no wire at all.
+/// webview writes `data-n`, every object an atom, the surface itself `.c-body`, and no
+/// `contenteditable` and no wire at all.
 #[cfg(feature = "native")]
 #[tokio::test]
 async fn the_composed_message_draws_every_kind_of_node_on_the_surface() {
@@ -199,14 +200,19 @@ async fn the_composed_message_draws_every_kind_of_node_on_the_surface() {
         r#"<ul class="todo"><li data-edit-node="4" class="done">"#,
         r#"<blockquote data-edit-node="6">"#,
         r#"class="obj o-img" data-edit-node="8" data-edit-kind="atom""#,
-        r#"class="ds-edit""#,
-        r#"<div class="c-body">"#,
+        // The surface is `.c-body` itself: quire's class, then mailo's, and no wrapper inside.
+        r#"class="ds-edit c-body""#,
         r#"class="c-float" data-anchor="below""#,
         r#"class="c-warn""#,
     ] {
         assert!(markup.contains(needle), "no {needle} in:\n{markup}");
     }
-    for gone in ["data-n=", r#"contenteditable="true""#, r#"class="c-wire""#] {
+    for gone in [
+        "data-n=",
+        r#"contenteditable="true""#,
+        r#"class="c-wire""#,
+        r#"<div class="c-body">"#,
+    ] {
         assert!(!markup.contains(gone), "{gone} in:\n{markup}");
     }
 }

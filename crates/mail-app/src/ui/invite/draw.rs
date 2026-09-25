@@ -112,14 +112,13 @@ pub(in crate::ui) fn InviteCard(card: Card, known: Signal<Option<Option<Card>>>)
             div { class: "inv-head",
                 span { class: card.tag.class(), "{card.tag.word()}" }
                 h3 { class: "inv-title", "{card.title}" }
-                span { class: "inv-save",
-                    ds::Button {
-                        variant: ds::ButtonVariant::Mini,
-                        label: save,
-                        aria_label: save.to_owned(),
-                        availability: available(!working),
-                        onclick: on_primary(move || save_file(message, title.clone(), phase)),
-                    }
+                ds::Button {
+                    variant: ds::ButtonVariant::Mini,
+                    extra_class: ds::ExtraClass::parse("inv-save").ok(),
+                    label: save,
+                    aria_label: save.to_owned(),
+                    availability: available(!working),
+                    onclick: on_primary(move || save_file(message, title.clone(), phase)),
                 }
             }
             dl { class: "inv-facts",

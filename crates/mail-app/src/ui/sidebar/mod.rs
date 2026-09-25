@@ -108,15 +108,14 @@ pub(super) fn Places(
                 TodayList { shell, today, space_index, dirs: dirs.clone(), just_added }
             }
             div { class: "side-foot",
-                // quire's frame word, in mailo's box that gives it the foot's free width.
-                span { class: "space-name",
-                    ds::Button {
-                        variant: ds::ButtonVariant::Frame,
-                        label: name.clone(),
-                        title: "Edit this Space".to_owned(),
-                        aria_label: format!("Edit the {name} Space"),
-                        onclick: open_editor,
-                    }
+                // quire's frame word, given the foot's free width by its own class.
+                ds::Button {
+                    variant: ds::ButtonVariant::Frame,
+                    extra_class: ds::ExtraClass::parse("space-name").ok(),
+                    label: name.clone(),
+                    title: "Edit this Space".to_owned(),
+                    aria_label: format!("Edit the {name} Space"),
+                    onclick: open_editor,
                 }
                 div { class: "space-dots", role: "group", aria_label: "Spaces",
                     for (index, one) in spaces.read().spaces.iter().enumerate() {
