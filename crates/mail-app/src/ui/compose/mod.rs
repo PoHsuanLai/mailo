@@ -3,11 +3,15 @@
 //! A new message is a page: the subject as its title, property rows, and the body at 66ch. A
 //! reply is the same page, compact, under the thread it answers. The body is one
 //! `contenteditable` root whose every edit goes through `crate::editor`; the page never edits
-//! text itself. See [`wire`] for how the browser's events reach Rust.
+//! text itself. See [`wire`] for how the browser's events reach Rust. On Blitz (`native`) the
+//! root is quire's `EditSurface`, and `adapt` turns what it hands over into the same events.
 //!
 //! Esc parks the draft in Today; Send folds the page away and hands it to the outbox pill,
 //! whose Undo brings back exactly what was sent.
 
+// The adapter from quire's `EditSurface` to the editor core, and the surface: Blitz's body.
+#[cfg(feature = "native")]
+mod adapt;
 mod body;
 mod desk;
 mod float;
@@ -23,6 +27,8 @@ mod receipt;
 mod recipients;
 mod render;
 mod seal;
+#[cfg(feature = "native")]
+mod surface;
 mod templates;
 mod wire;
 
@@ -51,7 +57,7 @@ pub(in crate::ui) use templates::{
     every as every_template, forget as forget_template, template_rows,
 };
 // The composer's script is the webview's head; `native` has no script engine to hand it to.
-#[cfg_attr(not(feature = "webview"), allow(unused_imports))]
+#[cfg(feature = "webview")]
 pub(in crate::ui) use wire::GLUE;
 
 use super::press::on_primary;

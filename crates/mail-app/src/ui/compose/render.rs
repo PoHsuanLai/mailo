@@ -1,4 +1,5 @@
-//! The document as markup: one element per paragraph, each carrying `data-n`, drawn by Dioxus
+//! The document as markup: one element per paragraph, each carrying `data-n` (on Blitz,
+//! `data-edit-node`, and each object `data-edit-kind=atom`; see [`node_attrs`]), drawn by Dioxus
 //! from the `Doc`. Nothing here reads the DOM, and no markup is built from strings.
 //!
 //! A paragraph is its own component with value props, so an edit elsewhere does not touch it:
@@ -28,6 +29,39 @@ pub(in crate::ui) fn para_renders(n: usize) -> u32 {
 #[cfg(test)]
 pub(in crate::ui) fn reset_para_renders() {
     PARA_RENDERS.with(|renders| renders.borrow_mut().clear());
+}
+
+/// What marks a paragraph as node `n`: `data-n`, which the webview's glue reads, or on Blitz
+/// `data-edit-node`, which quire's `EditSurface` resolves positions against.
+fn node_attrs(n: usize) -> Vec<Attribute> {
+    #[cfg(feature = "webview")]
+    let name = "data-n";
+    #[cfg(not(feature = "webview"))]
+    let name = ds::EDIT_NODE_ATTR;
+    vec![Attribute::new(name, n.to_string(), None, false)]
+}
+
+/// A to-do item's: its node, then its class, in that order.
+fn todo_attrs(n: usize, class: &'static str) -> Vec<Attribute> {
+    let mut attrs = node_attrs(n);
+    attrs.push(Attribute::new("class", class, None, false));
+    attrs
+}
+
+/// What marks an object as node `n` and keeps the caret out of it: `contenteditable=false` on
+/// the webview, an atom (`data-edit-kind=atom`) on Blitz, which the caret goes around.
+fn obj_attrs(n: usize) -> Vec<Attribute> {
+    #[cfg(feature = "webview")]
+    let attrs = vec![
+        Attribute::new("contenteditable", "false", None, false),
+        Attribute::new("data-n", n.to_string(), None, false),
+    ];
+    #[cfg(not(feature = "webview"))]
+    let attrs = vec![
+        Attribute::new(ds::EDIT_NODE_ATTR, n.to_string(), None, false),
+        Attribute::new(ds::EDIT_KIND_ATTR, ds::EditKind::Atom.slug(), None, false),
+    ];
+    attrs
 }
 
 /// Which list a run of items is drawn in.
@@ -153,20 +187,20 @@ fn Para(n: usize, kind: ParaKind, runs: Vec<Run>, page: Signal<Page>) -> Element
     PARA_RENDERS.with(|renders| *renders.borrow_mut().entry(n).or_insert(0) += 1);
     let inner = text(&runs);
     match kind {
-        ParaKind::Paragraph => rsx! { p { "data-n": "{n}", {inner} } },
+        ParaKind::Paragraph => rsx! { p { ..node_attrs(n), {inner} } },
         ParaKind::Heading(level) => match level.number() {
-            1 => rsx! { h2 { "data-n": "{n}", {inner} } },
-            2 => rsx! { h3 { "data-n": "{n}", {inner} } },
-            _ => rsx! { h4 { "data-n": "{n}", {inner} } },
+            1 => rsx! { h2 { ..node_attrs(n), {inner} } },
+            2 => rsx! { h3 { ..node_attrs(n), {inner} } },
+            _ => rsx! { h4 { ..node_attrs(n), {inner} } },
         },
-        ParaKind::Bullet | ParaKind::Numbered => rsx! { li { "data-n": "{n}", {inner} } },
+        ParaKind::Bullet | ParaKind::Numbered => rsx! { li { ..node_attrs(n), {inner} } },
         ParaKind::Todo(check) => {
             let (class, next) = match check {
                 Check::Open => ("", Check::Done),
                 Check::Done => ("done", Check::Open),
             };
             rsx! {
-                li { "data-n": "{n}", class,
+                li { ..todo_attrs(n, class),
                     span {
                         class: "box",
                         contenteditable: "false",
@@ -182,8 +216,8 @@ fn Para(n: usize, kind: ParaKind, runs: Vec<Run>, page: Signal<Page>) -> Element
                 }
             }
         }
-        ParaKind::Quote => rsx! { blockquote { "data-n": "{n}", {inner} } },
-        ParaKind::Code => rsx! { pre { "data-n": "{n}", {inner} } },
+        ParaKind::Quote => rsx! { blockquote { ..node_attrs(n), {inner} } },
+        ParaKind::Code => rsx! { pre { ..node_attrs(n), {inner} } },
     }
 }
 
@@ -229,18 +263,18 @@ fn Obj(n: usize, object: Object, menu: bool, quoted: Fold, page: Signal<Page>) -
     let handle = use_signal(|| None::<MountedRef>);
     match object {
         Object::Divider => rsx! {
-            div { class: "obj o-hr", contenteditable: "false", "data-n": "{n}",
+            div { class: "obj o-hr", ..obj_attrs(n),
                 {grip(n, menu, page, handle)}
                 hr {}
             }
         },
         Object::Signature => rsx! {
-            div { class: "obj o-sig", contenteditable: "false", "data-n": "{n}",
+            div { class: "obj o-sig", ..obj_attrs(n),
                 span { class: "mono", "-- " }
             }
         },
         Object::Image { src, alt } => rsx! {
-            figure { class: "obj o-img", contenteditable: "false", "data-n": "{n}",
+            figure { class: "obj o-img", ..obj_attrs(n),
                 {grip(n, menu, page, handle)}
                 if src.as_str().is_empty() {
                     div { class: "pick",
@@ -256,7 +290,7 @@ fn Obj(n: usize, object: Object, menu: bool, quoted: Fold, page: Signal<Page>) -
             }
         },
         Object::Table(table) => rsx! {
-            div { class: "obj o-table", contenteditable: "false", "data-n": "{n}",
+            div { class: "obj o-table", ..obj_attrs(n),
                 {grip(n, menu, page, handle)}
                 div { class: "tbl",
                     table {
@@ -274,7 +308,7 @@ fn Obj(n: usize, object: Object, menu: bool, quoted: Fold, page: Signal<Page>) -
             }
         },
         Object::Attachment(file) => rsx! {
-            div { class: "obj o-att", contenteditable: "false", "data-n": "{n}",
+            div { class: "obj o-att", ..obj_attrs(n),
                 {grip(n, menu, page, handle)}
                 Glyph { icon: Icon::Paperclip }
                 span { "{file.name()}" }
@@ -288,7 +322,7 @@ fn Obj(n: usize, object: Object, menu: bool, quoted: Fold, page: Signal<Page>) -
                 .filter(|line| !line.is_empty())
                 .collect();
             rsx! {
-                div { class: "obj o-rq", contenteditable: "false", "data-n": "{n}",
+                div { class: "obj o-rq", ..obj_attrs(n),
                     {grip(n, menu, page, handle)}
                     ds::Button {
                         variant: ds::ButtonVariant::Quiet,

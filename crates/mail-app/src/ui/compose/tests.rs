@@ -228,6 +228,7 @@ impl Window {
     }
 }
 
+#[cfg(feature = "webview")]
 #[test]
 fn the_glue_stays_small_and_never_writes_markup() {
     let lines = super::GLUE.lines().count();

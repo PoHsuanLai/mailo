@@ -15,8 +15,9 @@ use super::float;
 use super::page::Page;
 use crate::editor::{Caret, InputEvent, Pos, Range};
 
-/// The head script. Kept under a hundred lines by a test, so it cannot become an editor.
-#[cfg_attr(not(feature = "webview"), allow(dead_code))]
+/// The head script. Kept under a hundred lines by a test, so it cannot become an editor. The
+/// webview's alone: on Blitz, quire's `EditSurface` hands the page its input (`surface.rs`).
+#[cfg(feature = "webview")]
 pub(in crate::ui) const GLUE: &str = r#"<script>
 // The composer's glue: forwards what the browser is about to do, puts the caret where Rust says.
 (() => {
@@ -102,7 +103,9 @@ pub(in crate::ui) const GLUE: &str = r#"<script>
 })();
 </script>"#;
 
-/// One message from the glue, as it arrives.
+/// One message from the glue, as it arrives. The webview reads it; on Blitz, where the surface
+/// hands over input instead (`surface.rs`), only the tests replay it.
+#[cfg_attr(not(feature = "webview"), allow(dead_code))]
 #[derive(Debug, Deserialize)]
 struct Raw {
     #[serde(default)]
@@ -122,6 +125,7 @@ struct Raw {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::ui) enum Heard {
     /// The selection moved, by a click or an arrow key. Not numbered: it changes no text.
+    #[cfg_attr(not(feature = "webview"), allow(dead_code))]
     Select(Range),
     /// A `beforeinput` or a composition event, numbered by the glue.
     Input {
@@ -132,6 +136,7 @@ pub(in crate::ui) enum Heard {
     },
 }
 
+#[cfg_attr(not(feature = "webview"), allow(dead_code))]
 fn range([start_node, start_offset, end_node, end_offset]: [usize; 4]) -> Range {
     Range {
         start: Pos::new(start_node, start_offset),
@@ -141,6 +146,7 @@ fn range([start_node, start_offset, end_node, end_offset]: [usize; 4]) -> Range 
 }
 
 /// Parse what the glue wrote. `None` for anything that is not one of its messages.
+#[cfg_attr(not(feature = "webview"), allow(dead_code))]
 pub(in crate::ui) fn parse(raw: &str) -> Option<Heard> {
     let raw: Raw = serde_json::from_str(raw).ok()?;
     if raw.t == "select" {
@@ -245,6 +251,7 @@ fn apply(page: &mut Page, event: &InputEvent, at_ms: u64) {
 }
 
 /// `data-caret`: the selection, else the caret, as `node:offset:node:offset`.
+#[cfg_attr(not(feature = "webview"), allow(dead_code))]
 pub(in crate::ui) fn caret_attr(page: &Page) -> String {
     let range = page.selection.unwrap_or(Range {
         start: page.session.caret.pos,

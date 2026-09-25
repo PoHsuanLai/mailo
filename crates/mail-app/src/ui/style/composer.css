@@ -88,6 +88,16 @@
 .c-body .o-sig { margin: 1.2em 0 .2em; border-top: var(--hair) solid var(--line-soft); height: 0; }
 .c-body .o-sig .mono { display: none; }
 .c-body .o-sig ~ p { color: var(--ink-faint); font-size: var(--fs-control); }
+/* On Blitz the page draws its own caret and selection (compose/surface.rs): boxes placed from
+   the surface's rects, the selection under the text (and see-through, where a renderer paints it
+   over) and the caret over it */
+.c-marks { position: absolute; left: 0; top: 0; width: 0; height: 0; pointer-events: none; }
+.c-sel { position: absolute; background: var(--accent-soft); border-radius: var(--r-micro); opacity: .6; }
+.c-caret { position: absolute; width: 2px; background: var(--accent); }
+.c-preedit {
+  position: absolute; white-space: pre; font-size: var(--fs-compose); color: var(--ink); background: var(--paper);
+  text-decoration: underline;
+}
 .c-wire { position: absolute; width: var(--hair); height: var(--hair); opacity: 0; pointer-events: none; border: 0; padding: 0; resize: none; left: -9999px; }
 
 /* objects are the only things with a handle */

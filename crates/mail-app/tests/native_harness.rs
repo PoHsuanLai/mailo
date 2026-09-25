@@ -14,7 +14,7 @@ use ds::{Key, Point};
 use ds_native::{Harness, HarnessConfig, NetPolicy, Viewport};
 use mail_domain::*;
 use mail_runtime::{Arrival, absorb};
-use mail_store::SqliteStore;
+use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -113,10 +113,16 @@ fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
 
 /// The window over a freshly seeded store, first frame drawn. The `TempDir` must outlive it.
 fn open() -> (Harness, tempfile::TempDir) {
+    let (harness, dir, _store) = open_with_store();
+    (harness, dir)
+}
+
+/// [`open`], with the store the window writes, for a test to read back.
+fn open_with_store() -> (Harness, tempfile::TempDir, Arc<SqliteStore>) {
     let dir = tempfile::tempdir().unwrap();
     let store = seeded(dir.path());
     let contexts = mail_app::ui::native::contexts(
-        store,
+        Arc::clone(&store),
         mail_app::view::Appearance::default(),
         mail_app::space::Spaces::default(),
         None,
@@ -128,7 +134,7 @@ fn open() -> (Harness, tempfile::TempDir) {
     let mut harness = Harness::with_config(mail_app::ui::native::root, config);
     // quire's entrances run on a frame's wait after mount.
     harness.advance(ms(300));
-    (harness, dir)
+    (harness, dir, store)
 }
 
 /// The subjects of the list's rows, top to bottom, as the document holds them.
@@ -420,9 +426,6 @@ fn print_says_it_is_not_here_yet() {
 }
 
 #[test]
-#[ignore = "gap G2: the composer's body is a contenteditable driven by the webview's script \
-            (compose/wire.rs GLUE); on Blitz it opens but cannot take the focus, and typed keys \
-            go to .app, so nothing is written. Moving it onto quire's EditSurface is a later wave"]
 fn typing_into_a_new_message_writes_it() {
     let (mut harness, _dir) = open();
     harness.key(Key::Char('c'));
@@ -447,4 +450,358 @@ fn snapshot() {
     open_row(&mut harness, 1);
     harness.advance(ms(600));
     harness.render().unwrap().save(path).unwrap();
+}
+
+// The composer on quire's EditSurface (Phase B step 10): the editor core, driven through the
+// adapter by real keys, IME events, pastes and clicks.
+
+/// A new message open, its body clicked into so the surface has the keyboard.
+fn composing() -> (Harness, tempfile::TempDir, Arc<SqliteStore>) {
+    let (mut harness, dir, store) = open_with_store();
+    harness.key(Key::Char('c'));
+    harness.advance(ms(500));
+    harness.click(centre(&harness, ".c-body"));
+    harness.advance(ms(200));
+    (harness, dir, store)
+}
+
+/// Type `text` a key at a time, a space as the space bar.
+fn type_text(harness: &mut Harness, text: &str) {
+    for c in text.chars() {
+        harness.key(if c == ' ' { Key::Space } else { Key::Char(c) });
+    }
+    harness.advance(ms(100));
+}
+
+/// Press `key` `times` times with `held` down.
+fn press(harness: &mut Harness, held: &[Key], key: Key, times: usize) {
+    for _ in 0..times {
+        harness.chord(held, key);
+    }
+    harness.advance(ms(100));
+}
+
+/// The text of each paragraph of the body, top to bottom.
+fn paragraphs(harness: &Harness) -> Vec<String> {
+    (1..=harness.count(".c-body > p"))
+        .map(|n| {
+            harness
+                .text_of(&format!(".c-body > p:nth-child({n})"))
+                .unwrap_or_default()
+        })
+        .collect()
+}
+
+fn near(a: f32, b: f32, by: f32) -> bool {
+    (a - b).abs() <= by
+}
+
+#[test]
+fn enter_splits_shift_enter_breaks_and_backspace_merges() {
+    let (mut harness, _dir, _store) = composing();
+    type_text(&mut harness, "one");
+    press(&mut harness, &[], Key::Enter, 1);
+    type_text(&mut harness, "two");
+    press(&mut harness, &[Key::Shift], Key::Enter, 1);
+    type_text(&mut harness, "three");
+    assert_eq!(paragraphs(&harness), vec!["one", "two\nthree"]);
+    // Back to the second paragraph's start, then Backspace joins it to the first.
+    press(&mut harness, &[], Key::Left, "two\nthree".len());
+    press(&mut harness, &[], Key::Backspace, 1);
+    assert_eq!(paragraphs(&harness), vec!["onetwo\nthree"]);
+    // The caret stayed at the join: typing lands there.
+    type_text(&mut harness, "-");
+    assert_eq!(paragraphs(&harness), vec!["one-two\nthree"]);
+}
+
+#[test]
+fn up_and_down_move_between_laid_out_lines() {
+    let (mut harness, _dir, _store) = composing();
+    type_text(&mut harness, "first");
+    press(&mut harness, &[], Key::Enter, 1);
+    type_text(&mut harness, "x");
+    // From the start of the second line, up is the start of the first.
+    press(&mut harness, &[], Key::Left, 1);
+    press(&mut harness, &[], Key::Up, 1);
+    type_text(&mut harness, "A");
+    assert_eq!(paragraphs(&harness), vec!["Afirst", "x"]);
+    // And down again, to the start of the second.
+    press(&mut harness, &[], Key::Left, 1);
+    press(&mut harness, &[], Key::Down, 1);
+    type_text(&mut harness, "B");
+    assert_eq!(paragraphs(&harness), vec!["Afirst", "Bx"]);
+    // Up from the first line is the document's start.
+    press(&mut harness, &[], Key::Up, 2);
+    type_text(&mut harness, "C");
+    assert_eq!(paragraphs(&harness), vec!["CAfirst", "Bx"]);
+}
+
+#[test]
+fn a_selection_across_paragraphs_is_deleted_as_one() {
+    let (mut harness, _dir, _store) = composing();
+    type_text(&mut harness, "one");
+    press(&mut harness, &[], Key::Enter, 1);
+    type_text(&mut harness, "two");
+    // "e", the paragraph break and "two", selected backwards from the end.
+    press(&mut harness, &[Key::Shift], Key::Left, 5);
+    harness.advance(ms(100));
+    assert!(harness.count(".c-sel") >= 2, "the selection is not drawn");
+    press(&mut harness, &[], Key::Backspace, 1);
+    harness.advance(ms(100));
+    assert_eq!(paragraphs(&harness), vec!["on"]);
+    assert_eq!(
+        harness.count(".c-sel"),
+        0,
+        "the selection outlived its text"
+    );
+}
+
+#[test]
+fn a_zhuyin_composition_writes_its_commit_and_nothing_else() {
+    let (mut harness, _dir, _store) = composing();
+    harness.ime_start();
+    harness.ime_update("ㄓ", "ㄓ".len());
+    harness.ime_update("ㄓㄨ", "ㄓㄨ".len());
+    harness.advance(ms(100));
+    // The preedit is drawn at the caret, and the document has not been touched.
+    assert_eq!(harness.text_of(".c-preedit").as_deref(), Some("ㄓㄨ"));
+    assert_eq!(paragraphs(&harness), vec![""]);
+    // A key while the IME composes is the IME's.
+    harness.key(Key::Char('x'));
+    // winit clears the preedit (an empty update), then commits.
+    harness.ime_commit("注");
+    harness.advance(ms(100));
+    assert_eq!(paragraphs(&harness), vec!["注"]);
+    assert_eq!(harness.count(".c-preedit"), 0);
+    // Typing after it is text again, after the commit.
+    type_text(&mut harness, "a");
+    assert_eq!(paragraphs(&harness), vec!["注a"]);
+}
+
+#[test]
+fn a_kana_to_kanji_conversion_commits_the_kanji() {
+    let (mut harness, _dir, _store) = composing();
+    type_text(&mut harness, "at ");
+    harness.ime_start();
+    for preedit in ["に", "にほ", "にほん", "日本"] {
+        harness.ime_update(preedit, preedit.len());
+    }
+    harness.advance(ms(100));
+    assert_eq!(paragraphs(&harness), vec!["at "]);
+    harness.ime_commit("日本");
+    harness.ime_end();
+    harness.advance(ms(100));
+    assert_eq!(paragraphs(&harness), vec!["at 日本"]);
+}
+
+#[test]
+fn ctrl_b_bolds_the_selection_and_ctrl_z_undoes_it() {
+    let (mut harness, _dir, _store) = composing();
+    type_text(&mut harness, "bold move");
+    press(&mut harness, &[Key::Shift], Key::Left, 4);
+    press(&mut harness, &[Key::Ctrl], Key::Char('b'), 1);
+    assert_eq!(harness.text_of(".c-body .m-b").as_deref(), Some("move"));
+    // Still selected, with the bubble over it.
+    harness.advance(ms(100));
+    assert!(harness.count(".c-sel") >= 1, "the selection went");
+    assert_eq!(harness.count(".bubble"), 1, "no bubble over the selection");
+    press(&mut harness, &[Key::Ctrl], Key::Char('z'), 1);
+    assert_eq!(harness.count(".c-body .m-b"), 0, "undo left the bold");
+    assert_eq!(paragraphs(&harness), vec!["bold move"]);
+}
+
+#[test]
+fn pasted_html_is_sanitised_into_blocks() {
+    let (mut harness, _dir, _store) = composing();
+    harness.paste_html(
+        "<h1>Agenda</h1><p onclick=\"steal()\">First <b>this</b></p><script>alert(1)</script>",
+        "Agenda\nFirst this",
+    );
+    harness.advance(ms(200));
+    assert_eq!(harness.text_of(".c-body h2").as_deref(), Some("Agenda"));
+    assert_eq!(harness.text_of(".c-body .m-b").as_deref(), Some("this"));
+    let body = harness.text_of(".c-body").unwrap_or_default();
+    assert!(body.contains("First this"), "{body}");
+    assert!(
+        !body.contains("alert"),
+        "a script's text came through: {body}"
+    );
+    assert!(!harness.html().contains("steal"), "a handler came through");
+}
+
+#[test]
+fn a_click_puts_the_caret_where_it_lands() {
+    let (mut harness, _dir, _store) = composing();
+    type_text(&mut harness, "hello world");
+    let text = harness.rect(".c-body > p span").expect("the run");
+    let middle = text.origin.y.0 + text.size.height.0 / 2.0;
+    // Before the first letter.
+    harness.click(Point {
+        x: ds::Px(text.origin.x.0 + 1.0),
+        y: ds::Px(middle),
+    });
+    harness.advance(ms(100));
+    type_text(&mut harness, "X");
+    assert_eq!(paragraphs(&harness), vec!["Xhello world"]);
+    // Past the end of the line.
+    harness.click(Point {
+        x: ds::Px(text.origin.x.0 + text.size.width.0 + 40.0),
+        y: ds::Px(middle),
+    });
+    harness.advance(ms(100));
+    type_text(&mut harness, "!");
+    assert_eq!(paragraphs(&harness), vec!["Xhello world!"]);
+}
+
+#[test]
+fn the_caret_and_the_selection_are_drawn_where_the_text_is() {
+    let (mut harness, _dir, _store) = composing();
+    type_text(&mut harness, "hey");
+    harness.advance(ms(100));
+    let text = harness.rect(".c-body > p span").expect("the run");
+    let caret = harness.rect(".c-caret").expect("no caret is drawn");
+    // After the last letter, on its line.
+    assert!(
+        near(caret.origin.x.0, text.origin.x.0 + text.size.width.0, 1.0),
+        "caret {caret:?}, text {text:?}"
+    );
+    assert!(
+        near(caret.origin.y.0, text.origin.y.0, 4.0),
+        "caret {caret:?}, text {text:?}"
+    );
+    assert!(
+        caret.size.height.0 >= text.size.height.0 - 4.0,
+        "caret {caret:?}"
+    );
+    // Everything selected: one box over the run, and no caret.
+    press(&mut harness, &[Key::Ctrl], Key::Char('a'), 1);
+    harness.advance(ms(100));
+    let boxed = harness.rect(".c-sel").expect("no selection is drawn");
+    assert!(
+        near(boxed.origin.x.0, text.origin.x.0, 1.0),
+        "{boxed:?} {text:?}"
+    );
+    assert!(
+        near(boxed.size.width.0, text.size.width.0, 1.0),
+        "{boxed:?} {text:?}"
+    );
+    assert_eq!(harness.count(".c-caret"), 0, "a caret beside a selection");
+    // The IME's candidate window follows the caret.
+    press(&mut harness, &[], Key::Right, 1);
+    harness.advance(ms(100));
+    let caret = harness.rect(".c-caret").expect("the caret is back");
+    let area = harness.ime_cursor_area().expect("the IME has no area");
+    assert!(
+        near(area.origin.x.0, caret.origin.x.0, 1.0),
+        "{area:?} {caret:?}"
+    );
+    assert!(
+        near(area.origin.y.0, caret.origin.y.0, 1.0),
+        "{area:?} {caret:?}"
+    );
+}
+
+#[test]
+fn a_slash_opens_its_menu_at_the_caret() {
+    let (mut harness, _dir, _store) = composing();
+    type_text(&mut harness, "/");
+    harness.advance(ms(300));
+    assert_eq!(harness.count(".ds-menu"), 1, "/ opened no menu");
+    let caret = harness.rect(".c-caret").expect("the caret");
+    let menu = harness.rect(".ds-menu").expect("the menu");
+    let below = menu.origin.y.0 >= caret.origin.y.0 + caret.size.height.0 - 1.0;
+    let above = menu.origin.y.0 + menu.size.height.0 <= caret.origin.y.0 + 1.0;
+    assert!(
+        below || above,
+        "the menu covers the caret: {menu:?} {caret:?}"
+    );
+    assert!(
+        near(menu.origin.x.0, caret.origin.x.0, 24.0),
+        "the menu is not at the caret: {menu:?} {caret:?}"
+    );
+    // Its keys are the menu's while it is open, and Escape closes it without parking the draft.
+    press(&mut harness, &[], Key::Escape, 1);
+    harness.advance(ms(300));
+    assert_eq!(harness.count(".ds-menu"), 0, "Escape left the menu open");
+    assert_eq!(
+        harness.count(".cpage .c-body"),
+        1,
+        "Escape parked the draft"
+    );
+}
+
+#[test]
+fn an_at_sign_mentions_a_person_and_adds_them_to_cc() {
+    let (mut harness, _dir, _store) = composing();
+    type_text(&mut harness, "thanks @ada");
+    harness.advance(ms(300));
+    assert_eq!(harness.count(".ds-menu"), 1, "@ opened no menu");
+    press(&mut harness, &[], Key::Enter, 1);
+    harness.advance(ms(300));
+    assert_eq!(harness.count(".ds-menu"), 0);
+    let cc = harness.text_of(".c-props").unwrap_or_default();
+    assert!(cc.contains("ada"), "ada is not in Cc: {cc:?}");
+    // The query became the person's name, and the caret is after it.
+    type_text(&mut harness, "for");
+    assert_eq!(paragraphs(&harness), vec!["thanks @ada for"]);
+}
+
+#[test]
+fn send_queues_the_typed_body_as_text_and_html() {
+    let (mut harness, _dir, store) = composing();
+    type_text(&mut harness, "hey there");
+    harness.click(centre(&harness, ".c-props .c-pin input"));
+    harness.advance(ms(100));
+    type_text(&mut harness, "ada@example.test");
+    press(&mut harness, &[], Key::Enter, 1);
+    harness.click(centre(&harness, ".c-body"));
+    harness.advance(ms(100));
+    press(&mut harness, &[Key::Ctrl], Key::Enter, 1);
+    harness.advance(ms(1500));
+    let later = chrono::Utc::now() + chrono::Duration::days(1);
+    let due = store.outbox_due(ACCOUNT, later).unwrap();
+    assert_eq!(due.len(), 1, "nothing was queued");
+    let ProtoOp::Submit {
+        draft,
+        raw,
+        rcpt_to,
+        ..
+    } = &due[0].op
+    else {
+        panic!("expected a submission, got {:?}", due[0].op);
+    };
+    assert_eq!(rcpt_to, &vec!["ada@example.test".to_owned()]);
+    let sent = store.draft(*draft).unwrap();
+    assert_eq!(sent.text.trim_end(), "hey there");
+    let html = sent.html.unwrap_or_default();
+    assert!(html.contains("hey there"), "{html}");
+    let bytes = store.blobs().get(&store.connection(), *raw).unwrap();
+    let bytes = String::from_utf8_lossy(&bytes);
+    for part in ["text/plain", "text/html", "hey there"] {
+        assert!(bytes.contains(part), "no {part} in:\n{bytes}");
+    }
+}
+
+/// A picture of the composer on Blitz, with text, a bold run, a selection and the bubble,
+/// painted headlessly: for when no screen can be captured.
+#[test]
+#[ignore = "picture generator: set MAILO_SNAPSHOT to a .png path and run with --ignored"]
+fn composer_snapshot() {
+    let path = std::env::var("MAILO_SNAPSHOT").expect("MAILO_SNAPSHOT names the .png to write");
+    let (mut harness, _dir, _store) = composing();
+    type_text(&mut harness, "Here is where we landed");
+    press(&mut harness, &[Key::Shift], Key::Left, 6);
+    press(&mut harness, &[Key::Ctrl], Key::Char('b'), 1);
+    press(&mut harness, &[], Key::Right, 1);
+    press(&mut harness, &[], Key::Enter, 1);
+    type_text(&mut harness, "so nobody has to scroll back");
+    press(&mut harness, &[Key::Shift], Key::Left, 6);
+    harness.advance(ms(600));
+    harness.render().unwrap().save(&path).unwrap();
+    // And the caret, beside the same text with nothing selected, as `<path>.caret.png`.
+    press(&mut harness, &[], Key::Left, 1);
+    press(&mut harness, &[], Key::Right, 3);
+    harness.advance(ms(600));
+    let caret = format!("{}.caret.png", path.trim_end_matches(".png"));
+    harness.render().unwrap().save(caret).unwrap();
 }

@@ -169,6 +169,7 @@ async fn every_class_the_composer_draws_is_styled() {
     }
 }
 
+#[cfg(feature = "webview")]
 #[tokio::test]
 async fn the_composed_message_draws_every_kind_of_node() {
     let (markup, _root) = window_with_page(composed);
@@ -183,6 +184,30 @@ async fn the_composed_message_draws_every_kind_of_node() {
         r#"contenteditable="true""#,
     ] {
         assert!(markup.contains(needle), "no {needle} in:\n{markup}");
+    }
+}
+
+/// On Blitz the same nodes, marked for quire's `EditSurface`: `data-edit-node` where the
+/// webview writes `data-n`, every object an atom, and no `contenteditable` and no wire at all.
+#[cfg(feature = "native")]
+#[tokio::test]
+async fn the_composed_message_draws_every_kind_of_node_on_the_surface() {
+    let (markup, _root) = window_with_page(composed);
+    for needle in [
+        r#"<h2 data-edit-node="0">"#,
+        r#"<ul><li data-edit-node="2">"#,
+        r#"<ul class="todo"><li data-edit-node="4" class="done">"#,
+        r#"<blockquote data-edit-node="6">"#,
+        r#"class="obj o-img" data-edit-node="8" data-edit-kind="atom""#,
+        r#"class="ds-edit""#,
+        r#"<div class="c-body">"#,
+        r#"class="c-float" data-anchor="below""#,
+        r#"class="c-warn""#,
+    ] {
+        assert!(markup.contains(needle), "no {needle} in:\n{markup}");
+    }
+    for gone in ["data-n=", r#"contenteditable="true""#, r#"class="c-wire""#] {
+        assert!(!markup.contains(gone), "{gone} in:\n{markup}");
     }
 }
 

@@ -63,13 +63,26 @@ fn typed_markdown_becomes_a_bold_run_and_the_markup_shows_it() {
     );
 
     let markup = dioxus_ssr::render(&dom);
+    #[cfg(feature = "webview")]
+    {
+        assert!(
+            markup.contains(
+                r#"data-n="0"><span class="">hello </span><span class="m-b">world</span>"#
+            ),
+            "the paragraph is not drawn from the doc:\n{markup}"
+        );
+        assert!(
+            markup.contains(r#"data-seq="15""#),
+            "the last message's number is echoed:\n{markup}"
+        );
+    }
+    // On Blitz the paragraph is the surface's node 0, and there is no glue to echo to.
+    #[cfg(feature = "native")]
     assert!(
-        markup.contains(r#"data-n="0"><span class="">hello </span><span class="m-b">world</span>"#),
+        markup.contains(
+            r#"data-edit-node="0"><span class="">hello </span><span class="m-b">world</span>"#
+        ),
         "the paragraph is not drawn from the doc:\n{markup}"
-    );
-    assert!(
-        markup.contains(r#"data-seq="15""#),
-        "the last message's number is echoed:\n{markup}"
     );
 }
 

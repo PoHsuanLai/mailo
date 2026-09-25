@@ -1,5 +1,6 @@
 //! The message body: one `contenteditable` root, the hidden wire beside it, the `/` and `@`
-//! menus at the caret, and the selection bubble.
+//! menus at the caret, and the selection bubble. On Blitz (`native`) the root is quire's
+//! `EditSurface` instead, with no wire (`surface.rs`); the menus and the bubble are the same.
 //!
 //! Every handler here calls `editor::` through [`super::wire`] and [`super::float`]. The only
 //! thing this file decides is which key goes where.
@@ -10,16 +11,15 @@ use super::super::field::{Field, FieldKind};
 use super::super::menu::{Floating, MenuKey, anchor_at, menu_key, quire_entries};
 use super::super::press::on_primary;
 use super::float::{
-    Picked, commit, current_kind, mention_items, pick_mention, pick_slash, pick_turn,
-    suggest_mention, turn_items,
+    Picked, commit, current_kind, mention_items, pick_mention, pick_slash, pick_turn, turn_items,
 };
 use super::page::{Float, Page};
-use super::render;
 use super::templates::{self, TemplateFloat, page_slash_items};
-use super::wire::{self, caret_attr};
-use crate::editor::{InputEvent, Mark, Node, Op, Presence, Range, to_html};
+use crate::editor::{InputEvent, Mark, Node, Op, Presence, Range};
 use crate::view::Shell;
 use ds::{ButtonFace, ButtonVariant, Expanded, Switch, Trailing};
+#[cfg(feature = "webview")]
+use {super::float::suggest_mention, super::render, super::wire, crate::editor::to_html};
 
 /// Milliseconds on the wall clock, which is what groups typing into undo steps.
 pub(in crate::ui) fn now_ms() -> u64 {
@@ -39,51 +39,39 @@ pub(in crate::ui) fn Body(
 ) -> Element {
     // The caret's box, which the glue moves to the caret: quire's menus float against it.
     let mut at_caret = use_signal(|| None::<ds::MountedRef>);
+    // On Blitz the surface measures the caret and the selection itself.
+    #[cfg(feature = "native")]
+    let marks = use_signal(super::surface::Marks::default);
     let read = page.read();
     let only_empty = matches!(read.session.doc.nodes.as_slice(),
         [Node::Para { runs, .. }] if runs.is_empty());
-    let seq = read.wire.seq;
-    let caret = caret_attr(&read);
-    // The document as the writers see it, for the live probe. Debug builds only.
-    let doc = if cfg!(debug_assertions) {
-        to_html(&read.session.doc)
-    } else {
-        String::new()
-    };
     let float = read.float.clone();
     let selected = read.selection.is_some();
     drop(read);
     let class = if only_empty { "c-body ph" } else { "c-body" };
+    #[cfg(feature = "webview")]
+    let editable = editable(page, shell, on_attach, class);
+    #[cfg(feature = "native")]
+    let editable = rsx! { super::surface::Surface { page, shell, on_attach, class, marks } };
+    // Where the `/` and `@` menus float: the glue's box on the webview; on Blitz the caret's own
+    // rect, and the float boxes and the bubble are placed from the surface's measures.
+    #[cfg(feature = "webview")]
+    let (at, below, above): (_, Option<String>, Option<String>) =
+        (move || anchor_at(at_caret()), None, None);
+    #[cfg(feature = "native")]
+    let (at, below, above) = (
+        move || {
+            marks
+                .read()
+                .at
+                .map_or_else(|| anchor_at(at_caret()), ds::Anchor::Rect)
+        },
+        marks.read().below_caret(),
+        marks.read().above_selection(),
+    );
     rsx! {
         div { class: "c-edit",
-            div {
-                class,
-                contenteditable: "true",
-                spellcheck: "true",
-                role: "textbox",
-                aria_multiline: "true",
-                aria_label: "Message",
-                "data-seq": "{seq}",
-                "data-caret": "{caret}",
-                "data-doc": "{doc}",
-                onkeydown: move |event| keys(page, shell, on_attach, event),
-                {render::body(page)}
-            }
-            textarea {
-                class: "c-wire",
-                tabindex: "-1",
-                aria_hidden: "true",
-                oninput: move |event| {
-                    if let Some(heard) = wire::parse(&event.value()) {
-                        let store = try_consume_context::<std::sync::Arc<mail_store::SqliteStore>>();
-                        let mut write = page.write();
-                        wire::hear(&mut write, heard, now_ms());
-                        if let Some(store) = store {
-                            suggest_mention(&mut write, store.as_ref());
-                        }
-                    }
-                },
-            }
+            {editable}
             match float {
                 // quire's menus, their cursor the editor's: the caret keeps the keyboard, and
                 // the page's keys move `active` and pick with it. A pick is followed by quire's
@@ -92,11 +80,12 @@ pub(in crate::ui) fn Body(
                     div {
                         class: "c-float",
                         "data-anchor": "below",
+                        style: below.clone(),
                         onmounted: move |event| at_caret.set(Some(ds::MountedRef(event.data()))),
                     }
                     ds::Menu::<String> {
                         kind: ds::MenuKind::Rich,
-                        anchor: anchor_at(at_caret()),
+                        anchor: at(),
                         entries: quire_entries("", &page_slash_items(&page.read()), ds::AvatarSize::Size34, None),
                         onpick: move |key: String| pick(page, on_attach, &key),
                         onclose: move |()| close_float(page),
@@ -112,11 +101,12 @@ pub(in crate::ui) fn Body(
                     div {
                         class: "c-float",
                         "data-anchor": "below",
+                        style: below.clone(),
                         onmounted: move |event| at_caret.set(Some(ds::MountedRef(event.data()))),
                     }
                     ds::Menu::<String> {
                         kind: ds::MenuKind::Slim,
-                        anchor: anchor_at(at_caret()),
+                        anchor: at(),
                         entries: quire_entries(
                             "Mention, and add to Cc",
                             &mention_items(&page.read()),
@@ -137,13 +127,64 @@ pub(in crate::ui) fn Body(
                     div {
                         class: "c-float",
                         "data-anchor": "below",
+                        style: below.clone(),
                         onmounted: move |event| at_caret.set(Some(ds::MountedRef(event.data()))),
                         TemplateFloat { page, shell, at: at_caret() }
                     }
                 },
-                _ if selected => rsx! { Bubble { page } },
+                _ if selected => rsx! { Bubble { page, place: above } },
                 _ => rsx! {},
             }
+        }
+    }
+}
+
+/// The webview's body: the `contenteditable` root, and the hidden wire the glue writes into.
+#[cfg(feature = "webview")]
+fn editable(
+    mut page: Signal<Page>,
+    shell: Signal<Shell>,
+    on_attach: EventHandler<()>,
+    class: &'static str,
+) -> Element {
+    let read = page.read();
+    let seq = read.wire.seq;
+    let caret = wire::caret_attr(&read);
+    // The document as the writers see it, for the live probe. Debug builds only.
+    let doc = if cfg!(debug_assertions) {
+        to_html(&read.session.doc)
+    } else {
+        String::new()
+    };
+    drop(read);
+    rsx! {
+        div {
+            class,
+            contenteditable: "true",
+            spellcheck: "true",
+            role: "textbox",
+            aria_multiline: "true",
+            aria_label: "Message",
+            "data-seq": "{seq}",
+            "data-caret": "{caret}",
+            "data-doc": "{doc}",
+            onkeydown: move |event| keys(page, shell, on_attach, event),
+            {render::body(page)}
+        }
+        textarea {
+            class: "c-wire",
+            tabindex: "-1",
+            aria_hidden: "true",
+            oninput: move |event| {
+                if let Some(heard) = wire::parse(&event.value()) {
+                    let store = try_consume_context::<std::sync::Arc<mail_store::SqliteStore>>();
+                    let mut write = page.write();
+                    wire::hear(&mut write, heard, now_ms());
+                    if let Some(store) = store {
+                        suggest_mention(&mut write, store.as_ref());
+                    }
+                }
+            },
         }
     }
 }
@@ -163,27 +204,47 @@ fn pick(mut page: Signal<Page>, on_attach: EventHandler<()>, key: &str) {
 }
 
 /// Keys the browser would otherwise take: the menus' arrows and Enter, and the inline marks.
+#[cfg(feature = "webview")]
 fn keys(
-    mut page: Signal<Page>,
+    page: Signal<Page>,
     shell: Signal<Shell>,
     on_attach: EventHandler<()>,
     event: KeyboardEvent,
 ) {
-    let key = event.key().to_string();
-    let modifiers = event.modifiers();
-    let ctrl = modifiers.ctrl() || modifiers.meta();
-    let float = page.read().float.clone();
-    if templates::key(page, shell, &key) {
+    if key_taken(
+        page,
+        shell,
+        on_attach,
+        &event.key().to_string(),
+        event.modifiers(),
+    ) {
         event.prevent_default();
         event.stop_propagation();
-        return;
+    }
+}
+
+/// Whether `key` with `modifiers` is the menus' or a chord's, and if it is, do it: an open
+/// menu's arrows, Enter and Escape, then Ctrl B, I, U, Shift S, E, K, Z, Shift Z and Y. The
+/// webview's body and the Blitz surface (`surface.rs`) both ask this first; a taken key goes
+/// no further.
+pub(super) fn key_taken(
+    mut page: Signal<Page>,
+    shell: Signal<Shell>,
+    on_attach: EventHandler<()>,
+    key: &str,
+    modifiers: Modifiers,
+) -> bool {
+    let ctrl = modifiers.ctrl() || modifiers.meta();
+    let float = page.read().float.clone();
+    if templates::key(page, shell, key) {
+        return true;
     }
     if let Float::Slash { active, .. } | Float::Mention { active, .. } = float {
         let items = match float {
             Float::Slash { .. } => page_slash_items(&page.read()),
             _ => mention_items(&page.read()),
         };
-        let taken = match menu_key(&key) {
+        let taken = match menu_key(key) {
             Some(MenuKey::Down) => {
                 set_active(page, (active + 1) % items.len().max(1));
                 true
@@ -208,16 +269,14 @@ fn keys(
             _ => false,
         };
         if taken {
-            event.prevent_default();
-            event.stop_propagation();
-            return;
+            return true;
         }
     }
     if !ctrl {
-        return;
+        return false;
     }
     let lower = key.to_lowercase();
-    let done = match (lower.as_str(), modifiers.shift()) {
+    match (lower.as_str(), modifiers.shift()) {
         ("b", false) => format(page, "formatBold"),
         ("i", false) => format(page, "formatItalic"),
         ("u", false) => format(page, "formatUnderline"),
@@ -233,10 +292,6 @@ fn keys(
         ("z", false) => format(page, "historyUndo"),
         ("z", true) | ("y", false) => format(page, "historyRedo"),
         _ => false,
-    };
-    if done {
-        event.prevent_default();
-        event.stop_propagation();
     }
 }
 
@@ -331,7 +386,7 @@ pub(in crate::ui) fn covered(page: &Page, range: Range, mark: Mark) -> bool {
 
 /// The selection bubble: Turn into, the five marks, and a link.
 #[component]
-fn Bubble(page: Signal<Page>) -> Element {
+fn Bubble(page: Signal<Page>, place: Option<String>) -> Element {
     // The Turn into button, which its menu floats against.
     let mut turn_at = use_signal(|| None::<ds::MountedRef>);
     let read = page.read();
@@ -368,6 +423,7 @@ fn Bubble(page: Signal<Page>) -> Element {
         div {
             class: "bubble",
             "data-anchor": "above",
+            style: place,
             onmousedown: move |event| event.prevent_default(),
             match float {
                 Float::Link(typed) => rsx! {
