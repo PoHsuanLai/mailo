@@ -552,6 +552,16 @@ impl Seen {
         RowParts { row, name, time }
     }
 
+    /// The folder name at `path`: quire's button inside the box that carries `data-folder`
+    /// (the first element after it with a `data-variant`), which is what a click lands on.
+    pub(in crate::ui) fn folder(&self, path: &str) -> dioxus_core::ElementId {
+        self.one("data-folder", path);
+        self.after("data-folder", path, "data-variant")
+            .first()
+            .copied()
+            .unwrap_or_else(|| panic!("no button in the folder name for {path}"))
+    }
+
     /// The one element whose dynamic `name` attribute equals `value`.
     pub(in crate::ui) fn one(&self, name: &str, value: &str) -> dioxus_core::ElementId {
         let ids = self.ids(name, value);

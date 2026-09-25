@@ -290,16 +290,22 @@ fn Obj(n: usize, object: Object, menu: bool, quoted: Fold, page: Signal<Page>) -
             rsx! {
                 div { class: "obj o-rq", contenteditable: "false", "data-n": "{n}",
                     {grip(n, menu, page, handle)}
-                    button {
-                        class: "rq-head",
-                        r#type: "button",
+                    ds::Button {
+                        variant: ds::ButtonVariant::Quiet,
+                        icon: Icon::Corner,
+                        // Who in the strong tone, when and the hint quieter.
+                        label: ds::Text::Runs(vec![
+                            ds::Run::new(who.clone(), ds::RunTone::Strong),
+                            ds::Run::new(format!(", {when}"), ds::RunTone::Faint),
+                            ds::Run::new(
+                                if open { "  hide quoted text" } else { "  show quoted text" },
+                                ds::RunTone::Faint,
+                            ),
+                        ]),
                         onclick: move |_| {
                             let mut write = page.write();
                             write.quoted = if open { Fold::Folded } else { Fold::Open };
                         },
-                        Glyph { icon: Icon::Corner, size: ds::IconSize::Tiny }
-                        span { "{who}, {when}" }
-                        span { class: "rq-t", if open { "hide quoted text" } else { "show quoted text" } }
                     }
                     if open {
                         div { class: "rq-body",

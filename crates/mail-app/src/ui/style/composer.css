@@ -116,12 +116,6 @@
 }
 .o-hr hr { border: 0; border-top: var(--hair) solid var(--line); margin: var(--s-14) 0; }
 .o-att { display: inline-flex; align-items: center; gap: var(--s-6); font-size: var(--fs-control); color: var(--ink-soft); }
-.o-rq .rq-head {
-  display: flex; align-items: center; gap: var(--s-6); font-family: var(--font-data); font-size: var(--fs-note);
-  color: var(--ink-faint); cursor: pointer; border: 0; background: none; padding: var(--s-2) 0;
-}
-.o-rq .rq-head:hover { color: var(--ink); }
-.o-rq .rq-t { opacity: .7; }
 .o-rq .rq-body {
   border-left: 2px solid var(--line); padding-left: var(--s-12); color: var(--ink-faint); font-size: var(--fs-body);
   margin-top: var(--s-4); animation: rise var(--t-move) var(--e-out);

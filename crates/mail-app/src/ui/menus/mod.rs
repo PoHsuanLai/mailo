@@ -203,7 +203,8 @@ pub(super) fn LabelMenu(
             placed,
             title: "Labels".to_owned(),
             items,
-            filter: Filter::Typing,
+            // What is typed shows in a line at the top, as the labels narrow.
+            filter: Filter::Field { placeholder: "Filter labels…".to_owned() },
             note,
             dismiss: PickDismiss::Stay,
             on_query: move |value| typed.set(value),

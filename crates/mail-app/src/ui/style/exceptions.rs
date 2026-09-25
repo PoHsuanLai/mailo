@@ -10,8 +10,6 @@ const ELLIPSIS: &str = "text-overflow: ellipsis truncates in the webview Phase A
 const FOCUS: &str = "the webview matches :focus-visible and :focus-within; Phase B moves keyboard focus onto `.ds[data-modality=keyboard] :focus`";
 /// A tint or nudge on quire's glyph inside mailo's own chrome.
 const GLYPH_TINT: &str = "tints or nudges quire's `Glyph` inside mailo's own chrome; `Glyph` takes no colour of its own, and the rule never reaches into a quire component";
-/// A button inside a folder row's `<summary>`.
-const IN_SUMMARY: &str = "a folder row is a `<summary>`, and a click on a button inside it would also open or close the folder; the button stops that on the click itself, and quire's `Button` and `IconButton` hand the caller a `Press`, not the event (a gap, reported)";
 /// The composer's wire.
 const WIRE: &str = "the composer's wire is the textarea the editor glue reads the page through, by design, not a field anyone types in";
 
@@ -33,7 +31,7 @@ pub(super) const STYLE: &[Exception] = &[
     },
     Exception {
         rule: Rule::FocusPseudoClass,
-        selector: ".fold-row:hover .more, .fold-row:focus-within .more, .fold-row .more[*|aria-expanded=\"true\"]",
+        selector: ".fold-row:hover .more, .fold-row:focus-within .more, .fold-row .more.open",
         reason: FOCUS,
     },
     Exception {
@@ -74,16 +72,6 @@ pub(super) const STYLE: &[Exception] = &[
     Exception {
         rule: Rule::DsInternals,
         selector: ".inv-answered .ds-ic",
-        reason: GLYPH_TINT,
-    },
-    Exception {
-        rule: Rule::DsInternals,
-        selector: ".hc .flag .ds-ic",
-        reason: GLYPH_TINT,
-    },
-    Exception {
-        rule: Rule::DsInternals,
-        selector: ".hc .flag.info .ds-ic",
         reason: GLYPH_TINT,
     },
     Exception {
@@ -159,26 +147,6 @@ pub(super) const STYLE: &[Exception] = &[
 ];
 
 pub(in crate::ui) const MARKUP: &[Exception] = &[
-    Exception {
-        rule: Rule::RawMarkup,
-        selector: "button.fold-name",
-        reason: IN_SUMMARY,
-    },
-    Exception {
-        rule: Rule::RawMarkup,
-        selector: "button.more",
-        reason: IN_SUMMARY,
-    },
-    Exception {
-        rule: Rule::RawMarkup,
-        selector: "button.scrim",
-        reason: "the peek's scrim sits in the window's grid under the peeked reader; quire's `Scrim` floats in the overlay host, over everything the window draws, and would cover the reader it dims around (a gap, reported)",
-    },
-    Exception {
-        rule: Rule::RawMarkup,
-        selector: "button.rq-head",
-        reason: "a quoted message's head in the composer is a glyph, who and when, and a quieter hint, in two faces; quire's `Button` draws one label (a gap, reported)",
-    },
     Exception {
         rule: Rule::RawMarkup,
         selector: "textarea.c-wire",

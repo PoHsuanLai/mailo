@@ -247,7 +247,12 @@ pub(super) fn RuleEditor(
                             anchor: add_at(),
                             title: menu_title.to_owned(),
                             items,
-                            filter: if filterable { ds::Filter::Typing } else { ds::Filter::None },
+                            // What is typed shows in a line at the top, as the labels or folders narrow.
+                            filter: match (filterable, menu_title) {
+                                (false, _) => ds::Filter::None,
+                                (true, "Label") => ds::Filter::Field { placeholder: "Filter labels…".to_owned() },
+                                (true, _) => ds::Filter::Field { placeholder: "Filter folders…".to_owned() },
+                            },
                             // A pick either adds an action, which closes the menu, or opens the
                             // next one: the menu never closes on a pick by itself.
                             dismiss: ds::PickDismiss::Stay,

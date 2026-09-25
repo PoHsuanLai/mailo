@@ -230,7 +230,7 @@ async fn settle(dom: &mut VirtualDom) {
 
 /// Open `FROM`'s place, and return what the list drew.
 async fn open_the_folder(dom: &mut VirtualDom, seen: &Seen) -> Seen {
-    let mut drawn = click(dom, seen.one("data-folder", FROM));
+    let mut drawn = click(dom, seen.folder(FROM));
     for _ in 0..12 {
         let quiet = std::time::Duration::from_millis(60);
         if tokio::time::timeout(quiet, dom.wait_for_work())
@@ -415,7 +415,7 @@ async fn a_row_dropped_on_a_folder_is_filed_there() {
         held,
     };
     let row = listed.all("aria-label", "Move to…")[0];
-    let target = seen.one("data-folder", "收據");
+    let target = seen.folder("收據");
     pointer(&mut dom, "pointerdown", row, at(420.0, 120.0, true));
     pointer(&mut dom, "pointermove", row, at(300.0, 160.0, true));
     pointer(&mut dom, "pointermove", row, at(120.0, 300.0, true));

@@ -246,37 +246,39 @@ fn PlaceButton(
     let state = use_hook(motion);
     let accepts = shell.read().places.get(index).is_some_and(drag::accepts);
     let look = state.map_or_else(Look::default, |state| look(&state, index, &name, accepts));
-    // quire's place, in mailo's box that outlines it while a dragged row could land on it.
     rsx! {
-        div { class: if look.can_drop { "place can-drop" } else { "place" },
-            SidebarItem {
-                kind: ItemKind::Place { icon },
-                label: name.clone(),
-                here: if on { Here::Current } else { Here::Elsewhere },
-                // quire's count bumps itself whenever the number changes.
-                count: count.map(count_of),
-                presence: Presence::Present,
-                preview: look.dest.then_some(ds::Preview::Destination),
-                // The gulp plays for as long as the list's gulp timer runs for this place.
-                pulse: if look.gulp {
-                    PulseKey::rest(Anim::Gulp).fired()
-                } else {
-                    PulseKey::rest(Anim::Gulp)
-                },
-                onclick: move |()| {
-                    shell.write().select(index);
-                    pages.set(1);
-                },
-                onclose: None,
-                drop: if look.target { DropState::Target } else { DropState::Idle },
-                place: Some(PlaceId(name.clone())),
-                onpointerenter: move |_| {
-                    if accepts {
-                        drag::over(Some(index), index);
-                    }
-                },
-                onpointerleave: move |_| drag::over(None, index),
-            }
+        SidebarItem {
+            kind: ItemKind::Place { icon },
+            label: name.clone(),
+            here: if on { Here::Current } else { Here::Elsewhere },
+            // quire's count bumps itself whenever the number changes.
+            count: count.map(count_of),
+            presence: Presence::Present,
+            preview: look.dest.then_some(ds::Preview::Destination),
+            // The gulp plays for as long as the list's gulp timer runs for this place.
+            pulse: if look.gulp {
+                PulseKey::rest(Anim::Gulp).fired()
+            } else {
+                PulseKey::rest(Anim::Gulp)
+            },
+            onclick: move |()| {
+                shell.write().select(index);
+                pages.set(1);
+            },
+            onclose: None,
+            // Outlined while a dragged row could land here, lit under the pointer.
+            drop: match (look.target, look.can_drop) {
+                (true, _) => DropState::Target,
+                (false, true) => DropState::Accepts,
+                (false, false) => DropState::Idle,
+            },
+            place: Some(PlaceId(name.clone())),
+            onpointerenter: move |_| {
+                if accepts {
+                    drag::over(Some(index), index);
+                }
+            },
+            onpointerleave: move |_| drag::over(None, index),
         }
     }
 }

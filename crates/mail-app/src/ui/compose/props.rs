@@ -138,14 +138,14 @@ fn FromRow(page: Signal<Page>, shell: Signal<Shell>) -> Element {
         div { class: "prop-row",
             div { class: "k", Glyph { icon: Icon::Mail, size: ds::IconSize::Compact }, "From" }
             div { class: "v",
-                // The provider's mark leads the value, beside quire's dropdown value: a `Button`
-                // draws a glyph and words, not a provider's mark.
-                if let Some(via) = via {
-                    ProvChip { provider: via, marks, place: ChipPlace::Inline }
-                }
                 ds::Button {
                     variant: ds::ButtonVariant::Quiet,
                     label: address,
+                    // The provider's mark leads the value, inside it: quire's `ProviderMark`
+                    // at its inline size, drawn from the cached icon or the letter.
+                    leading: via.map(|via| ds::Leading::Mark(rsx! {
+                        ProvChip { provider: via, marks, place: ChipPlace::Inline }
+                    })),
                     trailing: Some(ds::Trailing::Caret),
                     expanded: if open { ds::Expanded::Open } else { ds::Expanded::Closed },
                     mounted: move |event: MountedEvent| value.set(Some(MountedRef(event.data()))),

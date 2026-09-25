@@ -110,7 +110,8 @@ async fn the_sender_card_flags_a_borrowed_name() {
         "the row's card opened instead of the name's:\n{shown}"
     );
     assert!(
-        shown.contains("The name says ") && shown.contains("<b>Google</b>"),
+        shown.contains("The name says ")
+            && shown.contains(r#"<span class="ds-run" data-tone="strong">Google</span>"#),
         "no brand flag:\n{shown}"
     );
     assert!(

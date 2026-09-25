@@ -630,11 +630,15 @@ pub(super) fn App() -> Element {
                 ds::EdgeStrip { onenter: move |()| side_peek.set(true) }
             }
             if shell.read().open.is_some() && shell.read().peek.floats() {
-                button {
-                    class: "scrim",
-                    r#type: "button",
-                    aria_label: "{close_label}",
-                    onclick: move |_| shell.write().close(),
+                // quire's inline scrim, in mailo's box on the peek's layer: the peeked reader,
+                // drawn later on the same layer, sits above it, and the panes' own positioned
+                // rows below.
+                div { class: "scrim",
+                    ds::Scrim {
+                        flow: ds::Flow::Inline,
+                        label: close_label.to_owned(),
+                        onclose: move |()| shell.write().close(),
+                    }
                 }
             }
             Places {

@@ -11,7 +11,7 @@ use crate::trust::spoof;
 use crate::view::Shell;
 use chrono::Local;
 use dioxus::prelude::*;
-use ds::{AvatarTone, Glyph, HoverCardPart, HoverStat, Icon};
+use ds::{AvatarTone, FlagTone, HoverCardPart, HoverStat, Icon, Run, RunTone};
 use mail_domain::ThreadId;
 use mail_store::{SqliteStore, Store};
 
@@ -36,7 +36,7 @@ pub(super) fn sender_card(
         .unwrap_or_default();
     let items = sender_actions();
     let given = from.name.clone().unwrap_or_default();
-    let parts = vec![
+    let mut parts = vec![
         HoverCardPart::Person {
             initial: letter(&name),
             tone: AvatarTone::Ink,
@@ -54,28 +54,29 @@ pub(super) fn sender_card(
             },
         ]),
     ];
-    // The flags bold the brand and the domain, which quire's `Flag` part (plain text) cannot:
-    // they stay mailo's, under the parts, with the contact row and the actions.
+    // The flags are quire's parts, the brand and the domain in the strong tone.
+    if let Some(flag) = flag {
+        parts.push(HoverCardPart::flag(
+            FlagTone::Danger,
+            Icon::X,
+            vec![
+                Run::new("The name says ", RunTone::Plain),
+                Run::new(flag.brand, RunTone::Strong),
+                Run::new("; the address is ", RunTone::Plain),
+                Run::new(flag.domain, RunTone::Strong),
+                Run::new(", which is not one of theirs.", RunTone::Plain),
+            ],
+        ));
+    }
+    if first {
+        parts.push(HoverCardPart::flag(
+            FlagTone::Info,
+            Icon::Mail,
+            "First mail from this address. Nothing else in the store has come from it.",
+        ));
+    }
     let more = rsx! {
         div { class: "hc",
-        if let Some(flag) = flag {
-            div { class: "flag",
-                Glyph { icon: Icon::X, size: ds::IconSize::Compact }
-                span {
-                    "The name says "
-                    b { "{flag.brand}" }
-                    "; the address is "
-                    b { "{flag.domain}" }
-                    ", which is not one of theirs."
-                }
-            }
-        }
-        if first {
-            div { class: "flag info",
-                Glyph { icon: Icon::Mail, size: ds::IconSize::Compact }
-                span { "First mail from this address. Nothing else in the store has come from it." }
-            }
-        }
         // Keyed, so a card for another sender starts afresh rather than keep this one's state.
         {rsx! { ContactPart { key: "{email}", email: email.clone(), name: given } }}
         div { class: "acts",

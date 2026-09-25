@@ -219,7 +219,7 @@ async fn choosing_a_folder_lists_what_the_server_holds_there_and_its_badge_count
         "the old tooltip is still there"
     );
 
-    click(&mut dom, seen.one("data-folder", PROJECTS));
+    click(&mut dom, seen.folder(PROJECTS));
     settle(&mut dom).await;
     let page = dioxus_ssr::render(&dom);
     let listed = list(&page);
@@ -260,7 +260,7 @@ async fn opening_fetches_once_per_choice_and_not_again_within_the_minute() {
         "fetched before anything was opened"
     );
 
-    click(&mut dom, seen.one("data-folder", PROJECTS));
+    click(&mut dom, seen.folder(PROJECTS));
     settle(&mut dom).await;
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     let page = dioxus_ssr::render(&dom);
@@ -276,11 +276,11 @@ async fn opening_fetches_once_per_choice_and_not_again_within_the_minute() {
     settle(&mut dom).await;
     assert_eq!(calls.load(Ordering::SeqCst), 1, "a re-render fetched");
 
-    click(&mut dom, seen.one("data-folder", RECEIPTS));
+    click(&mut dom, seen.folder(RECEIPTS));
     settle(&mut dom).await;
     assert_eq!(calls.load(Ordering::SeqCst), 2, "another folder is fetched");
 
-    click(&mut dom, seen.one("data-folder", PROJECTS));
+    click(&mut dom, seen.folder(PROJECTS));
     settle(&mut dom).await;
     assert_eq!(
         calls.load(Ordering::SeqCst),
@@ -293,7 +293,7 @@ async fn opening_fetches_once_per_choice_and_not_again_within_the_minute() {
         &mut dom,
         seen.one("title", "Show the folders you do not follow"),
     );
-    click(&mut dom, shown.one("data-folder", OLD));
+    click(&mut dom, shown.folder(OLD));
     settle(&mut dom).await;
     assert_eq!(calls.load(Ordering::SeqCst), 3);
     let page = dioxus_ssr::render(&dom);
@@ -309,7 +309,7 @@ async fn a_fetch_that_fails_says_why_in_the_status_line() {
     let (store, _dir, _) = store();
     let (fetcher, calls) = counting(Err("the server has no such folder any more"));
     let (mut dom, seen) = window(store, fetcher);
-    click(&mut dom, seen.one("data-folder", RECEIPTS));
+    click(&mut dom, seen.folder(RECEIPTS));
     settle(&mut dom).await;
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     let page = dioxus_ssr::render(&dom);
@@ -424,7 +424,7 @@ async fn render_a_folder_place_to_a_file() {
         .with_root_context(built.dirs)
         .with_root_context(fetcher);
     let seen = rebuild_into(&mut dom);
-    click(&mut dom, seen.one("data-folder", PROJECTS));
+    click(&mut dom, seen.folder(PROJECTS));
     settle(&mut dom).await;
     let body = dioxus_ssr::render(&dom);
     for (suffix, scheme) in [("", ds::Scheme::Light), ("-dark", ds::Scheme::Dark)] {

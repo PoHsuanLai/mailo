@@ -10,7 +10,7 @@ use super::folders::{Note, Open, Spot, Wires, focus_name};
 use crate::folder::Refusal;
 use crate::view::{Source, folder_of};
 use dioxus::prelude::*;
-use ds::{Icon, MenuKind, MountedRef};
+use ds::{Button, ButtonVariant, Expanded, Icon, MenuKind, MountedRef, Propagation};
 use mail_domain::{
     AccountId, Filter, FolderError, FolderWork, Holds, MailboxRef, NonEmpty, Subscription,
 };
@@ -131,21 +131,20 @@ pub(super) fn FolderRow(
                 on_cancel: move |_| open.set(Open::Closed),
             }
         } else if let Some(index) = place {
-            button {
-                class: "fold-name",
-                r#type: "button",
-                "data-folder": "{data_path}",
-                onclick: move |event| {
+            span { class: "fold-name", "data-folder": "{data_path}",
+                Button {
+                    variant: ButtonVariant::Frame,
+                    label: name.clone(),
                     // Inside a `<summary>`, a click would also open or close the parent.
-                    event.prevent_default();
-                    event.stop_propagation();
-                    shell.write().select(index);
-                    pages.set(1);
-                    if let Some(mailbox) = fetched.clone() {
-                        folder_open::opened(mailbox, revision);
-                    }
-                },
-                "{name}"
+                    propagation: Propagation::Stop,
+                    onclick: move |_| {
+                        shell.write().select(index);
+                        pages.set(1);
+                        if let Some(mailbox) = fetched.clone() {
+                            folder_open::opened(mailbox, revision);
+                        }
+                    },
+                }
             }
         } else {
             span { class: "fold-name", "{name}" }
@@ -153,20 +152,21 @@ pub(super) fn FolderRow(
         if let Some(count) = count {
             span { class: "count", "{count}" }
         }
-        button {
-            class: "more",
-            r#type: "button",
-            aria_label: "Actions for {name}",
-            aria_expanded: if menu_open { "true" } else { "false" },
-            onmounted: move |event: MountedEvent| more.set(Some(MountedRef(event.data()))),
-            onclick: move |event| {
-                event.prevent_default();
-                event.stop_propagation();
-                note.set(None);
-                let showing = matches!(&*open.peek(), Open::Actions(at) if *at == menu_spot);
-                open.set(if showing { Open::Closed } else { Open::Actions(menu_spot.clone()) });
-            },
-            "⋯"
+        // quire has no "more" glyph, so the ⋯ is a word on the frame, named by what it opens.
+        span { class: if menu_open { "more open" } else { "more" },
+            Button {
+                variant: ButtonVariant::Frame,
+                label: "⋯",
+                aria_label: format!("Actions for {name}"),
+                expanded: if menu_open { Expanded::Open } else { Expanded::Closed },
+                mounted: move |event: MountedEvent| more.set(Some(MountedRef(event.data()))),
+                propagation: Propagation::Stop,
+                onclick: move |_| {
+                    note.set(None);
+                    let showing = matches!(&*open.peek(), Open::Actions(at) if *at == menu_spot);
+                    open.set(if showing { Open::Closed } else { Open::Actions(menu_spot.clone()) });
+                },
+            }
         }
     };
     let below = rsx! {
