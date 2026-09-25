@@ -13,7 +13,8 @@ use super::AddAccountSheet;
 use super::flow::Seams;
 use super::flow_tests::{Fake, found, seams, with_jmap};
 use crate::space::{Scope, Space, Spaces};
-use crate::ui::fixtures::{Scripts, Seen, click, dispatching, rebuild_into, type_into};
+use crate::ui::fixtures::{Seen, click, dispatching, rebuild_into, type_into};
+use crate::ui::host::{Ask, Recorder};
 use crate::view::Shell;
 
 const PASSWORD: &str = "s3cret-pass-4417";
@@ -71,13 +72,13 @@ struct Open {
     dom: VirtualDom,
     seen: Seen,
     snapshot: Snapshot,
-    /// Every script the sheet ran: the clipboard's, for one.
-    scripts: Scripts,
+    /// Everything the sheet asked of the host: the clipboard, for one.
+    host: Recorder,
 }
 
 fn open(store: &Arc<SqliteStore>, seams: Seams, scope: Vec<mail_domain::AccountId>) -> Open {
     let snapshot = Snapshot::default();
-    let scripts = Scripts::default();
+    let host = Recorder::default();
     let mut dom = VirtualDom::new_with_props(
         Sheet,
         SheetProps {
@@ -87,13 +88,13 @@ fn open(store: &Arc<SqliteStore>, seams: Seams, scope: Vec<mail_domain::AccountI
     )
     .with_root_context(store.clone())
     .with_root_context(seams)
-    .with_root_context(scripts.document());
+    .with_root_context(host.host());
     let seen = rebuild_into(&mut dom);
     Open {
         dom,
         seen,
         snapshot,
-        scripts,
+        host,
     }
 }
 
@@ -566,15 +567,11 @@ async fn a_browser_sign_in_shows_its_address_to_copy_and_opens_it_through_the_se
     assert!(!shown.contains("printed in the terminal"), "{shown}");
     assert_eq!(*fake.browsed.lock().unwrap(), [SIGN_IN], "the browser seam");
 
-    let before = open.scripts.all().len();
+    let before = open.host.asked().len();
     click(&mut open.dom, seen.one("aria-label", "Copy"));
-    let ran = open.scripts.all();
-    assert_eq!(ran.len(), before + 1, "{ran:?}");
-    assert!(
-        ran[before].contains("navigator.clipboard.writeText")
-            && ran[before].contains(&serde_json::to_string(SIGN_IN).unwrap()),
-        "{ran:?}"
-    );
+    let asked = open.host.asked();
+    assert_eq!(asked.len(), before + 1, "{asked:?}");
+    assert_eq!(asked[before], Ask::Copy(SIGN_IN.to_owned()), "{asked:?}");
 
     give_up.send(()).unwrap();
     settle(&mut open.dom).await;

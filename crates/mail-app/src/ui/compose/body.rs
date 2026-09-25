@@ -150,9 +150,7 @@ fn pick(mut page: Signal<Page>, on_attach: EventHandler<()>, key: &str) {
     if templates::pick(&mut page.write(), key) {
         // The name field takes the keys once it is there.
         if matches!(page.peek().float, Float::SaveTemplate(_)) {
-            dioxus::document::eval(
-                "setTimeout(() => document.querySelector('.tpl-name')?.focus())",
-            );
+            crate::ui::host::Host::focus_after_task(".tpl-name");
         }
         return;
     }

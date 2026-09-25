@@ -5,39 +5,26 @@
 //! matches and scroll the current one into view; Esc closes the field and its marks go with it.
 
 use super::super::field::{Field, FieldKind};
+use super::super::host::{Drawn, Host};
 use crate::search::{Find, Step};
 use crate::view::Shell;
 use dioxus::prelude::*;
 use ds::{Glyph, Icon, IconButton, IconButtonVariant};
 
-/// Focus the find field once it is in the page, and select what is in it.
-///
-/// Retried for a few frames, because the keystroke that opened the field is handled before
-/// the render that draws it reaches the document.
-const FOCUS: &str = "(function focusFind(tries) {\
-    const field = document.querySelector('.find .inp');\
-    if (field) { field.focus(); field.select(); }\
-    else if (tries > 0) { requestAnimationFrame(() => focusFind(tries - 1)); }\
-})(20)";
-
-/// Bring the current match into the middle of the reader, after the render that moved it.
-const SCROLL: &str = "requestAnimationFrame(() => requestAnimationFrame(() => \
-    document.querySelector('mark.hit.now')?.scrollIntoView({ block: 'center' })))";
-
-/// Give the keyboard back to the window, so the next letter is a shortcut again.
-const REFOCUS: &str = "document.querySelector('.app')?.focus()";
+/// The current match, which Enter and typing bring into the middle of the reader.
+const CURRENT: &str = "mark.hit.now";
 
 /// Ctrl F. With a thread open it opens the find field, or selects its text when it is already
 /// open. With nothing open there is no thread to find in, so it goes to the list's search box.
 pub(in crate::ui) fn open_find(mut shell: Signal<Shell>) {
     if shell.peek().open.is_none() {
-        document::eval("document.querySelector('.search input')?.focus()");
+        Host::focus(".search input");
         return;
     }
     if shell.peek().find.is_none() {
         shell.write().find = Some(Find::default());
     }
-    document::eval(FOCUS);
+    Host::focus_and_select(Drawn::FindField);
 }
 
 /// The field, the count, and a close button. `total` is how many matches the thread has.
@@ -67,14 +54,14 @@ pub(super) fn FindBar(shell: Signal<Shell>, total: usize, invalid: bool) -> Elem
                         if let Some(find) = shell.write().find.as_mut() {
                             find.step(step, total);
                         }
-                        document::eval(SCROLL);
+                        Host::scroll_into_view(CURRENT);
                     }
                     "Escape" => {
                         shell.write().find = None;
-                        document::eval(REFOCUS);
+                        Host::focus_app();
                     }
                     _ if find_chord => {
-                        document::eval(FOCUS);
+                        Host::focus_and_select(Drawn::FindField);
                     }
                     _ => {}
                 }
@@ -90,7 +77,7 @@ pub(super) fn FindBar(shell: Signal<Shell>, total: usize, invalid: bool) -> Elem
                         find.query = value;
                         find.current = 0;
                     }
-                    document::eval(SCROLL);
+                    Host::scroll_into_view(CURRENT);
                 },
                 on_focus: move |_| {},
                 on_blur: move |_| {},
@@ -104,7 +91,7 @@ pub(super) fn FindBar(shell: Signal<Shell>, total: usize, invalid: bool) -> Elem
                 label: close_label().to_owned(),
                 onclick: move |_| {
                     shell.write().find = None;
-                    document::eval(REFOCUS);
+                    Host::focus_app();
                 },
             }
         }

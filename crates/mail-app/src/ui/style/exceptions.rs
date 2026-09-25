@@ -10,8 +10,6 @@ const ELLIPSIS: &str = "text-overflow: ellipsis truncates in the webview Phase A
 const FOCUS: &str = "the webview matches :focus-visible and :focus-within; Phase B moves keyboard focus onto `.ds[data-modality=keyboard] :focus`";
 /// A tint or nudge on quire's glyph inside mailo's own chrome.
 const GLYPH_TINT: &str = "tints or nudges quire's `Glyph` inside mailo's own chrome; `Glyph` takes no colour of its own, and the rule never reaches into a quire component";
-/// Stacking inside the Space editor.
-const EDITOR_LAYER: &str = "orders the Space editor's handle and footer inside the editor's own stacking context; no design layer names a sheet's inner order";
 /// A row's strip buttons, the selection bubble's marks and the frame's small words.
 const STRIP_AND_FRAME: &str = "three kinds of raw button: a row's strip, since quire's `HoverStrip` calls a button's `onclick` only once it has measured it, so a press in a document with no layout does nothing (a gap, reported); the selection bubble's B, I, U and S, whose faces are the marks themselves, where `Button` takes a text label; and the sidebar's Clear, Show all and + New, set in the frame's ink, which no `Button` variant wears (a gap, reported)";
 /// A button on the frame, in the frame's own ink.
@@ -25,11 +23,6 @@ const SPACE_COLOUR: &str =
     "a Space's colours are the person's own, drawn as they chose them: data, not a design value";
 
 pub(super) const STYLE: &[Exception] = &[
-    Exception {
-        rule: Rule::FocusPseudoClass,
-        selector: ".app:focus, .app:focus-visible",
-        reason: FOCUS,
-    },
     Exception {
         rule: Rule::BlitzUnsupported,
         selector: ".space-name",
@@ -59,16 +52,6 @@ pub(super) const STYLE: &[Exception] = &[
         rule: Rule::BlitzUnsupported,
         selector: ".fold-acct",
         reason: ELLIPSIS,
-    },
-    Exception {
-        rule: Rule::BlitzUnsupported,
-        selector: ".ed-foot",
-        reason: "the Space editor's footer sticks to the sheet's bottom while it scrolls, which the webview draws; Phase B keeps it outside the scroller",
-    },
-    Exception {
-        rule: Rule::RawZIndex,
-        selector: ".ed-foot",
-        reason: EDITOR_LAYER,
     },
     Exception {
         rule: Rule::FocusPseudoClass,
@@ -252,11 +235,6 @@ pub(in crate::ui) const MARKUP: &[Exception] = &[
         rule: Rule::RawMarkup,
         selector: "button.space-name",
         reason: FRAME_INK,
-    },
-    Exception {
-        rule: Rule::RawMarkup,
-        selector: "input.inp.c-file",
-        reason: "a file picker: quire's `TextInput` has no file kind (a gap, reported)",
     },
     Exception {
         rule: Rule::RawMarkup,

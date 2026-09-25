@@ -98,6 +98,54 @@ async fn an_attachment_mentioned_and_missing_shows_one_bar_until_send_anyway() {
 }
 
 #[tokio::test]
+async fn attach_puts_the_files_the_dialog_chose_on_the_draft() {
+    use crate::ui::pick::{Ask, Dialogs};
+    let (store, _dir) = seeded();
+    let draft = fresh_draft(&store);
+    let files = tempfile::tempdir().unwrap_or_else(|why| panic!("a temp dir: {why}"));
+    let agenda = files.path().join("agenda.txt");
+    std::fs::write(&agenda, "Friday, ten o'clock").unwrap_or_else(|why| panic!("{why}"));
+    // Over the budget without writing it: a sparse file is only its length.
+    let huge = files.path().join("huge.bin");
+    std::fs::File::create(&huge)
+        .and_then(|file| file.set_len(crate::compose::ATTACHMENT_BUDGET + 1))
+        .unwrap_or_else(|why| panic!("{why}"));
+    let (dialogs, asked) = Dialogs::answering(vec![agenda, huge]);
+
+    let (mut window, seen) = Window::open(store.clone(), draft.clone(), None);
+    window.dom.provide_root_context(dialogs);
+    click(&mut window.dom, seen.one("aria-label", "Attach"));
+    for _ in 0..40 {
+        let quiet = std::time::Duration::from_millis(150);
+        if tokio::time::timeout(quiet, window.dom.wait_for_work())
+            .await
+            .is_err()
+        {
+            break;
+        }
+        window.dom.render_immediate(&mut dioxus_core::NoOpMutations);
+    }
+
+    assert_eq!(
+        *asked
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner),
+        [(Ask::Attachments, None)]
+    );
+    let page = window.page();
+    let (attached, notice) = window
+        .dom
+        .in_runtime(|| (page.peek().attached.clone(), page.peek().notice.clone()));
+    let names: Vec<&str> = attached.iter().map(|(name, _)| name.as_str()).collect();
+    assert_eq!(names, ["agenda.txt"], "{attached:?}");
+    assert_eq!(notice.as_deref(), Some("huge.bin is too large to send"));
+    let stored = store
+        .draft(draft.id)
+        .unwrap_or_else(|why| panic!("the draft: {why}"));
+    assert_eq!(stored.attachments.len(), 1);
+}
+
+#[tokio::test]
 async fn autosave_writes_the_documents_two_bodies_once_typing_stops() {
     let (store, _dir) = seeded();
     let draft = fresh_draft(&store);

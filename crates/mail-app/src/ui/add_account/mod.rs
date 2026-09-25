@@ -23,16 +23,14 @@ pub(in crate::ui) fn seams() -> flow::Seams {
 /// Open the sheet with an empty address, and put the cursor in it.
 pub(in crate::ui) fn open(mut shell: Signal<Shell>) {
     shell.write().adding = Some(String::new());
-    dioxus::document::eval(
-        "requestAnimationFrame(()=>document.querySelector('.acct-sheet .files-main input')?.focus())",
-    );
+    crate::ui::host::Host::focus_next_frame(".acct-sheet .files-main input");
 }
 
 /// Close the sheet and give the keyboard back to the window. The password, if one was typed,
 /// goes with the sheet.
 pub(in crate::ui) fn close(mut shell: Signal<Shell>) {
     shell.write().adding = None;
-    dioxus::document::eval("document.querySelector('.app')?.focus()");
+    crate::ui::host::Host::focus_app();
 }
 
 #[cfg(test)]

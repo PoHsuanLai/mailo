@@ -39,7 +39,7 @@ pub(in crate::ui) fn open(mut shell: Signal<Shell>) {
 /// Close the sheet and give the keyboard back to the window.
 pub(in crate::ui) fn close(mut shell: Signal<Shell>) {
     shell.write().keys = None;
-    dioxus::document::eval("document.querySelector('.app')?.focus()");
+    crate::ui::host::Host::focus_app();
 }
 
 /// The keys in the order the sheet lists them: the user's own — those whose secret half the

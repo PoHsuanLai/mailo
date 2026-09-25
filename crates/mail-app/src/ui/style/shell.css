@@ -1,6 +1,6 @@
 /* The frame. Two gradient layers, a grain, the sidebar on the colour, the card on paper.
    Focusable for the keyboard, without a ring around the entire window. */
-.app:focus, .app:focus-visible { outline: none; }
+.app:focus { outline: none; }
 .app {
   position: relative;
   isolation: isolate;

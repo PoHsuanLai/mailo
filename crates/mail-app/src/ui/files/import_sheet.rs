@@ -8,8 +8,8 @@ use mail_store::SqliteStore;
 use super::super::debounce::use_debounced;
 use super::super::field::{Field, FieldKind};
 use super::super::menu::{Floating, MenuItem, Right, Tile};
+use super::super::pick::{Ask, choose};
 use super::super::press::{SheetClose, available, on_primary};
-use super::pick::{Ask, choose};
 use super::work::{self, Dest, Looked};
 use super::{Phase, Progress, run, tilde_here};
 use crate::view::{FileSheet, Shell};
@@ -132,8 +132,8 @@ pub(super) fn ImportSheet(shell: Signal<Shell>, revision: Signal<u64>) -> Elemen
                             label: "File…".to_owned(),
                             title: "Choose an mbox or .eml file".to_owned(),
                             onclick: on_primary(move || {
-                                choose(Ask::File, super::save_dir(), move |path| {
-                                    set_typed(shell, path.display().to_string());
+                                choose(Ask::File, Some(super::save_dir()), move |paths| {
+                                    set_typed(shell, paths[0].display().to_string());
                                 });
                             }),
                         }
@@ -142,8 +142,8 @@ pub(super) fn ImportSheet(shell: Signal<Shell>, revision: Signal<u64>) -> Elemen
                             label: "Folder…".to_owned(),
                             title: "Choose a Maildir directory".to_owned(),
                             onclick: on_primary(move || {
-                                choose(Ask::Folder, super::save_dir(), move |path| {
-                                    set_typed(shell, path.display().to_string());
+                                choose(Ask::Folder, Some(super::save_dir()), move |paths| {
+                                    set_typed(shell, paths[0].display().to_string());
                                 });
                             }),
                         }

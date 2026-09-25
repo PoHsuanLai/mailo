@@ -6,8 +6,9 @@ use super::tests::{dump_page, html_message, iframe_srcdoc, text_message, thread_
 use crate::search::Find;
 use crate::ui::app::App;
 use crate::ui::fixtures::{
-    INSIDE_THE_SHELL, Scripts, Seen, chord, click, dispatching, rebuild_into, type_into, work,
+    INSIDE_THE_SHELL, Seen, chord, click, dispatching, rebuild_into, type_into, work,
 };
+use crate::ui::host::{Ask, Drawn, Recorder, When};
 use crate::view::Shell;
 use dioxus::html::input_data::keyboard_types::Modifiers;
 use dioxus::prelude::*;
@@ -28,23 +29,23 @@ fn Finding(thread: ThreadId) -> Element {
 struct Open {
     dom: VirtualDom,
     field: ElementId,
-    scripts: Scripts,
+    host: Recorder,
     _dir: tempfile::TempDir,
 }
 
 fn open(parts: &[(&str, Vec<u8>)]) -> Open {
     dispatching();
     let (store, thread, dir) = thread_of(parts);
-    let scripts = Scripts::default();
+    let host = Recorder::default();
     let mut dom = VirtualDom::new_with_props(Finding, FindingProps { thread })
         .with_root_context(store)
-        .with_root_context(scripts.document());
+        .with_root_context(host.host());
     let seen = rebuild_into(&mut dom);
     let field = seen.one("placeholder", "Find in this thread");
     Open {
         dom,
         field,
-        scripts,
+        host,
         _dir: dir,
     }
 }
@@ -109,12 +110,11 @@ async fn the_count_follows_enter_both_ways_and_esc_clears_every_mark() {
         .collect();
     assert_eq!(seen, want, "Enter walks forward and wraps");
     assert!(
-        at.scripts
-            .all()
-            .iter()
-            .any(|script| script.contains("mark.hit.now") && script.contains("scrollIntoView")),
+        at.host
+            .asked()
+            .contains(&Ask::ScrollIntoView("mark.hit.now")),
         "Enter did not scroll the match into view: {:?}",
-        at.scripts.all()
+        at.host.asked()
     );
 
     let (_, page) = at.pressed("Enter", Modifiers::SHIFT);
@@ -273,20 +273,24 @@ async fn a_find_never_touches_the_original_frame() {
 async fn ctrl_f_opens_the_field_on_the_open_thread_and_esc_closes_it() {
     dispatching();
     let built = work();
-    let scripts = Scripts::default();
+    let host = Recorder::default();
     let mut dom = VirtualDom::new(App)
         .with_root_context(built.store)
         .with_root_context(built.dirs)
-        .with_root_context(scripts.document());
+        .with_root_context(host.host());
     let seen = rebuild_into(&mut dom);
     let shell = ElementId(INSIDE_THE_SHELL as usize);
 
     // Nothing open: there is no thread to find in, so the chord goes to the list's box.
     chord(&mut dom, "f", Modifiers::CONTROL, shell);
+    let search = Ask::Focus {
+        selector: ".search input",
+        when: When::Now,
+    };
     assert!(
-        scripts.all().iter().any(|s| s.contains(".search input")),
+        host.asked().contains(&search),
         "Ctrl F with nothing open did not reach the search box: {:?}",
-        scripts.all()
+        host.asked()
     );
     assert!(!dioxus_ssr::render(&dom).contains("Find in this thread"));
 
@@ -302,9 +306,10 @@ async fn ctrl_f_opens_the_field_on_the_open_thread_and_esc_closes_it() {
         "Ctrl F opened no field:\n{page}"
     );
     assert!(
-        scripts.all().iter().any(|s| s.contains("focusFind")),
+        host.asked()
+            .contains(&Ask::FocusAndSelect(Drawn::FindField)),
         "the field was not focused: {:?}",
-        scripts.all()
+        host.asked()
     );
 
     chord(&mut dom, "Escape", Modifiers::empty(), shell);

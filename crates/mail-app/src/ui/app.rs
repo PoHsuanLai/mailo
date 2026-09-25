@@ -391,7 +391,7 @@ pub(super) fn App() -> Element {
             let open = shell.read().command.is_some();
             if open {
                 shell.write().command = None;
-                dioxus::document::eval("document.querySelector('.app')?.focus()");
+                super::host::Host::focus_app();
             } else {
                 shell.write().command = Some(String::new());
             }
@@ -415,7 +415,7 @@ pub(super) fn App() -> Element {
                 write.snoozing = None;
                 write.labelling = None;
                 write.filing = None;
-                dioxus::document::eval("document.querySelector('.app')?.focus()");
+                super::host::Host::focus_app();
             }
             return;
         }
@@ -956,7 +956,8 @@ mod tests {
     async fn the_composer_offers_a_way_to_attach_a_file() {
         // Phase 7b's window half. `PendingAttachment` was modelled, persisted and assembled into
         // multipart, and no surface could make one — so what this asserts is the existence of
-        // the control, which is the whole of what was missing.
+        // the control, which is the whole of what was missing. The control is a button that
+        // opens the native dialog (`ui::pick`); `compose::tests::life` presses it.
         dispatching();
         let (store, _dir) = realistic();
         let mut dom = VirtualDom::new(App).with_root_context(store.clone());
@@ -965,7 +966,7 @@ mod tests {
 
         let page = dioxus_ssr::render(&dom);
         assert!(
-            page.contains(r#"type="file""#),
+            page.contains(r#"aria-label="Attach""#),
             "the composer has no way to attach anything:\n{page}"
         );
     }

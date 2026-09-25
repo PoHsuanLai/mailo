@@ -6,7 +6,7 @@ use super::super::move_to;
 use super::folder_act::{act, messages_word, refused, renamed_path};
 use super::folder_parts::{NameField, Naming, Said, actions, item};
 use super::folder_tree::{Kind, Node};
-use super::folders::{FOCUS, Note, Open, Spot, Wires};
+use super::folders::{Note, Open, Spot, Wires, focus_name};
 use crate::folder::Refusal;
 use crate::view::{Source, folder_of};
 use dioxus::prelude::*;
@@ -270,12 +270,12 @@ fn pick(wires: Wires, key: &str, account: AccountId, path: String, delimiter: Op
                 parent: Some(path),
                 text: String::new(),
             });
-            dioxus::document::eval(FOCUS);
+            focus_name();
         }
         "rename" => {
             let text = super::folder_act::leaf(&path, delimiter).to_owned();
             open.set(Open::Renaming { spot, text });
-            dioxus::document::eval(FOCUS);
+            focus_name();
         }
         "follow" | "unfollow" => {
             let subscription = if key == "follow" {

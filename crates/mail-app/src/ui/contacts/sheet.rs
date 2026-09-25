@@ -1,7 +1,7 @@
 //! The Contacts sheet: the whole book, a filter, a name to edit and an entry to forget on each
 //! row, and vCard in and out.
 //!
-//! Import takes a file through the same kind of picker Attach uses; export writes
+//! Import takes files through the native dialog Attach uses (`ui::pick`); export writes
 //! `contacts.vcf` into the downloads directory the way Save writes an attachment, never over a
 //! file already there, and says where it went.
 
@@ -12,6 +12,7 @@ use mail_store::SqliteStore;
 
 use super::super::command::avatar_color;
 use super::super::field::{Field, FieldKind};
+use super::super::pick::{Ask, choose, file_name};
 use super::super::press::{SheetClose, on_primary};
 use super::book::{self, Row, SYNC_COMMAND};
 use crate::view::Shell;
@@ -32,7 +33,7 @@ struct Naming {
 pub(in crate::ui) fn ContactsSheet(shell: Signal<Shell>) -> Element {
     let filter = shell.read().contacts.clone().unwrap_or_default();
     // Bumped by every write, so the rows are read again.
-    let mut changed = use_signal(|| 0u64);
+    let changed = use_signal(|| 0u64);
     let naming = use_signal(|| None::<Naming>);
     let mut said = use_signal(|| None::<String>);
     let listed = use_memo(move || {
@@ -95,31 +96,14 @@ pub(in crate::ui) fn ContactsSheet(shell: Signal<Shell>) -> Element {
                 }
                 div { class: "book-foot",
                     div { class: "book-io",
-                        label { class: "mini attach",
-                            Glyph { icon: Icon::Plus }
-                            "Import vCard…"
-                            input {
-                                class: "inp c-file",
-                                r#type: "file",
-                                accept: ".vcf,text/vcard",
-                                onchange: move |event: Event<FormData>| {
-                                    let files = event.files();
-                                    spawn(async move {
-                                        for file in files {
-                                            let name = file.name();
-                                            let answer = match file.read_bytes().await {
-                                                Ok(bytes) => {
-                                                    let store = consume_context::<Arc<SqliteStore>>();
-                                                    book::import(store.as_ref(), &bytes)
-                                                }
-                                                Err(_) => Err(format!("Cannot read {name}.")),
-                                            };
-                                            said.set(Some(answer.unwrap_or_else(|why| why)));
-                                            changed += 1;
-                                        }
-                                    });
-                                },
-                            }
+                        ds::Button {
+                            variant: ds::ButtonVariant::Mini,
+                            label: "Import vCard…".to_owned(),
+                            aria_label: "Import vCard…".to_owned(),
+                            icon: Icon::Plus,
+                            onclick: on_primary(move || {
+                                choose(Ask::Cards, None, move |paths| import(paths, changed, said));
+                            }),
                         }
                         ds::Button {
                             variant: ds::ButtonVariant::Mini,
@@ -146,6 +130,30 @@ pub(in crate::ui) fn ContactsSheet(shell: Signal<Shell>) -> Element {
             }
         }
     }
+}
+
+/// Import each of the vCard files at `paths`, in order, each read on a blocking thread, and say
+/// what the last one did.
+fn import(
+    paths: Vec<std::path::PathBuf>,
+    mut changed: Signal<u64>,
+    mut said: Signal<Option<String>>,
+) {
+    spawn(async move {
+        for path in paths {
+            let name = file_name(&path);
+            let read = tokio::task::spawn_blocking(move || std::fs::read(path)).await;
+            let answer = match read {
+                Ok(Ok(bytes)) => {
+                    let store = consume_context::<Arc<SqliteStore>>();
+                    book::import(store.as_ref(), &bytes)
+                }
+                _ => Err(format!("Cannot read {name}.")),
+            };
+            said.set(Some(answer.unwrap_or_else(|why| why)));
+            changed += 1;
+        }
+    });
 }
 
 /// One entry: who, where it came from, and its two actions.

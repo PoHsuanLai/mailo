@@ -18,15 +18,13 @@ use dioxus::prelude::*;
 /// Open the Contacts sheet with an empty filter, and put the cursor in it.
 pub(in crate::ui) fn open(mut shell: Signal<Shell>) {
     shell.write().contacts = Some(String::new());
-    dioxus::document::eval(
-        "requestAnimationFrame(()=>document.querySelector('.book-find .inp')?.focus())",
-    );
+    crate::ui::host::Host::focus_next_frame(".book-find .inp");
 }
 
 /// Close the sheet and give the keyboard back to the window.
 pub(in crate::ui) fn close(mut shell: Signal<Shell>) {
     shell.write().contacts = None;
-    dioxus::document::eval("document.querySelector('.app')?.focus()");
+    crate::ui::host::Host::focus_app();
 }
 
 #[cfg(test)]

@@ -54,11 +54,9 @@ pub(super) struct Note {
 }
 
 /// Focus the name field once it is drawn, and select what is in it.
-pub(super) const FOCUS: &str = "(function focusName(tries) {\
-    const input = document.querySelector('.fold-edit input');\
-    if (input) { input.focus(); input.select(); }\
-    else if (tries > 0) { requestAnimationFrame(() => focusName(tries - 1)); }\
-})(20)";
+pub(super) fn focus_name() {
+    crate::ui::host::Host::focus_and_select(crate::ui::host::Drawn::FolderName);
+}
 
 /// The props every row passes down, because a row draws its children.
 #[derive(Clone, Copy, PartialEq)]
@@ -138,7 +136,7 @@ pub(super) fn FolderList(
                         open.set(Open::Accounts);
                     } else if let Some(account) = first {
                         open.set(Open::Naming { account, parent: None, text: String::new() });
-                        dioxus::document::eval(FOCUS);
+                        focus_name();
                     }
                 },
                 "+ New"
@@ -154,7 +152,7 @@ pub(super) fn FolderList(
                     if let Ok(uuid) = key.parse() {
                         let account = AccountId::from_uuid(uuid);
                         open.set(Open::Naming { account, parent: None, text: String::new() });
-                        dioxus::document::eval(FOCUS);
+                        focus_name();
                     }
                 },
                 // The pick opened the name field: closing the menu must leave it open.

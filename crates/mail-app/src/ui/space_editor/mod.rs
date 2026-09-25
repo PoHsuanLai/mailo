@@ -7,6 +7,13 @@
 //! contrast. What quire's editor does not draw stays mailo's, in a card under it: the Space's
 //! motion, provider marks, notifications, the accounts, contacts, rules and keys, and Cancel
 //! and Save.
+//!
+//! The drag preview, decided (quire's migration brief §5.1, which left it open): a drag in the
+//! colour field repaints the frame through `Ds`'s own cross-fade, each step like any other
+//! change. mailo keeps no `Fade` of its own (the hand-rolled `Fade::None` went with
+//! `paint_script`) and holds no `Surface` override during the drag, so `Ds` has one fade
+//! behaviour, and the frame a drag shows is the frame Save keeps. Nothing here depends on the
+//! renderer, so the decision stands on Blitz as it does on the webview.
 
 mod notify;
 mod parts;
@@ -55,14 +62,14 @@ pub(super) fn cancel(mut editing: Signal<Option<Draft>>, mut spaces: Signal<Spac
     if let Some(slot) = spaces.write().spaces.get_mut(draft.index) {
         *slot = saved;
     }
-    dioxus::document::eval("document.querySelector('.app')?.focus()");
+    crate::ui::host::Host::focus_app();
 }
 
 /// Save: the draft is already on screen and in the Spaces; write them and close.
 fn save(mut editing: Signal<Option<Draft>>, spaces: Signal<Spaces>) {
     editing.set(None);
     keep(&spaces.read());
-    dioxus::document::eval("document.querySelector('.app')?.focus()");
+    crate::ui::host::Host::focus_app();
 }
 
 /// What the Save button says it does.
@@ -86,6 +93,8 @@ pub(super) fn SpaceEditor(
             class: "editor",
             role: "dialog",
             aria_label: "Edit this Space",
+            // The two cards scroll; the foot under them stays put.
+            div { class: "ed-scroll",
             ds::SpaceEditor {
                 look: space.look.clone(),
                 scheme,
@@ -152,7 +161,9 @@ pub(super) fn SpaceEditor(
                 p { class: "capnote", "OpenPGP keys and S/MIME certificates, yours and your correspondents': make, import, export, trust, delete." }
             }
             }
-            // The sheet's own foot, so Save stays in reach wherever the sheet is scrolled.
+            }
+            // The sheet's own foot, outside the scroller, so Save stays in reach wherever the
+            // cards are scrolled.
             div { class: "ed-foot",
                 SheetClose { label: "Cancel", on_close: move |()| cancel(editing, spaces) }
                 ds::Button {

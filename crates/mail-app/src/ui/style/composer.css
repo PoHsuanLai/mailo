@@ -183,8 +183,8 @@
 }
 .c-warn .ds-ic { color: var(--warn); }
 .c-warn .attach { margin-left: auto; }
-.mini.attach { position: relative; overflow: hidden; }
-.inp.c-file { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; padding: 0; }
+/* Attach's button in its row: exactly the button's box, whether or not the row pushes it along. */
+.attach { display: flex; }
 .btn {
   display: inline-flex; align-items: center; gap: var(--s-6); border: 0; cursor: pointer; border-radius: var(--r-btn); padding: var(--s-8) var(--s-14);
   font-weight: 700; font-size: var(--fs-control); background: var(--accent); color: var(--accent-ink); box-shadow: var(--shadow-1);

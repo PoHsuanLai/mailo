@@ -3,7 +3,7 @@
 //! [`work`] is every question and every write, as functions of a store and a path; the two
 //! sheets only draw what it answers. The path is typed: the webview's file input hands over
 //! bytes, never a path, and a Maildir is a directory it cannot pick at all. The native dialog
-//! beside the field (`pick`) is the one `dioxus-desktop` already links, through the portal.
+//! beside the field (`ui::pick`) is the one `dioxus-desktop` already links, through the portal.
 //!
 //! Both jobs run on a blocking thread, spawned from the click (F140), and their progress comes
 //! back through a counter the task reads while it waits — the progress callback runs on that
@@ -11,7 +11,6 @@
 
 mod export_sheet;
 mod import_sheet;
-mod pick;
 pub(in crate::ui) mod work;
 
 use std::sync::Arc;
@@ -48,15 +47,13 @@ pub(in crate::ui) fn open_export(mut shell: Signal<Shell>) {
 }
 
 fn focus() {
-    dioxus::document::eval(
-        "requestAnimationFrame(()=>document.querySelector('.files-main input')?.focus())",
-    );
+    crate::ui::host::Host::focus_next_frame(".files-main input");
 }
 
 /// Close the sheet and give the keyboard back to the window.
 pub(in crate::ui) fn close(mut shell: Signal<Shell>) {
     shell.write().files = None;
-    dioxus::document::eval("document.querySelector('.app')?.focus()");
+    crate::ui::host::Host::focus_app();
 }
 
 /// Whichever sheet is open. Mounted while `shell.files` is `Some`.

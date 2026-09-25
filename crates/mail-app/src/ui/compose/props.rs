@@ -283,7 +283,7 @@ fn SendsRow(page: Signal<Page>) -> Element {
                         on_pick: move |key: String| {
                             pick_sends(&mut page.write(), &key);
                             if matches!(page.peek().float, Float::PickTime(_)) {
-                                dioxus::document::eval("setTimeout(() => document.querySelector('.pick-field')?.focus())");
+                                crate::ui::host::Host::focus_after_task(".pick-field");
                             }
                         },
                         // "Pick a time…" opens the field where the menu was: closing the menu

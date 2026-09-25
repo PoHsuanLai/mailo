@@ -152,7 +152,7 @@ impl Drawn {
 fn close(mut shell: Signal<Shell>) {
     shell.write().command = None;
     shell.write().page_menu = PageMenu::Closed;
-    dioxus::document::eval("document.querySelector('.app')?.focus()");
+    crate::ui::host::Host::focus_app();
 }
 
 fn act(

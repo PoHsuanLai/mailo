@@ -7,9 +7,9 @@ use mail_store::SqliteStore;
 
 use super::super::debounce::use_debounced;
 use super::super::field::{Field, FieldKind};
+use super::super::pick::{Ask, choose};
 use super::super::press::{SheetClose, available, on_primary};
 use super::super::space_editor::Seg;
-use super::pick::{Ask, choose};
 use super::work::{self, Counted, Format};
 use super::{Phase, Progress, run};
 use crate::view::{FileSheet, Shell};
@@ -167,7 +167,8 @@ pub(super) fn ExportSheet(shell: Signal<Shell>) -> Element {
                             label: "Folder…".to_owned(),
                             title: "Choose the directory it goes in".to_owned(),
                             onclick: on_primary(move || {
-                                choose(Ask::Folder, super::save_dir(), move |dir| {
+                                choose(Ask::Folder, Some(super::save_dir()), move |mut dirs| {
+                                    let dir = dirs.swap_remove(0);
                                     let settled = debounced.settled.peek().text.clone();
                                     let path = work::suggested(&dir, &settled, format());
                                     place.set(Place::Typed(path.display().to_string()));

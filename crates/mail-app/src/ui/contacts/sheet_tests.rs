@@ -90,6 +90,71 @@ async fn the_sheet_renames_and_forgets_an_entry() {
     );
 }
 
+/// Let the dialog's thread and the reads after it land, and draw what they wrote.
+async fn settle(dom: &mut VirtualDom) {
+    for _ in 0..40 {
+        let quiet = std::time::Duration::from_millis(150);
+        if tokio::time::timeout(quiet, dom.wait_for_work())
+            .await
+            .is_err()
+        {
+            break;
+        }
+        dom.render_immediate(&mut dioxus_core::NoOpMutations);
+    }
+}
+
+#[tokio::test]
+async fn import_vcard_reads_the_files_the_dialog_chose() {
+    use crate::ui::pick::{Ask, Dialogs};
+    dispatching();
+    let (store, _dir) = the_book();
+    let files = tempfile::tempdir().unwrap_or_else(|why| panic!("a temp dir: {why}"));
+    let card = files.path().join("friends.vcf");
+    std::fs::write(
+        &card,
+        "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Ines Moreau\r\nEMAIL:ines.moreau@example.test\r\nEND:VCARD\r\n",
+    )
+    .unwrap_or_else(|why| panic!("the card: {why}"));
+    let missing = files.path().join("gone.vcf");
+    let (dialogs, asked) = Dialogs::answering(vec![card, missing]);
+    let before = store.contacts().unwrap_or_default().len();
+
+    let mut dom = sheet(&store, "");
+    dom.provide_root_context(dialogs);
+    let seen = rebuild_into(&mut dom);
+    click(&mut dom, seen.one("aria-label", "Import vCard…"));
+    settle(&mut dom).await;
+
+    assert_eq!(
+        *asked
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner),
+        [(Ask::Cards, None)],
+        "one dialog, for vCards"
+    );
+    assert_eq!(store.contacts().unwrap_or_default().len(), before + 1);
+    let page = dioxus_ssr::render(&dom);
+    assert!(
+        listed(&page).contains(&"ines.moreau@example.test".to_owned()),
+        "{page}"
+    );
+    // The second file could not be read, and the sheet says so last.
+    assert!(page.contains("Cannot read gone.vcf."), "{page}");
+}
+
+#[tokio::test]
+async fn without_a_dialog_of_its_own_a_test_opens_none() {
+    dispatching();
+    let (store, _dir) = the_book();
+    let before = store.contacts().unwrap_or_default().len();
+    let mut dom = sheet(&store, "");
+    let seen = rebuild_into(&mut dom);
+    click(&mut dom, seen.one("aria-label", "Import vCard…"));
+    settle(&mut dom).await;
+    assert_eq!(store.contacts().unwrap_or_default().len(), before);
+}
+
 /// The sheet with a name being edited, and the sender card showing and naming.
 fn every_state(store: &Arc<SqliteStore>) -> String {
     let mut dom = sheet(store, "");

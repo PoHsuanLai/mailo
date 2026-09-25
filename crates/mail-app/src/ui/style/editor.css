@@ -1,11 +1,19 @@
 /* The Space editor: a sheet over the frame, above the foot it was opened from, so the frame
    behind it stays in view while every change repaints it. The sheet is two cards that scroll
-   together: quire's SpaceEditor, then mailo's own rows under it on the same paper. */
+   together: quire's SpaceEditor, then mailo's own rows under it on the same paper. Under them,
+   outside the scroller, the foot with Save. The sheet clips, as the scroller did when it was
+   the whole sheet. */
 .editor {
   position: absolute; left: 12px; bottom: 50px; z-index: var(--z-card); width: 300px;
-  max-height: calc(100% - 66px); overflow-y: auto; scrollbar-width: thin;
-  display: grid; gap: var(--s-8); color: var(--ink);
+  max-height: calc(100% - 66px); overflow: hidden;
+  display: flex; flex-direction: column; color: var(--ink);
   animation: cmdk-rise var(--t-move) var(--e-spring);
+}
+/* The two cards. The padding under them is the gap they keep from the foot, inside the scroller
+   so the last card's shadow shows in it. */
+.ed-scroll {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-width: thin;
+  display: grid; gap: var(--s-8); padding-bottom: var(--s-8);
 }
 /* It moves on open and never fades: a frame caught mid-open still shows an opaque sheet. */
 .ed-more {
@@ -22,9 +30,9 @@
 
 .capnote { font-size: var(--fs-help); color: var(--ink-faint); line-height: 1.45; margin: 0; }
 
-/* Save stays in reach however far the sheet is scrolled. */
+/* Save stays in reach however far the sheet is scrolled: it is outside the scroller. */
 .ed-foot {
-  position: sticky; bottom: 0; z-index: 3; display: flex; justify-content: flex-end; gap: var(--s-8);
+  flex: none; display: flex; justify-content: flex-end; gap: var(--s-8);
   padding: var(--s-10) var(--s-14); background: var(--surface); border: var(--hair) solid var(--line-soft);
   border-radius: var(--r-panel); box-shadow: var(--shadow-1);
 }

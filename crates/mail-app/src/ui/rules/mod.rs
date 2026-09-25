@@ -32,7 +32,7 @@ pub(in crate::ui) fn open(mut shell: Signal<Shell>) {
 /// Close the sheet and give the keyboard back to the window.
 pub(in crate::ui) fn close(mut shell: Signal<Shell>) {
     shell.write().rules = None;
-    dioxus::document::eval("document.querySelector('.app')?.focus()");
+    crate::ui::host::Host::focus_app();
 }
 
 /// The sheet. Mounted while `shell.rules` is `Some`.
