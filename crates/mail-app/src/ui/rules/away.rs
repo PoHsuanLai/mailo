@@ -267,12 +267,15 @@ pub(super) fn AwayPart(row: AccountRow) -> Element {
                         on_blur: |_| {},
                     }
                     span { class: "files-k", "Reply" }
-                    textarea {
-                        class: "inp rules-body",
-                        aria_label: "The reply's text",
-                        placeholder: "I am away and reading mail when I am back.",
-                        value: "{form.body}",
-                        oninput: move |event| away.write().body = event.value(),
+                    span { class: "field rules-body",
+                        ds::TextInput {
+                            variant: ds::InputVariant::Boxed,
+                            kind: ds::TextInputKind::Multiline { rows: ds::Rows(4), grow: ds::Grow::ToContent },
+                            label: "The reply's text".to_owned(),
+                            value: form.body.clone(),
+                            placeholder: "I am away and reading mail when I am back.".to_owned(),
+                            oninput: move |value: String| away.write().body = value,
+                        }
                     }
                     div { class: "rules-dates",
                         div {

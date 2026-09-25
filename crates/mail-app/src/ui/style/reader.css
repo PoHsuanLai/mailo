@@ -140,11 +140,7 @@ article.frame + article.frame { margin-top: var(--s-18); padding-top: var(--s-14
 .b-quote { border-left: 2px solid var(--line); padding-left: var(--s-12); display: grid; gap: var(--s-8); }
 .b-quote .who { font-family: var(--font-data); font-size: var(--fs-note); color: var(--ink-faint); display: flex; align-items: center; gap: var(--s-6); }
 .b-quote .b-p { color: var(--ink-faint); }
-.b-quote .fold {
-  justify-self: start; border: var(--hair) dashed var(--line); background: transparent; border-radius: var(--r-pill); padding: var(--s-3) var(--s-10);
-  font-family: var(--font-data); font-size: var(--fs-note); color: var(--ink-faint); cursor: pointer;
-}
-.b-quote .fold:hover { background: var(--surface); color: var(--ink); }
+.b-quote .quote-more { justify-self: start; }
 .b-quote .inner { display: grid; gap: var(--s-8); }
 .b-sig { border-top: var(--hair) solid var(--line-soft); padding-top: var(--s-8); font-size: var(--fs-meta); color: var(--ink-faint); }
 .b-sig::before {
@@ -188,7 +184,7 @@ article.frame header .view-switch { margin-left: 0; }
   background: var(--raise); color: var(--ink-faint); box-shadow: 0 0 0 3px var(--accent-soft);
   animation: rise var(--t-quick) var(--e-out);
 }
-.find .inp.inline { min-width: 60px; font-size: var(--fs-control); }
+.find .field.bare { flex: 1; min-width: 60px; font-size: var(--fs-control); }
 .find-count { flex: none; font-size: var(--fs-note); white-space: nowrap; font-variant-numeric: tabular-nums; }
 /* The regex crate's own message, caret line and all, so it keeps its columns. */
 .find-err {

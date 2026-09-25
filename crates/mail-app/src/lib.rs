@@ -10,7 +10,6 @@ pub mod discover;
 pub mod editor;
 pub mod export;
 pub mod folder;
-pub mod hover;
 pub mod import;
 pub mod invite;
 pub mod ipc;

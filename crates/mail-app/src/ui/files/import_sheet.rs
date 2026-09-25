@@ -13,7 +13,7 @@ use super::super::press::{SheetClose, available, on_primary};
 use super::work::{self, Dest, Looked};
 use super::{Phase, Progress, run, tilde_here};
 use crate::view::{FileSheet, Shell};
-use ds::{Filter, Glyph, Icon, MenuKind, MountedRef};
+use ds::{Filter, Icon, MenuKind, MountedRef};
 
 /// The path the sheet's field holds.
 fn typed(shell: &Shell) -> String {
@@ -151,15 +151,15 @@ pub(super) fn ImportSheet(shell: Signal<Shell>, revision: Signal<u64>) -> Elemen
                     p { class: "{look_class}", aria_live: "polite", "{look_words}" }
                     span { class: "files-k", "Into" }
                     div { class: "files-into",
-                        button {
-                            class: "pval files-dest",
-                            r#type: "button",
-                            aria_label: "Import into: {chosen.label()}",
-                            onmounted: move |event: MountedEvent| into.set(Some(MountedRef(event.data()))),
-                            onclick: move |_| menu_open.set(!menu_open()),
-                            Glyph { icon: if chosen == Dest::Local { Icon::Inbox } else { Icon::Mail }, size: ds::IconSize::Compact }
-                            "{chosen.label()}"
-                            span { class: "car", "▾" }
+                        ds::Button {
+                            variant: ds::ButtonVariant::Quiet,
+                            label: chosen.label(),
+                            icon: if chosen == Dest::Local { Icon::Inbox } else { Icon::Mail },
+                            aria_label: format!("Import into: {}", chosen.label()),
+                            trailing: Some(ds::Trailing::Caret),
+                            expanded: if menu_open() { ds::Expanded::Open } else { ds::Expanded::Closed },
+                            mounted: move |event: MountedEvent| into.set(Some(MountedRef(event.data()))),
+                            onclick: move |_: ds::Press| menu_open.set(!menu_open()),
                         }
                         if menu_open() {
                             Floating {

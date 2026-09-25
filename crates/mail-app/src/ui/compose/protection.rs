@@ -186,17 +186,17 @@ pub(in crate::ui) fn ProtectionRow(page: Signal<Page>) -> Element {
         div { class: "prop-row", "data-row": "protection",
             div { class: "k", Glyph { icon: Icon::Key, size: ds::IconSize::Compact }, "Protection" }
             div { class: "v",
-                button {
-                    class: "pval",
-                    r#type: "button",
-                    aria_label: "{name}: {shown}",
-                    onmounted: move |event: MountedEvent| value.set(Some(MountedRef(event.data()))),
-                    onclick: move |_| {
+                ds::Button {
+                    variant: ds::ButtonVariant::Quiet,
+                    label: shown.to_owned(),
+                    aria_label: format!("{name}: {shown}"),
+                    trailing: Some(ds::Trailing::Caret),
+                    expanded: if open { ds::Expanded::Open } else { ds::Expanded::Closed },
+                    mounted: move |event: MountedEvent| value.set(Some(MountedRef(event.data()))),
+                    onclick: move |_: ds::Press| {
                         let next = if open { Float::Closed } else { Float::Protection };
                         page.write().float = next;
                     },
-                    "{shown}"
-                    span { class: "car", "▾" }
                 }
                 if open {
                     Floating {

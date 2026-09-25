@@ -29,7 +29,15 @@ fn Sheet(account: Option<AccountId>) -> Element {
         ..Shell::default()
     });
     let revision = use_signal(|| 0u64);
-    rsx! { RulesSheet { shell, revision } }
+    // Inside a quire root, as the window has it: the action menu floats in its overlay.
+    rsx! {
+        ds::Ds {
+            appearance: ds::Appearance::default(),
+            material: ds::Material::Window,
+            stylesheet: ds::Inject::Host,
+            RulesSheet { shell, revision }
+        }
+    }
 }
 
 fn sheet(store: &Arc<SqliteStore>, account: AccountId, push: Pusher) -> VirtualDom {
@@ -257,6 +265,8 @@ async fn every_state(store: &Arc<SqliteStore>) -> String {
         "frm:bank",
     );
     click(&mut rules, editing.one("aria-expanded", "false"));
+    // The action menu is quire's, drawn in the root's overlay the render after it asks.
+    crate::ui::fixtures::drain(&mut rules);
 
     let mut away = sheet(store, row.id, push);
     let seen = rebuild_into(&mut away);
@@ -281,7 +291,7 @@ async fn every_class_the_rules_sheet_draws_is_styled() {
         "rules-switch",
         "rules-look refused",
         "rules-action",
-        "rules-menu",
+        "role=\"listbox\"",
         "rules-body",
         "rules-said",
         "files-bar",

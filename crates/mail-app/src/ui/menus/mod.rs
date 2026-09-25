@@ -3,12 +3,12 @@
 //! A label and a snooze time are not things a button can carry, so the row opens one of these
 //! instead of performing the operation itself. Split from [`super::app`] (`CONVENTIONS.md` §8).
 
-use super::menu::{Floating, Menu, MenuItem, Right, Tile};
+use super::menu::{Floating, MenuItem, Right, Tile};
 use super::motion::act;
 use crate::view::Shell;
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
-use ds::{Icon, MenuKind, MountedRef};
+use ds::{Filter, Icon, MenuKind, MountedRef, PickDismiss};
 use mail_domain::*;
 use mail_store::SqliteStore;
 use std::sync::Arc;
@@ -143,6 +143,9 @@ pub(super) fn SnoozeMenu(
     shell: Signal<Shell>,
     revision: Signal<u64>,
     anchor: Option<MountedRef>,
+    /// The snooze button's rect once measured, which wins over `anchor`.
+    #[props(default)]
+    placed: Option<ds::Rect>,
 ) -> Element {
     let now = Utc::now();
     let items = snooze_items(now, &chrono::Local);
@@ -150,6 +153,7 @@ pub(super) fn SnoozeMenu(
         Floating {
             kind: MenuKind::Rich,
             anchor,
+            placed,
             title: "Snooze until".to_owned(),
             items,
             on_pick: move |phrase: String| {
@@ -171,27 +175,37 @@ pub(super) fn SnoozeMenu(
     }
 }
 
-/// The labels on this conversation, and the ones it could wear.
+/// The labels on this conversation, and the ones it could wear: a checklist that stays open as
+/// each is put on or taken off, anchored to the button that opened it.
 #[component]
 pub(super) fn LabelMenu(
     id: ThreadId,
     summary: ThreadSummary,
     shell: Signal<Shell>,
     revision: Signal<u64>,
+    anchor: Option<MountedRef>,
+    /// The Label button's rect once measured, which wins over `anchor`.
+    #[props(default)]
+    placed: Option<ds::Rect>,
 ) -> Element {
     let mut typed = use_signal(String::new);
     let items = label_items(&shell.read().labels, &summary, &typed());
     let account = summary.account;
-    let empty = shell.read().labels.is_empty();
+    let note = shell
+        .read()
+        .labels
+        .is_empty()
+        .then(|| "No labels yet. They arrive with the first sync.".to_owned());
     rsx! {
-        div { class: "row-menu",
-        if empty {
-            p { class: "hint", "No labels yet. They arrive with the first sync." }
-        }
-        Menu {
+        Floating {
+            kind: MenuKind::Rich,
+            anchor,
+            placed,
             title: "Labels".to_owned(),
             items,
-            filterable: true,
+            filter: Filter::Typing,
+            note,
+            dismiss: PickDismiss::Stay,
             on_query: move |value| typed.set(value),
             on_pick: move |key: String| {
                 let store = consume_context::<Arc<SqliteStore>>();
@@ -217,9 +231,6 @@ pub(super) fn LabelMenu(
                 act(&store, shell, revision, id, Op::Label(which, wanted));
             },
             on_close: move |_| shell.write().labelling = None,
-            slim: false,
-            active: None,
-        }
         }
     }
 }

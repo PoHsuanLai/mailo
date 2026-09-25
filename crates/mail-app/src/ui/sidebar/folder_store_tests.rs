@@ -333,11 +333,15 @@ async fn the_menu_and_the_field_are_the_shared_ones_and_styled() {
     // The first item is under the cursor: New folder inside.
     let first = seen.all("aria-selected", "true")[0];
     let seen = click(&mut dom, first);
-    let field = seen.one("placeholder", "New folder");
+    let field = seen.one("aria-placeholder", "New folder");
     type_into(&mut dom, field, "a/b");
     chord(&mut dom, "Enter", Modifiers::empty(), field);
     let naming = dioxus_ssr::render(&dom);
-    assert!(naming.contains("class=\"inp inline\""), "{naming}");
+    // The shared field: quire's, in its bare face.
+    assert!(
+        naming.contains("class=\"ds-input\" data-variant=\"bare\""),
+        "{naming}"
+    );
     assert!(
         naming.contains("A folder name cannot contain “/”"),
         "the refusal is not said: {naming}"

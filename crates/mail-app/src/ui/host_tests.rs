@@ -39,7 +39,7 @@ fn before_the_seam() -> Vec<(Ask, &'static str)> {
         (
             Ask::FocusAndSelect(Drawn::FindField),
             "(function focusFind(tries) {\
-    const field = document.querySelector('.find .inp');\
+    const field = document.querySelector('.find input');\
     if (field) { field.focus(); field.select(); }\
     else if (tries > 0) { requestAnimationFrame(() => focusFind(tries - 1)); }\
 })(20)",

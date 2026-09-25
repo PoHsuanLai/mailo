@@ -112,26 +112,32 @@ pub(super) fn FolderList(
         .map(|tree| item(&tree.account.to_string(), Icon::Plus, &tree.address, None))
         .collect();
     let mut new_button = use_signal(|| None::<MountedRef>);
+    let hint = if show() == Show::All {
+        "Hide the folders you do not follow"
+    } else {
+        "Show the folders you do not follow"
+    };
     rsx! {
         div { class: "s-h",
             "Folders"
             if section.hidden > 0 || show() == Show::All {
-                button {
-                    r#type: "button",
-                    title: if show() == Show::All { "Hide the folders you do not follow" } else { "Show the folders you do not follow" },
-                    onclick: move |_| {
+                ds::Button {
+                    variant: ds::ButtonVariant::Frame,
+                    label: toggle,
+                    title: hint.to_owned(),
+                    onclick: move |_: ds::Press| {
                         let mut show = show;
                         show.set(if show() == Show::All { Show::Followed } else { Show::All });
                     },
-                    "{toggle}"
                 }
             }
-            button {
-                r#type: "button",
-                aria_label: "New folder",
-                title: "New folder",
-                onmounted: move |event: MountedEvent| new_button.set(Some(MountedRef(event.data()))),
-                onclick: move |_| {
+            ds::Button {
+                variant: ds::ButtonVariant::Frame,
+                label: "+ New",
+                aria_label: "New folder".to_owned(),
+                title: "New folder".to_owned(),
+                mounted: move |event: MountedEvent| new_button.set(Some(MountedRef(event.data()))),
+                onclick: move |_: ds::Press| {
                     if several {
                         open.set(Open::Accounts);
                     } else if let Some(account) = first {
@@ -139,7 +145,6 @@ pub(super) fn FolderList(
                         focus_name();
                     }
                 },
-                "+ New"
             }
         }
         if *open.read() == Open::Accounts {

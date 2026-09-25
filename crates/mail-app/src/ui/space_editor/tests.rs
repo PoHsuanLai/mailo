@@ -62,8 +62,8 @@ async fn the_editor_opens_on_the_spaces_own_choices() {
     let page = dioxus_ssr::render(&dom);
     assert!(page.contains("aria-label=\"Space editor\""), "{page}");
 
-    // Appearance and Accent are quire's `SpaceEditor`'s own rows and names; Motion and
-    // Provider marks are mailo's rows under it.
+    // Appearance, Motion (a Space's three levels) and Accent are quire's `SpaceEditor`'s own
+    // rows and names; Provider marks is mailo's row under it.
     let groups = [
         (
             "Appearance",

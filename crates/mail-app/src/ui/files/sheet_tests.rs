@@ -176,7 +176,13 @@ async fn every_class_the_mail_file_sheets_draw_is_styled() {
     dispatching();
     let (store, dir) = crate::ui::fixtures::seeded();
     let markup = every_state(&store, &a_maildir(dir.path()));
-    for class in ["files-dest", "files-bar", "files-bad", "seg"] {
+    // The destination is quire's dropdown value now, named for what it holds.
+    for class in [
+        "aria-label=\"Import into: ",
+        "files-bar",
+        "files-bad",
+        "seg",
+    ] {
         assert!(markup.contains(class), "{class} was not drawn");
     }
     let missing =

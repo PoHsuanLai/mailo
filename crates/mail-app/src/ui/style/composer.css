@@ -16,8 +16,8 @@
 .c-top .state.dirty .pip { background: var(--warn); }
 .c-top .grow, .c-foot .grow { flex: 1; }
 .c-scroll { flex: 1; overflow-y: auto; padding: var(--s-22) var(--s-26) calc(var(--s-36) + var(--s-4)); min-height: 0; }
-.inp.c-title {
-  display: block; width: 100%; padding: 0; font-family: var(--font-display); font-weight: 700; font-size: var(--fs-display);
+.field.c-title {
+  display: flex; width: 100%; font-family: var(--font-display); font-weight: 700; font-size: var(--fs-display);
   line-height: 1.15; letter-spacing: -.015em; color: var(--ink);
 }
 .c-scroll .notice { margin-top: var(--s-10); }
@@ -42,14 +42,7 @@
 .pchip.receipt-chip { padding-left: var(--s-9); color: var(--ink-soft); }
 .pchip .x { border: 0; background: none; padding: 0; cursor: pointer; color: var(--ink-faint); line-height: 0; }
 .c-pin { display: flex; flex: 1; min-width: 120px; position: relative; }
-.inp.pinput { flex: 1; min-width: 120px; padding: var(--s-3) var(--s-2); font-size: var(--fs-control); }
-.pval {
-  border: 0; background: transparent; cursor: pointer; font: inherit; font-size: var(--fs-control); color: var(--ink);
-  padding: var(--s-2) var(--s-6); border-radius: var(--r-small); display: inline-flex; align-items: center; gap: var(--s-6);
-}
-.pval:hover { background: var(--surface); }
-.pval .mono { color: var(--ink-faint); }
-.pval .car { font-size: var(--fs-caption); color: var(--ink-faint); margin-left: var(--s-2); }
+.field.pinput { flex: 1; min-width: 120px; font-size: var(--fs-control); }
 .p-menu { position: absolute; left: 0; top: calc(100% + 4px); z-index: var(--z-menu); }
 .p-menu .fmenu { position: static; }
 
@@ -152,12 +145,7 @@
 .bubble button:hover { background: var(--surface-2); color: var(--ink); }
 .bubble button[*|aria-pressed="true"] { color: var(--accent); }
 .bubble .sep { width: var(--hair); height: 18px; background: var(--line-soft); margin: 0 var(--s-3); }
-.bubble .turn { font-weight: 600; }
-.bubble .code { font-family: var(--font-data); font-size: var(--fs-help); }
-.bubble .serif { font-family: var(--font-serif); }
-.bubble .link-in .inp { width: 220px; font-size: var(--fs-meta); padding: 0 var(--s-8); }
-.turn-menu { position: absolute; left: 0; top: calc(100% + 4px); }
-.turn-menu .fmenu { position: static; }
+.bubble .link-in .field { width: 220px; font-size: var(--fs-meta); padding: 0 var(--s-8); }
 
 .c-hint { margin-top: var(--s-18); font-family: var(--font-data); font-size: var(--fs-note); color: var(--ink-faint); display: flex; gap: var(--s-12); flex-wrap: wrap; }
 .c-hint kbd {
@@ -215,7 +203,7 @@
 /* send later: "Pick a time…" under the Sends row, and what it reads; the template name field */
 .fmenu.pick-time, .fmenu.tpl-save { width: 260px; }
 .pick-in { display: flex; align-items: center; gap: var(--s-8); padding: var(--s-4) var(--s-8); color: var(--ink-faint); }
-.inp.pick-field, .inp.tpl-name { font-size: var(--fs-body); }
+.field.pick-field, .field.tpl-name { flex: 1; min-width: 0; font-size: var(--fs-body); }
 .pick-says { margin: 0; padding: var(--s-2) var(--s-8) var(--s-7) var(--s-26); font-size: var(--fs-help); line-height: 1.35; color: var(--ink-faint); }
 .pick-says.refused { color: var(--danger); }
 .fmenu.tpl-list { width: 280px; }

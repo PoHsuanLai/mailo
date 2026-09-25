@@ -254,14 +254,16 @@ fn quote_block(
                 }
             }
             if folded {
-                button {
-                    class: "fold",
-                    r#type: "button",
-                    aria_expanded: "false",
-                    onclick: move |_| {
-                        quotes.write().insert(key.clone(), true);
-                    },
-                    "{label}"
+                // quire's button, in mailo's box that keeps it to its words in the quote's grid.
+                div { class: "quote-more",
+                    ds::Button {
+                        variant: ds::ButtonVariant::Quiet,
+                        label,
+                        expanded: ds::Expanded::Closed,
+                        onclick: move |_: ds::Press| {
+                            quotes.write().insert(key.clone(), true);
+                        },
+                    }
                 }
             } else {
                 div { class: "inner",

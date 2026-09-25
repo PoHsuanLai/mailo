@@ -10,24 +10,12 @@ const ELLIPSIS: &str = "text-overflow: ellipsis truncates in the webview Phase A
 const FOCUS: &str = "the webview matches :focus-visible and :focus-within; Phase B moves keyboard focus onto `.ds[data-modality=keyboard] :focus`";
 /// A tint or nudge on quire's glyph inside mailo's own chrome.
 const GLYPH_TINT: &str = "tints or nudges quire's `Glyph` inside mailo's own chrome; `Glyph` takes no colour of its own, and the rule never reaches into a quire component";
-/// A row's strip buttons, the selection bubble's marks and the frame's small words.
-const STRIP_AND_FRAME: &str = "three kinds of raw button: a row's strip, since quire's `HoverStrip` calls a button's `onclick` only once it has measured it, so a press in a document with no layout does nothing (a gap, reported); the selection bubble's B, I, U and S, whose faces are the marks themselves, where `Button` takes a text label; and the sidebar's Clear, Show all and + New, set in the frame's ink, which no `Button` variant wears (a gap, reported)";
-/// A button on the frame, in the frame's own ink.
-const FRAME_INK: &str = "set on the Space's colour in the frame's ink (`--f-ink`); quire's `Button` variants all wear the card's ink (a gap, reported)";
-/// An inline field.
-const INLINE_FIELD: &str = "an inline field set in the face of where it sits (the composer's subject in the display face, a recipient beside its chips); quire's `TextInput` takes its face from its own sheet only (a gap, reported)";
+/// A button inside a folder row's `<summary>`.
+const IN_SUMMARY: &str = "a folder row is a `<summary>`, and a click on a button inside it would also open or close the folder; the button stops that on the click itself, and quire's `Button` and `IconButton` hand the caller a `Press`, not the event (a gap, reported)";
 /// The composer's wire.
 const WIRE: &str = "the composer's wire is the textarea the editor glue reads the page through, by design, not a field anyone types in";
-/// A Space's own colours, which are data.
-const SPACE_COLOUR: &str =
-    "a Space's colours are the person's own, drawn as they chose them: data, not a design value";
 
 pub(super) const STYLE: &[Exception] = &[
-    Exception {
-        rule: Rule::BlitzUnsupported,
-        selector: ".space-name",
-        reason: ELLIPSIS,
-    },
     Exception {
         rule: Rule::BlitzUnsupported,
         selector: ".list-bar h2",
@@ -52,31 +40,6 @@ pub(super) const STYLE: &[Exception] = &[
         rule: Rule::BlitzUnsupported,
         selector: ".fold-acct",
         reason: ELLIPSIS,
-    },
-    Exception {
-        rule: Rule::FocusPseudoClass,
-        selector: ".row:hover .strip, .row:focus-within .strip",
-        reason: FOCUS,
-    },
-    Exception {
-        rule: Rule::FocusPseudoClass,
-        selector: ".row:hover .strip button, .row:focus-within .strip button",
-        reason: FOCUS,
-    },
-    Exception {
-        rule: Rule::Important,
-        selector: ".strip button:active",
-        reason: "a pressed strip button must shrink under the pop-in that holds its transform with `forwards`",
-    },
-    Exception {
-        rule: Rule::DsInternals,
-        selector: ".fmenu .it .sc .ds-ic",
-        reason: GLYPH_TINT,
-    },
-    Exception {
-        rule: Rule::DsInternals,
-        selector: ".fmenu .it .rm .ds-ic",
-        reason: GLYPH_TINT,
     },
     Exception {
         rule: Rule::DsInternals,
@@ -112,11 +75,6 @@ pub(super) const STYLE: &[Exception] = &[
         rule: Rule::DsInternals,
         selector: ".inv-answered .ds-ic",
         reason: GLYPH_TINT,
-    },
-    Exception {
-        rule: Rule::BlitzUnsupported,
-        selector: ".hc .msg p",
-        reason: "a hover card quotes two lines of a message; the webview clamps them, Phase B clips by characters",
     },
     Exception {
         rule: Rule::DsInternals,
@@ -164,11 +122,6 @@ pub(super) const STYLE: &[Exception] = &[
         reason: FOCUS,
     },
     Exception {
-        rule: Rule::DsInternals,
-        selector: ".pval.files-dest .ds-ic",
-        reason: GLYPH_TINT,
-    },
-    Exception {
         rule: Rule::BlitzUnsupported,
         selector: ".rules-text b",
         reason: ELLIPSIS,
@@ -208,48 +161,23 @@ pub(super) const STYLE: &[Exception] = &[
 pub(in crate::ui) const MARKUP: &[Exception] = &[
     Exception {
         rule: Rule::RawMarkup,
-        selector: "button",
-        reason: STRIP_AND_FRAME,
+        selector: "button.fold-name",
+        reason: IN_SUMMARY,
     },
     Exception {
         rule: Rule::RawMarkup,
-        selector: "button.item",
-        reason: "a place is dragged onto: its element hears the pointer enter and leave; quire's `SidebarItem` (`ItemKind::Place`) takes no pointer hooks and writes no `data-place` (a gap, reported)",
+        selector: "button.more",
+        reason: IN_SUMMARY,
     },
     Exception {
         rule: Rule::RawMarkup,
-        selector: "button.pin.acct",
-        reason: "a local-folders account is on no provider, and quire's `AccountTile` always draws a `ProviderMark` (`AccountFace::One` takes a `Provider`, not an `Option`; a gap, reported)",
+        selector: "button.scrim",
+        reason: "the peek's scrim sits in the window's grid under the peeked reader; quire's `Scrim` floats in the overlay host, over everything the window draws, and would cover the reader it dims around (a gap, reported)",
     },
     Exception {
         rule: Rule::RawMarkup,
-        selector: "button.pval",
-        reason: "a property value opens its dropdown anchored to itself and ends in a caret; quire's `Button` draws a label and a leading icon, no trailing mark (a gap, reported)",
-    },
-    Exception {
-        rule: Rule::RawMarkup,
-        selector: "button.rm",
-        reason: "mailo's own menu (a toggle list that stays open as each row is picked, and a menu drawn inline in a card) keeps its row remove; quire's `Menu` closes on every pick and always floats (a gap, reported)",
-    },
-    Exception {
-        rule: Rule::RawMarkup,
-        selector: "button.space-name",
-        reason: FRAME_INK,
-    },
-    Exception {
-        rule: Rule::RawMarkup,
-        selector: "input.inp.inline",
-        reason: INLINE_FIELD,
-    },
-    Exception {
-        rule: Rule::RawMarkup,
-        selector: "input.inp.inline.c-title",
-        reason: INLINE_FIELD,
-    },
-    Exception {
-        rule: Rule::RawMarkup,
-        selector: "input.inp.inline.pinput",
-        reason: INLINE_FIELD,
+        selector: "button.rq-head",
+        reason: "a quoted message's head in the composer is a glyph, who and when, and a quieter hint, in two faces; quire's `Button` draws one label (a gap, reported)",
     },
     Exception {
         rule: Rule::RawMarkup,
@@ -258,17 +186,7 @@ pub(in crate::ui) const MARKUP: &[Exception] = &[
     },
     Exception {
         rule: Rule::HexColour,
-        selector: "button",
-        reason: SPACE_COLOUR,
-    },
-    Exception {
-        rule: Rule::HexColour,
         selector: "span.av",
         reason: "an account's avatar wears the colour the account was given, which is data",
-    },
-    Exception {
-        rule: Rule::HexColour,
-        selector: "span.tile.round",
-        reason: SPACE_COLOUR,
     },
 ];

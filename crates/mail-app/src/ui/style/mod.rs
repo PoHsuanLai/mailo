@@ -740,16 +740,7 @@ pub(in crate::ui) mod tests {
     /// Custom properties a component sets on one element (from markup, per row or per spark),
     /// so they are never on `:root`. Each rule that reads one gives it a fallback or is only
     /// reached with it set.
-    const PER_ELEMENT: &[&str] = &[
-        "--i",
-        "--a",
-        "--d",
-        "--dy",
-        "--j",
-        "--pc",
-        "--g",
-        "--fly-delay",
-    ];
+    const PER_ELEMENT: &[&str] = &["--i", "--a", "--d", "--dy", "--pc", "--g"];
 
     /// The classes in `html` that no rule in `css` styles, by quire's markup lint
     /// (`ds::lint::markup`, coherence rule 2): each named once, in order.

@@ -627,7 +627,7 @@ pub(super) fn App() -> Element {
                 side_hidden, side_peek, just_added, editing, slide,
             }
             SpaceEditor { spaces, editing, shell }
-            super::hover::HoverLayer { site: super::hover::Site::Frame, shell, revision, spaces: Some(spaces) }
+            super::hover::HoverLayer { shell, revision, spaces: Some(spaces) }
             if shell.read().command.is_some() {
                 CommandMenu { shell, pages, revision, side_hidden, sync_state, spaces }
             }

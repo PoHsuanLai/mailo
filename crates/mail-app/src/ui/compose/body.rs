@@ -7,7 +7,8 @@
 use dioxus::prelude::*;
 
 use super::super::field::{Field, FieldKind};
-use super::super::menu::{Menu, MenuKey, anchor_at, menu_key, quire_entries};
+use super::super::menu::{Floating, MenuKey, anchor_at, menu_key, quire_entries};
+use super::super::press::on_primary;
 use super::float::{
     Picked, commit, current_kind, mention_items, pick_mention, pick_slash, pick_turn,
     suggest_mention, turn_items,
@@ -18,6 +19,7 @@ use super::templates::{self, TemplateFloat, page_slash_items};
 use super::wire::{self, caret_attr};
 use crate::editor::{InputEvent, Mark, Node, Op, Presence, Range, to_html};
 use crate::view::Shell;
+use ds::{ButtonFace, ButtonVariant, Expanded, Switch, Trailing};
 
 /// Milliseconds on the wall clock, which is what groups typing into undo steps.
 pub(in crate::ui) fn now_ms() -> u64 {
@@ -150,7 +152,7 @@ fn pick(mut page: Signal<Page>, on_attach: EventHandler<()>, key: &str) {
     if templates::pick(&mut page.write(), key) {
         // The name field takes the keys once it is there.
         if matches!(page.peek().float, Float::SaveTemplate(_)) {
-            crate::ui::host::Host::focus_after_task(".tpl-name");
+            crate::ui::host::Host::focus_after_task(".tpl-name input");
         }
         return;
     }
@@ -330,6 +332,8 @@ pub(in crate::ui) fn covered(page: &Page, range: Range, mark: Mark) -> bool {
 /// The selection bubble: Turn into, the five marks, and a link.
 #[component]
 fn Bubble(page: Signal<Page>) -> Element {
+    // The Turn into button, which its menu floats against.
+    let mut turn_at = use_signal(|| None::<ds::MountedRef>);
     let read = page.read();
     let Some(range) = read.selection else {
         return rsx! {};
@@ -342,11 +346,11 @@ fn Bubble(page: Signal<Page>) -> Element {
         .map(|item| item.name)
         .unwrap_or_else(|| "Text".to_owned());
     let pressed = |mark| {
-        if covered(&read, range, mark) {
-            "true"
+        Some(if covered(&read, range, mark) {
+            Switch::On
         } else {
-            "false"
-        }
+            Switch::Off
+        })
     };
     let (bold, italic, under, strike) = (
         pressed(Mark::Bold),
@@ -355,6 +359,11 @@ fn Bubble(page: Signal<Page>) -> Element {
         pressed(Mark::Strike),
     );
     drop(read);
+    let turn_open = if float == Float::Turn {
+        Expanded::Open
+    } else {
+        Expanded::Closed
+    };
     rsx! {
         div {
             class: "bubble",
@@ -385,39 +394,48 @@ fn Bubble(page: Signal<Page>) -> Element {
                     }
                 },
                 _ => rsx! {
-                    button { class: "turn", r#type: "button",
-                        onclick: move |_| {
+                    ds::Button {
+                        variant: ButtonVariant::Quiet,
+                        label: turn_label,
+                        trailing: Some(Trailing::Caret),
+                        expanded: turn_open,
+                        mounted: move |event: MountedEvent| turn_at.set(Some(ds::MountedRef(event.data()))),
+                        onclick: on_primary(move || {
                             let open = page.read().float == Float::Turn;
                             page.write().float = if open { Float::Closed } else { Float::Turn };
-                        },
-                        "{turn_label} ▾"
+                        }),
                     }
                     span { class: "sep" }
-                    button { r#type: "button", title: "Bold (Ctrl B)", aria_pressed: bold,
-                        onclick: move |_| { format(page, "formatBold"); }, b { "B" } }
-                    button { r#type: "button", title: "Italic (Ctrl I)", aria_pressed: italic,
-                        onclick: move |_| { format(page, "formatItalic"); }, i { class: "serif", "i" } }
-                    button { r#type: "button", title: "Underline (Ctrl U)", aria_pressed: under,
-                        onclick: move |_| { format(page, "formatUnderline"); }, u { "U" } }
-                    button { r#type: "button", title: "Strikethrough (Ctrl Shift S)", aria_pressed: strike,
-                        onclick: move |_| { format(page, "formatStrikeThrough"); }, s { "S" } }
-                    button { class: "code", r#type: "button", title: "Inline code (Ctrl E)",
-                        onclick: move |_| { code(page); }, "</>" }
+                    ds::Button { variant: ButtonVariant::Quiet, face: ButtonFace::Bold, label: "Bold",
+                        title: "Bold (Ctrl B)".to_owned(), pressed: bold,
+                        onclick: on_primary(move || { format(page, "formatBold"); }) }
+                    ds::Button { variant: ButtonVariant::Quiet, face: ButtonFace::Italic, label: "Italic",
+                        title: "Italic (Ctrl I)".to_owned(), pressed: italic,
+                        onclick: on_primary(move || { format(page, "formatItalic"); }) }
+                    ds::Button { variant: ButtonVariant::Quiet, face: ButtonFace::Underline, label: "Underline",
+                        title: "Underline (Ctrl U)".to_owned(), pressed: under,
+                        onclick: on_primary(move || { format(page, "formatUnderline"); }) }
+                    ds::Button { variant: ButtonVariant::Quiet, face: ButtonFace::Strike, label: "Strikethrough",
+                        title: "Strikethrough (Ctrl Shift S)".to_owned(), pressed: strike,
+                        onclick: on_primary(move || { format(page, "formatStrikeThrough"); }) }
+                    ds::Button { variant: ButtonVariant::Quiet, label: "</>",
+                        title: "Inline code (Ctrl E)".to_owned(), aria_label: "Inline code".to_owned(),
+                        onclick: on_primary(move || { code(page); }) }
                     span { class: "sep" }
-                    button { r#type: "button", title: "Link (Ctrl K)",
-                        onclick: move |_| page.write().float = Float::Link(String::new()), "Link" }
+                    ds::Button { variant: ButtonVariant::Quiet, label: "Link",
+                        title: "Link (Ctrl K)".to_owned(),
+                        onclick: on_primary(move || page.write().float = Float::Link(String::new())) }
                     if float == Float::Turn {
-                        div { class: "turn-menu",
-                            Menu {
-                                title: "Turn into".to_owned(),
-                                items: turn_items(kind),
-                                filterable: false,
-                                on_pick: move |key: String| pick_turn(&mut page.write(), &key),
-                                on_close: move |_| page.write().float = Float::Closed,
-                                on_query: move |_| {},
-                                slim: true,
-                                active: None,
-                            }
+                        // The editor keeps the keyboard and its selection: the menu is pointed
+                        // at, and highlights nothing until it is.
+                        Floating {
+                            kind: ds::MenuKind::Slim,
+                            anchor: turn_at(),
+                            title: "Turn into".to_owned(),
+                            items: turn_items(kind),
+                            active: ds::Cursor::Controlled(None),
+                            on_pick: move |key: String| pick_turn(&mut page.write(), &key),
+                            on_close: move |_| page.write().float = Float::Closed,
                         }
                     }
                 },

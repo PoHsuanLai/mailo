@@ -155,6 +155,9 @@ pub(in crate::ui) fn MoveMenu(
     shell: Signal<Shell>,
     revision: Signal<u64>,
     anchor: Option<MountedRef>,
+    /// The opener's rect once measured, which wins over `anchor`.
+    #[props(default)]
+    placed: Option<ds::Rect>,
     on_close: EventHandler<()>,
 ) -> Element {
     let store = consume_context::<Arc<SqliteStore>>();
@@ -172,6 +175,7 @@ pub(in crate::ui) fn MoveMenu(
         Floating {
             kind: MenuKind::Rich,
             anchor,
+            placed,
             title: "Move to".to_owned(),
             items: items(&found),
             filter,

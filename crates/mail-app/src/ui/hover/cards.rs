@@ -5,24 +5,17 @@
 
 use super::super::history::{History, history};
 use super::sender::sender_card;
-use super::{Hook, hover};
+use super::{Hook, keep_driver, use_driver};
 use crate::space::{Pinned, Spaces};
 use crate::view::Shell;
 use chrono::Local;
 use dioxus::prelude::*;
+use ds::{AvatarTone, HoverCardPart, HoverMessage, Key, KeyHint, Shortcut};
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
-
-/// Which cards a layer draws. The thread card sits beside the list, so it is drawn inside the
-/// list column; the rest are positioned against the window.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(in crate::ui) enum Site {
-    List,
-    Frame,
-}
 
 /// The sender history, asked once per revision of the store and kept between hovers.
 type Cached = Rc<RefCell<Option<(u64, Rc<History>)>>>;
@@ -38,42 +31,29 @@ fn cached(cache: &Cached, store: &SqliteStore, revision: u64) -> Rc<History> {
     fresh
 }
 
-/// Whatever card is open, if it belongs to this site.
+/// Whichever card quire's hub has open (or is closing), as quire's `HoverCard`, placed by the
+/// hub against its hook. Drawn once, inside the root.
 #[component]
 pub(in crate::ui) fn HoverLayer(
-    site: Site,
     shell: Signal<Shell>,
     revision: Signal<u64>,
     spaces: Option<Signal<Spaces>>,
 ) -> Element {
     let cache: Cached = use_hook(Cached::default);
-    let Some(state) = hover() else {
+    let driver = use_driver();
+    use_hook(move || keep_driver(driver));
+    let Some(driver) = driver else {
         return rsx! {};
     };
-    let Some((hook, (x, y))) = state.open() else {
+    let hub = driver.hub();
+    let Some((key, kind)) = hub.open().or(hub.leaving()) else {
         return rsx! {};
     };
-    let mine = matches!(hook, Hook::Thread(_)) == (site == Site::List);
-    if !mine {
+    let Some(hook) = Hook::of(&key) else {
         return rsx! {};
-    }
+    };
     let store = consume_context::<Arc<SqliteStore>>();
-    let (class, style) = match hook {
-        Hook::Thread(_) => ("hc beside", format!("top:{:.0}px", (y - 12.0).max(8.0))),
-        Hook::Sender(_) => ("hc", format!("left:{:.0}px;top:{:.0}px", x, y + 22.0)),
-        Hook::Time(_) => (
-            "hc tip",
-            format!(
-                "left:max(8px, calc({x:.0}px - 140px));top:{:.0}px",
-                y + 20.0
-            ),
-        ),
-        Hook::Pin(_) | Hook::Today(_) => (
-            "hc side-card",
-            format!("left:244px;top:{:.0}px", (y - 6.0).max(8.0)),
-        ),
-    };
-    let body = match hook {
+    let Some(Card { parts, more }) = (match hook {
         Hook::Thread(id) => thread_card(&store, id, &shell.read()),
         Hook::Sender(id) => {
             let known = cached(&cache, &store, revision());
@@ -82,17 +62,18 @@ pub(in crate::ui) fn HoverLayer(
         Hook::Time(id) => time_tip(&store, id),
         Hook::Pin(index) => pin_card(&store, index, spaces, &shell.read()),
         Hook::Today(id) => today_card(&store, id),
+    }) else {
+        return rsx! {};
     };
     rsx! {
-        div {
-            class: "{class}",
-            style: "{style}",
-            role: "tooltip",
-            onpointerenter: move |_| state.enter_card(),
-            onpointerleave: move |_| state.leave_card(),
-            {body}
-        }
+        ds::HoverCard { key: "{key.0}", kind, parts, {more} }
     }
+}
+
+/// A card's content: quire's parts, then whatever the parts do not draw, in mailo's box.
+pub(super) struct Card {
+    pub parts: Vec<HoverCardPart>,
+    pub more: Element,
 }
 
 /// One message's first lines, from the text the store already has.
@@ -132,11 +113,12 @@ pub(in crate::ui) fn first_lines(body: &Body) -> Lines {
     }
 }
 
-pub(super) fn initial(name: &str) -> String {
+/// A name's first letter, upper-cased, as an avatar shows it.
+pub(super) fn letter(name: &str) -> char {
     name.chars()
         .next()
-        .map(|c| c.to_uppercase().collect())
-        .unwrap_or_else(|| "?".to_owned())
+        .and_then(|c| c.to_uppercase().next())
+        .unwrap_or('?')
 }
 
 pub(super) fn who(address: &Address) -> String {
@@ -147,10 +129,18 @@ pub(super) fn who(address: &Address) -> String {
         .unwrap_or_else(|| address.email.clone())
 }
 
-fn thread_card(store: &SqliteStore, id: ThreadId, shell: &Shell) -> Element {
-    let Ok(loaded) = store.thread(id) else {
-        return rsx! {};
-    };
+/// A message in a card: its sender's letter on the ink, a name and its lines.
+fn message(name: String, text: String) -> HoverMessage {
+    HoverMessage {
+        initial: letter(&name),
+        tone: AvatarTone::Ink,
+        name,
+        text,
+    }
+}
+
+fn thread_card(store: &SqliteStore, id: ThreadId, shell: &Shell) -> Option<Card> {
+    let loaded = store.thread(id).ok()?;
     let summary = &loaded.summary;
     let count = loaded.messages.len();
     let plural = if count == 1 { "" } else { "s" };
@@ -170,55 +160,58 @@ fn thread_card(store: &SqliteStore, id: ThreadId, shell: &Shell) -> Element {
         sub.push_str(&format!(" · {}", labels.join(", ")));
     }
     let start = loaded.messages.len().saturating_sub(3);
-    let recent: Vec<(String, String, Lines)> = loaded.messages[start..]
+    let recent: Vec<HoverMessage> = loaded.messages[start..]
         .iter()
         .filter_map(|message| store.message(*message).ok())
-        .map(|message| {
-            let name = who(&message.from);
-            (initial(&name), name, first_lines(&message.body))
+        .map(|stored| {
+            let text = match first_lines(&stored.body) {
+                Lines::Text(text) => text,
+                Lines::NotDownloaded => "not downloaded".to_owned(),
+                Lines::NoText => "no plain text".to_owned(),
+            };
+            message(who(&stored.from), text)
         })
         .collect();
     let unread = summary.read == ReadState::Unread;
-    let subject = summary.subject.clone();
-    rsx! {
-        h5 { "{subject}" }
-        div { class: "sub", "{sub}" }
-        div { class: "msgs",
-            for (n, (letter, name, lines)) in recent.into_iter().enumerate() {
-                div { key: "{n}", class: "msg",
-                    span { class: "av", "{letter}" }
-                    div {
-                        b { "{name}" }
-                        match lines {
-                            Lines::Text(text) => rsx! { p { "{text}" } },
-                            Lines::NotDownloaded => rsx! { p { class: "none", "not downloaded" } },
-                            Lines::NoText => rsx! { p { class: "none", "no plain text" } },
-                        }
-                    }
-                }
-            }
-        }
-        div { class: "foot",
-            if unread { "stays unread while you look" } else { "already read" }
-            span { class: "k", kbd { "Space" } " peek" }
-        }
-    }
+    let foot = if unread {
+        "stays unread while you look"
+    } else {
+        "already read"
+    };
+    Some(Card {
+        parts: vec![
+            HoverCardPart::Title(summary.subject.clone()),
+            HoverCardPart::Sub(sub),
+            HoverCardPart::Messages(recent),
+            HoverCardPart::Foot {
+                text: foot.to_owned(),
+                keys: Some(KeyHint {
+                    shortcut: Shortcut(vec![Key::Space]),
+                    label: "peek".to_owned(),
+                }),
+            },
+        ],
+        more: rsx! {},
+    })
 }
 
-fn time_tip(store: &SqliteStore, id: ThreadId) -> Element {
-    let Ok(loaded) = store.thread(id) else {
-        return rsx! {};
-    };
+fn time_tip(store: &SqliteStore, id: ThreadId) -> Option<Card> {
+    let loaded = store.thread(id).ok()?;
     let full = loaded
         .summary
         .last_date
         .with_timezone(&Local)
         .format("%A %-d %B %Y, %H:%M")
         .to_string();
-    rsx! {
-        "{full}"
-        div { class: "sub", "your time" }
-    }
+    Some(Card {
+        parts: Vec::new(),
+        more: rsx! {
+            div { class: "hc",
+                "{full}"
+                div { class: "sub", "your time" }
+            }
+        },
+    })
 }
 
 fn pin_card(
@@ -226,12 +219,8 @@ fn pin_card(
     index: usize,
     spaces: Option<Signal<Spaces>>,
     shell: &Shell,
-) -> Element {
-    let Some(pin) =
-        spaces.and_then(|spaces| spaces.read().current_space().pins.get(index).cloned())
-    else {
-        return rsx! {};
-    };
+) -> Option<Card> {
+    let pin = spaces.and_then(|spaces| spaces.read().current_space().pins.get(index).cloned())?;
     let (name, filter) = match &pin {
         Pinned::Person { name, email } => (
             name.clone(),
@@ -262,39 +251,41 @@ fn pin_card(
     } else {
         format!("latest {} unread", unread.len())
     };
-    rsx! {
-        h5 { "{name}" }
-        div { class: "sub", "{sub}" }
-        if !unread.is_empty() {
-            div { class: "msgs",
-                for thread in unread {
-                    div { key: "{thread.id}", class: "msg",
-                        span { class: "av", "{initial(&who(&thread.from))}" }
-                        div {
-                            b { "{thread.subject}" }
-                            p { "{thread.snippet}" }
-                        }
-                    }
-                }
-            }
-        }
+    let mut parts = vec![HoverCardPart::Title(name), HoverCardPart::Sub(sub)];
+    if !unread.is_empty() {
+        parts.push(HoverCardPart::Messages(
+            unread
+                .into_iter()
+                .map(|thread| HoverMessage {
+                    initial: letter(&who(&thread.from)),
+                    tone: AvatarTone::Ink,
+                    name: thread.subject,
+                    text: thread.snippet,
+                })
+                .collect(),
+        ));
     }
+    Some(Card {
+        parts,
+        more: rsx! {},
+    })
 }
 
-fn today_card(store: &SqliteStore, id: ThreadId) -> Element {
-    let Ok(loaded) = store.thread(id) else {
-        return rsx! {};
-    };
+fn today_card(store: &SqliteStore, id: ThreadId) -> Option<Card> {
+    let loaded = store.thread(id).ok()?;
     let summary = loaded.summary;
     let from = who(&summary.from);
-    rsx! {
-        h5 { "{summary.subject}" }
-        div { class: "sub", "{from} · opened today" }
-        div { class: "msgs",
-            div { class: "msg",
-                span { class: "av", "{initial(&from)}" }
-                div { p { "{summary.snippet}" } }
-            }
-        }
-    }
+    Some(Card {
+        parts: vec![
+            HoverCardPart::Title(summary.subject),
+            HoverCardPart::Sub(format!("{from} · opened today")),
+            HoverCardPart::Messages(vec![HoverMessage {
+                initial: letter(&from),
+                tone: AvatarTone::Ink,
+                name: String::new(),
+                text: summary.snippet,
+            }]),
+        ],
+        more: rsx! {},
+    })
 }

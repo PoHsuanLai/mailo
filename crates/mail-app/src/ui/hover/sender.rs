@@ -3,15 +3,15 @@
 
 use super::super::contacts::ContactPart;
 use super::super::history::History;
-use super::super::menu::{Menu, MenuItem, Right, Tile};
-use super::cards::{initial, who};
-use super::hover;
+use super::super::menu::{Floating, MenuItem, Right, Tile};
+use super::cards::{Card, letter, who};
+use super::dismiss;
 use crate::space::{Pinned, Spaces};
 use crate::trust::spoof;
 use crate::view::Shell;
 use chrono::Local;
 use dioxus::prelude::*;
-use ds::{Glyph, Icon};
+use ds::{AvatarTone, Glyph, HoverCardPart, HoverStat, Icon};
 use mail_domain::ThreadId;
 use mail_store::{SqliteStore, Store};
 
@@ -21,13 +21,10 @@ pub(super) fn sender_card(
     known: &History,
     mut shell: Signal<Shell>,
     spaces: Option<Signal<Spaces>>,
-) -> Element {
-    let Ok(loaded) = store.thread(id) else {
-        return rsx! {};
-    };
+) -> Option<Card> {
+    let loaded = store.thread(id).ok()?;
     let from = loaded.summary.from.clone();
     let name = who(&from);
-    let letter = initial(&name);
     let email = from.email.clone();
     let seen = known.get(&email).cloned();
     let first = seen.as_ref().is_none_or(|sender| sender.threads <= 1);
@@ -39,18 +36,28 @@ pub(super) fn sender_card(
         .unwrap_or_default();
     let items = sender_actions();
     let given = from.name.clone().unwrap_or_default();
-    rsx! {
-        div { class: "person",
-            span { class: "av", "{letter}" }
-            div {
-                h5 { "{name}" }
-                div { class: "sub", "{email}" }
-            }
-        }
-        div { class: "stat",
-            span { b { "{threads}" } if threads == 1 { "thread" } else { "threads" } }
-            span { b { "{last}" } "last wrote" }
-        }
+    let parts = vec![
+        HoverCardPart::Person {
+            initial: letter(&name),
+            tone: AvatarTone::Ink,
+            title: name.clone(),
+            sub: Some(email.clone()),
+        },
+        HoverCardPart::Stats(vec![
+            HoverStat {
+                value: threads.to_string(),
+                label: if threads == 1 { "thread" } else { "threads" }.to_owned(),
+            },
+            HoverStat {
+                value: last,
+                label: "last wrote".to_owned(),
+            },
+        ]),
+    ];
+    // The flags bold the brand and the domain, which quire's `Flag` part (plain text) cannot:
+    // they stay mailo's, under the parts, with the contact row and the actions.
+    let more = rsx! {
+        div { class: "hc",
         if let Some(flag) = flag {
             div { class: "flag",
                 Glyph { icon: Icon::X, size: ds::IconSize::Compact }
@@ -72,33 +79,30 @@ pub(super) fn sender_card(
         // Keyed, so a card for another sender starts afresh rather than keep this one's state.
         {rsx! { ContactPart { key: "{email}", email: email.clone(), name: given } }}
         div { class: "acts",
-            Menu {
+            // The card's actions are a menu drawn in the card, not over it.
+            Floating {
+                kind: ds::MenuKind::Slim,
+                anchor: None,
                 title: String::new(),
                 items,
-                filterable: false,
+                flow: ds::Flow::Inline,
+                // No row under a cursor: the card is pointed at, never arrowed through, and a
+                // first row drawn as selected reads as one already chosen.
+                active: ds::Cursor::Controlled(None),
                 on_pick: move |key: String| {
                     match key.as_str() {
                         "pin" => pin_person(spaces, &name, &email),
                         "mail" => shell.write().search = format!("from:{email}"),
                         _ => copy(&email),
                     }
-                    if let Some(state) = hover() {
-                        state.dismiss();
-                    }
+                    dismiss();
                 },
-                on_close: move |_| {
-                    if let Some(state) = hover() {
-                        state.dismiss();
-                    }
-                },
-                on_query: move |_| {},
-                slim: true,
-                // No row under a cursor: the card is pointed at, never arrowed through, and a
-                // first row drawn as selected reads as one already chosen.
-                active: Some(usize::MAX),
+                on_close: move |_| dismiss(),
             }
         }
-    }
+        }
+    };
+    Some(Card { parts, more })
 }
 
 fn sender_actions() -> Vec<MenuItem> {

@@ -1,6 +1,7 @@
 //! The property rows under the title: From, To, Cc, Sends, Protection and Attached. Every choice
 //! is a [`Menu`] and every input a [`Field`].
 
+use super::super::press::on_primary;
 use std::sync::Arc;
 
 use dioxus::prelude::*;
@@ -137,19 +138,21 @@ fn FromRow(page: Signal<Page>, shell: Signal<Shell>) -> Element {
         div { class: "prop-row",
             div { class: "k", Glyph { icon: Icon::Mail, size: ds::IconSize::Compact }, "From" }
             div { class: "v",
-                button {
-                    class: "pval",
-                    r#type: "button",
-                    onmounted: move |event: MountedEvent| value.set(Some(MountedRef(event.data()))),
-                    onclick: move |_| {
+                // The provider's mark leads the value, beside quire's dropdown value: a `Button`
+                // draws a glyph and words, not a provider's mark.
+                if let Some(via) = via {
+                    ProvChip { provider: via, marks, place: ChipPlace::Inline }
+                }
+                ds::Button {
+                    variant: ds::ButtonVariant::Quiet,
+                    label: address,
+                    trailing: Some(ds::Trailing::Caret),
+                    expanded: if open { ds::Expanded::Open } else { ds::Expanded::Closed },
+                    mounted: move |event: MountedEvent| value.set(Some(MountedRef(event.data()))),
+                    onclick: on_primary(move || {
                         let next = if open { Float::Closed } else { Float::From };
                         page.write().float = next;
-                    },
-                    if let Some(via) = via {
-                        ProvChip { provider: via, marks, place: ChipPlace::Inline }
-                    }
-                    "{address}"
-                    span { class: "car", "▾" }
+                    }),
                 }
                 if open {
                     Floating {
@@ -260,19 +263,19 @@ fn SendsRow(page: Signal<Page>) -> Element {
         div { class: "prop-row",
             div { class: "k", Glyph { icon: Icon::Clock, size: ds::IconSize::Compact }, "Sends" }
             div { class: "v",
-                button {
-                    class: "pval",
-                    r#type: "button",
-                    onmounted: move |event: MountedEvent| value.set(Some(MountedRef(event.data()))),
-                    onclick: move |_| {
+                ds::Button {
+                    variant: ds::ButtonVariant::Quiet,
+                    label: shown,
+                    trailing: Some(ds::Trailing::Caret),
+                    expanded: if open { ds::Expanded::Open } else { ds::Expanded::Closed },
+                    mounted: move |event: MountedEvent| value.set(Some(MountedRef(event.data()))),
+                    onclick: on_primary(move || {
                         let next = if open || picking { Float::Closed } else { Float::Sends };
                         page.write().float = next;
-                    },
-                    "{shown}"
-                    if when != When::Now {
-                        span { class: "mono", "scheduled" }
-                    }
-                    span { class: "car", "▾" }
+                    }),
+                }
+                if when != When::Now {
+                    span { class: "mono", "scheduled" }
                 }
                 if open {
                     Floating {
@@ -283,7 +286,7 @@ fn SendsRow(page: Signal<Page>) -> Element {
                         on_pick: move |key: String| {
                             pick_sends(&mut page.write(), &key);
                             if matches!(page.peek().float, Float::PickTime(_)) {
-                                crate::ui::host::Host::focus_after_task(".pick-field");
+                                crate::ui::host::Host::focus_after_task(".pick-field input");
                             }
                         },
                         // "Pick a time…" opens the field where the menu was: closing the menu

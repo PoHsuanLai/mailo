@@ -171,7 +171,7 @@ async fn look_up_shows_what_was_found_and_adds_nothing_until_it_is_used() {
     );
     assert!(crate::ui::data::account_rows(&store).is_empty());
 
-    let secret = seen.one("placeholder", "Password for ada@example.test");
+    let secret = seen.one("aria-placeholder", "Password for ada@example.test");
     type_into(&mut open.dom, secret, PASSWORD);
     assert_eq!(fake.added(), 0, "typing the password added something");
     click(&mut open.dom, seen.one("aria-label", "Use these settings"));
@@ -210,7 +210,7 @@ async fn cancel_adds_nothing() {
     let seen = look_up(&mut open, "ada@example.test").await;
     type_into(
         &mut open.dom,
-        seen.one("placeholder", "Password for ada@example.test"),
+        seen.one("aria-placeholder", "Password for ada@example.test"),
         PASSWORD,
     );
     // Drawn with the sheet and never changed since, so found in the first render.
@@ -277,7 +277,7 @@ async fn jmap_found_by_discovery_is_shown_in_words_and_added_with_its_session() 
 
     type_into(
         &mut open.dom,
-        seen.one("placeholder", "Password for ada@example.test"),
+        seen.one("aria-placeholder", "Password for ada@example.test"),
         PASSWORD,
     );
     click(&mut open.dom, seen.one("aria-label", "Use these settings"));
@@ -326,7 +326,7 @@ async fn a_domain_with_imap_and_jmap_offers_imap_first_and_jmap_one_press_away()
     click(&mut open.dom, segments(&seen, "Signs in with")[1]);
     type_into(
         &mut open.dom,
-        seen.one("placeholder", "Password for ada@example.test"),
+        seen.one("aria-placeholder", "Password for ada@example.test"),
         TOKEN,
     );
     let shown = page(&open);
@@ -424,7 +424,7 @@ async fn a_session_typed_by_hand_with_a_token_adds_with_bearer_and_keeps_the_tok
     let seen = seen.merge(click(&mut open.dom, token));
     type_into(
         &mut open.dom,
-        seen.one("placeholder", "API token for ada@example.test"),
+        seen.one("aria-placeholder", "API token for ada@example.test"),
         TOKEN,
     );
     let shown = page(&open);
@@ -500,7 +500,7 @@ async fn a_new_account_joins_a_scoped_space() {
     let seen = look_up(&mut open, "ada@example.test").await;
     type_into(
         &mut open.dom,
-        seen.one("placeholder", "Password for ada@example.test"),
+        seen.one("aria-placeholder", "Password for ada@example.test"),
         PASSWORD,
     );
     click(&mut open.dom, seen.one("aria-label", "Use these settings"));
@@ -627,7 +627,7 @@ async fn every_state() -> Vec<(&'static str, String)> {
     all.push(("found", page(&found)));
     type_into(
         &mut found.dom,
-        seen.one("placeholder", "Password for ada@example.test"),
+        seen.one("aria-placeholder", "Password for ada@example.test"),
         PASSWORD,
     );
     click(&mut found.dom, seen.one("aria-label", "Use these settings"));

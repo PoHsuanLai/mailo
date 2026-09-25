@@ -35,9 +35,9 @@ dioxus = { version = "0.7", features = ["desktop"] }
 # `lint` is for the stylesheet and markup tests; `webview-fonts` gives the `@font-face` rules as
 # `data:` URIs while mailo is on the webview. To try an unreleased quire, point both lines at a
 # checkout with a `[patch]` in a local, uncommitted `.cargo/config.toml`, never here.
-ds = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.1.5", features = ["lint", "webview-fonts"] }
+ds = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.1.6", features = ["lint", "webview-fonts"] }
 # Settings I/O: `appearance.toml` (imported once from `appearance.json`), the settings portal.
-ds-settings = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.1.5" }
+ds-settings = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.1.6" }
 # ASCII-case-insensitive multi-pattern search for highlights. Already in the tree via `regex`.
 aho-corasick = "1.1"
 # `re:/pattern/`. Already in the tree; depended on directly so the size caps are ours.

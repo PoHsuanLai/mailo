@@ -245,6 +245,13 @@ impl Motion {
         Self::ALL.into_iter().find(|level| level.slug() == word)
     }
 
+    /// The Space's level quire's `level` is, when it is one of the three a Space sets.
+    pub fn of(level: ds::Motion) -> Option<Motion> {
+        Self::ALL
+            .into_iter()
+            .find(|motion| ds::Motion::from(*motion) == level)
+    }
+
     /// What the window's root is drawn at: this level, unless the desktop asks for reduced
     /// motion, which wins whatever a Space says.
     pub fn with_desktop(self, system: ds::SystemPrefs) -> ds::Motion {

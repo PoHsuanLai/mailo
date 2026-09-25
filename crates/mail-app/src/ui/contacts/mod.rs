@@ -18,7 +18,7 @@ use dioxus::prelude::*;
 /// Open the Contacts sheet with an empty filter, and put the cursor in it.
 pub(in crate::ui) fn open(mut shell: Signal<Shell>) {
     shell.write().contacts = Some(String::new());
-    crate::ui::host::Host::focus_next_frame(".book-find .inp");
+    crate::ui::host::Host::focus_next_frame(".book-find input");
 }
 
 /// Close the sheet and give the keyboard back to the window.

@@ -10,15 +10,14 @@ use std::collections::BTreeMap;
 
 /// `(rule, property that holds the timing)`. Selectors are compared whole. A count's bump is
 /// quire's pulse class now (`a-bump`), timed by quire's own recipe, so it is not listed; nor are
-/// a row's exits, heal and arrival, which are quire's `ListRow`'s.
+/// a row's exits, heal and arrival, which are quire's `ListRow`'s, nor a hover card's entrance,
+/// which is quire's `HoverCard`'s, nor a place's gulp and seal, which are quire's
+/// `SidebarItem`'s.
 const NEW: &[(&str, &str)] = &[
     (".row .floater", "animation"),
     (".chip.is-landing", "animation"),
-    (".item.gulp", "animation"),
     (".toast", "animation"),
-    (".hc", "animation"),
     (".linkpill", "animation"),
-    (".item[*|aria-current=\"true\"]::before", "animation"),
 ];
 
 fn strip_comments(css: &str) -> String {

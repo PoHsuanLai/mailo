@@ -1,42 +1,9 @@
-/* Hover previews, ported from the F6 mockup's `.hc`: wait for intent, stay warm, never mark
-   read, never fetch. The thread card is drawn inside the list column and sits beside it; the
-   others are placed against the window by the pointer's own coordinates. */
+/* Hover previews: quire's `HoverCard`, opened and placed by quire's hub. What its parts do not
+   draw is mailo's, in a `.hc` box inside the card: a time tip's line, the sender card's flags
+   (the brand and the domain in bold), its contact row and its actions. */
 .list-col { position: relative; }
 .reader { position: relative; }
-.hc {
-  position: absolute; z-index: var(--z-card); width: 300px; background: var(--raise); color: var(--ink);
-  border: var(--hair) solid var(--line); border-radius: var(--r-panel); box-shadow: var(--shadow-drag);
-  padding: var(--s-12) var(--s-13); font-size: var(--fs-control); line-height: 1.45;
-  animation: hc-in var(--t-move) var(--e-spring);
-}
-.hc.beside { left: calc(100% + 10px); }
-.hc h5 { margin: 0; font-family: var(--font-display); font-size: var(--fs-reading); line-height: 1.2; }
-.hc .sub { font-family: var(--font-data); font-size: var(--fs-note); color: var(--ink-faint); margin-top: var(--s-2); }
-.hc .msgs { margin-top: var(--s-9); display: grid; gap: var(--s-7); }
-.hc .msg { display: grid; grid-template-columns: 22px 1fr; gap: var(--s-8); align-items: start; }
-.hc .msg .av, .hc .person .av {
-  width: 22px; height: 22px; border-radius: var(--r-pill); display: grid; place-items: center;
-  background: var(--ink); color: var(--paper); font-family: var(--font-display); font-weight: 800; font-size: var(--fs-caption);
-}
-.hc .msg b { font-size: var(--fs-small); }
-.hc .msg p {
-  font-size: var(--fs-small); color: var(--ink-soft); line-height: 1.4; display: -webkit-box;
-  -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
-}
-.hc .msg p.none { font-style: italic; color: var(--ink-faint); }
-.hc .foot {
-  margin-top: var(--s-10); padding-top: var(--s-8); border-top: var(--hair) solid var(--line-soft); display: flex; align-items: center;
-  gap: var(--s-6); font-family: var(--font-data); font-size: var(--fs-caption); color: var(--ink-faint);
-}
-.hc .foot .k { margin-left: auto; }
-.hc kbd {
-  font-family: var(--font-data); font-size: var(--fs-micro); padding: 0 var(--s-4); border: var(--hair) solid var(--line);
-  border-radius: var(--r-tiny); color: var(--ink-soft);
-}
-.hc .person { display: flex; gap: var(--s-10); align-items: center; }
-.hc .person .av { width: 34px; height: 34px; font-size: var(--fs-reading); }
-.hc .stat { margin-top: var(--s-9); display: flex; gap: var(--s-14); font-size: var(--fs-small); color: var(--ink-soft); }
-.hc .stat b { display: block; font-family: var(--font-display); font-size: var(--fs-base); color: var(--ink); }
+.hc .sub { font-family: var(--font-data); font-size: var(--fs-note); color: var(--ink-faint); margin-top: var(--s-1); }
 .hc .flag {
   margin-top: var(--s-9); display: flex; gap: var(--s-7); align-items: flex-start; padding: var(--s-7) var(--s-9); border-radius: var(--r-btn);
   background: var(--c-red-soft); color: var(--ink); font-size: var(--fs-small); line-height: 1.4;
@@ -44,23 +11,10 @@
 .hc .flag .ds-ic { color: var(--danger); margin-top: var(--s-1); }
 .hc .flag.info { background: var(--accent-soft); }
 .hc .flag.info .ds-ic { color: var(--accent); }
+/* The card's actions: quire's menu, drawn inline in the card. */
 .hc .acts { margin-top: var(--s-8); }
-/* The shared menu, laid flat inside the card: its rows are the card's actions. */
-.hc .acts .fmenu {
-  position: static; width: auto; max-height: none; padding: 0; border: 0; box-shadow: none;
-  background: transparent; animation: none;
-}
-.hc.tip { width: auto; max-width: 280px; padding: var(--s-6) var(--s-10); font-size: var(--fs-small); border-radius: var(--r-btn); }
-.hc.tip .sub { margin-top: var(--s-1); }
-.hc.side-card { width: 260px; }
 
-/* A strip button's result label shows at once while previews are warm. */
-.list-col.warm .strip button:hover .fly { --fly-delay: 0ms; }
 
-/* Archive and Snooze light the place they would send the row to. */
-.item.dest {
-  background: var(--f-pill-hover); color: var(--f-ink); box-shadow: 0 0 0 1.5px var(--accent) inset;
-}
 
 /* Where a link really goes, like a browser's status bar, and loud when its text lies. */
 .linkpill {

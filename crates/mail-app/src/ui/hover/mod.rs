@@ -1,9 +1,9 @@
 //! Hover previews: wait for intent, stay warm, never mark read, never fetch.
 //!
-//! The rules are [`crate::hover::Timer`]'s; this is the window's half. A hook (a row, a sender's
-//! name, a time, a pinned tile, a Today tab) reports the pointer, the timer decides, and one card
-//! is drawn for whatever the timer says is open. The one piece of state the stylesheet sees is
-//! `warm`, which lets a strip button's result label show at once while previews are scrubbing.
+//! The rules are quire's hover hub's (450 ms to open, none while warm, 150 ms of grace after
+//! the pointer leaves, warm for 400 ms after a close); this is the window's half. A hook (a
+//! row, a sender's name, a time, a pinned tile, a Today tab) reports the pointer to quire's
+//! [`HoverDriver`], and one `HoverCard` is drawn for whatever the hub says is open.
 //!
 //! **Nothing here writes.** A card reads what the store already holds — the thread row, the
 //! messages' stored text, the sender history — and never marks anything read, never loads a
@@ -14,15 +14,17 @@ mod cards;
 mod link;
 mod sender;
 
-pub(super) use cards::{HoverLayer, Site};
+pub(super) use cards::HoverLayer;
 pub(super) use link::{LinkPill, link_out, link_over, url_spans};
 pub(super) use sender::copy;
 
-use crate::hover::{At, Timer};
 use crate::trust::Destination;
 use dioxus::prelude::*;
+use ds::{
+    HoverAnchor, HoverDriver, HoverEvent, HoverHub, HoverKey, HoverKind, MountedRef, Point, Px,
+    Rect, Size,
+};
 use mail_domain::ThreadId;
-use std::time::Instant;
 
 /// Where a card can be asked for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,35 +41,63 @@ pub(super) enum Hook {
     Today(ThreadId),
 }
 
-/// The hover state the window shares. Signals, so it is `Copy` and every hook holds it.
+impl Hook {
+    /// quire's key for it: the same words the hook's element names itself by (`data-hc`).
+    fn key(self) -> HoverKey {
+        HoverKey(match self {
+            Hook::Thread(id) => format!("thread:{id}"),
+            Hook::Sender(id) => format!("sender:{id}"),
+            Hook::Time(id) => format!("time:{id}"),
+            Hook::Pin(index) => format!("pin:{index}"),
+            Hook::Today(id) => format!("today:{id}"),
+        })
+    }
+
+    /// Which of quire's cards it opens, which is where the card is placed.
+    fn kind(self) -> HoverKind {
+        match self {
+            Hook::Thread(_) => HoverKind::Thread,
+            Hook::Sender(_) => HoverKind::Sender,
+            Hook::Time(_) => HoverKind::Tip,
+            Hook::Pin(_) | Hook::Today(_) => HoverKind::Side,
+        }
+    }
+
+    /// The hook a key names, read back.
+    fn of(key: &HoverKey) -> Option<Hook> {
+        let (kind, rest) = key.0.split_once(':')?;
+        match kind {
+            "pin" => rest.parse().ok().map(Hook::Pin),
+            _ => {
+                let id = ThreadId::from_uuid(rest.parse::<uuid::Uuid>().ok()?);
+                match kind {
+                    "thread" => Some(Hook::Thread(id)),
+                    "sender" => Some(Hook::Sender(id)),
+                    "time" => Some(Hook::Time(id)),
+                    "today" => Some(Hook::Today(id)),
+                    _ => None,
+                }
+            }
+        }
+    }
+}
+
+/// The hover state the window shares beyond quire's hub. Signals, so it is `Copy` and every
+/// hook holds it.
 #[derive(Clone, Copy)]
 pub(super) struct Hover {
-    timer: Signal<Timer<Hook>>,
-    /// The last hook entered, and where its element's top-left corner is in the window.
-    anchor: Signal<Option<(Hook, (f64, f64))>>,
-    /// Whether a card closed less than a moment ago. The one signal the stylesheet sees.
-    pub warm: Signal<bool>,
     /// The link under the pointer in the reader, if any. Instant: no timer.
     pub link: Signal<Option<Destination>>,
-    epoch: CopyValue<Instant>,
-    /// When the sleeping task will next wake, so a burst of events does not start a burst of
-    /// sleepers.
-    sleeper: CopyValue<Option<At>>,
-    /// The scope that owns all of this, where the timer's sleeper runs: a row that unmounts
-    /// must not take the clock with it, and nothing outside the owner may hold its values.
-    owner: ScopeId,
+    /// quire's driver, as the card layer inside the root found it: the window's keys are heard
+    /// above the root, where the hub is not in context. Not a signal: nothing redraws for it.
+    driver: CopyValue<Option<HoverDriver>>,
 }
 
 /// Make the hover state for the window. Called once, from `App`.
 pub(super) fn use_hover() -> Hover {
     use_context_provider(|| Hover {
-        timer: Signal::new(Timer::default()),
-        anchor: Signal::new(None),
-        warm: Signal::new(false),
         link: Signal::new(None),
-        epoch: CopyValue::new(Instant::now()),
-        sleeper: CopyValue::new(None),
-        owner: dioxus::core::current_scope_id(),
+        driver: CopyValue::new(None),
     })
 }
 
@@ -76,118 +106,115 @@ pub(super) fn hover() -> Option<Hover> {
     try_consume_context::<Hover>()
 }
 
-/// The top-left corner of the element a pointer event landed on, in window coordinates.
-pub(super) fn corner(event: &Event<PointerData>) -> (f64, f64) {
-    let client = event.client_coordinates();
-    let offset = event.element_coordinates();
-    (client.x - offset.x, client.y - offset.y)
+/// quire's hover driver, when the caller is inside a quire root (a component drawn on its own
+/// in a test is not). Call it from a component body, as a hook.
+pub(super) fn use_driver() -> Option<HoverDriver> {
+    let inside = use_hook(|| try_consume_context::<HoverHub>().is_some());
+    if inside {
+        Some(ds::use_hover_intent())
+    } else {
+        None
+    }
 }
 
-impl Hover {
-    fn now(&self) -> At {
-        let millis = self.epoch.read().elapsed().as_millis();
-        At(u64::try_from(millis).unwrap_or(u64::MAX))
-    }
+/// Where a part of a row is, from the pointer event that entered it: its top-left corner and
+/// one line's height, which is all a sender card or a time tip is placed against (below it).
+pub(super) fn line_at(event: &Event<PointerData>) -> HoverAnchor {
+    let client = event.client_coordinates();
+    let offset = event.element_coordinates();
+    HoverAnchor::Rect(Rect {
+        origin: Point {
+            x: Px((client.x - offset.x) as f32),
+            y: Px((client.y - offset.y) as f32),
+        },
+        size: Size {
+            width: Px(0.0),
+            height: Px(LINE),
+        },
+    })
+}
 
-    /// Replace the timer with `next` when it differs, so a pointer crossing a row's children
-    /// does not redraw anything.
-    fn update(mut self, change: impl FnOnce(&mut Timer<Hook>, At)) {
-        let now = self.now();
-        let mut next = self.timer.peek().clone();
-        change(&mut next, now);
-        if next != *self.timer.peek() {
-            self.timer.set(next);
-        }
-        let warm = self.timer.peek().warm(now);
-        if warm != *self.warm.peek() {
-            self.warm.set(warm);
-        }
-        self.schedule();
-    }
+/// A row part's line height, in pixels.
+const LINE: f32 = 16.0;
 
-    /// The pointer came to rest on `hook`, whose element's corner is at `at`.
-    pub(super) fn enter(mut self, hook: Hook, at: (f64, f64)) {
-        if *self.anchor.peek() != Some((hook, at)) {
-            self.anchor.set(Some((hook, at)));
-        }
-        self.update(|timer, now| timer.enter(hook, now));
-    }
+/// An element's anchor once it has mounted; before that (a document with no renderer) the card
+/// opens unplaced.
+pub(super) fn element(mounted: Option<MountedRef>) -> HoverAnchor {
+    mounted.map_or(HoverAnchor::Unplaced, HoverAnchor::Element)
+}
 
-    /// The pointer left the hook.
-    pub(super) fn leave(self) {
-        self.update(|timer, now| timer.leave(now));
+/// The pointer came to rest on `hook`, placed against `anchor`.
+pub(super) fn over(driver: Option<HoverDriver>, hook: Hook, anchor: HoverAnchor) {
+    if let Some(driver) = driver {
+        driver.over(hook.key(), hook.kind(), anchor);
     }
+}
 
-    pub(super) fn enter_card(self) {
-        self.update(|timer, _| timer.enter_card());
+/// The pointer left the hook.
+pub(super) fn out(driver: Option<HoverDriver>) {
+    if let Some(driver) = driver {
+        driver.out();
     }
+}
 
-    pub(super) fn leave_card(self) {
-        self.update(|timer, now| timer.leave_card(now));
+/// A press: whatever card is showing goes at once.
+pub(super) fn press(driver: Option<HoverDriver>) {
+    if let Some(driver) = driver {
+        driver.press();
     }
+}
 
-    /// Close whatever is showing: a click, Esc, an action.
-    pub(super) fn dismiss(self) {
-        self.update(|timer, now| timer.dismiss(now));
+/// Close whatever card is showing, from outside the root (a drag starting, an action in a
+/// card): the press quire's hub hears.
+pub(super) fn dismiss() {
+    if let Some(state) = hover() {
+        press(*state.driver.peek());
     }
+}
 
-    /// The hook whose card is showing, and where it was entered.
-    pub(super) fn open(&self) -> Option<(Hook, (f64, f64))> {
-        let open = *self.timer.read().open()?;
-        let (hook, at) = (*self.anchor.read())?;
-        (hook == open).then_some((hook, at))
-    }
-
-    /// Sleep until the timer's next deadline, in the owning scope.
-    fn schedule(mut self) {
-        let now = self.now();
-        let Some(due) = self.timer.peek().deadline(now) else {
-            return;
-        };
-        if self
-            .sleeper
-            .peek()
-            .is_some_and(|wakes| wakes >= now && wakes <= due)
-        {
-            return;
-        }
-        self.sleeper.set(Some(due));
-        let wait = std::time::Duration::from_millis(due.0.saturating_sub(now.0));
-        dioxus::core::Runtime::current().spawn(self.owner, async move {
-            tokio::time::sleep(wait).await;
-            if *self.sleeper.peek() == Some(due) {
-                self.sleeper.set(None);
-            }
-            self.update(|timer, now| timer.tick(now));
-        });
+/// The card layer hands the root's driver up, so the window's keys can reach it.
+fn keep_driver(driver: Option<HoverDriver>) {
+    if let (Some(state), Some(driver)) = (hover(), driver)
+        && state.driver.peek().is_none()
+    {
+        let mut kept = state.driver;
+        kept.set(Some(driver));
     }
 }
 
 /// Space opens the thread whose card is showing in a centred peek; Esc closes the card.
 /// Returns whether the key was the hover's.
 pub(super) fn key(name: &str, mut shell: Signal<crate::view::Shell>) -> bool {
-    let Some(hover) = hover() else {
+    let Some(driver) = hover().and_then(|state| *state.driver.peek()) else {
         return false;
     };
-    let Some((hook, _)) = hover.open() else {
+    let hub = driver.hub();
+    let Some(hook) = hub.open().and_then(|(key, _)| Hook::of(&key)) else {
         return false;
     };
     match (name, hook) {
         (" ", Hook::Thread(id)) => {
-            hover.dismiss();
+            // quire's Space: the card closes, warm, as it turns into the peek.
+            hub.feed(HoverEvent::SpaceKey);
+            // A card in its close grace is not open to Space: it goes at once instead.
+            if hub.open().is_some() {
+                driver.press();
+            }
             let mut write = shell.write();
             write.peek = crate::view::Peek::CENTER;
             write.open(id);
             true
         }
         ("Escape", _) => {
-            hover.dismiss();
+            driver.press();
             true
         }
         _ => false,
     }
 }
 
+#[cfg(test)]
+mod intent_tests;
 #[cfg(test)]
 mod render;
 #[cfg(test)]

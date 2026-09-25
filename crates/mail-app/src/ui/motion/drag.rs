@@ -102,9 +102,7 @@ pub(in crate::ui) fn moved(at: (f64, f64), held: bool) {
                 .name
                 .clone()
                 .unwrap_or_else(|| loaded.summary.from.email.clone());
-            if let Some(hover) = super::super::hover::hover() {
-                hover.dismiss();
-            }
+            super::super::hover::dismiss();
             state.drag.set(Drag::Live {
                 thread,
                 subject: loaded.summary.subject,

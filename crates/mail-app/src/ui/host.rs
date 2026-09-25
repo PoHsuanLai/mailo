@@ -26,7 +26,7 @@ pub(in crate::ui) enum When {
 /// that draws it reaches the page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::ui) enum Drawn {
-    /// The reader's find field, `.find .inp` (Ctrl F).
+    /// The reader's find field, `.find input` (Ctrl F).
     FindField,
     /// The sidebar's folder name field, `.fold-edit input` (New folder, Rename).
     FolderName,
@@ -50,7 +50,7 @@ pub(in crate::ui) enum Ask {
 
 /// `(function focusFind(tries) {…})(20)`: the find field, retried for twenty frames.
 const FOCUS_FIND: &str = "(function focusFind(tries) {\
-    const field = document.querySelector('.find .inp');\
+    const field = document.querySelector('.find input');\
     if (field) { field.focus(); field.select(); }\
     else if (tries > 0) { requestAnimationFrame(() => focusFind(tries - 1)); }\
 })(20)";

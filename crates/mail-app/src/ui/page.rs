@@ -4,7 +4,7 @@
 
 use std::collections::BTreeMap;
 
-use super::menu::{Floating, Menu, MenuItem, Right, Tile};
+use super::menu::{Floating, MenuItem, Right, Tile};
 use super::press::on_primary;
 use crate::view::{PageGroup, PageMenu, PageParts, Shell};
 use chrono::{DateTime, TimeZone, Utc};
@@ -207,6 +207,7 @@ pub(super) fn PageMenus(shell: Signal<Shell>) -> Element {
     let group = shell.read().group;
     let parts = shell.read().parts;
     let mut group_button = use_signal(|| None::<MountedRef>);
+    let mut parts_button = use_signal(|| None::<MountedRef>);
     rsx! {
         ds::Button {
             variant: ds::ButtonVariant::Mini,
@@ -229,6 +230,7 @@ pub(super) fn PageMenus(shell: Signal<Shell>) -> Element {
             label: "Properties",
             icon: Icon::Columns,
             aria_label: "Properties".to_owned(),
+            mounted: move |event: MountedEvent| parts_button.set(Some(MountedRef(event.data()))),
             expanded: if open == PageMenu::Properties { ds::Expanded::Open } else { ds::Expanded::Closed },
             onclick: on_primary(move || {
                 let next = if shell.peek().page_menu == PageMenu::Properties {
@@ -255,19 +257,19 @@ pub(super) fn PageMenus(shell: Signal<Shell>) -> Element {
             }
         }
         if open == PageMenu::Properties {
-            Menu {
+            // A checklist: each pick shows or hides a part, and the menu stays open.
+            Floating {
+                kind: MenuKind::Rich,
+                anchor: parts_button(),
                 title: "This page".to_owned(),
                 items: part_items(parts),
-                filterable: false,
+                dismiss: ds::PickDismiss::Stay,
                 on_pick: move |key: String| {
                     if let Some(part) = shell.write().parts.part_mut(&key) {
                         *part = (*part).toggle();
                     }
                 },
                 on_close: move |_| shell.write().page_menu = PageMenu::Closed,
-                on_query: move |_| {},
-                slim: false,
-                active: None,
             }
         }
     }

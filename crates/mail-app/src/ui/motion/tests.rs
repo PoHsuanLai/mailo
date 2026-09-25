@@ -249,7 +249,7 @@ async fn dragging_a_row_onto_archive_archives_it() {
     pointer(&mut dom, "pointerenter", archive, at(120.0, 300.0));
     let page = dioxus_ssr::render(&dom);
     assert!(
-        page.contains("is-drop-target"),
+        page.contains("data-drop=\"target\" data-place=\"Archive\""),
         "Archive did not light up as the target"
     );
     pointer(&mut dom, "pointerup", archive, at(120.0, 300.0));
@@ -260,7 +260,7 @@ async fn dragging_a_row_onto_archive_archives_it() {
     );
     let page = dioxus_ssr::render(&dom);
     assert!(
-        page.contains("class=\"item gulp\""),
+        page.contains("class=\"ds-sidebar-item a-gulp\""),
         "the place that received the row did not gulp"
     );
 
@@ -276,7 +276,7 @@ async fn dragging_a_row_onto_archive_archives_it() {
     .await;
     let page = dioxus_ssr::render(&dom);
     assert!(
-        !page.contains("item gulp"),
+        !page.contains("ds-sidebar-item a-gulp"),
         "the place was still gulping once the gulp had settled"
     );
 }
@@ -410,7 +410,7 @@ async fn a_count_that_changes_bumps() {
         let at = page.find("data-place=\"Inbox\"").expect("the Inbox place");
         let end = page[at..].find("</button>").map_or(page.len(), |n| at + n);
         let tail = &page[at..end];
-        tail.find("<span class=\"count")
+        tail.find("<span class=\"ds-count")
             .map(|n| tail[n..].split('>').next().unwrap_or("").to_owned())
             .expect("the Inbox shows a count")
     };
@@ -419,7 +419,7 @@ async fn a_count_that_changes_bumps() {
     settle(&mut dom).await;
     let after = inbox(&dioxus_ssr::render(&dom));
     assert!(
-        after.contains("class=\"count a-bump\"") && after != before,
+        after.contains("class=\"ds-count a-bump\"") && after != before,
         "the Inbox's count changed and did not bump: {before} then {after}"
     );
 }

@@ -1,6 +1,6 @@
 //! Today: threads opened in this Space, as sidebar shortcuts.
 
-use super::super::hover::{Hook, corner, hover};
+use super::super::hover::{Hook, element, out, over, use_driver};
 use super::super::text::sender;
 use crate::appearance::WindowDirs;
 use crate::today::Today;
@@ -20,6 +20,11 @@ pub(super) fn TodayList(
     mut just_added: Signal<Option<ThreadId>>,
 ) -> Element {
     let mut leaving = use_signal(|| None::<ThreadId>);
+    let driver = use_driver();
+    // Each entry's box, as it mounts: its card is placed beside it. Not a signal: nothing
+    // redraws for it.
+    let boxes =
+        use_hook(|| CopyValue::new(std::collections::HashMap::<ThreadId, ds::MountedRef>::new()));
     // An entry opens and closes on quire's clock: each timer runs for its animation's settle,
     // and a closed entry stays drawn until its own has run.
     let tab_in = ds::use_motion_timer(Anim::TabIn);
@@ -60,14 +65,15 @@ pub(super) fn TodayList(
         div { class: "s-h",
             "Today"
             if !live.is_empty() {
-                button {
-                    id: "clear-today",
-                    onclick: move |_| {
+                ds::Button {
+                    variant: ds::ButtonVariant::Frame,
+                    label: "Clear",
+                    id: "clear-today".to_owned(),
+                    onclick: move |_: ds::Press| {
                         today.write().clear(space_index);
                         save(&dirs_clear, &today.read());
                         leaving.set(None);
                     },
-                    "Clear"
                 }
             }
         }
@@ -95,16 +101,14 @@ pub(super) fn TodayList(
                         key: "{id}",
                         class: "today-at",
                         "data-hc": "today:{id}",
-                        onpointerenter: move |event| {
-                            if let Some(hover) = hover() {
-                                hover.enter(Hook::Today(id), corner(&event));
-                            }
+                        onmounted: move |event: MountedEvent| {
+                            let mut boxes = boxes;
+                            boxes.write().insert(id, ds::MountedRef(event.data()));
                         },
-                        onpointerleave: move |_| {
-                            if let Some(hover) = hover() {
-                                hover.leave();
-                            }
+                        onpointerenter: move |_| {
+                            over(driver, Hook::Today(id), element(boxes.peek().get(&id).cloned()));
                         },
+                        onpointerleave: move |_| out(driver),
                         ds::SidebarItem {
                             kind: ItemKind::Today { avatar },
                             label: title,

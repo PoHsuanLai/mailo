@@ -6,7 +6,6 @@
 
 use super::data::{AccountRow, account_rows, syncs_nothing};
 use super::field::{Field, FieldKind};
-use super::hover::{HoverLayer, Site, hover};
 use super::list_search::{Marking, RowHit, Scope, row_hit};
 use super::motion::{Clock, Ghost, Leaving, Motion, Toast, motion};
 use super::ops::start_new;
@@ -147,7 +146,6 @@ pub(super) fn ThreadList(
         let mut order = state.order;
         order.set(shown.iter().map(|summary| summary.id).collect());
     }
-    let warm = hover().is_some_and(|hover| *hover.warm.read());
     let mut lines = Vec::new();
     let mut row_index = 0usize;
     for band in group_page(
@@ -180,7 +178,7 @@ pub(super) fn ThreadList(
         }
     }
     rsx! {
-        div { class: if warm { "list-col warm" } else { "list-col" },
+        div { class: "list-col",
             div { class: "list-bar",
                 h2 {
                     "{place}"
@@ -336,7 +334,6 @@ pub(super) fn ThreadList(
                     }
                 }
             }
-            HoverLayer { site: Site::List, shell, revision, spaces: None }
             Toast { shell, revision }
             Ghost {}
         }

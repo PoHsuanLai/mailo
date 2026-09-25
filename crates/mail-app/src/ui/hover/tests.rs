@@ -39,9 +39,9 @@ fn over(offset: (f64, f64)) -> FakePointer {
     }
 }
 
-/// The card's markup, from its opening tag to the end of the page's last card.
+/// The card's markup, from its opening tag to the end of the page: quire's `HoverCard`.
 fn card(page: &str) -> Option<&str> {
-    page.find("role=\"tooltip\"").map(|at| &page[at..])
+    page.find("ds-hovercard\"").map(|at| &page[at..])
 }
 
 #[tokio::test]

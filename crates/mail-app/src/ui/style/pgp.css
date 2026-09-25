@@ -38,7 +38,7 @@
 .unlock .say { margin: 0; }
 .unlock .why { margin: 0; font-size: var(--fs-small); font-weight: 600; color: var(--danger); }
 .unlock-row { display: flex; align-items: center; gap: var(--s-8); }
-.inp.unlock-field { flex: 1; min-width: 0; font-size: var(--fs-control); padding: var(--s-5) var(--s-9); }
+.field.unlock-field { flex: 1; min-width: 0; }
 
 /* The composer's bar, when signing or encrypting is what stopped Send. */
 .c-warn.seal-warn { flex-wrap: wrap; }

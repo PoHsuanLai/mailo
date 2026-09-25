@@ -75,14 +75,13 @@
 }
 .rules-action .rm:hover { background: var(--surface-2); color: var(--ink); }
 .rules-add { position: relative; }
-.rules-menu .fmenu { top: calc(100% + 4px); left: 0; }
 .rules-acts { display: flex; align-items: center; justify-content: flex-end; gap: var(--s-8); flex-wrap: wrap; margin-top: var(--s-4); }
 .rules-acts .capnote { flex: 1; min-width: 0; }
 .rules-part > .rules-acts:first-of-type { justify-content: flex-start; }
 
 /* The vacation reply and the server's part. */
 .rules-form { display: grid; gap: var(--s-6); }
-.inp.rules-body { width: 100%; box-sizing: border-box; min-height: 84px; resize: vertical; font-size: var(--fs-control); line-height: 1.45; }
+.field.rules-body { width: 100%; font-size: var(--fs-control); }
 .rules-dates { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-10); }
 .rules-dates > div { display: grid; gap: var(--s-4); min-width: 0; }
 .rules-said {

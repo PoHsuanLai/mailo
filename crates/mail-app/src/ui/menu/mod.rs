@@ -1,220 +1,33 @@
-//! One menu for every list of choices.
+//! One menu for every list of choices: quire's `Menu`.
 //!
-//! A title row, then items. Each item has a tile, a name, one line of help, and a shortcut or a
-//! check on the right. The arrow keys, Enter and Esc live on [`MenuState`], so the table in the
-//! tests never needs a document.
+//! mailo describes its rows as [`MenuItem`]s (a tile, a name, one line of help, and a shortcut, a
+//! check or a remove on the right) and hands them to quire as entries, rows or groups. Every
+//! menu is quire's: [`Floating`] for one anchored to what opened it, a checklist that stays open,
+//! or rows drawn inside a card.
 
 mod state;
 
-use super::field::{Field, FieldKind};
 use dioxus::prelude::*;
 use ds::{
-    Anchor, Availability, AvatarFace, AvatarShape, AvatarSize, AvatarTone, Check, Filter, Glyph,
-    Icon, MenuEntry, MenuKind, MountedRef, Point, Trail,
+    Anchor, Availability, AvatarFace, AvatarShape, AvatarSize, AvatarTone, Check, Cursor, Filter,
+    Flow, Icon, MenuEntry, MenuKind, MountedRef, PickDismiss, Point, Trail,
 };
-pub(super) use state::{
-    MenuEvent, MenuItem, MenuKey, MenuState, Piece, Right, Run, Shown, Tile, Tone, menu_key, pieces,
-};
-
-/// A header or an item, in the order the menu paints them.
-enum Row {
-    Header(String),
-    Item(usize),
-}
-
-fn rows(shown: &[Shown<'_>]) -> Vec<Row> {
-    let mut out = Vec::new();
-    let mut last: Option<&str> = None;
-    for (index, shown) in shown.iter().enumerate() {
-        if let Some(group) = shown.item.group.as_deref()
-            && last != Some(group)
-        {
-            out.push(Row::Header(group.to_owned()));
-            last = Some(group);
-        }
-        out.push(Row::Item(index));
-    }
-    out
-}
-
-/// The shared menu. `active` set means the parent owns the cursor (the command menu's field
-/// sits outside this element). Otherwise the menu owns its [`MenuState`].
-#[component]
-pub(super) fn Menu(
-    title: String,
-    items: Vec<MenuItem>,
-    filterable: bool,
-    on_pick: EventHandler<String>,
-    on_close: EventHandler<()>,
-    on_query: EventHandler<String>,
-    slim: bool,
-    active: Option<usize>,
-    /// What a [`Right::Remove`] × does with its item's key. Only menus that offer one pass it.
-    on_remove: Option<EventHandler<String>>,
-) -> Element {
-    let mut state = use_signal(|| MenuState::new(filterable));
-    let mut held = use_signal(|| items.clone());
-    if held.read().as_slice() != items.as_slice() {
-        held.set(items.clone());
-    }
-    let live = held.read().clone();
-    let shown = state.read().shown(&live);
-    let cursor = active.unwrap_or_else(|| state.read().active().min(shown.len().saturating_sub(1)));
-    let class = if slim { "fmenu slim" } else { "fmenu" };
-    let owned = active.is_none();
-    let painted = rows(&shown);
-    let filter_value = state.read().query().to_owned();
-    rsx! {
-        div {
-            class: "{class}",
-            role: "listbox",
-            tabindex: "0",
-            onmousedown: move |event| {
-                event.prevent_default();
-                event.stop_propagation();
-            },
-            onkeydown: move |event| {
-                if !owned {
-                    return;
-                }
-                let Some(key) = menu_key(&event.key().to_string()) else {
-                    return;
-                };
-                // Letters belong to the field. Handling them here as well would type each one twice.
-                if matches!(key, MenuKey::Character(_) | MenuKey::Backspace) {
-                    return;
-                }
-                event.stop_propagation();
-                let current: Vec<MenuItem> = state
-                    .read()
-                    .shown(&held.read())
-                    .into_iter()
-                    .map(|shown| shown.item.clone())
-                    .collect();
-                match state.write().on_key(key, &current) {
-                    MenuEvent::Pick(key) => on_pick.call(key),
-                    MenuEvent::Close => on_close.call(()),
-                    MenuEvent::Moved | MenuEvent::Typed | MenuEvent::Ignored => {}
-                }
-            },
-            if !title.is_empty() {
-                div { class: "g", "{title}" }
-            }
-            if filterable {
-                Field {
-                    kind: FieldKind::Inline,
-                    value: filter_value,
-                    placeholder: "Filter".to_owned(),
-                    extra: None,
-                    on_input: move |value: String| {
-                        state.write().set_query(value.clone());
-                        on_query.call(value);
-                    },
-                    on_focus: |_| {},
-                    on_blur: |_| {},
-                }
-            }
-            if shown.is_empty() {
-                div { class: "none", "Nothing matches." }
-            }
-            for (n, row) in painted.into_iter().enumerate() {
-                match row {
-                    Row::Header(group) => rsx! { div { key: "g-{n}-{group}", class: "g", "{group}" } },
-                    Row::Item(index) => {
-                        let shown = &shown[index];
-                        let key = shown.item.key.clone();
-                        let indices = if shown.indices.is_empty() {
-                            shown.item.marks.clone()
-                        } else {
-                            shown.indices.clone()
-                        };
-                        let title = if shown.item.title.is_empty() {
-                            vec![Run {
-                                text: shown.item.name.clone(),
-                                marks: indices,
-                                tone: Tone::Plain,
-                            }]
-                        } else {
-                            shown.item.title.clone()
-                        };
-                        let detail = if shown.item.detail.is_empty() {
-                            shown
-                                .item
-                                .help
-                                .clone()
-                                .map(|text| Run {
-                                    text,
-                                    marks: Vec::new(),
-                                    tone: Tone::Plain,
-                                })
-                                .into_iter()
-                                .collect()
-                        } else {
-                            shown.item.detail.clone()
-                        };
-                        let selected = index == cursor;
-                        let checked = matches!(shown.item.right, Right::Check(true));
-                        let removed = key.clone();
-                        rsx! {
-                            div {
-                                key: "{key}",
-                                class: "it",
-                                role: "option",
-                                aria_selected: if selected { "true" } else { "false" },
-                                aria_checked: if checked { "true" } else { "false" },
-                                onclick: move |event| {
-                                    event.stop_propagation();
-                                    on_pick.call(key.clone());
-                                },
-                                {tile(&shown.item.tile)}
-                                span {
-                                    b { {runs(&title)} }
-                                    if !detail.is_empty() {
-                                        small { {runs(&detail)} }
-                                    }
-                                }
-                                span { class: "sc",
-                                    match &shown.item.right {
-                                        Right::Shortcut(shortcut) => rsx! { "{shortcut}" },
-                                        Right::Check(true) => rsx! { Glyph { icon: Icon::Check, size: ds::IconSize::Compact } },
-                                        Right::Remove(label) => rsx! {
-                                            button {
-                                                class: "rm",
-                                                r#type: "button",
-                                                aria_label: "{label}",
-                                                title: "{label}",
-                                                onclick: move |event| {
-                                                    event.stop_propagation();
-                                                    if let Some(remove) = on_remove {
-                                                        remove.call(removed.clone());
-                                                    }
-                                                },
-                                                Glyph { icon: Icon::X, size: ds::IconSize::Small }
-                                            }
-                                        },
-                                        Right::Check(false) | Right::None => rsx! { "" },
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
+pub(super) use state::{MenuItem, MenuKey, Piece, Right, Run, Tile, Tone, menu_key, pieces};
 
 /// A list of choices drawn by quire's `Menu`: floating over the window, anchored to the element
 /// that opened it, holding the keyboard while it is open. `anchor` is `None` only before that
 /// element has mounted, as in a document with no renderer, where the menu sits at the corner.
 ///
-/// Every menu that owns its own cursor is one of these. [`Menu`] is left for the menus quire's
-/// cannot be yet: a cursor the field beside it drives, a typed filter the caller hears, or a
-/// row's own remove button.
+/// `dismiss: PickDismiss::Stay` keeps a toggle checklist open as each row is picked (Labels,
+/// the page's Properties); `flow: Flow::Inline` draws the rows where the caller renders them
+/// (the sender card's actions); `on_query` hears the typed filter (a "Create …" row).
 #[component]
 pub(in crate::ui) fn Floating(
     kind: MenuKind,
     anchor: Option<MountedRef>,
+    /// The opener's rect once measured, which wins over `anchor`.
+    #[props(default)]
+    placed: Option<ds::Rect>,
     title: String,
     items: Vec<MenuItem>,
     /// Typing narrows the rows, as quire's ranker marks them.
@@ -223,10 +36,25 @@ pub(in crate::ui) fn Floating(
     /// A line under the rows that is not a choice: why there is nothing to choose.
     #[props(default)]
     note: Option<String>,
+    /// Whether a pick closes the menu.
+    #[props(default)]
+    dismiss: PickDismiss,
+    /// Floating over the window, or drawn in the caller's flow.
+    #[props(default)]
+    flow: Flow,
+    /// Whose highlight the rows show.
+    #[props(default)]
+    active: Cursor,
+    /// Hears the typed filter's text as it changes.
+    #[props(default)]
+    on_query: Option<EventHandler<String>>,
     on_pick: EventHandler<String>,
     on_close: EventHandler<()>,
 ) -> Element {
-    let anchor = anchor.map_or(Anchor::Point(Point::default()), Anchor::Mounted);
+    let anchor = match placed {
+        Some(rect) => Anchor::Rect(rect),
+        None => anchor_at(anchor),
+    };
     let avatar = match kind {
         MenuKind::Rich => AvatarSize::Size34,
         MenuKind::Slim | MenuKind::Dropdown | MenuKind::Context => AvatarSize::Size20,
@@ -244,6 +72,10 @@ pub(in crate::ui) fn Floating(
             anchor,
             entries,
             filter,
+            dismiss,
+            flow,
+            active,
+            onquery: on_query,
             onpick: on_pick,
             onclose: on_close,
         }
@@ -452,46 +284,6 @@ fn quire_tile(tile: &Tile, size: AvatarSize) -> ds::Tile {
         }),
         Tile::Glyph(ch) => ds::Tile::Text(ch.to_string()),
         Tile::Text(text) => ds::Tile::Text((*text).to_owned()),
-    }
-}
-
-fn runs(parts: &[Run]) -> Element {
-    rsx! {
-        for (index, run) in parts.iter().enumerate() {
-            span { key: "{index}", class: tone_class(run.tone),
-                for (piece_index, piece) in pieces(&run.text, &run.marks).into_iter().enumerate() {
-                    match piece {
-                        Piece::Plain(text) => rsx! { span { key: "p{piece_index}", "{text}" } },
-                        Piece::Mark(text) => rsx! { mark { key: "m{piece_index}", "{text}" } },
-                    }
-                }
-            }
-        }
-    }
-}
-
-fn tone_class(tone: Tone) -> &'static str {
-    match tone {
-        Tone::Plain => "",
-        Tone::Strong => "who",
-        Tone::Faint => "addr",
-    }
-}
-
-fn tile(tile: &Tile) -> Element {
-    match tile {
-        Tile::Icon(icon) => {
-            rsx! { span { class: "tile", Glyph { icon: *icon, size: ds::IconSize::Tile } } }
-        }
-        Tile::Avatar { letter, color } => rsx! {
-            span {
-                class: "tile round",
-                style: "background:{color};border-color:transparent",
-                "{letter}"
-            }
-        },
-        Tile::Glyph(ch) => rsx! { span { class: "tile", "{ch}" } },
-        Tile::Text(text) => rsx! { span { class: "tile", "{text}" } },
     }
 }
 

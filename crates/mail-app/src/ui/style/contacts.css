@@ -47,7 +47,7 @@
 .book-none { padding: var(--s-18) var(--s-10); text-align: center; font-size: var(--fs-meta); color: var(--ink-faint); }
 .naming { display: flex; align-items: center; gap: var(--s-6); min-width: 0; }
 .naming .book-name { flex: 1; min-width: 0; }
-.naming .inp.book-name { font-size: var(--fs-control); padding: var(--s-4) var(--s-8); }
+.naming .field.book-name { font-size: var(--fs-control); padding: var(--s-4) var(--s-8); }
 .book-foot {
   display: grid; gap: var(--s-7); padding: var(--s-10) var(--s-14) var(--s-14); border-top: var(--hair) solid var(--line-soft);
   background: var(--surface);
@@ -62,5 +62,5 @@
 }
 .hc .contact .standing { display: flex; align-items: center; gap: var(--s-6); flex-wrap: wrap; }
 .hc .contact .standing .origin { margin-right: auto; }
-.hc .contact .naming .inp.book-name { padding: var(--s-3) var(--s-2); font-size: var(--fs-control); }
+.hc .contact .naming .field.book-name { padding: var(--s-3) var(--s-2); font-size: var(--fs-control); }
 .hc .contact .capnote { font-size: var(--fs-eyebrow); }

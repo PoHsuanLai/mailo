@@ -1,7 +1,6 @@
 //! The Ctrl T menu over the reference fixture, and the pages its screenshots are taken from.
 
 use super::super::app::App;
-use super::super::menu::Menu;
 use super::items::{Pick, interpret, rows_of, search_now, tokens};
 use super::*;
 use crate::search::{Results, Top};
@@ -63,22 +62,13 @@ pub(in crate::ui) fn OpenMenus() -> Element {
             material: ds::Material::Window,
             stylesheet: ds::Inject::Host,
             CommandMenu { shell, pages, revision, side_hidden, sync_state, spaces }
-        }
-        if let Some(summary) = summary {
-            {
-                let id = summary.id;
-                rsx! { super::super::menus::LabelMenu { id, summary, shell, revision } }
+            // quire's menu, floating in the same root's overlay.
+            if let Some(summary) = summary {
+                {
+                    let id = summary.id;
+                    rsx! { super::super::menus::LabelMenu { id, summary, shell, revision, anchor: None } }
+                }
             }
-        }
-        Menu {
-            title: "Empty".to_owned(),
-            items: Vec::new(),
-            filterable: false,
-            on_pick: move |_| {},
-            on_close: move |_| {},
-            on_query: move |_| {},
-            slim: true,
-            active: None,
         }
         li { class: "list-g", "Today" }
     }
@@ -258,12 +248,17 @@ async fn render_the_menus_to_a_file() {
         click(&mut dom, second);
         settle(&mut dom).await;
         let label = dioxus_ssr::render(&dom);
-        // Each row is quire's `ListRow` in mailo's `.row` box, which holds the row's menu.
+        // Each row is quire's `ListRow` in mailo's `.row` box; the label menu is quire's, floating
+        // in the root's overlay against the second row's Label button, which says it is open.
         let rows: Vec<&str> = label.split("<div class=\"row\"").collect();
         assert!(
             rows.get(2)
-                .is_some_and(|row| row.contains("class=\"row-menu\"")),
-            "the label menu is not inside the second row"
+                .is_some_and(|row| row.contains("aria-expanded=\"true\"")),
+            "the label menu is not the second row's"
+        );
+        assert!(
+            label.contains("role=\"listbox\" aria-label=\"Labels\""),
+            "the label menu did not open"
         );
 
         for (name, body) in [("menus", &command), ("menus-label", &label)] {

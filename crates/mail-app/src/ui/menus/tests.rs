@@ -258,3 +258,36 @@ fn create_appears_only_for_a_new_name_and_checks_follow_the_thread() {
         "more than one Create row"
     );
 }
+
+/// The Labels menu open on a row, with two labels, one of them worn.
+#[tokio::test]
+#[ignore = "writes target/labels-menu.html and its -dark twin to look at"]
+async fn render_the_labels_menu_to_a_file() {
+    dispatching();
+    let built = crate::ui::fixtures::work();
+    let account = built.store.thread(built.dana).unwrap().summary.account;
+    for (name, worn) in [("travel", true), ("receipts", false)] {
+        let id = LabelId::generate();
+        built
+            .store
+            .connection()
+            .execute(
+                "INSERT INTO labels (id, account, name, origin) VALUES (?1, ?2, ?3, '\"user\"')",
+                rusqlite::params![id.to_string(), account.to_string(), name],
+            )
+            .unwrap();
+        if worn {
+            apply_label(&built.store, built.dana, id, Membership::In);
+        }
+    }
+    let mut dom = VirtualDom::new(App)
+        .with_root_context(built.store.clone())
+        .with_root_context(built.dirs.clone());
+    let seen = crate::ui::fixtures::rebuild_into(&mut dom);
+    let label = seen.all("aria-label", "Label")[0];
+    crate::ui::fixtures::click(&mut dom, label);
+    crate::ui::fixtures::drain(&mut dom);
+    let body = dioxus_ssr::render(&dom);
+    assert!(body.contains("Labels"), "the Labels menu did not open");
+    crate::ui::fixtures::dump("labels-menu", &body);
+}

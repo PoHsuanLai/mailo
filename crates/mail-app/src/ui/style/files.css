@@ -25,8 +25,6 @@
 .files-look.found { color: var(--ink); font-weight: 600; }
 .files-look.refused, .capnote.files-bad { color: var(--danger); }
 .files-into { position: relative; }
-.pval.files-dest { padding: var(--s-5) var(--s-8); margin-left: calc(-1 * var(--s-8)); font-weight: 600; }
-.pval.files-dest .ds-ic { color: var(--ink-soft); }
 .files-format { display: flex; align-items: center; gap: var(--s-10); flex-wrap: wrap; }
 .files-foot {
   display: flex; align-items: center; gap: var(--s-12); padding: var(--s-10) var(--s-14) var(--s-14);

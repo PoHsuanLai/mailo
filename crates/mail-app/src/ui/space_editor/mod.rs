@@ -104,24 +104,18 @@ pub(super) fn SpaceEditor(
                 on_active_dot: move |dot: ds::DotIndex| change(editing, spaces, |draft| draft.active = usize::from(dot.0)),
                 on_rename: move |name: String| change(editing, spaces, |draft| draft.space.name = name),
                 measured: ds::MeasuredIn::EachScheme,
+                // A Space's own three levels (`view::Motion`): quire's Contact levels.
+                motion: Some(ds::MotionChoice {
+                    level: motion_now.into(),
+                    on_motion: EventHandler::new(move |level: ds::Motion| {
+                        if let Some(motion) = Motion::of(level) {
+                            change(editing, spaces, |draft| draft.space.motion = motion);
+                        }
+                    }),
+                }),
+                motion_levels: ds::MotionLevels::Contact,
             }
             div { class: "ed-more",
-            // quire's Motion row offers its five levels; a mailo Space keeps three, by
-            // decision (`view::Motion`), so the Space's motion is mailo's own row.
-            div {
-                div { class: "ed-label", "Motion" }
-                Seg {
-                    label: "Motion".to_owned(),
-                    options: Motion::ALL
-                        .iter()
-                        .map(|motion| (motion.label().to_owned(), *motion == motion_now))
-                        .collect::<Vec<_>>(),
-                    on_pick: move |index: usize| {
-                        let motion = Motion::ALL[index];
-                        change(editing, spaces, |draft| draft.space.motion = motion);
-                    },
-                }
-            }
             MarksChoice { shell }
             Notifications {}
             div {

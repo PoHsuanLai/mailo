@@ -4,11 +4,10 @@
 //! opens the reader and carries the hover strip. Split from [`super::app`] (`CONVENTIONS.md` §8).
 //!
 //! Each row is quire's `ListRow` inside mailo's `.row`, the box the row's own menus and the
-//! snooze float are placed against. The strip stays mailo's: quire's `HoverStrip` hands a press
-//! over only once it has measured the button (a gap, reported), and a row's archive must not wait
-//! on a measure.
+//! snooze float are placed against. Its strip is quire's `HoverStrip`, whose `on_press` hears a
+//! press before anything is measured, so a row's archive never waits on a layout read.
 
-use super::hover::{Hook, corner, hover};
+use super::hover::{Hook, element, line_at, out, over, use_driver};
 use super::list_search::RowHit;
 use super::marked::{Piece, pieces};
 use super::menus::{LabelMenu, SnoozeMenu};
@@ -23,8 +22,8 @@ use crate::view::{Shell, hover_actions};
 use chrono::Local;
 use dioxus::prelude::*;
 use ds::{
-    Anim, Emphasis, Exit, Glyph, Icon, MountedRef, PartHooks, Presence, PulseKey, Run, RunTone,
-    Selection, StaggerIndex, Switch, Text,
+    ActionId, Anim, Emphasis, Exit, Expanded, Glyph, Here, Icon, MountedRef, PartHooks, Presence,
+    PulseKey, Run, RunTone, Selection, Shown, StaggerIndex, StripAction, Switch, Text, Titles,
 };
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
@@ -171,23 +170,26 @@ pub(super) fn Row(
         .collect();
     let selected = shell.read().open == Some(id);
     let delay = index.min(8);
-    // After the ops, in the strip's own stagger.
-    let move_at = actions.len();
     let move_label = "Move to…".to_owned();
     let filing = shell.read().filing == Some(id);
     // A press on the star replays its pop, and its sparks when it stars: quire's pulse.
     let pop = ds::use_pulse(Anim::StarPop);
-    // The strip buttons whose menus float beside them: each hands over its element to anchor to.
-    let mut snooze_at = use_signal(|| None::<MountedRef>);
-    let mut move_at_button = use_signal(|| None::<MountedRef>);
-    // Where the row's own corner is, for the thread card. Not a signal: nothing redraws for it.
-    let mut at = use_hook(|| CopyValue::new((0.0_f64, 0.0_f64)));
+    // The strip buttons whose menus float beside them: each hands over its rect once measured,
+    // and until then the menu is placed against the row's own box.
+    let mut snooze_at = use_signal(|| None::<ds::Rect>);
+    let mut move_at_button = use_signal(|| None::<ds::Rect>);
+    let mut label_at = use_signal(|| None::<ds::Rect>);
+    let mut row_box = use_signal(|| None::<MountedRef>);
+    // The focus inside the row shows its strip, as the pointer over it does.
+    let mut focused = use_signal(|| false);
+    // quire's hover hub, which the row, its name and its time report the pointer to.
+    let driver = use_driver();
     let going = matches!(moving, Moving::Going(_));
     let (presence, stagger) = moving.presence(delay, gap(&shell.read()));
     let snoozing = moving == Moving::Going(Exit::Curl);
-    let enter = move |hook: Hook, corner: (f64, f64)| {
-        if !going && let Some(hover) = hover() {
-            hover.enter(hook, corner);
+    let enter = move |hook: Hook, anchor: ds::HoverAnchor| {
+        if !going {
+            over(driver, hook, anchor);
         }
     };
     // The name and the time open their own cards; leaving either is being back on the row.
@@ -195,11 +197,11 @@ pub(super) fn Row(
     let part = move |hook: Hook| PartHooks {
         onpointerenter: EventHandler::new(move |event: PointerEvent| {
             event.stop_propagation();
-            enter(hook, corner(&event));
+            enter(hook, line_at(&event));
         }),
         onpointerleave: EventHandler::new(move |event: PointerEvent| {
             event.stop_propagation();
-            enter(Hook::Thread(id), *at.peek());
+            enter(Hook::Thread(id), element(row_box()));
         }),
     };
     let parts = shell.read().parts;
@@ -246,80 +248,88 @@ pub(super) fn Row(
             }
         }
     };
-    let strip = rsx! {
-        span { class: "strip",
-            for (n, kind) in actions.iter().copied().enumerate() {
-                button {
-                    key: "{kind:?}",
-                    "data-op": "{kebab(kind)}",
-                    aria_label: "{label(kind)}",
-                    title: "{label(kind)}",
-                    style: "--j:{n}",
-                    onmounted: move |event: MountedEvent| {
-                        if kind == OpKind::Snooze {
-                            snooze_at.set(Some(MountedRef(event.data())));
-                        }
-                    },
-                    onpointerenter: move |_| {
-                        if let (Some(mut state), Some(place)) = (motion(), preview(kind)) {
-                            state.dest.set(Some(place));
-                        }
-                    },
-                    onpointerleave: move |_| {
-                        if let Some(mut state) = motion() {
-                            state.dest.set(None);
-                        }
-                    },
-                    onclick: move |event: Event<MouseData>| {
-                        event.stop_propagation();
-                        let store = consume_context::<Arc<SqliteStore>>();
-                        if kind == OpKind::AddLabel {
-                            let already = shell.peek().labelling == Some(id);
-                            shell.write().labelling = if already { None } else { Some(id) };
-                            return;
-                        }
-                        if kind == OpKind::Snooze {
-                            let already = shell.peek().snoozing == Some(id);
-                            shell.write().snoozing = if already { None } else { Some(id) };
-                            return;
-                        }
-                        match composes(kind) {
-                            Some(what) => match start_composing(&store, id, what) {
-                                Ok(draft) => {
-                                    shell.write().compose(&draft);
-                                    revision += 1;
-                                }
-                                Err(why) => eprintln!("reply: {why}"),
-                            },
-                            None => {
-                                act_kind(&store, shell, revision, id, kind);
-                            }
-                        }
-                    },
-                    Glyph { icon: op_icon(kind), size: ds::IconSize::Compact }
-                    span { class: "fly", "{fly(kind)}" }
+    // The strip is quire's. A press acts inside the click, before anything is measured, so an
+    // archive never waits on a layout read; the snooze and move buttons' rects follow, and the
+    // menus they open are placed against them (against the row until they arrive).
+    let mut strip_actions: Vec<StripAction> = actions
+        .iter()
+        .copied()
+        .map(|kind| StripAction {
+            id: ActionId(kebab(kind).to_owned()),
+            icon: op_icon(kind),
+            label: label(kind).to_owned(),
+            fly: fly(kind),
+            onhover: preview(kind).map(|place| {
+                EventHandler::new(move |here: Here| {
+                    if let Some(mut state) = motion() {
+                        state.dest.set((here == Here::Current).then_some(place));
+                    }
+                })
+            }),
+            onclick: EventHandler::new(move |rect: ds::Rect| {
+                if kind == OpKind::Snooze {
+                    snooze_at.set(Some(rect));
                 }
+                if kind == OpKind::AddLabel {
+                    label_at.set(Some(rect));
+                }
+            }),
+        })
+        .collect();
+    strip_actions.push(StripAction {
+        id: ActionId(MOVE_TO.to_owned()),
+        icon: Icon::FolderInput,
+        label: move_label.clone(),
+        fly: move_label.clone(),
+        onhover: None,
+        onclick: EventHandler::new(move |rect: ds::Rect| move_at_button.set(Some(rect))),
+    });
+    let open_menus = {
+        let read = shell.read();
+        let state = |open: bool| {
+            if open {
+                Expanded::Open
+            } else {
+                Expanded::Closed
             }
-            button {
-                "data-op": "move-to",
-                aria_label: "{move_label}",
-                title: "{move_label}",
-                aria_expanded: if filing { "true" } else { "false" },
-                style: "--j:{move_at}",
-                onmounted: move |event: MountedEvent| move_at_button.set(Some(MountedRef(event.data()))),
-                onclick: move |event: Event<MouseData>| {
-                    event.stop_propagation();
-                    let already = shell.peek().filing == Some(id);
-                    shell.write().filing = if already { None } else { Some(id) };
-                },
-                Glyph { icon: Icon::FolderInput, size: ds::IconSize::Compact }
-                span { class: "fly", "{move_label}" }
-            }
+        };
+        vec![
+            (
+                ActionId(kebab(OpKind::Snooze).to_owned()),
+                state(read.snoozing == Some(id)),
+            ),
+            (
+                ActionId(kebab(OpKind::AddLabel).to_owned()),
+                state(read.labelling == Some(id)),
+            ),
+            (ActionId(MOVE_TO.to_owned()), state(filing)),
+        ]
+    };
+    let kinds = actions.clone();
+    let strip = rsx! {
+        ds::HoverStrip {
+            actions: strip_actions,
+            shown: focused().then_some(Shown::Visible),
+            titles: Titles::FromLabel,
+            expanded: open_menus,
+            on_press: move |pressed: ActionId| {
+                let which = if pressed.0 == MOVE_TO {
+                    Some(Pressed::MoveTo)
+                } else {
+                    kinds.iter().copied().find(|kind| kebab(*kind) == pressed.0).map(Pressed::Op)
+                };
+                if let Some(which) = which {
+                    press(shell, revision, id, which);
+                }
+            },
         }
     };
     rsx! {
         // The box names the hover hook its row is, as every other hook's element does.
         div { key: "{id}", class: "row", role: "none", "data-hc": "thread:{id}",
+            onmounted: move |event: MountedEvent| row_box.set(Some(MountedRef(event.data()))),
+            onfocusin: move |_| focused.set(true),
+            onfocusout: move |_| focused.set(false),
             ds::ListRow {
                 selection: if selected { Selection::Selected } else { Selection::Unselected },
                 emphasis: if unread { Emphasis::Strong } else { Emphasis::Plain },
@@ -337,19 +347,12 @@ pub(super) fn Row(
                 onclick: move |_| shell.write().open(id),
                 on_sender: part(Hook::Sender(id)),
                 on_time: part(Hook::Time(id)),
-                onpointerenter: EventHandler::new(move |event: PointerEvent| {
-                    at.set(corner(&event));
-                    enter(Hook::Thread(id), *at.peek());
+                onpointerenter: EventHandler::new(move |_: PointerEvent| {
+                    enter(Hook::Thread(id), element(row_box()));
                 }),
-                onpointerleave: EventHandler::new(move |_| {
-                    if let Some(hover) = hover() {
-                        hover.leave();
-                    }
-                }),
+                onpointerleave: EventHandler::new(move |_| out(driver)),
                 onpointerdown: EventHandler::new(move |event: PointerEvent| {
-                    if let Some(hover) = hover() {
-                        hover.dismiss();
-                    }
+                    super::hover::press(driver);
                     if !going {
                         let point = event.client_coordinates();
                         drag::press(id, (point.x, point.y));
@@ -361,17 +364,18 @@ pub(super) fn Row(
                 span { class: "floater", aria_hidden: "true", "zZ" }
             }
             if shell.read().snoozing == Some(id) {
-                SnoozeMenu { id, shell, revision, anchor: snooze_at() }
+                SnoozeMenu { id, shell, revision, anchor: row_box(), placed: snooze_at() }
             }
             if shell.read().labelling == Some(id) {
-                LabelMenu { id, summary, shell, revision }
+                LabelMenu { id, summary, shell, revision, anchor: row_box(), placed: label_at() }
             }
             if filing {
                 MoveMenu {
                     thread: id,
                     shell,
                     revision,
-                    anchor: move_at_button(),
+                    anchor: row_box(),
+                    placed: move_at_button(),
                     on_close: move |_| shell.write().filing = None,
                 }
             }
@@ -386,6 +390,52 @@ fn preview(kind: OpKind) -> Option<&'static str> {
         OpKind::Snooze => Some("Snoozed"),
         OpKind::Trash => Some("Trash"),
         _ => None,
+    }
+}
+
+/// The strip's name for its Move to… button.
+const MOVE_TO: &str = "move-to";
+
+/// Which strip button was pressed, read back from its name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Pressed {
+    Op(OpKind),
+    MoveTo,
+}
+
+/// A strip button pressed: the op it names, at once. Label, snooze and move open their menus
+/// (a second press closes them); a reply opens the composer on its draft.
+fn press(mut shell: Signal<Shell>, mut revision: Signal<u64>, id: ThreadId, pressed: Pressed) {
+    let kind = match pressed {
+        Pressed::Op(kind) => kind,
+        Pressed::MoveTo => {
+            let already = shell.peek().filing == Some(id);
+            shell.write().filing = if already { None } else { Some(id) };
+            return;
+        }
+    };
+    let store = consume_context::<Arc<SqliteStore>>();
+    if kind == OpKind::AddLabel {
+        let already = shell.peek().labelling == Some(id);
+        shell.write().labelling = if already { None } else { Some(id) };
+        return;
+    }
+    if kind == OpKind::Snooze {
+        let already = shell.peek().snoozing == Some(id);
+        shell.write().snoozing = if already { None } else { Some(id) };
+        return;
+    }
+    match composes(kind) {
+        Some(what) => match start_composing(&store, id, what) {
+            Ok(draft) => {
+                shell.write().compose(&draft);
+                revision += 1;
+            }
+            Err(why) => eprintln!("reply: {why}"),
+        },
+        None => {
+            act_kind(&store, shell, revision, id, kind);
+        }
     }
 }
 

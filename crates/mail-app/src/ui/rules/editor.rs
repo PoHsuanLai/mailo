@@ -8,7 +8,7 @@ use mail_store::SqliteStore;
 use std::sync::Arc;
 
 use super::super::field::{Field, FieldKind};
-use super::super::menu::{Menu, MenuItem, Right, Tile};
+use super::super::menu::{Floating, MenuItem, Right, Tile};
 use super::super::move_to::destinations;
 use super::super::press::{available, on_primary};
 use super::super::space_editor::Seg;
@@ -124,6 +124,8 @@ pub(super) fn RuleEditor(
 ) -> Element {
     let mut adding = use_signal(|| Adding::Closed);
     let mut typed = use_signal(String::new);
+    // The Add button, which the action menu floats against.
+    let mut add_at = use_signal(|| None::<ds::MountedRef>);
     let mut refused = use_signal(|| None::<String>);
     let Some(draft) = editing() else {
         return rsx! {};
@@ -229,6 +231,7 @@ pub(super) fn RuleEditor(
                         variant: ds::ButtonVariant::Mini,
                         label: "Add an action",
                         icon: Icon::Plus,
+                        mounted: move |event: MountedEvent| add_at.set(Some(ds::MountedRef(event.data()))),
                         expanded: if adding() == Adding::Closed { ds::Expanded::Closed } else { ds::Expanded::Open },
                         onclick: on_primary(move || {
                             let next = if adding() == Adding::Closed { Adding::Kinds } else { Adding::Closed };
@@ -236,29 +239,33 @@ pub(super) fn RuleEditor(
                         }),
                     }
                     if let Some((menu_title, items, filterable)) = menu {
-                        div { class: "rules-menu",
-                            Menu {
-                                title: menu_title.to_owned(),
-                                items,
-                                filterable,
-                                on_pick: move |key: String| {
-                                    if let Some(name) = key.strip_prefix("label:") {
-                                        add(RuleAction::Label(name.to_owned()));
-                                    } else if let Some(path) = key.strip_prefix("file:") {
-                                        add(RuleAction::File(path.to_owned()));
-                                    } else if key == "label" {
-                                        adding.set(Adding::Labels);
-                                    } else if key == "file" {
-                                        adding.set(Adding::Folders);
-                                    } else if let Some(action) = plain(&key) {
-                                        add(action);
-                                    }
-                                },
-                                on_close: move |_| adding.set(Adding::Closed),
-                                on_query: move |value: String| typed.set(value),
-                                slim: true,
-                                active: None,
-                            }
+                        // Keyed by what it lists: picking "Label" or "Move to" opens a fresh
+                        // menu of labels or folders where the kinds were.
+                        Floating {
+                            key: "{menu_title}",
+                            kind: ds::MenuKind::Slim,
+                            anchor: add_at(),
+                            title: menu_title.to_owned(),
+                            items,
+                            filter: if filterable { ds::Filter::Typing } else { ds::Filter::None },
+                            // A pick either adds an action, which closes the menu, or opens the
+                            // next one: the menu never closes on a pick by itself.
+                            dismiss: ds::PickDismiss::Stay,
+                            on_query: move |value: String| typed.set(value),
+                            on_pick: move |key: String| {
+                                if let Some(name) = key.strip_prefix("label:") {
+                                    add(RuleAction::Label(name.to_owned()));
+                                } else if let Some(path) = key.strip_prefix("file:") {
+                                    add(RuleAction::File(path.to_owned()));
+                                } else if key == "label" {
+                                    adding.set(Adding::Labels);
+                                } else if key == "file" {
+                                    adding.set(Adding::Folders);
+                                } else if let Some(action) = plain(&key) {
+                                    add(action);
+                                }
+                            },
+                            on_close: move |_| adding.set(Adding::Closed),
                         }
                     }
                 }

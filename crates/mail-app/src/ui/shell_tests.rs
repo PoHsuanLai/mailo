@@ -16,14 +16,12 @@ fn page_of(store: Arc<SqliteStore>, dirs: Option<crate::appearance::WindowDirs>)
 }
 
 /// Each account tile on `page`, as the markup after its class: quire's `AccountTile`s (not the
-/// Add tile after them), and mailo's own tile for local folders, which are on no provider.
+/// Add tile after them), local folders' among them, on quire's folder mark.
 fn account_tiles(page: &str) -> Vec<&str> {
-    let quire = page
-        .split("class=\"ds-icon-button ds-account-tile\" data-variant=\"pin\"")
+    page.split("class=\"ds-icon-button ds-account-tile\" data-variant=\"pin\"")
         .skip(1)
-        .filter(|rest| !rest.starts_with(" data-face=\"add\""));
-    let local = page.split("class=\"pin acct\"").skip(1);
-    quire.chain(local).collect()
+        .filter(|rest| !rest.starts_with(" data-face=\"add\""))
+        .collect()
 }
 
 fn row_containing(page: &str, subject: &str) -> String {

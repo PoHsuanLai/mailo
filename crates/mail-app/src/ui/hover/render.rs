@@ -29,8 +29,10 @@ const RESTING: FakePointer = FakePointer {
     held: false,
 };
 
-/// Place the open card against the hook's element, as `HoverLayer` does from the pointer: a
-/// row's sender and time are quire's `ListRow` parts inside the row's box.
+/// Place the open card against the hook's element, as quire's hub does from the anchor each
+/// hook files (`card_placement`: a thread card 10 right of the row and 4 above its top, a side
+/// card 10 right and 6 above, a sender card or a time tip 6 below): a row's sender and time are
+/// quire's `ListRow` parts inside the row's box.
 fn placing(hook: &str, kind: &str) -> String {
     let query = match hook.split_once(':') {
         Some(("sender", id)) => format!("[data-hc=\"thread:{id}\"] .ds-row-name"),
@@ -39,11 +41,11 @@ fn placing(hook: &str, kind: &str) -> String {
     };
     format!(
         "addEventListener('load',()=>{{const h=document.querySelector('{query}');\
-         const c=document.querySelector('.hc');if(!h||!c)return;const r=h.getBoundingClientRect();\
-         const k='{kind}';if(k==='thread'){{c.style.top=Math.max(8,r.top-12)+'px';}}\
-         else if(k==='sender'){{c.style.left=r.left+'px';c.style.top=(r.top+22)+'px';}}\
-         else if(k==='time'){{c.style.left=Math.max(8,r.left-140)+'px';c.style.top=(r.top+20)+'px';}}\
-         else{{c.style.left='244px';c.style.top=Math.max(8,r.top-6)+'px';}}}});"
+         const c=document.querySelector('.ds-hovercard');if(!h||!c)return;const r=h.getBoundingClientRect();\
+         const k='{kind}';c.style.position='fixed';\
+         if(k==='thread'){{c.style.left=(r.right+10)+'px';c.style.top=Math.max(8,r.top-4)+'px';}}\
+         else if(k==='sender'||k==='time'){{c.style.left=r.left+'px';c.style.top=(r.bottom+6)+'px';}}\
+         else{{c.style.left=(r.right+10)+'px';c.style.top=Math.max(8,r.top-6)+'px';}}}});"
     )
 }
 
@@ -115,7 +117,7 @@ async fn render_the_hover_cards_to_a_file() {
         }
         wait(&mut dom, 700).await;
         let body = dioxus_ssr::render(&dom);
-        assert!(body.contains("role=\"tooltip\""), "no {kind} card opened");
+        assert!(body.contains("ds-hovercard\""), "no {kind} card opened");
         let last = hooks.last().cloned().unwrap_or_default();
         write(&format!("hover-{kind}"), &body, &placing(&last, kind));
     }

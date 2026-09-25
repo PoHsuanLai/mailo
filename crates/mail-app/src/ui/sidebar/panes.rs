@@ -1,7 +1,7 @@
 //! Account tiles, places, labels and pinned people.
 
 use super::super::data::account_rows;
-use super::super::hover::{Hook, corner, hover};
+use super::super::hover::{Hook, element, out, over, use_driver};
 use super::super::motion::{drag, motion};
 use crate::provider::icon::{mark_of, mark_style};
 use crate::provider::{Provider, provider};
@@ -10,8 +10,8 @@ use crate::space::{self, Pinned, Scope, Space};
 use crate::view::{Shell, Source, folder_of, is_label_place};
 use dioxus::prelude::*;
 use ds::{
-    Anim, AvatarFace, AvatarShape, AvatarSize, AvatarTone, Colour, Glyph, Here, Hex, Icon,
-    ItemKind, PersonSwatch, Presence, PulseKey, SidebarItem,
+    Anim, AvatarFace, AvatarShape, AvatarSize, AvatarTone, Colour, DropState, Here, Hex, Icon,
+    ItemKind, PersonSwatch, PlaceId, Presence, PulseKey, SidebarItem,
 };
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
@@ -159,42 +159,25 @@ pub(super) fn AccountTiles(
                         shell.write().account = Some(id);
                         pages.set(1);
                     };
-                    match row.3 {
-                        Some(via) => rsx! {
-                            ds::AccountTile {
-                                key: "{id}",
-                                account: ds::AccountFace::One {
-                                    initial: letter,
-                                    colour,
-                                    provider: mark_of(via),
-                                    address: Some(address),
-                                },
-                                pressed: pressed(on),
-                                unread: count_of(n),
-                                onclick: pick,
-                                mark: mark_style(via, marks),
-                            }
-                        },
-                        // Local folders are on no provider, and quire's tile always draws one:
-                        // this tile stays mailo's, on quire's avatar.
-                        None => rsx! {
-                            button {
-                                key: "{id}",
-                                class: "pin acct",
-                                aria_pressed: if on { "true" } else { "false" },
-                                aria_label: "{address}",
-                                onclick: move |_| pick(()),
-                                ds::Avatar {
-                                    initial: letter,
-                                    size: AvatarSize::Size28,
-                                    tone: AvatarTone::Account(colour),
-                                    muting: if on { ds::AvatarMuting::Plain } else { ds::AvatarMuting::Muted },
-                                }
-                                if n > 0 {
-                                    span { class: "n", "{n}" }
-                                }
-                            }
-                        },
+                    // Local folders are on no provider: quire's neutral folder mark.
+                    let (provider, mark) = match row.3 {
+                        Some(via) => (mark_of(via), mark_style(via, marks)),
+                        None => (ds::Provider::Local, ds::MarkStyle::Letter),
+                    };
+                    rsx! {
+                        ds::AccountTile {
+                            key: "{id}",
+                            account: ds::AccountFace::One {
+                                initial: letter,
+                                colour,
+                                provider,
+                                address: Some(address),
+                            },
+                            pressed: pressed(on),
+                            unread: count_of(n),
+                            onclick: move |()| pick(()),
+                            mark,
+                        }
                     }
                 }
             }
@@ -260,79 +243,70 @@ fn PlaceButton(
 ) -> Element {
     let on = shell.read().selected == index;
     let count = badges().get(index).copied().flatten();
-    // The count this place showed last, so a change can bump. Kept apart from the badge memo:
-    // a bump is "the number changed", and only an effect sees both numbers.
-    let mut shown = use_signal(|| count);
-    // The bump is quire's pulse: each change replays it, and nothing has to hear it end.
-    let bump = ds::use_pulse(ds::Anim::Bump);
-    use_effect(move || {
-        let now = badges().get(index).copied().flatten();
-        if now != *shown.peek() {
-            let had = shown.peek().is_some();
-            shown.set(now);
-            if had && now.is_some() {
-                bump.fire();
-            }
-        }
-    });
-    let (count_class, count_alias) = match bump.attrs() {
-        Some((anim, alias)) => (format!("count {anim}"), Some(alias)),
-        None => ("count".to_owned(), None),
-    };
     let state = use_hook(motion);
     let accepts = shell.read().places.get(index).is_some_and(drag::accepts);
-    let place = name.clone();
-    let class = state.map_or_else(
-        || "item".to_owned(),
-        |state| place_class(&state, index, &place, accepts),
-    );
+    let look = state.map_or_else(Look::default, |state| look(&state, index, &name, accepts));
+    // quire's place, in mailo's box that outlines it while a dragged row could land on it.
     rsx! {
-        button {
-            class: "{class}",
-            "data-place": "{name}",
-            aria_current: if on { "true" } else { "false" },
-            onclick: move |_| {
-                shell.write().select(index);
-                pages.set(1);
-            },
-            onpointerenter: move |_| {
-                if accepts {
-                    drag::over(Some(index), index);
-                }
-            },
-            onpointerleave: move |_| drag::over(None, index),
-            Glyph { icon, size: ds::IconSize::Nav }
-            span { "{name}" }
-            if let Some(count) = count {
-                span { class: "{count_class}", "data-pulse": count_alias, "{count}" }
+        div { class: if look.can_drop { "place can-drop" } else { "place" },
+            SidebarItem {
+                kind: ItemKind::Place { icon },
+                label: name.clone(),
+                here: if on { Here::Current } else { Here::Elsewhere },
+                // quire's count bumps itself whenever the number changes.
+                count: count.map(count_of),
+                presence: Presence::Present,
+                preview: look.dest.then_some(ds::Preview::Destination),
+                // The gulp plays for as long as the list's gulp timer runs for this place.
+                pulse: if look.gulp {
+                    PulseKey::rest(Anim::Gulp).fired()
+                } else {
+                    PulseKey::rest(Anim::Gulp)
+                },
+                onclick: move |()| {
+                    shell.write().select(index);
+                    pages.set(1);
+                },
+                onclose: None,
+                drop: if look.target { DropState::Target } else { DropState::Idle },
+                place: Some(PlaceId(name.clone())),
+                onpointerenter: move |_| {
+                    if accepts {
+                        drag::over(Some(index), index);
+                    }
+                },
+                onpointerleave: move |_| drag::over(None, index),
             }
         }
     }
 }
 
-/// A place's classes: where an op landed, where a hovered button would send a row, and
-/// whether it takes the row being dragged.
-fn place_class(
-    state: &super::super::motion::Motion,
-    index: usize,
-    name: &str,
-    accepts: bool,
-) -> String {
-    let mut class = String::from("item");
-    if state.gulp.read().as_deref() == Some(name) {
-        class.push_str(" gulp");
-    }
-    if *state.dest.read() == Some(name) {
-        class.push_str(" dest");
-    }
-    if let drag::Drag::Live { target, .. } = &*state.drag.read() {
-        if *target == Some(index) && accepts {
-            class.push_str(" is-drop-target");
-        } else if accepts {
-            class.push_str(" can-drop");
+/// How a place looks besides being there: where an op landed, where a hovered strip button
+/// would send a row, and its part in a drag.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+struct Look {
+    gulp: bool,
+    dest: bool,
+    /// Under a dragged row that it takes.
+    target: bool,
+    /// Takes the row being dragged, which is elsewhere.
+    can_drop: bool,
+}
+
+fn look(state: &super::super::motion::Motion, index: usize, name: &str, accepts: bool) -> Look {
+    let (target, can_drop) = match &*state.drag.read() {
+        drag::Drag::Live { target, .. } if accepts => {
+            let here = *target == Some(index);
+            (here, !here)
         }
+        _ => (false, false),
+    };
+    Look {
+        gulp: state.gulp.read().as_deref() == Some(name),
+        dest: *state.dest.read() == Some(name),
+        target,
+        can_drop,
     }
-    class
 }
 
 #[component]
@@ -342,6 +316,11 @@ pub(super) fn PinnedList(
     space: Space,
     pins: Vec<u64>,
 ) -> Element {
+    let driver = use_driver();
+    // Each pin's box, as it mounts: its card is placed beside it. Not a signal: nothing
+    // redraws for it.
+    let boxes =
+        use_hook(|| CopyValue::new(std::collections::HashMap::<usize, ds::MountedRef>::new()));
     rsx! {
         div { class: "s-h", "Pinned" }
         for (index, pin) in space.pins.iter().enumerate() {
@@ -365,16 +344,14 @@ pub(super) fn PinnedList(
                     div {
                         key: "{name}",
                         "data-hc": "pin:{index}",
-                        onpointerenter: move |event| {
-                            if let Some(hover) = hover() {
-                                hover.enter(Hook::Pin(index), corner(&event));
-                            }
+                        onmounted: move |event: MountedEvent| {
+                            let mut boxes = boxes;
+                            boxes.write().insert(index, ds::MountedRef(event.data()));
                         },
-                        onpointerleave: move |_| {
-                            if let Some(hover) = hover() {
-                                hover.leave();
-                            }
+                        onpointerenter: move |_| {
+                            over(driver, Hook::Pin(index), element(boxes.peek().get(&index).cloned()));
                         },
+                        onpointerleave: move |_| out(driver),
                         SidebarItem {
                             kind: ItemKind::Pinned { avatar },
                             label: name.clone(),

@@ -37,10 +37,10 @@ document.addEventListener("DOMContentLoaded", () => {
     // The composer's editor and its fields own the keyboard. Its / and @ menus open beside the
     // caret without taking focus, so they must not be focused here either.
     const here = document.activeElement;
-    if (here && here.closest && here.closest(".c-body, .c-props .inp, .c-scroll .inp, .bubble .inp")) { return; }
+    if (here && here.closest && here.closest(".c-body, .c-props input, .c-scroll input, .bubble input")) { return; }
     // An open menu owns the keyboard, mailo's own or quire's floating one. Focusing `.app`
     // here would take it back on the next tick, and the field would lose whatever was typed.
-    const menuField = document.querySelector(".ds-palette input, .fmenu .inp");
+    const menuField = document.querySelector(".ds-palette input, .fmenu input");
     if (menuField) {
       if (document.activeElement === menuField) { return; }
       menuField.focus();

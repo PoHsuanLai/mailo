@@ -1,8 +1,6 @@
 /* The Add account sheet, on the mail-file sheets' scrim, paper, keys and foot: what was found set
    as a two-column table (a data-face key, the value), and the "+" after the account tiles. */
-.acct-sheet .inp.acct-in { font-size: var(--fs-control); padding: var(--s-6) var(--s-10); }
-.inp.secret { letter-spacing: .12em; }
-.inp.secret::placeholder { letter-spacing: normal; }
+.acct-sheet .acct-in { min-width: 0; }
 .acct-found {
   display: grid; grid-template-columns: max-content 1fr; gap: var(--s-5) var(--s-14); align-items: baseline;
   margin-top: var(--s-6); padding: var(--s-10) var(--s-12); border: var(--hair) solid var(--line-soft);

@@ -41,7 +41,7 @@ fn open(parts: &[(&str, Vec<u8>)]) -> Open {
         .with_root_context(store)
         .with_root_context(host.host());
     let seen = rebuild_into(&mut dom);
-    let field = seen.one("placeholder", "Find in this thread");
+    let field = seen.one("aria-placeholder", "Find in this thread");
     Open {
         dom,
         field,
