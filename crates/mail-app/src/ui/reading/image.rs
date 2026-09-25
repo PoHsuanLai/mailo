@@ -37,9 +37,46 @@ pub(super) fn image(
                 img { alt: "{alt}", src: "{uri.as_str()}" }
             }
         },
+        // The webview fetches a consented image as it draws it.
+        #[cfg(not(feature = "native"))]
         ImgSrc::Remote(url) => rsx! {
             div { key: "{path}", class: "b b-img",
                 img { alt: "{alt}", src: "{url.as_str()}" }
+            }
+        },
+        // Blitz may not: mailo fetched it, and it is drawn from what came back (`remote.rs`).
+        // The web address itself is never put in the document.
+        #[cfg(feature = "native")]
+        ImgSrc::Remote(url) => fetched(path, url.as_str(), alt, width, height),
+    }
+}
+
+/// A consented remote image on Blitz: its `data:` URI once it has landed, and until then a
+/// placeholder that holds its room and says where it stands. Not asked for yet is the same as
+/// loading: the reader's fetcher asks for every image it draws, right after the render.
+#[cfg(feature = "native")]
+fn fetched(path: &str, url: &str, alt: &str, width: Option<u32>, height: Option<u32>) -> Element {
+    use super::remote::{Picture, Pictures};
+    let picture = try_consume_context::<Pictures>().and_then(|pictures| pictures.picture(url));
+    let host = url::Url::parse(url)
+        .ok()
+        .and_then(|parsed| parsed.host_str().map(str::to_owned))
+        .unwrap_or_default();
+    let ratio = placeholder_ratio(width, height);
+    match picture {
+        Some(Picture::Shown(uri)) => rsx! {
+            div { key: "{path}", class: "b b-img",
+                img { alt: "{alt}", src: "{uri}" }
+            }
+        },
+        Some(Picture::Refused) => rsx! {
+            div { key: "{path}", class: "b b-img blocked", style: "{ratio}",
+                span { "The image from " strong { "{host}" } " could not be shown" }
+            }
+        },
+        Some(Picture::Loading) | None => rsx! {
+            div { key: "{path}", class: "b b-img blocked", style: "{ratio}",
+                span { "Loading the image from " strong { "{host}" } }
             }
         },
     }

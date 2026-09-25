@@ -3,6 +3,8 @@ mod blocks;
 mod find_bar;
 mod found;
 mod image;
+#[cfg(feature = "native")]
+mod remote;
 mod spans;
 mod table;
 
@@ -167,6 +169,13 @@ pub(super) fn Reader(
             }
         });
     }
+    // The Reader view's remote images on Blitz, which mailo fetches itself: held to this
+    // render's thread and consent, and fetched by `remote::Fetcher`'s effect (`remote.rs`).
+    #[cfg(feature = "native")]
+    {
+        let pictures = use_context_provider(remote::Pictures::new);
+        pictures.hold(thread, shell.read().show_remote_images);
+    }
     #[cfg(test)]
     use_hook(|| {
         READER_MOUNTS.with(|mounts| mounts.set(mounts.get().saturating_add(1)));
@@ -263,6 +272,18 @@ pub(super) fn Reader(
         .map(|(_, reading, _)| reading.document())
         .collect();
     let (founds, total) = found::find_in(&documents, &highlight, finding.as_ref());
+    // On Blitz, what of this render mailo fetches itself: the consented remote images it draws.
+    #[cfg(feature = "native")]
+    let fetcher = {
+        let wanted = if showing {
+            remote::wanted(documents.iter().flatten().copied())
+        } else {
+            Vec::new()
+        };
+        rsx! { remote::Fetcher { thread, wanted } }
+    };
+    #[cfg(not(feature = "native"))]
+    let fetcher = rsx! {};
     let invalid = problem.is_some();
     // A protected message opened to a body lists what is attached inside it; its stored parts
     // are its wrapping.
@@ -274,6 +295,7 @@ pub(super) fn Reader(
         .collect();
 
     rsx! {
+        {fetcher}
         div { class: "reader-head",
             div { class: "head-row",
                 if finding.is_some() {

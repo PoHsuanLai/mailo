@@ -27,8 +27,9 @@ pub(in crate::ui) const APP_ID: &str = "mailo";
 /// The reader's Original frames are sealed documents whose network and links are mailo's
 /// ([`Original::window`], `ui/original`): a frame gets inline `data:`, and a remote image only
 /// when the reader has consented to that thread's images and the frame is that message's. The
-/// window's own document keeps its `file:` and `data:` and is refused everything else. A link
-/// clicked in a frame opens in the browser.
+/// window's own document keeps its `file:` and `data:` and is refused everything else, so the
+/// Reader view's consented images are fetched by mailo on "Show images" and drawn as `data:`
+/// (`reading/remote.rs`). A link clicked in a frame opens in the browser.
 pub(super) fn run(opening: Opening) {
     let Opening {
         store,
@@ -45,6 +46,7 @@ pub(super) fn run(opening: Opening) {
         .with_frame_links(original.links())
         .with_contexts(contexts(store, look, spaces, dirs, start))
         .with_context(original.consent())
+        .with_context(original.images())
         .with_context(icons);
     ds_native::launch(ShellRoot, config);
 }

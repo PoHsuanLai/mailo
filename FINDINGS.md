@@ -3874,8 +3874,23 @@ sanitizer; `tests/native_original.rs` drives the real window):
     the webview. Bytes that land after a revoke are dropped.
 - The window's own document is refused every remote request. A request from it cannot be tied to
   the reader, since a hover card is the same document, so no image is ever fetched because
-  something was hovered. On `native` the Reader view's remote images therefore stay unloaded even
-  with consent. That is the known gap this leaves.
+  something was hovered.
+
+**The Reader view's remote images on `native`** (`reading/remote.rs`). Since the window's document
+may fetch nothing, mailo fetches the consented images itself and draws each as a `data:` URI:
+- The list is the http(s) `ImgSrc::Remote` URLs of the blocks the reader's own render built under
+  the consenting policy. Without consent that list is empty and nothing is asked for; the web
+  address is never put in the document.
+- The fetch runs from an effect, not a render (F140): a child of the reader, `Fetcher`, takes the
+  thread and that list as props and fetches in a task owned by its own scope, so it ends with the
+  reader. Its effect runs again whenever the list or the thread changes. So "Show images", a reader
+  mounted with the consent already given, and a message landing in the thread while the consent
+  stands all fetch, and each image is asked for once per grant.
+- It goes through the Original frame's client (no cookies, no `Referer`, three redirects, twenty
+  seconds, 16 MiB). Only a PNG, JPEG, GIF or WebP is drawn, checked by the declared type and by the
+  first bytes, and written as the type the bytes are; anything else says it could not be shown.
+- Opening another thread, or the consent cleared, revokes the grant: what was drawn is dropped, and
+  so is every answer still on its way.
 
 **html5ever 0.39.** blitz-html parses the `srcdoc` with html5ever 0.39. ammonia writes with 0.40.
 A second parser generation reading ammonia's output is where mutation XSS lives, and that is

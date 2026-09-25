@@ -10,6 +10,11 @@
 //!   every other scheme are refused whatever a list says.
 //! - **Admitted: fetched by [`Fetch`]**, and handed to the frame only if the consent still stands
 //!   when the bytes land.
+//!
+//! The Reader view's remote images are in the window's own document, so the refusal above holds
+//! them too. mailo fetches those itself instead (`reading/remote.rs`), through [`FetchImage`] on
+//! the same client, and hands the window each as a `data:` URI ([`data_uri`]) only when it is a
+//! raster image of a kind `mail-mime` embeds, by its declared type and by its first bytes.
 
 use super::consent::Consent;
 use ds_native::{AppNet, FrameId, NetDecision, NetReply, NetRequest, RequestOrigin};
@@ -22,6 +27,61 @@ pub trait Fetch: Send + Sync + 'static {
     /// Fetch `url` and call `done` with its bytes, from any thread. Not calling it (a failure)
     /// leaves the image missing, as a browser shows a broken one.
     fn get(&self, url: String, done: Box<dyn FnOnce(Vec<u8>) + Send>);
+}
+
+/// A fetched image: what the server said it is, and its bytes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Got {
+    /// The `Content-Type` header, as sent.
+    pub content_type: Option<String>,
+    pub bytes: Vec<u8>,
+}
+
+/// Whatever fetches the Reader view's consented images: the web in the window, a recorder in a
+/// test. mailo asks; no document does.
+pub trait FetchImage: Send + Sync + 'static {
+    /// Fetch `url` and call `done` with what came back, from any thread. Not calling it (a
+    /// failure) leaves the image unshown.
+    fn get(&self, url: String, done: Box<dyn FnOnce(Got) + Send>);
+}
+
+/// Fetches nothing: the Reader view's images for a harness that did not ask for a fetcher.
+pub(crate) struct Refuse;
+
+impl FetchImage for Refuse {
+    fn get(&self, _: String, _: Box<dyn FnOnce(Got) + Send>) {}
+}
+
+/// `got` as a `data:` URI for an `<img>`, or `None` when it is not one to show: past
+/// [`MAX_BYTES`], declared as something `mail-mime` would not embed (`mail_mime::embeddable`:
+/// PNG, JPEG, GIF, WebP; never SVG), or with first bytes that are not one of those. The type
+/// written is the one the bytes are, in the allowlist's spelling, never the server's string.
+pub(crate) fn data_uri(got: &Got) -> Option<String> {
+    use base64::Engine as _;
+    if got.bytes.is_empty() || got.bytes.len() > MAX_BYTES {
+        return None;
+    }
+    mail_mime::embeddable(got.content_type.as_deref()?)?;
+    let kind = mail_mime::embeddable(sniff(&got.bytes)?)?;
+    Some(format!(
+        "data:{kind};base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(&got.bytes)
+    ))
+}
+
+/// The raster type `bytes` begin as, by their magic number.
+fn sniff(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("image/png")
+    } else if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
+        Some("image/jpeg")
+    } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        Some("image/gif")
+    } else if bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP" {
+        Some("image/webp")
+    } else {
+        None
+    }
 }
 
 /// mailo's `AppNet`.
@@ -85,12 +145,12 @@ impl AppNet for MailNet {
 
 /// The largest image the frame is handed. A picture in a mail is kilobytes; past this it is
 /// not a picture.
-const MAX_BYTES: usize = 16 * 1024 * 1024;
+pub(crate) const MAX_BYTES: usize = 16 * 1024 * 1024;
 
 /// One admitted fetch, for the worker.
 struct Job {
     url: String,
-    done: Box<dyn FnOnce(Vec<u8>) + Send>,
+    done: Box<dyn FnOnce(Got) + Send>,
 }
 
 /// The web: one worker thread, started by the first admitted image, fetching each on its own
@@ -136,6 +196,12 @@ impl Web {
 
 impl Fetch for Web {
     fn get(&self, url: String, done: Box<dyn FnOnce(Vec<u8>) + Send>) {
+        FetchImage::get(self, url, Box::new(move |got| done(got.bytes)));
+    }
+}
+
+impl FetchImage for Web {
+    fn get(&self, url: String, done: Box<dyn FnOnce(Got) + Send>) {
         if let Some(jobs) = self.jobs.get_or_init(Web::worker) {
             let _ = jobs.send(Job { url, done });
         }
@@ -155,6 +221,11 @@ async fn fetch_one(client: reqwest::Client, job: Job) {
     {
         return;
     }
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
     let mut bytes = Vec::new();
     loop {
         match response.chunk().await {
@@ -165,5 +236,8 @@ async fn fetch_one(client: reqwest::Client, job: Job) {
             Ok(None) => break,
         }
     }
-    (job.done)(bytes);
+    (job.done)(Got {
+        content_type,
+        bytes,
+    });
 }

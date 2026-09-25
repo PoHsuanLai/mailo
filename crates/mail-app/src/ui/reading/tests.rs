@@ -284,10 +284,22 @@ pub(super) fn text_message(subject: &str, content_type: &str, body: &str) -> Vec
 pub(super) fn thread_of(
     parts: &[(&str, Vec<u8>)],
 ) -> (Arc<SqliteStore>, ThreadId, tempfile::TempDir) {
+    let (store, dir) = seeded();
+    let thread = add_thread(&store, "body", parts);
+    (store, thread, dir)
+}
+
+/// A new thread of `parts` in `store`, its messages keyed `{tag}{index}@example.test`.
+pub(super) fn add_thread(store: &SqliteStore, tag: &str, parts: &[(&str, Vec<u8>)]) -> ThreadId {
+    let thread = ThreadId::generate();
+    add_to(store, thread, tag, parts);
+    thread
+}
+
+/// `parts` arriving in `thread`, keyed `{tag}{index}@example.test`: a tag no other call used.
+pub(super) fn add_to(store: &SqliteStore, thread: ThreadId, tag: &str, parts: &[(&str, Vec<u8>)]) {
     // `body{index}`, not `m{index}`: the seeded store already holds `m1@example.test`,
     // and a second message under that key is the same message to the store.
-    let (store, dir) = seeded();
-    let thread = ThreadId::generate();
     let mut fetched = Vec::new();
     for (index, (subject, bytes)) in parts.iter().enumerate() {
         let raw = store.blobs().put(&store.connection(), bytes).unwrap();
@@ -295,7 +307,7 @@ pub(super) fn thread_of(
             id: MessageId::generate(),
             thread,
             account: crate::ui::fixtures::ACCOUNT,
-            key: MessageKey::Rfc(format!("body{index}@example.test")),
+            key: MessageKey::Rfc(format!("{tag}{index}@example.test")),
             date: chrono::Utc::now() - chrono::TimeDelta::try_hours(index as i64).unwrap(),
             from: Address {
                 name: Some("Ada".to_owned()),
@@ -308,7 +320,7 @@ pub(super) fn thread_of(
             subject: (*subject).to_owned(),
             in_reply_to: None,
             references: vec![],
-            rfc_message_id: Some(format!("body{index}@example.test")),
+            rfc_message_id: Some(format!("{tag}{index}@example.test")),
             read: ReadState::Unread,
             star: Star::Unstarred,
             mailbox: MailboxRole::Inbox,
@@ -321,7 +333,7 @@ pub(super) fn thread_of(
         };
         fetched.push(Fetched {
             remote: RemoteRef::Pop {
-                uidl: format!("u{index}"),
+                uidl: format!("{tag}-u{index}"),
             },
             key: message.key.clone(),
             raw,
@@ -346,7 +358,6 @@ pub(super) fn thread_of(
             },
         )
         .unwrap();
-    (store, thread, dir)
 }
 
 fn blocks_of(raw: &str, images: RemoteImages) -> mail_mime::Document {

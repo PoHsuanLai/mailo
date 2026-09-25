@@ -58,7 +58,7 @@ pub use launch::run;
 #[cfg(feature = "native")]
 pub mod native {
     pub use super::launch::native::{contexts, root};
-    pub use super::original::{Browse, Consent, Fetch, Original};
+    pub use super::original::{Browse, Consent, Fetch, FetchImage, Got, Original};
     pub use super::reading::OriginalFrame;
 }
 

@@ -6,7 +6,9 @@
 //! cascade, no script engine anywhere in the program. What it may reach is mailo's to say:
 //! - [`Consent`]: the reader's consent to remote images, as the network reads it (both builds);
 //! - `net.rs`: the frame's network on Blitz, refusing everything the consent does not admit;
-//! - `links.rs`: a link clicked in the frame, opened in the browser and never in the frame.
+//! - `links.rs`: a link clicked in the frame, opened in the browser and never in the frame;
+//! - [`ReaderNet`]: on Blitz, how mailo itself fetches the Reader view's consented images, which
+//!   the window's own document may not (`reading/remote.rs`).
 //!
 //! FINDINGS F157 has the design and why.
 
@@ -20,7 +22,21 @@ pub use consent::Consent;
 #[cfg(feature = "native")]
 pub use links::Browse;
 #[cfg(feature = "native")]
-pub use net::Fetch;
+pub(crate) use net::data_uri;
+#[cfg(feature = "native")]
+pub use net::{Fetch, FetchImage, Got};
+
+/// The Reader view's image fetcher, as the window's root context. Cloning shares it.
+#[cfg(feature = "native")]
+#[derive(Clone)]
+pub struct ReaderNet(pub(crate) std::sync::Arc<dyn FetchImage>);
+
+#[cfg(feature = "native")]
+impl std::fmt::Debug for ReaderNet {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ReaderNet")
+    }
+}
 
 /// What the window's Original frames are allowed: the consent they are held to, their network
 /// and what their links do. Built once per window, and the same for a test's harness.
@@ -30,6 +46,7 @@ pub struct Original {
     consent: Consent,
     net: std::sync::Arc<net::MailNet>,
     links: ds_native::FrameLinks,
+    images: ReaderNet,
 }
 
 #[cfg(feature = "native")]
@@ -44,22 +61,33 @@ impl std::fmt::Debug for Original {
 
 #[cfg(feature = "native")]
 impl Original {
-    /// Frames whose admitted images `fetch` fetches and whose links `browse` opens.
+    /// Frames whose admitted images `fetch` fetches and whose links `browse` opens. The Reader
+    /// view fetches nothing until [`Original::with_images`] says what fetches for it.
     pub fn new(fetch: std::sync::Arc<dyn Fetch>, browse: std::sync::Arc<dyn Browse>) -> Self {
         let consent = Consent::new();
         Original {
             net: std::sync::Arc::new(net::MailNet::new(consent.clone(), fetch)),
             links: links::frame_links(browse),
+            images: ReaderNet(std::sync::Arc::new(net::Refuse)),
             consent,
         }
     }
 
-    /// The window's: the web and the system browser.
+    /// These frames, with `images` fetching the Reader view's consented images.
+    pub fn with_images(mut self, images: std::sync::Arc<dyn FetchImage>) -> Self {
+        self.images = ReaderNet(images);
+        self
+    }
+
+    /// The window's: the web, for the frames and the Reader view alike, and the system browser.
     pub fn window() -> Self {
-        Original::new(
-            std::sync::Arc::new(net::Web::default()),
-            std::sync::Arc::new(links::System),
-        )
+        let web = std::sync::Arc::new(net::Web::default());
+        Original::new(web.clone(), std::sync::Arc::new(links::System)).with_images(web)
+    }
+
+    /// The Reader view's image fetcher, as the window's root context.
+    pub fn images(&self) -> ReaderNet {
+        self.images.clone()
     }
 
     /// The consent, as the window's root context: the reader writes it.
@@ -83,5 +111,6 @@ impl Original {
             .with_net(self.net())
             .with_frame_links(self.links())
             .with_context(self.consent())
+            .with_context(self.images())
     }
 }
