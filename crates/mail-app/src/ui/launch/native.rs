@@ -11,9 +11,10 @@
 use super::{Opening, Shell, ShellRoot};
 use crate::appearance::WindowDirs;
 use crate::space::Spaces;
+use crate::ui::original::Original;
 use crate::view::Appearance;
 use dioxus::prelude::*;
-use ds_native::{AppConfig, AppId, NetPolicy, RootContexts};
+use ds_native::{AppConfig, AppId, RootContexts};
 use mail_store::SqliteStore;
 use std::sync::Arc;
 
@@ -23,9 +24,11 @@ pub(in crate::ui) const APP_ID: &str = "mailo";
 
 /// Open the window on Blitz.
 ///
-/// Network: [`NetPolicy::Local`], `data:` and nothing else reaching a sub-document. The reader's
-/// remote images therefore stay blocked on this frontend whatever the consent says, until mailo
-/// has a handler that honours it.
+/// The reader's Original frames are sealed documents whose network and links are mailo's
+/// ([`Original::window`], `ui/original`): a frame gets inline `data:`, and a remote image only
+/// when the reader has consented to that thread's images and the frame is that message's. The
+/// window's own document keeps its `file:` and `data:` and is refused everything else. A link
+/// clicked in a frame opens in the browser.
 pub(super) fn run(opening: Opening) {
     let Opening {
         store,
@@ -35,10 +38,13 @@ pub(super) fn run(opening: Opening) {
         start,
         icons,
     } = opening;
+    let original = Original::window();
     let config = AppConfig::new("mailo", 1200, 800)
         .with_app_id(AppId(APP_ID.to_owned()))
-        .with_net(NetPolicy::Local)
+        .with_net(original.net())
+        .with_frame_links(original.links())
         .with_contexts(contexts(store, look, spaces, dirs, start))
+        .with_context(original.consent())
         .with_context(icons);
     ds_native::launch(ShellRoot, config);
 }
@@ -69,7 +75,8 @@ pub fn contexts(
 
 /// The window as a test drives it: everything the launched window draws, but not its watch on
 /// the settings directory, so a test never reads or watches the real `~/.config`. Hand it to
-/// `ds_native::Harness` with [`contexts`].
+/// `ds_native::Harness` with [`contexts`], and with an [`Original`]'s `harness` for frames held
+/// as the window holds them.
 pub fn root() -> Element {
     rsx! { Shell {} }
 }

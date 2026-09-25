@@ -1248,6 +1248,8 @@ pub enum Reading {
         /// when there is something to load.
         blocked_remote: bool,
         html: Option<String>,
+        /// What the frame's markup fetches: [`Reading::frame_fetches`].
+        fetches: Vec<String>,
     },
     /// Blocks and the sanitized markup, because [`Document::shape`] is [`Shape::Layout`].
     ///
@@ -1256,6 +1258,8 @@ pub enum Reading {
         document: Document,
         html: String,
         blocked_remote: bool,
+        /// What the frame's markup fetches: [`Reading::frame_fetches`].
+        fetches: Vec<String>,
     },
 }
 
@@ -1274,6 +1278,18 @@ impl Reading {
             Reading::Layout { html, .. } => Some(html),
             Reading::Blocks { html, .. } => html.as_deref(),
             Reading::NotFetched => None,
+        }
+    }
+
+    /// Every remote URL the frame's markup fetches as it is shown, as the sanitizer kept them
+    /// ([`mail_mime::SafeHtml::remote_fetches`]): empty unless the policy allowed remote images.
+    ///
+    /// The allowlist the Original frame's network is held to on Blitz: the frame may ask for
+    /// these and nothing else, and only while the reader's consent stands (`ui/original`).
+    pub fn frame_fetches(&self) -> &[String] {
+        match self {
+            Reading::Blocks { fetches, .. } | Reading::Layout { fetches, .. } => fetches,
+            Reading::NotFetched => &[],
         }
     }
 
@@ -1315,6 +1331,7 @@ fn plain(text: &str, flowed: Flowed) -> Reading {
         document: mail_mime::from_text(text, flowed),
         blocked_remote: false,
         html: None,
+        fetches: Vec::new(),
     }
 }
 
@@ -1345,18 +1362,28 @@ fn html_reading(html: &str, parsed: &mail_mime::Parsed, policy: SanitizePolicy) 
         for_blocks
     };
     let blocked_remote = frame.blocked_remote() > 0 || image_blocked(&document.blocks);
-    let html = frame.as_str().to_owned();
+    // The message's own inline images, as `data:` URIs (F42): the frame is a document of its
+    // own on either renderer, where a `cid:` names nothing it can reach. After sanitizing, so
+    // the sanitizer judged the `cid:` the sender wrote and never a URI made here.
+    let html = mail_mime::embed_inline(
+        frame.as_str(),
+        &parsed.attachments,
+        mail_mime::INLINE_BUDGET,
+    );
+    let fetches = frame.remote_fetches().to_vec();
     if document.shape == Shape::Layout {
         Reading::Layout {
             document,
             html,
             blocked_remote,
+            fetches,
         }
     } else {
         Reading::Blocks {
             document,
             blocked_remote,
             html: Some(html),
+            fetches,
         }
     }
 }
@@ -1665,6 +1692,12 @@ mod tests {
         assert!(rendered.contains("tracker.test"), "opting in must work");
         assert!(!rendered.contains("alert"), "images are not scripts");
         assert!(!allowed.blocked_remote());
+        // What the frame may fetch is what the sanitizer kept, and only once allowed.
+        assert!(blocked.frame_fetches().is_empty(), "{blocked:?}");
+        assert_eq!(
+            allowed.frame_fetches(),
+            ["https://tracker.test/p.gif".to_owned()]
+        );
     }
 
     #[test]
@@ -1679,6 +1712,7 @@ mod tests {
             document,
             html: None,
             blocked_remote: false,
+            ..
         } = reading
         else {
             panic!("plain text should be blocks without a frame: {reading:?}");

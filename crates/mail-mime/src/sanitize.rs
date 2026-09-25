@@ -40,6 +40,7 @@ impl SanitizePolicy {
 pub struct SafeHtml {
     html: String,
     blocked_remote: u32,
+    remote: Vec<String>,
 }
 
 impl SafeHtml {
@@ -56,11 +57,24 @@ impl SafeHtml {
         self.blocked_remote
     }
 
+    /// Every `http`/`https` URL this markup will fetch as it is shown, as the sender wrote it,
+    /// in document order and without repeats.
+    ///
+    /// Empty under [`RemoteImages::Blocked`] by construction. Under `Allowed` it is exactly the
+    /// fetch attributes the filter kept, collected as it kept them: a renderer that holds
+    /// fetching to this list (the reader's Original frame on Blitz, where the app answers every
+    /// request the frame makes) gets the sanitizer's own answer, not a second reading of its
+    /// output by another parser. It widens nothing: the markup is the same with or without it.
+    pub fn remote_fetches(&self) -> &[String] {
+        &self.remote
+    }
+
     /// Wrap already-sanitized markup. Only [`sanitize`] should call this.
-    pub(crate) fn new(html: String, blocked_remote: u32) -> Self {
+    pub(crate) fn new(html: String, blocked_remote: u32, remote: Vec<String>) -> Self {
         Self {
             html,
             blocked_remote,
+            remote,
         }
     }
 }
@@ -82,6 +96,10 @@ pub fn sanitize(html: &str, policy: SanitizePolicy) -> SafeHtml {
     // rather than a `Cell` because the filter must be `Send + Sync`.
     let blocked = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
     let counter = blocked.clone();
+    // What the filter kept that reaches the network, for `SafeHtml::remote_fetches`. A `Mutex`
+    // for the same reason: the filter is `Send + Sync`.
+    let kept_remote = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let recorder = kept_remote.clone();
     let cleaned = ammonia::Builder::new()
         .url_schemes(HashSet::from(["http", "https", "mailto", "cid"]))
         .url_relative(ammonia::UrlRelative::Deny)
@@ -95,8 +113,17 @@ pub fn sanitize(html: &str, policy: SanitizePolicy) -> SafeHtml {
         .attribute_filter(move |element, attribute, value| {
             if fetches_on_render(element, attribute) {
                 let kept = keep_fetched_url(value, remote);
-                if kept.is_none() && is_remote(value) {
-                    counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                if is_remote(value) {
+                    if kept.is_none() {
+                        counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    } else {
+                        let mut list = recorder
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
+                        if !list.iter().any(|seen| seen == value) {
+                            list.push(value.to_owned());
+                        }
+                    }
                 }
                 kept
             } else {
@@ -105,7 +132,16 @@ pub fn sanitize(html: &str, policy: SanitizePolicy) -> SafeHtml {
         })
         .clean(html)
         .to_string();
-    SafeHtml::new(cleaned, blocked.load(std::sync::atomic::Ordering::Relaxed))
+    let remote_urls = std::mem::take(
+        &mut *kept_remote
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner),
+    );
+    SafeHtml::new(
+        cleaned,
+        blocked.load(std::sync::atomic::Ordering::Relaxed),
+        remote_urls,
+    )
 }
 
 /// Whether a dropped URL was one the reader could choose to load.

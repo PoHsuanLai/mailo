@@ -151,6 +151,22 @@ pub(super) fn Reader(
     // this thread; here it is only looked up.
     let landed = use_signal(|| 0u64);
     let _ = landed();
+    // The window's consent to remote images, and this reader's claim on it; closing the reader
+    // takes back what it granted.
+    let consent = use_hook(|| {
+        try_consume_context::<super::original::Consent>().map(|consent| {
+            let holder = consent.holder();
+            (consent, holder)
+        })
+    });
+    {
+        let consent = consent.clone();
+        use_drop(move || {
+            if let Some((consent, holder)) = consent {
+                consent.release(holder);
+            }
+        });
+    }
     #[cfg(test)]
     use_hook(|| {
         READER_MOUNTS.with(|mounts| mounts.set(mounts.get().saturating_add(1)));
@@ -194,6 +210,21 @@ pub(super) fn Reader(
             (message, reading, remote)
         })
         .collect();
+
+    // The consent, as the Original frames' network reads it (`ui/original`): written here, in the
+    // render, so a frame that reloads with the consented markup finds it already granted, and
+    // taken back by the same render that stops showing the images (open, select, close all
+    // clear `show_remote_images`). Only the window on Blitz provides one; the webview's frames
+    // are held by the markup alone.
+    if let Some((consent, holder)) = &consent {
+        let allowed = showing.then(|| {
+            shown
+                .iter()
+                .map(|(message, reading, _)| (message.id, reading.frame_fetches().to_vec()))
+                .collect()
+        });
+        consent.hold(*holder, thread, allowed);
+    }
 
     // What the list lookup is a function of. Ids and blob ids only: nothing here reads a blob.
     let bodies: super::unsubscribe::Bodies = shown
@@ -382,6 +413,24 @@ pub(super) fn Reader(
             }
             // An inline reply, after every frame so no iframe gains a new parent.
             {children}
+        }
+    }
+}
+
+/// The Original frame as the reader draws it, in mailo's stylesheet, and nothing else: for the
+/// guarantee tests on Blitz (`tests/native_frame.rs`), which put markup in it that the sanitizer
+/// would never have let through. A test binary of its own, because a Blitz document replaces the
+/// process's event converter, which the webview fixtures in this crate's unit tests rely on.
+#[cfg(feature = "native")]
+#[component]
+pub fn OriginalFrame(html: String) -> Element {
+    rsx! {
+        style { {ds::stylesheet()} }
+        style { {super::style::STYLE} }
+        div { class: "reader-body",
+            article { class: "frame",
+                blocks::Sandbox { html, concealed: false }
+            }
         }
     }
 }

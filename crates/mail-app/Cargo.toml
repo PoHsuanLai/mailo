@@ -40,7 +40,9 @@ mail-runtime.workspace = true
 rusqlite = { version = "0.40", features = ["bundled"] }
 serde.workspace = true
 serde_json = "1"
-tokio = { version = "1", features = ["rt", "macros", "time", "net", "io-util"] }
+# `sync` for the channel the Original frame's image fetches reach their worker through
+# (`ui/original/net.rs`); already in the tree through reqwest and ds-native.
+tokio = { version = "1", features = ["rt", "macros", "time", "net", "io-util", "sync"] }
 # For `join_all` only: one pass over several accounts is several independent conversations with
 # several servers, and running them one after another spends the sum of their waiting.
 futures-util = { version = "0.3", default-features = false, features = ["std"] }

@@ -50,7 +50,7 @@ struct Ctx<'a> {
 /// The sandboxed original. Always mounted when the body has HTML; `concealed`
 /// only changes a class.
 #[component]
-fn Sandbox(html: String, concealed: bool) -> Element {
+pub(super) fn Sandbox(html: String, concealed: bool) -> Element {
     #[cfg(test)]
     use_hook(|| {
         IFRAME_MOUNTS.with(|mounts| mounts.set(mounts.get().saturating_add(1)));

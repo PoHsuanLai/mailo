@@ -3822,3 +3822,65 @@ harmless, since `+FLAGS`, `-FLAGS` and Gmail's `±X-GM-LABELS` change nothing th
 The backend now sends nothing for a move into the mailbox the messages are already in, with
 `MOVE` or `COPY`, and the part counts as done. The same holds for a move the user makes into the
 folder a message is already in.
+
+### F157 — On Blitz, the Original view is a sealed document, and ammonia is still the boundary
+
+The reader's Original view shows the sender's sanitized HTML. On the webview it is an
+`<iframe sandbox="" srcdoc>`, and the sandbox does the holding: an opaque origin, no scripts,
+no popups, no navigation of the top window. Blitz ignores `sandbox`. The question for the `native`
+frontend was what holds the markup there instead.
+
+**A separate document, not inline HTML.** The same `iframe srcdoc` element (`reading/blocks.rs`,
+`Sandbox`, markup unchanged) makes Blitz build a second document of its own. Inlining the
+sanitized HTML into the window's document was the alternative, and it is worse in every case
+that matters:
+- Inline markup sits under mailo's and quire's CSS. That is a visual problem, and it is also a
+  way to spoof mailo's own look.
+- A miss in the sanitizer, or a difference between two parsers, becomes an injection into the
+  window. A `<style>` that came back could restyle or hide mailo's own controls, including the
+  "remote images blocked" bar and the sender checks. Inside a frame, the same miss changes only
+  the frame.
+- Inlining needs the same HTML parser, so it saves nothing.
+
+**What the frame cannot do** (`tests/native_frame.rs` feeds hostile bodies *around* the
+sanitizer; `tests/native_original.rs` drives the real window):
+- It shares no DOM with the window. The window's queries never find the frame's nodes, and the
+  frame's queries never find the window's.
+- It shares no cascade, in either direction. A sender `<style>` with `!important` on `*` leaves
+  mailo's elements exactly as they were. Mailo's rules, and its custom properties (how every
+  quire token is written), do not resolve inside the frame.
+- It runs no script. There is no JS engine anywhere in the native program; a test runs
+  `cargo tree` on the native graph and fails if one appears.
+- It is never served `file:`. That holds even when a consented list names the file.
+- It never navigates. A clicked link goes through quire's `FrameLinks::intercept`. Mailo checks
+  it with the Reader view's own rule (`SafeUrl`: http, https or mailto, and no control or bidi
+  characters) and opens it in the system browser. Anything else opens nothing.
+- It makes no request without consent. Every request a frame makes, other than inline `data:`,
+  goes to mailo's `AppNet` (`ui/original/net.rs`). That refuses everything the reader's consent
+  does not admit.
+
+**What the frame can do:**
+- It can show its inline images. Since the Reader view became the default (ed8988f), the frame
+  had held `cid:` references that resolved to nothing, on both renderers. They are embedded as
+  `data:` again (F42), after sanitizing.
+- It can fetch the remote images of the thread the reader consented to, and nothing else:
+  - The list is exactly the http(s) URLs ammonia kept in fetch attributes
+    (`SafeHtml::remote_fetches`, recorded by the attribute filter as it keeps them), not a second
+    parse of ammonia's output.
+  - Each frame may fetch only what one message of that thread asked for.
+  - Consent is written by the reader's render, before that render reaches the document. The
+    reloaded frame therefore finds it already there.
+  - Opening another thread, selecting a place or closing the reader revokes the consent, as on
+    the webview. Bytes that land after a revoke are dropped.
+- The window's own document is refused every remote request. A request from it cannot be tied to
+  the reader, since a hover card is the same document, so no image is ever fetched because
+  something was hovered. On `native` the Reader view's remote images therefore stay unloaded even
+  with consent. That is the known gap this leaves.
+
+**html5ever 0.39.** blitz-html parses the `srcdoc` with html5ever 0.39. ammonia writes with 0.40.
+A second parser generation reading ammonia's output is where mutation XSS lives, and that is
+`deny.toml`'s reason for banning `markup5ever_rcdom`. The 0.39 copy is accepted because of where
+it runs: it parses only what ammonia already wrote, and only into the sealed document. The worst
+a differential can do there is change markup inside the frame, where the tests above show a
+resurrected `<style>`, `<script>`, `file:` image or remote image achieves nothing. Mailo parses
+no mail with 0.39, and `mail-mime`'s sanitizer stays on ammonia's parser.

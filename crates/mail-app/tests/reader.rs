@@ -427,6 +427,22 @@ iVBORw0KGgo=\r\n\
     }
 
     #[test]
+    fn the_original_frame_carries_the_inline_image_too() {
+        let _alone = alone();
+        // The frame is a document of its own, on the webview (an opaque origin) and on Blitz (a
+        // separate document whose requests the app answers). A `cid:` there names nothing it can
+        // reach, so the bytes travel in the markup, as F42 decided. Its list of what it fetches
+        // stays empty: an inline image is not a request.
+        let (store, _dir) = store();
+        let message = ingest(&store, WITH_IMAGE, None);
+        let reading = reader::render(&store, &message, policy());
+        let html = frame_html(&reading).expect("html keeps a frame");
+        assert!(html.contains("data:image/png;base64,"), "{html}");
+        assert!(!html.contains("cid:"), "a cid: reached the frame: {html}");
+        assert!(reading.frame_fetches().is_empty(), "{reading:?}");
+    }
+
+    #[test]
     fn a_message_with_no_body_still_says_so() {
         let _alone = alone();
         let (store, _dir) = store();

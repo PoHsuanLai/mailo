@@ -62,10 +62,15 @@ fn weight(reading: &Reading) -> usize {
     match reading {
         Reading::NotFetched => 0,
         Reading::Blocks { document, html, .. } => {
-            document.bytes() + html.as_ref().map(String::len).unwrap_or(0)
+            document.bytes() + html.as_ref().map(String::len).unwrap_or(0) + fetched(reading)
         }
-        Reading::Layout { document, html, .. } => document.bytes() + html.len(),
+        Reading::Layout { document, html, .. } => document.bytes() + html.len() + fetched(reading),
     }
+}
+
+/// The bytes of the frame's fetch list, stored beside its markup.
+fn fetched(reading: &Reading) -> usize {
+    reading.frame_fetches().iter().map(String::len).sum()
 }
 
 static CACHE: std::sync::Mutex<Cache> = std::sync::Mutex::new(Cache {

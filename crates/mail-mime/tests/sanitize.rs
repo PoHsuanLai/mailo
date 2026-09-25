@@ -333,3 +333,65 @@ mod what_was_blocked {
         }
     }
 }
+
+/// What the sanitized markup will fetch, as the sanitizer kept it.
+///
+/// The reader's Original frame on Blitz fetches nothing the app does not answer, and the app
+/// answers only what this list names for the message the reader consented to. So the list must
+/// be exactly the kept fetch attributes: a link is a click, not a fetch, and `cid:` is the
+/// message's own part.
+mod what_will_be_fetched {
+    use super::*;
+
+    fn fetches(html: &str, images: RemoteImages) -> Vec<String> {
+        sanitize(
+            html,
+            SanitizePolicy {
+                remote_images: images,
+                version: SanitizePolicy::CURRENT.version,
+            },
+        )
+        .remote_fetches()
+        .to_vec()
+    }
+
+    const BODY: &str = r#"<p><a href="https://shop.test/offer">Offer</a></p>
+        <img src="https://cdn.test/a.png"><img src="cid:logo@here">
+        <img src="http://cdn.test/b.png?x=1&amp;y=2"><img src="https://cdn.test/a.png">
+        <img src="javascript:alert(1)"><img src="file:///etc/passwd">"#;
+
+    #[test]
+    fn nothing_is_fetched_while_remote_images_are_blocked() {
+        assert!(fetches(BODY, RemoteImages::Blocked).is_empty());
+    }
+
+    #[test]
+    fn allowed_images_are_listed_once_each_and_nothing_else() {
+        assert_eq!(
+            fetches(BODY, RemoteImages::Allowed),
+            vec![
+                "https://cdn.test/a.png".to_owned(),
+                "http://cdn.test/b.png?x=1&y=2".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_list_changes_nothing_in_the_markup() {
+        let policy = SanitizePolicy {
+            remote_images: RemoteImages::Allowed,
+            version: SanitizePolicy::CURRENT.version,
+        };
+        let safe = sanitize(BODY, policy);
+        for url in safe.remote_fetches() {
+            let written = url.replace('&', "&amp;");
+            assert!(
+                safe.as_str().contains(&written),
+                "{url} not in {}",
+                safe.as_str()
+            );
+        }
+        assert!(!safe.as_str().contains("javascript:"));
+        assert!(!safe.as_str().contains("file:"));
+    }
+}

@@ -366,6 +366,7 @@ fn ShowBlocks(document: mail_mime::Document) -> Element {
         document,
         blocked_remote: false,
         html: None,
+        fetches: Vec::new(),
     };
     let original = use_signal(std::collections::HashMap::new);
     let quotes = use_signal(super::blocks::OpenQuotes::new);

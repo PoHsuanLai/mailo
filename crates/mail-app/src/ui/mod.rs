@@ -29,6 +29,7 @@ mod menus;
 mod motion;
 mod move_to;
 mod ops;
+mod original;
 mod page;
 mod pgp;
 mod pick;
@@ -57,6 +58,8 @@ pub use launch::run;
 #[cfg(feature = "native")]
 pub mod native {
     pub use super::launch::native::{contexts, root};
+    pub use super::original::{Browse, Consent, Fetch, Original};
+    pub use super::reading::OriginalFrame;
 }
 
 pub use start::{Start, open_thread, start_of};
