@@ -179,7 +179,18 @@ async fn ctrl_2_repaints_the_frame_and_scopes_the_list() {
         "a script still paints the frame: {:#?}",
         scripts.all()
     );
-    let after = rows(&page);
+    // The list is asked for again off the drawing thread (`list_query`), so the scoped rows land
+    // when that query does: a moment after the switch, later on a loaded machine. Wait for the
+    // rows to change, bounded, and then say what they became.
+    let started = std::time::Instant::now();
+    let mut listed = page.clone();
+    while rows(&listed) == before && started.elapsed() < std::time::Duration::from_secs(30) {
+        let _ =
+            tokio::time::timeout(std::time::Duration::from_millis(50), dom.wait_for_work()).await;
+        dom.render_immediate(&mut dioxus_core::NoOpMutations);
+        listed = dioxus_ssr::render(&dom);
+    }
+    let after = rows(&listed);
     assert!(
         after < before && after > 0,
         "the list did not narrow to Solo's account: {before} rows before, {after} after"
