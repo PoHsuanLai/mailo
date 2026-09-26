@@ -30,13 +30,6 @@ const VIEW: Viewport = Viewport {
     scale_percent: 100,
 };
 
-/// Tall enough that the settings sheet's spelling switch is on screen without scrolling it.
-const TALL: Viewport = Viewport {
-    width: 1200,
-    height: 1600,
-    scale_percent: 100,
-};
-
 /// Set in the child process a case runs in.
 const CHILD: &str = "MAILO_SPELLING_CHILD";
 
@@ -157,6 +150,32 @@ fn centre(harness: &Harness, selector: &str) -> Point {
     harness
         .centre(selector)
         .unwrap_or_else(|| panic!("{selector} is not drawn:\n{}", harness.html()))
+}
+
+/// Wheel the settings down, as a person would, until all of `selector` lies between the sheet's
+/// top and its foot, neither of which scrolls, or the scroller stops moving. (Not measured
+/// against the scroller's own rect: Blitz subtracts an element's own scroll offset from its
+/// client rect, so a scrolled scroller reads as moved up although it is drawn where it was.)
+fn wheel_into_settings_view(harness: &mut Harness, selector: &str) {
+    let rect = |harness: &Harness, selector: &str| {
+        harness
+            .rect(selector)
+            .unwrap_or_else(|| panic!("{selector} is not drawn:\n{}", harness.html()))
+    };
+    let at = centre(harness, ".editor .ed-scroll");
+    let mut last = f32::NAN;
+    for _ in 0..50 {
+        let top = rect(harness, ".editor").origin.y.0;
+        let foot = rect(harness, ".editor .ed-foot").origin.y.0;
+        let found = rect(harness, selector);
+        let y = found.origin.y.0;
+        if (y >= top && y + found.size.height.0 <= foot) || (y - last).abs() < 0.5 {
+            return;
+        }
+        last = y;
+        harness.wheel(at, Px(0.0), Px(-120.0));
+        harness.advance(ms(20));
+    }
 }
 
 fn type_text(harness: &mut Harness, text: &str) {
@@ -283,13 +302,15 @@ fn escape_closes_the_spelling_menu_and_leaves_the_draft_open() {
 }
 
 fn off_removes_the_marks() {
-    let (mut harness, _dir) = composing_in(TALL);
+    let (mut harness, _dir) = composing_in(VIEW);
     type_text(&mut harness, "teh cat");
     settle_until(&mut harness, |h| marks(h) == 1);
     // The settings, from the Space's name in the sidebar, beside the open draft.
     harness.click(centre(&harness, ".space-name"));
     // Blitz's selectors name an attribute with a dash through the any-namespace form.
     let off = "[*|aria-label=\"Check spelling\"] button:last-child";
+    settle_until(&mut harness, |h| h.count(off) == 1);
+    wheel_into_settings_view(&mut harness, off);
     settle_until(&mut harness, |h| {
         h.centre(off).is_some_and(|at| h.hits(at, off))
     });
