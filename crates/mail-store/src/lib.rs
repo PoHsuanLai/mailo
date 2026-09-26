@@ -19,7 +19,9 @@ pub mod sql;
 pub mod sqlite;
 mod term;
 
-pub use contact::{AddressBook, BookCard, Contact, Kind, Origin, Tally};
+pub use contact::{
+    AddressBook, BookCard, Contact, Edit, Group, GroupHome, GroupId, Kind, Origin, Tally,
+};
 pub use dispatch::{PASSES_TO_FIND, SYNCS_TO_FIND};
 pub use memory::MemoryStore;
 pub use sql::{SqlFilter, SqlValue, compile};
@@ -647,4 +649,16 @@ pub trait Store {
 
     /// Every address book synced so far, by URL: what `mailo contacts sync` with no URL syncs.
     fn address_books(&self) -> Result<Vec<AddressBook>, StoreError>;
+
+    /// Every contact group, by name without regard to ASCII case, then by id.
+    fn groups(&self) -> Result<Vec<Group>, StoreError>;
+
+    /// One contact group; `None` when there is none.
+    fn group(&self, id: &GroupId) -> Result<Option<Group>, StoreError>;
+
+    /// Add a contact group, or replace the one with its id.
+    fn put_group(&self, group: &Group) -> Result<(), StoreError>;
+
+    /// Forget a contact group. `true` when there was one. Its members stay in the book.
+    fn delete_group(&self, id: &GroupId) -> Result<bool, StoreError>;
 }

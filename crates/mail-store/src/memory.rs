@@ -22,6 +22,7 @@ use crate::{Dispatch, OutboxEntry, Settle, Store, StoreError, Term};
 
 mod contacts;
 mod folders;
+mod groups;
 mod pgp;
 mod rules;
 mod smime;
@@ -72,6 +73,8 @@ struct Inner {
     sent_prints: Vec<String>,
     /// Synced address books, by collection URL.
     books: BTreeMap<String, crate::contact::AddressBook>,
+    /// Contact groups, by id.
+    groups: BTreeMap<crate::GroupId, crate::Group>,
     /// OpenPGP public keys, by fingerprint.
     pgp_keys: BTreeMap<mail_domain::Fingerprint, mail_domain::PgpKey>,
     /// Autocrypt peer state, by lower-cased address.
@@ -142,6 +145,7 @@ impl Default for Inner {
             counted: BTreeSet::new(),
             sent_prints: Vec::new(),
             books: BTreeMap::new(),
+            groups: BTreeMap::new(),
             pgp_keys: BTreeMap::new(),
             autocrypt: BTreeMap::new(),
             smime_certs: BTreeMap::new(),
@@ -749,6 +753,23 @@ impl Store for MemoryStore {
 
     fn address_books(&self) -> Result<Vec<crate::AddressBook>, StoreError> {
         Ok(self.inner.borrow().books.values().cloned().collect())
+    }
+
+    fn groups(&self) -> Result<Vec<crate::Group>, StoreError> {
+        Ok(self.inner.borrow().every_group())
+    }
+
+    fn group(&self, id: &crate::GroupId) -> Result<Option<crate::Group>, StoreError> {
+        Ok(self.inner.borrow().one_group(id))
+    }
+
+    fn put_group(&self, group: &crate::Group) -> Result<(), StoreError> {
+        self.inner.borrow_mut().write_group(group);
+        Ok(())
+    }
+
+    fn delete_group(&self, id: &crate::GroupId) -> Result<bool, StoreError> {
+        Ok(self.inner.borrow_mut().drop_group(id))
     }
 }
 

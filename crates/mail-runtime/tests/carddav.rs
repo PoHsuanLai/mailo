@@ -11,7 +11,7 @@
 use mail_domain::{Retry, Retryable};
 use mail_runtime::RuntimeError;
 use mail_runtime::carddav::{self, CardDavFailure, Dav, DavAuth, How};
-use mail_store::{AddressBook, MemoryStore, Origin, Store};
+use mail_store::{AddressBook, Edit, GroupHome, GroupId, MemoryStore, Origin, Store};
 use rustls_pki_types::pem::PemObject;
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use std::collections::BTreeMap;
@@ -42,6 +42,12 @@ struct Server {
     seen: Vec<String>,
     /// The `Authorization` header of every request.
     auth: Vec<Option<String>>,
+    /// The `If-Match` header of the request being answered.
+    if_match: Option<String>,
+    /// Every `PUT`: its path, its `If-Match`, its body.
+    puts: Vec<(String, Option<String>, String)>,
+    /// Answer every `PUT` `412`, as a server does whose card changed after the listing.
+    stale_on_put: bool,
 }
 
 impl Server {
@@ -135,8 +141,28 @@ impl Server {
                 }
                 multistatus(&all)
             }
+            ("PUT", path) => self.store_put(path, body),
             _ => status("404 Not Found", ""),
         }
+    }
+
+    /// A `PUT` of a card, only over the etag it names (RFC 6352 §6.3.2, RFC 9110 §13.1.1).
+    fn store_put(&mut self, path: &str, body: &str) -> String {
+        let if_match = self.if_match.clone();
+        self.puts
+            .push((path.to_owned(), if_match.clone(), body.to_owned()));
+        let current = self.cards.get(path).map(|(etag, _)| etag.clone());
+        if self.stale_on_put || (if_match.is_some() && if_match != current) {
+            return status("412 Precondition Failed", "");
+        }
+        let etag = format!("\"{}\"", self.log.len() + 1);
+        self.cards
+            .insert(path.to_owned(), (etag.clone(), body.to_owned()));
+        self.log.push((path.to_owned(), true));
+        format!(
+            "HTTP/1.1 204 No Content\r\nETag: {etag}\r\nContent-Length: 0\r\n\
+             Connection: close\r\n\r\n"
+        )
     }
 
     /// Changes since the token in `body`, or everything for an empty one.
@@ -249,13 +275,14 @@ async fn serve(server: Shared) -> SocketAddr {
             let Ok(mut stream) = acceptor.accept(sock).await else {
                 continue;
             };
-            let Some((method, path, auth, body)) = read_request(&mut stream).await else {
+            let Some((method, path, auth, if_match, body)) = read_request(&mut stream).await else {
                 continue;
             };
-            let reply = server
-                .lock()
-                .unwrap()
-                .answer(&method, &path, auth.as_deref(), &body);
+            let reply = {
+                let mut server = server.lock().unwrap();
+                server.if_match = if_match;
+                server.answer(&method, &path, auth.as_deref(), &body)
+            };
             let _ = stream.write_all(reply.as_bytes()).await;
             let _ = stream.flush().await;
             let _ = stream.shutdown().await;
@@ -266,7 +293,7 @@ async fn serve(server: Shared) -> SocketAddr {
 
 async fn read_request<S: tokio::io::AsyncRead + Unpin>(
     stream: &mut S,
-) -> Option<(String, String, Option<String>, String)> {
+) -> Option<(String, String, Option<String>, Option<String>, String)> {
     let mut buf = Vec::new();
     let mut chunk = [0u8; 4096];
     loop {
@@ -296,7 +323,13 @@ async fn read_request<S: tokio::io::AsyncRead + Unpin>(
         let method = words.next()?.to_owned();
         let path = words.next()?.to_owned();
         let body = String::from_utf8_lossy(&buf[end + 4..end + 4 + length]).to_string();
-        return Some((method, path, header("authorization"), body));
+        return Some((
+            method,
+            path,
+            header("authorization"),
+            header("if-match"),
+            body,
+        ));
     }
 }
 
@@ -681,4 +714,231 @@ fn an_http_url_is_refused_before_anything_is_sent() {
         matches!(err, RuntimeError::CardDav(CardDavFailure::Insecure(_))),
         "{err:?}"
     );
+}
+
+/// A group card: `KIND:group` with a `UID` and these `MEMBER`s, and a property nothing reads.
+fn group_card(name: &str, uid: &str, members: &[&str]) -> String {
+    let mut out = format!("BEGIN:VCARD\r\nVERSION:4.0\r\nKIND:group\r\nUID:{uid}\r\nFN:{name}\r\n");
+    for member in members {
+        out.push_str(&format!("MEMBER:{member}\r\n"));
+    }
+    out.push_str("X-KEPT:yes\r\nEND:VCARD\r\n");
+    out
+}
+
+/// A member naming a card no book here holds.
+const NOBODY_HERE: &str = "urn:uuid:ffffffff-0000-4000-8000-000000000000";
+
+/// Rename the group `id` and add `add` to it, as the Contacts sheet does.
+fn edit_group(store: &MemoryStore, id: &GroupId, name: &str, add: &str) {
+    let mut group = store.group(id).unwrap().unwrap();
+    group.name = name.to_owned();
+    group.members.push(add.to_owned());
+    if let GroupHome::Book { edit, .. } = &mut group.home {
+        *edit = Edit::Edited;
+    }
+    store.put_group(&group).unwrap();
+}
+
+fn team_path() -> String {
+    format!("{BOOK}team.vcf")
+}
+
+/// A book of one group card, synced once; the group's id.
+async fn one_group(server: &Shared, members: &[&str]) -> (SocketAddr, MemoryStore, Dav, GroupId) {
+    server
+        .lock()
+        .unwrap()
+        .put("team", &group_card("Team", "team-1", members));
+    let addr = serve(server.clone()).await;
+    let store = MemoryStore::new();
+    let dav = dav(addr, ada());
+    carddav::sync(&dav, &store, book_at(addr, &store).await)
+        .await
+        .unwrap();
+    let id = store.groups().unwrap()[0].id.clone();
+    (addr, store, dav, id)
+}
+
+#[tokio::test]
+async fn a_group_card_is_synced_as_a_group_and_goes_with_its_card() {
+    let server: Shared = Arc::default();
+    {
+        let mut s = server.lock().unwrap();
+        s.put("ada", &card("Ada", &["ada@example.test"]));
+        s.put(
+            "team",
+            &group_card(
+                "Team",
+                "urn:uuid:03a0e51f-d1aa-4385-8a53-e29025acd8af",
+                &["mailto:bob@example.test", NOBODY_HERE],
+            ),
+        );
+    }
+    let addr = serve(server.clone()).await;
+    let store = MemoryStore::new();
+    let dav = dav(addr, ada());
+    let before = store.groups().unwrap().len();
+    carddav::sync(&dav, &store, book_at(addr, &store).await)
+        .await
+        .unwrap();
+    let groups = store.groups().unwrap();
+    assert_eq!(
+        (before, groups.len()),
+        (0, 1),
+        "only the group card is a group"
+    );
+    let team = &groups[0];
+    assert_eq!(team.id, GroupId(base(addr, &team_path()).to_string()));
+    assert_eq!(team.name, "Team");
+    assert_eq!(team.members, ["mailto:bob@example.test", NOBODY_HERE]);
+    assert_eq!(
+        team.uid.as_deref(),
+        Some("urn:uuid:03a0e51f-d1aa-4385-8a53-e29025acd8af")
+    );
+    let book = book_at(addr, &store).await;
+    assert_eq!(
+        book.cards[&team.id.0].uid.as_deref(),
+        Some("urn:uuid:03a0e51f-d1aa-4385-8a53-e29025acd8af"),
+        "the card's UID is kept for a member to find it by"
+    );
+
+    server.lock().unwrap().remove("team");
+    carddav::sync(&dav, &store, book_at(addr, &store).await)
+        .await
+        .unwrap();
+    assert_eq!(store.groups().unwrap(), []);
+}
+
+#[tokio::test]
+async fn a_group_edited_here_is_written_back_as_a_group_over_the_etag_it_came_with() {
+    let server: Shared = Arc::default();
+    let (addr, store, dav, id) =
+        one_group(&server, &["mailto:bob@example.test", NOBODY_HERE]).await;
+    let etag = server.lock().unwrap().cards[&team_path()].0.clone();
+    assert_eq!(
+        server.lock().unwrap().puts.len(),
+        0,
+        "nothing edited, nothing sent"
+    );
+
+    edit_group(&store, &id, "The team", "mailto:cy@example.test");
+    let done = carddav::sync(&dav, &store, book_at(addr, &store).await)
+        .await
+        .unwrap();
+    assert_eq!((done.written, done.unwritten.len()), (1, 0));
+
+    let (path, if_match, body) = server.lock().unwrap().puts[0].clone();
+    assert_eq!(path, team_path());
+    assert_eq!(
+        if_match,
+        Some(etag),
+        "sent only over the card it was edited from"
+    );
+    assert!(body.contains("\r\nKIND:group\r\n"), "{body}");
+    let written = mail_pim::vcard::parse(&body).remove(0);
+    assert!(written.is_group(), "{body}");
+    assert_eq!(written.uid.as_deref(), Some("team-1"));
+    assert_eq!(written.formatted_name.as_deref(), Some("The team"));
+    assert_eq!(
+        written.members,
+        [
+            "mailto:bob@example.test",
+            NOBODY_HERE,
+            "mailto:cy@example.test"
+        ],
+        "a member naming no card here is written back, not dropped"
+    );
+    assert!(
+        body.contains("\r\nX-KEPT:yes\r\n"),
+        "what the edit does not decide rides along: {body}"
+    );
+    let group = store.group(&id).unwrap().unwrap();
+    assert!(matches!(
+        group.home,
+        GroupHome::Book {
+            edit: Edit::Synced,
+            ..
+        }
+    ));
+
+    // The next sync sees its own write under the etag the server gave it: nothing to fetch,
+    // nothing to send, and the edit stands.
+    let next = carddav::sync(&dav, &store, book_at(addr, &store).await)
+        .await
+        .unwrap();
+    assert_eq!((next.changed, next.written), (0, 0));
+    assert_eq!(server.lock().unwrap().puts.len(), 1);
+    assert_eq!(store.group(&id).unwrap().unwrap().name, "The team");
+}
+
+#[tokio::test]
+async fn a_group_changed_on_the_server_too_keeps_the_edit_and_goes_onto_the_newer_card() {
+    let server: Shared = Arc::default();
+    let (addr, store, dav, id) = one_group(&server, &["mailto:bob@example.test"]).await;
+    edit_group(&store, &id, "Mine", "mailto:cy@example.test");
+    // Someone else changes the card between the sync that read it and the one that writes.
+    let theirs = group_card("Theirs", "team-1", &["mailto:dee@example.test"])
+        .replace("X-KEPT:yes", "NOTE:theirs");
+    let newer = {
+        let mut s = server.lock().unwrap();
+        s.put("team", &theirs);
+        s.cards[&team_path()].0.clone()
+    };
+
+    let done = carddav::sync(&dav, &store, book_at(addr, &store).await)
+        .await
+        .unwrap();
+    assert_eq!((done.changed, done.written), (1, 1));
+    let s = server.lock().unwrap();
+    assert_eq!(s.puts.len(), 1);
+    let (_, if_match, body) = s.puts[0].clone();
+    assert_eq!(if_match, Some(newer), "over the newer card's etag");
+    let written = mail_pim::vcard::parse(&body).remove(0);
+    assert_eq!(
+        written.formatted_name.as_deref(),
+        Some("Mine"),
+        "the edit is kept"
+    );
+    assert_eq!(
+        written.members,
+        ["mailto:bob@example.test", "mailto:cy@example.test"]
+    );
+    assert_eq!(
+        written.note.as_deref(),
+        Some("theirs"),
+        "and the rest is the newer card's"
+    );
+}
+
+#[tokio::test]
+async fn a_write_refused_as_stale_leaves_the_edit_for_the_next_sync() {
+    let server: Shared = Arc::default();
+    let (addr, store, dav, id) = one_group(&server, &["mailto:bob@example.test"]).await;
+    edit_group(&store, &id, "Mine", "mailto:cy@example.test");
+    server.lock().unwrap().stale_on_put = true;
+
+    let done = carddav::sync(&dav, &store, book_at(addr, &store).await)
+        .await
+        .unwrap();
+    assert_eq!(done.written, 0);
+    assert_eq!(done.unwritten.len(), 1);
+    assert_eq!(done.unwritten[0].name, "Mine");
+    let group = store.group(&id).unwrap().unwrap();
+    assert!(matches!(
+        group.home,
+        GroupHome::Book {
+            edit: Edit::Edited,
+            ..
+        }
+    ));
+    assert_eq!(group.name, "Mine");
+
+    // Once the server takes it, it is sent and settled.
+    server.lock().unwrap().stale_on_put = false;
+    let again = carddav::sync(&dav, &store, book_at(addr, &store).await)
+        .await
+        .unwrap();
+    assert_eq!(again.written, 1);
+    assert_eq!(server.lock().unwrap().puts.len(), 2);
 }
