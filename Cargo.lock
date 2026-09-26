@@ -238,7 +238,7 @@ dependencies = [
 [[package]]
 name = "anyrender_pdfrum"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.1.11#09e9715b23b33b0d77214194ebaec23b7c55c554"
+source = "git+https://github.com/PoHsuanLai/quire?tag=v0.1.16#dde852ea35f6707bc762180e1d59b479fa7db820"
 dependencies = [
  "anyrender",
  "pdfrum-common",
@@ -334,7 +334,7 @@ dependencies = [
  "objc2-foundation 0.3.2",
  "parking_lot",
  "percent-encoding",
- "windows-sys 0.52.0",
+ "windows-sys 0.60.2",
  "x11rb",
 ]
 
@@ -2247,7 +2247,7 @@ checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
 [[package]]
 name = "ds"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.1.11#09e9715b23b33b0d77214194ebaec23b7c55c554"
+source = "git+https://github.com/PoHsuanLai/quire?tag=v0.1.16#dde852ea35f6707bc762180e1d59b479fa7db820"
 dependencies = [
  "cssparser 0.37.0",
  "dioxus",
@@ -2261,7 +2261,7 @@ dependencies = [
 [[package]]
 name = "ds-native"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.1.11#09e9715b23b33b0d77214194ebaec23b7c55c554"
+source = "git+https://github.com/PoHsuanLai/quire?tag=v0.1.16#dde852ea35f6707bc762180e1d59b479fa7db820"
 dependencies = [
  "anyrender",
  "anyrender_pdfrum",
@@ -2271,8 +2271,10 @@ dependencies = [
  "blitz-dom",
  "blitz-html",
  "blitz-paint",
+ "blitz-shell",
  "blitz-traits",
  "dioxus",
+ "dioxus-asset-resolver",
  "dioxus-native",
  "dioxus-native-dom",
  "ds",
@@ -2283,6 +2285,7 @@ dependencies = [
  "peniko",
  "thiserror 2.0.20",
  "tokio",
+ "webbrowser",
  "wgpu",
  "zbus",
 ]
@@ -2290,7 +2293,7 @@ dependencies = [
 [[package]]
 name = "ds-settings"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.1.11#09e9715b23b33b0d77214194ebaec23b7c55c554"
+source = "git+https://github.com/PoHsuanLai/quire?tag=v0.1.16#dde852ea35f6707bc762180e1d59b479fa7db820"
 dependencies = [
  "dioxus",
  "dirs",
@@ -2308,7 +2311,7 @@ dependencies = [
 [[package]]
 name = "ds-settings-derive"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.1.11#09e9715b23b33b0d77214194ebaec23b7c55c554"
+source = "git+https://github.com/PoHsuanLai/quire?tag=v0.1.16#dde852ea35f6707bc762180e1d59b479fa7db820"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2514,7 +2517,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6218,7 +6221,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6699,7 +6702,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7813,7 +7816,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -9126,7 +9129,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

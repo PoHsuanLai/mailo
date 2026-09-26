@@ -12,7 +12,7 @@ use ds_native::harness::settle_until;
 use ds_native::{FocusFallback, Harness, HarnessConfig, NetPolicy, PrintOutcome, Viewport};
 use mail_domain::*;
 use mail_runtime::{Arrival, absorb};
-use mail_store::SqliteStore;
+use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -213,4 +213,46 @@ fn the_sender_card_shows_the_checks_and_offers_a_block() {
     );
     let item = harness.text_of(BLOCK).unwrap_or_default();
     assert!(item.contains("Block sender"), "{item}");
+}
+
+/// The pointer goes from the sender's name to the card's Block item in ten steps, crossing the
+/// rows below that the card sits over, and the card stays the sender's all the way. Leaving the
+/// name used to re-enter the row's own hook, which swapped the sender card for a thread card at
+/// once, so no card action could be reached (FINDINGS F162).
+#[test]
+fn the_sender_cards_actions_can_be_reached_across_the_rows_under_it() {
+    let (mut harness, _dir, store) = open();
+    open_sender_card(&mut harness, 1);
+    settle_until(&mut harness, |harness| {
+        harness.count(".ds-hovercard .sender-checks") == 1
+    });
+    let from = centre(&harness, &format!("{} .ds-row-name", row(1)));
+    let to = centre(&harness, BLOCK);
+    for step in 1..=10 {
+        let t = step as f32 / 10.0;
+        harness.pointer_move(Point {
+            x: ds::Px(from.x.0 + (to.x.0 - from.x.0) * t),
+            y: ds::Px(from.y.0 + (to.y.0 - from.y.0) * t),
+        });
+        harness.advance(ms(40));
+        assert_eq!(
+            harness.count(".ds-hovercard .sender-checks"),
+            1,
+            "the sender card went at step {step}:\n{}",
+            harness.html()
+        );
+    }
+    harness.advance(ms(400));
+    assert_eq!(
+        harness.count(".ds-hovercard .sender-checks"),
+        1,
+        "gone at rest"
+    );
+
+    let before = store.rules(ACCOUNT).unwrap().len();
+    harness.click(centre(&harness, BLOCK));
+    settle_until(&mut harness, |_| {
+        store.rules(ACCOUNT).map(|r| r.len()).unwrap_or(0) == before + 1
+    });
+    assert_eq!(store.rules(ACCOUNT).unwrap().len(), before + 1);
 }
