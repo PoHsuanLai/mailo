@@ -445,6 +445,14 @@ fn press(mut shell: Signal<Shell>, mut revision: Signal<u64>, id: ThreadId, pres
         shell.write().snoozing = if already { None } else { Some(id) };
         return;
     }
+    // An op may take the row out of the list, and a pressed strip button would otherwise have
+    // the keyboard inside the leaving row. quire hands the keyboard on when its element is
+    // removed, but only if it saw the element focused first: under load the press's own focus
+    // and the row's removal land in one frame, and the keyboard went nowhere. So the window
+    // takes it back now, before the row can leave (FINDINGS F172).
+    if composes(kind).is_none() {
+        super::host::Host::focus_app();
+    }
     // Mute takes its direction from the conversations it reaches, so a picked row mutes or
     // unmutes the whole selection as one gesture.
     if kind == OpKind::Mute {

@@ -693,9 +693,10 @@ fn without_quire_s_fallback_a_removal_leaves_the_keyboard_nowhere() {
     );
 }
 
-/// The third row's own Archive button pressed: quire's `HoverStrip` keeps the click to itself
-/// and gives the pressed button the keyboard (quire v0.1.11), and the row it removes hands it
-/// on. Then `e` still archives the open conversation.
+/// The third row's own Archive button pressed: quire's `HoverStrip` would give the pressed
+/// button the keyboard (quire v0.1.11), but the row is leaving, so the window takes it back.
+/// Then `e` still archives the open conversation. Every wait is for a state, not a time: this
+/// is the test that failed on a loaded machine (F172).
 #[test]
 fn a_press_on_a_row_s_strip_leaves_the_keyboard_working() {
     let (mut harness, _dir) = open();
@@ -705,18 +706,28 @@ fn a_press_on_a_row_s_strip_leaves_the_keyboard_working() {
     harness.advance(ms(300));
     let archive = format!("{} .ds-strip [*|data-op=archive]", row(3));
     harness.click(centre(&harness, &archive));
-    harness.advance(ms(1500));
-    assert_eq!(
-        subjects(&harness),
-        [INBOX[0].1, INBOX[1].1, INBOX[3].1],
-        "the strip's Archive did not archive its row"
+    // The keyboard must land on the window, never on the pressed button in the leaving row: from
+    // there it is lost whenever the button's focus and the row's removal share a frame, which a
+    // loaded machine makes likely (F172). The old code landed on the button, or, under load,
+    // nowhere at all, and this waited out its bound.
+    settle_until(&mut harness, |harness| {
+        harness.count(":focus") > 0 && !harness.is_focused("html")
+    });
+    assert!(
+        harness.is_focused(".app"),
+        "the strip's Archive left the keyboard in its own row, not on the window:\n{}",
+        harness.html()
     );
+    settle_until(&mut harness, |harness| {
+        subjects(harness) == [INBOX[0].1, INBOX[1].1, INBOX[3].1]
+    });
     harness.key(Key::Char('e'));
-    harness.advance(ms(1500));
-    assert_eq!(
-        subjects(&harness),
-        [INBOX[1].1, INBOX[3].1],
-        "`e` after the strip's Archive archived nothing: the keyboard went nowhere"
+    settle_until(&mut harness, |harness| {
+        subjects(harness) == [INBOX[1].1, INBOX[3].1]
+    });
+    assert!(
+        harness.is_focused(".app"),
+        "`e` left the window without the keyboard"
     );
 }
 
