@@ -330,20 +330,28 @@ fn the_latin_and_cjk_text_of_the_thread_can_be_copied_out() {
             "{word:?} is not in the text: {text}"
         );
     }
-    // The CJK is set in the faces the printout names, not whatever the fallback finds: the serif
-    // body's in Noto Serif CJK (fontique's own fallback is a sans), the headers' in Noto Sans
-    // CJK. Needs the Noto CJK faces installed, as quire's own PDF tests do. (A variable CJK face
-    // is named after its default instance, `...-Thin`, while it prints at the layout's weight.)
+    // The CJK is set in the faces the printout names, not whatever the fallback finds. On every
+    // platform that is a Traditional Chinese face, as the thread and the locale are.
     let fonts: Vec<String> = doc
         .embedded_fonts()
         .into_iter()
         .map(|font| font.name)
         .collect();
-    for face in ["NotoSerifCJK", "NotoSansCJK"] {
-        assert!(
-            fonts.iter().any(|name| name.contains(face)),
-            "{face} was not embedded: {fonts:?}"
-        );
+    assert!(
+        embeds(&fonts, Cjk::Tc),
+        "no Traditional Chinese face was embedded: {fonts:?}"
+    );
+    // On Linux: the serif body's in Noto Serif CJK (fontique's own fallback is a sans), the
+    // headers' in Noto Sans CJK. Needs the Noto CJK faces installed, as quire's own PDF tests do.
+    // (A variable CJK face is named after its default instance, `...-Thin`, while it prints at
+    // the layout's weight.)
+    if cfg!(target_os = "linux") {
+        for face in ["NotoSerifCJK", "NotoSansCJK"] {
+            assert!(
+                fonts.iter().any(|name| name.contains(face)),
+                "{face} was not embedded: {fonts:?}"
+            );
+        }
     }
     assert!(
         !fonts.iter().any(|name| name.contains("DroidSansFallback")),
@@ -642,39 +650,55 @@ fn each_script_leads_with_its_own_regional_face() {
     for (script, default, want) in cases {
         assert_eq!(Cjk::for_script(script, default), want, "{script:?}");
     }
-    let stacks = [
-        (
-            Cjk::Tc,
-            "'Georgia', 'Times New Roman', 'Noto Serif', 'Noto Serif CJK TC', \
-             'Noto Serif CJK HK', 'Noto Serif CJK SC', 'Noto Serif CJK JP', \
-             'Noto Serif CJK KR', serif",
-        ),
-        (
-            Cjk::Sc,
-            "'Georgia', 'Times New Roman', 'Noto Serif', 'Noto Serif CJK SC', \
-             'Noto Serif CJK TC', 'Noto Serif CJK HK', 'Noto Serif CJK JP', \
-             'Noto Serif CJK KR', serif",
-        ),
-        (
-            Cjk::Jp,
-            "'Georgia', 'Times New Roman', 'Noto Serif', 'Noto Serif CJK JP', \
-             'Noto Serif CJK TC', 'Noto Serif CJK HK', 'Noto Serif CJK SC', \
-             'Noto Serif CJK KR', serif",
-        ),
-        (
-            Cjk::Kr,
-            "'Georgia', 'Times New Roman', 'Noto Serif', 'Noto Serif CJK KR', \
-             'Noto Serif CJK TC', 'Noto Serif CJK HK', 'Noto Serif CJK SC', \
-             'Noto Serif CJK JP', serif",
-        ),
+    // The regions' Noto faces, in the order each locale leads with.
+    let noto = |stack: &str, family: &str| -> Vec<String> {
+        stack
+            .split(", ")
+            .filter(|face| face.starts_with(&format!("'{family} ")))
+            .map(str::to_owned)
+            .collect()
+    };
+    let orders = [
+        (Cjk::Tc, ["TC", "HK", "SC", "JP", "KR"]),
+        (Cjk::Sc, ["SC", "TC", "HK", "JP", "KR"]),
+        (Cjk::Jp, ["JP", "TC", "HK", "SC", "KR"]),
+        (Cjk::Kr, ["KR", "TC", "HK", "SC", "JP"]),
     ];
-    for (cjk, serif) in stacks {
-        assert_eq!(Families::led_by(cjk).serif, serif, "{cjk:?}");
+    for (cjk, order) in orders {
+        let families = Families::led_by(cjk);
+        for (stack, family) in [
+            (&families.serif, "Noto Serif CJK"),
+            (&families.sans, "Noto Sans CJK"),
+            (&families.mono, "Noto Sans Mono CJK"),
+        ] {
+            let want: Vec<String> = order.iter().map(|r| format!("'{family} {r}'")).collect();
+            assert_eq!(noto(stack, family), want, "{cjk:?}: {stack}");
+        }
     }
+    // A region's own faces, all of them, before the next region's: Noto's, then Windows's and
+    // macOS's, then its sans where a serif is not installed.
     assert_eq!(
-        Families::led_by(Cjk::Jp).sans,
-        "'Noto Sans', 'Noto Sans CJK JP', 'Noto Sans CJK TC', 'Noto Sans CJK HK', \
-         'Noto Sans CJK SC', 'Noto Sans CJK KR', sans-serif"
+        Families::led_by(Cjk::Jp).serif,
+        "'Georgia', 'Times New Roman', 'Noto Serif', \
+         'Noto Serif CJK JP', 'Yu Mincho', 'Hiragino Mincho ProN', \
+         'Noto Sans CJK JP', 'Yu Gothic', 'Hiragino Sans', \
+         'Noto Serif CJK TC', 'PMingLiU', 'Songti TC', \
+         'Noto Sans CJK TC', 'Microsoft JhengHei', 'PingFang TC', \
+         'Noto Serif CJK HK', 'MingLiU_HKSCS', 'Songti TC', \
+         'Noto Sans CJK HK', 'Microsoft JhengHei', 'PingFang HK', \
+         'Noto Serif CJK SC', 'SimSun', 'Songti SC', \
+         'Noto Sans CJK SC', 'Microsoft YaHei', 'PingFang SC', \
+         'Noto Serif CJK KR', 'Batang', 'AppleMyungjo', \
+         'Noto Sans CJK KR', 'Malgun Gothic', 'Apple SD Gothic Neo', serif"
+    );
+    assert_eq!(
+        Families::led_by(Cjk::Kr).sans,
+        "'Noto Sans', \
+         'Noto Sans CJK KR', 'Malgun Gothic', 'Apple SD Gothic Neo', \
+         'Noto Sans CJK TC', 'Microsoft JhengHei', 'PingFang TC', \
+         'Noto Sans CJK HK', 'Microsoft JhengHei', 'PingFang HK', \
+         'Noto Sans CJK SC', 'Microsoft YaHei', 'PingFang SC', \
+         'Noto Sans CJK JP', 'Yu Gothic', 'Hiragino Sans', sans-serif"
     );
     // The locale's face leads the document; a marked message's own script leads the message.
     let css = paper::paper_css(Cjk::Tc);
@@ -691,6 +715,92 @@ fn each_script_leads_with_its_own_regional_face() {
     }
     // Traditional Chinese is what the document leads with already.
     assert!(!css.contains("data-script=\"zh-Hant\""), "{css}");
+}
+
+/// The CJK region an embedded face is made for, by its PostScript name, on any of the three
+/// platforms: Noto's regional faces on Linux (`NotoSansCJKjp-Regular`), and the faces
+/// [`paper`]'s stacks name for Windows (`YuGothic-Regular`, `MalgunGothic`,
+/// `MicrosoftJhengHei`) and macOS (`HiraginoSans-W3`, `AppleSDGothicNeo-Regular`,
+/// `PingFangTC-Regular`, `STSongti-TC-Regular`), and the ones their fallback reaches
+/// (`YuGothicUI-Regular`). `None` for a face of no one region, such as Arial.
+fn region_of(face: &str) -> Option<Cjk> {
+    let names: [(Cjk, &[&str]); 5] = [
+        (
+            Cjk::Tc,
+            &[
+                "CJKtc",
+                "JhengHei",
+                "PMingLiU",
+                "PingFangTC",
+                "Songti-TC",
+                "SongtiTC",
+            ],
+        ),
+        (
+            Cjk::Hk,
+            &["CJKhk", "MingLiU_HKSCS", "PingFangHK", "PingFangMO"],
+        ),
+        (
+            Cjk::Sc,
+            &[
+                "CJKsc",
+                "YaHei",
+                "SimSun",
+                "SimHei",
+                "DengXian",
+                "PingFangSC",
+                "Songti-SC",
+                "SongtiSC",
+            ],
+        ),
+        (
+            Cjk::Jp,
+            &[
+                "CJKjp",
+                "YuGothic",
+                "YuGo-",
+                "YuMincho",
+                "YuMin-",
+                "Meiryo",
+                "Hiragino",
+                "HiraKaku",
+                "HiraMin",
+                "HiraMaru",
+                "MS-Gothic",
+                "MS-Mincho",
+                "MSGothic",
+                "MSMincho",
+            ],
+        ),
+        (
+            Cjk::Kr,
+            &[
+                "CJKkr",
+                "Malgun",
+                "Batang",
+                "Gulim",
+                "Dotum",
+                "Gungsuh",
+                "AppleSDGothicNeo",
+                "AppleMyungjo",
+                "AppleGothic",
+                "Nanum",
+            ],
+        ),
+    ];
+    // `PMingLiU` and `MingLiU_HKSCS` share a stem, so the longer name is asked first.
+    if face.contains("MingLiU_HKSCS") {
+        return Some(Cjk::Hk);
+    }
+    names
+        .into_iter()
+        .find(|(_, stems)| stems.iter().any(|stem| face.contains(stem)))
+        .map(|(region, _)| region)
+}
+
+/// Whether a face of `region` is among `fonts`.
+fn embeds(fonts: &[String], region: Cjk) -> bool {
+    fonts.iter().any(|name| region_of(name) == Some(region))
 }
 
 /// A one-message thread of `subject` and a plain `body`, as a PDF on A4 with Traditional Chinese
@@ -726,28 +836,45 @@ fn faces_for(subject: &str, body: &str) -> Vec<String> {
 
 #[test]
 fn japanese_and_korean_mail_print_in_their_own_faces_on_a_chinese_locale() {
-    // Needs the Noto CJK faces installed, as the test above does. A face in the collection is
-    // named for its region: `NotoSerifCJKjp-...`, `NotoSansCJKkr-...`.
+    // On every platform: the message is set in its own region's faces and in no Chinese one.
+    // Windows and macOS have their own faces for each region (Yu Gothic, Malgun Gothic,
+    // Hiragino, …), which the stacks name after Noto's.
+    //
+    // On Linux, where the platform's CJK faces are Noto's, it is Noto's serif for the body and
+    // Noto's sans for the headers: needs the Noto CJK faces installed, as the test above does. A
+    // face in the collection is named for its region: `NotoSerifCJKjp-...`, `NotoSansCJKkr-...`.
     let cases = [
         (
             "会議のお知らせ",
             "明日の会議は十時からです。よろしくお願いします。",
             "jp",
+            Cjk::Jp,
         ),
         (
             "회의 안내",
             "내일 회의는 열 시에 시작합니다. 감사합니다.",
             "kr",
+            Cjk::Kr,
         ),
     ];
-    for (subject, body, region) in cases {
+    for (subject, body, region, cjk) in cases {
         let fonts = faces_for(subject, body);
-        for face in ["NotoSerifCJK", "NotoSansCJK"] {
-            let wanted = format!("{face}{region}");
-            assert!(
-                fonts.iter().any(|name| name.contains(&wanted)),
-                "{wanted} was not embedded: {fonts:?}"
-            );
+        assert!(
+            embeds(&fonts, cjk),
+            "no {region} face was embedded: {fonts:?}"
+        );
+        assert!(
+            !embeds(&fonts, Cjk::Tc) && !embeds(&fonts, Cjk::Hk) && !embeds(&fonts, Cjk::Sc),
+            "the {region} message was set in a Chinese face: {fonts:?}"
+        );
+        if cfg!(target_os = "linux") {
+            for face in ["NotoSerifCJK", "NotoSansCJK"] {
+                let wanted = format!("{face}{region}");
+                assert!(
+                    fonts.iter().any(|name| name.contains(&wanted)),
+                    "{wanted} was not embedded: {fonts:?}"
+                );
+            }
         }
         assert!(
             !fonts.iter().any(|name| name.contains("CJKtc")),
