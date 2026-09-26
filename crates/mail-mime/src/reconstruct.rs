@@ -103,6 +103,22 @@ fn write_children(
     Some(())
 }
 
+/// Whether `raw` is a message [`reconstruct`] rebuilt with parts left on the server: stored
+/// bytes that are not the message as it was sent, only its headers and text.
+///
+/// Read from the bytes, not from [`mail_domain::Message::attachments`]: fetching a part later
+/// marks that attachment held but leaves the stored document as it was rebuilt, with an empty
+/// body where the part was. So a message whose every attachment has since been downloaded is
+/// still a rebuilt one here, which it is.
+///
+/// A sender can write the marker headers into an ordinary message, and then this says yes of
+/// a message that is whole. That errs the safe way: every caller treats yes as "these bytes may
+/// not be the message as sent", and refuses or says so.
+pub fn left_on_server(raw: &[u8]) -> bool {
+    crate::parse_reconstructed(raw)
+        .is_ok_and(|parsed| parsed.attachments.iter().any(|part| part.remote.is_some()))
+}
+
 /// One part's content, transfer-decoded: its `N.MIME` header and its `N` bytes as the server
 /// sent them, which are still base64 or quoted-printable.
 ///

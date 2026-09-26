@@ -1,7 +1,7 @@
 //! Rebuilding a large message from its sections, with its attachments left on the server.
 
 use mail_domain::PartTree;
-use mail_mime::{parse, parse_reconstructed, reconstruct, sections_for};
+use mail_mime::{left_on_server, parse, parse_reconstructed, reconstruct, sections_for};
 use std::collections::HashMap;
 
 /// A report: plain and HTML alternatives, and a PDF beside them. Built from the same pieces an
@@ -175,6 +175,19 @@ fn a_marker_in_the_message_itself_is_removed_and_never_believed() {
     let parsed = parse_reconstructed(&rebuilt).unwrap();
     assert_eq!(parsed.attachments[0].remote, None);
     assert!(!parsed.attachments[0].bytes.is_empty());
+}
+
+/// What the source view and forward-as-attachment ask before treating stored bytes as the
+/// message as sent.
+#[test]
+fn a_message_rebuilt_with_a_part_left_behind_says_so_and_a_whole_one_does_not() {
+    let report = Report::new("");
+    let partial = reconstruct(&report.tree(), &report.fetch(&not_attachments)).unwrap();
+    let whole = reconstruct(&report.tree(), &report.fetch(&|_| true)).unwrap();
+    assert!(left_on_server(&partial));
+    assert!(!left_on_server(&report.original()));
+    assert!(!left_on_server(&whole), "nothing was left behind");
+    assert!(!left_on_server(b"not a message"));
 }
 
 #[test]
