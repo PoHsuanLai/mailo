@@ -2,10 +2,9 @@
 //!
 //! The document itself is [`mail_mime::print`], which is pure. This module is the part that
 //! reads the store — which messages, their stored bytes — and the part that writes a file.
-//! The window prints the same [`document`]: through its webview on `webview`, and as a PDF
-//! made by quire on `native` (`ui/print/paper.rs`), which adds its named faces
-//! ([`document_with`]) and, for a conversation whose remote images the reader consented to,
-//! those images ([`Pictures`]).
+//! The window prints the same [`document`], as a PDF made by quire (`ui/print/paper.rs`), which
+//! adds its named faces ([`document_with`]) and, for a conversation whose remote images the
+//! reader consented to, those images ([`Pictures`]).
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::{Message, MessageId, ThreadId};

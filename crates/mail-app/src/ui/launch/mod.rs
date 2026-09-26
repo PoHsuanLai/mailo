@@ -1,8 +1,8 @@
-//! Opening the window: what both frontends share, and each one's own launch.
+//! Opening the window.
 //!
 //! The window reads six values as root contexts: the store, the look, the Spaces, the provider
-//! icons, where it opens, and the directories it writes (when there are any). Both frontends hand
-//! over the same six; only how they are handed over differs (`webview.rs`, `native.rs`).
+//! icons, where it opens, and the directories it writes (when there are any). `native.rs` hands
+//! them over to quire's Blitz window.
 
 use super::app::App;
 use crate::appearance::WindowDirs;
@@ -13,12 +13,9 @@ use dioxus::prelude::*;
 use mail_store::SqliteStore;
 use std::sync::Arc;
 
-#[cfg(feature = "native")]
 pub(super) mod native;
-#[cfg(feature = "webview")]
-pub(super) mod webview;
 
-/// What the window is opened with, whichever frontend opens it.
+/// What the window is opened with.
 pub(super) struct Opening {
     pub store: Arc<SqliteStore>,
     pub look: Appearance,
@@ -47,9 +44,6 @@ pub fn run(
         start,
         icons,
     };
-    #[cfg(feature = "webview")]
-    webview::run(opening);
-    #[cfg(feature = "native")]
     native::run(opening);
 }
 
@@ -71,8 +65,7 @@ fn ShellRoot() -> Element {
 ///
 /// The files were read once, before the first frame. The signal is what a later refresh
 /// writes; the chips subscribe to it. The host is what the window's focus, scroll and clipboard
-/// asks go to (`ui/host`): on `native`, Blitz's; on the webview, none is provided, and an ask is
-/// the page's script as it always was.
+/// asks go to (`ui/host`): Blitz's.
 #[component]
 fn Shell() -> Element {
     let loaded = try_consume_context::<Loaded>().unwrap_or_default();

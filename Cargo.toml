@@ -34,7 +34,7 @@ chrono      = { version = "0.4", features = ["serde"] }
 uuid        = { version = "1", features = ["v4", "serde"] }
 thiserror   = "2"
 # From quire's pinned block (`docs/workspace-deps.toml` at the tag `mail-app`'s `ds` names),
-# copied verbatim: only the lines mailo names itself. The `native` frontend reaches the Blitz
+# copied verbatim: only the lines mailo names itself. The window reaches the Blitz
 # document through these to focus, select or scroll an element found by selector
 # (`ui/host/native.rs`).
 blitz-dom = { git = "https://github.com/DioxusLabs/blitz", rev = "e99fbdbd1d03b9f0aa1622c3f810d95daac92042", default-features = false, features = ["svg", "system-fonts", "custom-widget", "accessibility"] }

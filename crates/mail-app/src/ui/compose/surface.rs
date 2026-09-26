@@ -1,13 +1,13 @@
-//! The message body on Blitz (`native`): quire's `EditSurface` as `.c-body` itself, holding the
-//! same paragraphs the webview draws, with the page's own caret and selection over them.
+//! The message body: quire's `EditSurface` as `.c-body` itself, holding the paragraphs
+//! `render.rs` draws, with the page's own caret and selection over them.
 //!
 //! The surface owns the focus and the IME and hands over input; it never edits text and never
 //! draws a caret. Each input goes, in order:
 //!
-//! 1. through `body::key_taken`, the same code as the webview's keys: an open menu's arrows,
+//! 1. through `body::key_taken`: an open menu's arrows,
 //!    Enter and Escape, and the Ctrl chords (bold, italic, underline, undo, redo…);
 //! 2. through [`adapt::asked`], to an editor event, a caret move or a clipboard gesture;
-//! 3. an editor event into `wire::hear`, where the glue's messages went: the IME rule, the
+//! 3. an editor event into `wire::hear`: the IME rule, the
 //!    page's own selection as the range, the `/` and `@` menus following.
 //!
 //! The caret and the selection are the page's (`Page::session.caret`, `Page::selection`), and
@@ -59,8 +59,7 @@ pub(super) struct Marks {
 }
 
 impl Marks {
-    /// A float's place under the caret, as `.c-float`'s inline style: what the glue's `float()`
-    /// wrote on the webview.
+    /// A float's place under the caret, as `.c-float`'s inline style.
     pub(super) fn below_caret(&self) -> Option<String> {
         let caret = self.caret?;
         Some(format!(
@@ -289,7 +288,7 @@ fn heard(
     }
 }
 
-/// An editor event, handed to the page the way the glue's were: on the page's own selection,
+/// An editor event, handed to the page: on the page's own selection,
 /// through the IME rule, and the `@` menu asking the contact book what follows it.
 fn edit(mut page: Signal<Page>, event: InputEvent) {
     let store = try_consume_context::<Arc<mail_store::SqliteStore>>();
@@ -324,8 +323,7 @@ fn anchor_of(page: &Page) -> Pos {
     }
 }
 
-/// Select from `anchor` to `focus`, the caret at `focus`: what the glue's `select` message did,
-/// with the direction kept. Nothing moves while the IME composes.
+/// Select from `anchor` to `focus`, the caret at `focus`, with the direction kept. Nothing moves while the IME composes.
 fn select(mut page: Signal<Page>, anchor: Pos, focus: Pos) {
     let range = Range {
         start: anchor,

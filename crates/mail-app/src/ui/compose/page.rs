@@ -189,11 +189,10 @@ pub(in crate::ui) enum Fold {
     Open,
 }
 
-/// Where the glue and Rust agree they are.
+/// Where the surface's input has reached the page.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::ui) struct Wire {
-    /// The last input the glue numbered. Echoed as `data-seq`, so the glue knows when the page
-    /// it is looking at has caught up with what it sent.
+    /// The last input the surface handed over, numbered in order.
     pub seq: u64,
     /// Between `compositionstart` and `compositionend`: where the composition began. While set,
     /// nothing changes the document, so nothing re-renders the paragraph the IME is writing in.

@@ -3,7 +3,6 @@ mod blocks;
 mod find_bar;
 mod found;
 mod image;
-#[cfg(feature = "native")]
 mod remote;
 mod spans;
 mod table;
@@ -171,7 +170,6 @@ pub(super) fn Reader(
     }
     // The Reader view's remote images on Blitz, which mailo fetches itself: held to this
     // render's thread and consent, and fetched by `remote::Fetcher`'s effect (`remote.rs`).
-    #[cfg(feature = "native")]
     {
         let pictures = use_context_provider(remote::Pictures::new);
         pictures.hold(thread, shell.read().show_remote_images);
@@ -223,8 +221,7 @@ pub(super) fn Reader(
     // The consent, as the Original frames' network reads it (`ui/original`): written here, in the
     // render, so a frame that reloads with the consented markup finds it already granted, and
     // taken back by the same render that stops showing the images (open, select, close all
-    // clear `show_remote_images`). Only the window on Blitz provides one; the webview's frames
-    // are held by the markup alone.
+    // clear `show_remote_images`). Only the launched window, or a harness, provides one.
     if let Some((consent, holder)) = &consent {
         let allowed = showing.then(|| {
             shown
@@ -273,7 +270,6 @@ pub(super) fn Reader(
         .collect();
     let (founds, total) = found::find_in(&documents, &highlight, finding.as_ref());
     // On Blitz, what of this render mailo fetches itself: the consented remote images it draws.
-    #[cfg(feature = "native")]
     let fetcher = {
         let wanted = if showing {
             remote::wanted(documents.iter().flatten().copied())
@@ -282,8 +278,6 @@ pub(super) fn Reader(
         };
         rsx! { remote::Fetcher { thread, wanted } }
     };
-    #[cfg(not(feature = "native"))]
-    let fetcher = rsx! {};
     let invalid = problem.is_some();
     // A protected message opened to a body lists what is attached inside it; its stored parts
     // are its wrapping.
@@ -448,8 +442,7 @@ pub(super) fn Reader(
 /// The Original frame as the reader draws it, in mailo's stylesheet, and nothing else: for the
 /// guarantee tests on Blitz (`tests/native_frame.rs`), which put markup in it that the sanitizer
 /// would never have let through. A test binary of its own, because a Blitz document replaces the
-/// process's event converter, which the webview fixtures in this crate's unit tests rely on.
-#[cfg(feature = "native")]
+/// process's event converter, which the `VirtualDom` fixtures in this crate's unit tests rely on.
 #[component]
 pub fn OriginalFrame(html: String) -> Element {
     rsx! {

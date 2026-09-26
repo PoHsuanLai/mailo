@@ -1,5 +1,5 @@
-//! The document as markup: one element per paragraph, each carrying `data-n` (on Blitz,
-//! `data-edit-node`, and each object `data-edit-kind=atom`; see [`node_attrs`]), drawn by Dioxus
+//! The document as markup: one element per paragraph, each carrying `data-edit-node`, and each
+//! object `data-edit-kind=atom` (see [`node_attrs`]), drawn by Dioxus
 //! from the `Doc`. Nothing here reads the DOM, and no markup is built from strings.
 //!
 //! A paragraph is its own component with value props, so an edit elsewhere does not touch it:
@@ -31,14 +31,15 @@ pub(in crate::ui) fn reset_para_renders() {
     PARA_RENDERS.with(|renders| renders.borrow_mut().clear());
 }
 
-/// What marks a paragraph as node `n`: `data-n`, which the webview's glue reads, or on Blitz
-/// `data-edit-node`, which quire's `EditSurface` resolves positions against.
+/// What marks a paragraph as node `n`: `data-edit-node`, which quire's `EditSurface` resolves
+/// positions against.
 fn node_attrs(n: usize) -> Vec<Attribute> {
-    #[cfg(feature = "webview")]
-    let name = "data-n";
-    #[cfg(not(feature = "webview"))]
-    let name = ds::EDIT_NODE_ATTR;
-    vec![Attribute::new(name, n.to_string(), None, false)]
+    vec![Attribute::new(
+        ds::EDIT_NODE_ATTR,
+        n.to_string(),
+        None,
+        false,
+    )]
 }
 
 /// A to-do item's: its node, then its class, in that order.
@@ -48,20 +49,13 @@ fn todo_attrs(n: usize, class: &'static str) -> Vec<Attribute> {
     attrs
 }
 
-/// What marks an object as node `n` and keeps the caret out of it: `contenteditable=false` on
-/// the webview, an atom (`data-edit-kind=atom`) on Blitz, which the caret goes around.
+/// What marks an object as node `n` and keeps the caret out of it: an atom
+/// (`data-edit-kind=atom`), which the caret goes around.
 fn obj_attrs(n: usize) -> Vec<Attribute> {
-    #[cfg(feature = "webview")]
-    let attrs = vec![
-        Attribute::new("contenteditable", "false", None, false),
-        Attribute::new("data-n", n.to_string(), None, false),
-    ];
-    #[cfg(not(feature = "webview"))]
-    let attrs = vec![
+    vec![
         Attribute::new(ds::EDIT_NODE_ATTR, n.to_string(), None, false),
         Attribute::new(ds::EDIT_KIND_ATTR, ds::EditKind::Atom.slug(), None, false),
-    ];
-    attrs
+    ]
 }
 
 /// Which list a run of items is drawn in.

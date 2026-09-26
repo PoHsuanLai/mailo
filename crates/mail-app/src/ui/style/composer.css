@@ -98,7 +98,6 @@
   position: absolute; white-space: pre; font-size: var(--fs-compose); color: var(--ink); background: var(--paper);
   text-decoration: underline;
 }
-.c-wire { position: absolute; width: var(--hair); height: var(--hair); opacity: 0; pointer-events: none; border: 0; padding: 0; resize: none; left: -9999px; }
 
 /* objects are the only things with a handle */
 .obj { position: relative; margin: .6em 0; border-radius: var(--r-field); }

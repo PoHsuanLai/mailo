@@ -1,38 +1,30 @@
 //! The reader's Original view: the sender's sanitized markup in a document of its own.
 //!
-//! On either renderer the Original is an `<iframe srcdoc>` (`reading/blocks.rs`'s `Sandbox`),
-//! never inline HTML. On the webview it is a sandboxed frame with an opaque origin. On Blitz
-//! (`native`) the same element builds a separate, sealed Blitz document: no shared DOM, no shared
-//! cascade, no script engine anywhere in the program. What it may reach is mailo's to say:
-//! - [`Consent`]: the reader's consent to remote images, as the network reads it (both builds);
-//! - `net.rs`: the frame's network on Blitz, refusing everything the consent does not admit;
+//! The Original is an `<iframe srcdoc>` (`reading/blocks.rs`'s `Sandbox`), never inline HTML.
+//! On Blitz that element builds a separate, sealed document: no shared DOM, no shared cascade,
+//! no script engine anywhere in the program. What it may reach is mailo's to say:
+//! - [`Consent`]: the reader's consent to remote images, as the network reads it;
+//! - `net.rs`: the frame's network, refusing everything the consent does not admit;
 //! - `links.rs`: a link clicked in the frame, opened in the browser and never in the frame, and
 //!   the link under the pointer in a frame, for the reader's link pill ([`FramePill`]);
-//! - [`ReaderNet`]: on Blitz, how mailo itself fetches the Reader view's consented images, which
+//! - [`ReaderNet`]: how mailo itself fetches the Reader view's consented images, which
 //!   the window's own document may not (`reading/remote.rs`).
 //!
 //! FINDINGS F157 has the design and why.
 
 mod consent;
-#[cfg(feature = "native")]
 mod links;
-#[cfg(feature = "native")]
 mod net;
 
 pub use consent::Consent;
-#[cfg(feature = "native")]
 pub use links::{Browse, FramePill};
-#[cfg(feature = "native")]
 pub(crate) use net::data_uri;
-#[cfg(feature = "native")]
 pub use net::{Fetch, FetchImage, Got};
 
 /// The Reader view's image fetcher, as the window's root context. Cloning shares it.
-#[cfg(feature = "native")]
 #[derive(Clone)]
 pub struct ReaderNet(pub(crate) std::sync::Arc<dyn FetchImage>);
 
-#[cfg(feature = "native")]
 impl std::fmt::Debug for ReaderNet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("ReaderNet")
@@ -41,7 +33,6 @@ impl std::fmt::Debug for ReaderNet {
 
 /// What the window's Original frames are allowed: the consent they are held to, their network
 /// and what their links do. Built once per window, and the same for a test's harness.
-#[cfg(feature = "native")]
 #[derive(Clone)]
 pub struct Original {
     consent: Consent,
@@ -51,7 +42,6 @@ pub struct Original {
     images: ReaderNet,
 }
 
-#[cfg(feature = "native")]
 impl std::fmt::Debug for Original {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Original")
@@ -61,7 +51,6 @@ impl std::fmt::Debug for Original {
     }
 }
 
-#[cfg(feature = "native")]
 impl Original {
     /// Frames whose admitted images `fetch` fetches and whose links `browse` opens. The Reader
     /// view fetches nothing until [`Original::with_images`] says what fetches for it.

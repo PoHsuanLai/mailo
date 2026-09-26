@@ -35,10 +35,6 @@ impl std::fmt::Debug for Consent {
 pub(crate) struct Holder(u64);
 
 /// A request admitted under one grant. It stands until the grant changes.
-///
-/// Only the native network reads the consent (the webview's frames are held by their markup), so
-/// the reading side is unused in a webview build.
-#[cfg_attr(not(feature = "native"), allow(dead_code))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Ticket(u64);
 
@@ -56,7 +52,6 @@ struct Grant {
 
 impl Consent {
     /// Nothing consented to.
-    #[cfg_attr(not(feature = "native"), allow(dead_code))]
     pub fn new() -> Self {
         Consent::default()
     }
@@ -116,7 +111,6 @@ impl Consent {
     }
 
     /// Whether the frame showing `message` may fetch `url` now.
-    #[cfg_attr(not(feature = "native"), allow(dead_code))]
     pub(crate) fn admits(&self, message: MessageId, url: &str) -> Option<Ticket> {
         let url = normal(url)?;
         let grant = self.grant();
@@ -129,7 +123,6 @@ impl Consent {
     }
 
     /// Whether what `ticket` admitted may still be shown.
-    #[cfg_attr(not(feature = "native"), allow(dead_code))]
     pub(crate) fn stands(&self, ticket: Ticket) -> bool {
         let grant = self.grant();
         grant.by.is_some() && grant.generation == ticket.0
@@ -138,7 +131,6 @@ impl Consent {
     /// The messages of `thread` whose images are allowed now, and the ticket that says, later,
     /// whether that still stands. `None` when `thread`'s images are not allowed. For a printout
     /// of `thread`, which may draw only these messages' images.
-    #[cfg_attr(not(feature = "native"), allow(dead_code))]
     pub(crate) fn thread(&self, thread: ThreadId) -> Option<(Ticket, Vec<MessageId>)> {
         let grant = self.grant();
         let (_, granted) = grant.by?;

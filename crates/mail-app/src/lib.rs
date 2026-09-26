@@ -1,18 +1,5 @@
 //! `mailo` — the command line. The Dioxus shell will call the same store methods.
 
-// The window has two frontends and draws with exactly one. Only `ui`'s launch and host seam
-// read the choice; everything else here is the same code under either.
-#[cfg(not(any(feature = "webview", feature = "native")))]
-compile_error!(
-    "mail-app needs a frontend: build with the default `webview` feature, or with \
-     `--no-default-features --features native`"
-);
-#[cfg(all(feature = "webview", feature = "native"))]
-compile_error!(
-    "mail-app draws with one frontend at a time: `webview` and `native` are both on. \
-     For Blitz, build with `--no-default-features --features native`"
-);
-
 pub mod account;
 pub mod appearance;
 pub mod attach;

@@ -1,10 +1,8 @@
 //! The native file dialog: the sheets' File… and Folder…, the composer's Attach and the
 //! Contacts sheet's Import vCard….
 //!
-//! `rfd` through the desktop portal: the same crate, version and feature `dioxus-desktop`
-//! already links, so nothing new is built, and it opens the same dialog whatever draws the
-//! window (a webview's `<input type=file>` needs the webview). The dialog blocks until it is
-//! answered, so it is opened on a blocking thread, from the click.
+//! `rfd` through the desktop portal, so it opens the desktop's own dialog. The dialog blocks
+//! until it is answered, so it is opened on a blocking thread, from the click.
 //!
 //! What opens it is a [`Dialogs`] seam, like `pgp::Seams`: a test hands the window its own
 //! answers, and in this crate's tests the real one answers nothing, so no test ever opens a

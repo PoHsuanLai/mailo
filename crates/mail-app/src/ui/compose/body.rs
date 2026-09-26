@@ -1,6 +1,5 @@
-//! The message body: one `contenteditable` root, the hidden wire beside it, the `/` and `@`
-//! menus at the caret, and the selection bubble. On Blitz (`native`) the root is quire's
-//! `EditSurface` instead, with no wire (`surface.rs`); the menus and the bubble are the same.
+//! The message body: quire's `EditSurface` (`surface.rs`), the `/` and `@` menus at the caret,
+//! and the selection bubble.
 //!
 //! Every handler here calls `editor::` through [`super::wire`] and [`super::float`]. The only
 //! thing this file decides is which key goes where.
@@ -18,8 +17,6 @@ use super::templates::{self, TemplateFloat, page_slash_items};
 use crate::editor::{InputEvent, Mark, Node, Op, Presence, Range};
 use crate::view::Shell;
 use ds::{ButtonFace, ButtonVariant, Expanded, Switch, Trailing};
-#[cfg(feature = "webview")]
-use {super::float::suggest_mention, super::render, super::wire, crate::editor::to_html};
 
 /// Milliseconds on the wall clock, which is what groups typing into undo steps.
 pub(in crate::ui) fn now_ms() -> u64 {
@@ -37,10 +34,9 @@ pub(in crate::ui) fn Body(
     shell: Signal<Shell>,
     on_attach: EventHandler<()>,
 ) -> Element {
-    // The caret's box, which the glue moves to the caret: quire's menus float against it.
+    // The float's box: quire's menus float against it when the caret has no rect yet.
     let mut at_caret = use_signal(|| None::<ds::MountedRef>);
-    // On Blitz the surface measures the caret and the selection itself.
-    #[cfg(feature = "native")]
+    // The surface measures the caret and the selection itself.
     let marks = use_signal(super::surface::Marks::default);
     let read = page.read();
     let only_empty = matches!(read.session.doc.nodes.as_slice(),
@@ -49,16 +45,9 @@ pub(in crate::ui) fn Body(
     let selected = read.selection.is_some();
     drop(read);
     let class = if only_empty { "c-body ph" } else { "c-body" };
-    #[cfg(feature = "webview")]
-    let editable = editable(page, shell, on_attach, class);
-    #[cfg(feature = "native")]
     let editable = rsx! { super::surface::Surface { page, shell, on_attach, class, marks } };
-    // Where the `/` and `@` menus float: the glue's box on the webview; on Blitz the caret's own
-    // rect, and the float boxes and the bubble are placed from the surface's measures.
-    #[cfg(feature = "webview")]
-    let (at, below, above): (_, Option<String>, Option<String>) =
-        (move || anchor_at(at_caret()), None, None);
-    #[cfg(feature = "native")]
+    // Where the `/` and `@` menus float: the caret's own rect, and the float boxes and the bubble
+    // are placed from the surface's measures.
     let (at, below, above) = (
         move || {
             marks
@@ -139,56 +128,6 @@ pub(in crate::ui) fn Body(
     }
 }
 
-/// The webview's body: the `contenteditable` root, and the hidden wire the glue writes into.
-#[cfg(feature = "webview")]
-fn editable(
-    mut page: Signal<Page>,
-    shell: Signal<Shell>,
-    on_attach: EventHandler<()>,
-    class: &'static str,
-) -> Element {
-    let read = page.read();
-    let seq = read.wire.seq;
-    let caret = wire::caret_attr(&read);
-    // The document as the writers see it, for the live probe. Debug builds only.
-    let doc = if cfg!(debug_assertions) {
-        to_html(&read.session.doc)
-    } else {
-        String::new()
-    };
-    drop(read);
-    rsx! {
-        div {
-            class,
-            contenteditable: "true",
-            spellcheck: "true",
-            role: "textbox",
-            aria_multiline: "true",
-            aria_label: "Message",
-            "data-seq": "{seq}",
-            "data-caret": "{caret}",
-            "data-doc": "{doc}",
-            onkeydown: move |event| keys(page, shell, on_attach, event),
-            {render::body(page)}
-        }
-        textarea {
-            class: "c-wire",
-            tabindex: "-1",
-            aria_hidden: "true",
-            oninput: move |event| {
-                if let Some(heard) = wire::parse(&event.value()) {
-                    let store = try_consume_context::<std::sync::Arc<mail_store::SqliteStore>>();
-                    let mut write = page.write();
-                    wire::hear(&mut write, heard, now_ms());
-                    if let Some(store) = store {
-                        suggest_mention(&mut write, store.as_ref());
-                    }
-                }
-            },
-        }
-    }
-}
-
 fn pick(mut page: Signal<Page>, on_attach: EventHandler<()>, key: &str) {
     if templates::pick(&mut page.write(), key) {
         // The name field takes the keys once it is there.
@@ -203,30 +142,9 @@ fn pick(mut page: Signal<Page>, on_attach: EventHandler<()>, key: &str) {
     }
 }
 
-/// Keys the browser would otherwise take: the menus' arrows and Enter, and the inline marks.
-#[cfg(feature = "webview")]
-fn keys(
-    page: Signal<Page>,
-    shell: Signal<Shell>,
-    on_attach: EventHandler<()>,
-    event: KeyboardEvent,
-) {
-    if key_taken(
-        page,
-        shell,
-        on_attach,
-        &event.key().to_string(),
-        event.modifiers(),
-    ) {
-        event.prevent_default();
-        event.stop_propagation();
-    }
-}
-
 /// Whether `key` with `modifiers` is the menus' or a chord's, and if it is, do it: an open
 /// menu's arrows, Enter and Escape, then Ctrl B, I, U, Shift S, E, K, Z, Shift Z and Y. The
-/// webview's body and the Blitz surface (`surface.rs`) both ask this first; a taken key goes
-/// no further.
+/// surface (`surface.rs`) asks this first; a taken key goes no further.
 pub(super) fn key_taken(
     mut page: Signal<Page>,
     shell: Signal<Shell>,

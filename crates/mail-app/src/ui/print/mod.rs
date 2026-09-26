@@ -5,34 +5,23 @@
 //! so it is done on a blocking thread started by the click or the key that asked for it, and never
 //! from a component body (F140).
 //!
-//! On `webview`, Print shows the document in a window of its own and puts the print dialog over it
-//! ([`window`]); the application's own page is never printed and never holds the mail. Save for
-//! printing writes the same document, as HTML, into the downloads directory, beside where an
-//! attachment goes, and says where.
-//!
-//! On `native` there is no webview anywhere. The document becomes a PDF through quire
-//! (`ds_native::pdf`, [`paper`]), and Print hands that PDF to the system's print dialog
-//! (`ds_native::print_dialog`, through a [`Printer`], which a test replaces). Save for printing
-//! writes the same PDF. A remote image prints only when the reader's consent covers its message
-//! as the PDF is made; it is then fetched through the Reader view's own fetcher, on the same
-//! blocking thread, and drawn from the bytes as a `data:` URI ([`Sources`]). Without that
-//! consent nothing is fetched, and the image is named where it stood.
+//! There is no webview anywhere. The document becomes a PDF through quire (`ds_native::pdf`,
+//! [`paper`]), and Print hands that PDF to the system's print dialog (`ds_native::print_dialog`,
+//! through a [`Printer`], which a test replaces). Save for printing writes the same PDF into the
+//! downloads directory, beside where an attachment goes, and says where. A remote image prints
+//! only when the reader's consent covers its message as the PDF is made; it is then fetched
+//! through the Reader view's own fetcher, on the same blocking thread, and drawn from the bytes
+//! as a `data:` URI ([`Sources`]). Without that consent nothing is fetched, and the image is
+//! named where it stood.
 
 mod tool;
-// The print window is a WebKitGTK webview of its own, and the print operation is WebKit's: the
-// `webview` frontend's alone. It goes when the webview does.
-#[cfg(feature = "webview")]
-mod window;
-// The printout as a PDF, for `native`.
-#[cfg(feature = "native")]
+// The printout as a PDF.
 mod paper;
 
 pub(super) use tool::PrintTool;
 
-#[cfg(feature = "webview")]
-use super::motion::Motion;
 use super::motion::{motion, tell_through};
-#[cfg(any(feature = "webview", test))]
+#[cfg(test)]
 use crate::print::Printed;
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
@@ -42,11 +31,8 @@ use mail_store::SqliteStore;
 use std::path::Path;
 use std::sync::Arc;
 
-#[cfg(feature = "native")]
 pub use native_print::Printer;
-#[cfg(feature = "native")]
 pub(in crate::ui) use native_print::Sources;
-#[cfg(feature = "native")]
 use native_print::{print_on_paper, saved_bytes};
 
 /// What to print: a conversation, and whether each message starts a page.
@@ -67,9 +53,9 @@ pub(in crate::ui) fn job_for(open: Option<ThreadId>) -> Option<Job> {
 
 /// The printable document for `job`, dates in `zone`. Blocking: it reads the stored mail.
 ///
-/// The document `mailo print` writes, as the webview prints it. On `native` the printout is
+/// The document `mailo print` writes. The window's printout is
 /// [`paper::printed`], the same document with its faces named for paper.
-#[cfg(any(feature = "webview", test))]
+#[cfg(test)]
 pub(in crate::ui) fn build<Tz>(
     store: &SqliteStore,
     job: Job,
@@ -83,52 +69,11 @@ where
     crate::print::document(store, *job.thread.as_uuid(), zone, now, job.pages)
 }
 
-/// Where a printout's consented remote images come from: on `webview`, nowhere. Its printout
-/// names every remote image, as it always has.
-#[cfg(feature = "webview")]
-#[derive(Debug, Clone, Default)]
-pub(in crate::ui) struct Sources;
-
-#[cfg(feature = "webview")]
-impl Sources {
-    /// The window's: none.
-    fn window() -> Sources {
-        Sources
-    }
-
-    /// None, for a test.
-    #[cfg(test)]
-    pub(in crate::ui) fn none() -> Sources {
-        Sources
-    }
-}
-
-/// What Save for printing writes: HTML on `webview`, which prints it from a browser.
-#[cfg(feature = "webview")]
-fn saved_bytes<Tz>(
-    store: &SqliteStore,
-    job: Job,
-    _sources: &Sources,
-    zone: &Tz,
-    now: DateTime<Utc>,
-) -> Result<(String, Vec<u8>), String>
-where
-    Tz: TimeZone,
-    Tz::Offset: std::fmt::Display,
-{
-    let printed = build(store, job, zone, now)?;
-    Ok((printed.subject, printed.html.into_bytes()))
-}
-
 /// The file Save for printing writes ends in this.
-#[cfg(feature = "webview")]
-pub(in crate::ui) const SAVED_AS: &str = "html";
-#[cfg(feature = "native")]
 pub(in crate::ui) const SAVED_AS: &str = "pdf";
 
 /// Build `job` and write it into `dir` beside anything already there, and say where it went.
-/// Blocking. A PDF on `native`, with the remote images `sources` consents to; the HTML document
-/// on `webview`.
+/// Blocking. A PDF, with the remote images `sources` consents to.
 pub(in crate::ui) fn save_into<Tz>(
     store: &SqliteStore,
     job: Job,
@@ -172,60 +117,7 @@ pub(in crate::ui) fn started() -> Vec<Job> {
 pub(in crate::ui) fn print(job: Job) {
     #[cfg(test)]
     STARTED.with(|started| started.borrow_mut().push(job));
-    #[cfg(feature = "webview")]
-    print_in_window(job);
-    #[cfg(feature = "native")]
     print_on_paper(job);
-}
-
-/// [`print`] on the webview: the document in a print window of its own.
-#[cfg(feature = "webview")]
-fn print_in_window(job: Job) {
-    let said = motion();
-    if window::busy() {
-        tell_through(said, "A printout is already open.".to_owned());
-        return;
-    }
-    let store = consume_context::<Arc<SqliteStore>>();
-    let desktop = try_consume_context::<dioxus::desktop::DesktopContext>();
-    dioxus::core::spawn_forever(async move {
-        let Some(printed) = built(said, store, job).await else {
-            return;
-        };
-        let Some(desktop) = desktop else {
-            tell_through(
-                said,
-                "There is no window to print from here; Save for printing works anywhere."
-                    .to_owned(),
-            );
-            return;
-        };
-        let title = format!("Print · {}", printed.subject);
-        if let Err(why) = window::print(desktop, printed.html, title).await {
-            tell_through(said, why);
-        }
-    });
-}
-
-/// [`build`] on a blocking thread, or `None` once the reason it failed has been said.
-#[cfg(feature = "webview")]
-async fn built(said: Option<Motion>, store: Arc<SqliteStore>, job: Job) -> Option<Printed> {
-    let done =
-        tokio::task::spawn_blocking(move || build(&store, job, &chrono::Local, Utc::now())).await;
-    match done {
-        Ok(Ok(printed)) => Some(printed),
-        Ok(Err(why)) => {
-            tell_through(said, format!("Could not print: {why}"));
-            None
-        }
-        Err(error) => {
-            tell_through(
-                said,
-                format!("The printout stopped before it was made: {error}"),
-            );
-            None
-        }
-    }
 }
 
 /// Save `job` for printing into the downloads directory, off this thread, and say where.
@@ -246,8 +138,7 @@ pub(in crate::ui) fn save(job: Job) {
     });
 }
 
-/// Print on `native`: the PDF, the dialog, and the seam between them.
-#[cfg(feature = "native")]
+/// Print: the PDF, the dialog, and the seam between them.
 mod native_print {
     use super::super::motion::{motion, tell_through};
     use super::super::original::{Consent, FetchImage, ReaderNet, data_uri};
@@ -462,7 +353,7 @@ mod native_print {
     pub(in crate::ui) const BUSY: &str =
         "A printout is already being made; finish with its print dialog first.";
 
-    /// [`super::print`] on `native`: the PDF built and handed to the dialog on a blocking thread
+    /// [`super::print`]: the PDF built and handed to the dialog on a blocking thread
     /// (the layout is slow next to a click, and the dialog blocks until it is answered), and
     /// what became of it said in a toast.
     pub(super) fn print_on_paper(job: Job) {
@@ -543,8 +434,7 @@ mod native_print {
         }
     }
 
-    /// What Save for printing writes on `native`: the PDF Print would make, on the locale's
-    /// paper.
+    /// What Save for printing writes: the PDF Print would make, on the locale's paper.
     pub(super) fn saved_bytes<Tz>(
         store: &SqliteStore,
         job: Job,
@@ -563,7 +453,7 @@ mod native_print {
     }
 }
 
-#[cfg(all(test, feature = "native"))]
+#[cfg(test)]
 #[path = "pdf_tests.rs"]
 mod pdf_tests;
 #[cfg(test)]

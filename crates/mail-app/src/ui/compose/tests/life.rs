@@ -343,7 +343,7 @@ async fn a_sent_page_folds_away_on_quires_clock() {
         "the page did not fold:\n{markup}"
     );
 
-    // Nothing the webview says takes it away: the fold's timer does, once `compose-send` has
+    // Nothing the window says takes it away: the fold's timer does, once `compose-send` has
     // settled.
     let fold = ds::settle(
         ds::Anim::ComposeSend,

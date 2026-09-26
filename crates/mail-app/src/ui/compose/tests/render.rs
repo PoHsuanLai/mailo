@@ -169,28 +169,8 @@ async fn every_class_the_composer_draws_is_styled() {
     }
 }
 
-#[cfg(feature = "webview")]
-#[tokio::test]
-async fn the_composed_message_draws_every_kind_of_node() {
-    let (markup, _root) = window_with_page(composed);
-    for needle in [
-        r#"<h2 data-n="0">"#,
-        r#"<ul><li data-n="2">"#,
-        r#"<ul class="todo"><li data-n="4" class="done">"#,
-        r#"<blockquote data-n="6">"#,
-        r#"class="obj o-img" contenteditable="false" data-n="8""#,
-        r#"class="c-float" data-anchor="below""#,
-        r#"class="c-warn""#,
-        r#"contenteditable="true""#,
-    ] {
-        assert!(markup.contains(needle), "no {needle} in:\n{markup}");
-    }
-}
-
-/// On Blitz the same nodes, marked for quire's `EditSurface`: `data-edit-node` where the
-/// webview writes `data-n`, every object an atom, the surface itself `.c-body`, and no
-/// `contenteditable` and no wire at all.
-#[cfg(feature = "native")]
+/// Every kind of node, marked for quire's `EditSurface`: `data-edit-node` on each, every object
+/// an atom, the surface itself `.c-body`, and no `contenteditable` and no wire at all.
 #[tokio::test]
 async fn the_composed_message_draws_every_kind_of_node_on_the_surface() {
     let (markup, _root) = window_with_page(composed);
@@ -221,8 +201,8 @@ async fn the_composed_message_draws_every_kind_of_node_on_the_surface() {
 #[ignore = "writes target/composer.html and target/composer-dark.html for a person to look at"]
 async fn render_the_composer_to_a_file() {
     let (markup, _root) = window_with_page(composed);
-    // The glue puts the menu at the caret in the window. A file has no glue, so it is placed
-    // by hand under the line where the "/" is.
+    // The surface puts the menu at the caret in the window. A file has no surface, so it is
+    // placed by hand under the line where the "/" is.
     let placed = markup.replacen(
         r#"class="c-float" data-anchor="below""#,
         r#"class="c-float" data-anchor="below" style="left:0;top:246px""#,

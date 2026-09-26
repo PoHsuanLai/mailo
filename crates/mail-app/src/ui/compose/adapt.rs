@@ -1,9 +1,8 @@
-//! The adapter between quire's `EditSurface` and the editor core, on Blitz (`native`): what the
-//! webview's glue did in script, as pure functions.
+//! The adapter between quire's `EditSurface` and the editor core, as pure functions.
 //!
 //! - [`asked`] reads one [`EditInput`] as what it asks of the page: an editor [`InputEvent`],
 //!   a caret move, or a clipboard gesture. The `/` and `@` menus' keys and the Ctrl chords
-//!   (bold, undo…) are read before it, by the same code as on the webview (`body::key_taken`).
+//!   (bold, undo…) are read before it (`body::key_taken`).
 //! - [`pos_of`] and [`text_position`] convert positions both ways. quire counts UTF-8 bytes into
 //!   a paragraph's own text; the editor counts grapheme clusters. A paragraph's text on the
 //!   surface is its runs' text as written (the surface is `white-space: pre-wrap`), so the
@@ -23,7 +22,7 @@ use crate::editor::{Doc, InputEvent, Node, Pos, Range, node_len, runs_text};
 /// What one input asks of the page.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Asked {
-    /// An editor event, handed to the page as the glue's were (`wire::hear`): through the IME
+    /// An editor event, handed to the page (`wire::hear`): through the IME
     /// rule, acting on the page's own selection.
     Edit(InputEvent),
     /// Move the caret; with [`Reach::Extend`] only the selection's focus moves.

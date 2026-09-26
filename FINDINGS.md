@@ -3900,6 +3900,39 @@ a differential can do there is change markup inside the frame, where the tests a
 resurrected `<style>`, `<script>`, `file:` image or remote image achieves nothing. Mailo parses
 no mail with 0.39, and `mail-mime`'s sanitizer stays on ammonia's parser.
 
+### F158 — The webview is gone: the window is Blitz, and there is one build
+
+`mail-app` had two frontends behind cargo features: `webview` (the default: Dioxus desktop over
+WebKitGTK, through wry and tao) and `native` (quire's `ds-native`, Blitz drawn with wgpu). Every
+change to the window had to be made, and tested, twice, and CI ran two jobs for one crate. The
+decision was the user's: once the window could run on Blitz, migrate off WebKit rather than
+maintain two paths.
+
+What made it possible was the last thing only the webview could do, printing. Print now makes a
+PDF through quire (`ds_native::pdf`, `ui/print/paper.rs`) and hands it to the system's print
+dialog (`ds_native::print_dialog`, the desktop portal on Linux, else the PDF opened in the
+viewer); Save for printing writes the same PDF. The composer types on quire's `EditSurface`, and
+the reader's consented remote images are fetched by mailo (`reading/remote.rs`, F157).
+
+**What went with it.** The `webview` and `native` features and the `compile_error!` that chose
+between them: `cargo build` builds the one window. The webview's launch and its page head (the
+fonts as `data:` URIs, the keep-focus script, the "nothing mounted" note, the debug-only
+`$MAILO_PROBE` hook), WebKit's print window and print operation, the composer's glue script and
+its hidden `textarea.c-wire`, the `data-n` and `contenteditable` markup the glue read, and the
+`Host::Webview` arm that evaluated each ask as a script. `dioxus::document::eval` is called
+nowhere. The `rerender` example (F140's reproduction, a Dioxus desktop window) and
+`scripts/live-window.sh`, which drove the webview through a script injected into its head,
+went too; `ds_native::Harness` drives the real window headlessly instead
+(`tests/native_harness.rs`). 186 packages left `Cargo.lock`, among them wry, tao, webkit2gtk,
+javascriptcore-rs, soup3, gtk and dioxus-desktop, and CI no longer installs WebKitGTK.
+
+**What stayed.** The host seam (`ui/host`): a typed `Ask` to Blitz's host, or to a test's
+recorder, or, in a window drawn with no host, to nothing. The composer's `wire::hear`, which the
+surface's input goes through. The tests that replayed the glue's JSON messages still replay the
+same transcripts, now read by the test itself and handed to `hear` as the surface hands its
+events. `no_script_engine_is_built_into_the_native_window` checks the default graph now, and it
+is the only graph.
+
 ### F159 — A split operation refused after its first part was done was undone whole
 
 Found while fixing F156. An operation on messages in several mailboxes goes as one part per

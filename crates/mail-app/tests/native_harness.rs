@@ -5,10 +5,6 @@
 //! less its watch on the settings directory) over a store seeded in a `TempDir`. The window is
 //! handed no directories, so it writes no file anywhere; nothing here reads or touches the real
 //! mail store or the real config.
-//!
-//! Run with `cargo test -p mail-app --no-default-features --features native`.
-
-#![cfg(feature = "native")]
 
 use ds::{Key, Point};
 use ds_native::harness::settle_until;

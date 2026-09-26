@@ -677,69 +677,6 @@ pub(in crate::ui) mod tests {
         offences
     }
 
-    /// Every `@font-face` in `css`, as (family, `src`).
-    #[cfg(feature = "webview")]
-    fn font_faces(css: &str) -> Vec<(String, String)> {
-        css.split("@font-face")
-            .skip(1)
-            .filter_map(|rest| {
-                let body = &rest[rest.find('{')? + 1..rest.find('}')?];
-                // `src` is found by name, not by splitting on `;`: a data URI contains one
-                // (`data:font/woff2;base64,`), so a declaration split cuts it in half.
-                let family = body.split(';').find_map(|decl| {
-                    let (name, value) = decl.split_once(':')?;
-                    (name.trim() == "font-family")
-                        .then(|| value.trim().trim_matches('"').to_string())
-                })?;
-                let src = body[body.find("src:")? + "src:".len()..].trim_start();
-                Some((family, src.to_string()))
-            })
-            .collect()
-    }
-
-    #[test]
-    #[cfg(feature = "webview")]
-    fn each_font_token_leads_with_a_face_we_ship() {
-        // The faces are quire's `webview-fonts` rules, which the window's head carries; the
-        // `--font-*` stacks are quire's tokens on `.ds`.
-        let faces = font_faces(ds::font_face_css());
-        let shipped: BTreeSet<&str> = faces.iter().map(|(family, _)| family.as_str()).collect();
-        let tokens = declared(ds::stylesheet(), ".ds");
-        for token in ["--font-display", "--font-ui", "--font-data", "--font-serif"] {
-            let Some(stack) = tokens.get(token) else {
-                panic!("{token} is missing");
-            };
-            let first = stack
-                .split(',')
-                .next()
-                .unwrap_or("")
-                .trim()
-                .trim_matches('"');
-            assert!(
-                shipped.contains(first),
-                "{token} leads with {first:?}, which no @font-face declares; shipped: {shipped:?}"
-            );
-        }
-        // The editorial faces (Bricolage Grotesque, Karla, Space Mono, Noto Serif: 14 rules) and
-        // the system faces quire v0.1.10 added (Inter and Inter Display: 6 more).
-        assert_eq!(faces.len(), 20, "{shipped:?}");
-    }
-
-    #[test]
-    #[cfg(feature = "webview")]
-    fn each_face_is_an_embedded_woff2() {
-        // "wOF2" is the WOFF2 signature; in base64 it begins "d09GMg". A truncated or
-        // mis-encoded file, or a TTF renamed to .woff2, fails here rather than as a silent
-        // fallback to the system face that only a screenshot would show.
-        for (family, src) in font_faces(ds::font_face_css()) {
-            assert!(
-                src.starts_with("url(data:font/woff2;base64,d09GMg"),
-                "{family}: {}",
-                &src[..src.len().min(48)]
-            );
-        }
-    }
-
     /// Custom properties a component sets on one element (from markup, per row or per spark),
     /// so they are never on `:root`. Each rule that reads one gives it a fallback or is only
     /// reached with it set.

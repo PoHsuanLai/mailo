@@ -30,7 +30,7 @@ pub(in crate::ui) fn load(
     if let Some(at) = parked.iter().position(|page| page.draft == draft) {
         let mut page = parked.remove(at);
         page.phase = Phase::Writing;
-        // A new body element numbers the glue's messages from zero again.
+        // A new body element numbers the surface's input from zero again.
         page.wire = Wire {
             seq: 0,
             composing: None,

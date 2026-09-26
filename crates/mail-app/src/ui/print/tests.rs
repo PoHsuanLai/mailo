@@ -1,5 +1,3 @@
-#[cfg(feature = "webview")]
-use super::window::{Heard, Move, Phase, decide};
 use super::{Job, PrintTool, SAVED_AS, Sources, build, job_for, save_into, started};
 use crate::ui::app::App;
 use crate::ui::fixtures::{
@@ -13,8 +11,6 @@ use mail_domain::*;
 use mail_mime::Pages;
 use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
-#[cfg(feature = "webview")]
-use std::time::Duration;
 
 const SUBJECT: &str = "Quarterly figures, and what they mean";
 
@@ -169,15 +165,8 @@ fn save_for_printing_writes_beside_what_is_there_and_says_where() {
     let two = into.path().join(format!("{SUBJECT} (2).{SAVED_AS}"));
     assert_eq!(first, format!("Saved for printing to {}", one.display()));
     assert_eq!(second, format!("Saved for printing to {}", two.display()));
-    #[cfg(feature = "webview")]
-    {
-        let written = std::fs::read_to_string(&one).unwrap();
-        assert!(written.contains(CSP) && written.contains(SUBJECT));
-        assert_eq!(written, std::fs::read_to_string(&two).unwrap());
-    }
     // The PDF's own text is `pdf_tests.rs`'s; here, only that both are one. Two PDFs of the same
     // document are not byte for byte the same (each file's `/ID` is its own), so no more.
-    #[cfg(feature = "native")]
     for path in [&one, &two] {
         let bytes = std::fs::read(path).unwrap();
         assert!(
@@ -303,82 +292,6 @@ async fn the_menu_prints_the_pages_chosen_and_everything_it_draws_is_styled() {
         "the menu stayed open after Print"
     );
 }
-
-#[test]
-#[cfg(feature = "webview")]
-fn a_print_window_closes_when_it_is_done_and_not_before() {
-    let limit = Duration::from_secs(600);
-    let heard = |loaded: bool, finished: bool, failed: Option<&str>| {
-        let heard = Heard::default();
-        heard.loaded.set(loaded);
-        heard.finished.set(finished);
-        heard.failed.replace(failed.map(str::to_owned));
-        heard
-    };
-    let secs = Duration::from_secs;
-    let cases: &[(&str, Phase, Heard, Duration, Move)] = &[
-        (
-            "still loading",
-            Phase::Loading,
-            heard(false, false, None),
-            secs(1),
-            Move::Wait,
-        ),
-        (
-            "loaded",
-            Phase::Loading,
-            heard(true, false, None),
-            secs(1),
-            Move::Print,
-        ),
-        (
-            "never loaded",
-            Phase::Loading,
-            heard(false, false, None),
-            secs(31),
-            Move::Close(Err(
-                "The printout did not load, so nothing was printed.".to_owned()
-            )),
-        ),
-        (
-            "printing",
-            Phase::Printing,
-            heard(true, false, None),
-            secs(5),
-            Move::Wait,
-        ),
-        (
-            "finished",
-            Phase::Printing,
-            heard(true, true, None),
-            secs(5),
-            Move::Close(Ok(())),
-        ),
-        (
-            "past the limit",
-            Phase::Printing,
-            heard(true, false, None),
-            secs(601),
-            Move::Close(Ok(())),
-        ),
-        (
-            "failed",
-            Phase::Printing,
-            heard(true, true, Some("no printer")),
-            secs(5),
-            Move::Close(Err("Printing failed: no printer".to_owned())),
-        ),
-    ];
-    let mut failures = Vec::new();
-    for (name, phase, heard, elapsed, expect) in cases {
-        let got = decide(*phase, heard, *elapsed, limit);
-        if got != *expect {
-            failures.push(format!("{name}: got {got:?}, want {expect:?}"));
-        }
-    }
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
-}
-
 /// The reader head with Print's menu open, and a printed page, for screenshots.
 ///
 /// ```text

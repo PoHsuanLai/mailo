@@ -23,7 +23,7 @@ project needed it and nothing on crates.io does it.
 ## How it is put together
 
 Obviously the thing does I/O: `mail-runtime` opens sockets and owns a tokio loop, `mail-store`
-writes SQLite, `mail-app` runs a webview and a terminal. What the layout buys is *where* it
+writes SQLite, `mail-app` runs a window and a terminal. What the layout buys is *where* it
 happens.
 
 **The bottom three crates do none of it.** `mail-domain`, `mail-mime` and `mail-proto` never open
@@ -74,34 +74,18 @@ One agent per user is enforced by an advisory file lock rather than by looking a
 which is not a detail: the first version asked the socket, and asking the socket cannot be done
 without a race in either direction. `latchkey`'s README has the two of them written out.
 
-### Known: the window does not re-render
-
-See **FINDINGS F140**. In this environment a dioxus desktop window is polled once after mount and
-never again: clicks reach their handlers and write their signals, and nothing redraws. It
-reproduces in `cargo run -p mail-app --example rerender`, thirty lines with no `mail-app` code in
-it, so it is not about how this project uses signals. Until it is resolved upstream the command
-line is the surface that works, and `mailo watch` is how mail arrives.
-
 ## Building on Linux
 
-The desktop window needs webkit2gtk. On Fedora:
+The window is drawn with Blitz and wgpu through quire's `ds-native`; there is no webview and no
+script engine in it. The one system library it links at build time is fontconfig
+(`fontconfig-devel` on Fedora, `libfontconfig1-dev` on Debian/Ubuntu). Wayland, X11, xkbcommon
+and the GPU drivers are opened at run time.
 
 ```sh
-sudo dnf install webkit2gtk4.1-devel gtk3-devel libsoup3-devel libxdo-devel
+cargo build --release -p mail-app
 ```
 
-On Debian/Ubuntu: `libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev libxdo-dev`.
-
-That is the default frontend, a WebKitGTK webview (the `webview` feature). A second one draws the
-window with Blitz and wgpu through quire's `ds-native`, and needs only fontconfig
-(`fontconfig-devel` on Fedora, `libfontconfig1-dev` on Debian/Ubuntu):
-
-```sh
-cargo build --release -p mail-app --no-default-features --features native
-```
-
-It is not finished: the composer opens but cannot be typed into, Print says it is not available
-yet, and remote images stay blocked whatever you allow. The command line is the same under both.
+Print hands a PDF, made by quire, to the system's print dialog (the desktop portal).
 
 The window draws with [quire](https://github.com/PoHsuanLai/quire), the shared design system.
 `crates/mail-app` depends on a tagged quire release from GitHub, so a plain clone of mailo builds
@@ -115,7 +99,6 @@ cargo clippy --all-targets
 cargo fmt --all --check
 ./scripts/check-boundary.sh       # the sans-I/O boundary
 ./scripts/live-tests.sh           # real sockets against local servers
-./scripts/live-window.sh          # drives the real window and reads what it drew
 cargo deny check licenses
 ```
 

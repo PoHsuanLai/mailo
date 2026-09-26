@@ -379,14 +379,14 @@ command would look like if a user typed it, and type that.
 
 **And "I could not look at it" is usually a claim about your eyes, not about the program.** The
 window was launched once with the screen locked, and the round ended saying the shell had not
-been seen. Seeing it was never what verification needed: WebKit runs and executes script whether
-or not a compositor is showing the pixels to anybody. `scripts/live-window.sh` seeds a real
-store, starts the real binary, and has the page type into its own search box and post what the
-list then contained to a loopback listener — no input tooling, no forced backend, no screen. It
-is one command, and it exists because the technique had been rebuilt from scratch three times.
+been seen. Seeing it was never what verification needed. The window is Blitz, and
+`ds_native::Harness` drives the real window headlessly — pointer, keys and time against a real
+Blitz document, no display, no GPU, no screen (`crates/mail-app/tests/native_harness.rs`), and it
+can paint what it drew to a PNG. (The webview this replaced needed a script injected into its
+page for the same; FINDINGS F106/F107 and F158 say why that is gone.)
 
 Reach for it whenever a conclusion is about what the user sees. A component-tree test proves the
-components agree with each other; it does not prove WebKit renders them or that a keystroke
+components agree with each other; it does not prove Blitz lays them out or that a keystroke
 arrives.
 
 ## An assertion that was already true proves nothing

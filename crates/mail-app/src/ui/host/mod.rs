@@ -1,17 +1,14 @@
 //! What the window asks of whatever draws it: focus, a scroll, the clipboard.
 //!
-//! Every such request goes through [`Host`], as a typed [`Ask`], and nowhere else. On the
-//! webview an ask is the script it has always been, evaluated in the page, word for word
-//! ([`Ask::script`]). A renderer with no script engine answers the same asks its own way,
-//! so no call site changes when the renderer does (Phase B's seam, `ui/host`). On Blitz (the
-//! `native` feature) the launched window names [`Host::Native`], `native.rs`.
+//! Every such request goes through [`Host`], as a typed [`Ask`], and nowhere else. There is no
+//! script engine: the launched window names [`Host::Native`] (`native.rs`), which answers each
+//! ask in the Blitz document.
 //!
 //! Tests hand the window a [`Recorder`] as its `Host`: every ask is kept, in order, and none is
-//! run, so a test asserts "the window asked to focus the find field" without a webview.
+//! run, so a test asserts "the window asked to focus the find field" without a window.
 
 use dioxus::prelude::*;
 
-#[cfg(feature = "native")]
 mod native;
 
 /// When a field is focused, relative to the render that draws it.
@@ -25,9 +22,9 @@ pub(in crate::ui) enum When {
     AfterTask,
 }
 
-/// A field that is focused, with its text selected, once it is drawn. Its script looks for it
-/// for up to twenty frames, because the keystroke that opened it is handled before the render
-/// that draws it reaches the page.
+/// A field that is focused, with its text selected, once it is drawn. The host looks for it for
+/// up to twenty frames, because the keystroke that opened it is handled before the render that
+/// draws it reaches the page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::ui) enum Drawn {
     /// The reader's find field, `.find input` (Ctrl F).
@@ -37,8 +34,7 @@ pub(in crate::ui) enum Drawn {
 }
 
 impl Drawn {
-    /// The field, as the selector its script looks for.
-    #[cfg_attr(not(feature = "native"), allow(dead_code))]
+    /// The field, as the selector the host looks for.
     pub(in crate::ui) fn selector(self) -> &'static str {
         match self {
             Drawn::FindField => ".find input",
@@ -63,82 +59,29 @@ pub(in crate::ui) enum Ask {
     Copy(String),
 }
 
-/// `(function focusFind(tries) {…})(20)`: the find field, retried for twenty frames.
-const FOCUS_FIND: &str = "(function focusFind(tries) {\
-    const field = document.querySelector('.find input');\
-    if (field) { field.focus(); field.select(); }\
-    else if (tries > 0) { requestAnimationFrame(() => focusFind(tries - 1)); }\
-})(20)";
-
-/// `(function focusName(tries) {…})(20)`: the folder name field, retried for twenty frames.
-const FOCUS_NAME: &str = "(function focusName(tries) {\
-    const input = document.querySelector('.fold-edit input');\
-    if (input) { input.focus(); input.select(); }\
-    else if (tries > 0) { requestAnimationFrame(() => focusName(tries - 1)); }\
-})(20)";
-
-impl Ask {
-    /// The script the webview evaluates for this ask. These are the strings the window has
-    /// always sent, unchanged; `host_tests` pins every one.
-    pub(in crate::ui) fn script(&self) -> String {
-        match self {
-            Ask::FocusApp => "document.querySelector('.app')?.focus()".to_owned(),
-            Ask::Focus {
-                selector,
-                when: When::Now,
-            } => format!("document.querySelector('{selector}')?.focus()"),
-            Ask::Focus {
-                selector,
-                when: When::NextFrame,
-            } => {
-                format!("requestAnimationFrame(()=>document.querySelector('{selector}')?.focus())")
-            }
-            Ask::Focus {
-                selector,
-                when: When::AfterTask,
-            } => format!("setTimeout(() => document.querySelector('{selector}')?.focus())"),
-            Ask::FocusAndSelect(Drawn::FindField) => FOCUS_FIND.to_owned(),
-            Ask::FocusAndSelect(Drawn::FolderName) => FOCUS_NAME.to_owned(),
-            Ask::ScrollIntoView(selector) => format!(
-                "requestAnimationFrame(() => requestAnimationFrame(() => \
-                 document.querySelector('{selector}')?.scrollIntoView({{ block: 'center' }})))"
-            ),
-            // Quoted by `serde_json`, like every string the window hands a script.
-            Ask::Copy(text) => {
-                let quoted = serde_json::to_string(text).unwrap_or_else(|_| "\"\"".to_owned());
-                format!("navigator.clipboard && navigator.clipboard.writeText({quoted})")
-            }
-        }
-    }
-}
-
-/// Whatever draws the window, as a root context. Without one, the webview.
+/// Whatever draws the window, as a root context.
 ///
-/// On `native` the launched window provides [`Host::Native`] ([`use_window_host`]). A test that
-/// renders `App` alone provides none and gets the webview's scripts under either feature, handed
-/// to whatever document the test gave it; on Blitz with no host at all an `eval` does nothing.
+/// The launched window provides [`Host::Native`] ([`use_window_host`]). A test that renders
+/// `App` alone provides none, and its asks go nowhere.
 #[derive(Clone, Default)]
 pub(in crate::ui) enum Host {
-    /// The webview: each ask is its script, evaluated in the page.
+    /// No host: a window drawn without one, as a test draws it. Each ask is dropped.
     #[default]
-    Webview,
+    Absent,
     /// Blitz: each ask is answered in the document, with no script.
-    #[cfg(feature = "native")]
     Native(native::Blitz),
     /// A test's recorder: each ask is kept and none is run.
     #[cfg(test)]
     Recording(Recorder),
 }
 
-/// Name the launched window's host, once, above `App`: Blitz's on `native`, none on the
-/// webview, whose asks are the page's scripts without one.
+/// Name the launched window's host, once, above `App`: Blitz's.
 pub(in crate::ui) fn use_window_host() {
-    #[cfg(feature = "native")]
     use_context_provider(|| Host::Native(native::Blitz::new()));
 }
 
 impl Host {
-    /// The host the window was handed, or the webview.
+    /// The host the window was handed, or none.
     fn current() -> Host {
         try_consume_context::<Host>().unwrap_or_default()
     }
@@ -146,10 +89,7 @@ impl Host {
     /// Hand `ask` to the current host.
     pub(in crate::ui) fn ask(ask: Ask) {
         match Host::current() {
-            Host::Webview => {
-                let _ = dioxus::document::eval(&ask.script());
-            }
-            #[cfg(feature = "native")]
+            Host::Absent => {}
             Host::Native(blitz) => blitz.ask(ask),
             #[cfg(test)]
             Host::Recording(recorder) => recorder.0.borrow_mut().push(ask),
@@ -157,15 +97,11 @@ impl Host {
     }
 
     /// `.app`, the element the keyboard lands on, has mounted. Blitz keeps its handle, to give
-    /// it the keyboard back later, and gives it the keyboard now; the webview's `KEEP_FOCUS`
-    /// script already does both, so there it is nothing.
+    /// it the keyboard back later, and gives it the keyboard now.
     pub(in crate::ui) fn app_mounted(event: MountedEvent) {
-        #[cfg(feature = "native")]
         if let Host::Native(blitz) = Host::current() {
             blitz.mounted(event.data());
         }
-        #[cfg(not(feature = "native"))]
-        let _ = event;
     }
 
     /// Give the keyboard back to the window, `.app`.

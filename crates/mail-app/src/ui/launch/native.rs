@@ -1,12 +1,11 @@
-//! The `native` frontend: quire's `ds-native`, Blitz drawn with wgpu.
+//! The window: quire's `ds-native`, Blitz drawn with wgpu. The only frontend.
 //!
 //! The six values the window reads reach it as root contexts through
 //! `AppConfig::with_context`, the same call a test makes through `HarnessConfig`
 //! ([`contexts`]). Nothing is passed through a global.
 //!
-//! What the webview's head carried does not exist here: `ds-native` registers the fonts itself,
-//! holds and places the focus (`ds_native::focus`), and runs no script, so there is no keep-focus
-//! script, no "nothing mounted" note and no debug probe.
+//! `ds-native` registers the fonts itself, holds and places the focus (`ds_native::focus`), and
+//! runs no script, so there is no keep-focus script, no "nothing mounted" note and no debug probe.
 
 use super::{Opening, Shell, ShellRoot};
 use crate::appearance::WindowDirs;

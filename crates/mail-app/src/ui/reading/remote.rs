@@ -1,7 +1,6 @@
-//! The Reader view's remote images on Blitz (`native`): fetched by mailo, drawn as `data:`.
+//! The Reader view's remote images: fetched by mailo, drawn as `data:`.
 //!
-//! On the webview a consented image is an `<img src=https…>` and the webview fetches it. On Blitz
-//! the window's own document is refused every remote request (`original/net.rs`: a request from it
+//! The window's own document is refused every remote request (`original/net.rs`: a request from it
 //! cannot be tied to the reader, and a hover card is the same document). So here mailo fetches:
 //! - **Only what the consented reader draws.** The list is the `ImgSrc::Remote` URLs, http(s)
 //!   only, of the blocks the reader's own render built under the consenting policy

@@ -139,7 +139,7 @@ async fn every_class_send_later_and_templates_draw_is_styled() {
 #[ignore = "writes target/later-*.html and their -dark twins for a person to look at"]
 async fn render_send_later_and_templates_to_files() {
     let place = |markup: String| {
-        // The glue puts a caret menu at the caret in the window; a file has none.
+        // The surface puts a caret menu at the caret in the window; a file has none.
         markup.replacen(
             r#"class="c-float" data-anchor="below""#,
             r#"class="c-float" data-anchor="below" style="left:0;top:40px""#,

@@ -2,7 +2,7 @@
 //! (`mail_app::ui::native::OriginalFrame`, the `Sandbox` iframe in mailo's stylesheet) in a
 //! headless Blitz document (`ds_native::Harness`).
 //!
-//! The webview's frame is held by its markup, and `src/ui/reading/tests.rs` asserts that markup
+//! The webview's frame was held by its markup, and `src/ui/reading/tests.rs` asserts that markup
 //! (`sandbox=""`, no parent between the article and the iframe, the "sandboxed frame" note).
 //! Blitz ignores `sandbox`; what holds the frame there is that it is a separate document, and
 //! what it may reach is mailo's to say (`ui/original`). So these assert the behaviour itself.
@@ -11,7 +11,7 @@
 //! through. The same guarantees in the real window, through the sanitizer, are
 //! `tests/native_original.rs`.
 //!
-//! The pairs, webview ↔ Blitz:
+//! The pairs, the webview's markup (gone with the webview) ↔ Blitz:
 //! - `sandbox=""` without `allow-same-origin` ↔ `the_frame_and_the_window_share_no_nodes`;
 //! - the frame being its own document ↔ `sender_css_cannot_reach_the_window`,
 //!   `the_windows_css_cannot_reach_the_frame`;
@@ -24,10 +24,6 @@
 //!
 //! Each case runs twice: under mailo's `Original` (the window's), and under `NetPolicy::Local`
 //! with `FrameLinks::Inert`, the mechanism before mailo held the frames' network itself.
-//!
-//! Run with `cargo test -p mail-app --no-default-features --features native`.
-
-#![cfg(feature = "native")]
 
 use dioxus::prelude::*;
 use ds_native::{FrameLinks, Harness, HarnessConfig, NetPolicy, Viewport};

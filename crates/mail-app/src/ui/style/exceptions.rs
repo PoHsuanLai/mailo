@@ -10,8 +10,6 @@ const ELLIPSIS: &str = "text-overflow: ellipsis truncates in the webview Phase A
 const FOCUS: &str = "the webview matches :focus-visible and :focus-within; Phase B moves keyboard focus onto `.ds[data-modality=keyboard] :focus`";
 /// A tint or nudge on quire's glyph inside mailo's own chrome.
 const GLYPH_TINT: &str = "tints or nudges quire's `Glyph` inside mailo's own chrome; `Glyph` takes no colour of its own, and the rule never reaches into a quire component";
-/// The composer's wire.
-const WIRE: &str = "the composer's wire is the textarea the editor glue reads the page through, by design, not a field anyone types in";
 
 pub(super) const STYLE: &[Exception] = &[
     Exception {
@@ -136,15 +134,8 @@ pub(super) const STYLE: &[Exception] = &[
     },
 ];
 
-pub(in crate::ui) const MARKUP: &[Exception] = &[
-    Exception {
-        rule: Rule::RawMarkup,
-        selector: "textarea.c-wire",
-        reason: WIRE,
-    },
-    Exception {
-        rule: Rule::HexColour,
-        selector: "span.av",
-        reason: "an account's avatar wears the colour the account was given, which is data",
-    },
-];
+pub(in crate::ui) const MARKUP: &[Exception] = &[Exception {
+    rule: Rule::HexColour,
+    selector: "span.av",
+    reason: "an account's avatar wears the colour the account was given, which is data",
+}];

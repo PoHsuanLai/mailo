@@ -84,28 +84,15 @@ pub(in crate::ui) fn root_attr(page: &str, name: &str) -> Option<String> {
     Some(value[..value.find('"')?].to_owned())
 }
 
-/// A self-contained page a browser can photograph: quire's faces and stylesheet, mailo's
-/// stylesheet, `head` and `body`.
+/// A self-contained page a browser can photograph: quire's stylesheet, mailo's stylesheet,
+/// `head` and `body`. The faces are the system's, as they are in the window.
 pub(in crate::ui) fn page(body: &str, head: &str) -> String {
     format!(
         "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">\n\
-         <title>mailo</title>\n<style>{}</style>\n<style>{}</style>\n<style>{STYLE}</style>\n\
+         <title>mailo</title>\n<style>{}</style>\n<style>{STYLE}</style>\n\
          {head}</head>\n<body>{body}</body></html>\n",
-        faces(),
         ds::stylesheet(),
     )
-}
-
-/// quire's faces as `@font-face` rules, which only the webview build carries; on `native` the
-/// page a browser photographs falls back to the system faces.
-#[cfg(feature = "webview")]
-fn faces() -> &'static str {
-    ds::font_face_css()
-}
-
-#[cfg(not(feature = "webview"))]
-fn faces() -> &'static str {
-    ""
 }
 
 /// Run what a render left queued (effects, woken tasks) and draw again, until nothing is left

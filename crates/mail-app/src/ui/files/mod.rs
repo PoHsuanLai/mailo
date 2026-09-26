@@ -1,9 +1,8 @@
 //! Mail files in the window: "Import mail…" and "Export mail…" from Ctrl T.
 //!
 //! [`work`] is every question and every write, as functions of a store and a path; the two
-//! sheets only draw what it answers. The path is typed: the webview's file input hands over
-//! bytes, never a path, and a Maildir is a directory it cannot pick at all. The native dialog
-//! beside the field (`ui::pick`) is the one `dioxus-desktop` already links, through the portal.
+//! sheets only draw what it answers. The path is typed, and a Maildir is a directory. The native
+//! dialog beside the field (`ui::pick`) goes through the desktop portal.
 //!
 //! Both jobs run on a blocking thread, spawned from the click (F140), and their progress comes
 //! back through a counter the task reads while it waits — the progress callback runs on that

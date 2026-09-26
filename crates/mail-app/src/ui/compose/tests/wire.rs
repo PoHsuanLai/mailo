@@ -1,46 +1,10 @@
-//! Recorded glue messages, replayed through the page's handler into documents and markup.
+//! Recorded editor events, replayed through the page's handler into documents and markup.
 
 use super::super::float::{pick_mention, pick_slash};
 use super::super::page::{CcRow, Float};
 use super::super::render::{para_renders, reset_para_renders};
 use super::*;
 use crate::editor::{Level, Mark, ParaKind, to_html};
-
-#[test]
-fn the_glue_messages_parse() {
-    use super::super::wire::Heard;
-    let select = parse(r#"{"t":"select","ranges":[[1,4,0,2]]}"#);
-    let Some(Heard::Select(range)) = select else {
-        panic!("a select: {select:?}");
-    };
-    assert_eq!(
-        (range.start, range.end),
-        (Pos::new(0, 2), Pos::new(1, 4)),
-        "ordered"
-    );
-
-    let typed = parse(&message(7, "insertText", Some("a"), &[[0, 1, 0, 1]], None));
-    let Some(Heard::Input {
-        seq,
-        event,
-        selection,
-    }) = typed
-    else {
-        panic!("an input: {typed:?}");
-    };
-    assert_eq!(
-        (seq, event.input_type.as_str(), selection),
-        (7, "insertText", None)
-    );
-
-    for junk in ["", "{}", "not json", r#"{"t":"insertText"}"#] {
-        assert_eq!(
-            parse(junk),
-            None,
-            "{junk:?} is not a message the glue writes"
-        );
-    }
-}
 
 #[test]
 fn typed_markdown_becomes_a_bold_run_and_the_markup_shows_it() {
@@ -63,21 +27,7 @@ fn typed_markdown_becomes_a_bold_run_and_the_markup_shows_it() {
     );
 
     let markup = dioxus_ssr::render(&dom);
-    #[cfg(feature = "webview")]
-    {
-        assert!(
-            markup.contains(
-                r#"data-n="0"><span class="">hello </span><span class="m-b">world</span>"#
-            ),
-            "the paragraph is not drawn from the doc:\n{markup}"
-        );
-        assert!(
-            markup.contains(r#"data-seq="15""#),
-            "the last message's number is echoed:\n{markup}"
-        );
-    }
-    // On Blitz the paragraph is the surface's node 0, and there is no glue to echo to.
-    #[cfg(feature = "native")]
+    // The paragraph is the surface's node 0.
     assert!(
         markup.contains(
             r#"data-edit-node="0"><span class="">hello </span><span class="m-b">world</span>"#
@@ -88,8 +38,8 @@ fn typed_markdown_becomes_a_bold_run_and_the_markup_shows_it() {
 
 #[test]
 fn a_page_that_is_behind_types_at_rusts_caret() {
-    // The glue sends no ranges while the page has not drawn its last message: its positions
-    // would be old ones. Rust's own caret carries on.
+    // An event with no target ranges and no selection acts at Rust's own caret, which carries
+    // on from one event to the next.
     let mut page = page_of("");
     feed(
         &mut page,
@@ -184,7 +134,7 @@ fn a_composition_leaves_its_paragraph_alone_until_it_ends() {
     reset_para_renders();
     let key_before = dom.in_runtime(|| page.peek().node_key(0));
 
-    // Pinyin: the IME writes into the paragraph; the glue forwards only the start and the end.
+    // Pinyin: the IME writes into the paragraph; the surface hands over only the start and the end.
     // A stray event during the composition must change nothing either.
     let during = [
         message(1, "compositionstart", None, &[], Some([0, 2, 0, 2])),

@@ -99,7 +99,6 @@ pub(super) fn use_hover() -> Hover {
         link: Signal::new(None),
         driver: CopyValue::new(None),
     });
-    #[cfg(feature = "native")]
     use_frame_pill(hover);
     hover
 }
@@ -108,7 +107,6 @@ pub(super) fn use_hover() -> Hover {
 /// any component (`ui/original/links.rs`): this sets the same `link` a Reader view link sets, read
 /// through the same honesty check, and clears it as the pointer leaves. One report per crossing,
 /// so nothing to debounce.
-#[cfg(feature = "native")]
 fn use_frame_pill(mut hover: Hover) {
     let pill = use_hook(try_consume_context::<super::original::FramePill>);
     use_future(move || {

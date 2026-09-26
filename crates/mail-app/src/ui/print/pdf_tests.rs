@@ -1028,8 +1028,8 @@ fn one_print_at_a_time() {
 /// A sample printout, for looking at: a CJK-and-English thread with an inline image.
 ///
 /// ```text
-/// MAILO_SAMPLE_PDF=/path/sample-print.pdf cargo test -p mail-app --no-default-features \
-///     --features native -- --ignored write_a_sample_printout
+/// MAILO_SAMPLE_PDF=/path/sample-print.pdf cargo test -p mail-app -- --ignored \
+///     write_a_sample_printout
 /// ```
 #[test]
 #[ignore = "writes the file MAILO_SAMPLE_PDF names; run with --ignored"]

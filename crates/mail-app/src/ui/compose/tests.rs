@@ -1,4 +1,4 @@
-//! The composer page, without a browser: the glue's messages replayed through the page's own
+//! The composer page, without a window: recorded editor events replayed through the page's own
 //! handler, the guards, the draft's life against a real store, and the pill's faces.
 
 mod faces;
@@ -26,10 +26,10 @@ use mail_store::SqliteStore;
 use super::body::Body;
 use super::desk::{Desk, use_desk};
 use super::page::Page;
-use super::wire::{hear, parse};
+use super::wire::{Heard, hear};
 use super::{ComposerPage, SendPill, composing};
 use crate::appearance::WindowDirs;
-use crate::editor::{Node, Person, Pos};
+use crate::editor::{InputEvent, Node, Person, Pos, Range};
 use crate::view::Shell;
 
 /// A fixed instant, so nothing here depends on the clock.
@@ -81,7 +81,9 @@ fn page_of(text: &str) -> Page {
     Page::of(&draft_of(text), vec![dana(), sam()], Vec::new())
 }
 
-/// One message exactly as the glue writes it.
+/// One recorded editor event, as a line of a transcript: its number `k`, its input type `t`,
+/// its data, its target ranges and the selection when it happened, each range
+/// `[node, offset, node, offset]`.
 fn message(
     k: u64,
     input_type: &str,
@@ -100,9 +102,45 @@ fn message(
     .to_string()
 }
 
-/// Replay one raw message through the page's handler, as the wire's `oninput` does.
+/// One transcript line, as it is read.
+#[derive(Debug, serde::Deserialize)]
+struct Raw {
+    k: u64,
+    t: String,
+    #[serde(default)]
+    data: Option<String>,
+    #[serde(default)]
+    ranges: Vec<[usize; 4]>,
+    #[serde(default)]
+    sel: Option<[usize; 4]>,
+    #[serde(default)]
+    html: Option<String>,
+}
+
+fn range([start_node, start_offset, end_node, end_offset]: [usize; 4]) -> Range {
+    Range {
+        start: Pos::new(start_node, start_offset),
+        end: Pos::new(end_node, end_offset),
+    }
+    .ordered()
+}
+
+/// Replay one transcript line through the page's handler, as the surface hands an event over.
 fn feed(page: &mut Page, raw: &str, at_ms: u64) {
-    let heard = parse(raw).unwrap_or_else(|| panic!("the glue's message did not parse: {raw}"));
+    let raw: Raw =
+        serde_json::from_str(raw).unwrap_or_else(|e| panic!("not a transcript line: {raw}: {e}"));
+    let mut event = InputEvent::new(
+        raw.t,
+        raw.data,
+        raw.ranges.into_iter().map(range).collect(),
+        false,
+    );
+    event.html = raw.html.filter(|html| !html.is_empty());
+    let heard = Heard::Input {
+        seq: raw.k,
+        event,
+        selection: raw.sel.map(range),
+    };
     hear(page, heard, at_ms);
 }
 
@@ -228,28 +266,6 @@ impl Window {
     }
 }
 
-#[cfg(feature = "webview")]
-#[test]
-fn the_glue_stays_small_and_never_writes_markup() {
-    let lines = super::GLUE.lines().count();
-    assert!(
-        lines < 100,
-        "the glue script is {lines} lines; it must stay under 100"
-    );
-    for forbidden in [
-        "innerHTML",
-        "outerHTML",
-        "insertAdjacentHTML",
-        "execCommand",
-        "document.write",
-    ] {
-        assert!(
-            !super::GLUE.contains(forbidden),
-            "the glue uses {forbidden}, which builds markup or edits text"
-        );
-    }
-}
-
 #[test]
 fn when_a_scheduled_send_is_due() {
     use super::page::When;
@@ -306,16 +322,4 @@ async fn the_composer_can_be_opened_and_closed_repeatedly() {
         dom.mark_dirty(dioxus_core::ScopeId::APP);
         dom.render_immediate(&mut NoOpMutations);
     }
-}
-
-#[test]
-fn the_caret_attribute_is_the_selection_else_the_caret() {
-    let mut page = page_of("hello");
-    page.session.caret = crate::editor::Caret::at(0, 3);
-    assert_eq!(super::wire::caret_attr(&page), "0:3:0:3");
-    page.selection = Some(crate::editor::Range {
-        start: Pos::new(0, 1),
-        end: Pos::new(0, 4),
-    });
-    assert_eq!(super::wire::caret_attr(&page), "0:1:0:4");
 }

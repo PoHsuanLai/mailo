@@ -23,14 +23,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # `mail-app` links against webkit2gtk for the desktop window, so even `cargo test` needs
-      # it present — the window is not built here, but the crate does not compile without it.
-      - name: System libraries for the desktop window
+      # The window is quire's `ds-native` (Blitz, wgpu), and the one system library that stack
+      # links at build time is fontconfig (parley's font discovery, `yeslogic-fontconfig-sys`).
+      # Wayland, X11 and xkbcommon are opened at run time, and wgpu finds its drivers the same
+      # way, so the tests that drive the window headlessly (`tests/native_harness.rs`) need no GPU
+      # and no display.
+      - name: System libraries for the window
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
-            libjavascriptcoregtk-4.1-dev libxdo-dev
+          sudo apt-get install -y --no-install-recommends libfontconfig1-dev
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -44,9 +45,10 @@ jobs:
       # too, so a warning in somebody else's crate would fail this build for a reason nobody
       # here can fix.
       - name: Clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       # No network: everything that talks to a socket is `#[ignore]`d and runs in `live` below.
+      # The window is driven headlessly among them.
       - name: Tests
         run: cargo test --workspace
 
@@ -55,36 +57,6 @@ jobs:
       # notice a transitive edge.
       - name: The sans-I/O boundary
         run: ./scripts/check-boundary.sh
-
-  # The other frontend: the window drawn by quire's `ds-native` (Blitz, wgpu), behind the
-  # `native` feature while the webview stays the default. The data side and the CLI are the same
-  # code under either feature and are tested by `check`; this job builds and lints the crate on
-  # Blitz and drives the window headlessly (`tests/native_harness.rs`, no GPU, no display).
-  #
-  # No webkit2gtk here: nothing on this side links it. The one system library the Blitz stack
-  # links at build time is fontconfig (parley's font discovery, `yeslogic-fontconfig-sys`);
-  # Wayland, X11 and xkbcommon are opened at run time, and wgpu finds its drivers the same way.
-  native:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-      - name: System libraries for the Blitz window
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libfontconfig1-dev
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: native
-      - name: Check
-        run: cargo check -p mail-app --no-default-features --features native --all-targets
-      - name: Clippy
-        run: cargo clippy -p mail-app --no-default-features --features native --all-targets -- -D warnings
-      - name: Tests, the window driven headlessly among them
-        run: cargo test -p mail-app --no-default-features --features native
 
   # Real sockets, against servers this repository did not write: a Twisted IMAP4Server, an
   # aiosmtpd SMTP server, and a POP3 server. Separate from `check` because it needs Python and a
@@ -95,12 +67,10 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - name: System libraries for the desktop window
+      - name: System libraries for the window
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
-            libjavascriptcoregtk-4.1-dev libxdo-dev
+          sudo apt-get install -y --no-install-recommends libfontconfig1-dev
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-python@v5
@@ -117,7 +87,7 @@ jobs:
   # that checked only on Linux is a claim rather than a fact — its rules are pure functions and
   # tested everywhere, but the lock and the named pipe are the kernel's and have to be met.
   #
-  # Only this crate: the rest of the workspace needs webkit2gtk and is Linux-only on purpose.
+  # Only this crate: the rest of the workspace is Linux-only on purpose.
   portable:
     strategy:
       fail-fast: false

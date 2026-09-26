@@ -6,10 +6,6 @@
 //! `Original` whose fetcher and browser are recorders: nothing here touches the network, the
 //! real mail store or the real config. The component-level guarantees, with bodies fed around
 //! the sanitizer, are `tests/native_frame.rs`.
-//!
-//! Run with `cargo test -p mail-app --no-default-features --features native`.
-
-#![cfg(feature = "native")]
 
 use ds::Point;
 use ds_native::{
@@ -554,9 +550,6 @@ fn no_script_engine_is_built_into_the_native_window() {
             manifest,
             "-p",
             "mail-app",
-            "--no-default-features",
-            "--features",
-            "native",
             "--edges",
             "normal,build",
             "--target",

@@ -733,8 +733,6 @@ pub(super) fn window_appearance(environment: &Environment, space: &Space) -> ds:
 
 #[cfg(test)]
 mod tests {
-    #[cfg(feature = "webview")]
-    use super::super::launch::webview::KEEP_FOCUS;
     use super::App;
     use crate::ui::fixtures::{
         ACCOUNT, FakeKey, INSIDE_THE_SHELL, dispatching, empty, inbox_query, markup, press,
@@ -1041,24 +1039,14 @@ mod tests {
     async fn the_root_can_hold_focus_so_the_keyboard_has_somewhere_to_land() {
         // A keydown targets the focused element and bubbles up, so a handler on an element that
         // can never hold focus is never called. This asserts the one half of that which markup
-        // can carry; the other half is `KEEP_FOCUS`, injected into the page head.
+        // can carry; the other half is the host's, which gives `.app` the keyboard when it
+        // mounts and after a press that left it nowhere (`ui/host/native.rs`).
         let (store, _dir) = seeded();
         let markup = markup(store);
         assert!(
             markup.contains(r#"tabindex="0""#),
             "the app root is not focusable:\n{markup}"
         );
-    }
-
-    #[cfg(feature = "webview")]
-    #[tokio::test]
-    async fn the_focus_script_targets_the_element_that_carries_the_handler() {
-        // Two halves of one mechanism in two files: the script focuses `.app`, and `.app` is the
-        // class on the div the key handler is attached to. If either is renamed without the
-        // other the keyboard stops working silently.
-        assert!(KEEP_FOCUS.contains(".app"), "{KEEP_FOCUS}");
-        let (store, _dir) = seeded();
-        assert!(markup(store).contains(r#"class="app""#));
     }
 
     #[tokio::test]
