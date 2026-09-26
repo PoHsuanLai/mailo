@@ -3991,3 +3991,37 @@ fetch, not a link, and a link the user types into a draft is theirs. Plain-text 
 links, so there is nothing there to clean. `mkt_tok` also lets one vendor's unsubscribe page
 recognise the recipient; without it that page may ask for the address. `List-Unsubscribe` is not
 affected.
+
+### F161 — Authentication-Results is believed from one server only
+
+The reader and the sender card now say what the receiving server checked: SPF, DKIM and DMARC.
+The field is plain text, and anyone can write one into a message before sending it. So
+`mail_mime::auth` believes exactly one field: the topmost whose authserv-id lies under the
+account's provider, compared by whole labels. The provider is the registered domain of the
+account's server; Gmail's servers sign as `google.com`. RFC 8601 §5 has the receiving server
+remove fields that claim its name from outside its boundary, and everything a sender wrote sits
+below the receiver's prepended field, so a sender's `dmarc=pass` counts for nothing. The field is
+read raw, so an encoded word cannot become a result, and comments and quoted strings never are.
+
+With no server name to go on (Local, Graph, an IP literal), only the topmost field is read. There,
+a message whose receiver wrote no field would show the sender's own; that is the one remaining way
+a forged pass can show. Providers whose authserv-id is not under the domain their mail is read from
+get no line at all, including Exchange Online, which writes fields with no authserv-id. Nothing is
+stored per message: the field is read from the blob on a blocking thread and cached per message and
+body.
+
+### F162 — Block sender is a rule, and its undo is the toast's
+
+"Block sender" on the sender card writes one ordinary `Rule`: From is exactly the address, Spam,
+then stop. It runs before the rules already there, so an earlier rule cannot file the mail
+elsewhere first. Blocking an address already blocked writes nothing. Like every rule, a block runs
+at arrival; mail already here stays where it is.
+
+The undo stack holds patches to messages, and a rule is not one, so the block's undo is the toast's
+own button, which forgets the rule (`Follow::Unblock`). Ctrl Z does not take a block back. That is a
+known limit, not a bug.
+
+In the Harness, pointing from a sender's name to its card over later rows swapped the card for a
+row's card, so no card action could be clicked. The cause is mailo's: the name's pointerleave
+re-entered the row's hook. The fix needs quire v0.1.16's `onpointerback` and comes with that bump.
+Until then the block is tested through `rules::block`, the function the card calls.
