@@ -12,7 +12,7 @@
 
 use chrono::{DateTime, Utc};
 use mail_domain::{
-    Body, Filter, LabelId, MailboxRole, MatchCtx, Message, MessageId, PageReq, Pin, Property,
+    Body, Filter, LabelId, MailboxRole, MatchCtx, Message, MessageId, Mute, PageReq, Pin, Property,
     Query, Snooze, Sort, SortDir, SystemFlag, ThreadSummary,
 };
 use mail_mime::archive::{maildir, mbox};
@@ -159,6 +159,7 @@ fn fits_alone(store: &SqliteStore, filter: &Filter, message: &Message, now: Date
         std::slice::from_ref(message),
         Snooze::Inactive,
         Pin::Unpinned,
+        Mute::Unmuted,
     );
     let corpus = match &message.body {
         Body::Present { text, .. } => text.as_deref(),

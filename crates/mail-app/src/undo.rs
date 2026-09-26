@@ -9,7 +9,7 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::{
-    AccountId, Change, FolderWork, LabelId, MailboxRole, Membership, MessageId, NonEmpty, Op,
+    AccountId, Change, FolderWork, LabelId, MailboxRole, Membership, MessageId, Mute, NonEmpty, Op,
     Patch, Pin, ReadState, RemoteIntent, Snooze, Star, Subscription, ThreadId,
 };
 use std::collections::BTreeMap;
@@ -235,6 +235,8 @@ where
         Op::SetSnooze(Snooze::Inactive) => "Back in the inbox".to_owned(),
         Op::SetPin(Pin::Rank(_)) => "Pinned".to_owned(),
         Op::SetPin(Pin::Unpinned) => "Unpinned".to_owned(),
+        Op::SetMute(Mute::Muted) => "Muted".to_owned(),
+        Op::SetMute(Mute::Unmuted) => "Unmuted".to_owned(),
         Op::File(_) => "Moved to folder".to_owned(),
     }
 }

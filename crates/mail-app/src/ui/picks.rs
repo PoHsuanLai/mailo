@@ -8,7 +8,7 @@
 
 use super::motion::{act_all, act_kind_all, motion};
 use super::press::on_primary;
-use crate::view::{Shell, Shortcut, op_for_selection};
+use crate::view::{Shell, Shortcut, mute_for_all, mute_label, op_for_selection};
 use dioxus::prelude::*;
 use ds::Icon;
 use mail_domain::*;
@@ -81,6 +81,40 @@ pub(super) fn label_all(
     act_all(store, shell, revision, ops)
 }
 
+/// Mute each of `threads`, or unmute them: unmute when every one is already muted, mute
+/// otherwise, and only the ones it changes. One gesture, one undo.
+pub(in crate::ui) fn mute_all(
+    store: &SqliteStore,
+    shell: Signal<Shell>,
+    revision: Signal<u64>,
+    threads: &[ThreadId],
+) -> usize {
+    let summaries: Vec<ThreadSummary> = threads
+        .iter()
+        .filter_map(|thread| store.thread(*thread).ok().map(|loaded| loaded.summary))
+        .collect();
+    let wanted = mute_for_all(&summaries);
+    let ops = summaries
+        .iter()
+        .filter(|summary| summary.mute != wanted)
+        .map(|summary| (summary.id, Op::SetMute(wanted)))
+        .collect();
+    act_all(store, shell, revision, ops)
+}
+
+/// [`mute_all`] over what `action`s mean among `listed`: the picked ones, or with none picked
+/// the open one. `m`, and the pick bar's Mute.
+pub(super) fn mute_picked(
+    store: &SqliteStore,
+    shell: Signal<Shell>,
+    revision: Signal<u64>,
+    listed: &[ThreadSummary],
+) -> usize {
+    let ids: Vec<ThreadId> = listed.iter().map(|summary| summary.id).collect();
+    let targets = shell.peek().acted_on(&ids);
+    mute_all(store, shell, revision, &targets)
+}
+
 /// The count and the actions over the list while anything listed is picked.
 ///
 /// Label and Move to… are the picked rows' own menus, which act on the whole selection; this
@@ -112,6 +146,7 @@ pub(super) fn PickBar(
         Some(OpKind::Unstar) => "Unstar",
         _ => "Star",
     };
+    let mute = mute_label(&summaries);
     let buttons: Vec<(Shortcut, Icon, &'static str)> = [
         (Shortcut::Archive, Icon::Archive, "Archive"),
         (Shortcut::Trash, Icon::Trash, "Move to Trash"),
@@ -137,6 +172,17 @@ pub(super) fn PickBar(
                     act_on_picked(&store, shell, revision, action, &threads.peek());
                 }),
             }
+        }
+        ds::Button {
+            variant: ds::ButtonVariant::Mini,
+            label: String::new(),
+            icon: Icon::BellOff,
+            aria_label: format!("{mute} the {count} selected"),
+            title: format!("{mute} (m)"),
+            onclick: on_primary(move || {
+                let store = consume_context::<Arc<SqliteStore>>();
+                mute_picked(&store, shell, revision, &threads.peek());
+            }),
         }
         ds::Button {
             variant: ds::ButtonVariant::Mini,

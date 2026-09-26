@@ -11,9 +11,9 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use chrono::{DateTime, SecondsFormat, TimeDelta, Utc};
 use mail_domain::{
     AccountCaps, AccountId, Change, ChangeId, Cursor, Draft, DraftId, Filter, Ingest, Label,
-    LabelId, MailboxRef, MatchCtx, Membership, Message, MessageId, MessageKey, OutboxId, Page,
-    Patch, Pin, Property, ProtoOp, Query, ReceiptAnswer, RemoteIntent, RemoteRef, Retry, SendState,
-    Snooze, SortDir, SyncCursor, Template, TemplateId, Thread, ThreadId, ThreadSummary,
+    LabelId, MailboxRef, MatchCtx, Membership, Message, MessageId, MessageKey, Mute, OutboxId,
+    Page, Patch, Pin, Property, ProtoOp, Query, ReceiptAnswer, RemoteIntent, RemoteRef, Retry,
+    SendState, Snooze, SortDir, SyncCursor, Template, TemplateId, Thread, ThreadId, ThreadSummary,
     UidValidity,
 };
 use serde::Serialize;
@@ -84,6 +84,7 @@ struct Inner {
 struct ThreadState {
     snooze: Snooze,
     pin: Pin,
+    mute: Mute,
 }
 
 #[derive(Debug, Clone)]
@@ -823,16 +824,16 @@ impl Inner {
     }
 
     fn view(&self, id: ThreadId) -> Option<(ThreadSummary, Option<String>)> {
-        let (snooze, pin) = {
+        let (snooze, pin, mute) = {
             let state = self.threads.get(&id)?;
-            (state.snooze, state.pin)
+            (state.snooze, state.pin, state.mute)
         };
         let messages = self.messages_of(id);
         if messages.is_empty() {
             return None;
         }
         let body = thread_corpus(&messages);
-        let summary = ThreadSummary::derive(id, &messages, snooze, pin);
+        let summary = ThreadSummary::derive(id, &messages, snooze, pin, mute);
         Some((summary, body))
     }
 
@@ -935,6 +936,11 @@ impl Inner {
                     thread.pin = *pin;
                 }
             }
+            Change::ThreadMute(id, mute) => {
+                if let Some(thread) = self.threads.get_mut(id) {
+                    thread.mute = *mute;
+                }
+            }
             Change::MessageUpsert(message) => self.upsert_message(message)?,
             Change::MessageDelete(id) => {
                 self.delete_message(*id);
@@ -986,6 +992,7 @@ impl Inner {
         self.threads.entry(message.thread).or_insert(ThreadState {
             snooze: Snooze::Inactive,
             pin: Pin::Unpinned,
+            mute: Mute::Unmuted,
         });
         self.by_key
             .entry(message.account)

@@ -28,6 +28,8 @@ label.search .search { flex: 1; }
   background: var(--accent-soft); color: var(--ink); white-space: nowrap;
 }
 .clip { display: inline-flex; align-items: center; gap: var(--s-2); font-family: var(--font-data); font-size: var(--fs-micro); color: var(--ink-faint); }
+/* A muted conversation: its new replies skip the inbox. */
+.mute-mark { display: inline-flex; align-items: center; color: var(--ink-faint); }
 /* Leaving, healing and arriving are quire's row's own, on the roster's presence. The snooze's
    "zZ" floats up from mailo's box as the row curls away. */
 .row .floater {

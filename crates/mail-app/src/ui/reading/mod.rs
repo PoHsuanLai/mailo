@@ -141,6 +141,27 @@ fn peek_tool(peek: Peek, current: Peek, icon: Icon, mut shell: Signal<Shell>) ->
     }
 }
 
+/// Mute, in the head's tools: pressed while the conversation is muted, and a press mutes or
+/// unmutes it through the same gesture as the row's button, so Ctrl Z and the toast take it back.
+fn mute_tool(thread: ThreadId, mute: Mute, shell: Signal<Shell>, revision: Signal<u64>) -> Element {
+    let (label, pressed) = match mute {
+        Mute::Muted => ("Unmute this conversation", Switch::On),
+        Mute::Unmuted => ("Mute this conversation", Switch::Off),
+    };
+    rsx! {
+        IconButton {
+            variant: IconButtonVariant::Tool,
+            icon: Icon::BellOff,
+            label: label.to_owned(),
+            pressed,
+            onclick: move |_| {
+                let store = consume_context::<Arc<SqliteStore>>();
+                super::picks::mute_all(&store, shell, revision, &[thread]);
+            },
+        }
+    }
+}
+
 /// The key [`super::unsubscribe::Leave`] is mounted under: the thread and what each of its
 /// messages holds, so a body arriving asks again and another thread never shows this one's answer.
 fn leave_key(thread: ThreadId, bodies: &super::unsubscribe::Bodies) -> String {
@@ -331,6 +352,7 @@ pub(super) fn Reader(
                 div { class: "bar-tools",
                     if let Some(revision) = revision {
                         super::move_to::MoveTool { thread, shell, revision }
+                        {mute_tool(thread, loaded.summary.mute, shell, revision)}
                     }
                     super::print::PrintTool { thread }
                     {peek_tool(Peek::Side, peek, Icon::Panel, shell)}
@@ -342,6 +364,12 @@ pub(super) fn Reader(
                 pre { class: "find-err mono", "{why}" }
             }
             h2 { "{subject}" }
+            if loaded.summary.mute == Mute::Muted {
+                div { class: "muted-note", role: "status",
+                    Glyph { icon: Icon::BellOff, size: ds::IconSize::Micro }
+                    span { "Muted — new replies arrive read and skip the inbox" }
+                }
+            }
             if let Some((initial, from, addr, when)) = meta {
                 div { class: "reader-meta",
                     div { class: "reader-av", "{initial}" }

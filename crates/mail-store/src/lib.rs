@@ -106,6 +106,7 @@ pub fn message_of(change: &Change) -> Option<MessageId> {
         Change::MessageUpsert(message) => Some(message.id),
         Change::ThreadSnooze(..)
         | Change::ThreadPin(..)
+        | Change::ThreadMute(..)
         | Change::LabelUpsert(_)
         | Change::DraftUpsert(_)
         | Change::DraftDelete(_)

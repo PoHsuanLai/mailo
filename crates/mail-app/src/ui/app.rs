@@ -496,6 +496,9 @@ pub(super) fn App() -> Element {
                     revision += 1;
                 }
             }
+            Shortcut::ToggleMute => {
+                super::picks::mute_picked(&store, shell, revision, &threads());
+            }
             Shortcut::Compose => {
                 // The only shortcut that does not consult the conversation under the cursor, and
                 // so the only one that does anything in an empty mailbox.

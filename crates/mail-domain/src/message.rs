@@ -2,7 +2,7 @@
 
 use crate::content::{Address, Attachment, Body};
 use crate::id::{AccountId, LabelId, MessageId, ThreadId};
-use crate::state::{Attachments, MailboxRole, MailboxSet, Pin, ReadState, Snooze, Star};
+use crate::state::{Attachments, MailboxRole, MailboxSet, Mute, Pin, ReadState, Snooze, Star};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -136,6 +136,10 @@ pub struct ThreadSummary {
     pub snooze: Snooze,
     /// Thread-level, not derived: set by the user.
     pub pin: Pin,
+    /// Thread-level, not derived: set by the user. Added after the first release, so a
+    /// summary written before it reads back unmuted, which is what it was.
+    #[serde(default)]
+    pub mute: Mute,
 }
 
 impl ThreadSummary {
@@ -145,9 +149,15 @@ impl ThreadSummary {
     /// fans out to each message and then has to rebuild the summary — so an op needs the
     /// thread *and* its messages, not "a loaded row".
     ///
-    /// `messages` must be non-empty and must all belong to `id`. `snooze` and `pin` are
-    /// carried through unchanged because they are thread-level user state.
-    pub fn derive(id: ThreadId, messages: &[Message], snooze: Snooze, pin: Pin) -> ThreadSummary {
+    /// `messages` must be non-empty and must all belong to `id`. `snooze`, `pin` and `mute`
+    /// are carried through unchanged because they are thread-level user state.
+    pub fn derive(
+        id: ThreadId,
+        messages: &[Message],
+        snooze: Snooze,
+        pin: Pin,
+        mute: Mute,
+    ) -> ThreadSummary {
         // Caller invariant, per CONVENTIONS.md section 5: an empty thread is programmer error,
         // not malformed mail. There is no honest summary for it -- subject, sender, date and
         // account would all have to be invented, and a fabricated row is worse in every list
@@ -232,6 +242,7 @@ impl ThreadSummary {
             attachments: Attachments::of(u32::try_from(attachments).unwrap_or(u32::MAX)),
             snooze,
             pin,
+            mute,
         }
     }
 }

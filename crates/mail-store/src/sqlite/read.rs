@@ -5,7 +5,7 @@ use super::row::{json, time, uuid};
 use crate::StoreError;
 use mail_domain::{
     Address, Attachment, Attachments, BlobId, Body, LabelId, MailboxRole, MailboxSet, Message,
-    MessageId, MessageKey, Pin, ReadState, Snooze, Star, Thread, ThreadId, ThreadSummary,
+    MessageId, MessageKey, Mute, Pin, ReadState, Snooze, Star, Thread, ThreadId, ThreadSummary,
 };
 use rusqlite::{Connection, Row, params};
 
@@ -28,7 +28,7 @@ pub const MESSAGE_COLUMNS: &str = "id, thread, account, msg_key, date, from_name
 
 pub const SUMMARY_COLUMNS: &str = "thread, account, subject, snippet, from_name, from_email, \
      participants, recipients, last_date, message_count, read, star, mailboxes, labels, \
-     attachments, snooze, pin";
+     attachments, snooze, pin, mute";
 
 impl SqliteStore {
     /// `db` is the connection the row came from, so the labels are read from the same world.
@@ -102,6 +102,7 @@ impl SqliteStore {
             attachments: json::<Attachments>("Attachments", &row.get::<_, String>(14)?)?,
             snooze: json::<Snooze>("Snooze", &row.get::<_, String>(15)?)?,
             pin: json::<Pin>("Pin", &row.get::<_, String>(16)?)?,
+            mute: json::<Mute>("Mute", &row.get::<_, String>(17)?)?,
         })
     }
 
