@@ -1012,7 +1012,15 @@ mod forwarding {
         // The CLI-facing half, which is also the one that decides the zone: `forward` defaults
         // to `Local` where `draft_forward_in` is told. Asserted on the text a person reads.
         let (store, _dir) = seeded();
-        let out = compose::forward(&store, ORIGINAL, &to(), "fyi", at(10)).unwrap();
+        let out = compose::forward(
+            &store,
+            ORIGINAL,
+            &to(),
+            "fyi",
+            compose::Carry::Inline,
+            at(10),
+        )
+        .unwrap();
 
         assert!(out.contains("Fwd: lunch on friday"), "{out}");
         assert!(out.contains("Bea <bea@example.test>"), "{out}");
@@ -1071,6 +1079,216 @@ mod forwarding {
                 .contains("---------- Forwarded message ----------")
         );
         assert!(!draft.text.contains("None"), "{}", draft.text);
+    }
+}
+
+/// Forwarding a message as an attachment: the message itself, carried as `message/rfc822`.
+mod forwarding_as_an_attachment {
+    use super::*;
+
+    /// A message as a server sends it, with an 8-bit body and an attachment of its own.
+    const SENT: &str = "From: Ada Lovelace <ada@example.test>\r\n\
+        To: me@example.test\r\n\
+        Subject: The engine notes\r\n\
+        Date: Tue, 14 Nov 2023 22:13:20 +0000\r\n\
+        Message-ID: <notes@example.test>\r\n\
+        MIME-Version: 1.0\r\n\
+        Content-Type: multipart/mixed; boundary=\"b1\"\r\n\
+        \r\n\
+        --b1\r\n\
+        Content-Type: text/plain; charset=utf-8\r\n\
+        Content-Transfer-Encoding: 8bit\r\n\
+        \r\n\
+        Les notes, enfin — voilà.\r\n\
+        --b1\r\n\
+        Content-Type: application/octet-stream; name=\"table.bin\"\r\n\
+        Content-Disposition: attachment; filename=\"table.bin\"\r\n\
+        Content-Transfer-Encoding: base64\r\n\
+        \r\n\
+        //4AAQ==\r\n\
+        --b1--\r\n";
+
+    fn bea() -> Vec<Address> {
+        vec![Address {
+            name: Some("Bea".to_owned()),
+            email: "bea@example.test".to_owned(),
+        }]
+    }
+
+    /// Store `raw` as a message with `attachments`, and return its id.
+    fn stored(store: &SqliteStore, raw: &[u8], attachments: Vec<Attachment>) -> MessageId {
+        let id = MessageId::generate();
+        let blob = store.blobs().put(&store.connection(), raw).unwrap();
+        let key = MessageKey::Rfc(format!("{id}@example.test"));
+        let message = Message {
+            id,
+            thread: ThreadId::generate(),
+            account: ACCOUNT,
+            key: key.clone(),
+            date: at(5),
+            from: Address {
+                name: Some("Ada Lovelace".to_owned()),
+                email: "ada@example.test".to_owned(),
+            },
+            reply_to: vec![],
+            to: vec![],
+            cc: vec![],
+            bcc: vec![],
+            subject: "The engine notes".to_owned(),
+            in_reply_to: None,
+            references: vec![],
+            rfc_message_id: None,
+            read: ReadState::Unread,
+            star: Star::Unstarred,
+            mailbox: MailboxRole::Inbox,
+            labels: vec![],
+            body: Body::Present {
+                text: None,
+                raw: blob,
+            },
+            attachments,
+        };
+        store
+            .ingest(
+                ACCOUNT,
+                Ingest {
+                    mailbox: MailboxRef {
+                        account: ACCOUNT,
+                        path: "INBOX".to_owned(),
+                    },
+                    validity: UidValidity::Same,
+                    cursor: Some(SyncCursor::Pop),
+                    messages: vec![Fetched {
+                        remote: RemoteRef::Pop {
+                            uidl: id.to_string(),
+                        },
+                        key,
+                        raw: blob,
+                        message,
+                    }],
+                    flags: vec![],
+                    labels: vec![],
+                    label_names: Vec::new(),
+                    gone: vec![],
+                },
+            )
+            .unwrap();
+        id
+    }
+
+    fn queued(store: &SqliteStore) -> Vec<u8> {
+        let due = store.outbox_due(ACCOUNT, at(40)).unwrap();
+        let ProtoOp::Submit { raw, .. } = &due[0].op else {
+            panic!("expected a submission");
+        };
+        store.blobs().get(&store.connection(), *raw).unwrap()
+    }
+
+    /// The round trip: what goes out carries the stored message, and that part parses back to
+    /// exactly the bytes that were stored.
+    #[test]
+    fn the_attachment_that_goes_out_is_the_message_byte_for_byte() {
+        let (store, _dir) = seeded();
+        let id = stored(&store, SENT.as_bytes(), vec![]);
+        let draft =
+            compose::draft_forward_attached(&store, id, &bea(), "see below", at(10)).unwrap();
+        assert_eq!(draft.subject, "Fwd: The engine notes");
+        assert_eq!(draft.forward_of, Some(id));
+        assert!(draft.text.contains("see below"), "{}", draft.text);
+        assert!(
+            !draft.text.contains("Forwarded message"),
+            "the message went inline as well:\n{}",
+            draft.text
+        );
+
+        compose::send(&store, draft.id, at(30)).expect("send queues");
+        let out = queued(&store);
+        let parsed = mail_mime::parse(&out).unwrap();
+        assert_eq!(
+            parsed.attachments.len(),
+            1,
+            "{}",
+            String::from_utf8_lossy(&out)
+        );
+        let carried = &parsed.attachments[0];
+        assert_eq!(carried.mime, "message/rfc822");
+        assert_eq!(carried.name, "The engine notes.eml");
+        assert_eq!(
+            String::from_utf8_lossy(&carried.bytes),
+            SENT,
+            "the carried message is not the stored one"
+        );
+        let inner = mail_mime::parse(&carried.bytes).unwrap();
+        assert_eq!(inner.text.as_deref(), Some("Les notes, enfin — voilà."));
+        assert_eq!(inner.attachments[0].bytes, [0xff, 0xfe, 0x00, 0x01]);
+
+        let text = String::from_utf8_lossy(&out).to_ascii_lowercase();
+        let part = &text[text.find("message/rfc822").unwrap()..];
+        let header = &part[..part.find("\r\n\r\n").unwrap()];
+        assert!(
+            header.contains("content-transfer-encoding: 8bit"),
+            "RFC 2046 §5.2.1 allows only 7bit, 8bit or binary:\n{header}"
+        );
+    }
+
+    #[test]
+    fn the_command_line_says_what_is_attached() {
+        let (store, _dir) = seeded();
+        let id = stored(&store, SENT.as_bytes(), vec![]);
+        let out =
+            compose::forward(&store, id, &bea(), "", compose::Carry::Attached, at(10)).unwrap();
+        assert!(out.contains("  attached The engine notes.eml"), "{out}");
+    }
+
+    #[test]
+    fn a_message_whose_body_never_arrived_is_refused() {
+        let (store, _dir) = seeded();
+        let id = headers_only(&store);
+        let why = compose::draft_forward_attached(&store, id, &bea(), "", at(10)).unwrap_err();
+        assert!(why.contains("not been downloaded"), "{why}");
+        assert!(
+            store.drafts(ACCOUNT).unwrap().is_empty(),
+            "a refused forward left a draft"
+        );
+    }
+
+    /// A large IMAP message is stored rebuilt from its parts, its attachments left on the server.
+    /// Those bytes are not the message as sent, and must not go out as if they were.
+    #[test]
+    fn a_message_rebuilt_from_its_parts_is_refused_even_once_its_parts_are_fetched() {
+        let rebuilt = SENT.replace(
+            "Content-Transfer-Encoding: base64\r\n\r\n//4AAQ==\r\n",
+            "Content-Transfer-Encoding: base64\r\nX-Mailo-Remote-Section: 2\r\n\
+             X-Mailo-Remote-Octets: 8\r\n\r\n\r\n",
+        );
+        let part = |content| Attachment {
+            name: "table.bin".to_owned(),
+            mime: "application/octet-stream".to_owned(),
+            size: 4,
+            content,
+            inline: Inline::Attached,
+        };
+        let cases = [
+            (
+                "its attachment still on the server",
+                part(PartContent::Remote {
+                    section: "2".to_owned(),
+                }),
+            ),
+            (
+                "its attachment fetched since",
+                part(PartContent::Held(BlobId::generate())),
+            ),
+        ];
+        for (name, attachment) in cases {
+            let (store, _dir) = seeded();
+            let id = stored(&store, rebuilt.as_bytes(), vec![attachment]);
+            let why =
+                compose::draft_forward_attached(&store, id, &bea(), "", at(10)).expect_err(name);
+            assert!(why.contains("rebuilt"), "{name}: {why}");
+            assert!(why.contains("inline"), "{name}: says what to do: {why}");
+            assert!(store.drafts(ACCOUNT).unwrap().is_empty(), "{name}");
+        }
     }
 }
 

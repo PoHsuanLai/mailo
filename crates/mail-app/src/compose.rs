@@ -11,6 +11,9 @@ use mail_mime::posting;
 use mail_store::{SqliteStore, Store};
 use std::fmt::Write as _;
 
+mod enclosed;
+pub use enclosed::{Carry, ENCLOSED, draft_forward_attached, rebuilt};
+
 /// Read one identity, or the account's default, out of the `identities` table.
 ///
 /// The table rather than `AccountPlan.identities`, and that choice matters: a draft's
@@ -374,6 +377,9 @@ fn media_type_of(name: &str) -> &'static str {
         "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "ppt" => "application/vnd.ms-powerpoint",
         "pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        // A saved message. As `message/rfc822` it is shown by the recipient's client as the
+        // message it is, and `mail_mime::build` sends it under an encoding RFC 2046 allows.
+        "eml" => ENCLOSED,
         _ => "application/octet-stream",
     }
 }
@@ -723,12 +729,19 @@ pub fn forward(
     message: MessageId,
     to: &[Address],
     body: &str,
+    carry: Carry,
     now: DateTime<Utc>,
 ) -> Result<String, String> {
-    let draft = draft_forward(store, message, to, body, now)?;
+    let draft = match carry {
+        Carry::Inline => draft_forward(store, message, to, body, now)?,
+        Carry::Attached => draft_forward_attached(store, message, to, body, now)?,
+    };
     let mut out = format!("draft {}\n", draft.id);
     let _ = writeln!(out, "  to      {}", addresses(&draft.to));
     let _ = writeln!(out, "  subject {}", draft.subject);
+    for attachment in &draft.attachments {
+        let _ = writeln!(out, "  attached {}", attachment.name);
+    }
     let _ = writeln!(out, "\nsend it with: mailo send {}", draft.id);
     Ok(out)
 }

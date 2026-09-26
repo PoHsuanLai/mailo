@@ -771,8 +771,18 @@ mod forwarding {
         ])
         .unwrap();
         match cmd {
-            cli::Command::Forward { message, to, body } => {
+            cli::Command::Forward {
+                message,
+                to,
+                body,
+                carry,
+            } => {
                 assert_eq!(message, MessageId::from_uuid(id));
+                assert_eq!(
+                    carry,
+                    mail_app::compose::Carry::Inline,
+                    "inline unless asked"
+                );
                 assert_eq!(
                     to.iter().map(|a| a.email.as_str()).collect::<Vec<_>>(),
                     vec!["bea@example.test", "cara@example.test"]
@@ -782,6 +792,32 @@ mod forwarding {
             }
             other => panic!("{other:?}"),
         }
+    }
+
+    #[test]
+    fn attached_asks_for_the_message_itself() {
+        let id = uuid::Uuid::new_v4().to_string();
+        match parse(&["forward", &id, "--to", "bea@example.test", "--attached"]).unwrap() {
+            cli::Command::Forward { carry, .. } => {
+                assert_eq!(carry, mail_app::compose::Carry::Attached);
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(
+            parse(&["forward", &id, "--to", "bea@example.test", "--attach"]).is_err(),
+            "a misspelling is not quietly an inline forward"
+        );
+        assert!(
+            parse(&[
+                "forward",
+                &id,
+                "--to",
+                "bea@example.test",
+                "--attached",
+                "extra"
+            ])
+            .is_err()
+        );
     }
 
     #[test]

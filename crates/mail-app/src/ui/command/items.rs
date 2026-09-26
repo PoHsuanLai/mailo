@@ -20,6 +20,7 @@ pub(in crate::ui) fn commands() -> Vec<Command> {
     [
         "Compose",
         "New from template",
+        "Forward as attachment",
         "Print conversation",
         "Sync now",
         "Go to Inbox",
@@ -269,6 +270,7 @@ fn action_icon(label: &str) -> Icon {
         "Compose" => Icon::Pen,
         "New from template" => Icon::FilePen,
         "Print conversation" => Icon::Printer,
+        "Forward as attachment" => Icon::Forward,
         "Sync now" => Icon::Refresh,
         "Hide sidebar" => Icon::PanelLeft,
         "Theme light" | "Theme dark" | "Theme system" => Icon::Settings,

@@ -114,6 +114,8 @@ pub enum Command {
         message: MessageId,
         to: Vec<Address>,
         body: String,
+        /// `--attached` carries the message itself as an attachment, not its text.
+        carry: crate::compose::Carry,
     },
     /// Put a file on a draft.
     Attach {
@@ -402,11 +404,19 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
             if to.is_empty() {
                 return Err("--to had no addresses in it".to_owned());
             }
+            let carry = match args.get(4).map(String::as_str) {
+                None => crate::compose::Carry::Inline,
+                Some("--attached") if args.len() == 5 => crate::compose::Carry::Attached,
+                Some(other) => {
+                    return Err(format!("unknown option {other:?}\n\n{}", usage()));
+                }
+            };
             Ok(Command::Forward {
                 message: MessageId::from_uuid(uuid),
                 to,
                 // Filled in by the caller, which owns stdin. Parsing stays pure.
                 body: String::new(),
+                carry,
             })
         }
         "unsubscribe" => {
@@ -1196,8 +1206,9 @@ usage: mailo <command>
                              after:2025-12-25 -from:newsletter, or a quoted phrase;
                              the best few first, marked top, then newest first
   reply <message-id> [--all]  compose a reply; the body is read from stdin
-  forward <message-id> --to a@b[,c@d]
-                             forward it; the covering note is read from stdin
+  forward <message-id> --to a@b[,c@d] [--attached]
+                             forward it; the covering note is read from stdin.
+                             --attached carries the message itself as an attachment
   compose --to a@b[,c@d] [--cc …] [--bcc …] [--subject S] [--from address]
           [--request-receipt] [--sign] [--encrypt] [--smime]
                              a new message; the body is read from stdin. --sign and
@@ -1554,9 +1565,12 @@ pub fn run_with_clients(
             dir,
         } => crate::attach::save(store, *message, *index, dir)
             .map(|path| format!("wrote {}\n", path.display())),
-        Command::Forward { message, to, body } => {
-            crate::compose::forward(store, *message, to, body, now)
-        }
+        Command::Forward {
+            message,
+            to,
+            body,
+            carry,
+        } => crate::compose::forward(store, *message, to, body, *carry, now),
         Command::Attach { draft, path } => crate::compose::attach_file(store, *draft, path, now)
             .map(|draft| {
                 format!(

@@ -17,6 +17,8 @@ use mail_store::{SqliteStore, Store};
 pub(super) enum Composes {
     Reply(ReplyScope),
     Forward,
+    /// A forward that carries the message itself as a `message/rfc822` attachment.
+    ForwardAttached,
 }
 
 pub(super) fn composes(kind: OpKind) -> Option<Composes> {
@@ -58,7 +60,7 @@ pub(super) fn start_composing(
 ) -> Result<Draft, String> {
     match what {
         Composes::Reply(scope) => start_reply(store, thread, scope),
-        Composes::Forward => {
+        Composes::Forward | Composes::ForwardAttached => {
             let loaded = store.thread(thread).map_err(|e| e.to_string())?;
             let messages: Vec<Message> = loaded
                 .messages
@@ -69,7 +71,16 @@ pub(super) fn start_composing(
                 .ok_or_else(|| "that conversation has no message to forward".to_owned())?;
             // No recipients: a forward has none of its own and the composer is where the user
             // names them. The draft is saved regardless, so closing the window does not lose it.
-            crate::compose::draft_forward(store, target.id, &[], "", chrono::Utc::now())
+            match what {
+                Composes::ForwardAttached => crate::compose::draft_forward_attached(
+                    store,
+                    target.id,
+                    &[],
+                    "",
+                    chrono::Utc::now(),
+                ),
+                _ => crate::compose::draft_forward(store, target.id, &[], "", chrono::Utc::now()),
+            }
         }
     }
 }
