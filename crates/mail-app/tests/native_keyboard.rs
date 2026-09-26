@@ -20,12 +20,11 @@ use std::time::Duration;
 const ACCOUNT: AccountId =
     AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b7"));
 
-/// Tall enough that the settings' last card, Keyboard, is drawn without scrolling, with the
-/// Offline and Spelling cards above it. At 800 px the settings' scroller stops well short of its
-/// end on Blitz, so the last cards cannot be scrolled to; that is its own finding, not this test's.
+/// The window a laptop gives it: the settings' last card, Keyboard, is below the fold and is
+/// reached by scrolling the settings.
 const VIEW: Viewport = Viewport {
     width: 1200,
-    height: 2400,
+    height: 800,
     scale_percent: 100,
 };
 
@@ -170,10 +169,60 @@ fn in_inbox(store: &SqliteStore) -> usize {
 const SHEET: &str = "[*|aria-label=\"Keyboard shortcuts\"][*|role=dialog]";
 const CHANGE_ARCHIVE: &str = "[*|aria-label=\"Change the key for Archive\"]";
 
+const SCROLLER: &str = ".editor .ed-scroll";
+const LAST_CARD: &str = ".editor .ed-more > div:last-child";
+const KEYBOARD: &str = "button[*|aria-label=\"Keyboard shortcuts\"]";
+
+/// Where `selector` is drawn, or a failure that shows the document.
+fn rect(harness: &Harness, selector: &str) -> ds::Rect {
+    harness
+        .rect(selector)
+        .unwrap_or_else(|| panic!("{selector} is not drawn:\n{}", harness.html()))
+}
+
+/// The top and bottom of what the settings' scroller shows: from the sheet's top to its foot,
+/// neither of which scrolls. Not the scroller's own rect: Blitz subtracts an element's own
+/// scroll offset from its client rect, so a scrolled scroller reads as moved up by as far as it
+/// has scrolled, although it is drawn where it was.
+fn settings_view(harness: &Harness) -> (f32, f32) {
+    (
+        rect(harness, ".editor").origin.y.0,
+        rect(harness, ".editor .ed-foot").origin.y.0,
+    )
+}
+
+/// Whether all of `selector` lies within what the settings' scroller shows.
+fn in_view(harness: &Harness, selector: &str) -> bool {
+    let (top, bottom) = settings_view(harness);
+    let found = rect(harness, selector);
+    found.origin.y.0 >= top - 0.5 && found.origin.y.0 + found.size.height.0 <= bottom + 0.5
+}
+
+/// Wheel the settings down, as a person would, until `selector` is in view, or the scroller
+/// stops moving. Whether it got there is the caller's to assert.
+fn wheel_to(harness: &mut Harness, selector: &str) {
+    let at = centre(harness, SCROLLER);
+    let mut last = rect(harness, selector).origin.y.0;
+    for _ in 0..50 {
+        if in_view(harness, selector) {
+            return;
+        }
+        harness.wheel(at, ds::Px(0.0), ds::Px(-120.0));
+        harness.advance(ms(20));
+        let now = rect(harness, selector).origin.y.0;
+        if (now - last).abs() < 0.5 {
+            return;
+        }
+        last = now;
+    }
+}
+
 /// Open the settings, then their Keyboard section's sheet.
 fn open_sheet(harness: &mut Harness) {
     click(harness, "[*|aria-label=\"Space settings\"]");
-    click(harness, "button[*|aria-label=\"Keyboard shortcuts\"]");
+    settle_until(harness, |harness| harness.count(KEYBOARD) == 1);
+    wheel_to(harness, KEYBOARD);
+    click(harness, KEYBOARD);
     settle_until(harness, |harness| harness.count(SHEET) == 1);
     assert_eq!(
         harness.count(SHEET),
@@ -290,4 +339,38 @@ fn a_keymap_kept_earlier_is_the_one_a_new_window_answers_to_and_reset_puts_it_ba
         "the reset was kept"
     );
     assert_eq!(harness.count("[*|aria-label=\"Reset Archive\"]"), 0);
+}
+
+#[test]
+fn the_settings_scroll_to_their_last_card_in_an_800_px_window() {
+    let (mut harness, _dir, _store, _dirs) = open();
+    click(&mut harness, "[*|aria-label=\"Space settings\"]");
+    settle_until(&mut harness, |harness| harness.count(LAST_CARD) == 1);
+    // Unscrolled, the scroller's own rect is the view `settings_view` reads from the sheet and
+    // its foot, and the last card is below it.
+    let scroller = rect(&harness, SCROLLER);
+    let (top, bottom) = settings_view(&harness);
+    assert!(
+        (scroller.origin.y.0 - top).abs() < 0.5
+            && (scroller.origin.y.0 + scroller.size.height.0 - bottom).abs() < 0.5,
+        "the scroller {scroller:?} is not the sheet above its foot: {top}..{bottom}"
+    );
+    assert!(
+        !in_view(&harness, LAST_CARD),
+        "the last card was in view unscrolled, so this proves nothing: {:?}",
+        rect(&harness, LAST_CARD)
+    );
+
+    wheel_to(&mut harness, LAST_CARD);
+    assert!(
+        in_view(&harness, LAST_CARD),
+        "the wheel stopped with the last card {:?} outside the view {:?}",
+        rect(&harness, LAST_CARD),
+        settings_view(&harness)
+    );
+    let button = centre(&harness, KEYBOARD);
+    assert!(
+        harness.hits(button, KEYBOARD),
+        "the Keyboard button is under something else at {button:?}"
+    );
 }
