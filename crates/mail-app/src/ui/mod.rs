@@ -64,4 +64,4 @@ pub mod native {
     pub use super::reading::OriginalFrame;
 }
 
-pub use start::{Start, open_thread, start_of};
+pub use start::{Start, mailto_of, open_thread, start_mailto, start_of};

@@ -271,6 +271,29 @@ pub fn draft_new(
     Ok(draft)
 }
 
+/// Create and persist the message a `mailto:` link asks for (RFC 6068), returning the draft.
+///
+/// [`draft_new`] with the link's copies and blind copies too, and signed the same way: the
+/// person clicked a link to write to someone, and writes the rest themselves. It is only a
+/// draft. Nothing a link says sends it, and it is opened in the composer for the person to read
+/// before anything goes anywhere, which is where a `bcc` the link added is seen.
+pub fn draft_mailto(
+    store: &SqliteStore,
+    account: AccountId,
+    link: &mail_mime::MailtoUri,
+    now: DateTime<Utc>,
+) -> Result<Draft, String> {
+    let identity = identity_of(store, account, None)?;
+    let mut draft = Draft::blank(&identity, now);
+    draft.to = link.to.clone();
+    draft.cc = link.cc.clone();
+    draft.bcc = link.bcc.clone();
+    draft.subject = link.subject.clone();
+    draft.text = signed(&link.body, &identity);
+    save(store, &draft)?;
+    Ok(draft)
+}
+
 /// Create and persist a message whose every word is given, returning the draft.
 ///
 /// [`draft_new`] without the signature: for a message a program reads rather than a person, such
