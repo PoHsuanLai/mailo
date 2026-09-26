@@ -556,6 +556,16 @@ pub struct RulesSheet {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct KeysSheet;
 
+/// The keyboard shortcuts sheet while it is open.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct KeyboardSheet {
+    /// The action waiting for its new key: the next press is offered to it. `None` is waiting
+    /// for nothing, and the keyboard is the sheet's own.
+    pub listening: Option<Shortcut>,
+    /// Why the last key was not taken, or the keymap not kept, in words.
+    pub said: Option<String>,
+}
+
 /// Everything the shell is currently showing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Shell {
@@ -639,6 +649,11 @@ pub struct Shell {
     pub keys: Option<KeysSheet>,
     /// The saved-view editor while it is open, with what its fields hold. `None` is closed.
     pub view_editor: Option<crate::saved::ViewDraft>,
+    /// Which key does what: the shipped keys with the user's own over them, read from
+    /// `keyboard.json` when the window opens.
+    pub keymap: crate::keymap::Keymap,
+    /// The keyboard shortcuts sheet while it is open. `None` is closed.
+    pub keyboard: Option<KeyboardSheet>,
     /// Ctrl F in the open thread. `None` is closed, and marks nothing.
     ///
     /// Belongs to the thread it was opened on: [`Self::open`] and [`Self::close`] drop it, so a
@@ -858,6 +873,8 @@ impl Default for Shell {
             rules: None,
             keys: None,
             view_editor: None,
+            keymap: crate::keymap::Keymap::default(),
+            keyboard: None,
             find: None,
             undo: crate::undo::UndoStack::default(),
         }
@@ -1170,7 +1187,11 @@ pub fn hover_in(view: Option<&View>, summary: &ThreadSummary) -> Vec<OpKind> {
 /// conversations, opening one, archiving, starring, replying and closing a half-written reply
 /// were each a mouse click and nothing else. A mail client is a thing people spend hours a day
 /// in, and this is the part of "daily driver" that does not depend on anyone's taste.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// Which key means which is [`crate::keymap`]'s: a table, with the user's own keys over it. The
+/// serde form names an action in `keyboard.json`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Shortcut {
     /// Move to the next conversation and open it.
     Next,
@@ -1209,40 +1230,14 @@ pub enum Shortcut {
     Compose,
 }
 
-/// The shortcut a key press means, or `None` for a key that is not one.
-///
-/// `typing` is the whole of the safety here. A letter is a shortcut when the user is reading and
-/// a letter when they are writing, and a client that gets that wrong archives a conversation
-/// because someone typed "e" into a reply. Only `Escape` survives it — closing what you are
-/// typing in is the one thing you must be able to do from inside it.
+/// The shortcut a key press means with the keys the window ships with, or `None` for a key that
+/// is not one. The window asks its [`crate::keymap::Keymap`] instead, which may hold the user's
+/// own keys.
 ///
 /// Keys are named as the DOM names them, so the caller does not have to invent a second
 /// vocabulary for the same events.
 pub fn shortcut(key: &str, typing: bool) -> Option<Shortcut> {
-    if key == "Escape" {
-        return Some(Shortcut::Back);
-    }
-    if typing {
-        return None;
-    }
-    Some(match key {
-        "j" | "ArrowDown" => Shortcut::Next,
-        "k" | "ArrowUp" => Shortcut::Previous,
-        "J" => Shortcut::ExtendNext,
-        "K" => Shortcut::ExtendPrevious,
-        "!" => Shortcut::Spam,
-        "e" => Shortcut::Archive,
-        "#" | "Delete" => Shortcut::Trash,
-        "s" => Shortcut::ToggleStar,
-        "u" => Shortcut::ToggleRead,
-        "r" => Shortcut::Reply,
-        "a" => Shortcut::ReplyAll,
-        "f" => Shortcut::Forward,
-        "p" => Shortcut::TogglePin,
-        "m" => Shortcut::ToggleMute,
-        "c" => Shortcut::Compose,
-        _ => return None,
-    })
+    crate::keymap::Keymap::default().action(key, typing)
 }
 
 /// The key a press means with Shift held: "J" and "K" whether the keyboard reported the

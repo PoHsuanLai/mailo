@@ -20,6 +20,7 @@ mod history;
 mod host;
 mod hover;
 mod invite;
+mod keyboard;
 mod launch;
 mod list;
 mod list_query;

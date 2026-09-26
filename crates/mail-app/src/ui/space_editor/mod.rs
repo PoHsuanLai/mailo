@@ -5,8 +5,8 @@
 //! exactly as the sheet found it. The Space's own look is quire's `SpaceEditor`: its name, the
 //! colour field and its stops, grain, theme, the card's accent, the presets and the measured
 //! contrast. What quire's editor does not draw stays mailo's, in a card under it: the Space's
-//! motion, provider marks, notifications, which accounts are kept offline in full, the accounts,
-//! contacts, rules and keys, and Cancel and Save.
+//! motion, provider marks, notifications, spelling, which accounts are kept offline in full, the
+//! accounts, contacts, rules, keys and the keyboard, and Cancel and Save.
 //!
 //! The drag preview, decided (quire's migration brief §5.1, which left it open): a drag in the
 //! colour field repaints the frame through `Ds`'s own cross-fade, each step like any other
@@ -159,6 +159,16 @@ pub(super) fn SpaceEditor(
                     onclick: on_primary(move || super::pgp::keys::open(shell)),
                 }
                 p { class: "capnote", "OpenPGP keys and S/MIME certificates, yours and your correspondents': make, import, export, trust, delete." }
+            }
+            div {
+                div { class: "ed-label", "Keyboard" }
+                ds::Button {
+                    variant: ds::ButtonVariant::Mini,
+                    label: "Keyboard shortcuts…".to_owned(),
+                    aria_label: "Keyboard shortcuts".to_owned(),
+                    onclick: on_primary(move || super::keyboard::open(shell)),
+                }
+                p { class: "capnote", "Which key archives, stars, replies and moves: give an action the key you want, or put it back." }
             }
             }
             }
