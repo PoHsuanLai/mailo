@@ -1,19 +1,23 @@
 //! The sender card: who they are, how often they write, and whether their name borrows a
 //! brand their address does not belong to. Its actions are the shared `Menu`.
 
+use super::super::checks::SenderChecks;
 use super::super::contacts::ContactPart;
 use super::super::history::History;
 use super::super::menu::{Floating, MenuItem, Right, Tile};
+use super::super::motion::{Follow, tell};
 use super::cards::{Card, letter, who};
 use super::dismiss;
+use crate::rules::block::Blocked;
 use crate::space::{Pinned, Spaces};
 use crate::trust::spoof;
 use crate::view::Shell;
 use chrono::Local;
 use dioxus::prelude::*;
 use ds::{AvatarTone, FlagTone, HoverCardPart, HoverStat, Icon, Run, RunTone};
-use mail_domain::ThreadId;
+use mail_domain::{AccountId, Message, MessageId, ThreadId};
 use mail_store::{SqliteStore, Store};
+use std::sync::Arc;
 
 pub(super) fn sender_card(
     store: &SqliteStore,
@@ -26,6 +30,9 @@ pub(super) fn sender_card(
     let from = loaded.summary.from.clone();
     let name = who(&from);
     let email = from.email.clone();
+    // Their newest message here: the one whose checks the card shows, and whose account a block
+    // is made on.
+    let theirs = newest_from(store, &loaded.messages, &email);
     let seen = known.get(&email).cloned();
     let first = seen.as_ref().is_none_or(|sender| sender.threads <= 1);
     let flag = spoof(from.name.as_deref(), &email);
@@ -75,8 +82,17 @@ pub(super) fn sender_card(
             "First mail from this address. Nothing else in the store has come from it.",
         ));
     }
+    let checked = theirs
+        .as_ref()
+        .map(|message| (message.id, message.body.raw()));
+    let account = theirs.as_ref().map(|message| message.account);
     let more = rsx! {
         div { class: "hc",
+        // What the receiving server checked about them, beside the flags above: the same line
+        // the reader shows, read off the thread that draws. Keyed like the reader's.
+        if let Some((message, raw)) = checked {
+            {rsx! { SenderChecks { key: "{message}-{raw:?}", message, body: raw } }}
+        }
         // Keyed, so a card for another sender starts afresh rather than keep this one's state.
         {rsx! { ContactPart { key: "{email}", email: email.clone(), name: given } }}
         div { class: "acts",
@@ -94,6 +110,7 @@ pub(super) fn sender_card(
                     match key.as_str() {
                         "pin" => pin_person(spaces, &name, &email),
                         "mail" => shell.write().search = format!("from:{email}"),
+                        "block" => block_sender(account, &email),
                         _ => copy(&email),
                     }
                     dismiss();
@@ -111,6 +128,7 @@ fn sender_actions() -> Vec<MenuItem> {
         ("pin", Icon::Star, "Pin to sidebar"),
         ("mail", Icon::Search, "Their mail"),
         ("copy", Icon::Mail, "Copy address"),
+        ("block", Icon::OctagonAlert, "Block sender"),
     ]
     .into_iter()
     .map(|(key, icon, name)| MenuItem {
@@ -125,6 +143,42 @@ fn sender_actions() -> Vec<MenuItem> {
         detail: Vec::new(),
     })
     .collect()
+}
+
+/// The newest of `messages` that `email` sent, or the newest of all when none reads as theirs.
+fn newest_from(store: &SqliteStore, messages: &[MessageId], email: &str) -> Option<Message> {
+    let mut all: Vec<Message> = messages
+        .iter()
+        .filter_map(|id| store.message(*id).ok())
+        .collect();
+    all.sort_by_key(|message| message.date);
+    let at = all
+        .iter()
+        .rposition(|message| message.from.email.eq_ignore_ascii_case(email))
+        .or_else(|| all.len().checked_sub(1))?;
+    Some(all.swap_remove(at))
+}
+
+/// "Block sender": a rule that sends their mail to Spam (`crate::rules::block`), said with the
+/// way to take it back.
+fn block_sender(account: Option<AccountId>, email: &str) {
+    let Some(account) = account else {
+        return;
+    };
+    let store = consume_context::<Arc<SqliteStore>>();
+    let said = match crate::rules::block::block(&store, account, email) {
+        Ok(Blocked::Made(rule)) => {
+            let text = format!("Blocked {email}: new mail from them goes to Spam");
+            let follow = Follow::Unblock {
+                rule: rule.id,
+                sender: email.to_owned(),
+            };
+            (text, follow)
+        }
+        Ok(Blocked::Already(_)) => (format!("{email} is already blocked"), Follow::Nothing),
+        Err(why) => (format!("Could not block {email}: {why}"), Follow::Nothing),
+    };
+    tell(said.0, said.1);
 }
 
 /// Add the sender to the current Space's pinned people, once.

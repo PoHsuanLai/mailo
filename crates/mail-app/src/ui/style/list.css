@@ -35,7 +35,8 @@ label.search .search { flex: 1; }
   font-weight: 800; font-size: var(--fs-reading); color: var(--accent); animation: floatup var(--t-float) var(--e-out) forwards;
 }
 .chip.is-landing { animation: chip-land var(--t-move) var(--e-spring); }
-/* The one toast mailo draws itself: after leaving a list, the way to archive what it sent.
+/* The toast mailo draws itself: after leaving a list, the way to archive what it sent; after a
+   block, the way to take it back.
    Every undo and every plain word is quire's toast, from the window root. */
 .toast {
   position: absolute; left: 50%; bottom: 14px; z-index: var(--z-link-pill); transform: translateX(-50%);

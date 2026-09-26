@@ -44,6 +44,11 @@ pub(super) const STYLE: &[Exception] = &[
         reason: GLYPH_TINT,
     },
     Exception {
+        rule: Rule::DsInternals,
+        selector: ".sender-checks[*|data-standing=\"pass\"] .ds-ic",
+        reason: GLYPH_TINT,
+    },
+    Exception {
         rule: Rule::RawFontSize,
         selector: ".mono",
         reason: "a mono run is sized against the text it sits in, which no absolute token can follow",

@@ -13,6 +13,13 @@
 }
 .reader-from { font-size: var(--fs-control); font-weight: 700; }
 .reader-addr { color: var(--ink-faint); }
+/* SPF, DKIM and DMARC as the receiving server said, under the address; the sender card too. */
+.sender-checks {
+  display: flex; align-items: center; gap: var(--s-4); margin-top: var(--s-2);
+  font-family: var(--font-data); font-size: var(--fs-note); color: var(--ink-faint);
+}
+.sender-checks[*|data-standing="pass"] .ds-ic { color: var(--ok); }
+.sender-checks[*|data-standing="fail"] { color: var(--danger); }
 /* the message body is an opaque sandboxed frame: we animate the container,
    never its contents, because we cannot reach inside it and must not try. */
 .consent {

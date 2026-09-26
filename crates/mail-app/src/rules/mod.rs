@@ -6,6 +6,7 @@
 //! with `rules run`. Where the account's server takes Sieve, `mailo sieve push` puts the ones
 //! it can run there too; see [`server`].
 
+pub mod block;
 pub mod server;
 
 use chrono::{DateTime, Utc};

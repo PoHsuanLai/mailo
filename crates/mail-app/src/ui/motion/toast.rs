@@ -10,6 +10,7 @@ use crate::undo::UndoHandle;
 use crate::view::Shell;
 use dioxus::prelude::*;
 use ds::{Button, ButtonVariant, Icon, UndoToken, use_toasts};
+use mail_domain::RuleId;
 use mail_store::SqliteStore;
 use std::sync::Arc;
 
@@ -30,21 +31,43 @@ pub(in crate::ui) fn Toast(shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
     let Some(said) = state.toast.read().clone() else {
         return rsx! {};
     };
-    let Follow::ArchiveFrom { sender, list } = said.follow else {
-        return rsx! {};
-    };
-    rsx! {
-        div { class: "toast", role: "status",
-            span { "{said.text}" }
-            Button {
-                variant: ButtonVariant::Mini,
-                label: "Archive all from this list".to_owned(),
-                icon: Some(Icon::Archive),
-                onclick: move |_| {
-                    let store = consume_context::<Arc<SqliteStore>>();
-                    crate::ui::unsubscribe::archive_list(&store, shell, revision, &sender, &list);
-                },
+    match said.follow {
+        Follow::ArchiveFrom { sender, list } => rsx! {
+            div { class: "toast", role: "status",
+                span { "{said.text}" }
+                Button {
+                    variant: ButtonVariant::Mini,
+                    label: "Archive all from this list".to_owned(),
+                    icon: Some(Icon::Archive),
+                    onclick: move |_| {
+                        let store = consume_context::<Arc<SqliteStore>>();
+                        crate::ui::unsubscribe::archive_list(&store, shell, revision, &sender, &list);
+                    },
+                }
             }
-        }
+        },
+        Follow::Unblock { rule, sender } => rsx! {
+            div { class: "toast", role: "status",
+                span { "{said.text}" }
+                Button {
+                    variant: ButtonVariant::Mini,
+                    label: "Undo".to_owned(),
+                    icon: Some(Icon::Undo),
+                    onclick: move |_| unblock(revision, rule, &sender),
+                }
+            }
+        },
+        Follow::Undo(_) | Follow::Nothing => rsx! {},
     }
+}
+
+/// Take a block back: the rule it made is forgotten, and the toast says so.
+fn unblock(mut revision: Signal<u64>, rule: RuleId, sender: &str) {
+    let store = consume_context::<Arc<SqliteStore>>();
+    let text = match crate::rules::block::unblock(&store, rule) {
+        Ok(()) => format!("Unblocked {sender}"),
+        Err(why) => format!("Could not unblock {sender}: {why}"),
+    };
+    revision += 1;
+    super::tell(text, Follow::Nothing);
 }

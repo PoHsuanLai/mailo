@@ -252,6 +252,10 @@ pub(super) fn Reader(
             stamp(message),
         )
     });
+    // Whose word the sender's checks are on: the message the head names.
+    let checked = shown
+        .last()
+        .map(|(message, _, _)| (message.id, message.body.raw()));
     let from_host = shown
         .iter()
         .rev()
@@ -317,6 +321,10 @@ pub(super) fn Reader(
                     div {
                         div { class: "reader-from", "{from}" }
                         div { class: "mono reader-addr", "{addr}" }
+                        // SPF, DKIM and DMARC, as the receiving server said. Keyed like Leave.
+                        if let Some((id, raw)) = checked {
+                            {rsx! { super::checks::SenderChecks { key: "{id}-{raw:?}", message: id, body: raw } }}
+                        }
                         div { class: "mono when", "{when}" }
                     }
                     // Its own template, so the key is that template's root key and a new one
