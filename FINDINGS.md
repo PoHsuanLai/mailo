@@ -4242,3 +4242,54 @@ File names there cannot hold a colon, so an export would have failed at the firs
 Maildir is written with `;` there (`maildir::INFO`), which the parser has always read on every
 platform. `.gitattributes` now sets `* -text`, so a Windows checkout leaves the byte-for-byte
 fixtures alone.
+
+### F178 — A press on a row's strip could lose the keyboard: the focus and the row's removal shared a frame
+
+The strip's Archive gave its button the keyboard (quire's click-focus restore, a task a frame after
+the click), inside a row that was leaving. quire's focus keeper hands the keyboard on when its
+element is removed, but only if it had seen that element focused, and it looks only between
+flushes. On a loaded machine the restore and the exit timer's render ran in one flush; the keeper
+still held `.app`, which was still there, so it did nothing, and every key went nowhere (F172). A
+strip press that applies an op now gives `.app` the keyboard before it acts; menus that need their
+opener still get the button. The test waits for states with `settle_until` and asserts the
+keyboard lands on `.app`. On the old code it failed 5/5 idle (focus on the button) and 3/3 under
+load (focus nowhere). The keeper's blind spot is quire's and is relayed.
+
+### F179 — With rows picked, the list bar ran under the reader
+
+At 1200 px the selection's seven buttons and the page's Group, Properties, Save view, Sync and
+Compose needed about 720 px in a 461 px column; the tools reached x≈954, over the reader, where a
+press could not reach them, and the heading and the count were squeezed to nothing. While anything
+is picked the bar is now the selection's: its count, never squeezed, and its actions, which wrap
+within the column. The page's tools act on no selection and come back when it clears. Hiding only
+the tools still squeezed the count out, and wrapping the whole bar would have made the rows jump on
+every Ctrl-click.
+
+### F180 — Spelling is quire's; mailo holds the switch, the caret and the undo step
+
+A decision (item 1). ds-native's `spellcheck` is on: the body is checked against the system's
+Hunspell dictionaries in the locale's language, and nothing is bundled. The body hands the surface
+the page's caret, so the word being typed is not marked until the caret leaves it. A picked
+suggestion comes back as one `insertReplacementText` over the word's graphemes, recorded as one
+structural step, so one Ctrl Z restores the misspelling. The switch is `spelling.json`, on by
+default, held by the desk so an open draft follows it; when no dictionary answers for the locale,
+which is always so on macOS and Windows, the switch says so. A draft carries no language, so the
+locale's is used. The spelling menu takes the keyboard; Escape there closes only the menu, and
+autosave, which follows edits and not focus, does not fire. Tests hand the window a checker over a
+TempDir dictionary and run each case in a child process whose HOME and XDG_DATA_HOME are a TempDir,
+because the workspace forbids the `unsafe` `set_var`.
+
+### F181 — The keyboard is a table, and a key has one meaning
+
+A decision (item 22). `keymap::DEFAULTS` is what `view::shortcut`'s match was, held to a verbatim
+copy of that match for every key by a table test. A user's change gives an action exactly one key,
+replacing all its shipped keys (rebinding Next drops ArrowDown too; Reset brings both back).
+Changes go only through `bind` and `reset`, which refuse a key another action holds and name that
+action, so a reset can be refused while another moved action sits on a shipped key. Esc is Close
+and cannot move; Enter, Tab, Space and chords are the window's own. `keyboard.json` is read whole:
+an unknown action, a duplicate or a clash drops the file for the defaults rather than keeping part
+of it. Composer keys are out of scope.
+
+In a 1200×800 window the settings' scroller stops several hundred pixels short of its end, so the
+last cards (Keys, Keyboard) cannot be reached by the wheel. The Harness tests use tall windows and
+say why; the scroll height is its own fix.
