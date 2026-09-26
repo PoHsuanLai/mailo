@@ -129,6 +129,21 @@ fn rows(page: &str) -> usize {
     page.matches("aria-label=\"Open ").count()
 }
 
+/// Render `dom` as work lands until `done` holds of the page, for at most quire's settle bound
+/// of wall clock; the page `done` last saw.
+async fn drawn_when(dom: &mut VirtualDom, done: impl Fn(&str) -> bool) -> String {
+    let until = tokio::time::Instant::now() + ds_native::harness::SETTLE_BOUND;
+    loop {
+        dom.render_immediate(&mut dioxus_core::NoOpMutations);
+        let page = dioxus_ssr::render(dom);
+        let now = tokio::time::Instant::now();
+        if done(&page) || now >= until {
+            return page;
+        }
+        let _ = tokio::time::timeout(until - now, dom.wait_for_work()).await;
+    }
+}
+
 #[tokio::test]
 async fn ctrl_2_repaints_the_frame_and_scopes_the_list() {
     dispatching();
@@ -162,7 +177,9 @@ async fn ctrl_2_repaints_the_frame_and_scopes_the_list() {
         Modifiers::CONTROL,
         ElementId(INSIDE_THE_SHELL as usize),
     );
-    let page = dioxus_ssr::render(&dom);
+    // The list keeps what it drew until the new Space's query, on its blocking thread, lands:
+    // wait for that rather than reading the page once, which raced the thread.
+    let page = drawn_when(&mut dom, |page| rows(page) < before).await;
 
     // The frame is the root's own to paint now: no script, the Space's gradient on `.ds`.
     let gradient = ds::gradient(&ds::derive(&home.look.dots, Scheme::Light));

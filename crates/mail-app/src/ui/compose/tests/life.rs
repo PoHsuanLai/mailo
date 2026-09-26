@@ -7,6 +7,7 @@ use super::super::page::{Guard, Phase};
 use super::*;
 use crate::editor::{to_flowed, to_html};
 use crate::ui::fixtures::{ACCOUNT, click, press, seeded};
+use ds_native::harness::SETTLE_BOUND;
 
 fn far() -> DateTime<Utc> {
     Utc::now() + chrono::TimeDelta::days(365)
@@ -271,6 +272,24 @@ async fn run_for(window: &mut Window, span: std::time::Duration) -> String {
     window.render()
 }
 
+/// Draw what lands until `done` holds of the markup, for at most `bound` of quire's clock. The
+/// markup `done` last saw, and when it first held (or when the bound ran out).
+async fn run_until(
+    window: &mut Window,
+    bound: std::time::Duration,
+    done: impl Fn(&str) -> bool,
+) -> (String, tokio::time::Instant) {
+    let until = tokio::time::Instant::now() + bound;
+    loop {
+        let markup = window.render();
+        let now = tokio::time::Instant::now();
+        if done(&markup) || now >= until {
+            return (markup, now);
+        }
+        let _ = tokio::time::timeout(until - now, window.dom.wait_for_work()).await;
+    }
+}
+
 /// Coherence rule 2 on the composer: no raw control, raw vector or literal colour beyond the
 /// exceptions mailo names (`style::exceptions::MARKUP`).
 #[tokio::test]
@@ -297,6 +316,7 @@ async fn a_person_who_joins_flashes_until_the_flash_settles() {
     let (mut window, _) = Window::open(store.clone(), draft.clone(), None);
     let mut page = window.page();
     window.render();
+    let joined = tokio::time::Instant::now();
     window.dom.in_runtime(|| {
         let mut write = page.write();
         write.to = vec![dana()];
@@ -308,15 +328,27 @@ async fn a_person_who_joins_flashes_until_the_flash_settles() {
         "the person who joined does not flash:\n{markup}"
     );
 
+    // quire's timer sleeps on its own timer thread (`futures-timer`), which wakes when the
+    // scheduler lets it: on a loaded machine, or on Windows' coarse timers, a few milliseconds
+    // after tokio's. Waiting exactly the settle time and looking once raced that thread. Wait
+    // for the flash to end, and check it did not end before its settle time.
     let flash = ds::settle(
         ds::Anim::ChipFlash,
         ds::MotionLevel::Standard,
         ds::StaggerIndex::default(),
     );
-    let markup = run_for(&mut window, flash).await;
+    let (markup, ended) = run_until(&mut window, flash + SETTLE_BOUND, |markup| {
+        !markup.contains("a-chip-flash")
+    })
+    .await;
+    let took = ended - joined;
     assert!(
         !markup.contains("a-chip-flash"),
-        "the chip still flashed once its flash had settled:\n{markup}"
+        "the chip still flashed {took:?} after it joined, past its flash of {flash:?}:\n{markup}"
+    );
+    assert!(
+        took >= flash,
+        "the flash ended after {took:?}, before its settle time of {flash:?}"
     );
     let flash = window.dom.in_runtime(|| page.peek().flash.clone());
     assert_eq!(flash, None, "the page still names someone to flash");
@@ -336,6 +368,7 @@ async fn a_sent_page_folds_away_on_quires_clock() {
     });
     window.render();
 
+    let sent = tokio::time::Instant::now();
     click(&mut window.dom, seen.one("aria-label", "Send"));
     let markup = window.render();
     assert!(
@@ -344,16 +377,24 @@ async fn a_sent_page_folds_away_on_quires_clock() {
     );
 
     // Nothing the window says takes it away: the fold's timer does, once `compose-send` has
-    // settled.
+    // settled. Waited for, not timed: the timer's thread can wake late (see the flash's test).
     let fold = ds::settle(
         ds::Anim::ComposeSend,
         ds::MotionLevel::Standard,
         ds::StaggerIndex::default(),
     );
-    let markup = run_for(&mut window, fold).await;
+    let (markup, gone) = run_until(&mut window, fold + SETTLE_BOUND, |markup| {
+        !markup.contains("cpage")
+    })
+    .await;
+    let took = gone - sent;
     assert!(
         !markup.contains("cpage"),
-        "the page was still drawn once its fold had settled:\n{markup}"
+        "the page was still drawn {took:?} after Send, past its fold of {fold:?}:\n{markup}"
+    );
+    assert!(
+        took >= fold,
+        "the page went after {took:?}, before its fold of {fold:?} had settled"
     );
     assert!(
         markup.contains("Sending in"),
