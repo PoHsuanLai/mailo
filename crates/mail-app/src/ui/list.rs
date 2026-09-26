@@ -117,6 +117,7 @@ pub(super) fn ThreadList(
     let state = use_hook(motion);
     let listed = threads();
     let keys: Vec<ThreadId> = listed.iter().map(|summary| summary.id).collect();
+    let picking = !shell.read().picked.chosen(&keys).is_empty();
     // Picked, or open with nothing picked: asked of the shell against what is listed.
     let selection_of = |id: ThreadId| {
         if shell.read().is_selected(id, &keys) {
@@ -194,94 +195,103 @@ pub(super) fn ThreadList(
     }
     rsx! {
         div { class: "list-col",
-            div { class: "list-bar",
-                h2 {
-                    "{place}"
-                    if let Some(address) = address {
-                        span { class: "mono", "{address}" }
-                    }
+            // While anything listed is picked, the bar is the selection's: its count and its
+            // actions, and nothing else. The page's own tools (Group, Properties, Sync, Compose)
+            // act on no selection, and beside the selection's they ran past the list column
+            // and under the reader, where they could not be pressed.
+            if picking {
+                div { class: "list-bar picking",
+                    PickBar { shell, revision, threads }
                 }
-                if let Some(note) = note {
-                    // One line, cut short when it must be; the whole of it on hover.
-                    span { class: if bad { "status bad" } else { "status" }, title: "{note}", "{note}" }
-                }
-                PickBar { shell, revision, threads }
-                if let Some(said) = search_note {
-                    span { class: if invalid { "status bad" } else { "status" }, "{said}" }
-                }
-                div { class: "bar-tools",
-                    PageMenus { shell }
-                    // A search can be kept as a view, and a view shown can be changed. Icons only,
-                    // like Sync, to keep the bar narrow.
-                    if !shell.read().search.trim().is_empty() {
-                        ds::Button {
-                            variant: ds::ButtonVariant::Mini,
-                            label: String::new(),
-                            icon: Icon::Plus,
-                            aria_label: "Save as view".to_owned(),
-                            title: "Keep this search in the sidebar".to_owned(),
-                            onclick: on_primary(move || {
-                                let search = shell.peek().search.clone();
-                                super::views::open_new(shell, &search);
-                            }),
-                        }
-                    } else if let Some(view) = shell.read().saved_view().cloned() {
-                        ds::Button {
-                            variant: ds::ButtonVariant::Mini,
-                            label: String::new(),
-                            icon: Icon::Settings,
-                            aria_label: "Edit view".to_owned(),
-                            title: "Change or delete this view".to_owned(),
-                            onclick: on_primary(move || super::views::open_edit(shell, &view)),
+            } else {
+                div { class: "list-bar",
+                    h2 {
+                        "{place}"
+                        if let Some(address) = address {
+                            span { class: "mono", "{address}" }
                         }
                     }
-                    if !quiet {
-                        ds::Button {
-                            variant: ds::ButtonVariant::Mini,
-                            label: String::new(),
-                            icon: Icon::Refresh,
-                            aria_label: "Sync now".to_owned(),
-                            availability: available(sync_state.read().may_start()),
-                            onclick: on_primary(move || {
-                                if !sync_state.read().may_start() {
-                                    return;
-                                }
-                                sync_state.set(SyncState::Running);
-                                super::folder_open::forget();
-                                let store = consume_context::<Arc<SqliteStore>>();
-                                spawn(async move {
-                                    // `spawn_blocking`, not this task: sync::run opens sockets and
-                                    // builds its own runtime, and `Runtime::block_on` inside an async
-                                    // context panics.
-                                    let done = tokio::task::spawn_blocking(move || {
-                                        crate::sync::run(store, chrono::Utc::now())
-                                    })
-                                    .await;
-                                    sync_state.set(match done {
-                                        Ok(result) => synced(result.map(|ran| ran.text)),
-                                        Err(e) => synced(Err(format!("the sync pass stopped: {e}"))),
-                                    });
-                                    revision += 1;
-                                });
-                            }),
-                        }
+                    if let Some(note) = note {
+                        // One line, cut short when it must be; the whole of it on hover.
+                        span { class: if bad { "status bad" } else { "status" }, title: "{note}", "{note}" }
                     }
-                    ds::Button {
-                        variant: ds::ButtonVariant::Mini,
-                        label: "Compose".to_owned(),
-                        icon: Icon::Pen,
-                        title: "Write a new message (c)".to_owned(),
-                        onclick: on_primary(move || {
-                            let store = consume_context::<Arc<SqliteStore>>();
-                            let known = shell.peek().accounts.clone();
-                            match start_new(&store, &known) {
-                                Ok(draft) => {
-                                    shell.write().compose(&draft);
-                                    revision += 1;
-                                }
-                                Err(why) => eprintln!("compose: {why}"),
+                    if let Some(said) = search_note {
+                        span { class: if invalid { "status bad" } else { "status" }, "{said}" }
+                    }
+                    div { class: "bar-tools",
+                        PageMenus { shell }
+                        // A search can be kept as a view, and a view shown can be changed. Icons only,
+                        // like Sync, to keep the bar narrow.
+                        if !shell.read().search.trim().is_empty() {
+                            ds::Button {
+                                variant: ds::ButtonVariant::Mini,
+                                label: String::new(),
+                                icon: Icon::Plus,
+                                aria_label: "Save as view".to_owned(),
+                                title: "Keep this search in the sidebar".to_owned(),
+                                onclick: on_primary(move || {
+                                    let search = shell.peek().search.clone();
+                                    super::views::open_new(shell, &search);
+                                }),
                             }
-                        }),
+                        } else if let Some(view) = shell.read().saved_view().cloned() {
+                            ds::Button {
+                                variant: ds::ButtonVariant::Mini,
+                                label: String::new(),
+                                icon: Icon::Settings,
+                                aria_label: "Edit view".to_owned(),
+                                title: "Change or delete this view".to_owned(),
+                                onclick: on_primary(move || super::views::open_edit(shell, &view)),
+                            }
+                        }
+                        if !quiet {
+                            ds::Button {
+                                variant: ds::ButtonVariant::Mini,
+                                label: String::new(),
+                                icon: Icon::Refresh,
+                                aria_label: "Sync now".to_owned(),
+                                availability: available(sync_state.read().may_start()),
+                                onclick: on_primary(move || {
+                                    if !sync_state.read().may_start() {
+                                        return;
+                                    }
+                                    sync_state.set(SyncState::Running);
+                                    super::folder_open::forget();
+                                    let store = consume_context::<Arc<SqliteStore>>();
+                                    spawn(async move {
+                                        // `spawn_blocking`, not this task: sync::run opens sockets and
+                                        // builds its own runtime, and `Runtime::block_on` inside an async
+                                        // context panics.
+                                        let done = tokio::task::spawn_blocking(move || {
+                                            crate::sync::run(store, chrono::Utc::now())
+                                        })
+                                        .await;
+                                        sync_state.set(match done {
+                                            Ok(result) => synced(result.map(|ran| ran.text)),
+                                            Err(e) => synced(Err(format!("the sync pass stopped: {e}"))),
+                                        });
+                                        revision += 1;
+                                    });
+                                }),
+                            }
+                        }
+                        ds::Button {
+                            variant: ds::ButtonVariant::Mini,
+                            label: "Compose".to_owned(),
+                            icon: Icon::Pen,
+                            title: "Write a new message (c)".to_owned(),
+                            onclick: on_primary(move || {
+                                let store = consume_context::<Arc<SqliteStore>>();
+                                let known = shell.peek().accounts.clone();
+                                match start_new(&store, &known) {
+                                    Ok(draft) => {
+                                        shell.write().compose(&draft);
+                                        revision += 1;
+                                    }
+                                    Err(why) => eprintln!("compose: {why}"),
+                                }
+                            }),
+                        }
                     }
                 }
             }
