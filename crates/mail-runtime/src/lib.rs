@@ -27,7 +27,7 @@ pub mod wkd;
 
 pub use assemble::{Arrival, Destination, absorb, absorb_into, assemble};
 pub use drive::{Cancel, drive};
-pub use engine::{AccountEngine, SyncReport, Woke};
+pub use engine::{AccountEngine, PartBudget, SyncReport, Woke};
 pub use error::RuntimeError;
 pub use jmap::JmapEngine;
 pub use loopback::Loopback;

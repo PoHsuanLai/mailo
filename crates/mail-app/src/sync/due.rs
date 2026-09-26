@@ -72,7 +72,10 @@ pub fn run_due(
         now,
         super::Mode::Once,
         super::Announce::Quietly,
-        &|account| due.contains(&account),
+        &super::Scope {
+            due: &|account| due.contains(&account),
+            kept: &crate::offline::load_default(),
+        },
     )
 }
 

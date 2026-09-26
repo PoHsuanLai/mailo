@@ -418,6 +418,23 @@ fn main() {
         }
         return;
     }
+    if let Some(mail_app::cli::Command::Offline { address, set }) = &command {
+        let accounts = mail_app::sync::addresses(&store);
+        match mail_app::offline::command(
+            mail_app::appearance::config_dir().as_deref(),
+            store.as_ref(),
+            &accounts,
+            address.as_deref(),
+            *set,
+        ) {
+            Ok(said) => print!("{said}"),
+            Err(message) => {
+                eprintln!("{message}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
     if let Some(mail_app::cli::Command::Watch { notify }) = &command {
         let notifications = match notify {
             mail_app::cli::WatchNotify::Never => mail_app::notify::Setting::Off,

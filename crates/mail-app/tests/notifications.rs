@@ -428,6 +428,7 @@ async fn watching<F: std::future::Future<Output = ()>>(
         address: ME.to_owned(),
         plan: plan(port),
         caps: caps(),
+        keep: mail_app::offline::Keep::Bodies,
     };
     let inbox = vec![MailboxRef {
         account: ACCOUNT,

@@ -130,6 +130,11 @@ pub enum Command {
     Watch { notify: WatchNotify },
     /// Turn new-mail notifications on or off, or say which they are.
     Notify { set: Option<crate::notify::Setting> },
+    /// Keep an account's mail offline in full, or not, or say where each account stands.
+    Offline {
+        address: Option<String>,
+        set: Option<crate::offline::Keep>,
+    },
     /// Run the daemon, or stop the one that is running.
     Daemon { stop: bool },
     /// Reach the daemon, starting one if none is listening.
@@ -463,6 +468,29 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                 usage()
             )),
         },
+        "offline" => {
+            let set = match args.get(2).map(String::as_str) {
+                None => None,
+                Some("on") => Some(crate::offline::Keep::Everything),
+                Some("off") => Some(crate::offline::Keep::Bodies),
+                Some(other) => {
+                    return Err(format!(
+                        "offline takes on or off, not {other:?}\n\n{}",
+                        usage()
+                    ));
+                }
+            };
+            if args.len() > 3 {
+                return Err(format!(
+                    "offline takes an account and on or off\n\n{}",
+                    usage()
+                ));
+            }
+            Ok(Command::Offline {
+                address: args.get(1).cloned(),
+                set,
+            })
+        }
         "daemon" => match args.get(1).map(String::as_str) {
             None => Ok(Command::Daemon { stop: false }),
             Some("--stop") => Ok(Command::Daemon { stop: true }),
@@ -1342,6 +1370,10 @@ usage: mailo <command>
                              New unread inbox mail raises a desktop notification
                              unless --no-notify or `notify off`
   notify [on|off]            turn new-mail notifications on or off (default on)
+  offline [<account> [on|off]]
+                             keep every attachment of an account here too, fetched
+                             a few each sync, largest last (default off); alone,
+                             how much of each account is here
   daemon [--stop]            run the background daemon, or stop it
   ping                       reach the daemon, starting one if none is running
 "
@@ -1496,6 +1528,7 @@ pub fn run_with_clients(
         }
         // Dispatched in main, which owns the environment the config directory comes from.
         Command::Notify { .. } => Err("notify is dispatched before this point".to_owned()),
+        Command::Offline { .. } => Err("offline is dispatched before this point".to_owned()),
         Command::Daemon { .. } | Command::Ping => {
             Err("the daemon commands are dispatched before this point".to_owned())
         }
