@@ -178,6 +178,16 @@ article.frame + article.frame { margin-top: var(--s-18); padding-top: var(--s-14
 /* In a message header the time already takes the free space; the switch sits after it. */
 article.frame header .view-switch { margin-left: 0; }
 .is-hidden { display: none; }
+/* The raw message: plain text in the data face, its lines kept, a long one wrapped rather than
+   widening the pane. */
+.source { display: flex; flex-direction: column; gap: var(--s-6); }
+.source-tools { display: flex; gap: var(--s-2); }
+.source-note { margin: 0; font-family: var(--font-data); font-size: var(--fs-note); color: var(--ink-faint); }
+.source-text {
+  margin: 0; padding: var(--s-10) var(--s-12); border: var(--hair) solid var(--line-soft); border-radius: var(--r-btn);
+  background: var(--surface); color: var(--ink); font-family: var(--font-data); font-size: var(--fs-small); line-height: 1.5;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
 .html.is-hidden { display: none; }
 .blocks.is-hidden { display: none; }
 
