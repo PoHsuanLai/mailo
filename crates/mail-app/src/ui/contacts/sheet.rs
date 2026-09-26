@@ -15,6 +15,7 @@ use super::super::field::{Field, FieldKind};
 use super::super::pick::{Ask, choose, file_name};
 use super::super::press::{SheetClose, on_primary};
 use super::book::{self, Row, SYNC_COMMAND};
+use super::group_rows::GroupRows;
 use crate::view::Shell;
 use ds::{Glyph, Icon};
 
@@ -84,6 +85,7 @@ pub(in crate::ui) fn ContactsSheet(shell: Signal<Shell>) -> Element {
                     }
                 }
                 ul { class: "book-rows",
+                    GroupRows { filter: filter.clone(), changed, said }
                     for row in rows.into_iter().take(SHOWN) {
                         BookRow { key: "{row.address}", row, naming, changed, said }
                     }
