@@ -23,6 +23,7 @@ use crate::{Dispatch, OutboxEntry, Settle, Store, StoreError, Term};
 mod contacts;
 mod folders;
 mod groups;
+mod offline;
 mod pgp;
 mod rules;
 mod smime;
@@ -364,6 +365,18 @@ impl Store for MemoryStore {
             .get_mut(&message)
             .ok_or(StoreError::NoMessage(message))?;
         crate::sqlite::held(&mut stored.attachments, message, section, blob, size)
+    }
+
+    fn remote_parts_in(
+        &self,
+        mailbox: &MailboxRef,
+        limit: u32,
+    ) -> Result<Vec<crate::RemotePart>, StoreError> {
+        Ok(self.inner.borrow().remote_parts_in(mailbox, limit))
+    }
+
+    fn offline(&self, account: AccountId) -> Result<crate::Offline, StoreError> {
+        Ok(self.inner.borrow().offline(account))
     }
 
     fn draft(&self, id: DraftId) -> Result<Draft, StoreError> {
