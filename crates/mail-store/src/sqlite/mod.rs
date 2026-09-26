@@ -5,6 +5,7 @@ mod draft;
 mod folders;
 mod groups;
 mod invite;
+mod offline;
 mod outbox;
 mod pgp;
 mod placed;
@@ -653,6 +654,18 @@ impl Store for SqliteStore {
             ],
         )?;
         Ok(())
+    }
+
+    fn remote_parts_in(
+        &self,
+        mailbox: &MailboxRef,
+        limit: u32,
+    ) -> Result<Vec<crate::RemotePart>, StoreError> {
+        self.read_remote_parts(mailbox, limit)
+    }
+
+    fn offline(&self, account: AccountId) -> Result<crate::Offline, StoreError> {
+        self.read_offline(account)
     }
 
     fn remote_refs(&self, mailbox: &MailboxRef) -> Result<Vec<RemoteRef>, StoreError> {

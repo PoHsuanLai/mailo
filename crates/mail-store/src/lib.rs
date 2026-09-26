@@ -10,6 +10,7 @@ mod filing;
 pub mod memory;
 mod memory_search;
 pub mod migrate;
+mod offline;
 mod pgp;
 mod prefix;
 mod remote_row;
@@ -24,6 +25,7 @@ pub use contact::{
 };
 pub use dispatch::{PASSES_TO_FIND, SYNCS_TO_FIND};
 pub use memory::MemoryStore;
+pub use offline::{Offline, RemotePart};
 pub use sql::{SqlFilter, SqlValue, compile};
 pub use sqlite::SqliteStore;
 pub use term::Term;
@@ -412,6 +414,22 @@ pub trait Store {
         blob: BlobId,
         size: u64,
     ) -> Result<(), StoreError>;
+
+    /// Attachments a sync left on the server, of messages with an address in `mailbox`,
+    /// smallest first and at most `limit` of them.
+    ///
+    /// What an account kept offline in full fetches after its bodies. Per mailbox for the reason
+    /// [`Store::unfetched_in`] is. Smallest first so the largest wait for last and a pass is
+    /// spent on many parts rather than one; ties newest message first, then by message id
+    /// descending, then by section, so both stores cut the list in the same place.
+    fn remote_parts_in(
+        &self,
+        mailbox: &MailboxRef,
+        limit: u32,
+    ) -> Result<Vec<RemotePart>, StoreError>;
+
+    /// How many of `account`'s messages are held here in full, and what is still on the server.
+    fn offline(&self, account: AccountId) -> Result<Offline, StoreError>;
 
     /// One draft by id.
     fn draft(&self, id: DraftId) -> Result<Draft, StoreError>;
