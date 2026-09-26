@@ -10,8 +10,11 @@
 //!
 //! What this module adds, through `mail_mime::Options`:
 //! - **The faces.** Each family names the CJK faces ahead of the generic one, since otherwise
-//!   fontique's fallback picks one (on some systems a thin or a bitmap-era face). Which regional
-//!   face leads is the message's: the builder marks a message with the script its own headers or
+//!   fontique's fallback picks one (on some systems a thin or a bitmap-era face, and for
+//!   ideographs not necessarily the region's). Each region names Noto's face, which is Linux's,
+//!   then Windows's and macOS's own (Yu Mincho and Yu Gothic, Hiragino, Malgun Gothic, Microsoft
+//!   JhengHei, PingFang and others), then its sans where its serif is not installed. Which
+//!   regional face leads is the message's: the builder marks a message with the script its own headers or
 //!   text say (`data-script`, [`mail_mime::Script`]), and that message's families put that
 //!   script's face first ([`Cjk::for_script`]). The document's own lines (the "printed" line,
 //!   the note, the thread's title) follow the first message, which the builder marks on `<body>`;
@@ -160,20 +163,75 @@ fn cjk_of(locale: &str) -> Option<Cjk> {
     }
 }
 
-/// The families the printout names: Latin first (so Latin text keeps its face), then the CJK
-/// faces in `cjk`'s order, then the generic family.
-fn stack(latin: &[&str], cjk_family: &str, cjk: Cjk, generic: &str) -> String {
+/// A kind of face a printout sets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    Serif,
+    Sans,
+    Mono,
+}
+
+impl Cjk {
+    /// The faces Windows and macOS carry for this region, serif or sans, Windows's first.
+    /// Neither has Noto CJK, and unnamed, the fallback chooses a face by the characters and the
+    /// system's language, which for ideographs need not be this region's.
+    fn platform(self, kind: Kind) -> &'static [&'static str] {
+        match (kind, self) {
+            (Kind::Serif, Cjk::Tc) => &["PMingLiU", "Songti TC"],
+            (Kind::Serif, Cjk::Hk) => &["MingLiU_HKSCS", "Songti TC"],
+            (Kind::Serif, Cjk::Sc) => &["SimSun", "Songti SC"],
+            (Kind::Serif, Cjk::Jp) => &["Yu Mincho", "Hiragino Mincho ProN"],
+            (Kind::Serif, Cjk::Kr) => &["Batang", "AppleMyungjo"],
+            (_, Cjk::Tc) => &["Microsoft JhengHei", "PingFang TC"],
+            (_, Cjk::Hk) => &["Microsoft JhengHei", "PingFang HK"],
+            (_, Cjk::Sc) => &["Microsoft YaHei", "PingFang SC"],
+            (_, Cjk::Jp) => &["Yu Gothic", "Hiragino Sans"],
+            (_, Cjk::Kr) => &["Malgun Gothic", "Apple SD Gothic Neo"],
+        }
+    }
+
+    /// This region's faces of `kind`: Noto's (Linux's), then Windows's and macOS's own. A serif
+    /// or mono face that is not installed gives way to the region's sans before any other
+    /// region's face, so a missing Korean serif is a Korean sans and not a Chinese serif.
+    fn faces(self, kind: Kind) -> Vec<String> {
+        let region = self.suffix();
+        let noto = match kind {
+            Kind::Serif => format!("Noto Serif CJK {region}"),
+            Kind::Sans => format!("Noto Sans CJK {region}"),
+            Kind::Mono => format!("Noto Sans Mono CJK {region}"),
+        };
+        let mut faces = vec![noto];
+        if kind == Kind::Serif {
+            faces.extend(
+                self.platform(Kind::Serif)
+                    .iter()
+                    .map(|&face| face.to_owned()),
+            );
+        }
+        if kind != Kind::Sans {
+            faces.push(format!("Noto Sans CJK {region}"));
+        }
+        faces.extend(
+            self.platform(Kind::Sans)
+                .iter()
+                .map(|&face| face.to_owned()),
+        );
+        faces
+    }
+}
+
+/// The families the printout names: Latin first (so Latin text keeps its face), then each
+/// region's CJK faces of `kind` in `cjk`'s order, then the generic family.
+fn stack(latin: &[&str], kind: Kind, cjk: Cjk, generic: &str) -> String {
     let mut families: Vec<String> = latin.iter().map(|family| format!("'{family}'")).collect();
-    families.extend(
-        cjk.order()
-            .iter()
-            .map(|region| format!("'{cjk_family} {}'", region.suffix())),
-    );
+    for region in cjk.order() {
+        families.extend(region.faces(kind).iter().map(|face| format!("'{face}'")));
+    }
     families.push(generic.to_owned());
     families.join(", ")
 }
 
-/// The three families a printout sets, with `cjk`'s face leading the CJK ones: serif for the
+/// The three families a printout sets, with `cjk`'s faces leading the CJK ones: serif for the
 /// body, sans for the headers and notes, mono for code.
 pub(in crate::ui) struct Families {
     pub serif: String,
@@ -186,12 +244,12 @@ impl Families {
         Families {
             serif: stack(
                 &["Georgia", "Times New Roman", "Noto Serif"],
-                "Noto Serif CJK",
+                Kind::Serif,
                 cjk,
                 "serif",
             ),
-            sans: stack(&["Noto Sans"], "Noto Sans CJK", cjk, "sans-serif"),
-            mono: stack(&["Noto Sans Mono"], "Noto Sans Mono CJK", cjk, "monospace"),
+            sans: stack(&["Noto Sans"], Kind::Sans, cjk, "sans-serif"),
+            mono: stack(&["Noto Sans Mono"], Kind::Mono, cjk, "monospace"),
         }
     }
 }
