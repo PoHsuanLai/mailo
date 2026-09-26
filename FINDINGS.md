@@ -4045,3 +4045,39 @@ selection, and a plain click replaces it. A batch applies one operation to all, 
 (star on a half-starred selection stars the rest), and reaches each conversation only where it
 allows it (`view::offers`), so its undo never restores what the gesture did not move. `!` now sends
 to Spam, which had no key before.
+
+### F164 — A message/rfc822 part would have gone out as base64
+
+Found while building forward as attachment. `mail_mime::build` gave every attachment that is not
+text to mail-builder, and mail-builder base64s any such part. RFC 2046 §5.2.1 allows a
+`message/rfc822` body only `7bit`, `8bit` or `binary`, and a reader that follows the RFC shows an
+encoded one as an opaque file rather than as the message. No path produced one until now: a
+hand-attached `.eml` went as `application/octet-stream`. Such a part is now written as the
+message's own bytes with CRLF line ends, labelled `7bit`, `8bit` (the submission then asks for
+`BODY=8BITMIME`, or is refused where the server cannot carry it) or `binary` for a NUL or a line
+over 998 octets. `binary` is honest even though SMTP cannot carry it.
+
+### F165 — A rebuilt message whose attachments had all been fetched was exported as the message
+
+Found while building forward as attachment. Export told a large IMAP message rebuilt from its parts
+(plan 9.6) by an attachment still `PartContent::Remote`. Fetching a part (`Store::hold_part`) marks
+the attachment held and leaves the stored raw message as it was rebuilt, with the part empty and
+the rebuild's markers still in it. So once every attachment had been opened, `mailo export` wrote
+the stand-in out under the original's name, with an empty PDF inside. `compose::rebuilt` now reads
+the markers from the bytes as well (`mail_mime::left_on_server`), and export, forward as attachment
+and the source view all ask it. A sender can write the marker headers into an ordinary message;
+then a whole message is skipped, refused or labelled rebuilt, which errs the safe way. A rebuild
+that left nothing on the server has no markers and is not caught; its bytes are every header and
+part as sent, less any preamble and epilogue.
+
+### F166 — The source view is a text node, and says what it cannot show as itself
+
+A decision. Source is a third view beside Reader and Original, drawn by mailo as one `pre` text
+node, so nothing in it is markup. Every character that would act rather than show is replaced with
+something visible: C0 controls and DEL as control pictures (U+2400–U+2421), so a bare CR or an
+escape is seen and not obeyed; C1 controls, bidi overrides and isolates, and zero-width characters
+as `<U+XXXX>`, so a right-to-left override cannot reorder the headers being checked; bytes that are
+not UTF-8 as U+FFFD, with a count. The view draws at most 256 KiB, cut at a line end, and says so.
+A headers-only message has no source, because its headers are stored as fields, not bytes. The blob
+is read on a blocking thread started by the press (F140), and the frame stays mounted and hidden,
+so returning to Original does not reload it (F157).
