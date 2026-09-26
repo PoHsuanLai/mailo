@@ -1368,3 +1368,93 @@ fn a_message_waiting_to_be_found_before_its_wait_was_counted_is_given_up_after_e
         Dispatch::Lost(_)
     ));
 }
+
+/// 0022: a conversation from before muting opens unmuted, from its thread row and from its
+/// cached summary alike, and can then be muted and read back muted after a reopen.
+#[test]
+fn a_conversation_from_before_mute_opens_unmuted_and_keeps_a_mute_across_a_reopen() {
+    use mail_domain::{Change, ChangeId, Mute, Patch, ThreadId};
+    use mail_store::Store;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("mail.db");
+    let (account, thread) = {
+        let db = Connection::open(&path).unwrap();
+        for (version, sql) in migrate::MIGRATIONS.iter().take(21) {
+            db.execute_batch(sql).unwrap();
+            if *version > 1 {
+                db.execute(
+                    "INSERT INTO schema_version (version, applied_at) VALUES (?1, datetime('now'))",
+                    [version],
+                )
+                .unwrap();
+            }
+        }
+        let account = uuid::Uuid::new_v4().to_string();
+        let thread = uuid::Uuid::new_v4().to_string();
+        let message = uuid::Uuid::new_v4().to_string();
+        db.execute(
+            "INSERT INTO accounts (id, address, plan, created_at)
+             VALUES (?1, 'me@example.test', '{}', datetime('now'))",
+            [&account],
+        )
+        .unwrap();
+        // Exactly what `upsert_message` wrote into a thread row at version 21.
+        db.execute(
+            "INSERT INTO threads (id, account, snooze, pin)
+             VALUES (?1, ?2, '{\"kind\":\"inactive\"}', '{\"kind\":\"unpinned\"}')",
+            [&thread, &account],
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO messages (id, thread, account, msg_key, date, from_name, from_email,
+                 recipients, subject, in_reply_to, refs, rfc_message_id, read, star, mailbox,
+                 body_text, body_raw, attachments)
+             VALUES (?1, ?2, ?3, '{\"kind\":\"rfc\",\"v\":\"k@example.test\"}',
+                 '2023-01-01T00:00:00.000000000Z', NULL, 'a@example.test', '{}', 's', NULL, '[]',
+                 NULL, '\"unread\"', '\"unstarred\"', '\"inbox\"', NULL, NULL, '[]')",
+            [&message, &thread, &account],
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO thread_summary (thread, account, subject, snippet, from_name,
+                 from_email, participants, recipients, last_date, message_count, read, star,
+                 mailboxes, labels, attachments, snooze, pin)
+             VALUES (?1, ?2, 's', '', NULL, 'a@example.test', '[]', '[]',
+                 '2023-01-01T00:00:00.000000000Z', 1, '\"unread\"', '\"unstarred\"',
+                 '[\"inbox\"]', '[]', '{\"kind\":\"none\"}', '{\"kind\":\"inactive\"}',
+                 '{\"kind\":\"unpinned\"}')",
+            [&thread, &account],
+        )
+        .unwrap();
+        (
+            mail_domain::AccountId::from_uuid(account.parse().unwrap()),
+            ThreadId::from_uuid(thread.parse().unwrap()),
+        )
+    };
+
+    let store = SqliteStore::open(&path, dir.path()).unwrap();
+    assert_eq!(version_of(&store.connection()), migrate::EXPECTED_VERSION);
+    assert_eq!(store.thread(thread).unwrap().summary.mute, Mute::Unmuted);
+    let row: String = store
+        .connection()
+        .query_row(
+            "SELECT mute FROM threads WHERE id = ?1",
+            [thread.to_string()],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(row, "\"unmuted\"", "the column holds serde(Mute)");
+
+    store
+        .apply(
+            account,
+            &Patch {
+                id: ChangeId::generate(),
+                changes: vec![Change::ThreadMute(thread, Mute::Muted)],
+            },
+        )
+        .unwrap();
+    drop(store);
+    let store = SqliteStore::open(&path, dir.path()).unwrap();
+    assert_eq!(store.thread(thread).unwrap().summary.mute, Mute::Muted);
+}

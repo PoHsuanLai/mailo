@@ -13,7 +13,7 @@ use chrono::{DateTime, Utc};
 use mail_domain::rule::{self, one_message};
 use mail_domain::{
     AccountCaps, AccountId, AfterMatch, Body, Change, ChangeId, Filter, Label, LabelId,
-    LabelOrigin, MailboxRole, MatchCtx, Membership, Message, MessageId, Op, PageReq, Patch,
+    LabelOrigin, MailboxRole, MatchCtx, Membership, Message, MessageId, Mute, Op, PageReq, Patch,
     Property, Query, ReadState, Rule, RuleAction, RuleState, Sort, SortDir, Star, Target,
 };
 
@@ -26,6 +26,8 @@ pub struct Ran {
     pub queued: usize,
     /// Messages looked at.
     pub examined: usize,
+    /// Messages that arrived in a muted conversation and were kept out of the inbox.
+    pub muted: Vec<MessageId>,
 }
 
 impl Ran {
@@ -33,10 +35,12 @@ impl Ran {
         self.acted.extend(other.acted);
         self.queued += other.queued;
         self.examined += other.examined;
+        self.muted.extend(other.muted);
     }
 }
 
-/// Run the account's rules over mail that has just arrived.
+/// Run the account's rules over mail that has just arrived, then keep a muted conversation's
+/// new mail out of the way.
 ///
 /// `arrived` is what a sync pass stored for the first time — `SyncReport::arrived`, the same
 /// list notifications are raised from — so a message is acted on once, when it first appears,
@@ -45,6 +49,10 @@ impl Ran {
 /// Only mail that arrived in the inbox: that is delivery, which is what a rule is about and all
 /// a server's Sieve script ever sees. The user's own sent mail arriving in Sent is not mail a
 /// rule should file away. A message gone again by the time rules run is skipped.
+///
+/// Mute comes after the rules, so a rule still sees a muted conversation's mail as it arrived
+/// and may file it, label it or throw it away. Whatever of it is still in the inbox afterwards
+/// is archived, and all of it is marked read ([`muted`]).
 pub fn at_arrival<S: Store + ?Sized>(
     store: &S,
     account: AccountId,
@@ -55,9 +63,6 @@ pub fn at_arrival<S: Store + ?Sized>(
     let rules = store.rules(account)?;
     let ordered = rule::ordered(&rules);
     let mut ran = Ran::default();
-    if ordered.is_empty() {
-        return Ok(ran);
-    }
     for id in arrived {
         let message = match store.message(*id) {
             Ok(message) => message,
@@ -67,8 +72,48 @@ pub fn at_arrival<S: Store + ?Sized>(
         if message.account != account || message.mailbox != MailboxRole::Inbox {
             continue;
         }
-        ran.absorb(act(store, caps, &ordered, message, now)?);
+        let id = message.id;
+        if !ordered.is_empty() {
+            ran.absorb(act(store, caps, &ordered, message, now)?);
+        }
+        ran.absorb(muted(store, caps, id, now)?);
     }
+    Ok(ran)
+}
+
+/// Keep a message that arrived in a muted conversation out of the way: read, and archived if it
+/// is still in the inbox. Nothing for a conversation that is not muted.
+///
+/// Both are the operations the user's own hand would apply — [`Op::SetRead`] and [`Op::Archive`]
+/// through [`Op::apply`] and [`Store::enqueue`] — and not a local-only change, for the same
+/// reason as every rule action: the server must agree. A message archived only here is still
+/// in the server's inbox and unread there, so the user's phone and webmail would show it as
+/// new, and once nothing is pending on it the next sync would bring the server's inbox back.
+/// Mute itself stays local ([`Op::SetMute`] has no remote intent), as snooze and pin do: no
+/// server has a word for it, and what the server needs to hear is only what it did.
+pub fn muted<S: Store + ?Sized>(
+    store: &S,
+    caps: &AccountCaps,
+    id: MessageId,
+    now: DateTime<Utc>,
+) -> Result<Ran, StoreError> {
+    let mut ran = Ran::default();
+    let message = match store.message(id) {
+        Ok(message) => message,
+        Err(StoreError::NoMessage(_)) => return Ok(ran),
+        Err(e) => return Err(e),
+    };
+    if store.thread(message.thread)?.summary.mute != Mute::Muted {
+        return Ok(ran);
+    }
+    ran.queued += perform(store, caps, &Op::SetRead(ReadState::Read), &message, now)?;
+    let message = store.message(id)?;
+    // Still in the inbox: a rule before this may have filed it, trashed it or called it spam,
+    // and that is where it stays.
+    if message.mailbox == MailboxRole::Inbox {
+        ran.queued += perform(store, caps, &Op::Archive, &message, now)?;
+    }
+    ran.muted.push(id);
     Ok(ran)
 }
 

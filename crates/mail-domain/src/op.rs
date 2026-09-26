@@ -29,7 +29,7 @@ use crate::id::{BlobId, ChangeId, DraftId, LabelId, MessageId, ThreadId};
 use crate::message::{Message, Thread};
 use crate::receipt::Keyword;
 use crate::remote::MailboxRef;
-use crate::state::{MailboxRole, Membership, Pin, ReadState, Snooze, Star};
+use crate::state::{MailboxRole, Membership, Mute, Pin, ReadState, Snooze, Star};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -60,6 +60,10 @@ pub enum Op {
     Label(LabelId, Membership),
     SetSnooze(Snooze),
     SetPin(Pin),
+    /// Keep a conversation's new mail out of the inbox, or stop. Local like snooze and pin: the
+    /// conversation's state changes here and nothing is sent. What a mute does to mail arriving
+    /// later is the store's to carry out at arrival, as ordinary operations on those messages.
+    SetMute(Mute),
     /// Out of the inbox into the folder this label names: a label and an archive in one, which
     /// is what moving to a folder is where mailboxes are labels, and what a `MOVE` into that
     /// folder leaves behind locally everywhere else.
@@ -89,6 +93,7 @@ pub enum OpKind {
     RemoveLabel,
     Snooze,
     Pin,
+    Mute,
     Reply,
     ReplyAll,
     Forward,
@@ -111,6 +116,7 @@ pub enum Change {
     MessageLabel(MessageId, LabelId, Membership),
     ThreadSnooze(ThreadId, Snooze),
     ThreadPin(ThreadId, Pin),
+    ThreadMute(ThreadId, Mute),
     MessageUpsert(Box<Message>),
     MessageDelete(MessageId),
     LabelUpsert(Label),
@@ -237,7 +243,7 @@ pub struct Applied {
     pub inverse: Patch,
     /// Remote work to queue, or `None` when this op is purely local — archiving under
     /// [`crate::ArchiveMeans::LocalOnly`], labelling under
-    /// [`crate::ServerLabels::LocalOnly`], and snooze and pin always, which have no server
+    /// [`crate::ServerLabels::LocalOnly`], and snooze, pin and mute always, which have no server
     /// representation at all.
     pub remote: Option<RemoteIntent>,
 }
@@ -272,7 +278,7 @@ impl Op {
         let selected = select(target, messages);
         let id = thread.summary.id;
 
-        // Snooze and pin are thread-level, so they need "is this thread in scope" rather than
+        // Snooze, pin and mute are thread-level, so they need "is this thread in scope" rather than
         // a message list. Naming the thread targets it; naming any of its messages does too,
         // because there is no such thing as snoozing half a conversation.
         let thread_targeted = match target {
@@ -308,6 +314,17 @@ impl Op {
                     (
                         vec![Change::ThreadPin(id, *pin)],
                         vec![Change::ThreadPin(id, prior)],
+                    )
+                } else {
+                    (Vec::new(), Vec::new())
+                }
+            }
+            Op::SetMute(mute) => {
+                let prior = thread.summary.mute;
+                if thread_targeted && prior != *mute {
+                    (
+                        vec![Change::ThreadMute(id, *mute)],
+                        vec![Change::ThreadMute(id, prior)],
                     )
                 } else {
                     (Vec::new(), Vec::new())
@@ -406,8 +423,8 @@ impl Op {
                     })
                 }
             },
-            // Neither has any server representation: they are this app's own state.
-            Op::SetSnooze(_) | Op::SetPin(_) => None,
+            // None has any server representation: they are this app's own state.
+            Op::SetSnooze(_) | Op::SetPin(_) | Op::SetMute(_) => None,
         }
     }
 
@@ -426,6 +443,7 @@ impl Op {
             Op::Label(_, Membership::Out) => OpKind::RemoveLabel,
             Op::SetSnooze(_) => OpKind::Snooze,
             Op::SetPin(_) => OpKind::Pin,
+            Op::SetMute(_) => OpKind::Mute,
             // Filing is archiving into a named place: the row leaves the inbox the same way.
             Op::File(_) => OpKind::Archive,
         }

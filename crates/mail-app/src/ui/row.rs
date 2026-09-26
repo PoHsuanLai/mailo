@@ -14,7 +14,7 @@ use super::menus::{LabelMenu, SnoozeMenu};
 use super::motion::{act_kind, act_kind_all, drag, motion};
 use super::move_to::MoveMenu;
 use super::ops::{composes, start_composing};
-use super::picks::{drawn_order, with_selection};
+use super::picks::{drawn_order, mute_all, with_selection};
 use super::text::{draft_state, label, sender};
 use crate::provider::Provider;
 use crate::provider::icon::{ChipPlace, ProvChip};
@@ -157,6 +157,7 @@ pub(super) fn Row(
     let id = summary.id;
     let unread = summary.read == ReadState::Unread;
     let starred = summary.star == Star::Starred;
+    let muted = summary.mute == Mute::Muted;
     let who = sender(&summary);
     let when = crate::view::listed(summary.last_date, chrono::Utc::now(), &Local);
     let subject = summary.subject.clone();
@@ -247,6 +248,11 @@ pub(super) fn Row(
                 }
             }
         }
+        if muted {
+            span { class: "mute-mark", title: "Muted", "data-muted": "true",
+                Glyph { icon: Icon::BellOff, size: ds::IconSize::Micro }
+            }
+        }
         if let Some(count) = files {
             span { class: "clip",
                 Glyph { icon: Icon::Paperclip, size: ds::IconSize::Micro }
@@ -263,8 +269,8 @@ pub(super) fn Row(
         .map(|kind| StripAction {
             id: ActionId(kebab(kind).to_owned()),
             icon: op_icon(kind),
-            label: label(kind).to_owned(),
-            fly: fly(kind),
+            label: strip_label(kind, muted).to_owned(),
+            fly: fly(kind, muted),
             onhover: preview(kind).map(|place| {
                 EventHandler::new(move |here: Here| {
                     if let Some(mut state) = motion() {
@@ -438,6 +444,12 @@ fn press(mut shell: Signal<Shell>, mut revision: Signal<u64>, id: ThreadId, pres
         shell.write().snoozing = if already { None } else { Some(id) };
         return;
     }
+    // Mute takes its direction from the conversations it reaches, so a picked row mutes or
+    // unmutes the whole selection as one gesture.
+    if kind == OpKind::Mute {
+        mute_all(&store, shell, revision, &with_selection(shell, id));
+        return;
+    }
     match composes(kind) {
         Some(what) => match start_composing(&store, id, what) {
             Ok(draft) => {
@@ -488,11 +500,22 @@ fn ViaChip(via: Provider, marks: Marks) -> Element {
 
 /// `tomorrow` in [`crate::view::snooze_until`] is 09:00 local, which is what this says.
 /// The mockup's card says 08:00; the menu and the command line both mean 09:00.
-fn fly(kind: OpKind) -> String {
+fn fly(kind: OpKind, muted: bool) -> String {
     match kind {
         OpKind::Snooze => "Tomorrow 09:00".to_owned(),
         OpKind::Archive => "Archive → out of Inbox".to_owned(),
-        other => label(other).to_owned(),
+        OpKind::Mute if muted => "Unmute → replies to the inbox".to_owned(),
+        OpKind::Mute => "Mute → replies skip the inbox".to_owned(),
+        other => strip_label(other, muted).to_owned(),
+    }
+}
+
+/// A strip button's name. Mute says what pressing it does to this row, as Read and Star do by
+/// being two kinds.
+fn strip_label(kind: OpKind, muted: bool) -> &'static str {
+    match kind {
+        OpKind::Mute if muted => "Unmute",
+        other => label(other),
     }
 }
 
@@ -510,6 +533,7 @@ fn kebab(kind: OpKind) -> &'static str {
         OpKind::RemoveLabel => "remove-label",
         OpKind::Snooze => "snooze",
         OpKind::Pin => "pin",
+        OpKind::Mute => "mute",
         OpKind::Reply => "reply",
         OpKind::ReplyAll => "reply-all",
         OpKind::Forward => "forward",
@@ -528,6 +552,7 @@ fn op_icon(kind: OpKind) -> Icon {
         OpKind::AddLabel | OpKind::RemoveLabel => Icon::Tag,
         OpKind::Snooze => Icon::Clock,
         OpKind::Pin => Icon::Pin,
+        OpKind::Mute => Icon::BellOff,
         OpKind::Reply => Icon::Reply,
         OpKind::ReplyAll => Icon::ReplyAll,
         OpKind::Forward => Icon::Forward,

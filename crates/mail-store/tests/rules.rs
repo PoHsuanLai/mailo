@@ -571,3 +571,192 @@ fn a_rule_about_a_folder_asks_the_messages_own_addresses() {
     assert_eq!(seen, vec![vec!["from the inbox".to_owned()]]);
     assert_eq!(by_folder(&MemoryStore::new(), BlobId::generate()), seen);
 }
+
+/// What muting a conversation did, for comparing the two stores.
+#[derive(Debug, PartialEq, Eq)]
+struct Muting {
+    muted: Mute,
+    listed: Vec<Mute>,
+    first: State,
+    reply: State,
+    elsewhere: State,
+    filed: State,
+    ops: Vec<ProtoOp>,
+    kept_out: usize,
+    unmuted: Mute,
+    after_unmute: State,
+}
+
+/// A message from `sender`, as a reply in the conversation `into`.
+fn reply_in(into: &Fetched, n: u32, sender: &str, raw: BlobId) -> Fetched {
+    let mut reply = arriving(n, sender, MailboxRole::Inbox, raw);
+    reply.message.thread = into.message.thread;
+    reply.message.in_reply_to = into.message.rfc_message_id.clone();
+    reply.message.references = into.message.rfc_message_id.iter().cloned().collect();
+    reply
+}
+
+/// Mute or unmute `thread` as the window does, through `Op::apply`, returning its undo.
+fn set_mute<S: Store>(store: &S, thread: ThreadId, mute: Mute) -> Patch {
+    let loaded = store.thread(thread).unwrap();
+    let messages: Vec<Message> = loaded
+        .messages
+        .iter()
+        .map(|id| store.message(*id).unwrap())
+        .collect();
+    let applied = Op::SetMute(mute).apply(
+        &Target::Threads(vec![thread]),
+        &loaded,
+        &messages,
+        &gmail(),
+        at(5),
+    );
+    assert_eq!(applied.remote, None, "mute is this client's own state");
+    store.apply(ACCOUNT, &applied.forward).unwrap();
+    applied.inverse
+}
+
+/// A conversation is muted; its next reply arrives read and archived, another conversation's
+/// arrives as it always has, and a reply a rule sent to Spam stays there, read. Unmuted again
+/// (by the mute's own undo), the next reply lands in the inbox, unread.
+fn muting<S: Store>(store: &S, raw: BlobId) -> Muting {
+    store
+        .put_rule(&rule(
+            1,
+            "Junk",
+            from("junk.example"),
+            vec![RuleAction::Spam],
+        ))
+        .unwrap();
+    let first = arriving(1, "ada@example.test", MailboxRole::Inbox, raw);
+    let other = arriving(2, "bob@example.test", MailboxRole::Inbox, raw);
+    store
+        .ingest(ACCOUNT, ingest(vec![first.clone(), other.clone()]))
+        .unwrap();
+    let thread = first.message.thread;
+    let undo = set_mute(store, thread, Mute::Muted);
+    let muted = store.thread(thread).unwrap().summary.mute;
+    // The list reads it too, newest first: the other conversation, then the muted one.
+    let listed = store
+        .threads(
+            &Query {
+                filter: Filter::Account(ACCOUNT),
+                sort: Sort {
+                    property: Property::Date,
+                    dir: SortDir::Desc,
+                },
+                page: PageReq {
+                    after: None,
+                    limit: 10,
+                },
+            },
+            at(6),
+        )
+        .unwrap()
+        .items
+        .into_iter()
+        .map(|summary| summary.mute)
+        .collect();
+
+    let reply = reply_in(&first, 3, "ada@example.test", raw);
+    let elsewhere = reply_in(&other, 4, "bob@example.test", raw);
+    let junk = reply_in(&first, 5, "news@junk.example", raw);
+    let patch = store
+        .ingest(
+            ACCOUNT,
+            ingest(vec![reply.clone(), elsewhere.clone(), junk.clone()]),
+        )
+        .unwrap();
+    let ran = rules::at_arrival(store, ACCOUNT, &gmail(), &arrived(&patch), at(10)).unwrap();
+    let ops = outbox(store);
+
+    store.apply(ACCOUNT, &undo).unwrap();
+    let unmuted = store.thread(thread).unwrap().summary.mute;
+    let late = reply_in(&first, 6, "ada@example.test", raw);
+    let patch = store.ingest(ACCOUNT, ingest(vec![late.clone()])).unwrap();
+    rules::at_arrival(store, ACCOUNT, &gmail(), &arrived(&patch), at(20)).unwrap();
+
+    Muting {
+        muted,
+        listed,
+        first: state(store, first.message.id),
+        reply: state(store, reply.message.id),
+        elsewhere: state(store, elsewhere.message.id),
+        filed: state(store, junk.message.id),
+        ops,
+        kept_out: ran.muted.len(),
+        unmuted,
+        after_unmute: state(store, late.message.id),
+    }
+}
+
+#[test]
+fn a_muted_conversations_reply_arrives_read_and_archived_and_an_unmuted_ones_does_not() {
+    let (sqlite, _dir) = sqlite();
+    let raw = sqlite.blobs().put(&sqlite.connection(), b"raw").unwrap();
+    let seen = muting(&sqlite, raw);
+
+    let unread_inbox = (
+        MailboxRole::Inbox,
+        ReadState::Unread,
+        Star::Unstarred,
+        vec![],
+    );
+    assert_eq!(seen.muted, Mute::Muted);
+    assert_eq!(seen.listed, [Mute::Unmuted, Mute::Muted]);
+    // Mail already here stays where it was: a mute is about what arrives.
+    assert_eq!(seen.first, unread_inbox);
+    assert_eq!(
+        seen.reply,
+        (
+            MailboxRole::Archive,
+            ReadState::Read,
+            Star::Unstarred,
+            vec![]
+        )
+    );
+    assert_eq!(seen.elsewhere, unread_inbox, "another conversation's reply");
+    assert_eq!(
+        seen.filed,
+        (MailboxRole::Spam, ReadState::Read, Star::Unstarred, vec![]),
+        "a rule's filing stands, and it is read"
+    );
+    assert_eq!(seen.kept_out, 2);
+    let remote = |uid| RemoteRef::Imap {
+        mailbox: "INBOX".to_owned(),
+        uidvalidity: 1,
+        uid,
+    };
+    // The server hears what the user's own hand would have said: read, then archived.
+    assert_eq!(
+        seen.ops,
+        vec![
+            ProtoOp::SetFlags {
+                remotes: vec![remote(3)],
+                read: Some(ReadState::Read),
+                star: None,
+            },
+            ProtoOp::SetMailbox {
+                remotes: vec![remote(3)],
+                role: MailboxRole::Archive,
+            },
+            ProtoOp::SetMailbox {
+                remotes: vec![remote(5)],
+                role: MailboxRole::Spam,
+            },
+            ProtoOp::SetFlags {
+                remotes: vec![remote(5)],
+                read: Some(ReadState::Read),
+                star: None,
+            },
+        ]
+    );
+    assert_eq!(seen.unmuted, Mute::Unmuted);
+    assert_eq!(
+        seen.after_unmute, unread_inbox,
+        "unmuted, mail arrives again"
+    );
+
+    // The in-memory store did exactly the same.
+    assert_eq!(muting(&MemoryStore::new(), BlobId::generate()), seen);
+}

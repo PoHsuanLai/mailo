@@ -70,7 +70,7 @@ pub use smime::{
     SmimeVerification,
 };
 pub use state::{
-    Attachments, IsDefault, LabelOrigin, MailboxRole, MailboxSet, Membership, Pin, ReadState,
+    Attachments, IsDefault, LabelOrigin, MailboxRole, MailboxSet, Membership, Mute, Pin, ReadState,
     Snooze, Star, Threading,
 };
 pub use template::Template;

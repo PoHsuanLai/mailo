@@ -82,6 +82,36 @@ pub fn pin_op(summary: &ThreadSummary, now: DateTime<Utc>) -> Op {
     }
 }
 
+/// What Mute does to a conversation, given what it is now: mute it, or unmute it if it is muted.
+///
+/// `Op::SetMute` carries the state it sets, so `op_for` cannot produce it; the conversation's own
+/// state decides the direction.
+pub fn mute_op(summary: &ThreadSummary) -> Op {
+    Op::SetMute(match summary.mute {
+        Mute::Muted => Mute::Unmuted,
+        Mute::Unmuted => Mute::Muted,
+    })
+}
+
+/// The one mute a gesture applies to several conversations: unmute when every one of them is
+/// muted, mute otherwise. One operation for all, never a toggle each, as star and read on a
+/// selection are.
+pub fn mute_for_all(summaries: &[ThreadSummary]) -> Mute {
+    if !summaries.is_empty() && summaries.iter().all(|s| s.mute == Mute::Muted) {
+        Mute::Unmuted
+    } else {
+        Mute::Muted
+    }
+}
+
+/// What a Mute button or menu item says for these conversations: what pressing it would do.
+pub fn mute_label(summaries: &[ThreadSummary]) -> &'static str {
+    match mute_for_all(summaries) {
+        Mute::Muted => "Mute",
+        Mute::Unmuted => "Unmute",
+    }
+}
+
 /// Snoozed, and not yet due.
 ///
 /// `SnoozeDue` implies `Snoozed`, so "away" is the difference between them rather than a state
@@ -1011,10 +1041,11 @@ pub fn hover_actions(summary: &ThreadSummary) -> Vec<OpKind> {
         Star::Unstarred => OpKind::Star,
         Star::Starred => OpKind::Unstar,
     });
-    // All three always offered. None depends on where the conversation is or what state it is
-    // in: a forward is the message being passed on, a pin is a note to yourself about it, and a
-    // label is a name you are giving it.
+    // Always offered. None depends on where the conversation is or what state it is in: a
+    // forward is the message being passed on, a pin is a note to yourself about it, a mute is
+    // about the replies still to come, and a label is a name you are giving it.
     out.push(OpKind::Pin);
+    out.push(OpKind::Mute);
     out.push(OpKind::Snooze);
     out.push(OpKind::AddLabel);
     out.push(OpKind::Forward);
@@ -1057,6 +1088,8 @@ pub enum Shortcut {
     Forward,
     /// Pin it, or unpin it if it is already pinned.
     TogglePin,
+    /// Mute it, or unmute it if it is muted: every picked conversation, or the open one.
+    ToggleMute,
     /// Start a message that answers nothing.
     ///
     /// The one shortcut here that does not act on the conversation under the cursor, which is
@@ -1094,6 +1127,7 @@ pub fn shortcut(key: &str, typing: bool) -> Option<Shortcut> {
         "a" => Shortcut::ReplyAll,
         "f" => Shortcut::Forward,
         "p" => Shortcut::TogglePin,
+        "m" => Shortcut::ToggleMute,
         "c" => Shortcut::Compose,
         _ => return None,
     })
@@ -1204,12 +1238,14 @@ pub fn op_for_selection(shortcut: Shortcut, summaries: &[ThreadSummary]) -> Opti
         | Shortcut::ExtendPrevious
         | Shortcut::Back => &[],
         // Both open or carry rather than performing a payload-free operation. `TogglePin` needs
-        // the clock as well as the state, so it goes through `pin_op` instead. `Compose` is not
+        // the clock as well as the state, so it goes through `pin_op` instead, and `ToggleMute`
+        // the state of every picked conversation at once (`mute_for_all`). `Compose` is not
         // about this conversation at all — it is the one shortcut with no `summary` to consult.
         Shortcut::Reply
         | Shortcut::ReplyAll
         | Shortcut::Forward
         | Shortcut::TogglePin
+        | Shortcut::ToggleMute
         | Shortcut::Compose => &[],
     };
     wanted
@@ -1262,11 +1298,13 @@ pub fn op_for(kind: OpKind) -> Option<Op> {
         OpKind::MarkUnread => Some(Op::SetRead(ReadState::Unread)),
         OpKind::Star => Some(Op::SetStar(Star::Starred)),
         OpKind::Unstar => Some(Op::SetStar(Star::Unstarred)),
-        // These need a label picked, a draft created, or a date chosen.
+        // These need a label picked, a draft created, a date chosen, or the conversation's own
+        // state to say which way they go.
         OpKind::AddLabel
         | OpKind::RemoveLabel
         | OpKind::Snooze
         | OpKind::Pin
+        | OpKind::Mute
         | OpKind::Reply
         | OpKind::ReplyAll
         | OpKind::Forward => None,
@@ -1574,6 +1612,7 @@ mod tests {
             attachments: Attachments::None,
             snooze: Snooze::Inactive,
             pin: Pin::Unpinned,
+            mute: Mute::Unmuted,
         };
         tweak(&mut s);
         s
@@ -2579,6 +2618,7 @@ mod keyboard {
             attachments: Attachments::None,
             snooze: Snooze::Inactive,
             pin: Pin::Unpinned,
+            mute: Mute::Unmuted,
         }
     }
 
@@ -2680,6 +2720,57 @@ mod keyboard {
         // Not an operation `op_for` can produce: the payload comes from the state and the clock.
         assert_eq!(op_for(OpKind::Pin), None);
         assert_eq!(op_for_shortcut(Shortcut::TogglePin, &unpinned), None);
+    }
+
+    #[test]
+    fn m_mutes_and_unmutes_by_what_the_conversations_are() {
+        assert_eq!(shortcut("m", false), Some(Shortcut::ToggleMute));
+        assert_eq!(shortcut("m", true), None, "fired while typing");
+
+        let unmuted = summary(ReadState::Read, Star::Unstarred, MailboxRole::Inbox);
+        let mut muted = unmuted.clone();
+        muted.mute = Mute::Muted;
+        assert_eq!(mute_op(&unmuted), Op::SetMute(Mute::Muted));
+        assert_eq!(mute_op(&muted), Op::SetMute(Mute::Unmuted));
+        // Not an operation `op_for` can produce: the direction comes from the state.
+        assert_eq!(op_for(OpKind::Mute), None);
+        assert_eq!(op_for_shortcut(Shortcut::ToggleMute, &unmuted), None);
+
+        // A selection: one mute for all, unmute only when every one is muted.
+        const CASES: &[(&[Mute], Mute, &str)] = &[
+            (&[Mute::Unmuted], Mute::Muted, "Mute"),
+            (&[Mute::Muted], Mute::Unmuted, "Unmute"),
+            (&[Mute::Muted, Mute::Unmuted], Mute::Muted, "Mute"),
+            (&[Mute::Muted, Mute::Muted], Mute::Unmuted, "Unmute"),
+            (&[], Mute::Muted, "Mute"),
+        ];
+        for (states, wanted, said) in CASES {
+            let picked: Vec<ThreadSummary> = states
+                .iter()
+                .map(|mute| ThreadSummary {
+                    mute: *mute,
+                    ..unmuted.clone()
+                })
+                .collect();
+            assert_eq!(mute_for_all(&picked), *wanted, "{states:?}");
+            assert_eq!(mute_label(&picked), *said, "{states:?}");
+        }
+    }
+
+    #[test]
+    fn mute_is_offered_on_every_conversation() {
+        for mailbox in [
+            MailboxRole::Inbox,
+            MailboxRole::Archive,
+            MailboxRole::Trash,
+            MailboxRole::Sent,
+        ] {
+            let summary = summary(ReadState::Read, Star::Unstarred, mailbox);
+            assert!(
+                offers(&summary, OpKind::Mute),
+                "{mailbox:?}: a mute is about replies still to come"
+            );
+        }
     }
 
     #[test]

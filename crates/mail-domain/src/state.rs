@@ -180,6 +180,24 @@ pub enum Snooze {
     Until(chrono::DateTime<chrono::Utc>),
 }
 
+/// Whether new mail in a conversation is kept out of the way.
+///
+/// A muted conversation's replies arrive read and archived rather than in the inbox. It is this
+/// client's own state, like [`Snooze`] and [`Pin`]: no server has a word for it, so nothing is
+/// sent when it changes, and what reaches the server is only what it does to each arriving
+/// message.
+///
+/// `Default` is meaningful here, and it is `Unmuted`: every conversation starts unmuted, a
+/// conversation stored before muting existed was unmuted, and a thread row or summary written
+/// without the field therefore reads back as exactly what it was.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Mute {
+    #[default]
+    Unmuted,
+    Muted,
+}
+
 /// Where a label came from, which decides whether the user may rename or delete it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

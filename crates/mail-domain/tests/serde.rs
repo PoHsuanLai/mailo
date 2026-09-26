@@ -161,6 +161,37 @@ fn summary() -> ThreadSummary {
         attachments: Attachments::Present { count: 1 },
         snooze: Snooze::Until(at(9)),
         pin: Pin::Rank(1_000),
+        mute: Mute::Unmuted,
+    }
+}
+
+fn muted_thread() -> Thread {
+    Thread {
+        summary: ThreadSummary {
+            mute: Mute::Muted,
+            ..summary()
+        },
+        ..thread()
+    }
+}
+
+fn mute_actions() -> Vec<Action> {
+    [Mute::Muted, Mute::Unmuted]
+        .into_iter()
+        .map(|mute| Action {
+            target: Target::Threads(vec![ThreadId::from_uuid(uuid(6))]),
+            op: Op::SetMute(mute),
+        })
+        .collect()
+}
+
+fn mute_patch() -> Patch {
+    Patch {
+        id: ChangeId::from_uuid(uuid(12)),
+        changes: vec![
+            Change::ThreadMute(ThreadId::from_uuid(uuid(6)), Mute::Muted),
+            Change::ThreadMute(ThreadId::from_uuid(uuid(6)), Mute::Unmuted),
+        ],
     }
 }
 
@@ -1418,6 +1449,11 @@ fixtures! {
     "thread.json" => Thread = thread(),
     "label.json" => Label = label(),
     "draft.json" => Draft = draft(),
+    // Muting a conversation (plan item 3). `thread.json` predates `ThreadSummary::mute` and must
+    // keep loading as unmuted; these pin the field, the op and the change in their own spelling.
+    "thread_muted.json" => Thread = muted_thread(),
+    "actions_mute.json" => Vec<Action> = mute_actions(),
+    "patch_mute.json" => Patch = mute_patch(),
     // Written when drafts gained `receipt`. `draft.json` above predates the field and must keep
     // loading as `Unrequested`; this one pins the field's own spelling.
     "draft_receipt.json" => Draft = Draft { receipt: ReceiptRequest::Requested, ..draft() },
@@ -1821,6 +1857,50 @@ fn jmap_types_round_trip() {
             mailbox_state: "m7".to_owned(),
         },
     );
+}
+
+/// A conversation written before muting existed was not muted, and still loads saying so.
+#[test]
+fn a_thread_from_before_mute_is_unmuted() {
+    let text = std::fs::read_to_string(fixture_dir().join("thread.json")).expect("fixture");
+    assert!(!text.contains("mute"), "the fixture must predate the field");
+    let thread: Thread = serde_json::from_str(&text).expect("still deserializes");
+    assert_eq!(thread.summary.mute, Mute::Unmuted);
+    // And the value it now reads as is the old one with nothing else changed.
+    assert_eq!(thread, self::thread());
+}
+
+/// Mute's persisted spellings: a fieldless enum as a bare string, and the op and the change
+/// adjacently tagged like every other.
+#[test]
+fn mute_is_spelled_as_its_name() {
+    assert_eq!(
+        serde_json::to_value(Mute::Muted).unwrap(),
+        serde_json::json!("muted")
+    );
+    assert_eq!(
+        serde_json::to_value(Mute::Unmuted).unwrap(),
+        serde_json::json!("unmuted")
+    );
+    assert_eq!(
+        serde_json::to_value(Op::SetMute(Mute::Muted)).unwrap(),
+        serde_json::json!({"kind": "set_mute", "v": "muted"})
+    );
+    assert_eq!(
+        serde_json::to_value(OpKind::Mute).unwrap(),
+        serde_json::json!("mute")
+    );
+    assert_eq!(
+        serde_json::to_value(Change::ThreadMute(
+            ThreadId::from_uuid(uuid(6)),
+            Mute::Muted
+        ))
+        .unwrap(),
+        serde_json::json!({"kind": "thread_mute", "v": [uuid(6).to_string(), "muted"]})
+    );
+    round_trip("Thread/muted", muted_thread());
+    round_trip_each("Action/mute", mute_actions());
+    round_trip("Patch/mute", mute_patch());
 }
 
 /// A draft written before receipts existed did not ask for one, and still loads saying so.

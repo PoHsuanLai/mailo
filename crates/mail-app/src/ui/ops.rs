@@ -123,12 +123,17 @@ pub(super) fn apply_op(store: &SqliteStore, thread: ThreadId, kind: OpKind) -> b
 ///
 /// `Pin` needs a payload `op_for` cannot supply — the direction comes from the conversation's
 /// current state and the rank from the clock — so it is resolved here, where both are in
-/// reach. Label and snooze open a menu rather than acting, and resolve to nothing.
+/// reach, and `Mute` likewise takes its direction from the conversation. Label and snooze open
+/// a menu rather than acting, and resolve to nothing.
 pub(super) fn resolve(store: &SqliteStore, thread: ThreadId, kind: OpKind) -> Option<Op> {
     match kind {
         OpKind::Pin => {
             let loaded = store.thread(thread).ok()?;
             Some(crate::view::pin_op(&loaded.summary, chrono::Utc::now()))
+        }
+        OpKind::Mute => {
+            let loaded = store.thread(thread).ok()?;
+            Some(crate::view::mute_op(&loaded.summary))
         }
         other => op_for(other),
     }

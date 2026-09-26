@@ -5,6 +5,10 @@
 .reader { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--surface-2); }
 .reader-head { padding: var(--s-16) var(--s-18) var(--s-12); border-bottom: var(--hair) solid var(--line-soft); }
 .reader-head h2 { font-size: var(--fs-subject); line-height: 1.15; }
+.reader-head .muted-note {
+  display: flex; align-items: center; gap: var(--s-4); margin-top: var(--s-4);
+  font-family: var(--font-data); font-size: var(--fs-micro); color: var(--ink-faint);
+}
 .reader-head .head-row { display: flex; gap: var(--s-6); align-items: center; margin-bottom: var(--s-9); }
 .reader-meta { display: flex; align-items: center; gap: var(--s-8); margin-top: var(--s-9); }
 .reader-av {

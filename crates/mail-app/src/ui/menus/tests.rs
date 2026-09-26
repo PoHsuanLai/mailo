@@ -219,6 +219,7 @@ fn create_appears_only_for_a_new_name_and_checks_follow_the_thread() {
         attachments: Attachments::None,
         snooze: Snooze::Inactive,
         pin: Pin::Unpinned,
+        mute: Mute::Unmuted,
     };
     let worn = super::label_items(&known, &summary, "");
     assert!(

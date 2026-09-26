@@ -98,6 +98,7 @@ pub(super) fn label(kind: OpKind) -> &'static str {
         OpKind::AddLabel | OpKind::RemoveLabel => "Label",
         OpKind::Snooze => "Snooze",
         OpKind::Pin => "Pin",
+        OpKind::Mute => "Mute",
         OpKind::Reply => "Reply",
         OpKind::ReplyAll => "Reply all",
         OpKind::Forward => "Forward",

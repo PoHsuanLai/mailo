@@ -42,6 +42,7 @@ pub fn summary(
         attachments: Attachments::None,
         snooze: Snooze::Inactive,
         pin: Pin::Unpinned,
+        mute: Mute::Unmuted,
     }
 }
 

@@ -56,6 +56,7 @@ fn summary(account: AccountId) -> ThreadSummary {
         attachments: Attachments::None,
         snooze: Snooze::Inactive,
         pin: Pin::Unpinned,
+        mute: Mute::Unmuted,
     }
 }
 
