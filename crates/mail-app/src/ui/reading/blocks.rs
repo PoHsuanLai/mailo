@@ -79,7 +79,7 @@ pub(super) fn Sandbox(
 pub(super) fn MessageView(
     message_id: MessageId,
     reading: Reading,
-    original: Signal<HashMap<MessageId, bool>>,
+    original: Signal<super::source::Showing>,
     quotes: Signal<OpenQuotes>,
     shell: Signal<Shell>,
     /// Marks to draw. The default marks nothing.
@@ -87,7 +87,10 @@ pub(super) fn MessageView(
     found: Found,
 ) -> Element {
     let frame = reading.frame_html().map(str::to_owned);
-    let show_original = frame.is_some() && original.read().get(&message_id) == Some(&true);
+    let shown = super::source::shown(&original.read(), message_id);
+    let show_original = frame.is_some() && shown == super::source::Shown::Original;
+    // Under the source, neither is drawn; both stay mounted, the frame so it is not reloaded.
+    let hide_blocks = show_original || shown == super::source::Shown::Source;
     let document = reading.document().cloned();
     let cx = Ctx {
         message_id,
@@ -101,7 +104,7 @@ pub(super) fn MessageView(
         }
         if let Some(document) = document {
             div {
-                class: if show_original { "blocks is-hidden" } else { "blocks" },
+                class: if hide_blocks { "blocks is-hidden" } else { "blocks" },
                 {body(&document, cx)}
                 if document.reached != Reached::Nothing {
                     p { class: "b b-note", "This message was shortened to display it." }

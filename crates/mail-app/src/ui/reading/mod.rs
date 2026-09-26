@@ -4,6 +4,7 @@ mod find_bar;
 mod found;
 mod image;
 mod remote;
+mod source;
 mod spans;
 mod table;
 
@@ -18,7 +19,7 @@ pub(super) use find_bar::open_find;
 use find_bar::{FindBar, marking};
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
-use std::collections::HashMap;
+use source::{Showing, Shown, SourceView, Sources};
 use std::sync::Arc;
 
 #[cfg(test)]
@@ -50,32 +51,56 @@ fn initial(name: &str) -> String {
     }
 }
 
-/// Reader / Original. A span, so it can sit in the header without becoming the
-/// iframe's parent.
+/// Reader / Original / Source. A span, so it can sit in the header without becoming the
+/// iframe's parent. Original is offered only where there is a frame; Source for every message,
+/// its body downloaded or not, since saying which is part of what it shows.
 #[component]
-fn ViewSwitch(message_id: MessageId, mut original: Signal<HashMap<MessageId, bool>>) -> Element {
-    let showing = original.read().get(&message_id) == Some(&true);
+fn ViewSwitch(
+    message_id: MessageId,
+    body: Option<BlobId>,
+    frame: bool,
+    mut showing: Signal<Showing>,
+    sources: Signal<Sources>,
+) -> Element {
+    let now = source::shown(&showing.read(), message_id);
+    let pressed = |which| {
+        if now == which {
+            ds::Switch::On
+        } else {
+            ds::Switch::Off
+        }
+    };
     let reader = "Reader";
     let original_label = "Original";
+    let source_label = "Source";
     rsx! {
         span { class: "view-switch", role: "group", aria_label: "How to show this message",
             ds::Button {
                 variant: ds::ButtonVariant::Mini,
                 label: reader,
                 aria_label: reader.to_owned(),
-                pressed: if showing { ds::Switch::Off } else { ds::Switch::On },
+                pressed: pressed(Shown::Reader),
                 onclick: on_primary(move || {
-                    original.write().insert(message_id, false);
+                    showing.write().insert(message_id, Shown::Reader);
                 }),
+            }
+            if frame {
+                ds::Button {
+                    variant: ds::ButtonVariant::Mini,
+                    label: original_label,
+                    aria_label: original_label.to_owned(),
+                    pressed: pressed(Shown::Original),
+                    onclick: on_primary(move || {
+                        showing.write().insert(message_id, Shown::Original);
+                    }),
+                }
             }
             ds::Button {
                 variant: ds::ButtonVariant::Mini,
-                label: original_label,
-                aria_label: original_label.to_owned(),
-                pressed: if showing { ds::Switch::On } else { ds::Switch::Off },
-                onclick: on_primary(move || {
-                    original.write().insert(message_id, true);
-                }),
+                label: source_label,
+                aria_label: source_label.to_owned(),
+                pressed: pressed(Shown::Source),
+                onclick: on_primary(move || source::open(message_id, body, showing, sources)),
             }
         }
     }
@@ -141,10 +166,12 @@ pub(super) fn Reader(
     // Which attachment is being fetched, if one is. That part's button stays disabled until
     // the fetch ends, so a second click cannot start a second download of it.
     let downloading = use_signal(|| None::<(MessageId, usize)>);
-    // Which HTML message is showing its Original frame. Keyed by message, so
-    // opening another one does not carry the choice over. The frame itself is
-    // not created and destroyed with this flag.
-    let original = use_signal(HashMap::<MessageId, bool>::new);
+    // Which messages are showing their Original frame or their source. Keyed by message, so
+    // opening another one does not carry the choice over. The frame itself is not created and
+    // destroyed with this choice.
+    let original = use_signal(Showing::new);
+    // The sources read so far, by blob, so switching back and forth reads each once.
+    let sources = use_signal(Sources::new);
     // Quotes the reader has unfolded, keyed by message and path.
     let quotes = use_signal(blocks::OpenQuotes::new);
     // Moved when an OpenPGP or S/MIME message has been opened and has a body of its own to show,
@@ -374,16 +401,19 @@ pub(super) fn Reader(
                         strong { "{from_name(&message)}" }
                         span { class: "mono", "{address(&message)}" }
                         time { class: "mono", "{stamp(&message)}" }
-                        if reading.frame_html().is_some() {
-                            // Offered wherever there is a frame, not only for
-                            // `Reading::Layout`: the frame is mounted for every HTML body,
-                            // and Original is the escape hatch when the blocks got a
-                            // message wrong. The mockup offers it on the receipt too.
-                            // A span, not a div: a div between the article and its iframe
-                            // is a new parent, and a new parent reloads the frame.
-                            // The labels are computed so a test can find the control: a
-                            // literal attribute never appears in the render mutations.
-                            ViewSwitch { message_id: message.id, original }
+                        // Original is offered wherever there is a frame, not only for
+                        // `Reading::Layout`: the frame is mounted for every HTML body, and
+                        // Original is the escape hatch when the blocks got a message wrong.
+                        // A span, not a div: a div between the article and its iframe is a new
+                        // parent, and a new parent reloads the frame. The labels are computed so
+                        // a test can find the control: a literal attribute never appears in the
+                        // render mutations.
+                        ViewSwitch {
+                            message_id: message.id,
+                            body: message.body.raw(),
+                            frame: reading.frame_html().is_some(),
+                            showing: original,
+                            sources,
                         }
                     }
                     // What the message's OpenPGP or S/MIME says, and its passphrase field. A
@@ -432,6 +462,17 @@ pub(super) fn Reader(
                             shell,
                             found,
                         }
+                    }
+                    // The source, when it is how this message is shown: after the body, so the
+                    // frame keeps its parent.
+                    SourceView {
+                        message: message.id,
+                        body: message.body.raw(),
+                        showing: original,
+                        sources,
+                        shell,
+                        revision,
+                        said: saved,
                     }
                 }
             }
