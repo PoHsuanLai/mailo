@@ -4098,3 +4098,20 @@ leave, and being back on the row is `onpointerback`'s to say: it fires after the
 grace, only if the pointer stayed on the row. `native_sender.rs` walks the pointer from the name to
 Block sender over the rows below in ten steps and presses it; on the old hook the card went at the
 first step.
+
+### F168 — A muted conversation's new mail arrives read and out of the inbox
+
+A decision, with a new piece of domain state the user approved (item 3). `Mute { Unmuted, Muted }`
+sits beside snooze and pin: thread-level, set by the user, never sent to a server as itself, and
+undone like them (`Op::SetMute`, `Change::ThreadMute`). A summary or row written before it reads
+back unmuted, which is what it was (`#[serde(default)]`, migration 0022 with that default).
+
+What a mute does happens at arrival, after the user's rules: a new message on a muted thread is
+marked read and, if it would have landed in the inbox, archived. Those are ordinary operations on
+the arriving message, queued to the server the way the user's own archive and read would be, so a
+later sync does not bring the mail back. A reply a rule sent to Spam stays in Spam, read. Mail
+already in the conversation when it is muted stays where it is. On a half-muted selection, Mute
+mutes the rest; it unmutes only when every picked conversation is muted.
+
+`reparse.rs` fakes an old database by undoing later migrations; it now undoes 0022 as well. Every
+migration added after this one has to be undone there too.
