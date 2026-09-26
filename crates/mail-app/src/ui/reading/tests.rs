@@ -608,6 +608,27 @@ fn every_block_renders_to_the_same_sketch() {
     assert!(failures.is_empty(), "{}", failures.join("\n---\n"));
 }
 
+/// A link in the Reader view is drawn, and hovered, without the parameters that only tell the
+/// sender who clicked: an inline link and a button alike. An unknown parameter stays.
+#[test]
+fn reader_links_are_drawn_without_tracking_parameters() {
+    let raw = "<p>Read <a href=\"https://news.example/issue?n=14&amp;utm_source=letter&amp;fbclid=x\">\
+               the issue</a> or the archive.</p>\
+               <p><a href=\"https://news.example/archive?utm_medium=email&amp;mc_eid=f00d\">Archive</a></p>";
+    let markup = rendered_blocks(blocks_of(raw, RemoteImages::Blocked));
+    assert!(
+        markup.contains(r#"href="https://news.example/issue?n=14""#),
+        "the inline link kept its tracking, or lost its own parameter:\n{markup}"
+    );
+    assert!(
+        markup.contains(r#"href="https://news.example/archive""#),
+        "the button kept its tracking:\n{markup}"
+    );
+    for name in ["utm_", "fbclid", "mc_eid"] {
+        assert!(!markup.contains(name), "{name} survived:\n{markup}");
+    }
+}
+
 #[tokio::test]
 async fn a_flowed_reply_is_paragraphs_a_folded_quote_and_a_signature() {
     let body = "\

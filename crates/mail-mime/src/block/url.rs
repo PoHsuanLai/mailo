@@ -11,6 +11,7 @@
 //! markup today and do not survive into a block, so they are constants the
 //! renderer applies rather than fields of the link.
 
+use super::tracking;
 use ammonia::Url;
 
 /// `rel` the renderer sets on every link. The sanitizer sets the same value.
@@ -53,6 +54,20 @@ impl SafeUrl {
             return None;
         }
         Some(Self(canonical.to_owned()))
+    }
+
+    /// Parse `raw` as a link the reader shows and opens: [`SafeUrl::parse`], then without the
+    /// query parameters that only tell the sender who clicked (`utm_*`, `fbclid`, `gclid`,
+    /// `mc_eid` and the rest of [`super::tracking::TRACKING`]).
+    ///
+    /// Only named parameters come off; an unknown one stays. A redirect wrapper is not unwrapped,
+    /// so the link goes where the sender pointed it. An image's address is not a link and goes
+    /// through [`SafeUrl::parse`] alone, as does a link the user types into a draft.
+    pub fn link(raw: &str) -> Option<Self> {
+        let parsed = Self::parse(raw)?;
+        let mut url = Url::parse(parsed.as_str()).ok()?;
+        tracking::strip(&mut url);
+        Some(Self(url.as_str().to_owned()))
     }
 
     /// The canonical URL.
