@@ -6,6 +6,7 @@
 //! [`IoNeed`]: https://docs.rs/mail-proto
 
 pub mod archive;
+pub mod auth;
 pub mod block;
 pub mod build;
 mod charset;
@@ -23,6 +24,7 @@ pub mod smime;
 pub mod stamp;
 pub mod unsubscribe;
 
+pub use auth::{AuthResults, Check, Receiver, Verdict, authentication_results};
 pub use block::{
     Action, Block, Dir, Document, Flowed, ImgSrc, Inlined, LINK_REL, LINK_TARGET, Limits, Reached,
     SafeUrl, Shape, Span, from_html, from_text, is_mapped, mapped_tags,
