@@ -20,12 +20,12 @@ use std::time::Duration;
 const ACCOUNT: AccountId =
     AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b7"));
 
-/// Tall enough that the settings' last card, Keyboard, is drawn without scrolling. At 800 px
-/// the settings' scroller stops about 630 px short of its end on Blitz, so the last cards
-/// cannot be scrolled to; that is its own finding, not this test's.
+/// Tall enough that the settings' last card, Keyboard, is drawn without scrolling, with the
+/// Offline and Spelling cards above it. At 800 px the settings' scroller stops well short of its
+/// end on Blitz, so the last cards cannot be scrolled to; that is its own finding, not this test's.
 const VIEW: Viewport = Viewport {
     width: 1200,
-    height: 1800,
+    height: 2400,
     scale_percent: 100,
 };
 

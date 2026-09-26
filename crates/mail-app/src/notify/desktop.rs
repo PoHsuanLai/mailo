@@ -288,8 +288,11 @@ fn escape(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(not(target_os = "macos"))]
     use mail_domain::ThreadId;
 
+    // Only the click test uses it, and macOS answers clicks elsewhere (no action to read).
+    #[cfg(not(target_os = "macos"))]
     fn thread(n: u128) -> Opens {
         Opens::Thread(ThreadId::from_uuid(uuid::Uuid::from_u128(n)))
     }
