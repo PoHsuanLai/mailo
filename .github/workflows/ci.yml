@@ -101,29 +101,138 @@ jobs:
       - name: Live protocol tests
         run: ./scripts/live-tests.sh
 
-  # The one crate here that claims to be cross-platform, built and tested where it claims to
-  # work. `latchkey` decides where a per-user agent lives on macOS and Windows, and a claim like
-  # that checked only on Linux is a claim rather than a fact — its rules are pure functions and
-  # tested everywhere, but the lock and the named pipe are the kernel's and have to be met.
+  # The whole workspace on macOS and Windows: build, clippy and the tests. Until 2026-09-27 only
+  # `latchkey` ran here and the rest was Linux-only on purpose; mailo now runs on all three, with
+  # the keyring, notifications, file dialogs and per-user directories each on the platform's own
+  # (FINDINGS), and a claim like that checked only on Linux is a claim rather than a fact.
   #
-  # Only this crate: the rest of the workspace is Linux-only on purpose.
+  # A test that cannot hold on a platform says so itself with a `cfg` on the test, rather than
+  # being skipped here, so what is not checked where is written beside what it checks.
   portable:
     strategy:
       fail-fast: false
       matrix:
         os: [macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    # Tighter than the rest. This is the job that hung, the suite is small, and a Windows runner
-    # is the most expensive minute in this file.
-    timeout-minutes: 15
+    # Cold, this builds Blitz, stylo and wgpu twice (clippy, then the tests), which `check` puts at
+    # ~15-18 minutes on a four-core Linux runner. The macOS runners are about as fast; Windows is
+    # the slowest runner and the most expensive minute in this file, and was once the job that
+    # hung. 60 leaves room for a cold cache there without letting a hang run for long.
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      # No network, as in `check`: everything that talks to a socket is `#[ignore]`d.
+      - name: Tests
+        run: cargo test --workspace
+
+  # Unsigned packages for each platform, on every push to master and by hand. They are artifacts
+  # of the run, not a release: nothing here publishes anything.
+  #
+  # Signing is left out. Where it would go: the macOS app and .dmg in packaging/macos/bundle.sh
+  # (a Developer ID certificate and notarisation credentials as secrets), and the Windows MSI with
+  # `signtool` after `cargo wix` below (a code-signing certificate as a secret). Neither exists
+  # yet, so macOS says the developer cannot be verified and Windows SmartScreen warns, as README
+  # says.
+  package:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/master')
+    strategy:
+      fail-fast: false
+      matrix:
+        # WiX Toolset v3, which cargo-wix drives, is on the windows-2022 image; the MSI step
+        # installs it where it is not.
+        os: [ubuntu-latest, macos-latest, windows-2022]
+    runs-on: ${{ matrix.os }}
+    # One release build (thin LTO) and the packaging tools, cold.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Tests
-        run: cargo test -p latchkey
-      - name: Clippy
-        run: cargo clippy -p latchkey --all-targets -- -D warnings
+        with:
+          key: package
+
+      # Linux: a .deb and an .rpm through scripts/package.sh, which makes the release build.
+      - name: System libraries for the window
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libfontconfig1-dev
+      - name: Packaging tools (Linux)
+        if: runner.os == 'Linux'
+        run: cargo install --locked cargo-deb cargo-generate-rpm
+      - name: .deb and .rpm
+        if: runner.os == 'Linux'
+        run: ./scripts/package.sh deb rpm
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Linux'
+        with:
+          name: mailo-linux
+          path: |
+            target/debian/*.deb
+            target/generate-rpm/*.rpm
+          if-no-files-found: error
+
+      # The icon for macOS and Windows is drawn at build time from the one SVG Linux installs.
+      - name: Icon renderer
+        if: runner.os != 'Linux'
+        run: cargo install --locked resvg
+
+      # macOS: mailo.app in a .dmg.
+      - name: mailo.app and .dmg
+        if: runner.os == 'macOS'
+        run: ./packaging/macos/bundle.sh
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'macOS'
+        with:
+          name: mailo-macos
+          path: target/macos/*.dmg
+          if-no-files-found: error
+
+      # Windows: an MSI through cargo-wix, registering mailo for mailto: links.
+      - name: Release build (Windows)
+        if: runner.os == 'Windows'
+        run: cargo build --release --locked -p mail-app --bin mailo
+      - name: Icon (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          mkdir -p target/wix
+          svg=packaging/icons/hicolor/scalable/apps/mailo.svg
+          for size in 16 24 32 48 64 256; do
+            resvg --width "$size" --height "$size" "$svg" "target/wix/icon-$size.png"
+          done
+          python packaging/windows/make-ico.py target/wix/mailo.ico \
+            target/wix/icon-16.png target/wix/icon-24.png target/wix/icon-32.png \
+            target/wix/icon-48.png target/wix/icon-64.png target/wix/icon-256.png
+      - name: MSI
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cargo install --locked cargo-wix
+          if ($env:WIX) {
+            $wix = $env:WIX
+          } else {
+            choco install wixtoolset --version 3.14.1 -y --no-progress
+            $wix = Join-Path ${env:ProgramFiles(x86)} 'WiX Toolset v3.14'
+          }
+          cargo wix --package mail-app --no-build --nocapture `
+            --bin-path (Join-Path $wix 'bin') `
+            --include packaging/windows/main.wxs `
+            --output target/wix/mailo-x86_64.msi
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Windows'
+        with:
+          name: mailo-windows
+          path: target/wix/*.msi
+          if-no-files-found: error
 
   # Dependency licences. The allow-list in deny.toml is the machine-readable half of
   # docs/licensing-references.md: a dependency whose licence is not on it fails here rather than

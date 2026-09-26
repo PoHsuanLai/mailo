@@ -128,6 +128,28 @@ The window draws with [quire](https://github.com/PoHsuanLai/quire), the shared d
 `crates/mail-app` depends on a tagged quire release from GitHub, so a plain clone of mailo builds
 on its own.
 
+## macOS and Windows
+
+mailo builds and is tested on both (`portable` in `.github/workflows/ci.yml`) with a plain
+`cargo build --release -p mail-app`, needing only the C compiler Rust already needs there (Xcode's
+command line tools, Visual Studio's build tools). Passwords and tokens go to the login keychain on
+macOS and to the Credential Manager on Windows. Mail and settings go to
+`~/Library/Application Support/mailo` on macOS; on Windows mail goes to `%LOCALAPPDATA%\mailo` and
+settings to `%APPDATA%\mailo`.
+
+**Installing.** Every push to master builds packages for all three platforms (the `package` job;
+download them from the run's artifacts): a `.deb` and an `.rpm`, `mailo-<version>.dmg` holding
+`mailo.app`, and `mailo-x86_64.msi`. **The macOS and Windows packages are unsigned.** macOS says the
+developer cannot be verified: open it once from Finder with Control-click, Open. Windows SmartScreen
+warns about an unrecognised app: More info, Run anyway. Both register mailo for `mailto:` links, to
+be chosen as the mail handler in Mail's settings or in Windows' Default apps. To build them
+yourself: `packaging/macos/bundle.sh`, or `cargo wix` with `packaging/windows/main.wxs` as the CI
+job does.
+
+What is not the same yet: on macOS a click on a notification opens nothing, and a `mailto:` link
+starts mailo without handing it the link; on Windows the window is started with a console beside
+it, and notifications are shown under Windows PowerShell's name.
+
 ## The gates
 
 ```sh
