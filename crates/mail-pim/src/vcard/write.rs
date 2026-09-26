@@ -19,6 +19,9 @@ pub fn write(card: &Card) -> String {
     if let Some(uid) = &card.uid {
         lines.push(ContentLine::new("UID", escape(uid)));
     }
+    if let Some(kind) = &card.kind {
+        lines.push(ContentLine::new("KIND", kind.as_str()));
+    }
     lines.push(ContentLine::new(
         "FN",
         escape(card.formatted_name.as_deref().unwrap_or(&fallback)),
@@ -62,6 +65,15 @@ pub fn write(card: &Card) -> String {
     }
     if let Some(rev) = &card.revision {
         lines.push(ContentLine::new("REV", rev.clone()));
+    }
+    // A URI, not text: written as it was read, with no escaping (RFC 6350 §6.6.5). Only a group
+    // has members; a `MEMBER` on anything else rides in `other`, where the reader left it.
+    if card.is_group() {
+        lines.extend(
+            card.members
+                .iter()
+                .map(|uri| ContentLine::new("MEMBER", uri.clone())),
+        );
     }
     lines.extend(card.other.iter().cloned());
     lines.push(ContentLine::new("END", "VCARD"));

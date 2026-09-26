@@ -5,7 +5,7 @@
 //! on: grouped lines, bare 2.1 parameters, quoted-printable names, inline photos.
 
 use mail_pim::line::ContentLine;
-use mail_pim::vcard::{self, Card, Email, Name, Phone, Version};
+use mail_pim::vcard::{self, Card, CardKind, Email, Member, Name, Phone, Version};
 
 const V21: &str = "BEGIN:VCARD\r\n\
 VERSION:2.1\r\n\
@@ -243,4 +243,103 @@ fn a_card_cut_off_by_the_end_of_the_file_keeps_what_it_had() {
     let cards = vcard::parse("BEGIN:VCARD\nFN:Half\nEMAIL:half@example.test\n");
     assert_eq!(cards.len(), 1);
     assert_eq!(cards[0].emails[0].address, "half@example.test");
+}
+
+/// A group as RFC 6350 §6.6.5's example writes one, with a member named by address, one named
+/// by the `UID` of another card, and one naming a card nobody here has.
+const GROUP: &str = "BEGIN:VCARD\r\n\
+VERSION:4.0\r\n\
+KIND:group\r\n\
+FN:The Doe family\r\n\
+UID:urn:uuid:03a0e51f-d1aa-4385-8a53-e29025acd8af\r\n\
+MEMBER:mailto:jane.doe@example.test\r\n\
+MEMBER:urn:uuid:b8767877-b4a1-4c70-9acc-505d3819e519\r\n\
+MEMBER;PREF=1:urn:uuid:ffffffff-0000-4000-8000-000000000000\r\n\
+X-GROUP-COLOUR:green\r\n\
+END:VCARD\r\n";
+
+#[test]
+fn a_group_reads_its_kind_and_members_in_order() {
+    let card = &vcard::parse(GROUP)[0];
+    assert_eq!(card.kind, Some(CardKind::Group));
+    assert!(card.is_group());
+    assert_eq!(
+        card.members,
+        [
+            "mailto:jane.doe@example.test",
+            "urn:uuid:b8767877-b4a1-4c70-9acc-505d3819e519",
+            "urn:uuid:ffffffff-0000-4000-8000-000000000000",
+        ]
+    );
+    assert_eq!(
+        card.members
+            .iter()
+            .map(|m| Member::of(m))
+            .collect::<Vec<_>>(),
+        [
+            Member::Mailto(vec!["jane.doe@example.test".into()]),
+            Member::Card("b8767877-b4a1-4c70-9acc-505d3819e519".into()),
+            Member::Card("ffffffff-0000-4000-8000-000000000000".into()),
+        ]
+    );
+    let other: Vec<&str> = card.other.iter().map(|l| l.name.as_str()).collect();
+    assert_eq!(other, ["X-GROUP-COLOUR"], "MEMBER is not carried twice");
+    assert!(card.emails.is_empty());
+}
+
+#[test]
+fn a_group_round_trips_with_every_member_kept() {
+    let read = vcard::parse(GROUP).remove(0);
+    let written = vcard::write(&read);
+    assert!(written.contains("\r\nKIND:group\r\n"), "{written}");
+    assert!(
+        written.contains("\r\nMEMBER:urn:uuid:ffffffff-0000-4000-8000-000000000000\r\n"),
+        "a member naming no card here is still written back: {written}"
+    );
+    assert_eq!(vcard::parse(&written).remove(0), read);
+}
+
+#[test]
+fn a_group_with_no_members_is_a_group() {
+    let card = Card::group("Nobody yet", Vec::new());
+    let written = vcard::write(&card);
+    assert!(!written.contains("MEMBER"), "{written}");
+    let again = vcard::parse(&written).remove(0);
+    assert!(again.is_group());
+    assert!(again.members.is_empty());
+    assert_eq!(again.display_name().as_deref(), Some("Nobody yet"));
+}
+
+#[test]
+fn a_kind_is_read_in_any_case_and_written_as_read() {
+    for (value, kind) in [
+        ("GROUP", CardKind::Group),
+        ("Individual", CardKind::Individual),
+        ("org", CardKind::Org),
+        ("location", CardKind::Location),
+        ("x-device", CardKind::Other("x-device".into())),
+    ] {
+        let text = format!("BEGIN:VCARD\r\nVERSION:4.0\r\nKIND:{value}\r\nFN:X\r\nEND:VCARD\r\n");
+        let card = vcard::parse(&text).remove(0);
+        assert_eq!(card.kind, Some(kind.clone()), "{value}");
+        assert!(
+            vcard::write(&card).contains(&format!("\r\nKIND:{}\r\n", kind.as_str())),
+            "{value}"
+        );
+    }
+}
+
+#[test]
+fn a_member_on_a_card_that_is_no_group_rides_along_unread() {
+    // KIND after MEMBER, and not a group: the line is carried as it came, parameter and all.
+    let text = "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Ada\r\nMEMBER;PREF=1:mailto:x@example.test\r\n\
+                KIND:individual\r\nEND:VCARD\r\n";
+    let card = vcard::parse(text).remove(0);
+    assert!(card.members.is_empty());
+    assert_eq!(card.other.len(), 1);
+    assert!(vcard::write(&card).contains("\r\nMEMBER;PREF=1:mailto:x@example.test\r\n"));
+    // KIND after MEMBER on a group: still the group's members.
+    let text = "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:G\r\nMEMBER:mailto:x@example.test\r\n\
+                KIND:group\r\nEND:VCARD\r\n";
+    assert_eq!(vcard::parse(text)[0].members, ["mailto:x@example.test"]);
 }

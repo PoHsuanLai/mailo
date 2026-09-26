@@ -1,8 +1,10 @@
 //! CardDAV (RFC 6352): finding a user's address books and reading them into the contacts table.
 //!
 //! The requests are built and the replies read by `mail_pim::dav`; this module sends them.
-//! Read-only: cards come down and become contacts under [`mail_store::Origin::Book`], and
-//! nothing is written back to the server.
+//! Cards come down and become contacts under [`mail_store::Origin::Book`], and a `KIND:group`
+//! card becomes a [`mail_store::Group`]. The one thing written back is a group edited here
+//! ([`mail_store::Edit::Edited`]): the next sync of its book sends it with `PUT`, conditional on
+//! the etag last seen (RFC 6352 §6.3.2, RFC 9110 §13.1.1).
 //!
 //! HTTPS only, whatever URL is given: every request carries a password or a bearer token.
 //! Redirects are followed by hand rather than by the client, because the one CardDAV depends on
@@ -11,9 +13,11 @@
 //! for, never to wherever a redirect points.
 
 mod discover;
+mod group;
 mod sync;
 
 pub use discover::{Collection, discover};
+pub use group::{Unwritten, group_card};
 pub use sync::{How, Synced, sync};
 
 use crate::RuntimeError;
@@ -140,12 +144,32 @@ pub struct Dav {
     origin: url::Origin,
 }
 
-/// A reply: where it finally came from, its status and its body.
+/// A reply: where it finally came from, its status, its `ETag` and its body.
 #[derive(Debug)]
 struct Reply {
     url: Url,
     status: StatusCode,
+    etag: Option<String>,
     body: String,
+}
+
+/// What one request sends beyond its method and URL.
+struct Request<'a> {
+    depth: Option<&'a str>,
+    content_type: &'static str,
+    /// `If-Match`: the etag the resource must still have.
+    if_match: Option<&'a str>,
+    body: String,
+}
+
+/// How a `PUT` of a card went.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Put {
+    /// Stored. The new etag when the server said it; RFC 6352 §6.3.2.3 lets a server that
+    /// changed what it stored leave it out.
+    Stored(Option<String>),
+    /// `412`: the card changed on the server since its etag was read.
+    Changed,
 }
 
 impl Dav {
@@ -164,29 +188,28 @@ impl Dav {
         &self,
         method: &str,
         url: &Url,
-        depth: Option<&str>,
-        body: String,
+        request: Request<'_>,
     ) -> Result<Reply, CardDavFailure> {
         let method = Method::from_bytes(method.as_bytes())
             .map_err(|e| CardDavFailure::Malformed(e.to_string()))?;
         let mut at = url.clone();
         for _ in 0..=REDIRECTS {
             https(&at)?;
-            let mut request = self
+            let mut sending = self
                 .http
                 .request(method.clone(), at.clone())
-                .header(
-                    reqwest::header::CONTENT_TYPE,
-                    "application/xml; charset=utf-8",
-                )
-                .body(body.clone());
-            if let Some(depth) = depth {
-                request = request.header("Depth", depth);
+                .header(reqwest::header::CONTENT_TYPE, request.content_type)
+                .body(request.body.clone());
+            if let Some(depth) = request.depth {
+                sending = sending.header("Depth", depth);
+            }
+            if let Some(etag) = request.if_match {
+                sending = sending.header(reqwest::header::IF_MATCH, etag);
             }
             if at.origin() == self.origin {
-                request = request.header(reqwest::header::AUTHORIZATION, self.auth.header());
+                sending = sending.header(reqwest::header::AUTHORIZATION, self.auth.header());
             }
-            let response = request.send().await.map_err(unreachable)?;
+            let response = sending.send().await.map_err(unreachable)?;
             let status = response.status();
             if status.is_redirection()
                 && let Some(location) = response.headers().get(reqwest::header::LOCATION)
@@ -202,10 +225,16 @@ impl Dav {
             if status == StatusCode::UNAUTHORIZED {
                 return Err(CardDavFailure::Unauthorized);
             }
+            let etag = response
+                .headers()
+                .get(reqwest::header::ETAG)
+                .and_then(|etag| etag.to_str().ok())
+                .map(str::to_owned);
             let body = response.text().await.map_err(unreachable)?;
             return Ok(Reply {
                 url: at,
                 status,
+                etag,
                 body,
             });
         }
@@ -221,7 +250,13 @@ impl Dav {
         body: String,
         what: &'static str,
     ) -> Result<(Url, mail_pim::Multistatus), CardDavFailure> {
-        let reply = self.send(method, url, Some(depth), body).await?;
+        let request = Request {
+            depth: Some(depth),
+            content_type: "application/xml; charset=utf-8",
+            if_match: None,
+            body,
+        };
+        let reply = self.send(method, url, request).await?;
         if reply.status != StatusCode::MULTI_STATUS {
             return Err(CardDavFailure::Refused {
                 status: reply.status.as_u16(),
@@ -231,6 +266,31 @@ impl Dav {
         let parsed = mail_pim::dav::multistatus(&reply.body)
             .map_err(|e| CardDavFailure::Malformed(e.to_string()))?;
         Ok((reply.url, parsed))
+    }
+
+    /// `PUT` the vCard `text` at `url` if the card there still has `etag` (RFC 6352 §6.3.2).
+    /// An empty `etag` — a server that never gave one — sends it unconditionally.
+    pub(crate) async fn put_card(
+        &self,
+        url: &Url,
+        etag: &str,
+        text: String,
+    ) -> Result<Put, CardDavFailure> {
+        let request = Request {
+            depth: None,
+            content_type: "text/vcard; charset=utf-8",
+            if_match: (!etag.is_empty()).then_some(etag),
+            body: text,
+        };
+        let reply = self.send("PUT", url, request).await?;
+        match reply.status {
+            status if status.is_success() => Ok(Put::Stored(reply.etag)),
+            StatusCode::PRECONDITION_FAILED => Ok(Put::Changed),
+            status => Err(CardDavFailure::Refused {
+                status: status.as_u16(),
+                what: "the PUT of a group",
+            }),
+        }
     }
 }
 

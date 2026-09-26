@@ -496,6 +496,7 @@ fn an_address_books_sync_state_round_trips() {
         cards: [(
             "/book/a.vcf".to_owned(),
             BookCard {
+                uid: None,
                 etag: "\"1\"".to_owned(),
                 addresses: vec!["a@example.test".to_owned()],
                 vcard: "BEGIN:VCARD\r\nEND:VCARD\r\n".to_owned(),

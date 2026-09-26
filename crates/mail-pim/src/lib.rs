@@ -20,4 +20,4 @@ pub use error::PimError;
 pub use ical::Calendar;
 pub use invite::{Invite, Kind, Me, Revision, Unplaced, When, WhenShown, show_when, summarise};
 pub use line::{ContentLine, Param};
-pub use vcard::{Card, Email, Name, Phone, Version};
+pub use vcard::{Card, CardKind, Email, Member, Name, Phone, Version};

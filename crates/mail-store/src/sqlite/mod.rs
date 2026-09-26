@@ -3,6 +3,7 @@
 mod contacts;
 mod draft;
 mod folders;
+mod groups;
 mod invite;
 mod outbox;
 mod pgp;
@@ -927,6 +928,22 @@ impl Store for SqliteStore {
 
     fn address_books(&self) -> Result<Vec<AddressBook>, StoreError> {
         self.every_book()
+    }
+
+    fn groups(&self) -> Result<Vec<crate::Group>, StoreError> {
+        self.every_group()
+    }
+
+    fn group(&self, id: &crate::GroupId) -> Result<Option<crate::Group>, StoreError> {
+        self.one_group(id)
+    }
+
+    fn put_group(&self, group: &crate::Group) -> Result<(), StoreError> {
+        self.write_group(group)
+    }
+
+    fn delete_group(&self, id: &crate::GroupId) -> Result<bool, StoreError> {
+        self.drop_group(id)
     }
 }
 
