@@ -514,7 +514,10 @@ fn with_folders(store: &SqliteStore) {
         holds: Holds::Mail,
     };
     store
-        .put_folders(ACCOUNT, vec![folder("INBOX"), folder(PROJECTS)])
+        .put_folders(
+            ACCOUNT,
+            vec![folder("INBOX"), folder(PROJECTS), folder("Receipts")],
+        )
         .unwrap();
 }
 
@@ -1157,4 +1160,36 @@ fn composer_snapshot() {
     harness.advance(ms(600));
     let caret = format!("{}.caret.png", path.trim_end_matches(".png"));
     harness.render().unwrap().save(caret).unwrap();
+}
+
+#[test]
+fn going_to_another_folder_ends_a_rename() {
+    let (mut harness, _dir, store) = renaming(FocusFallback::Ancestor);
+    // The field keeps the keyboard through a press on another folder's name (quire v0.1.11), so
+    // the rename ends because mailo ends it, not because the field lost focus.
+    // While Projects is being renamed, its name is the field, so the one name button left is
+    // Receipts'.
+    let other = "button.ds-tree-item-label";
+    assert!(
+        harness.count(other) > 0,
+        "no other folder to go to:\n{}",
+        harness.html()
+    );
+    harness.click(centre(&harness, other));
+    harness.advance(ms(300));
+    assert_eq!(
+        harness.count(RENAMING),
+        0,
+        "going to another folder left the rename open"
+    );
+    let paths: Vec<String> = store
+        .folders(ACCOUNT)
+        .unwrap()
+        .into_iter()
+        .map(|folder| folder.path)
+        .collect();
+    assert!(
+        paths.contains(&PROJECTS.to_owned()),
+        "the abandoned rename was written: {paths:?}"
+    );
 }

@@ -168,17 +168,6 @@ impl Host {
         let _ = event;
     }
 
-    /// A press ended in the window. On Blitz, if a click a quire component kept to itself left
-    /// the keyboard nowhere, it goes back to `.app` a frame later (`native.rs`). A browser leaves
-    /// the focus on the pressed button, and the webview's `KEEP_FOCUS` covers the rest, so there
-    /// it is nothing.
-    pub(in crate::ui) fn press_ended() {
-        #[cfg(feature = "native")]
-        if let Host::Native(blitz) = Host::current() {
-            blitz.after_press();
-        }
-    }
-
     /// Give the keyboard back to the window, `.app`.
     pub(in crate::ui) fn focus_app() {
         Host::ask(Ask::FocusApp);

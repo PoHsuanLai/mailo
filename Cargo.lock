@@ -256,7 +256,7 @@ dependencies = [
 [[package]]
 name = "anyrender_pdfrum"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.1.10#2e178e482b692c3b5b933ad518aae5ef7697343f"
+source = "git+https://github.com/PoHsuanLai/quire?tag=v0.1.11#09e9715b23b33b0d77214194ebaec23b7c55c554"
 dependencies = [
  "anyrender",
  "pdfrum-common",
@@ -2641,7 +2641,7 @@ checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
 [[package]]
 name = "ds"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.1.10#2e178e482b692c3b5b933ad518aae5ef7697343f"
+source = "git+https://github.com/PoHsuanLai/quire?tag=v0.1.11#09e9715b23b33b0d77214194ebaec23b7c55c554"
 dependencies = [
  "cssparser 0.37.0",
  "dioxus",
@@ -2655,7 +2655,7 @@ dependencies = [
 [[package]]
 name = "ds-native"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.1.10#2e178e482b692c3b5b933ad518aae5ef7697343f"
+source = "git+https://github.com/PoHsuanLai/quire?tag=v0.1.11#09e9715b23b33b0d77214194ebaec23b7c55c554"
 dependencies = [
  "anyrender",
  "anyrender_pdfrum",
@@ -2684,7 +2684,7 @@ dependencies = [
 [[package]]
 name = "ds-settings"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.1.10#2e178e482b692c3b5b933ad518aae5ef7697343f"
+source = "git+https://github.com/PoHsuanLai/quire?tag=v0.1.11#09e9715b23b33b0d77214194ebaec23b7c55c554"
 dependencies = [
  "dioxus",
  "dirs",
@@ -2702,7 +2702,7 @@ dependencies = [
 [[package]]
 name = "ds-settings-derive"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.1.10#2e178e482b692c3b5b933ad518aae5ef7697343f"
+source = "git+https://github.com/PoHsuanLai/quire?tag=v0.1.11#09e9715b23b33b0d77214194ebaec23b7c55c554"
 dependencies = [
  "proc-macro2",
  "quote",

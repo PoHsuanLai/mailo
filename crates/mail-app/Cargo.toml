@@ -55,13 +55,13 @@ dioxus = { version = "0.7" }
 # `@font-face` rules as `data:` URIs, which only a webview needs. To try an unreleased quire,
 # point every quire line at a checkout with a `[patch]` in a local, uncommitted
 # `.cargo/config.toml`, never here.
-ds = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.1.10", features = ["lint"] }
+ds = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.1.11", features = ["lint"] }
 # Settings I/O: `appearance.toml` (imported once from `appearance.json`), the settings portal.
-ds-settings = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.1.10" }
+ds-settings = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.1.11" }
 # The `native` frontend: quire's Blitz host (the window, its fonts, focus, clipboard, harness,
 # PDF output), and `print`: the system's print dialog for a PDF (the desktop portal on Linux,
 # else the PDF opened in the viewer).
-ds-native = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.1.10", optional = true, features = ["print"] }
+ds-native = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.1.11", optional = true, features = ["print"] }
 blitz-dom = { workspace = true, optional = true }
 dioxus-native-dom = { workspace = true, optional = true }
 # ASCII-case-insensitive multi-pattern search for highlights. Already in the tree via `regex`.

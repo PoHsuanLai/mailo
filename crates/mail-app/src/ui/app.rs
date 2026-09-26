@@ -616,7 +616,6 @@ pub(super) fn App() -> Element {
             },
             onpointerup: move |_| {
                 super::motion::drag::release(shell, revision);
-                super::host::Host::press_ended();
             },
             "data-peek": "{peek}",
             if side_hidden() {

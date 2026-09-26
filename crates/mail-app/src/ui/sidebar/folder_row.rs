@@ -134,6 +134,11 @@ pub(super) fn FolderRow(
     // Choosing the folder is its name's press; a folder that is no place has a name only.
     let onselect = place.map(|index| {
         EventHandler::new(move |_: Press| {
+            // Going to another folder ends a rename in progress: its field keeps the keyboard
+            // through the press (quire v0.1.11), so the slot must be taken away here.
+            if matches!(*open.peek(), Open::Renaming { .. }) {
+                open.set(Open::Closed);
+            }
             shell.write().select(index);
             pages.set(1);
             if let Some(mailbox) = fetched.clone() {

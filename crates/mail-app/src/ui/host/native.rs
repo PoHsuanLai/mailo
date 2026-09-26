@@ -5,8 +5,9 @@
 //!   `ds::focus_soon`, which waits out a busy document. The rest is quire's, under
 //!   `ds_native::launch`'s `FocusFallback::Ancestor`: after a click on nothing focusable the
 //!   keyboard stays on `.app`, and when what had it is removed (a menu closed on Escape, a sheet,
-//!   a folder's rename field) its opener or nearest focusable ancestor takes it. A click a quire
-//!   component keeps to itself is the one gap left: [`Blitz::after_press`].
+//!   a folder's rename field) its opener or nearest focusable ancestor takes it, and a quire
+//!   control that keeps its click to itself (a strip button, a tree row's name) takes the
+//!   keyboard as a browser's button would (quire v0.1.11).
 //! - A field or element named by selector: `ds::focus_by_selector`, which waits up to twenty
 //!   frames for the element to be drawn, as the webview's scripts did, and tells a `TextInput`
 //!   it found its `onfocus` once.
@@ -64,27 +65,6 @@ impl Blitz {
     pub(in crate::ui) fn mounted(&self, app: Rc<MountedData>) {
         self.app.replace(Some(Rc::clone(&app)));
         self.as_shell(|| ds::focus_soon(app));
-    }
-
-    /// A press ended in the window: a frame later, if it left the keyboard nowhere, `.app` takes
-    /// it back.
-    ///
-    /// The one case quire's `FocusFallback::Ancestor` does not reach (quire v0.1.10): a click a
-    /// quire component keeps to itself (`HoverStrip`'s buttons, `TreeItem`'s name and ⋯, any
-    /// `Propagation::Stop`) never reaches `Ds`'s click-focus fallback. Blitz clears the focus on
-    /// that click while `.app` stays in the document, so quire's removal keeper takes it for a
-    /// focus cleared on purpose and leaves it. quire's own `restore` does the work, and only
-    /// when the focus is nowhere: a field or a menu the press gave the keyboard keeps it.
-    pub(in crate::ui) fn after_press(&self) {
-        let Some(app) = self.app.borrow().clone() else {
-            return;
-        };
-        self.as_shell(|| {
-            spawn(async move {
-                ds::sleep(ds::FRAME_SLACK).await;
-                let _ = (ds_native::CLICK_FOCUS.restore)(&app);
-            });
-        });
     }
 
     /// Answer `ask`, from a handler; the work is a task of the shell's.
