@@ -1,4 +1,4 @@
-//! The small pieces the rows share: the name field, a refusal in words, and the menu's items.
+//! The small pieces the rows share: the name fields, a refusal in words, and the menu's items.
 
 use super::super::field::{Field, FieldKind};
 use super::super::menu::{MenuItem, Right, Tile};
@@ -7,7 +7,7 @@ use super::folder_row::run;
 use super::folder_tree::{Kind, Node};
 use super::folders::{Note, Open, Spot, Wires};
 use dioxus::prelude::*;
-use ds::Icon;
+use ds::{FieldFace, Focus, Icon, TextInput, use_focus_request};
 use mail_domain::{AccountId, FolderWork, Subscription};
 
 /// The field for a new folder's name, under the folder it goes in (or the header).
@@ -72,7 +72,8 @@ pub(super) fn Said(wires: Wires, account: Option<AccountId>, path: Option<String
     }
 }
 
-/// The one field, inline, with Enter to make it so and Esc to leave it.
+/// A new folder's field, inline under the row it goes in, with Enter to make it so and Esc to
+/// leave it.
 #[component]
 pub(super) fn NameField(
     value: String,
@@ -112,6 +113,42 @@ pub(super) fn NameField(
                 on_focus: |_| {},
                 on_blur: |_| {},
             }
+        }
+    }
+}
+
+/// A folder's new name, written where its name is: quire's `TreeItem { editing }` slot. It takes
+/// the row's face, has the keyboard with the old name selected as it mounts, Enter makes it so
+/// and Esc leaves it; the row takes the slot away to end it.
+#[component]
+pub(super) fn RenameField(
+    value: String,
+    on_input: EventHandler<String>,
+    on_commit: EventHandler<()>,
+    on_cancel: EventHandler<()>,
+) -> Element {
+    let focus = Focus::Controlled(use_focus_request().with_select_all());
+    rsx! {
+        TextInput {
+            variant: FieldFace::Bare,
+            label: "Folder name".to_owned(),
+            placeholder: "Folder name".to_owned(),
+            value,
+            focus,
+            oninput: move |text: String| on_input.call(text),
+            onkey: move |event: KeyboardEvent| {
+                // Ctrl chords are still the window's. Every other key is the field's: a letter
+                // typed into a name is not a shortcut.
+                if event.modifiers().ctrl() {
+                    return;
+                }
+                event.stop_propagation();
+                match event.key().to_string().as_str() {
+                    "Enter" => on_commit.call(()),
+                    "Escape" => on_cancel.call(()),
+                    _ => {}
+                }
+            },
         }
     }
 }

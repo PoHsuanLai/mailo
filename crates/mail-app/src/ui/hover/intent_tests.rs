@@ -5,12 +5,18 @@
 use ds::{HoverEvent, HoverIntent, HoverWarmth, IntentEffect, IntentPhase};
 use std::time::{Duration, Instant};
 
-/// Rest before a card opens, in milliseconds.
-const OPEN: u64 = 450;
-/// Grace after the pointer leaves, in which it may reach the card.
-const CLOSE: u64 = 150;
-/// How long the window stays warm after a card closes.
-const WARM: u64 = 400;
+/// Rest before a card opens, in milliseconds: quire's `ds::delays::HOVER_OPEN`.
+const OPEN: u64 = millis(ds::delays::HOVER_OPEN);
+/// Grace after the pointer leaves, in which it may reach the card: `ds::delays::HOVER_CLOSE`.
+const CLOSE: u64 = millis(ds::delays::HOVER_CLOSE);
+/// How long the window stays warm after a card closes: `ds::delays::HOVER_WARM`.
+const WARM: u64 = millis(ds::delays::HOVER_WARM);
+
+/// `delay` in whole milliseconds, for the scripts' arithmetic. The hover delays are well under
+/// a second, so nothing is lost.
+const fn millis(delay: Duration) -> u64 {
+    delay.as_millis() as u64
+}
 
 /// One thing that happens to the machine, at a moment.
 #[derive(Debug, Clone, Copy)]

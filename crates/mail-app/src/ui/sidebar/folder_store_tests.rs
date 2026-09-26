@@ -10,6 +10,7 @@ use crate::ui::fixtures::{chord, click, dispatching, empty, rebuild_into, type_i
 use crate::ui::ops::take_back;
 use chrono::Utc;
 use dioxus::prelude::*;
+use dioxus_core::ElementId;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
@@ -351,6 +352,80 @@ async fn the_menu_and_the_field_are_the_shared_ones_and_styled() {
         &crate::ui::style::tests::full_css(),
     );
     assert!(missing.is_empty(), "unstyled classes: {missing:?}");
+}
+
+/// The window with `Projects`' ⋯ menu open and its Rename picked, and the rename field.
+fn renaming_projects() -> (VirtualDom, ElementId, Arc<SqliteStore>, tempfile::TempDir) {
+    let (store, dir) = imap_store();
+    let mut dom = VirtualDom::new(App).with_root_context(store.clone());
+    let seen = rebuild_into(&mut dom);
+    let mut seen = click(&mut dom, seen.one("aria-label", "Actions for Projects"));
+    for _ in 0..8 {
+        dom.process_events();
+        let mut more = crate::ui::fixtures::Seen::default();
+        dom.render_immediate(&mut more);
+        seen = seen.merge(more);
+    }
+    // Under the cursor is New folder inside; the first row not under it is Rename.
+    let rename = seen.all("aria-selected", "false")[0];
+    let field = click(&mut dom, rename).one("aria-placeholder", "Folder name");
+    (dom, field, store, dir)
+}
+
+/// The rename field is quire's `TreeItem { editing }`: in the name's place, the name's button
+/// gone from the row and nothing drawn under it.
+fn editing_markup(page: &str) -> Option<&str> {
+    let at = page.find("data-slot=\"editing\"")?;
+    let end = page[at..]
+        .find("</span>")
+        .map_or(page.len(), |end| at + end);
+    Some(&page[at..end])
+}
+
+#[tokio::test]
+async fn a_rename_is_written_in_the_name_s_place_and_enter_makes_it() {
+    dispatching();
+    let (mut dom, field, store, _dir) = renaming_projects();
+    let page = dioxus_ssr::render(&dom);
+    let slot = editing_markup(&page).unwrap_or_else(|| panic!("no editing slot:\n{page}"));
+    assert!(
+        slot.contains("class=\"ds-input\" data-variant=\"bare\"")
+            && slot.contains("value=\"Projects\""),
+        "{slot}"
+    );
+    assert!(
+        !page.contains("class=\"fold-edit\""),
+        "a field is drawn under the row"
+    );
+    type_into(&mut dom, field, "Plans");
+    chord(&mut dom, "Enter", Modifiers::empty(), field);
+    let page = dioxus_ssr::render(&dom);
+    assert!(editing_markup(&page).is_none(), "Enter left the field");
+    let paths: Vec<String> = store
+        .folders(IMAP)
+        .unwrap()
+        .into_iter()
+        .map(|folder| folder.path)
+        .collect();
+    assert!(paths.contains(&"Plans".to_owned()), "{paths:?}");
+    assert!(!paths.contains(&"Projects".to_owned()), "{paths:?}");
+}
+
+#[tokio::test]
+async fn escape_takes_the_rename_away_and_keeps_the_name() {
+    dispatching();
+    let (mut dom, field, store, _dir) = renaming_projects();
+    chord(&mut dom, "Escape", Modifiers::empty(), field);
+    let page = dioxus_ssr::render(&dom);
+    assert!(editing_markup(&page).is_none(), "Escape left the field");
+    assert!(page.contains(">Projects</button>"), "{page}");
+    let paths: Vec<String> = store
+        .folders(IMAP)
+        .unwrap()
+        .into_iter()
+        .map(|folder| folder.path)
+        .collect();
+    assert!(paths.contains(&"Projects".to_owned()), "{paths:?}");
 }
 
 #[tokio::test]

@@ -372,7 +372,7 @@ fn hovering_fetches_nothing() {
             .centre(&format!("{} .ds-row-name", row(n)))
             .expect("a row's sender");
         window.harness.pointer_move(at);
-        window.harness.advance(ms(700));
+        window.harness.advance(ds::delays::HOVER_OPEN + ms(250));
     }
     assert_eq!(window.fetched.count(), 0, "hovering fetched");
 
@@ -385,7 +385,7 @@ fn hovering_fetches_nothing() {
             .centre(&format!("{} .ds-row-name", row(n)))
             .expect("a row's sender");
         window.harness.pointer_move(at);
-        window.harness.advance(ms(700));
+        window.harness.advance(ds::delays::HOVER_OPEN + ms(250));
     }
     assert_eq!(window.fetched.count(), n, "hovering another row fetched");
 }

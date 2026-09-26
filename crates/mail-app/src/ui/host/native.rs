@@ -2,10 +2,11 @@
 //!
 //! - The window itself, `.app`: its mounted handle is kept as it mounts, focused then so the
 //!   keyboard has somewhere to land from the first key, and given the keyboard back through
-//!   `ds::focus_soon`, which waits out a busy document. After a click on nothing focusable the
-//!   keyboard stays on `.app` by itself: `ds_native::launch`'s `FocusFallback::Ancestor`. When
-//!   what had the keyboard goes away (a menu closed on Escape), [`Blitz::hand_back`] gives it to
-//!   `.app` through quire's own click-focus `restore`.
+//!   `ds::focus_soon`, which waits out a busy document. The rest is quire's, under
+//!   `ds_native::launch`'s `FocusFallback::Ancestor`: after a click on nothing focusable the
+//!   keyboard stays on `.app`, and when what had it is removed (a menu closed on Escape, a sheet,
+//!   a folder's rename field) its opener or nearest focusable ancestor takes it. A click a quire
+//!   component keeps to itself is the one gap left: [`Blitz::after_press`].
 //! - A field or element named by selector: `ds::focus_by_selector`, which waits up to twenty
 //!   frames for the element to be drawn, as the webview's scripts did, and tells a `TextInput`
 //!   it found its `onfocus` once.
@@ -65,15 +66,16 @@ impl Blitz {
         self.as_shell(|| ds::focus_soon(app));
     }
 
-    /// The window's state changed (a menu, a panel or a sheet opened or closed): a frame later,
-    /// if that left the keyboard nowhere, `.app` takes it back.
+    /// A press ended in the window: a frame later, if it left the keyboard nowhere, `.app` takes
+    /// it back.
     ///
-    /// `FocusFallback::Ancestor` covers a click on nothing focusable, not an element that had the
-    /// keyboard going away under it: a menu quire closes on Escape, a sheet, the palette. Blitz
-    /// then leaves the focus nowhere, and every key would go to the document's root. quire's own
-    /// click-focus `restore` does the rest: it focuses `.app` only if the focus is nowhere, so a
-    /// field, a menu or the palette that has it keeps it.
-    pub(in crate::ui) fn hand_back(&self) {
+    /// The one case quire's `FocusFallback::Ancestor` does not reach (quire v0.1.10): a click a
+    /// quire component keeps to itself (`HoverStrip`'s buttons, `TreeItem`'s name and ⋯, any
+    /// `Propagation::Stop`) never reaches `Ds`'s click-focus fallback. Blitz clears the focus on
+    /// that click while `.app` stays in the document, so quire's removal keeper takes it for a
+    /// focus cleared on purpose and leaves it. quire's own `restore` does the work, and only
+    /// when the focus is nowhere: a field or a menu the press gave the keyboard keeps it.
+    pub(in crate::ui) fn after_press(&self) {
         let Some(app) = self.app.borrow().clone() else {
             return;
         };

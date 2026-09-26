@@ -4,7 +4,7 @@ use super::super::folder_open;
 use super::super::menu::Floating;
 use super::super::move_to;
 use super::folder_act::{act, messages_word, refused, renamed_path};
-use super::folder_parts::{NameField, Naming, Said, actions, item};
+use super::folder_parts::{Naming, RenameField, Said, actions, item};
 use super::folder_tree::{Kind, Node};
 use super::folders::{Note, Open, Spot, Wires, focus_name};
 use crate::folder::Refusal;
@@ -88,8 +88,8 @@ pub(super) fn FolderRow(
     let on_enter = move |_: Event<PointerData>| over.set(takes && move_to::dragging());
     let on_leave = move |_: Event<PointerData>| over.set(false);
     let parent = !node.children.is_empty();
-    // Open until the person closes it; a folder whose field or note is showing stays open so
-    // they show.
+    // Open until the person closes it; a folder whose new-folder field or note is showing stays
+    // open so they show.
     let mut disclosure = use_signal(|| Disclosure::Open);
     let now = open.read().clone();
     let renaming = match &now {
@@ -107,7 +107,7 @@ pub(super) fn FolderRow(
         wires.note.read().as_ref().is_some_and(|note| {
             note.account == account && note.path.as_deref() == Some(&spot.path)
         });
-    let showing_below = renaming.is_some() || naming_here || said_here;
+    let showing_below = naming_here || said_here;
     let items = actions(&node);
     let menu_spot = spot.clone();
     let closing = spot.clone();
@@ -141,37 +141,36 @@ pub(super) fn FolderRow(
             }
         })
     });
-    let below = rsx! {
-        if let Some(text) = renaming {
-            // quire's tree row has no field for its label: the new name is written under it.
-            div { class: "item fold-row fold-new",
-                span { class: "chev none" }
-                NameField {
-                    value: text,
-                    placeholder: "Folder name".to_owned(),
-                    on_input: move |text: String| {
-                        open.set(Open::Renaming { spot: rename_spot.clone(), text });
-                    },
-                    on_commit: move |_| {
-                        let Open::Renaming { spot, text } = open.peek().clone() else { return };
-                        let to = match renamed_path(&spot.path, &text, delimiter) {
-                            Ok(to) if to == spot.path => {
-                                open.set(Open::Closed);
-                                return;
-                            }
-                            Ok(to) => to,
-                            Err(text) => {
-                                note.set(Some(Note { account, path: Some(spot.path.clone()), text }));
-                                return;
-                            }
-                        };
-                        let work = FolderWork::Rename { from: spot.path.clone(), to };
-                        run(wires, account, Some(spot.path.clone()), work, delimiter);
-                    },
-                    on_cancel: move |_| open.set(Open::Closed),
-                }
+    // A rename is written where the name is (quire's `editing` slot); taking the slot away,
+    // when `open` moves on, ends it.
+    let editing = renaming.map(|text| {
+        rsx! {
+            RenameField {
+                value: text,
+                on_input: move |text: String| {
+                    open.set(Open::Renaming { spot: rename_spot.clone(), text });
+                },
+                on_commit: move |_| {
+                    let Open::Renaming { spot, text } = open.peek().clone() else { return };
+                    let to = match renamed_path(&spot.path, &text, delimiter) {
+                        Ok(to) if to == spot.path => {
+                            open.set(Open::Closed);
+                            return;
+                        }
+                        Ok(to) => to,
+                        Err(text) => {
+                            note.set(Some(Note { account, path: Some(spot.path.clone()), text }));
+                            return;
+                        }
+                    };
+                    let work = FolderWork::Rename { from: spot.path.clone(), to };
+                    run(wires, account, Some(spot.path.clone()), work, delimiter);
+                },
+                on_cancel: move |_| open.set(Open::Closed),
             }
         }
+    });
+    let below = rsx! {
         Naming {
             wires,
             at: Some(spot.clone()),
@@ -242,6 +241,7 @@ pub(super) fn FolderRow(
                     here,
                     onselect,
                     trailing,
+                    editing: editing.clone(),
                     drop,
                     place: PlaceId(data_path.clone()),
                     onpointerenter: on_enter,
@@ -269,6 +269,7 @@ pub(super) fn FolderRow(
                     here,
                     onselect,
                     trailing,
+                    editing: editing.clone(),
                     drop,
                     place: PlaceId(data_path.clone()),
                     onpointerenter: on_enter,
@@ -318,8 +319,8 @@ fn pick(wires: Wires, key: &str, account: AccountId, path: String, delimiter: Op
         }
         "rename" => {
             let text = super::folder_act::leaf(&path, delimiter).to_owned();
+            // The field in the name's place takes the keyboard as it mounts, its text selected.
             open.set(Open::Renaming { spot, text });
-            focus_name();
         }
         "follow" | "unfollow" => {
             let subscription = if key == "follow" {

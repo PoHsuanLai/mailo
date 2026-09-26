@@ -11,8 +11,8 @@ use crate::ui::fixtures::{FakePointer, dispatching, pointer, rebuild_into, threa
 use dioxus::prelude::*;
 use dioxus_core::{NoOpMutations, VirtualDom};
 
-async fn wait(dom: &mut VirtualDom, for_ms: u64) {
-    let until = tokio::time::Instant::now() + std::time::Duration::from_millis(for_ms);
+async fn wait(dom: &mut VirtualDom, span: std::time::Duration) {
+    let until = tokio::time::Instant::now() + span;
     loop {
         let left = until.saturating_duration_since(tokio::time::Instant::now());
         if left.is_zero() {
@@ -115,7 +115,11 @@ async fn render_the_hover_cards_to_a_file() {
             }
             pointer(&mut dom, "pointerover", element, RESTING.clone());
         }
-        wait(&mut dom, 700).await;
+        wait(
+            &mut dom,
+            ds::delays::HOVER_OPEN + std::time::Duration::from_millis(250),
+        )
+        .await;
         let body = dioxus_ssr::render(&dom);
         assert!(body.contains("ds-hovercard\""), "no {kind} card opened");
         let last = hooks.last().cloned().unwrap_or_default();
@@ -132,7 +136,7 @@ async fn render_the_hover_cards_to_a_file() {
     let seen = rebuild_into(&mut dom);
     let build_bot = seen.all("aria-label", "Archive")[3];
     crate::ui::fixtures::click(&mut dom, build_bot);
-    wait(&mut dom, 200).await;
+    wait(&mut dom, std::time::Duration::from_millis(200)).await;
     let row = seen.row_parts(&format!("thread:{dana}")).row;
     let archive = seen.one("data-place", "Archive");
     let held = |x: f64, y: f64| FakePointer {

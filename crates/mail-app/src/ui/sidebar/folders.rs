@@ -1,8 +1,9 @@
 //! The Folders section: an account's own mailboxes, nested, and what can be done to them.
 //!
 //! Each folder is quire's `TreeItem`: a parent opens and closes as the row asks (the row keeps
-//! whether it is open), its name chooses it, and its ⋯ opens quire's menu beside it. Naming is
-//! the one [`Field`], under the row: a new folder's name, or a new name for this one.
+//! whether it is open), its name chooses it, and its ⋯ opens quire's menu beside it. A new
+//! folder is named in a [`Field`] under the row it goes in; a rename is written in the name's
+//! own place, quire's `TreeItem { editing }`.
 
 use super::super::menu::{Floating, MenuItem};
 use super::folder_parts::{Naming, Said, item};

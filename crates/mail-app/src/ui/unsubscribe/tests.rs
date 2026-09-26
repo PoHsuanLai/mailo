@@ -15,6 +15,7 @@ use mail_domain::*;
 use mail_mime::{ListHeaders, ListId};
 use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
+use std::time::Duration;
 
 const ONE_CLICK: &str = "List-Id: Rust Weekly <weekly.rust.test>\r\n\
      List-Unsubscribe: <https://lists.rust.test/u/abc>, <mailto:leave@rust.test>\r\n\
@@ -127,8 +128,8 @@ fn offer_from(raw_headers: &str) -> Option<Offer> {
     )
 }
 
-async fn settle(dom: &mut VirtualDom, for_ms: u64) {
-    let until = tokio::time::Instant::now() + std::time::Duration::from_millis(for_ms);
+async fn settle(dom: &mut VirtualDom, span: Duration) {
+    let until = tokio::time::Instant::now() + span;
     loop {
         let left = until.saturating_duration_since(tokio::time::Instant::now());
         if left.is_zero() {
@@ -149,7 +150,7 @@ fn Open(thread: ThreadId) -> Element {
 async fn reader_on(store: Arc<SqliteStore>, thread: ThreadId) -> (VirtualDom, String) {
     let mut dom = VirtualDom::new_with_props(Open, OpenProps { thread }).with_root_context(store);
     dom.rebuild_in_place();
-    settle(&mut dom, 400).await;
+    settle(&mut dom, Duration::from_millis(400)).await;
     let markup = dioxus_ssr::render(&dom);
     (dom, markup)
 }
@@ -233,7 +234,7 @@ async fn the_answer_for_one_thread_is_never_shown_under_the_next() {
     let mut dom =
         VirtualDom::new_with_props(Moving, MovingProps { first: listed }).with_root_context(store);
     dom.rebuild_in_place();
-    settle(&mut dom, 400).await;
+    settle(&mut dom, Duration::from_millis(400)).await;
     let before = dioxus_ssr::render(&dom);
     assert!(before.contains("aria-label=\"Unsubscribe\""), "{before}");
     let mut thread = dom.in_scope(
@@ -241,7 +242,7 @@ async fn the_answer_for_one_thread_is_never_shown_under_the_next() {
         consume_context::<Signal<ThreadId>>,
     );
     dom.in_runtime(|| thread.set(quiet));
-    settle(&mut dom, 400).await;
+    settle(&mut dom, Duration::from_millis(400)).await;
     let after = dioxus_ssr::render(&dom);
     assert!(
         !after.contains("aria-label=\"Unsubscribe\""),
@@ -370,7 +371,11 @@ async fn neither_the_list_nor_a_hover_card_reads_a_list_header() {
     };
     pointer(&mut dom, "pointerenter", row, resting());
     pointer(&mut dom, "pointerover", row, resting());
-    settle(&mut dom, 700).await;
+    settle(
+        &mut dom,
+        ds::delays::HOVER_OPEN + Duration::from_millis(250),
+    )
+    .await;
     assert!(
         dioxus_ssr::render(&dom).contains("role=\"tooltip\""),
         "no hover card opened"

@@ -12,7 +12,9 @@
 
 use ds::{Key, Point};
 use ds_native::harness::settle_until;
-use ds_native::{Harness, HarnessConfig, NetPolicy, PrintError, PrintOutcome, Viewport};
+use ds_native::{
+    FocusFallback, Harness, HarnessConfig, NetPolicy, PrintError, PrintOutcome, Viewport,
+};
 use mail_domain::*;
 use mail_runtime::{Arrival, absorb};
 use mail_store::{SqliteStore, Store};
@@ -137,8 +139,19 @@ type Printed = Arc<Mutex<Vec<(usize, String)>>>;
 fn open_printing(
     answer: fn() -> Result<PrintOutcome, PrintError>,
 ) -> (Harness, tempfile::TempDir, Arc<SqliteStore>, Printed) {
+    launch(answer, |_| {}, FocusFallback::Ancestor)
+}
+
+/// The window over the seeded store, which `seed` adds to first, with a print dialog that
+/// answers `answer`, and quire's `fallback` for a keyboard left nowhere.
+fn launch(
+    answer: fn() -> Result<PrintOutcome, PrintError>,
+    seed: fn(&SqliteStore),
+    fallback: FocusFallback,
+) -> (Harness, tempfile::TempDir, Arc<SqliteStore>, Printed) {
     let dir = tempfile::tempdir().unwrap();
     let store = seeded(dir.path());
+    seed(&store);
     let printed = Printed::default();
     let printer = mail_app::ui::native::Printer::with_dialog({
         let printed = Arc::clone(&printed);
@@ -157,6 +170,7 @@ fn open_printing(
     .with(printer);
     let config = HarnessConfig::new(VIEW)
         .with_net(NetPolicy::Local)
+        .with_focus_fallback(fallback)
         .with_contexts(contexts);
     let mut harness = Harness::with_config(mail_app::ui::native::root, config);
     // quire's entrances run on a frame's wait after mount.
@@ -294,7 +308,7 @@ fn a_menu_opens_on_click_and_closes_on_escape() {
 fn a_hover_card_opens_after_its_delay_and_not_before() {
     let (mut harness, _dir) = open();
     let sender = format!("{} .ds-row-name", row(1));
-    let open_after = delay(ds::DelayToken::HoverOpen);
+    let open_after = ds::delays::HOVER_OPEN;
     let asked = Instant::now();
     harness.pointer_move(centre(&harness, &sender));
     // `advance` lets wall-clock time pass, and hover intent sleeps on real timers, so under a
@@ -456,6 +470,195 @@ fn ctrl_f_puts_the_keyboard_in_the_find_field_and_escape_gives_it_back() {
     assert!(
         harness.is_focused(".app"),
         "Escape did not give the keyboard back"
+    );
+}
+
+// The keyboard when what had it goes away. quire's `FocusFallback::Ancestor` (its "mailo gaps
+// 7") gives it to the opener or the nearest focusable ancestor when the focused element is
+// removed, and mailo keeps no re-focus of its own for that. What quire does not reach, a click a
+// quire component keeps to itself, is `Host::press_ended`'s (`ui/host/native.rs`).
+
+/// A folder the seeded account holds: an IMAP account's, so the sidebar draws a Folders section.
+const PROJECTS: &str = "Projects";
+
+/// The seeded account as an IMAP account whose folders have been listed: the inbox and
+/// [`PROJECTS`].
+fn with_folders(store: &SqliteStore) {
+    let manual = presets::Manual {
+        imap_host: "imap.nowhere.example".to_owned(),
+        imap_port: 993,
+        smtp_host: "smtp.nowhere.example".to_owned(),
+        smtp_port: 465,
+        login: None,
+    };
+    let preset = presets::manual("me@example.test", &manual, chrono::Utc::now());
+    store
+        .connection()
+        .execute(
+            "UPDATE accounts SET plan = ?1 WHERE id = ?2",
+            [
+                serde_json::to_string(&preset.plan).unwrap(),
+                ACCOUNT.to_string(),
+            ],
+        )
+        .unwrap();
+    store
+        .put_caps(ACCOUNT, &preset.expected_caps, chrono::Utc::now())
+        .unwrap();
+    let folder = |path: &str| Folder {
+        account: ACCOUNT,
+        path: path.to_owned(),
+        delimiter: Some('/'),
+        special: None,
+        subscription: Subscription::Subscribed,
+        holds: Holds::Mail,
+    };
+    store
+        .put_folders(ACCOUNT, vec![folder("INBOX"), folder(PROJECTS)])
+        .unwrap();
+}
+
+/// The field a folder's rename is written in, in its name's place.
+const RENAMING: &str = "[*|data-slot=editing] input";
+
+/// The window over [`with_folders`], the first conversation open, and [`PROJECTS`]' rename
+/// begun from its ⋯ menu: the field in its name's place has the keyboard.
+fn renaming(fallback: FocusFallback) -> (Harness, tempfile::TempDir, Arc<SqliteStore>) {
+    let (mut harness, dir, store, _printed) =
+        launch(|| Ok(PrintOutcome::Cancelled), with_folders, fallback);
+    open_row(&mut harness, 1);
+    let more = format!("[*|aria-label=\"Actions for {PROJECTS}\"]");
+    // The ⋯ shows on the row's hover.
+    harness.pointer_move(centre(&harness, &more));
+    harness.advance(ms(300));
+    harness.click(centre(&harness, &more));
+    harness.advance(ms(300));
+    assert_eq!(
+        harness.count(".ds-menu"),
+        1,
+        "the folder's menu did not open"
+    );
+    // New folder inside, then Rename.
+    harness.key(Key::Down);
+    harness.key(Key::Enter);
+    harness.advance(ms(300));
+    assert_eq!(harness.count(".ds-menu"), 0, "the pick left the menu open");
+    assert!(
+        harness.is_focused(RENAMING),
+        "the rename field does not have the keyboard:\n{}",
+        harness.html()
+    );
+    (harness, dir, store)
+}
+
+#[test]
+fn a_folder_is_renamed_in_its_name_s_place() {
+    let (mut harness, _dir, store) = renaming(FocusFallback::Ancestor);
+    // In the name's place: the name's own button is gone from the row, nothing is drawn under it.
+    assert_eq!(harness.attr(RENAMING, "value").as_deref(), Some(PROJECTS));
+    assert_eq!(
+        harness.selected_text(RENAMING).as_deref(),
+        Some(PROJECTS),
+        "the old name is not selected"
+    );
+    assert_eq!(
+        harness.count(".fold-new"),
+        0,
+        "a field is drawn under the row"
+    );
+    // Typed letters replace the selection and are not shortcuts (`s`, `a` and `p` are).
+    for key in "Plans".chars() {
+        harness.key(Key::Char(key));
+    }
+    harness.advance(ms(200));
+    assert_eq!(harness.attr(RENAMING, "value").as_deref(), Some("Plans"));
+    harness.key(Key::Enter);
+    harness.advance(ms(600));
+    assert_eq!(harness.count(RENAMING), 0, "Enter left the field");
+    let paths: Vec<String> = store
+        .folders(ACCOUNT)
+        .unwrap()
+        .into_iter()
+        .map(|folder| folder.path)
+        .collect();
+    assert!(paths.contains(&"Plans".to_owned()), "{paths:?}");
+    assert!(!paths.contains(&PROJECTS.to_owned()), "{paths:?}");
+    assert_eq!(
+        subjects(&harness).len(),
+        INBOX.len(),
+        "a letter was a shortcut"
+    );
+}
+
+/// Escape leaves the rename: the field, which had the keyboard, is removed with it. Then `e`,
+/// heard by the window's key handler, archives the open conversation, or, with the keyboard gone
+/// nowhere, is heard by nothing.
+fn escape_the_rename_then_press_e(fallback: FocusFallback) -> (Harness, tempfile::TempDir) {
+    let (mut harness, dir, store) = renaming(fallback);
+    harness.key(Key::Escape);
+    harness.advance(ms(300));
+    assert_eq!(harness.count(RENAMING), 0, "Escape left the field");
+    let paths: Vec<String> = store
+        .folders(ACCOUNT)
+        .unwrap()
+        .into_iter()
+        .map(|folder| folder.path)
+        .collect();
+    assert!(
+        paths.contains(&PROJECTS.to_owned()),
+        "Escape renamed: {paths:?}"
+    );
+    harness.key(Key::Char('e'));
+    harness.advance(ms(1500));
+    (harness, dir)
+}
+
+#[test]
+fn when_the_focused_field_is_removed_the_keys_still_act() {
+    let (harness, _dir) = escape_the_rename_then_press_e(FocusFallback::Ancestor);
+    assert_eq!(
+        subjects(&harness),
+        [INBOX[1].1, INBOX[2].1, INBOX[3].1],
+        "`e` after the rename field went archived nothing: the keyboard went nowhere"
+    );
+}
+
+/// The case above with quire's fallback turned off: `e` is heard by nothing. Nothing of
+/// mailo's puts the keyboard back after a removal, so the case above passes on quire's alone.
+#[test]
+fn without_quire_s_fallback_a_removal_leaves_the_keyboard_nowhere() {
+    let (harness, _dir) = escape_the_rename_then_press_e(FocusFallback::BlitzDefault);
+    assert_eq!(
+        subjects(&harness).len(),
+        INBOX.len(),
+        "`e` acted with the fallback off: something of mailo's puts the keyboard back"
+    );
+}
+
+/// The third row's own Archive button pressed: quire's `HoverStrip` keeps the click to itself,
+/// so it never reaches quire's click-focus fallback, and Blitz leaves the keyboard nowhere. Then
+/// `e` still archives the open conversation (`Host::press_ended`).
+#[test]
+fn a_press_on_a_row_s_strip_leaves_the_keyboard_working() {
+    let (mut harness, _dir) = open();
+    open_row(&mut harness, 1);
+    let third = format!("{} .ds-row-sub", row(3));
+    harness.pointer_move(centre(&harness, &third));
+    harness.advance(ms(300));
+    let archive = format!("{} .ds-strip [*|data-op=archive]", row(3));
+    harness.click(centre(&harness, &archive));
+    harness.advance(ms(1500));
+    assert_eq!(
+        subjects(&harness),
+        [INBOX[0].1, INBOX[1].1, INBOX[3].1],
+        "the strip's Archive did not archive its row"
+    );
+    harness.key(Key::Char('e'));
+    harness.advance(ms(1500));
+    assert_eq!(
+        subjects(&harness),
+        [INBOX[1].1, INBOX[3].1],
+        "`e` after the strip's Archive archived nothing: the keyboard went nowhere"
     );
 }
 

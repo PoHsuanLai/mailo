@@ -91,8 +91,9 @@
 .list-bar .status.bad { color: var(--danger); font-weight: 600; }
 .bar-tools { display: flex; gap: var(--s-6); align-items: center; margin-left: auto; position: relative; }
 /* Folders: quire's `TreeItem` per folder, its chevron, drop states and ⋯ quire's. `.fold` holds
-   the item and what shows under it (the name field, a refusal); the menu floats beside the ⋯.
-   The field sits in the flow under the row: the sidebar is narrower than a menu and clips what
+   the item and what shows under it (a new folder's name field, a refusal); the menu floats beside
+   the ⋯, and a rename is written in the name's place (`TreeItem { editing }`). The new folder's
+   field sits in the flow under the row: the sidebar is narrower than a menu and clips what
    hangs out of it. */
 .fold { display: flex; flex-direction: column; min-width: 0; }
 .fold.dim { opacity: 0.62; }

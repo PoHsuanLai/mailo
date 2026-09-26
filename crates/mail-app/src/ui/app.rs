@@ -316,19 +316,6 @@ pub(super) fn App() -> Element {
     // sit between them.
     let in_a_field = use_signal(|| false);
 
-    // On Blitz nothing puts the keyboard back when the element holding it goes away: a menu
-    // quire closes on Escape, a sheet, the palette. The webview's `KEEP_FOCUS` script does it on
-    // a timer; here every change of the shell or the Space editor asks, and `.app` takes the
-    // keyboard only if it is nowhere (`ui/host/native.rs`). A click on nothing focusable needs
-    // none of this: quire's `FocusFallback::Ancestor` keeps the keyboard on `.app`. Compiled
-    // into `native` alone.
-    #[cfg(feature = "native")]
-    use_effect(move || {
-        let _ = shell.read();
-        let _ = editing.read();
-        super::host::Host::hand_focus_back();
-    });
-
     let on_key = move |event: Event<KeyboardData>| {
         // `Key`'s Display is the DOM key name — "e", "ArrowDown", "Escape" — which is the
         // vocabulary `view::shortcut` is written against.
@@ -629,6 +616,7 @@ pub(super) fn App() -> Element {
             },
             onpointerup: move |_| {
                 super::motion::drag::release(shell, revision);
+                super::host::Host::press_ended();
             },
             "data-peek": "{peek}",
             if side_hidden() {

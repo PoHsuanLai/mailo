@@ -32,7 +32,7 @@ pub(in crate::ui) enum When {
 pub(in crate::ui) enum Drawn {
     /// The reader's find field, `.find input` (Ctrl F).
     FindField,
-    /// The sidebar's folder name field, `.fold-edit input` (New folder, Rename).
+    /// The sidebar's new folder name field, `.fold-edit input`.
     FolderName,
 }
 
@@ -168,13 +168,14 @@ impl Host {
         let _ = event;
     }
 
-    /// The window's state changed (a menu, a panel or a sheet opened or closed). On Blitz, if
-    /// that left the keyboard nowhere, it goes back to `.app` a frame later. The webview's
-    /// `KEEP_FOCUS` does that on its timer, so it has no such ask.
-    #[cfg(feature = "native")]
-    pub(in crate::ui) fn hand_focus_back() {
+    /// A press ended in the window. On Blitz, if a click a quire component kept to itself left
+    /// the keyboard nowhere, it goes back to `.app` a frame later (`native.rs`). A browser leaves
+    /// the focus on the pressed button, and the webview's `KEEP_FOCUS` covers the rest, so there
+    /// it is nothing.
+    pub(in crate::ui) fn press_ended() {
+        #[cfg(feature = "native")]
         if let Host::Native(blitz) = Host::current() {
-            blitz.hand_back();
+            blitz.after_press();
         }
     }
 

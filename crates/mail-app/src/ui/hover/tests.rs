@@ -5,8 +5,10 @@ use crate::ui::app::App;
 use crate::ui::fixtures::{FakePointer, dispatching, pointer, rebuild_into, work};
 use dioxus::prelude::*;
 use dioxus_core::{NoOpMutations, VirtualDom};
+use ds::delays::HOVER_OPEN;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
+use std::time::Duration;
 
 const DANA: &str = "Re: UIDL stability across a UIDVALIDITY change";
 const SPOOF: &str = "Unusual sign-in attempt blocked";
@@ -18,9 +20,13 @@ fn changes(store: &SqliteStore) -> i64 {
         .unwrap_or(0)
 }
 
-/// Let `for_ms` of real time pass, running whatever the window's timers wake for.
-async fn wait(dom: &mut VirtualDom, for_ms: u64) {
-    let until = tokio::time::Instant::now() + std::time::Duration::from_millis(for_ms);
+/// What a test waits past quire's hover open delay (`ds::delays::HOVER_OPEN`) before it looks
+/// for the card: the card's own frames, on a loaded machine.
+const SLACK: Duration = Duration::from_millis(300);
+
+/// Let `span` of real time pass, running whatever the window's timers wake for.
+async fn wait(dom: &mut VirtualDom, span: Duration) {
+    let until = tokio::time::Instant::now() + span;
     loop {
         let left = until.saturating_duration_since(tokio::time::Instant::now());
         if left.is_zero() {
@@ -64,16 +70,17 @@ async fn hovering_a_row_for_a_second_writes_nothing() {
 
     pointer(&mut dom, "pointerenter", row, over((12.0, 10.0)));
     pointer(&mut dom, "pointerover", row, over((12.0, 10.0)));
-    wait(&mut dom, 200).await;
+    // "Not yet" only at half the delay (quire's CONVENTIONS §11).
+    wait(&mut dom, HOVER_OPEN / 2).await;
     let early = dioxus_ssr::render(&dom);
     assert!(
         card(&early).is_none(),
         "a card opened before the pointer had rested"
     );
-    wait(&mut dom, 800).await;
+    wait(&mut dom, HOVER_OPEN + SLACK).await;
 
     let page = dioxus_ssr::render(&dom);
-    let shown = card(&page).expect("no card after a second of rest");
+    let shown = card(&page).expect("no card after the open delay and its slack");
     assert_eq!(changes(&store), before, "hovering a row wrote to the store");
     assert!(
         shown.contains("stays unread while you look"),
@@ -102,7 +109,7 @@ async fn the_sender_card_flags_a_borrowed_name() {
     pointer(&mut dom, "pointerenter", parts.row, over((12.0, 10.0)));
     pointer(&mut dom, "pointerover", parts.row, over((12.0, 10.0)));
     pointer(&mut dom, "pointerenter", parts.name, over((4.0, 4.0)));
-    wait(&mut dom, 700).await;
+    wait(&mut dom, HOVER_OPEN + SLACK).await;
     let page = dioxus_ssr::render(&dom);
     let shown = card(&page).expect("no sender card");
     assert!(
