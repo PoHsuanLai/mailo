@@ -4189,3 +4189,21 @@ only if they parse back to the same filter; otherwise the saved filter is kept.
 With several rows picked, the list bar's tools ran past the list column at 1200 px, over the
 reader, where they cannot be pressed. That predates views (the selection bar alone crowds them);
 Save and Edit view are icon-only for now, and the bar itself is its own fix.
+
+### F174 — An account can keep all its mail offline; its attachments arrive a few each pass
+
+A decision (item 10). A large IMAP message is stored rebuilt from its parts, its attachments left
+on the server until opened (plan 9.6). An account set to keep everything offline — `mailo offline
+<account> on`, or its switch in the Space editor — has them fetched by the sync as well. It is off
+by default. The setting is the window's, in `offline.json` beside `notify.json`, keyed by account
+id, because `AccountPlan` is frozen and the choice is a preference, not a fact about the server.
+
+Each mailbox's pass fetches, after its bodies and only when they had room to spare, what earlier
+passes left behind, smallest first (`Store::remote_parts_in`): at most twenty parts or 64 MiB,
+always at least one, so a folder of scans comes down over many passes rather than one that holds
+back the next new mail. Each part is held as opening it would hold it (`fetch_part` →
+`hold_part`), so the rebuilt raw stays as it was and F165's markers still tell export what it is.
+A part refused for good is passed over and named on every pass; a refused sign-in, rate limit or
+dropped connection ends the step. `Store::offline` counts messages held in full and what still
+waits, in both stores. "Open this folder now" never fetches parts. `PartContent::Remote`'s doc
+comment, which said a sync never fetches a part, now says when one does.

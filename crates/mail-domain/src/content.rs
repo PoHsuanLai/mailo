@@ -107,7 +107,7 @@ pub enum PartContent {
     /// Stored locally.
     Held(BlobId),
     /// Still on the server, as this IMAP section of the message (`"2"`, `"1.3"`). Fetched when
-    /// it is opened or saved, never by a sync.
+    /// it is opened or saved, and by a sync only for an account kept offline (FINDINGS F174).
     Remote { section: String },
 }
 
