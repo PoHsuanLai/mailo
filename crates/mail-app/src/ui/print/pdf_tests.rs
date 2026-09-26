@@ -2,17 +2,19 @@
 //! Save for printing take, and read back with pdfrum as a reader of the PDF would, for its pages,
 //! its text and its images. No test here opens a print dialog: the [`Printer`] is a recorder.
 
-use super::native_print::{BUSY, Printer, print_through, said};
-use super::paper::{self, Cjk, PICTURES_NOTE, Paper};
+use super::native_print::{BUSY, Printer, Sources, made, print_through, said};
+use super::paper::{self, Cjk, Families, PICTURES_NOTE, Paper};
 use super::{Job, build};
+use crate::print::Printed;
 use crate::ui::fixtures::{ACCOUNT, seeded};
+use crate::ui::original::{Consent, FetchImage, Got, ReaderNet};
 use chrono::TimeZone;
 use ds_native::{PageSize, PrintError, PrintOutcome};
 use mail_domain::*;
-use mail_mime::Pages;
+use mail_mime::{Pages, Script};
 use mail_store::{SqliteStore, Store};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 
 const SUBJECT: &str = "Quarterly figures 季度報告";
 /// A Latin word only the first message has.
@@ -215,10 +217,20 @@ fn now() -> chrono::DateTime<chrono::Utc> {
     chrono::Utc.with_ymd_and_hms(2026, 9, 24, 12, 0, 0).unwrap()
 }
 
-/// `job` as the PDF Print makes, on A4 with Traditional Chinese first.
+/// `job` as the document Print makes, on A4 with Traditional Chinese first, fetching through
+/// `sources`.
+fn paper_document(store: &SqliteStore, job: Job, sources: &Sources) -> Printed {
+    made(store, job, &Paper::plain(), sources, &chrono::Utc, now()).unwrap()
+}
+
+/// `job` as the PDF Print makes, on A4 with Traditional Chinese first, with no consent.
 fn printout(store: &SqliteStore, job: Job) -> Vec<u8> {
-    let printed = build(store, job, &chrono::Utc, now()).unwrap();
-    paper::pdf(&printed, &Paper::plain()).unwrap()
+    printout_with(store, job, &Sources::default())
+}
+
+/// [`printout`], with the remote images `sources` consents to.
+fn printout_with(store: &SqliteStore, job: Job, sources: &Sources) -> Vec<u8> {
+    paper::pdf(&paper_document(store, job, sources), &Paper::plain()).unwrap()
 }
 
 fn open(bytes: &[u8]) -> pdfrum::Document {
@@ -472,8 +484,8 @@ fn a_header_or_an_attachment_list_is_never_cut_by_a_page_end() {
     let jobs: Vec<(usize, String)> = counts
         .iter()
         .map(|&filler| {
-            let printed = build(&store, tall(&store, filler), &chrono::Utc, now()).unwrap();
-            (filler, paper::for_paper(&printed.html, Cjk::Tc))
+            let printed = paper_document(&store, tall(&store, filler), &Sources::default());
+            (filler, printed.html)
         })
         .collect();
     // The same documents without the keep-together markers, to show each count is a real test.
@@ -509,10 +521,11 @@ fn a_header_or_an_attachment_list_is_never_cut_by_a_page_end() {
 }
 
 #[test]
-fn the_markers_are_added_only_where_the_builder_wrote_the_tags() {
-    // A subject spelling out the tags arrives escaped, and is left alone.
+fn the_markers_are_the_builders_and_a_subject_cannot_add_one() {
+    // A subject spelling out the tags, markers and all, arrives escaped and marks nothing.
     let (store, _dir) = seeded();
-    let sly = "<article class=\"message new-page\"> <header class=\"headers\">";
+    let sly = "<article class=\"message new-page\" data-break-before=\"page\"> \
+               <header class=\"headers\" data-break-inside=\"avoid\">";
     let thread = thread_of(
         &store,
         vec![
@@ -532,7 +545,26 @@ fn the_markers_are_added_only_where_the_builder_wrote_the_tags() {
             },
         ],
     );
-    let printed = build(
+    let html = paper_document(
+        &store,
+        Job {
+            thread,
+            pages: Pages::PerMessage,
+        },
+        &Sources::default(),
+    )
+    .html;
+    assert_eq!(html.matches("data-break-before=\"page\"").count(), 1);
+    // Two headers and one attachment list.
+    assert_eq!(html.matches("data-break-inside=\"avoid\"").count(), 3);
+    assert!(html.contains("&lt;article class=&quot;message new-page&quot; data-break-before"));
+    // The builder's own lines are there, the CSP first among them, and the faces after its
+    // stylesheet.
+    assert!(html.contains("Content-Security-Policy"));
+    assert!(html.contains("'Noto Serif CJK TC'"));
+    assert!(!html.contains(PICTURES_NOTE), "no picture was left out");
+    // The webview's document is the same one, without the faces: the markers are the builder's.
+    let plain = build(
         &store,
         Job {
             thread,
@@ -541,15 +573,11 @@ fn the_markers_are_added_only_where_the_builder_wrote_the_tags() {
         &chrono::Utc,
         now(),
     )
-    .unwrap();
-    let html = paper::for_paper(&printed.html, Cjk::Tc);
-    assert_eq!(html.matches("data-break-before=\"page\"").count(), 1);
-    // Two headers and one attachment list.
-    assert_eq!(html.matches("data-break-inside=\"avoid\"").count(), 3);
-    assert!(html.contains("&lt;article class=&quot;message new-page&quot;&gt;"));
-    // The builder's own lines are still there, the CSP first among them.
-    assert!(html.contains("Content-Security-Policy"));
-    assert!(!html.contains(PICTURES_NOTE), "no picture was left out");
+    .unwrap()
+    .html;
+    assert_eq!(plain.matches("data-break-before=\"page\"").count(), 1);
+    assert_eq!(plain.matches("data-break-inside=\"avoid\"").count(), 3);
+    assert!(!plain.contains("Noto Serif CJK"));
 }
 
 #[test]
@@ -601,6 +629,303 @@ fn the_locale_chooses_the_paper_and_the_cjk_face() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
+#[test]
+fn each_script_leads_with_its_own_regional_face() {
+    let cases = [
+        (Script::TraditionalChinese, Cjk::Tc, Cjk::Tc),
+        (Script::TraditionalChinese, Cjk::Hk, Cjk::Hk),
+        (Script::TraditionalChinese, Cjk::Sc, Cjk::Tc),
+        (Script::SimplifiedChinese, Cjk::Tc, Cjk::Sc),
+        (Script::Japanese, Cjk::Tc, Cjk::Jp),
+        (Script::Korean, Cjk::Sc, Cjk::Kr),
+    ];
+    for (script, default, want) in cases {
+        assert_eq!(Cjk::for_script(script, default), want, "{script:?}");
+    }
+    let stacks = [
+        (
+            Cjk::Tc,
+            "'Georgia', 'Times New Roman', 'Noto Serif', 'Noto Serif CJK TC', \
+             'Noto Serif CJK HK', 'Noto Serif CJK SC', 'Noto Serif CJK JP', \
+             'Noto Serif CJK KR', serif",
+        ),
+        (
+            Cjk::Sc,
+            "'Georgia', 'Times New Roman', 'Noto Serif', 'Noto Serif CJK SC', \
+             'Noto Serif CJK TC', 'Noto Serif CJK HK', 'Noto Serif CJK JP', \
+             'Noto Serif CJK KR', serif",
+        ),
+        (
+            Cjk::Jp,
+            "'Georgia', 'Times New Roman', 'Noto Serif', 'Noto Serif CJK JP', \
+             'Noto Serif CJK TC', 'Noto Serif CJK HK', 'Noto Serif CJK SC', \
+             'Noto Serif CJK KR', serif",
+        ),
+        (
+            Cjk::Kr,
+            "'Georgia', 'Times New Roman', 'Noto Serif', 'Noto Serif CJK KR', \
+             'Noto Serif CJK TC', 'Noto Serif CJK HK', 'Noto Serif CJK SC', \
+             'Noto Serif CJK JP', serif",
+        ),
+    ];
+    for (cjk, serif) in stacks {
+        assert_eq!(Families::led_by(cjk).serif, serif, "{cjk:?}");
+    }
+    assert_eq!(
+        Families::led_by(Cjk::Jp).sans,
+        "'Noto Sans', 'Noto Sans CJK JP', 'Noto Sans CJK TC', 'Noto Sans CJK HK', \
+         'Noto Sans CJK SC', 'Noto Sans CJK KR', sans-serif"
+    );
+    // The locale's face leads the document; a marked message's own script leads the message.
+    let css = paper::paper_css(Cjk::Tc);
+    assert!(css.starts_with(&format!(
+        "body {{ font-family: {}; }}",
+        Families::led_by(Cjk::Tc).serif
+    )));
+    for (tag, cjk) in [("zh-Hans", Cjk::Sc), ("ja", Cjk::Jp), ("ko", Cjk::Kr)] {
+        let rule = format!(
+            "article[data-script=\"{tag}\"] {{ font-family: {}; }}",
+            Families::led_by(cjk).serif
+        );
+        assert!(css.contains(&rule), "no rule for {tag}: {css}");
+    }
+    // Traditional Chinese is what the document leads with already.
+    assert!(!css.contains("data-script=\"zh-Hant\""), "{css}");
+}
+
+/// A one-message thread of `subject` and a plain `body`, as a PDF on A4 with Traditional Chinese
+/// first: the names of the faces it embeds.
+fn faces_for(subject: &str, body: &str) -> Vec<String> {
+    let (store, _dir) = seeded();
+    let thread = thread_of(
+        &store,
+        vec![Seed {
+            from: "ada@example.test",
+            to: vec!["grace@example.test".to_owned()],
+            subject: subject.to_owned(),
+            mime: format!(
+                "Content-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n\
+                 {body}\r\n"
+            ),
+            attached: vec![],
+        }],
+    );
+    let bytes = printout(
+        &store,
+        Job {
+            thread,
+            pages: Pages::Flow,
+        },
+    );
+    open(&bytes)
+        .embedded_fonts()
+        .into_iter()
+        .map(|font| font.name)
+        .collect()
+}
+
+#[test]
+fn japanese_and_korean_mail_print_in_their_own_faces_on_a_chinese_locale() {
+    // Needs the Noto CJK faces installed, as the test above does. A face in the collection is
+    // named for its region: `NotoSerifCJKjp-...`, `NotoSansCJKkr-...`.
+    let cases = [
+        (
+            "会議のお知らせ",
+            "明日の会議は十時からです。よろしくお願いします。",
+            "jp",
+        ),
+        (
+            "회의 안내",
+            "내일 회의는 열 시에 시작합니다. 감사합니다.",
+            "kr",
+        ),
+    ];
+    for (subject, body, region) in cases {
+        let fonts = faces_for(subject, body);
+        for face in ["NotoSerifCJK", "NotoSansCJK"] {
+            let wanted = format!("{face}{region}");
+            assert!(
+                fonts.iter().any(|name| name.contains(&wanted)),
+                "{wanted} was not embedded: {fonts:?}"
+            );
+        }
+        assert!(
+            !fonts.iter().any(|name| name.contains("CJKtc")),
+            "the {region} message was set in the Traditional Chinese face: {fonts:?}"
+        );
+        assert!(
+            !fonts.iter().any(|name| name.contains("DroidSansFallback")),
+            "the CJK fell back: {fonts:?}"
+        );
+    }
+}
+
+/// A remote image's address, alt text and size, as [`with_a_remote_image`] has it.
+const PHOTO: &str = "https://images.example.test/team.png";
+const PHOTO_ALT: &str = "Team photo";
+
+/// A 200 x 100 opaque PNG: what the photo's server sends.
+fn photo() -> Vec<u8> {
+    let photo = image::RgbImage::from_fn(200, 100, |x, _| image::Rgb([(x % 255) as u8, 40, 90]));
+    let mut bytes = Vec::new();
+    photo
+        .write_to(
+            &mut std::io::Cursor::new(&mut bytes),
+            image::ImageFormat::Png,
+        )
+        .unwrap();
+    bytes
+}
+
+/// A thread of one HTML message with the photo in it, and a tracking pixel.
+fn with_a_remote_image(store: &SqliteStore) -> ThreadId {
+    let html = format!(
+        "<p>Our team.</p>\
+         <p><img src=\"{PHOTO}\" alt=\"{PHOTO_ALT}\" width=\"200\" height=\"100\"></p>\
+         <p><img src=\"https://track.example.test/open.gif\" width=\"1\" height=\"1\"></p>"
+    );
+    thread_of(
+        store,
+        vec![Seed {
+            from: "ada@example.test",
+            to: vec!["grace@example.test".to_owned()],
+            subject: "The team".to_owned(),
+            mime: format!(
+                "Content-Type: text/html; charset=utf-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n\
+                 {html}\r\n"
+            ),
+            attached: vec![],
+        }],
+    )
+}
+
+/// A fetcher that records every URL asked for and answers each at once with [`photo`], after
+/// running `before` (a test's chance to change the consent while the fetch is out).
+#[derive(Clone, Default)]
+struct Net {
+    asked: Arc<Mutex<Vec<String>>>,
+    before: Option<Arc<dyn Fn() + Send + Sync>>,
+}
+
+impl FetchImage for Net {
+    fn get(&self, url: String, done: Box<dyn FnOnce(Got) + Send>) {
+        self.asked
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(url);
+        if let Some(before) = &self.before {
+            before();
+        }
+        done(Got {
+            content_type: Some("image/png".to_owned()),
+            bytes: photo(),
+        });
+    }
+}
+
+impl Net {
+    fn asked(&self) -> Vec<String> {
+        self.asked
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+}
+
+/// The consent the reader writes when it shows `thread` with its images allowed.
+fn consented(store: &SqliteStore, thread: ThreadId) -> Consent {
+    let consent = Consent::new();
+    let messages = store.thread(thread).unwrap().messages;
+    consent.hold(
+        consent.holder(),
+        thread,
+        Some(messages.into_iter().map(|id| (id, vec![])).collect()),
+    );
+    consent
+}
+
+/// The sizes of the images `bytes` draws.
+fn drawn(bytes: &[u8]) -> Vec<(u32, u32)> {
+    open(bytes)
+        .pages()
+        .flat_map(|page| page.images())
+        .map(|image| (image.width, image.height))
+        .collect()
+}
+
+fn one_flow(thread: ThreadId) -> Job {
+    Job {
+        thread,
+        pages: Pages::Flow,
+    }
+}
+
+#[test]
+fn with_consent_the_remote_image_prints_from_what_the_readers_fetcher_brought() {
+    let (store, _dir) = seeded();
+    let thread = with_a_remote_image(&store);
+    let net = Net::default();
+    let sources = Sources::new(consented(&store, thread), ReaderNet(Arc::new(net.clone())));
+    let bytes = printout_with(&store, one_flow(thread), &sources);
+    // Asked for once, and the pixel not at all: it would print as nothing.
+    assert_eq!(net.asked(), [PHOTO]);
+    assert_eq!(drawn(&bytes), [(200, 100)], "the photo is drawn");
+    let text = all_text(&open(&bytes));
+    assert!(
+        !text.contains(&squeeze(PHOTO_ALT)),
+        "the photo is named: {text}"
+    );
+    assert!(!text.contains(&squeeze(PICTURES_NOTE)), "{text}");
+    // The file holds the picture, not where it came from.
+    assert!(!String::from_utf8_lossy(&bytes).contains("team.png"));
+}
+
+#[test]
+fn without_consent_nothing_is_fetched_and_the_remote_image_is_named() {
+    let (store, _dir) = seeded();
+    let thread = with_a_remote_image(&store);
+    let other = with_a_remote_image(&store);
+    let cases = [
+        ("no consent", Consent::new()),
+        ("another thread's consent", consented(&store, other)),
+    ];
+    for (name, consent) in cases {
+        let net = Net::default();
+        let sources = Sources::new(consent, ReaderNet(Arc::new(net.clone())));
+        let bytes = printout_with(&store, one_flow(thread), &sources);
+        assert!(net.asked().is_empty(), "{name}: fetched {:?}", net.asked());
+        assert!(drawn(&bytes).is_empty(), "{name}: an image was drawn");
+        let text = all_text(&open(&bytes));
+        assert!(
+            text.contains(&squeeze(&format!(
+                "[image: {PHOTO_ALT}, from images.example.test]"
+            ))),
+            "{name}: the photo is not named: {text}"
+        );
+        assert!(text.contains(&squeeze(PICTURES_NOTE)), "{name}: {text}");
+    }
+}
+
+#[test]
+fn consent_taken_back_while_the_image_is_coming_prints_it_named() {
+    let (store, _dir) = seeded();
+    let thread = with_a_remote_image(&store);
+    let consent = consented(&store, thread);
+    let net = Net {
+        before: Some(Arc::new({
+            let consent = consent.clone();
+            // The reader closes, or opens another thread, while the fetch is out.
+            move || consent.hold(consent.holder(), ThreadId::generate(), None)
+        })),
+        ..Net::default()
+    };
+    let sources = Sources::new(consent, ReaderNet(Arc::new(net.clone())));
+    let bytes = printout_with(&store, one_flow(thread), &sources);
+    assert_eq!(net.asked(), [PHOTO], "asked while the consent stood");
+    assert!(drawn(&bytes).is_empty(), "drawn after the consent was gone");
+    assert!(all_text(&open(&bytes)).contains(&squeeze(PHOTO_ALT)));
+}
+
 /// What reached a print dialog: each PDF's length, and its title.
 type Seen = Arc<Mutex<Vec<(usize, String)>>>;
 
@@ -650,7 +975,15 @@ fn print_hands_the_pdf_to_the_dialog_and_says_what_became_of_it() {
     ];
     for (answer, words) in cases {
         let (printer, seen) = recorder(answer);
-        let got = print_through(&store, job, &Paper::plain(), &printer, &chrono::Utc, now());
+        let got = print_through(
+            &store,
+            job,
+            &Paper::plain(),
+            &printer,
+            &Sources::default(),
+            &chrono::Utc,
+            now(),
+        );
         assert_eq!(got, words);
         let seen = seen.lock().unwrap().clone();
         assert_eq!(seen, vec![(expected_len, SUBJECT.to_owned())]);
@@ -669,6 +1002,7 @@ fn a_thread_that_is_gone_is_said_and_no_dialog_opens() {
         },
         &Paper::plain(),
         &printer,
+        &Sources::default(),
         &chrono::Utc,
         now(),
     );

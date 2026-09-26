@@ -63,6 +63,13 @@ pub struct Parsed {
     /// Raw, unsanitized. Sanitization happens at render time; see [`crate::sanitize`].
     pub html: Option<String>,
     pub attachments: Vec<ParsedPart>,
+    /// The body's `Content-Language` (its own part's, else the message's), as written: a list
+    /// of language tags, `None` when neither says. A hint for [`crate::script`].
+    pub content_language: Option<String>,
+    /// The `charset` the body's part was sent in (else the message's), as written, before the
+    /// body was decoded to [`Self::text`] or [`Self::html`]. A hint for [`crate::script`]: Big5
+    /// and Shift_JIS say more about a text's script than its code points do.
+    pub charset: Option<String>,
 }
 
 /// Parse a whole RFC 5322 message.
@@ -119,7 +126,10 @@ fn not_a_message() -> MimeError {
 
 fn assemble(message: &Message<'_>, markers: Markers) -> Parsed {
     let (text, html, attachments, flowed) = bodies(message, markers);
+    let (content_language, charset) = language_hints(message);
     Parsed {
+        content_language,
+        charset,
         rfc_message_id: first_id(message, HeaderName::MessageId),
         date: message_date(message),
         from: addresses(message, HeaderName::From).into_iter().next(),
@@ -272,6 +282,48 @@ fn bodies(
         });
     }
     (text, html, attachments, flowed.unwrap_or(Flowed::Fixed))
+}
+
+/// What the body's own part says about its language: its `Content-Language`, and the `charset`
+/// it was sent in, each falling back to the message's top-level header. The HTML body's part
+/// when there is one, as that is the body a reader sees; else the text body's.
+fn language_hints(message: &Message<'_>) -> (Option<String>, Option<String>) {
+    let body = message
+        .html_bodies()
+        .find(|part| matches!(part.body, PartType::Html(_)))
+        .or_else(|| {
+            message
+                .text_bodies()
+                .find(|part| matches!(part.body, PartType::Text(_)))
+        });
+    let charset_of = |part: &mail_parser::MessagePart<'_>| {
+        part.content_type()
+            .and_then(|ct| ct.attribute("charset"))
+            .map(str::trim)
+            .filter(|charset| !charset.is_empty())
+            .map(str::to_owned)
+    };
+    let language_of = |value: &mail_parser::HeaderValue<'_>| {
+        let tags: Vec<&str> = match value {
+            mail_parser::HeaderValue::Text(text) => vec![text.as_ref()],
+            mail_parser::HeaderValue::TextList(list) => list.iter().map(AsRef::as_ref).collect(),
+            _ => Vec::new(),
+        };
+        let joined = tags
+            .iter()
+            .map(|tag| tag.trim())
+            .filter(|tag| !tag.is_empty())
+            .collect::<Vec<_>>()
+            .join(", ");
+        (!joined.is_empty()).then_some(joined)
+    };
+    let language = body
+        .and_then(|part| language_of(part.content_language()))
+        .or_else(|| language_of(message.content_language()));
+    let charset = body
+        .and_then(charset_of)
+        .or_else(|| message.parts.first().and_then(charset_of));
+    (language, charset)
 }
 
 /// `format` and `delsp` on this part. Anything other than `format=flowed` is fixed,

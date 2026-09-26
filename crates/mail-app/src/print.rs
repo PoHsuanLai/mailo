@@ -3,12 +3,15 @@
 //! The document itself is [`mail_mime::print`], which is pure. This module is the part that
 //! reads the store — which messages, their stored bytes — and the part that writes a file.
 //! The window prints the same [`document`]: through its webview on `webview`, and as a PDF
-//! made by quire on `native` (`ui/print/paper.rs`).
+//! made by quire on `native` (`ui/print/paper.rs`), which adds its named faces
+//! ([`document_with`]) and, for a conversation whose remote images the reader consented to,
+//! those images ([`Pictures`]).
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::{Message, MessageId, ThreadId};
-use mail_mime::{Pages, Parsed, Sheet};
+use mail_mime::{Options, Pages, Parsed, Remote, Sheet};
 use mail_store::{SqliteStore, Store};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 /// A printable document, and the subject it is named after.
@@ -74,25 +77,118 @@ where
     Tz: TimeZone,
     Tz::Offset: std::fmt::Display,
 {
+    of_messages_with(store, messages, zone, now, &Options::new(pages), None)
+}
+
+/// Where a printout's consented remote images come from.
+///
+/// A remote image is a read receipt, so this is only ever built from the reader's consent: which
+/// messages it covers, and how to fetch what they show. [`mail_mime::remote_images`] lists what
+/// the consented messages' printout would draw, and only that list is handed to `fetch`.
+pub struct Pictures<'a> {
+    /// Whether the reader's consent to remote images covers this message.
+    pub consented: &'a dyn Fn(MessageId) -> bool,
+    /// The images of `urls` that could be fetched, each as a `data:` URI of a raster image.
+    /// Blocking.
+    pub fetch: &'a dyn Fn(&[String]) -> BTreeMap<String, String>,
+}
+
+impl std::fmt::Debug for Pictures<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Pictures").finish_non_exhaustive()
+    }
+}
+
+/// [`of_messages`], made as `options` say, with the consented messages' remote images drawn
+/// when `pictures` fetches them. Without `pictures` nothing is fetched and every remote image
+/// is named, as [`of_messages`] does. Blocking: it reads the stored mail, and fetches.
+pub fn of_messages_with<Tz>(
+    store: &SqliteStore,
+    messages: &[Message],
+    zone: &Tz,
+    now: DateTime<Utc>,
+    options: &Options<'_>,
+    pictures: Option<&Pictures<'_>>,
+) -> Printed
+where
+    Tz: TimeZone,
+    Tz::Offset: std::fmt::Display,
+{
     let parsed: Vec<Option<Parsed>> = messages
         .iter()
         .map(|message| parse_body(store, message))
         .collect();
-    let sheets: Vec<Sheet<'_>> = messages
+    let consented: Vec<bool> = messages
         .iter()
-        .zip(&parsed)
-        .map(|(message, parsed)| Sheet {
-            message,
-            parsed: parsed.as_ref(),
-        })
+        .map(|message| pictures.is_some_and(|pictures| (pictures.consented)(message.id)))
         .collect();
+    let none = BTreeMap::new();
+    let fetched = match pictures {
+        Some(pictures) if consented.contains(&true) => {
+            let wanted = mail_mime::remote_images(&sheets(messages, &parsed, &consented, &none));
+            if wanted.is_empty() {
+                none.clone()
+            } else {
+                (pictures.fetch)(&wanted)
+            }
+        }
+        _ => none,
+    };
     Printed {
         subject: messages
             .first()
             .map(|message| message.subject.clone())
             .unwrap_or_default(),
-        html: mail_mime::print(&sheets, zone, now, pages),
+        html: mail_mime::print_with(
+            &sheets(messages, &parsed, &consented, &fetched),
+            zone,
+            now,
+            options,
+        ),
     }
+}
+
+/// Each message as a sheet: a consented one's remote images drawn from `fetched`, every other
+/// one's named.
+fn sheets<'a>(
+    messages: &'a [Message],
+    parsed: &'a [Option<Parsed>],
+    consented: &[bool],
+    fetched: &'a BTreeMap<String, String>,
+) -> Vec<Sheet<'a>> {
+    messages
+        .iter()
+        .zip(parsed)
+        .zip(consented)
+        .map(|((message, parsed), consented)| Sheet {
+            message,
+            parsed: parsed.as_ref(),
+            remote: if *consented {
+                Remote::Allowed(fetched)
+            } else {
+                Remote::Blocked
+            },
+        })
+        .collect()
+}
+
+/// [`document`], made as [`of_messages_with`] makes it.
+pub fn document_with<Tz>(
+    store: &SqliteStore,
+    id: uuid::Uuid,
+    zone: &Tz,
+    now: DateTime<Utc>,
+    options: &Options<'_>,
+    pictures: Option<&Pictures<'_>>,
+) -> Result<Printed, String>
+where
+    Tz: TimeZone,
+    Tz::Offset: std::fmt::Display,
+{
+    let messages = messages(store, id)?;
+    Ok(of_messages_with(
+        store, &messages, zone, now, options, pictures,
+    ))
 }
 
 /// The message's stored bytes, parsed; `None` for the cases the reader also falls back on.

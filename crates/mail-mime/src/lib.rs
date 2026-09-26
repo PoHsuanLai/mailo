@@ -18,6 +18,7 @@ pub mod parse;
 pub mod print;
 pub mod reconstruct;
 pub mod sanitize;
+pub mod script;
 pub mod smime;
 pub mod stamp;
 pub mod unsubscribe;
@@ -32,9 +33,10 @@ pub use imip::{CalendarPart, CalendarReply, calendar_part, calendar_reply};
 pub use inline::{INLINE_BUDGET, embed_inline, embeddable};
 pub use mdn::{OriginalHeaders, ReceiptAsk, Reporting, ReturnPath, receipt, receipt_asked};
 pub use parse::{Parsed, ParsedPart, RemotePart, parse, parse_reconstructed};
-pub use print::{Pages, Sheet, print};
+pub use print::{Options, Pages, Remote, Sheet, print, print_with, remote_images};
 pub use reconstruct::{decode_part, reconstruct, sections_for};
 pub use sanitize::{RemoteImages, SafeHtml, SanitizePolicy, sanitize};
+pub use script::{Script, script_of};
 pub use stamp::restamp;
 pub use unsubscribe::{
     HttpsUrl, ListHeaders, ListId, Mailto, ONE_CLICK, Unsubscribe, list_headers,

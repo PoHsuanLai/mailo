@@ -1,6 +1,6 @@
 #[cfg(feature = "webview")]
 use super::window::{Heard, Move, Phase, decide};
-use super::{Job, PrintTool, SAVED_AS, build, job_for, save_into, started};
+use super::{Job, PrintTool, SAVED_AS, Sources, build, job_for, save_into, started};
 use crate::ui::app::App;
 use crate::ui::fixtures::{
     ACCOUNT, INSIDE_THE_SHELL, Scripts, chord, click, dispatching, rebuild_into, seeded, work,
@@ -149,8 +149,22 @@ fn save_for_printing_writes_beside_what_is_there_and_says_where() {
         thread,
         pages: Pages::Flow,
     };
-    let first = save_into(&store, job, into.path(), &chrono::Utc, now());
-    let second = save_into(&store, job, into.path(), &chrono::Utc, now());
+    let first = save_into(
+        &store,
+        job,
+        &Sources::none(),
+        into.path(),
+        &chrono::Utc,
+        now(),
+    );
+    let second = save_into(
+        &store,
+        job,
+        &Sources::none(),
+        into.path(),
+        &chrono::Utc,
+        now(),
+    );
     let one = into.path().join(format!("{SUBJECT}.{SAVED_AS}"));
     let two = into.path().join(format!("{SUBJECT} (2).{SAVED_AS}"));
     assert_eq!(first, format!("Saved for printing to {}", one.display()));
@@ -182,7 +196,14 @@ fn a_thread_that_is_gone_says_so_rather_than_saving_nothing() {
         thread: ThreadId::generate(),
         pages: Pages::Flow,
     };
-    let said = save_into(&store, job, into.path(), &chrono::Utc, now());
+    let said = save_into(
+        &store,
+        job,
+        &Sources::none(),
+        into.path(),
+        &chrono::Utc,
+        now(),
+    );
     assert!(said.starts_with("Could not save for printing:"), "{said}");
     assert_eq!(std::fs::read_dir(into.path()).unwrap().count(), 0);
 }

@@ -13,7 +13,10 @@
 //! On `native` there is no webview anywhere. The document becomes a PDF through quire
 //! (`ds_native::pdf`, [`paper`]), and Print hands that PDF to the system's print dialog
 //! (`ds_native::print_dialog`, through a [`Printer`], which a test replaces). Save for printing
-//! writes the same PDF.
+//! writes the same PDF. A remote image prints only when the reader's consent covers its message
+//! as the PDF is made; it is then fetched through the Reader view's own fetcher, on the same
+//! blocking thread, and drawn from the bytes as a `data:` URI ([`Sources`]). Without that
+//! consent nothing is fetched, and the image is named where it stood.
 
 mod tool;
 // The print window is a WebKitGTK webview of its own, and the print operation is WebKit's: the
@@ -29,6 +32,7 @@ pub(super) use tool::PrintTool;
 #[cfg(feature = "webview")]
 use super::motion::Motion;
 use super::motion::{motion, tell_through};
+#[cfg(any(feature = "webview", test))]
 use crate::print::Printed;
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
@@ -41,7 +45,9 @@ use std::sync::Arc;
 #[cfg(feature = "native")]
 pub use native_print::Printer;
 #[cfg(feature = "native")]
-use native_print::{print_on_paper, printed_bytes};
+pub(in crate::ui) use native_print::Sources;
+#[cfg(feature = "native")]
+use native_print::{print_on_paper, saved_bytes};
 
 /// What to print: a conversation, and whether each message starts a page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,6 +66,10 @@ pub(in crate::ui) fn job_for(open: Option<ThreadId>) -> Option<Job> {
 }
 
 /// The printable document for `job`, dates in `zone`. Blocking: it reads the stored mail.
+///
+/// The document `mailo print` writes, as the webview prints it. On `native` the printout is
+/// [`paper::printed`], the same document with its faces named for paper.
+#[cfg(any(feature = "webview", test))]
 pub(in crate::ui) fn build<Tz>(
     store: &SqliteStore,
     job: Job,
@@ -73,9 +83,40 @@ where
     crate::print::document(store, *job.thread.as_uuid(), zone, now, job.pages)
 }
 
+/// Where a printout's consented remote images come from: on `webview`, nowhere. Its printout
+/// names every remote image, as it always has.
+#[cfg(feature = "webview")]
+#[derive(Debug, Clone, Default)]
+pub(in crate::ui) struct Sources;
+
+#[cfg(feature = "webview")]
+impl Sources {
+    /// The window's: none.
+    fn window() -> Sources {
+        Sources
+    }
+
+    /// None, for a test.
+    #[cfg(test)]
+    pub(in crate::ui) fn none() -> Sources {
+        Sources
+    }
+}
+
 /// What Save for printing writes: HTML on `webview`, which prints it from a browser.
 #[cfg(feature = "webview")]
-fn printed_bytes(printed: Printed) -> Result<(String, Vec<u8>), String> {
+fn saved_bytes<Tz>(
+    store: &SqliteStore,
+    job: Job,
+    _sources: &Sources,
+    zone: &Tz,
+    now: DateTime<Utc>,
+) -> Result<(String, Vec<u8>), String>
+where
+    Tz: TimeZone,
+    Tz::Offset: std::fmt::Display,
+{
+    let printed = build(store, job, zone, now)?;
     Ok((printed.subject, printed.html.into_bytes()))
 }
 
@@ -86,10 +127,12 @@ pub(in crate::ui) const SAVED_AS: &str = "html";
 pub(in crate::ui) const SAVED_AS: &str = "pdf";
 
 /// Build `job` and write it into `dir` beside anything already there, and say where it went.
-/// Blocking. A PDF on `native`, the HTML document on `webview`.
+/// Blocking. A PDF on `native`, with the remote images `sources` consents to; the HTML document
+/// on `webview`.
 pub(in crate::ui) fn save_into<Tz>(
     store: &SqliteStore,
     job: Job,
+    sources: &Sources,
     dir: &Path,
     zone: &Tz,
     now: DateTime<Utc>,
@@ -98,11 +141,9 @@ where
     Tz: TimeZone,
     Tz::Offset: std::fmt::Display,
 {
-    let saved = build(store, job, zone, now)
-        .and_then(printed_bytes)
-        .and_then(|(subject, bytes)| {
-            crate::print::write_file_into(dir, &subject, SAVED_AS, &bytes)
-        });
+    let saved = saved_bytes(store, job, sources, zone, now).and_then(|(subject, bytes)| {
+        crate::print::write_file_into(dir, &subject, SAVED_AS, &bytes)
+    });
     match saved {
         Ok(path) => format!("Saved for printing to {}", path.display()),
         Err(why) => {
@@ -192,9 +233,10 @@ pub(in crate::ui) fn save(job: Job) {
     let said = motion();
     let store = consume_context::<Arc<SqliteStore>>();
     let dir = crate::attach::downloads_dir();
+    let sources = Sources::window();
     dioxus::core::spawn_forever(async move {
         let done = tokio::task::spawn_blocking(move || {
-            save_into(&store, job, &dir, &chrono::Local, Utc::now())
+            save_into(&store, job, &sources, &dir, &chrono::Local, Utc::now())
         })
         .await;
         tell_through(
@@ -208,15 +250,144 @@ pub(in crate::ui) fn save(job: Job) {
 #[cfg(feature = "native")]
 mod native_print {
     use super::super::motion::{motion, tell_through};
+    use super::super::original::{Consent, FetchImage, ReaderNet, data_uri};
+    use super::Job;
     use super::paper::{self, Paper};
-    use super::{Job, build};
-    use crate::print::Printed;
+    use crate::print::{Pictures, Printed};
     use chrono::{DateTime, TimeZone, Utc};
     use dioxus::prelude::*;
     use ds_native::{PrintError, PrintOutcome};
+    use mail_domain::MessageId;
     use mail_store::SqliteStore;
+    use std::collections::BTreeMap;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::{Duration, Instant};
+
+    /// Where a printout's consented remote images come from: the reader's [`Consent`], which
+    /// says whose images may be fetched, and the [`ReaderNet`] the Reader view fetches its own
+    /// with (no cookies, no `Referer`, its limits). Both are root contexts of the window; a test
+    /// builds its own. Without either, a printout fetches nothing.
+    #[derive(Clone, Default)]
+    pub(in crate::ui) struct Sources {
+        consent: Option<Consent>,
+        net: Option<ReaderNet>,
+    }
+
+    impl std::fmt::Debug for Sources {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("Sources")
+                .field("consent", &self.consent)
+                .field("net", &self.net.is_some())
+                .finish()
+        }
+    }
+
+    impl Sources {
+        /// `consent`, fetching through `net`.
+        #[cfg(test)]
+        pub(in crate::ui) fn new(consent: Consent, net: ReaderNet) -> Sources {
+            Sources {
+                consent: Some(consent),
+                net: Some(net),
+            }
+        }
+
+        /// No consent and no fetcher, for a test: nothing is fetched.
+        #[cfg(test)]
+        pub(in crate::ui) fn none() -> Sources {
+            Sources::default()
+        }
+
+        /// The window's. From an event handler, where the print was asked for.
+        pub(super) fn window() -> Sources {
+            Sources {
+                consent: try_consume_context::<Consent>(),
+                net: try_consume_context::<ReaderNet>(),
+            }
+        }
+    }
+
+    /// How long a printout waits, in all, for its consented images. One that has not come by
+    /// then is named, as one that failed is. The fetcher gives up on its own after twenty
+    /// seconds.
+    const WAIT: Duration = Duration::from_secs(25);
+
+    /// `job`'s printout on `paper`, with the remote images of the messages whose images the
+    /// reader consented to, when `sources` can fetch them. Blocking, for as long as the fetches
+    /// take (at most [`WAIT`]).
+    ///
+    /// Asked of the consent here, on the blocking thread, and not when the click came: what is
+    /// printed is what stands when the print is made. Only the messages the grant covers are
+    /// fetched for, only the images their printout draws (`mail_mime::remote_images`), and if
+    /// the grant is taken back while they come, none of them is drawn.
+    pub(in crate::ui) fn made<Tz>(
+        store: &SqliteStore,
+        job: Job,
+        paper: &Paper,
+        sources: &Sources,
+        zone: &Tz,
+        now: DateTime<Utc>,
+    ) -> Result<Printed, String>
+    where
+        Tz: TimeZone,
+        Tz::Offset: std::fmt::Display,
+    {
+        let (Some(consent), Some(net)) = (&sources.consent, &sources.net) else {
+            return paper::printed(store, job, paper, None, zone, now);
+        };
+        let Some((ticket, messages)) = consent.thread(job.thread) else {
+            return paper::printed(store, job, paper, None, zone, now);
+        };
+        let consented = |id: MessageId| messages.contains(&id);
+        let fetch = |urls: &[String]| {
+            let fetched = fetch_all(net.0.as_ref(), urls, WAIT);
+            if consent.stands(ticket) {
+                fetched
+            } else {
+                BTreeMap::new()
+            }
+        };
+        let pictures = Pictures {
+            consented: &consented,
+            fetch: &fetch,
+        };
+        paper::printed(store, job, paper, Some(&pictures), zone, now)
+    }
+
+    /// Fetch `urls` through `net`, all at once, and wait at most `wait` for them: those that
+    /// came back a raster image to show, as `data:` URIs ([`data_uri`], as the Reader view draws
+    /// them). A fetch that never answers (the fetcher drops it) ends the wait for it early.
+    fn fetch_all(
+        net: &dyn FetchImage,
+        urls: &[String],
+        wait: Duration,
+    ) -> BTreeMap<String, String> {
+        let deadline = Instant::now() + wait;
+        let (send, answers) = std::sync::mpsc::channel();
+        for url in urls {
+            let send = send.clone();
+            let asked = url.clone();
+            net.get(
+                url.clone(),
+                Box::new(move |got| {
+                    let _ = send.send((asked, got));
+                }),
+            );
+        }
+        drop(send);
+        let mut fetched = BTreeMap::new();
+        for _ in urls {
+            let left = deadline.saturating_duration_since(Instant::now());
+            let Ok((url, got)) = answers.recv_timeout(left) else {
+                break;
+            };
+            if let Some(uri) = data_uri(&got) {
+                fetched.insert(url, uri);
+            }
+        }
+        fetched
+    }
 
     /// The call that puts a PDF in front of the person: `(pdf, title)`.
     type Dialog = dyn Fn(&[u8], &str) -> Result<PrintOutcome, PrintError> + Send + Sync;
@@ -303,10 +474,19 @@ mod native_print {
         };
         let store = consume_context::<Arc<SqliteStore>>();
         let paper = Paper::from_env();
+        let sources = Sources::window();
         dioxus::core::spawn_forever(async move {
             let done = tokio::task::spawn_blocking(move || {
                 let _claim = claim;
-                print_through(&store, job, &paper, &printer, &chrono::Local, Utc::now())
+                print_through(
+                    &store,
+                    job,
+                    &paper,
+                    &printer,
+                    &sources,
+                    &chrono::Local,
+                    Utc::now(),
+                )
             })
             .await;
             let words = done.unwrap_or_else(|error| {
@@ -317,13 +497,15 @@ mod native_print {
         });
     }
 
-    /// Build `job`, make it a PDF on `paper`, hand it to `printer`'s dialog, and say what became
-    /// of it. Blocking, for as long as the dialog is up.
+    /// Build `job` with the remote images `sources` consents to, make it a PDF on `paper`, hand
+    /// it to `printer`'s dialog, and say what became of it. Blocking, for as long as the fetches
+    /// and the dialog take.
     pub(in crate::ui) fn print_through<Tz>(
         store: &SqliteStore,
         job: Job,
         paper: &Paper,
         printer: &Printer,
+        sources: &Sources,
         zone: &Tz,
         now: DateTime<Utc>,
     ) -> String
@@ -331,7 +513,7 @@ mod native_print {
         Tz: TimeZone,
         Tz::Offset: std::fmt::Display,
     {
-        let made = build(store, job, zone, now).and_then(|printed| {
+        let made = made(store, job, paper, sources, zone, now).and_then(|printed| {
             let pdf = paper::pdf(&printed, paper)?;
             Ok((paper::title(&printed), pdf))
         });
@@ -361,9 +543,22 @@ mod native_print {
         }
     }
 
-    /// What Save for printing writes on `native`: the PDF, on the locale's paper.
-    pub(super) fn printed_bytes(printed: Printed) -> Result<(String, Vec<u8>), String> {
-        let pdf = paper::pdf(&printed, &Paper::from_env())?;
+    /// What Save for printing writes on `native`: the PDF Print would make, on the locale's
+    /// paper.
+    pub(super) fn saved_bytes<Tz>(
+        store: &SqliteStore,
+        job: Job,
+        sources: &Sources,
+        zone: &Tz,
+        now: DateTime<Utc>,
+    ) -> Result<(String, Vec<u8>), String>
+    where
+        Tz: TimeZone,
+        Tz::Offset: std::fmt::Display,
+    {
+        let paper = Paper::from_env();
+        let printed = made(store, job, &paper, sources, zone, now)?;
+        let pdf = paper::pdf(&printed, &paper)?;
         Ok((printed.subject, pdf))
     }
 }

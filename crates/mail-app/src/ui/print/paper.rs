@@ -3,37 +3,27 @@
 //!
 //! Blitz lays the document out and quire cuts it into pages. Neither reads CSS fragmentation
 //! (`break-before`, `break-inside`, `@page`), so the page rules `mail_mime::print` writes as CSS
-//! would be dropped. [`for_paper`] says the same things in the markers quire reads instead:
-//! - a message that starts a page (`Pages::PerMessage`) carries `data-break-before="page"`;
-//! - a message's headers, and its list of attachments, carry `data-break-inside="avoid"`, so
-//!   neither is cut in two by a page's end;
-//! - `@page`'s margins are the [`PageSpec`]'s, which are quire's default (18 mm above and below,
-//!   16 mm at the sides: the same as the document asks for).
+//! are dropped; the builder writes the same things in the markers quire reads
+//! (`data-break-before`, `data-break-inside`: see `mail_mime::print`), and `@page`'s margins
+//! are the [`PageSpec`]'s, which are quire's default (18 mm above and below, 16 mm at the sides:
+//! the same as the document asks for). Nothing here edits the markup the builder wrote.
 //!
-//! It also names the CJK faces ahead of the generic family, since otherwise fontique's fallback
-//! picks one (on some systems a thin or a bitmap-era face), and says once, at the top, that
-//! pictures the printout does not hold are named where they were. A printout never fetches: a
-//! remote image is left out whether or not the reader was allowed to show it, as it always has
-//! been (`mail_mime::print`), and the document's `<p class="missing">` names it.
+//! What this module adds, through `mail_mime::Options`:
+//! - **The faces.** Each family names the CJK faces ahead of the generic one, since otherwise
+//!   fontique's fallback picks one (on some systems a thin or a bitmap-era face). Which regional
+//!   face leads is the message's: the builder marks a message with the script its own headers or
+//!   text say (`data-script`, [`mail_mime::Script`]), and that message's families put that
+//!   script's face first ([`Cjk::for_script`]). The document's own lines, and a message that
+//!   says nothing, lead with the locale's ([`Paper`]).
+//! - **The note** at the top that pictures the printout does not hold are named where they were.
 //!
-//! **Why editing the markup is safe.** Every piece of text `mail_mime::print` writes is escaped,
-//! `<`, `>` and `"` included, so the tags matched here can only be the ones the builder wrote
-//! itself; a subject or a body that spells them out arrives as `&lt;article ...` and is not
-//! touched. The markup it keeps is the builder's, the CSP line included.
+//! A remote image prints only for a message whose images the reader consented to, fetched by
+//! the caller through the reader's own fetcher (`native_print`); every other remote image is
+//! named, as the document's `<p class="missing">`.
 
-use crate::print::Printed;
+use crate::print::{Pictures, Printed};
 use ds_native::{Margins, PageSize, PageSpec};
-
-/// A message that starts a page, as `mail_mime::print` opens it.
-const NEW_PAGE: &str = "<article class=\"message new-page\">";
-/// A message's headers.
-const HEADERS: &str = "<header class=\"headers\">";
-/// A message's list of attachments.
-const ATTACHMENTS: &str = "<section class=\"attachments\">";
-/// An image the printout names rather than draws.
-const MISSING: &str = "<p class=\"missing\">";
-/// The "Printed ..." line at the top of the document.
-const PRINTED_LINE: &str = "<p class=\"printed\">";
+use mail_mime::{Options, Script};
 
 /// What the top of a printout says when it names a picture instead of drawing it.
 pub(in crate::ui) const PICTURES_NOTE: &str =
@@ -61,6 +51,18 @@ impl Cjk {
             Cjk::Sc => "SC",
             Cjk::Jp => "JP",
             Cjk::Kr => "KR",
+        }
+    }
+
+    /// The face that leads for text in `script`. Traditional Chinese is Hong Kong's when the
+    /// locale's is (`default`), Taiwan's otherwise: the script alone does not say which.
+    pub(in crate::ui) fn for_script(script: Script, default: Cjk) -> Cjk {
+        match script {
+            Script::TraditionalChinese if default == Cjk::Hk => Cjk::Hk,
+            Script::TraditionalChinese => Cjk::Tc,
+            Script::SimplifiedChinese => Cjk::Sc,
+            Script::Japanese => Cjk::Jp,
+            Script::Korean => Cjk::Kr,
         }
     }
 
@@ -167,63 +169,96 @@ fn stack(latin: &[&str], cjk_family: &str, cjk: Cjk, generic: &str) -> String {
     families.join(", ")
 }
 
-/// The rules [`for_paper`] adds after the document's own: faces named, CJK included. Only
-/// `font-family`, so every size and weight the document sets stays.
-fn paper_css(cjk: Cjk) -> String {
-    let serif = stack(
-        &["Georgia", "Times New Roman", "Noto Serif"],
-        "Noto Serif CJK",
-        cjk,
-        "serif",
-    );
-    let sans = stack(&["Noto Sans"], "Noto Sans CJK", cjk, "sans-serif");
-    let mono = stack(&["Noto Sans Mono"], "Noto Sans Mono CJK", cjk, "monospace");
-    format!(
+/// The three families a printout sets, with `cjk`'s face leading the CJK ones: serif for the
+/// body, sans for the headers and notes, mono for code.
+pub(in crate::ui) struct Families {
+    pub serif: String,
+    pub sans: String,
+    pub mono: String,
+}
+
+impl Families {
+    pub(in crate::ui) fn led_by(cjk: Cjk) -> Families {
+        Families {
+            serif: stack(
+                &["Georgia", "Times New Roman", "Noto Serif"],
+                "Noto Serif CJK",
+                cjk,
+                "serif",
+            ),
+            sans: stack(&["Noto Sans"], "Noto Sans CJK", cjk, "sans-serif"),
+            mono: stack(&["Noto Sans Mono"], "Noto Sans Mono CJK", cjk, "monospace"),
+        }
+    }
+}
+
+/// Every script a message can be marked with.
+const SCRIPTS: [Script; 4] = [
+    Script::TraditionalChinese,
+    Script::SimplifiedChinese,
+    Script::Japanese,
+    Script::Korean,
+];
+
+/// The rules a printout on paper adds after the document's own: faces named, CJK included. Only
+/// `font-family` (and the note's look), so every size and weight the document sets stays.
+///
+/// The document, and a message that says nothing of its script, lead with `default`, the
+/// locale's; a message the builder marked with its script leads with that script's face.
+pub(in crate::ui) fn paper_css(default: Cjk) -> String {
+    let Families { serif, sans, mono } = Families::led_by(default);
+    let mut css = format!(
         "body {{ font-family: {serif}; }}\n\
          .printed, .paper-note, h1.thread, .headers, .headers h2, .note, .attachments \
          {{ font-family: {sans}; }}\n\
          .body pre, .body code {{ font-family: {mono}; }}\n\
          .paper-note {{ font-size: 8pt; color: #555; margin: 0 0 1em; }}\n"
-    )
+    );
+    for script in SCRIPTS {
+        let cjk = Cjk::for_script(script, default);
+        if cjk == default {
+            continue;
+        }
+        let Families { serif, sans, mono } = Families::led_by(cjk);
+        let at = format!("article[data-script=\"{}\"]", script.tag());
+        css.push_str(&format!(
+            "{at} {{ font-family: {serif}; }}\n\
+             {at} .headers, {at} .headers h2, {at} .note, {at} .attachments \
+             {{ font-family: {sans}; }}\n\
+             {at} .body pre, {at} .body code {{ font-family: {mono}; }}\n"
+        ));
+    }
+    css
 }
 
-/// `mail_mime::print`'s document, ready for quire's PDF path: the page markers, the named faces,
-/// and the note on pictures. See the module notes for what each is and why editing is safe.
-pub(in crate::ui) fn for_paper(html: &str, cjk: Cjk) -> String {
-    let mut out = html
-        .replace(
-            NEW_PAGE,
-            "<article class=\"message new-page\" data-break-before=\"page\">",
-        )
-        .replace(
-            HEADERS,
-            "<header class=\"headers\" data-break-inside=\"avoid\">",
-        )
-        .replace(
-            ATTACHMENTS,
-            "<section class=\"attachments\" data-break-inside=\"avoid\">",
-        );
-    if let Some(at) = out.find("</head>") {
-        out.insert_str(at, &format!("<style>\n{}</style>\n", paper_css(cjk)));
-    }
-    if out.contains(MISSING)
-        && let Some(line) = out.find(PRINTED_LINE)
-        && let Some(end) = out[line..].find("</p>")
-    {
-        let after = line + end + "</p>".len();
-        out.insert_str(
-            after,
-            &format!("\n<p class=\"paper-note\">{PICTURES_NOTE}</p>"),
-        );
-    }
-    out
+/// `job`'s printout, made for paper: the builder's document with [`paper_css`]'s faces and the
+/// note on pictures, and the consented messages' remote images when `pictures` fetches them.
+/// Blocking: it reads the stored mail, and may fetch.
+pub(in crate::ui) fn printed<Tz>(
+    store: &mail_store::SqliteStore,
+    job: super::Job,
+    paper: &Paper,
+    pictures: Option<&Pictures<'_>>,
+    zone: &Tz,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<Printed, String>
+where
+    Tz: chrono::TimeZone,
+    Tz::Offset: std::fmt::Display,
+{
+    let style = paper_css(paper.cjk);
+    let options = Options {
+        pages: job.pages,
+        style: &style,
+        missing_note: Some(PICTURES_NOTE),
+    };
+    crate::print::document_with(store, *job.thread.as_uuid(), zone, now, &options, pictures)
 }
 
 /// `printed` as a PDF on `paper`. Blocking, and slow next to a click (the layout, and the first
 /// time in a process a scan of the system's fonts): never on the render path (F140).
 pub(in crate::ui) fn pdf(printed: &Printed, paper: &Paper) -> Result<Vec<u8>, String> {
-    ds_native::pdf(&for_paper(&printed.html, paper.cjk), paper.spec)
-        .map_err(|error| error.to_string())
+    ds_native::pdf(&printed.html, paper.spec).map_err(|error| error.to_string())
 }
 
 /// What a print dialog, and a PDF file, are titled: the subject, or "(no subject)".

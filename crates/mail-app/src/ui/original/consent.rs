@@ -135,6 +135,21 @@ impl Consent {
         grant.by.is_some() && grant.generation == ticket.0
     }
 
+    /// The messages of `thread` whose images are allowed now, and the ticket that says, later,
+    /// whether that still stands. `None` when `thread`'s images are not allowed. For a printout
+    /// of `thread`, which may draw only these messages' images.
+    #[cfg_attr(not(feature = "native"), allow(dead_code))]
+    pub(crate) fn thread(&self, thread: ThreadId) -> Option<(Ticket, Vec<MessageId>)> {
+        let grant = self.grant();
+        let (_, granted) = grant.by?;
+        (granted == thread).then(|| {
+            (
+                Ticket(grant.generation),
+                grant.messages.iter().map(|(id, _)| *id).collect(),
+            )
+        })
+    }
+
     /// Whether any thread's images are allowed now.
     pub fn granted(&self) -> bool {
         self.grant().by.is_some()

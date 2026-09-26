@@ -9,8 +9,21 @@
 //!
 //! Self-contained on purpose: printing happens from a file on disk or a webview with the
 //! network nowhere in the picture, and a printout that fetched something would tell the sender
-//! it had been printed. The only URLs that load anything are `data:` URIs this crate built from
-//! the message's own parts, through [`crate::embeddable`]'s allowlist.
+//! it had been printed. The only URLs that load anything are `data:` URIs: those this crate
+//! built from the message's own parts, through [`crate::embeddable`]'s allowlist, and, for a
+//! message whose remote images the reader consented to ([`Remote::Allowed`]), those the caller
+//! fetched already and hands in, held to the same allowlist. Nothing here fetches.
+//!
+//! The document also says, in markers a paginating renderer reads, what the page structure is
+//! and what each message is written in, so no one has to edit the markup afterwards:
+//! - `data-break-before="page"` on a message that starts a page ([`Pages::PerMessage`]);
+//! - `data-break-inside="avoid"` on a message's headers, a quoted block, a table, an image and
+//!   the list of attachments: what reads badly cut in two by a page's end;
+//! - `data-script` on a message whose CJK script its own headers or text say ([`Script`]), so
+//!   a renderer can choose the regional face for it.
+//!
+//! The same attributes mean nothing to a browser; the stylesheet's `break-*` rules say the same
+//! things to one that reads CSS fragmentation.
 //!
 //! Pure: the time zone and "now" are arguments, and nothing here reads the clock or the disk.
 
@@ -19,8 +32,10 @@ use crate::block::{
 };
 use crate::parse::Parsed;
 use crate::sanitize::{RemoteImages, SanitizePolicy, sanitize};
+use crate::script::{Script, script_of};
 use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::{Address, Body, Message};
+use std::collections::BTreeMap;
 use std::fmt::Display;
 use std::fmt::Write as _;
 
@@ -32,6 +47,46 @@ use std::fmt::Write as _;
 pub struct Sheet<'a> {
     pub message: &'a Message,
     pub parsed: Option<&'a Parsed>,
+    /// The remote images this message's printout may draw.
+    pub remote: Remote<'a>,
+}
+
+/// The remote images a message's printout may draw. A remote image is a read receipt: only the
+/// reader's consent to this message's images lets one in, and then only as bytes the caller
+/// already fetched.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Remote<'a> {
+    /// None: each is named where it stood, by its description and its host. Always, without
+    /// the reader's consent.
+    #[default]
+    Blocked,
+    /// The reader's consent stands for this message. Each image in the map (its URL, as
+    /// [`remote_images`] listed it, to a `data:` URI of an allowlisted raster type) is drawn;
+    /// one missing from it, or whose URI is not such a `data:` URI, is named as a blocked one is.
+    Allowed(&'a BTreeMap<String, String>),
+}
+
+/// How the document is made beyond what it holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Options<'a> {
+    pub pages: Pages,
+    /// Rules written after the document's own stylesheet: a renderer's named faces, say. The
+    /// caller's, written as given, and never anything a message said.
+    pub style: &'a str,
+    /// A line under the "Printed" line when the printout names an image rather than drawing
+    /// it. Escaped like every other text.
+    pub missing_note: Option<&'a str>,
+}
+
+impl Options<'_> {
+    /// `pages`, and nothing more: the document's own stylesheet and no note.
+    pub fn new(pages: Pages) -> Options<'static> {
+        Options {
+            pages,
+            style: "",
+            missing_note: None,
+        }
+    }
 }
 
 /// Whether each message of a thread starts on a new page.
@@ -52,6 +107,39 @@ where
     Tz: TimeZone,
     Tz::Offset: Display,
 {
+    print_with(sheets, zone, now, &Options::new(pages))
+}
+
+/// [`print`], made as `options` say: the pages, rules after the stylesheet, and a note when an
+/// image is named rather than drawn.
+pub fn print_with<Tz>(
+    sheets: &[Sheet<'_>],
+    zone: &Tz,
+    now: DateTime<Utc>,
+    options: &Options<'_>,
+) -> String
+where
+    Tz: TimeZone,
+    Tz::Offset: Display,
+{
+    // The messages first, so the top can say whether an image in them was left out.
+    let mut messages = String::new();
+    for (index, sheet) in sheets.iter().enumerate() {
+        let (class, starts_page) = match (index, options.pages) {
+            (0, _) | (_, Pages::Flow) => ("message", ""),
+            (_, Pages::PerMessage) => ("message new-page", " data-break-before=\"page\""),
+        };
+        let script = script(sheet)
+            .map(|script| format!(" data-script=\"{}\"", script.tag()))
+            .unwrap_or_default();
+        let _ = writeln!(messages, "<article class=\"{class}\"{starts_page}{script}>");
+        header(&mut messages, sheet.message, zone);
+        body(&mut messages, sheet);
+        attachments(&mut messages, sheet.message);
+        messages.push_str("</article>\n");
+    }
+    // Every text is escaped, so this element can only be one `missing` wrote.
+    let left_out = messages.contains(MISSING);
     let title = sheets
         .first()
         .map(|sheet| sheet.message.subject.trim())
@@ -68,12 +156,21 @@ where
     let _ = writeln!(out, "<title>{}</title>", escape(title));
     out.push_str("<style>\n");
     out.push_str(CSS);
+    if !options.style.is_empty() {
+        out.push_str(options.style);
+        if !options.style.ends_with('\n') {
+            out.push('\n');
+        }
+    }
     out.push_str("</style>\n</head>\n<body>\n");
     let _ = writeln!(
         out,
         "<p class=\"printed\">Printed {}</p>",
         escape(&when(now, zone))
     );
+    if left_out && let Some(note) = options.missing_note {
+        let _ = writeln!(out, "<p class=\"paper-note\">{}</p>", escape(note));
+    }
     if sheets.len() > 1 {
         let _ = writeln!(
             out,
@@ -82,20 +179,89 @@ where
             sheets.len()
         );
     }
-    for (index, sheet) in sheets.iter().enumerate() {
-        let class = match (index, pages) {
-            (0, _) | (_, Pages::Flow) => "message",
-            (_, Pages::PerMessage) => "message new-page",
-        };
-        let _ = writeln!(out, "<article class=\"{class}\">");
-        header(&mut out, sheet.message, zone);
-        body(&mut out, sheet);
-        attachments(&mut out, sheet.message);
-        out.push_str("</article>\n");
-    }
+    out.push_str(&messages);
     out.push_str("</body>\n</html>\n");
     out
 }
+
+/// The CJK script `sheet` is written in, as far as the message says: its own headers when its
+/// bytes are here, then its subject and its text.
+fn script(sheet: &Sheet<'_>) -> Option<Script> {
+    let subject = sheet.message.subject.as_str();
+    match sheet.parsed {
+        Some(parsed) => parsed.script(subject),
+        None => {
+            let stored = match &sheet.message.body {
+                Body::Present { text, .. } => text.as_deref().unwrap_or(""),
+                _ => "",
+            };
+            script_of(None, None, &format!("{subject}\n{stored}"))
+        }
+    }
+}
+
+/// The remote images [`print`] would draw for `sheets` if it had them: the `http` and `https`
+/// URLs of every image in the messages whose images are [`Remote::Allowed`], in order, each
+/// once. A spacer (a side of one pixel or less) is left out: it is drawn as nothing. A message
+/// without consent contributes nothing, so a caller that fetches exactly this list never asks
+/// for an image nobody allowed.
+pub fn remote_images(sheets: &[Sheet<'_>]) -> Vec<String> {
+    let mut urls = Vec::new();
+    for sheet in sheets {
+        if sheet.remote == Remote::Blocked {
+            continue;
+        }
+        if let Some(document) = document(sheet) {
+            collect_remote(&document.blocks, &mut urls);
+        }
+    }
+    urls
+}
+
+fn collect_remote(blocks: &[Block], urls: &mut Vec<String>) {
+    for block in blocks {
+        match block {
+            Block::Image {
+                src: ImgSrc::Remote(url),
+                width,
+                height,
+                ..
+            } if !is_spacer(*width, *height) => {
+                let url = url.as_str();
+                let web = url.starts_with("https://") || url.starts_with("http://");
+                if web && !urls.iter().any(|seen| seen == url) {
+                    urls.push(url.to_owned());
+                }
+            }
+            Block::List { items, .. } => {
+                for item in items {
+                    collect_remote(item, urls);
+                }
+            }
+            Block::Quote { blocks, .. } | Block::Signature(blocks) => collect_remote(blocks, urls),
+            _ => {}
+        }
+    }
+}
+
+/// A `data:` URI this document may draw: base64 of one of [`crate::embeddable`]'s raster types,
+/// and nothing that could end the attribute or say anything else.
+fn drawable(uri: &str) -> bool {
+    let Some(rest) = uri.strip_prefix("data:") else {
+        return false;
+    };
+    let Some((mime, data)) = rest.split_once(";base64,") else {
+        return false;
+    };
+    crate::embeddable(mime) == Some(mime)
+        && !data.is_empty()
+        && data
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'/' | b'='))
+}
+
+/// How [`missing`] opens its line.
+const MISSING: &str = "<p class=\"missing\">";
 
 /// A4 and Letter alike: the margins fit both, and nothing is sized to either sheet.
 const CSS: &str = "\
@@ -143,7 +309,7 @@ where
     Tz: TimeZone,
     Tz::Offset: Display,
 {
-    out.push_str("<header class=\"headers\">\n");
+    let _ = writeln!(out, "<header class=\"headers\"{KEEP}>");
     let subject = message.subject.trim();
     let subject = if subject.is_empty() {
         "(no subject)"
@@ -213,12 +379,17 @@ fn document(sheet: &Sheet<'_>) -> Option<Document> {
             // Sanitized with remote URLs kept, then lowered with them blocked: the reader's
             // two steps. The block parser keeps only the host of a blocked image, so the
             // printout can say whose image is missing without holding an address to fetch.
+            // With the reader's consent the URLs stay, to be matched to what was fetched.
             let policy = SanitizePolicy {
                 remote_images: RemoteImages::Allowed,
                 ..SanitizePolicy::CURRENT
             };
             let safe = sanitize(html, policy);
-            from_html_describing(&safe, &parsed.attachments, RemoteImages::Blocked)
+            let lowered = match sheet.remote {
+                Remote::Blocked => RemoteImages::Blocked,
+                Remote::Allowed(_) => RemoteImages::Allowed,
+            };
+            from_html_describing(&safe, &parsed.attachments, lowered)
         }
         None => from_text_keeping_lines(parsed.text.as_deref().unwrap_or(stored), parsed.flowed),
     })
@@ -236,7 +407,7 @@ fn body(out: &mut String, sheet: &Sheet<'_>) {
     if let Some(action) = &document.primary {
         button(out, &action.label, action.url.as_str());
     }
-    blocks(out, &document.blocks);
+    blocks(out, &document.blocks, sheet.remote);
     out.push_str("</div>\n");
     if document.reached != Reached::Nothing {
         out.push_str(
@@ -246,13 +417,16 @@ fn body(out: &mut String, sheet: &Sheet<'_>) {
     }
 }
 
-fn blocks(out: &mut String, list: &[Block]) {
+/// What a paginating renderer should not cut in two: see the module notes.
+const KEEP: &str = " data-break-inside=\"avoid\"";
+
+fn blocks(out: &mut String, list: &[Block], remote: Remote<'_>) {
     for block in list {
-        one_block(out, block);
+        one_block(out, block, remote);
     }
 }
 
-fn one_block(out: &mut String, block: &Block) {
+fn one_block(out: &mut String, block: &Block, remote: Remote<'_>) {
     match block {
         Block::Heading { level, spans } => {
             // Message headings sit under the message's own `h2`.
@@ -271,7 +445,7 @@ fn one_block(out: &mut String, block: &Block) {
             let _ = writeln!(out, "<{tag}>");
             for item in items {
                 out.push_str("<li>");
-                blocks(out, item);
+                blocks(out, item, remote);
                 out.push_str("</li>\n");
             }
             let _ = writeln!(out, "</{tag}>");
@@ -285,15 +459,15 @@ fn one_block(out: &mut String, block: &Block) {
                 inline(out, spans);
                 out.push_str("</p>\n");
             }
-            out.push_str("<blockquote>\n");
-            blocks(out, inner);
+            let _ = writeln!(out, "<blockquote{KEEP}>");
+            blocks(out, inner, remote);
             out.push_str("</blockquote>\n");
         }
         Block::Code { text, .. } => {
             let _ = writeln!(out, "<pre>{}</pre>", escape(text));
         }
         Block::Table { head, rows } => {
-            out.push_str("<table>\n");
+            let _ = writeln!(out, "<table{KEEP}>");
             if let Some(head) = head {
                 out.push_str("<thead><tr>");
                 for cell in head {
@@ -331,11 +505,11 @@ fn one_block(out: &mut String, block: &Block) {
             alt,
             width,
             height,
-        } => image(out, src, alt, *width, *height),
+        } => image(out, src, alt, (*width, *height), remote),
         Block::Button { label, url } => button(out, label, url.as_str()),
         Block::Signature(inner) => {
             out.push_str("<div class=\"signature\">\n");
-            blocks(out, inner);
+            blocks(out, inner, remote);
             out.push_str("</div>\n");
         }
         Block::Rule => out.push_str("<hr>\n"),
@@ -352,37 +526,63 @@ fn direction(dir: Dir) -> &'static str {
 
 /// An image that is here is drawn; one that is not is named.
 ///
-/// Only [`ImgSrc::Inline`] is drawn, and it is a `data:` URI of an allowlisted image type that
-/// the block parser built. A remote image is never drawn, even one the reader was allowed to
-/// load: a printout that fetches is a read receipt nobody asked for.
-fn image(out: &mut String, src: &ImgSrc, alt: &str, width: Option<u32>, height: Option<u32>) {
+/// [`ImgSrc::Inline`] is drawn: a `data:` URI of an allowlisted image type that the block parser
+/// built. A remote image is drawn only when the reader consented to this message's images and
+/// the caller hands in its bytes, already fetched, as such a `data:` URI ([`Remote::Allowed`]);
+/// otherwise it is named. Nothing here fetches: a printout that fetched would be a read receipt
+/// nobody asked for.
+fn image(
+    out: &mut String,
+    src: &ImgSrc,
+    alt: &str,
+    size: (Option<u32>, Option<u32>),
+    remote: Remote<'_>,
+) {
+    let (width, height) = size;
     let alt = alt.trim();
     match src {
-        ImgSrc::Inline(uri) => {
-            let _ = write!(
-                out,
-                "<p><img src=\"{}\" alt=\"{}\"",
-                escape(uri.as_str()),
-                escape(alt)
-            );
-            if let Some(width) = width {
-                let _ = write!(out, " width=\"{width}\"");
-            }
-            if let Some(height) = height {
-                let _ = write!(out, " height=\"{height}\"");
-            }
-            out.push_str("></p>\n");
-        }
+        ImgSrc::Inline(uri) => draw(out, uri.as_str(), alt, size),
         // A tracking pixel or a spacer: there was never anything to see.
         ImgSrc::Remote(_) | ImgSrc::Blocked { .. } if is_spacer(width, height) => {}
         ImgSrc::Remote(url) => {
-            let host = url::Url::parse(url.as_str())
-                .ok()
-                .and_then(|url| url.host_str().map(str::to_owned));
-            missing(out, alt, host.as_deref());
+            // The consented image's bytes, when the caller fetched them and they are an image.
+            let fetched = match remote {
+                Remote::Allowed(fetched) => fetched
+                    .get(url.as_str())
+                    .map(String::as_str)
+                    .filter(|uri| drawable(uri)),
+                Remote::Blocked => None,
+            };
+            match fetched {
+                Some(uri) => draw(out, uri, alt, size),
+                None => {
+                    let host = url::Url::parse(url.as_str())
+                        .ok()
+                        .and_then(|url| url.host_str().map(str::to_owned));
+                    missing(out, alt, host.as_deref());
+                }
+            }
         }
         ImgSrc::Blocked { host } => missing(out, alt, Some(host)),
     }
+}
+
+/// An `<img>` of `uri`, a `data:` URI this module has checked, on a line of its own that a page's
+/// end does not cut.
+fn draw(out: &mut String, uri: &str, alt: &str, (width, height): (Option<u32>, Option<u32>)) {
+    let _ = write!(
+        out,
+        "<p{KEEP}><img src=\"{}\" alt=\"{}\"",
+        escape(uri),
+        escape(alt)
+    );
+    if let Some(width) = width {
+        let _ = write!(out, " width=\"{width}\"");
+    }
+    if let Some(height) = height {
+        let _ = write!(out, " height=\"{height}\"");
+    }
+    out.push_str("></p>\n");
 }
 
 /// A declared side of one pixel or less.
@@ -399,12 +599,7 @@ fn missing(out: &mut String, alt: &str, host: Option<&str>) {
     let from = host
         .map(|host| format!(", from {host}"))
         .unwrap_or_default();
-    let _ = writeln!(
-        out,
-        "<p class=\"missing\">{}{}]</p>",
-        escape(&what),
-        escape(&from)
-    );
+    let _ = writeln!(out, "{MISSING}{}{}]</p>", escape(&what), escape(&from));
 }
 
 /// A lone link. On paper a link cannot be followed, so its address is printed beside it.
@@ -456,7 +651,7 @@ fn attachments(out: &mut String, message: &Message) {
     }
     let _ = writeln!(
         out,
-        "<section class=\"attachments\">\n<strong>Attachments ({})</strong>\n<ul>",
+        "<section class=\"attachments\"{KEEP}>\n<strong>Attachments ({})</strong>\n<ul>",
         listed.len()
     );
     for part in listed {

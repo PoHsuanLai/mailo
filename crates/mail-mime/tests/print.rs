@@ -10,8 +10,9 @@ use html5ever::tokenizer::{
     Tag, TagKind, Token, TokenSink, TokenSinkResult, Tokenizer, TokenizerOpts,
 };
 use mail_domain::*;
-use mail_mime::{Pages, Sheet, parse, print};
+use mail_mime::{Options, Pages, Remote, Script, Sheet, parse, print, print_with, remote_images};
 use std::cell::RefCell;
+use std::collections::BTreeMap;
 
 fn at(n: i64) -> DateTime<Utc> {
     Utc.timestamp_opt(1_790_000_000 + n, 0).unwrap()
@@ -63,7 +64,11 @@ fn fetched(text: Option<&str>) -> Body {
 
 fn one(message: &Message, parsed: Option<&mail_mime::Parsed>) -> String {
     print(
-        &[Sheet { message, parsed }],
+        &[Sheet {
+            message,
+            parsed,
+            remote: Remote::Blocked,
+        }],
         &zone(),
         at(3_600),
         Pages::Flow,
@@ -546,6 +551,7 @@ fn a_thread_prints_every_message_in_the_order_given() {
         .map(|(message, parsed)| Sheet {
             message,
             parsed: Some(parsed),
+            remote: Remote::Blocked,
         })
         .collect();
 
@@ -628,4 +634,256 @@ fn inline_images_are_not_listed_as_attachments() {
     assert!(listed.contains("Attachments (1)"), "{listed}");
     assert!(listed.contains("big.zip (3.0 MB)"), "{listed}");
     assert!(!listed.contains("logo.png"), "{listed}");
+}
+
+/// What a paginating renderer reads, on every element that carries it: which elements it keeps
+/// whole, and which start a page.
+fn marked(tokens: &[Tok], name: &str, value: &str) -> Vec<String> {
+    tokens
+        .iter()
+        .filter_map(|token| match token {
+            Tok::Open(tag, attrs) if attr(attrs, name) == Some(value) => Some(tag.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+const STRUCTURED: &str = "From: a@example.test\r\n\
+Subject: Plan\r\n\
+MIME-Version: 1.0\r\n\
+Content-Type: multipart/related; boundary=\"rel\"\r\n\
+\r\n\
+--rel\r\n\
+Content-Type: text/html; charset=utf-8\r\n\
+\r\n\
+<p>Figures:</p><table><tr><td>Q1</td><td>3</td></tr></table>\
+<p><img src=\"cid:logo@example.test\" alt=\"Logo\" width=\"40\" height=\"20\"></p>\
+<blockquote><p>An earlier note</p></blockquote>\r\n\
+--rel\r\n\
+Content-Type: image/png\r\n\
+Content-ID: <logo@example.test>\r\n\
+Content-Disposition: inline; filename=\"logo.png\"\r\n\
+Content-Transfer-Encoding: base64\r\n\
+\r\n\
+iVBORw0KGgo=\r\n\
+--rel--\r\n";
+
+#[test]
+fn the_builder_marks_what_a_page_end_must_not_cut_and_where_a_page_starts() {
+    let parsed = parse(STRUCTURED.as_bytes()).unwrap();
+    let mut first = message("Plan", at(0), fetched(None));
+    first.attachments = vec![Attachment {
+        name: "plan.pdf".to_owned(),
+        mime: "application/pdf".to_owned(),
+        size: 10,
+        content: PartContent::Held(BlobId::generate()),
+        inline: Inline::Attached,
+    }];
+    let second = message("Re: Plan", at(60), fetched(Some("Agreed.")));
+    let sheets = [
+        Sheet {
+            message: &first,
+            parsed: Some(&parsed),
+            remote: Remote::Blocked,
+        },
+        Sheet {
+            message: &second,
+            parsed: None,
+            remote: Remote::Blocked,
+        },
+    ];
+    let paged = tokens(&print(&sheets, &zone(), at(9_999), Pages::PerMessage));
+    // Each header, the table, the image, the quote and the list of attachments.
+    assert_eq!(
+        marked(&paged, "data-break-inside", "avoid"),
+        ["header", "table", "p", "blockquote", "section", "header"]
+    );
+    // The second message starts a page; the first is at the top of one already.
+    assert_eq!(marked(&paged, "data-break-before", "page"), ["article"]);
+    let flowing = tokens(&print(&sheets, &zone(), at(9_999), Pages::Flow));
+    assert!(marked(&flowing, "data-break-before", "page").is_empty());
+    assert_eq!(marked(&flowing, "data-break-inside", "avoid").len(), 6);
+}
+
+#[test]
+fn a_message_says_its_cjk_script_where_it_says_one() {
+    let raw = |headers: &str, body: &[u8]| {
+        let mut raw =
+            format!("From: a@example.test\r\nSubject: s\r\nMIME-Version: 1.0\r\n{headers}\r\n\r\n")
+                .into_bytes();
+        raw.extend_from_slice(body);
+        parse(&raw).unwrap()
+    };
+    let cases = [
+        // The header names the language.
+        (
+            raw(
+                "Content-Language: ja\r\nContent-Type: text/plain; charset=utf-8",
+                "漢字".as_bytes(),
+            ),
+            Some("ja"),
+        ),
+        // The charset only one of the four uses.
+        (
+            raw(
+                "Content-Type: text/plain; charset=euc-kr",
+                b"\xc7\xd1\xb1\xb9\xbe\xee",
+            ),
+            Some("ko"),
+        ),
+        (
+            raw(
+                "Content-Type: text/plain; charset=big5",
+                b"\xb7\x7c\xc4\xb3",
+            ),
+            Some("zh-Hant"),
+        ),
+        // The text alone: characters Simplified Chinese spells its own way.
+        (
+            raw(
+                "Content-Type: text/plain; charset=utf-8",
+                "会议记录已经寄出".as_bytes(),
+            ),
+            Some("zh-Hans"),
+        ),
+        // Latin, and nothing says otherwise.
+        (
+            raw("Content-Type: text/plain; charset=utf-8", b"Hello there"),
+            None,
+        ),
+    ];
+    for (parsed, want) in cases {
+        let msg = message("s", at(0), fetched(None));
+        let html = one(&msg, Some(&parsed));
+        let articles = opened_owned(&tokens(&html), "article");
+        assert_eq!(
+            attr(&articles[0], "data-script"),
+            want,
+            "{:?} {:?}",
+            parsed.content_language,
+            parsed.charset
+        );
+    }
+    // A body that is not here is judged by its subject and stored text.
+    let stored = message("お知らせ", at(0), fetched(Some("よろしくお願いします")));
+    let html = one(&stored, None);
+    assert_eq!(
+        attr(&opened_owned(&tokens(&html), "article")[0], "data-script"),
+        Some(Script::Japanese.tag())
+    );
+}
+
+fn opened_owned(tokens: &[Tok], tag: &str) -> Vec<Vec<(String, String)>> {
+    opened(tokens, tag).into_iter().map(<[_]>::to_vec).collect()
+}
+
+const REMOTE: &str = "From: a@example.test\r\n\
+Subject: Photos\r\n\
+MIME-Version: 1.0\r\n\
+Content-Type: text/html; charset=utf-8\r\n\
+\r\n\
+<p>Look:</p>\
+<p><img src=\"https://images.example.test/team.png\" alt=\"Team\" width=\"200\" height=\"100\"></p>\
+<p><img src=\"https://images.example.test/other.png\" alt=\"Other\" width=\"200\" height=\"100\"></p>\
+<p><img src=\"https://track.example.test/pixel.gif\" width=\"1\" height=\"1\"></p>\
+<blockquote><p><img src=\"https://images.example.test/team.png\" alt=\"Again\"></p></blockquote>\r\n";
+
+const PNG: &str = "data:image/png;base64,iVBORw0KGgo=";
+
+#[test]
+fn without_consent_no_remote_image_is_listed_or_drawn() {
+    let parsed = parse(REMOTE.as_bytes()).unwrap();
+    let msg = message("Photos", at(0), fetched(None));
+    let sheet = Sheet {
+        message: &msg,
+        parsed: Some(&parsed),
+        remote: Remote::Blocked,
+    };
+    assert!(remote_images(&[sheet]).is_empty());
+    let html = print(&[sheet], &zone(), at(0), Pages::Flow);
+    assert!(opened(&tokens(&html), "img").is_empty(), "{html}");
+    assert!(
+        !html.contains("team.png"),
+        "the address reached the printout"
+    );
+    assert!(
+        html.contains("[image: Team, from images.example.test]"),
+        "{html}"
+    );
+}
+
+#[test]
+fn with_consent_the_fetched_images_are_drawn_and_the_rest_named() {
+    let parsed = parse(REMOTE.as_bytes()).unwrap();
+    let msg = message("Photos", at(0), fetched(None));
+    let none = BTreeMap::new();
+    let asked = remote_images(&[Sheet {
+        message: &msg,
+        parsed: Some(&parsed),
+        remote: Remote::Allowed(&none),
+    }]);
+    // Each once, in order, and never the spacer: it would be drawn as nothing.
+    assert_eq!(
+        asked,
+        [
+            "https://images.example.test/team.png",
+            "https://images.example.test/other.png"
+        ]
+    );
+    // One came back an image; the other came back as something that is not one to draw.
+    let fetched_ = BTreeMap::from([
+        (asked[0].clone(), PNG.to_owned()),
+        (
+            asked[1].clone(),
+            "data:text/html;base64,PHNjcmlwdD4=".to_owned(),
+        ),
+    ]);
+    let sheet = Sheet {
+        message: &msg,
+        parsed: Some(&parsed),
+        remote: Remote::Allowed(&fetched_),
+    };
+    let options = Options {
+        style: ".x { color: red; }",
+        missing_note: Some("Some pictures are named, not drawn."),
+        ..Options::new(Pages::Flow)
+    };
+    let html = print_with(&[sheet], &zone(), at(0), &options);
+    assert_inert(&html);
+    let toks = tokens(&html);
+    let sources: Vec<_> = opened(&toks, "img")
+        .iter()
+        .map(|attrs| attr(attrs, "src").unwrap().to_owned())
+        .collect();
+    assert_eq!(
+        sources,
+        [PNG, PNG],
+        "the consented image, twice where it stood"
+    );
+    assert!(!html.contains("text/html"), "{html}");
+    assert!(
+        html.contains("[image: Other, from images.example.test]"),
+        "{html}"
+    );
+    assert!(html.contains(".x { color: red; }"));
+    assert_eq!(
+        text_of(&toks, "p", 1),
+        "Some pictures are named, not drawn."
+    );
+}
+
+#[test]
+fn the_note_is_written_only_when_an_image_is_named() {
+    let msg = message("s", at(0), fetched(Some("Plain words.")));
+    let sheet = Sheet {
+        message: &msg,
+        parsed: None,
+        remote: Remote::Blocked,
+    };
+    let options = Options {
+        missing_note: Some("NOTE"),
+        ..Options::new(Pages::Flow)
+    };
+    let html = print_with(&[sheet], &zone(), at(0), &options);
+    assert!(!html.contains("NOTE"), "{html}");
 }
