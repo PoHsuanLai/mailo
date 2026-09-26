@@ -366,7 +366,12 @@ fn a_hover_card_opens_after_its_delay_and_not_before() {
     // CONVENTIONS §11). Assert the order instead: absent at half the delay, then present within
     // the settle bound, and never before the whole delay since the pointer arrived.
     harness.advance(open_after / 2);
-    assert_eq!(harness.count(".ds-hovercard"), 0, "the card opened early");
+    // `advance` can itself overrun on a loaded machine; a card seen once the whole delay has
+    // passed on the wall clock is on time, so "not yet" is only asserted while it is still early.
+    let present = harness.count(".ds-hovercard");
+    if asked.elapsed() < open_after {
+        assert_eq!(present, 0, "the card opened early");
+    }
     let opened = settle_until(&mut harness, |harness| harness.count(".ds-hovercard") == 1);
     assert!(
         opened.duration_since(asked) >= open_after,
