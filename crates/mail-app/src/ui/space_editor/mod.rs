@@ -18,12 +18,14 @@
 mod notify;
 mod offline;
 mod parts;
+mod spelling;
 
 pub(in crate::ui) use parts::Seg;
 
 use self::notify::Notifications;
 use self::offline::OfflineCopy;
 use self::parts::Marks as MarksChoice;
+use self::spelling::Spelling;
 use super::frame::keep;
 use super::press::{SheetClose, on_primary};
 use crate::space::Spaces;
@@ -121,6 +123,7 @@ pub(super) fn SpaceEditor(
             MarksChoice { shell }
             Notifications {}
             OfflineCopy {}
+            Spelling {}
             div {
                 div { class: "ed-label", "Accounts" }
                 ds::Button {
@@ -178,5 +181,7 @@ pub(super) fn SpaceEditor(
 mod notify_tests;
 #[cfg(test)]
 mod offline_tests;
+#[cfg(test)]
+mod spelling_tests;
 #[cfg(test)]
 pub(in crate::ui) mod tests;

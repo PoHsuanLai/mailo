@@ -81,8 +81,9 @@ ds = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.1.16", features = 
 ds-settings = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.1.16" }
 # The window: quire's Blitz host (the window, its fonts, focus, clipboard, harness, PDF output),
 # and `print`: the system's print dialog for a PDF (the desktop portal on Linux, else the PDF
-# opened in the viewer).
-ds-native = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.1.16", features = ["print"] }
+# opened in the viewer); `spellcheck`: the composer's spelling, against the system's Hunspell
+# dictionaries (none is bundled), checked by spellbook (MPL-2.0, linked unmodified).
+ds-native = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.1.16", features = ["print", "spellcheck"] }
 blitz-dom = { workspace = true }
 dioxus-native-dom = { workspace = true }
 # ASCII-case-insensitive multi-pattern search for highlights. Already in the tree via `regex`.

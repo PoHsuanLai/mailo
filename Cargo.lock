@@ -2283,12 +2283,14 @@ dependencies = [
  "dioxus-asset-resolver",
  "dioxus-native",
  "dioxus-native-dom",
+ "dirs",
  "ds",
  "image",
  "keyboard-types 0.7.0",
  "memfd",
  "parley",
  "peniko",
+ "spellbook",
  "thiserror 2.0.20",
  "tokio",
  "webbrowser",
@@ -7420,6 +7422,16 @@ checksum = "c3d1e2c7f27f8d4cb10542a02c49005dbd6e93095799d6f3be745fae9f8fedd4"
 dependencies = [
  "libc",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "spellbook"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d204abcbdf8e88729306a8d0ca01a79d8a49969fe1f84696909d6dbc4321c1a"
+dependencies = [
+ "foldhash 0.1.5",
+ "hashbrown 0.15.5",
 ]
 
 [[package]]

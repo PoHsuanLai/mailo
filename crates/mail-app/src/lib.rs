@@ -30,6 +30,7 @@ pub mod selection;
 pub mod smime;
 pub mod snooze;
 pub mod space;
+pub mod spelling;
 pub mod sync;
 pub mod template;
 mod today;
