@@ -3969,3 +3969,25 @@ A retryable failure is unchanged: the entry stays whole and queued, and its retr
 where the messages are now (F156). An operation refused in every part is undone whole, as
 before. No schema change: the undo is still one patch per entry, and it is split by message when
 it is applied.
+
+### F160 — Links in the reader carried a receipt for whoever sent them
+
+A newsletter link carries its destination and, beside it, a campaign name (`utm_*`), an ad
+network's click id (`gclid`, `fbclid`, `msclkid`) or the recipient's own mailing-list id
+(`mc_eid`, `_hsenc`, `mkt_tok`). The page opens the same without them. The reader showed them and
+opened them as sent, so a click told the sender who clicked.
+
+An HTML part's links are now built through `SafeUrl::link`: `parse`, then the parameters named in
+`block/tracking.rs` come off. The Original frame's clicks and its hover pill go through the same
+function. A key comes off only if it is in the table, compared whole, case-sensitively and
+percent-decoded; `utm_foo` and `UTM_SOURCE` stay, because removing a parameter nobody named could
+change what the page shows. Kept pieces stay as written (re-serializing turns `%20` into `+`), the
+query is split on `&` only, and a query left empty goes with its `?`. The fragment and a `mailto:`
+query are never touched. A click tracker's own URL is not unwrapped: that would change where the
+link goes.
+
+`SafeUrl::parse` is unchanged, because two callers must not be cleaned: an image's address is a
+fetch, not a link, and a link the user types into a draft is theirs. Plain-text parts make no
+links, so there is nothing there to clean. `mkt_tok` also lets one vendor's unsubscribe page
+recognise the recipient; without it that page may ask for the address. `List-Unsubscribe` is not
+affected.
