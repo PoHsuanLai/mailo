@@ -48,6 +48,8 @@ mod style;
 mod switch;
 mod text;
 mod unsubscribe;
+mod view_groups;
+mod views;
 
 #[cfg(test)]
 mod fixtures;

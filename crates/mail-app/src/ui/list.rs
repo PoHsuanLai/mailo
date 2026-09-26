@@ -9,10 +9,11 @@ use super::field::{Field, FieldKind};
 use super::list_search::{Marking, RowHit, Scope, row_hit};
 use super::motion::{Clock, Ghost, Leaving, Motion, Toast, motion};
 use super::ops::start_new;
-use super::page::{PageMenus, group_page};
+use super::page::PageMenus;
 use super::picks::PickBar;
 use super::press::{available, on_primary};
 use super::row::{DraftRow, Moving, Row, gap};
+use super::view_groups::group_list;
 use crate::provider::provider;
 use crate::view::{Nothing, Shell, SyncState, synced};
 use dioxus::prelude::*;
@@ -160,9 +161,9 @@ pub(super) fn ThreadList(
     }
     let mut lines = Vec::new();
     let mut row_index = 0usize;
-    for band in group_page(
+    for band in group_list(
         shown,
-        shell.read().group,
+        &shell.read().grouping(),
         &names,
         chrono::Utc::now(),
         &chrono::Local,
@@ -210,6 +211,30 @@ pub(super) fn ThreadList(
                 }
                 div { class: "bar-tools",
                     PageMenus { shell }
+                    // A search can be kept as a view, and a view shown can be changed. Icons only,
+                    // like Sync, to keep the bar narrow.
+                    if !shell.read().search.trim().is_empty() {
+                        ds::Button {
+                            variant: ds::ButtonVariant::Mini,
+                            label: String::new(),
+                            icon: Icon::Plus,
+                            aria_label: "Save as view".to_owned(),
+                            title: "Keep this search in the sidebar".to_owned(),
+                            onclick: on_primary(move || {
+                                let search = shell.peek().search.clone();
+                                super::views::open_new(shell, &search);
+                            }),
+                        }
+                    } else if let Some(view) = shell.read().saved_view().cloned() {
+                        ds::Button {
+                            variant: ds::ButtonVariant::Mini,
+                            label: String::new(),
+                            icon: Icon::Settings,
+                            aria_label: "Edit view".to_owned(),
+                            title: "Change or delete this view".to_owned(),
+                            onclick: on_primary(move || super::views::open_edit(shell, &view)),
+                        }
+                    }
                     if !quiet {
                         ds::Button {
                             variant: ds::ButtonVariant::Mini,

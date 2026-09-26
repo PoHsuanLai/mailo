@@ -46,6 +46,8 @@ pub(in crate::ui) fn view_kind(place: &Place) -> ViewKind {
         Source::Mail(filter) if *filter == place_filter(MailboxRole::Inbox) => ViewKind::Place {
             mailbox: MailboxRole::Inbox,
         },
+        // A saved view says what it is; one made in the editor is a query, and takes no drop.
+        Source::Saved(view) => view.kind.clone(),
         Source::Mail(_) | Source::Drafts => ViewKind::Query,
     }
 }

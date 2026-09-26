@@ -78,6 +78,8 @@ pub(super) fn App() -> Element {
     let mut label_ids = use_signal(Vec::<mail_domain::LabelId>::new);
     // The server folders that are places, after the labels, as `view::places_with` orders them.
     let mut folder_refs = use_signal(Vec::<(String, MailboxRef)>::new);
+    // The saved views, after the folders, as `view::places_with` orders them.
+    let mut saved_views = use_signal(Vec::<View>::new);
     // Hover previews and the motion keyed to ops: shared state, provided once for the window.
     super::hover::use_hover();
     super::motion::use_motion();
@@ -89,8 +91,10 @@ pub(super) fn App() -> Element {
         let ids: Vec<mail_domain::LabelId> = known.iter().map(|(_, id)| *id).collect();
         label_ids.set(ids);
         let folders = super::sidebar::folder_places(&store);
-        let places = places_with(&known, &folders);
+        let views = store.views().unwrap_or_default();
+        let places = places_with(&known, &folders, &views);
         folder_refs.set(folders);
+        saved_views.set(views);
         let mut write = shell.write();
         write.labels = known;
         write.places = places;
@@ -142,6 +146,9 @@ pub(super) fn App() -> Element {
         }
         for (_, mailbox) in folder_refs.read().iter() {
             filters.push(badge_filter(&Source::Mail(folder_filter(mailbox))));
+        }
+        for view in saved_views.read().iter() {
+            filters.push(badge_filter(&Source::Saved(Box::new(view.clone()))));
         }
         filters
     });
@@ -201,7 +208,13 @@ pub(super) fn App() -> Element {
         if *folder_refs.peek() != folders {
             folder_refs.set(folders.clone());
         }
-        let next = places_with(&known, &folders);
+        // And saved views: one kept from the editor is already drawn (`saved::show_kept`), so
+        // this finds nothing to change unless a view came from elsewhere.
+        let views = store.views().unwrap_or_default();
+        if *saved_views.peek() != views {
+            saved_views.set(views.clone());
+        }
+        let next = places_with(&known, &folders, &views);
         if shell.peek().places != next {
             // The same place stays chosen when one is added before it: a new label moves every
             // folder down by one, and the list must not jump to the folder above.
@@ -358,6 +371,13 @@ pub(super) fn App() -> Element {
         if shell.read().rules.is_some() {
             if key == "Escape" {
                 super::rules::close(shell);
+            }
+            return;
+        }
+        // The view editor likewise: its fields take letters, Esc closes it.
+        if shell.read().view_editor.is_some() {
+            if key == "Escape" {
+                super::views::close(shell);
             }
             return;
         }
@@ -690,6 +710,9 @@ pub(super) fn App() -> Element {
             }
             if shell.read().keys.is_some() {
                 super::pgp::keys::KeysSheet { shell }
+            }
+            if shell.read().view_editor.is_some() {
+                super::views::ViewSheet { shell, revision, pages }
             }
             div { class: "card",
             ThreadList {

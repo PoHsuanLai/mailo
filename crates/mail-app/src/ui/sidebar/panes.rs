@@ -7,7 +7,7 @@ use crate::provider::icon::{mark_of, mark_style};
 use crate::provider::{Provider, provider};
 use crate::query::{self};
 use crate::space::{self, Pinned, Scope, Space};
-use crate::view::{Shell, Source, folder_of, is_label_place};
+use crate::view::{Shell, Source, folder_of, is_label_place, saved_of};
 use dioxus::prelude::*;
 use ds::{
     Anim, AvatarFace, AvatarShape, AvatarSize, AvatarTone, Colour, DropState, Here, Hex, Icon,
@@ -202,11 +202,20 @@ pub(super) fn PlaceList(
     folded: Vec<LabelId>,
 ) -> Element {
     let places = shell.read().places.clone();
-    // Labels and then folders follow the default places; folders are drawn under Folders.
+    // Labels, folders and then saved views follow the default places; folders are drawn under
+    // Folders.
     let split = places
         .iter()
-        .position(|place| is_label_place(place) || folder_of(place).is_some())
+        .position(|place| {
+            is_label_place(place) || folder_of(place).is_some() || saved_of(place).is_some()
+        })
         .unwrap_or(places.len());
+    let views: Vec<(usize, String)> = places
+        .iter()
+        .enumerate()
+        .filter(|(_, place)| saved_of(place).is_some())
+        .map(|(index, place)| (index, place.name.clone()))
+        .collect();
     // A label that is also a mailbox is drawn once, under Folders. See `folder_tree::arrange`.
     let labels: Vec<(usize, String)> = places
         .iter()
@@ -227,6 +236,12 @@ pub(super) fn PlaceList(
             div { class: "s-h", "Labels" }
             for (index, name) in labels {
                 PlaceButton { index, name, icon: Icon::Tag, shell, pages, badges }
+            }
+        }
+        if !views.is_empty() {
+            div { class: "s-h", "Views" }
+            for (index, name) in views {
+                PlaceButton { index, name, icon: Icon::Search, shell, pages, badges }
             }
         }
     }
