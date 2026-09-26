@@ -304,7 +304,7 @@ pub(super) fn RuleEditor(
                     variant: ds::ButtonVariant::Primary,
                     label: "Save".to_owned(),
                     aria_label: format!("Save {title}"),
-                    availability: available(!(!readable)),
+                    availability: available(readable),
                     onclick: on_primary(move || {
                         let Some(draft) = editing.peek().clone() else { return };
                         let store = consume_context::<Arc<SqliteStore>>();
