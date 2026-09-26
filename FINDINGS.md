@@ -4138,3 +4138,25 @@ keyring crate speaks the Secret Service itself; files go through portals only. I
 `StartupWMClass`; taking the id from `FLATPAK_ID` at launch would be cleaner. Flathub would also
 need an AppStream metainfo file, not written. The packages were checked here only around a
 stand-in binary, since a release build did not fit the disk.
+
+### F171 — Contact groups are vCard KIND:group, and who a member is gets decided when it is used
+
+Groups sync over CardDAV as `KIND:group` cards with `MEMBER` (RFC 6350 §6.1.4, §6.6.5). Members
+are stored as the URIs written, and resolved only when a group is offered or shown: `mailto:` to
+its address; any other URI by UID against synced cards and other groups, nested groups opened
+once. A member that names nobody is counted ("1 not found"), never dropped, and goes back to the
+server. A group of nobody is valid and kept, but not offered in To. Groups are mail-store types,
+keyed by the card URL or `local:<UID>`, so mail-domain was not touched; the table is migration
+0023, after mute's 0022, and the reparse test's rewind undoes both.
+
+CardDAV is no longer read-only. Only groups edited here are written, with `PUT` and `If-Match` on
+the etag last read (RFC 6352 §6.3.2), and the body is the last-synced card with only FN, KIND and
+MEMBER replaced and REV dropped, so properties mailo does not read survive. On 412 or a refusal the
+edit stays and is reported; the next sync takes the newer card and keeps the edit's name and
+members. A card deleted on the server takes its group with it. The window does not sync;
+`mailo contacts sync` does the write-back. Importing a group from a file rewrites a `urn:uuid`
+member that names a card in the same file as that card's `mailto:`, since hand-imported contacts
+carry no UID to find later.
+
+Not built: groups in the older `X-ADDRESSBOOKSERVER-KIND` form, new groups inside a synced book,
+deleting a synced group from the window, and groups in the `@` menu and the command palette.
