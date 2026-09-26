@@ -210,7 +210,9 @@ fn main() {
     };
 
     let Some(dirs) = paths() else {
-        eprintln!("cannot determine a data directory; set HOME or XDG_DATA_HOME");
+        eprintln!(
+            "cannot determine a data directory for this user (on Linux, set HOME or XDG_DATA_HOME)"
+        );
         std::process::exit(1);
     };
     if let Err(e) = std::fs::create_dir_all(&dirs.blobs) {
@@ -482,8 +484,9 @@ fn main() {
             // quire's `appearance.toml`, imported from `appearance.json` on the first run after
             // the move. The window's `use_environment` reads and watches it from then on, and
             // does not import by itself.
-            if let Some(dir) = config.as_deref() {
-                mail_app::appearance::quire(dir);
+            // quire keeps it by its own rule, which is `config` only on Linux.
+            if let Some(dir) = mail_app::appearance::quire_dir() {
+                mail_app::appearance::quire(&dir);
             }
             let ids = account_ids(&store);
             let spaces = match &config {
@@ -577,14 +580,10 @@ struct Paths {
     blobs: std::path::PathBuf,
 }
 
-/// Where the database and blobs live, following the XDG base directory spec.
+/// Where the database and blobs live: mailo's data directory (`$XDG_DATA_HOME/mailo` on Linux,
+/// the local application data folder on macOS and Windows; `mail_runtime::places`).
 fn paths() -> Option<Paths> {
-    let base = std::env::var_os("XDG_DATA_HOME")
-        .map(std::path::PathBuf::from)
-        .or_else(|| {
-            std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".local/share"))
-        })?
-        .join("mailo");
+    let base = mail_runtime::places::dir(mail_runtime::places::Place::Data)?;
     Some(Paths {
         db: base.join("mail.db"),
         blobs: base.join("blobs"),

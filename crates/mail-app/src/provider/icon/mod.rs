@@ -4,8 +4,8 @@
 //! message, so a sender domain cannot become a request. The letter on the chip is
 //! what shows until a file is cached, and whenever the setting says letters.
 //!
-//! Cached files live at `$XDG_CACHE_HOME/mailo/providers/<provider>.png` and do not
-//! expire. The bytes shown in the window are a `data:image/png;base64,` URI read
+//! Cached files live at `<cache>/mailo/providers/<provider>.png` (`<cache>` is `$XDG_CACHE_HOME`
+//! on Linux) and do not expire. The bytes shown in the window are a `data:image/png;base64,` URI read
 //! once at startup: a `file:` URL would be the protocol-handler problem in F42.
 
 mod cache;

@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::*;
+use mail_mime::archive::maildir::INFO;
 use mail_store::{SqliteStore, Store};
 
 use super::work::{
@@ -44,11 +45,11 @@ fn a_maildir(under: &Path) -> PathBuf {
         message("one", "fresh"),
     );
     put(
-        root.join("cur/1699363252.M1P1Q2.host:2,FS"),
+        root.join(format!("cur/1699363252.M1P1Q2.host{INFO}2,FS")),
         message("two", "starred"),
     );
     put(
-        root.join(".Receipts/cur/1699363253.M1P1Q3.host:2,S"),
+        root.join(format!(".Receipts/cur/1699363253.M1P1Q3.host{INFO}2,S")),
         message("three", "a receipt"),
     );
     root
@@ -279,22 +280,27 @@ fn what_cannot_be_read_is_said_in_words() {
         ))
     );
 
-    let locked = dir.path().join("locked.mbox");
-    std::fs::write(&locked, message("x", "x")).unwrap();
-    use std::os::unix::fs::PermissionsExt as _;
-    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
-    // A superuser reads it anyway, and then there is nothing to refuse.
-    if std::fs::File::open(&locked).is_ok() {
-        return;
-    }
-    assert_eq!(
-        look(&locked),
-        Looked::Refused(format!(
-            "{} cannot be opened: you do not have permission to read it.",
-            locked.display()
-        ))
-    );
     assert_eq!(look(Path::new("")), Looked::Blank);
+
+    // Unix mode bits make a file nobody may read; Windows has none to set.
+    #[cfg(unix)]
+    {
+        let locked = dir.path().join("locked.mbox");
+        std::fs::write(&locked, message("x", "x")).unwrap();
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+        // A superuser reads it anyway, and then there is nothing to refuse.
+        if std::fs::File::open(&locked).is_ok() {
+            return;
+        }
+        assert_eq!(
+            look(&locked),
+            Looked::Refused(format!(
+                "{} cannot be opened: you do not have permission to read it.",
+                locked.display()
+            ))
+        );
+    }
 }
 
 #[test]
@@ -314,8 +320,18 @@ fn a_typed_path_starts_at_home_with_a_tilde() {
         assert_eq!(expand(typed, home), PathBuf::from(wanted), "{typed:?}");
     }
     assert_eq!(expand("~/Mail", None), PathBuf::from("~/Mail"));
+    // Windows takes either slash as a separator, so a typed `~\` is home there too.
+    #[cfg(windows)]
+    assert_eq!(expand("~\\Mail", home), PathBuf::from("/home/ann/Mail"));
     const SHOWN: &[(&str, &str)] = &[
-        ("/home/ann/Downloads", "~/Downloads"),
+        (
+            "/home/ann/Downloads",
+            if cfg!(windows) {
+                "~\\Downloads"
+            } else {
+                "~/Downloads"
+            },
+        ),
         ("/home/ann", "~"),
         ("/home/ann2/Downloads", "/home/ann2/Downloads"),
     ];

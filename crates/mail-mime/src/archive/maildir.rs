@@ -94,14 +94,25 @@ pub fn parse_name(file: &str) -> Name {
     }
 }
 
-/// A file name for `unique` with these flags: `unique:2,FS`.
+/// A file name for `unique` with these flags: `unique:2,FS`, or `unique;2,FS` on Windows.
 pub fn name(unique: &str, flags: &[Flag]) -> String {
     let mut sorted = flags.to_vec();
     sorted.sort();
     sorted.dedup();
     let letters: String = sorted.into_iter().map(Flag::letter).collect();
-    format!("{unique}:2,{letters}")
+    format!("{unique}{INFO}2,{letters}")
 }
+
+/// The info separator this platform's file names can hold. Windows forbids `:` in a file name, and
+/// `;` is the substitute other clients there write ([`parse_name`] reads all three everywhere, so
+/// a Maildir written on one system reads on the other).
+#[cfg(not(windows))]
+pub const INFO: char = ':';
+/// The info separator this platform's file names can hold. Windows forbids `:` in a file name, and
+/// `;` is the substitute other clients there write ([`parse_name`] reads all three everywhere, so
+/// a Maildir written on one system reads on the other).
+#[cfg(windows)]
+pub const INFO: char = ';';
 
 /// What makes a name unique: the spec's `time.MusecPpidQcount.host`.
 ///
@@ -229,9 +240,13 @@ mod tests {
     fn a_name_lists_its_flags_in_ascii_order_once() {
         assert_eq!(
             name("u", &[Flag::Seen, Flag::Draft, Flag::Seen, Flag::Flagged]),
-            "u:2,DFS"
+            format!("u{INFO}2,DFS")
         );
-        assert_eq!(name("u", &[]), "u:2,");
+        assert_eq!(name("u", &[]), format!("u{INFO}2,"));
+        assert_eq!(
+            parse_name(&name("u", &[Flag::Seen])).flags,
+            vec![Flag::Seen]
+        );
     }
 
     #[test]
@@ -280,7 +295,7 @@ mod tests {
             SystemFlag::Draft,
         ];
         let letters = flags_of(&system);
-        assert_eq!(name("u", &letters), "u:2,DFRS");
+        assert_eq!(name("u", &letters), format!("u{INFO}2,DFRS"));
         let back = placement(None, Sub::Cur, &parse_name(&name("u", &letters)).flags);
         let mut sorted = system.clone();
         sorted.sort();

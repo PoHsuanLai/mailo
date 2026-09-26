@@ -5,6 +5,7 @@
 use chrono::{DateTime, TimeZone, Utc};
 use mail_app::{cli, compose, export, import, sync};
 use mail_domain::*;
+use mail_mime::archive::maildir::INFO;
 use mail_mime::archive::mbox;
 use mail_runtime::{OAuthRegistry, RuntimeError, Secrets};
 use mail_store::{SqliteStore, Store};
@@ -173,17 +174,17 @@ fn a_maildir_keeps_its_flags_and_its_folders() {
     );
     write(
         &root.join("cur"),
-        "1699363252.M1P1Q2.host:2,FS",
+        &format!("1699363252.M1P1Q2.host{INFO}2,FS"),
         message("starred", "starred").as_bytes(),
     );
     write(
         &root.join(".Receipts/cur"),
-        "1699363253.M1P1Q3.host:2,S",
+        &format!("1699363253.M1P1Q3.host{INFO}2,S"),
         message("receipt", "a receipt").as_bytes(),
     );
     write(
         &root.join(".Sent/cur"),
-        "1699363254.M1P1Q4.host:2,S",
+        &format!("1699363254.M1P1Q4.host{INFO}2,S"),
         message("sent", "sent one").as_bytes(),
     );
 
@@ -288,7 +289,10 @@ fn everything_exports_to_a_maildir_that_imports_back_as_the_same_mail() {
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
         .collect();
     assert_eq!(receipts.len(), 1);
-    assert!(receipts[0].ends_with(":2,FS"), "{receipts:?}");
+    assert!(
+        receipts[0].ends_with(&format!("{INFO}2,FS")),
+        "{receipts:?}"
+    );
 
     // Importing the export into a fresh store gives the same messages back.
     let (fresh, _fresh_dir) = fresh_store();

@@ -105,13 +105,11 @@ psl = "2"
 # Already a dependency of every id type. Named here because `mailo unsubscribe` takes an id that
 # may be a message or a thread, and only the store can say which.
 uuid = { workspace = true }
-# Desktop notifications for new mail (`notify/desktop.rs`): the freedesktop interface on the
-# session bus. Already in the lock through the keyring's Secret Service store, with these features.
-zbus = "5"
-# The native file dialog beside the Import and Export sheets' typed path, through the desktop
-# portal. Pinned at the version dioxus-desktop linked when the window was a webview (F158); moving
-# it is a decision of its own.
-rfd = { version = "=0.17.2", default-features = false, features = ["xdg-portal"] }
+# Desktop notifications for new mail (`notify/desktop.rs`), one API over each platform's own: the
+# freedesktop interface on the session bus (through zbus, already in the lock through the
+# keyring's Secret Service store), `NSUserNotificationCenter` on macOS (mac-notification-sys) and
+# toasts on Windows (tauri-winrt-notification). MIT OR Apache-2.0, and so are both backends.
+notify-rust = "4.18"
 # Opens a browser sign-in's address from the Add account sheet. Already in the lock through
 # dioxus-native, at this version and with its default (empty) features. MIT OR Apache-2.0.
 webbrowser = "=1.2.4"
@@ -124,6 +122,22 @@ zeroize = "1"
 # sealing (`smime/`). rPGP's own `rand` generation; already in the tree. For every target: it had
 # been listed under Linux alone, where `pgp/` would not have built anywhere else.
 rand = "0.8"
+
+# The native file dialog beside the Import and Export sheets' typed path. Pinned at the version
+# dioxus-desktop linked when the window was a webview (F158); moving it is a decision of its own.
+#
+# On Linux and the BSDs, through the desktop portal (and so from inside a Flatpak), with no GTK.
+[target.'cfg(not(any(target_os = "macos", windows)))'.dependencies]
+rfd = { version = "=0.17.2", default-features = false, features = ["xdg-portal"] }
+
+# On macOS and Windows, the system's own dialog, which rfd uses with no feature at all.
+[target.'cfg(any(target_os = "macos", windows))'.dependencies]
+rfd = { version = "=0.17.2", default-features = false }
+
+# A passphrase asked on the Windows console with echo off (`pgp/mod.rs`, `ask_tty`), where there is
+# no `/dev/tty` and no `stty` to do it with. Apache-2.0.
+[target.'cfg(windows)'.dependencies]
+rpassword = "7"
 
 [dev-dependencies]
 tempfile = "3"
