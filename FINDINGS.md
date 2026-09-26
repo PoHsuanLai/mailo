@@ -4115,3 +4115,26 @@ mutes the rest; it unmutes only when every picked conversation is muted.
 
 `reparse.rs` fakes an old database by undoing later migrations; it now undoes 0022 as well. Every
 migration added after this one has to be undone there too.
+
+### F169 — mailo could not be a desktop's mail handler: a mailto: link had nowhere to go
+
+The desktop entry had no `%u` or `MimeType`, and `mailo mailto:…` fell through to the CLI parser
+and was refused. A lone `mailto:` argument is now read by `mail_mime::MailtoUri` (RFC 6068: to,
+cc, bcc, subject, body; every other field dropped, as §7 allows), saved as a draft from the first
+sending account, and the window opens on it (`Start::Compose(DraftId)`). It is a draft and never
+queued, so a link can open a composer but cannot send. An address that could smuggle a second
+recipient is dropped. The unsubscribe reader shares the parser and still keeps only `to`.
+
+A click on a mailto: link while a window is open starts a second window: there is no
+single-instance hand-off yet, the same gap notification clicks have.
+
+### F170 — Packaging is metadata and a script, not dependencies
+
+cargo-deb and cargo-generate-rpm metadata live in `crates/mail-app/Cargo.toml`, the Flatpak
+manifest in `packaging/flatpak/`, and `scripts/package.sh` builds whatever has its tool installed.
+The Flatpak talks to the Secret Service by name rather than through the Secret portal, because the
+keyring crate speaks the Secret Service itself; files go through portals only. Its app id is
+`io.github.PoHsuanLai.mailo`, while the window keeps `APP_ID = "mailo"`, matched by
+`StartupWMClass`; taking the id from `FLATPAK_ID` at launch would be cleaner. Flathub would also
+need an AppStream metainfo file, not written. The packages were checked here only around a
+stand-in binary, since a release build did not fit the disk.
