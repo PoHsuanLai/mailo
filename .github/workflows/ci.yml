@@ -11,6 +11,11 @@ env:
   # A failure that only shows up in a release build is a failure nobody sees until it ships,
   # but debug builds of this workspace are large; this keeps the cache useful without the size.
   CARGO_INCREMENTAL: 0
+  # Line tables only, for the workspace's own crates too (Cargo.toml already does this for
+  # dependencies): a failing test's backtrace still names file and line, and a cold target dir for
+  # clippy plus the tests is ~19 GB rather than ~25 GB, which is disk a hosted runner has and
+  # cache it restores faster.
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
 
 jobs:
   # The gates that need no servers and no window. Everything here must pass for every push.
@@ -19,7 +24,13 @@ jobs:
     # Every job here has a timeout, because the default is six hours and a deadlocked test does
     # not fail — it waits. A hung `portable` job burnt an hour and forty minutes of a Windows
     # runner before anyone looked; a limit turns that into a red cross in a known time.
-    timeout-minutes: 30
+    #
+    # Cold (no cache), this job builds Blitz, stylo, wgpu and parley twice, for clippy and for
+    # the tests. Measured with a clean target dir: clippy ~570 CPU-seconds, the test build ~1400,
+    # the test run ~80 s of wall time (the headless window suite waits on its own clock). On a
+    # four-core runner that is ~15-18 minutes with setup; 40 leaves room for a slow runner and a
+    # cache miss without letting a hang run for long.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
 
@@ -36,7 +47,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      # Saved even when a step fails, so a cold run that ends red still leaves the dependencies
+      # built for the next one instead of paying for Blitz again.
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
 
       - name: Formatting
         run: cargo fmt --all --check
@@ -64,7 +79,9 @@ jobs:
   # met a real implementation and disagreed with it.
   live:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # `sync_path` is a mail-app test, so a cold run here builds the window stack too (~8-10
+    # minutes on a four-core runner) before any socket opens.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: System libraries for the window
@@ -73,6 +90,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends libfontconfig1-dev
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"

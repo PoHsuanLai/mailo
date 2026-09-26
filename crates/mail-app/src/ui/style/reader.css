@@ -73,7 +73,7 @@ article.frame + article.frame { margin-top: var(--s-18); padding-top: var(--s-14
   display: flex; align-items: center; gap: var(--s-6); padding: var(--s-6) var(--s-10);
   border: var(--hair) solid var(--line); border-radius: var(--r-card); background: var(--surface); font-size: var(--fs-small);
 }
-.attachments .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 22em; }
+.attachments .name { overflow: hidden; white-space: nowrap; max-width: 22em; }
 .attachments .size { color: var(--ink-faint); }
 .attachments .ds-ic { color: var(--ink-faint); }
 .stagger > * { animation: rise var(--t-move) var(--e-out) backwards;

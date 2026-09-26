@@ -36,7 +36,7 @@
 .att {
   display: inline-flex; align-items: center; gap: var(--s-5); max-width: 220px; padding: var(--s-2) var(--s-8) var(--s-2) var(--s-6);
   border: var(--hair) solid var(--line-soft); border-radius: var(--r-pill); background: var(--surface-2);
-  font-size: var(--fs-help); color: var(--ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-size: var(--fs-help); color: var(--ink-soft); white-space: nowrap; overflow: hidden;
 }
 .att .dot { flex: none; width: 7px; height: 7px; border-radius: var(--r-pill); background: var(--line); }
 .att.yes .dot { background: var(--ok); }
@@ -58,9 +58,10 @@
 .inv-comment { margin: var(--s-4) 0 0; color: var(--ink-soft); font-style: italic; }
 .inv-about { margin: var(--s-10) 0 0; padding-top: var(--s-9); border-top: var(--hair) solid var(--line-soft); }
 .inv-desc { margin: 0; white-space: pre-line; color: var(--ink-soft); overflow-wrap: anywhere; }
-.inv-desc.folded {
-  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden;
-}
+/* Folded, the description is meant to stop at three lines until More. Blitz has no line clamp
+   (stylo parses `-webkit-line-clamp` and `display: -webkit-box` for Gecko only), so the fold is
+   not drawn yet and this keeps only what a clamp would need; the cut belongs in the markup. */
+.inv-desc.folded { overflow: hidden; }
 .inv-about .link { margin-top: var(--s-3); }
 
 .inv-why { margin: var(--s-10) 0 0; font-size: var(--fs-small); color: var(--ink-faint); }

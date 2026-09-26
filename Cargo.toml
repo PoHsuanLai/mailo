@@ -47,6 +47,34 @@ missing_debug_implementations = "warn"
 [workspace.lints.clippy]
 todo = "allow"
 
+# The release `mailo` carries Blitz, stylo, wgpu and parley, and at cargo's defaults it is ~107 MB.
+# Measured on one machine with a clean target dir (sizes of `target/release/mailo`):
+#
+#   defaults                                   107 MB   ~105 s
+#   strip = "symbols"                           81 MB   ~110 s
+#   + lto = "thin"                              83 MB   ~117 s
+#   + lto = "thin", opt-level = "s"             65 MB   ~104 s   <- this
+#   + lto = "thin", codegen-units = 1           69 MB   ~261 s
+#   + lto = "fat", codegen-units = 1            60 MB   ~509 s
+#   + lto = "fat", codegen-units = 1, "z"       44 MB   ~301 s
+#
+# Size-optimised code with thin LTO costs no build time and takes off ~40%; single-unit and fat
+# LTO take off more but double to quintuple the build. Symbols go, so a release panic's backtrace
+# has addresses but no names: build with `--config profile.release.strip=false` to read one.
+# `panic` stays `unwind`: a panicking Tokio task or `spawn_blocking` must fail alone, not take the
+# window with it (`panic = "abort"` would save another ~11 MB).
+[profile.release]
+strip = "symbols"
+lto = "thin"
+opt-level = "s"
+
+# Dependencies keep line tables (a backtrace still names file and line) but not full debuginfo;
+# the workspace's own crates keep everything, so stepping through mailo is unchanged. With full
+# debuginfo everywhere a cold `cargo clippy` + `cargo test --workspace` target dir was ~49 GB;
+# with this it is ~25 GB, and the cold test build went from ~108 s to ~80 s on the same machine.
+[profile.dev.package."*"]
+debug = "line-tables-only"
+
 # The reader parses every message body into blocks when it opens a thread: html5ever tokenizes,
 # mail-mime walks. Unoptimised, that walk spent most of `reader_scale`'s budget (five 2 MB bodies
 # took ~425 ms against 500) and made a debug window slow on large mail. With these built optimised

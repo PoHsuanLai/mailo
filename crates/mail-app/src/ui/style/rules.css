@@ -39,14 +39,14 @@
 .rules-row:hover { background: var(--surface-2); }
 .rules-row.off .rules-text { opacity: .55; }
 .rules-text { display: grid; gap: var(--s-1); min-width: 0; }
-.rules-text b { font-size: var(--fs-control); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rules-text b { font-size: var(--fs-control); font-weight: 600; white-space: nowrap; overflow: hidden; }
 .rules-when {
   font-family: var(--font-data); font-size: var(--fs-eyebrow); color: var(--ink-soft);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; overflow: hidden;
 }
 .rules-does { font-size: var(--fs-help); color: var(--ink-faint); }
 .rules-row-acts { display: flex; gap: var(--s-4); opacity: .55; transition: opacity var(--t-quick) var(--e-out); }
-.rules-row:hover .rules-row-acts, .rules-row:focus-within .rules-row-acts { opacity: 1; }
+.rules-row:hover .rules-row-acts { opacity: 1; }
 .rules-row-acts .ghost:disabled { opacity: .35; cursor: default; }
 /* quire's Toggle, in a box that carries its hint. */
 .rules-switch { display: inline-flex; align-items: center; }

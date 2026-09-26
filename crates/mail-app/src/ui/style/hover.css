@@ -14,7 +14,7 @@
   position: absolute; left: 12px; bottom: 12px; z-index: var(--z-link-pill); max-width: calc(100% - 24px);
   display: flex; align-items: center; background: var(--ink); color: var(--paper); border-radius: var(--r-pill);
   padding: var(--s-5) var(--s-11) var(--s-5) var(--s-9); font-family: var(--font-data); font-size: var(--fs-eyebrow); white-space: nowrap;
-  overflow: hidden; text-overflow: ellipsis; box-shadow: var(--shadow-2); pointer-events: none;
+  overflow: hidden; box-shadow: var(--shadow-2); pointer-events: none;
   animation: hc-in var(--t-quick) var(--e-out);
 }
 .linkpill .dim { opacity: 0.62; }

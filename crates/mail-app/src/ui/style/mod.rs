@@ -18,7 +18,7 @@
 //! Space that lends the card its hue writes `--accent` on the root, never here.
 //!
 //! Every keyframe is quire's too (coherence rule 1): the rules here only name them, and the
-//! motion that has to end is timed by quire's clock, never by the webview's `animationend`
+//! motion that has to end is timed by quire's clock, never by an `animationend` event
 //! (rule 4). The few keyframes quire does not have yet are declared beside the one rule that
 //! plays each, and named as exceptions in the lint below.
 

@@ -79,11 +79,11 @@
 .keys-row:hover { background: var(--surface-2); }
 .keys-row.mine { box-shadow: inset 2px 0 0 var(--accent); }
 .keys-text { display: grid; gap: var(--s-1); min-width: 0; }
-.keys-text b { font-size: var(--fs-control); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.keys-text b { font-size: var(--fs-control); font-weight: 600; white-space: nowrap; overflow: hidden; }
 .keys-fpr { font-family: var(--font-data); font-size: var(--fs-eyebrow); letter-spacing: .04em; color: var(--ink-soft); }
 .keys-meta { font-size: var(--fs-help); color: var(--ink-faint); }
 .keys-row-acts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--s-4); opacity: .6; transition: opacity var(--t-quick) var(--e-out); }
-.keys-row:hover .keys-row-acts, .keys-row:focus-within .keys-row-acts { opacity: 1; }
+.keys-row:hover .keys-row-acts { opacity: 1; }
 .keys-row-acts .ghost:disabled { opacity: .35; cursor: default; }
 .keys-tag {
   align-self: center; padding: var(--s-1) var(--s-7); border-radius: var(--r-pill); background: var(--accent-soft);

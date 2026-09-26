@@ -19,7 +19,6 @@
   display: flex; align-items: center; gap: var(--s-9); margin: var(--s-6) var(--s-14) var(--s-8); padding: var(--s-4) var(--s-10);
   border: var(--hair) solid var(--line); border-radius: var(--r-field); background: var(--surface); color: var(--ink-faint);
 }
-.book-find:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .book-rows {
   list-style: none; margin: 0; padding: 0 var(--s-6) var(--s-6); overflow-y: auto; scrollbar-width: thin;
   flex: 1; min-height: 0; border-top: var(--hair) solid var(--line-soft);
@@ -35,15 +34,15 @@
 }
 .book-row .who { display: grid; min-width: 0; }
 .book-row .who b {
-  font-size: var(--fs-control); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-size: var(--fs-control); font-weight: 600; white-space: nowrap; overflow: hidden;
 }
 .book-row .addr, .book-row .origin, .hc .contact .origin {
   font-family: var(--font-data); font-size: var(--fs-note); color: var(--ink-faint);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; overflow: hidden;
 }
 .book-row .origin { font-size: var(--fs-caption); }
 .book-row .acts { display: flex; gap: var(--s-6); opacity: 0.55; transition: opacity var(--t-quick) var(--e-out); }
-.book-row:hover .acts, .book-row:focus-within .acts { opacity: 1; }
+.book-row:hover .acts { opacity: 1; }
 .book-none { padding: var(--s-18) var(--s-10); text-align: center; font-size: var(--fs-meta); color: var(--ink-faint); }
 .naming { display: flex; align-items: center; gap: var(--s-6); min-width: 0; }
 .naming .book-name { flex: 1; min-width: 0; }

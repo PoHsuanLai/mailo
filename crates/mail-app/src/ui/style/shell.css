@@ -82,11 +82,11 @@
 .list-bar {
   display: flex; align-items: center; gap: var(--s-8); padding: var(--s-10) var(--s-12) var(--s-6);
 }
-.list-bar h2 { font-size: var(--fs-heading-3); min-width: 0; flex: 0 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.list-bar h2 { font-size: var(--fs-heading-3); min-width: 0; flex: 0 1 auto; white-space: nowrap; overflow: hidden; }
 .list-bar h2 .mono { font-weight: 400; color: var(--ink-faint); font-size: var(--fs-eyebrow); margin-left: var(--s-8); }
 .list-bar .status {
   font-size: var(--fs-small); color: var(--ink-faint); min-width: 0; flex: 1 1 0;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; overflow: hidden;
 }
 .list-bar .status.bad { color: var(--danger); font-weight: 600; }
 .bar-tools { display: flex; gap: var(--s-6); align-items: center; margin-left: auto; position: relative; }
@@ -104,7 +104,7 @@
 .fold-new { background: var(--f-pill); cursor: text; }
 .fold-acct {
   padding: var(--s-6) var(--s-8) var(--s-2); font-family: var(--font-data); font-size: var(--fs-note); color: var(--f-ink-faint);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  overflow: hidden; white-space: nowrap;
 }
 .fold-note { padding: var(--s-2) var(--s-8) var(--s-4) var(--s-22); font-size: var(--fs-small); line-height: 1.35; color: var(--f-ink-faint); }
 .fold-note.refused { color: var(--f-ink); font-weight: 550; }

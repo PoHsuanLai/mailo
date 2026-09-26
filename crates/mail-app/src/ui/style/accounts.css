@@ -21,7 +21,7 @@
 }
 .acct-link {
   flex: 1; min-width: 0; font-family: var(--font-data); font-size: var(--fs-eyebrow); line-height: 1.5;
-  color: var(--ink); overflow-wrap: anywhere; user-select: text; -webkit-user-select: text;
+  color: var(--ink); overflow-wrap: anywhere; user-select: text;
 }
 .acct-done { display: grid; gap: var(--s-4); margin-top: var(--s-4); font-size: var(--fs-control); line-height: 1.45; color: var(--ink); }
 .acct-done p { margin: 0; }
