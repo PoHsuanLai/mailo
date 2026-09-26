@@ -21,6 +21,7 @@ use mail_store::{Dispatch, OutboxEntry, Settle, SqliteStore, Store};
 use std::sync::Arc;
 use std::time::Duration;
 
+mod partial;
 mod split;
 pub(crate) mod wait;
 pub use wait::Woke;
@@ -357,22 +358,36 @@ impl<B: Backend> AccountEngine<B> {
     /// Where a split one is interrupted, what already went out stays out and is recorded: a
     /// move's new addresses are kept as each part answers, so the retry of the whole, addressed
     /// again when it is sent, finds those messages where they now are, and a flag set twice is
-    /// the same flag.
+    /// the same flag. `progress` is left saying which parts the server answered and which it did
+    /// not, so a refusal undoes only the rest (FINDINGS F159); it stays empty for one part.
     async fn run_per_mailbox(
         &mut self,
         op: ProtoOp,
         cancel: &mut Cancel,
         leaving: Option<DateTime<Utc>>,
+        progress: &mut partial::Progress,
     ) -> Result<ProtoOutcome, RuntimeError> {
         let mut parts = split::per_mailbox(op);
         if parts.len() == 1 {
             let op = parts.pop().expect("one part");
             return self.run_leaving(op, cancel, leaving).await;
         }
-        for part in parts {
+        let mut parts = parts.into_iter();
+        while let Some(part) = parts.next() {
             let into = mail_proto::backend::imap::move_target(self.caps(), &part);
-            if let ProtoOutcome::Moved(moved) = self.run_leaving(part, cancel, leaving).await? {
-                self.moved(&moved, into.as_deref())?;
+            match self.run_leaving(part.clone(), cancel, leaving).await {
+                Ok(outcome) => {
+                    // Answered, whatever recording where it went says next.
+                    progress.answered.push(part);
+                    if let ProtoOutcome::Moved(moved) = outcome {
+                        self.moved(&moved, into.as_deref())?;
+                    }
+                }
+                Err(e) => {
+                    progress.left.push(part);
+                    progress.left.extend(parts);
+                    return Err(e);
+                }
             }
         }
         Ok(ProtoOutcome::Applied)
@@ -678,9 +693,17 @@ impl<B: Backend> AccountEngine<B> {
                 // while the server was already accepting it.
                 self.mark_draft(draft, SendState::Sending, now);
             }
+            // Whose each address is before anything goes, for an operation sent in parts: a
+            // refusal after a part that moved its messages must still tell whose they were.
+            let held = if split::per_mailbox(entry.op.clone()).len() > 1 {
+                partial::held(&*self.store, &entry.undo)?
+            } else {
+                Vec::new()
+            };
+            let mut progress = partial::Progress::default();
             // Stamped with the same instant the draft records as `Sent { at }`, so the two agree.
             match self
-                .run_per_mailbox(entry.op, cancel, draft.map(|_| now))
+                .run_per_mailbox(entry.op, cancel, draft.map(|_| now), &mut progress)
                 .await
             {
                 Ok(outcome) => {
@@ -719,10 +742,22 @@ impl<B: Backend> AccountEngine<B> {
                 Err(RuntimeError::Cancelled) => return Ok(report),
                 Err(e) => {
                     let retry = e.retry();
+                    report.saw(&retry);
+                    // Refused after part of it was done: only the rest is undone (FINDINGS F159).
+                    let done = match retry {
+                        Retry::Fatal(_) => partial::done(&held, &progress, into.as_deref()),
+                        _ => Vec::new(),
+                    };
+                    if !done.is_empty() {
+                        report
+                            .needs_attention
+                            .push(partial::said(&progress, into.as_deref(), &e));
+                        self.store.outbox_settle(id, Settle::InPart { done }, now)?;
+                        break;
+                    }
                     if matches!(retry, Retry::NeedsReauth | Retry::Fatal(_)) {
                         report.needs_attention.push(e.to_string());
                     }
-                    report.saw(&retry);
                     if let Some(draft) = draft {
                         // Carries the retry, so the composer can say "retrying" rather than
                         // "failed" for something the outbox has not given up on.
@@ -781,7 +816,27 @@ impl<B: Backend> AccountEngine<B> {
                 Ok(None)
             }
             Dispatch::Lost(reason) => {
-                given_up(&*self.store, entry.id, reason, now, report)?;
+                // A move leaves alone what is already where it was taking it (FINDINGS F159).
+                let target = mail_proto::backend::imap::move_target(self.caps(), &entry.op);
+                let done = match &target {
+                    Some(folder) => {
+                        partial::already_there(&*self.store, self.account, &entry.undo, folder)?
+                    }
+                    None => Vec::new(),
+                };
+                match target.filter(|_| !done.is_empty()) {
+                    Some(folder) => {
+                        let retry = Retry::Fatal(reason.clone());
+                        report.saw(&retry);
+                        report.needs_attention.push(format!(
+                            "{reason} Of its messages, {} already in {folder} are left there.",
+                            done.len()
+                        ));
+                        self.store
+                            .outbox_settle(entry.id, Settle::InPart { done }, now)?;
+                    }
+                    None => given_up(&*self.store, entry.id, reason, now, report)?,
+                }
                 Ok(None)
             }
         }

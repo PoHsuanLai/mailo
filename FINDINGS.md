@@ -3899,3 +3899,40 @@ it runs: it parses only what ammonia already wrote, and only into the sealed doc
 a differential can do there is change markup inside the frame, where the tests above show a
 resurrected `<style>`, `<script>`, `file:` image or remote image achieves nothing. Mailo parses
 no mail with 0.39, and `mail-mime`'s sanitizer stays on ammonia's parser.
+
+### F159 — A split operation refused after its first part was done was undone whole
+
+Found while fixing F156. An operation on messages in several mailboxes goes as one part per
+mailbox (F154). When the first part succeeded and a later one was refused for good, the whole
+entry was settled `Retry::Fatal` and its whole undo applied here. That put the first part's
+messages back where they were, unstarred, unread or back in the inbox, although the server had
+done it. The window then disagreed with the server until a sync, and a user acting on what it
+showed acted on a stale view. The same happened to a move whose first part went without
+`COPYUID` and whose retry was given up while it waited for that message to be found (F155): the
+message the server had moved was shown back where it started.
+
+Now only what did not happen is undone. The engine keeps which parts the server answered
+(`engine/partial.rs`, `Progress`). Before an operation that splits is sent, it reads every
+address of each message its undo names, since a move gives its messages new addresses and a
+refusal after it still has to tell whose the old ones were. A message counts as done when a part
+the server answered named it. A message a move finds already in the folder it moves to also
+counts, since a part not reached would have sent nothing for it (F156). The entry is settled
+`Settle::InPart { done }`. The store drops it and applies its undo except the changes about
+those messages (`mail_store::undo_rest`). A message with one address in a part that went and
+another in the part refused is left as done: the server has the change for it somewhere, and on
+Gmail, where one message sits at two addresses, it has it for the message. The next sync says
+what the server holds either way. `needs_attention` says it in words: "Done only in part: the
+server did this in INBOX, and refused it in Work (…). What it did is kept here, and the rest has
+been undone."
+
+For a move given up while it waited (`Dispatch::Lost`), nothing was answered in that pass, so
+the store is asked where each message is (`Store::unplaced_into`, new in both stores). A message
+already in the move's destination, by address or by where a move filed it without saying where,
+is left there, and the message says how many were. Either the entry itself moved it there or an
+earlier one did. In both cases the destination is where the server last put it, so keeping it
+is right both ways.
+
+A retryable failure is unchanged: the entry stays whole and queued, and its retry is addressed
+where the messages are now (F156). An operation refused in every part is undone whole, as
+before. No schema change: the undo is still one patch per entry, and it is split by message when
+it is applied.

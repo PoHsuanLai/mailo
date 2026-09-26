@@ -316,6 +316,19 @@ impl Store for MemoryStore {
         Ok(inner.placed_of(message))
     }
 
+    fn unplaced_into(
+        &self,
+        account: AccountId,
+        message: MessageId,
+    ) -> Result<Option<String>, StoreError> {
+        Ok(self
+            .inner
+            .borrow()
+            .unplaced
+            .get(&(account, message))
+            .and_then(|unplaced| unplaced.mailbox.clone()))
+    }
+
     fn remotes_of(&self, message: MessageId) -> Result<Vec<RemoteRef>, StoreError> {
         let inner = self.inner.borrow();
         if !inner.messages.contains_key(&message) {
@@ -1565,6 +1578,13 @@ impl Inner {
                     }
                 }
             },
+            Settle::InPart { done } => {
+                let undo = self.outbox[&id].undo.clone();
+                self.drop_entry(id);
+                for change in crate::undo_rest(&undo, &done) {
+                    self.write_change(change)?;
+                }
+            }
         }
         Ok(())
     }

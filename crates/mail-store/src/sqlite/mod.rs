@@ -619,6 +619,16 @@ impl Store for SqliteStore {
         self.load_placed(message)
     }
 
+    fn unplaced_into(
+        &self,
+        account: AccountId,
+        message: MessageId,
+    ) -> Result<Option<String>, StoreError> {
+        Ok(self
+            .unplaced_of(account, message)?
+            .and_then(|unplaced| unplaced.mailbox))
+    }
+
     fn remotes_of(&self, message: MessageId) -> Result<Vec<RemoteRef>, StoreError> {
         let account = self.message(message)?.account;
         self.refs_for(account, &[message])

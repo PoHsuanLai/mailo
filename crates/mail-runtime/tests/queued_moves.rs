@@ -62,6 +62,9 @@ struct Server {
     /// Hang up, once, on the first command starting with the second while the first is
     /// selected, without doing it: a connection lost partway through an operation.
     hang_up: Option<(String, String)>,
+    /// Refuse for good, with a `NO`, every command starting with the second while the first is
+    /// selected, without doing it: a permanent refusal in that mailbox (FINDINGS F159).
+    refuse: Vec<(String, String)>,
 }
 
 type Shared = Arc<Mutex<Server>>;
@@ -86,6 +89,7 @@ async fn serve(uidplus: Uidplus) -> (u16, Shared) {
         ]),
         commands: Vec::new(),
         hang_up: None,
+        refuse: Vec::new(),
     };
     let shared: Shared = Arc::new(Mutex::new(server));
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -154,7 +158,12 @@ async fn session(mut sock: tokio::net::TcpStream, shared: Shared, uidplus: Uidpl
                     server.hang_up = None;
                     return;
                 }
-                let reply = if upper.starts_with("CAPABILITY") {
+                let refused = server.refuse.iter().any(|(mailbox, command)| {
+                    *mailbox == selected && upper.starts_with(command.as_str())
+                });
+                let reply = if refused {
+                    format!("{tag} NO not permitted in this mailbox\r\n")
+                } else if upper.starts_with("CAPABILITY") {
                     let plus = if uidplus == Uidplus::Yes {
                         " UIDPLUS"
                     } else {
@@ -1110,4 +1119,263 @@ async fn a_star_retried_after_its_second_mailbox_failed_is_set_again_harmlessly(
     };
     assert_eq!(flagged("INBOX"), vec![10]);
     assert_eq!(flagged("Work"), vec![3]);
+}
+
+// ---- F159: a split operation refused after its first part was done ----
+
+/// Queue `intent` as the window does: `forward` applied here at once, `undo` kept to put it back.
+fn queue_applied(
+    store: &SqliteStore,
+    intent: RemoteIntent,
+    forward: Vec<Change>,
+    undo: Vec<Change>,
+) {
+    store
+        .apply(
+            ACCOUNT,
+            &Patch {
+                id: ChangeId::generate(),
+                changes: forward,
+            },
+        )
+        .unwrap();
+    store
+        .enqueue(
+            ACCOUNT,
+            intent,
+            &Patch {
+                id: ChangeId::generate(),
+                changes: undo,
+            },
+            now(),
+        )
+        .unwrap()
+        .expect("queued");
+}
+
+/// The inbox's message and Work's trashed together, as the window does it: both shown in
+/// Trash at once, and each put back where it was if the server refuses. Where each was.
+fn trash_both(
+    store: &SqliteStore,
+    inbox: MessageId,
+    work: MessageId,
+) -> (MailboxRole, MailboxRole) {
+    let was = (
+        store.message(inbox).unwrap().mailbox,
+        store.message(work).unwrap().mailbox,
+    );
+    assert_ne!(was.0, MailboxRole::Trash);
+    assert_ne!(was.1, MailboxRole::Trash);
+    queue_applied(
+        store,
+        RemoteIntent::SetMailbox {
+            messages: vec![inbox, work],
+            role: MailboxRole::Trash,
+        },
+        vec![
+            Change::MessageMailbox(inbox, MailboxRole::Trash),
+            Change::MessageMailbox(work, MailboxRole::Trash),
+        ],
+        vec![
+            Change::MessageMailbox(inbox, was.0),
+            Change::MessageMailbox(work, was.1),
+        ],
+    );
+    was
+}
+
+fn refuse(server: &Shared, path: &str, command: &str) {
+    server
+        .lock()
+        .unwrap()
+        .refuse
+        .push((path.to_owned(), command.to_owned()));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_trash_refused_in_its_second_mailbox_undoes_only_that_mailbox_here() {
+    let (port, server) = serve(Uidplus::Yes).await;
+    let mut it = engine(port);
+    let (_tx, mut cancel) = watch::channel(false);
+    let (inbox, work) = in_two_mailboxes(&mut it, &server, &mut cancel).await;
+    refuse(&server, "Work", "UID MOVE");
+
+    let (_, work_was) = trash_both(&it.store, inbox, work);
+    let drained = it.engine.drain_outbox(&mut cancel, now()).await.unwrap();
+
+    assert_eq!(drained.still_queued, 0, "refused for good, not retried");
+    assert_eq!(holds(&server, "Trash"), vec![1], "the inbox's part went");
+    assert_eq!(holds(&server, "Work"), vec![3], "Work's was refused");
+    assert_eq!(
+        it.store.message(inbox).unwrap().mailbox,
+        MailboxRole::Trash,
+        "in Trash on the server, so in Trash here"
+    );
+    assert_eq!(
+        it.store.message(work).unwrap().mailbox,
+        work_was,
+        "refused, so put back"
+    );
+    assert_eq!(
+        drained.needs_attention.len(),
+        1,
+        "{:?}",
+        drained.needs_attention
+    );
+    let said = &drained.needs_attention[0];
+    assert!(said.contains("Done only in part"), "{said}");
+    assert!(said.contains("did this in INBOX"), "{said}");
+    assert!(said.contains("refused it in Work"), "{said}");
+    assert!(
+        said.contains("not permitted"),
+        "the server's reason: {said}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_star_refused_in_its_second_mailbox_stays_on_the_message_the_server_starred() {
+    let (port, server) = serve(Uidplus::Yes).await;
+    let mut it = engine(port);
+    let (_tx, mut cancel) = watch::channel(false);
+    let (inbox, work) = in_two_mailboxes(&mut it, &server, &mut cancel).await;
+    refuse(&server, "Work", "UID STORE");
+
+    queue_applied(
+        &it.store,
+        RemoteIntent::SetFlags {
+            messages: vec![inbox, work],
+            read: None,
+            star: Some(Star::Starred),
+        },
+        vec![
+            Change::MessageStar(inbox, Star::Starred),
+            Change::MessageStar(work, Star::Starred),
+        ],
+        vec![
+            Change::MessageStar(inbox, Star::Unstarred),
+            Change::MessageStar(work, Star::Unstarred),
+        ],
+    );
+    let drained = it.engine.drain_outbox(&mut cancel, now()).await.unwrap();
+
+    assert_eq!(drained.still_queued, 0);
+    let flagged = |path: &str| -> Vec<u32> {
+        server.lock().unwrap().mailboxes[path]
+            .flagged
+            .iter()
+            .copied()
+            .collect()
+    };
+    assert_eq!(flagged("INBOX"), vec![10]);
+    assert!(flagged("Work").is_empty());
+    assert_eq!(it.store.message(inbox).unwrap().star, Star::Starred);
+    assert_eq!(it.store.message(work).unwrap().star, Star::Unstarred);
+    assert_eq!(
+        drained.needs_attention.len(),
+        1,
+        "{:?}",
+        drained.needs_attention
+    );
+    assert!(
+        drained.needs_attention[0].contains("Done only in part"),
+        "{:?}",
+        drained.needs_attention
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_trash_whose_second_mailbox_failed_for_now_stays_whole_and_goes_on_retry() {
+    let (port, server) = serve(Uidplus::Yes).await;
+    let mut it = engine(port);
+    let (_tx, mut cancel) = watch::channel(false);
+    let (inbox, work) = in_two_mailboxes(&mut it, &server, &mut cancel).await;
+    server.lock().unwrap().hang_up = Some(("Work".to_owned(), "UID MOVE".to_owned()));
+
+    trash_both(&it.store, inbox, work);
+    let drained = it.engine.drain_outbox(&mut cancel, now()).await.unwrap();
+    assert_eq!(drained.still_queued, 1, "retried, not given up");
+    assert!(
+        drained.needs_attention.is_empty(),
+        "{:?}",
+        drained.needs_attention
+    );
+    assert_eq!(it.store.message(inbox).unwrap().mailbox, MailboxRole::Trash);
+    assert_eq!(it.store.message(work).unwrap().mailbox, MailboxRole::Trash);
+
+    let drained = it.engine.drain_outbox(&mut cancel, later()).await.unwrap();
+    assert_eq!(drained.outbox_settled, 1, "{:?}", drained.needs_attention);
+    assert!(drained.needs_attention.is_empty());
+    assert_eq!(holds(&server, "Trash"), vec![1, 2]);
+    assert_eq!(it.store.message(inbox).unwrap().mailbox, MailboxRole::Trash);
+    assert_eq!(it.store.message(work).unwrap().mailbox, MailboxRole::Trash);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_trash_refused_in_every_mailbox_is_undone_whole() {
+    let (port, server) = serve(Uidplus::Yes).await;
+    let mut it = engine(port);
+    let (_tx, mut cancel) = watch::channel(false);
+    let (inbox, work) = in_two_mailboxes(&mut it, &server, &mut cancel).await;
+    refuse(&server, "INBOX", "UID MOVE");
+    refuse(&server, "Work", "UID MOVE");
+
+    let (inbox_was, work_was) = trash_both(&it.store, inbox, work);
+    let drained = it.engine.drain_outbox(&mut cancel, now()).await.unwrap();
+
+    assert_eq!(drained.still_queued, 0);
+    assert!(holds(&server, "Trash").is_empty());
+    assert_eq!(it.store.message(inbox).unwrap().mailbox, inbox_was);
+    assert_eq!(it.store.message(work).unwrap().mailbox, work_was);
+    assert_eq!(
+        drained.needs_attention.len(),
+        1,
+        "{:?}",
+        drained.needs_attention
+    );
+    assert!(
+        !drained.needs_attention[0].contains("in part"),
+        "nothing was done: {:?}",
+        drained.needs_attention
+    );
+}
+
+/// Without `COPYUID` the inbox's message waits to be found in Trash, and the retry of the rest
+/// waits with it until it is given up (F155). The message is in Trash on the server, and stays
+/// there here.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_split_trash_given_up_while_waiting_leaves_the_part_that_went_in_trash() {
+    let (port, server) = serve(Uidplus::No).await;
+    let mut it = engine(port);
+    let (_tx, mut cancel) = watch::channel(false);
+    let (inbox, work) = in_two_mailboxes(&mut it, &server, &mut cancel).await;
+    server.lock().unwrap().hang_up = Some(("Work".to_owned(), "UID MOVE".to_owned()));
+
+    let (_, work_was) = trash_both(&it.store, inbox, work);
+    let drained = it.engine.drain_outbox(&mut cancel, now()).await.unwrap();
+    assert_eq!(drained.still_queued, 1);
+    assert!(it.store.remotes_of(inbox).unwrap().is_empty(), "waiting");
+
+    // Passes that never sync Trash, until the wait is given up.
+    let mut given_up = None;
+    for _ in 0..=PASSES_TO_FIND {
+        let drained = pass(&mut it, &mut cancel, &["INBOX"], later()).await;
+        if !drained.needs_attention.is_empty() {
+            given_up = Some(drained);
+            break;
+        }
+    }
+    let drained = given_up.expect("given up within the bound");
+    assert_eq!(drained.still_queued, 0);
+    assert_eq!(holds(&server, "Work"), vec![3], "the rest never went");
+    assert_eq!(
+        it.store.message(inbox).unwrap().mailbox,
+        MailboxRole::Trash,
+        "in Trash on the server, so left there"
+    );
+    assert_eq!(it.store.message(work).unwrap().mailbox, work_was);
+    assert!(
+        drained.needs_attention[0].contains("already in Trash are left there"),
+        "{:?}",
+        drained.needs_attention
+    );
 }

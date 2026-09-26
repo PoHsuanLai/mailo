@@ -690,3 +690,71 @@ fn an_operation_on_a_message_given_up_is_refused_even_behind_one_still_waiting()
     assert_eq!(sqlite.0, Dispatch::Wait, "`n` is still looked for");
     given_up(&sqlite.1);
 }
+
+// ---- F159: refused after part of it was done ----
+
+#[test]
+fn a_refusal_after_part_was_done_puts_back_only_the_rest() {
+    let (sqlite, memory) = both(|store| {
+        let (m, n) = (message(1), message(2));
+        deliver(store, &m, imap("INBOX", 10));
+        deliver(store, &n, imap("Work", 3));
+        let forward = Patch {
+            id: ChangeId::generate(),
+            changes: vec![
+                Change::MessageMailbox(m.id, MailboxRole::Trash),
+                Change::MessageStar(m.id, Star::Starred),
+                Change::MessageMailbox(n.id, MailboxRole::Trash),
+            ],
+        };
+        store.apply(ACCOUNT, &forward).unwrap();
+        let id = store
+            .enqueue(
+                ACCOUNT,
+                RemoteIntent::SetMailbox {
+                    messages: vec![m.id, n.id],
+                    role: MailboxRole::Trash,
+                },
+                &Patch {
+                    id: ChangeId::generate(),
+                    changes: vec![
+                        Change::MessageMailbox(m.id, MailboxRole::Inbox),
+                        Change::MessageStar(m.id, Star::Unstarred),
+                        Change::MessageMailbox(n.id, MailboxRole::Inbox),
+                    ],
+                },
+                at(0),
+            )
+            .unwrap()
+            .expect("queued");
+        store
+            .outbox_settle(id, Settle::InPart { done: vec![m.id] }, at(1))
+            .unwrap();
+        let (m, n) = (store.message(m.id).unwrap(), store.message(n.id).unwrap());
+        (
+            (m.mailbox, m.star),
+            n.mailbox,
+            store.outbox_due(ACCOUNT, at(100)).unwrap().len(),
+        )
+    });
+    assert_eq!(sqlite, memory);
+    assert_eq!(
+        sqlite,
+        ((MailboxRole::Trash, Star::Starred), MailboxRole::Inbox, 0),
+        "every change about the message done is kept, the rest undone, and the entry dropped"
+    );
+}
+
+#[test]
+fn where_a_move_filed_a_message_it_did_not_place_is_told() {
+    let (sqlite, memory) = both(|store| {
+        let m = message(1);
+        deliver(store, &m, imap("INBOX", 10));
+        let before = store.unplaced_into(ACCOUNT, m.id).unwrap();
+        let first = queue(store, file_into(&m, MailboxRole::Archive));
+        first_move_lands(store, first, None);
+        (before, store.unplaced_into(ACCOUNT, m.id).unwrap())
+    });
+    assert_eq!(sqlite, memory);
+    assert_eq!(sqlite, (None, Some("Archive".to_owned())));
+}

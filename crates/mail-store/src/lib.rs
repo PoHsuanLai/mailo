@@ -30,11 +30,11 @@ pub use error::StoreError;
 
 use chrono::{DateTime, Utc};
 use mail_domain::{
-    AccountCaps, AccountId, AutocryptPeer, BlobId, Draft, DraftId, Filter, Fingerprint, Folder,
-    FolderContents, Import, Ingest, InviteAnswer, KeyId, KeyTrust, Label, MailboxRef, MailboxRole,
-    Message, MessageId, MessageKey, OutboxId, Page, Patch, PgpKey, ProtoOp, Query, ReceiptAnswer,
-    RemoteIntent, RemoteRef, Retry, Rule, RuleId, SendState, SmimeCert, SyncCursor, Template,
-    TemplateId, Thread, ThreadId, ThreadSummary, Vacation,
+    AccountCaps, AccountId, AutocryptPeer, BlobId, Change, Draft, DraftId, Filter, Fingerprint,
+    Folder, FolderContents, Import, Ingest, InviteAnswer, KeyId, KeyTrust, Label, MailboxRef,
+    MailboxRole, Message, MessageId, MessageKey, OutboxId, Page, Patch, PgpKey, ProtoOp, Query,
+    ReceiptAnswer, RemoteIntent, RemoteRef, Retry, Rule, RuleId, SendState, SmimeCert, SyncCursor,
+    Template, TemplateId, Thread, ThreadId, ThreadSummary, Vacation,
 };
 
 /// One queued unit of remote work, with everything needed to retry or abandon it.
@@ -83,6 +83,48 @@ pub enum Settle {
     /// Failed. The store reschedules, prompts for reauth, or applies the undo patch and drops
     /// the entry, according to the [`Retry`].
     Failed { reason: String, retry: Retry },
+    /// Refused for good after the server had already done it for some of its messages: an
+    /// operation split per mailbox (FINDINGS F154) whose first parts were carried out and whose
+    /// next was refused. Dropped as [`Retry::Fatal`] drops it, and its undo applied except where
+    /// a change is about one of `done`, which the server has: undone, they would be shown back
+    /// where the server no longer has them (FINDINGS F159).
+    InPart { done: Vec<MessageId> },
+}
+
+/// The message a change is about, for a change about one message.
+///
+/// What an undo is split by when only some of its messages are to be put back
+/// ([`Settle::InPart`]). Here rather than as a method on [`Change`]: `mail-domain` is the frozen
+/// interface (CONVENTIONS §1).
+pub fn message_of(change: &Change) -> Option<MessageId> {
+    match change {
+        Change::MessageRead(m, _)
+        | Change::MessageStar(m, _)
+        | Change::MessageMailbox(m, _)
+        | Change::MessageLabel(m, _, _)
+        | Change::MessageDelete(m) => Some(*m),
+        Change::MessageUpsert(message) => Some(message.id),
+        Change::ThreadSnooze(..)
+        | Change::ThreadPin(..)
+        | Change::LabelUpsert(_)
+        | Change::DraftUpsert(_)
+        | Change::DraftDelete(_)
+        | Change::LabelRemove(_)
+        | Change::FolderUpsert(_)
+        | Change::FolderRemove(_)
+        | Change::FolderRename { .. } => None,
+    }
+}
+
+/// The changes of `undo` to put back when `done` stay as they are: every one not about a
+/// message of `done`.
+pub(crate) fn undo_rest<'a>(
+    undo: &'a Patch,
+    done: &'a [MessageId],
+) -> impl Iterator<Item = &'a Change> + 'a {
+    undo.changes
+        .iter()
+        .filter(move |change| message_of(change).is_none_or(|m| !done.contains(&m)))
 }
 
 /// Query and persist. The only writer the UI ever calls is [`Store::apply`].
@@ -326,6 +368,18 @@ pub trait Store {
     /// as a pass that did not look otherwise. Counted in passes rather than time, so a queue does
     /// not expire while the computer is shut; see [`Dispatch::Lost`].
     fn unplaced_pass(&self, account: AccountId, synced: &[String]) -> Result<(), StoreError>;
+
+    /// The folder a move filed `message` in without saying where, while it waits for a sync to
+    /// find it there ([`Store::unmap`]). `None` when it is not waiting, or when the folder was
+    /// not kept.
+    ///
+    /// What tells a refused move whether one of its messages is already where it was being moved
+    /// to, and so is not to be put back (FINDINGS F159).
+    fn unplaced_into(
+        &self,
+        account: AccountId,
+        message: MessageId,
+    ) -> Result<Option<String>, StoreError>;
 
     /// Every server address `message` is known by, in any mailbox.
     ///

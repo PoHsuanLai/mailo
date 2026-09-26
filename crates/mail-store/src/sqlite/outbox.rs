@@ -474,25 +474,31 @@ impl SqliteStore {
                         ],
                     )?;
                 }
-                Retry::Fatal(_) => {
-                    // The server will refuse this forever. Undo the optimistic local change,
-                    // or the user is left looking at a state that will never become true.
-                    let undo: String = self.connection().query_row(
-                        "SELECT undo FROM outbox WHERE id = ?1",
-                        params![id.as_i64()],
-                        |r| r.get(0),
-                    )?;
-                    let patch: Patch = json("Patch", &undo)?;
-                    self.drop_entry(id)?;
-                    for change in &patch.changes {
-                        if let Some(thread) = self.write_change(change)? {
-                            self.refresh_summary(thread)?;
-                        }
-                    }
-                }
+                // The server will refuse this forever. Undo the optimistic local change, or the
+                // user is left looking at a state that will never become true.
+                Retry::Fatal(_) => self.undo_entry(id, &[])?,
             },
+            // As a refusal, except for what the server did do (FINDINGS F159).
+            Settle::InPart { done } => self.undo_entry(id, &done)?,
         }
         tx.commit()?;
+        Ok(())
+    }
+
+    /// Drop entry `id` and put back its undo, except the changes about `done`.
+    fn undo_entry(&self, id: OutboxId, done: &[MessageId]) -> Result<(), StoreError> {
+        let undo: String = self.connection().query_row(
+            "SELECT undo FROM outbox WHERE id = ?1",
+            params![id.as_i64()],
+            |r| r.get(0),
+        )?;
+        let patch: Patch = json("Patch", &undo)?;
+        self.drop_entry(id)?;
+        for change in crate::undo_rest(&patch, done) {
+            if let Some(thread) = self.write_change(change)? {
+                self.refresh_summary(thread)?;
+            }
+        }
         Ok(())
     }
 
