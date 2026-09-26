@@ -38,13 +38,13 @@ dioxus = { version = "0.7" }
 # `lint` is for the stylesheet and markup tests. To try an unreleased quire,
 # point every quire line at a checkout with a `[patch]` in a local, uncommitted
 # `.cargo/config.toml`, never here.
-ds = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.1.11", features = ["lint"] }
+ds = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.1.16", features = ["lint"] }
 # Settings I/O: `appearance.toml` (imported once from `appearance.json`), the settings portal.
-ds-settings = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.1.11" }
+ds-settings = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.1.16" }
 # The window: quire's Blitz host (the window, its fonts, focus, clipboard, harness, PDF output),
 # and `print`: the system's print dialog for a PDF (the desktop portal on Linux, else the PDF
 # opened in the viewer).
-ds-native = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.1.11", features = ["print"] }
+ds-native = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.1.16", features = ["print"] }
 blitz-dom = { workspace = true }
 dioxus-native-dom = { workspace = true }
 # ASCII-case-insensitive multi-pattern search for highlights. Already in the tree via `regex`.

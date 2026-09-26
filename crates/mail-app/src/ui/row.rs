@@ -196,7 +196,9 @@ pub(super) fn Row(
             over(driver, hook, anchor);
         }
     };
-    // The name and the time open their own cards; leaving either is being back on the row.
+    // The name and the time open their own cards. Leaving either lets its card go like any
+    // other target's leave: the pointer may be on its way to the card, which sits over the rows
+    // below. Being back on the row is quire's to say (`onpointerback`, below).
     // The innermost hook wins: an entry that bubbles (a harness's does) stops at the part.
     let part = move |hook: Hook| PartHooks {
         onpointerenter: EventHandler::new(move |event: PointerEvent| {
@@ -205,7 +207,7 @@ pub(super) fn Row(
         }),
         onpointerleave: EventHandler::new(move |event: PointerEvent| {
             event.stop_propagation();
-            enter(Hook::Thread(id), element(row_box()));
+            out(driver);
         }),
     };
     let parts = shell.read().parts;
@@ -348,6 +350,10 @@ pub(super) fn Row(
                 star: Some(star),
                 star_pulse: pop.key(),
                 strip,
+                // The pointer came back from the name or the time and rested on the row.
+                onpointerback: EventHandler::new(move |_: PointerEvent| {
+                    enter(Hook::Thread(id), element(row_box()));
+                }),
                 onclick: move |click: MouseData| {
                     let click = click_of(click.modifiers());
                     shell.write().click(id, click, &drawn_order());

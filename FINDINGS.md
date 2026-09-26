@@ -4081,3 +4081,20 @@ not UTF-8 as U+FFFD, with a count. The view draws at most 256 KiB, cut at a line
 A headers-only message has no source, because its headers are stored as fields, not bytes. The blob
 is read on a blocking thread started by the press (F140), and the frame stays mounted and hidden,
 so returning to Original does not reload it (F157).
+
+### F167 — quire v0.1.16, and the sender card's actions can be reached
+
+mailo takes quire v0.1.16 (from v0.1.11): PDF thumbnails, colour emoji behind `.ds-emoji-text`,
+file drops (`ds::use_file_drop`), second windows (`ds_native::open_window`), spelling on
+`EditSurface`, and `ListRow::onpointerback`. v0.1.12 is skipped on purpose: it put the emoji face
+in the text stacks, and digits and spaces rendered wide under Blitz. From v0.1.14
+`ds_native::launch` runs its own event loop; its signature is unchanged.
+
+The sender card's actions could not be pressed wherever the card sat over rows (F162). Blitz hit
+the card where it painted it; the cause was mailo's. Leaving the sender's name called the row's
+own hook, as if the pointer had gone back to the row, and with a card open the hover hub swapped
+the sender card for the thread card at once. A part's leave now lets its card go like any other
+leave, and being back on the row is `onpointerback`'s to say: it fires after the card's close
+grace, only if the pointer stayed on the row. `native_sender.rs` walks the pointer from the name to
+Block sender over the rows below in ten steps and presses it; on the old hook the card went at the
+first step.
