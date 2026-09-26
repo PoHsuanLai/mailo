@@ -36,7 +36,7 @@ use mail_domain::{
     Folder, FolderContents, Import, Ingest, InviteAnswer, KeyId, KeyTrust, Label, MailboxRef,
     MailboxRole, Message, MessageId, MessageKey, OutboxId, Page, Patch, PgpKey, ProtoOp, Query,
     ReceiptAnswer, RemoteIntent, RemoteRef, Retry, Rule, RuleId, SendState, SmimeCert, SyncCursor,
-    Template, TemplateId, Thread, ThreadId, ThreadSummary, Vacation,
+    Template, TemplateId, Thread, ThreadId, ThreadSummary, Vacation, View, ViewId,
 };
 
 /// One queued unit of remote work, with everything needed to retry or abandon it.
@@ -449,6 +449,22 @@ pub trait Store {
     /// Delete a template. [`StoreError::NoTemplate`] when there is none by that id, so a typo
     /// in an id is not reported as done.
     fn delete_template(&self, id: TemplateId) -> Result<(), StoreError>;
+
+    /// Every saved view, in the sidebar's order: the order they were first kept, then by id.
+    ///
+    /// Views are the user's, not an account's: one view can list mail from every account.
+    fn views(&self) -> Result<Vec<View>, StoreError>;
+
+    /// Keep a view, replacing any with the same id. A new view goes last; a view kept again
+    /// keeps its place in the sidebar.
+    ///
+    /// Not through [`Store::apply`], like a template: a view is a way of looking at mail, not
+    /// an edit of any.
+    fn put_view(&self, view: &View) -> Result<(), StoreError>;
+
+    /// Forget a view. [`StoreError::NoView`] when there is none by that id. The mail it listed
+    /// is untouched.
+    fn delete_view(&self, id: ViewId) -> Result<(), StoreError>;
 
     /// Every label on an account, by name.
     ///

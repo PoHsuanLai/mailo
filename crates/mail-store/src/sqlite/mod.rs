@@ -16,6 +16,7 @@ mod rules;
 mod search;
 mod smime;
 mod template;
+mod views;
 mod write;
 
 use crate::blob::BlobStore;
@@ -720,6 +721,18 @@ impl Store for SqliteStore {
 
     fn delete_template(&self, id: TemplateId) -> Result<(), StoreError> {
         self.remove_template(id)
+    }
+
+    fn views(&self) -> Result<Vec<mail_domain::View>, StoreError> {
+        self.load_views()
+    }
+
+    fn put_view(&self, view: &mail_domain::View) -> Result<(), StoreError> {
+        self.write_view(view)
+    }
+
+    fn delete_view(&self, id: mail_domain::ViewId) -> Result<(), StoreError> {
+        self.remove_view(id)
     }
 
     fn labels(&self, account: AccountId) -> Result<Vec<mail_domain::Label>, StoreError> {

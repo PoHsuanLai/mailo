@@ -1,0 +1,1 @@
+{"id":"00000000-0000-4000-8000-0000000000c1","name":"Unread from billing","kind":{"kind":"query"},"filter":{"kind":"and","v":[{"kind":"read","v":"unread"},{"kind":"from","v":{"kind":"contains","v":"billing"}}]},"sort":{"property":"date","dir":"desc"},"group_by":{"kind":"star"},"threading":"threaded","shown":[],"hover":["archive","mark_read","star"]}

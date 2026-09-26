@@ -2,7 +2,7 @@
 
 use mail_domain::{
     CertFingerprint, DraftId, Fingerprint, MessageId, Retry, Retryable, RuleId, TemplateId,
-    ThreadId,
+    ThreadId, ViewId,
 };
 use std::time::Duration;
 
@@ -19,6 +19,8 @@ pub enum StoreError {
     NoDraft(DraftId),
     #[error("no such template: {0}")]
     NoTemplate(TemplateId),
+    #[error("no such view: {0}")]
+    NoView(ViewId),
     #[error("no such rule: {0}")]
     NoRule(RuleId),
     /// Rule names are how rules are named on the command line, so one account has one of each.
@@ -55,6 +57,7 @@ impl Retryable for StoreError {
             | StoreError::NoMessage(_)
             | StoreError::NoDraft(_)
             | StoreError::NoTemplate(_)
+            | StoreError::NoView(_)
             | StoreError::NoRule(_)
             | StoreError::RuleNameTaken(_)
             | StoreError::NoPgpKey(_)
