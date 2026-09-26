@@ -19,6 +19,7 @@ pub mod notify;
 pub mod offline;
 pub mod password;
 pub mod pgp;
+pub mod preview;
 pub mod print;
 mod provider;
 pub mod query;

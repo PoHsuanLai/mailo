@@ -566,6 +566,41 @@ pub struct KeyboardSheet {
     pub said: Option<String>,
 }
 
+/// The attachment viewer while it is open: which stored part of which message, and for a PDF
+/// which page, from 0.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Viewing {
+    pub message: MessageId,
+    pub index: usize,
+    pub page: u32,
+    /// How many pages the part has, once one has been drawn; `None` before, and for a picture.
+    pub pages: Option<u32>,
+}
+
+impl Viewing {
+    /// The first page of attachment `index` of `message`.
+    pub fn of(message: MessageId, index: usize) -> Self {
+        Self {
+            message,
+            index,
+            page: 0,
+            pages: None,
+        }
+    }
+
+    /// `by` pages on, held to the pages there are. Until a page has been drawn the count is not
+    /// known and nothing turns forward, so a held key cannot run ahead into pages that do not
+    /// exist; a picture never has pages.
+    pub fn turned(self, by: i32) -> Self {
+        let last = match self.pages {
+            Some(pages) => pages.saturating_sub(1),
+            None => self.page,
+        };
+        let page = self.page.saturating_add_signed(by).min(last);
+        Self { page, ..self }
+    }
+}
+
 /// Everything the shell is currently showing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Shell {
@@ -661,6 +696,9 @@ pub struct Shell {
     pub find: Option<crate::search::Find>,
     /// What the undo toast and Ctrl Z can take back, newest last.
     pub undo: crate::undo::UndoStack,
+    /// The attachment viewer, over the window. `None` is closed. Belongs to the open thread:
+    /// [`Self::open`], [`Self::close`] and [`Self::select`] drop it.
+    pub viewing: Option<Viewing>,
 }
 
 /// A message being edited, as the widgets hold it.
@@ -877,6 +915,7 @@ impl Default for Shell {
             keyboard: None,
             find: None,
             undo: crate::undo::UndoStack::default(),
+            viewing: None,
         }
     }
 }
@@ -994,6 +1033,7 @@ impl Shell {
             self.picked = Picked::none();
             // Consent is per thread, so changing what is shown revokes it.
             self.show_remote_images = false;
+            self.viewing = None;
         }
     }
 
@@ -1004,6 +1044,7 @@ impl Shell {
         self.picked = Picked::clicked(thread);
         self.show_remote_images = false;
         self.find = None;
+        self.viewing = None;
     }
 
     /// Close the reader.
@@ -1014,6 +1055,7 @@ impl Shell {
         self.open = None;
         self.show_remote_images = false;
         self.find = None;
+        self.viewing = None;
     }
 
     /// A click on a conversation's row, among the listed `ids`: a plain one opens it, Ctrl
@@ -3683,5 +3725,50 @@ mod appearance {
             assert_eq!(mine.with_desktop(reduce), ds::Motion::Reduced, "{mine:?}");
         }
         assert_ne!(ds::Motion::from(Motion::default()), ds::Motion::System);
+    }
+}
+
+#[cfg(test)]
+mod viewing_tests {
+    use super::{Shell, Viewing};
+    use mail_domain::{MessageId, ThreadId};
+
+    #[test]
+    fn a_viewer_turns_only_within_the_pages_it_knows() {
+        let message = MessageId::generate();
+        let at = |page: u32, pages: Option<u32>| Viewing {
+            page,
+            pages,
+            ..Viewing::of(message, 1)
+        };
+        let cases = [
+            ("forward, count known", at(0, Some(3)), 1, 1),
+            ("forward from the last", at(2, Some(3)), 1, 2),
+            ("back from the first", at(0, Some(3)), -1, 0),
+            ("back", at(2, Some(3)), -1, 1),
+            ("forward before the count is known", at(0, None), 1, 0),
+            ("back before the count is known", at(1, None), -1, 0),
+            ("a count of none", at(0, Some(0)), 1, 0),
+        ];
+        for (case, viewing, by, page) in cases {
+            assert_eq!(viewing.turned(by).page, page, "{case}");
+        }
+    }
+
+    #[test]
+    fn opening_or_closing_a_conversation_closes_the_viewer() {
+        let viewing = Some(Viewing::of(MessageId::generate(), 0));
+        let mut shell = Shell {
+            viewing,
+            ..Shell::default()
+        };
+        shell.open(ThreadId::generate());
+        assert_eq!(shell.viewing, None, "open");
+        shell.viewing = viewing;
+        shell.close();
+        assert_eq!(shell.viewing, None, "close");
+        shell.viewing = viewing;
+        shell.select(1);
+        assert_eq!(shell.viewing, None, "select");
     }
 }
