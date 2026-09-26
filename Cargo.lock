@@ -2548,7 +2548,7 @@ checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
 [[package]]
 name = "ds"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.1.9#ac66127cdcc2d4ea3fc66defc8b6a1ebc6c796e9"
+source = "git+https://github.com/PoHsuanLai/quire?tag=v0.1.9#273f018d9cbbe38e47858a74a3050bd8d39a5ac0"
 dependencies = [
  "cssparser 0.37.0",
  "dioxus",
@@ -2562,7 +2562,7 @@ dependencies = [
 [[package]]
 name = "ds-native"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.1.9#ac66127cdcc2d4ea3fc66defc8b6a1ebc6c796e9"
+source = "git+https://github.com/PoHsuanLai/quire?tag=v0.1.9#273f018d9cbbe38e47858a74a3050bd8d39a5ac0"
 dependencies = [
  "anyrender",
  "anyrender_vello_cpu",
@@ -2588,7 +2588,7 @@ dependencies = [
 [[package]]
 name = "ds-settings"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.1.9#ac66127cdcc2d4ea3fc66defc8b6a1ebc6c796e9"
+source = "git+https://github.com/PoHsuanLai/quire?tag=v0.1.9#273f018d9cbbe38e47858a74a3050bd8d39a5ac0"
 dependencies = [
  "dioxus",
  "dirs",
@@ -2606,7 +2606,7 @@ dependencies = [
 [[package]]
 name = "ds-settings-derive"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.1.9#ac66127cdcc2d4ea3fc66defc8b6a1ebc6c796e9"
+source = "git+https://github.com/PoHsuanLai/quire?tag=v0.1.9#273f018d9cbbe38e47858a74a3050bd8d39a5ac0"
 dependencies = [
  "proc-macro2",
  "quote",
