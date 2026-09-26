@@ -145,9 +145,20 @@ fn launch(
     seed: fn(&SqliteStore),
     fallback: FocusFallback,
 ) -> (Harness, tempfile::TempDir, Arc<SqliteStore>, Printed) {
+    launch_at(answer, seed, fallback, |_| mail_app::ui::Start::Inbox)
+}
+
+/// [`launch`], opened where `start` says once the store is seeded, as `main` decides it.
+fn launch_at(
+    answer: fn() -> Result<PrintOutcome, PrintError>,
+    seed: fn(&SqliteStore),
+    fallback: FocusFallback,
+    start: impl FnOnce(&SqliteStore) -> mail_app::ui::Start,
+) -> (Harness, tempfile::TempDir, Arc<SqliteStore>, Printed) {
     let dir = tempfile::tempdir().unwrap();
     let store = seeded(dir.path());
     seed(&store);
+    let start = start(&store);
     let printed = Printed::default();
     let printer = mail_app::ui::native::Printer::with_dialog({
         let printed = Arc::clone(&printed);
@@ -161,7 +172,7 @@ fn launch(
         mail_app::view::Appearance::default(),
         mail_app::space::Spaces::default(),
         None,
-        mail_app::ui::Start::Inbox,
+        start,
     )
     .with(printer);
     let config = HarnessConfig::new(VIEW)
@@ -254,6 +265,49 @@ fn the_window_opens_on_the_seeded_inbox() {
         harness.is_focused(".app"),
         "the window does not hold the keyboard"
     );
+}
+
+/// `mailo mailto:…`, as the desktop runs the scheme's handler: the window opens on a composer,
+/// laid out, holding what the link asked for, and nothing is sent.
+#[test]
+fn a_window_started_from_a_mailto_link_opens_on_the_composer() {
+    let uri = "mailto:ada@example.test?subject=About%20the%20flight&body=Which%20gate%3F";
+    let link = mail_app::ui::mailto_of(&[uri.to_owned()]).expect("read as a mailto link");
+    let (harness, _dir, store, _printed) = launch_at(
+        || Ok(PrintOutcome::Cancelled),
+        |_| {},
+        FocusFallback::Ancestor,
+        |store| {
+            mail_app::ui::start_mailto(store, &link, chrono::Utc::now())
+                .expect("the link's draft is saved")
+        },
+    );
+
+    let subject = ".c-title input";
+    let rect = harness
+        .rect(subject)
+        .unwrap_or_else(|| panic!("no subject field is drawn:\n{}", harness.html()));
+    assert!(
+        rect.size.width.0 > 100.0,
+        "the subject field is not laid out: {rect:?}"
+    );
+    let html = harness.html();
+    assert!(
+        html.contains(r#"value="About the flight""#),
+        "not the link's subject:\n{html}"
+    );
+    assert!(html.contains("Which gate?"), "not the link's body:\n{html}");
+    assert!(
+        html.contains(r#"aria-label="Remove ada""#),
+        "not the link's recipient:\n{html}"
+    );
+
+    // A draft, held and not queued: a link can open a composer, never send.
+    let drafts = store.drafts(ACCOUNT).unwrap();
+    assert_eq!(drafts.len(), 1, "{drafts:?}");
+    assert_eq!(drafts[0].state, SendState::Editing);
+    let a_year_on = chrono::Utc::now() + chrono::Duration::days(365);
+    assert!(store.outbox_due(ACCOUNT, a_year_on).unwrap().is_empty());
 }
 
 #[test]

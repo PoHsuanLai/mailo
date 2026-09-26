@@ -34,14 +34,25 @@ pub(super) fn App() -> Element {
     // handle held here is a handle that invites a query back onto the thread that draws.
     // The launched look, when `main` provided one. A test that builds `App` with only the
     // store keeps the first-run appearance.
-    // Opened on a conversation when the window was started to show one (`mailo open`).
+    // Opened on a conversation when the window was started to show one (`mailo open`), or on
+    // the composer when it was started from a `mailto:` link.
     let mut shell = use_signal(|| {
         let mut shell = Shell {
             appearance: try_consume_context::<Appearance>().unwrap_or_default(),
             ..Shell::default()
         };
-        if let Some(super::Start::Thread(thread)) = try_consume_context::<super::Start>() {
-            super::open_thread(&mut shell, thread);
+        match try_consume_context::<super::Start>() {
+            Some(super::Start::Thread(thread)) => super::open_thread(&mut shell, thread),
+            // Started from a `mailto:` link: its draft was saved before the window opened, and
+            // one read here, once, puts it in the composer.
+            Some(super::Start::Compose(id)) => {
+                let store = consume_context::<Arc<SqliteStore>>();
+                match store.draft(id) {
+                    Ok(draft) => shell.compose(&draft),
+                    Err(why) => eprintln!("compose: {why}"),
+                }
+            }
+            Some(super::Start::Inbox) | None => {}
         }
         shell
     });

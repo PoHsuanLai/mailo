@@ -6,7 +6,11 @@ fn main() {
     // No arguments opens the window, and `open <thread>` opens it on a conversation; anything
     // else is the CLI. One binary because they are one application over one store, and a
     // separate CLI would drift from what the UI does.
+    // `mailo mailto:…`, as the desktop runs the scheme's handler: the window, on a composer
+    // holding what the link asks for. The draft is made once the store is open, below.
+    let mailto = mail_app::ui::mailto_of(&args);
     let start = match mail_app::ui::start_of(&args) {
+        _ if mailto.is_some() => Some(mail_app::ui::Start::Inbox),
         Some(Ok(start)) => Some(start),
         Some(Err(message)) => {
             eprintln!("{message}");
@@ -234,6 +238,16 @@ fn main() {
     }
 
     let store = std::sync::Arc::new(store);
+    let start = match &mailto {
+        Some(link) => match mail_app::ui::start_mailto(&store, link, chrono::Utc::now()) {
+            Ok(compose) => Some(compose),
+            Err(message) => {
+                eprintln!("{message}");
+                std::process::exit(1);
+            }
+        },
+        None => start,
+    };
     // Sync needs an async runtime and the store by Arc, so it is dispatched here rather than
     // inside mail_app::cli::run, which is deliberately synchronous and testable.
     if matches!(command, Some(mail_app::cli::Command::Sync)) {
