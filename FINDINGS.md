@@ -4207,3 +4207,38 @@ A part refused for good is passed over and named on every pass; a refused sign-i
 dropped connection ends the step. `Store::offline` counts messages held in full and what still
 waits, in both stores. "Open this folder now" never fetches parts. `PartContent::Remote`'s doc
 comment, which said a sync never fetches a part, now says when one does.
+
+### F175 — mailo is no longer Linux-only: the keyring, notifications, dialogs and directories are each the platform's own
+
+A decision, reversed on 2026-09-27 at the user's request. `ci.yml` kept only `latchkey` portable,
+on purpose; the whole workspace now builds and is tested on macOS and Windows, and a `package` job
+builds unsigned installers for all three (a `.deb` and `.rpm`, a `.dmg`, an MSI). Credentials go
+to keyring-core with one store per target: the Secret Service, the Keychain, the Credential
+Manager. Notifications go through notify-rust behind the same `Notifier` seam. rfd uses the portal
+only on Linux. Directories come from `mail_runtime::places`, which keeps Linux's XDG rule byte for
+byte and uses the platform's own elsewhere; on Windows mail goes in the local app-data folder, not
+the roaming one, so a mail store is not copied to a domain server at every sign-out.
+
+Lost on Linux: the notification's activation token, so a compositor strict about focus may open
+the window behind. Open on Windows: the Start menu starts `mailo.exe` as a console program, so a
+console window opens beside it; the fix is a separate GUI launcher, since attaching a console needs
+`unsafe`. Open in quire: `ds_settings`' directories use XDG or `$HOME` everywhere (on Windows,
+appearance is not persisted), macOS delivers `mailto:` as an Apple Event that `launch` does not yet
+pass on, and a macOS notification click needs a delegate on quire's run loop. None of the macOS or
+Windows steps could be run where this was written; CI is their first run.
+
+### F176 — A Windows credential entry holds 1280 characters, and a Microsoft token does not fit
+
+The Credential Manager limits an entry to 2560 bytes of UTF-16. The stored OAuth JSON (a JWT access
+token, a refresh token and the expiry) is longer, so on Windows `put` would have failed and a
+Microsoft account could never be signed in; an S/MIME key likewise. A value over the limit is kept
+in parts, `<name>#1..N` under a head entry `mailo-parts:N`, tested against a size-limited map. Other
+platforms are unchanged: one value, one entry. A write that fails part-way can leave a mix of two
+values, which reads as unreadable and means signing in again.
+
+### F177 — Maildir's `:` cannot be written on Windows
+
+File names there cannot hold a colon, so an export would have failed at the first flagged message.
+Maildir is written with `;` there (`maildir::INFO`), which the parser has always read on every
+platform. `.gitattributes` now sets `* -text`, so a Windows checkout leaves the byte-for-byte
+fixtures alone.
