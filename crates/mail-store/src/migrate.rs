@@ -47,7 +47,7 @@ pub const MIGRATIONS: &[(u32, &str)] = &[
     (20, include_str!("../migrations/0020_outbox_messages.sql")),
     (21, include_str!("../migrations/0021_unplaced_bound.sql")),
     (22, include_str!("../migrations/0022_mute.sql")),
-    (23, include_str!("../migrations/0022_contact_groups.sql")),
+    (23, include_str!("../migrations/0023_contact_groups.sql")),
 ];
 
 /// The schema version this build expects.

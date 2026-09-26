@@ -63,7 +63,7 @@
 .group-new { padding: var(--s-4) var(--s-8); }
 .group-list { list-style: none; margin: 0; padding: 0; }
 .group-row .group-av { background: var(--surface-2); color: var(--ink-soft); }
-.group-edit { grid-column: 1 / -1; display: grid; gap: var(--s-6); padding: var(--s-4) 0 var(--s-4) 40px; }
+.group-edit { grid-column: 1 / -1; display: grid; gap: var(--s-6); padding: var(--s-4) 0 var(--s-4) var(--s-36); }
 .group-members { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s-3); }
 .group-member { display: flex; align-items: center; gap: var(--s-8); }
 .group-member .addr { flex: 1; min-width: 0; font-family: var(--font-data); font-size: var(--fs-note); white-space: nowrap; overflow: hidden; }

@@ -116,7 +116,7 @@ fn a_store_from_before_groups_opens_with_none() {
     let dir = tempfile::tempdir().unwrap();
     let db = rusqlite::Connection::open(dir.path().join("mail.db")).unwrap();
     for (version, sql) in mail_store::migrate::MIGRATIONS {
-        if *version >= 22 {
+        if *version >= 23 {
             break;
         }
         db.execute_batch(sql).unwrap();
