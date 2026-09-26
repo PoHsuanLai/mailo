@@ -5,8 +5,8 @@
 //! exactly as the sheet found it. The Space's own look is quire's `SpaceEditor`: its name, the
 //! colour field and its stops, grain, theme, the card's accent, the presets and the measured
 //! contrast. What quire's editor does not draw stays mailo's, in a card under it: the Space's
-//! motion, provider marks, notifications, the accounts, contacts, rules and keys, and Cancel
-//! and Save.
+//! motion, provider marks, notifications, which accounts are kept offline in full, the accounts,
+//! contacts, rules and keys, and Cancel and Save.
 //!
 //! The drag preview, decided (quire's migration brief §5.1, which left it open): a drag in the
 //! colour field repaints the frame through `Ds`'s own cross-fade, each step like any other
@@ -16,11 +16,13 @@
 //! renderer, so the decision stands on Blitz as it does on the webview.
 
 mod notify;
+mod offline;
 mod parts;
 
 pub(in crate::ui) use parts::Seg;
 
 use self::notify::Notifications;
+use self::offline::OfflineCopy;
 use self::parts::Marks as MarksChoice;
 use super::frame::keep;
 use super::press::{SheetClose, on_primary};
@@ -118,6 +120,7 @@ pub(super) fn SpaceEditor(
             div { class: "ed-more",
             MarksChoice { shell }
             Notifications {}
+            OfflineCopy {}
             div {
                 div { class: "ed-label", "Accounts" }
                 ds::Button {
@@ -173,5 +176,7 @@ pub(super) fn SpaceEditor(
 
 #[cfg(test)]
 mod notify_tests;
+#[cfg(test)]
+mod offline_tests;
 #[cfg(test)]
 pub(in crate::ui) mod tests;
