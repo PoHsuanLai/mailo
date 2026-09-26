@@ -112,6 +112,8 @@ fn garbled_messages_held_whole_are_re_read_and_the_rest_are_left_alone() {
              DROP TRIGGER unplaced_found_ins;
              DROP TRIGGER unplaced_found_upd;
              DROP TABLE unplaced;
+             ALTER TABLE threads DROP COLUMN mute;
+             ALTER TABLE thread_summary DROP COLUMN mute;
              DELETE FROM schema_version WHERE version >= 12;",
         )
         .unwrap();
