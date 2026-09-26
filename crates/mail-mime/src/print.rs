@@ -20,7 +20,9 @@
 //! - `data-break-inside="avoid"` on a message's headers, a quoted block, a table, an image and
 //!   the list of attachments: what reads badly cut in two by a page's end;
 //! - `data-script` on a message whose CJK script its own headers or text say ([`Script`]), so
-//!   a renderer can choose the regional face for it.
+//!   a renderer can choose the regional face for it; and on `<body>`, the first message's, for
+//!   the document's own lines around the messages (the "printed" line, the note, the thread's
+//!   title, which is that message's subject).
 //!
 //! The same attributes mean nothing to a browser; the stylesheet's `break-*` rules say the same
 //! things to one that reads CSS fragmentation.
@@ -124,14 +126,17 @@ where
 {
     // The messages first, so the top can say whether an image in them was left out.
     let mut messages = String::new();
+    let mut first_script = None;
     for (index, sheet) in sheets.iter().enumerate() {
         let (class, starts_page) = match (index, options.pages) {
             (0, _) | (_, Pages::Flow) => ("message", ""),
             (_, Pages::PerMessage) => ("message new-page", " data-break-before=\"page\""),
         };
-        let script = script(sheet)
-            .map(|script| format!(" data-script=\"{}\"", script.tag()))
-            .unwrap_or_default();
+        let said = script(sheet);
+        if index == 0 {
+            first_script = said;
+        }
+        let script = marker(said);
         let _ = writeln!(messages, "<article class=\"{class}\"{starts_page}{script}>");
         header(&mut messages, sheet.message, zone);
         body(&mut messages, sheet);
@@ -162,7 +167,9 @@ where
             out.push('\n');
         }
     }
-    out.push_str("</style>\n</head>\n<body>\n");
+    // The document's own lines go with the first message: the title is its subject, and a
+    // renderer choosing a face for "Printed …" should not choose one the messages do not use.
+    let _ = writeln!(out, "</style>\n</head>\n<body{}>", marker(first_script));
     let _ = writeln!(
         out,
         "<p class=\"printed\">Printed {}</p>",
@@ -182,6 +189,13 @@ where
     out.push_str(&messages);
     out.push_str("</body>\n</html>\n");
     out
+}
+
+/// ` data-script="…"` for `script`, or nothing.
+fn marker(script: Option<Script>) -> String {
+    script
+        .map(|script| format!(" data-script=\"{}\"", script.tag()))
+        .unwrap_or_default()
 }
 
 /// The CJK script `sheet` is written in, as far as the message says: its own headers when its

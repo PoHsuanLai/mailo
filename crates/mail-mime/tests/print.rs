@@ -773,6 +773,32 @@ fn a_message_says_its_cjk_script_where_it_says_one() {
     );
 }
 
+#[test]
+fn the_documents_own_lines_say_the_first_messages_script() {
+    // "Printed …" and the thread's title sit outside every message; a renderer choosing a face
+    // for them by the locale alone set a Japanese thread's top line in a Chinese one.
+    let japanese = message("お知らせ", at(0), fetched(Some("よろしくお願いします")));
+    let latin = message("Re: notice", at(60), fetched(Some("Thanks, noted.")));
+    let korean = message("안내", at(120), fetched(Some("감사합니다")));
+    let body_script = |sheets: &[&Message]| {
+        let sheets: Vec<Sheet<'_>> = sheets
+            .iter()
+            .map(|message| Sheet {
+                message,
+                parsed: None,
+                remote: Remote::Blocked,
+            })
+            .collect();
+        let html = print(&sheets, &zone(), at(3_600), Pages::Flow);
+        attr(&opened_owned(&tokens(&html), "body")[0], "data-script").map(str::to_owned)
+    };
+    assert_eq!(body_script(&[&japanese]).as_deref(), Some("ja"));
+    assert_eq!(body_script(&[&japanese, &korean]).as_deref(), Some("ja"));
+    assert_eq!(body_script(&[&korean, &japanese]).as_deref(), Some("ko"));
+    // The first message says nothing, so neither does the document.
+    assert_eq!(body_script(&[&latin, &japanese]), None);
+}
+
 fn opened_owned(tokens: &[Tok], tag: &str) -> Vec<Vec<(String, String)>> {
     opened(tokens, tag).into_iter().map(<[_]>::to_vec).collect()
 }

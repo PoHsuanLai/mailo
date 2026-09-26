@@ -13,8 +13,12 @@
 //!   fontique's fallback picks one (on some systems a thin or a bitmap-era face). Which regional
 //!   face leads is the message's: the builder marks a message with the script its own headers or
 //!   text say (`data-script`, [`mail_mime::Script`]), and that message's families put that
-//!   script's face first ([`Cjk::for_script`]). The document's own lines, and a message that
-//!   says nothing, lead with the locale's ([`Paper`]).
+//!   script's face first ([`Cjk::for_script`]). The document's own lines (the "printed" line,
+//!   the note, the thread's title) follow the first message, which the builder marks on `<body>`;
+//!   a message that says nothing, and a document whose first message says nothing, lead with the
+//!   locale's ([`Paper`]). The Latin face is named first everywhere, but where it is not
+//!   installed Latin text is set in the first CJK face that is, so "Printed 26 Sep" too belongs
+//!   to a script.
 //! - **The note** at the top that pictures the printout does not hold are named where they were.
 //!
 //! A remote image prints only for a message whose images the reader consented to, fetched by
@@ -204,7 +208,8 @@ const SCRIPTS: [Script; 4] = [
 /// `font-family` (and the note's look), so every size and weight the document sets stays.
 ///
 /// The document, and a message that says nothing of its script, lead with `default`, the
-/// locale's; a message the builder marked with its script leads with that script's face.
+/// locale's; a message the builder marked with its script leads with that script's face, and
+/// so do the document's own lines when `<body>` carries the first message's mark.
 pub(in crate::ui) fn paper_css(default: Cjk) -> String {
     let Families { serif, sans, mono } = Families::led_by(default);
     let mut css = format!(
@@ -220,12 +225,15 @@ pub(in crate::ui) fn paper_css(default: Cjk) -> String {
             continue;
         }
         let Families { serif, sans, mono } = Families::led_by(cjk);
-        let at = format!("article[data-script=\"{}\"]", script.tag());
+        let tag = script.tag();
+        let at = format!("article[data-script=\"{tag}\"]");
+        let top = format!("body[data-script=\"{tag}\"] >");
         css.push_str(&format!(
             "{at} {{ font-family: {serif}; }}\n\
              {at} .headers, {at} .headers h2, {at} .note, {at} .attachments \
              {{ font-family: {sans}; }}\n\
-             {at} .body pre, {at} .body code {{ font-family: {mono}; }}\n"
+             {at} .body pre, {at} .body code {{ font-family: {mono}; }}\n\
+             {top} .printed, {top} .paper-note, {top} h1.thread {{ font-family: {sans}; }}\n"
         ));
     }
     css
