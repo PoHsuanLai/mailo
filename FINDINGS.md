@@ -4025,3 +4025,23 @@ In the Harness, pointing from a sender's name to its card over later rows swappe
 row's card, so no card action could be clicked. The cause is mailo's: the name's pointerleave
 re-entered the row's hook. The fix needs quire v0.1.16's `onpointerback` and comes with that bump.
 Until then the block is tested through `rules::block`, the function the card calls.
+
+### F163 — Several conversations picked at once, and one undo for all of them
+
+A decision rather than a defect. The list selected one conversation, the one open, and every
+action and undo was about one thread. `Target::Threads` was plural from the start (plan.md), but
+`Op::apply` takes one `Thread`, so a gesture on five conversations is five applications.
+
+What makes them one gesture is the undo stack: an entry is now everything one gesture did
+(`UndoStack::push_all`), and Ctrl Z or the toast's tab takes every part back, newest first. A part
+that is refused goes back on the stack as its own entry, and the rest stays taken back. Each part
+keeps its own patch, its own queued intent and its own server reverse, so a filing taken back
+before it was sent is still withdrawn from the outbox per conversation. Merging the parts into one
+patch would have broken that.
+
+What is picked (`selection::Picked`) is always read through the ids the list shows, so a pick that
+an archive or a search has taken out of view is never acted on. Another place or Space drops the
+selection, and a plain click replaces it. A batch applies one operation to all, not a toggle each
+(star on a half-starred selection stars the rest), and reaches each conversation only where it
+allows it (`view::offers`), so its undo never restores what the gesture did not move. `!` now sends
+to Spam, which had no key before.
