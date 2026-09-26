@@ -153,13 +153,19 @@ fn main() {
             message,
             to,
             body: _,
+            carry,
         }) => {
             let mut body = String::new();
             if let Err(e) = std::io::Read::read_to_string(&mut std::io::stdin(), &mut body) {
                 eprintln!("cannot read the covering note: {e}");
                 std::process::exit(1);
             }
-            Some(mail_app::cli::Command::Forward { message, to, body })
+            Some(mail_app::cli::Command::Forward {
+                message,
+                to,
+                body,
+                carry,
+            })
         }
         // `signature` takes its text from stdin too, unless it is being cleared.
         Some(mail_app::cli::Command::Signature {

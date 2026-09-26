@@ -13,7 +13,7 @@ pub(in crate::ui) use items::avatar_color;
 
 use super::debounce::{Settled, use_debounced};
 use super::menu::quire_groups;
-use super::ops::start_new;
+use super::ops::{Composes, start_composing, start_new};
 use crate::search::Results;
 use crate::view::{PageMenu, Shell, Theme};
 use chrono::Utc;
@@ -239,6 +239,30 @@ fn run_action(
                 });
             }
             close(shell);
+        }
+        "Forward as attachment" => {
+            close(shell);
+            // The conversation open behind the menu, as Forward's `f` takes it. A refusal (no
+            // body yet, or a message rebuilt from its parts) is said where every other outcome
+            // of a command is.
+            let Some(open) = shell.peek().open else {
+                super::motion::tell(
+                    "Open a conversation to forward it as an attachment.".to_owned(),
+                    super::motion::Follow::Nothing,
+                );
+                return;
+            };
+            let store = consume_context::<Arc<SqliteStore>>();
+            match start_composing(&store, open, Composes::ForwardAttached) {
+                Ok(draft) => {
+                    shell.write().compose(&draft);
+                    *revision += 1;
+                }
+                Err(why) => super::motion::tell(
+                    format!("Not forwarded as an attachment: {why}."),
+                    super::motion::Follow::Nothing,
+                ),
+            }
         }
         "Print conversation" => {
             close(shell);
