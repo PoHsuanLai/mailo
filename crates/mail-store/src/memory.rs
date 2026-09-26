@@ -27,6 +27,7 @@ mod pgp;
 mod rules;
 mod smime;
 mod templates;
+mod views;
 
 /// Everything held in memory. Cheap to construct, and never touches the disk.
 #[derive(Debug, Default)]
@@ -50,6 +51,8 @@ struct Inner {
     labels: BTreeMap<LabelId, Label>,
     drafts: BTreeMap<DraftId, Draft>,
     templates: BTreeMap<TemplateId, Template>,
+    /// Saved views, by id, each with its place in the sidebar.
+    views: BTreeMap<mail_domain::ViewId, (i64, mail_domain::View)>,
     rules: BTreeMap<mail_domain::RuleId, mail_domain::Rule>,
     vacations: BTreeMap<AccountId, mail_domain::Vacation>,
     /// What each account's server turned out to support.
@@ -130,6 +133,7 @@ impl Default for Inner {
             labels: BTreeMap::new(),
             drafts: BTreeMap::new(),
             templates: BTreeMap::new(),
+            views: BTreeMap::new(),
             rules: BTreeMap::new(),
             vacations: BTreeMap::new(),
             caps: BTreeMap::new(),
@@ -414,6 +418,19 @@ impl Store for MemoryStore {
 
     fn delete_template(&self, id: TemplateId) -> Result<(), StoreError> {
         self.inner.borrow_mut().delete_template(id)
+    }
+
+    fn views(&self) -> Result<Vec<mail_domain::View>, StoreError> {
+        Ok(self.inner.borrow().views_in_order())
+    }
+
+    fn put_view(&self, view: &mail_domain::View) -> Result<(), StoreError> {
+        self.inner.borrow_mut().put_view(view);
+        Ok(())
+    }
+
+    fn delete_view(&self, id: mail_domain::ViewId) -> Result<(), StoreError> {
+        self.inner.borrow_mut().delete_view(id)
     }
 
     fn labels(&self, account: AccountId) -> Result<Vec<Label>, StoreError> {
