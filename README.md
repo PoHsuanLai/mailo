@@ -124,6 +124,9 @@ cargo build --release -p mail-app
 
 Print hands a PDF, made by quire, to the system's print dialog (the desktop portal).
 
+`cargo test` needs Noto's CJK faces too (`fonts-noto-cjk` on Debian/Ubuntu, which is what CI
+installs): the print tests check which regional face Chinese, Japanese and Korean mail is set in.
+
 The window draws with [quire](https://github.com/PoHsuanLai/quire), the shared design system.
 `crates/mail-app` depends on a tagged quire release from GitHub, so a plain clone of mailo builds
 on its own.
