@@ -6,6 +6,7 @@
 
 mod add_account;
 mod app;
+mod checks;
 mod command;
 mod compose;
 mod contacts;

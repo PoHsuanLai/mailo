@@ -3,6 +3,7 @@
 pub mod account;
 pub mod appearance;
 pub mod attach;
+pub mod auth;
 pub mod cli;
 pub mod compose;
 pub mod contacts;

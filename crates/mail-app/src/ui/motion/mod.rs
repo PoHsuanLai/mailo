@@ -69,6 +69,9 @@ pub(in crate::ui) enum Follow {
     Undo(UndoHandle),
     /// After leaving a list: archive what it already sent, by its sender's address.
     ArchiveFrom { sender: String, list: String },
+    /// After blocking a sender: take the block back, which forgets the rule it made. Not an
+    /// entry on the undo stack, whose entries are patches to messages; a rule is not one.
+    Unblock { rule: RuleId, sender: String },
     /// Nothing to take back: an unsubscribe, once made, is the list's.
     Nothing,
 }
@@ -379,7 +382,7 @@ impl Motion {
                     toasts.hub.push(text, None);
                     return;
                 }
-                Follow::ArchiveFrom { .. } => toasts.hub.hide(),
+                Follow::ArchiveFrom { .. } | Follow::Unblock { .. } => toasts.hub.hide(),
             }
         }
         let serial = self.toast.peek().as_ref().map_or(0, |said| said.serial) + 1;
