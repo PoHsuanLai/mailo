@@ -39,6 +39,10 @@ pub(super) fn App() -> Element {
     let mut shell = use_signal(|| {
         let mut shell = Shell {
             appearance: try_consume_context::<Appearance>().unwrap_or_default(),
+            // The user's keys, read once. A window handed no directories reads no file.
+            keymap: try_consume_context::<crate::appearance::WindowDirs>()
+                .map(|dirs| crate::keymap::load(&dirs.config))
+                .unwrap_or_default(),
             ..Shell::default()
         };
         match try_consume_context::<super::Start>() {
@@ -382,6 +386,19 @@ pub(super) fn App() -> Element {
             }
             return;
         }
+        // The keyboard shortcuts sheet takes every key: the one pressed to be bound must not
+        // also do what it did before, and Esc stops a wait before it closes the sheet.
+        if shell.read().keyboard.is_some() {
+            let held = event.modifiers();
+            let key = if held.shift() {
+                crate::view::shifted(&key).to_owned()
+            } else {
+                key
+            };
+            let chord = held.ctrl() || held.alt() || held.meta();
+            super::keyboard::pressed(shell, &key, chord);
+            return;
+        }
         // And the keys and certificates sheet: its fields take letters, Esc closes it.
         if shell.read().keys.is_some() {
             if key == "Escape" {
@@ -492,7 +509,7 @@ pub(super) fn App() -> Element {
         } else {
             key
         };
-        let Some(action) = crate::view::shortcut(&key, typing) else {
+        let Some(action) = shell.read().keymap.action(&key, typing) else {
             return;
         };
         let store = consume_context::<Arc<SqliteStore>>();
@@ -714,6 +731,9 @@ pub(super) fn App() -> Element {
             }
             if shell.read().view_editor.is_some() {
                 super::views::ViewSheet { shell, revision, pages }
+            }
+            if shell.read().keyboard.is_some() {
+                super::keyboard::KeyboardSheet { shell }
             }
             div { class: "card",
             ThreadList {

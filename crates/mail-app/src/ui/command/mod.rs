@@ -12,7 +12,7 @@ mod templates;
 pub(in crate::ui) use items::avatar_color;
 
 use super::debounce::{Settled, use_debounced};
-use super::menu::quire_groups;
+use super::menu::{Right, quire_groups};
 use super::ops::{Composes, start_composing, start_new};
 use crate::search::Results;
 use crate::view::{PageMenu, Shell, Theme};
@@ -58,8 +58,15 @@ pub(super) fn CommandMenu(
         }
     });
     let shown = drawn.read();
-    let items = rows_of(&shown.results, &shown.names, &shown.settled.text);
+    let mut items = rows_of(&shown.results, &shown.names, &shown.settled.text);
     drop(shown);
+    // Compose's key is the user's to change: the row says the one it has now.
+    let compose = shell.read().keymap.keys(crate::view::Shortcut::Compose);
+    for item in items.iter_mut().filter(|item| item.key == "action:Compose") {
+        item.right = compose.first().map_or(Right::None, |key| {
+            Right::Shortcut(crate::keymap::spoken(key))
+        });
+    }
     let chips = tokens(&query);
     let placeholder = "Search mail, people, actions · try from:dana or has:attachment".to_owned();
     // "New from template" lists the templates in this same overlay rather than running anything.
@@ -306,6 +313,10 @@ fn run_action(
         "Keys and certificates…" => {
             close(shell);
             super::pgp::keys::open(shell);
+        }
+        "Keyboard shortcuts…" => {
+            close(shell);
+            super::keyboard::open(shell);
         }
         "Theme light" | "Theme dark" | "Theme system" => {
             let theme = match label {

@@ -79,6 +79,13 @@
 .rules-acts .capnote { flex: 1; min-width: 0; }
 .rules-part > .rules-acts:first-of-type { justify-content: flex-start; }
 
+/* The keyboard shortcuts sheet: the rules' rows, each an action, its key caps and Change. */
+.kb-row { grid-template-columns: 1fr auto auto; }
+.kb-keys { display: inline-flex; align-items: center; gap: var(--s-6); }
+.kb-key { display: inline-flex; align-items: center; gap: var(--s-2); font-family: var(--font-data); font-size: var(--fs-eyebrow); }
+.kb-wait { font-size: var(--fs-meta); color: var(--ink-soft); font-weight: 600; }
+.kb-acts { opacity: 1; }
+
 /* The vacation reply and the server's part. */
 .rules-form { display: grid; gap: var(--s-6); }
 .field.rules-body { width: 100%; font-size: var(--fs-control); }
