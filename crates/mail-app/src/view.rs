@@ -38,6 +38,11 @@ pub enum Source {
     Mail(Filter),
     /// The drafts table.
     Drafts,
+    /// A view the user saved: its filter, and how its list is grouped and what its rows offer.
+    ///
+    /// The whole [`View`] rather than its filter, because the rest of it is what makes it a
+    /// view: [`Shell::grouping`] and [`hover_in`] read it while it is the place shown.
+    Saved(Box<View>),
 }
 
 /// The filter a mailbox place lists.
@@ -186,11 +191,17 @@ pub fn folder_of(place: &Place) -> Option<&MailboxRef> {
     }
 }
 
-/// The sidebar: the default places, then one per label, then one per server folder, in that
-/// order — which is also the order the badges are counted in, index for index.
+/// The sidebar: the default places, then one per label, then one per server folder, then one
+/// per saved view, in that order — which is also the order the badges are counted in, index for
+/// index.
 ///
 /// A folder's place is named by its last level, which is what its row and the list's title say.
-pub fn places_with(labels: &[(String, LabelId)], folders: &[(String, MailboxRef)]) -> Vec<Place> {
+/// Saved views come last so that keeping or forgetting one moves no other place's index.
+pub fn places_with(
+    labels: &[(String, LabelId)],
+    folders: &[(String, MailboxRef)],
+    views: &[View],
+) -> Vec<Place> {
     let labelled = labels.iter().map(|(name, id)| Place {
         name: name.clone(),
         source: Source::Mail(Filter::HasLabel(*id)),
@@ -205,7 +216,25 @@ pub fn places_with(labels: &[(String, LabelId)], folders: &[(String, MailboxRef)
         .into_iter()
         .chain(labelled)
         .chain(foldered)
+        .chain(views.iter().map(saved_place))
         .collect()
+}
+
+/// The sidebar place a saved view is.
+pub fn saved_place(view: &View) -> Place {
+    Place {
+        name: view.name.clone(),
+        source: Source::Saved(Box::new(view.clone())),
+        unread: None,
+    }
+}
+
+/// The saved view a place is, when it is one.
+pub fn saved_of(place: &Place) -> Option<&View> {
+    match &place.source {
+        Source::Saved(view) => Some(view),
+        Source::Mail(_) | Source::Drafts => None,
+    }
 }
 
 /// What a place's badge counts, or `None` when it has no badge.
@@ -220,6 +249,10 @@ pub fn badge_filter(source: &Source) -> Option<Filter> {
     match source {
         Source::Mail(filter) => Some(Filter::And(vec![
             filter.clone(),
+            Filter::Read(ReadState::Unread),
+        ])),
+        Source::Saved(view) => Some(Filter::And(vec![
+            view.filter.clone(),
             Filter::Read(ReadState::Unread),
         ])),
         Source::Drafts => None,
@@ -479,6 +512,17 @@ impl RowPart {
     }
 }
 
+/// How the list is grouped: by the page's Group menu, or by the saved view being shown.
+///
+/// Two vocabularies because they are two features. The menu's [`PageGroup`] is a quick look at
+/// the loaded page; a view's [`GroupKey`] is part of what the view was saved as, and says things
+/// the menu cannot, such as "tagged Travel, and not".
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Grouping {
+    Page(PageGroup),
+    Saved(GroupKey),
+}
+
 /// Which list-bar menu is open.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PageMenu {
@@ -593,6 +637,8 @@ pub struct Shell {
     pub rules: Option<RulesSheet>,
     /// The keys and certificates sheet while it is open. `None` is closed.
     pub keys: Option<KeysSheet>,
+    /// The saved-view editor while it is open, with what its fields hold. `None` is closed.
+    pub view_editor: Option<crate::saved::ViewDraft>,
     /// Ctrl F in the open thread. `None` is closed, and marks nothing.
     ///
     /// Belongs to the thread it was opened on: [`Self::open`] and [`Self::close`] drop it, so a
@@ -811,6 +857,7 @@ impl Default for Shell {
             adding: None,
             rules: None,
             keys: None,
+            view_editor: None,
             find: None,
             undo: crate::undo::UndoStack::default(),
         }
@@ -825,9 +872,17 @@ impl Shell {
     /// results that live in the Inbox.
     pub fn query(&self, limit: u32) -> Query {
         let needle = self.search.trim();
+        let mut sort = Sort {
+            property: Property::Date,
+            dir: SortDir::Desc,
+        };
         let filter = if needle.is_empty() {
             match self.places.get(self.selected).map(|place| &place.source) {
                 Some(Source::Mail(filter)) => filter.clone(),
+                Some(Source::Saved(view)) => {
+                    sort = view.sort;
+                    view.filter.clone()
+                }
                 // Reachable only if a caller asks for a query while Drafts is selected.
                 // `listing` is the method that knows the difference; this stays total rather
                 // than panicking, and `All` is the least surprising thing to show.
@@ -839,11 +894,31 @@ impl Shell {
         let filter = self.with_account(filter);
         Query {
             filter,
-            sort: Sort {
-                property: Property::Date,
-                dir: SortDir::Desc,
-            },
+            sort,
             page: PageReq { after: None, limit },
+        }
+    }
+
+    /// The saved view the list is showing, if it is showing one.
+    ///
+    /// Not while a search is typed: a search replaces the place (see [`Self::query`]), so the
+    /// rows are the search's and the view's grouping and hover strip are not theirs.
+    pub fn saved_view(&self) -> Option<&View> {
+        if !self.search.trim().is_empty() {
+            return None;
+        }
+        self.places.get(self.selected).and_then(saved_of)
+    }
+
+    /// How the list is grouped now. The Group menu wins when it has been set to something; left
+    /// at None, a saved view's own grouping applies.
+    pub fn grouping(&self) -> Grouping {
+        match (
+            self.group,
+            self.saved_view().and_then(|v| v.group_by.clone()),
+        ) {
+            (PageGroup::None, Some(key)) => Grouping::Saved(key),
+            (page, _) => Grouping::Page(page),
         }
     }
 
@@ -1049,6 +1124,43 @@ pub fn hover_actions(summary: &ThreadSummary) -> Vec<OpKind> {
     out.push(OpKind::Snooze);
     out.push(OpKind::AddLabel);
     out.push(OpKind::Forward);
+    out
+}
+
+/// What the hover strip offers for a thread in `view`: the view's own buttons where it names
+/// any, else [`hover_actions`].
+///
+/// A view names kinds, not directions, so its Star or Mark read is drawn as whichever of the
+/// pair the conversation needs, and a button the conversation cannot take (Archive on one not in
+/// the inbox) is left out, as [`hover_actions`] leaves it out. The keyboard is not narrowed by a
+/// view: [`offers`] still asks [`hover_actions`].
+pub fn hover_in(view: Option<&View>, summary: &ThreadSummary) -> Vec<OpKind> {
+    let offered = hover_actions(summary);
+    let Some(view) = view.filter(|view| !view.hover.is_empty()) else {
+        return offered;
+    };
+    let mut out: Vec<OpKind> = Vec::new();
+    for kind in &view.hover {
+        let kind = match kind {
+            OpKind::Star | OpKind::Unstar => match summary.star {
+                Star::Unstarred => OpKind::Star,
+                Star::Starred => OpKind::Unstar,
+            },
+            OpKind::MarkRead | OpKind::MarkUnread => match summary.read {
+                ReadState::Unread => OpKind::MarkRead,
+                ReadState::Read => OpKind::MarkUnread,
+            },
+            other => *other,
+        };
+        let allowed = match kind {
+            // Neither needs a place to be allowed from; a reply is a draft.
+            OpKind::Reply | OpKind::ReplyAll => true,
+            other => offers(summary, other),
+        };
+        if allowed && !out.contains(&kind) {
+            out.push(kind);
+        }
+    }
     out
 }
 
@@ -2581,7 +2693,7 @@ mod badge_tests {
         // then a message the user never finds out about.
         for place in default_places() {
             match &place.source {
-                Source::Mail(_) => assert!(
+                Source::Mail(_) | Source::Saved(_) => assert!(
                     badge_filter(&place.source).is_some(),
                     "{} has no badge",
                     place.name

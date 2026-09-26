@@ -335,6 +335,14 @@ pub(in crate::ui) fn prefill(shell: &Shell) -> String {
     };
     let label = match &place.source {
         Listed::Mail(Filter::HasLabel(_)) => Some(place.name.clone()),
+        // A saved view in the words it lists by, when there are words for it.
+        Listed::Saved(view) => {
+            if let Some(words) = crate::saved::written(&view.filter, &shell.labels, &chrono::Local)
+            {
+                return words;
+            }
+            None
+        }
         _ => None,
     };
     if let Some(name) = label {

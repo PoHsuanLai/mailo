@@ -20,7 +20,7 @@ use crate::provider::Provider;
 use crate::provider::icon::{ChipPlace, ProvChip};
 use crate::selection::Click;
 use crate::view::Marks;
-use crate::view::{Shell, hover_actions};
+use crate::view::{Shell, hover_in};
 use chrono::Local;
 use dioxus::prelude::*;
 use ds::{
@@ -170,7 +170,8 @@ pub(super) fn Row(
         Attachments::Present { count } => Some(count),
         Attachments::None => None,
     };
-    let actions: Vec<OpKind> = hover_actions(&summary)
+    // The saved view being shown names its own strip; anywhere else it is the usual one.
+    let actions: Vec<OpKind> = hover_in(shell.read().saved_view(), &summary)
         .into_iter()
         .filter(|kind| !matches!(kind, OpKind::Star | OpKind::Unstar))
         .collect();

@@ -23,6 +23,7 @@ pub mod query;
 pub mod reader;
 pub mod receipt;
 pub mod rules;
+pub mod saved;
 pub mod search;
 pub mod selection;
 pub mod smime;

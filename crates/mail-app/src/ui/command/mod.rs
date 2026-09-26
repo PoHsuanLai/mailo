@@ -297,6 +297,12 @@ fn run_action(
             close(shell);
             super::rules::open(shell);
         }
+        "New view…" => {
+            // Closed first, like Export: the view starts from the search the window shows.
+            close(shell);
+            let search = shell.peek().search.clone();
+            super::views::open_new(shell, &search);
+        }
         "Keys and certificates…" => {
             close(shell);
             super::pgp::keys::open(shell);
