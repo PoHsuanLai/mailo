@@ -4,7 +4,8 @@
 //! instead of performing the operation itself. Split from [`super::app`] (`CONVENTIONS.md` §8).
 
 use super::menu::{Floating, MenuItem, Right, Tile};
-use super::motion::act;
+use super::motion::{act, act_all};
+use super::picks::{label_all, with_selection};
 use crate::view::Shell;
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
@@ -163,7 +164,12 @@ pub(super) fn SnoozeMenu(
                 match crate::view::snooze_until(&phrase, Utc::now(), &chrono::Local) {
                     Ok(at) => {
                         shell.write().snoozing = None;
-                        act(&store, shell, revision, id, Op::SetSnooze(Snooze::Until(at)));
+                        // The whole selection when this row is picked, as one gesture.
+                        let ops = with_selection(shell, id)
+                            .into_iter()
+                            .map(|thread| (thread, Op::SetSnooze(Snooze::Until(at))))
+                            .collect();
+                        act_all(&store, shell, revision, ops);
                     }
                     // The vocabulary is fixed and the clock is the only other input, so this
                     // is "the year 262143 has no tomorrow".
@@ -210,11 +216,24 @@ pub(super) fn LabelMenu(
             on_query: move |value| typed.set(value),
             on_pick: move |key: String| {
                 let store = consume_context::<Arc<SqliteStore>>();
+                // A label is one account's, so a picked row on another account is left alone.
+                let picked = with_selection(shell, id);
+                let targets: Vec<ThreadId> = picked
+                    .into_iter()
+                    .filter(|thread| {
+                        *thread == id
+                            || super::move_to::account_of(&store, *thread) == Some(account)
+                    })
+                    .collect();
                 if let Some(name) = key.strip_prefix("create:") {
                     let Some(created) = create_label(&store, account, name) else {
                         return;
                     };
-                    act(&store, shell, revision, id, Op::Label(created, Membership::In));
+                    let ops = targets
+                        .into_iter()
+                        .map(|thread| (thread, Op::Label(created, Membership::In)))
+                        .collect();
+                    act_all(&store, shell, revision, ops);
                     shell.write().labelling = None;
                     return;
                 }
@@ -227,6 +246,10 @@ pub(super) fn LabelMenu(
                 else {
                     return;
                 };
+                if targets.len() > 1 {
+                    label_all(&store, shell, revision, &targets, which);
+                    return;
+                }
                 let on = summary.labels.contains(&which);
                 let wanted = if on { Membership::Out } else { Membership::In };
                 act(&store, shell, revision, id, Op::Label(which, wanted));

@@ -39,10 +39,11 @@ pub struct Undo {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct UndoHandle(pub u64);
 
-/// The most recent operations, newest last.
+/// The most recent gestures, newest last. One entry is everything one gesture did: a single
+/// archive, or an archive of every picked conversation, which one undo takes back whole.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct UndoStack {
-    entries: Vec<(UndoHandle, Undo)>,
+    entries: Vec<(UndoHandle, Vec<Undo>)>,
     /// The handle the next push is given.
     next: u64,
 }
@@ -51,30 +52,40 @@ impl UndoStack {
     /// Remember `entry`, forgetting the oldest past [`DEPTH`]. The handle takes this entry
     /// back later through [`UndoStack::take`].
     pub fn push(&mut self, entry: Undo) -> UndoHandle {
+        self.remember(vec![entry])
+    }
+
+    /// Remember what one gesture did to several conversations as one entry, taken back
+    /// together. `None`, and nothing remembered, when it did nothing.
+    pub fn push_all(&mut self, entries: Vec<Undo>) -> Option<UndoHandle> {
+        (!entries.is_empty()).then(|| self.remember(entries))
+    }
+
+    fn remember(&mut self, entries: Vec<Undo>) -> UndoHandle {
         let handle = UndoHandle(self.next);
         self.next += 1;
-        self.entries.push((handle, entry));
+        self.entries.push((handle, entries));
         if self.entries.len() > DEPTH {
             self.entries.remove(0);
         }
         handle
     }
 
-    /// Take the newest entry.
-    pub fn pop(&mut self) -> Option<Undo> {
+    /// Take the newest entry: every part of the newest gesture, in the order it was done.
+    pub fn pop(&mut self) -> Option<Vec<Undo>> {
         self.entries.pop().map(|(_, entry)| entry)
     }
 
     /// Take the entry `handle` names, wherever it is. `None` once it has been undone or
     /// forgotten.
-    pub fn take(&mut self, handle: UndoHandle) -> Option<Undo> {
+    pub fn take(&mut self, handle: UndoHandle) -> Option<Vec<Undo>> {
         let at = self.entries.iter().position(|(held, _)| *held == handle)?;
         Some(self.entries.remove(at).1)
     }
 
     /// The newest entry, left in place.
-    pub fn last(&self) -> Option<&Undo> {
-        self.entries.last().map(|(_, entry)| entry)
+    pub fn last(&self) -> Option<&[Undo]> {
+        self.entries.last().map(|(_, entry)| entry.as_slice())
     }
 
     pub fn len(&self) -> usize {
@@ -225,6 +236,20 @@ where
         Op::SetPin(Pin::Rank(_)) => "Pinned".to_owned(),
         Op::SetPin(Pin::Unpinned) => "Unpinned".to_owned(),
         Op::File(_) => "Moved to folder".to_owned(),
+    }
+}
+
+/// What the toast says one gesture did to several conversations: "Archived 3 conversations".
+/// One conversation is said as [`said`] says it.
+pub fn said_of<Tz: TimeZone>(op: &Op, count: usize, zone: &Tz) -> String
+where
+    Tz::Offset: std::fmt::Display,
+{
+    let one = said(op, zone);
+    if count == 1 {
+        one
+    } else {
+        format!("{one} · {count} conversations")
     }
 }
 

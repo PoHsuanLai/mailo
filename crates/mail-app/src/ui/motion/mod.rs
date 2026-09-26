@@ -92,8 +92,8 @@ pub(super) struct Motion {
     pub gulp: Signal<Option<String>>,
     /// A label just added to a row.
     pub landing: Signal<Option<(ThreadId, LabelId)>>,
-    /// A row an undo just brought back.
-    pub returning: Signal<Option<ThreadId>>,
+    /// The rows an undo just brought back.
+    pub returning: Signal<Vec<ThreadId>>,
     /// The toast mailo still draws itself: one with a follow-up that is not an undo. Every
     /// other toast is quire's, through [`Motion::toasts`].
     pub toast: Signal<Option<Said>>,
@@ -119,7 +119,7 @@ pub(super) fn use_motion() -> Motion {
         leaving: Signal::new(Vec::new()),
         gulp: Signal::new(None),
         landing: Signal::new(None),
-        returning: Signal::new(None),
+        returning: Signal::new(Vec::new()),
         toast: Signal::new(None),
         toasts: CopyValue::new(None),
         dest: Signal::new(None),
@@ -152,23 +152,76 @@ pub(super) fn act_kind(
 /// Apply `op` to `thread` now, keep its undo, and start whatever motion it means.
 pub(super) fn act(
     store: &SqliteStore,
-    mut shell: Signal<Shell>,
-    mut revision: Signal<u64>,
+    shell: Signal<Shell>,
+    revision: Signal<u64>,
     thread: ThreadId,
     op: Op,
 ) -> bool {
-    let before = store.thread(thread).ok().map(|loaded| loaded.summary);
-    let Some(undo) = perform(store, thread, op.clone()) else {
-        return false;
+    act_all(store, shell, revision, vec![(thread, op)]) > 0
+}
+
+/// Apply each op to its conversation now, as one gesture: one undo entry that takes every one
+/// of them back, one toast that counts them, and each row's own motion. Returns how many were
+/// applied.
+///
+/// `Op::apply` is about one thread, so the ops are applied one by one; what makes them one
+/// gesture is that their undos are kept together (`UndoStack::push_all`).
+pub(super) fn act_all(
+    store: &SqliteStore,
+    mut shell: Signal<Shell>,
+    mut revision: Signal<u64>,
+    ops: Vec<(ThreadId, Op)>,
+) -> usize {
+    let mut undos = Vec::new();
+    let mut done = Vec::new();
+    for (thread, op) in ops {
+        let before = store.thread(thread).ok().map(|loaded| loaded.summary);
+        if let Some(undo) = perform(store, thread, op.clone()) {
+            undos.push(undo);
+            done.push((thread, op, before));
+        }
+    }
+    let count = undos.len();
+    let said = match done.as_slice() {
+        [] => return 0,
+        [(_, op, _), ..] if count > 1 => crate::undo::said_of(op, count, &chrono::Local),
+        _ => undos[0].said.clone(),
     };
-    let said = undo.said.clone();
-    let handle = shell.write().undo.push(undo);
+    let Some(handle) = shell.write().undo.push_all(undos) else {
+        return 0;
+    };
     revision += 1;
     if let Some(motion) = motion() {
-        motion.landed(store, shell, thread, &op, before);
+        for (thread, op, before) in done {
+            motion.landed(store, shell, thread, &op, before);
+        }
         motion.say(said, Follow::Undo(handle));
     }
-    true
+    count
+}
+
+/// Apply what a button means to each of `threads`, as one gesture ([`act_all`]).
+///
+/// Resolved per conversation, and only where that conversation allows it (`view::offers`): archiving a selection that holds something already archived archives
+/// the rest and leaves that one be, and its undo does not "restore" what the gesture never moved.
+pub(super) fn act_kind_all(
+    store: &SqliteStore,
+    shell: Signal<Shell>,
+    revision: Signal<u64>,
+    threads: &[ThreadId],
+    kind: OpKind,
+) -> usize {
+    let ops = threads
+        .iter()
+        .filter_map(|thread| {
+            let loaded = store.thread(*thread).ok()?;
+            crate::view::offers(&loaded.summary, kind)
+                .then(|| resolve(store, *thread, kind))
+                .flatten()
+                .map(|op| (*thread, op))
+        })
+        .collect();
+    act_all(store, shell, revision, ops)
 }
 
 /// Put up the toast for something that is not an op on one row.
@@ -212,17 +265,25 @@ pub(super) fn undo_by(
     restore(store, shell, revision, motion, entry)
 }
 
-/// Put `entry` back, and take down the toast that offered it. Refused, it goes back on the
-/// stack.
+/// Put `entry` back, every part of it, and take down the toast that offered it. A part that
+/// is refused goes back on the stack, as an entry of its own gesture's parts.
 fn restore(
     store: &SqliteStore,
     mut shell: Signal<Shell>,
     mut revision: Signal<u64>,
     motion: Option<Motion>,
-    entry: Undo,
+    entry: Vec<Undo>,
 ) -> bool {
-    if !take_back(store, &entry) {
-        shell.write().undo.push(entry);
+    // Newest first, as the parts were done oldest first.
+    let (back, refused): (Vec<Undo>, Vec<Undo>) = entry
+        .into_iter()
+        .rev()
+        .partition(|part| take_back(store, part));
+    let _ = shell
+        .write()
+        .undo
+        .push_all(refused.into_iter().rev().collect());
+    if back.is_empty() {
         return false;
     }
     revision += 1;
@@ -231,7 +292,7 @@ fn restore(
         if let Some(toasts) = *motion.toasts.peek() {
             toasts.hub.hide();
         }
-        if let Some(thread) = entry.thread {
+        for thread in back.iter().filter_map(|part| part.thread) {
             // Still leaving: its exit is taken back and it stays where it was, so the rows
             // below never heal. Once its exit has settled the roster no longer holds it, and
             // listed again it enters, as a row back from an undo.
@@ -240,8 +301,10 @@ fn restore(
                 let _ = clock.roster.stay(thread);
             }
             motion.leaving.write().retain(|row| row.key != thread);
-            motion.returning.set(Some(thread));
         }
+        motion
+            .returning
+            .set(back.iter().filter_map(|part| part.thread).collect());
     }
     true
 }

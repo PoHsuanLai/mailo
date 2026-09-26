@@ -9,6 +9,7 @@ use super::reading::Reader;
 use super::sidebar::Places;
 use super::space_editor::SpaceEditor;
 use super::style::STYLE;
+use crate::selection::Toward;
 use crate::space::{Space, Spaces};
 use crate::view::{
     Appearance, Listing, PageMenu, Shell, Shortcut, Source, SyncState, badge_filter, folder_filter,
@@ -429,6 +430,19 @@ pub(super) fn App() -> Element {
             return;
         }
         let typing = in_a_field() || shell.read().composing.is_some();
+        let listed = || -> Vec<ThreadId> { threads().iter().map(|t| t.id).collect() };
+        // Ctrl A picks every listed conversation. In a field it is the field's select-all.
+        if (key == "a" || key == "A") && event.modifiers().ctrl() {
+            if !typing {
+                shell.write().pick_all(&listed());
+            }
+            return;
+        }
+        // Esc lets go of a selection before it closes anything behind it.
+        if key == "Escape" && !typing && shell.read().picked.any(&listed()) {
+            shell.write().unpick(&listed());
+            return;
+        }
         // Esc closes a centre or full peek and revokes image consent. Side peek still falls
         // through to Shortcut::Back, and a composer still takes Esc.
         if key == "Escape" {
@@ -441,6 +455,11 @@ pub(super) fn App() -> Element {
                 return;
             }
         }
+        let key = if event.modifiers().shift() {
+            crate::view::shifted(&key).to_owned()
+        } else {
+            key
+        };
         let Some(action) = crate::view::shortcut(&key, typing) else {
             return;
         };
@@ -452,6 +471,14 @@ pub(super) fn App() -> Element {
                 if let Some(id) = crate::view::step(open, &ids, action == Shortcut::Next) {
                     shell.write().open(id);
                 }
+            }
+            Shortcut::ExtendNext | Shortcut::ExtendPrevious => {
+                let toward = if action == Shortcut::ExtendNext {
+                    Toward::Next
+                } else {
+                    Toward::Previous
+                };
+                shell.write().extend(toward, &listed());
             }
             Shortcut::Back => {
                 if shell.read().composing.is_some() {
@@ -500,15 +527,10 @@ pub(super) fn App() -> Element {
                 }
             }
             _ => {
-                // Resolved against the open thread's own summary, so the keyboard reaches
-                // exactly what that row's buttons offer and nothing else.
-                let Some(id) = open else { return };
-                let Some(summary) = threads().iter().find(|t| t.id == id).cloned() else {
-                    return;
-                };
-                if let Some(kind) = crate::view::op_for_shortcut(action, &summary) {
-                    super::motion::act_kind(&store, shell, revision, id, kind);
-                }
+                // The picked conversations, or with none picked the open one. Resolved against
+                // their own summaries, so the keyboard reaches exactly what their rows offer and
+                // nothing else, and all of it is one gesture with one undo.
+                super::picks::act_on_picked(&store, shell, revision, action, &threads());
             }
         }
     };
