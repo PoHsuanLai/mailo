@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <title>mailo</title>
+  <rect x="8" y="8" width="112" height="112" rx="26" fill="#424b94"/>
+  <rect x="26" y="38" width="76" height="54" rx="8" fill="#f4f1ea"/>
+  <path d="M30 44 L64 70 L98 44" fill="none" stroke="#424b94" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="98" cy="38" r="11" fill="#e8a33d" stroke="#424b94" stroke-width="4"/>
+</svg>

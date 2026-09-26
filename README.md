@@ -59,8 +59,45 @@ Run `./target/release/mailo` with an unknown command to print the full list.
 
 Clicking a new-mail notification from `mailo watch` opens that conversation in a new window (a
 second one if a window is already open — a known gap). For the desktop to name and group the
-notifications, put `mailo` on your `PATH` and install the entry:
-`install -Dm644 packaging/mailo.desktop ~/.local/share/applications/mailo.desktop`.
+notifications, install the desktop entry (below).
+
+`mailo mailto:someone@example.org?subject=Hello` opens the window on a composer holding what the
+link asks for (RFC 6068: `to`, `cc`, `bcc`, `subject` and `body`; every other field is ignored).
+Nothing is sent until you send it. With the desktop entry installed, mailo can be chosen as the
+system's mail handler, and a `mailto:` link clicked anywhere opens it this way.
+
+## Installing
+
+**From a package.** `./scripts/package.sh` builds a `.deb`, an `.rpm` and a Flatpak, each with
+its own external tool (`cargo install cargo-deb`, `cargo install cargo-generate-rpm`,
+`flatpak-builder`); a format whose tool is missing is skipped with a note saying which one.
+`./scripts/package.sh deb` builds one. Then:
+
+```sh
+sudo apt install ./target/debian/mailo_*.deb                    # Debian, Ubuntu
+sudo dnf install ./target/generate-rpm/mailo-*.rpm              # Fedora
+flatpak install --user ./target/flatpak/mailo.flatpak           # anywhere
+```
+
+The Flatpak (`packaging/flatpak/`) has the network, the display, the GPU, the keyring and
+notifications, and no files outside its own: attachments, import and export go through the
+desktop's file chooser.
+
+**By hand**, into your home directory:
+
+```sh
+cargo build --release -p mail-app
+install -Dm755 target/release/mailo ~/.local/bin/mailo
+install -Dm644 packaging/mailo.desktop ~/.local/share/applications/mailo.desktop
+install -Dm644 packaging/icons/hicolor/scalable/apps/mailo.svg \
+    ~/.local/share/icons/hicolor/scalable/apps/mailo.svg
+update-desktop-database ~/.local/share/applications    # so the mailto: handler is found
+xdg-mime default mailo.desktop x-scheme-handler/mailto  # optional: make mailo the mail handler
+```
+
+`~/.local/bin` has to be on your `PATH`, since the entry runs `mailo`. Passwords and tokens are
+kept in the desktop's keyring (the Secret Service: GNOME Keyring, KWallet, KeePassXC), so one has
+to be running.
 
 ### The daemon is a prototype
 
