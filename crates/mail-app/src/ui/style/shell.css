@@ -89,6 +89,13 @@
   white-space: nowrap; overflow: hidden;
 }
 .list-bar .status.bad { color: var(--danger); font-weight: 600; }
+/* A selection's bar: the count, never squeezed out, and its actions in the rest of the column,
+   wrapping there when one line is too narrow rather than running under the reader. */
+.list-bar.picking .status { flex: none; color: var(--ink-soft); }
+.pick-tools {
+  display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center;
+  gap: var(--s-8); flex: 1 1 0; min-width: 0;
+}
 .bar-tools { display: flex; gap: var(--s-6); align-items: center; margin-left: auto; position: relative; }
 /* Folders: quire's `TreeItem` per folder, its chevron, drop states and ⋯ quire's. `.fold` holds
    the item and what shows under it (a new folder's name field, a refusal); the menu floats beside

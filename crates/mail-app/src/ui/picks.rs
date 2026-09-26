@@ -159,41 +159,44 @@ pub(super) fn PickBar(
     .collect();
     rsx! {
         span { class: "status", "{count} selected" }
-        for (action, icon, name) in buttons {
+        // The actions wrap within the list column when it is too narrow for one line.
+        div { class: "pick-tools",
+            for (action, icon, name) in buttons {
+                ds::Button {
+                    key: "{name}",
+                    variant: ds::ButtonVariant::Mini,
+                    label: String::new(),
+                    icon,
+                    aria_label: format!("{name} the {count} selected"),
+                    title: name.to_owned(),
+                    onclick: on_primary(move || {
+                        let store = consume_context::<Arc<SqliteStore>>();
+                        act_on_picked(&store, shell, revision, action, &threads.peek());
+                    }),
+                }
+            }
             ds::Button {
-                key: "{name}",
                 variant: ds::ButtonVariant::Mini,
                 label: String::new(),
-                icon,
-                aria_label: format!("{name} the {count} selected"),
-                title: name.to_owned(),
+                icon: Icon::BellOff,
+                aria_label: format!("{mute} the {count} selected"),
+                title: format!("{mute} (m)"),
                 onclick: on_primary(move || {
                     let store = consume_context::<Arc<SqliteStore>>();
-                    act_on_picked(&store, shell, revision, action, &threads.peek());
+                    mute_picked(&store, shell, revision, &threads.peek());
                 }),
             }
-        }
-        ds::Button {
-            variant: ds::ButtonVariant::Mini,
-            label: String::new(),
-            icon: Icon::BellOff,
-            aria_label: format!("{mute} the {count} selected"),
-            title: format!("{mute} (m)"),
-            onclick: on_primary(move || {
-                let store = consume_context::<Arc<SqliteStore>>();
-                mute_picked(&store, shell, revision, &threads.peek());
-            }),
-        }
-        ds::Button {
-            variant: ds::ButtonVariant::Mini,
-            label: String::new(),
-            icon: Icon::X,
-            aria_label: "Clear the selection".to_owned(),
-            title: "Clear the selection (Esc)".to_owned(),
-            onclick: on_primary(move || {
-                let ids: Vec<ThreadId> = threads.peek().iter().map(|summary| summary.id).collect();
-                shell.write().unpick(&ids);
-            }),
+            ds::Button {
+                variant: ds::ButtonVariant::Mini,
+                label: String::new(),
+                icon: Icon::X,
+                aria_label: "Clear the selection".to_owned(),
+                title: "Clear the selection (Esc)".to_owned(),
+                onclick: on_primary(move || {
+                    let ids: Vec<ThreadId> = threads.peek().iter().map(|summary| summary.id).collect();
+                    shell.write().unpick(&ids);
+                }),
+            }
         }
     }
 }

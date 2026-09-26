@@ -378,3 +378,73 @@ fn the_selection_does_not_follow_to_another_place() {
     assert_eq!(selected(&harness), Vec::<usize>::new());
     assert_eq!(said(&harness), None);
 }
+
+/// Every button in the list bar, as a selector for it alone: the bar's own, and those one box
+/// down (a tool group), whatever the bar is drawn with.
+fn bar_buttons(harness: &Harness) -> Vec<String> {
+    let found: Vec<String> = [".list-bar > button", ".list-bar > * > button"]
+        .into_iter()
+        .flat_map(|under| {
+            (1..=harness.count(".list-bar button"))
+                .map(move |k| format!("{under}:nth-of-type({k})"))
+        })
+        .filter(|selector| harness.count(selector) == 1)
+        .collect();
+    assert_eq!(
+        found.len(),
+        harness.count(".list-bar button"),
+        "a bar button was not enumerated one by one:\n{}",
+        harness.html()
+    );
+    found
+}
+
+/// At the window's usual width, with two rows picked, every button in the list bar lies inside
+/// the list column, and a press there reaches it rather than the reader beside it. The old bar
+/// kept the page's tools beside the selection's, and they ran to x≈950 over a column that ends
+/// at ≈693.
+#[test]
+fn with_rows_picked_every_bar_button_is_inside_the_list_column() {
+    let (mut harness, _dir, _store) = open();
+    click_row(&mut harness, 1, Modifiers::empty());
+    click_row(&mut harness, 3, Modifiers::CONTROL);
+    assert_eq!(said(&harness).as_deref(), Some("2 selected"));
+    let column = harness.rect(".list-col").expect("the list column");
+    let (left, right) = (column.origin.x.0, column.origin.x.0 + column.size.width.0);
+    let (top, bottom) = (column.origin.y.0, column.origin.y.0 + column.size.height.0);
+    let buttons = bar_buttons(&harness);
+    assert!(
+        buttons.len() >= 5,
+        "the selection bar has too few buttons: {buttons:?}"
+    );
+    for button in &buttons {
+        let rect = harness.rect(button).expect("an enumerated button");
+        let (x0, x1) = (rect.origin.x.0, rect.origin.x.0 + rect.size.width.0);
+        let (y0, y1) = (rect.origin.y.0, rect.origin.y.0 + rect.size.height.0);
+        assert!(
+            x0 >= left && x1 <= right && y0 >= top && y1 <= bottom,
+            "{button} ({x0}..{x1}, {y0}..{y1}) is outside the list column \
+             ({left}..{right}, {top}..{bottom})"
+        );
+        let centre = harness.centre(button).expect("an enumerated button");
+        assert!(
+            harness.hits(centre, button),
+            "a press on {button}'s centre does not reach it"
+        );
+    }
+    // And a real press on the last of them, the one furthest right, acts: it clears the pick.
+    let last = buttons.last().expect("at least one button");
+    assert_eq!(
+        harness.attr(last, "aria-label").as_deref(),
+        Some("Clear the selection"),
+        "the bar's last button is not Clear"
+    );
+    harness.click(harness.centre(last).expect("Clear"));
+    harness.advance(ms(300));
+    assert_eq!(said(&harness), None, "the press on Clear did not reach it");
+    assert_eq!(
+        selected(&harness),
+        vec![1],
+        "only the open row is drawn selected"
+    );
+}
