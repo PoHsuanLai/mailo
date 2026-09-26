@@ -4160,3 +4160,16 @@ carry no UID to find later.
 
 Not built: groups in the older `X-ADDRESSBOOKSERVER-KIND` form, new groups inside a synced book,
 deleting a synced group from the window, and groups in the `@` menu and the command palette.
+
+### F172 — The hover card test failed on a loaded machine because `advance` overran, and the strip test's failure is real
+
+`a_hover_card_opens_after_its_delay_and_not_before` asserted the card absent after
+`advance(HOVER_OPEN / 2)`. `advance` lets wall-clock time pass, and on a loaded machine it can
+overrun past the whole delay, when a card that has opened is on time. "Not yet" is now asserted
+only while the wall clock says it is still early; the order check after it is unchanged. Five of
+five runs failed with three builds running beside it, and four of four pass.
+
+`a_press_on_a_row_s_strip_leaves_the_keyboard_working` is not a slow test. Waiting up to quire's
+settle bound for the list, rather than a fixed 1.5 s, still fails: under load, after the strip's
+Archive removes its row, `e` reaches nothing at all. The keyboard is really lost there, sometimes;
+it is filed as its own package rather than hidden behind a longer wait.
