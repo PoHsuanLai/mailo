@@ -2289,6 +2289,7 @@ dependencies = [
  "keyboard-types 0.7.0",
  "memfd",
  "parley",
+ "pdfrum",
  "peniko",
  "spellbook",
  "thiserror 2.0.20",

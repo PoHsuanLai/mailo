@@ -350,6 +350,12 @@ pub(super) fn App() -> Element {
         // `Key`'s Display is the DOM key name — "e", "ArrowDown", "Escape" — which is the
         // vocabulary `view::shortcut` is written against.
         let key = event.key().to_string();
+        // The attachment viewer owns it while it is open: Esc closes it, the arrows turn a
+        // PDF's pages, and nothing reaches the conversation behind it.
+        if shell.read().viewing.is_some() {
+            super::reading::viewer_key(shell, &key);
+            return;
+        }
         // The Contacts sheet owns it while it is open, over the Space editor when it was opened
         // from there: its filter takes letters, and Esc closes it and nothing else.
         if shell.read().contacts.is_some() {
@@ -734,6 +740,9 @@ pub(super) fn App() -> Element {
             }
             if shell.read().keyboard.is_some() {
                 super::keyboard::KeyboardSheet { shell }
+            }
+            if shell.read().viewing.is_some() {
+                super::reading::AttachmentViewer { shell }
             }
             div { class: "card",
             ThreadList {

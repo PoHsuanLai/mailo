@@ -87,6 +87,37 @@ article.frame + article.frame { margin-top: var(--s-18); padding-top: var(--s-14
 .attachments .name { overflow: hidden; white-space: nowrap; max-width: 22em; }
 .attachments .size { color: var(--ink-faint); }
 .attachments .ds-ic { color: var(--ink-faint); }
+/* A stored picture's or PDF's thumbnail leads its row and opens the viewer. */
+.att-thumb {
+  width: 56px; height: 56px; flex: none; display: grid; place-items: center; overflow: hidden; cursor: pointer;
+  border-radius: var(--r-btn); background: var(--surface-2);
+}
+.att-thumb img { max-width: 100%; max-height: 100%; display: block; }
+.att-note { color: var(--ink-faint); }
+/* The attachment viewer: over the window, above its sheets' layer. */
+.viewer-wrap {
+  position: absolute; inset: 0; z-index: var(--z-menu); display: grid; place-items: center; padding: var(--s-14);
+  background: var(--scrim);
+}
+.viewer {
+  width: min(960px, 92%); max-height: 100%; min-height: 0; display: flex; flex-direction: column;
+  background: var(--raise); color: var(--ink); border: var(--hair) solid var(--line);
+  border-radius: var(--r-panel); box-shadow: var(--shadow-2);
+}
+.viewer-head { display: flex; align-items: center; gap: var(--s-8); padding: var(--s-10) var(--s-14); }
+.viewer-name {
+  margin: 0; margin-right: auto; min-width: 0; overflow: hidden; white-space: nowrap;
+  font-family: var(--font-display); font-size: var(--fs-heading-3); font-weight: 800;
+}
+.viewer-page { color: var(--ink-faint); font-size: var(--fs-small); }
+.viewer-main {
+  flex: 1; min-height: 0; overflow: auto; display: grid; place-items: center;
+  padding: 0 var(--s-14) var(--s-14);
+}
+.viewer-picture { max-width: 100%; max-height: 72vh; display: block; }
+.viewer-sheet { background: var(--foreign-ground); border: var(--hair) solid var(--line); }
+.viewer-note { margin: var(--s-22) 0; color: var(--ink-faint); }
+.viewer-said { margin: 0; padding: 0 var(--s-14) var(--s-14); font-size: var(--fs-small); color: var(--ink-soft); }
 .stagger > * { animation: rise var(--t-move) var(--e-out) backwards;
   animation-delay: calc(var(--i, 0) * var(--stagger)); }
 .reader-empty { flex: 1; display: grid; place-items: center; text-align: center; padding: var(--s-22);

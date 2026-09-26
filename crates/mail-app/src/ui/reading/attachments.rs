@@ -1,5 +1,8 @@
 //! What a message has attached, and saving it.
 //!
+//! A stored picture or PDF leads its row with a thumbnail that opens the viewer (`thumb.rs`,
+//! `viewer.rs`); every other row leads with a paperclip.
+//!
 //! Save writes a part that is already here; Download fetches one still on the server and then
 //! writes it. The name is the one the file will be written under. There is no file chooser: it
 //! lands in the downloads directory, and the notice says where.
@@ -15,6 +18,8 @@ use mail_domain::{BlobId, MessageId};
 use mail_store::SqliteStore;
 
 use super::super::text::{AttachmentRow, Kept};
+use super::thumb::Thumb;
+use crate::view::Shell;
 use ds::{Glyph, Icon};
 
 /// The rows for one message. `saved` says where the last one went; `downloading` is the part
@@ -26,12 +31,17 @@ pub(super) fn Attachments(
     rows: Vec<AttachmentRow>,
     saved: Signal<Option<String>>,
     downloading: Signal<Option<(MessageId, usize)>>,
+    shell: Signal<Shell>,
 ) -> Element {
     rsx! {
         ul { class: "attachments",
             for row in rows {
                 li { key: "{row.index}",
-                    Glyph { icon: Icon::Paperclip, size: ds::IconSize::Compact }
+                    if row.kept == Kept::Here {
+                        Thumb { message, index: row.index, name: row.name.clone(), shell }
+                    } else {
+                        Glyph { icon: Icon::Paperclip, size: ds::IconSize::Compact }
+                    }
                     span { class: "name", "{row.name}" }
                     span { class: "size mono", "{row.size}" }
                     ds::Button {

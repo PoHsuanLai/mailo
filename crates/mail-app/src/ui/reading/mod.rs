@@ -7,6 +7,8 @@ mod remote;
 mod source;
 mod spans;
 mod table;
+mod thumb;
+mod viewer;
 
 use super::press::on_primary;
 use super::text::{address, attachment_rows, from_name, stamp};
@@ -21,6 +23,7 @@ use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 use source::{Showing, Shown, SourceView, Sources};
 use std::sync::Arc;
+pub(super) use viewer::{AttachmentViewer, viewer_key};
 
 #[cfg(test)]
 thread_local! {
@@ -472,6 +475,7 @@ pub(super) fn Reader(
                             rows: attached,
                             saved,
                             downloading,
+                            shell,
                         }
                     }
                     // The iframe, when this message has one, is the first element MessageView
