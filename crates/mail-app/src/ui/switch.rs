@@ -67,6 +67,7 @@ fn restore(shell: &mut Shell, space: &Space, recall: &Recall) {
         .position(|place| place.name == recall.place)
         .unwrap_or(0);
     shell.open = recall.open;
+    shell.picked = crate::selection::Picked::none();
     shell.show_remote_images = false;
     shell.search.clear();
     shell.page_menu = PageMenu::Closed;

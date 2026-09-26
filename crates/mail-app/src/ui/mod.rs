@@ -34,6 +34,7 @@ mod original;
 mod page;
 mod pgp;
 mod pick;
+mod picks;
 mod press;
 mod print;
 mod reading;

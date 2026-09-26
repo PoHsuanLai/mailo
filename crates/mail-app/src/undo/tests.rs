@@ -1,4 +1,4 @@
-use super::{DEPTH, Undo, UndoStack, reverse_intent, said};
+use super::{DEPTH, Undo, UndoStack, reverse_intent, said, said_of};
 use chrono::{TimeZone, Utc};
 use mail_domain::*;
 
@@ -91,8 +91,14 @@ fn the_stack_forgets_the_oldest_past_its_depth() {
         });
     }
     assert_eq!(stack.len(), DEPTH);
-    assert_eq!(stack.last().and_then(|u| u.thread), threads.last().copied());
-    assert_eq!(stack.pop().and_then(|u| u.thread), threads.last().copied());
+    assert_eq!(
+        stack.last().and_then(|u| u[0].thread),
+        threads.last().copied()
+    );
+    assert_eq!(
+        stack.pop().and_then(|u| u[0].thread),
+        threads.last().copied()
+    );
     assert_eq!(stack.len(), DEPTH - 1);
 }
 
@@ -114,9 +120,51 @@ fn a_handle_takes_back_its_own_entry_and_only_once() {
     let named = stack.push(entry(first));
     let later = stack.push(entry(second));
     assert_ne!(named, later);
-    assert_eq!(stack.take(named).and_then(|u| u.thread), Some(first));
+    assert_eq!(stack.take(named).and_then(|u| u[0].thread), Some(first));
     assert_eq!(stack.take(named), None, "an entry is taken back once");
-    assert_eq!(stack.last().and_then(|u| u.thread), Some(second));
+    assert_eq!(stack.last().and_then(|u| u[0].thread), Some(second));
+}
+
+#[test]
+fn one_gesture_on_several_conversations_is_one_entry() {
+    // Archiving three picked conversations is one thing done, and one undo takes all three back.
+    let mut stack = UndoStack::default();
+    let account = AccountId::generate();
+    let entry = |thread| Undo {
+        said: "Archived".to_owned(),
+        thread: Some(thread),
+        account,
+        forward: patch(vec![]),
+        inverse: patch(vec![]),
+        remote: None,
+    };
+    let before = stack.push(entry(ThreadId::generate()));
+    let threads: Vec<ThreadId> = (0..3).map(|_| ThreadId::generate()).collect();
+    let batch = stack
+        .push_all(threads.iter().copied().map(entry).collect())
+        .expect("three undos are an entry");
+    assert_eq!(stack.len(), 2, "one entry for the gesture, not three");
+    let taken: Vec<Option<ThreadId>> = stack
+        .take(batch)
+        .expect("the batch is held")
+        .iter()
+        .map(|undo| undo.thread)
+        .collect();
+    assert_eq!(taken, threads.iter().copied().map(Some).collect::<Vec<_>>());
+    assert!(stack.take(before).is_some());
+    // A gesture that did nothing is not remembered.
+    assert_eq!(stack.push_all(Vec::new()), None);
+    assert!(stack.is_empty());
+}
+
+#[test]
+fn a_toast_for_several_counts_them() {
+    assert_eq!(said_of(&Op::Archive, 1, &Utc), "Archived");
+    assert_eq!(said_of(&Op::Archive, 3, &Utc), "Archived · 3 conversations");
+    assert_eq!(
+        said_of(&Op::Trash, 2, &Utc),
+        "Moved to Trash · 2 conversations"
+    );
 }
 
 #[test]

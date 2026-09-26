@@ -9,7 +9,7 @@
 //! What a place accepts is decided by what the place *is* (Part C #25): a mailbox you can file
 //! into, a label you can apply, or a saved search, which is read-only and refuses.
 
-use super::{Motion, act, motion};
+use super::{Motion, act_all, motion};
 use crate::view::{Place, Shell, Source, place_filter};
 use dioxus::prelude::*;
 use ds::{DragGhost, Point, Px};
@@ -162,7 +162,12 @@ fn drop_on(shell: Signal<Shell>, revision: Signal<u64>, thread: ThreadId, index:
         return;
     };
     let store = consume_context::<Arc<SqliteStore>>();
-    act(&store, shell, revision, thread, op);
+    // A picked row carries the whole selection with it, as one gesture.
+    let ops = super::super::picks::with_selection(shell, thread)
+        .into_iter()
+        .map(|thread| (thread, op.clone()))
+        .collect();
+    act_all(&store, shell, revision, ops);
 }
 
 /// Esc: drop nothing. Returns whether a drag was live or armed.

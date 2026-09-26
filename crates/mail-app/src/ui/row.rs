@@ -11,12 +11,14 @@ use super::hover::{Hook, element, line_at, out, over, use_driver};
 use super::list_search::RowHit;
 use super::marked::{Piece, pieces};
 use super::menus::{LabelMenu, SnoozeMenu};
-use super::motion::{act_kind, drag, motion};
+use super::motion::{act_kind, act_kind_all, drag, motion};
 use super::move_to::MoveMenu;
 use super::ops::{composes, start_composing};
+use super::picks::{drawn_order, with_selection};
 use super::text::{draft_state, label, sender};
 use crate::provider::Provider;
 use crate::provider::icon::{ChipPlace, ProvChip};
+use crate::selection::Click;
 use crate::view::Marks;
 use crate::view::{Shell, hover_actions};
 use chrono::Local;
@@ -148,6 +150,9 @@ pub(super) fn Row(
     moving: Moving,
     /// The chip that has just been added, which lands.
     landing: Option<String>,
+    /// Whether the row is drawn selected: picked, or open with nothing picked
+    /// (`Shell::is_selected`, asked by the list, which knows what is listed).
+    selection: Selection,
 ) -> Element {
     let id = summary.id;
     let unread = summary.read == ReadState::Unread;
@@ -168,7 +173,6 @@ pub(super) fn Row(
         .into_iter()
         .filter(|kind| !matches!(kind, OpKind::Star | OpKind::Unstar))
         .collect();
-    let selected = shell.read().open == Some(id);
     let delay = index.min(8);
     let move_label = "Move to…".to_owned();
     let filing = shell.read().filing == Some(id);
@@ -331,7 +335,7 @@ pub(super) fn Row(
             onfocusin: move |_| focused.set(true),
             onfocusout: move |_| focused.set(false),
             ds::ListRow {
-                selection: if selected { Selection::Selected } else { Selection::Unselected },
+                selection,
                 emphasis: if unread { Emphasis::Strong } else { Emphasis::Plain },
                 index: stagger,
                 presence,
@@ -344,7 +348,10 @@ pub(super) fn Row(
                 star: Some(star),
                 star_pulse: pop.key(),
                 strip,
-                onclick: move |_| shell.write().open(id),
+                onclick: move |click: MouseData| {
+                    let click = click_of(click.modifiers());
+                    shell.write().click(id, click, &drawn_order());
+                },
                 on_sender: part(Hook::Sender(id)),
                 on_time: part(Hook::Time(id)),
                 onpointerenter: EventHandler::new(move |_: PointerEvent| {
@@ -433,9 +440,26 @@ fn press(mut shell: Signal<Shell>, mut revision: Signal<u64>, id: ThreadId, pres
             }
             Err(why) => eprintln!("reply: {why}"),
         },
+        // A press on a picked row acts on everything picked, as one gesture. An op that needs
+        // more than the button (a pin's rank) stays with its own row.
+        None if crate::view::op_for(kind).is_some() => {
+            act_kind_all(&store, shell, revision, &with_selection(shell, id), kind);
+        }
         None => {
             act_kind(&store, shell, revision, id, kind);
         }
+    }
+}
+
+/// What a click on a row asks for, from the keys held with it. Shift wins over Ctrl, as a
+/// range is the larger thing to have asked for; Cmd is a Mac's Ctrl.
+fn click_of(held: Modifiers) -> Click {
+    if held.shift() {
+        Click::Range
+    } else if held.ctrl() || held.meta() {
+        Click::Toggle
+    } else {
+        Click::Plain
     }
 }
 

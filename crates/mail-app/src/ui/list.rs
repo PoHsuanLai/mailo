@@ -10,12 +10,13 @@ use super::list_search::{Marking, RowHit, Scope, row_hit};
 use super::motion::{Clock, Ghost, Leaving, Motion, Toast, motion};
 use super::ops::start_new;
 use super::page::{PageMenus, group_page};
+use super::picks::PickBar;
 use super::press::{available, on_primary};
 use super::row::{DraftRow, Moving, Row, gap};
 use crate::provider::provider;
 use crate::view::{Nothing, Shell, SyncState, synced};
 use dioxus::prelude::*;
-use ds::{Anim, Glyph, Icon, Presence, Roster, RowPitch};
+use ds::{Anim, Glyph, Icon, Presence, Roster, RowPitch, Selection};
 use mail_domain::*;
 use mail_store::SqliteStore;
 use std::collections::BTreeMap;
@@ -97,6 +98,7 @@ pub(super) fn ThreadList(
             hit: Option<RowHit>,
             moving: Moving,
             landing: Option<String>,
+            selection: Selection,
         },
     }
     let accounts = rows();
@@ -114,6 +116,14 @@ pub(super) fn ThreadList(
     let state = use_hook(motion);
     let listed = threads();
     let keys: Vec<ThreadId> = listed.iter().map(|summary| summary.id).collect();
+    // Picked, or open with nothing picked: asked of the shell against what is listed.
+    let selection_of = |id: ThreadId| {
+        if shell.read().is_selected(id, &keys) {
+            Selection::Selected
+        } else {
+            Selection::Unselected
+        }
+    };
     let pitch = RowPitch(ds::Px(gap(&shell.peek()) as f32));
     let roster = use_roster_clock(keys.clone(), pitch, state);
     let leaving = state
@@ -128,12 +138,14 @@ pub(super) fn ThreadList(
     } else {
         ds::ListPresence::Present
     };
-    let returning = state.and_then(|state| *state.returning.read());
+    let returning = state
+        .map(|state| state.returning.read().clone())
+        .unwrap_or_default();
     let moving: BTreeMap<ThreadId, Moving> = drawn
         .iter()
         .map(|(summary, moving)| {
             let moving = match moving {
-                Moving::Entering(_) if returning == Some(summary.id) && !entering() => {
+                Moving::Entering(_) if returning.contains(&summary.id) && !entering() => {
                     Moving::Returning
                 }
                 other => *other,
@@ -165,6 +177,7 @@ pub(super) fn ThreadList(
                 .and_then(|state| *state.landing.read())
                 .filter(|(thread, _)| *thread == summary.id)
                 .and_then(|(_, label)| names.get(&label).cloned());
+            let selection = selection_of(summary.id);
             lines.push(Line::Mail {
                 index: row_index,
                 summary: Box::new(summary),
@@ -173,6 +186,7 @@ pub(super) fn ThreadList(
                 hit,
                 moving,
                 landing,
+                selection,
             });
             row_index += 1;
         }
@@ -190,6 +204,7 @@ pub(super) fn ThreadList(
                     // One line, cut short when it must be; the whole of it on hover.
                     span { class: if bad { "status bad" } else { "status" }, title: "{note}", "{note}" }
                 }
+                PickBar { shell, revision, threads }
                 if let Some(said) = search_note {
                     span { class: if invalid { "status bad" } else { "status" }, "{said}" }
                 }
@@ -287,6 +302,7 @@ pub(super) fn ThreadList(
                     for (index, (summary, Dress { via, chips, hit })) in strip.into_iter().enumerate() {
                         {
                             let id = summary.id;
+                            let selection = selection_of(id);
                             rsx! {
                                 Row {
                                     key: "top-{id}",
@@ -299,6 +315,7 @@ pub(super) fn ThreadList(
                                     hit,
                                     moving: Moving::Still,
                                     landing: None,
+                                    selection,
                                 }
                             }
                         }
@@ -316,10 +333,11 @@ pub(super) fn ThreadList(
                             hit,
                             moving,
                             landing,
+                            selection,
                         } => {
                             let summary = *summary;
                             let id = summary.id;
-                            rsx! { Row { key: "{id}", summary, shell, revision, index, chips, via, hit, moving, landing } }
+                            rsx! { Row { key: "{id}", summary, shell, revision, index, chips, via, hit, moving, landing, selection } }
                         }
                     }
                 }

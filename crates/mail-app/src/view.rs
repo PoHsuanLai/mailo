@@ -4,6 +4,7 @@
 //! open and what the reader should do with a body are all decisions that can be wrong, and none
 //! of them needs a window to be wrong in. The rendering layer reads this and draws it.
 
+use crate::selection::{Click, Picked, Toward};
 use chrono::{DateTime, Datelike, TimeDelta, TimeZone, Timelike, Utc, Weekday};
 use mail_domain::*;
 use mail_mime::{Block, Document, Flowed, ImgSrc, RemoteImages, SanitizePolicy, Shape};
@@ -489,6 +490,12 @@ pub struct Shell {
     /// What the user typed in the search box.
     pub search: String,
     pub open: Option<ThreadId>,
+    /// The conversations picked for an action on several at once. Empty: actions mean `open`.
+    ///
+    /// Dropped with the place ([`Self::select`]), and replaced by a plain click
+    /// ([`Self::open`]). Always read through the list's ids, so a pick that has left the list
+    /// is never acted on.
+    pub picked: Picked,
     /// Whether the reader may fetch remote images for the thread currently open.
     ///
     /// Per thread and not persisted: consenting to load one sender's images is not consent for
@@ -753,6 +760,7 @@ impl Default for Shell {
             selected: 0,
             search: String::new(),
             open: None,
+            picked: Picked::none(),
             show_remote_images: false,
             peek: Peek::Side,
             composing: None,
@@ -860,14 +868,18 @@ impl Shell {
         if index < self.places.len() {
             self.selected = index;
             self.open = None;
+            // What was picked was picked in the old list.
+            self.picked = Picked::none();
             // Consent is per thread, so changing what is shown revokes it.
             self.show_remote_images = false;
         }
     }
 
-    /// Open a thread.
+    /// Open a thread. What was picked is replaced by it, as a plain click on a row replaces a
+    /// selection in any list, and a Shift range measures from it next.
     pub fn open(&mut self, thread: ThreadId) {
         self.open = Some(thread);
+        self.picked = Picked::clicked(thread);
         self.show_remote_images = false;
         self.find = None;
     }
@@ -880,6 +892,68 @@ impl Shell {
         self.open = None;
         self.show_remote_images = false;
         self.find = None;
+    }
+
+    /// A click on a conversation's row, among the listed `ids`: a plain one opens it, Ctrl
+    /// picks it or puts it back, Shift picks the range from the anchor to it.
+    pub fn click(&mut self, thread: ThreadId, click: Click, ids: &[ThreadId]) {
+        match click {
+            Click::Plain => self.open(thread),
+            Click::Toggle => self.picked = self.picked.toggle(thread, self.open, ids),
+            Click::Range => self.picked = self.picked.range(thread, self.open, ids),
+        }
+    }
+
+    /// Shift+j or Shift+k among the listed `ids`.
+    pub fn extend(&mut self, toward: Toward, ids: &[ThreadId]) {
+        self.picked = self.picked.extend(toward, self.open, ids);
+    }
+
+    /// Select all: every listed conversation.
+    pub fn pick_all(&mut self, ids: &[ThreadId]) {
+        self.picked = Picked::all(ids);
+    }
+
+    /// Drop the selection, leaving the reader as it is. Returns whether anything listed was
+    /// picked, so Esc can mean this before it means closing the reader.
+    pub fn unpick(&mut self, ids: &[ThreadId]) -> bool {
+        let had = self.picked.any(ids);
+        self.picked = Picked::none();
+        had
+    }
+
+    /// Whether `thread`'s row is drawn selected: picked, or, with nothing picked, open.
+    pub fn is_selected(&self, thread: ThreadId, ids: &[ThreadId]) -> bool {
+        if self.picked.any(ids) {
+            self.picked.holds(thread, ids)
+        } else {
+            self.open == Some(thread)
+        }
+    }
+
+    /// The conversations an action from the keyboard means, in list order: the picked ones,
+    /// or, with nothing picked, the open one if it is still listed.
+    pub fn acted_on(&self, ids: &[ThreadId]) -> Vec<ThreadId> {
+        let chosen = self.picked.chosen(ids);
+        if chosen.is_empty() {
+            self.open
+                .filter(|id| ids.contains(id))
+                .into_iter()
+                .collect()
+        } else {
+            chosen
+        }
+    }
+
+    /// The conversations an action on `thread`'s own row means: the whole selection when the
+    /// row is part of it, and the row alone when it is not. A press on a row outside the
+    /// selection is about that row, as a right-click outside a selection is anywhere else.
+    pub fn with_selection(&self, thread: ThreadId, ids: &[ThreadId]) -> Vec<ThreadId> {
+        if self.picked.holds(thread, ids) {
+            self.picked.chosen(ids)
+        } else {
+            vec![thread]
+        }
     }
 
     /// Open the composer on `draft`.
@@ -959,12 +1033,18 @@ pub enum Shortcut {
     Next,
     /// Move to the previous one.
     Previous,
+    /// Shift+j: pick down the list from the anchor, one more row each press, opening nothing.
+    ExtendNext,
+    /// Shift+k: the same, up the list.
+    ExtendPrevious,
     /// Close the composer if one is open, otherwise close the reader.
     Back,
     /// Archive the open conversation.
     Archive,
     /// Move it to the trash.
     Trash,
+    /// Mark it as spam.
+    Spam,
     /// Star it, or unstar it if it is already starred.
     ToggleStar,
     /// Mark it read, or unread if it is already read.
@@ -1003,6 +1083,9 @@ pub fn shortcut(key: &str, typing: bool) -> Option<Shortcut> {
     Some(match key {
         "j" | "ArrowDown" => Shortcut::Next,
         "k" | "ArrowUp" => Shortcut::Previous,
+        "J" => Shortcut::ExtendNext,
+        "K" => Shortcut::ExtendPrevious,
+        "!" => Shortcut::Spam,
         "e" => Shortcut::Archive,
         "#" | "Delete" => Shortcut::Trash,
         "s" => Shortcut::ToggleStar,
@@ -1014,6 +1097,17 @@ pub fn shortcut(key: &str, typing: bool) -> Option<Shortcut> {
         "c" => Shortcut::Compose,
         _ => return None,
     })
+}
+
+/// The key a press means with Shift held: "J" and "K" whether the keyboard reported the
+/// shifted letter or, as a synthesised press may, the plain one beside a Shift; and Shift with
+/// an arrow is the same as Shift with its letter. Every other key is itself.
+pub fn shifted(key: &str) -> &str {
+    match key {
+        "j" | "ArrowDown" => "J",
+        "k" | "ArrowUp" => "K",
+        other => other,
+    }
 }
 
 /// What the snooze menu offers, as `(what the button says, the phrase it means)`.
@@ -1087,13 +1181,28 @@ pub fn label_menu(known: &[(String, LabelId)], summary: &ThreadSummary) -> Vec<L
 /// `None` for [`Shortcut::Reply`] and [`Shortcut::ReplyAll`], which open a composer rather than
 /// performing an operation, and for the movement keys.
 pub fn op_for_shortcut(shortcut: Shortcut, summary: &ThreadSummary) -> Option<OpKind> {
-    let offered = hover_actions(summary);
+    op_for_selection(shortcut, std::slice::from_ref(summary))
+}
+
+/// The operation a shortcut performs on several picked conversations at once, if any of them
+/// allows it. [`op_for_shortcut`] is this for one.
+///
+/// One operation for all of them, never a toggle each: star with a selection that is half
+/// starred stars the rest, as unread-first and unstarred-first is what every mail list does, and
+/// a second press then unstars them all. Which conversations it then reaches is [`offers`]' to
+/// say, per conversation.
+pub fn op_for_selection(shortcut: Shortcut, summaries: &[ThreadSummary]) -> Option<OpKind> {
     let wanted: &[OpKind] = match shortcut {
         Shortcut::Archive => &[OpKind::Archive],
         Shortcut::Trash => &[OpKind::Trash],
+        Shortcut::Spam => &[OpKind::Spam],
         Shortcut::ToggleStar => &[OpKind::Star, OpKind::Unstar],
         Shortcut::ToggleRead => &[OpKind::MarkRead, OpKind::MarkUnread],
-        Shortcut::Next | Shortcut::Previous | Shortcut::Back => &[],
+        Shortcut::Next
+        | Shortcut::Previous
+        | Shortcut::ExtendNext
+        | Shortcut::ExtendPrevious
+        | Shortcut::Back => &[],
         // Both open or carry rather than performing a payload-free operation. `TogglePin` needs
         // the clock as well as the state, so it goes through `pin_op` instead. `Compose` is not
         // about this conversation at all — it is the one shortcut with no `summary` to consult.
@@ -1103,7 +1212,19 @@ pub fn op_for_shortcut(shortcut: Shortcut, summary: &ThreadSummary) -> Option<Op
         | Shortcut::TogglePin
         | Shortcut::Compose => &[],
     };
-    wanted.iter().copied().find(|op| offered.contains(op))
+    wanted
+        .iter()
+        .copied()
+        .find(|kind| summaries.iter().any(|summary| offers(summary, *kind)))
+}
+
+/// Whether `kind` is something this conversation can have done to it now: what its row offers
+/// ([`hover_actions`]), and Spam, which the row has no room for, for anything not already there.
+pub fn offers(summary: &ThreadSummary, kind: OpKind) -> bool {
+    match kind {
+        OpKind::Spam => !summary.mailboxes.contains(MailboxRole::Spam),
+        other => hover_actions(summary).contains(&other),
+    }
 }
 
 /// The conversation `Next` or `Previous` moves to.
@@ -2633,6 +2754,91 @@ mod keyboard {
         let gone = ThreadId::generate();
         assert_eq!(step(Some(gone), &ids, true), Some(ids[0]));
         assert_eq!(step(Some(gone), &ids, false), Some(ids[1]));
+    }
+
+    #[test]
+    fn shift_with_j_k_or_an_arrow_extends_and_other_keys_are_themselves() {
+        const CASES: &[(&str, Option<Shortcut>)] = &[
+            ("j", Some(Shortcut::ExtendNext)),
+            ("J", Some(Shortcut::ExtendNext)),
+            ("ArrowDown", Some(Shortcut::ExtendNext)),
+            ("k", Some(Shortcut::ExtendPrevious)),
+            ("ArrowUp", Some(Shortcut::ExtendPrevious)),
+            ("#", Some(Shortcut::Trash)),
+            ("!", Some(Shortcut::Spam)),
+        ];
+        for (key, want) in CASES {
+            assert_eq!(shortcut(shifted(key), false), *want, "Shift+{key}");
+        }
+        // Unshifted, j still moves and opens.
+        assert_eq!(shortcut("j", false), Some(Shortcut::Next));
+    }
+
+    #[test]
+    fn one_operation_for_a_whole_selection_not_a_toggle_each() {
+        use MailboxRole::*;
+        let starred = summary(ReadState::Read, Star::Starred, Inbox);
+        let plain = summary(ReadState::Unread, Star::Unstarred, Inbox);
+        let archived = summary(ReadState::Read, Star::Unstarred, Archive);
+        let spam = summary(ReadState::Read, Star::Unstarred, Spam);
+        type Case = (Shortcut, &'static [usize], Option<OpKind>);
+        const CASES: &[Case] = &[
+            // Half starred: star the rest; all starred: unstar.
+            (Shortcut::ToggleStar, &[0, 1], Some(OpKind::Star)),
+            (Shortcut::ToggleStar, &[0], Some(OpKind::Unstar)),
+            // Any unread: mark read; none: mark unread.
+            (Shortcut::ToggleRead, &[0, 1], Some(OpKind::MarkRead)),
+            (Shortcut::ToggleRead, &[0, 2], Some(OpKind::MarkUnread)),
+            // Archive when anything is still in the inbox; nothing when nothing is.
+            (Shortcut::Archive, &[1, 2], Some(OpKind::Archive)),
+            (Shortcut::Archive, &[2], None),
+            (Shortcut::Spam, &[1, 3], Some(OpKind::Spam)),
+            (Shortcut::Spam, &[3], None),
+            (Shortcut::Trash, &[], None),
+        ];
+        let all = [starred, plain, archived, spam];
+        for (action, which, want) in CASES {
+            let picked: Vec<ThreadSummary> = which.iter().map(|n| all[*n].clone()).collect();
+            assert_eq!(
+                op_for_selection(*action, &picked),
+                *want,
+                "{action:?} on {which:?}"
+            );
+        }
+        // And each conversation is reached only where it allows it.
+        assert!(offers(&all[1], OpKind::Archive));
+        assert!(!offers(&all[2], OpKind::Archive));
+        assert!(!offers(&all[3], OpKind::Spam));
+    }
+
+    #[test]
+    fn a_selection_is_the_place_s_and_a_plain_click_replaces_it() {
+        let ids: Vec<ThreadId> = (0..4).map(|_| ThreadId::generate()).collect();
+        let mut shell = Shell::default();
+        shell.click(ids[1], Click::Plain, &ids);
+        assert_eq!(shell.acted_on(&ids), vec![ids[1]], "the open one alone");
+        shell.click(ids[3], Click::Range, &ids);
+        assert_eq!(shell.acted_on(&ids), ids[1..].to_vec());
+        assert!(shell.is_selected(ids[2], &ids));
+        assert!(!shell.is_selected(ids[0], &ids));
+        // A press on a picked row means the selection; on another row, that row.
+        assert_eq!(shell.with_selection(ids[2], &ids), ids[1..].to_vec());
+        assert_eq!(shell.with_selection(ids[0], &ids), vec![ids[0]]);
+        // Another place: nothing picked, whatever the new list holds.
+        shell.select(1);
+        assert!(!shell.picked.any(&ids));
+        assert_eq!(shell.acted_on(&ids), Vec::<ThreadId>::new());
+        // Picked again, then a plain click: that row, open, and nothing picked.
+        shell.pick_all(&ids);
+        assert_eq!(shell.acted_on(&ids), ids);
+        shell.click(ids[0], Click::Plain, &ids);
+        assert_eq!(shell.acted_on(&ids), vec![ids[0]]);
+        assert!(!shell.picked.any(&ids));
+        // Esc: the picks go, the reader stays.
+        shell.extend(Toward::Next, &ids);
+        assert!(shell.unpick(&ids));
+        assert!(!shell.unpick(&ids), "nothing left to let go");
+        assert_eq!(shell.open, Some(ids[0]));
     }
 }
 
