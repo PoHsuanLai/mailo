@@ -4173,3 +4173,19 @@ five runs failed with three builds running beside it, and four of four pass.
 settle bound for the list, rather than a fixed 1.5 s, still fails: under load, after the strip's
 Archive removes its row, `e` reaches nothing at all. The keyboard is really lost there, sometimes;
 it is filed as its own package rather than hidden behind a longer wait.
+
+### F173 — Saved views are a row of their own serde, and the sidebar's last places
+
+A decision (item 19). 0001 made a `views` table with a column per field of `View`; nothing ever
+wrote it, and it had already drifted (`group_by` was still `Option<Property>` after F35). 0024
+replaces it with one column holding the whole `View`, so a field added later with
+`#[serde(default)]` needs no migration, and a fixture pins the row. A view is `Source::Saved`,
+placed after the folders so adding or deleting one moves no other place's index or badge; its badge
+counts unread by its filter. Its grouping applies unless the Group menu is set. Its hover buttons
+are kinds, drawn in the direction each conversation needs and only where it can take them; the
+keyboard is not narrowed by a view. When a view is edited, its filter is shown as search words
+only if they parse back to the same filter; otherwise the saved filter is kept.
+
+With several rows picked, the list bar's tools ran past the list column at 1200 px, over the
+reader, where they cannot be pressed. That predates views (the selection bar alone crowds them);
+Save and Edit view are icon-only for now, and the bar itself is its own fix.
