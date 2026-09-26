@@ -15,6 +15,7 @@ use super::life;
 use super::page::{Page, Phase, When};
 use crate::appearance::WindowDirs;
 use crate::space::Spaces;
+use crate::spelling;
 use crate::today::Today;
 use crate::view::Shell;
 
@@ -45,6 +46,8 @@ pub(in crate::ui) struct Desk {
     pub dirs: Signal<Option<WindowDirs>>,
     /// The sidebar, which focus mode hides.
     pub side_hidden: Signal<bool>,
+    /// Whether the body's spelling is checked: `spelling.json`, and changed from the settings.
+    pub spelling: Signal<spelling::Setting>,
 }
 
 /// Provide the desk to everything under the app.
@@ -55,6 +58,11 @@ pub(in crate::ui) fn use_desk(
     side_hidden: Signal<bool>,
 ) -> Desk {
     use_context_provider(|| Desk {
+        spelling: Signal::new(
+            dirs.as_ref()
+                .map(|dirs| spelling::load(&dirs.config))
+                .unwrap_or_default(),
+        ),
         current: Signal::new(None),
         parked: Signal::new(Vec::new()),
         outbox: Signal::new(None),

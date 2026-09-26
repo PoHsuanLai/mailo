@@ -71,6 +71,7 @@ pub(super) fn App() -> Element {
     // Which way the sidebar's contents slid in on the last switch.
     let slide = use_signal(|| None::<super::switch::Slide>);
     let desk = compose::use_desk(today_list, spaces, dirs.clone(), side_hidden);
+    compose::use_test_dictionaries();
     let mut entering = use_signal(|| true);
     let mut just_added = use_signal(|| None::<mail_domain::ThreadId>);
     let mut seen_open = use_signal(|| None::<mail_domain::ThreadId>);

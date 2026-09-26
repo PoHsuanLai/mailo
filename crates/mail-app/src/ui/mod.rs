@@ -60,6 +60,7 @@ pub use launch::run;
 
 /// The window on Blitz, for a test to drive through `ds_native::Harness`.
 pub mod native {
+    pub use super::compose::Dictionaries;
     pub use super::launch::native::{contexts, root};
     pub use super::original::{Browse, Consent, Fetch, FetchImage, Got, Original};
     pub use super::print::Printer;

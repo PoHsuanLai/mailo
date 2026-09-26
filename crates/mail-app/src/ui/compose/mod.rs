@@ -26,6 +26,7 @@ mod receipt;
 mod recipients;
 mod render;
 mod seal;
+mod spell;
 mod surface;
 mod templates;
 mod wire;
@@ -51,6 +52,8 @@ pub(in crate::ui) use desk::{Desk, ParkedDrafts, park_current, show_queued, use_
 pub(in crate::ui) use later::ScheduledDrafts;
 pub(in crate::ui) use page::PageKind;
 pub(in crate::ui) use pill::SendPill;
+pub use spell::Dictionaries;
+pub(in crate::ui) use spell::{dictionaries, use_test_dictionaries};
 pub(in crate::ui) use templates::{
     every as every_template, forget as forget_template, template_rows,
 };

@@ -17,6 +17,10 @@
 //! text as CSS 2.1 stacks them, and the caret and the IME's preedit in one after it. The caret is
 //! drawn at its rect as given, `--caret-w` wide. The caret's rect in the window is also where the
 //! IME's candidate window goes and where the `/` and `@` menus float (`Marks::at`).
+//!
+//! Spelling is quire's: the surface checks, marks and offers suggestions itself (`spell.rs` says
+//! with which checker). The page hands it the setting, its caret, so the word being typed waits
+//! until the caret leaves it, and takes a picked suggestion back as one editor edit.
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -25,11 +29,12 @@ use std::sync::Arc;
 use dioxus::prelude::*;
 use ds::{
     Composition, EditFocus, EditHandle, EditInput, EditPointer, EditSurface, ExtraClass,
-    HostMeasure, Measured, Point, Px, Rect, TextPosition, TextRange, use_edit_handle,
+    HostMeasure, Measured, Point, Px, Rect, SpellReplace, TextPosition, TextRange, use_edit_handle,
 };
 
 use super::adapt::{self, Asked, Reach, Step};
 use super::body::{key_taken, now_ms};
+use super::desk::Desk;
 use super::float::{self, suggest_mention};
 use super::page::Page;
 use super::render;
@@ -129,6 +134,16 @@ pub(super) fn Surface(
         });
     });
 
+    // Spelling: quire checks and marks; the word at the caret stays unmarked while it is typed.
+    let spell = super::spell::spell_of(
+        try_use_context::<Desk>()
+            .map(|desk| (desk.spelling)())
+            .unwrap_or_default(),
+    );
+    let at_caret = {
+        let read = page.read();
+        adapt::text_position(&read.session.doc, read.session.caret.pos)
+    };
     let shown = marks.read().clone();
     let showing = preedit.read().clone();
     let caret = shown
@@ -160,6 +175,9 @@ pub(super) fn Surface(
                 },
                 on_pointer: move |pointer: EditPointer| pointed(page, &pointer),
                 on_focus: move |now: EditFocus| focus.set(now),
+                spell,
+                caret: Some(at_caret),
+                on_replace: move |replace: SpellReplace| replaced(page, replace),
                 {render::body(page)}
             }
             // Over the text: the caret, and what the IME is composing, at the caret.
@@ -311,6 +329,31 @@ fn edit(mut page: Signal<Page>, event: InputEvent) {
     if let Some(store) = store {
         suggest_mention(&mut write, store.as_ref());
     }
+}
+
+/// A suggestion picked from the spelling menu: the misspelt word, as quire's byte range, replaced
+/// by one `insertReplacementText` over the same graphemes, so it is one step for Ctrl Z.
+fn replaced(page: Signal<Page>, replace: SpellReplace) {
+    let range = {
+        let read = page.peek();
+        let doc = &read.session.doc;
+        match (
+            adapt::pos_of(doc, &replace.range.anchor),
+            adapt::pos_of(doc, &replace.range.focus),
+        ) {
+            (Some(start), Some(end)) => Range { start, end }.ordered(),
+            _ => return,
+        }
+    };
+    edit(
+        page,
+        InputEvent::new(
+            "insertReplacementText",
+            Some(replace.text),
+            vec![range],
+            false,
+        ),
+    );
 }
 
 /// Where a selection that ends at the caret started: its other end, or the caret itself.
