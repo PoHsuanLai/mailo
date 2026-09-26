@@ -9,7 +9,7 @@ use mail_domain::{Credential, SecretKey, SecretPurpose};
 use mail_pim::vcard::{self, Card, Email};
 use mail_runtime::carddav::{self, Dav, DavAuth, How};
 use mail_runtime::{KeyringSecrets, OAuthRegistry, Secrets};
-use mail_store::{AddressBook, Kind, Origin, SqliteStore, Store};
+use mail_store::{AddressBook, Edit, Group, GroupHome, GroupId, Kind, Origin, SqliteStore, Store};
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
 use std::path::PathBuf;
@@ -174,12 +174,20 @@ fn shown(contact: &mail_store::Contact) -> String {
     }
 }
 
-/// Every address on every card in `bytes`, added by hand under the card's name.
+/// Every address on every card in `bytes`, added by hand under the card's name, and every
+/// `KIND:group` card as a group of this book ([`import_group`]).
 pub fn import(store: &dyn Store, bytes: &[u8]) -> Result<String, String> {
     let cards = vcard::parse_bytes(bytes);
-    let (mut added, mut empty) = (0, 0);
+    let (mut added, mut empty, mut groups) = (0, 0, 0);
     for card in &cards {
+        if card.is_group() {
+            import_group(store, card, &cards).map_err(|e| e.to_string())?;
+            groups += 1;
+        }
         let addresses = card.addresses_by_preference();
+        if card.is_group() && addresses.is_empty() {
+            continue;
+        }
         if addresses.is_empty() {
             empty += 1;
         }
@@ -195,24 +203,92 @@ pub fn import(store: &dyn Store, bytes: &[u8]) -> Result<String, String> {
         }
     }
     let mut out = format!("imported {added} addresses from {} cards\n", cards.len());
+    if groups > 0 {
+        let _ = writeln!(
+            out,
+            "imported {groups} {}",
+            if groups == 1 { "group" } else { "groups" }
+        );
+    }
     if empty > 0 {
         let _ = writeln!(out, "{empty} cards had no email address and were skipped");
     }
     Ok(out)
 }
 
-/// The book as vCard 4.0: every synced card as the address book holds it, then one card per
-/// address the user added or has written to that no synced card covers. Addresses only ever
-/// heard from are not the user's contacts and are left out, as are the user's own.
+/// `card`, a `KIND:group`, as a group made here, replacing one imported before with its `UID`.
+///
+/// Every member is kept as written, with one change: a `urn:uuid:` naming another card of the
+/// same file becomes that card's `mailto:`. Its addresses are imported by hand, and a hand-added
+/// contact has no `UID` for the member to find it by afterwards. A member naming nothing in the
+/// file stays as it was, to be found in a synced book or kept unresolved.
+fn import_group(
+    store: &dyn Store,
+    card: &Card,
+    file: &[Card],
+) -> Result<(), mail_store::StoreError> {
+    let uid = card
+        .uid
+        .clone()
+        .unwrap_or_else(|| format!("urn:uuid:{}", uuid::Uuid::new_v4()));
+    let members = card
+        .members
+        .iter()
+        .map(|uri| match vcard::Member::of(uri) {
+            vcard::Member::Card(key) => file
+                .iter()
+                .filter(|other| !other.is_group())
+                .find(|other| other.uid.as_deref().map(vcard::uid_key) == Some(key.clone()))
+                .and_then(|other| other.addresses_by_preference().first().copied())
+                .map(|address| format!("mailto:{address}"))
+                .unwrap_or_else(|| uri.clone()),
+            vcard::Member::Mailto(_) => uri.clone(),
+        })
+        .collect();
+    store.put_group(&Group {
+        id: GroupId::local(&uid),
+        uid: Some(uid),
+        name: card.display_name().unwrap_or_default(),
+        members,
+        home: GroupHome::Local,
+    })
+}
+
+/// The book as vCard 4.0: every synced card as the address book holds it — a group edited here
+/// as edited — then every group made here, then one card per address the user added or has
+/// written to that no synced card covers. Addresses only ever heard from are not the user's
+/// contacts and are left out, as are the user's own.
 pub fn export(store: &dyn Store) -> Result<String, String> {
     let failed = |e: mail_store::StoreError| e.to_string();
     let mut cards: Vec<Card> = Vec::new();
     let mut covered: BTreeSet<String> = BTreeSet::new();
+    let groups = store.groups().map_err(failed)?;
     for book in store.address_books().map_err(failed)? {
-        for held in book.cards.values() {
-            cards.extend(vcard::parse(&held.vcard).into_iter().take(1));
+        for (href, held) in &book.cards {
+            let edited = groups.iter().find(|g| {
+                g.id.0 == *href
+                    && matches!(
+                        g.home,
+                        GroupHome::Book {
+                            edit: Edit::Edited,
+                            ..
+                        }
+                    )
+            });
+            let text = match edited {
+                Some(group) => carddav::group_card(group, Some(&held.vcard)),
+                None => held.vcard.clone(),
+            };
+            cards.extend(vcard::parse(&text).into_iter().take(1));
             covered.extend(held.addresses.iter().cloned());
         }
+    }
+    for group in groups.iter().filter(|g| g.home == GroupHome::Local) {
+        cards.extend(
+            vcard::parse(&carddav::group_card(group, None))
+                .into_iter()
+                .take(1),
+        );
     }
     for contact in store.contacts().map_err(failed)? {
         let theirs = contact.origin != Origin::History || contact.written.count > 0;
@@ -311,12 +387,23 @@ async fn sync_one(
         How::Full => "everything",
         How::Etags => "everything, compared by etag",
     };
-    Ok(format!(
+    let mut out = format!(
         "{} ({url}): {} changed, {} removed — {how}\n",
         name.as_deref().unwrap_or("address book"),
         done.changed,
         done.removed
-    ))
+    );
+    if done.written > 0 {
+        let _ = writeln!(out, "  {} edited groups written back", done.written);
+    }
+    for unwritten in &done.unwritten {
+        let _ = writeln!(
+            out,
+            "  {} not written back: {}",
+            unwritten.name, unwritten.why
+        );
+    }
+    Ok(out)
 }
 
 fn parse_url(text: &str) -> Result<url::Url, String> {
@@ -510,5 +597,42 @@ mod tests {
             parse_url("dav.example.test/book").unwrap().as_str(),
             "https://dav.example.test/book"
         );
+    }
+
+    #[test]
+    fn a_group_in_a_file_is_imported_as_a_group_and_exported_as_one() {
+        let file = "BEGIN:VCARD\r\nVERSION:4.0\r\nUID:urn:uuid:4fbe8971-0bc3-424c-9c26-36c3e1eff6b1\r\n\
+                    FN:Grace\r\nEMAIL:grace@example.test\r\nEND:VCARD\r\n\
+                    BEGIN:VCARD\r\nVERSION:4.0\r\nKIND:group\r\nUID:team-1\r\nFN:Team\r\n\
+                    MEMBER:URN:UUID:4FBE8971-0BC3-424C-9C26-36C3E1EFF6B1\r\n\
+                    MEMBER:mailto:ada@example.test\r\n\
+                    MEMBER:urn:uuid:ffffffff-0000-4000-8000-000000000000\r\nEND:VCARD\r\n";
+        let store = mail_store::MemoryStore::new();
+        let before = store.groups().unwrap().len();
+        let said = import(&store, file.as_bytes()).unwrap();
+        assert!(said.contains("imported 1 group"), "{said}");
+        let groups = store.groups().unwrap();
+        assert_eq!(groups.len(), before + 1);
+        assert_eq!(groups[0].id, GroupId::local("team-1"));
+        assert_eq!(
+            groups[0].members,
+            [
+                "mailto:grace@example.test",
+                "mailto:ada@example.test",
+                "urn:uuid:ffffffff-0000-4000-8000-000000000000",
+            ],
+            "a card of the same file becomes its address; a card of none is kept as written"
+        );
+        // Importing the same file again replaces the group rather than adding a second.
+        import(&store, file.as_bytes()).unwrap();
+        assert_eq!(store.groups().unwrap().len(), before + 1);
+
+        let out = export(&store).unwrap();
+        let team = vcard::parse(&out)
+            .into_iter()
+            .find(|card| card.is_group())
+            .unwrap_or_else(|| panic!("no group exported:\n{out}"));
+        assert_eq!(team.uid.as_deref(), Some("team-1"));
+        assert_eq!(team.members, groups[0].members);
     }
 }

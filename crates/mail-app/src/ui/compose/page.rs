@@ -241,6 +241,9 @@ pub(in crate::ui) struct Page {
     /// The contact book's suggestions for what is being typed now — in To, in Cc, or after an
     /// `@` — best first. Asked again on each keystroke; the fields and `@` never type at once.
     pub people: Vec<Person>,
+    /// The contact groups offered above [`Page::people`] for what is typed in To or Cc, each
+    /// already expanded to its members.
+    pub groups: Vec<crate::ui::contacts::groups::Offer>,
     pub notice: Option<String>,
 }
 
@@ -292,6 +295,7 @@ impl Page {
             quoted: Fold::Folded,
             flash: None,
             people,
+            groups: Vec::new(),
             notice: None,
         }
     }

@@ -219,3 +219,31 @@ async fn render_the_contacts_sheet_to_a_file() {
     let page = inject(&dioxus_ssr::render(&frame), &dioxus_ssr::render(&dom));
     crate::ui::fixtures::dump("contacts", &page);
 }
+
+#[tokio::test]
+async fn the_sheet_makes_a_group_and_adds_someone_to_it() {
+    dispatching();
+    let (store, _dir) = the_book();
+    let before = store.groups().unwrap_or_default().len();
+    let mut dom = sheet(&store, "");
+    let seen = rebuild_into(&mut dom);
+    let seen = click(&mut dom, seen.one("aria-label", "New group"));
+    type_into(&mut dom, seen.one("value", ""), "Book club");
+    click(&mut dom, seen.one("aria-label", "Make the group"));
+    let groups = store.groups().unwrap_or_default();
+    assert_eq!(groups.len(), before + 1);
+    assert_eq!(groups[0].name, "Book club");
+    assert!(groups[0].members.is_empty(), "a new group has nobody yet");
+
+    let seen = rebuild_into(&mut dom);
+    let seen = click(&mut dom, seen.one("aria-label", "Edit the group Book club"));
+    type_into(&mut dom, seen.one("value", ""), ADDED);
+    click(&mut dom, seen.one("aria-label", "Add to the group"));
+    let group = store.groups().unwrap_or_default().remove(0);
+    assert_eq!(group.members, [format!("mailto:{ADDED}")]);
+    let page = dioxus_ssr::render(&dom);
+    assert!(
+        page.contains(&format!("Dara Quinn &#60;{ADDED}&#62;")),
+        "{page}"
+    );
+}

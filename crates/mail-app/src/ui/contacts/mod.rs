@@ -1,12 +1,14 @@
 //! Contacts in the window: the book the composer suggests from, a sheet to look through it, and
 //! the sender card's part in it.
 //!
-//! [`book`] is every question and every write, as functions of a store; the sheet and the card
-//! only draw what it answers. CardDAV sync stays on the command line — it needs a URL and a
+//! [`book`] is every question and every write, as functions of a store, and [`groups`] the
+//! same for contact groups; the sheet and the card only draw what they answer. CardDAV sync stays on the command line — it needs a URL and a
 //! password — and the sheet says so, with the command.
 
 pub(in crate::ui) mod book;
 mod card;
+mod group_rows;
+pub(in crate::ui) mod groups;
 mod sheet;
 
 pub(in crate::ui) use card::ContactPart;
@@ -27,6 +29,8 @@ pub(in crate::ui) fn close(mut shell: Signal<Shell>) {
     crate::ui::host::Host::focus_app();
 }
 
+#[cfg(test)]
+mod groups_tests;
 #[cfg(test)]
 mod sheet_tests;
 #[cfg(test)]

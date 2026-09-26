@@ -8,6 +8,7 @@ mod life;
 mod local_from;
 mod openpgp;
 mod people;
+mod people_groups;
 mod receipt;
 mod render;
 mod smime;
