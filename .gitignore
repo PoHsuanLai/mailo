@@ -4,3 +4,6 @@
 .live-venv/
 __pycache__/
 *.pyc
+# Written by scripts/package.sh flatpak, from Cargo.lock.
+/packaging/flatpak/cargo-sources.json
+/.flatpak-builder/

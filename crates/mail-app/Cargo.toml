@@ -4,6 +4,44 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
+description = "A desktop mail client: IMAP, POP3, JMAP and SMTP over a local SQLite store"
+repository = "https://github.com/PoHsuanLai/mailo"
+authors = ["Po Hsuan Lai <pohsuanlai0208@gmail.com>"]
+
+# Packaging for `cargo deb` and `cargo generate-rpm`, both external tools (`scripts/package.sh`).
+# Metadata only: neither adds a dependency to the build. Asset sources are relative to this
+# crate; `target/release/mailo` is rewritten by both tools to wherever the build put it.
+[package.metadata.deb]
+name = "mailo"
+section = "mail"
+priority = "optional"
+extended-description = """\
+mailo reads and sends mail over IMAP, POP3, JMAP and SMTP, keeps it in a local SQLite store, \
+and draws its window with Blitz and wgpu. Passwords and tokens are kept in the desktop's \
+keyring (the Secret Service)."""
+# fontconfig and the C library, found from the binary by dpkg-shlibdeps. Wayland, X11,
+# xkbcommon and the GPU drivers are opened at run time and are the desktop's.
+depends = "$auto"
+recommends = "xdg-desktop-portal"
+assets = [
+    ["target/release/mailo", "usr/bin/", "755"],
+    ["../../packaging/mailo.desktop", "usr/share/applications/", "644"],
+    ["../../packaging/icons/hicolor/scalable/apps/mailo.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
+    ["../../README.md", "usr/share/doc/mailo/", "644"],
+]
+
+[package.metadata.generate-rpm]
+name = "mailo"
+summary = "A desktop mail client"
+assets = [
+    { source = "target/release/mailo", dest = "/usr/bin/mailo", mode = "755" },
+    { source = "../../packaging/mailo.desktop", dest = "/usr/share/applications/mailo.desktop", mode = "644" },
+    { source = "../../packaging/icons/hicolor/scalable/apps/mailo.svg", dest = "/usr/share/icons/hicolor/scalable/apps/mailo.svg", mode = "644" },
+    { source = "../../README.md", dest = "/usr/share/doc/mailo/README.md", mode = "644", doc = true },
+]
+
+[package.metadata.generate-rpm.recommends]
+xdg-desktop-portal = "*"
 
 [lib]
 name = "mail_app"

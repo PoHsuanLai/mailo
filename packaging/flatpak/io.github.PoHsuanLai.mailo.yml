@@ -1,0 +1,53 @@
+# The Flatpak build of mailo. Built by `scripts/package.sh flatpak`, which first writes
+# `cargo-sources.json` (every crate and git dependency in Cargo.lock, for a build with no network)
+# with flatpak-builder-tools' `flatpak-cargo-generator.py`.
+#
+# Permissions, and why each one:
+#   network                     mail servers, OAuth sign-in, a message's consented remote images
+#   wayland, fallback-x11, ipc  the window (X11 only where there is no Wayland; ipc is for X11)
+#   dri                         wgpu draws the window on the GPU
+#   org.freedesktop.secrets     passwords and tokens live in the keyring (the Secret Service),
+#                               never in a file; the Secret portal is not used, because the
+#                               keyring crate speaks the Secret Service itself
+#   org.freedesktop.Notifications  new-mail notifications from `mailo watch`
+# No filesystem access: attachments, import and export go through the file chooser portal, and
+# printing through the print portal. mailo's own store is under ~/.var/app/<id>/.
+app-id: io.github.PoHsuanLai.mailo
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: mailo
+finish-args:
+  - --share=network
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  - --talk-name=org.freedesktop.secrets
+  - --talk-name=org.freedesktop.Notifications
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+  env:
+    CARGO_HOME: /run/build/mailo/cargo
+    CARGO_NET_OFFLINE: 'true'
+modules:
+  - name: mailo
+    buildsystem: simple
+    build-commands:
+      - cargo --offline build --release --locked -p mail-app --bin mailo
+      - install -Dm755 target/release/mailo /app/bin/mailo
+      # Exported files must carry the app id, so the entry and the icon are renamed to it. The
+      # window's own app id stays `mailo`, which StartupWMClass names.
+      - install -Dm644 packaging/mailo.desktop /app/share/applications/${FLATPAK_ID}.desktop
+      - desktop-file-edit --set-icon=${FLATPAK_ID} /app/share/applications/${FLATPAK_ID}.desktop
+      - install -Dm644 packaging/icons/hicolor/scalable/apps/mailo.svg /app/share/icons/hicolor/scalable/apps/${FLATPAK_ID}.svg
+    sources:
+      - type: dir
+        path: ../..
+        skip:
+          - target
+          - .claude
+          - .flatpak-builder
+      - cargo-sources.json
