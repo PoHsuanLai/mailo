@@ -2,7 +2,8 @@
 //!
 //! The document itself is [`mail_mime::print`], which is pure. This module is the part that
 //! reads the store — which messages, their stored bytes — and the part that writes a file.
-//! The window prints the same [`document`] through its webview.
+//! The window prints the same [`document`]: through its webview on `webview`, and as a PDF
+//! made by quire on `native` (`ui/print/paper.rs`).
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::{Message, MessageId, ThreadId};
@@ -110,6 +111,11 @@ const MAX_STEM: usize = 200;
 /// A slash in a subject is punctuation (`Q1/Q2 figures`), not a directory, so it becomes a
 /// dash before [`crate::attach::safe_name`] would otherwise keep only what follows it.
 pub fn file_name(subject: &str) -> String {
+    file_name_with(subject, "html")
+}
+
+/// [`file_name`] with `extension` (`html`, `pdf`) on the end instead.
+pub fn file_name_with(subject: &str, extension: &str) -> String {
     let flat: String = subject
         .trim()
         .chars()
@@ -126,7 +132,7 @@ pub fn file_name(subject: &str) -> String {
         }
         short.push(c);
     }
-    crate::attach::safe_name(&format!("{}.html", short.trim_end()))
+    crate::attach::safe_name(&format!("{}.{extension}", short.trim_end()))
 }
 
 /// Write `printed` into `dir` under its subject's name, never over a file already there.
@@ -134,8 +140,18 @@ pub fn file_name(subject: &str) -> String {
 /// `create_new` rather than a check and then a write: the name is only free if claiming it
 /// succeeds.
 pub fn write_into(dir: &Path, printed: &Printed) -> Result<PathBuf, String> {
+    write_file_into(dir, &printed.subject, "html", printed.html.as_bytes())
+}
+
+/// [`write_into`] for any printout of `subject`: `bytes`, in a file ending `.{extension}`.
+pub fn write_file_into(
+    dir: &Path,
+    subject: &str,
+    extension: &str,
+    bytes: &[u8],
+) -> Result<PathBuf, String> {
     use std::io::Write as _;
-    let name = file_name(&printed.subject);
+    let name = file_name_with(subject, extension);
     let path = Path::new(&name);
     let stem = path
         .file_stem()
@@ -145,7 +161,7 @@ pub fn write_into(dir: &Path, printed: &Printed) -> Result<PathBuf, String> {
         let candidate = if n == 1 {
             dir.join(&name)
         } else {
-            dir.join(format!("{stem} ({n}).html"))
+            dir.join(format!("{stem} ({n}).{extension}"))
         };
         match std::fs::OpenOptions::new()
             .write(true)
@@ -153,7 +169,7 @@ pub fn write_into(dir: &Path, printed: &Printed) -> Result<PathBuf, String> {
             .open(&candidate)
         {
             Ok(mut file) => {
-                file.write_all(printed.html.as_bytes())
+                file.write_all(bytes)
                     .map_err(|e| format!("{}: {e}", candidate.display()))?;
                 return Ok(candidate);
             }

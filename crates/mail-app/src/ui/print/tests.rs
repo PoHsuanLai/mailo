@@ -1,6 +1,6 @@
 #[cfg(feature = "webview")]
 use super::window::{Heard, Move, Phase, decide};
-use super::{Job, PrintTool, build, job_for, save_into, started};
+use super::{Job, PrintTool, SAVED_AS, build, job_for, save_into, started};
 use crate::ui::app::App;
 use crate::ui::fixtures::{
     ACCOUNT, INSIDE_THE_SHELL, Scripts, chord, click, dispatching, rebuild_into, seeded, work,
@@ -151,13 +151,27 @@ fn save_for_printing_writes_beside_what_is_there_and_says_where() {
     };
     let first = save_into(&store, job, into.path(), &chrono::Utc, now());
     let second = save_into(&store, job, into.path(), &chrono::Utc, now());
-    let one = into.path().join(format!("{SUBJECT}.html"));
-    let two = into.path().join(format!("{SUBJECT} (2).html"));
+    let one = into.path().join(format!("{SUBJECT}.{SAVED_AS}"));
+    let two = into.path().join(format!("{SUBJECT} (2).{SAVED_AS}"));
     assert_eq!(first, format!("Saved for printing to {}", one.display()));
     assert_eq!(second, format!("Saved for printing to {}", two.display()));
-    let written = std::fs::read_to_string(&one).unwrap();
-    assert!(written.contains(CSP) && written.contains(SUBJECT));
-    assert_eq!(written, std::fs::read_to_string(&two).unwrap());
+    #[cfg(feature = "webview")]
+    {
+        let written = std::fs::read_to_string(&one).unwrap();
+        assert!(written.contains(CSP) && written.contains(SUBJECT));
+        assert_eq!(written, std::fs::read_to_string(&two).unwrap());
+    }
+    // The PDF's own text is `pdf_tests.rs`'s; here, only that both are one. Two PDFs of the same
+    // document are not byte for byte the same (each file's `/ID` is its own), so no more.
+    #[cfg(feature = "native")]
+    for path in [&one, &two] {
+        let bytes = std::fs::read(path).unwrap();
+        assert!(
+            bytes.starts_with(b"%PDF-"),
+            "{} is not a PDF",
+            path.display()
+        );
+    }
 }
 
 #[test]

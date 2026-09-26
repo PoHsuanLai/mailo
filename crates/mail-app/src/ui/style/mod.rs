@@ -720,9 +720,9 @@ pub(in crate::ui) mod tests {
                 "{token} leads with {first:?}, which no @font-face declares; shipped: {shipped:?}"
             );
         }
-        // Four families, each in both subsets; Karla and Space Mono in two styles or weights,
-        // Noto Serif upright and italic (quire v0.1.5's serif face).
-        assert_eq!(faces.len(), 14, "{shipped:?}");
+        // The editorial faces (Bricolage Grotesque, Karla, Space Mono, Noto Serif: 14 rules) and
+        // the system faces quire v0.1.10 added (Inter and Inter Display: 6 more).
+        assert_eq!(faces.len(), 20, "{shipped:?}");
     }
 
     #[test]

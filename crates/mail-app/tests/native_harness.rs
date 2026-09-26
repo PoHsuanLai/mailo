@@ -12,11 +12,11 @@
 
 use ds::{Key, Point};
 use ds_native::harness::settle_until;
-use ds_native::{Harness, HarnessConfig, NetPolicy, Viewport};
+use ds_native::{Harness, HarnessConfig, NetPolicy, PrintError, PrintOutcome, Viewport};
 use mail_domain::*;
 use mail_runtime::{Arrival, absorb};
 use mail_store::{SqliteStore, Store};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 const ACCOUNT: AccountId =
@@ -125,22 +125,43 @@ fn open() -> (Harness, tempfile::TempDir) {
 
 /// [`open`], with the store the window writes, for a test to read back.
 fn open_with_store() -> (Harness, tempfile::TempDir, Arc<SqliteStore>) {
+    let (harness, dir, store, _printed) = open_printing(|| Ok(PrintOutcome::Cancelled));
+    (harness, dir, store)
+}
+
+/// What reached the print dialog: each PDF's length, and its title.
+type Printed = Arc<Mutex<Vec<(usize, String)>>>;
+
+/// [`open_with_store`], with a print dialog that records what it was given and answers
+/// `answer`. Every window here has one: none of these tests may open the system's dialog.
+fn open_printing(
+    answer: fn() -> Result<PrintOutcome, PrintError>,
+) -> (Harness, tempfile::TempDir, Arc<SqliteStore>, Printed) {
     let dir = tempfile::tempdir().unwrap();
     let store = seeded(dir.path());
+    let printed = Printed::default();
+    let printer = mail_app::ui::native::Printer::with_dialog({
+        let printed = Arc::clone(&printed);
+        move |pdf, title| {
+            printed.lock().unwrap().push((pdf.len(), title.to_owned()));
+            answer()
+        }
+    });
     let contexts = mail_app::ui::native::contexts(
         Arc::clone(&store),
         mail_app::view::Appearance::default(),
         mail_app::space::Spaces::default(),
         None,
         mail_app::ui::Start::Inbox,
-    );
+    )
+    .with(printer);
     let config = HarnessConfig::new(VIEW)
         .with_net(NetPolicy::Local)
         .with_contexts(contexts);
     let mut harness = Harness::with_config(mail_app::ui::native::root, config);
     // quire's entrances run on a frame's wait after mount.
     harness.advance(ms(300));
-    (harness, dir, store)
+    (harness, dir, store, printed)
 }
 
 /// The subjects of the list's rows, top to bottom, as the document holds them.
@@ -261,7 +282,12 @@ fn a_menu_opens_on_click_and_closes_on_escape() {
         harness.attr(group, "aria-expanded").as_deref(),
         Some("false")
     );
-    assert!(harness.is_focused(".app"), "the keyboard did not come back");
+    // quire hands the keyboard back to the menu's opener when the menu goes (its `HostHandBack`,
+    // quire after v0.1.9, "mailo gaps 7"), rather than to `.app`.
+    assert!(
+        harness.is_focused(group),
+        "the keyboard did not come back to the opener"
+    );
 }
 
 #[test]
@@ -433,16 +459,51 @@ fn ctrl_f_puts_the_keyboard_in_the_find_field_and_escape_gives_it_back() {
     );
 }
 
-#[test]
-fn print_says_it_is_not_here_yet() {
-    let (mut harness, _dir) = open();
-    open_row(&mut harness, 1);
+/// Ctrl P on the first row's conversation, and the toast that says how it ended. The PDF is made
+/// on a blocking thread, so this waits (with time passing) for the toast rather than a frame.
+fn print_first_row(harness: &mut Harness) -> String {
+    open_row(harness, 1);
     harness.chord(&[Key::Ctrl], Key::Char('p'));
-    harness.advance(ms(300));
+    let started = Instant::now();
+    while started.elapsed() < Duration::from_secs(120) {
+        harness.advance(ms(50));
+        if let Some(said) = harness.text_of(".ds-toast-text") {
+            return said;
+        }
+    }
+    panic!("Ctrl P put up no toast:\n{}", harness.html());
+}
+
+#[test]
+fn print_hands_the_conversation_to_the_print_dialog_as_a_pdf() {
+    let (mut harness, _dir, _store, printed) = open_printing(|| Ok(PrintOutcome::Cancelled));
+    let said = print_first_row(&mut harness);
+    assert_eq!(said, "Printing cancelled; nothing was printed.");
+    let printed = printed.lock().unwrap().clone();
     assert_eq!(
-        harness.text_of(".ds-toast-text").as_deref(),
-        Some("Printing is not available in this window yet; Save for printing works.")
+        printed.len(),
+        1,
+        "the dialog was not asked once: {printed:?}"
     );
+    let (len, title) = &printed[0];
+    assert_eq!(title, INBOX[0].1);
+    assert!(*len > 1_000, "a {len}-byte printout");
+}
+
+#[test]
+fn print_without_a_dialog_says_where_the_pdf_opened() {
+    let (mut harness, _dir, _store, printed) = open_printing(|| {
+        Ok(PrintOutcome::Opened(std::path::PathBuf::from(
+            "/tmp/Flight-to-the-conference-1.pdf",
+        )))
+    });
+    let said = print_first_row(&mut harness);
+    assert_eq!(
+        said,
+        "There is no print dialog here, so the printout opened in your PDF viewer to print \
+         from there: /tmp/Flight-to-the-conference-1.pdf"
+    );
+    assert_eq!(printed.lock().unwrap().len(), 1);
 }
 
 #[test]

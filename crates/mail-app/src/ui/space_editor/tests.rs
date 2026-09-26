@@ -120,9 +120,12 @@ async fn the_editor_opens_on_the_spaces_own_choices() {
         2,
         "the Work Space has two dots: {page}"
     );
+    let grain = page
+        .find("aria-label=\"Grain\"")
+        .and_then(|at| page[..at].rfind('<').map(|open| &page[open..at]));
     assert!(
-        page.contains("class=\"ds-slider\" role=\"slider\" tabindex=\"0\" aria-label=\"Grain\""),
-        "grain is not quire's Slider: {page}"
+        grain.is_some_and(|tag| tag.starts_with("<div class=\"ds-slider\" role=\"slider\"")),
+        "grain is not quire's Slider: {grain:?}"
     );
 }
 
@@ -230,6 +233,26 @@ async fn render_the_space_editor_to_a_file() {
         crate::ui::fixtures::write_page(
             &format!("space-editor{suffix}"),
             &crate::ui::fixtures::page(&dioxus_ssr::render(&dom), ""),
+        );
+    }
+}
+
+#[tokio::test]
+async fn the_frame_follows_the_typeface_setting() {
+    // mailo speaks in the desktop's typeface, not a pinned one: `appearance.typeface` decides,
+    // and a first run is the system face.
+    for (typeface, stamped) in [
+        (ds::Typeface::System, "system"),
+        (ds::Typeface::Editorial, "editorial"),
+    ] {
+        let mut environment = ds_settings::Environment::default();
+        environment.settings.appearance.typeface = typeface;
+        let (dom, _, _built, _) = opened_with(environment);
+        let page = dioxus_ssr::render(&dom);
+        assert_eq!(
+            root_attr(&page, "data-typeface").as_deref(),
+            Some(stamped),
+            "{typeface:?} did not reach the frame"
         );
     }
 }

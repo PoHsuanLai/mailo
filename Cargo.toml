@@ -19,7 +19,7 @@ license = "MIT OR Apache-2.0"
 # dependency — `fs4` or `rustix` — for a two-line call that std now has, on a release from
 # August 2025. 1.91 is what quire, the design system `mail-app` draws with, declares. Raised
 # deliberately rather than by drift.
-rust-version = "1.91"
+rust-version = "1.92"
 
 [workspace.dependencies]
 latchkey    = { path = "crates/latchkey" }

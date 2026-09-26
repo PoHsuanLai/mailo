@@ -59,6 +59,7 @@ pub use launch::run;
 pub mod native {
     pub use super::launch::native::{contexts, root};
     pub use super::original::{Browse, Consent, Fetch, FetchImage, Got, Original};
+    pub use super::print::Printer;
     pub use super::reading::OriginalFrame;
 }
 

@@ -716,7 +716,7 @@ fn environment() -> Environment {
 /// Its own component so a Space change re-renders only the root's attributes and frame
 /// layers, not `App`: the children are `App`'s, unchanged. The Space's look is the frame; its
 /// motion is the root's motion level, since quire's `SpaceLook` has none (reported to quire);
-/// the rest of the appearance is `appearance.toml`'s. A switch or an edit only writes the
+/// the rest of the appearance, the typeface included, is `appearance.toml`'s. A switch or an edit only writes the
 /// Spaces, and `Ds` cross-fades the frame's layers itself.
 #[component]
 fn Frame(spaces: Signal<Spaces>, children: Element) -> Element {
@@ -730,6 +730,7 @@ fn Frame(spaces: Signal<Spaces>, children: Element) -> Element {
             look: space.look,
             material: Material::Window,
             tint_alpha: Some(environment.tint_alpha()),
+            typeface: Some(environment.settings.appearance.typeface()),
             {children}
         }
     }
@@ -785,9 +786,11 @@ mod tests {
             markup.contains("class=\"command\""),
             "it is not set apart from the prose, so it reads as italic advice:\n{markup}"
         );
+        // The words on the page, not in the stylesheets it carries (quire's CSS has comments).
+        let shown = without_styles(&markup);
         assert!(
-            !markup.contains("Nothing here"),
-            "it still says the thing that told a new user nothing:\n{markup}"
+            !shown.contains("Nothing here"),
+            "it still says the thing that told a new user nothing:\n{shown}"
         );
     }
 
@@ -1272,6 +1275,19 @@ mod tests {
             srcdoc,
             "peek replaced the iframe's document"
         );
+    }
+    /// `page` without its `<style>` elements.
+    fn without_styles(page: &str) -> String {
+        let mut shown = String::new();
+        let mut rest = page;
+        while let Some(open) = rest.find("<style>") {
+            shown.push_str(&rest[..open]);
+            rest = rest[open..]
+                .find("</style>")
+                .map_or("", |close| &rest[open + close + "</style>".len()..]);
+        }
+        shown.push_str(rest);
+        shown
     }
 }
 
