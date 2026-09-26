@@ -36,7 +36,7 @@ pub use inline::{INLINE_BUDGET, embed_inline, embeddable};
 pub use mdn::{OriginalHeaders, ReceiptAsk, Reporting, ReturnPath, receipt, receipt_asked};
 pub use parse::{Parsed, ParsedPart, RemotePart, parse, parse_reconstructed};
 pub use print::{Options, Pages, Remote, Sheet, print, print_with, remote_images};
-pub use reconstruct::{decode_part, reconstruct, sections_for};
+pub use reconstruct::{decode_part, left_on_server, reconstruct, sections_for};
 pub use sanitize::{RemoteImages, SafeHtml, SanitizePolicy, sanitize};
 pub use script::{Script, script_of};
 pub use stamp::restamp;
