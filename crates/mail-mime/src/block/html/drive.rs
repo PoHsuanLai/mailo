@@ -73,7 +73,7 @@ impl<'a> Builder<'a> {
         frame.header = name == "th";
         frame.raw = kind == Kind::Pre;
         if kind == Kind::Anchor {
-            frame.link = attr(tag, "href").and_then(SafeUrl::parse);
+            frame.link = attr(tag, "href").and_then(SafeUrl::link);
             if frame.link.is_some() {
                 self.signals.links += 1;
             }

@@ -4,8 +4,9 @@
 //! only reports the click), so a stranger's page is never loaded into the reader. The click
 //! reaches mailo, which opens the address in the system browser, the way a link in the Reader
 //! view opens: `http`, `https` and `mailto` only, through the same check the Reader view's links
-//! are built with ([`mail_mime::SafeUrl`]: no other scheme, no control or bidi characters).
-//! Anything else (`file:`, `javascript:`, a `data:` document) does nothing.
+//! are built with ([`mail_mime::SafeUrl::link`]: no other scheme, no control or bidi characters,
+//! and without the query parameters that only tell the sender who clicked). Anything else
+//! (`file:`, `javascript:`, a `data:` document) does nothing.
 //!
 //! The pointer coming onto a link in a frame, or leaving it, is reported once per crossing with
 //! the anchor's own text and where it goes. mailo reads the two as it reads a Reader view link
@@ -74,7 +75,7 @@ pub(crate) fn frame_links(
     pill: watch::Sender<Option<Pointed>>,
 ) -> FrameLinks {
     FrameLinks::intercept(move |link: FrameLink| {
-        if let Some(url) = SafeUrl::parse(&link.href) {
+        if let Some(url) = SafeUrl::link(&link.href) {
             browse.open(url.as_str());
         }
     })
@@ -82,7 +83,8 @@ pub(crate) fn frame_links(
         let pointed = match hover.phase {
             HoverPhase::Enter => Some(Pointed {
                 text: hover.text,
-                href: hover.href,
+                // Where a click would go: the pill names the address `browse` would open.
+                href: SafeUrl::link(&hover.href).map_or(hover.href, |url| url.as_str().to_owned()),
             }),
             HoverPhase::Leave => None,
         };

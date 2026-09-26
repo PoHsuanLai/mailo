@@ -35,12 +35,13 @@ const OFFER: &str = "https://shop.example.test/autumn?ref=mail";
 /// A laid-out newsletter: tables, two remote images, an inline one (`cid:`) and a link. The
 /// images carry no size or alt, so one that did not load lays out 0 wide. The sanitizer strips
 /// `class` (F146), so the frame's elements are found by where they sit: [`LOGO`], [`HERO`],
-/// [`BADGE`], [`LINK`], and [`LIAR`], a link whose text names somewhere it does not go.
+/// [`BADGE`], [`LINK`], and [`LIAR`], a link whose text names somewhere it does not go. [`LINK`]
+/// carries tracking parameters beside its own `ref`; a click opens [`OFFER`], without them.
 const NEWSLETTER: &str = r##"<table width="600" cellpadding="0" cellspacing="0" bgcolor="#f4efe6"><tr><td>
 <table width="100%"><tr>
 <td><img src="cid:logo@shop"></td>
 <td align="right"><font color="#7a5c3a">Autumn letter &middot; No. 14</font>
-<a href="https://shop.example.test/autumn?ref=mail">See the collection</a>
+<a href="https://shop.example.test/autumn?ref=mail&amp;utm_source=letter&amp;utm_medium=email&amp;fbclid=IwAR0">See the collection</a>
 <a href="https://g00gle-security.xyz/verify">google.com</a></td>
 </tr></table>
 <h1>The autumn collection is here</h1>
@@ -399,6 +400,7 @@ fn the_inline_image_shows_without_a_request() {
 }
 
 /// (e) A link in the frame opens in the browser, through mailo, and the frame stays as it was.
+/// What opens is the link without its tracking parameters, and with its own.
 #[test]
 fn a_link_in_the_frame_opens_in_the_browser_and_the_frame_stays() {
     let mut window = newsletter_original();
