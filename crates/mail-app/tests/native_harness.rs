@@ -475,8 +475,8 @@ fn ctrl_f_puts_the_keyboard_in_the_find_field_and_escape_gives_it_back() {
 
 // The keyboard when what had it goes away. quire's `FocusFallback::Ancestor` (its "mailo gaps
 // 7") gives it to the opener or the nearest focusable ancestor when the focused element is
-// removed, and mailo keeps no re-focus of its own for that. What quire does not reach, a click a
-// quire component keeps to itself, is `Host::press_ended`'s (`ui/host/native.rs`).
+// removed, and a quire control that keeps its click to itself takes the keyboard (v0.1.11).
+// mailo keeps no re-focus of its own for either.
 
 /// A folder the seeded account holds: an IMAP account's, so the sidebar draws a Folders section.
 const PROJECTS: &str = "Projects";
@@ -638,9 +638,9 @@ fn without_quire_s_fallback_a_removal_leaves_the_keyboard_nowhere() {
     );
 }
 
-/// The third row's own Archive button pressed: quire's `HoverStrip` keeps the click to itself,
-/// so it never reaches quire's click-focus fallback, and Blitz leaves the keyboard nowhere. Then
-/// `e` still archives the open conversation (`Host::press_ended`).
+/// The third row's own Archive button pressed: quire's `HoverStrip` keeps the click to itself
+/// and gives the pressed button the keyboard (quire v0.1.11), and the row it removes hands it
+/// on. Then `e` still archives the open conversation.
 #[test]
 fn a_press_on_a_row_s_strip_leaves_the_keyboard_working() {
     let (mut harness, _dir) = open();
