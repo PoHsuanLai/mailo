@@ -1,7 +1,8 @@
 //! Where the window's look is remembered.
 //!
-//! Config, not mail: it lives under `$XDG_CONFIG_HOME/mailo/` (`~/.config/mailo/` when unset),
-//! never in the mail database. A cosmetic choice must not be a write to the file that holds
+//! Config, not mail: it lives under `$XDG_CONFIG_HOME/mailo/` (`~/.config/mailo/` when unset)
+//! on Linux and in the system's per-user folder on macOS and Windows, never in the mail
+//! database. A cosmetic choice must not be a write to the file that holds
 //! someone's mail, or be able to fail a migration.
 //!
 //! Three files, each with one owner:
@@ -17,6 +18,7 @@
 
 use crate::view::{Appearance, Marks, Motion, Theme};
 use ds_settings::{AppName, FileName, Format, Settings};
+use mail_runtime::places::{self, Place};
 use serde::Deserialize;
 use serde::de::Deserializer;
 use std::path::{Path, PathBuf};
@@ -149,8 +151,18 @@ pub(crate) fn write_json(
     Ok(())
 }
 
-/// `$XDG_CONFIG_HOME/mailo`, else `$HOME/.config/mailo`, else None.
+/// mailo's config directory: `$XDG_CONFIG_HOME/mailo`, else `$HOME/.config/mailo`, on Linux;
+/// the system's per-user folder on macOS and Windows (`mail_runtime::places`); else None.
 pub fn config_dir() -> Option<PathBuf> {
+    places::dir(Place::Config)
+}
+
+/// Where quire reads and watches mailo's `appearance.toml`: by the XDG rule on every platform
+/// (`ds_settings::config_dir`). On Linux this is [`config_dir`]. On macOS it is
+/// `~/.config/mailo`, beside nothing else of mailo's, and on Windows, where `HOME` is not
+/// usually set, it is None and the window's look is quire's default. quire owns that rule, so
+/// the import that creates the file ([`quire`]) is handed this directory and not mailo's.
+pub fn quire_dir() -> Option<PathBuf> {
     ds_settings::config_dir(AppName::MAILO)
 }
 
@@ -164,20 +176,22 @@ pub struct WindowDirs {
     pub state: PathBuf,
 }
 
-/// `$XDG_STATE_HOME/mailo`, else `$HOME/.local/state/mailo`, else None.
+/// `$XDG_STATE_HOME/mailo`, else `$HOME/.local/state/mailo`, on Linux; the local
+/// application data folder on macOS and Windows; else None.
 ///
 /// Today lives here, not beside appearance: it is a list of what was opened,
 /// and it expires, so it is state rather than a preference.
 pub fn state_dir() -> Option<PathBuf> {
-    ds_settings::state_dir(AppName::MAILO)
+    places::dir(Place::State)
 }
 
-/// `$XDG_CACHE_HOME/mailo`, else `$HOME/.cache/mailo`, else None.
+/// `$XDG_CACHE_HOME/mailo`, else `$HOME/.cache/mailo`, on Linux; the system's cache folder
+/// on macOS and Windows; else None.
 ///
 /// Provider icons live here, under `providers/`. They are not config and not the
 /// mail database: a missing cache is the letter on the chip, not a lost account.
 pub fn cache_dir() -> Option<PathBuf> {
-    ds_settings::cache_dir(AppName::MAILO)
+    places::dir(Place::Cache)
 }
 
 #[cfg(test)]
@@ -444,11 +458,16 @@ mod tests {
 
     #[test]
     fn the_directories_are_mailos() {
-        // The XDG resolution itself moved to `ds_settings::dirs`, with its tests; what is
-        // left to hold here is that mailo asks for its own name.
-        for dir in [super::config_dir(), super::state_dir(), super::cache_dir()]
-            .into_iter()
-            .flatten()
+        // The resolution itself is `mail_runtime::places`, with its tests; what is left to
+        // hold here is that mailo asks for its own name, of both rules.
+        for dir in [
+            super::config_dir(),
+            super::quire_dir(),
+            super::state_dir(),
+            super::cache_dir(),
+        ]
+        .into_iter()
+        .flatten()
         {
             assert_eq!(
                 dir.file_name().and_then(|n| n.to_str()),

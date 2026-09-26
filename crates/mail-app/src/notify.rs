@@ -61,7 +61,10 @@ pub fn save(dir: &Path, setting: Setting) -> Result<(), String> {
 /// change — saying so beats pretending the change took.
 pub fn command(dir: Option<&Path>, set: Option<Setting>) -> Result<String, String> {
     let Some(dir) = dir else {
-        return Err("no config directory (neither XDG_CONFIG_HOME nor HOME is set)".to_owned());
+        return Err(
+            "no config directory for this user (on Linux, neither XDG_CONFIG_HOME nor HOME is set)"
+                .to_owned(),
+        );
     };
     if let Some(setting) = set {
         save(dir, setting)?;

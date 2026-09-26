@@ -145,6 +145,9 @@ impl OAuthRegistry {
             use std::os::unix::fs::PermissionsExt as _;
             let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
         }
+        // Windows has no mode bits. The file sits in the user's own AppData, whose inherited
+        // access list already admits only that user, SYSTEM and Administrators; narrowing it
+        // further would take the Win32 security API, which is `unsafe` this workspace forbids.
         Ok(())
     }
 
@@ -157,12 +160,11 @@ impl OAuthRegistry {
     }
 }
 
-/// `$XDG_CONFIG_HOME/mailo/oauth.json`, following the same base-directory spec as the database.
+/// `oauth.json` in mailo's config directory (`$XDG_CONFIG_HOME/mailo` on Linux; see [`places`]).
+///
+/// [`places`]: crate::places
 pub fn default_path() -> Option<PathBuf> {
-    let base = std::env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))?;
-    Some(base.join("mailo").join("oauth.json"))
+    Some(crate::places::dir(crate::places::Place::Config)?.join("oauth.json"))
 }
 
 /// The HTTP client a token endpoint is reached with.

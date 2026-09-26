@@ -15,6 +15,7 @@ pub mod jmap;
 pub mod loopback;
 pub mod oauth;
 pub mod pgp;
+pub mod places;
 pub mod renewal;
 pub mod reparse;
 pub mod secrets;

@@ -173,6 +173,10 @@ pub(super) fn write(path: &Path, text: &str) -> Result<(), String> {
     options.write(true).create(true).truncate(true);
     #[cfg(unix)]
     std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    // Windows has no mode bits: a new file takes the access list of the folder it is put in,
+    // which under the user's profile admits only them, SYSTEM and Administrators. Setting one of
+    // its own needs the Win32 security API, which is `unsafe` this workspace forbids; the sheet
+    // says to keep a secret key offline either way.
     use std::io::Write as _;
     options
         .open(path)

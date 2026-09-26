@@ -24,14 +24,24 @@ pub(in crate::ui) fn expand(typed: &str, home: Option<&OsStr>) -> PathBuf {
     let typed = typed.trim();
     match (typed, home) {
         ("~", Some(home)) => PathBuf::from(home),
-        (_, Some(home)) if typed.starts_with("~/") => PathBuf::from(home).join(&typed[2..]),
+        // `~/`, and on Windows `~\` too: whatever this platform takes as a separator.
+        (_, Some(home))
+            if typed.starts_with('~') && typed[1..].starts_with(std::path::is_separator) =>
+        {
+            PathBuf::from(home).join(&typed[2..])
+        }
         _ => PathBuf::from(typed),
     }
 }
 
 /// [`expand`] against this user's home directory.
 pub(in crate::ui) fn expand_here(typed: &str) -> PathBuf {
-    expand(typed, std::env::var_os("HOME").as_deref())
+    expand(
+        typed,
+        mail_runtime::places::home()
+            .as_deref()
+            .map(std::path::Path::as_os_str),
+    )
 }
 
 /// What a typed path holds, as the sheet says it.

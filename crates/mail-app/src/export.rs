@@ -373,6 +373,8 @@ fn make_maildir(dir: &Path) -> Result<(), String> {
 fn host() -> String {
     std::env::var("HOSTNAME")
         .ok()
+        // What Windows calls it; it has no `/etc/hostname` either.
+        .or_else(|| std::env::var("COMPUTERNAME").ok())
         .or_else(|| {
             std::fs::read_to_string("/etc/hostname")
                 .ok()

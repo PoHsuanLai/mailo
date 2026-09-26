@@ -388,11 +388,17 @@ mod where_it_goes {
 
     #[test]
     fn the_desktops_own_download_directory_wins() {
-        let named = os("/tmp/somewhere-else");
+        // Absolute as this platform counts it: Windows wants a drive for that.
+        let elsewhere = if cfg!(windows) {
+            r"C:\somewhere-else"
+        } else {
+            "/tmp/somewhere-else"
+        };
+        let named = os(elsewhere);
         let home = os("/home/nobody");
         assert_eq!(
             attach::downloads_from(Some(&named), Some(&home)),
-            std::path::PathBuf::from("/tmp/somewhere-else")
+            std::path::PathBuf::from(elsewhere)
         );
     }
 

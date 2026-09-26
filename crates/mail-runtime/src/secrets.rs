@@ -1,14 +1,18 @@
 //! Where passwords and tokens live: the platform keyring, never SQLite.
 
+mod chunks;
+
 use crate::RuntimeError;
+use chunks::{Limit, Slots};
+use keyring_core::CredentialStore;
 use mail_domain::{Credential, SecretKey, SecretPurpose};
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 /// A store of credentials.
 ///
 /// A trait because the tests must not touch the user's real keyring, and because a headless
-/// machine may have no Secret Service at all.
+/// machine may have no keyring at all.
 pub trait Secrets: Send + Sync {
     fn get(&self, key: &SecretKey) -> Result<Credential, RuntimeError>;
     fn put(&self, key: &SecretKey, value: &Credential) -> Result<(), RuntimeError>;
@@ -31,18 +35,17 @@ fn entry_name(key: &SecretKey) -> String {
     format!("{}:{}", key.account, purpose)
 }
 
-/// The platform keyring — Secret Service on Linux.
+/// The platform keyring: the Secret Service on Linux and the BSDs, the login keychain on macOS,
+/// the Credential Manager on Windows. Which one is chosen by target in `Cargo.toml` and in
+/// [`open`] below, and nowhere else.
 #[derive(Debug, Default)]
 pub struct KeyringSecrets;
 
 impl Secrets for KeyringSecrets {
     fn get(&self, key: &SecretKey) -> Result<Credential, RuntimeError> {
         let name = entry_name(key);
-        let stored = off_runtime(move || {
-            keyring::Entry::new(SERVICE, &name)
-                .and_then(|entry| entry.get_password())
-                .map_err(|e| RuntimeError::Secrets(e.to_string()))
-        })?;
+        let stored = off_runtime(move || chunks::get(&Keyring, &name))?
+            .ok_or_else(|| RuntimeError::Secrets("no such credential".to_owned()))?;
         // JSON rather than a bare string so an OAuth credential keeps its expiry and refresh
         // token. The keyring holds one opaque value per entry either way.
         serde_json::from_str(&stored)
@@ -53,35 +56,116 @@ impl Secrets for KeyringSecrets {
         let name = entry_name(key);
         let encoded = serde_json::to_string(value)
             .map_err(|e| RuntimeError::Secrets(format!("cannot encode credential: {e}")))?;
-        off_runtime(move || {
-            keyring::Entry::new(SERVICE, &name)
-                .and_then(|entry| entry.set_password(&encoded))
-                .map_err(|e| RuntimeError::Secrets(e.to_string()))
-        })
+        off_runtime(move || chunks::put(&Keyring, &name, &encoded, LIMIT))
     }
 
     fn forget(&self, key: &SecretKey) -> Result<(), RuntimeError> {
         let name = entry_name(key);
-        off_runtime(move || {
-            let entry = keyring::Entry::new(SERVICE, &name)
-                .map_err(|e| RuntimeError::Secrets(e.to_string()))?;
-            match entry.delete_credential() {
-                Ok(()) => Ok(()),
-                // Already gone is the state we wanted.
-                Err(keyring::Error::NoEntry) => Ok(()),
-                Err(e) => Err(RuntimeError::Secrets(e.to_string())),
-            }
-        })
+        off_runtime(move || chunks::forget(&Keyring, &name))
     }
 }
 
+/// How much one entry holds: 2560 bytes of UTF-16 in the Credential Manager. The Secret Service
+/// and the Keychain have no limit a credential meets, so there every value is one entry, as it
+/// always was.
+#[cfg(windows)]
+const LIMIT: Limit = Limit::Utf16Units(1280);
+#[cfg(not(windows))]
+const LIMIT: Limit = Limit::None;
+
+/// This platform's credential store, as [`chunks`] reads and writes it.
+struct Keyring;
+
+impl Keyring {
+    fn entry(name: &str) -> Result<keyring_core::Entry, RuntimeError> {
+        store()?.build(SERVICE, name, None).map_err(refused)
+    }
+}
+
+impl Slots for Keyring {
+    fn read(&self, name: &str) -> Result<Option<String>, RuntimeError> {
+        match Keyring::entry(name)?.get_password() {
+            Ok(value) => Ok(Some(value)),
+            Err(keyring_core::Error::NoEntry) => Ok(None),
+            Err(e) => Err(refused(e)),
+        }
+    }
+
+    fn write(&self, name: &str, value: &str) -> Result<(), RuntimeError> {
+        Keyring::entry(name)?.set_password(value).map_err(refused)
+    }
+
+    fn delete(&self, name: &str) -> Result<(), RuntimeError> {
+        match Keyring::entry(name)?.delete_credential() {
+            // Already gone is the state we wanted.
+            Ok(()) | Err(keyring_core::Error::NoEntry) => Ok(()),
+            Err(e) => Err(refused(e)),
+        }
+    }
+}
+
+fn refused(e: keyring_core::Error) -> RuntimeError {
+    RuntimeError::Secrets(e.to_string())
+}
+
+/// The store, opened on first use and kept.
+///
+/// A store that could not be opened is tried again on the next use, not remembered as missing:
+/// a Secret Service that was not up when the first sync ran (a session whose keyring daemon
+/// starts late) is up for the second.
+fn store() -> Result<Arc<CredentialStore>, RuntimeError> {
+    static OPENED: Mutex<Option<Arc<CredentialStore>>> = Mutex::new(None);
+    let mut opened = OPENED
+        .lock()
+        .map_err(|_| RuntimeError::Secrets("the keyring was poisoned by a panic".to_owned()))?;
+    if let Some(store) = opened.as_ref() {
+        return Ok(store.clone());
+    }
+    let store = open()
+        .map_err(|e| RuntimeError::Secrets(format!("no keyring to keep passwords in: {e}")))?;
+    *opened = Some(store.clone());
+    Ok(store)
+}
+
+/// Linux and the BSDs: the Secret Service, which GNOME Keyring, KWallet and KeePassXC provide.
+#[cfg(all(
+    unix,
+    not(any(target_os = "macos", target_os = "ios", target_os = "android"))
+))]
+fn open() -> keyring_core::Result<Arc<CredentialStore>> {
+    Ok(zbus_secret_service_keyring_store::Store::new()?)
+}
+
+/// macOS: the user's login keychain.
+#[cfg(target_os = "macos")]
+fn open() -> keyring_core::Result<Arc<CredentialStore>> {
+    Ok(apple_native_keyring_store::keychain::Store::new()?)
+}
+
+/// Windows: the Credential Manager, as generic credentials named `<entry>.mailo`.
+#[cfg(windows)]
+fn open() -> keyring_core::Result<Arc<CredentialStore>> {
+    Ok(windows_native_keyring_store::Store::new()?)
+}
+
+#[cfg(not(any(
+    windows,
+    target_os = "macos",
+    all(
+        unix,
+        not(any(target_os = "macos", target_os = "ios", target_os = "android"))
+    )
+)))]
+compile_error!("mailo keeps credentials in the platform keyring, and knows none for this target");
+
 /// Run `work` on a thread of its own and wait for it.
 ///
-/// The keyring reaches the Secret Service through zbus's blocking API, and a build that turns on
-/// zbus's `tokio` feature anywhere (quire's settings crate does) makes that API start a Tokio
-/// runtime of its own for each call. Starting one on a thread already driving a runtime panics,
-/// and the keyring is read from inside every sync's runtime. A plain thread drives none, whichever
-/// executor zbus was built for.
+/// On Linux the keyring reaches the Secret Service through zbus's blocking API, and a build that
+/// turns on zbus's `tokio` feature anywhere (quire's settings crate does) makes that API start a
+/// Tokio runtime of its own for each call. Starting one on a thread already driving a runtime
+/// panics, and the keyring is read from inside every sync's runtime. A plain thread drives none,
+/// whichever executor zbus was built for. The Keychain and the Credential Manager are plain
+/// blocking calls, which a thread of their own keeps off the runtime's workers as well.
 pub fn off_runtime<T: Send>(work: impl FnOnce() -> T + Send) -> T {
     std::thread::scope(|scope| match scope.spawn(work).join() {
         Ok(done) => done,
