@@ -220,6 +220,7 @@ fn create_appears_only_for_a_new_name_and_checks_follow_the_thread() {
         snooze: Snooze::Inactive,
         pin: Pin::Unpinned,
         mute: Mute::Unmuted,
+        follow_up: mail_domain::FollowUp::Inactive,
     };
     let worn = super::label_items(&known, &summary, "");
     assert!(

@@ -8,6 +8,7 @@ mod add_account;
 mod app;
 mod brand;
 mod checks;
+mod clock;
 mod command;
 mod compose;
 mod contacts;
@@ -17,6 +18,7 @@ mod destroy;
 mod field;
 mod files;
 mod folder_open;
+mod follow_up;
 mod frame;
 mod history;
 mod host;
@@ -68,7 +70,9 @@ pub use launch::run;
 /// The window on Blitz, for a test to drive through `ds_native::Harness`.
 pub mod native {
     pub use super::brand::BrandCache;
+    pub use super::clock::WallClock;
     pub use super::compose::Dictionaries;
+    pub use super::follow_up::Notices;
     pub use super::launch::native::{contexts, root};
     pub use super::original::{Browse, Consent, Fetch, FetchImage, Got, Original};
     pub use super::print::Printer;

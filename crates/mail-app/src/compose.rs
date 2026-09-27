@@ -1276,6 +1276,8 @@ pub fn unsend(store: &SqliteStore, draft: DraftId, now: DateTime<Utc>) -> Result
             },
         )
         .map_err(|e| e.to_string())?;
+    // A reminder was for this send, and this send is not happening.
+    crate::follow_up::release(store, back.id)?;
     Ok(back)
 }
 

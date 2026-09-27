@@ -132,6 +132,7 @@ mod tests {
             snooze: Snooze::Inactive,
             pin: Pin::Unpinned,
             mute: Mute::Unmuted,
+            follow_up: mail_domain::FollowUp::Inactive,
         }
     }
 

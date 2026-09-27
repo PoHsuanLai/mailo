@@ -43,6 +43,12 @@ pub enum Source {
     /// The whole [`View`] rather than its filter, because the rest of it is what makes it a
     /// view: [`Shell::grouping`] and [`hover_in`] read it while it is the place shown.
     Saved(Box<View>),
+    /// The conversations with a follow-up reminder, soonest due first ([`crate::follow_up`]).
+    ///
+    /// Not a `Filter`, for the reason drafts are not: whether a reminder still stands is decided
+    /// on the conversation's messages and the user's own addresses, and the domain's filters see
+    /// only the summary. The store lists them ([`mail_store::Store::follow_ups`]).
+    Waiting,
 }
 
 /// The filter a mailbox place lists.
@@ -149,6 +155,9 @@ pub fn default_places() -> Vec<Place> {
         ("Spam", source_for(MailboxRole::Spam)),
         ("Trash", source_for(MailboxRole::Trash)),
         ("Pinned", Source::Mail(Filter::Pinned)),
+        // Last, so every place before it keeps the index it had: conversations the user is
+        // waiting on an answer to, which come back to the inbox if none arrives.
+        ("Waiting", Source::Waiting),
     ]
     .into_iter()
     .map(|(name, source)| Place {
@@ -233,7 +242,7 @@ pub fn saved_place(view: &View) -> Place {
 pub fn saved_of(place: &Place) -> Option<&View> {
     match &place.source {
         Source::Saved(view) => Some(view),
-        Source::Mail(_) | Source::Drafts => None,
+        Source::Mail(_) | Source::Drafts | Source::Waiting => None,
     }
 }
 
@@ -255,7 +264,8 @@ pub fn badge_filter(source: &Source) -> Option<Filter> {
             view.filter.clone(),
             Filter::Read(ReadState::Unread),
         ])),
-        Source::Drafts => None,
+        // Nothing in it is news: the user wrote the last word and is waiting for someone else's.
+        Source::Drafts | Source::Waiting => None,
     }
 }
 
@@ -945,7 +955,7 @@ impl Shell {
                 // Reachable only if a caller asks for a query while Drafts is selected.
                 // `listing` is the method that knows the difference; this stays total rather
                 // than panicking, and `All` is the least surprising thing to show.
-                Some(Source::Drafts) | None => Filter::All,
+                Some(Source::Drafts) | Some(Source::Waiting) | None => Filter::All,
             }
         } else {
             crate::query::parse_with(needle, &chrono::Local, &crate::query::named(&self.labels))
@@ -987,15 +997,22 @@ impl Shell {
     /// searching is global here, and a user who types into it is looking for a message, not
     /// filtering the drafts they can already see.
     pub fn listing(&self, limit: u32) -> Listing {
-        if self.search.trim().is_empty()
-            && matches!(
-                self.places.get(self.selected).map(|p| &p.source),
-                Some(Source::Drafts)
-            )
-        {
-            return Listing::Drafts;
+        if !self.search.trim().is_empty() {
+            return Listing::Threads(self.query(limit));
         }
-        Listing::Threads(self.query(limit))
+        match self.places.get(self.selected).map(|p| &p.source) {
+            Some(Source::Drafts) => Listing::Drafts,
+            Some(Source::Waiting) => Listing::Waiting {
+                scope: self.account_filter(),
+            },
+            Some(Source::Mail(filter)) if *filter == place_filter(MailboxRole::Inbox) => {
+                Listing::Inbox {
+                    query: self.query(limit),
+                    scope: self.account_filter(),
+                }
+            }
+            _ => Listing::Threads(self.query(limit)),
+        }
     }
 
     /// Narrow `filter` to the pressed account tile, or to the Space when it names accounts.
@@ -1459,6 +1476,7 @@ pub fn op_for(kind: OpKind) -> Option<Op> {
         | OpKind::Snooze
         | OpKind::Pin
         | OpKind::Mute
+        | OpKind::FollowUp
         | OpKind::Reply
         | OpKind::ReplyAll
         | OpKind::Forward => None,
@@ -1537,8 +1555,18 @@ pub fn synced(result: Result<String, String>) -> SyncState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Listing {
     Threads(Query),
+    /// The inbox: its query, under the conversations whose follow-up reminder came back with no
+    /// reply, on the accounts `scope` narrows to ([`crate::follow_up::returned`]).
+    Inbox {
+        query: Query,
+        scope: Option<Filter>,
+    },
     /// The drafts table, which no `Query` can express.
     Drafts,
+    /// The conversations waiting on a reply, on the accounts `scope` narrows to.
+    Waiting {
+        scope: Option<Filter>,
+    },
 }
 
 /// What the reader should display for one message.
@@ -1767,6 +1795,7 @@ mod tests {
             snooze: Snooze::Inactive,
             pin: Pin::Unpinned,
             mute: Mute::Unmuted,
+            follow_up: mail_domain::FollowUp::Inactive,
         };
         tweak(&mut s);
         s
@@ -2327,7 +2356,7 @@ mod listing_tests {
             let mut shell = Shell::default();
             shell.select(index);
             assert!(
-                matches!(shell.listing(50), Listing::Threads(_)),
+                !matches!(shell.listing(50), Listing::Drafts),
                 "{} stopped listing threads",
                 place.name
             );
@@ -2347,8 +2376,26 @@ mod listing_tests {
                 query.filter,
                 Filter::Text(TextMatch::Contains("invoice".to_owned()))
             ),
-            Listing::Drafts => panic!("a search in Drafts must still search mail"),
+            other => panic!("a search in Drafts must still search mail: {other:?}"),
         }
+    }
+
+    #[test]
+    fn the_inbox_and_the_waiting_place_list_follow_ups_and_a_search_does_not() {
+        let mut shell = Shell::default();
+        assert!(
+            matches!(shell.listing(50), Listing::Inbox { .. }),
+            "the inbox lists returned reminders on top"
+        );
+        let waiting = shell
+            .places
+            .iter()
+            .position(|p| p.source == Source::Waiting)
+            .expect("there is a Waiting place");
+        shell.select(waiting);
+        assert_eq!(shell.listing(50), Listing::Waiting { scope: None });
+        shell.search = "invoice".to_owned();
+        assert!(matches!(shell.listing(50), Listing::Threads(_)));
     }
 
     #[test]
@@ -2366,8 +2413,8 @@ mod listing_tests {
         // make the button do nothing at all.
         let shell = Shell::default();
         match shell.listing(250) {
-            Listing::Threads(query) => assert_eq!(query.page.limit, 250),
-            Listing::Drafts => panic!("the Inbox is not the drafts list"),
+            Listing::Inbox { query, .. } => assert_eq!(query.page.limit, 250),
+            other => panic!("the Inbox lists its own query: {other:?}"),
         }
     }
 }
@@ -2740,7 +2787,10 @@ mod badge_tests {
                     "{} has no badge",
                     place.name
                 ),
-                Source::Drafts => assert!(badge_filter(&place.source).is_none()),
+                // The user wrote the last word in each of them: nothing there is unread news.
+                Source::Drafts | Source::Waiting => {
+                    assert!(badge_filter(&place.source).is_none())
+                }
             }
         }
     }
@@ -2773,6 +2823,7 @@ mod keyboard {
             snooze: Snooze::Inactive,
             pin: Pin::Unpinned,
             mute: Mute::Unmuted,
+            follow_up: mail_domain::FollowUp::Inactive,
         }
     }
 

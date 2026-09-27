@@ -87,6 +87,13 @@ impl SqliteStore {
                 )?;
                 Some(*id)
             }
+            Change::ThreadFollowUp(id, follow_up) => {
+                self.connection().execute(
+                    "UPDATE threads SET follow_up = ?2 WHERE id = ?1",
+                    params![id.to_string(), to_json("FollowUp", follow_up)?],
+                )?;
+                Some(*id)
+            }
             Change::MessageUpsert(msg) => {
                 self.upsert_message(msg)?;
                 Some(msg.thread)
@@ -270,23 +277,25 @@ impl SqliteStore {
             )?;
             return Ok(());
         }
-        let (snooze, pin, mute): (String, String, String) = self.connection().query_row(
-            "SELECT snooze, pin, mute FROM threads WHERE id = ?1",
-            params![thread.to_string()],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-        )?;
+        let (snooze, pin, mute, follow_up): (String, String, String, String) =
+            self.connection().query_row(
+                "SELECT snooze, pin, mute, follow_up FROM threads WHERE id = ?1",
+                params![thread.to_string()],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )?;
         let s = ThreadSummary::derive(
             thread,
             &messages,
             json("Snooze", &snooze)?,
             json("Pin", &pin)?,
             json("Mute", &mute)?,
+            json("FollowUp", &follow_up)?,
         );
         self.connection().execute(
             "INSERT INTO thread_summary (thread, account, subject, snippet, from_name, from_email,
                  participants, recipients, last_date, message_count, read, star, mailboxes,
-                 labels, attachments, snooze, pin, mute)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)
+                 labels, attachments, snooze, pin, mute, follow_up)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19)
              ON CONFLICT(thread) DO UPDATE SET
                  subject=excluded.subject, snippet=excluded.snippet, from_name=excluded.from_name,
                  from_email=excluded.from_email, participants=excluded.participants,
@@ -294,7 +303,7 @@ impl SqliteStore {
                  message_count=excluded.message_count, read=excluded.read, star=excluded.star,
                  mailboxes=excluded.mailboxes, labels=excluded.labels,
                  attachments=excluded.attachments, snooze=excluded.snooze, pin=excluded.pin,
-                 mute=excluded.mute",
+                 mute=excluded.mute, follow_up=excluded.follow_up",
             params![
                 s.id.to_string(),
                 s.account.to_string(),
@@ -314,6 +323,7 @@ impl SqliteStore {
                 to_json("Snooze", &s.snooze)?,
                 to_json("Pin", &s.pin)?,
                 to_json("Mute", &s.mute)?,
+                to_json("FollowUp", &s.follow_up)?,
             ],
         )?;
         Ok(())

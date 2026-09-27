@@ -39,6 +39,14 @@ pub(super) fn run(opening: Opening) {
         icons,
         brand,
     } = opening;
+    let notices = dirs
+        .as_ref()
+        .filter(|dirs| crate::notify::load(&dirs.config) == crate::notify::Setting::On)
+        .map(|_| {
+            crate::ui::follow_up::Notices(std::sync::Arc::new(
+                crate::notify::desktop::Desktop::connect(),
+            ))
+        });
     let original = Original::window();
     let config = AppConfig::new("mailo", 1200, 800)
         .with_app_id(AppId(APP_ID.to_owned()))
@@ -60,6 +68,12 @@ pub(super) fn run(opening: Opening) {
     // its own recorder or none.
     let config = match crate::launcher::platform() {
         Some(launcher) => config.with_context(launcher),
+        None => config,
+    };
+    // A reminder that comes back is said on the desktop too, while notifications are on: the
+    // setting `mailo watch` reads. A test's window has none (`contexts`), so no test raises one.
+    let config = match notices {
+        Some(notices) => config.with_context(notices),
         None => config,
     };
     ds_native::launch(ShellRoot, config);

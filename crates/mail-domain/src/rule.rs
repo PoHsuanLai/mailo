@@ -17,7 +17,7 @@
 use crate::filter::{DateRange, Filter, MatchCtx};
 use crate::id::{AccountId, RuleId};
 use crate::message::{Message, ThreadSummary};
-use crate::state::{Mute, Pin, Snooze};
+use crate::state::{FollowUp, Mute, Pin, Snooze};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -125,6 +125,7 @@ pub fn one_message(message: &Message) -> ThreadSummary {
         Snooze::Inactive,
         Pin::Unpinned,
         Mute::Unmuted,
+        FollowUp::Inactive,
     )
 }
 

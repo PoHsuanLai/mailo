@@ -29,7 +29,7 @@ use crate::id::{BlobId, ChangeId, DraftId, LabelId, MessageId, ThreadId};
 use crate::message::{Message, Thread};
 use crate::receipt::Keyword;
 use crate::remote::MailboxRef;
-use crate::state::{MailboxRole, Membership, Mute, Pin, ReadState, Snooze, Star};
+use crate::state::{FollowUp, MailboxRole, Membership, Mute, Pin, ReadState, Snooze, Star};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -64,6 +64,11 @@ pub enum Op {
     /// conversation's state changes here and nothing is sent. What a mute does to mail arriving
     /// later is the store's to carry out at arrival, as ordinary operations on those messages.
     SetMute(Mute),
+    /// Ask to be reminded if nobody answers a conversation, move a reminder on, or let it go.
+    /// Local like snooze: the conversation's state changes here and nothing is sent. Whether a
+    /// reply arrived is decided when the reminder comes due, by the caller that can see the
+    /// user's addresses, and applied as another `SetFollowUp`.
+    SetFollowUp(FollowUp),
     /// Out of the inbox into the folder this label names: a label and an archive in one, which
     /// is what moving to a folder is where mailboxes are labels, and what a `MOVE` into that
     /// folder leaves behind locally everywhere else.
@@ -102,6 +107,8 @@ pub enum OpKind {
     Snooze,
     Pin,
     Mute,
+    /// Remind me if no reply. See [`Op::SetFollowUp`].
+    FollowUp,
     /// Delete forever, from Trash or Spam. See [`Op::Destroy`].
     Destroy,
     Reply,
@@ -127,6 +134,7 @@ pub enum Change {
     ThreadSnooze(ThreadId, Snooze),
     ThreadPin(ThreadId, Pin),
     ThreadMute(ThreadId, Mute),
+    ThreadFollowUp(ThreadId, FollowUp),
     MessageUpsert(Box<Message>),
     MessageDelete(MessageId),
     LabelUpsert(Label),
@@ -257,7 +265,7 @@ pub struct Applied {
     pub inverse: Patch,
     /// Remote work to queue, or `None` when this op is purely local — archiving under
     /// [`crate::ArchiveMeans::LocalOnly`], labelling under
-    /// [`crate::ServerLabels::LocalOnly`], and snooze, pin and mute always, which have no server
+    /// [`crate::ServerLabels::LocalOnly`], and snooze, pin, mute and follow-up always, which have no server
     /// representation at all. [`Op::Destroy`] always has one, whatever the capabilities: a
     /// message removed here and left on the server would come back with the next sync.
     pub remote: Option<RemoteIntent>,
@@ -276,8 +284,8 @@ impl Op {
     /// id would make "which patch is this row" ambiguous the moment an undo is applied, and
     /// would collide with the already-recorded forward patch.
     ///
-    /// `now` is unused. No op currently needs a timestamp: [`Snooze::Until`] carries the
-    /// instant the caller chose, and "has this snooze expired" is resolved against `now` at
+    /// `now` is unused. No op currently needs a timestamp: [`Snooze::Until`] and
+    /// [`FollowUp::Until`] carry the instants the caller chose, and "has this snooze expired" is resolved against `now` at
     /// query time by [`crate::Filter::SnoozeDue`] rather than frozen in at apply time. The
     /// parameter stays because it is the crate-wide convention (`CONVENTIONS.md` section 6)
     /// and because an op that does need one -- a send-later, a reminder -- is a plausible
@@ -293,7 +301,7 @@ impl Op {
         let selected = select(target, messages);
         let id = thread.summary.id;
 
-        // Snooze, pin and mute are thread-level, so they need "is this thread in scope" rather than
+        // Snooze, pin, mute and follow-up are thread-level, so they need "is this thread in scope" rather than
         // a message list. Naming the thread targets it; naming any of its messages does too,
         // because there is no such thing as snoozing half a conversation.
         let thread_targeted = match target {
@@ -341,6 +349,17 @@ impl Op {
                     (
                         vec![Change::ThreadMute(id, *mute)],
                         vec![Change::ThreadMute(id, prior)],
+                    )
+                } else {
+                    (Vec::new(), Vec::new())
+                }
+            }
+            Op::SetFollowUp(follow_up) => {
+                let prior = thread.summary.follow_up;
+                if thread_targeted && prior != *follow_up {
+                    (
+                        vec![Change::ThreadFollowUp(id, *follow_up)],
+                        vec![Change::ThreadFollowUp(id, prior)],
                     )
                 } else {
                     (Vec::new(), Vec::new())
@@ -444,7 +463,7 @@ impl Op {
             // left there, the next sync would bring it back into Trash.
             Op::Destroy => Some(RemoteIntent::Destroy { messages }),
             // None has any server representation: they are this app's own state.
-            Op::SetSnooze(_) | Op::SetPin(_) | Op::SetMute(_) => None,
+            Op::SetSnooze(_) | Op::SetPin(_) | Op::SetMute(_) | Op::SetFollowUp(_) => None,
         }
     }
 
@@ -464,6 +483,7 @@ impl Op {
             Op::SetSnooze(_) => OpKind::Snooze,
             Op::SetPin(_) => OpKind::Pin,
             Op::SetMute(_) => OpKind::Mute,
+            Op::SetFollowUp(_) => OpKind::FollowUp,
             Op::Destroy => OpKind::Destroy,
             // Filing is archiving into a named place: the row leaves the inbox the same way.
             Op::File(_) => OpKind::Archive,

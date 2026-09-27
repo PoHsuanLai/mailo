@@ -405,6 +405,12 @@ pub(super) fn Reader(
                     if let Some(revision) = revision {
                         super::move_to::MoveTool { thread, shell, revision }
                         {mute_tool(thread, loaded.summary.mute, shell, revision)}
+                        super::follow_up::FollowUpTool {
+                            thread,
+                            current: loaded.summary.follow_up,
+                            shell,
+                            revision,
+                        }
                     }
                     super::print::PrintTool { thread }
                     if place == ReaderIn::Pane {
@@ -425,6 +431,7 @@ pub(super) fn Reader(
                     span { "Muted — new replies arrive read and skip the inbox" }
                 }
             }
+            super::follow_up::FollowUpNote { follow_up: loaded.summary.follow_up }
             if let Some((initial, from, addr, when)) = meta {
                 div { class: "reader-meta",
                     // The sender's logo when they have a certified one, else their initial.

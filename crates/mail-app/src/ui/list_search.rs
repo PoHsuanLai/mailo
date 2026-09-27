@@ -51,8 +51,8 @@ impl Request {
             return Self::Place(place.listing(limit));
         }
         let page = match place.listing(limit) {
-            Listing::Threads(query) => Some(query),
-            Listing::Drafts => None,
+            Listing::Threads(query) | Listing::Inbox { query, .. } => Some(query),
+            Listing::Drafts | Listing::Waiting { .. } => None,
         };
         Self::Search(Search {
             input: text.to_owned(),
@@ -113,7 +113,7 @@ pub(super) struct Listed {
 pub(super) fn listed(store: &SqliteStore, request: Request, now: DateTime<Utc>) -> Listed {
     match request {
         Request::Place(listing) => Listed {
-            threads: list_for(store, listing),
+            threads: list_for(store, listing, now),
             top: Vec::new(),
             marking: Marking::default(),
         },

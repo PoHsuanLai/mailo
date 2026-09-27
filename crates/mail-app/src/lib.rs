@@ -14,6 +14,7 @@ pub mod editor;
 pub mod emoji;
 pub mod export;
 pub mod folder;
+pub mod follow_up;
 pub mod import;
 pub mod invite;
 pub mod ipc;

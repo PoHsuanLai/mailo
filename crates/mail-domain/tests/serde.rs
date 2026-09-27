@@ -162,6 +162,7 @@ fn summary() -> ThreadSummary {
         snooze: Snooze::Until(at(9)),
         pin: Pin::Rank(1_000),
         mute: Mute::Unmuted,
+        follow_up: FollowUp::Inactive,
     }
 }
 
@@ -192,6 +193,54 @@ fn mute_patch() -> Patch {
             Change::ThreadMute(ThreadId::from_uuid(uuid(6)), Mute::Muted),
             Change::ThreadMute(ThreadId::from_uuid(uuid(6)), Mute::Unmuted),
         ],
+    }
+}
+
+/// The three states of a follow-up reminder, set on the day-2 instant and due on day 9.
+fn follow_ups() -> Vec<FollowUp> {
+    vec![
+        FollowUp::Inactive,
+        FollowUp::Until {
+            at: at(9),
+            set: at(2),
+        },
+        FollowUp::Returned {
+            at: at(9),
+            set: at(2),
+        },
+    ]
+}
+
+fn waiting_thread() -> Thread {
+    Thread {
+        summary: ThreadSummary {
+            follow_up: FollowUp::Until {
+                at: at(9),
+                set: at(2),
+            },
+            ..summary()
+        },
+        ..thread()
+    }
+}
+
+fn follow_up_actions() -> Vec<Action> {
+    follow_ups()
+        .into_iter()
+        .map(|follow_up| Action {
+            target: Target::Threads(vec![ThreadId::from_uuid(uuid(6))]),
+            op: Op::SetFollowUp(follow_up),
+        })
+        .collect()
+}
+
+fn follow_up_patch() -> Patch {
+    Patch {
+        id: ChangeId::from_uuid(uuid(12)),
+        changes: follow_ups()
+            .into_iter()
+            .map(|follow_up| Change::ThreadFollowUp(ThreadId::from_uuid(uuid(6)), follow_up))
+            .collect(),
     }
 }
 
@@ -1480,6 +1529,14 @@ fixtures! {
         ],
     }],
     "op_kinds_destroy.json" => Vec<OpKind> = vec![OpKind::Trash, OpKind::Destroy],
+    // Remind me if no reply (plan item 8), added after the files above were frozen. `thread.json`
+    // and `thread_muted.json` predate `ThreadSummary::follow_up` and must keep loading with no
+    // reminder; these pin the field, its three states, the op, its kind and the change.
+    "thread_follow_up.json" => Thread = waiting_thread(),
+    "follow_ups.json" => Vec<FollowUp> = follow_ups(),
+    "actions_follow_up.json" => Vec<Action> = follow_up_actions(),
+    "patch_follow_up.json" => Patch = follow_up_patch(),
+    "op_kinds_follow_up.json" => Vec<OpKind> = vec![OpKind::Snooze, OpKind::FollowUp],
     "send_states.json" => Vec<SendState> = vec![
         SendState::Editing,
         SendState::Queued,
@@ -1919,6 +1976,73 @@ fn mute_is_spelled_as_its_name() {
     round_trip("Thread/muted", muted_thread());
     round_trip_each("Action/mute", mute_actions());
     round_trip("Patch/mute", mute_patch());
+}
+
+/// A conversation written before reminders existed had none, and still loads saying so — from
+/// the oldest thread fixture and from the one written when muting arrived.
+#[test]
+fn a_thread_from_before_follow_ups_has_no_reminder() {
+    for (name, expected) in [
+        ("thread.json", self::thread()),
+        ("thread_muted.json", muted_thread()),
+    ] {
+        let text = std::fs::read_to_string(fixture_dir().join(name)).expect("fixture");
+        assert!(
+            !text.contains("follow_up"),
+            "{name}: the fixture must predate the field"
+        );
+        let thread: Thread = serde_json::from_str(&text).expect("still deserializes");
+        assert_eq!(thread.summary.follow_up, FollowUp::Inactive, "{name}");
+        assert_eq!(thread, expected, "{name}: nothing else changed");
+    }
+}
+
+/// A follow-up's persisted spellings: adjacently tagged, the instants named, and the op and the
+/// change tagged like every other.
+#[test]
+fn a_follow_up_is_spelled_with_its_two_instants() {
+    let set = serde_json::to_value(at(2)).unwrap();
+    let due = serde_json::to_value(at(9)).unwrap();
+    assert_eq!(
+        serde_json::to_value(FollowUp::Inactive).unwrap(),
+        serde_json::json!({"kind": "inactive"})
+    );
+    assert_eq!(
+        serde_json::to_value(FollowUp::Until {
+            at: at(9),
+            set: at(2)
+        })
+        .unwrap(),
+        serde_json::json!({"kind": "until", "v": {"at": due, "set": set}})
+    );
+    assert_eq!(
+        serde_json::to_value(FollowUp::Returned {
+            at: at(9),
+            set: at(2)
+        })
+        .unwrap(),
+        serde_json::json!({"kind": "returned", "v": {"at": due, "set": set}})
+    );
+    assert_eq!(
+        serde_json::to_value(Op::SetFollowUp(FollowUp::Inactive)).unwrap(),
+        serde_json::json!({"kind": "set_follow_up", "v": {"kind": "inactive"}})
+    );
+    assert_eq!(
+        serde_json::to_value(OpKind::FollowUp).unwrap(),
+        serde_json::json!("follow_up")
+    );
+    assert_eq!(
+        serde_json::to_value(Change::ThreadFollowUp(
+            ThreadId::from_uuid(uuid(6)),
+            FollowUp::Inactive
+        ))
+        .unwrap(),
+        serde_json::json!({"kind": "thread_follow_up", "v": [uuid(6).to_string(), {"kind": "inactive"}]})
+    );
+    round_trip("Thread/follow_up", waiting_thread());
+    round_trip_each("FollowUp", follow_ups());
+    round_trip_each("Action/follow_up", follow_up_actions());
+    round_trip("Patch/follow_up", follow_up_patch());
 }
 
 /// A draft written before receipts existed did not ask for one, and still loads saying so.
