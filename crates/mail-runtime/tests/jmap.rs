@@ -10,7 +10,7 @@ mod jmap_fake;
 use chrono::{DateTime, TimeZone, Utc};
 use jmap_fake::{Fake, PASSWORD, USER};
 use mail_domain::*;
-use mail_runtime::{JmapEngine, MapSecrets, Secrets, SyncReport, Woke};
+use mail_runtime::{JmapEngine, MapSecrets, Searched, Secrets, SyncReport, Woke};
 use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
 use std::time::Duration;
@@ -543,4 +543,71 @@ async fn an_email_filed_elsewhere_meanwhile_is_not_destroyed_and_comes_back() {
         held(&s.store, 6).map(|m| m.mailbox),
         Some(MailboxRole::Inbox)
     );
+}
+
+#[tokio::test]
+async fn a_search_of_the_server_is_an_email_query_and_keeps_headers_once() {
+    let mut s = setup().await;
+    seed(&s.fake);
+    s.fake.state.lock().unwrap().deliver(
+        &raw(5, "Lunch again", "more sandwiches"),
+        &["mbA"],
+        &[],
+        "2026-09-01T09:05:00Z",
+    );
+    // Nothing synced yet: only the server can find these.
+    let sandwiches = Filter::Text(TextMatch::Contains("sandwiches".to_owned()));
+    let Searched::Found(hits) = s.engine.search_jmap(&sandwiches, &[], now()).await.unwrap() else {
+        panic!("the search was not asked");
+    };
+    assert_eq!((hits.messages.len(), hits.fetched, hits.more), (2, 2, 0));
+    let query = s.fake.calls("Email/query").pop().unwrap();
+    assert_eq!(
+        query["filter"],
+        serde_json::json!({ "operator": "AND", "conditions": [
+            { "inMailboxOtherThan": ["mbD", "mbJ"] },
+            { "operator": "AND", "conditions": [{ "text": "sandwiches" }] },
+        ] }),
+        "kept to what a sync follows"
+    );
+    assert_eq!(query["sort"][0]["property"], "receivedAt");
+    let lunch = held(&s.store, 2).unwrap();
+    assert_eq!(lunch.body, Body::Absent, "a search fetches no body");
+    assert_eq!((lunch.read, lunch.star), (ReadState::Read, Star::Starred));
+    assert!(held(&s.store, 5).is_some());
+    assert!(
+        held(&s.store, 1).is_none(),
+        "what did not match is not fetched"
+    );
+    let threads: Vec<ThreadId> = [2, 5]
+        .iter()
+        .map(|n| held(&s.store, *n).unwrap().thread)
+        .collect();
+    assert_eq!(s.store.found_in(&threads).unwrap(), threads);
+
+    // Again: both are held, so nothing is fetched and nothing is kept twice.
+    let gets = s.fake.calls("Email/get").len();
+    let Searched::Found(again) = s.engine.search_jmap(&sandwiches, &[], now()).await.unwrap()
+    else {
+        panic!("the search was not asked");
+    };
+    assert_eq!((again.messages.clone(), again.fetched), (hits.messages, 0));
+    assert_eq!(
+        s.fake.calls("Email/get").len(),
+        gets,
+        "no header fetched again"
+    );
+    assert_eq!(s.store.count(&Filter::All, now()).unwrap(), 2);
+}
+
+#[tokio::test]
+async fn a_search_the_server_cannot_answer_faithfully_is_not_sent() {
+    let mut s = setup().await;
+    let pinned = Filter::And(vec![
+        Filter::Pinned,
+        Filter::Text(TextMatch::Contains("sandwiches".to_owned())),
+    ]);
+    let said = s.engine.search_jmap(&pinned, &[], now()).await.unwrap();
+    assert!(matches!(said, Searched::Unsaid(_)), "{said:?}");
+    assert!(s.fake.calls("Email/query").is_empty());
 }

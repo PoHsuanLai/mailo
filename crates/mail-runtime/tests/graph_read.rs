@@ -9,7 +9,7 @@ use chrono::{DateTime, TimeDelta, TimeZone, Utc};
 use mail_domain::*;
 use mail_runtime::graph::read::{OverHttp, Reader};
 use mail_runtime::oauth::Endpoints;
-use mail_runtime::{AccountEngine, Held, MapSecrets, Registration, Renewal, Secrets};
+use mail_runtime::{AccountEngine, Held, MapSecrets, Registration, Renewal, Searched, Secrets};
 use mail_store::{SqliteStore, Store};
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
@@ -968,4 +968,120 @@ async fn nothing_outside_deleted_items_and_junk_is_deleted_forever() {
         .expect_err("refused");
     assert!(matches!(e.retry(), Retry::Fatal(_)), "{e}");
     assert!(seen.lock().unwrap().is_empty(), "nothing was asked at all");
+}
+
+// ---------------------------------------------------------------------------------------------
+// Searching the server.
+
+/// A mailbox that answers a search of every folder with message 7, in Archive, and a next page.
+fn search_script() -> Script {
+    Arc::new(|request, port| {
+        if let Some(answer) = folders(request, port) {
+            return answer;
+        }
+        if request.path() == "/v1.0/me/messages" {
+            let mut hit = entry("S7", 7, true, 4_000);
+            hit["parentFolderId"] = json!("ID-ARCHIVE");
+            let mut hidden = entry("S8", 8, false, 4_000);
+            hidden["parentFolderId"] = json!("ID-HIDDEN");
+            return ok(json!({
+                "value": [ hit, hidden ],
+                "@odata.nextLink": format!("{}/messages?$skiptoken=next", me(port)),
+            }));
+        }
+        status("404 Not Found", r#"{"error":{"code":"ErrorItemNotFound"}}"#)
+    })
+}
+
+fn searches(seen: &Seen) -> Vec<Request> {
+    seen.lock()
+        .unwrap()
+        .iter()
+        .filter(|r| r.path() == "/v1.0/me/messages")
+        .cloned()
+        .collect()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_search_of_the_server_is_a_search_query_whose_hits_are_kept_as_headers_once() {
+    let (port, seen) = serve(search_script()).await;
+    let mut it = account(port);
+    let words = Filter::And(vec![
+        Filter::From(TextMatch::Contains("ada".to_owned())),
+        Filter::Text(TextMatch::Contains("message".to_owned())),
+    ]);
+    let Searched::Found(hits) = it.engine.search_graph(&words, now()).await.unwrap() else {
+        panic!("the search was not asked");
+    };
+    assert_eq!((hits.messages.len(), hits.fetched, hits.more), (1, 1, 1));
+
+    let asked = searches(&seen);
+    assert_eq!(asked.len(), 1);
+    let query = asked[0].target.split_once('?').unwrap().1.to_owned();
+    assert!(query.contains("%24search="), "{query}");
+    assert!(
+        !query.contains("orderby"),
+        "never $orderby with $search: {query}"
+    );
+    assert!(!query.contains("&%24filter="), "never both: {query}");
+    assert!(query.contains("%24top=50"), "{query}");
+    assert_eq!(asked[0].header("authorization"), Some("Bearer graph-token"));
+
+    let seven = held(&it.store, 7).unwrap();
+    assert_eq!(
+        seven.body,
+        Body::Absent,
+        "headers only, from the search's own answer"
+    );
+    assert_eq!(seven.subject, "message 7");
+    assert_eq!(seven.read, ReadState::Read);
+    assert_eq!(
+        it.store.remotes_of(seven.id).unwrap(),
+        vec![graph_at("Archive", "S7")],
+        "kept under the folder Graph says it is in"
+    );
+    assert!(
+        held(&it.store, 8).is_none(),
+        "a hidden folder's message stays there"
+    );
+    assert_eq!(
+        it.store.found_in(&[seven.thread]).unwrap(),
+        vec![seven.thread]
+    );
+    assert!(
+        seen.lock()
+            .unwrap()
+            .iter()
+            .all(|r| !r.path().ends_with("/$value")),
+        "no body was fetched"
+    );
+
+    // Again: held, so nothing new, and nothing twice.
+    let Searched::Found(again) = it.engine.search_graph(&words, now()).await.unwrap() else {
+        panic!("the search was not asked");
+    };
+    assert_eq!((again.messages, again.fetched), (hits.messages, 0));
+    assert_eq!(it.store.count(&Filter::All, now()).unwrap(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn state_alone_is_a_filter_and_state_with_words_is_not_asked() {
+    let (port, seen) = serve(search_script()).await;
+    let mut it = account(port);
+    let unread = Filter::Read(ReadState::Unread);
+    assert!(matches!(
+        it.engine.search_graph(&unread, now()).await.unwrap(),
+        Searched::Found(_)
+    ));
+    let query = searches(&seen)[0].target.clone();
+    assert!(query.contains("%24filter=isRead+eq+false"), "{query}");
+    assert!(!query.contains("%24search"), "{query}");
+
+    let mixed = Filter::And(vec![
+        unread,
+        Filter::Text(TextMatch::Contains("lunch".to_owned())),
+    ]);
+    let said = it.engine.search_graph(&mixed, now()).await.unwrap();
+    assert!(matches!(said, Searched::Unsaid(_)), "{said:?}");
+    assert_eq!(searches(&seen).len(), 1, "nothing was sent for it");
 }

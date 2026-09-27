@@ -22,6 +22,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 mod partial;
+mod search;
 mod split;
 pub(crate) mod wait;
 pub use wait::Woke;
@@ -1224,49 +1225,9 @@ impl<B: Backend> AccountEngine<B> {
                 .await
             {
                 Ok(ProtoOutcome::Fetched { items, flags }) => {
-                    let arrivals = items
-                        .into_iter()
-                        .map(|(remote, raw)| crate::assemble::Arrival { remote, raw })
-                        .collect::<Vec<_>>();
-                    report.headers_fetched += arrivals.len();
-                    // Headers only: Body::Absent says the body has not arrived, rather than
-                    // storing an empty message that looks complete.
-                    let stored = crate::assemble::absorb_into(
-                        &self.store,
-                        self.account,
-                        crate::assemble::Destination {
-                            mailbox: mailbox.clone(),
-                            role: self.role_of(mailbox),
-                        },
-                        // No cursor: this batch fetched a list it was handed and never asked
-                        // the server what exists.
-                        None,
-                        arrivals,
-                        true,
-                        now,
-                    )?;
+                    report.headers_fetched += items.len();
+                    let stored = self.absorb_headers(mailbox, items, flags, now)?;
                     report.arrived.extend(first_stored(&stored));
-                    // The server's own view of these messages, which arrived on the same FETCH.
-                    // Applied after absorbing, because a flag needs a message to sit on, and
-                    // through `Ingest` because that is the path the sweep already uses. Without
-                    // it every message is built unread and only a later sweep can correct it —
-                    // which on a CONDSTORE server never revisits old mail, so anything found by
-                    // backfill stayed unread for ever.
-                    if !flags.is_empty() {
-                        self.store.ingest(
-                            self.account,
-                            mail_domain::Ingest {
-                                mailbox: mailbox.clone(),
-                                validity: mail_domain::UidValidity::Same,
-                                cursor: None,
-                                messages: Vec::new(),
-                                flags,
-                                labels: Vec::new(),
-                                label_names: Vec::new(),
-                                gone: Vec::new(),
-                            },
-                        )?;
-                    }
                 }
                 Ok(_) => {}
                 Err(RuntimeError::Cancelled) => return Ok(report),
@@ -1285,6 +1246,60 @@ impl<B: Backend> AccountEngine<B> {
             self.synced.push(mailbox.path.clone());
         }
         Ok(report)
+    }
+
+    /// Keep the headers a `FetchHeaders` brought from `mailbox`, and the flags the server sent
+    /// with them. The patch's upserts are the messages new to the account ([`first_stored`]).
+    ///
+    /// The one way headers are kept, whether a sync or a search of the server fetched them.
+    pub(crate) fn absorb_headers(
+        &self,
+        mailbox: &MailboxRef,
+        items: Vec<(RemoteRef, Vec<u8>)>,
+        flags: Vec<(RemoteRef, mail_domain::ReadState, mail_domain::Star)>,
+        now: DateTime<Utc>,
+    ) -> Result<mail_domain::Patch, RuntimeError> {
+        let arrivals = items
+            .into_iter()
+            .map(|(remote, raw)| crate::assemble::Arrival { remote, raw })
+            .collect::<Vec<_>>();
+        // Headers only: Body::Absent says the body has not arrived, rather than storing an empty
+        // message that looks complete.
+        let stored = crate::assemble::absorb_into(
+            &self.store,
+            self.account,
+            crate::assemble::Destination {
+                mailbox: mailbox.clone(),
+                role: self.role_of(mailbox),
+            },
+            // No cursor: this batch fetched a list it was handed and never asked the server what
+            // exists.
+            None,
+            arrivals,
+            true,
+            now,
+        )?;
+        // The server's own view of these messages, which arrived on the same FETCH. Applied
+        // after absorbing, because a flag needs a message to sit on, and through `Ingest`
+        // because that is the path the sweep already uses. Without it every message is built
+        // unread and only a later sweep can correct it — which on a CONDSTORE server never
+        // revisits old mail, so anything found by backfill stayed unread for ever.
+        if !flags.is_empty() {
+            self.store.ingest(
+                self.account,
+                mail_domain::Ingest {
+                    mailbox: mailbox.clone(),
+                    validity: mail_domain::UidValidity::Same,
+                    cursor: None,
+                    messages: Vec::new(),
+                    flags,
+                    labels: Vec::new(),
+                    label_names: Vec::new(),
+                    gone: Vec::new(),
+                },
+            )?;
+        }
+        Ok(stored)
     }
 
     /// [`Self::sync`] for an account read through Microsoft Graph: one folder's delta.
