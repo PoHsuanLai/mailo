@@ -217,3 +217,10 @@
    Cancel was refused */
 .today-at.later { font-variant-numeric: tabular-nums; }
 .today-hint.refused { color: var(--danger); }
+
+/* the emoji picker, in quire's popover over the foot's button: the field, a tab per group, the
+   grid of ten 50 px cells scrolling under them, and the selected emoji's name */
+.em-picker { display: flex; flex-direction: column; width: 516px; padding: var(--s-8); box-sizing: border-box; }
+.em-tabs { margin: var(--s-4) 0; }
+.em-cells { max-height: 254px; overflow-y: auto; }
+.em-none, .em-name { margin: 0; padding: var(--s-6) var(--s-4) 0; min-height: 20px; font-size: var(--fs-meta); color: var(--ink-faint); }

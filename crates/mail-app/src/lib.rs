@@ -11,6 +11,7 @@ pub mod contacts;
 pub mod destroy;
 pub mod discover;
 pub mod editor;
+pub mod emoji;
 pub mod export;
 pub mod folder;
 pub mod import;
