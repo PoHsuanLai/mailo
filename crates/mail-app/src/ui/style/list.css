@@ -57,3 +57,9 @@ li.empty p.mono { margin-top: var(--s-4); color: var(--ink-faint); }
   font: 12px/1.5 var(--font-data); white-space: pre-wrap; overflow-wrap: anywhere; text-align: left;
 }
 .list-col > .more { align-self: center; margin: var(--s-10); }
+/* The end of a search's list: per account with a server, "Search … on the server", or what its
+   server answered. */
+.server-search { display: flex; flex-direction: column; gap: var(--s-8); padding: var(--s-10) var(--s-8); }
+.server-search-one { display: flex; flex-direction: column; align-items: center; gap: var(--s-4); }
+.server-search-one .status { color: var(--ink-soft); font-size: var(--fs-meta); text-align: center; }
+.server-search-one .status.bad { color: var(--danger); font-weight: 600; }

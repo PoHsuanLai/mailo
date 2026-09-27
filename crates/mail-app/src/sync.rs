@@ -8,6 +8,8 @@ pub use crate::notify::Announce;
 pub mod due;
 
 mod jmap;
+mod search;
+
 use mail_domain::*;
 use mail_proto::backend::{Authenticate, ImapBackend, Pop3Backend};
 use mail_proto::{ImapAuth, ImapCommand, ImapSession, Pop3Command, Pop3Session};
@@ -17,6 +19,7 @@ use mail_runtime::{
     AccountEngine, Held, KeyringSecrets, OAuthRegistry, Renewal, Secrets, SyncReport, signin,
 };
 use mail_store::SqliteStore;
+pub use search::{search_server, search_server_with};
 use std::fmt::Write as _;
 use std::sync::Arc;
 use tokio::sync::watch;
