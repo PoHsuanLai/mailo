@@ -1,6 +1,6 @@
 //! Sans-I/O protocol machines: IMAP, POP3, SMTP, OAuth, and the backends that drive them; JMAP's
-//! requests and responses as values (`jmap`); and what an account-discovery answer means
-//! (`discover`).
+//! requests and responses as values (`jmap`); a search typed here as each protocol asks one
+//! (`search`); and what an account-discovery answer means (`discover`).
 //!
 //! Nothing here opens a socket, spawns a task, or reads a clock. A machine is fed bytes and
 //! returns what it needs next; `mail-runtime` owns the loop that satisfies those needs. Tests
@@ -14,6 +14,7 @@ pub mod jmap;
 pub mod machine;
 pub mod mutf7;
 pub mod pop3;
+pub mod search;
 pub mod sieve;
 pub mod smtp;
 

@@ -11,7 +11,7 @@ pub mod imap;
 pub mod pop3;
 pub mod smtp;
 
-pub use imap::ImapBackend;
+pub use imap::{Found, ImapBackend, Searching};
 pub use pop3::Pop3Backend;
 pub use smtp::SmtpBackend;
 
