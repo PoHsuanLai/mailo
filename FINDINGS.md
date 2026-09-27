@@ -4428,3 +4428,37 @@ progress bar is still shown by its fill alone and may be faint in light mode. `-
 `--accent-ring` are `rgba`, and the style tests measure them composited over each card ground
 against `ds::accent_of(Postmark)`. The old 3:1 gate on the fill is replaced by 4.5:1 on
 `--accent-text` over all four grounds.
+
+### F193 — Emoji are offered by a button and by `:name`, from Unicode's own table, and ride on quire's colour-emoji face
+
+A decision (item 2). The composer's foot has an emoji button opening quire's `EmojiGrid` in a
+`Popover`, with a search field and a tab per Unicode group, recent emoji first. Typing `:` and at
+least two letters at the start of a word offers matching emoji in a menu like `/` and `@`. Either
+pick goes in as one structural undo step, and the plain text carries the character. The table is
+Unicode's (emoji-test.txt for names, groups and order; CLDR's English annotations for keywords), up
+to Emoji 15.0 with no skin-tone sequences, checked in with the Unicode licence notice and written by
+`scripts/emoji-table.py`. Matching is by word start only, and a whole word or keyword ranks before a
+name that merely starts with the query. `:)`, `10:30`, `Note:` and `https://` offer nothing. Recent
+emoji are `emoji.json` in the state directory: a record of use, not a preference.
+
+Where Noto Color Emoji is the CBDT bitmap build (Debian and Ubuntu's `fonts-noto-color-emoji`),
+Blitz paints nothing in `.ds-emoji-text`, so the picker's cells are blank; the `:` menu and the body
+fall back and draw monochrome. That is quire's to fix and is relayed.
+
+### F194 — A conversation in a window of its own, and one revision for every window
+
+A decision (item 23). "Open in new window" (the reader's menu, a row's context menu, Shift+Enter on
+the focused row) opens the conversation through `ds_native::open_window_with`; asking again raises
+the window already open for it. The window is the reader alone, with its own `Shell`, undo stack,
+toast and composer, and says when the conversation has left the inbox rather than drawing it as if
+nothing happened. A `Signal` belongs to one VirtualDom, so each window's revision follows one shared
+counter (`ui::revisions`) that quire hands every window; a window publishes its own moves, follows
+everyone else's, and never re-publishes what it followed. The reader redraws on its window's
+revision. The second window writes no Today or settings file.
+
+Consent to remote images was per message, so a second window on the same thread would have loaded
+the first window's consented images, and a reader showing none revoked another's grant. An Original
+frame's tag now names its reader as well as its message, and the network admits a frame only under
+its own reader's grant. A printout from the second window can still include images the first
+consented to for that thread (`Consent::thread` is not per reader). Opening a real window is not
+covered by the Harness, which cannot see `open_window`; mailo routes it through its own seam.
