@@ -37,6 +37,10 @@
 //! which a desktop client does not have, so an account that reads through Graph polls — every
 //! minute, which is cheap because a delta query with nothing to report returns nothing.
 
+mod search;
+
+pub use search::{GraphFound, GraphHit};
+
 use crate::RuntimeError;
 use crate::graph::{detail, retry_after, segment};
 use base64::Engine as _;

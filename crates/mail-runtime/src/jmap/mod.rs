@@ -31,6 +31,7 @@
 mod client;
 mod outbox;
 mod push;
+mod search;
 mod sync;
 
 pub use client::{Auth, Client, find_session, safe_url};
@@ -47,6 +48,15 @@ use mail_proto::jmap::{Identity, Mailboxes};
 use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
 use std::time::Duration;
+
+/// What to do with an email whose server gives no header fields to keep.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Whole {
+    /// Download the whole message: a sync, which fetches bodies anyway.
+    Download,
+    /// Leave it on the server: a search, which never fetches a body.
+    Never,
+}
 
 /// Most headers one pass fetches; the rest wait for the next, like an IMAP folder's.
 pub const HEADERS_PER_PASS: usize = 200;
