@@ -137,6 +137,18 @@ rand = "0.8"
 # On Linux and the BSDs, through the desktop portal (and so from inside a Flatpak), with no GTK.
 [target.'cfg(not(any(target_os = "macos", windows)))'.dependencies]
 rfd = { version = "=0.17.2", default-features = false, features = ["xdg-portal"] }
+# The unread count on the launcher entry (`launcher/session.rs`): one signal on the session bus.
+# Already in the lock through notify-rust and the keyring's Secret Service store, at this version
+# and with these (its default) features. MIT.
+zbus = "5.19"
+
+# The unread count on the Dock tile (`launcher/dock.rs`), through AppKit's own bindings, whose
+# calls used there are safe. Already in the lock through winit and rfd; the features add only the
+# Dock tile's bindings. Zlib OR Apache-2.0 OR MIT.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSResponder", "NSDockTile"] }
 
 # On macOS and Windows, the system's own dialog, which rfd uses with no feature at all.
 [target.'cfg(any(target_os = "macos", windows))'.dependencies]

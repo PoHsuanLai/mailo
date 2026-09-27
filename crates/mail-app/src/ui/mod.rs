@@ -24,6 +24,7 @@ mod hover;
 mod invite;
 mod keyboard;
 mod launch;
+mod launcher_count;
 mod list;
 mod list_query;
 mod list_search;

@@ -56,6 +56,12 @@ pub(super) fn run(opening: Opening) {
         Some(brand) => config.with_context(brand),
         None => config,
     };
+    // The unread count on the dock or the Dash. Only the launched window has one; a test hands
+    // its own recorder or none.
+    let config = match crate::launcher::platform() {
+        Some(launcher) => config.with_context(launcher),
+        None => config,
+    };
     ds_native::launch(ShellRoot, config);
 }
 

@@ -18,6 +18,7 @@ pub mod import;
 pub mod invite;
 pub mod ipc;
 pub mod keymap;
+pub mod launcher;
 pub mod notify;
 pub mod offline;
 pub mod password;
