@@ -16,7 +16,8 @@ fn a_mark_certificate_vouches_for_its_logo_only_when_all_of_it_holds() {
     let logo = LOGO.as_bytes();
 
     let good = Mark::new(domains, logo);
-    let cases: Vec<(&str, Vec<u8>, &str, Result<Vec<u8>, MarkProblem>)> = vec![
+    type Case<'a> = (&'a str, Vec<u8>, &'a str, Result<Vec<u8>, MarkProblem>);
+    let cases: Vec<Case> = vec![
         (
             "good",
             pem(&trusted, &good),
