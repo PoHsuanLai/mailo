@@ -63,6 +63,10 @@ pub(super) fn App() -> Element {
     // Bumped after any write, to re-run the queries. Explicit rather than implicit so it is
     // obvious what causes a refresh.
     let mut revision = use_signal(|| 0u64);
+    // Every other window's moves move it too, and its own reach them (`ui/revisions`).
+    super::revisions::use_shared_revision(revision);
+    // The conversations opened in windows of their own, to raise one asked for again.
+    super::window::use_opened();
     let boot = use_hook(frame::load_boot);
     let spaces = use_signal(|| boot.spaces.clone());
     let mut today_list = use_signal(|| boot.today.clone());
@@ -518,6 +522,15 @@ pub(super) fn App() -> Element {
                 return;
             }
         }
+        // Shift+Enter opens the open conversation in a window of its own (a focused row's own
+        // handler takes it first, for that row).
+        if key == "Enter" && event.modifiers().shift() {
+            let open = shell.read().open;
+            if !typing && let Some(open) = open {
+                super::window::open_in_window(open);
+            }
+            return;
+        }
         let key = if event.modifiers().shift() {
             crate::view::shifted(&key).to_owned()
         } else {
@@ -806,7 +819,7 @@ fn environment() -> Environment {
 /// the rest of the appearance, the typeface included, is `appearance.toml`'s. A switch or an edit only writes the
 /// Spaces, and `Ds` cross-fades the frame's layers itself.
 #[component]
-fn Frame(spaces: Signal<Spaces>, children: Element) -> Element {
+pub(super) fn Frame(spaces: Signal<Spaces>, children: Element) -> Element {
     let environment = environment();
     let space = spaces.read().current_space();
     let appearance = window_appearance(&environment, &space);

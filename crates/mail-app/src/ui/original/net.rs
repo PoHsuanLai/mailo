@@ -17,7 +17,7 @@
 //! the same client, and hands the window each as a `data:` URI ([`data_uri`]) only when it is a
 //! raster image of a kind `mail-mime` embeds, by its declared type and by its first bytes.
 
-use super::consent::Consent;
+use super::consent::{Consent, Holder};
 use ds_native::{AppNet, NetDecision, NetReply, NetRequest};
 use mail_domain::MessageId;
 use std::sync::{Arc, OnceLock};
@@ -96,20 +96,22 @@ impl MailNet {
         MailNet { consent, fetch }
     }
 
-    /// The message the frame that asked shows, by its `data-frame-tag`. The window's own
-    /// document and an untagged frame show none.
-    fn message(request: &NetRequest) -> Option<MessageId> {
-        let tag = request.frame_tag()?;
-        uuid::Uuid::parse_str(tag.as_str())
-            .ok()
-            .map(MessageId::from_uuid)
+    /// The reader that drew the frame that asked, and the message it shows, by its
+    /// `data-frame-tag`. The window's own document and an untagged frame show none.
+    fn frame(request: &NetRequest) -> Option<(Holder, MessageId)> {
+        Holder::of_tag(request.frame_tag()?.as_str())
     }
 }
 
 impl AppNet for MailNet {
     fn decide(&self, request: &NetRequest) -> NetDecision {
-        match Self::message(request) {
-            Some(message) if self.consent.admits(message, request.url()).is_some() => {
+        match Self::frame(request) {
+            Some((holder, message))
+                if self
+                    .consent
+                    .admits(holder, message, request.url())
+                    .is_some() =>
+            {
                 NetDecision::Allow
             }
             _ => NetDecision::Deny,
@@ -119,10 +121,10 @@ impl AppNet for MailNet {
     fn fetch(&self, request: NetRequest, reply: NetReply) {
         // Asked again rather than trusted from `decide`: the same answer for the same request,
         // and the ticket that says whether the bytes may still be shown when they land.
-        let Some(message) = Self::message(&request) else {
+        let Some((holder, message)) = Self::frame(&request) else {
             return;
         };
-        let Some(ticket) = self.consent.admits(message, request.url()) else {
+        let Some(ticket) = self.consent.admits(holder, message, request.url()) else {
             return;
         };
         let consent = self.consent.clone();

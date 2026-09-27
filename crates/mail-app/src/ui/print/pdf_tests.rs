@@ -1041,8 +1041,10 @@ fn consent_taken_back_while_the_image_is_coming_prints_it_named() {
     let net = Net {
         before: Some(Arc::new({
             let consent = consent.clone();
-            // The reader closes, or opens another thread, while the fetch is out.
-            move || consent.hold(consent.holder(), ThreadId::generate(), None)
+            // Another thread's images are allowed while the fetch is out: one grant stands at
+            // a time, so this one is gone. (A reader showing no images no longer takes back
+            // another reader's grant: a second window's is its own.)
+            move || consent.hold(consent.holder(), ThreadId::generate(), Some(Vec::new()))
         })),
         ..Net::default()
     };

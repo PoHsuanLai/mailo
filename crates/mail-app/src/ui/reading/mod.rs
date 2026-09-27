@@ -174,16 +174,65 @@ fn leave_key(thread: ThreadId, bodies: &super::unsubscribe::Bodies) -> String {
     format!("{thread}-{:x}", hasher.finish())
 }
 
-/// `revision` is the window's, moved when leaving a list queues a message; a reader drawn on its
+/// Where a reader is drawn: beside the list, or alone in a conversation's own window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(in crate::ui) enum ReaderIn {
+    /// The main window's reader pane, with its peek modes and its menu.
+    #[default]
+    Pane,
+    /// A window of its own (`ui/window`): the window is the page, so no peek and no "Open in new
+    /// window".
+    Window,
+}
+
+/// The reader's menu: what it does beyond its tools. "Open in new window" for now.
+#[component]
+fn ReaderMenu(thread: ThreadId) -> Element {
+    let mut open = use_signal(|| false);
+    let mut tool = use_signal(|| None::<ds::MountedRef>);
+    rsx! {
+        IconButton {
+            variant: IconButtonVariant::Tool,
+            icon: Icon::Ellipsis,
+            label: "More".to_owned(),
+            expanded: if open() { Switch::On } else { Switch::Off },
+            mounted: move |event: MountedEvent| tool.set(Some(ds::MountedRef(event.data()))),
+            onclick: move |_| open.toggle(),
+        }
+        if open() {
+            super::menu::Floating {
+                kind: ds::MenuKind::Dropdown,
+                anchor: tool(),
+                title: String::new(),
+                items: vec![super::window::menu_item()],
+                on_pick: move |key: String| {
+                    open.set(false);
+                    if key == super::window::OPEN_KEY {
+                        super::window::open_in_window(thread);
+                    }
+                },
+                on_close: move |_| open.set(false),
+            }
+        }
+    }
+}
+
+/// `revision` is the window's, moved when leaving a list queues a message, and whenever any
+/// window moves the store (`ui/revisions`), which draws the reader again; a reader drawn on its
 /// own has none.
 #[component]
 pub(super) fn Reader(
     thread: ThreadId,
     shell: Signal<Shell>,
     revision: Option<Signal<u64>>,
+    #[props(default)] place: ReaderIn,
     children: Element,
 ) -> Element {
     let store = use_context::<Arc<SqliteStore>>();
+    // The store may have moved under this conversation, here or in another window.
+    if let Some(revision) = revision {
+        let _ = revision();
+    }
     // Where the last attachment went, or why it did not. Cleared by opening another
     // conversation, because this component is rebuilt for each one.
     let saved = use_signal(|| None::<String>);
@@ -358,9 +407,12 @@ pub(super) fn Reader(
                         {mute_tool(thread, loaded.summary.mute, shell, revision)}
                     }
                     super::print::PrintTool { thread }
-                    {peek_tool(Peek::Side, peek, Icon::Panel, shell)}
-                    {peek_tool(Peek::CENTER, peek, Icon::Square, shell)}
-                    {peek_tool(Peek::FULL, peek, Icon::Maximize, shell)}
+                    if place == ReaderIn::Pane {
+                        {peek_tool(Peek::Side, peek, Icon::Panel, shell)}
+                        {peek_tool(Peek::CENTER, peek, Icon::Square, shell)}
+                        {peek_tool(Peek::FULL, peek, Icon::Maximize, shell)}
+                        ReaderMenu { thread }
+                    }
                 }
             }
             if let Some(why) = problem {
@@ -491,6 +543,7 @@ pub(super) fn Reader(
                         p { class: "pending", "Body not downloaded yet." }
                     } else {
                         MessageView {
+                            holder: consent.as_ref().map(|(_, holder)| *holder),
                             message_id: message.id,
                             reading: reading.clone(),
                             original,

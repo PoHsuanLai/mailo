@@ -10,6 +10,11 @@
 //! - per message: a frame may fetch only what its own message's markup asks for. Each Original
 //!   frame carries its message's id as its `data-frame-tag`, and the network reads the tag of the
 //!   frame that asked (`net.rs`), so one message's frame cannot fetch another message's image.
+//! - per reader: the tag names the reader that drew the frame too ([`Holder::tag`]), and only
+//!   the reader holding the grant has its frames admitted. A conversation open in a second window
+//!   (`ui/window`) is another reader: it starts without consent even when the first window's
+//!   reader has granted it for the same messages, and its render without consent leaves the
+//!   first window's grant alone.
 //! - while it stands: a new grant, or none, makes every earlier admission stale, and a fetch
 //!   that lands after that is dropped rather than shown.
 
@@ -33,6 +38,21 @@ impl std::fmt::Debug for Consent {
 /// takes it back.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct Holder(u64);
+
+impl Holder {
+    /// The `data-frame-tag` of the frame this reader draws for `message`: which message, and
+    /// whose frame.
+    pub(crate) fn tag(self, message: MessageId) -> String {
+        format!("{message}/{}", self.0)
+    }
+
+    /// The reader and the message a frame's tag names; `None` for a tag no reader wrote.
+    pub(crate) fn of_tag(tag: &str) -> Option<(Holder, MessageId)> {
+        let (message, holder) = tag.split_once('/')?;
+        let message = uuid::Uuid::parse_str(message).ok()?;
+        Some((Holder(holder.parse().ok()?), MessageId::from_uuid(message)))
+    }
+}
 
 /// A request admitted under one grant. It stands until the grant changes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -82,7 +102,7 @@ impl Consent {
         let mut grant = self.grant();
         match allowed {
             None => {
-                if grant.by.is_some() {
+                if grant.by.is_some_and(|(by, _)| by == holder) {
                     grant.revoke();
                 }
             }
@@ -110,11 +130,14 @@ impl Consent {
         }
     }
 
-    /// Whether the frame showing `message` may fetch `url` now.
-    pub(crate) fn admits(&self, message: MessageId, url: &str) -> Option<Ticket> {
+    /// Whether the frame `holder` drew for `message` may fetch `url` now.
+    pub(crate) fn admits(&self, holder: Holder, message: MessageId, url: &str) -> Option<Ticket> {
         let url = normal(url)?;
         let grant = self.grant();
-        grant.by?;
+        let (by, _) = grant.by?;
+        if by != holder {
+            return None;
+        }
         grant
             .messages
             .iter()
