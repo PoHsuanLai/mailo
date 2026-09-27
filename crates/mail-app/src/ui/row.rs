@@ -192,6 +192,8 @@ pub(super) fn Row(
     let mut row_box = use_signal(|| None::<MountedRef>);
     // The focus inside the row shows its strip, as the pointer over it does.
     let mut focused = use_signal(|| false);
+    // The context menu, open at the point the row was right-clicked.
+    let mut row_menu = use_signal(|| None::<ds::Rect>);
     // quire's hover hub, which the row, its name and its time report the pointer to.
     let driver = use_driver();
     let going = matches!(moving, Moving::Going(_));
@@ -347,6 +349,18 @@ pub(super) fn Row(
             onmounted: move |event: MountedEvent| row_box.set(Some(MountedRef(event.data()))),
             onfocusin: move |_| focused.set(true),
             onfocusout: move |_| focused.set(false),
+            oncontextmenu: move |event: MouseEvent| {
+                event.prevent_default();
+                row_menu.set(Some(point_rect(event.client_coordinates())));
+            },
+            // Shift+Enter on the focused row opens it in a window of its own. Stopped here, so
+            // the window's own Shift+Enter does not open the open conversation as well.
+            onkeydown: move |event: KeyboardEvent| {
+                if event.key().to_string() == "Enter" && event.modifiers().shift() {
+                    event.stop_propagation();
+                    super::window::open_in_window(id);
+                }
+            },
             ds::ListRow {
                 selection,
                 emphasis: if unread { Emphasis::Strong } else { Emphasis::Plain },
@@ -387,6 +401,22 @@ pub(super) fn Row(
             if snoozing {
                 span { class: "floater", aria_hidden: "true", "zZ" }
             }
+            if let Some(at) = row_menu() {
+                super::menu::Floating {
+                    kind: ds::MenuKind::Context,
+                    anchor: row_box(),
+                    placed: Some(at),
+                    title: String::new(),
+                    items: vec![super::window::menu_item()],
+                    on_pick: move |key: String| {
+                        row_menu.set(None);
+                        if key == super::window::OPEN_KEY {
+                            super::window::open_in_window(id);
+                        }
+                    },
+                    on_close: move |_| row_menu.set(None),
+                }
+            }
             if shell.read().snoozing == Some(id) {
                 SnoozeMenu { id, shell, revision, anchor: row_box(), placed: snooze_at() }
             }
@@ -404,6 +434,20 @@ pub(super) fn Row(
                 }
             }
         }
+    }
+}
+
+/// A point in the window as the rect a context menu is placed against.
+fn point_rect(at: dioxus::html::geometry::ClientPoint) -> ds::Rect {
+    ds::Rect {
+        origin: ds::Point {
+            x: ds::Px(at.x as f32),
+            y: ds::Px(at.y as f32),
+        },
+        size: ds::Size {
+            width: ds::Px(0.0),
+            height: ds::Px(0.0),
+        },
     }
 }
 

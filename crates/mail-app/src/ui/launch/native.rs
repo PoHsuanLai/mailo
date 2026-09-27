@@ -48,7 +48,10 @@ pub(super) fn run(opening: Opening) {
         .with_context(original.consent())
         .with_context(original.pill())
         .with_context(original.images())
-        .with_context(icons);
+        .with_context(icons)
+        // One revision for every window, so a conversation open in a window of its own follows
+        // what the main window does to it, and the other way round (`ui/revisions`).
+        .with_context(crate::ui::revisions::Revisions::new());
     let config = match brand {
         Some(brand) => config.with_context(brand),
         None => config,

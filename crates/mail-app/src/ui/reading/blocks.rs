@@ -48,21 +48,20 @@ struct Ctx<'a> {
 }
 
 /// The sandboxed original. Always mounted when the body has HTML; `concealed`
-/// only changes a class. `message` is the frame's `data-frame-tag`: on Blitz the network reads
-/// it to know which message's consented images the frame may fetch, and an untagged frame
-/// fetches none (`ui/original/net.rs`).
+/// only changes a class. `tag` is the frame's `data-frame-tag` (`Holder::tag`): on Blitz the
+/// network reads it to know which reader drew the frame and which message's consented images it
+/// may fetch, and an untagged frame fetches none (`ui/original/net.rs`).
 #[component]
 pub(super) fn Sandbox(
     html: String,
     concealed: bool,
-    #[props(default)] message: Option<MessageId>,
+    #[props(default)] tag: Option<String>,
 ) -> Element {
     #[cfg(test)]
     use_hook(|| {
         IFRAME_MOUNTS.with(|mounts| mounts.set(mounts.get().saturating_add(1)));
     });
     let class = if concealed { "html is-hidden" } else { "html" };
-    let tag = message.map(|id| id.to_string());
     rsx! {
         iframe {
             class: "{class}",
@@ -85,6 +84,10 @@ pub(super) fn MessageView(
     /// Marks to draw. The default marks nothing.
     #[props(default)]
     found: Found,
+    /// The reader drawing it, whose consent its frame is held to. None: the frame fetches
+    /// nothing.
+    #[props(default)]
+    holder: Option<crate::ui::original::Holder>,
 ) -> Element {
     let frame = reading.frame_html().map(str::to_owned);
     let shown = super::source::shown(&original.read(), message_id);
@@ -100,7 +103,7 @@ pub(super) fn MessageView(
     };
     rsx! {
         if let Some(html) = frame {
-            Sandbox { html, concealed: !show_original, message: Some(message_id) }
+            Sandbox { html, concealed: !show_original, tag: holder.map(|holder| holder.tag(message_id)) }
         }
         if let Some(document) = document {
             div {

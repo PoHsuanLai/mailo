@@ -42,6 +42,7 @@ mod press;
 mod print;
 mod reading;
 mod receipt;
+mod revisions;
 mod row;
 mod rules;
 mod sidebar;
@@ -53,6 +54,7 @@ mod text;
 mod unsubscribe;
 mod view_groups;
 mod views;
+mod window;
 
 #[cfg(test)]
 mod fixtures;
@@ -69,6 +71,8 @@ pub mod native {
     pub use super::original::{Browse, Consent, Fetch, FetchImage, Got, Original};
     pub use super::print::Printer;
     pub use super::reading::OriginalFrame;
+    pub use super::revisions::Revisions;
+    pub use super::window::{Ask, MessageOpen, OpenWindow, Windows, message_root};
 }
 
 pub use start::{Start, mailto_of, open_thread, start_mailto, start_of};
