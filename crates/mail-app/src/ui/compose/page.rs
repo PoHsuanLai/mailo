@@ -118,6 +118,11 @@ pub(in crate::ui) enum Float {
         anchor: Pos,
         active: usize,
     },
+    /// The `:` menu: emoji whose names start as typed. `anchor` is where the `:` is.
+    Emoji {
+        anchor: Pos,
+        active: usize,
+    },
     /// Turn into, from the selection bubble.
     Turn,
     /// The bubble's link field, with what has been typed.

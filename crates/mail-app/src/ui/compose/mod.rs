@@ -14,6 +14,7 @@ mod adapt;
 mod attach;
 mod body;
 mod desk;
+mod emoji;
 mod float;
 mod items;
 mod later;
@@ -277,6 +278,7 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                         span { kbd { "/" } " headings, lists, images…" }
                         span { "select text to style it" }
                         span { kbd { "@" } " mention" }
+                        span { kbd { ":" } " emoji" }
                         span { kbd { "Ctrl" } kbd { "Enter" } " send" }
                         span { kbd { "Esc" } " keep for later" }
                     }
@@ -310,6 +312,7 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                     onclick: on_primary(move || plain.set(if plain() == Fold::Open { Fold::Folded } else { Fold::Open })),
                 }
                 Attach { page, label: "Attach" }
+                emoji::EmojiButton { page }
                 span { class: "grow" }
                 ds::Button {
                     variant: ds::ButtonVariant::Primary,
