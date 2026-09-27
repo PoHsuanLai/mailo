@@ -196,7 +196,7 @@ article.frame + article.frame { margin-top: var(--s-18); padding-top: var(--s-14
   display: grid; place-items: center; gap: var(--s-4); text-align: center; color: var(--ink-faint); font-family: var(--font-data); font-size: var(--fs-note);
   background: repeating-linear-gradient(135deg, var(--surface) 0 10px, var(--surface-2) 10px 20px); padding: var(--s-18) var(--s-12); max-height: 320px; box-sizing: border-box; overflow: visible;
 }
-.blocks a { color: var(--accent); }
+.blocks a { color: var(--accent-text); }
 .b-cta {
   display: inline-flex; align-items: center; justify-self: start; border: 0; background: var(--accent); color: var(--accent-ink);
   border-radius: var(--r-btn); padding: var(--s-8) var(--s-14); font-weight: 700; font-size: var(--fs-control); text-decoration: none; cursor: pointer;
@@ -233,7 +233,7 @@ article.frame header .view-switch { margin-left: 0; }
    The field takes the head row's free space; the tools keep their place on the right. */
 .find {
   display: flex; align-items: center; gap: var(--s-6); flex: 1; min-width: 0; max-width: 340px;
-  padding: var(--s-2) var(--s-3) var(--s-2) var(--s-10); border: var(--hair) solid var(--accent); border-radius: var(--r-pill);
+  padding: var(--s-2) var(--s-3) var(--s-2) var(--s-10); border: var(--hair) solid var(--accent-text); border-radius: var(--r-pill);
   background: var(--raise); color: var(--ink-faint); box-shadow: 0 0 0 3px var(--accent-soft);
   animation: rise var(--t-quick) var(--e-out);
 }
@@ -251,7 +251,7 @@ article.frame header .view-switch { margin-left: 0; }
   box-shadow: 0 0 0 1px var(--accent-soft);
   transition: background-color var(--t-quick) var(--e-out), color var(--t-quick) var(--e-out);
 }
-.blocks mark.hit.now { background: var(--accent); color: var(--accent-ink); box-shadow: 0 0 0 2px var(--accent); }
+.blocks mark.hit.now { background: var(--accent); color: var(--accent-ink); box-shadow: 0 0 0 2px var(--accent-text); }
 
 
 /* ---- leaving a list: the head's button, and the popover that says what it will do ---- */
