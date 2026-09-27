@@ -31,6 +31,7 @@ mod sign;
 mod verify;
 
 pub use cert::{Cert, read_certs};
+pub(crate) use chain::chain_to_anchor;
 pub use keys::{Identity, PrivateKey};
 pub use open::{Keys, Opened, RecipientId, Signer, open, recipients};
 pub use pkcs12::{read_pkcs12, write_pkcs12};

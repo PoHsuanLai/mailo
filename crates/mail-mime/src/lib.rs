@@ -7,6 +7,7 @@
 
 pub mod archive;
 pub mod auth;
+pub mod bimi;
 pub mod block;
 pub mod build;
 mod charset;

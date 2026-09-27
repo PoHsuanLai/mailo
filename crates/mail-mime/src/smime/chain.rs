@@ -74,6 +74,16 @@ fn dated(cert: &Cert, at: DateTime<Utc>) -> Option<CertProblem> {
     }
 }
 
+/// [`chain`], for another kind of certificate than a mail signer's: a mark certificate's
+/// (`bimi::vmc`), whose purpose and names are checked there.
+pub(crate) fn chain_to_anchor<'a>(
+    leaf: &'a Cert,
+    pool: &'a [Cert],
+    anchors: &'a [Cert],
+) -> Option<Vec<&'a Cert>> {
+    chain(leaf, pool, anchors)
+}
+
 /// The intermediate issuers from `leaf` up to a trust anchor, the anchor itself not included
 /// (an anchor is trusted as given, dates and all, as RFC 5280 §6.1.1 treats one). `None` when no
 /// chain reaches an anchor.
