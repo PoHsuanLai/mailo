@@ -116,6 +116,8 @@ pub(super) fn App() -> Element {
     let mut sync_state = use_signal(|| SyncState::Idle);
     // Opening a folder fetches it, and says so where a sync does.
     super::folder_open::use_fetching(sync_state);
+    // The unread count on the dock or the Dash, when the window was launched with one.
+    super::launcher_count::use_launcher_count(revision, shell);
 
     // One count per place, recomputed after any write. `Store::count` answers each in a single
     // indexed query, which is why the sidebar can afford to ask on every revision.
