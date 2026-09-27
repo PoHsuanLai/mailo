@@ -4346,3 +4346,17 @@ header that lies still cannot allocate past 256 MiB. PDF thumbnails are quire's 
 (small blobs live in SQLite and have no path for `PdfFileThumb`); the larger viewer renders pages
 with pdfrum. The viewer is `Shell::viewing`: Esc and the arrows reach it first, and opening or
 closing a conversation closes it. The thumbnail cannot yet be opened from the keyboard.
+
+### F187 — quire v0.1.17, and Blitz from the fork that stops painting a lost animation
+
+mailo takes quire v0.1.17, and with it Blitz from `PoHsuanLai/blitz` at `bf588142`: upstream
+`e99fbdbd` plus one fix. An element that lost its animation part-way kept painting and hit-testing
+its last animated value, which can leave a panel frozen partway in. Both Blitz lines in the
+workspace moved together, and the lock holds exactly one `blitz-dom` and no upstream Blitz, or
+quire's types would not unify with mailo's.
+
+quire's lint now refuses infinite animations (`Rule::InfiniteLoop`). The add-account sheet's
+waiting line breathes while a sign-in is out in the browser; it is drawn only for that wait, so it
+is an exception with that reason rather than a pending token. The lint also warns, without
+failing, on eleven pointer cursors on controls: the HIG gives the hand only to links. `ds::sleep`
+now takes its deadline when called; mailo awaits every call at once, so nothing changed.
