@@ -427,3 +427,120 @@ async fn a_refused_password_stops_the_pass_and_says_so() {
     let report = s.engine.pass(&mut cancel, now()).await.unwrap();
     assert!(report.needs_reauth, "{report:?}");
 }
+
+/// "Delete forever" as the window does it: the deletion queued while the store still knows the
+/// email's id, then the message removed here.
+fn delete_forever(store: &SqliteStore, message: &Message) {
+    let thread = store.thread(message.thread).unwrap();
+    let messages: Vec<Message> = thread
+        .messages
+        .iter()
+        .map(|id| store.message(*id).unwrap())
+        .collect();
+    // Destroying is queued whatever the capabilities say.
+    let caps = presets::jmap(USER, "https://jmap.example.test/", HttpAuth::Basic).expected_caps;
+    let applied = Op::Destroy.apply(
+        &Target::Threads(vec![message.thread]),
+        &thread,
+        &messages,
+        &caps,
+        now(),
+    );
+    store
+        .enqueue(
+            ACCOUNT,
+            applied.remote.expect("in Trash"),
+            &applied.inverse,
+            now(),
+        )
+        .unwrap()
+        .expect("queued");
+    store.apply(ACCOUNT, &applied.forward).unwrap();
+}
+
+fn all() -> MailboxRef {
+    MailboxRef {
+        account: ACCOUNT,
+        path: JMAP_ALL.to_owned(),
+    }
+}
+
+#[tokio::test]
+async fn deleting_forever_from_trash_destroys_the_email_on_the_server() {
+    let mut s = setup().await;
+    let trashed = s.fake.state.lock().unwrap().deliver(
+        &raw(5, "Old news", "nobody wants this"),
+        &["mbT"],
+        &["$seen"],
+        "2026-09-01T09:05:00Z",
+    );
+    pass(&mut s).await;
+    let message = held(&s.store, 5).expect("synced into Trash");
+    assert_eq!(message.mailbox, MailboxRole::Trash);
+
+    delete_forever(&s.store, &message);
+    assert!(held(&s.store, 5).is_none(), "gone here at once");
+    let report = pass(&mut s).await;
+    assert_eq!(report.outbox_settled, 1);
+
+    // RFC 8621 §4.6: one Email/set whose destroy names exactly that email.
+    let sets = s.fake.calls("Email/set");
+    assert_eq!(
+        sets.last().unwrap()["destroy"],
+        serde_json::json!([trashed.clone()])
+    );
+    assert!(s.fake.state.lock().unwrap().email(&trashed).is_none());
+    // And it stays gone: the next pass neither fetches it back nor keeps its id.
+    pass(&mut s).await;
+    assert!(held(&s.store, 5).is_none());
+    assert!(
+        !s.store
+            .remote_refs(&all())
+            .unwrap()
+            .contains(&RemoteRef::Jmap { email_id: trashed })
+    );
+}
+
+#[tokio::test]
+async fn an_email_filed_elsewhere_meanwhile_is_not_destroyed_and_comes_back() {
+    let mut s = setup().await;
+    let trashed = s.fake.state.lock().unwrap().deliver(
+        &raw(6, "Changed my mind", "keep me"),
+        &["mbT"],
+        &[],
+        "2026-09-01T09:06:00Z",
+    );
+    pass(&mut s).await;
+    let message = held(&s.store, 6).expect("synced into Trash");
+    delete_forever(&s.store, &message);
+    // Another client restores it to the inbox before this one's deletion is sent.
+    s.fake
+        .state
+        .lock()
+        .unwrap()
+        .touch(&trashed, |email| email.mailboxes = vec!["mbI".to_owned()]);
+
+    let (_tx, mut cancel) = watch::channel(false);
+    let report = s.engine.pass(&mut cancel, now()).await.unwrap();
+    assert!(
+        report
+            .needs_attention
+            .iter()
+            .any(|why| why.contains("only in Trash")),
+        "{report:?}"
+    );
+    assert!(
+        !s.fake
+            .calls("Email/set")
+            .iter()
+            .any(|set| set["destroy"].as_array().is_some_and(|d| !d.is_empty())),
+        "nothing was destroyed"
+    );
+    assert!(s.fake.state.lock().unwrap().email(&trashed).is_some());
+    // Refused, the kept id goes, and a sync shows the email where the server has it.
+    pass(&mut s).await;
+    assert_eq!(
+        held(&s.store, 6).map(|m| m.mailbox),
+        Some(MailboxRole::Inbox)
+    );
+}

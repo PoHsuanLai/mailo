@@ -224,6 +224,45 @@ pub(super) fn act_kind_all(
     act_all(store, shell, revision, ops)
 }
 
+/// Delete forever what each of `threads` holds in `bin`, as one gesture the user has already
+/// confirmed: each row's leaving, and a toast that says how many messages went, with no Undo.
+/// Nothing goes on the undo stack, and what is there about those messages is forgotten, so Ctrl
+/// Z cannot claim to bring any of them back. Returns how many messages were deleted.
+pub(in crate::ui) fn destroy_all(
+    store: &SqliteStore,
+    mut shell: Signal<Shell>,
+    mut revision: Signal<u64>,
+    threads: &[ThreadId],
+) -> usize {
+    let mut gone = Vec::new();
+    let mut done = Vec::new();
+    for thread in threads {
+        let before = store.thread(*thread).ok().map(|loaded| loaded.summary);
+        if let Some(messages) = super::ops::destroy(store, *thread) {
+            gone.extend(messages);
+            done.push((*thread, before));
+        }
+    }
+    if gone.is_empty() {
+        return 0;
+    }
+    {
+        let mut shell = shell.write();
+        shell.undo.forget_messages(&gone);
+        if shell.open.is_some_and(|open| store.thread(open).is_err()) {
+            shell.close();
+        }
+    }
+    revision += 1;
+    if let Some(motion) = motion() {
+        for (thread, before) in done {
+            motion.landed(store, shell, thread, &Op::Destroy, before);
+        }
+        motion.say(crate::destroy::said(gone.len()), Follow::Nothing);
+    }
+    gone.len()
+}
+
 /// Put up the toast for something that is not an op on one row.
 pub(in crate::ui) fn tell(text: String, follow: Follow) {
     if let Some(motion) = motion() {
@@ -338,7 +377,9 @@ pub(super) fn key(
 fn exit(op: &Op) -> Option<Exit> {
     match op {
         // Filed into a folder is out of the inbox, the way archiving is.
-        Op::Archive | Op::File(_) | Op::Trash | Op::Spam | Op::Restore => Some(Exit::Fold),
+        Op::Archive | Op::File(_) | Op::Trash | Op::Spam | Op::Restore | Op::Destroy => {
+            Some(Exit::Fold)
+        }
         Op::SetSnooze(Snooze::Until(_)) => Some(Exit::Curl),
         _ => None,
     }

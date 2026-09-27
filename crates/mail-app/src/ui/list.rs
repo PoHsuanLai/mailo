@@ -220,6 +220,8 @@ pub(super) fn ThreadList(
                     }
                     div { class: "bar-tools",
                         PageMenus { shell }
+                        // Trash and Spam alone: everything in them, deleted forever, once asked.
+                        super::destroy::EmptyButton { shell }
                         // A search can be kept as a view, and a view shown can be changed. Icons only,
                         // like Sync, to keep the bar narrow.
                         if !shell.read().search.trim().is_empty() {

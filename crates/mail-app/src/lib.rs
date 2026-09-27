@@ -7,6 +7,7 @@ pub mod auth;
 pub mod cli;
 pub mod compose;
 pub mod contacts;
+pub mod destroy;
 pub mod discover;
 pub mod editor;
 pub mod export;

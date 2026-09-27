@@ -171,10 +171,14 @@ pub(super) fn Row(
         Attachments::None => None,
     };
     // The saved view being shown names its own strip; anywhere else it is the usual one.
-    let actions: Vec<OpKind> = hover_in(shell.read().saved_view(), &summary)
+    let mut actions: Vec<OpKind> = hover_in(shell.read().saved_view(), &summary)
         .into_iter()
         .filter(|kind| !matches!(kind, OpKind::Star | OpKind::Unstar))
         .collect();
+    // In Trash or Spam, and only there, a row can be deleted forever: once the sheet has asked.
+    if crate::destroy::offered(crate::destroy::bin_shown(&shell.read()), &summary) {
+        actions.push(OpKind::Destroy);
+    }
     let delay = index.min(8);
     let move_label = "Move to…".to_owned();
     let filing = shell.read().filing == Some(id);
@@ -445,6 +449,11 @@ fn press(mut shell: Signal<Shell>, mut revision: Signal<u64>, id: ThreadId, pres
         shell.write().snoozing = if already { None } else { Some(id) };
         return;
     }
+    // Never at once: the sheet names how much and asks, over this row and every one picked.
+    if kind == OpKind::Destroy {
+        super::destroy::ask_chosen(&store, shell, &with_selection(shell, id));
+        return;
+    }
     // An op may take the row out of the list, and a pressed strip button would otherwise have
     // the keyboard inside the leaving row. quire hands the keyboard on when its element is
     // removed, but only if it saw the element focused first: under load the press's own focus
@@ -543,6 +552,7 @@ fn kebab(kind: OpKind) -> &'static str {
         OpKind::Snooze => "snooze",
         OpKind::Pin => "pin",
         OpKind::Mute => "mute",
+        OpKind::Destroy => "delete-forever",
         OpKind::Reply => "reply",
         OpKind::ReplyAll => "reply-all",
         OpKind::Forward => "forward",
@@ -562,6 +572,7 @@ fn op_icon(kind: OpKind) -> Icon {
         OpKind::Snooze => Icon::Clock,
         OpKind::Pin => Icon::Pin,
         OpKind::Mute => Icon::BellOff,
+        OpKind::Destroy => Icon::Trash,
         OpKind::Reply => Icon::Reply,
         OpKind::ReplyAll => Icon::ReplyAll,
         OpKind::Forward => Icon::Forward,

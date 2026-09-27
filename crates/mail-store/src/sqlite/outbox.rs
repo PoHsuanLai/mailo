@@ -7,7 +7,7 @@
 
 use super::SqliteStore;
 use super::row::{from_time, json, to_json};
-use crate::dispatch::Place;
+use crate::dispatch::{Answered, Place};
 use crate::{Dispatch, OutboxEntry, Settle, StoreError};
 use chrono::{DateTime, TimeDelta, Utc};
 use mail_domain::{
@@ -76,7 +76,14 @@ impl SqliteStore {
             |r| r.get(0),
         )?;
         if !held {
-            return Ok(Place::Gone);
+            // Destroyed here and not yet on the server: still there, at the addresses kept for
+            // it, so the deletion is sent to them and waits behind what was queued before it.
+            let kept = self.destroyed_of(account, message)?;
+            return Ok(if kept.is_empty() {
+                Place::Gone
+            } else {
+                Place::At(kept)
+            });
         }
         let found = self.refs_for(account, &[message])?;
         if found.is_empty()
@@ -143,7 +150,8 @@ impl SqliteStore {
             | RemoteIntent::SetMailbox { messages, .. }
             | RemoteIntent::SetLabels { messages, .. }
             | RemoteIntent::File { messages, .. }
-            | RemoteIntent::AddKeyword { messages, .. } => messages,
+            | RemoteIntent::AddKeyword { messages, .. }
+            | RemoteIntent::Destroy { messages } => messages,
             RemoteIntent::Send { .. } | RemoteIntent::Folder(_) | RemoteIntent::Append { .. } => {
                 unreachable!("handled above")
             }
@@ -182,6 +190,7 @@ impl SqliteStore {
                     None => return Ok(None),
                 }
             }
+            RemoteIntent::Destroy { .. } => ProtoOp::Destroy { remotes },
             RemoteIntent::Send { .. } | RemoteIntent::Folder(_) | RemoteIntent::Append { .. } => {
                 unreachable!("handled above")
             }
@@ -252,6 +261,9 @@ impl SqliteStore {
             // A keyword has no local mirror on the message to re-layer: the answer it records is
             // kept by the store beside the message, written when the user answered.
             RemoteIntent::AddKeyword { .. } => Vec::new(),
+            // A destroyed message is not here to be overwritten: its kept addresses are what
+            // stops the next ingest bringing it back (`destroyed`, migration 0025).
+            RemoteIntent::Destroy { .. } => Vec::new(),
             RemoteIntent::Send { .. } | RemoteIntent::Folder(_) | RemoteIntent::Append { .. } => {
                 Vec::new()
             }
@@ -290,6 +302,14 @@ impl SqliteStore {
             ],
         )?;
         let id = OutboxId::from_i64(self.connection().last_insert_rowid());
+        // Kept before the caller removes the messages, which takes their `remote_map` rows.
+        if let RemoteIntent::Destroy { messages } = &intent {
+            for message in messages {
+                for remote in self.refs_for(account, &[*message])? {
+                    self.keep_destroyed(account, *message, &remote, id)?;
+                }
+            }
+        }
         for (message, changes) in Self::pending_of(&intent) {
             if changes.is_empty() {
                 continue;
@@ -419,6 +439,7 @@ impl SqliteStore {
         let tx = db.unchecked_transaction()?;
         match settle {
             Settle::Ok => {
+                self.settle_destroyed(id, Answered::Done)?;
                 // A deleted mailbox's addresses are let go of only once the server agrees.
                 let (account, op): (String, String) = self.connection().query_row(
                     "SELECT account, op FROM outbox WHERE id = ?1",
@@ -476,10 +497,17 @@ impl SqliteStore {
                 }
                 // The server will refuse this forever. Undo the optimistic local change, or the
                 // user is left looking at a state that will never become true.
-                Retry::Fatal(_) => self.undo_entry(id, &[])?,
+                Retry::Fatal(_) => {
+                    self.settle_destroyed(id, Answered::Refused)?;
+                    self.undo_entry(id, &[])?;
+                }
             },
-            // As a refusal, except for what the server did do (FINDINGS F159).
-            Settle::InPart { done } => self.undo_entry(id, &done)?,
+            // As a refusal, except for what the server did do (FINDINGS F159). What it did
+            // destroy it no longer lists, so no address needs keeping for that either.
+            Settle::InPart { done } => {
+                self.settle_destroyed(id, Answered::Refused)?;
+                self.undo_entry(id, &done)?;
+            }
         }
         tx.commit()?;
         Ok(())

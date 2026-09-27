@@ -840,7 +840,7 @@ async fn a_refused_token_is_renewed_once_with_both_graph_permissions() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn nothing_is_ever_deleted_for_good() {
+async fn expunging_in_general_is_refused() {
     let (port, seen) = serve(inbox_script()).await;
     let mut it = account(port);
     let (_tx, mut cancel) = cancel();
@@ -863,7 +863,109 @@ async fn nothing_is_ever_deleted_for_good() {
         .expect_err("refused");
     assert!(matches!(e.retry(), Retry::Fatal(_)), "{e}");
     assert!(
-        !seen.lock().unwrap().iter().any(|r| r.method == "DELETE"),
+        !seen
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|r| r.method == "DELETE" || r.path().ends_with("/permanentDelete")),
         "nothing was asked to delete anything"
     );
+}
+
+/// The account's folders as a listing would have found them, with Graph's display names.
+fn listed_caps() -> AccountCaps {
+    AccountCaps {
+        folders: FolderRoles(vec![
+            ("INBOX".to_owned(), MailboxRole::Inbox),
+            ("Deleted Items".to_owned(), MailboxRole::Trash),
+            ("Junk Email".to_owned(), MailboxRole::Spam),
+        ]),
+        ..caps()
+    }
+}
+
+fn graph_at(mailbox: &str, id: &str) -> RemoteRef {
+    RemoteRef::Graph {
+        mailbox: mailbox.to_owned(),
+        id: id.to_owned(),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn deleting_forever_from_deleted_items_or_junk_is_a_permanent_delete_of_each_message() {
+    // `permanentDelete`, not `DELETE`: the latter is a soft delete into Deleted Items or
+    // Recoverable Items, and a message "deleted forever" from Junk Email would come back.
+    let (port, seen) = serve(Arc::new(|request, _| match request.method.as_str() {
+        "POST" if request.path().ends_with("/messages/gone/permanentDelete") => {
+            status("404 Not Found", "{}")
+        }
+        "POST" if request.path().ends_with("/permanentDelete") => status("204 No Content", ""),
+        _ => status("400 Bad Request", "{}"),
+    }))
+    .await;
+    let mut reader = Reader::new(ACCOUNT, listed_caps()).unwrap().at(me(port));
+    let outcome = reader
+        .run(
+            ProtoOp::Destroy {
+                remotes: vec![
+                    graph_at("Deleted Items", "AAMk-1"),
+                    graph_at("Junk Email", "AAMk-2"),
+                    // Already gone there: what was asked for.
+                    graph_at("Deleted Items", "gone"),
+                ],
+            },
+            "graph-token",
+            None,
+        )
+        .await
+        .unwrap();
+    assert!(matches!(outcome, mail_proto::ProtoOutcome::Applied));
+    let asked: Vec<(String, String)> = seen
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|r| (r.method.clone(), r.path().to_owned()))
+        .collect();
+    let post = |id: &str| {
+        (
+            "POST".to_owned(),
+            format!("/v1.0/me/messages/{id}/permanentDelete"),
+        )
+    };
+    assert_eq!(asked, vec![post("AAMk-1"), post("AAMk-2"), post("gone")]);
+    // No body, and says so.
+    assert!(
+        seen.lock()
+            .unwrap()
+            .iter()
+            .all(|r| r.body.is_empty() && r.header("content-length") == Some("0"))
+    );
+    assert!(
+        seen.lock()
+            .unwrap()
+            .iter()
+            .all(|r| r.header("authorization") == Some("Bearer graph-token"))
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn nothing_outside_deleted_items_and_junk_is_deleted_forever() {
+    let (port, seen) = serve(Arc::new(|_, _| status("204 No Content", ""))).await;
+    let mut reader = Reader::new(ACCOUNT, listed_caps()).unwrap().at(me(port));
+    let e = reader
+        .run(
+            ProtoOp::Destroy {
+                // One in the inbox among them refuses the lot, before any request.
+                remotes: vec![
+                    graph_at("Deleted Items", "AAMk-1"),
+                    graph_at("INBOX", "AAMk-2"),
+                ],
+            },
+            "graph-token",
+            None,
+        )
+        .await
+        .expect_err("refused");
+    assert!(matches!(e.retry(), Retry::Fatal(_)), "{e}");
+    assert!(seen.lock().unwrap().is_empty(), "nothing was asked at all");
 }

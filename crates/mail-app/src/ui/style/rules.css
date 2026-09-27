@@ -77,6 +77,10 @@
 .rules-add { position: relative; }
 .rules-acts { display: flex; align-items: center; justify-content: flex-end; gap: var(--s-8); flex-wrap: wrap; margin-top: var(--s-4); }
 .rules-acts .capnote { flex: 1; min-width: 0; }
+/* Delete forever / Empty Trash: a short question over the window, answered by its one button. */
+.destroy-sheet { width: min(440px, 92%); }
+.destroy-body { margin: 0; line-height: 1.5; color: var(--ink); }
+.destroy-sheet .rules-part > .rules-acts { justify-content: flex-end; }
 .rules-part > .rules-acts:first-of-type { justify-content: flex-start; }
 
 /* The keyboard shortcuts sheet: the rules' rows, each an action, its key caps and Change. */

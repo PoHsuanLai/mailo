@@ -227,6 +227,13 @@ fn local_only_operations_confirm_without_touching_the_wire() {
             }],
             keyword: Keyword::MdnSent,
         },
+        // Delete forever is local on POP3: a `DELE` would name a message number from an earlier
+        // session. The store keeps the UIDL so the message is not downloaded again.
+        ProtoOp::Destroy {
+            remotes: vec![RemoteRef::Pop {
+                uidl: "x".to_owned(),
+            }],
+        },
     ] {
         match backend.begin(op) {
             Progress::Done(ProtoOutcome::Applied) => {}

@@ -184,3 +184,37 @@ fn the_toast_says_what_happened() {
         assert_eq!(said(&make(at), &Utc), *want);
     }
 }
+
+#[test]
+fn mail_deleted_forever_is_forgotten_by_the_stack() {
+    // A move to Trash of a message later deleted forever cannot be taken back: the message is
+    // gone. Its part goes, an entry left with no part goes, and the rest stays as it was.
+    let mut stack = UndoStack::default();
+    let account = AccountId::generate();
+    let (gone, kept) = (MessageId::generate(), MessageId::generate());
+    let trashed = |m: MessageId| Undo {
+        said: "Moved to Trash".to_owned(),
+        thread: Some(ThreadId::generate()),
+        account,
+        forward: patch(vec![Change::MessageMailbox(m, MailboxRole::Trash)]),
+        inverse: patch(vec![Change::MessageMailbox(m, MailboxRole::Inbox)]),
+        remote: None,
+    };
+    let alone = stack.push(trashed(gone));
+    let both = stack
+        .push_all(vec![trashed(gone), trashed(kept)])
+        .expect("an entry");
+    let other = stack.push(trashed(kept));
+    assert_eq!(stack.len(), 3);
+
+    stack.forget_messages(&[gone]);
+    assert_eq!(stack.len(), 2, "the entry that was only about it is gone");
+    assert!(stack.take(alone).is_none());
+    let left = stack.take(both).expect("the shared entry stays");
+    assert_eq!(left.len(), 1);
+    assert_eq!(
+        left[0].forward.changes,
+        vec![Change::MessageMailbox(kept, MailboxRole::Trash)]
+    );
+    assert!(stack.take(other).is_some());
+}

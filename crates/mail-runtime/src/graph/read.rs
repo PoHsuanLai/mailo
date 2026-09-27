@@ -29,7 +29,9 @@
 //! which is Gmail's model and drives folder listing and filing. Categories would need a third
 //! kind of server label, and syncing them is left for when one exists.
 //!
-//! Nothing is ever deleted for good: `Expunge` is refused, and so is deleting a folder.
+//! Nothing is deleted for good but what the user deletes forever from Deleted Items or Junk
+//! Email (`Destroy`, a `permanentDelete` of each message). `Expunge` is refused, and so is
+//! deleting a folder.
 //!
 //! There is no push. Graph's change notifications are delivered to a public HTTPS webhook,
 //! which a desktop client does not have, so an account that reads through Graph polls — every
@@ -267,6 +269,7 @@ impl Reader {
             ProtoOp::Expunge { .. } => Err(refused_here(
                 "deleting mail for good; this client never does that through Microsoft Graph",
             )),
+            ProtoOp::Destroy { remotes } => self.destroy(&remotes, token).await,
             ProtoOp::Watch { .. } => Ok(ProtoOutcome::Applied),
             ProtoOp::Submit { .. }
             | ProtoOp::FetchFlags { .. }
@@ -424,6 +427,48 @@ impl Reader {
                 "Microsoft Graph's delta page: {e}"
             )))
         })
+    }
+
+    /// Delete each message in `remotes` for good: `POST /me/messages/{id}/permanentDelete` with no
+    /// body, the user's "Delete forever" of mail in Deleted Items or Junk Email.
+    ///
+    /// Not `DELETE /me/messages/{id}`, which Exchange treats as a soft delete: the message moves
+    /// to Deleted Items, or from there to Recoverable Items, and a message deleted forever from
+    /// Junk Email would come back in Deleted Items on the next sync. `permanentDelete` (Graph
+    /// v1.0, `message: permanentDelete`) moves it to the Purges folder of the dumpster, out of
+    /// every client's reach. Written from that description; it could not be checked against
+    /// Microsoft's live documentation or a tenant from where this was built.
+    ///
+    /// Every address is checked before anything is sent: a Graph address in any folder but the
+    /// account's Trash or Spam is refused, so no request is made for any of them. A `404` is a
+    /// message already gone, which is what was asked.
+    async fn destroy(
+        &mut self,
+        remotes: &[RemoteRef],
+        token: &str,
+    ) -> Result<ProtoOutcome, RuntimeError> {
+        let mut ids = Vec::new();
+        for remote in remotes {
+            let RemoteRef::Graph { mailbox, id } = remote else {
+                return Err(refused_here("deleting an address that is not Graph's"));
+            };
+            match self.caps.folders.role(mailbox) {
+                Some(MailboxRole::Trash | MailboxRole::Spam) => ids.push(id),
+                _ => {
+                    return Err(refused_here(&format!(
+                        "deleting forever outside Deleted Items and Junk Email: {mailbox} is \
+                         neither, so nothing was deleted"
+                    )));
+                }
+            }
+        }
+        for id in ids {
+            let url = format!("{}/messages/{}/permanentDelete", self.me, segment(id));
+            match self.call(reqwest::Method::POST, &url, token, None).await? {
+                Answer::Done(_) | Answer::Gone => {}
+            }
+        }
+        Ok(ProtoOutcome::Applied)
     }
 
     /// Move each Graph message in `remotes` to `destination`, remembering where each went.
@@ -694,11 +739,15 @@ impl Reader {
         token: &str,
         body: Option<&Value>,
     ) -> Result<Answer, RuntimeError> {
+        // A POST with no body still says so: `Content-Length: 0`, which an HTTP/1.1 server may
+        // otherwise refuse with `411 Length Required`.
+        let bodiless_post = method == reqwest::Method::POST;
         let request = self.http.request(method, url).bearer_auth(token);
         let request = match body {
             Some(body) => request
                 .header(reqwest::header::CONTENT_TYPE, "application/json")
                 .body(serde_json::to_vec(body).unwrap_or_default()),
+            None if bodiless_post => request.header(reqwest::header::CONTENT_LENGTH, "0"),
             None => request,
         };
         let response = request

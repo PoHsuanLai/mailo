@@ -359,6 +359,7 @@ impl SqliteStore {
                 "DELETE FROM remote_map WHERE account = ?1 AND mailbox = ?2",
                 params![account.to_string(), ingest.mailbox.path],
             )?;
+            self.forget_destroyed_in(account, &ingest.mailbox.path)?;
         }
 
         for label in &ingest.labels {
@@ -462,6 +463,8 @@ impl SqliteStore {
         // 4. Expunged elsewhere. Drop the mapping; drop the message only when no mailbox still
         //    holds it, because vanishing from INBOX is what archiving looks like on Gmail.
         for remote in &ingest.gone {
+            // Deleted forever here, and now there too.
+            self.forget_destroyed(account, remote)?;
             if let Some(id) = self.message_by_remote(account, remote)? {
                 let (acct, mailbox, uidvalidity, uid, uidl) = remote_key(account, remote);
                 self.connection().execute(
@@ -792,6 +795,7 @@ impl SqliteStore {
         from: &RemoteRef,
         to: &RemoteRef,
     ) -> Result<(), StoreError> {
+        self.remap_destroyed(account, from, to)?;
         let Some(message) = self.message_by_remote(account, from)? else {
             return Ok(());
         };
@@ -817,6 +821,9 @@ impl SqliteStore {
         remote: &RemoteRef,
         into: Option<&str>,
     ) -> Result<(), StoreError> {
+        // Moved before its deletion was sent, to where nobody said: the deletion has nowhere to
+        // go, and the sync that finds the message shows it again.
+        self.forget_destroyed(account, remote)?;
         let Some(message) = self.message_by_remote(account, remote)? else {
             return Ok(());
         };

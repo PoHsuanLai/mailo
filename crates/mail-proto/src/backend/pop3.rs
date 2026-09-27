@@ -224,6 +224,17 @@ impl Backend for Pop3Backend {
                 self.job = Job::Idle;
                 Progress::Done(ProtoOutcome::Applied)
             }
+            // Deleted here only, and never with `DELE`. A POP3 message number names a message
+            // only within the session that listed it (RFC 1939 §7), and a walk's commands are
+            // fixed before it connects, so a `DELE` would name a number from an earlier session:
+            // after any other client deleted mail, the wrong message. The store keeps the UIDL as
+            // destroyed, so the next poll does not download the message again; the server keeps
+            // its copy for as long as the account's `LeaveOnServer` says, as it keeps every
+            // other message this client has read.
+            ProtoOp::Destroy { .. } => {
+                self.job = Job::Idle;
+                Progress::Done(ProtoOutcome::Applied)
+            }
             ProtoOp::FetchStructure { .. } | ProtoOp::FetchSections { .. } => {
                 // `TOP` takes a line count, not a part: a POP3 message comes whole or not at
                 // all, so a large one is simply a large download.

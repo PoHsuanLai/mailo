@@ -14,9 +14,13 @@
 //! - **Sequence numbers renumber under you.** An untagged `EXPUNGE` shifts every later
 //!   sequence number, which is how a client deletes the wrong message. Nothing here hands a
 //!   sequence number to a caller; UIDs are the only identity that leaves this module.
-//! - **`\Deleted` and `EXPUNGE` are absent on purpose.** Gmail routes `EXPUNGE` through a
-//!   per-account setting that may be `deleteForever` and cannot be read over IMAP, so the
-//!   commands simply do not exist here rather than being gated on something unobservable.
+//! - **`\Deleted` and `EXPUNGE` serve one purpose only.** Gmail routes `EXPUNGE` through a
+//!   per-account setting that may be `deleteForever` and cannot be read over IMAP, so nothing
+//!   here moves or cleans up by expunging. The one use is the user's own "Delete forever" of mail
+//!   in the Trash or Spam folder (`ProtoOp::Destroy`), where deleting for good is the point:
+//!   `UID STORE +FLAGS.SILENT (\Deleted)` then `UID EXPUNGE` of the same UIDs (RFC 4315), behind
+//!   a [`ImapCommand::RequireCapability`] guard for `UIDPLUS`. A bare `EXPUNGE` does not exist
+//!   here, because it removes every `\Deleted` message in the mailbox, other clients' included.
 
 use crate::machine::{IoNeed, IoReady, Machine, Progress, ProtoError, Refusal};
 use crate::mutf7;
@@ -68,7 +72,7 @@ pub enum ImapCommand {
     /// `UID MOVE <set> <mailbox>` (RFC 6851), where the server advertises `MOVE`.
     ///
     /// The only safe way to actually move a message. The alternative is `COPY`, then `\Deleted`,
-    /// then `EXPUNGE` — and `EXPUNGE` is refused outright here, because Gmail may be configured
+    /// then `EXPUNGE` — and expunging is never used to move, because Gmail may be configured
     /// to delete permanently and that setting cannot be read over IMAP. `MOVE` is atomic and
     /// names no flag, so it is not that dance in disguise; it is the primitive the dance was
     /// always a poor imitation of.
@@ -95,6 +99,29 @@ pub enum ImapCommand {
         date: Option<chrono::DateTime<chrono::Utc>>,
         raw: Vec<u8>,
     },
+    /// `UID EXPUNGE <set>` (RFC 4315 §2.1): expunge exactly these UIDs, and no other message
+    /// marked `\Deleted` in the mailbox. Only after `\Deleted` was set on the same set for a
+    /// "Delete forever" in Trash or Spam, and only behind [`ImapCommand::RequireCapability`] for
+    /// `UIDPLUS`; see the module note.
+    UidExpunge {
+        set: String,
+    },
+    /// Sends nothing: the walk stops with [`ProtoError::Unsupported`] unless the capabilities this
+    /// session has seen include one of these atoms.
+    ///
+    /// A guard, like [`ImapCommand::RequireEmpty`], for a walk whose later commands are only safe
+    /// on a server that has the extension, and whose earlier ones must not be sent without it:
+    /// `\Deleted` set on a server without `UIDPLUS` could only be cleared by a bare `EXPUNGE`,
+    /// which would take other clients' deleted mail with it. Put [`ImapCommand::Capability`]
+    /// before it, since the list a server gives before sign-in is often short.
+    RequireCapability(Vec<String>),
+    /// Sends nothing: the walk stops unless the `SELECT` before it reported this `UIDVALIDITY`.
+    ///
+    /// A UID means the message it was given to only while the mailbox keeps its `UIDVALIDITY`
+    /// (RFC 9051 §2.3.1.1). A flag set on a renumbered mailbox lands on the wrong message and can
+    /// be set right; an expunge cannot, so a walk that destroys checks first. A server that
+    /// reported none is taken as renumbered.
+    RequireUidValidity(u32),
     /// `LSUB "" "*"`: the mailboxes the user follows (RFC 3501 §6.3.9).
     Lsub,
     /// `CREATE <mailbox>`.
@@ -108,8 +135,8 @@ pub enum ImapCommand {
     },
     /// `DELETE <mailbox>`.
     ///
-    /// Not `\Deleted` and `EXPUNGE`, which stay absent (see the module note): this removes a
-    /// mailbox, and on Gmail, where a mailbox is a label, it removes the label and no message.
+    /// Not `\Deleted` and `EXPUNGE`, which are only for "Delete forever" (see the module note):
+    /// this removes a mailbox, and on Gmail, where a mailbox is a label, it removes the label and no message.
     Delete {
         mailbox: String,
     },
@@ -335,6 +362,31 @@ impl ImapSession {
             self.phase = Phase::Finished;
             return Progress::Done(std::mem::take(&mut self.transcript));
         }
+        if let ImapCommand::RequireUidValidity(expected) = command {
+            return match reported_uidvalidity(&self.transcript.untagged) {
+                Some(now) if now == expected => self.issue(index + 1),
+                now => self.fail(ProtoError::Refused {
+                    kind: Refusal::Permanent,
+                    text: format!(
+                        "the mailbox's UIDVALIDITY is {} where {expected} was expected: its \
+                         UIDs may name other messages now, so nothing was deleted",
+                        now.map_or_else(|| "unreported".to_owned(), |n| n.to_string())
+                    ),
+                }),
+            };
+        }
+        if let ImapCommand::RequireCapability(any) = &command {
+            if any
+                .iter()
+                .any(|atom| has_capability(&self.transcript.capabilities, atom))
+            {
+                return self.issue(index + 1);
+            }
+            return self.fail(ProtoError::Unsupported(format!(
+                "the server does not offer {}, so nothing was sent",
+                any.join(" or ")
+            )));
+        }
         let tag = self.next_tag();
         let line = match self.render(&command, &tag) {
             Ok(line) => line,
@@ -460,6 +512,14 @@ impl ImapSession {
                 format!("UID STORE {set} {what}")
             }
             ImapCommand::UidSearch { criteria } => format!("UID SEARCH {criteria}"),
+            ImapCommand::UidExpunge { set } => {
+                check_set(set)?;
+                format!("UID EXPUNGE {set}")
+            }
+            // Never rendered: `issue` either passes over it or stops the walk.
+            ImapCommand::RequireCapability(_) | ImapCommand::RequireUidValidity(_) => {
+                return Err(ProtoError::Malformed("a guard is not a command".to_owned()));
+            }
             ImapCommand::UidCopy { set, mailbox } => {
                 check_set(set)?;
                 format!("UID COPY {set} {}", quoted(&mutf7::encode(mailbox)))
@@ -826,6 +886,18 @@ fn reported_uidnext(untagged: &[Untagged]) -> Option<u32> {
         .iter()
         .filter_map(|u| {
             let at = u.text.find("[UIDNEXT ")? + "[UIDNEXT ".len();
+            let rest = &u.text[at..];
+            rest[..rest.find(']')?].trim().parse().ok()
+        })
+        .next_back()
+}
+
+/// The `UIDVALIDITY` the last `SELECT` or `EXAMINE` reported, if any did.
+fn reported_uidvalidity(untagged: &[Untagged]) -> Option<u32> {
+    untagged
+        .iter()
+        .filter_map(|u| {
+            let at = u.text.find("[UIDVALIDITY ")? + "[UIDVALIDITY ".len();
             let rest = &u.text[at..];
             rest[..rest.find(']')?].trim().parse().ok()
         })
