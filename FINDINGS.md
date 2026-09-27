@@ -4503,3 +4503,24 @@ FilterOperator tree (RFC 8621 §4.4.1). Graph uses `$filter` or `$search`, never
 already held are fetched as headers by the sync's header path, never as bodies; those new to this
 computer are recorded in `found_on_server` (migration 0026) and chipped "from the server". A
 repeated search fetches nothing.
+
+### F197 — Remind me if no reply is a state that comes back once, decided at its time
+
+A decision, with domain additions the user approved (item 8). `FollowUp { Inactive, Until { at,
+set }, Returned { at, set } }` is thread-level state beside snooze and mute: set by the user, never
+sent to a server, undone like them (`Op::SetFollowUp`, `Change::ThreadFollowUp`). A reply is any
+message from an address that is not one of the user's, dated after `set`, wherever it was filed;
+no filter can see that, so `crate::follow_up::sweep` decides it once, at `at`: a reply clears it
+quietly, no reply moves it to `Returned`. That move is made once, so the "No reply yet" notification
+is raised once, by whichever sweep made it (the window's at launch, at the next due time and on
+every revision, or `mailo watch`'s after an announced pass). The inbox lists returned conversations
+on top, even when they are only in Sent, until archived, trashed, snoozed or answered; the Waiting
+place lists every reminder.
+
+A reminder chosen in the composer is counted from when the message leaves and held in
+`follow_up_held` (migration 0027, after server search's 0026) until it has: a reply joins its
+conversation when the outbox has sent it, and a new message joins the conversation its Sent copy
+lands in, found by Message-ID. Undo send lets it go. A new message on an account with no Sent
+folder (POP3) is never found again, and its reminder is dropped a week after it was due. Not
+built: returned conversations on top in `mailo list`, a `mailo remind` command, and a sweep by a
+quiet `mailo watch`.
