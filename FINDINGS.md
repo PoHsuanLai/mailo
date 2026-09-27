@@ -4462,3 +4462,24 @@ frame's tag now names its reader as well as its message, and the network admits 
 its own reader's grant. A printout from the second window can still include images the first
 consented to for that thread (`Consent::thread` is not per reader). Opening a real window is not
 covered by the Harness, which cannot see `open_window`; mailo routes it through its own seam.
+
+### F195 — The unread count is on the launcher; the tray waits on quire
+
+A decision (item 20). The launcher shows the inbox's unread, unsnoozed conversations in the current
+Space's accounts: the Space is what the inbox lists, and a pressed account tile is only a glance,
+so the count does not follow it. The sidebar's Inbox badge still counts every account, so in a
+Space that names accounts the two differ. The window recounts on a blocking thread when its
+revision or Space moves and tells the launcher only when the number changes. On Linux the count
+goes out as `com.canonical.Unity.LauncherEntry` `Update` for `application://mailo.desktop` (the
+Flatpak's id inside one), zero as `count-visible` false, from one thread holding one session-bus
+connection for the process's life, because a dock forgets a count when its sender leaves the bus.
+GNOME's own Dash draws no count; Dash to Dock, Ubuntu Dock, KDE and Plank do. On macOS the Dock
+tile's badge is set through objc2-app-kit's safe calls, on the main thread only. Windows shows
+nothing: the taskbar overlay is an unsafe COM call on quire's window.
+
+The tray icon is not built. Closing the main window ends quire's event loop, and there is no call to
+hide the window instead, raise it again, or end the loop cleanly; tray-icon's events would also
+need quire's private `EventLoopProxy`. On Linux its default backend needs GTK 3, and the pure D-Bus
+one (ksni) is Unlicense, which deny.toml does not allow. Relayed to quire. Not yet seen on a real
+dock: the Flatpak sandbox's handling of the signal and the macOS badge; and a sync run by the
+daemon in another process moves the count only at the window's next write or sync.
