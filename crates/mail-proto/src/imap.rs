@@ -64,6 +64,13 @@ pub enum ImapCommand {
     UidSearch {
         criteria: String,
     },
+    /// `UID SEARCH` for a search typed here ([`crate::search::imap`]): with `RETURN (COUNT ALL)`
+    /// where the server has `ESEARCH` (RFC 4731), `CHARSET UTF-8` where a string is not ASCII,
+    /// and each such string a literal. Rendered when it is issued, from the capabilities the
+    /// session has seen by then, so a walk that wants either asks for `CAPABILITY` first.
+    Search {
+        keys: Vec<crate::search::imap::SearchKey>,
+    },
     /// `UID COPY <set> <mailbox>`. Copy, never move-by-delete: see the module note.
     UidCopy {
         set: String,
@@ -306,6 +313,13 @@ enum Phase {
         /// Held until the `+` arrives, then written in one go.
         body: Vec<u8>,
     },
+    /// A command with literals in it was sent up to its first literal the server must ask for;
+    /// each `+` sends the next of `rest` (RFC 3501 §7.5).
+    LiteralPending {
+        index: usize,
+        tag: String,
+        rest: Vec<Vec<u8>>,
+    },
     Finished,
 }
 
@@ -388,6 +402,24 @@ impl ImapSession {
             )));
         }
         let tag = self.next_tag();
+        if let ImapCommand::Search { keys } = &command {
+            let mut parts =
+                match crate::search::imap::command(&tag, keys, &self.transcript.capabilities) {
+                    Ok(parts) => parts,
+                    Err(e) => return self.fail(e),
+                };
+            let first = parts.remove(0);
+            self.phase = if parts.is_empty() {
+                Phase::Running { index, tag }
+            } else {
+                Phase::LiteralPending {
+                    index,
+                    tag,
+                    rest: parts,
+                }
+            };
+            return Progress::Need(vec![IoNeed::Write(first), IoNeed::Read]);
+        }
         let line = match self.render(&command, &tag) {
             Ok(line) => line,
             Err(e) => return self.fail(e),
@@ -512,6 +544,12 @@ impl ImapSession {
                 format!("UID STORE {set} {what}")
             }
             ImapCommand::UidSearch { criteria } => format!("UID SEARCH {criteria}"),
+            // Never rendered here: `issue` writes it in parts, around its literals.
+            ImapCommand::Search { .. } => {
+                return Err(ProtoError::Malformed(
+                    "a search is written by search::imap".to_owned(),
+                ));
+            }
             ImapCommand::UidExpunge { set } => {
                 check_set(set)?;
                 format!("UID EXPUNGE {set}")
@@ -594,6 +632,20 @@ impl ImapSession {
                         bytes.extend_from_slice(b"\r\n");
                         return Progress::Need(vec![IoNeed::Write(bytes), IoNeed::Read]);
                     }
+                    // The server asked for a search string's literal: the next part goes.
+                    Phase::LiteralPending {
+                        index,
+                        tag,
+                        mut rest,
+                    } => {
+                        let part = rest.remove(0);
+                        self.phase = if rest.is_empty() {
+                            Phase::Running { index, tag }
+                        } else {
+                            Phase::LiteralPending { index, tag, rest }
+                        };
+                        return Progress::Need(vec![IoNeed::Write(part), IoNeed::Read]);
+                    }
                     // A continuation anywhere else means the server wants data we did not
                     // plan to send. Saying so beats hanging.
                     _ => {
@@ -602,6 +654,30 @@ impl ImapSession {
                         ));
                     }
                 }
+            }
+
+            // `imap-proto` has no grammar for ESEARCH (RFC 4731 §3.1). The response is one line
+            // with no literal in it, so it is kept as text, as every untagged response is.
+            if self.buf.len() < b"* ESEARCH".len()
+                && b"* ESEARCH"[..self.buf.len()].eq_ignore_ascii_case(&self.buf)
+            {
+                return Progress::Need(vec![IoNeed::Read]);
+            }
+            if starts_with_ignore_case(&self.buf, b"* ESEARCH") {
+                let Some(end) = find_line(&self.buf) else {
+                    return Progress::Need(vec![IoNeed::Read]);
+                };
+                let raw: Vec<u8> = self.buf.drain(..end).collect();
+                let during = match &self.phase {
+                    Phase::Running { index, .. } => *index,
+                    _ => 0,
+                };
+                self.transcript.untagged.push(Untagged {
+                    during,
+                    text: String::from_utf8_lossy(&raw).trim_end().to_owned(),
+                    raw,
+                });
+                continue;
             }
 
             let snapshot = self.buf.clone();
@@ -653,7 +729,9 @@ impl ImapSession {
                     // refusing the APPEND — no such mailbox, over quota — which is an ordinary
                     // command failure and must read as one rather than as a desynchronised
                     // connection.
-                    | Phase::AppendPending { tag, .. } => tag.clone(),
+                    | Phase::AppendPending { tag, .. }
+                    // The same for a search refused before its literal: a bad charset, say.
+                    | Phase::LiteralPending { tag, .. } => tag.clone(),
                     _ => String::new(),
                 };
                 if tag != expected {
@@ -666,7 +744,8 @@ impl ImapSession {
                     | Phase::IdlePending { index, .. }
                     | Phase::Idling { index, .. }
                     | Phase::IdleEnding { index, .. }
-                    | Phase::AppendPending { index, .. } => *index,
+                    | Phase::AppendPending { index, .. }
+                    | Phase::LiteralPending { index, .. } => *index,
                     _ => 0,
                 };
                 match status {
@@ -1000,6 +1079,10 @@ fn credential_forbidden(credential: &Credential) -> bool {
         // Not a sign-in credential at all: refused the same way as one that would break a line.
         Credential::OpenPgp(_) | Credential::SmimeKey(_) => true,
     }
+}
+
+fn starts_with_ignore_case(buf: &[u8], prefix: &[u8]) -> bool {
+    buf.len() >= prefix.len() && buf[..prefix.len()].eq_ignore_ascii_case(prefix)
 }
 
 fn find_line(buf: &[u8]) -> Option<usize> {
