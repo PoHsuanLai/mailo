@@ -375,7 +375,11 @@ pub(super) fn Reader(
             }
             if let Some((initial, from, addr, when)) = meta {
                 div { class: "reader-meta",
-                    div { class: "reader-av", "{initial}" }
+                    // The sender's logo when they have a certified one, else their initial.
+                    // Keyed like the checks line, so a new message or body asks again.
+                    if let Some((id, raw)) = checked {
+                        {rsx! { super::brand::ReaderAvatar { key: "{id}-{raw:?}", message: id, body: raw, from: addr.clone(), initial: initial.clone() } }}
+                    }
                     div {
                         div { class: "reader-from", "{from}" }
                         div { class: "mono reader-addr", "{addr}" }

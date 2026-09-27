@@ -15,6 +15,9 @@
   width: 28px; height: 28px; border-radius: var(--r-pill); display: grid; place-items: center; flex: none;
   background: var(--ink); color: var(--paper); font-family: var(--font-display); font-weight: 800; font-size: var(--fs-small);
 }
+/* A certified brand logo in the avatar's place: a drawn PNG, never the SVG. */
+.reader-logo { background: var(--paper); overflow: hidden; }
+.reader-logo img { display: block; width: 100%; height: 100%; }
 .reader-from { font-size: var(--fs-control); font-weight: 700; }
 .reader-addr { color: var(--ink-faint); }
 /* SPF, DKIM and DMARC as the receiving server said, under the address; the sender card too. */

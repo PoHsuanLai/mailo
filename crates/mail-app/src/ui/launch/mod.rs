@@ -1,8 +1,9 @@
 //! Opening the window.
 //!
-//! The window reads six values as root contexts: the store, the look, the Spaces, the provider
-//! icons, where it opens, and the directories it writes (when there are any). `native.rs` hands
-//! them over to quire's Blitz window.
+//! The window reads seven values as root contexts: the store, the look, the Spaces, the provider
+//! icons, where it opens, the directories it writes (when there are any), and where brand logos
+//! are cached (when there is a cache directory). `native.rs` hands them over to quire's Blitz
+//! window.
 
 use super::app::App;
 use crate::appearance::WindowDirs;
@@ -23,6 +24,8 @@ pub(super) struct Opening {
     pub dirs: Option<WindowDirs>,
     pub start: super::Start,
     pub icons: Loaded,
+    /// Where brand logos are cached, when there is a cache directory.
+    pub brand: Option<super::brand::BrandCache>,
 }
 
 /// Launch the shell, already wearing `look` and `spaces`, open where `start` says.
@@ -33,9 +36,12 @@ pub fn run(
     dirs: Option<WindowDirs>,
     start: super::Start,
 ) {
-    let icons = crate::appearance::cache_dir()
+    let cache = crate::appearance::cache_dir();
+    let icons = cache
+        .as_ref()
         .map(|dir| Loaded::read(&dir.join("providers")))
         .unwrap_or_default();
+    let brand = cache.map(|dir| super::brand::BrandCache(dir.join("bimi")));
     let opening = Opening {
         store,
         look,
@@ -43,6 +49,7 @@ pub fn run(
         dirs,
         start,
         icons,
+        brand,
     };
     native::run(opening);
 }
