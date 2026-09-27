@@ -106,6 +106,28 @@ impl Dns for SystemDns {
     }
 }
 
+impl SystemDns {
+    /// The TXT records at `name`, each one's strings joined as RFC 7208 §3.3 joins SPF's. A
+    /// string that is not UTF-8 is read lossily: every record read from TXT here is ASCII.
+    pub(crate) async fn txt_records(&self, name: &str) -> Result<Vec<String>, Miss> {
+        use hickory_resolver::proto::rr::RData;
+        let lookup = self.0.txt_lookup(name).await.map_err(dns_miss)?;
+        Ok(lookup
+            .answers()
+            .iter()
+            .filter_map(|record| match &record.data {
+                RData::TXT(txt) => Some(
+                    txt.txt_data
+                        .iter()
+                        .map(|part| String::from_utf8_lossy(part))
+                        .collect::<String>(),
+                ),
+                _ => None,
+            })
+            .collect())
+    }
+}
+
 fn dns_miss(e: hickory_resolver::net::NetError) -> Miss {
     if e.is_no_records_found() {
         Miss::Absent

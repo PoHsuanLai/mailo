@@ -39,6 +39,15 @@ keyring-core = "1"
 hickory-resolver = "0.26"
 # The registered domain of an MX host, for account discovery. Already here through mail-app.
 psl = "2"
+# Brand logos (`bimi/`): an SVG drawn to pixels off the thread that draws the window. resvg
+# (Apache-2.0 OR MIT) over the usvg and tiny-skia already in the tree through Blitz. Default
+# features off: no system fonts, no raster images, so a logo can load nothing but itself.
+resvg = { version = "0.48", default-features = false }
+# The logo's cache key. Already here through S/MIME.
+sha2 = "0.10"
+# A logo read as XML before it is drawn, to refuse what SVG Tiny PS leaves out. The parser usvg
+# already uses, at its version; it expands no entities and reads no DTD.
+roxmltree = "0.21"
 # The operating system's certificate authorities, as S/MIME trust anchors (`smime.rs`). Apache-2.0
 # OR ISC OR MIT; reads the platform's bundle (on Linux the files OpenSSL would, found by
 # `openssl-probe`, also permissive).
@@ -68,13 +77,18 @@ dirs = "6"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
-# The fake CardDAV server in `tests/carddav.rs` reads the hrefs a multiget asks for.
-roxmltree = "0.21"
 tempfile = "3"
 # Seeded key generation for the OpenPGP tests, and the WKD hash they check a request path by.
 # Both already in the tree through rPGP.
 rand = "0.8"
 sha1 = "0.10"
+# The throwaway mark verifying authority `tests/bimi.rs` builds its certificates with
+# (`mail-mime/tests/bimi_support`). All already in the tree through `mail-mime`.
+x509-cert = { version = "0.2", features = ["builder"] }
+der = "0.7"
+spki = "0.7"
+const-oid = "0.9"
+p256 = { version = "0.13", features = ["ecdsa"] }
 
 [lints]
 workspace = true
