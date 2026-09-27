@@ -77,7 +77,7 @@
   padding: var(--s-7) var(--s-8); border-radius: var(--r-menu-item);
 }
 .keys-row:hover { background: var(--surface-2); }
-.keys-row.mine { box-shadow: inset 2px 0 0 var(--accent); }
+.keys-row.mine { box-shadow: inset 2px 0 0 var(--accent-text); }
 .keys-text { display: grid; gap: var(--s-1); min-width: 0; }
 .keys-text b { font-size: var(--fs-control); font-weight: 600; white-space: nowrap; overflow: hidden; }
 .keys-fpr { font-family: var(--font-data); font-size: var(--fs-eyebrow); letter-spacing: .04em; color: var(--ink-soft); }

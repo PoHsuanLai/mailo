@@ -59,7 +59,10 @@ pub(in crate::ui) mod tests {
 
     /// Text on every ground it is drawn on. The Post reference puts faint text on the recessed
     /// panes too (the sidebar's counts, the reader's meta), so `--surface-2` is checked, not
-    /// only the paper. `--warn` is a star's fill and a retry's mark, a graphic, so 3.0.
+    /// only the paper. `--warn` is a star's fill and a retry's mark, a graphic, so 3.0. The
+    /// accent as text or a thin mark is `--accent-text`; `--accent` is a pastel fill only
+    /// `--accent-ink` sits on (quire's accent band, design/03 section 20), and the translucent
+    /// `--accent-soft` and `--accent-ring` are measured composited, in [`WASHES`].
     const PAIRS: &[(&str, &str, f64)] = &[
         ("--ink", "--paper", 4.5),
         ("--ink", "--surface", 4.5),
@@ -74,12 +77,56 @@ pub(in crate::ui) mod tests {
         ("--danger", "--paper", 4.5),
         ("--danger-ink", "--danger", 4.5),
         ("--accent-ink", "--accent", 4.5),
-        ("--accent", "--paper", 3.0),
-        ("--accent", "--surface", 3.0),
-        ("--ink", "--accent-soft", 4.5),
+        ("--accent-text", "--paper", 4.5),
+        ("--accent-text", "--surface", 4.5),
+        ("--accent-text", "--surface-2", 4.5),
+        ("--accent-text", "--raise", 4.5),
         ("--warn", "--surface", 3.0),
         ("--ok", "--surface", 3.0),
     ];
+
+    /// The card's grounds a wash or the focus ring lies on.
+    const GROUNDS: &[&str] = &["--paper", "--surface", "--surface-2", "--raise"];
+
+    /// The translucent accent roles, each laid over every ground before it is measured:
+    /// `--ink` on the wash (a selected row, a chip, a find match), and the focus ring against
+    /// the ground it stands off (WCAG 1.4.11, 3:1).
+    const WASHES: &[(&str, f64)] = &[("--accent-soft", 4.5), ("--accent-ring", 3.0)];
+
+    /// Postmark's roles in a theme state's scheme, which
+    /// `the_card_the_readout_measures_is_the_stylesheets` holds to the stylesheet.
+    fn postmark(state: &str) -> ds::AccentRoles {
+        let scheme = if state == "dark" {
+            ds::Scheme::Dark
+        } else {
+            ds::Scheme::Light
+        };
+        ds::accent_of(ds::Accent::Postmark, scheme)
+    }
+
+    /// `name`'s ratio in one theme state once its role is laid over `ground`: `--ink` on the
+    /// wash over the ground, or the ring over the ground against the ground. Never a parse of
+    /// the `rgba` the stylesheet writes.
+    fn washed(
+        state: &str,
+        tokens: &BTreeMap<String, String>,
+        name: &str,
+        ground: &str,
+    ) -> Result<f64, String> {
+        use ds::tokens::accent_band::over;
+        let roles = postmark(state);
+        let hex = |token: &str| {
+            let text = literal(tokens, token)?;
+            ds::Hex::parse(&text).ok_or_else(|| format!("{token} is not a hex colour ({text})"))
+        };
+        let back = hex(ground)?;
+        let (fore, laid) = match name {
+            "--accent-soft" => (hex("--ink")?, over(roles.fill, roles.wash, back)),
+            "--accent-ring" => (over(roles.text, roles.ring, back), back),
+            other => return Err(format!("{other} is not a translucent accent role")),
+        };
+        ratio(&fore.css(), &laid.css()).ok_or_else(|| format!("{name} over {ground}: no ratio"))
+    }
 
     /// The palette mailo draws with, which is quire's now: light, then dark. Each state is
     /// the `.ds` root's blocks laid over one another in cascade order, with the Postmark accent
@@ -224,6 +271,26 @@ pub(in crate::ui) mod tests {
         Ok(resolved.clone())
     }
 
+    /// A token's value as written, following one `var(--x)`: how the translucent roles are
+    /// read, since they are `rgba(...)` and never a hex.
+    fn followed<'a>(tokens: &'a BTreeMap<String, String>, name: &str) -> Option<&'a str> {
+        let raw = tokens.get(name)?;
+        match exactly_var(raw) {
+            Some(target) => tokens.get(target).map(String::as_str),
+            None => Some(raw),
+        }
+    }
+
+    /// A colour's text without whitespace and in lower case: `rgba(1, 2, 3, .5)` is
+    /// `rgba(1,2,3,.5)`.
+    fn compact(colour: &str) -> String {
+        colour
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .flat_map(char::to_lowercase)
+            .collect()
+    }
+
     /// The palette in one theme state: each block in `layers`, later over earlier.
     fn resolved(layers: &[&str]) -> BTreeMap<String, String> {
         let css = ds::stylesheet();
@@ -263,6 +330,8 @@ pub(in crate::ui) mod tests {
         // `ds::readout`, which the Space editor shows, measures against constants because it
         // cannot read CSS. These are the constants, checked against the stylesheet the window
         // is drawn with in every theme state, so the readout and the window cannot drift apart.
+        // The card no longer carries the accent: Postmark is `ds::accent_of`, and the root's six
+        // accent properties must be its roles, the wash and the ring as the `rgba` it writes.
         use ds::{Card, POST_DARK, POST_LIGHT};
         let mut failures = Vec::new();
         for &(state, layers) in THEMES {
@@ -272,17 +341,31 @@ pub(in crate::ui) mod tests {
             } else {
                 POST_LIGHT
             };
+            let roles = postmark(state);
             for (token, want) in [
-                ("--surface", card.surface),
-                ("--ink", card.ink),
-                ("--accent", card.accent),
-                ("--accent-soft", card.accent_soft),
-                ("--accent-ink", card.accent_ink),
+                ("--surface", card.surface.to_owned()),
+                ("--ink", card.ink.to_owned()),
+                ("--accent", roles.fill.css()),
+                ("--accent-ink", roles.ink.css()),
+                ("--accent-text", roles.text.css()),
+                ("--seal", roles.fill.css()),
             ] {
                 match literal(&tokens, token) {
-                    Ok(got) if got.eq_ignore_ascii_case(want) => {}
+                    Ok(got) if got.eq_ignore_ascii_case(&want) => {}
                     Ok(got) => failures.push(format!("{state} {token}: css {got}, palette {want}")),
                     Err(reason) => failures.push(format!("{state}: {reason}")),
+                }
+            }
+            for (token, want) in [
+                ("--accent-soft", roles.wash_colour().css()),
+                ("--accent-ring", roles.ring_colour().css()),
+            ] {
+                match followed(&tokens, token) {
+                    Some(got) if compact(got) == compact(&want) => {}
+                    Some(got) => {
+                        failures.push(format!("{state} {token}: css {got}, palette {want}"));
+                    }
+                    None => failures.push(format!("{state}: {token} is missing")),
                 }
             }
         }
@@ -478,6 +561,19 @@ pub(in crate::ui) mod tests {
                         }
                         if let Err(reason) = back_hex {
                             failures.push(format!("{fore} on {back}, {state}: {reason}"));
+                        }
+                    }
+                }
+            }
+            for &(role, need) in WASHES {
+                for &ground in GROUNDS {
+                    match washed(state, &tokens, role, ground) {
+                        Ok(measured) if measured < need => failures.push(format!(
+                            "{role} over {ground}, {state}, postmark: {measured:.2} < {need:.1}"
+                        )),
+                        Ok(_) => {}
+                        Err(reason) => {
+                            failures.push(format!("{role} over {ground}, {state}: {reason}"))
                         }
                     }
                 }

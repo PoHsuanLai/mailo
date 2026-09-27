@@ -3,7 +3,7 @@
    quiet column, and the answers are the only loud thing on it. ---- */
 .invite {
   margin: 0 0 var(--s-14); padding: var(--s-12) var(--s-14) var(--s-12); border: var(--hair) solid var(--line);
-  border-left: 3px solid var(--accent); border-radius: var(--r-btn); background: var(--surface);
+  border-left: 3px solid var(--accent-text); border-radius: var(--r-btn); background: var(--surface);
   box-shadow: var(--shadow-1); font-size: var(--fs-control); line-height: 1.45; color: var(--ink);
   animation: rise var(--t-move) var(--e-out);
 }
@@ -49,10 +49,10 @@
 
 .invite .link {
   border: 0; padding: 0; background: none; cursor: pointer; font: inherit; font-size: var(--fs-small);
-  font-weight: 700; color: var(--accent); text-decoration: underline; text-underline-offset: 2px;
+  font-weight: 700; color: var(--accent-text); text-decoration: underline; text-underline-offset: 2px;
   text-decoration-color: var(--accent-soft);
 }
-.invite .link:hover { text-decoration-color: var(--accent); }
+.invite .link:hover { text-decoration-color: var(--accent-text); }
 
 .inv-summary { margin: var(--s-10) 0 0; font-weight: 700; }
 .inv-comment { margin: var(--s-4) 0 0; color: var(--ink-soft); font-style: italic; }
@@ -79,7 +79,7 @@
 
 .inv-acts { display: flex; flex-wrap: wrap; gap: var(--s-6); margin: var(--s-12) 0 0; }
 .inv-acts .mini { padding: var(--s-6) var(--s-13); }
-.inv-acts .mini[*|aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.inv-acts .mini[*|aria-pressed="true"] { border-color: var(--accent-text); box-shadow: 0 0 0 3px var(--accent-soft); }
 .inv-noting {
   display: flex; align-items: center; gap: var(--s-6); margin: var(--s-8) 0 0;
   animation: rise var(--t-quick) var(--e-out);

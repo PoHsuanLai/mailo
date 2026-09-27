@@ -76,15 +76,15 @@ dioxus = { version = "0.7" }
 # `lint` is for the stylesheet and markup tests. To try an unreleased quire,
 # point every quire line at a checkout with a `[patch]` in a local, uncommitted
 # `.cargo/config.toml`, never here.
-ds = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.1.17", features = ["lint"] }
+ds = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.1.18", features = ["lint"] }
 # Settings I/O: `appearance.toml` (imported once from `appearance.json`), the settings portal.
-ds-settings = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.1.17" }
+ds-settings = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.1.18" }
 # The window: quire's Blitz host (the window, its fonts, focus, clipboard, harness, PDF output),
 # and `print`: the system's print dialog for a PDF (the desktop portal on Linux, else the PDF
 # opened in the viewer); `spellcheck`: the composer's spelling, against the system's Hunspell
 # dictionaries (none is bundled), checked by spellbook (MPL-2.0, linked unmodified);
 # `pdf-thumb`: a PDF attachment's first page in the reader's strip (pdfrum).
-ds-native = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.1.17", features = ["print", "spellcheck", "pdf-thumb"] }
+ds-native = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.1.18", features = ["print", "spellcheck", "pdf-thumb"] }
 # A PDF attachment's pages in the viewer (`preview.rs`): quire rasterises only a first page.
 # The reader quire's `pdf-thumb` brings in, at quire's pin (`docs/workspace-deps.toml`): no
 # forms, no scripts, the CPU rasteriser only. The print tests read printouts back with it too
