@@ -74,8 +74,8 @@ pub mod native {
     pub use super::print::Printer;
     pub use super::reading::OriginalFrame;
     pub use super::revisions::Revisions;
-    pub use super::window::{Ask, MessageOpen, OpenWindow, Windows, message_root};
     pub use super::server_search::{Search, ServerSearcher};
+    pub use super::window::{Ask, MessageOpen, OpenWindow, Windows, message_root};
 }
 
 pub use start::{Start, mailto_of, open_thread, start_mailto, start_of};
