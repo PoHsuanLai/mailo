@@ -4293,3 +4293,56 @@ of it. Composer keys are out of scope.
 In a 1200×800 window the settings' scroller stops several hundred pixels short of its end, so the
 last cards (Keys, Keyboard) cannot be reached by the wheel. The Harness tests use tall windows and
 say why; the scroll height is its own fix.
+
+### F182 — A Japanese printout on a Chinese locale set its "Printed" line in the Traditional Chinese face
+
+The "Printed" line, the pictures note and the thread's title sit outside every `<article>`, so
+the per-message `data-script` of efc9fef did not reach them, and they led with the locale's CJK
+face. The stacks name Latin "Noto Sans" first, but where it is not installed (only
+`fonts-noto-cjk`), Latin text is set in the first CJK face that is, so a Japanese printout embedded
+NotoSansCJKtc. mail-mime now marks `<body>` with the first message's script (the title is its
+subject), and the paper's CSS leads those lines with it. The two pdf_tests that caught it also
+needed `fonts-noto-cjk` in CI, which the Linux check job had never installed: CI had been red on
+every push since efc9fef.
+
+### F183 — The print stacks named only Noto, which only Linux has
+
+On Windows the pdf_tests found Yu Gothic UI: fallback had picked a face by the characters and the
+system language, which for ideographs need not be the message's region. Each region now names
+Noto's face, then Windows's and macOS's own, then its own sans where its serif is missing, before
+any other region. The tests check the region on every platform (`region_of` on the PostScript
+name) and Noto's names on Linux only. The macOS names are assumed from the platform's font list and
+are first checked by CI.
+
+### F184 — Five UI tests read once what lands on another thread
+
+The keys sheet's `settle` stopped at the first quiet 100 ms, but a `spawn_blocking` job wakes
+nothing while it runs, so an S/MIME import was often still going. Ctrl 2's list is a
+`spawn_blocking` query, read after one render. The composer's chip flash and the sent page's fold
+end on quire's motion timer, which sleeps on the `futures-timer` thread; waiting exactly the settle
+time on tokio's clock and looking once lost to that thread on a loaded machine or with Windows'
+timers. Each was shown failing deterministically (a starved timer thread, one blocking thread held)
+and now waits for its named state within quire's settle bound, with the timers checked to end no
+earlier than their settle time. A quiet spell is not a finished job. No product code changed.
+
+### F185 — The settings' scroller was never short; Blitz's rect of a scroll container moves with its own scroll
+
+F181 said the settings stop short at 800 px. They do not: `.ed-scroll` scrolls its whole content,
+and the Keyboard card ends above the foot. Blitz's client rect subtracts an element's own scroll
+offset (a browser's does not), so a scrolled scroller reads as moved up by as far as it scrolled,
+and a card compared against it looks out of reach. Tests measure the settings' view from the sheet
+and its foot, which do not scroll, and wheel to what they press; native_keyboard and
+native_spelling run at 800 px again. The rect is Blitz's and is relayed.
+
+### F186 — A stored attachment is previewed from its bytes only, and a picture that claims too much is refused before it is decoded
+
+A decision (item 7). The reader's strip draws a thumbnail for a stored part whose first bytes are
+PNG, JPEG, GIF (first frame), WebP or PDF; the declared type and name are the sender's and decide
+nothing. SVG is never drawn. A part still on the server keeps its paperclip and nothing is fetched
+to draw it, because a thumbnail fetched on sight would be a read receipt for every message scrolled
+past. An image's header is read before a pixel is decoded, and anything over 12000 px a side or 40
+megapixels is refused with a note; the decoder then runs under the image crate's limits, so a
+header that lies still cannot allocate past 256 MiB. PDF thumbnails are quire's `pdf_thumb_bytes`
+(small blobs live in SQLite and have no path for `PdfFileThumb`); the larger viewer renders pages
+with pdfrum. The viewer is `Shell::viewing`: Esc and the arrows reach it first, and opening or
+closing a conversation closes it. The thumbnail cannot yet be opened from the keyboard.
