@@ -4483,3 +4483,23 @@ need quire's private `EventLoopProxy`. On Linux its default backend needs GTK 3,
 one (ksni) is Unlicense, which deny.toml does not allow. Relayed to quire. Not yet seen on a real
 dock: the Flatpak sandbox's handling of the signal and the macOS badge; and a sync run by the
 daemon in another process moves the count only at the window's next write or sync.
+
+### F196 — A search can ask the server, and says what it could not ask rather than widening
+
+A decision (item 11). A search's list ends, for each account in view with an IMAP, JMAP or Graph
+server, with "Search <address> on the server"; it runs by itself only when "Search the server
+automatically" is on (`server-search.json`, off by default), once per line and account.
+`mail_proto::search` translates the line's `Filter` clause for clause, and any clause a protocol
+cannot ask faithfully makes the whole query `Unsaid`: nothing is sent and the list names that
+clause (pinned and snoozed everywhere, `has:attachment` on IMAP, labels off Gmail and on Graph,
+read or flag state with words on Graph, a place under OR or NOT on IMAP and Graph, `re:/…/`). A
+clause is never dropped and a field never widened, though how a server matches inside a field is
+its own: IMAP matches substrings where the store matches words (RFC 3501 §6.4.4). Date bounds go to
+the nearest UTC midnight. IMAP searches All Mail (`\All`) where there is one, else INBOX and
+Archive, asks `RETURN (COUNT ALL)` under ESEARCH (RFC 4731; kept as text, since imap-proto cannot
+parse it), and sends non-ASCII strings as literals after `CHARSET UTF-8`. JMAP uses an Email/query
+FilterOperator tree (RFC 8621 §4.4.1). Graph uses `$filter` or `$search`, never both and never
+`$orderby`, written from its description and unverified against a tenant. The newest 50 hits not
+already held are fetched as headers by the sync's header path, never as bodies; those new to this
+computer are recorded in `found_on_server` (migration 0026) and chipped "from the server". A
+repeated search fetches nothing.
