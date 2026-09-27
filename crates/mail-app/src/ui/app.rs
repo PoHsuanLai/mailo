@@ -616,6 +616,10 @@ pub(super) fn App() -> Element {
         }
     };
 
+    // Follow-up reminders: swept at launch, when the next comes due, and on every revision, so
+    // a conversation nobody answered comes back to the top of the inbox (`crate::follow_up`).
+    super::follow_up::use_reminders(revision);
+
     // Mail that only arrives when you press a button is mail you miss. `AccountEngine::watch`
     // has existed since phase 3 and nothing called it; this is the poll half of it, which is
     // what every account's `WatchMode::Poll` already asks for.

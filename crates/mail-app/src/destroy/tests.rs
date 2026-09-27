@@ -24,6 +24,7 @@ fn summary_in(roles: &[MailboxRole]) -> ThreadSummary {
         snooze: Snooze::Inactive,
         pin: Pin::Unpinned,
         mute: Mute::Unmuted,
+        follow_up: mail_domain::FollowUp::Inactive,
     }
 }
 

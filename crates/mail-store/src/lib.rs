@@ -7,6 +7,7 @@ pub mod contact;
 mod dispatch;
 pub mod error;
 mod filing;
+mod follow_up;
 pub mod memory;
 mod memory_search;
 pub mod migrate;
@@ -111,6 +112,7 @@ pub fn message_of(change: &Change) -> Option<MessageId> {
         Change::ThreadSnooze(..)
         | Change::ThreadPin(..)
         | Change::ThreadMute(..)
+        | Change::ThreadFollowUp(..)
         | Change::LabelUpsert(_)
         | Change::DraftUpsert(_)
         | Change::DraftDelete(_)
@@ -725,4 +727,11 @@ pub trait Store {
 
     /// Forget a contact group. `true` when there was one. Its members stay in the book.
     fn delete_group(&self, id: &GroupId) -> Result<bool, StoreError>;
+
+    /// Every conversation with a follow-up reminder, waiting or returned, soonest due first and
+    /// ties by thread id, on every account.
+    ///
+    /// Not a [`Filter`]: a reminder is decided on messages and the user's own addresses, which a
+    /// filter over the summary cannot see, so the caller reads this list and decides.
+    fn follow_ups(&self) -> Result<Vec<ThreadSummary>, StoreError>;
 }

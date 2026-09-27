@@ -26,6 +26,7 @@ mod props;
 mod protection;
 mod receipt;
 mod recipients;
+mod remind;
 mod render;
 mod seal;
 mod spell;
@@ -344,15 +345,16 @@ fn send_page(
         secrets.as_ref(),
         &mut page.write(),
         anyway,
-        chrono::Utc::now(),
+        // The window's clock, which a reminder asked for here is later measured against.
+        super::clock::now(),
         &chrono::Local,
     );
     match sent {
-        Ok(Sent::Sealing { leaves }) => {
+        Ok(Sent::Sealing { leaves, remind }) => {
             let draft = page.peek().draft;
             // Spawned from a press, which is where a task is polled (F140).
             spawn(async move {
-                match seal_and_queue(store, draft, leaves, passphrase).await {
+                match seal_and_queue(store, draft, leaves, remind, passphrase).await {
                     Ok(due) => {
                         let sent = life::folded(&mut page.write(), due);
                         queued(page, desk, revision, folding, sent);

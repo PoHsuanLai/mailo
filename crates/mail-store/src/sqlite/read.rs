@@ -4,8 +4,9 @@ use super::SqliteStore;
 use super::row::{json, time, uuid};
 use crate::StoreError;
 use mail_domain::{
-    Address, Attachment, Attachments, BlobId, Body, LabelId, MailboxRole, MailboxSet, Message,
-    MessageId, MessageKey, Mute, Pin, ReadState, Snooze, Star, Thread, ThreadId, ThreadSummary,
+    Address, Attachment, Attachments, BlobId, Body, FollowUp, LabelId, MailboxRole, MailboxSet,
+    Message, MessageId, MessageKey, Mute, Pin, ReadState, Snooze, Star, Thread, ThreadId,
+    ThreadSummary,
 };
 use rusqlite::{Connection, Row, params};
 
@@ -28,7 +29,7 @@ pub const MESSAGE_COLUMNS: &str = "id, thread, account, msg_key, date, from_name
 
 pub const SUMMARY_COLUMNS: &str = "thread, account, subject, snippet, from_name, from_email, \
      participants, recipients, last_date, message_count, read, star, mailboxes, labels, \
-     attachments, snooze, pin, mute";
+     attachments, snooze, pin, mute, follow_up";
 
 impl SqliteStore {
     /// `db` is the connection the row came from, so the labels are read from the same world.
@@ -103,6 +104,7 @@ impl SqliteStore {
             snooze: json::<Snooze>("Snooze", &row.get::<_, String>(15)?)?,
             pin: json::<Pin>("Pin", &row.get::<_, String>(16)?)?,
             mute: json::<Mute>("Mute", &row.get::<_, String>(17)?)?,
+            follow_up: json::<FollowUp>("FollowUp", &row.get::<_, String>(18)?)?,
         })
     }
 
@@ -186,6 +188,23 @@ impl SqliteStore {
             Some(row) => self.read_summary(row),
             None => Err(StoreError::NoThread(thread)),
         }
+    }
+
+    /// Every summary with a reminder. The `WHERE` is the partial index's own (migration 0027),
+    /// so the waiting list is read from the index rather than from every conversation.
+    pub(super) fn load_follow_ups(&self) -> Result<Vec<ThreadSummary>, StoreError> {
+        let db = self.reader();
+        let sql = format!(
+            "SELECT {SUMMARY_COLUMNS} FROM thread_summary \
+             WHERE json_extract(follow_up, '$.kind') <> 'inactive'"
+        );
+        let mut stmt = db.prepare_cached(&sql)?;
+        let mut rows = stmt.query([])?;
+        let mut out = Vec::new();
+        while let Some(row) = rows.next()? {
+            out.push(self.read_summary(row)?);
+        }
+        Ok(crate::follow_up::in_due_order(out))
     }
 
     pub(super) fn load_thread(&self, id: ThreadId) -> Result<Thread, StoreError> {

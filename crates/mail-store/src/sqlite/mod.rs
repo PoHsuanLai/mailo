@@ -769,6 +769,10 @@ impl Store for SqliteStore {
         self.load_views()
     }
 
+    fn follow_ups(&self) -> Result<Vec<ThreadSummary>, StoreError> {
+        self.load_follow_ups()
+    }
+
     fn put_view(&self, view: &mail_domain::View) -> Result<(), StoreError> {
         self.write_view(view)
     }

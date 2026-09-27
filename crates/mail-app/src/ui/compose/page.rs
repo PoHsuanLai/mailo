@@ -137,6 +137,10 @@ pub(in crate::ui) enum Float {
     Protection,
     /// "Pick a time…" under the Sends row, with what has been typed.
     PickTime(String),
+    /// Whether to be reminded if nobody answers.
+    Remind,
+    /// "Pick a time…" under the Remind row, with what has been typed.
+    PickRemind(String),
     /// "Save as template…", with the name typed so far.
     SaveTemplate(String),
     /// "Start from a template": the templates, at the caret.
@@ -218,6 +222,8 @@ pub(in crate::ui) struct Page {
     pub typed_cc: String,
     pub cc_row: CcRow,
     pub when: When,
+    /// Whether Send asks to be reminded if nobody answers, and when.
+    pub remind: super::remind::Remind,
     /// Whether the message asks its recipients for a read receipt.
     pub receipt: ReceiptRequest,
     /// How the message is signed or encrypted when it is sent: OpenPGP or S/MIME, never both.
@@ -280,6 +286,7 @@ impl Page {
             typed_to: String::new(),
             typed_cc: String::new(),
             when: When::Now,
+            remind: super::remind::Remind::Off,
             receipt: draft.receipt,
             protection: super::protection::Protection::of(draft),
             seal_bar: super::seal::SealBar::Clear,

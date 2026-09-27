@@ -158,6 +158,8 @@ pub(super) fn Row(
     let unread = summary.read == ReadState::Unread;
     let starred = summary.star == Star::Starred;
     let muted = summary.mute == Mute::Muted;
+    let follow_up = summary.follow_up;
+    let no_reply = crate::follow_up::row_words(&follow_up);
     let who = sender(&summary);
     let when = crate::view::listed(summary.last_date, chrono::Utc::now(), &Local);
     let subject = summary.subject.clone();
@@ -194,6 +196,8 @@ pub(super) fn Row(
     let mut focused = use_signal(|| false);
     // The context menu, open at the point the row was right-clicked.
     let mut row_menu = use_signal(|| None::<ds::Rect>);
+    // "Remind me if no reply", opened from the context menu at the same point.
+    let mut reminding = use_signal(|| None::<ds::Rect>);
     // quire's hover hub, which the row, its name and its time report the pointer to.
     let driver = use_driver();
     let going = matches!(moving, Moving::Going(_));
@@ -258,6 +262,12 @@ pub(super) fn Row(
         if muted {
             span { class: "mute-mark", title: "Muted", "data-muted": "true",
                 Glyph { icon: Icon::BellOff, size: ds::IconSize::Micro }
+            }
+        }
+        if let Some(words) = no_reply {
+            span { class: "no-reply", "data-follow-up": "returned",
+                Glyph { icon: Icon::Bell, size: ds::IconSize::Micro }
+                "{words}"
             }
         }
         if let Some(count) = files {
@@ -407,14 +417,29 @@ pub(super) fn Row(
                     anchor: row_box(),
                     placed: Some(at),
                     title: String::new(),
-                    items: vec![super::window::menu_item()],
+                    items: vec![super::window::menu_item(), remind_item()],
                     on_pick: move |key: String| {
+                        let at = row_menu();
                         row_menu.set(None);
                         if key == super::window::OPEN_KEY {
                             super::window::open_in_window(id);
                         }
+                        if key == REMIND_KEY {
+                            reminding.set(at);
+                        }
                     },
                     on_close: move |_| row_menu.set(None),
+                }
+            }
+            if let Some(at) = reminding() {
+                super::follow_up::FollowUpMenu {
+                    id,
+                    current: follow_up,
+                    shell,
+                    revision,
+                    anchor: row_box(),
+                    placed: Some(at),
+                    on_close: move |_| reminding.set(None),
                 }
             }
             if shell.read().snoozing == Some(id) {
@@ -434,6 +459,24 @@ pub(super) fn Row(
                 }
             }
         }
+    }
+}
+
+/// The context menu's key for "Remind me if no reply…".
+const REMIND_KEY: &str = "remind-me";
+
+/// The context menu's row that opens the follow-up menu.
+fn remind_item() -> super::menu::MenuItem {
+    super::menu::MenuItem {
+        key: REMIND_KEY.to_owned(),
+        tile: super::menu::Tile::Icon(Icon::Bell),
+        name: "Remind me if no reply…".to_owned(),
+        help: None,
+        right: super::menu::Right::None,
+        group: None,
+        marks: Vec::new(),
+        title: Vec::new(),
+        detail: Vec::new(),
     }
 }
 
@@ -596,6 +639,7 @@ fn kebab(kind: OpKind) -> &'static str {
         OpKind::Snooze => "snooze",
         OpKind::Pin => "pin",
         OpKind::Mute => "mute",
+        OpKind::FollowUp => "remind-me",
         OpKind::Destroy => "delete-forever",
         OpKind::Reply => "reply",
         OpKind::ReplyAll => "reply-all",
@@ -616,6 +660,7 @@ fn op_icon(kind: OpKind) -> Icon {
         OpKind::Snooze => Icon::Clock,
         OpKind::Pin => Icon::Pin,
         OpKind::Mute => Icon::BellOff,
+        OpKind::FollowUp => Icon::Bell,
         OpKind::Destroy => Icon::Trash,
         OpKind::Reply => Icon::Reply,
         OpKind::ReplyAll => Icon::ReplyAll,

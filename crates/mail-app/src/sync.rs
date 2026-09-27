@@ -971,6 +971,15 @@ fn after_pass(
     {
         println!("{}: {why}", account.address);
     }
+    // Then the follow-up reminders (`crate::follow_up`): what this pass fetched may be the reply
+    // one was waiting for, or the Sent copy a composer's reminder was waiting to join, and one
+    // may simply have come due. Only a watch that announces sweeps, so that a reminder coming
+    // back is said by whoever brings it back: a quiet watch leaves it to the window.
+    if let Announce::To { store, notifier } = announce
+        && let Err(why) = crate::follow_up::sweep_and_announce(store, Some(notifier), at)
+    {
+        println!("reminders: {why}");
+    }
     use std::io::Write as _;
     let _ = std::io::stdout().flush();
     // The rule F128 built its loop on, and the reason this one is not a bare sleep: a credential

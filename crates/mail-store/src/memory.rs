@@ -10,11 +10,11 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use chrono::{DateTime, SecondsFormat, TimeDelta, Utc};
 use mail_domain::{
-    AccountCaps, AccountId, Change, ChangeId, Cursor, Draft, DraftId, Filter, Ingest, Label,
-    LabelId, MailboxRef, MatchCtx, Membership, Message, MessageId, MessageKey, Mute, OutboxId,
-    Page, Patch, Pin, Property, ProtoOp, Query, ReceiptAnswer, RemoteIntent, RemoteRef, Retry,
-    SendState, Snooze, SortDir, SyncCursor, Template, TemplateId, Thread, ThreadId, ThreadSummary,
-    UidValidity,
+    AccountCaps, AccountId, Change, ChangeId, Cursor, Draft, DraftId, Filter, FollowUp, Ingest,
+    Label, LabelId, MailboxRef, MatchCtx, Membership, Message, MessageId, MessageKey, Mute,
+    OutboxId, Page, Patch, Pin, Property, ProtoOp, Query, ReceiptAnswer, RemoteIntent, RemoteRef,
+    Retry, SendState, Snooze, SortDir, SyncCursor, Template, TemplateId, Thread, ThreadId,
+    ThreadSummary, UidValidity,
 };
 use serde::Serialize;
 
@@ -98,6 +98,7 @@ struct ThreadState {
     snooze: Snooze,
     pin: Pin,
     mute: Mute,
+    follow_up: FollowUp,
 }
 
 #[derive(Debug, Clone)]
@@ -467,6 +468,14 @@ impl Store for MemoryStore {
 
     fn views(&self) -> Result<Vec<mail_domain::View>, StoreError> {
         Ok(self.inner.borrow().views_in_order())
+    }
+
+    fn follow_ups(&self) -> Result<Vec<ThreadSummary>, StoreError> {
+        let inner = self.inner.borrow();
+        let ids: Vec<ThreadId> = inner.threads.keys().copied().collect();
+        Ok(crate::follow_up::in_due_order(ids.into_iter().filter_map(
+            |id| inner.view(id).map(|(summary, _)| summary),
+        )))
     }
 
     fn put_view(&self, view: &mail_domain::View) -> Result<(), StoreError> {
@@ -907,16 +916,16 @@ impl Inner {
     }
 
     fn view(&self, id: ThreadId) -> Option<(ThreadSummary, Option<String>)> {
-        let (snooze, pin, mute) = {
+        let (snooze, pin, mute, follow_up) = {
             let state = self.threads.get(&id)?;
-            (state.snooze, state.pin, state.mute)
+            (state.snooze, state.pin, state.mute, state.follow_up)
         };
         let messages = self.messages_of(id);
         if messages.is_empty() {
             return None;
         }
         let body = thread_corpus(&messages);
-        let summary = ThreadSummary::derive(id, &messages, snooze, pin, mute);
+        let summary = ThreadSummary::derive(id, &messages, snooze, pin, mute, follow_up);
         Some((summary, body))
     }
 
@@ -1024,6 +1033,11 @@ impl Inner {
                     thread.mute = *mute;
                 }
             }
+            Change::ThreadFollowUp(id, follow_up) => {
+                if let Some(thread) = self.threads.get_mut(id) {
+                    thread.follow_up = *follow_up;
+                }
+            }
             Change::MessageUpsert(message) => self.upsert_message(message)?,
             Change::MessageDelete(id) => {
                 self.delete_message(*id);
@@ -1076,6 +1090,7 @@ impl Inner {
             snooze: Snooze::Inactive,
             pin: Pin::Unpinned,
             mute: Mute::Unmuted,
+            follow_up: FollowUp::Inactive,
         });
         self.by_key
             .entry(message.account)

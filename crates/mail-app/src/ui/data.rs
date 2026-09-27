@@ -9,12 +9,24 @@ pub(super) const PAGE: u32 = 100;
 ///
 /// Shared by the blocking task and the first frame's fallback, for the reason `count_badges` is:
 /// two copies would be two chances to disagree about what the list contains.
-pub(super) fn list_for(store: &SqliteStore, listing: Listing) -> Vec<ThreadSummary> {
-    match listing {
-        Listing::Threads(query) => store
-            .threads(&query, chrono::Utc::now())
+pub(super) fn list_for(
+    store: &SqliteStore,
+    listing: Listing,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Vec<ThreadSummary> {
+    let rows = |query: &Query| {
+        store
+            .threads(query, now)
             .map(|page| page.items)
-            .unwrap_or_default(),
+            .unwrap_or_default()
+    };
+    match listing {
+        Listing::Threads(query) => rows(&query),
+        Listing::Inbox { query, scope } => crate::follow_up::on_top(
+            crate::follow_up::returned(store, scope.as_ref(), now),
+            rows(&query),
+        ),
+        Listing::Waiting { scope } => crate::follow_up::waiting(store, scope.as_ref(), now),
         Listing::Drafts => Vec::new(),
     }
 }

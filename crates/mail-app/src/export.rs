@@ -160,6 +160,7 @@ fn fits_alone(store: &SqliteStore, filter: &Filter, message: &Message, now: Date
         Snooze::Inactive,
         Pin::Unpinned,
         Mute::Unmuted,
+        mail_domain::FollowUp::Inactive,
     );
     let corpus = match &message.body {
         Body::Present { text, .. } => text.as_deref(),

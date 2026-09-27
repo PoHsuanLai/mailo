@@ -9,8 +9,8 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::{
-    AccountId, Change, FolderWork, LabelId, MailboxRole, Membership, MessageId, Mute, NonEmpty, Op,
-    Patch, Pin, ReadState, RemoteIntent, Snooze, Star, Subscription, ThreadId,
+    AccountId, Change, FolderWork, FollowUp, LabelId, MailboxRole, Membership, MessageId, Mute,
+    NonEmpty, Op, Patch, Pin, ReadState, RemoteIntent, Snooze, Star, Subscription, ThreadId,
 };
 use std::collections::BTreeMap;
 
@@ -99,6 +99,7 @@ impl UndoStack {
                 Change::ThreadSnooze(..)
                 | Change::ThreadPin(..)
                 | Change::ThreadMute(..)
+                | Change::ThreadFollowUp(..)
                 | Change::LabelUpsert(_)
                 | Change::DraftUpsert(_)
                 | Change::DraftDelete(_)
@@ -272,6 +273,11 @@ where
         Op::SetPin(Pin::Unpinned) => "Unpinned".to_owned(),
         Op::SetMute(Mute::Muted) => "Muted".to_owned(),
         Op::SetMute(Mute::Unmuted) => "Unmuted".to_owned(),
+        Op::SetFollowUp(FollowUp::Until { at, .. }) => {
+            format!("Reminder set for {} if no reply", when(*at, zone))
+        }
+        Op::SetFollowUp(FollowUp::Returned { .. }) => "No reply yet".to_owned(),
+        Op::SetFollowUp(FollowUp::Inactive) => "Reminder cleared".to_owned(),
         Op::File(_) => "Moved to folder".to_owned(),
         Op::Destroy => "Deleted forever".to_owned(),
     }
