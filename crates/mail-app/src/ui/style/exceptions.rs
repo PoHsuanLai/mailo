@@ -9,6 +9,11 @@ const GLYPH_TINT: &str = "tints or nudges quire's `Glyph` inside mailo's own chr
 
 pub(super) const STYLE: &[Exception] = &[
     Exception {
+        rule: Rule::InfiniteLoop,
+        selector: ".files-look.acct-busy",
+        reason: "the add-account sheet's waiting line breathes while a sign-in is out in the browser or a server is being asked; it is drawn only for that wait and goes when the wait ends, so the loop is bounded by the sheet's own state",
+    },
+    Exception {
         rule: Rule::DsInternals,
         selector: ".consent .ds-ic",
         reason: GLYPH_TINT,
