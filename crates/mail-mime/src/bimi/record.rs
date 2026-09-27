@@ -368,7 +368,15 @@ mod tests {
         let none = dmarc(D::None, None, 100);
         let loose_subs = dmarc(D::Reject, Some(D::None), 100);
         let strict_subs = dmarc(D::None, Some(D::Reject), 100);
-        let cases: &[(&str, Option<&DmarcRecord>, Option<&DmarcRecord>, bool, bool)] = &[
+        // (case, the author's record, the organisational domain's, the same domain, allowed)
+        type Case<'a> = (
+            &'a str,
+            Option<&'a DmarcRecord>,
+            Option<&'a DmarcRecord>,
+            bool,
+            bool,
+        );
+        let cases: &[Case] = &[
             ("org reject", Some(&reject), Some(&reject), true, true),
             (
                 "org quarantine",
