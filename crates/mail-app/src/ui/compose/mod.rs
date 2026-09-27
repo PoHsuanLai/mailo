@@ -11,6 +11,7 @@
 
 // The adapter from quire's `EditSurface` to the editor core, and the surface: the body.
 mod adapt;
+mod attach;
 mod body;
 mod desk;
 mod float;
@@ -41,6 +42,7 @@ use mail_domain::DraftId;
 use mail_store::{SqliteStore, Store};
 
 use super::field::{Field, FieldKind};
+use attach::Attach;
 use body::Body;
 use ds::{Anim, Glyph, Icon, IconButton, IconButtonVariant, MotionTimer};
 use life::{Anyway, Sent};
@@ -157,6 +159,8 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
             last = edits;
         }
     });
+    // Files dropped on the page from a file manager are attached as picked ones are.
+    let target = attach::use_drop_target(page);
     // Opening another conversation would redraw the reader: park first.
     if shell.read().open != opened_on && page.peek().phase == Phase::Writing {
         desk::park(desk, page, shell);
@@ -197,6 +201,8 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
     rsx! {
         div {
             class: "{root}",
+            "data-drop": target.drop_attr(),
+            onmounted: move |event| target.mounted(event),
             onkeydown: move |event: KeyboardEvent| {
                 let key = event.key().to_string();
                 let modifiers = event.modifiers();
@@ -265,7 +271,7 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                     p { class: "notice", "{notice}" }
                 }
                 Props { page, shell }
-                Body { page, shell, on_attach: move |_| page.write().notice = Some("Pick the file with Attach, below.".to_owned()) }
+                Body { page, shell, on_attach: move |_| page.write().notice = Some("Pick the file with Attach, below, or drop it on the page.".to_owned()) }
                 if !reply {
                     div { class: "c-hint",
                         span { kbd { "/" } " headings, lists, images…" }
@@ -502,76 +508,4 @@ fn discard(mut page: Signal<Page>, mut shell: Signal<Shell>, desk: Desk) {
         }
         Err(why) => page.write().notice = Some(why),
     }
-}
-
-/// A file picker, as a button: the native dialog (`ui::pick`). Each file chosen lands on the
-/// draft and in the Attached row.
-#[component]
-fn Attach(page: Signal<Page>, label: &'static str) -> Element {
-    rsx! {
-        ds::Button {
-            variant: ds::ButtonVariant::Mini,
-            extra_class: ds::ExtraClass::parse("attach").ok(),
-            label,
-            aria_label: label.to_owned(),
-            icon: Icon::Paperclip,
-            onclick: on_primary(move || {
-                super::pick::choose(super::pick::Ask::Attachments, None, move |paths| {
-                    attach(page, paths);
-                });
-            }),
-        }
-    }
-}
-
-/// A picked file, read when it is within the budget.
-enum Picked {
-    Read(Vec<u8>),
-    TooLarge,
-    Unreadable,
-}
-
-/// Read `path`, its size checked first, so a 4 GB file is refused rather than read.
-fn read_picked(path: &std::path::Path) -> Picked {
-    match std::fs::metadata(path) {
-        Ok(meta) if meta.len() > crate::compose::ATTACHMENT_BUDGET => Picked::TooLarge,
-        Ok(_) => std::fs::read(path).map_or(Picked::Unreadable, Picked::Read),
-        Err(_) => Picked::Unreadable,
-    }
-}
-
-/// Attach each of `paths` to the draft, in order, each read on a blocking thread.
-fn attach(mut page: Signal<Page>, paths: Vec<std::path::PathBuf>) {
-    spawn(async move {
-        for path in paths {
-            let name = super::pick::file_name(&path);
-            let picked = tokio::task::spawn_blocking(move || read_picked(&path))
-                .await
-                .unwrap_or(Picked::Unreadable);
-            let bytes = match picked {
-                Picked::Read(bytes) => bytes,
-                Picked::TooLarge => {
-                    page.write().notice = Some(format!("{name} is too large to send"));
-                    continue;
-                }
-                Picked::Unreadable => {
-                    page.write().notice = Some(format!("cannot read {name}"));
-                    continue;
-                }
-            };
-            let store = consume_context::<Arc<SqliteStore>>();
-            let draft = page.peek().draft;
-            let now = chrono::Utc::now();
-            let saved = life::save(&store, &mut page.write(), now)
-                .and_then(|_| crate::compose::attach_bytes(&store, draft, &name, &bytes, now));
-            let mut write = page.write();
-            match saved {
-                Ok(stored) => {
-                    write.attached = crate::compose::attached_to(&store, &stored);
-                    write.guard = Guard::Clear;
-                }
-                Err(why) => write.notice = Some(why),
-            }
-        }
-    });
 }
