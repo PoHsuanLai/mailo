@@ -23,6 +23,7 @@ use crate::{Dispatch, OutboxEntry, Settle, Store, StoreError, Term};
 mod contacts;
 mod destroyed;
 mod folders;
+mod found;
 mod groups;
 mod offline;
 mod pgp;
@@ -49,6 +50,8 @@ struct Inner {
     remotes: Vec<RemoteRow>,
     /// Addresses of messages deleted forever, until the server no longer lists them.
     destroyed: Vec<destroyed::DestroyedRow>,
+    /// Messages a search of the server brought here, with when. Dropped with the message.
+    found: BTreeMap<MessageId, (AccountId, DateTime<Utc>)>,
     /// Messages the server moved to where it did not say, until a sync finds them: the
     /// `unplaced` table, with how long each has been looked for.
     unplaced: BTreeMap<(AccountId, MessageId), crate::dispatch::Unplaced>,
@@ -134,6 +137,7 @@ impl Default for Inner {
             by_key: HashMap::new(),
             remotes: Vec::new(),
             destroyed: Vec::new(),
+            found: BTreeMap::new(),
             unplaced: BTreeMap::new(),
             labels: BTreeMap::new(),
             drafts: BTreeMap::new(),
@@ -384,6 +388,27 @@ impl Store for MemoryStore {
 
     fn offline(&self, account: AccountId) -> Result<crate::Offline, StoreError> {
         Ok(self.inner.borrow().offline(account))
+    }
+
+    fn held_at(
+        &self,
+        account: AccountId,
+        remotes: &[RemoteRef],
+    ) -> Result<Vec<(RemoteRef, MessageId)>, StoreError> {
+        Ok(self.inner.borrow().held_at(account, remotes))
+    }
+
+    fn mark_found(
+        &self,
+        account: AccountId,
+        messages: &[MessageId],
+        now: DateTime<Utc>,
+    ) -> Result<(), StoreError> {
+        self.inner.borrow_mut().mark_found(account, messages, now)
+    }
+
+    fn found_in(&self, threads: &[ThreadId]) -> Result<Vec<ThreadId>, StoreError> {
+        Ok(self.inner.borrow().found_in(threads))
     }
 
     fn draft(&self, id: DraftId) -> Result<Draft, StoreError> {
@@ -1078,6 +1103,7 @@ impl Inner {
         self.pending.retain(|row| row.message != id);
         self.receipts.remove(&id);
         self.invites.remove(&id);
+        self.found.remove(&id);
         if !self.has_messages(prev.thread) {
             self.threads.remove(&prev.thread);
         }

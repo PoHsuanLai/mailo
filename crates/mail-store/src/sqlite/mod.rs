@@ -4,6 +4,7 @@ mod contacts;
 mod destroyed;
 mod draft;
 mod folders;
+mod found;
 mod groups;
 mod invite;
 mod offline;
@@ -667,6 +668,27 @@ impl Store for SqliteStore {
 
     fn offline(&self, account: AccountId) -> Result<crate::Offline, StoreError> {
         self.read_offline(account)
+    }
+
+    fn held_at(
+        &self,
+        account: AccountId,
+        remotes: &[RemoteRef],
+    ) -> Result<Vec<(RemoteRef, MessageId)>, StoreError> {
+        self.read_held_at(account, remotes)
+    }
+
+    fn mark_found(
+        &self,
+        account: AccountId,
+        messages: &[MessageId],
+        now: DateTime<Utc>,
+    ) -> Result<(), StoreError> {
+        self.write_found(account, messages, now)
+    }
+
+    fn found_in(&self, threads: &[ThreadId]) -> Result<Vec<ThreadId>, StoreError> {
+        self.read_found_in(threads)
     }
 
     fn remote_refs(&self, mailbox: &MailboxRef) -> Result<Vec<RemoteRef>, StoreError> {
