@@ -83,6 +83,9 @@ pub(super) enum Scope {
 pub(super) struct Marking {
     pub highlight: Highlight,
     pub scope: Scope,
+    /// The line the store was asked, under [`Scope::Searched`]: what "Search … on the server"
+    /// asks the server. Empty otherwise.
+    pub line: String,
 }
 
 impl Marking {
@@ -152,6 +155,7 @@ fn searched(store: &SqliteStore, search: &Search, now: DateTime<Utc>) -> Listed 
         marking: Marking {
             highlight,
             scope: Scope::Searched,
+            line: search.input.clone(),
         },
     }
 }
@@ -179,6 +183,7 @@ fn over_page(
         marking: Marking {
             highlight,
             scope: Scope::OverPage,
+            line: String::new(),
         },
     }
 }
@@ -190,6 +195,7 @@ fn invalid(why: String) -> Listed {
         marking: Marking {
             highlight: Highlight::default(),
             scope: Scope::Invalid(why),
+            line: String::new(),
         },
     }
 }

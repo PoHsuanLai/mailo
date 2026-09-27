@@ -13,13 +13,14 @@ use super::page::PageMenus;
 use super::picks::PickBar;
 use super::press::{available, on_primary};
 use super::row::{DraftRow, Moving, Row, gap};
+use super::server_search::{Asked, ServerSearch, found_threads};
 use super::view_groups::group_list;
 use crate::provider::provider;
 use crate::view::{Nothing, Shell, SyncState, synced};
 use dioxus::prelude::*;
 use ds::{Anim, Glyph, Icon, Presence, Roster, RowPitch, Selection};
 use mail_domain::*;
-use mail_store::SqliteStore;
+use mail_store::{SqliteStore, Store};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -44,6 +45,36 @@ pub(super) fn ThreadList(
         let _ = revision();
         let store = consume_context::<Arc<SqliteStore>>();
         account_rows(&store)
+    });
+    // Each account's server asked for a searched line, and what it answered.
+    let asked = use_signal(Vec::<Asked>::new);
+    // What the servers found for the line shown that the list does not already hold, newest
+    // first, as the store has each conversation now.
+    let found = use_memo(move || {
+        let _ = revision();
+        let line = marking.read().line.clone();
+        if line.is_empty() {
+            return Vec::new();
+        }
+        let listed: Vec<ThreadId> = threads.read().iter().map(|t| t.id).collect();
+        let store = consume_context::<Arc<SqliteStore>>();
+        found_threads(&asked.read(), &line, &listed)
+            .into_iter()
+            .filter_map(|thread| store.thread(thread).ok())
+            .map(|thread| thread.summary)
+            .collect::<Vec<ThreadSummary>>()
+    });
+    // Which of the conversations drawn came here because a search of the server found them.
+    let from_server = use_memo(move || {
+        let _ = revision();
+        let ids: Vec<ThreadId> = threads
+            .read()
+            .iter()
+            .chain(found.read().iter())
+            .map(|t| t.id)
+            .collect();
+        let store = consume_context::<Arc<SqliteStore>>();
+        store.found_in(&ids).unwrap_or_default()
     });
     let place = shell
         .read()
@@ -104,7 +135,31 @@ pub(super) fn ThreadList(
     }
     let accounts = rows();
     let highlight = marking.read().highlight.clone();
-    let dress_row = |summary: &ThreadSummary| dress(summary, &accounts, &names, &highlight);
+    let brought = from_server();
+    let dress_row =
+        |summary: &ThreadSummary| dress(summary, &accounts, &names, &highlight, &brought);
+    // Where a search's list ends, each account in view with a server offers to search it.
+    let line = marking.read().line.clone();
+    let servers: Vec<(AccountId, String)> = if line.is_empty() || more() {
+        Vec::new()
+    } else {
+        accounts
+            .iter()
+            .filter(|row| match shell.read().account {
+                Some(id) => row.id == id,
+                None => shell.read().scope.is_empty() || shell.read().scope.contains(&row.id),
+            })
+            .filter(|row| crate::server_search::searchable(&row.plan))
+            .map(|row| (row.id, row.shown()))
+            .collect()
+    };
+    let server_rows: Vec<(ThreadSummary, Dress)> = found()
+        .into_iter()
+        .map(|summary| {
+            let dressed = dress_row(&summary);
+            (summary, dressed)
+        })
+        .collect();
     // The strip is the same row, marked the same way, under its own header. A top result is
     // also in the list below, where its date puts it, as Gmail shows it.
     let strip: Vec<(ThreadSummary, Dress)> = top()
@@ -359,8 +414,8 @@ pub(super) fn ThreadList(
                     }
                     li { class: "list-top-h", "Newest first" }
                 }
-                for line in lines {
-                    match line {
+                for entry in lines {
+                    match entry {
                         Line::Head(title) => rsx! { li { key: "band-{title}", class: "list-g", "{title}" } },
                         Line::Mail {
                             index,
@@ -378,6 +433,34 @@ pub(super) fn ThreadList(
                         }
                     }
                 }
+                // What a search of the server found that the list above does not hold.
+                if !server_rows.is_empty() {
+                    li { class: "list-top-h", "From the server" }
+                    for (index, (summary, Dress { via, chips, hit })) in server_rows.into_iter().enumerate() {
+                        {
+                            let id = summary.id;
+                            let selection = selection_of(id);
+                            rsx! {
+                                Row {
+                                    key: "server-{id}",
+                                    summary,
+                                    shell,
+                                    revision,
+                                    index,
+                                    chips,
+                                    via,
+                                    hit,
+                                    moving: Moving::Still,
+                                    landing: None,
+                                    selection,
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if !servers.is_empty() {
+                ServerSearch { input: line.clone(), accounts: servers, asked, revision }
             }
             }
             if more() {
@@ -402,22 +485,30 @@ struct Dress {
     hit: Option<RowHit>,
 }
 
+/// The chip on a conversation a search of the server brought here.
+pub(super) const FROM_SERVER: &str = "from the server";
+
 fn dress(
     summary: &ThreadSummary,
     accounts: &[AccountRow],
     names: &BTreeMap<LabelId, String>,
     highlight: &crate::search::Highlight,
+    from_server: &[ThreadId],
 ) -> Dress {
+    let mut chips: Vec<String> = summary
+        .labels
+        .iter()
+        .filter_map(|id| names.get(id).cloned())
+        .collect();
+    if from_server.contains(&summary.id) {
+        chips.push(FROM_SERVER.to_owned());
+    }
     Dress {
         via: accounts
             .iter()
             .find(|row| row.id == summary.account)
             .map(|row| provider(&row.plan)),
-        chips: summary
-            .labels
-            .iter()
-            .filter_map(|id| names.get(id).cloned())
-            .collect(),
+        chips,
         hit: row_hit(summary, highlight),
     }
 }

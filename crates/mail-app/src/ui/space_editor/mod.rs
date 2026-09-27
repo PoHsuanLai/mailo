@@ -5,7 +5,7 @@
 //! exactly as the sheet found it. The Space's own look is quire's `SpaceEditor`: its name, the
 //! colour field and its stops, grain, theme, the card's accent, the presets and the measured
 //! contrast. What quire's editor does not draw stays mailo's, in a card under it: the Space's
-//! motion, provider marks, notifications, spelling, brand logos, which accounts are kept offline
+//! motion, provider marks, notifications, spelling, brand logos, searching the server, which accounts are kept offline
 //! in full, the accounts, contacts, rules, keys and the keyboard, and Cancel and Save.
 //!
 //! The drag preview, decided (quire's migration brief §5.1, which left it open): a drag in the
@@ -19,6 +19,7 @@ mod brand;
 mod notify;
 mod offline;
 mod parts;
+mod server;
 mod spelling;
 
 pub(in crate::ui) use parts::Seg;
@@ -27,6 +28,7 @@ use self::brand::BrandLogos;
 use self::notify::Notifications;
 use self::offline::OfflineCopy;
 use self::parts::Marks as MarksChoice;
+use self::server::ServerSearch;
 use self::spelling::Spelling;
 use super::frame::keep;
 use super::press::{SheetClose, on_primary};
@@ -127,6 +129,7 @@ pub(super) fn SpaceEditor(
             OfflineCopy {}
             Spelling {}
             BrandLogos {}
+            ServerSearch {}
             div {
                 div { class: "ed-label", "Accounts" }
                 ds::Button {
@@ -196,6 +199,8 @@ mod brand_tests;
 mod notify_tests;
 #[cfg(test)]
 mod offline_tests;
+#[cfg(test)]
+mod server_tests;
 #[cfg(test)]
 mod spelling_tests;
 #[cfg(test)]

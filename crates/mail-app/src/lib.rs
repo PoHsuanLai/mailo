@@ -33,6 +33,7 @@ pub mod rules;
 pub mod saved;
 pub mod search;
 pub mod selection;
+pub mod server_search;
 pub mod smime;
 pub mod snooze;
 pub mod space;

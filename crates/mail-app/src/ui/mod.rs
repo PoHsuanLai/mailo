@@ -46,6 +46,7 @@ mod receipt;
 mod revisions;
 mod row;
 mod rules;
+mod server_search;
 mod sidebar;
 mod space_editor;
 mod start;
@@ -74,6 +75,7 @@ pub mod native {
     pub use super::reading::OriginalFrame;
     pub use super::revisions::Revisions;
     pub use super::window::{Ask, MessageOpen, OpenWindow, Windows, message_root};
+    pub use super::server_search::{Search, ServerSearcher};
 }
 
 pub use start::{Start, mailto_of, open_thread, start_mailto, start_of};
