@@ -435,6 +435,32 @@ pub trait Store {
     /// How many of `account`'s messages are held here in full, and what is still on the server.
     fn offline(&self, account: AccountId) -> Result<Offline, StoreError>;
 
+    /// The messages held here at these server addresses, each with its address; an address
+    /// that names nothing held is left out. What a search of the server asks before fetching
+    /// anything: what it found and already has needs no header fetched again.
+    fn held_at(
+        &self,
+        account: AccountId,
+        remotes: &[RemoteRef],
+    ) -> Result<Vec<(RemoteRef, MessageId)>, StoreError>;
+
+    /// Record that `messages` came to this computer because a search of the server found them.
+    ///
+    /// Only messages that were not held before the search: the list says "from the server" of
+    /// these, and of nothing a sync brought. Marking one twice keeps the first time.
+    /// [`StoreError::NoMessage`] for a message this account does not hold, and then nothing is
+    /// marked. The mark goes with the message.
+    fn mark_found(
+        &self,
+        account: AccountId,
+        messages: &[MessageId],
+        now: DateTime<Utc>,
+    ) -> Result<(), StoreError>;
+
+    /// Which of `threads` hold a message a search of the server brought here, in their order
+    /// and each once.
+    fn found_in(&self, threads: &[ThreadId]) -> Result<Vec<ThreadId>, StoreError>;
+
     /// One draft by id.
     fn draft(&self, id: DraftId) -> Result<Draft, StoreError>;
 
