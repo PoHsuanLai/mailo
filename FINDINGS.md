@@ -4372,3 +4372,59 @@ opened, because opening a FIFO waits for a writer and the dialog could have hand
 refusal from one drop or pick is named in one note, where before each overwrote the last. The list
 and the reader take no drops. In the Harness, `file_drag(Dropped)` reports Refuse even on an
 accepting target, so the tests read the decision from the `Moved` step before release; relayed.
+
+### F189 — Delete forever is the one expunge, and only for Trash and Spam
+
+A decision, with domain additions the user approved (item 4). Deleting stays a move to Trash
+everywhere except the Trash and Spam places, where Delete forever and Empty Trash/Spam open a sheet
+naming how many messages go and that it cannot be undone. `Op::Destroy` removes only messages whose
+role is Trash or Spam and has no inverse; the window neither pushes an undo nor offers one, and no
+key reaches it without the sheet. `ExpungeMeans::Forbidden` still refuses `ProtoOp::Expunge`;
+`ProtoOp::Destroy` is checked by each backend against the folder's role. IMAP sends
+`UID STORE +FLAGS.SILENT (\Deleted)` then `UID EXPUNGE` of the same UIDs, behind a UIDVALIDITY
+check, and needs UIDPLUS or IMAP4rev2: without them nothing is sent and the user is told, because a
+bare EXPUNGE would take other clients' `\Deleted` mail too. JMAP destroys only emails in Trash/Junk
+alone on the server, all or none. Graph posts `permanentDelete` for each message, since `DELETE` is
+a soft delete into Deleted Items or Recoverable Items; the endpoint was written from its
+description and could not be checked against Microsoft's live documentation or a tenant from the
+build container, so the first live run should confirm it. POP3 deletes locally only: a DELE would
+use a message number from an earlier session (RFC 1939 §7).
+
+### F190 — A message deleted here was fetched back until the server heard
+
+Found while building F189. Removing a message cascades its `remote_map` rows, and a sync fetches
+any UID it does not hold, so a destroyed message came back into Trash on the next pass and the
+queued deletion found nothing to send. Migration 0025 keeps the addresses in `destroyed` from the
+moment the deletion is queued, which must happen before the patch is applied. They count as held
+for syncs and address the queued entry; they go when a sync no longer finds them, on a UIDVALIDITY
+reset or folder delete, or when the server refuses, so the message comes back as the server has
+it. A Trash then Delete forever before the Trash move reaches a server without COPYUID is refused
+and the message reappears in Trash: nothing is lost.
+
+### F191 — Brand logos (BIMI) are opt-in, need a mark certificate, and are drawn, never shown as SVG
+
+A decision (item 12). "Show brand logos (BIMI)" is off by default (`bimi.json`); off, nothing is
+looked up, fetched or read from the cache. On, a message asks only when the believed
+Authentication-Results (F161) say DMARC passed for its From domain; the policy is read from
+`_dmarc`, since Gmail writes `p=` in a comment and nobody writes pct, and anything short of
+quarantine at 100% or reject shows no logo. A record without `a=` shows nothing and its SVG is never
+fetched. The mark certificate must chain to a mark verifying authority's root, name the domain,
+carry the BIMI purpose and hash the logo it carries, and the `l=` SVG must be that logo; revocation
+is not checked. The SVG is refused unless it is Tiny PS in shape and drawn with resvg (no fonts, no
+images) to a 96 px PNG, cached a week (no logo: a day); the page only ever gets the PNG. No roots
+are shipped: the authorities' hosts were unreachable from the build container, so until
+`bimi/roots.pem` is filled or a user adds `bimi-roots.pem`, no logo shows, and the switch's card
+says so. The certificate's logo extension is read against RFC 3709 and tested only against a
+certificate built by the tests.
+
+### F192 — quire v0.1.18: the accent is a pastel fill, and text in it reads --accent-text
+
+mailo takes quire v0.1.18 and its accent band (quire design/03 §20). `--accent` is a light fill
+that stands 1.5:1 off white with only `--accent-ink` on it, so every caret, link, 1–3 px border,
+inset bar and ring mailo drew in `--accent` reads `--accent-text`, the composer's drop ring
+included. Fills keep `--accent`. The done todo box and the current find match gain an
+`--accent-text` edge, because on the pastel fill colour alone no longer shows the state; the files
+progress bar is still shown by its fill alone and may be faint in light mode. `--accent-soft` and
+`--accent-ring` are `rgba`, and the style tests measure them composited over each card ground
+against `ds::accent_of(Postmark)`. The old 3:1 gate on the fill is replaced by 4.5:1 on
+`--accent-text` over all four grounds.
