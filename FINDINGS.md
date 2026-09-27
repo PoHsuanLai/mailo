@@ -4360,3 +4360,15 @@ waiting line breathes while a sign-in is out in the browser; it is drawn only fo
 is an exception with that reason rather than a pending token. The lint also warns, without
 failing, on eleven pointer cursors on controls: the HIG gives the hand only to links. `ds::sleep`
 now takes its deadline when called; mailo awaits every call at once, so nothing changed.
+
+### F188 — Files dropped on the composer are attached as picked ones are, and only a regular file is read
+
+A decision (item 21). The composer's page is quire's drop target (`ds::use_file_drop`): it reads
+`data-drop="accepts"` while files are over the window and `"target"` while over the page. A drop
+hands its paths to the Attach dialog's own `attach`, so both refuse by the same rules, read off
+the UI thread and attach in order. A symbolic link is followed and read only when it names a
+regular file; a folder is refused with a note rather than walked; a pipe or a device is never
+opened, because opening a FIFO waits for a writer and the dialog could have handed one too. Every
+refusal from one drop or pick is named in one note, where before each overwrote the last. The list
+and the reader take no drops. In the Harness, `file_drag(Dropped)` reports Refuse even on an
+accepting target, so the tests read the decision from the `Moved` step before release; relayed.
