@@ -1,6 +1,7 @@
 //! The sender card: who they are, how often they write, and whether their name borrows a
 //! brand their address does not belong to. Its actions are the shared `Menu`.
 
+use super::super::brand::CardLogo;
 use super::super::checks::SenderChecks;
 use super::super::contacts::ContactPart;
 use super::super::history::History;
@@ -91,6 +92,7 @@ pub(super) fn sender_card(
         // What the receiving server checked about them, beside the flags above: the same line
         // the reader shows, read off the thread that draws. Keyed like the reader's.
         if let Some((message, raw)) = checked {
+            {rsx! { CardLogo { key: "{message}-{raw:?}", message, body: raw, from: email.clone() } }}
             {rsx! { SenderChecks { key: "{message}-{raw:?}", message, body: raw } }}
         }
         // Keyed, so a card for another sender starts afresh rather than keep this one's state.

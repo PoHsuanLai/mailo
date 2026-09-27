@@ -34,7 +34,11 @@ fn cached(message: MessageId, raw: BlobId) -> Option<Option<AuthResults>> {
 
 /// [`cached`], else read from the stored bytes and remembered. Blocking: runs on a blocking
 /// thread.
-fn lookup(store: &SqliteStore, message: MessageId, raw: BlobId) -> Option<AuthResults> {
+pub(in crate::ui) fn lookup(
+    store: &SqliteStore,
+    message: MessageId,
+    raw: BlobId,
+) -> Option<AuthResults> {
     if let Some(had) = cached(message, raw) {
         return had;
     }

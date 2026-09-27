@@ -1,6 +1,6 @@
 //! The window: quire's `ds-native`, Blitz drawn with wgpu. The only frontend.
 //!
-//! The six values the window reads reach it as root contexts through
+//! The seven values the window reads reach it as root contexts through
 //! `AppConfig::with_context`, the same call a test makes through `HarnessConfig`
 //! ([`contexts`]). Nothing is passed through a global.
 //!
@@ -37,6 +37,7 @@ pub(super) fn run(opening: Opening) {
         dirs,
         start,
         icons,
+        brand,
     } = opening;
     let original = Original::window();
     let config = AppConfig::new("mailo", 1200, 800)
@@ -48,6 +49,10 @@ pub(super) fn run(opening: Opening) {
         .with_context(original.pill())
         .with_context(original.images())
         .with_context(icons);
+    let config = match brand {
+        Some(brand) => config.with_context(brand),
+        None => config,
+    };
     ds_native::launch(ShellRoot, config);
 }
 
@@ -55,8 +60,9 @@ pub(super) fn run(opening: Opening) {
 /// store, the look, the Spaces, where the window opens, and the directories it writes, when there
 /// are any. Without directories the window keeps its choices in memory and writes no file.
 ///
-/// The provider icons are the one value left out: a test has no cache to read them from, and
-/// the window then draws each provider's letter.
+/// The provider icons and the brand logo cache are left out: a test has no cache to read them
+/// from, and the window then draws each provider's letter and each sender's initial. A test that
+/// wants logos adds a `BrandCache` of its own.
 pub fn contexts(
     store: Arc<SqliteStore>,
     look: Appearance,
