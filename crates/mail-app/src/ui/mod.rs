@@ -12,6 +12,7 @@ mod compose;
 mod contacts;
 mod data;
 mod debounce;
+mod destroy;
 mod field;
 mod files;
 mod folder_open;

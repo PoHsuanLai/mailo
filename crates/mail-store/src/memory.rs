@@ -21,6 +21,7 @@ use serde::Serialize;
 use crate::{Dispatch, OutboxEntry, Settle, Store, StoreError, Term};
 
 mod contacts;
+mod destroyed;
 mod folders;
 mod groups;
 mod offline;
@@ -46,6 +47,8 @@ struct Inner {
     /// Message identity. Many [`RemoteRef`]s may point at one entry; the key is not the ref.
     by_key: HashMap<AccountId, HashMap<MessageKey, MessageId>>,
     remotes: Vec<RemoteRow>,
+    /// Addresses of messages deleted forever, until the server no longer lists them.
+    destroyed: Vec<destroyed::DestroyedRow>,
     /// Messages the server moved to where it did not say, until a sync finds them: the
     /// `unplaced` table, with how long each has been looked for.
     unplaced: BTreeMap<(AccountId, MessageId), crate::dispatch::Unplaced>,
@@ -130,6 +133,7 @@ impl Default for Inner {
             messages: BTreeMap::new(),
             by_key: HashMap::new(),
             remotes: Vec::new(),
+            destroyed: Vec::new(),
             unplaced: BTreeMap::new(),
             labels: BTreeMap::new(),
             drafts: BTreeMap::new(),
@@ -261,6 +265,7 @@ impl Store for MemoryStore {
             .iter()
             .filter(|row| row.account == mailbox.account && row.mailbox == mailbox.path)
             .map(row_to_remote)
+            .chain(inner.destroyed_in(mailbox)?.into_iter().map(Ok))
             .collect()
     }
 
@@ -271,6 +276,7 @@ impl Store for MemoryStore {
         to: &RemoteRef,
     ) -> Result<(), StoreError> {
         let mut inner = self.inner.borrow_mut();
+        inner.remap_destroyed(account, from, to);
         let Some(message) = inner.message_by_remote(account, from) else {
             return Ok(());
         };
@@ -286,6 +292,7 @@ impl Store for MemoryStore {
         into: Option<&str>,
     ) -> Result<(), StoreError> {
         let mut inner = self.inner.borrow_mut();
+        inner.forget_destroyed(account, remote);
         let Some(message) = inner.message_by_remote(account, remote) else {
             return Ok(());
         };
@@ -1094,6 +1101,7 @@ impl Inner {
         if ingest.validity == UidValidity::Reset {
             self.remotes
                 .retain(|row| !(row.account == account && row.mailbox == ingest.mailbox.path));
+            self.forget_destroyed_in(account, &ingest.mailbox.path);
         }
 
         for label in &ingest.labels {
@@ -1141,6 +1149,7 @@ impl Inner {
         }
 
         for remote in &ingest.gone {
+            self.forget_destroyed(account, remote);
             if let Some(id) = self.message_by_remote(account, remote) {
                 self.remove_remote(account, remote);
                 if !self.remotes.iter().any(|row| row.message == id) {
@@ -1374,6 +1383,14 @@ impl Inner {
         })?;
         let id = OutboxId::from_i64(self.next_outbox);
         self.next_outbox += 1;
+        // As `SqliteStore::queue`: kept before the caller removes the messages.
+        if let RemoteIntent::Destroy { messages } = intent {
+            for message in messages {
+                for remote in self.refs_for(account, &[*message])? {
+                    self.keep_destroyed(account, *message, &remote, id);
+                }
+            }
+        }
         self.outbox.insert(
             id,
             OutboxRow {
@@ -1440,7 +1457,8 @@ impl Inner {
             | RemoteIntent::SetMailbox { messages, .. }
             | RemoteIntent::SetLabels { messages, .. }
             | RemoteIntent::File { messages, .. }
-            | RemoteIntent::AddKeyword { messages, .. } => messages,
+            | RemoteIntent::AddKeyword { messages, .. }
+            | RemoteIntent::Destroy { messages } => messages,
             RemoteIntent::Send { .. } | RemoteIntent::Folder(_) | RemoteIntent::Append { .. } => {
                 unreachable!("handled above")
             }
@@ -1480,6 +1498,7 @@ impl Inner {
                     None => return Ok(None),
                 }
             }
+            RemoteIntent::Destroy { .. } => ProtoOp::Destroy { remotes },
             RemoteIntent::Send { .. } | RemoteIntent::Folder(_) | RemoteIntent::Append { .. } => {
                 unreachable!("handled above")
             }
@@ -1517,7 +1536,13 @@ impl Inner {
     ) -> Result<crate::dispatch::Place, StoreError> {
         use crate::dispatch::Place;
         if !self.messages.contains_key(&message) {
-            return Ok(Place::Gone);
+            // As `SqliteStore::addresses_now`: destroyed here, and still there until answered.
+            let kept = self.destroyed_of(account, message)?;
+            return Ok(if kept.is_empty() {
+                Place::Gone
+            } else {
+                Place::At(kept)
+            });
         }
         let found = self.refs_for(account, &[message])?;
         if found.is_empty()
@@ -1582,6 +1607,7 @@ impl Inner {
         }
         match settle {
             Settle::Ok => {
+                self.settle_destroyed(id, crate::dispatch::Answered::Done);
                 // As the SQLite store does: a deleted mailbox is let go of once confirmed.
                 let account = self.outbox[&id].account;
                 match self.outbox[&id].op.clone() {
@@ -1629,6 +1655,7 @@ impl Inner {
                         .next_attempt = when;
                 }
                 Retry::Fatal(_) => {
+                    self.settle_destroyed(id, crate::dispatch::Answered::Refused);
                     let undo = self.outbox[&id].undo.clone();
                     self.drop_entry(id);
                     for change in &undo.changes {
@@ -1637,6 +1664,7 @@ impl Inner {
                 }
             },
             Settle::InPart { done } => {
+                self.settle_destroyed(id, crate::dispatch::Answered::Refused);
                 let undo = self.outbox[&id].undo.clone();
                 self.drop_entry(id);
                 for change in crate::undo_rest(&undo, &done) {
@@ -1811,6 +1839,8 @@ fn pending_of(intent: &RemoteIntent) -> Vec<(MessageId, Vec<Change>)> {
         // A keyword has no local mirror on the message to re-layer: the answer it records is
         // kept by the store beside the message, written when the user answered.
         RemoteIntent::AddKeyword { .. } => Vec::new(),
+        // As SqliteStore: a destroyed message has nothing to re-layer.
+        RemoteIntent::Destroy { .. } => Vec::new(),
         RemoteIntent::Send { .. } | RemoteIntent::Folder(_) | RemoteIntent::Append { .. } => {
             Vec::new()
         }

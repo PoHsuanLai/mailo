@@ -123,6 +123,7 @@ impl SqliteStore {
         for (table, column) in [
             ("folders", "path"),
             ("remote_map", "mailbox"),
+            ("destroyed", "mailbox"),
             ("sync_state", "mailbox"),
         ] {
             let names: Vec<String> = {
@@ -245,6 +246,7 @@ impl SqliteStore {
             "DELETE FROM sync_state WHERE account = ?1 AND mailbox = ?2",
             params![account.to_string(), path],
         )?;
+        self.forget_destroyed_in(account, path)?;
         for message in held.mapped {
             let remaining: i64 = self.connection().query_row(
                 "SELECT count(*) FROM remote_map WHERE message = ?1",

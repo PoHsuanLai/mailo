@@ -28,6 +28,8 @@ pub(in crate::ui) fn commands() -> Vec<Command> {
         "Go to Snoozed",
         "Go to Archive",
         "Go to Trash",
+        "Empty Trash…",
+        "Empty Spam…",
         "Hide sidebar",
         "Contacts",
         "Add account…",

@@ -1,6 +1,7 @@
 //! The real [`Store`]: SQLite in WAL mode, with FTS5.
 
 mod contacts;
+mod destroyed;
 mod draft;
 mod folders;
 mod groups;
@@ -678,7 +679,13 @@ impl Store for SqliteStore {
             rusqlite::params![mailbox.account.to_string(), mailbox.path],
             remote_columns,
         )?;
-        rows.map(|row| remote_from_columns(row?)).collect()
+        let mut held: Vec<RemoteRef> = rows
+            .map(|row| remote_from_columns(row?))
+            .collect::<Result<_, _>>()?;
+        drop(stmt);
+        // A message deleted forever here is still held there until the server says otherwise.
+        held.extend(self.destroyed_in(mailbox)?);
+        Ok(held)
     }
 
     fn remap(

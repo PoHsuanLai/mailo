@@ -83,6 +83,37 @@ impl UndoStack {
         Some(self.entries.remove(at).1)
     }
 
+    /// Forget every part that changed one of `messages`, and an entry left with no part.
+    ///
+    /// For mail deleted forever: taking back an earlier move of it would write to a message
+    /// that is no longer here, and say it had done something.
+    pub fn forget_messages(&mut self, messages: &[MessageId]) {
+        let names = |patch: &Patch| {
+            patch.changes.iter().any(|change| match change {
+                Change::MessageRead(m, _)
+                | Change::MessageStar(m, _)
+                | Change::MessageMailbox(m, _)
+                | Change::MessageLabel(m, _, _)
+                | Change::MessageDelete(m) => messages.contains(m),
+                Change::MessageUpsert(message) => messages.contains(&message.id),
+                Change::ThreadSnooze(..)
+                | Change::ThreadPin(..)
+                | Change::ThreadMute(..)
+                | Change::LabelUpsert(_)
+                | Change::DraftUpsert(_)
+                | Change::DraftDelete(_)
+                | Change::LabelRemove(_)
+                | Change::FolderUpsert(_)
+                | Change::FolderRemove(_)
+                | Change::FolderRename { .. } => false,
+            })
+        };
+        for (_, parts) in &mut self.entries {
+            parts.retain(|part| !names(&part.forward) && !names(&part.inverse));
+        }
+        self.entries.retain(|(_, parts)| !parts.is_empty());
+    }
+
     /// The newest entry, left in place.
     pub fn last(&self) -> Option<&[Undo]> {
         self.entries.last().map(|(_, entry)| entry.as_slice())
@@ -173,10 +204,14 @@ pub fn reverse_intent(remote: &RemoteIntent, inverse: &Patch) -> Option<RemoteIn
         // address that would name it in the folder arrives only with that folder's next sync.
         // The undo puts it back here; a filing the server has been sent stays filed there, and
         // one still waiting is taken out of the outbox by the window's undo (`ui::ops`).
+        //
+        // Nor, above all, a deletion forever: the server's copy is gone once it is sent, and
+        // the window never offers one an undo (`crate::destroy`).
         RemoteIntent::Send { .. }
         | RemoteIntent::AddKeyword { .. }
         | RemoteIntent::Append { .. }
-        | RemoteIntent::File { .. } => None,
+        | RemoteIntent::File { .. }
+        | RemoteIntent::Destroy { .. } => None,
     }
 }
 
@@ -238,6 +273,7 @@ where
         Op::SetMute(Mute::Muted) => "Muted".to_owned(),
         Op::SetMute(Mute::Unmuted) => "Unmuted".to_owned(),
         Op::File(_) => "Moved to folder".to_owned(),
+        Op::Destroy => "Deleted forever".to_owned(),
     }
 }
 

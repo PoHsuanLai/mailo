@@ -243,6 +243,10 @@ pub trait Store {
     ///
     /// Returns `Ok(None)` when the intent resolves to nothing to say — every named message is
     /// unknown to the server, which is normal for a message composed locally and not yet sent.
+    ///
+    /// [`RemoteIntent::Destroy`] is queued **before** its forward patch is applied: removing a
+    /// message takes its server addresses with it, and this is where they are kept, counted as
+    /// held by [`Store::remote_refs`] until a sync no longer finds them (migration 0025).
     fn enqueue(
         &self,
         account: AccountId,

@@ -59,6 +59,7 @@ fn remotes(op: &ProtoOp) -> &[RemoteRef] {
         | ProtoOp::File { remotes, .. }
         | ProtoOp::AddKeyword { remotes, .. }
         | ProtoOp::Expunge { remotes }
+        | ProtoOp::Destroy { remotes }
         | ProtoOp::FetchStructure { remotes } => remotes,
         _ => &[],
     }

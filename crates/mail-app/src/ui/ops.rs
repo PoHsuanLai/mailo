@@ -261,7 +261,8 @@ fn touches(later: &mail_store::OutboxEntry, messages: &[MessageId], filing: &Pro
         | ProtoOp::SetLabels { remotes, .. }
         | ProtoOp::File { remotes, .. }
         | ProtoOp::AddKeyword { remotes, .. }
-        | ProtoOp::Expunge { remotes } => remotes.iter().any(|r| ours.contains(r)),
+        | ProtoOp::Expunge { remotes }
+        | ProtoOp::Destroy { remotes } => remotes.iter().any(|r| ours.contains(r)),
         // A new message, a sent one, or a mailbox: none of them is a message already held.
         ProtoOp::Append { .. } | ProtoOp::Submit { .. } | ProtoOp::Folder(_) => false,
         _ => true,
@@ -349,6 +350,53 @@ pub(super) fn perform(store: &SqliteStore, thread: ThreadId, op: Op) -> Option<U
         inverse: applied.inverse,
         remote: applied.remote,
     })
+}
+
+/// Delete forever what `thread` holds in Trash or Spam, here and on the server. Returns the
+/// messages it removed; `None` when there were none.
+///
+/// Not [`perform`]: that applies the patch first and queues after, and removing a message takes
+/// its server addresses with it. The deletion is queued first, while the store still knows where
+/// each message is (`Store::enqueue`), and nothing is returned to undo it.
+pub(super) fn destroy(store: &SqliteStore, thread: ThreadId) -> Option<Vec<MessageId>> {
+    let loaded = store.thread(thread).ok()?;
+    let messages: Vec<Message> = loaded
+        .messages
+        .iter()
+        .filter_map(|id| store.message(*id).ok())
+        .collect();
+    let account = messages.first().map(|m| m.account)?;
+    let now = chrono::Utc::now();
+    let applied = Op::Destroy.apply(
+        &Target::Threads(vec![thread]),
+        &loaded,
+        &messages,
+        &caps_here(store, account, now),
+        now,
+    );
+    let gone: Vec<MessageId> = applied
+        .forward
+        .changes
+        .iter()
+        .filter_map(|change| match change {
+            Change::MessageDelete(m) => Some(*m),
+            _ => None,
+        })
+        .collect();
+    if gone.is_empty() {
+        return None;
+    }
+    if let Some(intent) = applied.remote.filter(|_| has_server(store, account))
+        && store
+            .enqueue(account, intent, &applied.inverse, now)
+            .is_err()
+    {
+        // Not removed here either: a message gone here and left there comes back with the next
+        // sync, and meanwhile says it was deleted.
+        return None;
+    }
+    store.apply(account, &applied.forward).ok()?;
+    Some(gone)
 }
 
 #[cfg(test)]

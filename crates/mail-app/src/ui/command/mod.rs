@@ -214,6 +214,22 @@ fn run_action(
         close(shell);
         return;
     }
+    // Emptying goes to the bin first, so what is being emptied is what the window shows behind
+    // the sheet that asks.
+    if let Some(bin) = label
+        .strip_prefix("Empty ")
+        .and_then(|rest| rest.strip_suffix('…'))
+    {
+        let index = shell.read().places.iter().position(|one| one.name == bin);
+        close(shell);
+        if let Some(index) = index {
+            shell.write().select(index);
+            pages.set(1);
+            let store = consume_context::<Arc<SqliteStore>>();
+            super::destroy::ask_everything(&store, shell);
+        }
+        return;
+    }
     match label {
         "Compose" => {
             let store = consume_context::<Arc<SqliteStore>>();

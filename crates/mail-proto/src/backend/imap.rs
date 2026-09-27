@@ -194,6 +194,80 @@ impl ImapBackend {
         self.queue(vec![Self::select(source, false), action])
     }
 
+    /// Delete `remotes` for good: the user's "Delete forever", from Trash or Spam.
+    ///
+    /// `ExpungeMeans::Forbidden` still holds everywhere else, so this checks what that setting
+    /// cannot: every address is in one folder, and that folder is the account's Trash or Spam by
+    /// the server's own listing. Then, on one connection, `CAPABILITY` so the session knows
+    /// what the server offers once signed in, `SELECT`, a check that the mailbox still has the
+    /// `UIDVALIDITY` the UIDs were given under, `UID STORE +FLAGS.SILENT (\Deleted)` and
+    /// `UID EXPUNGE` of the same set (RFC 4315 §2.1).
+    ///
+    /// Without `UIDPLUS` (or IMAP4rev2, where `UID EXPUNGE` is part of the base protocol, RFC
+    /// 9051 §6.4.9) nothing is sent, and the refusal says so. The only way left would be a bare
+    /// `EXPUNGE`, which removes every message marked `\Deleted` in the mailbox, including ones
+    /// another client marked and meant to keep until it expunged them itself.
+    fn destroy(&mut self, remotes: &[RemoteRef]) -> Progress<ProtoOutcome> {
+        let mut held: Vec<(&str, u32, u32)> = Vec::new();
+        for remote in remotes {
+            match remote {
+                RemoteRef::Imap {
+                    mailbox,
+                    uidvalidity,
+                    uid,
+                } => held.push((mailbox, *uidvalidity, *uid)),
+                RemoteRef::Pop { .. } | RemoteRef::Graph { .. } | RemoteRef::Jmap { .. } => {
+                    return Progress::Failed(ProtoError::Malformed(format!(
+                        "{remote:?} is not an IMAP address"
+                    )));
+                }
+            }
+        }
+        let Some(&(path, uidvalidity, _)) = held.first() else {
+            return Progress::Done(ProtoOutcome::Applied);
+        };
+        // The engine splits per mailbox (FINDINGS F154); a set that still spans two would expunge
+        // one mailbox's UIDs in the other.
+        if held
+            .iter()
+            .any(|(m, v, _)| !same_folder(m, path) || *v != uidvalidity)
+        {
+            return Progress::Failed(ProtoError::Malformed(
+                "one deletion named UIDs from more than one mailbox".to_owned(),
+            ));
+        }
+        match self.caps.folders.role(path) {
+            Some(MailboxRole::Trash | MailboxRole::Spam) => {}
+            _ => {
+                return Progress::Failed(ProtoError::Unsupported(format!(
+                    "deleting forever outside Trash and Spam: {path} is neither, so nothing \
+                     was deleted"
+                )));
+            }
+        }
+        let set = held
+            .iter()
+            .map(|(_, _, uid)| uid.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        let mailbox = MailboxRef {
+            account: self.account,
+            path: path.to_owned(),
+        };
+        self.job = Job::Applied;
+        self.queue(vec![
+            ImapCommand::Capability,
+            Self::select(&mailbox, false),
+            ImapCommand::RequireUidValidity(uidvalidity),
+            ImapCommand::RequireCapability(vec!["UIDPLUS".to_owned(), "IMAP4rev2".to_owned()]),
+            ImapCommand::UidStore {
+                set: set.clone(),
+                what: "+FLAGS.SILENT (\\Deleted)".to_owned(),
+            },
+            ImapCommand::UidExpunge { set },
+        ])
+    }
+
     /// One `UID FETCH` over a batch, on one authenticated connection.
     ///
     /// A batch rather than one message per operation: a connection authenticates once and then
@@ -540,6 +614,7 @@ impl Backend for ImapBackend {
                  that setting cannot be read over IMAP"
                     .to_owned(),
             )),
+            ProtoOp::Destroy { remotes } => self.destroy(&remotes),
             ProtoOp::Append {
                 mailbox,
                 flags,

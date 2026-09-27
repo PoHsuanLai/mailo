@@ -965,6 +965,8 @@ fn op_types_round_trip() {
             OpKind::RemoveLabel,
             OpKind::Snooze,
             OpKind::Pin,
+            OpKind::Mute,
+            OpKind::Destroy,
             OpKind::Reply,
             OpKind::ReplyAll,
             OpKind::Forward,
@@ -1463,6 +1465,21 @@ fixtures! {
         remotes: vec![imap_ref()],
         keyword: Keyword::MdnSent,
     }],
+    // Delete forever (plan item 4), added after the files above were frozen: the op, its kind in a
+    // view's hover strip, and the outbox row that carries it to the server.
+    "actions_destroy.json" => Vec<Action> = vec![Action {
+        target: Target::Threads(vec![ThreadId::from_uuid(uuid(6))]),
+        op: Op::Destroy,
+    }],
+    "proto_ops_destroy.json" => Vec<ProtoOp> = vec![ProtoOp::Destroy {
+        remotes: vec![
+            imap_ref(),
+            RemoteRef::Pop { uidl: "UID-1".to_owned() },
+            RemoteRef::Graph { mailbox: "Deleted Items".to_owned(), id: "AAMk-1".to_owned() },
+            RemoteRef::Jmap { email_id: "Mf40b5f831".to_owned() },
+        ],
+    }],
+    "op_kinds_destroy.json" => Vec<OpKind> = vec![OpKind::Trash, OpKind::Destroy],
     "send_states.json" => Vec<SendState> = vec![
         SendState::Editing,
         SendState::Queued,
@@ -1785,6 +1802,7 @@ fn remote_intent_round_trips() {
             messages: vec![m],
             label: l,
         },
+        RemoteIntent::Destroy { messages: vec![m] },
     ] {
         let json = serde_json::to_value(&value).expect("serialize");
         assert!(

@@ -689,6 +689,8 @@ pub struct Shell {
     pub keymap: crate::keymap::Keymap,
     /// The keyboard shortcuts sheet while it is open. `None` is closed.
     pub keyboard: Option<KeyboardSheet>,
+    /// The Delete forever / Empty Trash confirmation while it is open. `None` is closed.
+    pub destroying: Option<crate::destroy::Destroying>,
     /// Ctrl F in the open thread. `None` is closed, and marks nothing.
     ///
     /// Belongs to the thread it was opened on: [`Self::open`] and [`Self::close`] drop it, so a
@@ -913,6 +915,7 @@ impl Default for Shell {
             view_editor: None,
             keymap: crate::keymap::Keymap::default(),
             keyboard: None,
+            destroying: None,
             find: None,
             undo: crate::undo::UndoStack::default(),
             viewing: None,
@@ -1448,8 +1451,10 @@ pub fn op_for(kind: OpKind) -> Option<Op> {
         OpKind::Star => Some(Op::SetStar(Star::Starred)),
         OpKind::Unstar => Some(Op::SetStar(Star::Unstarred)),
         // These need a label picked, a draft created, a date chosen, or the conversation's own
-        // state to say which way they go.
-        OpKind::AddLabel
+        // state to say which way they go. Delete forever needs the confirmation sheet, which
+        // applies it itself: no row, key or bar performs it on a press (`crate::destroy`).
+        OpKind::Destroy
+        | OpKind::AddLabel
         | OpKind::RemoveLabel
         | OpKind::Snooze
         | OpKind::Pin

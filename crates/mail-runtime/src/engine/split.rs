@@ -23,6 +23,7 @@ fn remotes_mut(op: &mut ProtoOp) -> Option<&mut Vec<RemoteRef>> {
         | ProtoOp::File { remotes, .. }
         | ProtoOp::AddKeyword { remotes, .. }
         | ProtoOp::Expunge { remotes }
+        | ProtoOp::Destroy { remotes }
         | ProtoOp::FetchStructure { remotes } => Some(remotes),
         _ => None,
     }

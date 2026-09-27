@@ -116,6 +116,7 @@ fn garbled_messages_held_whole_are_re_read_and_the_rest_are_left_alone() {
              ALTER TABLE thread_summary DROP COLUMN mute;
              DROP TABLE contact_groups;
              DROP TABLE views;
+             DROP TABLE destroyed;
              CREATE TABLE views (id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL,
                  filter TEXT NOT NULL, sort TEXT NOT NULL, group_by TEXT,
                  threading TEXT NOT NULL, shown TEXT NOT NULL, hover TEXT NOT NULL,

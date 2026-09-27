@@ -175,6 +175,7 @@ fn kind_strips_the_payload() {
         (Op::SetMute(Mute::Unmuted), OpKind::Mute),
         // Filing leaves the inbox the way archiving does.
         (Op::File(LABEL_B), OpKind::Archive),
+        (Op::Destroy, OpKind::Destroy),
     ];
 
     for (op, expected) in CASES {
@@ -1211,4 +1212,130 @@ fn embedded_images_are_not_counted_as_attachments() {
         Mute::Unmuted,
     );
     assert_eq!(both.attachments, Attachments::Present { count: 1 });
+}
+
+// ---------------------------------------------------------------------------------------
+// Op::Destroy -- delete forever, from Trash or Spam only, and never undone.
+// ---------------------------------------------------------------------------------------
+
+/// One message per role, each in its own place in the thread: which of them `Destroy` removes.
+#[test]
+fn destroy_removes_only_what_is_in_trash_or_spam() {
+    // (the role a message is in, whether Delete forever may remove it)
+    const CASES: &[(MailboxRole, bool)] = &[
+        (MailboxRole::Inbox, false),
+        (MailboxRole::Archive, false),
+        (MailboxRole::Sent, false),
+        (MailboxRole::Drafts, false),
+        (MailboxRole::Trash, true),
+        (MailboxRole::Spam, true),
+    ];
+    for (role, removed) in CASES {
+        let mut only = message(1, 100);
+        only.mailbox = *role;
+        let messages = vec![only];
+        let thread = thread_of(&messages, Snooze::Inactive, Pin::Unpinned, Mute::Unmuted);
+        for target in [
+            Target::Threads(vec![THREAD]),
+            Target::Messages(vec![mid(1)]),
+        ] {
+            let applied = Op::Destroy.apply(&target, &thread, &messages, &server_caps(), now());
+            if *removed {
+                assert_eq!(
+                    applied.forward.changes,
+                    vec![Change::MessageDelete(mid(1))],
+                    "{role:?} via {target:?}"
+                );
+                assert_eq!(
+                    applied.remote,
+                    Some(RemoteIntent::Destroy {
+                        messages: vec![mid(1)]
+                    }),
+                    "{role:?} via {target:?}"
+                );
+            } else {
+                assert!(
+                    applied.forward.changes.is_empty(),
+                    "{role:?} via {target:?}: refused, so nothing changes here"
+                );
+                assert_eq!(
+                    applied.remote, None,
+                    "{role:?} via {target:?}: refused, so nothing is queued"
+                );
+            }
+            assert!(
+                applied.inverse.changes.is_empty(),
+                "{role:?}: a destroyed message has no way back"
+            );
+        }
+    }
+}
+
+#[test]
+fn destroying_a_thread_leaves_its_messages_outside_trash_alone() {
+    // m1 is in the inbox, m2 archived, m3 in Trash: only m3 goes, and the server hears of m3 only.
+    let messages = mixed_thread();
+    let thread = thread_of(&messages, Snooze::Inactive, Pin::Unpinned, Mute::Unmuted);
+    let applied = Op::Destroy.apply(
+        &Target::Threads(vec![THREAD]),
+        &thread,
+        &messages,
+        &server_caps(),
+        now(),
+    );
+    assert_eq!(applied.forward.changes, vec![Change::MessageDelete(mid(3))]);
+    assert!(applied.inverse.changes.is_empty());
+    assert_eq!(
+        applied.remote,
+        Some(RemoteIntent::Destroy {
+            messages: vec![mid(3)]
+        })
+    );
+}
+
+#[test]
+fn destroy_reaches_the_server_even_where_filing_is_local() {
+    // Left on a POP3 server or a local-archive account, the message would be fetched again.
+    let mut trashed = message(1, 100);
+    trashed.mailbox = MailboxRole::Spam;
+    let messages = vec![trashed];
+    let thread = thread_of(&messages, Snooze::Inactive, Pin::Unpinned, Mute::Unmuted);
+    let local = account_caps(ArchiveMeans::LocalOnly, ServerLabels::LocalOnly);
+    let applied = Op::Destroy.apply(
+        &Target::Threads(vec![THREAD]),
+        &thread,
+        &messages,
+        &local,
+        now(),
+    );
+    assert_eq!(
+        applied.remote,
+        Some(RemoteIntent::Destroy {
+            messages: vec![mid(1)]
+        })
+    );
+}
+
+proptest! {
+    /// Whatever the thread and target, Destroy removes exactly the targeted messages in Trash or
+    /// Spam, leaves the rest as they were, and has nothing to undo.
+    #[test]
+    fn destroy_never_reaches_past_trash_and_spam(
+        (messages, target) in arb_state_and_target(),
+    ) {
+        let thread = thread_of(&messages, Snooze::Inactive, Pin::Unpinned, Mute::Unmuted);
+        let applied = Op::Destroy.apply(&target, &thread, &messages, &server_caps(), now());
+        let named = |m: &Message| match &target {
+            Target::Threads(ids) => ids.contains(&m.thread),
+            Target::Messages(ids) => ids.contains(&m.id),
+        };
+        let expected: Vec<Change> = messages
+            .iter()
+            .filter(|m| named(m) && matches!(m.mailbox, MailboxRole::Trash | MailboxRole::Spam))
+            .map(|m| Change::MessageDelete(m.id))
+            .collect();
+        prop_assert_eq!(&applied.forward.changes, &expected);
+        prop_assert!(applied.inverse.changes.is_empty());
+        prop_assert_eq!(applied.remote.is_some(), !expected.is_empty());
+    }
 }

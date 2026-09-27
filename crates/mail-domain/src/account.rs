@@ -383,6 +383,12 @@ impl Supported {
 /// `deleteForever`, and there is no capability, no `STATUS` item and no other way to read it over
 /// IMAP. On an account set that way, `\Deleted` + `EXPUNGE` destroys mail irrecoverably, and a
 /// local undo patch restores only our own row.
+///
+/// It guards [`crate::ProtoOp::Expunge`], expunging in general, and nothing flips it. The one
+/// exception is [`crate::ProtoOp::Destroy`]: the user's explicit "Delete forever" of mail in the
+/// Trash or Spam folder, which the backend checks by the folder's role, and which on IMAP
+/// expunges exactly its own UIDs (`UID EXPUNGE`, RFC 4315). Destroying there is what the user
+/// asked for, so Gmail's `deleteForever` setting cannot make it worse.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ExpungeMeans {

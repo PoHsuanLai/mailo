@@ -208,6 +208,7 @@ pub fn hover_name(kind: OpKind) -> &'static str {
         OpKind::Snooze => "Snooze",
         OpKind::Pin => "Pin",
         OpKind::Mute => "Mute",
+        OpKind::Destroy => "Delete forever",
         OpKind::Reply => "Reply",
         OpKind::ReplyAll => "Reply all",
         OpKind::Forward => "Forward",

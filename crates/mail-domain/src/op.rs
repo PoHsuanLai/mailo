@@ -72,6 +72,14 @@ pub enum Op {
     /// label and an archive queued apart would move the message into Archive and then find
     /// nothing left in the inbox to file.
     File(LabelId),
+    /// Delete for good: out of this client and off the server, with no way back.
+    ///
+    /// Only for mail already in Trash or Spam, which is where a user has said a message is
+    /// finished with; anywhere else deleting stays a move to Trash ([`Op::Trash`]). [`Op::apply`]
+    /// leaves every other message untouched, so no gesture can destroy mail in the inbox or an
+    /// archive. It has no undo: the server's copy is gone once it is sent, and its inverse is
+    /// empty.
+    Destroy,
 }
 
 /// An operation with its payload stripped: "which action", without "that action's arguments".
@@ -94,6 +102,8 @@ pub enum OpKind {
     Snooze,
     Pin,
     Mute,
+    /// Delete forever, from Trash or Spam. See [`Op::Destroy`].
+    Destroy,
     Reply,
     ReplyAll,
     Forward,
@@ -218,6 +228,10 @@ pub enum RemoteIntent {
         messages: Vec<MessageId>,
         label: LabelId,
     },
+    /// Delete messages for good, where they are in Trash or Spam. Resolved by the store to
+    /// [`crate::ProtoOp::Destroy`], with the addresses they are held at when it is queued: the
+    /// local copies are removed at once, and with them what `remote_map` knew.
+    Destroy { messages: Vec<MessageId> },
     /// Upload a message into a mailbox, e.g. imported mail.
     ///
     /// Addresses no existing message either: the bytes are the new one. Resolves to the
@@ -244,7 +258,8 @@ pub struct Applied {
     /// Remote work to queue, or `None` when this op is purely local — archiving under
     /// [`crate::ArchiveMeans::LocalOnly`], labelling under
     /// [`crate::ServerLabels::LocalOnly`], and snooze, pin and mute always, which have no server
-    /// representation at all.
+    /// representation at all. [`Op::Destroy`] always has one, whatever the capabilities: a
+    /// message removed here and left on the server would come back with the next sync.
     pub remote: Option<RemoteIntent>,
 }
 
@@ -297,6 +312,7 @@ impl Op {
             Op::SetStar(star) => set_star(&selected, *star),
             Op::Label(label, membership) => set_label(&selected, *label, *membership),
             Op::File(label) => file_into(&selected, *label),
+            Op::Destroy => destroy(&selected),
             Op::SetSnooze(snooze) => {
                 let prior = thread.summary.snooze;
                 if thread_targeted && prior != *snooze {
@@ -342,7 +358,8 @@ impl Op {
             if let Change::MessageRead(m, _)
             | Change::MessageStar(m, _)
             | Change::MessageMailbox(m, _)
-            | Change::MessageLabel(m, _, _) = change
+            | Change::MessageLabel(m, _, _)
+            | Change::MessageDelete(m) = change
                 && !touched.contains(m)
             {
                 touched.push(*m);
@@ -423,6 +440,9 @@ impl Op {
                     })
                 }
             },
+            // Whatever the account files locally, the server holds the message until it is told:
+            // left there, the next sync would bring it back into Trash.
+            Op::Destroy => Some(RemoteIntent::Destroy { messages }),
             // None has any server representation: they are this app's own state.
             Op::SetSnooze(_) | Op::SetPin(_) | Op::SetMute(_) => None,
         }
@@ -444,6 +464,7 @@ impl Op {
             Op::SetSnooze(_) => OpKind::Snooze,
             Op::SetPin(_) => OpKind::Pin,
             Op::SetMute(_) => OpKind::Mute,
+            Op::Destroy => OpKind::Destroy,
             // Filing is archiving into a named place: the row leaves the inbox the same way.
             Op::File(_) => OpKind::Archive,
         }
@@ -494,6 +515,21 @@ fn file_into(selected: &[&Message], label: LabelId) -> (Vec<Change>, Vec<Change>
     forward.extend(labelled);
     inverse.extend(unlabelled);
     (forward, inverse)
+}
+
+/// Remove every selected message that is in Trash or Spam, and nothing else.
+///
+/// Per message, like every other op: a conversation in Trash may hold the user's own reply in
+/// Sent, and that reply is not the user's to lose by emptying Trash. A message anywhere but Trash
+/// and Spam is refused by being left out, so an op that selects none of them changes nothing and
+/// queues nothing. The inverse is always empty: nothing puts a destroyed message back.
+fn destroy(selected: &[&Message]) -> (Vec<Change>, Vec<Change>) {
+    let forward = selected
+        .iter()
+        .filter(|m| matches!(m.mailbox, MailboxRole::Trash | MailboxRole::Spam))
+        .map(|m| Change::MessageDelete(m.id))
+        .collect();
+    (forward, Vec::new())
 }
 
 /// Bring filed-away messages back to the inbox.

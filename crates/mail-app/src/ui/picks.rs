@@ -147,6 +147,11 @@ pub(super) fn PickBar(
         _ => "Star",
     };
     let mute = mute_label(&summaries);
+    // In Trash or Spam, and only there, the picked mail can be deleted forever, once asked.
+    let bin = crate::destroy::bin_shown(&shell.read());
+    let destroyable = summaries
+        .iter()
+        .any(|summary| crate::destroy::offered(bin, summary));
     let buttons: Vec<(Shortcut, Icon, &'static str)> = [
         (Shortcut::Archive, Icon::Archive, "Archive"),
         (Shortcut::Trash, Icon::Trash, "Move to Trash"),
@@ -185,6 +190,21 @@ pub(super) fn PickBar(
                     let store = consume_context::<Arc<SqliteStore>>();
                     mute_picked(&store, shell, revision, &threads.peek());
                 }),
+            }
+            if destroyable {
+                ds::Button {
+                    variant: ds::ButtonVariant::Mini,
+                    label: String::new(),
+                    icon: Icon::Trash,
+                    aria_label: format!("Delete the {count} selected forever"),
+                    title: "Delete forever…".to_owned(),
+                    onclick: on_primary(move || {
+                        let store = consume_context::<Arc<SqliteStore>>();
+                        let ids: Vec<ThreadId> = threads.peek().iter().map(|summary| summary.id).collect();
+                        let chosen = shell.peek().picked.chosen(&ids);
+                        super::destroy::ask_chosen(&store, shell, &chosen);
+                    }),
+                }
             }
             ds::Button {
                 variant: ds::ButtonVariant::Mini,

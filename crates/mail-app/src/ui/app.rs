@@ -392,6 +392,14 @@ pub(super) fn App() -> Element {
             }
             return;
         }
+        // The Delete forever sheet: Esc cancels it, and no other key does anything, least of all
+        // what it would have done to the rows behind it. Only its button deletes.
+        if shell.read().destroying.is_some() {
+            if key == "Escape" {
+                super::destroy::close(shell);
+            }
+            return;
+        }
         // The keyboard shortcuts sheet takes every key: the one pressed to be bound must not
         // also do what it did before, and Esc stops a wait before it closes the sheet.
         if shell.read().keyboard.is_some() {
@@ -743,6 +751,9 @@ pub(super) fn App() -> Element {
             }
             if shell.read().viewing.is_some() {
                 super::reading::AttachmentViewer { shell }
+            }
+            if shell.read().destroying.is_some() {
+                super::destroy::DestroySheet { shell, revision }
             }
             div { class: "card",
             ThreadList {
