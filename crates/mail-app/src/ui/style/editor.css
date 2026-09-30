@@ -5,6 +5,9 @@
   max-height: 70vh; overflow-y: auto; scrollbar-width: none;
   display: grid; gap: var(--s-14); padding: var(--s-14);
 }
+/* quire's editor draws its own card; inside a sheet that is a card in a card, so the sheet's is the
+   only frame. */
+.ed-look { border: 0; border-radius: 0; background: transparent; box-shadow: none; padding: 0; }
 .ed-foot {
   display: flex; justify-content: flex-end; gap: var(--s-8);
   padding: var(--s-10) var(--s-14);

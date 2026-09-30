@@ -80,7 +80,7 @@ pub(super) fn TodayList(
         })
         .collect();
     let live = !tabs.is_empty();
-    let selected = shell.read().open;
+    let selected = shell.read().selected_tab();
     let dirs_close = dirs.clone();
     let dirs_clear = dirs.clone();
     rsx! {
@@ -107,7 +107,7 @@ pub(super) fn TodayList(
             label: "Today",
             tabs,
             selected,
-            onpick: move |id: ThreadId| shell.write().open(id),
+            onpick: move |id: ThreadId| shell.write().open_from_today(id),
             onclose: move |id: ThreadId| {
                 today.write().close(space_index, id);
                 save(&dirs_close, &today.read());

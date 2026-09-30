@@ -416,6 +416,9 @@ pub struct Shell {
     /// What the user typed in the search box.
     pub search: String,
     pub open: Option<ThreadId>,
+    /// Whether the open thread was opened from its Today tab. The sidebar has one selected row:
+    /// that tab while this holds, the place otherwise.
+    pub from_today: bool,
     /// Whether the reader may fetch remote images for the thread currently open.
     ///
     /// Per thread and not persisted: consenting to load one sender's images is not consent for
@@ -680,6 +683,7 @@ impl Default for Shell {
             selected: 0,
             search: String::new(),
             open: None,
+            from_today: false,
             show_remote_images: false,
             peek: Peek::Side,
             composing: None,
@@ -787,6 +791,7 @@ impl Shell {
         if index < self.places.len() {
             self.selected = index;
             self.open = None;
+            self.from_today = false;
             // Consent is per thread, so changing what is shown revokes it.
             self.show_remote_images = false;
         }
@@ -795,8 +800,26 @@ impl Shell {
     /// Open a thread.
     pub fn open(&mut self, thread: ThreadId) {
         self.open = Some(thread);
+        self.from_today = false;
         self.show_remote_images = false;
         self.find = None;
+    }
+
+    /// Open a thread from its Today tab: the tab is then the sidebar's selected row.
+    pub fn open_from_today(&mut self, thread: ThreadId) {
+        self.open(thread);
+        self.from_today = true;
+    }
+
+    /// Whether place `index` is the sidebar's selected row: the list's place, unless a Today tab
+    /// took the selection by opening its thread.
+    pub fn place_selected(&self, index: usize) -> bool {
+        self.selected == index && !self.from_today
+    }
+
+    /// The Today tab that is the sidebar's selected row, if one took it.
+    pub fn selected_tab(&self) -> Option<ThreadId> {
+        self.open.filter(|_| self.from_today)
     }
 
     /// Close the reader.
@@ -805,6 +828,7 @@ impl Shell {
     /// [`Self::select`] do. A remote image is a read receipt.
     pub fn close(&mut self) {
         self.open = None;
+        self.from_today = false;
         self.show_remote_images = false;
         self.find = None;
     }
@@ -1488,6 +1512,32 @@ mod tests {
         shell.select(sent);
         shell.search = "   ".to_owned();
         assert_eq!(shell.query(20).filter, Filter::InMailbox(MailboxRole::Sent));
+    }
+
+    #[test]
+    fn the_sidebar_has_one_selected_row() {
+        // The place the list shows, or the Today tab the open thread came from: never both.
+        let mut shell = Shell::default();
+        let thread = ThreadId::generate();
+        assert!(shell.place_selected(0));
+        assert_eq!(shell.selected_tab(), None);
+
+        shell.open(thread);
+        assert!(shell.place_selected(0), "a thread from the list keeps the place");
+        assert_eq!(shell.selected_tab(), None);
+
+        shell.open_from_today(thread);
+        assert!(!shell.place_selected(0), "a tab and a place are both selected");
+        assert_eq!(shell.selected_tab(), Some(thread));
+
+        shell.select(1);
+        assert!(shell.place_selected(1), "choosing a place takes it back");
+        assert_eq!(shell.selected_tab(), None);
+
+        shell.open_from_today(thread);
+        shell.close();
+        assert!(shell.place_selected(1));
+        assert_eq!(shell.selected_tab(), None);
     }
 
     #[test]

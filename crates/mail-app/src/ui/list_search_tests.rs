@@ -96,7 +96,7 @@ fn subjects(page: &str) -> Vec<String> {
 /// The list bar's notes: sync state and search scope alike.
 fn notes(page: &str) -> Vec<String> {
     let bar = page
-        .split_once(r#"class="list-bar""#)
+        .split_once(r#"class="list-head""#)
         .and_then(|(_, rest)| rest.split_once(r#"class="bar-tools""#))
         .map(|(bar, _)| bar)
         .unwrap_or_default();

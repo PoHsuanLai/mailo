@@ -62,7 +62,7 @@ pub(super) fn FolderRow(
         None => folder_of(p) == Some(&mailbox),
     });
     let count = place.and_then(|index| badges().get(index).copied().flatten());
-    let current = place.is_some_and(|index| shell.read().selected == index);
+    let current = place.is_some_and(|index| shell.read().place_selected(index));
     let dim = matches!(
         node.kind,
         Kind::Listed {

@@ -4,19 +4,23 @@
 .app {
   position: relative;
   isolation: isolate;
-  display: grid;
-  grid-template-columns: 232px minmax(0, 1fr);
+  box-sizing: border-box;
   height: 100vh;
   min-height: 0;
   padding: var(--s-8) var(--s-8) var(--s-8) 0;
   color: var(--f-ink);
   background: transparent;
-  transition: grid-template-columns var(--t-move) var(--e-out), padding var(--t-move) var(--e-out);
+  transition: padding var(--t-move) var(--e-out);
 }
-.app.no-side { grid-template-columns: 0 minmax(0, 1fr); padding-left: var(--s-8); }
+.app.no-side { padding-left: var(--s-8); }
+/* The window is quire's `SplitView`: the sidebar pane, then the card. Hidden, the sidebar's edge
+   and its peek live in a zero-width host at the window's left edge, which the peek floats from. */
+.edge-host { position: absolute; left: 0; top: 0; bottom: 0; width: 0; }
 /* The frame's two gradient layers are the `Ds` root's (`.ds-layer`): it cross-fades them itself
    when the Space changes. */
 .side, .card { min-height: 0; min-width: 0; }
+/* Pinned, the sidebar fills its pane; peeking it is placed by its own rule. */
+.side[*|data-side="shown"] { height: 100%; box-sizing: border-box; }
 /* The sidebar is quire's `EdgePeek` (`nav.ds-side`): pinned it is this column; hidden and peeking
    quire floats it over the card, so nothing here may set its `position`. */
 .side {
@@ -34,19 +38,22 @@
 .space-name { overflow: hidden; min-width: 0; margin-right: auto; }
 .space-dots { display: flex; gap: var(--s-5); align-items: center; flex: none; }
 .card {
-  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.08fr);
+  height: 100%; box-sizing: border-box;
   min-width: 0; min-height: 0; background: var(--surface); color: var(--ink);
   border-radius: var(--r-card); overflow: hidden; box-shadow: var(--shadow-card);
 }
 .app[*|data-peek="center"] .card, .app[*|data-peek="full"] .card { overflow: visible; }
-.list-col { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--surface); }
-.list-bar {
-  display: flex; align-items: center; gap: var(--s-8); padding: var(--s-10) var(--s-12) var(--s-6);
-}
-.list-bar h2 { font-size: var(--fs-heading-3); min-width: 0; flex: 0 1 auto; white-space: nowrap; overflow: hidden; }
-.list-bar .status {
+.list-col { display: flex; flex-direction: column; height: 100%; min-width: 0; min-height: 0; background: var(--surface); }
+/* The list's header: quire's `Toolbar` holds it as its centre. */
+.list-head { display: flex; align-items: center; gap: var(--s-8); width: 100%; min-width: 0; }
+.list-head h2 { font-size: var(--fs-heading-3); min-width: 0; flex: 0 1 auto; white-space: nowrap; overflow: hidden; }
+.list-head .status {
   font-size: var(--fs-small); color: var(--ink-faint); min-width: 0; flex: 1 1 0;
   white-space: nowrap; overflow: hidden;
 }
-.list-bar .status.bad { color: var(--danger); font-weight: 600; }
+.list-head .status.bad { color: var(--danger); font-weight: 600; }
 .bar-tools { display: flex; gap: var(--s-6); align-items: center; margin-left: auto; position: relative; }
+
+/* A sheet hangs from the card's top edge, not the window's: the frame insets the card by
+   `--s-8`. */
+.in-card { top: var(--s-8); }

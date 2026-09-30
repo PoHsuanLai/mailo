@@ -11,6 +11,7 @@
 //! Nothing here clears what the reader found when it opened a message: every change moves the
 //! count of key changes, and the reader opens a message again when that has moved.
 
+use super::super::common::in_card;
 use chrono::Utc;
 use dioxus::prelude::*;
 use ds::components::content::label::{LabelRole, LabelStyle};
@@ -244,6 +245,7 @@ pub(in crate::ui) fn KeysSheet(shell: Signal<Shell>) -> Element {
             Sheet {
                 label: TITLE,
                 attach: Attach::Window,
+                common: in_card(),
                 width: SheetWidth::Wide,
                 onclose: move |()| close(shell),
                 div { class: "keys",

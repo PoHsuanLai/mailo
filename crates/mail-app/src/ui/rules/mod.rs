@@ -12,6 +12,7 @@ mod list;
 mod server;
 pub(in crate::ui) mod work;
 
+use super::common::in_card;
 use dioxus::prelude::*;
 use ds::components::content::label::LabelRole;
 use ds::components::controls::segmented::Tracking;
@@ -56,6 +57,7 @@ pub(in crate::ui) fn RulesSheet(shell: Signal<Shell>, revision: Signal<u64>) -> 
     let several = choices.len() > 1;
     rsx! {
         Sheet {
+            common: in_card(),
             label: "Rules".to_owned(),
             onclose: move |()| close(shell),
             width: SheetWidth::Wide,

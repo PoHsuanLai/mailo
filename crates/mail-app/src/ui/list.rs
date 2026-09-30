@@ -15,6 +15,7 @@ use super::row::{DraftRow, MailRow};
 use crate::provider::provider;
 use crate::view::{Nothing, Shell, SyncState, synced};
 use dioxus::prelude::*;
+use ds::components::chrome::toolbar::view::Toolbar;
 use ds::components::content::label::{Label, LabelRole, LabelStyle};
 use ds::components::content::text_runs::RunTone;
 use ds::components::controls::button_model::{Bezel, ImagePosition};
@@ -198,7 +199,12 @@ pub(super) fn ThreadList(
     };
     rsx! {
         div { class: "list-col",
-            div { class: "list-bar",
+            // The list's header is quire's 52 px `Toolbar`; what it holds (the place, its status
+            // and the buttons that open menus from themselves) is the band's centre.
+            Toolbar::<()> {
+                onpick: move |()| {},
+                center: rsx! {
+                  div { class: "list-head",
                 div { class: "list-title",
                     Label { text: place.clone(), style: LabelStyle::Title }
                     if let Some(address) = address {
@@ -273,6 +279,8 @@ pub(super) fn ThreadList(
                         }),
                     }
                 }
+            }
+                },
             }
             TextField {
                 kind: FieldKind::Search,

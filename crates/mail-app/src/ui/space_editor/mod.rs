@@ -20,6 +20,7 @@ mod parts;
 
 use self::notify::Notifications;
 use self::parts::Marks as MarksChoice;
+use super::common::{classed, in_card};
 use super::frame::keep;
 use super::press::on_primary;
 use crate::space::Spaces;
@@ -94,10 +95,12 @@ pub(super) fn SpaceEditor(
         Sheet {
             label: "Edit this Space",
             attach: Attach::Window,
+            common: in_card(),
             onclose: move |()| cancel(editing, spaces),
             // The look scrolls; the foot under it stays put.
             div { class: "ed-scroll",
                 LookEditor {
+                    common: classed("ed-look"),
                     look: space.look.clone(),
                     scheme,
                     active_dot: DotIndex(u8::try_from(draft.active).unwrap_or(0)),

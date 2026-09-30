@@ -12,6 +12,7 @@ use ds::prelude::*;
 use ds::root::common::Common;
 use std::sync::Arc;
 
+use super::super::common::in_card;
 use dioxus::prelude::*;
 use mail_store::SqliteStore;
 
@@ -120,6 +121,7 @@ pub(super) fn ImportSheet(shell: Signal<Shell>, revision: Signal<u64>) -> Elemen
     };
     rsx! {
         Sheet {
+            common: in_card(),
             label: "Import mail".to_owned(),
             onclose: move |()| super::close(shell),
             div { class: "sheet-form",

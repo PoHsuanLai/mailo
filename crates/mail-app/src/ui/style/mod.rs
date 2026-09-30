@@ -143,14 +143,14 @@ pub(in crate::ui) mod tests {
             .unwrap_or_default()
     }
 
-    /// The window is one grid whose text track can shrink; without `minmax(0, 1fr)` a long
-    /// subject widens the window's column past the screen.
+    /// The window is quire's `SplitView`, whose last pane takes what the others leave; without
+    /// `min-width: 0` on the card a long subject widens the window past the screen.
     #[test]
-    fn the_window_grid_can_shrink() {
-        let app = rule_body(".app");
+    fn the_card_can_shrink() {
+        let card = rule_body(".card");
         assert!(
-            app.contains("minmax(0, 1fr)"),
-            ".app has no minmax(0, 1fr) track: {app}"
+            card.contains("min-width: 0"),
+            ".card has no min-width: 0: {card}"
         );
     }
 

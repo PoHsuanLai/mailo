@@ -18,6 +18,7 @@ use ds::root::pass_through::ExtraClass;
 use ds::style::tokens::control_size::ControlSize;
 use std::sync::Arc;
 
+use super::super::common::in_card;
 use dioxus::prelude::*;
 use mail_store::SqliteStore;
 
@@ -85,6 +86,7 @@ pub(in crate::ui) fn ContactsSheet(shell: Signal<Shell>) -> Element {
     });
     rsx! {
         Sheet {
+            common: in_card(),
             label: "Contacts".to_owned(),
             onclose: move |()| super::close(shell),
             width: SheetWidth::Wide,

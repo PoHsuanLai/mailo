@@ -260,7 +260,7 @@ pub(super) fn PlaceList(
             label: "Places",
             items,
             style: ListStyle::SourceList,
-            cursor: listed(selected).then_some(PlaceKey::Place(selected)),
+            cursor: (listed(selected) && !shell.read().from_today).then_some(PlaceKey::Place(selected)),
             onselect: move |key: PlaceKey| {
                 if let PlaceKey::Place(index) = key {
                     shell.write().select(index);
@@ -296,7 +296,7 @@ fn PlaceRow(
     pages: Signal<u32>,
     badges: Memo<Vec<Option<u64>>>,
 ) -> Element {
-    let on = shell.read().selected == index;
+    let on = shell.read().place_selected(index);
     let count = badges().get(index).copied().flatten();
     let state = use_hook(motion);
     let accepts = shell.read().places.get(index).is_some_and(drag::accepts);

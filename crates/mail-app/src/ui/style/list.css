@@ -1,9 +1,7 @@
-/* The list inside the card: the bar is in shell.css, the rows are quire's `List` of
+/* The list inside the card: the header is in shell.css, the rows are quire's `List` of
    `ThreadRow`s (they enter, leave and close the gap on quire's roster); this is layout only. */
 .list-title { display: flex; flex-direction: column; min-width: 0; flex: 0 1 auto; }
 .list-col > .search { margin: var(--s-4) var(--s-12) var(--s-8); }
-.list-bar .status { min-width: 0; flex: 1 1 0; overflow: hidden; white-space: nowrap; }
-.list-bar .status.bad { color: var(--danger); }
 /* mailo's scroller around quire's list. */
 .list { margin: 0; padding: var(--s-4); overflow-y: auto; flex: 1; min-height: 0; scrollbar-width: none; }
 /* mailo's box around each quire row: one flexible track, and the place the row's menus sit

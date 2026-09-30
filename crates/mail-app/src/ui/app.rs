@@ -15,6 +15,8 @@ use crate::view::{
     folder_filter, nothing_to_show, places_with, synced,
 };
 use dioxus::prelude::*;
+use ds::components::chrome::split_view::model::{Collapsing, PaneSpec, SplitPane};
+use ds::components::chrome::split_view::view::SplitView;
 use ds::prelude::*;
 use ds_settings::{Environment, UserStyle};
 use mail_domain::*;
@@ -589,6 +591,51 @@ pub(super) fn App() -> Element {
         }
     };
     let floating = shell.read().open.is_some() || compose::composing(&shell.read()).is_some();
+    let pinned = if side_hidden() {
+        Shown::Hidden
+    } else {
+        Shown::Visible
+    };
+    let side_body = if side_hidden() {
+        rsx! {}
+    } else {
+        rsx! {
+            Places {
+                shell, pages, badges, revision, spaces, today: today_list, dirs: dirs.clone(),
+                side_hidden, editing,
+            }
+        }
+    };
+    // The card: the list in a pane of its own (resizable, with a hairline between it and the
+    // reader), then the reader, which takes what is left.
+    let card = rsx! {
+        div { class: "card",
+            SplitView {
+                label: "List and reader",
+                panes: vec![SplitPane::new(LIST, rsx! {
+                    ThreadList {
+                        shell, pages, revision, in_a_field, threads, drafts, nothing, more,
+                        sync_state, marking, top,
+                    }
+                })],
+                section { class: "reader",
+                    match (peek, floating) {
+                        (Peek::Float(mode), true) => rsx! {
+                            ds::components::app::peek::Peek {
+                                mode,
+                                label: "Reader",
+                                onclose: move |()| shell.write().close(),
+                                {reading}
+                            }
+                        },
+                        _ => reading,
+                    }
+                    super::hover::LinkPill {}
+                }
+            }
+            SendPill { shell }
+        }
+    };
     rsx! {
         Frame { spaces,
         AppStyle { css: STYLE }
@@ -605,9 +652,23 @@ pub(super) fn App() -> Element {
                 super::motion::drag::release(shell, revision);
             },
             "data-peek": peek.slug(),
-            Places {
-                shell, pages, badges, revision, spaces, today: today_list, dirs: dirs.clone(),
-                side_hidden, editing,
+            // The window is quire's `SplitView`: the sidebar pane, resizable and folding away past
+            // half its least, then the card. Pinned, the sidebar is the pane's body; hidden, its
+            // `EdgePeek` moves out of the pane (which clips what floats over it) into a
+            // zero-width host at the window's edge.
+            SplitView {
+                label: "Mail",
+                panes: vec![SplitPane::new(SIDEBAR, side_body).shown(pinned)],
+                on_shown: move |(_, shown): (usize, Shown)| side_hidden.set(shown == Shown::Hidden),
+                {card}
+            }
+            if side_hidden() {
+                div { class: "edge-host",
+                    Places {
+                        shell, pages, badges, revision, spaces, today: today_list, dirs: dirs.clone(),
+                        side_hidden, editing,
+                    }
+                }
             }
             SpaceEditor { spaces, editing, shell }
             super::hover::HoverLayer { shell, revision, spaces: Some(spaces) }
@@ -629,31 +690,26 @@ pub(super) fn App() -> Element {
             if shell.read().keys.is_some() {
                 super::pgp::keys::KeysSheet { shell }
             }
-            div { class: "card",
-            ThreadList {
-                shell, pages, revision, in_a_field, threads, drafts, nothing, more,
-                sync_state, marking, top,
-            }
-            section { class: "reader",
-                match (peek, floating) {
-                    (Peek::Float(mode), true) => rsx! {
-                        ds::components::app::peek::Peek {
-                            mode,
-                            label: "Reader",
-                            onclose: move |()| shell.write().close(),
-                            {reading}
-                        }
-                    },
-                    _ => reading,
-                }
-                super::hover::LinkPill {}
-            }
-            SendPill { shell }
-            }
         }
         }
     }
 }
+
+/// The sidebar pane: 232 wide, 180 to 320, and it folds away past half of its least.
+const SIDEBAR: PaneSpec = PaneSpec {
+    preferred: Px(232.0),
+    min: Px(180.0),
+    max: Px(320.0),
+    collapsing: Collapsing::Snaps,
+};
+
+/// The list pane: 400 wide, 280 to 640, and it does not fold.
+const LIST: PaneSpec = PaneSpec {
+    preferred: Px(400.0),
+    min: Px(280.0),
+    max: Px(640.0),
+    collapsing: Collapsing::Never,
+};
 
 /// What the window resolves its look from: the live settings and desktop preferences `launch`
 /// provides, else a fixed value a test provides, else the first run.

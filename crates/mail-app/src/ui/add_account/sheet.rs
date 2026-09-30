@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use super::super::common::in_card;
 use dioxus::prelude::*;
 use ds::components::content::label::{LabelRole, LabelStyle};
 use ds::components::controls::button_model::Answers;
@@ -196,6 +197,7 @@ pub(in crate::ui) fn AddAccountSheet(
         Sheet {
             label: "Add account",
             attach: Attach::Window,
+            common: in_card(),
             onclose: move |()| super::close(shell),
             div { class: "acct-sheet",
                 Label { text: "Add Account", style: LabelStyle::Title }

@@ -206,7 +206,7 @@ fn count(row: &str) -> Option<&str> {
 
 /// The list pane: from the list bar to the end.
 fn list(page: &str) -> &str {
-    &page[page.find("class=\"list-bar\"").unwrap()..]
+    &page[page.find("class=\"list-head\"").unwrap()..]
 }
 
 #[tokio::test]

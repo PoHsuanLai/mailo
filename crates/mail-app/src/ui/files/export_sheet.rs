@@ -8,6 +8,7 @@ use ds::motion::detail::stamp::EventStamp;
 use ds::prelude::*;
 use std::sync::Arc;
 
+use super::super::common::in_card;
 use dioxus::prelude::*;
 use mail_store::SqliteStore;
 
@@ -115,6 +116,7 @@ pub(super) fn ExportSheet(shell: Signal<Shell>) -> Element {
     };
     rsx! {
         Sheet {
+            common: in_card(),
             label: "Export mail".to_owned(),
             onclose: move |()| super::close(shell),
             div { class: "sheet-form",

@@ -11,3 +11,10 @@ pub(in crate::ui) fn classed(class: &str) -> Common {
         ..Common::default()
     }
 }
+
+/// A sheet's own class: it hangs from the card's top edge, which is where the frame's inset
+/// ends, and not from the window's (quire's `Attach::Window` is the window's; a sheet has no
+/// attachment to a pane, which is a quire request).
+pub(in crate::ui) fn in_card() -> Common {
+    classed("in-card")
+}
