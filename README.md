@@ -88,9 +88,7 @@ cargo build --release -p mail-app
 Print hands a PDF, made by quire, to the system's print dialog (the desktop portal).
 
 The window draws with [quire](https://github.com/PoHsuanLai/quire), the shared design system,
-at tag v0.2.0. That tag cannot be fetched on its own yet (its manifest names `blitz-kit` by a
-relative path); `docs/quire-0.2-upgrade.md` says how to build against a checkout until quire is
-re-tagged, and everything else about the move.
+at tag v0.2.1; `docs/quire-0.2-upgrade.md` says everything about the move.
 
 ## The gates
 

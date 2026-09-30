@@ -1,41 +1,15 @@
-# The move to quire v0.2.0 and the settled desktop design
+# The move to quire v0.2.1 and the settled desktop design
 
-mailo now draws with quire v0.2.0. Every surface is built from quire's components; mailo's own
+mailo now draws with quire v0.2.1. Every surface is built from quire's components; mailo's own
 CSS is layout only. This page says what changed, what a person sees differently, what is still
 open, and how to pick the work up. It is written for whoever owns mailo next.
 
-## Read this first: v0.2.0 cannot be fetched by tag yet
+## Pinned to v0.2.1
 
-quire v0.2.0's `Cargo.toml` names `blitz-kit` by a relative path (`../blitz-kit/crates/blitz-kit`).
-A git dependency on quire is checked out alone into cargo's git cache, so that path does not
-exist there:
-
-```
-error: no matching package named `blitz-kit` found
-location searched: Git repository https://github.com/PoHsuanLai/quire?tag=v0.2.0
-required by package `ds-blitz v0.1.0 (...quire?tag=v0.2.0#7d4b0a78)`
-```
-
-The manifests here name the tag, as they should. Until quire names `blitz-kit` by `git` and `rev`
-(or it is published) and re-tags, a build needs a local, uncommitted `[patch]`, which
-`mail-app/Cargo.toml` already says how to write:
-
-```toml
-# mailo/.cargo/config.toml  (not committed: add it to .git/info/exclude)
-[patch."https://github.com/PoHsuanLai/quire"]
-ds          = { path = "../quire/crates/ds" }
-ds-settings = { path = "../quire/crates/ds-settings" }
-ds-blitz    = { path = "../quire/crates/ds-blitz" }
-ds-lint     = { path = "../quire/crates/ds-lint" }
-ds-harness  = { path = "../quire/crates/ds-harness" }
-ds-shell    = { path = "../quire/crates/ds-shell" }
-```
-
-with quire checked out at v0.2.0 beside mailo and `blitz-kit` beside quire (so that quire's
-`../blitz-kit` resolves). `Cargo.lock` was produced that way: quire's crates and `blitz-kit` are
-path packages in it. When quire is re-tagged, bump `tag` in `crates/mail-app/Cargo.toml`, run
-`cargo update -p ds` and delete the patch. README's "a plain clone builds on its own" is
-untrue until then.
+mailo names quire by tag v0.2.1. v0.2.0 could not be fetched by tag (its manifest named `blitz-kit`
+by a relative path); v0.2.1 names it by `git` and `rev` (public repo
+github.com/PoHsuanLai/blitz-kit), so a plain clone builds with no local `[patch]` and no sibling
+checkouts. `Cargo.lock` holds one `blitz-dom`, one `blitz-kit` and one `dioxus-core`.
 
 ## What changed, by surface
 
