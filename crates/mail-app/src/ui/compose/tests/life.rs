@@ -84,7 +84,10 @@ async fn an_attachment_mentioned_and_missing_shows_one_bar_until_send_anyway() {
         type_text(&mut write, "I attached the agenda.");
     });
     let markup = window.render();
-    assert!(!markup.contains("ds-inline-banner"), "the bar showed before Send");
+    assert!(
+        !markup.contains("ds-inline-banner"),
+        "the bar showed before Send"
+    );
 
     let after_send = click(&mut window.dom, seen.one("aria-label", "Send"));
     let markup = window.render();

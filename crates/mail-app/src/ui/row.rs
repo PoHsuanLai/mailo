@@ -288,8 +288,7 @@ pub(super) fn MailRow(
         ..RowState::default()
     };
     rsx! {
-        // The box names the hover hook its row is, as every other hook's element does.
-        div { key: "{id}", class: "row", role: "none", "data-hc": "thread:{id}",
+        div { key: "{id}", class: "row", role: "none",
             onmounted: move |event: MountedEvent| row_box.set(Some(MountedRef(event.data()))),
             onfocusin: move |_| focused.set(true),
             onfocusout: move |_| focused.set(false),
@@ -315,9 +314,10 @@ pub(super) fn MailRow(
                     let point = event.client_coordinates();
                     drag::press(id, (point.x, point.y));
                 }),
+                // The row names the hover hook it is, as every other hook's element does.
                 common: Common {
                     aria_label: Some(format!("Open {subject}")),
-                    ..Common::default()
+                    ..super::sidebar::tagged("hc", format!("thread:{id}"))
                 },
             }
             if shell.read().snoozing == Some(id) {

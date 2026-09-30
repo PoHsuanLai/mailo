@@ -95,7 +95,8 @@ fn every_kind_and_every_place_draws_what_it_should() {
             &[
                 ">Invitation</span>",
                 "Design review",
-                ">Their time</dt>", "Mon 5 Oct 2026, 14:00–15:00 (Europe/Berlin)",
+                ">Their time</dt>",
+                "Mon 5 Oct 2026, 14:00–15:00 (Europe/Berlin)",
                 "Room 2",
                 "Ada Lovelace",
                 "class=\"att no\"",

@@ -329,11 +329,11 @@ fn Bubble(page: Signal<Page>, place: Option<String>) -> Element {
         .find(|item| matches!(item.right, super::super::menu::Right::Check(true)))
         .map(|item| item.key.clone());
     let marks = vec![
-        Choice::new(Mark::Bold, "B"),
-        Choice::new(Mark::Italic, "I"),
-        Choice::new(Mark::Underline, "U"),
-        Choice::new(Mark::Strike, "S"),
-        Choice::new(Mark::Code, "</>"),
+        Choice::new(Mark::Bold, "").with_icon(Icon::Bold),
+        Choice::new(Mark::Italic, "").with_icon(Icon::Italic),
+        Choice::new(Mark::Underline, "").with_icon(Icon::Underline),
+        Choice::new(Mark::Strike, "").with_icon(Icon::Strike),
+        Choice::new(Mark::Code, "").with_icon(Icon::Code),
     ];
     rsx! {
         div {

@@ -25,7 +25,6 @@
 }
 .slide { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: none; display: flex; flex-direction: column; gap: var(--s-4); }
 /* The accounts: quire's `PinTile`s, four to a row. */
-.pins { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--s-6); padding: var(--s-2) 0 var(--s-8); }
 /* A folder the person does not follow is drawn quieter. */
 .dim { opacity: .62; }
 .side-foot {

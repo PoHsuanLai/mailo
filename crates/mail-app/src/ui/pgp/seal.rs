@@ -123,10 +123,16 @@ fn open_with(
 /// status colour that fits.
 pub(super) fn said_line(at: usize, said: Said) -> Element {
     match said.tone {
-        Tone::Bad => rsx! { InlineBanner { key: "{at}", severity: Severity::Danger, text: said.text } },
-        Tone::Warn => rsx! { InlineBanner { key: "{at}", severity: Severity::Warn, text: said.text } },
+        Tone::Bad => {
+            rsx! { InlineBanner { key: "{at}", severity: Severity::Danger, text: said.text } }
+        }
+        Tone::Warn => {
+            rsx! { InlineBanner { key: "{at}", severity: Severity::Warn, text: said.text } }
+        }
         Tone::Good => rsx! { Label { key: "{at}", text: said.text, severity: Some(Severity::Ok) } },
-        Tone::Unknown => rsx! { Label { key: "{at}", text: said.text, severity: Some(Severity::Warn) } },
+        Tone::Unknown => {
+            rsx! { Label { key: "{at}", text: said.text, severity: Some(Severity::Warn) } }
+        }
         Tone::Plain => rsx! { Label { key: "{at}", text: said.text, role: LabelRole::Secondary } },
         Tone::Detail => rsx! {
             Label { key: "{at}", text: said.text, role: LabelRole::Tertiary, style: LabelStyle::Footnote }

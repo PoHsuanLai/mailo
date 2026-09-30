@@ -280,7 +280,10 @@ fn seal_lines(seal: &str) -> Vec<(String, String)> {
                     Some("warn") => "seal-line warn",
                     _ => "seal-line",
                 };
-                out.push((look.to_owned(), words_of(&words[words.find('>').map_or(0, |at| at + 1)..])));
+                out.push((
+                    look.to_owned(),
+                    words_of(&words[words.find('>').map_or(0, |at| at + 1)..]),
+                ));
             }
             rest = &rest[end..];
         } else {

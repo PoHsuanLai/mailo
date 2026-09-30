@@ -281,29 +281,12 @@ pub(super) fn pointer_selection(
     anchor: Pos,
     pointer: &EditPointer,
 ) -> Option<(Pos, Pos)> {
-    press_selection(
-        doc,
-        anchor,
-        pointer.phase,
-        pointer.clicks.0,
-        pointer.extend,
-        pointer.position.as_ref(),
-    )
-}
-
-/// [`pointer_selection`] over what it reads of the pointer: the phase, which press of a quick run
-/// it is (1, 2 or 3), whether it extends, and the text position under it.
-pub(super) fn press_selection(
-    doc: &Doc,
-    anchor: Pos,
-    phase: PointerPhase,
-    clicks: u8,
-    extend: Extend,
-    position: Option<&TextPosition>,
-) -> Option<(Pos, Pos)> {
-    let at = position.and_then(|position| pos_of(doc, position))?;
+    let at = pointer
+        .position
+        .as_ref()
+        .and_then(|position| pos_of(doc, position))?;
     let range = |range: Range| Some((range.start, range.end));
-    match (phase, clicks, extend) {
+    match (pointer.phase, pointer.clicks.0, pointer.extend) {
         (PointerPhase::Press, 2, _) => range(word_at(doc, at)),
         (PointerPhase::Press, 3, _) => range(para_at(doc, at)),
         (PointerPhase::Press, _, Extend::FromAnchor) | (PointerPhase::Drag, 1, _) => {

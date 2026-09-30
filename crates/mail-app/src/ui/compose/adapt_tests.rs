@@ -1,14 +1,16 @@
 //! The adapter's tables: every input it reads, and positions both ways.
 
 use dioxus::prelude::{Key, Modifiers};
+use ds::edit::clicks::Clicks;
 use ds::edit::input::{Composition, EditInput, KeyInput};
-use ds::edit::pointer::Extend;
+use ds::edit::pointer::{EditPointer, Extend};
 use ds::host::captured::PointerPhase;
 use ds::host::pasted::Pasted;
 use ds::host::position::TextPosition;
+use ds::prelude::Point;
 
 use super::{
-    Asked, Reach, Step, asked, para_at, pos_of, press_selection, selected_text, step,
+    Asked, Reach, Step, asked, para_at, pointer_selection, pos_of, selected_text, step,
     text_position, word_at,
 };
 use crate::editor::{Doc, InputEvent, Node, Object, ParaKind, Pos, Range};
@@ -236,9 +238,16 @@ fn the_selected_text_joins_paragraphs_and_leaves_objects_out() {
 fn a_press_places_shift_extends_a_drag_follows_and_multiple_presses_widen() {
     let doc = doc();
     let anchor = Pos::new(2, 1);
-    // (phase, which press of a run, extend, node, offset)
-    let pointer = |phase, clicks, extend, node: &str, offset| {
-        (phase, clicks, extend, Some(TextPosition::new(node, offset)))
+    // A gesture from `EditPointer::new`, as a consumer's test builds one: the phase, which press
+    // of a run, whether Shift is held, and the text position under it.
+    let pointer = |phase, clicks, extend: Extend, node: &str, offset| {
+        let gesture = EditPointer::new(phase, Point::default())
+            .over(TextPosition::new(node, offset))
+            .clicking(Clicks(clicks));
+        match extend {
+            Extend::Fresh => gesture,
+            Extend::FromAnchor => gesture.extending(),
+        }
     };
     // "two words": byte 6 is inside "words".
     let at = Pos::new(2, 6);
@@ -270,15 +279,20 @@ fn a_press_places_shift_extends_a_drag_follows_and_multiple_presses_widen() {
         ),
         (pointer(PointerPhase::Press, 1, Extend::Fresh, "7", 0), None),
     ];
-    for ((phase, clicks, extend, position), expected) in cases {
+    for (gesture, expected) in cases {
         assert_eq!(
-            press_selection(&doc, anchor, phase, clicks, extend, position.as_ref()),
+            pointer_selection(&doc, anchor, &gesture),
             expected,
-            "{phase:?} x{clicks} {extend:?} {position:?}"
+            "{gesture:?}"
         );
     }
+    // A host that could not say where: nothing to select.
     assert_eq!(
-        press_selection(&doc, anchor, PointerPhase::Press, 1, Extend::Fresh, None),
+        pointer_selection(
+            &doc,
+            anchor,
+            &EditPointer::new(PointerPhase::Press, Point::default())
+        ),
         None
     );
 }

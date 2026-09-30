@@ -1,6 +1,8 @@
 //! Today: threads opened in this Space, as sidebar tabs that expire.
 
+use super::super::hover::{Hook, element, out, over, use_driver};
 use super::super::text::sender;
+use super::tagged;
 use crate::appearance::WindowDirs;
 use crate::today::{IDLE, Today};
 use crate::view::Shell;
@@ -9,6 +11,7 @@ use ds::base::time::clock;
 use ds::components::app::today_tabs::{TodayTab, TodayTabs};
 use ds::components::content::avatar::{AvatarFace, AvatarShape, AvatarSize, AvatarTone};
 use ds::components::lists::section_header::HeaderAction;
+use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::tokens::person::PersonSwatch;
@@ -29,6 +32,11 @@ pub(super) fn TodayList(
 ) -> Element {
     let now = chrono::Utc::now();
     let store = consume_context::<Arc<SqliteStore>>();
+    // quire's hover hub, which each tab's row reports the pointer to; its card is placed against
+    // the row, which it hands over as it mounts. Not a signal: nothing redraws for it.
+    let driver = use_driver();
+    let boxes =
+        use_hook(|| CopyValue::new(std::collections::HashMap::<ThreadId, MountedRef>::new()));
     let tabs: Vec<TodayTab<ThreadId>> = today
         .read()
         .entries
@@ -47,9 +55,27 @@ pub(super) fn TodayList(
                 title: loaded.summary.subject.clone(),
                 leading: RowLeading::Avatar(face),
                 expires: clock::now() + left,
-                common: Common::default(),
-                onpointerenter: None,
-                onpointerleave: None,
+                common: Common {
+                    mounted: Some(EventHandler::new({
+                        let thread = entry.thread;
+                        move |event: MountedEvent| {
+                            let mut boxes = boxes;
+                            boxes.write().insert(thread, MountedRef(event.data()));
+                        }
+                    })),
+                    ..tagged("hc", format!("today:{}", entry.thread))
+                },
+                onpointerenter: Some(EventHandler::new({
+                    let thread = entry.thread;
+                    move |_: PointerEvent| {
+                        over(
+                            driver,
+                            Hook::Today(thread),
+                            element(boxes.peek().get(&thread).cloned()),
+                        );
+                    }
+                })),
+                onpointerleave: Some(EventHandler::new(move |_: PointerEvent| out(driver))),
             })
         })
         .collect();

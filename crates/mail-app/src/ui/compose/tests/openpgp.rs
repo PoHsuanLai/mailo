@@ -234,7 +234,10 @@ async fn a_key_found_by_looking_up_clears_the_bar_and_the_send_goes_encrypted() 
     let mut looked = click(&mut window.dom, last(&after, "aria-label", "Look up keys"));
     let markup = until(&mut window, &mut looked, |page| page.contains("Found dana")).await;
     assert_eq!(*asked.lock().unwrap(), ["dana@example.test"]);
-    assert!(!markup.contains("Look up keys"), "the bar is still up: {markup}");
+    assert!(
+        !markup.contains("Look up keys"),
+        "the bar is still up: {markup}"
+    );
     assert!(queued(&store).is_empty(), "a lookup sent it");
 
     let mut sent = click(&mut window.dom, seen.one("aria-label", "Send"));

@@ -11,7 +11,8 @@ use crate::space::{self, Pinned, Scope, Space};
 use crate::view::{Shell, Source, folder_of, is_label_place};
 use dioxus::prelude::*;
 use ds::base::vocab::RowState;
-use ds::components::app::pin_tile::{PinFace, PinTile};
+use ds::components::app::pin_tile::PinFace;
+use ds::components::app::pin_tiles::{PinAdd, PinItem, PinTiles};
 use ds::components::content::avatar::{AvatarFace, AvatarShape, AvatarSize, AvatarTone};
 use ds::components::content::provider_mark::{MarkProvider, MarkStyle};
 use ds::components::lists::list::model::{ListItem, ListStyle};
@@ -140,60 +141,55 @@ pub(super) fn AccountTiles(
 ) -> Element {
     let several = counted.rows.len() > 1;
     let marks = shell.read().appearance.marks;
-    let picked = |on: bool| {
-        if on {
-            Selection::Selected
-        } else {
-            Selection::Unselected
-        }
+    // One tile per account (and "All" before them when there are several), each with its own
+    // provider's mark: quire's `PinTiles`, keyed by the account, `None` being all of them.
+    let mut items: Vec<PinItem<Option<AccountId>>> = Vec::new();
+    if several {
+        items.push(PinItem {
+            key: None,
+            face: PinFace::All,
+            unread: count_of(counted.all),
+            mark: MarkStyle::Letter,
+        });
+    }
+    for (index, row) in counted.rows.iter().enumerate() {
+        let (id, address, unread, via) = (row.0, row.1.clone(), row.2, row.3);
+        // Local folders are on no provider: quire's neutral folder mark.
+        let (provider, mark) = match via {
+            Some(via) => (mark_of(via), mark_style(via, marks)),
+            None => (MarkProvider::Local, MarkStyle::Letter),
+        };
+        items.push(PinItem {
+            key: Some(id),
+            face: PinFace::Account {
+                initial: initial(&address),
+                colour: hex_colour(&space::avatar_color(&space, id, index)),
+                provider,
+                address: Some(address),
+            },
+            unread: count_of(unread),
+            mark,
+        });
+    }
+    let selected = if several {
+        shell.read().account
+    } else {
+        counted.rows.first().map(|row| row.0)
     };
-    // Each tile is quire's `PinTile`, in a grid of mailo's: `PinTiles` draws every tile's mark
-    // in one style, and a provider's own icon is per tile (quire request, requests-A.md).
     rsx! {
-        div { class: "pins", role: "group", aria_label: "Accounts in this Space",
-            if several {
-                PinTile {
-                    face: PinFace::All,
-                    selection: picked(shell.read().account.is_none()),
-                    unread: count_of(counted.all),
-                    onclick: move |_| {
-                        shell.write().account = None;
-                        pages.set(1);
-                    },
-                }
-            }
-            for (index, row) in counted.rows.iter().enumerate() {
-                {
-                    let id = row.0;
-                    let address = row.1.clone();
-                    let n = row.2;
-                    let on = !several || shell.read().account == Some(id);
-                    let colour = hex_colour(&space::avatar_color(&space, id, index));
-                    let letter = initial(&address);
-                    // Local folders are on no provider: quire's neutral folder mark.
-                    let (provider, mark) = match row.3 {
-                        Some(via) => (mark_of(via), mark_style(via, marks)),
-                        None => (MarkProvider::Local, MarkStyle::Letter),
-                    };
-                    rsx! {
-                        PinTile {
-                            key: "{id}",
-                            face: PinFace::Account { initial: letter, colour, provider, address: Some(address) },
-                            selection: picked(on),
-                            unread: count_of(n),
-                            mark,
-                            onclick: move |_| {
-                                shell.write().account = Some(id);
-                                pages.set(1);
-                            },
-                        }
-                    }
-                }
-            }
-            PinTile {
-                face: PinFace::Add { label: "Add account".to_owned(), hint: Some("Add account\u{2026}".to_owned()) },
-                onclick: move |_| super::super::add_account::open(shell),
-            }
+        PinTiles::<Option<AccountId>> {
+            label: "Accounts in this Space",
+            items,
+            selected: Some(selected),
+            add: PinAdd {
+                label: "Add account".to_owned(),
+                hint: Some("Add account\u{2026}".to_owned()),
+                onadd: EventHandler::new(move |()| super::super::add_account::open(shell)),
+            },
+            onpick: move |account: Option<AccountId>| {
+                shell.write().account = account;
+                pages.set(1);
+            },
         }
     }
 }

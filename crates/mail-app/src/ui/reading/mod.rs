@@ -274,158 +274,158 @@ pub(super) fn Reader(
         .collect();
 
     rsx! {
-            {fetcher}
-            div { class: "reader-head",
-                div { class: "head-row",
-                    if finding.is_some() {
-                        FindBar { shell, total, invalid }
-                    } else {
-                        span { class: "spacer" }
-                    }
-                    div { class: "bar-tools",
-                        if let Some(revision) = revision {
-                            super::move_to::MoveTool { thread, shell, revision }
-                        }
-                        super::print::PrintTool { thread }
-                        {peek_tool(Peek::Side, peek, Icon::Panel, shell)}
-                        {peek_tool(Peek::CENTER, peek, Icon::Square, shell)}
-                        {peek_tool(Peek::FULL, peek, Icon::Maximize, shell)}
-                    }
+        {fetcher}
+        div { class: "reader-head",
+            div { class: "head-row",
+                if finding.is_some() {
+                    FindBar { shell, total, invalid }
+                } else {
+                    span { class: "spacer" }
                 }
-                if let Some(why) = problem {
-                    pre { class: "find-err mono", "{why}" }
-                }
-                h2 { Label { text: subject, style: LabelStyle::Title } }
-                if let Some((face, from, addr, when)) = meta {
-                    div { class: "reader-meta",
-                        Avatar { initial: face.initial, size: face.size, tone: face.tone }
-                        div { class: "reader-who",
-                            Label { text: from, style: LabelStyle::Headline }
-                            Label { text: addr, role: LabelRole::Secondary, style: LabelStyle::Footnote }
-                            Label { text: when, role: LabelRole::Tertiary, style: LabelStyle::Footnote }
-                        }
-                        // Its own template, so the key is that template's root key and a new one
-                        // remounts it: rsx reads a key only on a template's root node, and one on a
-                        // nested component is dropped, in a release build and a debug one alike.
-                        {rsx! { super::unsubscribe::Leave { key: "{leave_key}", thread, bodies: bodies.clone(), revision } }}
+                div { class: "bar-tools",
+                    if let Some(revision) = revision {
+                        super::move_to::MoveTool { thread, shell, revision }
                     }
+                    super::print::PrintTool { thread }
+                    {peek_tool(Peek::Side, peek, Icon::Panel, shell)}
+                    {peek_tool(Peek::CENTER, peek, Icon::Square, shell)}
+                    {peek_tool(Peek::FULL, peek, Icon::Maximize, shell)}
                 }
-                // Under the head, where a question about this message belongs. Keyed like Leave.
-                {rsx! { super::receipt::Receipts { key: "{leave_key}", bodies } }}
             }
-            div { class: "reader-body",
-                if let Some(where_it_went) = saved() {
-                    // Where it went, named. A file saved somewhere the user cannot point at is a file
-                    // they have lost, and this pane's previous answer was to print a command to run.
-                    InlineBanner { severity: Severity::Ok, text: where_it_went, onclose: move |()| saved.set(None) }
-                }
-                if let Some(host) = from_host {
-                    if showing {
-                        InlineBanner {
-                            severity: Severity::Info,
-                            icon: Some(Icon::Image),
-                            text: format!("Showing remote images from {host}"),
-                        }
-                    } else {
-                        InlineBanner {
-                            severity: Severity::Warn,
-                            icon: Some(Icon::Image),
-                            text: "Remote images blocked",
-                            detail: Some("Loading them tells the sender you opened this.".into()),
-                            actions: rsx! {
-                                Button {
-                                    size: ControlSize::Small,
-                                    label: show_images(),
-                                    common: Common { aria_label: Some(show_images().to_owned()), ..Common::default() },
-                                    // The press takes the button away, and on Blitz the keyboard with it
-                                    // (quire focuses the pressed button a frame later, gone or not): it is
-                                    // handed back to the window, as a closing panel hands it back.
-                                    onclick: on_primary(move || {
-                                        shell.write().show_remote_images = true;
-                                        super::host::Host::focus_app();
-                                    }),
-                                }
-                            },
-                        }
-                    }
-                }
-                for (((message, reading, _), found), attached) in shown.into_iter().zip(founds).zip(attached) {
-                    article { key: "{message.id}", class: "frame",
-                        header {
-                            Label { text: from_name(&message), style: LabelStyle::Headline }
-                            Label { text: address(&message), role: LabelRole::Secondary, style: LabelStyle::Footnote }
-                            time { Label { text: stamp(&message), role: LabelRole::Tertiary, style: LabelStyle::Footnote } }
-                            if reading.frame_html().is_some() {
-                                // Offered wherever there is a frame, not only for
-                                // `Reading::Layout`: the frame is mounted for every HTML body,
-                                // and Original is the escape hatch when the blocks got a
-                                // message wrong. The mockup offers it on the receipt too.
-                                // A span, not a div: a div between the article and its iframe
-                                // is a new parent, and a new parent reloads the frame.
-                                // The labels are computed so a test can find the control: a
-                                // literal attribute never appears in the render mutations.
-                                ViewSwitch { message_id: message.id, original }
-                            }
-                        }
-                        // What the message's OpenPGP or S/MIME says, and its passphrase field. A
-                        // sibling before the frame, like the invitation under it, for the same reason.
-                        super::pgp::Seal {
-                            key: "{message.id}-{message.body.raw():?}",
-                            message: message.id,
-                            body: message.body.raw(),
-                            landed,
-                        }
-                        // A calendar invitation, drawn by this window and never inside the sender's
-                        // HTML. A sibling before the frame, not its parent: it lands after the first
-                        // paint, and inserting a sibling does not move the iframe. Keyed on the
-                        // message and its body, so a body arriving asks again.
-                        super::invite::Invitation {
-                            key: "{message.id}-{message.body.raw():?}",
-                            message: message.id,
-                            body: message.body.raw(),
-                        }
-                        // What is attached, if anything: what was sent, or what a protected
-                        // message was opened to holds. Keyed like the seal, so a body arriving asks
-                        // again.
-                        if !attached.is_empty() {
-                            Attachments {
-                                key: "{message.id}-{message.body.raw():?}",
-                                message: message.id,
-                                body: message.body.raw(),
-                                rows: attached,
-                                saved,
-                                downloading,
-                            }
-                        }
-                        // The iframe, when this message has one, is the first element MessageView
-                        // draws, and it is drawn on every render. Toggling Reader / Original changes
-                        // a class. Conditionally rendering the iframe would reload it: a new parent,
-                        // or a frame that was not in the tree, re-runs the document, loses scroll,
-                        // and re-fetches anything just consented to.
-                        if matches!(reading, Reading::NotFetched) {
-                            p { class: "pending", "Body not downloaded yet." }
-                        } else {
-                            MessageView {
-                                message_id: message.id,
-                                reading: reading.clone(),
-                                original,
-                                quotes,
-                                shell,
-                                found,
-                            }
-                        }
-                    }
-                }
-                if any_frame {
-                    div { class: "frame-note",
-                        Glyph { icon: Icon::Key, size: IconSize::Small }
-                        span { "sandboxed frame · no scripts, no same-origin" }
-                    }
-                }
-                // An inline reply, after every frame so no iframe gains a new parent.
-                {children}
+            if let Some(why) = problem {
+                pre { class: "find-err mono", "{why}" }
             }
+            h2 { Label { text: subject, style: LabelStyle::Title } }
+            if let Some((face, from, addr, when)) = meta {
+                div { class: "reader-meta",
+                    Avatar { initial: face.initial, size: face.size, tone: face.tone }
+                    div { class: "reader-who",
+                        Label { text: from, style: LabelStyle::Headline }
+                        Label { text: addr, role: LabelRole::Secondary, style: LabelStyle::Footnote }
+                        Label { text: when, role: LabelRole::Tertiary, style: LabelStyle::Footnote }
+                    }
+                    // Its own template, so the key is that template's root key and a new one
+                    // remounts it: rsx reads a key only on a template's root node, and one on a
+                    // nested component is dropped, in a release build and a debug one alike.
+                    {rsx! { super::unsubscribe::Leave { key: "{leave_key}", thread, bodies: bodies.clone(), revision } }}
+                }
+            }
+            // Under the head, where a question about this message belongs. Keyed like Leave.
+            {rsx! { super::receipt::Receipts { key: "{leave_key}", bodies } }}
         }
+        div { class: "reader-body",
+            if let Some(where_it_went) = saved() {
+                // Where it went, named. A file saved somewhere the user cannot point at is a file
+                // they have lost, and this pane's previous answer was to print a command to run.
+                InlineBanner { severity: Severity::Ok, text: where_it_went, onclose: move |()| saved.set(None) }
+            }
+            if let Some(host) = from_host {
+                if showing {
+                    InlineBanner {
+                        severity: Severity::Info,
+                        icon: Some(Icon::Image),
+                        text: format!("Showing remote images from {host}"),
+                    }
+                } else {
+                    InlineBanner {
+                        severity: Severity::Warn,
+                        icon: Some(Icon::Image),
+                        text: "Remote images blocked",
+                        detail: Some("Loading them tells the sender you opened this.".into()),
+                        actions: rsx! {
+                            Button {
+                                size: ControlSize::Small,
+                                label: show_images(),
+                                common: Common { aria_label: Some(show_images().to_owned()), ..Common::default() },
+                                // The press takes the button away, and on Blitz the keyboard with it
+                                // (quire focuses the pressed button a frame later, gone or not): it is
+                                // handed back to the window, as a closing panel hands it back.
+                                onclick: on_primary(move || {
+                                    shell.write().show_remote_images = true;
+                                    super::host::Host::focus_app();
+                                }),
+                            }
+                        },
+                    }
+                }
+            }
+            for (((message, reading, _), found), attached) in shown.into_iter().zip(founds).zip(attached) {
+                article { key: "{message.id}", class: "frame",
+                    header {
+                        Label { text: from_name(&message), style: LabelStyle::Headline }
+                        Label { text: address(&message), role: LabelRole::Secondary, style: LabelStyle::Footnote }
+                        time { Label { text: stamp(&message), role: LabelRole::Tertiary, style: LabelStyle::Footnote } }
+                        if reading.frame_html().is_some() {
+                            // Offered wherever there is a frame, not only for
+                            // `Reading::Layout`: the frame is mounted for every HTML body,
+                            // and Original is the escape hatch when the blocks got a
+                            // message wrong. The mockup offers it on the receipt too.
+                            // A span, not a div: a div between the article and its iframe
+                            // is a new parent, and a new parent reloads the frame.
+                            // The labels are computed so a test can find the control: a
+                            // literal attribute never appears in the render mutations.
+                            ViewSwitch { message_id: message.id, original }
+                        }
+                    }
+                    // What the message's OpenPGP or S/MIME says, and its passphrase field. A
+                    // sibling before the frame, like the invitation under it, for the same reason.
+                    super::pgp::Seal {
+                        key: "{message.id}-{message.body.raw():?}",
+                        message: message.id,
+                        body: message.body.raw(),
+                        landed,
+                    }
+                    // A calendar invitation, drawn by this window and never inside the sender's
+                    // HTML. A sibling before the frame, not its parent: it lands after the first
+                    // paint, and inserting a sibling does not move the iframe. Keyed on the
+                    // message and its body, so a body arriving asks again.
+                    super::invite::Invitation {
+                        key: "{message.id}-{message.body.raw():?}",
+                        message: message.id,
+                        body: message.body.raw(),
+                    }
+                    // What is attached, if anything: what was sent, or what a protected
+                    // message was opened to holds. Keyed like the seal, so a body arriving asks
+                    // again.
+                    if !attached.is_empty() {
+                        Attachments {
+                            key: "{message.id}-{message.body.raw():?}",
+                            message: message.id,
+                            body: message.body.raw(),
+                            rows: attached,
+                            saved,
+                            downloading,
+                        }
+                    }
+                    // The iframe, when this message has one, is the first element MessageView
+                    // draws, and it is drawn on every render. Toggling Reader / Original changes
+                    // a class. Conditionally rendering the iframe would reload it: a new parent,
+                    // or a frame that was not in the tree, re-runs the document, loses scroll,
+                    // and re-fetches anything just consented to.
+                    if matches!(reading, Reading::NotFetched) {
+                        p { class: "pending", "Body not downloaded yet." }
+                    } else {
+                        MessageView {
+                            message_id: message.id,
+                            reading: reading.clone(),
+                            original,
+                            quotes,
+                            shell,
+                            found,
+                        }
+                    }
+                }
+            }
+            if any_frame {
+                div { class: "frame-note",
+                    Glyph { icon: Icon::Key, size: IconSize::Small }
+                    span { "sandboxed frame · no scripts, no same-origin" }
+                }
+            }
+            // An inline reply, after every frame so no iframe gains a new parent.
+            {children}
+        }
+    }
 }
 
 /// The Original frame as the reader draws it, in mailo's stylesheet, and nothing else: for the

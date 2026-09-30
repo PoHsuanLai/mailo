@@ -9,7 +9,7 @@ use dioxus::prelude::*;
 use ds::components::content::label::{LabelRole, LabelStyle};
 use ds::components::controls::segmented::Tracking;
 use ds::components::fields::field_row::{FieldGroup, FieldRow, RowLayout};
-use ds::components::fields::text_field_model::Invalid;
+use ds::components::fields::text_field_model::{FieldRows, Invalid};
 use ds::motion::detail::stamp::EventStamp;
 use ds::prelude::*;
 use mail_domain::{DateRange, Vacation};
@@ -275,9 +275,10 @@ pub(super) fn AwayPart(row: AccountRow) -> Element {
                     FieldRow {
                         label: "Reply",
                         layout: RowLayout::Form,
-                        // quire has no multi-line text field yet (requests-D.md): one line.
                         TextField {
                             label: "The reply's text".to_owned(),
+                            kind: FieldKind::Multiline,
+                            rows: FieldRows::Four,
                             value: form.body.clone(),
                             placeholder: "I am away and reading mail when I am back.".to_owned(),
                             oninput: move |value: String| away.write().body = value,

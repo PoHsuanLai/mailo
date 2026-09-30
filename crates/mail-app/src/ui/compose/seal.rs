@@ -7,9 +7,9 @@
 //! that draws, with an OpenPGP key's passphrase asked for in the bar when it has one. S/MIME's
 //! private keys have none.
 
+use ds::components::overlays::inline_banner::InlineBanner;
 use ds::prelude::*;
 use ds::root::common::Common;
-use ds::components::overlays::inline_banner::InlineBanner;
 use ds::style::tokens::control_size::ControlSize;
 use std::sync::Arc;
 
@@ -158,7 +158,9 @@ pub(in crate::ui) fn SealWarn(bar: SealBar, on_act: EventHandler<BarAct>) -> Ele
             let look = "Look up keys";
             (
                 Severity::Warn,
-                format!("No OpenPGP key for {listed}, so this cannot be encrypted to them. Nothing was sent."),
+                format!(
+                    "No OpenPGP key for {listed}, so this cannot be encrypted to them. Nothing was sent."
+                ),
                 rsx! {
                     Button {
                         size: ControlSize::Small,
@@ -173,7 +175,9 @@ pub(in crate::ui) fn SealWarn(bar: SealBar, on_act: EventHandler<BarAct>) -> Ele
         }
         SealBar::NoOwnKey(address) => (
             Severity::Warn,
-            format!("{address} has no OpenPGP key of its own to sign or encrypt with. Nothing was sent."),
+            format!(
+                "{address} has no OpenPGP key of its own to sign or encrypt with. Nothing was sent."
+            ),
             rsx! {
                 {act("Create a key…", on_act, || BarAct::OpenSheet)}
                 {act("Send without OpenPGP", on_act, || BarAct::Plain)}
@@ -192,7 +196,9 @@ pub(in crate::ui) fn SealWarn(bar: SealBar, on_act: EventHandler<BarAct>) -> Ele
         }
         SealBar::NoOwnCert(address) => (
             Severity::Warn,
-            format!("{address} has no current S/MIME certificate of its own to sign or encrypt with. Nothing was sent."),
+            format!(
+                "{address} has no current S/MIME certificate of its own to sign or encrypt with. Nothing was sent."
+            ),
             rsx! {
                 {act("Import your certificate…", on_act, || BarAct::OpenSheet)}
                 {act("Send without S/MIME", on_act, || BarAct::Plain)}
@@ -201,7 +207,9 @@ pub(in crate::ui) fn SealWarn(bar: SealBar, on_act: EventHandler<BarAct>) -> Ele
         ),
         SealBar::OwnCertCannotEncrypt(address) => (
             Severity::Warn,
-            format!("Your S/MIME certificate for {address} cannot be encrypted to (only RSA certificates can), so your own copy in Sent could not be read. Nothing was sent."),
+            format!(
+                "Your S/MIME certificate for {address} cannot be encrypted to (only RSA certificates can), so your own copy in Sent could not be read. Nothing was sent."
+            ),
             rsx! { {act(without, on_act, || BarAct::WithoutEncryption)} },
             None,
         ),
@@ -213,9 +221,13 @@ pub(in crate::ui) fn SealWarn(bar: SealBar, on_act: EventHandler<BarAct>) -> Ele
             };
             (
                 Severity::Warn,
-                format!("Encrypted mail names every {names} it is encrypted to, so everyone would learn it went to your Bcc recipients too ({listed})."),
+                format!(
+                    "Encrypted mail names every {names} it is encrypted to, so everyone would learn it went to your Bcc recipients too ({listed})."
+                ),
                 rsx! { {act(without, on_act, || BarAct::WithoutEncryption)} },
-                Some("Send them a separate message, or send this one without encryption.".to_owned()),
+                Some(
+                    "Send them a separate message, or send this one without encryption.".to_owned(),
+                ),
             )
         }
         SealBar::Locked { key, tried } => {
@@ -224,7 +236,11 @@ pub(in crate::ui) fn SealWarn(bar: SealBar, on_act: EventHandler<BarAct>) -> Ele
                 short(key)
             );
             (
-                if tried == Tried::Wrong { Severity::Danger } else { Severity::Warn },
+                if tried == Tried::Wrong {
+                    Severity::Danger
+                } else {
+                    Severity::Warn
+                },
                 prompt.clone(),
                 rsx! {
                     Passphrase {
