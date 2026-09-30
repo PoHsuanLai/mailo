@@ -42,7 +42,7 @@ pub(super) fn Naming(
         Row {
             title: "New folder",
             outline: Outline::Leaf,
-            content: rsx! {
+            edit: rsx! {
                 NameField {
                     value: text,
                     placeholder: "New folder".to_owned(),

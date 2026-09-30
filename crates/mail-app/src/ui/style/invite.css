@@ -12,23 +12,15 @@
 .invite:has(.inv-tag.cancelled) .inv-title { text-decoration: line-through; }
 .inv-head .inv-save { margin-left: auto; }
 
-.inv-facts { display: grid; gap: var(--s-3); margin: 0; }
-.inv-row { display: grid; grid-template-columns: 74px 1fr; gap: var(--s-10); align-items: baseline; }
-.inv-row dt { margin: 0; }
-.inv-row dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
-.inv-when, .inv-theirs { display: block; }
 
 .inv-people { display: flex; flex-wrap: wrap; gap: var(--s-4); margin: 0; padding: 0; list-style: none; }
 .att.yes, .att.maybe, .att.waiting, .att.rest { display: inline-flex; }
 .att.no { text-decoration: line-through; }
 
-.inv-summary, .inv-comment, .inv-why, .inv-before { margin: 0; }
+.inv-summary, .inv-comment, .inv-before { margin: 0; }
 .inv-about { padding-top: var(--s-9); border-top: var(--hair) solid var(--line-soft); }
 .inv-desc { margin: 0; white-space: pre-line; overflow-wrap: anywhere; }
 .inv-desc.folded { overflow: hidden; }
-.inv-answered { display: flex; align-items: center; flex-wrap: wrap; gap: var(--s-4) var(--s-8); }
-.inv-answered .said, .inv-answered .inv-note { min-width: 0; overflow-wrap: anywhere; }
-.inv-answered .inv-change { margin-left: auto; }
 
 .inv-acts { display: flex; flex-wrap: wrap; gap: var(--s-6); }
 .inv-noting { display: flex; align-items: center; gap: var(--s-6); }

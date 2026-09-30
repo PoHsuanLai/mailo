@@ -13,8 +13,8 @@ use crate::view::Shell;
 use dioxus::prelude::*;
 use ds::components::lists::list::model::{ListItem, ListStyle};
 use ds::components::lists::row::row::Outline;
-use ds::host::measure::MountedRef;
 use ds::components::lists::section_header::HeaderAction;
+use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use mail_domain::AccountId;
 

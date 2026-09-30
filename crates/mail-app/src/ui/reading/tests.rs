@@ -146,7 +146,7 @@ fn Open(thread: ThreadId) -> Element {
 }
 
 fn consent_buttons(markup: &str) -> usize {
-    let Some(at) = markup.find(r#"class="consent""#) else {
+    let Some(at) = markup.find(r#"class="ds-inline-banner""#) else {
         panic!("no consent bar:\n{markup}");
     };
     let rest = &markup[at..];

@@ -149,7 +149,10 @@ async fn the_editor_opens_on_the_spaces_own_choices() {
         !page.contains("aria-label=\"Motion\""),
         "the editor still offers Motion: {page}"
     );
-    assert!(page.contains("aria-label=\"Grain\""), "no Grain row: {page}");
+    assert!(
+        page.contains("aria-label=\"Grain\""),
+        "no Grain row: {page}"
+    );
 }
 
 #[tokio::test]

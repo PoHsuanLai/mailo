@@ -161,7 +161,7 @@ async fn no_key_for_a_recipient_names_them_and_holds_the_send_until_a_choice() {
             .contains("No OpenPGP key for dana@example.test, so this cannot be encrypted to them."),
         "{markup}"
     );
-    assert!(markup.contains("class=\"c-warn seal-warn\""), "{markup}");
+    assert!(markup.contains("class=\"ds-inline-banner\""), "{markup}");
     assert!(markup.contains("Look up keys"), "{markup}");
     assert!(queued(&store).is_empty(), "sent without a key");
 
@@ -234,7 +234,7 @@ async fn a_key_found_by_looking_up_clears_the_bar_and_the_send_goes_encrypted() 
     let mut looked = click(&mut window.dom, last(&after, "aria-label", "Look up keys"));
     let markup = until(&mut window, &mut looked, |page| page.contains("Found dana")).await;
     assert_eq!(*asked.lock().unwrap(), ["dana@example.test"]);
-    assert!(!markup.contains("seal-warn"), "{markup}");
+    assert!(!markup.contains("Look up keys"), "the bar is still up: {markup}");
     assert!(queued(&store).is_empty(), "a lookup sent it");
 
     let mut sent = click(&mut window.dom, seen.one("aria-label", "Send"));
@@ -362,7 +362,7 @@ async fn every_class_of_the_bar_and_row_is_styled() {
     let (mut window, seen) = window(store, draft, secrets);
     click(&mut window.dom, seen.one("aria-label", "Send"));
     let mut markup = window.render();
-    assert!(markup.contains("seal-warn"), "{markup}");
+    assert!(markup.contains("ds-inline-banner"), "{markup}");
     let mut page = window.page();
     window.dom.in_runtime(|| {
         page.write().seal_bar = SealBar::Locked {

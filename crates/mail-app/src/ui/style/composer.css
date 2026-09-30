@@ -17,11 +17,9 @@
 .c-top .grow, .c-foot .grow { flex: 1; }
 .c-scroll { flex: 1; overflow-y: auto; scrollbar-width: none; padding: var(--s-22) var(--s-26); min-height: 0; }
 .c-title { display: flex; width: 100%; font-size: var(--fs-display); font-weight: 700; }
-.c-scroll .notice { margin-top: var(--s-10); }
 
 /* properties: quire's `FieldRow`s, one under another */
 .c-props { margin: var(--s-14) 0 var(--s-18); display: grid; gap: var(--s-2); }
-.c-props .ds-field-row-control { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-5); min-width: 0; position: relative; }
 .c-pin { display: flex; flex: 1; min-width: 120px; position: relative; }
 .pinput { flex: 1; min-width: 120px; }
 
@@ -126,16 +124,11 @@
 }
 .plain .cap { display: block; color: var(--ink-faint); margin-bottom: var(--s-6); }
 
-/* the foot: one warning when it matters, one Send */
+/* the foot: a banner when it matters, then the buttons and one Send */
 .c-foot {
   display: flex; align-items: center; gap: var(--s-8); padding: var(--s-10) var(--s-14); border-top: var(--hair) solid var(--line-soft);
   flex-wrap: wrap;
 }
-.c-warn {
-  flex-basis: 100%; display: flex; align-items: center; gap: var(--s-8); padding: var(--s-8) var(--s-10); border-radius: var(--r-field);
-  background: var(--warn-wash); color: var(--ink);
-}
-.c-warn .attach { margin-left: auto; }
 
 /* reply lives under the thread */
 .inline-reply {

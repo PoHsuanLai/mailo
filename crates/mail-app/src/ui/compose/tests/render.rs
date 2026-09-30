@@ -172,7 +172,7 @@ async fn the_composed_message_draws_every_kind_of_node_on_the_surface() {
         // The surface is `.c-body` itself: quire's class, then mailo's, and no wrapper inside.
         r#"class="ds-edit c-body""#,
         r#"class="c-float" data-anchor="below""#,
-        r#"class="c-warn""#,
+        r#"class="ds-inline-banner""#,
     ] {
         assert!(markup.contains(needle), "no {needle} in:\n{markup}");
     }

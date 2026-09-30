@@ -33,6 +33,31 @@ pub(in crate::ui) fn Unlock(
     working: Busy,
     on_unlock: EventHandler<Password>,
 ) -> Element {
+    rsx! {
+        div { class: "unlock", role: "group", aria_label: "{prompt}",
+            p { class: "say", Label { text: prompt.clone(), role: LabelRole::Secondary } }
+            if tried == Tried::Wrong {
+                p { class: "why", role: "alert", Label { text: WRONG, role: LabelRole::Secondary } }
+            }
+            Passphrase { prompt: prompt.clone(), act, noun, working, on_unlock }
+        }
+    }
+}
+
+/// What is said when the passphrase typed did not open the key.
+pub(in crate::ui) const WRONG: &str = "That passphrase did not unlock the key. Try again.";
+
+/// The field and its button, nothing else: for a place that says the prompt itself (the
+/// composer's banner, which says it as the banner's text). `prompt` names the field for
+/// assistive technology.
+#[component]
+pub(in crate::ui) fn Passphrase(
+    prompt: String,
+    act: String,
+    noun: Option<String>,
+    working: Busy,
+    on_unlock: EventHandler<Password>,
+) -> Element {
     let typed = use_hook(|| Rc::new(RefCell::new(Password::default())));
     let held = typed.clone();
     let give = move || {
@@ -45,35 +70,29 @@ pub(in crate::ui) fn Unlock(
     let noun = noun.unwrap_or_else(|| "Passphrase".to_owned());
     let label = format!("{noun}: {prompt}");
     rsx! {
-                div { class: "unlock", role: "group", aria_label: "{prompt}",
-                    p { class: "say", Label { text: prompt.clone(), role: LabelRole::Secondary } }
-                    if tried == Tried::Wrong {
-                        p { class: "why", role: "alert", Label { text: "That passphrase did not unlock the key. Try again.", role: LabelRole::Secondary } }
-                    }
-                    div {
-                        class: "unlock-row",
-                        onkeydown: move |event: KeyboardEvent| {
-                            if event.key().to_string() == "Enter" {
-                                event.prevent_default();
-                                on_enter();
-                            }
-                        },
-                        TextField {
-                            kind: FieldKind::Secure,
-                            label: label.clone(),
-                            value: String::new(),
-                            placeholder: label,
-                            oninput: move |value: String| *held.borrow_mut() = Password::new(value),
-                            common: Common { extra_class: ExtraClass::parse("unlock-field").ok(), ..Common::default() },
-                        }
-                        Button {
-            answers: Answers::Return,
-            label: if working == Busy::Working { "Working…".to_owned() } else { act.to_string() },
-            availability: available(working != Busy::Working),
-            onclick: on_primary(give),
-        common: Common { aria_label: Some(act.to_string()), ..Common::default() },
-    }
-                    }
+        div {
+            class: "unlock-row",
+            onkeydown: move |event: KeyboardEvent| {
+                if event.key().to_string() == "Enter" {
+                    event.prevent_default();
+                    on_enter();
                 }
+            },
+            TextField {
+                kind: FieldKind::Secure,
+                label: label.clone(),
+                value: String::new(),
+                placeholder: label,
+                oninput: move |value: String| *held.borrow_mut() = Password::new(value),
+                common: Common { extra_class: ExtraClass::parse("unlock-field").ok(), ..Common::default() },
             }
+            Button {
+                answers: Answers::Return,
+                label: if working == Busy::Working { "Working…".to_owned() } else { act.to_string() },
+                availability: available(working != Busy::Working),
+                onclick: on_primary(give),
+                common: Common { aria_label: Some(act.to_string()), ..Common::default() },
+            }
+        }
+    }
 }

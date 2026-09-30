@@ -6,7 +6,7 @@ use super::folder_act::{load, perform, refused};
 use super::folder_tests::{IMAP, POP, folder, shape};
 use super::folder_tree::{Show, arrange};
 use crate::folder::Refusal;
-use crate::ui::fixtures::{chord, click, dispatching, empty, rebuild_into, type_into};
+use crate::ui::fixtures::{chord, click, dispatching, empty, rebuild_into, right_click, type_into};
 use crate::ui::ops::take_back;
 use chrono::Utc;
 use dioxus::prelude::*;
@@ -332,8 +332,9 @@ async fn the_menu_and_the_field_are_the_shared_ones_and_styled() {
     let (store, _dir) = imap_store();
     let mut dom = VirtualDom::new(App).with_root_context(store);
     let seen = rebuild_into(&mut dom);
-    let more = seen.one("aria-label", "Actions for Projects");
-    let mut seen = click(&mut dom, more);
+    // The ⋯ is quire's `PopUpButton`, which opens against its own mounted element; a document
+    // with no renderer never reports one, so the same menu is asked for by a right-click.
+    let mut seen = right_click(&mut dom, seen.folder("Projects"));
     // quire's menu floats in the root's overlay, drawn on the render after it is asked for.
     for _ in 0..8 {
         dom.process_events();
@@ -372,7 +373,7 @@ async fn renaming_projects() -> (VirtualDom, ElementId, Arc<SqliteStore>, tempfi
     let (store, dir) = imap_store();
     let mut dom = VirtualDom::new(App).with_root_context(store.clone());
     let seen = rebuild_into(&mut dom);
-    let mut seen = click(&mut dom, seen.one("aria-label", "Actions for Projects"));
+    let mut seen = right_click(&mut dom, seen.folder("Projects"));
     for _ in 0..8 {
         dom.process_events();
         let mut more = crate::ui::fixtures::Seen::default();
@@ -506,7 +507,7 @@ async fn render_the_folders_to_a_file() {
         .with_root_context(built.dirs);
     let seen = rebuild_into(&mut dom);
     let closed = dioxus_ssr::render(&dom);
-    click(&mut dom, seen.one("aria-label", "Actions for 2026"));
+    right_click(&mut dom, seen.folder("Projects/2026"));
     let open = dioxus_ssr::render(&dom);
     for (name, body) in [("folders", &closed), ("folders-menu", &open)] {
         for (suffix, scheme) in [("", Scheme::Light), ("-dark", Scheme::Dark)] {

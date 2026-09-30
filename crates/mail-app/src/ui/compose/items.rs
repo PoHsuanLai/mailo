@@ -111,7 +111,11 @@ pub(in crate::ui) fn object_items() -> Vec<MenuItem> {
         tile: Tile::Icon(icon),
         name: name.to_owned(),
         help: None,
-        right: if shortcut.is_empty() { Right::None } else { Right::Hint(shortcut.to_owned()) },
+        right: if shortcut.is_empty() {
+            Right::None
+        } else {
+            Right::Hint(shortcut.to_owned())
+        },
         group: None,
         marks: Vec::new(),
         title: Vec::new(),

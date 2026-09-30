@@ -2,16 +2,12 @@
 //! one selector, compared whole; a reason names why the rule is right for mailo as it stands,
 //! and a gap in quire is reported to quire (coherence rule 3, FINDINGS "quire requests"), never
 //! patched here.
+//!
+//! There is none at present: quire's `FieldRow` wraps a control cell holding several controls
+//! (v0.2.2), which was the one line that stood here.
 
-use ds_lint::{Exception, Rule};
+use ds_lint::Exception;
 
-pub(super) const STYLE: &[Exception] = &[Exception {
-    rule: Rule::DsInternals,
-    selector: ".c-props .ds-field-row-control",
-    reason: "quire's FieldRow lays its control cell out as one control; the composer's To, Cc, \
-             Attached and Sends rows hold several (chips, a field, a button) that wrap with a \
-             gap. `FieldRow` needs a wrapping control cell (quire request), and this line goes \
-             when it has one",
-}];
+pub(super) const STYLE: &[Exception] = &[];
 
 pub(in crate::ui) const MARKUP: &[Exception] = &[];

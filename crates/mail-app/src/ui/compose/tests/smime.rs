@@ -173,7 +173,7 @@ async fn what_smime_check_says_stands_in_the_way_is_said_in_the_bar() {
         ),
         "{markup}"
     );
-    assert!(markup.contains("class=\"c-warn seal-warn\""), "{markup}");
+    assert!(markup.contains("class=\"ds-inline-banner\""), "{markup}");
     assert!(markup.contains("Send without S/MIME"), "{markup}");
     click(
         &mut window.dom,

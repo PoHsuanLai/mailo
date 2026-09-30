@@ -7,6 +7,7 @@ use crate::receipt::ReceiptState;
 use dioxus::prelude::*;
 use ds::components::content::label::{LabelRole, LabelStyle};
 use ds::components::controls::button_model::Answers;
+use ds::components::overlays::inline_banner::InlineBanner;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
@@ -82,32 +83,34 @@ pub(in crate::ui) fn Bar(
             let send = "Send receipt";
             let decline = "Don't send";
             rsx! {
-                                        div { class: "receipt", role: "group", aria_label: "Read receipt",
-                                            span { class: "say", Label { text: sentence, role: LabelRole::Secondary } }
-                                            if let Some(warning) = warning {
-                                                Label { text: warning, role: LabelRole::Secondary, style: LabelStyle::Footnote }
-                                            }
-                                            if let Some(why) = failed {
-                                                Label { text: why, role: LabelRole::Secondary, style: LabelStyle::Footnote }
-                                            }
-                                            div { class: "acts",
-                                                Button {
+                InlineBanner {
+                    severity: Severity::Info,
+                    icon: Some(Icon::Mail),
+                    text: sentence,
+                    detail: warning.map(TextLine::from),
+                    common: Common { aria_label: Some("Read receipt".to_owned()), ..Common::default() },
+                    actions: rsx! {
+                        Button {
                             size: ControlSize::Small,
                             label: decline.to_string(),
                             availability: available(!working),
                             onclick: on_primary(move || give(message, ReceiptAnswer::Declined, phase, known)),
-                common: Common { aria_label: Some(decline.to_string()), ..Common::default() },
-            }
-                                                Button {
+                            common: Common { aria_label: Some(decline.to_string()), ..Common::default() },
+                        }
+                        Button {
+                            size: ControlSize::Small,
                             answers: Answers::Return,
                             label: if working { "Working…".to_owned() } else { send.to_string() },
                             availability: available(!working),
                             onclick: on_primary(move || give(message, ReceiptAnswer::Sent, phase, known)),
-                common: Common { aria_label: Some(send.to_string()), ..Common::default() },
+                            common: Common { aria_label: Some(send.to_string()), ..Common::default() },
+                        }
+                    },
+                }
+                if let Some(why) = failed {
+                    InlineBanner { severity: Severity::Danger, text: why }
+                }
             }
-                                            }
-                                        }
-                                    }
         }
     }
 }

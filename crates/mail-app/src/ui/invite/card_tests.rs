@@ -95,7 +95,7 @@ fn every_kind_and_every_place_draws_what_it_should() {
             &[
                 ">Invitation</span>",
                 "Design review",
-                "their time: Mon 5 Oct 2026, 14:00–15:00 (Europe/Berlin)",
+                ">Their time</dt>", "Mon 5 Oct 2026, 14:00–15:00 (Europe/Berlin)",
                 "Room 2",
                 "Ada Lovelace",
                 "class=\"att no\"",
@@ -196,7 +196,7 @@ fn the_organisers_time_is_said_only_when_it_differs() {
     let berlin = FixedOffset::east_opt(2 * 3600).unwrap();
     let same = card_of(MessageId::generate(), &invite, None, &berlin);
     assert_eq!(same.theirs, None);
-    assert!(!drawn(same).contains("their time"));
+    assert!(!drawn(same).contains("Their time"));
 }
 
 #[test]

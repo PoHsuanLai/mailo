@@ -55,13 +55,21 @@ pub(in crate::ui) fn HoverLayer(
         return rsx! {};
     };
     let store = consume_context::<Arc<SqliteStore>>();
+    if let Hook::Time(id) = hook {
+        let Some(text) = time_tip(&store, id) else {
+            return rsx! {};
+        };
+        return rsx! {
+            Tooltip { key: "{key.0}", text, hover_key: Some(key.clone()) }
+        };
+    }
     let Some(Card { parts, more }) = (match hook {
         Hook::Thread(id) => thread_card(&store, id, &shell.read()),
         Hook::Sender(id) => {
             let known = cached(&cache, &store, revision());
             sender_card(&store, id, &known, shell, spaces)
         }
-        Hook::Time(id) => time_tip(&store, id),
+        Hook::Time(_) => return rsx! {},
         Hook::Pin(index) => pin_card(&store, index, spaces, &shell.read()),
         Hook::Today(id) => today_card(&store, id),
     }) else {
@@ -194,21 +202,17 @@ fn thread_card(store: &SqliteStore, id: ThreadId, shell: &Shell) -> Option<Card>
     })
 }
 
-fn time_tip(store: &SqliteStore, id: ThreadId) -> Option<Card> {
+/// The row's full date and time, in the person's zone: what the time's tooltip says.
+fn time_tip(store: &SqliteStore, id: ThreadId) -> Option<String> {
     let loaded = store.thread(id).ok()?;
-    let full = loaded
-        .summary
-        .last_date
-        .with_timezone(&Local)
-        .format("%A %-d %B %Y, %H:%M")
-        .to_string();
-    Some(Card {
-        parts: vec![
-            HoverCardPart::Title(full),
-            HoverCardPart::Sub("your time".to_owned()),
-        ],
-        more: rsx! {},
-    })
+    Some(
+        loaded
+            .summary
+            .last_date
+            .with_timezone(&Local)
+            .format("%A %-d %B %Y, %H:%M")
+            .to_string(),
+    )
 }
 
 fn pin_card(

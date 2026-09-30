@@ -269,7 +269,7 @@ impl dioxus::html::HasFormData for Typed {
 /// A click with nothing but the primary button. The handlers these tests drive ignore the
 /// coordinates; the converter still has to produce a [`dioxus::html::MouseData`].
 #[derive(Debug, Clone)]
-struct FakeClick;
+struct FakeClick(dioxus::html::input_data::MouseButton);
 
 impl dioxus::html::point_interaction::ModifiersInteraction for FakeClick {
     fn modifiers(&self) -> dioxus::html::input_data::keyboard_types::Modifiers {
@@ -297,7 +297,7 @@ impl dioxus::html::point_interaction::InteractionElementOffset for FakeClick {
 
 impl dioxus::html::point_interaction::PointerInteraction for FakeClick {
     fn trigger_button(&self) -> Option<dioxus::html::input_data::MouseButton> {
-        Some(dioxus::html::input_data::MouseButton::Primary)
+        Some(self.0)
     }
     fn held_buttons(&self) -> dioxus::html::input_data::MouseButtonSet {
         dioxus::html::input_data::MouseButtonSet::empty()
@@ -654,7 +654,23 @@ pub(in crate::ui) fn click(dom: &mut VirtualDom, element: dioxus_core::ElementId
     #[allow(deprecated)]
     dom.handle_event(
         "click",
-        std::rc::Rc::new(PlatformEventData::new(Box::new(FakeClick))),
+        std::rc::Rc::new(PlatformEventData::new(Box::new(FakeClick(
+            dioxus::html::input_data::MouseButton::Primary,
+        )))),
+        element,
+        true,
+    );
+    paint(dom)
+}
+
+/// Right-click `element` (the platform's `contextmenu`) and return what the render set.
+pub(in crate::ui) fn right_click(dom: &mut VirtualDom, element: dioxus_core::ElementId) -> Seen {
+    #[allow(deprecated)]
+    dom.handle_event(
+        "contextmenu",
+        std::rc::Rc::new(PlatformEventData::new(Box::new(FakeClick(
+            dioxus::html::input_data::MouseButton::Secondary,
+        )))),
         element,
         true,
     );

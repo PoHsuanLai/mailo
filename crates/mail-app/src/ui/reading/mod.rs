@@ -19,6 +19,7 @@ use ds::components::content::avatar::{
 use ds::components::content::label::{LabelRole, LabelStyle};
 use ds::components::controls::button_model::{Bezel, ImagePosition};
 use ds::components::controls::segmented::Tracking;
+use ds::components::overlays::inline_banner::InlineBanner;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::icon::render::Glyph;
@@ -125,7 +126,7 @@ pub(super) fn Reader(
     let store = use_context::<Arc<SqliteStore>>();
     // Where the last attachment went, or why it did not. Cleared by opening another
     // conversation, because this component is rebuilt for each one.
-    let saved = use_signal(|| None::<String>);
+    let mut saved = use_signal(|| None::<String>);
     // Which attachment is being fetched, if one is. That part's button stays disabled until
     // the fetch ends, so a second click cannot start a second download of it.
     let downloading = use_signal(|| None::<(MessageId, usize)>);
@@ -316,32 +317,35 @@ pub(super) fn Reader(
                 if let Some(where_it_went) = saved() {
                     // Where it went, named. A file saved somewhere the user cannot point at is a file
                     // they have lost, and this pane's previous answer was to print a command to run.
-                    p { class: "notice", Label { text: where_it_went } }
+                    InlineBanner { severity: Severity::Ok, text: where_it_went, onclose: move |()| saved.set(None) }
                 }
                 if let Some(host) = from_host {
-                    div { class: "consent",
-                        Glyph { icon: Icon::Image }
-                        Label {
-                            text: if showing {
-                                format!("Showing remote images from {host}")
-                            } else {
-                                "Remote images blocked — loading them tells the sender you opened this".to_owned()
-                            },
-                            role: LabelRole::Secondary,
+                    if showing {
+                        InlineBanner {
+                            severity: Severity::Info,
+                            icon: Some(Icon::Image),
+                            text: format!("Showing remote images from {host}"),
                         }
-                        if !showing {
-                            Button {
-        size: ControlSize::Small,
-        label: show_images(),
-    common: Common { aria_label: Some(show_images().to_owned()), ..Common::default() },
-        // The press takes the button away, and on Blitz the keyboard with it (quire focuses the
-        // pressed button a frame later, gone or not): it is handed back to the window, as a
-        // closing panel hands it back.
+                    } else {
+                        InlineBanner {
+                            severity: Severity::Warn,
+                            icon: Some(Icon::Image),
+                            text: "Remote images blocked",
+                            detail: Some("Loading them tells the sender you opened this.".into()),
+                            actions: rsx! {
+                                Button {
+                                    size: ControlSize::Small,
+                                    label: show_images(),
+                                    common: Common { aria_label: Some(show_images().to_owned()), ..Common::default() },
+                                    // The press takes the button away, and on Blitz the keyboard with it
+                                    // (quire focuses the pressed button a frame later, gone or not): it is
+                                    // handed back to the window, as a closing panel hands it back.
                                     onclick: on_primary(move || {
                                         shell.write().show_remote_images = true;
                                         super::host::Host::focus_app();
                                     }),
-    }
+                                }
+                            },
                         }
                     }
                 }

@@ -32,7 +32,7 @@ pub(in crate::ui) use said::{Said, said, said_smime, whose};
 #[cfg(test)]
 pub(in crate::ui) use said::{Tone, doubt};
 pub(in crate::ui) use seal::Seal;
-pub(in crate::ui) use unlock::Unlock;
+pub(in crate::ui) use unlock::{Passphrase, Unlock, WRONG};
 
 use std::path::PathBuf;
 use std::sync::Arc;

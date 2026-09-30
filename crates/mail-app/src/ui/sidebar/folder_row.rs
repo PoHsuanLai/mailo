@@ -1,7 +1,7 @@
 //! One folder's row, the menu under it, and what its picks do.
 
 use super::super::folder_open;
-use super::super::menu::Floating;
+use super::super::menu::{Floating, menu_items};
 use super::super::move_to;
 use super::folder_act::{act, messages_word, refused, renamed_path};
 use super::folder_parts::{NameField, Naming, Said, actions};
@@ -13,10 +13,14 @@ use crate::view::{Source, folder_of};
 use dioxus::prelude::*;
 use ds::base::press::Press;
 use ds::base::vocab::RowState;
+use ds::components::controls::badge::{Badge, BadgeContent, BadgeTone};
+use ds::components::controls::button_model::ButtonRole;
+use ds::components::lists::row::confirm::RowConfirm;
 use ds::components::lists::row::row::{Outline, RowMounted};
-use ds::components::overlays::alert_model::{AlertButton, AlertRole, AlertStyle};
+use ds::components::menus::pop_up_button::{PopUpButton, PopUpKind};
 use ds::host::measure::MountedRef;
 use ds::prelude::*;
+use ds::style::tokens::control_size::ControlSize;
 use mail_domain::{
     AccountId, Filter, FolderError, FolderWork, Holds, MailboxRef, NonEmpty, Subscription,
 };
@@ -117,25 +121,11 @@ pub(super) fn FolderRow(
         });
     let showing_below = naming_here || said_here;
     let items = actions(&node);
-    let menu_spot = spot.clone();
     let closing = spot.clone();
     let rename_spot = spot.clone();
     // The row itself: the menu and its confirmation hang from it.
     let row_ref = use_signal(|| None::<MountedRef>);
     let path = node.path.clone();
-    let menu = RowAction::new(
-        Icon::Ellipsis,
-        format!("Actions for {name}"),
-        EventHandler::new(move |_: Press| {
-            note.set(None);
-            let showing = matches!(&*open.peek(), Open::Actions(at) if *at == menu_spot);
-            open.set(if showing {
-                Open::Closed
-            } else {
-                Open::Actions(menu_spot.clone())
-            });
-        }),
-    );
     // Choosing the folder is the row's press; a folder that is no place has a name only. A
     // right-click is the menu's, whatever the folder is.
     let context_spot = spot.clone();
@@ -194,35 +184,19 @@ pub(super) fn FolderRow(
         }
         Said { wires, account: Some(account), path: Some(node.path.clone()) }
     };
-    // The menus float, so where they sit in the tree does not matter.
-    let menus = match now {
+    // A right-click opens the folder's menu against the row; the ⋯ in the row is its own
+    // `PopUpButton` of the same items.
+    let menus = match now.clone() {
         Open::Actions(at) if at == spot => rsx! {
             Floating {
                 anchor: row_ref(),
                 title: name.clone(),
-                items,
+                items: items.clone(),
                 on_pick: move |key: String| pick(wires, &key, account, path.clone(), delimiter),
                 // A pick that opened a field or the confirmation keeps it open.
                 on_close: move |_| close(open, |now| matches!(now, Open::Actions(at) if *at == closing)),
             }
         },
-        Open::Confirm { spot: at, messages } if at == spot => {
-            let delete = at.clone();
-            rsx! {
-                Alert {
-                    title: format!("Delete \u{201c}{name}\u{201d} and the {} in it?", messages_word(messages)),
-                    message: TextLine::from("This cannot be undone."),
-                    style: AlertStyle::Warning,
-                    buttons: vec![
-                        AlertButton::new("Delete Folder and Mail", AlertRole::Destructive, EventHandler::new(move |()| {
-                            let work = FolderWork::Delete { path: delete.path.clone(), non_empty: NonEmpty::Allow };
-                            run(wires, account, Some(delete.path.clone()), work, delimiter);
-                        })),
-                        AlertButton::new("Cancel", AlertRole::Cancel, EventHandler::new(move |()| open.set(Open::Closed))),
-                    ],
-                }
-            }
-        }
         _ => rsx! {},
     };
     let selection = if current {
@@ -239,18 +213,59 @@ pub(super) fn FolderRow(
     } else {
         Outline::Leaf
     };
+    // Deleting a folder that holds mail asks in the row's own line.
+    let confirm = match &now {
+        Open::Confirm { spot: at, messages } if *at == spot => {
+            let delete = at.clone();
+            Some(RowConfirm {
+                question: format!(
+                    "Delete \u{201c}{name}\u{201d} and the {} in it?",
+                    messages_word(*messages)
+                ),
+                confirm: "Delete Folder and Mail".to_owned(),
+                role: ButtonRole::Destructive,
+                on_confirm: EventHandler::new(move |()| {
+                    let work = FolderWork::Delete {
+                        path: delete.path.clone(),
+                        non_empty: NonEmpty::Allow,
+                    };
+                    run(wires, account, Some(delete.path.clone()), work, delimiter);
+                }),
+                on_cancel: EventHandler::new(move |()| open.set(Open::Closed)),
+            })
+        }
+        _ => None,
+    };
+    let overflow_path = node.path.clone();
+    let overflow_name = name.clone();
+    let accessory = rsx! {
+        if let Some(count) = count {
+            Badge {
+                content: BadgeContent::Number(u32::try_from(count).unwrap_or(u32::MAX)),
+                tone: BadgeTone::Quiet,
+                size: ControlSize::Small,
+            }
+        }
+        PopUpButton::<String> {
+            kind: PopUpKind::Overflow,
+            title: Some(format!("Actions for {overflow_name}")),
+            size: ControlSize::Small,
+            items: menu_items("", &items, false),
+            onpick: move |key: String| {
+                note.set(None);
+                pick(wires, &key, account, overflow_path.clone(), delimiter);
+            },
+        }
+    };
     let children = node.children.clone();
     let common = tagged("place", node.path.clone());
     let common = if dim { super::dimmed(common) } else { common };
     rsx! {
         Row {
             title: name.clone(),
-            content: editing,
-            accessory: match count {
-                Some(count) => Accessory::Badge(u32::try_from(count).unwrap_or(u32::MAX)),
-                None => Accessory::None,
-            },
-            action: menu,
+            edit: editing,
+            accessory: Accessory::Slot(accessory),
+            confirm,
             state: RowState { selection, drop, ..RowState::default() },
             outline,
             on_toggle: move |to| disclosure.set(to),

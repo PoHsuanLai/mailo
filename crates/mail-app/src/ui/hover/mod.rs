@@ -54,13 +54,22 @@ impl Hook {
         })
     }
 
-    /// Which of quire's cards it opens, which is where the card is placed. A time opens the
-    /// sender card's placement (below its target); quire has no hook-keyed tooltip.
+    /// Which of quire's cards it opens, which is where the card is placed. A time opens no card:
+    /// its tooltip is placed by quire's `Tooltip`, below the anchor the row filed.
     fn kind(self) -> HoverKind {
         match self {
             Hook::Thread(_) => HoverKind::Thread,
             Hook::Sender(_) | Hook::Time(_) => HoverKind::Sender,
             Hook::Pin(_) | Hook::Today(_) => HoverKind::Side,
+        }
+    }
+
+    /// How long the pointer rests before it opens: a card waits as a card does, a time's
+    /// tooltip as a tooltip does.
+    fn profile(self) -> HoverProfile {
+        match self {
+            Hook::Time(_) => HoverProfile::Tip,
+            Hook::Thread(_) | Hook::Sender(_) | Hook::Pin(_) | Hook::Today(_) => HoverProfile::Card,
         }
     }
 
@@ -170,7 +179,7 @@ pub(super) fn element(mounted: Option<MountedRef>) -> HoverAnchor {
 /// The pointer came to rest on `hook`, placed against `anchor`.
 pub(super) fn over(driver: Option<HoverDriver>, hook: Hook, anchor: HoverAnchor) {
     if let Some(driver) = driver {
-        driver.over(hook.key(), HoverProfile::Card, anchor);
+        driver.over(hook.key(), hook.profile(), anchor);
     }
 }
 

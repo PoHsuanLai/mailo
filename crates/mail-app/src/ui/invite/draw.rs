@@ -12,10 +12,11 @@ use ds::components::content::label::{LabelRole, LabelStyle};
 use ds::components::controls::button_model::{Answers, Bezel};
 use ds::components::controls::chip::{Chip, ChipVariant};
 use ds::components::controls::segmented::Tracking;
+use ds::components::fields::fact_list::{Fact, FactList};
+use ds::components::overlays::inline_banner::InlineBanner;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::root::pass_through::ExtraClass;
-use ds::style::icon::render::Glyph;
 use ds::style::tokens::control_size::ControlSize;
 use mail_domain::{Attendance, BlobId, MessageId};
 use mail_store::SqliteStore;
@@ -129,38 +130,7 @@ pub(in crate::ui) fn InviteCard(card: Card, known: Signal<Option<Option<Card>>>)
         common: Common { extra_class: ExtraClass::parse("inv-save").ok(), aria_label: Some(save.to_owned()), ..Common::default() },
     }
                 }
-                dl { class: "inv-facts",
-                    div { class: "inv-row",
-                        dt { Glyph { icon: Icon::Clock, size: IconSize::Compact } }
-                        dd {
-                            span { class: "inv-when", Label { text: card.when.clone(), style: LabelStyle::Headline } }
-                            if let Some(theirs) = &card.theirs {
-                                span { class: "inv-theirs", Label { text: format!("their time: {theirs}"), role: LabelRole::Tertiary, style: LabelStyle::Footnote } }
-                            }
-                            if let Some(occurrence) = card.occurrence {
-                                span { class: "inv-theirs", Label { text: occurrence, role: LabelRole::Tertiary, style: LabelStyle::Footnote } }
-                            }
-                        }
-                    }
-                    if let Some(repeats) = &card.repeats {
-                        div { class: "inv-row",
-                            dt { Label { text: "Repeats", role: LabelRole::Tertiary, style: LabelStyle::Footnote } }
-                            dd { Label { text: repeats.clone(), role: LabelRole::Secondary } }
-                        }
-                    }
-                    if let Some(location) = &card.location {
-                        div { class: "inv-row",
-                            dt { Label { text: "Where", role: LabelRole::Tertiary, style: LabelStyle::Footnote } }
-                            dd { Label { text: location.clone(), role: LabelRole::Secondary } }
-                        }
-                    }
-                    if let Some(organiser) = &card.organiser {
-                        div { class: "inv-row",
-                            dt { Label { text: "Organiser", role: LabelRole::Tertiary, style: LabelStyle::Footnote } }
-                            dd { Label { text: organiser.clone(), role: LabelRole::Secondary } }
-                        }
-                    }
-                }
+                FactList { facts: facts_of(&card) }
                 if !card.attendees.is_empty() {
                     ul { class: "inv-people", aria_label: "Attendees",
                         for chip in card.attendees.iter().take(shown) {
@@ -208,23 +178,21 @@ pub(in crate::ui) fn InviteCard(card: Card, known: Signal<Option<Option<Card>>>)
                     }
                 }
                 match &card.stand {
-                    Stand::Closed(Some(why)) => rsx! { p { class: "inv-why", Label { text: (*why).to_owned(), role: LabelRole::Tertiary, style: LabelStyle::Footnote } } },
+                    Stand::Closed(Some(why)) => rsx! { InlineBanner { severity: Severity::Info, text: (*why).to_owned() } },
                     Stand::Closed(None) => rsx! {},
                     Stand::Answered { said, note } if now == Phase::Resting => rsx! {
-                        div { class: "inv-answered",
-                            Glyph { icon: Icon::Check, size: IconSize::Compact }
-                            span { class: "said", Label { text: said.clone(), style: LabelStyle::Headline } }
-                            if let Some(note) = note {
-                                span { class: "inv-note", Label { text: format!("“{note}”"), role: LabelRole::Secondary } }
-                            }
-                            span { class: "inv-change",
+                        InlineBanner {
+                            severity: Severity::Ok,
+                            text: said.clone(),
+                            detail: note.as_ref().map(|note| TextLine::from(format!("\u{201c}{note}\u{201d}"))),
+                            actions: rsx! {
                                 Button {
-                                    bezel: Bezel::Inline,
+                                    size: ControlSize::Small,
                                     label: change,
                                     onclick: on_primary(move || phase.set(Phase::Changing)),
                                     common: Common { aria_label: Some(change.to_owned()), ..Common::default() },
                                 }
-                            }
+                            },
                         }
                     },
                     Stand::Answered { said, .. } => rsx! { p { class: "inv-before", Label { text: format!("{said}."), role: LabelRole::Secondary } } },
@@ -252,10 +220,32 @@ pub(in crate::ui) fn InviteCard(card: Card, known: Signal<Option<Option<Card>>>)
                     p { class: "inv-before", Label { text: "Sending…", role: LabelRole::Secondary } }
                 }
                 if let Phase::Failed(why) = now {
-                    p { class: "inv-why failed", Label { text: why, role: LabelRole::Tertiary, style: LabelStyle::Footnote } }
+                    InlineBanner { severity: Severity::Danger, text: why }
                 }
             }
         }
+}
+
+/// What the card states about the event, a label and its value each: when, in whose time, and
+/// where, who and how often where the invitation says.
+fn facts_of(card: &Card) -> Vec<Fact> {
+    let mut facts = vec![Fact::new("When", card.when.clone())];
+    if let Some(theirs) = &card.theirs {
+        facts.push(Fact::new("Their time", theirs.clone()));
+    }
+    if let Some(occurrence) = card.occurrence {
+        facts.push(Fact::new("About", occurrence));
+    }
+    if let Some(repeats) = &card.repeats {
+        facts.push(Fact::new("Repeats", repeats.clone()));
+    }
+    if let Some(location) = &card.location {
+        facts.push(Fact::new("Where", location.clone()));
+    }
+    if let Some(organiser) = &card.organiser {
+        facts.push(Fact::new("Organiser", organiser.clone()));
+    }
+    facts
 }
 
 /// The three answers, in the order calendars put them.

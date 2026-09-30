@@ -10,16 +10,6 @@
 .reader-who { display: grid; min-width: 0; }
 /* the message body is an opaque sandboxed frame: we animate the container,
    never its contents, because we cannot reach inside it and must not try. */
-.consent {
-  display: flex; align-items: center; gap: var(--s-9); padding: var(--s-8) var(--s-10) var(--s-8) var(--s-11); margin-bottom: var(--s-13);
-  border: var(--hair) solid var(--line); border-radius: var(--r-btn); background: var(--surface-2);
-  font-size: var(--fs-meta); color: var(--ink-soft);
-}
-.reader-body .notice {
-  display: flex; align-items: center; gap: var(--s-9); padding: var(--s-8) var(--s-10) var(--s-8) var(--s-11); margin-bottom: var(--s-13);
-  border: var(--hair) solid var(--line); border-radius: var(--r-btn); background: var(--accent-soft);
-  font-size: var(--fs-meta); color: var(--ink-soft);
-}
 article.frame header {
   display: flex; align-items: baseline; gap: var(--s-8); margin: 0 0 var(--s-10);
   font-size: var(--fs-control); color: var(--ink);
@@ -163,12 +153,4 @@ article.frame header .view-switch { margin-left: 0; }
 /* ---- printing: the head's Print, and its menu of pages ---- */
 .print-menu { display: grid; gap: var(--s-8); width: 330px; }
 .print-menu .acts { display: flex; justify-content: flex-end; gap: var(--s-6); }
-/* a message asking for a read receipt: a quiet bar under the head, never an interruption */
-.receipt {
-  display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-6) var(--s-10); margin-top: var(--s-11);
-  padding: var(--s-7) var(--s-8) var(--s-7) var(--s-11); border: var(--hair) solid var(--line); border-radius: var(--r-btn);
-  background: var(--surface-2); font-size: var(--fs-meta); line-height: 1.45; color: var(--ink-soft);
-}
-.receipt .say { flex: 1 1 240px; }
-.receipt .acts { order: 2; display: flex; gap: var(--s-6); margin-left: auto; }
 

@@ -4,31 +4,13 @@
    missed, so it alone takes the danger ground; a signature nobody can check is amber, never
    green. */
 .seal { display: grid; gap: var(--s-3); margin: var(--s-2) 0 var(--s-10); }
-.seal-line { margin: 0; display: flex; align-items: baseline; gap: var(--s-7); color: var(--ink-faint); }
-.seal-line::before {
-  content: ""; flex: none; width: 7px; height: 7px; border-radius: var(--r-pill); background: var(--line);
-}
-.seal-line.good { color: var(--ink-soft); }
-.seal-line.good::before { background: var(--ok); }
-.seal-line.unknown { color: var(--ink-soft); }
-.seal-line.unknown::before { background: var(--warn); }
-.seal-line.bad { padding: var(--s-6) var(--s-10); border-radius: var(--r-btn); background: var(--danger); color: var(--danger-ink); }
-.seal-line.bad::before { background: var(--danger-ink); }
-.seal-line.warn { padding: var(--s-4) var(--s-10); border-radius: var(--r-btn); color: var(--ink); background: var(--c-amber-soft); }
-.seal-line.warn::before { background: var(--warn); }
-.seal-line.detail { padding-left: var(--s-14); overflow-wrap: anywhere; }
-.seal-line.detail::before { display: none; }
 
 /* The passphrase field: in the reader under a locked message, and in the composer's warning bar. */
 .unlock { display: grid; gap: var(--s-6); padding: var(--s-8) var(--s-10); border: var(--hair) solid var(--line); border-radius: var(--r-btn); background: var(--surface-2); }
-.c-warn .unlock { flex: 1; padding: 0; border: 0; background: none; }
 .unlock .say, .unlock .why { margin: 0; }
 .unlock-row { display: flex; align-items: center; gap: var(--s-8); }
 .unlock-field { flex: 1; min-width: 0; }
 
-/* The composer's bar, when signing or encrypting is what stopped Send. */
-.c-warn.seal-warn { flex-wrap: wrap; }
-.seal-warn .grow { flex: 1 1 220px; min-width: 0; }
 
 /* The keys and certificates sheet: a key or a certificate a row, OpenPGP above S/MIME. */
 .keys { display: flex; flex-direction: column; gap: var(--s-8); max-height: 100%; min-height: 0; }

@@ -227,7 +227,7 @@ async fn a_message_that_asks_shows_the_bar_under_the_head() {
     assert!(!markup.contains("class=\"warn\""), "{markup}");
     // Under the head, not among the messages.
     let head_ends = markup.find("class=\"reader-body\"").unwrap();
-    assert!(markup.find("class=\"receipt\"").unwrap() < head_ends);
+    assert!(markup.find("aria-label=\"Read receipt\"").unwrap() < head_ends);
 }
 
 #[tokio::test]

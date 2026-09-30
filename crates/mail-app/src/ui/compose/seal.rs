@@ -9,7 +9,7 @@
 
 use ds::prelude::*;
 use ds::root::common::Common;
-use ds::style::icon::render::Glyph;
+use ds::components::overlays::inline_banner::InlineBanner;
 use ds::style::tokens::control_size::ControlSize;
 use std::sync::Arc;
 
@@ -18,7 +18,7 @@ use dioxus::prelude::*;
 use mail_domain::{Draft, Fingerprint};
 use mail_store::SqliteStore;
 
-use super::super::pgp::{Busy, Scheme, Tried, Unlock, seams, short};
+use super::super::pgp::{Busy, Passphrase, Scheme, Tried, WRONG, seams, short};
 use super::super::press::on_primary;
 use crate::password::Password;
 use crate::pgp::PgpError;
@@ -131,88 +131,120 @@ fn act(words: &'static str, on_act: EventHandler<BarAct>, what: fn() -> BarAct) 
     }
 }
 
-/// The signing and encrypting half of the warning bar.
+/// The signing and encrypting half of the warning bar: one banner, what stopped Send and what
+/// could be done about it.
 #[component]
 pub(in crate::ui) fn SealWarn(bar: SealBar, on_act: EventHandler<BarAct>) -> Element {
     let without = "Send without encryption";
-    let body = match bar {
+    let (severity, text, actions, detail) = match bar {
         SealBar::Clear => return rsx! {},
-        SealBar::Sealing => rsx! {
-            span { "Signing and encrypting…" }
-        },
+        SealBar::Sealing => (
+            Severity::Info,
+            "Signing and encrypting…".to_owned(),
+            rsx! {},
+            None,
+        ),
         SealBar::Looking(addresses) => {
             let listed = addresses.join(", ");
-            rsx! {
-                span { "Asking the domains of {listed} for their keys…" }
-            }
+            (
+                Severity::Info,
+                format!("Asking the domains of {listed} for their keys…"),
+                rsx! {},
+                None,
+            )
         }
         SealBar::NoKeyFor(addresses) => {
             let listed = addresses.join(", ");
             let look = "Look up keys";
-            rsx! {
-                span { class: "grow", "No OpenPGP key for {listed}, so this cannot be encrypted to them. Nothing was sent." }
-                Button {
-                    size: ControlSize::Small,
-                    label: look.to_string(),
-                    onclick: on_primary(move || on_act.call(BarAct::LookUp(addresses.clone()))),
-                    common: Common { aria_label: Some(look.to_string()), ..Common::default() },
-                }
-                {act(without, on_act, || BarAct::WithoutEncryption)}
-            }
+            (
+                Severity::Warn,
+                format!("No OpenPGP key for {listed}, so this cannot be encrypted to them. Nothing was sent."),
+                rsx! {
+                    Button {
+                        size: ControlSize::Small,
+                        label: look.to_string(),
+                        onclick: on_primary(move || on_act.call(BarAct::LookUp(addresses.clone()))),
+                        common: Common { aria_label: Some(look.to_string()), ..Common::default() },
+                    }
+                    {act(without, on_act, || BarAct::WithoutEncryption)}
+                },
+                None,
+            )
         }
-        SealBar::NoOwnKey(address) => rsx! {
-            span { class: "grow", "{address} has no OpenPGP key of its own to sign or encrypt with. Nothing was sent." }
-            {act("Create a key…", on_act, || BarAct::OpenSheet)}
-            {act("Send without OpenPGP", on_act, || BarAct::Plain)}
-        },
+        SealBar::NoOwnKey(address) => (
+            Severity::Warn,
+            format!("{address} has no OpenPGP key of its own to sign or encrypt with. Nothing was sent."),
+            rsx! {
+                {act("Create a key…", on_act, || BarAct::OpenSheet)}
+                {act("Send without OpenPGP", on_act, || BarAct::Plain)}
+            },
+            None,
+        ),
         SealBar::NoCertFor(addresses) => {
             let listed = addresses.join(", ");
             // S/MIME has no directory to ask: a certificate arrives with its owner's signed mail.
-            rsx! {
-                span { class: "grow",
-                    "No S/MIME certificate for {listed}, so this cannot be encrypted to them. Nothing was sent. A signed message from them brings their certificate, and mailo keeps it; or import one in Keys and certificates."
-                }
-                {act(without, on_act, || BarAct::WithoutEncryption)}
-            }
+            (
+                Severity::Warn,
+                format!("No S/MIME certificate for {listed}, so this cannot be encrypted to them. Nothing was sent."),
+                rsx! { {act(without, on_act, || BarAct::WithoutEncryption)} },
+                Some("A signed message from them brings their certificate, and mailo keeps it; or import one in Keys and certificates.".to_owned()),
+            )
         }
-        SealBar::NoOwnCert(address) => rsx! {
-            span { class: "grow", "{address} has no current S/MIME certificate of its own to sign or encrypt with. Nothing was sent." }
-            {act("Import your certificate…", on_act, || BarAct::OpenSheet)}
-            {act("Send without S/MIME", on_act, || BarAct::Plain)}
-        },
-        SealBar::OwnCertCannotEncrypt(address) => rsx! {
-            span { class: "grow",
-                "Your S/MIME certificate for {address} cannot be encrypted to (only RSA certificates can), so your own copy in Sent could not be read. Nothing was sent."
-            }
-            {act(without, on_act, || BarAct::WithoutEncryption)}
-        },
+        SealBar::NoOwnCert(address) => (
+            Severity::Warn,
+            format!("{address} has no current S/MIME certificate of its own to sign or encrypt with. Nothing was sent."),
+            rsx! {
+                {act("Import your certificate…", on_act, || BarAct::OpenSheet)}
+                {act("Send without S/MIME", on_act, || BarAct::Plain)}
+            },
+            None,
+        ),
+        SealBar::OwnCertCannotEncrypt(address) => (
+            Severity::Warn,
+            format!("Your S/MIME certificate for {address} cannot be encrypted to (only RSA certificates can), so your own copy in Sent could not be read. Nothing was sent."),
+            rsx! { {act(without, on_act, || BarAct::WithoutEncryption)} },
+            None,
+        ),
         SealBar::Blind(scheme, addresses) => {
             let listed = addresses.join(", ");
             let names = match scheme {
                 Scheme::OpenPgp => "key",
                 Scheme::Smime => "certificate",
             };
-            rsx! {
-                span { class: "grow",
-                    "Encrypted mail names every {names} it is encrypted to, so everyone would learn it went to your Bcc recipients too ({listed}). Send them a separate message, or send this one without encryption."
-                }
-                {act(without, on_act, || BarAct::WithoutEncryption)}
-            }
+            (
+                Severity::Warn,
+                format!("Encrypted mail names every {names} it is encrypted to, so everyone would learn it went to your Bcc recipients too ({listed})."),
+                rsx! { {act(without, on_act, || BarAct::WithoutEncryption)} },
+                Some("Send them a separate message, or send this one without encryption.".to_owned()),
+            )
         }
-        SealBar::Locked { key, tried } => rsx! {
-            Unlock {
-                prompt: format!("Your OpenPGP key {} needs its passphrase to sign or encrypt this message.", short(key)),
-                tried,
-                act: "Unlock and send".to_owned(),
-                working: Busy::Idle,
-                on_unlock: move |passphrase| on_act.call(BarAct::Unlock(passphrase)),
-            }
-        },
+        SealBar::Locked { key, tried } => {
+            let prompt = format!(
+                "Your OpenPGP key {} needs its passphrase to sign or encrypt this message.",
+                short(key)
+            );
+            (
+                if tried == Tried::Wrong { Severity::Danger } else { Severity::Warn },
+                prompt.clone(),
+                rsx! {
+                    Passphrase {
+                        prompt,
+                        act: "Unlock and send".to_owned(),
+                        working: Busy::Idle,
+                        on_unlock: move |passphrase| on_act.call(BarAct::Unlock(passphrase)),
+                    }
+                },
+                (tried == Tried::Wrong).then(|| WRONG.to_owned()),
+            )
+        }
     };
     rsx! {
-        div { class: "c-warn seal-warn", role: "alert",
-            Glyph { icon: Icon::Key, size: IconSize::Compact }
-            {body}
+        InlineBanner {
+            severity,
+            icon: Some(Icon::Key),
+            text,
+            detail: detail.map(TextLine::from),
+            actions,
         }
     }
 }

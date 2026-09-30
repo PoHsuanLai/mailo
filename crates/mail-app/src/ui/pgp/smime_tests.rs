@@ -13,7 +13,7 @@ use mail_mime::smime::{Cert, Identity, Sealing};
 use mail_runtime::MapSecrets;
 use mail_store::SqliteStore;
 
-use super::tests::{ME, arrive, lines, reader, seals, until};
+use super::tests::{ME, arrive, lines, reader, seals, shows, until};
 use super::{Said, Tone, doubt, said_smime};
 use crate::smime::Protected;
 use crate::ui::fixtures::seeded;
@@ -366,9 +366,6 @@ fn each_certificate_problem_is_named_in_amber_and_says_what_it_means() {
             "{problem:?}"
         );
     }
-    // Amber, and never the danger ground or the good one.
-    assert_eq!(Tone::Warn.class(), "seal-line warn");
-    assert_eq!(Tone::Detail.class(), "seal-line detail");
 }
 
 #[tokio::test]
@@ -379,7 +376,7 @@ async fn a_good_smime_signature_says_who_signed_and_their_certificate() {
     let raw = letter("owl", "the owl note is signed");
     let message = arrive(&store, sealed(&raw, Smime::Sign, &bea(), &[]));
     let (mut dom, mut seen) = reader(store, secrets, message.thread);
-    let page = until(&mut dom, &mut seen, |page| page.contains("seal-line")).await;
+    let page = until(&mut dom, &mut seen, |page| shows(&page, "seal-line")).await;
     let said = lines(&page);
     assert_eq!(
         said[0],
@@ -422,7 +419,7 @@ async fn a_changed_smime_message_is_said_on_the_danger_ground() {
     let tampered = signed.replace("pay the heron invoice", "pay the forged invoice");
     let message = arrive(&store, tampered.into_bytes());
     let (mut dom, mut seen) = reader(store, secrets, message.thread);
-    let page = until(&mut dom, &mut seen, |page| page.contains("seal-line bad")).await;
+    let page = until(&mut dom, &mut seen, |page| shows(&page, "seal-line bad")).await;
     let said = lines(&page);
     assert_eq!(
         said[1],
@@ -431,7 +428,7 @@ async fn a_changed_smime_message_is_said_on_the_danger_ground() {
             "Bad S/MIME signature: the message was changed after it was signed".to_owned()
         )
     );
-    assert!(!page.contains("seal-line good"), "{page}");
+    assert!(!shows(&page, "seal-line good"), "{page}");
 }
 
 /// `signed` with one byte of its RSA signature value changed: the content and the certificate
@@ -474,7 +471,7 @@ async fn a_forged_smime_signature_is_said_on_the_danger_ground() {
     let signed = String::from_utf8(sealed(&raw, Smime::Sign, &bea(), &[])).unwrap();
     let message = arrive(&store, forged(&signed).into_bytes());
     let (mut dom, mut seen) = reader(store, secrets, message.thread);
-    let page = until(&mut dom, &mut seen, |page| page.contains("seal-line bad")).await;
+    let page = until(&mut dom, &mut seen, |page| shows(&page, "seal-line bad")).await;
     let said = lines(&page);
     assert_eq!(
         said[1],
@@ -497,7 +494,7 @@ async fn a_signature_from_an_authority_nobody_trusts_is_amber_and_says_why() {
     let raw = letter("crane", "the crane is signed by a stranger");
     let message = arrive(&store, sealed(&raw, Smime::Sign, &stranger, &[]));
     let (mut dom, mut seen) = reader(store, secrets, message.thread);
-    let page = until(&mut dom, &mut seen, |page| page.contains("seal-line warn")).await;
+    let page = until(&mut dom, &mut seen, |page| shows(&page, "seal-line warn")).await;
     let said = lines(&page);
     assert_eq!(said[1].0, "seal-line warn", "{said:?}");
     assert_eq!(
@@ -507,10 +504,10 @@ async fn a_signature_from_an_authority_nobody_trusts_is_amber_and_says_why() {
             doubt(&CertProblem::Untrusted).replace('\'', "&#39;")
         )
     );
-    assert!(!page.contains("seal-line good"), "{page}");
+    assert!(!shows(&page, "seal-line good"), "{page}");
     assert!(page.contains("the crane is signed by a stranger"), "{page}");
     let drawn = seals(&page);
-    assert!(drawn.contains("seal-line detail"), "{drawn}");
+    assert!(shows(&drawn, "seal-line detail"), "{drawn}");
     let offences = crate::ui::style::tests::markup_offences(&drawn);
     assert!(offences.is_empty(), "the markup lint: {offences:#?}");
 }

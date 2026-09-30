@@ -27,19 +27,6 @@ pub(in crate::ui) enum Tone {
     Detail,
 }
 
-impl Tone {
-    pub(in crate::ui) fn class(self) -> &'static str {
-        match self {
-            Tone::Plain => "seal-line",
-            Tone::Good => "seal-line good",
-            Tone::Unknown => "seal-line unknown",
-            Tone::Warn => "seal-line warn",
-            Tone::Bad => "seal-line bad",
-            Tone::Detail => "seal-line detail",
-        }
-    }
-}
-
 /// One line the reader says about a message's protection.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::ui) struct Said {

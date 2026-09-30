@@ -235,9 +235,11 @@ impl Motion {
                     follow: Follow::ArchiveFrom { sender, list },
                 }));
                 if let Some(toasts) = toasts {
-                    toasts
-                        .hub
-                        .push_action(text, ToastAction::new("Archive All"), toasts.on_archive);
+                    toasts.hub.push_action(
+                        text,
+                        ToastAction::new("Archive All"),
+                        toasts.on_archive,
+                    );
                 }
             }
             // No host yet (a window still mounting): the words are kept, as before.

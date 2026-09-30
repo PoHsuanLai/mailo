@@ -1,2 +1,1 @@
 .pending { color: var(--ink-soft); font-style: italic; }
-.notice { margin: 0; padding: var(--s-6) var(--s-8); border-radius: var(--r-card); background: var(--accent-soft); color: var(--ink); font-size: var(--fs-control); }

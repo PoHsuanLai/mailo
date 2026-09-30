@@ -7,8 +7,8 @@
 use crate::appearance::{Legacy, write_json};
 use ds::prelude::{SpaceLook, Theme, Word};
 use ds::style::space::look::{CardAccent, Grain};
-use ds::style::space::presets::default_look;
 use ds::style::space::palette::{Dot, NEUTRAL_DOT};
+use ds::style::space::presets::default_look;
 use ds::style::tokens::person::PersonSwatch;
 use mail_domain::AccountId;
 use serde::de::Deserializer;
@@ -204,9 +204,7 @@ impl Space {
             name: raw.name,
             look: SpaceLook {
                 dots,
-                grain: raw
-                    .grain
-                    .map_or_else(|| Grain(preset_grain(index)), Grain),
+                grain: raw.grain.map_or_else(|| Grain(preset_grain(index)), Grain),
                 theme: raw.theme,
                 card_accent: raw.card_accent,
             },
@@ -276,7 +274,9 @@ where
 
 /// The grain the preset at `index` paints with.
 fn preset_grain(index: usize) -> u8 {
-    default_look(index, Grain::default(), CardAccent::default()).grain.0
+    default_look(index, Grain::default(), CardAccent::default())
+        .grain
+        .0
 }
 
 fn de_theme<'de, D>(deserializer: D) -> Result<Theme, D::Error>

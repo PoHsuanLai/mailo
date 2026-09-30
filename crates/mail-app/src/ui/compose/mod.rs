@@ -36,10 +36,10 @@ mod tests;
 use ds::components::content::label::LabelRole;
 use ds::components::controls::button_model::{Answers, Bezel, ImagePosition};
 use ds::components::controls::key_equivalent::{KeyEquivalent, KeyStyle};
+use ds::components::overlays::inline_banner::InlineBanner;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::root::pass_through::ExtraClass;
-use ds::style::icon::render::Glyph;
 use ds::style::tokens::control_size::ControlSize;
 use std::sync::Arc;
 
@@ -267,7 +267,11 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                     }
                 }
                 if let Some(notice) = notice {
-                    p { class: "notice", "{notice}" }
+                    InlineBanner {
+                        severity: Severity::Info,
+                        text: notice,
+                        onclose: move |()| page.write().notice = None,
+                    }
                 }
                 Props { page, shell }
                 Body { page, shell, on_attach: move |_| page.write().notice = Some("Pick the file with Attach, below.".to_owned()) }
@@ -289,16 +293,19 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
             }
             div { class: "c-foot",
                 if warn {
-                    div { class: "c-warn",
-                        Glyph { icon: Icon::Paperclip, size: IconSize::Compact }
-                        Label { text: "You wrote about an attachment, and nothing is attached.".to_owned() }
-                        Attach { page, label: "Attach a file" }
-                        Button {
-                            size: ControlSize::Small,
-                            label: "Send anyway",
-                            onclick: on_primary(move || send(Anyway::Yes)),
-                            common: Common { aria_label: Some(anyway_label.to_owned()), ..Common::default() },
-                        }
+                    InlineBanner {
+                        severity: Severity::Warn,
+                        icon: Some(Icon::Paperclip),
+                        text: "You wrote about an attachment, and nothing is attached.",
+                        actions: rsx! {
+                            Attach { page, label: "Attach a file" }
+                            Button {
+                                size: ControlSize::Small,
+                                label: "Send anyway",
+                                onclick: on_primary(move || send(Anyway::Yes)),
+                                common: Common { aria_label: Some(anyway_label.to_owned()), ..Common::default() },
+                            }
+                        },
                     }
                 }
                 SealWarn { bar: seal_bar, on_act: on_seal }
@@ -535,7 +542,6 @@ fn Attach(page: Signal<Page>, label: &'static str) -> Element {
                 });
             }),
             common: Common {
-                extra_class: ExtraClass::parse("attach").ok(),
                 aria_label: Some(label.to_owned()),
                 ..Common::default()
             },
