@@ -3,12 +3,13 @@
 //! A label and a snooze time are not things a button can carry, so the row opens one of these
 //! instead of performing the operation itself. Split from [`super::app`] (`CONVENTIONS.md` §8).
 
-use super::menu::{Floating, MenuItem, Right, Tile};
+use super::menu::{Checklist, Floating, MenuItem, Right, Run, Tile, Tone};
 use super::motion::act;
 use crate::view::Shell;
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
-use ds::{Filter, Icon, MenuKind, MountedRef, PickDismiss};
+use ds::host::measure::MountedRef;
+use ds::prelude::*;
 use mail_domain::*;
 use mail_store::SqliteStore;
 use std::sync::Arc;
@@ -145,13 +146,23 @@ pub(super) fn SnoozeMenu(
     anchor: Option<MountedRef>,
     /// The snooze button's rect once measured, which wins over `anchor`.
     #[props(default)]
-    placed: Option<ds::Rect>,
+    placed: Option<Rect>,
 ) -> Element {
     let now = Utc::now();
-    let items = snooze_items(now, &chrono::Local);
+    // The Mac's menu has no second line, so each choice says its time after its name.
+    let items: Vec<MenuItem> = snooze_items(now, &chrono::Local)
+        .into_iter()
+        .map(|item| MenuItem {
+            title: vec![Run {
+                text: format!("{} · {}", item.name, item.help.clone().unwrap_or_default()),
+                marks: Vec::new(),
+                tone: Tone::Plain,
+            }],
+            ..item
+        })
+        .collect();
     rsx! {
         Floating {
-            kind: MenuKind::Rich,
             anchor,
             placed,
             title: "Snooze until".to_owned(),
@@ -186,10 +197,15 @@ pub(super) fn LabelMenu(
     anchor: Option<MountedRef>,
     /// The Label button's rect once measured, which wins over `anchor`.
     #[props(default)]
-    placed: Option<ds::Rect>,
+    placed: Option<Rect>,
 ) -> Element {
     let mut typed = use_signal(String::new);
-    let items = label_items(&shell.read().labels, &summary, &typed());
+    let (create, base): (Vec<MenuItem>, Vec<MenuItem>) =
+        label_items(&shell.read().labels, &summary, &typed())
+            .into_iter()
+            .partition(|item| item.key.starts_with("create:"));
+    let mut items = super::menu::narrowed(&base, &typed());
+    items.extend(create);
     let account = summary.account;
     let note = shell
         .read()
@@ -197,16 +213,14 @@ pub(super) fn LabelMenu(
         .is_empty()
         .then(|| "No labels yet. They arrive with the first sync.".to_owned());
     rsx! {
-        Floating {
-            kind: MenuKind::Rich,
+        Checklist {
             anchor,
             placed,
             title: "Labels".to_owned(),
             items,
-            // What is typed shows in a line at the top, as the labels narrow.
-            filter: Filter::Field { placeholder: "Filter labels…".to_owned() },
+            placeholder: Some("Filter labels…".to_owned()),
+            query: typed(),
             note,
-            dismiss: PickDismiss::Stay,
             on_query: move |value| typed.set(value),
             on_pick: move |key: String| {
                 let store = consume_context::<Arc<SqliteStore>>();

@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 
 use dioxus::prelude::*;
 use dioxus_core::VirtualDom;
+use ds::prelude::{Ds, Material};
 use mail_proto::discover::Found;
 use mail_store::SqliteStore;
 
@@ -13,9 +14,20 @@ use super::AddAccountSheet;
 use super::flow::Seams;
 use super::flow_tests::{Fake, found, seams, with_jmap};
 use crate::space::{Scope, Space, Spaces};
-use crate::ui::fixtures::{Seen, click, dispatching, rebuild_into, type_into};
+use crate::ui::fixtures::{Seen, dispatching, drain_seen, rebuild_into};
 use crate::ui::host::{Ask, Recorder};
 use crate::view::Shell;
+
+/// A click, and the render after it: the sheet is quire's, drawn in its overlay, which follows
+/// the window by one render, so a button's state is the one before until then.
+fn click(dom: &mut VirtualDom, element: dioxus_core::ElementId) -> Seen {
+    crate::ui::fixtures::click(dom, element).merge(drain_seen(dom))
+}
+
+/// Text typed into a field, and the render after it (see [`click`]).
+fn type_into(dom: &mut VirtualDom, element: dioxus_core::ElementId, text: &str) -> Seen {
+    crate::ui::fixtures::type_into(dom, element, text).merge(drain_seen(dom))
+}
 
 const PASSWORD: &str = "s3cret-pass-4417";
 
@@ -61,9 +73,14 @@ fn Sheet(snapshot: Snapshot, scope: Vec<mail_domain::AccountId>) -> Element {
         spaces.read(),
         revision()
     );
+    // The sheet is quire's, and a quire component draws inside a `Ds` root.
     rsx! {
-        if shell.read().adding.is_some() {
-            AddAccountSheet { shell, revision, spaces }
+        Ds {
+            appearance: ds::prelude::Appearance::default(),
+            material: Material::Window,
+            if shell.read().adding.is_some() {
+                AddAccountSheet { shell, revision, spaces }
+            }
         }
     }
 }
@@ -89,7 +106,8 @@ fn open(store: &Arc<SqliteStore>, seams: Seams, scope: Vec<mail_domain::AccountI
     .with_root_context(store.clone())
     .with_root_context(seams)
     .with_root_context(host.host());
-    let seen = rebuild_into(&mut dom);
+    // The sheet is drawn by the render after the one that asked for it.
+    let seen = rebuild_into(&mut dom).merge(drain_seen(&mut dom));
     Open {
         dom,
         seen,
@@ -236,7 +254,10 @@ async fn a_lookup_error_is_shown_in_the_sheet() {
         shown.contains("No JMAP server answered at https://nowhere.test/.well-known/jmap either"),
         "{shown}"
     );
-    assert!(shown.contains("role=\"alert\""), "{shown}");
+    assert!(
+        shown.contains("data-note=\"refusal\""),
+        "a refusal is not marked as one: {shown}"
+    );
     assert!(shown.contains("Enter a JMAP server by hand"), "{shown}");
     assert_eq!(fake.added(), 0);
 }
@@ -410,7 +431,7 @@ async fn a_session_typed_by_hand_with_a_token_adds_with_bearer_and_keeps_the_tok
         "ada@example.test",
     );
     let seen = click(&mut open.dom, open.seen.one("id", "acct-by-hand"));
-    let url = seen.one("aria-label", "JMAP session URL");
+    let url = seen.one("aria-label", "Session URL");
     let seen = seen.merge(type_into(
         &mut open.dom,
         url,
@@ -671,7 +692,7 @@ async fn every_state() -> Vec<(&'static str, String)> {
     let seen = click(&mut typing.dom, typing.seen.one("id", "acct-by-hand"));
     type_into(
         &mut typing.dom,
-        seen.one("aria-label", "JMAP session URL"),
+        seen.one("aria-label", "Session URL"),
         "jmap.example.test",
     );
     all.push(("by-hand", page(&typing)));
@@ -687,24 +708,22 @@ async fn every_class_the_add_account_sheet_draws_is_styled() {
         .map(|(_, page)| page)
         .collect();
     for class in [
-        "acct-found",
-        "acct-k",
-        "acct-source",
+        "acct-sheet",
+        "acct-foot",
+        "acct-busy",
         "acct-done",
-        "secret",
-        "acct-said",
         "acct-url",
-        "acct-link",
         "acct-alt",
+        "ds-field-row",
+        "ds-label",
         "ds-segmented",
         "ds-input",
         "ds-button",
     ] {
         assert!(markup.contains(class), "{class} was not drawn");
     }
-    let missing =
-        crate::ui::style::tests::unstyled_classes(&markup, &crate::ui::style::tests::full_css());
-    assert!(missing.is_empty(), "unstyled classes: {missing:?}");
+    let offences = crate::ui::style::tests::markup_offences(&markup);
+    assert!(offences.is_empty(), "the markup lint: {offences:#?}");
     assert!(!markup.contains(PASSWORD), "a state drew the password");
 }
 

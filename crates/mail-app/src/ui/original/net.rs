@@ -18,7 +18,7 @@
 //! raster image of a kind `mail-mime` embeds, by its declared type and by its first bytes.
 
 use super::consent::Consent;
-use ds_native::{AppNet, NetDecision, NetReply, NetRequest};
+use ds_blitz::{AppNet, NetDecision, NetReply, NetRequest};
 use mail_domain::MessageId;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;

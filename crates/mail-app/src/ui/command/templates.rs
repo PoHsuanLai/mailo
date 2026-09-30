@@ -2,6 +2,7 @@
 //! [`Menu`]. Picking one starts a draft from it and opens that draft as a composer page; the ×
 //! deletes one.
 
+use ds::prelude::*;
 use std::sync::Arc;
 
 use chrono::Utc;
@@ -10,9 +11,10 @@ use mail_domain::Draft;
 use mail_store::SqliteStore;
 
 use super::super::compose::{every_template, forget_template, template_rows};
-use super::super::menu::quire_rows;
+use super::super::menu::palette_groups;
 use super::super::motion::{Follow, tell};
 use crate::view::Shell;
+use ds::components::content::avatar::AvatarSize;
 
 #[cfg(test)]
 #[path = "templates_tests.rs"]
@@ -68,16 +70,18 @@ pub(super) fn TemplateMenu(shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
         }
         deleted += 1;
     });
-    let rows = quire_rows(&items, ds::AvatarSize::Size34, Some(remove));
+    let mut groups = palette_groups(&items, AvatarSize::Size22, Some(remove));
+    for group in &mut groups.0 {
+        group.title = "Templates".to_owned();
+    }
     rsx! {
-        ds::CommandPalette::<String> {
+        CommandPalette::<String> {
             label: "New from template".to_owned(),
             placeholder: "New from template · type to narrow".to_owned(),
             query: typed,
             tokens: Vec::new(),
-            groups: vec![("Templates".to_owned(), rows)],
+            groups,
             empty: empty.to_owned(),
-            entrance: ds::PaletteEntrance::Opaque,
             oninput: move |value| {
                 shell.write().command = Some(value);
             },

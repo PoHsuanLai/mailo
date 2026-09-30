@@ -1,7 +1,7 @@
 //! mailo's menu rows as data, before they become quire's entries: the items, the keys a field
 //! beside a menu hears, and the marks a query leaves in a name.
 
-use ds::Icon;
+use ds::prelude::Icon;
 
 /// What the tile on the left is.
 #[derive(Debug, Clone, PartialEq, Eq)]

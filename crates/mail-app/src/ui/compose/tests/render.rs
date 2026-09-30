@@ -127,14 +127,6 @@ async fn every_class_the_composer_draws_is_styled() {
         }),
         Box::new(|page: &mut Page| {
             composed(page);
-            page.float = Float::Turn;
-            page.selection = Some(Range {
-                start: Pos::new(1, 0),
-                end: Pos::new(1, 7),
-            });
-        }),
-        Box::new(|page: &mut Page| {
-            composed(page);
             page.float = Float::Object(8);
             page.session
                 .doc
@@ -152,7 +144,7 @@ async fn every_class_the_composer_draws_is_styled() {
         Box::new(|page: &mut Page| {
             composed(page);
             page.float = Float::Sends;
-            page.guard = Guard::Shake(1);
+            page.guard = Guard::NoRecipient(1);
         }),
         Box::new(|page: &mut Page| page.float = Float::PickTime("tomorrow 9".to_owned())),
         Box::new(|page: &mut Page| page.float = Float::PickTime("2020-01-01 10:00".to_owned())),
@@ -161,11 +153,8 @@ async fn every_class_the_composer_draws_is_styled() {
     ];
     for dress in states {
         let (markup, _root) = window_with_page(dress);
-        let missing = crate::ui::style::tests::unstyled_classes(
-            &markup,
-            &crate::ui::style::tests::full_css(),
-        );
-        assert!(missing.is_empty(), "unstyled classes: {missing:?}");
+        let offences = crate::ui::style::tests::markup_offences(&markup);
+        assert!(offences.is_empty(), "markup offences: {offences:#?}");
     }
 }
 

@@ -25,26 +25,30 @@ rusqlite = { version = "0.40", features = ["bundled"] }
 serde.workspace = true
 serde_json = "1"
 # `sync` for the channel the Original frame's image fetches reach their worker through
-# (`ui/original/net.rs`); already in the tree through reqwest and ds-native.
+# (`ui/original/net.rs`); already in the tree through reqwest and ds-blitz.
 tokio = { version = "1", features = ["rt", "macros", "time", "net", "io-util", "sync"] }
 # For `join_all` only: one pass over several accounts is several independent conversations with
 # several servers, and running them one after another spends the sum of their waiting.
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "charset", "http2"] }
 chrono.workspace = true
-# The renderer is quire's `ds-native` (Blitz, drawn with wgpu); dioxus itself brings none.
+# The renderer is quire's `ds-blitz` (Blitz, drawn with wgpu); dioxus itself brings none.
 dioxus = { version = "0.7" }
 # quire, the shared design system (github.com/PoHsuanLai/quire), pinned to a release tag.
-# `lint` is for the stylesheet and markup tests. To try an unreleased quire,
-# point every quire line at a checkout with a `[patch]` in a local, uncommitted
-# `.cargo/config.toml`, never here.
-ds = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.1.11", features = ["lint"] }
+# To try an unreleased quire, point every quire line at a checkout with a `[patch]` in a local,
+# uncommitted `.cargo/config.toml`, never here.
+ds = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.2.0" }
 # Settings I/O: `appearance.toml` (imported once from `appearance.json`), the settings portal.
-ds-settings = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.1.11" }
-# The window: quire's Blitz host (the window, its fonts, focus, clipboard, harness, PDF output),
-# and `print`: the system's print dialog for a PDF (the desktop portal on Linux, else the PDF
-# opened in the viewer).
-ds-native = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.1.11", features = ["print"] }
+ds-settings = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.2.0", features = ["dioxus"] }
+# The Space editor (`SpaceEditor`) and the Space dots are shell components; mailo draws them in
+# its own window.
+ds-shell = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.2.0" }
+# `mailo.toml`, and the `appearance.toml` written once on the first run after the move.
+toml = "1"
+# The window: quire's Blitz host (the window, its fonts, focus, clipboard, PDF output), and
+# `print`: the system's print dialog for a PDF (the desktop portal on Linux, else the PDF opened
+# in the viewer).
+ds-blitz = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.2.0", features = ["pdf", "print"] }
 blitz-dom = { workspace = true }
 dioxus-native-dom = { workspace = true }
 # ASCII-case-insensitive multi-pattern search for highlights. Already in the tree via `regex`.
@@ -105,7 +109,12 @@ uuid = { workspace = true }
 proptest = "1"
 # Reading a printout back in the print tests (`ui/print/pdf_tests.rs`): its pages, text
 # and images. The reader quire's own PDF tests use, at quire's pin (`docs/workspace-deps.toml`).
-pdfrum = { version = "0.4", default-features = false, features = ["vello-cpu"] }
+pdfrum = { git = "https://github.com/PoHsuanLai/pdfrum", rev = "613710405bcd239684e23fb8ad2bcb9aab329549", default-features = false, features = ["vello-cpu"] }
+# The linter (`lint::assert_clean`, the markup lint) and the test driver (`Harness`, `Driver`,
+# `Query`, `snapshot`; `pdf` is `Harness::pdf` for the print tests): quire's own crates, at the
+# same tag.
+ds-lint = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.2.0" }
+ds-harness = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.2.0", features = ["pdf"] }
 
 [lints]
 workspace = true

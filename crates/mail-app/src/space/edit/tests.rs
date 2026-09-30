@@ -1,7 +1,8 @@
 use super::{Draft, MOST_DOTS, Nudge, Refused, Stride};
 use crate::space::{PRESETS, Space};
-use crate::view::{Motion, Theme};
-use ds::{CardAccent, Dot, Grain, SpaceLook};
+use ds::prelude::{SpaceLook, Theme};
+use ds::style::space::look::CardAccent;
+use ds::style::space::palette::Dot;
 
 fn space(dots: &[Dot]) -> Space {
     Space {
@@ -166,20 +167,16 @@ fn escape_restores_the_saved_space_exactly() {
         name: "Home".to_owned(),
         look: SpaceLook {
             dots: PRESETS[3].to_vec(),
-            grain: Grain(60),
             theme: Theme::Dark,
-            card_accent: CardAccent::Postmark,
+            card_accent: CardAccent::Chosen,
         },
-        motion: Motion::Calm,
         ..Space::default()
     };
     let mut draft = Draft::open(2, saved.clone());
     draft.space.name = "Elsewhere".to_owned();
     draft.nudge(0, Nudge::Right, Stride::Ten);
     draft.add().unwrap_or_else(|why| panic!("{why:?}"));
-    draft.space.look.grain = Grain(5);
     draft.space.look.theme = Theme::Light;
-    draft.space.motion = Motion::Extra;
     draft.space.look.card_accent = CardAccent::SpaceHue;
     draft.preset(9);
     assert_ne!(draft.space, saved, "the edits above changed nothing");

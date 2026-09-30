@@ -2,9 +2,14 @@
 
 use crate::notify::{self, Setting};
 use crate::ui::app::App;
-use crate::ui::fixtures::{Seen, Work, click, dispatching, rebuild_into, work};
-use crate::ui::sidebar::tests::{buttons_in, pressed};
+use crate::ui::fixtures::{Seen, Work, dispatching, drain_seen, rebuild_into, work};
+use crate::ui::sidebar::tests::buttons_in;
 use dioxus::dioxus_core::VirtualDom;
+
+/// A click, and the render after it: the sheet is drawn in quire's overlay, a render behind.
+fn click(dom: &mut VirtualDom, element: dioxus::dioxus_core::ElementId) -> Seen {
+    crate::ui::fixtures::click(dom, element).merge(drain_seen(dom))
+}
 
 /// The window on the Work Space, with the editor open. `Work` owns the directories.
 fn opened(built: &Work) -> (VirtualDom, Seen) {
@@ -13,23 +18,25 @@ fn opened(built: &Work) -> (VirtualDom, Seen) {
         .with_root_context(built.store.clone())
         .with_root_context(built.dirs.clone());
     let seen = rebuild_into(&mut dom);
-    let seen = click(&mut dom, seen.one("aria-label", "Edit the Work Space"));
+    // The sheet is drawn by the render after the click that asked for it.
+    let seen =
+        click(&mut dom, seen.one("aria-label", "Edit the Work Space")).merge(drain_seen(&mut dom));
     (dom, seen)
 }
 
 /// The Notifications group's pressed button, as the page draws it.
 fn shown(page: &str) -> Vec<String> {
-    const OPEN: &str =
-        "class=\"ds-segmented\" data-size=\"regular\" role=\"group\" aria-label=\"Notifications\"";
+    const OPEN: &str = "class=\"ds-segmented\" role=\"radiogroup\" aria-label=\"Notifications\"";
     let at = page
         .find(OPEN)
         .unwrap_or_else(|| panic!("no Notifications switch in:\n{page}"));
     let tail = &page[at + OPEN.len()..];
     let body = &tail[..tail.find("</div>").unwrap_or(tail.len())];
     let buttons = buttons_in(&format!("<div class=\"seg\"{body}</div>"), "seg");
-    pressed(&buttons, |button| button.text.as_str())
-        .into_iter()
-        .map(str::to_owned)
+    buttons
+        .iter()
+        .filter(|button| button.attr("aria-checked") == "true")
+        .map(|button| button.text.clone())
         .collect()
 }
 
@@ -42,7 +49,7 @@ async fn the_switch_reads_and_writes_the_setting_the_watch_reads() {
     assert_eq!(shown(&dioxus_ssr::render(&dom)), ["On"]);
 
     // The switch's segments, On then Off, found after its group.
-    let segments = seen.after("aria-label", "Notifications", "aria-pressed");
+    let segments = seen.after("aria-label", "Notifications", "aria-checked");
     click(&mut dom, segments[1]);
     assert_eq!(notify::load(config), Setting::Off, "Off was not kept");
     let page = dioxus_ssr::render(&dom);

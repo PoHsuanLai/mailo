@@ -128,7 +128,7 @@ thread_local! {
 fn Open(thread: ThreadId) -> Element {
     let shell = use_signal(Shell::default);
     SHELL.with(|slot| slot.set(Some(shell)));
-    rsx! { Reader { thread, shell } }
+    rsx! { ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window, Reader { thread, shell } } }
 }
 
 /// The reader on `thread`, with `secrets` as the keyring.
@@ -170,6 +170,35 @@ pub(super) async fn until(
 }
 
 /// The seal's lines, in order, as `(class, words)`.
+/// `page` without the list rows that are leaving: a quire `List` keeps a removed row drawn while
+/// it fades out, so what a list holds now is what is not `data-presence="leaving"`.
+pub(super) fn without_leaving(page: &str) -> String {
+    let mut out = String::new();
+    let mut rest = page;
+    while let Some(at) = rest.find("data-presence=\"leaving\"") {
+        let start = rest[..at].rfind("<div").unwrap_or(at);
+        out.push_str(&rest[..start]);
+        let mut depth = 0usize;
+        let mut end = start;
+        for (offset, piece) in rest[start..].match_indices(['<']) {
+            let tail = &rest[start + offset..];
+            if tail.starts_with("<div") {
+                depth += 1;
+            } else if tail.starts_with("</div") {
+                depth -= 1;
+                if depth == 0 {
+                    end = start + offset + "</div>".len();
+                    break;
+                }
+            }
+            let _ = piece;
+        }
+        rest = &rest[end..];
+    }
+    out.push_str(rest);
+    out
+}
+
 pub(super) fn lines(page: &str) -> Vec<(String, String)> {
     let mut out = Vec::new();
     let mut rest = page;
@@ -178,8 +207,19 @@ pub(super) fn lines(page: &str) -> Vec<(String, String)> {
         let class_end = rest.find('"').unwrap();
         let class = rest[..class_end].to_owned();
         let text_start = rest.find('>').unwrap() + 1;
-        let text_end = rest[text_start..].find('<').unwrap() + text_start;
-        out.push((class, rest[text_start..text_end].to_owned()));
+        let text_end = rest[text_start..].find("</p>").unwrap() + text_start;
+        // The line's words are quire's `Label`, a span inside it: the text, without its tags.
+        let mut words = String::new();
+        let mut in_tag = false;
+        for c in rest[text_start..text_end].chars() {
+            match c {
+                '<' => in_tag = true,
+                '>' => in_tag = false,
+                c if !in_tag => words.push(c),
+                _ => {}
+            }
+        }
+        out.push((class, words));
         rest = &rest[text_end..];
     }
     out
@@ -635,9 +675,8 @@ async fn a_plain_message_says_nothing_and_every_seal_class_is_styled() {
         drawn.contains("unlock-field") && drawn.contains("seal-line bad"),
         "{drawn}"
     );
-    let missing =
-        crate::ui::style::tests::unstyled_classes(&drawn, &crate::ui::style::tests::full_css());
-    assert!(missing.is_empty(), "unstyled classes: {missing:?}");
+    let offences = crate::ui::style::tests::markup_offences(&drawn);
+    assert!(offences.is_empty(), "the markup lint: {offences:#?}");
 }
 
 /// Every `div.seal` in `page`, whole: what this module draws, and nothing of the reader around it.

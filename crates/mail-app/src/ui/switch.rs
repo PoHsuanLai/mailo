@@ -1,32 +1,14 @@
-//! Switching Space: which mail the list shows, where each Space was left, and which way the
-//! sidebar slides.
+//! Switching Space: which mail the list shows, and where each Space was left.
 //!
 //! [`switch`] is the decision, on plain values. [`go`] is the same thing on the window's
-//! signals, plus the write to `spaces.json`; the frame repaints itself from the Spaces.
+//! signals, plus the write to `spaces.json`; the frame repaints itself from the Spaces, and
+//! quire's root cross-fades the Space's colour.
 
 use super::frame::{keep, scope_ids};
 use crate::space::edit::Draft;
 use crate::space::{self, Recall, Space, Spaces};
 use crate::view::{PageMenu, Shell};
 use dioxus::prelude::*;
-
-/// Which way the sidebar's contents come in: from the right when the new Space is further
-/// along the dots, from the left when it is before.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Slide {
-    Left,
-    Right,
-}
-
-impl Slide {
-    /// The class the mockup animates, `.slide.in-l` or `.slide.in-r`.
-    pub(super) fn class(self) -> &'static str {
-        match self {
-            Slide::Left => "slide in-l",
-            Slide::Right => "slide in-r",
-        }
-    }
-}
 
 /// The Space Ctrl and a digit ask for: `"1"` is the first. `None` for any other key.
 pub(super) fn space_key(key: &str) -> Option<usize> {
@@ -77,30 +59,34 @@ fn restore(shell: &mut Shell, space: &Space, recall: &Recall) {
 /// Leave the current Space for the one at `index`.
 ///
 /// The Space being left remembers its place, open thread and account tile; the one arrived
-/// at gets its own back. `None` when `index` is the current Space or past the last, which
+/// at gets its own back. `Moved::No` when `index` is the current Space or past the last, which
 /// changes nothing.
-pub(super) fn switch(spaces: &mut Spaces, shell: &mut Shell, index: usize) -> Option<Slide> {
+pub(super) fn switch(spaces: &mut Spaces, shell: &mut Shell, index: usize) -> Moved {
     let from = spaces.current;
     if index >= spaces.spaces.len() || index == from {
-        return None;
+        return Moved::No;
     }
     spaces.recall.insert(from, recall_of(shell));
     spaces.current = index;
     let recall = spaces.recall.get(&index).cloned().unwrap_or_default();
     restore(shell, &spaces.current_space(), &recall);
-    Some(if index > from {
-        Slide::Right
-    } else {
-        Slide::Left
-    })
+    Moved::Yes
 }
 
-/// The window's side of a switch: the decision, then the slide and the file.
+/// Whether a switch changed the Space on screen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Moved {
+    /// Another Space is showing now.
+    Yes,
+    /// Nothing changed.
+    No,
+}
+
+/// The window's side of a switch: the decision, then the file.
 pub(super) fn go(
     mut spaces: Signal<Spaces>,
     mut shell: Signal<Shell>,
     mut pages: Signal<u32>,
-    mut slide: Signal<Option<Slide>>,
     index: usize,
 ) {
     let moved = {
@@ -108,12 +94,11 @@ pub(super) fn go(
         let mut showing = shell.write();
         switch(&mut all, &mut showing, index)
     };
-    let Some(way) = moved else {
+    if moved == Moved::No {
         return;
-    };
+    }
     // No repaint to ask for: the window's `Ds` root reads the current Space and cross-fades its
     // frame to the new one by itself.
-    slide.set(Some(way));
     pages.set(1);
     keep(&spaces.read());
 }
@@ -126,7 +111,6 @@ pub(super) fn add(
     mut spaces: Signal<Spaces>,
     shell: Signal<Shell>,
     pages: Signal<u32>,
-    slide: Signal<Option<Slide>>,
     mut editing: Signal<Option<Draft>>,
 ) {
     let made = space::new_space(&spaces.read());
@@ -135,7 +119,7 @@ pub(super) fn add(
         all.spaces.push(made.clone());
         all.spaces.len() - 1
     };
-    go(spaces, shell, pages, slide, index);
+    go(spaces, shell, pages, index);
     editing.set(Some(Draft::open(index, made)));
 }
 

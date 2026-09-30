@@ -1,6 +1,6 @@
 //! The Original view's guarantees on Blitz, against the reader's real frame
 //! (`mail_app::ui::native::OriginalFrame`, the `Sandbox` iframe in mailo's stylesheet) in a
-//! headless Blitz document (`ds_native::Harness`).
+//! headless Blitz document (`ds_blitz::Harness`).
 //!
 //! The webview's frame was held by its markup, and `src/ui/reading/tests.rs` asserts that markup
 //! (`sandbox=""`, no parent between the article and the iframe, the "sandboxed frame" note).
@@ -26,7 +26,11 @@
 //! with `FrameLinks::Inert`, the mechanism before mailo held the frames' network itself.
 
 use dioxus::prelude::*;
-use ds_native::{FrameLinks, Harness, HarnessConfig, NetPolicy, Viewport};
+use ds_blitz::{FrameLinks, NetPolicy};
+use ds_harness::{Driver, Harness, HarnessConfig, Query, Viewport};
+#[path = "support/drive.rs"]
+mod drive;
+use drive::Drive;
 use mail_app::ui::native::{Browse, Fetch, Original, OriginalFrame};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
@@ -148,7 +152,10 @@ impl Held {
     fn config(&self, page: Page) -> HarnessConfig {
         let config = HarnessConfig::new(VIEW).with_context(page);
         match self {
-            Held::Mailo(original, ..) => original.harness(config),
+            Held::Mailo(original, ..) => config
+                .with_net(original.net())
+                .with_frame_links(original.links())
+                .with_contexts(original.contexts()),
             Held::Before => config
                 .with_net(NetPolicy::Local)
                 .with_frame_links(FrameLinks::Inert),
@@ -168,7 +175,7 @@ fn open(held: &Held, body: &str, css: &str) -> Harness {
         body: body.to_owned(),
         css: css.to_owned(),
     };
-    let mut harness = Harness::with_config(Window, held.config(page));
+    let mut harness = Harness::new(Window, held.config(page));
     harness.advance(Duration::from_millis(50));
     harness
 }

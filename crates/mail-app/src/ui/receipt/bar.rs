@@ -5,6 +5,11 @@ use super::super::press::{available, on_primary};
 use super::{Bodies, Line, Standing, answer, cached, line, lookup};
 use crate::receipt::ReceiptState;
 use dioxus::prelude::*;
+use ds::components::content::label::{LabelRole, LabelStyle};
+use ds::components::controls::button_model::Answers;
+use ds::prelude::*;
+use ds::root::common::Common;
+use ds::style::tokens::control_size::ControlSize;
 use mail_domain::{MessageId, ReceiptAnswer};
 use mail_store::SqliteStore;
 use std::sync::Arc;
@@ -66,7 +71,7 @@ pub(in crate::ui) fn Bar(
     let phase = use_signal(|| Phase::Asking);
     match said {
         Line::Settled(note) => rsx! {
-            p { class: "receipt-note mono", "{note}" }
+            Label { text: note, role: LabelRole::Tertiary, style: LabelStyle::Footnote }
         },
         Line::Asking { sentence, warning } => {
             let working = phase() == Phase::Working;
@@ -77,32 +82,32 @@ pub(in crate::ui) fn Bar(
             let send = "Send receipt";
             let decline = "Don't send";
             rsx! {
-                div { class: "receipt", role: "group", aria_label: "Read receipt",
-                    p { class: "say", "{sentence}" }
-                    if let Some(warning) = warning {
-                        p { class: "warn", "{warning}" }
-                    }
-                    if let Some(why) = failed {
-                        p { class: "why", "{why}" }
-                    }
-                    div { class: "acts",
-                        ds::Button {
-                            variant: ds::ButtonVariant::Mini,
+                                        div { class: "receipt", role: "group", aria_label: "Read receipt",
+                                            span { class: "say", Label { text: sentence, role: LabelRole::Secondary } }
+                                            if let Some(warning) = warning {
+                                                Label { text: warning, role: LabelRole::Secondary, style: LabelStyle::Footnote }
+                                            }
+                                            if let Some(why) = failed {
+                                                Label { text: why, role: LabelRole::Secondary, style: LabelStyle::Footnote }
+                                            }
+                                            div { class: "acts",
+                                                Button {
+                            size: ControlSize::Small,
                             label: decline.to_string(),
-                            aria_label: decline.to_string(),
                             availability: available(!working),
                             onclick: on_primary(move || give(message, ReceiptAnswer::Declined, phase, known)),
-                        }
-                        ds::Button {
-                            variant: ds::ButtonVariant::Primary,
+                common: Common { aria_label: Some(decline.to_string()), ..Common::default() },
+            }
+                                                Button {
+                            answers: Answers::Return,
                             label: if working { "Working…".to_owned() } else { send.to_string() },
-                            aria_label: send.to_string(),
                             availability: available(!working),
                             onclick: on_primary(move || give(message, ReceiptAnswer::Sent, phase, known)),
-                        }
-                    }
-                }
+                common: Common { aria_label: Some(send.to_string()), ..Common::default() },
             }
+                                            }
+                                        }
+                                    }
         }
     }
 }

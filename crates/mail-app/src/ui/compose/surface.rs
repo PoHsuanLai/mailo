@@ -18,15 +18,18 @@
 //! drawn at its rect as given, `--caret-w` wide. The caret's rect in the window is also where the
 //! IME's candidate window goes and where the `/` and `@` menus float (`Marks::at`).
 
+use ds::prelude::*;
 use std::cell::Cell;
 use std::rc::Rc;
 use std::sync::Arc;
 
 use dioxus::prelude::*;
-use ds::{
-    Composition, EditFocus, EditHandle, EditInput, EditPointer, EditSurface, ExtraClass,
-    HostMeasure, Measured, Point, Px, Rect, TextPosition, TextRange, use_edit_handle,
-};
+use ds::edit::handle::{EditHandle, use_edit_handle};
+use ds::edit::input::{Composition, EditInput};
+use ds::edit::pointer::{EditFocus, EditPointer};
+use ds::host::position::{TextPosition, TextRange};
+use ds::root::common::Common;
+use ds::root::pass_through::ExtraClass;
 
 use super::adapt::{self, Asked, Reach, Step};
 use super::body::{key_taken, now_ms};
@@ -151,8 +154,11 @@ pub(super) fn Surface(
                 }
             }
             EditSurface {
-                label: "Message",
-                extra_class: ExtraClass::parse(class).ok(),
+                common: Common {
+                    aria_label: Some("Message".to_owned()),
+                    extra_class: ExtraClass::parse(class).ok(),
+                    ..Common::default()
+                },
                 handle,
                 ime_area: shown.at,
                 on_input: move |input: EditInput| {
@@ -188,7 +194,7 @@ async fn measure(
     range: Option<TextRange>,
 ) -> Option<Marks> {
     for _ in 0..TRIES {
-        ds::sleep(ds::FRAME_SLACK).await;
+        ds::base::time::clock::sleep(ds::base::time::FRAME_SLACK).await;
         let origin = corner.peek().as_deref().and_then(origin_of);
         if let Some(marks) = origin.and_then(|at| read_marks(handle, at, &caret, range.as_ref())) {
             return Some(marks);
@@ -201,8 +207,8 @@ async fn measure(
 /// in. `.c-body` hangs its gutter outside that box (its negative margin), so the surface's own
 /// corner is not it.
 fn origin_of(layer: &MountedData) -> Option<Point> {
-    let HostMeasure(read) = try_consume_context::<HostMeasure>()?;
-    match read(layer) {
+    let host = use_document_host();
+    match host.geometry().measure(layer) {
         Measured::At(rect) => Some(rect.origin),
         Measured::Busy | Measured::Unknown => None,
     }

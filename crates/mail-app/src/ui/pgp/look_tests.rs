@@ -44,7 +44,10 @@ async fn an_openpgp_message_opened_lists_what_is_attached_inside_and_saves_it_wh
     .await;
     // What was attached inside is listed; the ciphertext it arrived in is not.
     assert!(page.contains("map.bin"), "{page}");
-    assert!(!page.contains("encrypted.asc"), "{page}");
+    assert!(
+        !super::tests::without_leaving(&page).contains("encrypted.asc"),
+        "{page}"
+    );
     let saved =
         save_attachment(message.id, message.body.raw(), 0, &dir.path().join("out")).unwrap();
     assert_eq!(saved.file_name().unwrap(), "map.bin");

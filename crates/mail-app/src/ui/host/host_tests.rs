@@ -12,13 +12,12 @@ fn every_ask() -> Vec<Ask> {
     vec![
         Ask::FocusApp,
         focus(".search input", When::Now),
-        focus(".acct-sheet .files-main input", When::NextFrame),
+        focus(".acct-sheet input", When::NextFrame),
         focus(".book-find .inp", When::NextFrame),
         focus(".files-main input", When::NextFrame),
         focus(".pick-field", When::AfterTask),
         focus(".tpl-name", When::AfterTask),
         Ask::FocusAndSelect(Drawn::FindField),
-        Ask::FocusAndSelect(Drawn::FolderName),
         Ask::ScrollIntoView("mark.hit.now"),
         Ask::Copy("a\"b@example.org".to_owned()),
     ]
@@ -32,13 +31,12 @@ fn empty() -> Element {
 fn ask_everything() {
     Host::focus_app();
     Host::focus(".search input");
-    Host::focus_next_frame(".acct-sheet .files-main input");
+    Host::focus_next_frame(".acct-sheet input");
     Host::focus_next_frame(".book-find .inp");
     Host::focus_next_frame(".files-main input");
     Host::focus_after_task(".pick-field");
     Host::focus_after_task(".tpl-name");
     Host::focus_and_select(Drawn::FindField);
-    Host::focus_and_select(Drawn::FolderName);
     Host::scroll_into_view("mark.hit.now");
     Host::copy("a\"b@example.org");
 }

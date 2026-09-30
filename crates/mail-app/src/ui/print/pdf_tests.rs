@@ -9,7 +9,7 @@ use crate::print::Printed;
 use crate::ui::fixtures::{ACCOUNT, seeded};
 use crate::ui::original::{Consent, FetchImage, Got, ReaderNet};
 use chrono::TimeZone;
-use ds_native::{PageSize, PrintError, PrintOutcome};
+use ds_blitz::{PageSize, PrintError, PrintOutcome};
 use mail_domain::*;
 use mail_mime::{Pages, Script};
 use mail_store::{SqliteStore, Store};
@@ -496,8 +496,8 @@ fn a_header_or_an_attachment_list_is_never_cut_by_a_page_end() {
             .map(|(filler, html)| {
                 scope.spawn(move || {
                     let spec = Paper::plain().spec;
-                    let kept = ds_native::pdf(html, spec).unwrap();
-                    let loose = ds_native::pdf(&unmarked(html), spec).unwrap();
+                    let kept = ds_blitz::pdf(html, spec).unwrap();
+                    let loose = ds_blitz::pdf(&unmarked(html), spec).unwrap();
                     (*filler, cut(&open(&kept)), cut(&open(&loose)))
                 })
             })
@@ -624,7 +624,7 @@ fn the_locale_chooses_the_paper_and_the_cjk_face() {
                 paper.spec.size, paper.cjk
             ));
         }
-        assert_eq!(paper.spec.margins, ds_native::Margins::default());
+        assert_eq!(paper.spec.margins, ds_blitz::Margins::default());
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

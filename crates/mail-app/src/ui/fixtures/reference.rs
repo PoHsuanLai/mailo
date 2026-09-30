@@ -8,9 +8,10 @@ use super::store::gmail_caps;
 use crate::appearance::WindowDirs;
 use crate::space::{self, Pinned, Scope, Space, Spaces};
 use crate::today::{self, Today};
-use crate::view::{Motion, Theme};
 use chrono::Datelike;
-use ds::{CardAccent, Dot, Grain, SpaceLook};
+use ds::prelude::{SpaceLook, Theme};
+use ds::style::space::look::CardAccent;
+use ds::style::space::palette::Dot;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 use std::collections::BTreeMap;
@@ -243,11 +244,9 @@ pub(in crate::ui) fn work() -> Work {
                         chroma: 0.55,
                     },
                 ],
-                grain: Grain(35),
                 theme: Theme::System,
                 card_accent: CardAccent::SpaceHue,
             },
-            motion: Motion::Standard,
             scope: Scope::All,
             pins: vec![
                 Pinned::Person {

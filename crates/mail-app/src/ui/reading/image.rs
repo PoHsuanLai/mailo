@@ -5,6 +5,9 @@
 use super::super::press::on_primary;
 use crate::view::Shell;
 use dioxus::prelude::*;
+use ds::prelude::*;
+use ds::root::common::Common;
+use ds::style::tokens::control_size::ControlSize;
 use mail_mime::ImgSrc;
 
 pub(super) fn image(
@@ -22,16 +25,16 @@ pub(super) fn image(
     }
     match src {
         ImgSrc::Blocked { host } => rsx! {
-            div { key: "{path}", class: "b b-img blocked", style: "{placeholder_ratio(width, height)}",
-                span { "Image from " strong { "{host}" } " — " }
-                ds::Button {
-                    variant: ds::ButtonVariant::Mini,
+                            div { key: "{path}", class: "b b-img blocked", style: "{placeholder_ratio(width, height)}",
+                                span { "Image from " strong { "{host}" } " — " }
+                                Button {
+                    size: ControlSize::Small,
                     label: "load images".to_owned(),
-                    aria_label: "load images".to_owned(),
                     onclick: on_primary(move || shell.write().show_remote_images = true),
-                }
-            }
-        },
+            common: Common { aria_label: Some("load images".to_owned()), ..Common::default() },
+        }
+                            }
+                        },
         ImgSrc::Inline(uri) => rsx! {
             div { key: "{path}", class: "b b-img",
                 img { alt: "{alt}", src: "{uri.as_str()}" }

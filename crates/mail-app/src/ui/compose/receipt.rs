@@ -6,11 +6,14 @@
 //! "Receipt: no" row would be a question put to every message.
 
 use dioxus::prelude::*;
+use ds::components::controls::button_model::{Bezel, ImagePosition};
+use ds::components::controls::chip::{Chip, ChipVariant};
+use ds::components::fields::field_row::{FieldRow, RowLayout};
+use ds::prelude::*;
 use mail_domain::ReceiptRequest;
 
 use super::super::menu::{MenuItem, Right, Tile};
 use super::page::Page;
-use ds::{Glyph, Icon};
 
 /// The Sends menu's key for the receipt item. No `When` shares it.
 pub(in crate::ui) const KEY: &str = "receipt";
@@ -41,19 +44,18 @@ pub(in crate::ui) fn ReceiptRow(page: Signal<Page>) -> Element {
     }
     let stop = "Stop asking for a read receipt";
     rsx! {
-        div { class: "prop-row", "data-row": "receipt",
-            div { class: "k", Glyph { icon: Icon::Check, size: ds::IconSize::Compact }, "Receipt" }
-            div { class: "v",
-                span { class: "pchip receipt-chip",
-                    "Asks for a read receipt"
-                    ds::IconButton {
-                        variant: ds::IconButtonVariant::Strip,
-                        icon: Icon::X,
-                        label: stop,
-                        tooltip: stop.to_owned(),
-                        onclick: super::super::press::on_primary(move || page.write().toggle_receipt()),
-                    }
-                }
+        FieldRow {
+            label: "Receipt",
+            layout: RowLayout::Form,
+            common: super::props::row("receipt"),
+            Chip { variant: ChipVariant::Neutral, text: "Asks for a read receipt".to_owned() }
+            Button {
+                bezel: Bezel::Toolbar,
+                image: ImagePosition::Only,
+                icon: Icon::X,
+                label: stop,
+                title: stop.to_owned(),
+                onclick: super::super::press::on_primary(move || page.write().toggle_receipt()),
             }
         }
     }

@@ -3,7 +3,7 @@
 use super::hover;
 use crate::trust::Destination;
 use dioxus::prelude::*;
-use ds::LinkTarget;
+use ds::components::app::link_pill::{LinkPill as Pill, LinkTarget};
 
 /// Where the link under the pointer goes, like a browser's status bar, and loud when its text
 /// names somewhere else. Drawn in the reader; the link reports itself from the parsed blocks.
@@ -15,8 +15,9 @@ pub(in crate::ui) fn LinkPill() -> Element {
     let Some(link) = state.link.read().clone() else {
         return rsx! {};
     };
-    // quire's pill for a web address, honest or lying; keyed by where it goes, so a new link
-    // plays its entrance. A target with no registered domain (a `mailto:`) has no quire form.
+    // quire's pill: honest or lying, keyed by where it goes so a new link plays its entrance. A
+    // target with no registered domain (a `mailto:`) is shown as its scheme and its rest.
+    let on_copy = EventHandler::new(|address: String| crate::ui::host::Host::copy(&address));
     match link {
         Destination::Web {
             scheme,
@@ -24,20 +25,38 @@ pub(in crate::ui) fn LinkPill() -> Element {
             registered,
             path,
         } => rsx! {
-            ds::LinkPill {
+            Pill {
                 key: "{scheme}{sub}{registered}{path}",
+                href: format!("{scheme}{sub}{registered}{path}"),
+                oncopy: on_copy,
                 target: LinkTarget::Honest { scheme_sub: format!("{scheme}{sub}"), registered, path },
             }
         },
         Destination::Lies { goes_to, claims } => rsx! {
-            ds::LinkPill {
+            Pill {
                 key: "{goes_to} {claims}",
+                href: goes_to.clone(),
+                oncopy: on_copy,
                 target: LinkTarget::Lying { registered: goes_to, shown: claims },
             }
         },
-        Destination::Other(href) => rsx! {
-            div { class: "linkpill", role: "status", span { class: "dim", "{href}" } }
-        },
+        Destination::Other(href) => {
+            let (scheme, rest) = href
+                .split_once(':')
+                .map_or(("", href.as_str()), |(scheme, rest)| (scheme, rest));
+            rsx! {
+                Pill {
+                    key: "{href}",
+                    href: href.clone(),
+                    oncopy: on_copy,
+                    target: LinkTarget::Honest {
+                        scheme_sub: if scheme.is_empty() { String::new() } else { format!("{scheme}:") },
+                        registered: rest.to_owned(),
+                        path: String::new(),
+                    },
+                }
+            }
+        }
     }
 }
 

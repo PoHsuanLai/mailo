@@ -7,11 +7,11 @@
 mod add_account;
 mod app;
 mod command;
+mod common;
 mod compose;
 mod contacts;
 mod data;
 mod debounce;
-mod field;
 mod files;
 mod folder_open;
 mod frame;
@@ -54,7 +54,7 @@ mod shell_tests;
 
 pub use launch::run;
 
-/// The window on Blitz, for a test to drive through `ds_native::Harness`.
+/// The window on Blitz, for a test to drive through `ds_harness::Harness`.
 pub mod native {
     pub use super::launch::native::{contexts, root};
     pub use super::original::{Browse, Consent, Fetch, FetchImage, Got, Original};

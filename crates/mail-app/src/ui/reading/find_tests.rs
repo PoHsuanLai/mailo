@@ -23,7 +23,7 @@ fn Finding(thread: ThreadId) -> Element {
         find: Some(Find::default()),
         ..Shell::default()
     });
-    rsx! { Reader { thread, shell } }
+    rsx! { ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window, Reader { thread, shell } } }
 }
 
 struct Open {
@@ -140,7 +140,7 @@ fn Searching(thread: ThreadId) -> Element {
         search: "from:ada cursor".to_owned(),
         ..Shell::default()
     });
-    rsx! { Reader { thread, shell } }
+    rsx! { ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window, Reader { thread, shell } } }
 }
 
 #[tokio::test]

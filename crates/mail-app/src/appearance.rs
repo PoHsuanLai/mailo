@@ -15,8 +15,9 @@
 //! - `appearance.json` is what mailo wrote before quire. It is read, never written or
 //!   deleted, so going back to an older build loses nothing ([`legacy`]).
 
-use crate::view::{Appearance, Marks, Motion, Theme};
-use ds_settings::{AppName, FileName, Format, Settings};
+use crate::view::{Appearance, Marks};
+use ds::prelude::*;
+use ds_settings::{AppName, AppearanceFile, ConfigRoot};
 use serde::Deserialize;
 use serde::de::Deserializer;
 use std::path::{Path, PathBuf};
@@ -24,8 +25,11 @@ use std::path::{Path, PathBuf};
 /// What mailo wrote before quire: theme, motion and marks in one JSON file.
 pub const LEGACY_FILE_NAME: &str = "appearance.json";
 
-/// mailo's own window preferences, beside quire's `appearance.toml`.
-const PREFS: Settings<Appearance> = Settings::new(FileName("mailo.toml"), Format::Toml);
+/// mailo's own window preferences file, beside quire's `appearance.toml`.
+const PREFS_FILE_NAME: &str = "mailo.toml";
+
+/// quire's appearance file.
+const QUIRE_FILE_NAME: &str = "appearance.toml";
 
 /// The stored preferences, or the first-run value when there are none or they cannot be read.
 ///
@@ -33,8 +37,12 @@ const PREFS: Settings<Appearance> = Settings::new(FileName("mailo.toml"), Format
 /// after the move shows the chips as the last run did. Not an error the user needs to see: a
 /// missing or damaged file means the window looks as it did on first run.
 pub fn load(dir: &Path) -> Appearance {
-    if PREFS.at(dir).path().exists() {
-        return PREFS.load(dir);
+    let path = dir.join(PREFS_FILE_NAME);
+    if path.exists() {
+        return std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|text| toml::from_str(&text).ok())
+            .unwrap_or_default();
     }
     Appearance {
         marks: legacy(dir).marks,
@@ -46,31 +54,46 @@ pub fn load(dir: &Path) -> Appearance {
 /// The bytes land in a temporary file in `dir` and are renamed into place, so a crash
 /// mid-write cannot leave a half-written file for the next launch.
 pub fn save(dir: &Path, look: Appearance) -> Result<(), String> {
-    PREFS.save(dir, &look).map_err(|e| e.to_string())
+    write_text(
+        dir,
+        PREFS_FILE_NAME,
+        &toml::to_string(&look).map_err(|e| e.to_string())?,
+    )
 }
 
-/// quire's `appearance.toml` in `dir`, importing `appearance.json` into it the first time.
+/// quire's `appearance.toml` in `dir`, made from `appearance.json` the first time.
 ///
 /// The import happens once, when the TOML file does not exist yet, and never touches the JSON
-/// file. `ds_settings::use_environment` reads and watches the TOML from then on; it does not
-/// import on its own for mailo, so `main` calls this before the window opens.
-pub fn quire(dir: &Path) -> ds_settings::AppearanceFile {
-    ds_settings::load_or_import(dir, &dir.join(LEGACY_FILE_NAME)).unwrap_or_default()
+/// file. `ds_settings::use_environment` reads and watches the TOML from then on, so `main`
+/// calls this before the window opens. Only the theme carries over: the accents mailo had are
+/// retired (the Mac's eight, Blue first, are quire's), and motion is an accessibility
+/// preference now, not a style, so it starts at Standard. No JSON at all writes nothing.
+pub fn quire(dir: &Path) -> AppearanceFile {
+    let path = dir.join(QUIRE_FILE_NAME);
+    if let Ok(text) = std::fs::read_to_string(&path) {
+        return toml::from_str(&text).unwrap_or_default();
+    }
+    if !dir.join(LEGACY_FILE_NAME).exists() {
+        return AppearanceFile::default();
+    }
+    let mut file = AppearanceFile::default();
+    file.appearance.theme = legacy(dir).theme;
+    if let Ok(text) = toml::to_string(&file) {
+        let _ = write_text(dir, QUIRE_FILE_NAME, &text);
+    }
+    file
 }
 
 /// What `appearance.json` said, read leniently and never written.
 ///
-/// Theme and motion are per Space now: a Space written before that inherits these on its
-/// first read (`space::load`). The marks seed `mailo.toml`.
+/// The theme seeds `appearance.toml` and a Space written before Spaces had a theme; the marks
+/// seed `mailo.toml`. Its accent and motion are read by nobody.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
 #[serde(default)]
 pub struct Legacy {
     /// Which palette the window resolved to.
     #[serde(deserialize_with = "de_theme")]
     pub theme: Theme,
-    /// How much the window moved.
-    #[serde(deserialize_with = "de_motion")]
-    pub motion: Motion,
     /// Provider marks: their icons, or the letter.
     #[serde(deserialize_with = "de_marks")]
     pub marks: Marks,
@@ -104,12 +127,6 @@ fn de_theme<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Theme, D::Erro
         .unwrap_or_default())
 }
 
-fn de_motion<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Motion, D::Error> {
-    Ok(word(deserializer)?
-        .and_then(|word| Motion::parse(&word))
-        .unwrap_or_default())
-}
-
 fn de_marks<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Marks, D::Error> {
     Ok(word(deserializer)?
         .and_then(|word| Marks::parse(&word))
@@ -139,19 +156,47 @@ pub(crate) fn write_json(
     file_name: &str,
     value: &impl serde::Serialize,
 ) -> Result<(), String> {
+    let mut body = serde_json::to_string(value).map_err(|e| e.to_string())?;
+    body.push('\n');
+    write_text(dir, file_name, &body)
+}
+
+/// Write `body` to `dir/file_name` by a temporary file and a rename, creating `dir` if needed.
+fn write_text(dir: &Path, file_name: &str, body: &str) -> Result<(), String> {
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let path = dir.join(file_name);
     let tmp = path.with_extension("part");
-    let mut body = serde_json::to_vec(value).map_err(|e| e.to_string())?;
-    body.push(b'\n');
-    std::fs::write(&tmp, &body).map_err(|e| format!("{}: {e}", tmp.display()))?;
-    std::fs::rename(&tmp, &path).map_err(|e| format!("{}: {e}", path.display()))?;
-    Ok(())
+    std::fs::write(&tmp, body).map_err(|e| format!("{}: {e}", tmp.display()))?;
+    std::fs::rename(&tmp, &path).map_err(|e| format!("{}: {e}", path.display()))
 }
 
 /// `$XDG_CONFIG_HOME/mailo`, else `$HOME/.config/mailo`, else None.
 pub fn config_dir() -> Option<PathBuf> {
-    ds_settings::config_dir(AppName::MAILO)
+    ConfigRoot::Xdg.dir(AppName::MAILO)
+}
+
+/// `$XDG_STATE_HOME/mailo`, else `$HOME/.local/state/mailo`, else None.
+///
+/// Today lives here, not beside appearance: it is a list of what was opened,
+/// and it expires, so it is state rather than a preference.
+pub fn state_dir() -> Option<PathBuf> {
+    xdg("XDG_STATE_HOME", ".local/state")
+}
+
+/// `$XDG_CACHE_HOME/mailo`, else `$HOME/.cache/mailo`, else None.
+///
+/// Provider icons live here, under `providers/`. They are not config and not the
+/// mail database: a missing cache is the letter on the chip, not a lost account.
+pub fn cache_dir() -> Option<PathBuf> {
+    xdg("XDG_CACHE_HOME", ".cache")
+}
+
+/// `$<variable>/mailo`, else `$HOME/<fallback>/mailo`.
+fn xdg(variable: &str, fallback: &str) -> Option<PathBuf> {
+    let base = std::env::var_os(variable)
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(fallback)))?;
+    Some(base.join(AppName::MAILO.0))
 }
 
 /// Config and state directories the window reads and writes.
@@ -164,26 +209,11 @@ pub struct WindowDirs {
     pub state: PathBuf,
 }
 
-/// `$XDG_STATE_HOME/mailo`, else `$HOME/.local/state/mailo`, else None.
-///
-/// Today lives here, not beside appearance: it is a list of what was opened,
-/// and it expires, so it is state rather than a preference.
-pub fn state_dir() -> Option<PathBuf> {
-    ds_settings::state_dir(AppName::MAILO)
-}
-
-/// `$XDG_CACHE_HOME/mailo`, else `$HOME/.cache/mailo`, else None.
-///
-/// Provider icons live here, under `providers/`. They are not config and not the
-/// mail database: a missing cache is the letter on the chip, not a lost account.
-pub fn cache_dir() -> Option<PathBuf> {
-    ds_settings::cache_dir(AppName::MAILO)
-}
-
 #[cfg(test)]
 mod tests {
     use super::{Legacy, legacy, load, quire, save};
-    use crate::view::{Appearance, Marks, Motion, Theme};
+    use crate::view::{Appearance, Marks, Theme};
+    use ds::prelude::{Accent, Motion};
     use std::path::Path;
 
     fn entries(dir: &Path) -> Vec<String> {
@@ -258,26 +288,10 @@ mod tests {
                 },
             ),
             (
-                "unknown theme keeps the motion",
-                r#"{"theme":"sepia","motion":"calm"}"#,
+                "unknown theme keeps the marks",
+                r#"{"theme":"sepia","marks":"letters"}"#,
                 Legacy {
-                    motion: Motion::Calm,
-                    ..Legacy::default()
-                },
-            ),
-            (
-                "motion only",
-                r#"{"motion":"calm"}"#,
-                Legacy {
-                    motion: Motion::Calm,
-                    ..Legacy::default()
-                },
-            ),
-            (
-                "unknown motion keeps the theme",
-                r#"{"theme":"dark","motion":"wild"}"#,
-                Legacy {
-                    theme: Theme::Dark,
+                    marks: Marks::Letters,
                     ..Legacy::default()
                 },
             ),
@@ -307,17 +321,16 @@ mod tests {
     }
 
     #[test]
-    fn the_accent_is_dropped_on_read_and_theme_and_motion_are_kept() {
-        // The migration table. Every row names a theme or a motion that is not the default,
-        // so a loader that threw the file away on meeting `accent` would fail it: dropping
-        // the retired field must not drop the fields beside it.
+    fn the_accent_and_motion_are_dropped_on_read_and_theme_and_marks_are_kept() {
+        // The migration table. Every row names a theme or marks that are not the default, so a
+        // loader that threw the file away on meeting `accent` or `motion` would fail it:
+        // dropping a retired field must not drop the fields beside it.
         let cases: &[(&str, &str, Legacy)] = &[
             (
                 "an old file with every field",
                 r#"{"theme":"dark","accent":"pine","motion":"calm"}"#,
                 Legacy {
                     theme: Theme::Dark,
-                    motion: Motion::Calm,
                     marks: Marks::Icons,
                 },
             ),
@@ -331,9 +344,9 @@ mod tests {
             ),
             (
                 "an accent that is not a word",
-                r#"{"accent":7,"motion":"extra"}"#,
+                r#"{"accent":7,"marks":"letters"}"#,
                 Legacy {
-                    motion: Motion::Extra,
+                    marks: Marks::Letters,
                     ..Legacy::default()
                 },
             ),
@@ -342,7 +355,6 @@ mod tests {
                 r#"{"theme":"light","future":true,"motion":"extra","marks":"letters"}"#,
                 Legacy {
                     theme: Theme::Light,
-                    motion: Motion::Extra,
                     marks: Marks::Letters,
                 },
             ),
@@ -422,10 +434,11 @@ mod tests {
             .unwrap_or_else(|err| panic!("{err}"));
 
         let first = quire(dir.path());
-        assert_eq!(first.appearance.theme, ds::Theme::Dark);
-        assert_eq!(first.appearance.motion_level, ds::Motion::Calm);
-        // mailo retired its accents, so there is nothing to carry: the design default.
-        assert_eq!(first.appearance.accent, ds::Accent::Postmark);
+        assert_eq!(first.appearance.theme, Theme::Dark);
+        // Motion is an accessibility preference now, and mailo's "calm" was a style: it starts
+        // at Standard. mailo retired its accents, so there is nothing to carry: Blue.
+        assert_eq!(first.appearance.motion_level, Motion::Standard);
+        assert_eq!(first.appearance.accent, Accent::Blue);
         assert_eq!(entries(dir.path()), ["appearance.json", "appearance.toml"]);
 
         // A second run reads the TOML, not the JSON: an edit to the JSON no longer reaches it.

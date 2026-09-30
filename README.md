@@ -76,7 +76,7 @@ without a race in either direction. `latchkey`'s README has the two of them writ
 
 ## Building on Linux
 
-The window is drawn with Blitz and wgpu through quire's `ds-native`; there is no webview and no
+The window is drawn with Blitz and wgpu through quire's `ds-blitz`; there is no webview and no
 script engine in it. The one system library it links at build time is fontconfig
 (`fontconfig-devel` on Fedora, `libfontconfig1-dev` on Debian/Ubuntu). Wayland, X11, xkbcommon
 and the GPU drivers are opened at run time.

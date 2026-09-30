@@ -2,11 +2,20 @@
 
 use super::super::compose::{Desk, show_queued};
 use super::super::hover::{copy, url_spans};
+use super::super::menu::anchor_at;
 use super::super::motion::{Follow, tell};
 use super::super::press::{available, on_primary};
 use super::{Ask, Bodies, Offer, ask, cached, client, leave, lookup, said};
 use crate::unsubscribe::Outcome;
 use dioxus::prelude::*;
+use ds::base::geometry::placement::{Align, Side};
+use ds::components::content::label::{LabelRole, LabelStyle};
+use ds::components::controls::button_model::Answers;
+use ds::host::measure::{Anchor, MountedRef};
+use ds::prelude::*;
+use ds::root::common::Common;
+use ds::root::pass_through::ExtraClass;
+use ds::style::tokens::control_size::ControlSize;
 use mail_domain::ThreadId;
 use mail_store::SqliteStore;
 use std::sync::Arc;
@@ -60,34 +69,39 @@ pub(in crate::ui) fn Leave(
         return rsx! {};
     };
     let open = phase() != Phase::Closed;
+    let mut anchor = use_signal(|| None::<MountedRef>);
     let label = "Unsubscribe";
     rsx! {
         div { class: "leave",
-            ds::Button {
-                variant: ds::ButtonVariant::Mini,
+            Button {
+                size: ControlSize::Small,
                 label,
-                aria_label: label.to_owned(),
-                expanded: if open { ds::Expanded::Open } else { ds::Expanded::Closed },
+                shown: Some(if open { Shown::Visible } else { Shown::Hidden }),
                 onclick: on_primary(move || {
                     let next = if *phase.peek() == Phase::Closed { Phase::Asking } else { Phase::Closed };
                     phase.set(next);
                 }),
+                common: Common { aria_label: Some(label.to_owned()),
+                    mounted: Some(EventHandler::new(move |event: MountedEvent| anchor.set(Some(MountedRef(event.data()))))),
+                    ..Common::default()
+                },
             }
             if open {
-                Confirm { offer, asked, phase, revision }
+                Confirm { offer, asked, phase, revision, anchor: anchor_at(anchor()) }
             }
         }
     }
 }
 
-/// What will happen, and the one button that does it. A page gets its address and Copy instead:
-/// this client never opens it and never fetches it.
+/// What will happen, and the one button that does it: a quire popover under the button. A page
+/// gets its address and Copy instead: this client never opens it and never fetches it.
 #[component]
 pub(in crate::ui) fn Confirm(
     offer: Offer,
     asked: Ask,
     phase: Signal<Phase>,
     revision: Option<Signal<u64>>,
+    anchor: Anchor,
 ) -> Element {
     let sentence = asked.sentence();
     let working = phase() == Phase::Working;
@@ -95,51 +109,58 @@ pub(in crate::ui) fn Confirm(
         Phase::Failed(why) => Some(why),
         _ => None,
     };
-    let cancel = "Cancel";
-    let copy_label = "Copy";
     rsx! {
-        div { class: "fmenu leave-ask", role: "dialog", aria_label: "Leave this list",
-            div { class: "g", "Unsubscribe" }
-            p { class: "say", "{sentence}" }
-            if let Ask::Web { url } = &asked {
-                div { class: "leave-url", {url_spans(url)} }
-            }
-            if let Some(why) = failed {
-                p { class: "why", "{why}" }
-            }
-            div { class: "acts",
-                ds::Button {
-                    variant: ds::ButtonVariant::Mini,
-                    label: cancel.to_string(),
-                    aria_label: cancel.to_string(),
-                    onclick: on_primary(move || phase.set(Phase::Closed)),
+            Popover {
+                anchor,
+                placement: Placement::new(Side::Bottom, Align::End),
+                gap: Px(4.0),
+                onclose: move |()| phase.set(Phase::Closed),
+                common: Common {
+                    extra_class: ExtraClass::parse("leave-ask").ok(),
+                    aria_label: Some("Leave this list".to_owned()),
+                    ..Common::default()
+                },
+                Label { text: "Unsubscribe", style: LabelStyle::Headline }
+                Label { text: sentence }
+                if let Ask::Web { url } = &asked {
+                    div { class: "leave-url", {url_spans(url)} }
                 }
-                match (&asked, asked.action()) {
-                    (Ask::Web { url }, _) => {
-                        let url = url.clone();
-                        rsx! {
-                            ds::Button {
-                                variant: ds::ButtonVariant::Primary,
-                                label: copy_label.to_string(),
-                                aria_label: copy_label.to_string(),
-                                onclick: on_primary(move || copy(&url)),
+                if let Some(why) = failed {
+                    Label { text: why, role: LabelRole::Secondary }
+                }
+                div { class: "acts",
+                    Button {
+                        label: "Cancel",
+                        answers: Answers::Escape,
+                        onclick: on_primary(move || phase.set(Phase::Closed)),
+        common: Common { aria_label: Some("Cancel".to_owned()), ..Common::default() },
+    }
+                    match (&asked, asked.action()) {
+                        (Ask::Web { url }, _) => {
+                            let url = url.clone();
+                            rsx! {
+                                Button {
+                                    label: "Copy",
+                                    answers: Answers::Return,
+                                    onclick: on_primary(move || copy(&url)),
+        common: Common { aria_label: Some("Copy".to_owned()), ..Common::default() },
+    }
                             }
                         }
+                        (_, Some(action)) => rsx! {
+                            Button {
+                                label: if working { "Working…".to_owned() } else { action.to_string() },
+                                answers: Answers::Return,
+                                availability: available(!working),
+                                onclick: on_primary(move || take(offer.clone(), phase, revision)),
+        common: Common { aria_label: Some(action.to_string()), ..Common::default() },
+    }
+                        },
+                        (_, None) => rsx! {},
                     }
-                    (_, Some(action)) => rsx! {
-                        ds::Button {
-                            variant: ds::ButtonVariant::Primary,
-                            label: if working { "Working…".to_owned() } else { action.to_string() },
-                            aria_label: action.to_string(),
-                            availability: available(!working),
-                            onclick: on_primary(move || take(offer.clone(), phase, revision)),
-                        }
-                    },
-                    (_, None) => rsx! {},
                 }
             }
         }
-    }
 }
 
 /// Take the way out on a blocking thread, then say what happened.

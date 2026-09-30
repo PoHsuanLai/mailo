@@ -1,139 +1,93 @@
-//! Today: threads opened in this Space, as sidebar shortcuts.
+//! Today: threads opened in this Space, as sidebar tabs that expire.
 
-use super::super::hover::{Hook, element, out, over, use_driver};
 use super::super::text::sender;
 use crate::appearance::WindowDirs;
-use crate::today::Today;
+use crate::today::{IDLE, Today};
 use crate::view::Shell;
 use dioxus::prelude::*;
-use ds::{Anim, AvatarFace, AvatarShape, AvatarSize, AvatarTone, Exit, ItemKind, Presence};
+use ds::base::time::clock;
+use ds::components::app::today_tabs::{TodayTab, TodayTabs};
+use ds::components::content::avatar::{AvatarFace, AvatarShape, AvatarSize, AvatarTone};
+use ds::prelude::*;
+use ds::style::tokens::person::PersonSwatch;
 use mail_domain::ThreadId;
 use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
+use std::time::Duration;
 
+/// The Today tabs of `space_index`: each thread opened in it that has not gone idle, with what
+/// it has left, on quire's clock. Quire lists a tab while it has time and drops it, by its
+/// roster, when it is closed or runs out.
 #[component]
 pub(super) fn TodayList(
     shell: Signal<Shell>,
     today: Signal<Today>,
     space_index: usize,
     dirs: Option<WindowDirs>,
-    mut just_added: Signal<Option<ThreadId>>,
 ) -> Element {
-    let mut leaving = use_signal(|| None::<ThreadId>);
-    let driver = use_driver();
-    // Each entry's box, as it mounts: its card is placed beside it. Not a signal: nothing
-    // redraws for it.
-    let boxes =
-        use_hook(|| CopyValue::new(std::collections::HashMap::<ThreadId, ds::MountedRef>::new()));
-    // An entry opens and closes on quire's clock: each timer runs for its animation's settle,
-    // and a closed entry stays drawn until its own has run.
-    let tab_in = ds::use_motion_timer(Anim::TabIn);
-    let tab_out = ds::use_motion_timer(Anim::TabOut);
-    let opened = use_callback(move |()| just_added.set(None));
-    let closed = use_callback(move |()| leaving.set(None));
-    // A thread opened into Today is the window's news, not a press here: its entrance starts
-    // when the entry is added, and ends when the entrance has settled.
-    let mut entered = use_signal(|| None::<ThreadId>);
-    use_effect(move || {
-        let added = just_added();
-        if added.is_some() && added != *entered.peek() {
-            tab_in.start(opened);
-        }
-        entered.set(added);
-    });
-    let live = today.read().live(space_index, chrono::Utc::now());
-    let mut shown = live.clone();
-    if let Some(id) = leaving()
-        && !shown.contains(&id)
-    {
-        shown.push(id);
-    }
+    let now = chrono::Utc::now();
     let store = consume_context::<Arc<SqliteStore>>();
-    let rows: Vec<_> = shown
+    let tabs: Vec<TodayTab<ThreadId>> = today
+        .read()
+        .entries
         .iter()
-        .copied()
+        .filter(|entry| entry.space == space_index)
         .enumerate()
-        .filter_map(|(index, id)| {
-            let loaded = store.thread(id).ok()?;
-            let title = loaded.summary.subject.clone();
-            let letter = initial(&sender(&loaded.summary));
-            Some((index, id, title, letter))
+        .filter_map(|(index, entry)| {
+            let left = left(entry.last_opened, now)?;
+            let loaded = store.thread(entry.thread).ok()?;
+            let face = today_face(
+                initial(&sender(&loaded.summary)),
+                AvatarTone::Account(PersonSwatch::nth(index).colour()),
+            );
+            Some(TodayTab {
+                key: entry.thread,
+                title: loaded.summary.subject.clone(),
+                leading: RowLeading::Avatar(face),
+                expires: clock::now() + left,
+            })
         })
         .collect();
+    let live = !tabs.is_empty();
+    let selected = shell.read().open;
+    let dirs_close = dirs.clone();
     let dirs_clear = dirs.clone();
     rsx! {
-        div { class: "s-h",
-            "Today"
-            if !live.is_empty() {
-                ds::Button {
-                    variant: ds::ButtonVariant::Frame,
-                    label: "Clear",
-                    id: "clear-today".to_owned(),
-                    onclick: move |_: ds::Press| {
+        SectionHeader {
+            title: "Today",
+            action: live.then(|| {
+                (
+                    "Clear".to_owned(),
+                    EventHandler::new(move |()| {
                         today.write().clear(space_index);
                         save(&dirs_clear, &today.read());
-                        leaving.set(None);
-                    },
-                }
-            }
+                    }),
+                )
+            }),
         }
         super::super::compose::ParkedDrafts { shell, space_index }
         super::super::compose::ScheduledDrafts { shell }
-        if shown.is_empty() && today.read().parked(space_index).is_empty() {
-            p { class: "today-hint",
-                "Threads you open land here, like tabs. They drop off after 12 idle hours; the mail stays where it is."
+        if !live && today.read().parked(space_index).is_empty() {
+            Label {
+                text: "Threads you open land here, like tabs. They drop off after 12 idle hours; the mail stays where it is.",
+                role: ds::components::content::label::LabelRole::Tertiary,
             }
         }
-        for (index, id, title, letter) in rows {
-            {
-                let dirs_row = dirs.clone();
-                let presence = if leaving() == Some(id) {
-                    Presence::Leaving(Exit::TabOut)
-                } else if just_added() == Some(id) {
-                    Presence::Entering
-                } else {
-                    Presence::Present
-                };
-                let avatar = today_face(letter, AvatarTone::Account(ds::PersonSwatch::nth(index).colour()));
-                rsx! {
-                    // quire's Today item, in mailo's box that carries the hover card's hook.
-                    div {
-                        key: "{id}",
-                        class: "today-at",
-                        "data-hc": "today:{id}",
-                        onmounted: move |event: MountedEvent| {
-                            let mut boxes = boxes;
-                            boxes.write().insert(id, ds::MountedRef(event.data()));
-                        },
-                        onpointerenter: move |_| {
-                            over(driver, Hook::Today(id), element(boxes.peek().get(&id).cloned()));
-                        },
-                        onpointerleave: move |_| out(driver),
-                        ds::SidebarItem {
-                            kind: ItemKind::Today { avatar },
-                            label: title,
-                            here: ds::Here::Elsewhere,
-                            count: None,
-                            presence,
-                            preview: None,
-                            pulse: ds::PulseKey::rest(Anim::Gulp),
-                            onclick: move |()| shell.write().open(id),
-                            onclose: move |()| {
-                                today.write().close(space_index, id);
-                                save(&dirs_row, &today.read());
-                                leaving.set(Some(id));
-                                tab_out.start(closed);
-                            },
-                        }
-                    }
-                }
-            }
+        TodayTabs::<ThreadId> {
+            label: "Today",
+            tabs,
+            selected,
+            onpick: move |id: ThreadId| shell.write().open(id),
+            onclose: move |id: ThreadId| {
+                today.write().close(space_index, id);
+                save(&dirs_close, &today.read());
+            },
         }
     }
 }
 
 /// The first character of `name`, upper-cased, or `?` for an empty name.
-pub(in crate::ui) fn initial(name: &str) -> char {
+pub(super) fn initial(name: &str) -> char {
     name.chars()
         .next()
         .and_then(|ch| ch.to_uppercase().next())
@@ -141,7 +95,7 @@ pub(in crate::ui) fn initial(name: &str) -> char {
 }
 
 /// A Today entry's face: one letter on `tone`, the sidebar's rounded square.
-pub(in crate::ui) fn today_face(initial: char, tone: AvatarTone) -> AvatarFace {
+fn today_face(initial: char, tone: AvatarTone) -> AvatarFace {
     AvatarFace {
         initial,
         size: AvatarSize::Size16,
@@ -154,4 +108,12 @@ fn save(dirs: &Option<WindowDirs>, today: &Today) {
     if let Some(dirs) = dirs {
         let _ = crate::today::save(&dirs.state, today);
     }
+}
+
+/// How long a tab opened at `last_opened` has left at `now`, or `None` when it has gone idle.
+fn left(
+    last_opened: chrono::DateTime<chrono::Utc>,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Option<Duration> {
+    (last_opened + IDLE - now).to_std().ok()
 }

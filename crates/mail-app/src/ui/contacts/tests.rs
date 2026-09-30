@@ -6,12 +6,32 @@ use std::sync::Arc;
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
 use dioxus_core::VirtualDom;
+use ds::prelude::*;
 use mail_domain::*;
 use mail_store::{Origin, SqliteStore, Store};
 
 use super::book;
 use super::card::ContactPart;
-use crate::ui::fixtures::{ACCOUNT, chord, click, dispatching, rebuild_into, type_into};
+use crate::ui::fixtures::{
+    ACCOUNT, Seen, chord, click, dispatching, drain_seen, rebuild_into, type_into,
+};
+
+/// The first render, then the ones after it, keeping every attribute they set: a quire sheet is
+/// drawn a frame after the one that asked for it, on quire's clock.
+async fn landed(dom: &mut VirtualDom) -> Seen {
+    let mut seen = rebuild_into(dom);
+    for _ in 0..40 {
+        let quiet = std::time::Duration::from_millis(150);
+        if tokio::time::timeout(quiet, dom.wait_for_work())
+            .await
+            .is_err()
+        {
+            break;
+        }
+        dom.render_immediate(&mut seen);
+    }
+    seen.merge(drain_seen(dom))
+}
 
 /// The user's own address. It is on every message they sent, so the book learns it as theirs.
 pub(in crate::ui) const ME: &str = "dave.me@example.test";
@@ -166,7 +186,15 @@ fn the_fixture_has_each_kind_of_entry_the_tests_rely_on() {
 /// The sender card, alone, on `email`.
 #[component]
 fn Card(email: String, name: String) -> Element {
-    rsx! { ContactPart { email, name } }
+    // Inside a quire root, as the hover card is in the window.
+    rsx! {
+        Ds {
+            appearance: Appearance::default(),
+            material: Material::Window,
+            stylesheet: ds::assembly::ds::Inject::Host,
+            ContactPart { email, name }
+        }
+    }
 }
 
 pub(super) fn card(store: &Arc<SqliteStore>, email: &str, name: &str) -> VirtualDom {
@@ -196,7 +224,7 @@ async fn the_sender_card_adds_renames_and_forgets() {
         Some((Some("Dana Okafor".to_owned()), Origin::History))
     );
     let mut dom = card(&store, HEARD, "Dana Okafor");
-    let seen = rebuild_into(&mut dom);
+    let seen = landed(&mut dom).await;
 
     // Add: the field opens on the name the mail gave, and Enter keeps what was typed.
     let seen = click(
@@ -242,7 +270,7 @@ async fn the_sender_card_adds_an_address_the_book_has_never_seen() {
     let stranger = "someone.new@example.test";
     assert_eq!(named(&store, stranger), None);
     let mut dom = card(&store, stranger, "");
-    let seen = rebuild_into(&mut dom);
+    let seen = landed(&mut dom).await;
     let page = dioxus_ssr::render(&dom);
     assert!(!page.contains(">Forget<"), "nothing to forget yet: {page}");
     let seen = click(

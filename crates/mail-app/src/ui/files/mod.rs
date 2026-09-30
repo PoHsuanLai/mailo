@@ -16,6 +16,10 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use dioxus::prelude::*;
+use ds::components::content::label::{LabelRole, LabelStyle};
+use ds::components::controls::progress::model::{Progress, ProgressStyle};
+use ds::components::controls::progress::view::ProgressIndicator;
+use ds::prelude::*;
 
 use super::motion::{Follow, tell};
 use crate::view::{FileSheet, Shell};
@@ -46,7 +50,7 @@ pub(in crate::ui) fn open_export(mut shell: Signal<Shell>) {
 }
 
 fn focus() {
-    crate::ui::host::Host::focus_next_frame(".files-main input");
+    crate::ui::host::Host::focus_next_frame(".sheet-form input");
 }
 
 /// Close the sheet and give the keyboard back to the window.
@@ -126,13 +130,14 @@ pub(in crate::ui) fn run(
     });
 }
 
-/// The progress line and bar, or the result, under a sheet's fields.
+/// The progress line and bar, or the result, under a sheet's fields: quire's progress bar and
+/// labels.
 #[component]
-fn Progress(phase: Phase, verb: &'static str) -> Element {
+fn Report(phase: Phase, verb: &'static str) -> Element {
     match phase {
         Phase::Ready => rsx! {},
         Phase::Running { done, of } => {
-            let width = (done.min(of) * 100).checked_div(of).unwrap_or(0);
+            let share = (done.min(of) * 1000).checked_div(of).unwrap_or(0);
             let total = if of > 0 {
                 format!("{} of {}", work::grouped(done), work::messages(of))
             } else {
@@ -140,13 +145,22 @@ fn Progress(phase: Phase, verb: &'static str) -> Element {
             };
             rsx! {
                 div { class: "files-progress", role: "status",
-                    span { "{verb}… {total}" }
-                    div { class: "files-bar", span { style: "width:{width}%" } }
+                    Label { text: format!("{verb}… {total}"), role: LabelRole::Secondary }
+                    ProgressIndicator {
+                        style: ProgressStyle::Bar,
+                        progress: Progress::Known(Fraction(u16::try_from(share).unwrap_or(1000))),
+                    }
                 }
             }
         }
-        Phase::Finished(said) => rsx! { p { class: "capnote said", role: "status", "{said}" } },
-        Phase::Failed(why) => rsx! { p { class: "capnote files-bad", role: "alert", "{why}" } },
+        Phase::Finished(said) => rsx! {
+            div { role: "status", Label { text: said, role: LabelRole::Secondary } }
+        },
+        Phase::Failed(why) => rsx! {
+            div { role: "alert",
+                Label { text: why, role: LabelRole::Primary, style: LabelStyle::Headline }
+            }
+        },
     }
 }
 

@@ -7,12 +7,17 @@
 //! IME is composing in, since during a composition the document does not change at all.
 
 use dioxus::prelude::*;
+use ds::components::content::text_runs::RunTone;
+use ds::components::controls::button_model::Bezel;
+use ds::host::measure::MountedRef;
+use ds::host::position::{EDIT_KIND_ATTR, EDIT_NODE_ATTR, EditKind};
+use ds::prelude::*;
+use ds::style::icon::render::Glyph;
 
 use super::super::menu::Floating;
 use super::float::{object_items, pick_object};
 use super::page::{Float, Fold, Page};
 use crate::editor::{Check, Mark, Node, Object, Op, ParaKind, Pos, Range, Run};
-use ds::{Glyph, Icon, MenuKind, MountedRef};
 
 #[cfg(test)]
 thread_local! {
@@ -34,12 +39,7 @@ pub(in crate::ui) fn reset_para_renders() {
 /// What marks a paragraph as node `n`: `data-edit-node`, which quire's `EditSurface` resolves
 /// positions against.
 fn node_attrs(n: usize) -> Vec<Attribute> {
-    vec![Attribute::new(
-        ds::EDIT_NODE_ATTR,
-        n.to_string(),
-        None,
-        false,
-    )]
+    vec![Attribute::new(EDIT_NODE_ATTR, n.to_string(), None, false)]
 }
 
 /// A to-do item's: its node, then its class, in that order.
@@ -53,8 +53,8 @@ fn todo_attrs(n: usize, class: &'static str) -> Vec<Attribute> {
 /// (`data-edit-kind=atom`), which the caret goes around.
 fn obj_attrs(n: usize) -> Vec<Attribute> {
     vec![
-        Attribute::new(ds::EDIT_NODE_ATTR, n.to_string(), None, false),
-        Attribute::new(ds::EDIT_KIND_ATTR, ds::EditKind::Atom.slug(), None, false),
+        Attribute::new(EDIT_NODE_ATTR, n.to_string(), None, false),
+        Attribute::new(EDIT_KIND_ATTR, EditKind::Atom.slug(), None, false),
     ]
 }
 
@@ -236,7 +236,7 @@ fn grip(
         }
         if menu {
             Floating {
-                kind: MenuKind::Slim,
+                placement: MenuPlacement::Popup,
                 anchor: handle(),
                 title: "This object".to_owned(),
                 items: object_items(),
@@ -263,16 +263,14 @@ fn Obj(n: usize, object: Object, menu: bool, quoted: Fold, page: Signal<Page>) -
             }
         },
         Object::Signature => rsx! {
-            div { class: "obj o-sig", ..obj_attrs(n),
-                span { class: "mono", "-- " }
-            }
+            div { class: "obj o-sig", ..obj_attrs(n) }
         },
         Object::Image { src, alt } => rsx! {
             figure { class: "obj o-img", ..obj_attrs(n),
                 {grip(n, menu, page, handle)}
                 if src.as_str().is_empty() {
                     div { class: "pick",
-                        Glyph { icon: Icon::Paperclip, size: ds::IconSize::Large }
+                        Glyph { icon: Icon::Paperclip, size: IconSize::Large }
                         span { "Add an image. It is embedded in the message, never fetched." }
                     }
                 } else {
@@ -318,16 +316,16 @@ fn Obj(n: usize, object: Object, menu: bool, quoted: Fold, page: Signal<Page>) -
             rsx! {
                 div { class: "obj o-rq", ..obj_attrs(n),
                     {grip(n, menu, page, handle)}
-                    ds::Button {
-                        variant: ds::ButtonVariant::Quiet,
+                    Button {
+                        bezel: Bezel::Inline,
                         icon: Icon::Corner,
                         // Who in the strong tone, when and the hint quieter.
-                        label: ds::Text::Runs(vec![
-                            ds::Run::new(who.clone(), ds::RunTone::Strong),
-                            ds::Run::new(format!(", {when}"), ds::RunTone::Faint),
-                            ds::Run::new(
+                        label: TextLine::Runs(vec![
+                            TextRun::new(who.clone(), RunTone::Strong),
+                            TextRun::new(format!(", {when}"), RunTone::Faint),
+                            TextRun::new(
                                 if open { "  hide quoted text" } else { "  show quoted text" },
-                                ds::RunTone::Faint,
+                                RunTone::Faint,
                             ),
                         ]),
                         onclick: move |_| {

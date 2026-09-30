@@ -20,10 +20,11 @@ pub(super) use sender::copy;
 
 use crate::trust::Destination;
 use dioxus::prelude::*;
-use ds::{
-    HoverAnchor, HoverDriver, HoverEvent, HoverHub, HoverKey, HoverKind, MountedRef, Point, Px,
-    Rect, Size,
-};
+use ds::components::overlays::hover_card::intent::{HoverAnchor, HoverDriver, use_hover_intent};
+use ds::host::measure::MountedRef;
+use ds::motion::hover_intent::{HoverEvent, HoverProfile};
+use ds::prelude::*;
+use ds::stack::hover_hub::{HoverHub, HoverKey, HoverKind};
 use mail_domain::ThreadId;
 
 /// Where a card can be asked for.
@@ -53,12 +54,12 @@ impl Hook {
         })
     }
 
-    /// Which of quire's cards it opens, which is where the card is placed.
+    /// Which of quire's cards it opens, which is where the card is placed. A time opens the
+    /// sender card's placement (below its target); quire has no hook-keyed tooltip.
     fn kind(self) -> HoverKind {
         match self {
             Hook::Thread(_) => HoverKind::Thread,
-            Hook::Sender(_) => HoverKind::Sender,
-            Hook::Time(_) => HoverKind::Tip,
+            Hook::Sender(_) | Hook::Time(_) => HoverKind::Sender,
             Hook::Pin(_) | Hook::Today(_) => HoverKind::Side,
         }
     }
@@ -134,7 +135,7 @@ pub(super) fn hover() -> Option<Hover> {
 pub(super) fn use_driver() -> Option<HoverDriver> {
     let inside = use_hook(|| try_consume_context::<HoverHub>().is_some());
     if inside {
-        Some(ds::use_hover_intent())
+        Some(use_hover_intent())
     } else {
         None
     }
@@ -169,7 +170,7 @@ pub(super) fn element(mounted: Option<MountedRef>) -> HoverAnchor {
 /// The pointer came to rest on `hook`, placed against `anchor`.
 pub(super) fn over(driver: Option<HoverDriver>, hook: Hook, anchor: HoverAnchor) {
     if let Some(driver) = driver {
-        driver.over(hook.key(), hook.kind(), anchor);
+        driver.over(hook.key(), HoverProfile::Card, anchor);
     }
 }
 

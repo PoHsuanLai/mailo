@@ -12,12 +12,14 @@ mod templates;
 pub(in crate::ui) use items::avatar_color;
 
 use super::debounce::{Settled, use_debounced};
-use super::menu::quire_groups;
+use super::menu::palette_groups;
 use super::ops::start_new;
 use crate::search::Results;
-use crate::view::{PageMenu, Shell, Theme};
+use crate::view::{PageMenu, Shell};
 use chrono::Utc;
 use dioxus::prelude::*;
+use ds::components::content::avatar::AvatarSize;
+use ds::prelude::*;
 use items::{Pick, interpret, rows_of, search_now, tokens};
 use mail_store::SqliteStore;
 use std::collections::HashMap;
@@ -82,16 +84,15 @@ pub(super) fn CommandMenu(
     if listing() == Listing::Templates {
         return rsx! { templates::TemplateMenu { shell, revision } };
     }
-    let groups = quire_groups(&items, ds::AvatarSize::Size34, None);
+    let groups = palette_groups(&items, AvatarSize::Size22, None);
     rsx! {
-        ds::CommandPalette::<String> {
+        CommandPalette::<String> {
             label: "Search and commands".to_owned(),
             placeholder,
             query,
             tokens: chips,
             groups,
             empty: "Nothing matches.".to_owned(),
-            entrance: ds::PaletteEntrance::Opaque,
             oninput: move |value| {
                 shell.write().command = Some(value);
             },
@@ -278,10 +279,10 @@ fn run_action(
             super::pgp::keys::open(shell);
         }
         "Theme light" | "Theme dark" | "Theme system" => {
-            let theme = match label {
-                "Theme light" => Theme::Light,
-                "Theme dark" => Theme::Dark,
-                _ => Theme::System,
+            let theme: ds::prelude::Theme = match label {
+                "Theme light" => ds::prelude::Theme::Light,
+                "Theme dark" => ds::prelude::Theme::Dark,
+                _ => ds::prelude::Theme::System,
             };
             // The theme is the current Space's now, so this is a change to that Space. The
             // window's `Ds` root reads it from the Spaces; there is nothing to repaint by hand.

@@ -4,22 +4,43 @@
 //! ask for another page. Split from [`super::app`] (`CONVENTIONS.md` §8). The queries stay in
 //! `App`; this reads the memos it is handed rather than cloning their answers in the parent.
 
+use super::common::classed;
 use super::data::{AccountRow, account_rows, syncs_nothing};
-use super::field::{Field, FieldKind};
 use super::list_search::{Marking, RowHit, Scope, row_hit};
-use super::motion::{Clock, Ghost, Leaving, Motion, Toast, motion};
+use super::motion::{Ghost, Toast};
 use super::ops::start_new;
 use super::page::{PageMenus, group_page};
 use super::press::{available, on_primary};
-use super::row::{DraftRow, Moving, Row, gap};
+use super::row::{DraftRow, MailRow};
 use crate::provider::provider;
 use crate::view::{Nothing, Shell, SyncState, synced};
 use dioxus::prelude::*;
-use ds::{Anim, Glyph, Icon, Presence, Roster, RowPitch};
+use ds::components::content::label::{Label, LabelRole, LabelStyle};
+use ds::components::controls::button_model::{Bezel, ImagePosition};
+use ds::components::overlays::empty_state::EmptyForm;
+use ds::prelude::*;
+use ds::style::tokens::control_size::ControlSize;
 use mail_domain::*;
 use mail_store::SqliteStore;
 use std::collections::BTreeMap;
 use std::sync::Arc;
+
+/// What a list item is, by identity: the same key on every render, so quire's `List` keeps a
+/// row where it is, plays an exit for one that stops being listed and an entrance for a new one.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum Slot {
+    /// A draft, by its id.
+    Draft(String),
+    /// A conversation in a search's top results.
+    Top(ThreadId),
+    /// A conversation in the date-ordered rows.
+    Thread(ThreadId),
+    /// A band's title.
+    Band(String),
+    /// A search's two headings.
+    TopHeading,
+    NewestHeading,
+}
 
 /// The conversations and drafts for wherever the shell is looking.
 #[component]
@@ -33,7 +54,6 @@ pub(super) fn ThreadList(
     nothing: Memo<Nothing>,
     more: Memo<bool>,
     sync_state: Signal<SyncState>,
-    entering: Signal<bool>,
     marking: Memo<Marking>,
     /// A search's top results, drawn above the date-ordered rows.
     top: Memo<Vec<ThreadSummary>>,
@@ -87,67 +107,51 @@ pub(super) fn ThreadList(
     let search_note = marking.read().note();
     let invalid = matches!(marking.read().scope, Scope::Invalid(_));
     let bad = sync_state.read().is_failure();
-    enum Line {
-        Head(String),
-        Mail {
-            index: usize,
-            summary: Box<ThreadSummary>,
-            via: Option<crate::provider::Provider>,
-            chips: Vec<String>,
-            hit: Option<RowHit>,
-            moving: Moving,
-            landing: Option<String>,
-        },
-    }
     let accounts = rows();
     let highlight = marking.read().highlight.clone();
     let dress_row = |summary: &ThreadSummary| dress(summary, &accounts, &names, &highlight);
-    // The strip is the same row, marked the same way, under its own header. A top result is
-    // also in the list below, where its date puts it, as Gmail shows it.
-    let strip: Vec<(ThreadSummary, Dress)> = top()
-        .into_iter()
-        .map(|summary| {
-            let dressed = dress_row(&summary);
-            (summary, dressed)
-        })
-        .collect();
-    let state = use_hook(motion);
-    let listed = threads();
-    let keys: Vec<ThreadId> = listed.iter().map(|summary| summary.id).collect();
-    let pitch = RowPitch(ds::Px(gap(&shell.peek()) as f32));
-    let roster = use_roster_clock(keys.clone(), pitch, state);
-    let leaving = state
-        .map(|state| state.leaving.read().clone())
-        .unwrap_or_default();
-    let drawn = drawn(&roster, &keys, listed, &leaving);
-    // The list is being shown while `entering` holds and its rows are still arriving; it rests
-    // once they have, and a row that arrives after that is not an entrance.
-    use_list_rest(entering, roster);
-    let list_presence = if entering() {
-        ds::ListPresence::Entering
-    } else {
-        ds::ListPresence::Present
-    };
-    let returning = state.and_then(|state| *state.returning.read());
-    let moving: BTreeMap<ThreadId, Moving> = drawn
-        .iter()
-        .map(|(summary, moving)| {
-            let moving = match moving {
-                Moving::Entering(_) if returning == Some(summary.id) && !entering() => {
-                    Moving::Returning
-                }
-                other => *other,
-            };
-            (summary.id, moving)
-        })
-        .collect();
-    let shown: Vec<ThreadSummary> = drawn.into_iter().map(|(summary, _)| summary).collect();
+    let state = use_hook(super::motion::motion);
+    let shown = threads();
     if let Some(state) = state {
         let mut order = state.order;
         order.set(shown.iter().map(|summary| summary.id).collect());
     }
-    let mut lines = Vec::new();
-    let mut row_index = 0usize;
+    // The list's items, top to bottom: drafts, a search's top results, then the bands.
+    let mut items: Vec<ListItem<Slot>> = Vec::new();
+    for draft in drafts() {
+        let id = draft.id.to_string();
+        let label = if draft.subject.is_empty() {
+            "(no subject)".to_owned()
+        } else {
+            draft.subject.clone()
+        };
+        items.push(ListItem::row(
+            Slot::Draft(id),
+            label,
+            rsx! { DraftRow { draft, shell } },
+        ));
+    }
+    let strip = top();
+    if !strip.is_empty() {
+        items.push(ListItem::heading(
+            Slot::TopHeading,
+            rsx! { SectionHeader { title: "Top results".to_owned() } },
+        ));
+        for summary in strip {
+            let Dress { via, chips, hit } = dress_row(&summary);
+            let id = summary.id;
+            let label = summary.subject.clone();
+            items.push(ListItem::row(
+                Slot::Top(id),
+                label,
+                rsx! { MailRow { summary, shell, revision, chips, via, hit } },
+            ));
+        }
+        items.push(ListItem::heading(
+            Slot::NewestHeading,
+            rsx! { SectionHeader { title: "Newest first".to_owned() } },
+        ));
+    }
     for band in group_page(
         shown,
         shell.read().group,
@@ -156,51 +160,72 @@ pub(super) fn ThreadList(
         &chrono::Local,
     ) {
         if let Some(title) = band.title {
-            lines.push(Line::Head(title));
+            items.push(ListItem::heading(
+                Slot::Band(title.clone()),
+                rsx! { SectionHeader { title } },
+            ));
         }
         for summary in band.threads {
             let Dress { via, chips, hit } = dress_row(&summary);
-            let moving = moving.get(&summary.id).copied().unwrap_or_default();
-            let landing = state
-                .and_then(|state| *state.landing.read())
-                .filter(|(thread, _)| *thread == summary.id)
-                .and_then(|(_, label)| names.get(&label).cloned());
-            lines.push(Line::Mail {
-                index: row_index,
-                summary: Box::new(summary),
-                via,
-                chips,
-                hit,
-                moving,
-                landing,
-            });
-            row_index += 1;
+            let id = summary.id;
+            let label = summary.subject.clone();
+            items.push(ListItem::row(
+                Slot::Thread(id),
+                label,
+                rsx! { MailRow { summary, shell, revision, chips, via, hit } },
+            ));
         }
     }
+    let cursor = shell.read().open.map(Slot::Thread);
+    let nothing_here = threads().is_empty() && drafts().is_empty();
+    let empty_form = match nothing() {
+        Nothing::NoMatch(_) => EmptyForm::NoResults,
+        Nothing::NoAccount | Nothing::EmptyFolder => EmptyForm::Empty,
+    };
+    let empty_description = nothing().command().map(str::to_owned).or_else(|| {
+        matches!(nothing(), Nothing::EmptyFolder).then(|| {
+            if inbox {
+                "Inbox zero."
+            } else {
+                "This place is empty."
+            }
+            .to_owned()
+        })
+    });
     rsx! {
         div { class: "list-col",
             div { class: "list-bar",
-                h2 {
-                    "{place}"
+                div { class: "list-title",
+                    Label { text: place.clone(), style: LabelStyle::Title }
                     if let Some(address) = address {
-                        span { class: "mono", "{address}" }
+                        Label { text: address, role: LabelRole::Tertiary, style: LabelStyle::Caption }
                     }
                 }
                 if let Some(note) = note {
                     // One line, cut short when it must be; the whole of it on hover.
-                    span { class: if bad { "status bad" } else { "status" }, title: "{note}", "{note}" }
+                    Label {
+                        text: note.clone(),
+                        role: LabelRole::Tertiary,
+                        style: LabelStyle::Footnote,
+                        common: classed(if bad { "status bad" } else { "status" }),
+                    }
                 }
                 if let Some(said) = search_note {
-                    span { class: if invalid { "status bad" } else { "status" }, "{said}" }
+                    Label {
+                        text: said,
+                        role: LabelRole::Tertiary,
+                        style: LabelStyle::Footnote,
+                        common: classed(if invalid { "status bad" } else { "status" }),
+                    }
                 }
                 div { class: "bar-tools",
                     PageMenus { shell }
                     if !quiet {
-                        ds::Button {
-                            variant: ds::ButtonVariant::Mini,
-                            label: String::new(),
-                            icon: Icon::Refresh,
-                            aria_label: "Sync now".to_owned(),
+                        Button {
+                            bezel: Bezel::Toolbar,
+                            image: ImagePosition::Only,
+                            label: "Sync now",
+                            icon: Some(IconSource::Glyph(Icon::Refresh)),
                             availability: available(sync_state.read().may_start()),
                             onclick: on_primary(move || {
                                 if !sync_state.read().may_start() {
@@ -226,11 +251,11 @@ pub(super) fn ThreadList(
                             }),
                         }
                     }
-                    ds::Button {
-                        variant: ds::ButtonVariant::Mini,
-                        label: "Compose".to_owned(),
-                        icon: Icon::Pen,
-                        title: "Write a new message (c)".to_owned(),
+                    Button {
+                        bezel: Bezel::Toolbar,
+                        label: "Compose",
+                        icon: Some(IconSource::Glyph(Icon::Pen)),
+                        title: Some("Write a new message (c)".to_owned()),
                         onclick: on_primary(move || {
                             let store = consume_context::<Arc<SqliteStore>>();
                             let known = shell.peek().accounts.clone();
@@ -245,91 +270,45 @@ pub(super) fn ThreadList(
                     }
                 }
             }
-            label { class: "search",
-                Glyph { icon: Icon::Search, size: ds::IconSize::Nav }
-                Field {
-                    kind: FieldKind::Boxed,
-                    value: shell.read().search.clone(),
-                    placeholder: "Search all mail".to_owned(),
-                    extra: Some("search".to_owned()),
-                    on_input: move |value| {
-                        shell.write().search = value;
-                        pages.set(1);
-                    },
-                    on_focus: move |_| in_a_field.set(true),
-                    on_blur: move |_| in_a_field.set(false),
-                }
+            TextField {
+                kind: FieldKind::Search,
+                label: "Search all mail".to_owned(),
+                placeholder: "Search all mail".to_owned(),
+                value: shell.read().search.clone(),
+                oninput: move |value: String| {
+                    shell.write().search = value;
+                    pages.set(1);
+                },
+                onfocus: move |()| in_a_field.set(true),
+                onblur: move |()| in_a_field.set(false),
+                common: classed("search"),
             }
-            // quire's list in mailo's scroller: its presence picks the entrance a row plays.
+            // quire's list in mailo's scroller: it keeps each row by its key, so a row that
+            // leaves plays its exit and the rows below close the gap.
             div { class: "list",
-            ds::AnimatedList {
-                label: "{place}",
-                presence: list_presence,
-                if threads().is_empty() && drafts().is_empty() {
-                    li { class: "empty",
-                        p { "{nothing().message()}" }
-                        if nothing().command().is_none() && matches!(nothing(), Nothing::EmptyFolder) {
-                            p { class: "mono", if inbox { "inbox zero" } else { "empty" } }
+                List::<Slot> {
+                    label: place.clone(),
+                    items,
+                    cursor,
+                    onselect: move |slot: Slot| {
+                        if let Slot::Thread(id) | Slot::Top(id) = slot {
+                            shell.write().open(id);
                         }
-                        if let Some(command) = nothing().command() {
-                            pre { class: "command", "{command}" }
-                        }
+                    },
+                }
+                if nothing_here {
+                    EmptyState {
+                        form: empty_form,
+                        title: nothing().message(),
+                        description: empty_description,
                     }
                 }
-                for (index, draft) in drafts().into_iter().enumerate() {
-                    {
-                        let id = draft.id;
-                        rsx! { DraftRow { key: "{id}", draft, shell, index } }
-                    }
-                }
-                if !strip.is_empty() {
-                    li { class: "list-top-h", "Top results" }
-                    for (index, (summary, Dress { via, chips, hit })) in strip.into_iter().enumerate() {
-                        {
-                            let id = summary.id;
-                            rsx! {
-                                Row {
-                                    key: "top-{id}",
-                                    summary,
-                                    shell,
-                                    revision,
-                                    index,
-                                    chips,
-                                    via,
-                                    hit,
-                                    moving: Moving::Still,
-                                    landing: None,
-                                }
-                            }
-                        }
-                    }
-                    li { class: "list-top-h", "Newest first" }
-                }
-                for line in lines {
-                    match line {
-                        Line::Head(title) => rsx! { li { key: "band-{title}", class: "list-g", "{title}" } },
-                        Line::Mail {
-                            index,
-                            summary,
-                            via,
-                            chips,
-                            hit,
-                            moving,
-                            landing,
-                        } => {
-                            let summary = *summary;
-                            let id = summary.id;
-                            rsx! { Row { key: "{id}", summary, shell, revision, index, chips, via, hit, moving, landing } }
-                        }
-                    }
-                }
-            }
             }
             if more() {
                 div { class: "more",
-                    ds::Button {
-                        variant: ds::ButtonVariant::Mini,
-                        label: "Show more".to_owned(),
+                    Button {
+                        size: ControlSize::Small,
+                        label: "Show more",
                         onclick: on_primary(move || pages += 1),
                     }
                 }
@@ -365,99 +344,6 @@ fn dress(
             .collect(),
         hit: row_hit(summary, highlight),
     }
-}
-
-/// The list's roster over `keys`, and the timers an op starts, handed to the window's motion
-/// state so an op anywhere can start them.
-fn use_roster_clock(
-    keys: Vec<ThreadId>,
-    pitch: RowPitch,
-    state: Option<Motion>,
-) -> Roster<ThreadId> {
-    let roster = ds::use_roster(keys, pitch);
-    let gulp = ds::use_motion_timer(Anim::Gulp);
-    let landing = ds::use_motion_timer(Anim::ChipLand);
-    let gulped = use_callback(move |()| {
-        if let Some(mut state) = state {
-            state.gulp.set(None);
-        }
-    });
-    let landed = use_callback(move |()| {
-        if let Some(mut state) = state {
-            state.landing.set(None);
-        }
-    });
-    use_hook(move || {
-        if let Some(state) = state {
-            let mut clock = state.clock;
-            clock.set(Some(Clock {
-                roster,
-                gulp,
-                landing,
-                gulped,
-                landed,
-            }));
-        }
-    });
-    roster
-}
-
-/// Once the list being shown has no row still arriving, it is at rest. Marked from an effect,
-/// after the render that saw it, and only once a row has been seen arriving: a place's rows
-/// come from a query that may land a frame after the place was chosen.
-fn use_list_rest(mut entering: Signal<bool>, roster: Roster<ThreadId>) {
-    let mut seen = use_signal(|| false);
-    use_effect(move || {
-        let arriving = roster
-            .entries()
-            .iter()
-            .any(|entry| entry.presence == Presence::Entering);
-        if !entering() {
-            seen.set(false);
-        } else if arriving {
-            seen.set(true);
-        } else if *seen.peek() {
-            seen.set(false);
-            entering.set(false);
-        }
-    });
-}
-
-/// What the list draws, in order: every row the roster holds, with the summary to draw it by
-/// and what it is doing. A listed row is drawn as the store has it; a row that has left is
-/// drawn as it was, until its exit settles. A row an undo brought back mid-exit stays under its
-/// own key (`Roster::stay`), drawn once.
-fn drawn(
-    roster: &Roster<ThreadId>,
-    keys: &[ThreadId],
-    listed: Vec<ThreadSummary>,
-    leaving: &[Leaving],
-) -> Vec<(ThreadSummary, Moving)> {
-    roster
-        .entries()
-        .into_iter()
-        .filter_map(|entry| {
-            let summary = if keys.contains(&entry.key) {
-                listed
-                    .iter()
-                    .find(|summary| summary.id == entry.key)?
-                    .clone()
-            } else {
-                leaving
-                    .iter()
-                    .find(|row| row.key == entry.key)?
-                    .summary
-                    .clone()
-            };
-            let moving = match entry.presence {
-                Presence::Present => Moving::Still,
-                Presence::Entering => Moving::Entering(entry.index.get()),
-                Presence::Leaving(exit) => Moving::Going(exit),
-                Presence::Healing { d, .. } => Moving::Healing(d.get()),
-            };
-            Some((summary, moving))
-        })
-        .collect()
 }
 
 #[cfg(test)]

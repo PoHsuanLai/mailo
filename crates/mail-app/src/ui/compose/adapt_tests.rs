@@ -1,13 +1,14 @@
 //! The adapter's tables: every input it reads, and positions both ways.
 
 use dioxus::prelude::{Key, Modifiers};
-use ds::{
-    Clicks, Composition, EditInput, EditPointer, Extend, KeyInput, Pasted, Point, PointerPhase,
-    TextPosition,
-};
+use ds::edit::input::{Composition, EditInput, KeyInput};
+use ds::edit::pointer::Extend;
+use ds::host::captured::PointerPhase;
+use ds::host::pasted::Pasted;
+use ds::host::position::TextPosition;
 
 use super::{
-    Asked, Reach, Step, asked, para_at, pointer_selection, pos_of, selected_text, step,
+    Asked, Reach, Step, asked, para_at, pos_of, press_selection, selected_text, step,
     text_position, word_at,
 };
 use crate::editor::{Doc, InputEvent, Node, Object, ParaKind, Pos, Range};
@@ -235,12 +236,9 @@ fn the_selected_text_joins_paragraphs_and_leaves_objects_out() {
 fn a_press_places_shift_extends_a_drag_follows_and_multiple_presses_widen() {
     let doc = doc();
     let anchor = Pos::new(2, 1);
-    let pointer = |phase, clicks, extend, node: &str, offset| EditPointer {
-        phase,
-        at: Point::default(),
-        position: Some(TextPosition::new(node, offset)),
-        extend,
-        clicks: Clicks(clicks),
+    // (phase, which press of a run, extend, node, offset)
+    let pointer = |phase, clicks, extend, node: &str, offset| {
+        (phase, clicks, extend, Some(TextPosition::new(node, offset)))
     };
     // "two words": byte 6 is inside "words".
     let at = Pos::new(2, 6);
@@ -272,14 +270,15 @@ fn a_press_places_shift_extends_a_drag_follows_and_multiple_presses_widen() {
         ),
         (pointer(PointerPhase::Press, 1, Extend::Fresh, "7", 0), None),
     ];
-    for (pointer, expected) in cases {
+    for ((phase, clicks, extend, position), expected) in cases {
         assert_eq!(
-            pointer_selection(&doc, anchor, &pointer),
+            press_selection(&doc, anchor, phase, clicks, extend, position.as_ref()),
             expected,
-            "{pointer:?}"
+            "{phase:?} x{clicks} {extend:?} {position:?}"
         );
     }
-    let mut nowhere = pointer(PointerPhase::Press, 1, Extend::Fresh, "2", 0);
-    nowhere.position = None;
-    assert_eq!(pointer_selection(&doc, anchor, &nowhere), None);
+    assert_eq!(
+        press_selection(&doc, anchor, PointerPhase::Press, 1, Extend::Fresh, None),
+        None
+    );
 }

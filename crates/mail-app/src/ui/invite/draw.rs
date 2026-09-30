@@ -1,12 +1,22 @@
 //! The invitation card: what the event is, who is asked, and the three answers.
 
-use super::super::field::{Field, FieldKind};
 use super::super::menu::{MenuKey, menu_key};
 use super::super::motion::{Follow, tell};
 use super::super::press::{available, on_primary};
 use super::{CHIPS, Card, Stand, answer, cached, lookup, save_ics};
 use dioxus::prelude::*;
-use ds::{Glyph, Icon};
+use ds::components::content::avatar::{
+    AvatarFace, AvatarShape, AvatarSize, AvatarTone, person_hue,
+};
+use ds::components::content::label::{LabelRole, LabelStyle};
+use ds::components::controls::button_model::{Answers, Bezel};
+use ds::components::controls::chip::{Chip, ChipVariant};
+use ds::components::controls::segmented::Tracking;
+use ds::prelude::*;
+use ds::root::common::Common;
+use ds::root::pass_through::ExtraClass;
+use ds::style::icon::render::Glyph;
+use ds::style::tokens::control_size::ControlSize;
 use mail_domain::{Attendance, BlobId, MessageId};
 use mail_store::SqliteStore;
 use std::sync::Arc;
@@ -99,7 +109,6 @@ pub(in crate::ui) fn InviteCard(card: Card, known: Signal<Option<Option<Card>>>)
     let title = card.title.clone();
     let save = "Save .ics";
     let change = "Change answer";
-    let everyone_label = format!("Show {hidden} more attendees");
     let more_label = if more() { "Less" } else { "More" };
     // Made here, not in the note row: the row unmounts the moment the answer starts, and a task
     // spawned from a component that is gone is dropped with it. A callback runs in the scope
@@ -108,138 +117,145 @@ pub(in crate::ui) fn InviteCard(card: Card, known: Signal<Option<Option<Card>>>)
         give(message, attendance, note, phase, known)
     });
     rsx! {
-        section { class: "invite", role: "group", aria_label: "Calendar invitation",
-            div { class: "inv-head",
-                span { class: card.tag.class(), "{card.tag.word()}" }
-                h3 { class: "inv-title", "{card.title}" }
-                ds::Button {
-                    variant: ds::ButtonVariant::Mini,
-                    extra_class: ds::ExtraClass::parse("inv-save").ok(),
-                    label: save,
-                    aria_label: save.to_owned(),
-                    availability: available(!working),
-                    onclick: on_primary(move || save_file(message, title.clone(), phase)),
+            section { class: "invite", role: "group", aria_label: "Calendar invitation",
+                div { class: "inv-head",
+                    span { class: card.tag.class(), Chip { variant: card.tag.chip(), text: card.tag.word().to_owned() } }
+                    h3 { class: "inv-title", Label { text: card.title.clone(), style: LabelStyle::Title } }
+                    Button {
+        size: ControlSize::Small,
+        label: save,
+        availability: available(!working),
+        onclick: on_primary(move || save_file(message, title.clone(), phase)),
+        common: Common { extra_class: ExtraClass::parse("inv-save").ok(), aria_label: Some(save.to_owned()), ..Common::default() },
+    }
                 }
-            }
-            dl { class: "inv-facts",
-                div { class: "inv-row",
-                    dt { Glyph { icon: Icon::Clock, size: ds::IconSize::Compact } }
-                    dd {
-                        span { class: "inv-when", "{card.when}" }
-                        if let Some(theirs) = &card.theirs {
-                            span { class: "inv-theirs mono", "their time: {theirs}" }
-                        }
-                        if let Some(occurrence) = card.occurrence {
-                            span { class: "inv-theirs", "{occurrence}" }
-                        }
-                    }
-                }
-                if let Some(repeats) = &card.repeats {
+                dl { class: "inv-facts",
                     div { class: "inv-row",
-                        dt { "Repeats" }
-                        dd { "{repeats}" }
-                    }
-                }
-                if let Some(location) = &card.location {
-                    div { class: "inv-row",
-                        dt { "Where" }
-                        dd { "{location}" }
-                    }
-                }
-                if let Some(organiser) = &card.organiser {
-                    div { class: "inv-row",
-                        dt { "Organiser" }
-                        dd { "{organiser}" }
-                    }
-                }
-            }
-            if !card.attendees.is_empty() {
-                ul { class: "inv-people", aria_label: "Attendees",
-                    for chip in card.attendees.iter().take(shown) {
-                        li { class: "{chip.class}", title: "{chip.name}: {chip.said}",
-                            span { class: "dot" }
-                            "{chip.name}"
+                        dt { Glyph { icon: Icon::Clock, size: IconSize::Compact } }
+                        dd {
+                            span { class: "inv-when", Label { text: card.when.clone(), style: LabelStyle::Headline } }
+                            if let Some(theirs) = &card.theirs {
+                                span { class: "inv-theirs", Label { text: format!("their time: {theirs}"), role: LabelRole::Tertiary, style: LabelStyle::Footnote } }
+                            }
+                            if let Some(occurrence) = card.occurrence {
+                                span { class: "inv-theirs", Label { text: occurrence, role: LabelRole::Tertiary, style: LabelStyle::Footnote } }
+                            }
                         }
                     }
-                    if hidden > 0 {
-                        li { class: "att rest",
-                            ds::Button {
-                                variant: ds::ButtonVariant::Quiet,
-                                label: format!("+{hidden}"),
-                                aria_label: everyone_label.clone(),
-                                onclick: on_primary(move || everyone.set(true)),
+                    if let Some(repeats) = &card.repeats {
+                        div { class: "inv-row",
+                            dt { Label { text: "Repeats", role: LabelRole::Tertiary, style: LabelStyle::Footnote } }
+                            dd { Label { text: repeats.clone(), role: LabelRole::Secondary } }
+                        }
+                    }
+                    if let Some(location) = &card.location {
+                        div { class: "inv-row",
+                            dt { Label { text: "Where", role: LabelRole::Tertiary, style: LabelStyle::Footnote } }
+                            dd { Label { text: location.clone(), role: LabelRole::Secondary } }
+                        }
+                    }
+                    if let Some(organiser) = &card.organiser {
+                        div { class: "inv-row",
+                            dt { Label { text: "Organiser", role: LabelRole::Tertiary, style: LabelStyle::Footnote } }
+                            dd { Label { text: organiser.clone(), role: LabelRole::Secondary } }
+                        }
+                    }
+                }
+                if !card.attendees.is_empty() {
+                    ul { class: "inv-people", aria_label: "Attendees",
+                        for chip in card.attendees.iter().take(shown) {
+                            li { class: "{chip.class}", title: "{chip.name}: {chip.said}",
+                                Chip {
+                                    variant: ChipVariant::Person(AvatarFace {
+                                        initial: chip.name.chars().next().unwrap_or('?'),
+                                        size: AvatarSize::Size18,
+                                        tone: AvatarTone::Person(person_hue(&chip.name)),
+                                        shape: AvatarShape::Round,
+                                    }),
+                                    text: chip.name.clone(),
+                                }
+                            }
+                        }
+                        if hidden > 0 {
+                            li { class: "att rest",
+                                Button {
+        bezel: Bezel::Inline,
+        label: format!("+{hidden}"),
+    common: Common { aria_label: Some(format!("Show {hidden} more attendees")), ..Common::default() },
+        onclick: on_primary(move || everyone.set(true)),
+    }
                             }
                         }
                     }
                 }
-            }
-            if let Some(summary) = &card.summary {
-                p { class: "inv-summary", "{summary}" }
-            }
-            if let Some(comment) = &card.comment {
-                p { class: "inv-comment", "“{comment}”" }
-            }
-            if let Some(description) = &card.description {
-                div { class: "inv-about",
-                    p { class: "{desc_class}", "{description}" }
-                    if long {
-                        ds::Button {
-                            variant: ds::ButtonVariant::Quiet,
-                            label: more_label,
-                            aria_label: more_label.to_owned(),
-                            onclick: on_primary(move || more.toggle()),
+                if let Some(summary) = &card.summary {
+                    p { class: "inv-summary", Label { text: summary.clone(), style: LabelStyle::Headline } }
+                }
+                if let Some(comment) = &card.comment {
+                    p { class: "inv-comment", Label { text: format!("“{comment}”"), role: LabelRole::Secondary } }
+                }
+                if let Some(description) = &card.description {
+                    div { class: "inv-about",
+                        p { class: "{desc_class}", Label { text: description.clone(), role: LabelRole::Secondary } }
+                        if long {
+                            Button {
+        bezel: Bezel::Inline,
+        label: more_label,
+    common: Common { aria_label: Some(more_label.to_owned()), ..Common::default() },
+        onclick: on_primary(move || more.toggle()),
+    }
                         }
                     }
                 }
-            }
-            match &card.stand {
-                Stand::Closed(Some(why)) => rsx! { p { class: "inv-why", "{why}" } },
-                Stand::Closed(None) => rsx! {},
-                Stand::Answered { said, note } if now == Phase::Resting => rsx! {
-                    div { class: "inv-answered",
-                        Glyph { icon: Icon::Check, size: ds::IconSize::Compact }
-                        span { class: "said", "{said}" }
-                        if let Some(note) = note {
-                            span { class: "inv-note", "“{note}”" }
+                match &card.stand {
+                    Stand::Closed(Some(why)) => rsx! { p { class: "inv-why", Label { text: (*why).to_owned(), role: LabelRole::Tertiary, style: LabelStyle::Footnote } } },
+                    Stand::Closed(None) => rsx! {},
+                    Stand::Answered { said, note } if now == Phase::Resting => rsx! {
+                        div { class: "inv-answered",
+                            Glyph { icon: Icon::Check, size: IconSize::Compact }
+                            span { class: "said", Label { text: said.clone(), style: LabelStyle::Headline } }
+                            if let Some(note) = note {
+                                span { class: "inv-note", Label { text: format!("“{note}”"), role: LabelRole::Secondary } }
+                            }
+                            span { class: "inv-change",
+                                Button {
+                                    bezel: Bezel::Inline,
+                                    label: change,
+                                    onclick: on_primary(move || phase.set(Phase::Changing)),
+                                    common: Common { aria_label: Some(change.to_owned()), ..Common::default() },
+                                }
+                            }
                         }
-                        ds::Button {
-                            variant: ds::ButtonVariant::Quiet,
-                            label: change,
-                            aria_label: change.to_owned(),
-                            onclick: on_primary(move || phase.set(Phase::Changing)),
-                        }
-                    }
-                },
-                Stand::Answered { said, .. } => rsx! { p { class: "inv-before", "{said}." } },
-                Stand::Open { before: Some(before) } => rsx! { p { class: "inv-before", "{before}" } },
-                Stand::Open { before: None } => rsx! {},
-            }
-            if offered {
-                div { class: "inv-acts", role: "group", aria_label: "Answer",
-                    for (attendance, label) in CHOICES {
-                        ds::Button {
-                            key: "{label}",
-                            variant: if attendance == Attendance::Accepted { ds::ButtonVariant::Primary } else { ds::ButtonVariant::Mini },
-                            label,
-                            aria_label: label.to_owned(),
-                            pressed: if chosen == Some(attendance) { ds::Switch::On } else { ds::Switch::Off },
+                    },
+                    Stand::Answered { said, .. } => rsx! { p { class: "inv-before", Label { text: format!("{said}."), role: LabelRole::Secondary } } },
+                    Stand::Open { before: Some(before) } => rsx! { p { class: "inv-before", Label { text: before.clone(), role: LabelRole::Secondary } } },
+                    Stand::Open { before: None } => rsx! {},
+                }
+                if offered {
+                    div { class: "inv-acts",
+                        SegmentedControl::<Attendance> {
+                            label: "Answer",
+                            choices: CHOICES.into_iter().map(|(attendance, label)| Choice::new(attendance, label)).collect::<Vec<_>>(),
+                            tracking: match chosen {
+                                Some(attendance) => Tracking::SelectOne(attendance),
+                                None => Tracking::Momentary,
+                            },
                             availability: available(!working),
-                            onclick: on_primary(move || phase.set(Phase::Noting { attendance, note: String::new() })),
+                            onchange: move |attendance| phase.set(Phase::Noting { attendance, note: String::new() }),
                         }
                     }
                 }
-            }
-            if let Phase::Noting { attendance, note } = now.clone() {
-                Noting { attendance, note, phase, on_send: send }
-            }
-            if working {
-                p { class: "inv-before", "Sending…" }
-            }
-            if let Phase::Failed(why) = now {
-                p { class: "inv-why failed", "{why}" }
+                if let Phase::Noting { attendance, note } = now.clone() {
+                    Noting { attendance, note, phase, on_send: send }
+                }
+                if working {
+                    p { class: "inv-before", Label { text: "Sending…", role: LabelRole::Secondary } }
+                }
+                if let Phase::Failed(why) = now {
+                    p { class: "inv-why failed", Label { text: why, role: LabelRole::Tertiary, style: LabelStyle::Footnote } }
+                }
             }
         }
-    }
 }
 
 /// The three answers, in the order calendars put them.
@@ -257,49 +273,45 @@ fn Noting(
     phase: Signal<Phase>,
     on_send: Callback<(Attendance, String)>,
 ) -> Element {
-    let send = "Send answer";
-    let cancel = "Cancel answer";
     let typed = note.clone();
     rsx! {
-        div {
-            class: "inv-noting",
-            onkeydown: move |event: KeyboardEvent| {
-                // Everything typed here stays here: a letter in the note is not a shortcut.
-                event.stop_propagation();
-                match menu_key(&event.key().to_string()) {
-                    Some(MenuKey::Enter) => {
-                        event.prevent_default();
-                        on_send.call((attendance, typed.clone()));
+            div {
+                class: "inv-noting",
+                onkeydown: move |event: KeyboardEvent| {
+                    // Everything typed here stays here: a letter in the note is not a shortcut.
+                    event.stop_propagation();
+                    match menu_key(&event.key().to_string()) {
+                        Some(MenuKey::Enter) => {
+                            event.prevent_default();
+                            on_send.call((attendance, typed.clone()));
+                        }
+                        Some(MenuKey::Escape) => phase.set(Phase::Resting),
+                        _ => {}
                     }
-                    Some(MenuKey::Escape) => phase.set(Phase::Resting),
-                    _ => {}
-                }
-            },
-            Field {
-                kind: FieldKind::Boxed,
-                value: note.clone(),
-                placeholder: "Add a note (optional)".to_owned(),
-                extra: Some("inv-note-field".to_owned()),
-                on_input: move |value: String| {
-                    phase.set(Phase::Noting { attendance, note: value });
                 },
-                on_focus: |_| {},
-                on_blur: |_| {},
-            }
-            ds::Button {
-                variant: ds::ButtonVariant::Mini,
-                label: "Cancel".to_owned(),
-                aria_label: cancel.to_string(),
-                onclick: on_primary(move || phase.set(Phase::Resting)),
-            }
-            ds::Button {
-                variant: ds::ButtonVariant::Primary,
-                label: "Send".to_owned(),
-                aria_label: send.to_string(),
-                onclick: on_primary(move || on_send.call((attendance, note.clone()))),
+                TextField {
+                    label: "Note".to_owned(),
+                    value: note.clone(),
+                    placeholder: "Add a note (optional)".to_owned(),
+                    oninput: move |value: String| {
+                        phase.set(Phase::Noting { attendance, note: value });
+                    },
+                    common: Common { extra_class: ExtraClass::parse("inv-note-field").ok(), ..Common::default() },
+                }
+                Button {
+        size: ControlSize::Small,
+        label: "Cancel".to_owned(),
+    common: Common { aria_label: Some("Cancel answer".to_owned()), ..Common::default() },
+        onclick: on_primary(move || phase.set(Phase::Resting)),
+    }
+                Button {
+        answers: Answers::Return,
+        label: "Send".to_owned(),
+    common: Common { aria_label: Some("Send answer".to_owned()), ..Common::default() },
+        onclick: on_primary(move || on_send.call((attendance, note.clone()))),
+    }
             }
         }
-    }
 }
 
 /// Queue `attendance` with `note` on a blocking thread, then say so in the toast and settle

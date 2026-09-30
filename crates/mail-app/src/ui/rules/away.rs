@@ -6,15 +6,19 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
+use ds::components::content::label::{LabelRole, LabelStyle};
+use ds::components::controls::segmented::Tracking;
+use ds::components::fields::field_row::{FieldGroup, FieldRow, RowLayout};
+use ds::components::fields::text_field_model::Invalid;
+use ds::motion::detail::stamp::EventStamp;
+use ds::prelude::*;
 use mail_domain::{DateRange, Vacation};
 use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
 
 use super::super::data::AccountRow;
-use super::super::field::{Field, FieldKind};
 use super::super::menus::when_words;
 use super::super::press::on_primary;
-use super::super::space_editor::Seg;
 use super::server::{configured, reach};
 
 /// Whether the reply is wanted.
@@ -225,8 +229,8 @@ pub(super) fn AwayPart(row: AccountRow) -> Element {
     if let Err(why) = reach(&row.plan) {
         return rsx! {
             section { class: "rules-part",
-                h4 { "Vacation reply" }
-                p { class: "capnote rules-faint", "No vacation reply here: {why}." }
+                SectionHeader { title: "Vacation reply".to_owned() }
+                Label { text: format!("No vacation reply here: {why}."), role: LabelRole::Tertiary }
             }
         };
     }
@@ -234,97 +238,98 @@ pub(super) fn AwayPart(row: AccountRow) -> Element {
     let form = away();
     let on = form.reply == Reply::On;
     let hint = |text: &str| match when(text, now, &chrono::Local) {
-        Ok(Some(at)) => (
-            String::from("rules-look"),
-            when_words(at, now, &chrono::Local),
+        Ok(Some(at)) => (Validity::Valid, when_words(at, now, &chrono::Local)),
+        Ok(None) => (Validity::Valid, String::new()),
+        Err(why) => (
+            Validity::Invalid(Invalid {
+                message: why.clone().into(),
+                stamp: EventStamp(u32::try_from(why.len()).unwrap_or(0)),
+            }),
+            String::new(),
         ),
-        Ok(None) => (String::from("rules-look"), String::new()),
-        Err(why) => (String::from("rules-look refused"), why),
     };
-    let (from_class, from_hint) = hint(&form.from);
-    let (until_class, until_hint) = hint(&form.until);
+    let (from_validity, from_hint) = hint(&form.from);
+    let (until_validity, until_hint) = hint(&form.until);
     let keep = row.clone();
     rsx! {
         section { class: "rules-part",
-            h4 { "Vacation reply" }
-            Seg {
+            SectionHeader { title: "Vacation reply".to_owned() }
+            SegmentedControl::<Reply> {
                 label: "Vacation reply".to_owned(),
-                options: vec![("Off".to_owned(), !on), ("On".to_owned(), on)],
-                on_pick: move |index: usize| {
-                    away.write().reply = if index == 1 { Reply::On } else { Reply::Off };
-                },
+                choices: vec![Choice::new(Reply::Off, "Off"), Choice::new(Reply::On, "On")],
+                tracking: Tracking::SelectOne(form.reply),
+                onchange: move |reply: Reply| away.write().reply = reply,
             }
             if on {
-                div { class: "rules-form",
-                    span { class: "files-k", "Subject" }
-                    Field {
-                        kind: FieldKind::Boxed,
-                        value: form.subject.clone(),
-                        placeholder: "Away until the 12th".to_owned(),
-                        extra: Some("rules-in".to_owned()),
-                        on_input: move |value: String| away.write().subject = value,
-                        on_focus: |_| {},
-                        on_blur: |_| {},
+                FieldGroup {
+                    FieldRow {
+                        label: "Subject",
+                        layout: RowLayout::Form,
+                        TextField {
+                            label: "Subject".to_owned(),
+                            value: form.subject.clone(),
+                            placeholder: "Away until the 12th".to_owned(),
+                            oninput: move |value: String| away.write().subject = value,
+                        }
                     }
-                    span { class: "files-k", "Reply" }
-                    span { class: "field rules-body",
-                        ds::TextInput {
-                            variant: ds::InputVariant::Boxed,
-                            kind: ds::TextInputKind::Multiline { rows: ds::Rows(4), grow: ds::Grow::ToContent },
+                    FieldRow {
+                        label: "Reply",
+                        layout: RowLayout::Form,
+                        // quire has no multi-line text field yet (requests-D.md): one line.
+                        TextField {
                             label: "The reply's text".to_owned(),
                             value: form.body.clone(),
                             placeholder: "I am away and reading mail when I am back.".to_owned(),
                             oninput: move |value: String| away.write().body = value,
                         }
                     }
-                    div { class: "rules-dates",
-                        div {
-                            span { class: "files-k", "From" }
-                            Field {
-                                kind: FieldKind::Boxed,
-                                value: form.from.clone(),
-                                placeholder: "now, or 2026-10-08".to_owned(),
-                                extra: Some("rules-in".to_owned()),
-                                on_input: move |value: String| away.write().from = value,
-                                on_focus: |_| {},
-                                on_blur: |_| {},
-                            }
-                            p { class: "{from_class}", "{from_hint}" }
-                        }
-                        div {
-                            span { class: "files-k", "Until" }
-                            Field {
-                                kind: FieldKind::Boxed,
-                                value: form.until.clone(),
-                                placeholder: "turned off, or monday".to_owned(),
-                                extra: Some("rules-in".to_owned()),
-                                on_input: move |value: String| away.write().until = value,
-                                on_focus: |_| {},
-                                on_blur: |_| {},
-                            }
-                            p { class: "{until_class}", "{until_hint}" }
+                    FieldRow {
+                        label: "From",
+                        help: Some(from_hint.into()),
+                        layout: RowLayout::Form,
+                        TextField {
+                            label: "From".to_owned(),
+                            value: form.from.clone(),
+                            placeholder: "now, or 2026-10-08".to_owned(),
+                            validity: from_validity,
+                            oninput: move |value: String| away.write().from = value,
                         }
                     }
-                    span { class: "files-k", "Answers mail to" }
-                    Field {
-                        kind: FieldKind::Boxed,
-                        value: form.addresses.clone(),
-                        placeholder: "you@example.com".to_owned(),
-                        extra: Some("rules-in".to_owned()),
-                        on_input: move |value: String| away.write().addresses = value,
-                        on_focus: |_| {},
-                        on_blur: |_| {},
+                    FieldRow {
+                        label: "Until",
+                        help: Some(until_hint.into()),
+                        layout: RowLayout::Form,
+                        TextField {
+                            label: "Until".to_owned(),
+                            value: form.until.clone(),
+                            placeholder: "turned off, or monday".to_owned(),
+                            validity: until_validity,
+                            oninput: move |value: String| away.write().until = value,
+                        }
+                    }
+                    FieldRow {
+                        label: "Answers mail to",
+                        layout: RowLayout::Form,
+                        TextField {
+                            label: "Answers mail to".to_owned(),
+                            value: form.addresses.clone(),
+                            placeholder: "you@example.com".to_owned(),
+                            oninput: move |value: String| away.write().addresses = value,
+                        }
                     }
                 }
             }
             div { class: "rules-acts",
                 match said() {
-                    Some(Ok(text)) => rsx! { p { class: "capnote said", role: "status", "{text}" } },
-                    Some(Err(why)) => rsx! { p { class: "capnote files-bad", role: "alert", "{why}" } },
+                    Some(Ok(text)) => rsx! {
+                        div { role: "status", Label { text, role: LabelRole::Secondary } }
+                    },
+                    Some(Err(why)) => rsx! {
+                        div { role: "alert", Label { text: why, role: LabelRole::Primary, style: LabelStyle::Headline } }
+                    },
                     None => rsx! {},
                 }
-                ds::Button {
-                    variant: ds::ButtonVariant::Primary,
+                Button {
                     label: "Keep reply".to_owned(),
                     onclick: on_primary(move || {
                         let store = consume_context::<Arc<SqliteStore>>();

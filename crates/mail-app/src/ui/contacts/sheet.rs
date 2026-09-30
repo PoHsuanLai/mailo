@@ -5,18 +5,26 @@
 //! `contacts.vcf` into the downloads directory the way Save writes an attachment, never over a
 //! file already there, and says where it went.
 
+use ds::components::content::avatar::{
+    AvatarFace, AvatarShape, AvatarSize, AvatarTone, person_hue,
+};
+use ds::components::content::label::{LabelRole, LabelStyle};
+use ds::components::controls::button_model::ButtonRole;
+use ds::components::lists::list::model::{ListItem, ListStyle};
+use ds::components::overlays::sheet_width::SheetWidth;
+use ds::prelude::*;
+use ds::root::common::Common;
+use ds::root::pass_through::ExtraClass;
+use ds::style::tokens::control_size::ControlSize;
 use std::sync::Arc;
 
 use dioxus::prelude::*;
 use mail_store::SqliteStore;
 
-use super::super::command::avatar_color;
-use super::super::field::{Field, FieldKind};
 use super::super::pick::{Ask, choose, file_name};
 use super::super::press::{SheetClose, on_primary};
 use super::book::{self, Row, SYNC_COMMAND};
 use crate::view::Shell;
-use ds::{Glyph, Icon};
 
 /// Rows drawn at once. A book of thousands is filtered, not scrolled through.
 const SHOWN: usize = 200;
@@ -57,76 +65,83 @@ pub(in crate::ui) fn ContactsSheet(shell: Signal<Shell>) -> Element {
     } else {
         "Nobody in the book matches."
     };
+    let items: Vec<ListItem<String>> = rows
+        .into_iter()
+        .take(SHOWN)
+        .map(|row| {
+            let label = row.name.clone().unwrap_or_else(|| row.address.clone());
+            let key = row.address.clone();
+            ListItem::row(key, label, rsx! { BookRow { row, naming, changed, said } })
+        })
+        .collect();
+    let note = failed.unwrap_or_else(|| {
+        if total == 0 {
+            empty.to_owned()
+        } else if total > SHOWN {
+            format!("{SHOWN} of {total} shown. Filter to find the rest.")
+        } else {
+            String::new()
+        }
+    });
     rsx! {
-        div {
-            class: "book-wrap",
-            onclick: move |_| super::close(shell),
-            div {
-                class: "book",
-                role: "dialog",
-                aria_label: "Contacts",
-                onclick: move |event| event.stop_propagation(),
+        Sheet {
+            label: "Contacts".to_owned(),
+            onclose: move |()| super::close(shell),
+            width: SheetWidth::Wide,
+            div { class: "book",
                 div { class: "book-head",
-                    h3 { "Contacts" }
-                    span { class: "count", "{count}" }
-                    SheetClose { on_close: move |()| super::close(shell) }
-                }
-                label { class: "book-find",
-                    Glyph { icon: Icon::Search }
-                    Field {
-                        kind: FieldKind::Inline,
-                        value: filter.clone(),
+                    Label { text: count, role: LabelRole::Secondary }
+                    TextField {
+                        label: "Filter by name or address".to_owned(),
+                        kind: FieldKind::Search,
                         placeholder: "Filter by name or address".to_owned(),
-                        extra: None,
-                        on_input: move |value: String| shell.write().contacts = Some(value),
-                        on_focus: |_| {},
-                        on_blur: |_| {},
+                        value: filter.clone(),
+                        focus: FieldFocus::OnMount,
+                        oninput: move |value: String| shell.write().contacts = Some(value),
                     }
                 }
-                ul { class: "book-rows",
-                    for row in rows.into_iter().take(SHOWN) {
-                        BookRow { key: "{row.address}", row, naming, changed, said }
+                div { class: "book-rows",
+                    List::<String> {
+                        label: "Contacts".to_owned(),
+                        items,
+                        style: ListStyle::Inset,
                     }
-                    if total == 0 {
-                        li { class: "book-none", "{failed.clone().unwrap_or_else(|| empty.to_owned())}" }
-                    }
-                    if total > SHOWN {
-                        li { class: "book-none", "{SHOWN} of {total} shown. Filter to find the rest." }
+                    if !note.is_empty() {
+                        Label { text: note, role: LabelRole::Tertiary }
                     }
                 }
-                div { class: "book-foot",
-                    div { class: "book-io",
-                        ds::Button {
-                            variant: ds::ButtonVariant::Mini,
-                            label: "Import vCard…".to_owned(),
-                            aria_label: "Import vCard…".to_owned(),
-                            icon: Icon::Plus,
-                            onclick: on_primary(move || {
-                                choose(Ask::Cards, None, move |paths| import(paths, changed, said));
-                            }),
-                        }
-                        ds::Button {
-                            variant: ds::ButtonVariant::Mini,
-                            label: "Export vCard…".to_owned(),
-                            icon: Icon::Forward,
-                            onclick: on_primary(move || {
-                                let store = consume_context::<Arc<SqliteStore>>();
-                                let dir = crate::attach::downloads_dir();
-                                said.set(Some(match book::export(store.as_ref(), &dir) {
-                                    Ok(path) => format!("Saved to {}", path.display()),
-                                    Err(why) => why,
-                                }));
-                            }),
-                        }
-                    }
+                div { class: "sheet-actions",
                     if let Some(said) = said() {
-                        p { class: "capnote said", "{said}" }
+                        Label { text: said, role: LabelRole::Secondary }
                     }
-                    p { class: "capnote",
-                        "CardDAV address books sync from the command line, not from here:"
+                    Button {
+                        label: "Import vCard…".to_owned(),
+                        common: Common { aria_label: Some("Import vCard…".to_owned()), ..Common::default() },
+                        icon: Icon::Plus,
+                        onclick: on_primary(move || {
+                            choose(Ask::Cards, None, move |paths| import(paths, changed, said));
+                        }),
                     }
-                    code { class: "command", "{SYNC_COMMAND}" }
+                    Button {
+                        label: "Export vCard…".to_owned(),
+                        icon: Icon::Forward,
+                        onclick: on_primary(move || {
+                            let store = consume_context::<Arc<SqliteStore>>();
+                            let dir = crate::attach::downloads_dir();
+                            said.set(Some(match book::export(store.as_ref(), &dir) {
+                                Ok(path) => format!("Saved to {}", path.display()),
+                                Err(why) => why,
+                            }));
+                        }),
+                    }
+                    SheetClose { label: "Done".to_owned(), on_close: move |()| super::close(shell) }
                 }
+                Label {
+                    text: "CardDAV address books sync from the command line, not from here:".to_owned(),
+                    role: LabelRole::Tertiary,
+                    style: LabelStyle::Footnote,
+                }
+                Label { text: SYNC_COMMAND.to_owned(), role: LabelRole::Tertiary, style: LabelStyle::Footnote }
             }
         }
     }
@@ -165,12 +180,6 @@ fn BookRow(
     said: Signal<Option<String>>,
 ) -> Element {
     let shown = row.name.clone().unwrap_or_else(|| row.address.clone());
-    let letter = shown
-        .chars()
-        .next()
-        .map(|ch| ch.to_uppercase().collect::<String>())
-        .unwrap_or_default();
-    let color = avatar_color(&row.address);
     let editing = naming
         .read()
         .as_ref()
@@ -182,47 +191,56 @@ fn BookRow(
         None => row.standing.label().to_owned(),
     };
     let action = row.standing.name_action();
+    let face = AvatarFace {
+        initial: shown
+            .chars()
+            .next()
+            .and_then(|ch| ch.to_uppercase().next())
+            .unwrap_or('?'),
+        size: AvatarSize::Size28,
+        tone: AvatarTone::Person(person_hue(&address)),
+        shape: AvatarShape::Round,
+    };
+    let acts = rsx! {
+        Button {
+            label: action.to_owned(),
+            size: ControlSize::Small,
+            onclick: {
+                let address = address.clone();
+                let typed = row.name.clone().unwrap_or_default();
+                on_primary(move || naming.set(Some(Naming { address: address.clone(), typed: typed.clone() })))
+            },
+            common: Common { aria_label: Some(format!("{action}: {address}")), ..Common::default() },
+        }
+        Button {
+            role: ButtonRole::Destructive,
+            size: ControlSize::Small,
+            label: "Forget".to_owned(),
+            title: "Mail may teach it again".to_owned(),
+            onclick: on_primary({
+                let address = address.clone();
+                move || {
+                    let store = consume_context::<Arc<SqliteStore>>();
+                    said.set(Some(match book::forget(store.as_ref(), &address) {
+                        Ok(_) => format!("Forgot {address}. Mail may teach it again."),
+                        Err(why) => why,
+                    }));
+                    changed += 1;
+                }
+            }),
+            common: Common { aria_label: Some(format!("Forget {address}")), ..Common::default() },
+        }
+    };
+    let content = editing.map(|typed| {
+        rsx! { NameField { address: address.clone(), typed, naming, changed, said } }
+    });
     rsx! {
-        li { class: "book-row",
-            span { class: "av", style: "background:{color}", "{letter}" }
-            div { class: "who",
-                if let Some(typed) = editing {
-                    NameField { address: address.clone(), typed, naming, changed, said }
-                } else {
-                    b { "{shown}" }
-                    span { class: "addr", "{row.address}" }
-                }
-                span { class: "origin", "{origin}" }
-            }
-            div { class: "acts",
-                ds::Button {
-                    variant: ds::ButtonVariant::Secondary,
-                    label: action.to_owned(),
-                    aria_label: format!("{action}: {address}"),
-                    onclick: {
-                        let address = address.clone();
-                        let typed = row.name.clone().unwrap_or_default();
-                        on_primary(move || naming.set(Some(Naming { address: address.clone(), typed: typed.clone() })))
-                    },
-                }
-                ds::Button {
-                    variant: ds::ButtonVariant::Danger,
-                    label: "Forget".to_owned(),
-                    aria_label: format!("Forget {address}"),
-                    title: "Mail may teach it again".to_owned(),
-                    onclick: on_primary({
-                        let address = address.clone();
-                        move || {
-                        let store = consume_context::<Arc<SqliteStore>>();
-                        said.set(Some(match book::forget(store.as_ref(), &address) {
-                            Ok(_) => format!("Forgot {address}. Mail may teach it again."),
-                            Err(why) => why,
-                        }));
-                        changed += 1;
-                        }
-                    }),
-                }
-            }
+        Row {
+            leading: RowLeading::Avatar(face),
+            title: shown,
+            detail: Some(format!("{}  ·  {origin}", row.address).into()),
+            content,
+            accessory: Accessory::Slot(acts),
         }
     }
 }
@@ -268,24 +286,22 @@ fn NameField(
                 }
                 _ => {}
             },
-            Field {
-                kind: FieldKind::Boxed,
+            TextField {
+                label: "Their name".to_owned(),
                 value: typed,
                 placeholder: "Their name".to_owned(),
-                extra: Some("book-name".to_owned()),
-                on_input: move |value: String| {
+                oninput: move |value: String| {
                     if let Some(open) = naming.write().as_mut() {
                         open.typed = value;
                     }
                 },
-                on_focus: |_| {},
-                on_blur: |_| {},
+                common: Common { extra_class: ExtraClass::parse("book-name").ok(), ..Common::default() },
             }
-            ds::Button {
-                variant: ds::ButtonVariant::Primary,
+            Button {
                 label: "Save".to_owned(),
-                aria_label: format!("Save the name for {address}"),
+                size: ControlSize::Small,
                 onclick: on_primary(keep_on_click),
+                common: Common { aria_label: Some(format!("Save the name for {address}")), ..Common::default() },
             }
         }
     }

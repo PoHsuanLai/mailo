@@ -131,13 +131,28 @@ pub(in crate::ui) fn buttons_in(html: &str, class: &str) -> Vec<Button> {
             } else {
                 let after = index + end + 1;
                 let close = html[after..].find("</button>").unwrap_or(0);
-                html[after..after + close].trim().to_string()
+                strip_tags(html[after..after + close].trim())
             };
             buttons.push(Button { attrs, text });
         }
         index += end + 1;
     }
     buttons
+}
+
+/// `html` without its tags: a button's label is a span.
+fn strip_tags(html: &str) -> String {
+    let mut out = String::new();
+    let mut in_tag = false;
+    for c in html.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            c if !in_tag => out.push(c),
+            _ => {}
+        }
+    }
+    out
 }
 
 fn has_class(attrs: &[(String, String)], class: &str) -> bool {

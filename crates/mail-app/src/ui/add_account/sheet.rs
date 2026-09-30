@@ -4,17 +4,27 @@
 use std::sync::Arc;
 
 use dioxus::prelude::*;
+use ds::components::content::label::{LabelRole, LabelStyle};
+use ds::components::controls::button_model::Answers;
+use ds::components::controls::button_model::Bezel;
+use ds::components::controls::progress::model::Progress;
+use ds::components::controls::progress::view::ProgressIndicator;
+use ds::components::controls::segmented::Tracking;
+use ds::components::fields::field_row::{FieldRow, RowLayout};
+use ds::components::overlays::sheet_attach::Attach;
+use ds::motion::detail::operation::{Operation, PendingToken};
+use ds::prelude::*;
+use ds::root::common::Common;
+use ds::style::tokens::control_size::ControlSize;
 use mail_domain::HttpAuth;
 use mail_store::SqliteStore;
 
-use super::super::field::{Field, FieldKind};
 use super::super::hover::copy;
-use super::super::press::{SheetClose, available, on_primary};
+use super::super::press::{available, on_primary};
 use super::flow::{self, Client, Hand, Offer, Opened, SignIn, SigningIn, Stage};
 use crate::password::Password;
 use crate::space::Spaces;
 use crate::view::Shell;
-use ds::{Button, ButtonVariant, Icon, InputVariant, SegmentedControl, TextInput};
 
 /// Look up what is typed, off the thread that draws. Call it from an event handler (F140).
 fn look_up(shell: Signal<Shell>, mut stage: Signal<Stage>) {
@@ -183,51 +193,89 @@ pub(in crate::ui) fn AddAccountSheet(
         _ => Icon::Search,
     };
     rsx! {
-        div {
-            class: "files-wrap",
-            onclick: move |_| super::close(shell),
-            div {
-                class: "files acct-sheet",
-                role: "dialog",
-                aria_label: "Add account",
-                onclick: move |event| event.stop_propagation(),
-                div { class: "files-head",
-                    h3 { "Add account" }
-                    SheetClose { on_close: move |()| super::close(shell) }
-                }
-                div { class: "files-main",
-                    span { class: "files-k", "Address" }
-                    Field {
-                        kind: FieldKind::Boxed,
+        Sheet {
+            label: "Add account",
+            attach: Attach::Window,
+            onclose: move |()| super::close(shell),
+            div { class: "acct-sheet",
+                Label { text: "Add Account", style: LabelStyle::Title }
+                FieldRow {
+                    label: "Address",
+                    layout: RowLayout::Form,
+                    TextField {
+                        label: "Address",
                         value: typed.clone(),
                         placeholder: "you@example.com".to_owned(),
-                        extra: Some("acct-in".to_owned()),
-                        on_input: on_address,
-                        on_focus: |_| {},
-                        on_blur: |_| {},
+                        focus: FieldFocus::OnMount,
+                        oninput: on_address,
                     }
-                    Below { shown: shown.clone(), typed: typed.clone(), signing: signing(), stage, secret, on_secret: move |value: String| {
-                        secret.set(Password::new(value));
-                    } }
                 }
-                div { class: "files-foot",
-                    ds::Button {
-                        variant: ds::ButtonVariant::Mini,
+                Below { shown: shown.clone(), typed: typed.clone(), signing: signing(), stage, secret, on_secret: move |value: String| {
+                    secret.set(Password::new(value));
+                } }
+                div { class: "acct-foot",
+                    Button {
                         label: dismiss.to_string(),
-                        aria_label: dismiss.to_string(),
+                        common: Common { aria_label: Some(dismiss.to_string()), ..Common::default() },
+                        answers: Answers::Escape,
                         onclick: on_primary(move || super::close(shell)),
                     }
-                    ds::Button {
-                        variant: ds::ButtonVariant::Primary,
-                        extra_class: ds::ExtraClass::parse("go").ok(),
+                    Button {
                         label: primary.to_string(),
+                        common: Common { aria_label: Some(primary.to_string()), ..Common::default() },
                         icon,
-                        aria_label: primary.to_string(),
+                        answers: Answers::Return,
                         availability: available(enabled),
                         onclick: on_primary(move || press(())),
                     }
                 }
             }
+        }
+    }
+}
+
+/// A line of small explanation or a refusal under a row.
+#[component]
+fn Note(text: String, tone: NoteTone) -> Element {
+    rsx! {
+        Label {
+            text,
+            role: LabelRole::Secondary,
+            style: LabelStyle::Footnote,
+            common: super::super::sidebar::tagged("note", tone.slug()),
+        }
+    }
+}
+
+/// What a note says of itself: help, or that something went wrong.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NoteTone {
+    Help,
+    Refusal,
+}
+
+impl NoteTone {
+    fn slug(self) -> &'static str {
+        match self {
+            NoteTone::Help => "help",
+            NoteTone::Refusal => "refusal",
+        }
+    }
+}
+
+/// Work in progress: quire's spinner beside what is being done, said as a status.
+#[component]
+fn Busy(text: String) -> Element {
+    // One operation for as long as the line is shown.
+    let token = use_hook(PendingToken::start);
+    rsx! {
+        div { class: "acct-busy", role: "status",
+            ProgressIndicator {
+                style: ds::components::controls::progress::model::ProgressStyle::Spinner,
+                progress: Progress::Unknown(Operation::Running(token)),
+                size: ControlSize::Small,
+            }
+            Label { text, role: LabelRole::Secondary }
         }
     }
 }
@@ -244,16 +292,14 @@ fn Below(
 ) -> Element {
     match shown {
         Stage::Blank => rsx! {
-            p { class: "capnote", "{flow::before_looking(&typed, chrono::Utc::now())}" }
+            Note { text: flow::before_looking(&typed, chrono::Utc::now()), tone: NoteTone::Help }
             Alternate { stage, secret }
         },
         Stage::Looking => rsx! {
-            p { class: "files-look acct-busy", role: "status",
-                "Looking up the servers for {flow::domain_of(&typed).unwrap_or_default()}…"
-            }
+            Busy { text: format!("Looking up the servers for {}\u{2026}", flow::domain_of(&typed).unwrap_or_default()) }
         },
         Stage::Missed(why) => rsx! {
-            p { class: "capnote files-bad acct-said", role: "alert", "{why}" }
+            Note { text: why, tone: NoteTone::Refusal }
             Alternate { stage, secret }
         },
         Stage::Found(offer) => rsx! {
@@ -266,7 +312,7 @@ fn Below(
             Found { offer: offer.clone() }
             Ways { offer: offer.clone(), stage, secret }
             Credential { offer, on_secret }
-            p { class: "capnote files-bad acct-said", role: "alert", "{why}" }
+            Note { text: why, tone: NoteTone::Refusal }
             Alternate { stage, secret }
         },
         Stage::ByHand(hand) => rsx! {
@@ -281,42 +327,48 @@ fn Below(
             (sign_in, _) => {
                 let waiting = match sign_in {
                     SignIn::Password => format!(
-                        "Saving the account and putting the {} in the system keyring…",
+                        "Saving the account and putting the {} in the system keyring\u{2026}",
                         if offer.token() { "token" } else { "password" }
                     ),
                     SignIn::OAuth { issuer, .. } => {
-                        format!("Starting the sign-in with {}…", flow::provider(issuer))
+                        format!(
+                            "Starting the sign-in with {}\u{2026}",
+                            flow::provider(issuer)
+                        )
                     }
                 };
                 rsx! {
                     Found { offer }
-                    p { class: "files-look acct-busy", role: "status", "{waiting}" }
+                    Busy { text: waiting }
                 }
             }
         },
         Stage::Added { said, .. } => rsx! {
             div { class: "acct-done", role: "status",
-                for line in said {
-                    p { "{line}" }
+                for (index, line) in said.into_iter().enumerate() {
+                    Label {
+                        text: line,
+                        style: if index == 0 { LabelStyle::Headline } else { LabelStyle::Body },
+                    }
                 }
             }
         },
     }
 }
 
-/// What was found: incoming, outgoing, sign-in, and where it came from.
+/// What was found: incoming, outgoing, sign-in, and where it came from, one form row each.
 #[component]
 fn Found(offer: Offer) -> Element {
     rsx! {
-        div { class: "acct-found",
-            for (what, how) in offer.rows.iter() {
-                span { class: "acct-k", "{what}" }
-                span { class: "acct-v", "{how}" }
+        for (what, how) in offer.rows.iter() {
+            FieldRow { label: what.clone(), layout: RowLayout::Form,
+                Label { text: how.clone(), common: super::super::sidebar::tagged("found", what.clone()) }
             }
-            span { class: "acct-k", "found" }
-            span { class: "acct-v acct-source", "{offer.source}" }
         }
-        p { class: "capnote", "Nothing has been sent to these servers yet." }
+        FieldRow { label: "Found", layout: RowLayout::Form,
+            Label { text: offer.source.clone(), role: LabelRole::Secondary }
+        }
+        Note { text: "Nothing has been sent to these servers yet.".to_owned(), tone: NoteTone::Help }
     }
 }
 
@@ -341,14 +393,17 @@ fn Ways(offer: Offer, stage: Signal<Stage>, secret: Signal<Password>) -> Element
     };
     rsx! {
         if let Some((said, options)) = choice {
-            span { class: "files-k", "Connect with" }
-            SegmentedControl::<bool> {
-                label: "Connect with",
-                options,
-                value: jmap.is_some(),
-                onchange: on_way,
+            FieldRow { label: "Connect with", help: said, layout: RowLayout::Form,
+                SegmentedControl::<bool> {
+                    label: "Connect with",
+                    choices: options
+                        .into_iter()
+                        .map(|(value, name)| Choice::new(value, name))
+                        .collect::<Vec<_>>(),
+                    tracking: Tracking::SelectOne(jmap.is_some()),
+                    onchange: on_way,
+                }
             }
-            p { class: "capnote", "{said}" }
         }
         if let Some(auth) = jmap {
             SignsInWith { auth, stage }
@@ -360,22 +415,23 @@ fn Ways(offer: Offer, stage: Signal<Stage>, secret: Signal<Password>) -> Element
 /// as a bearer token.
 #[component]
 fn SignsInWith(auth: HttpAuth, stage: Signal<Stage>) -> Element {
-    let options = vec![
-        (HttpAuth::Basic, "Password".to_owned()),
-        (HttpAuth::Bearer, "API token".to_owned()),
+    let choices = vec![
+        Choice::new(HttpAuth::Basic, "Password"),
+        Choice::new(HttpAuth::Bearer, "API token"),
     ];
     rsx! {
-        span { class: "files-k", "Signs in with" }
-        SegmentedControl::<HttpAuth> {
-            label: "Signs in with",
-            options,
-            value: auth,
-            onchange: move |want: HttpAuth| {
-                let next = flow::pick_auth(&stage.peek(), want);
-                if let Some(next) = next {
-                    stage.set(next);
-                }
-            },
+        FieldRow { label: "Signs in with", layout: RowLayout::Form,
+            SegmentedControl::<HttpAuth> {
+                label: "Signs in with",
+                choices,
+                tracking: Tracking::SelectOne(auth),
+                onchange: move |want: HttpAuth| {
+                    let next = flow::pick_auth(&stage.peek(), want);
+                    if let Some(next) = next {
+                        stage.set(next);
+                    }
+                },
+            }
         }
     }
 }
@@ -394,28 +450,28 @@ fn ByHand(
         .err()
         .filter(|_| !hand.session.trim().is_empty());
     rsx! {
-        span { class: "files-k", "JMAP session URL" }
-        TextInput {
-            variant: InputVariant::Boxed,
+        FieldRow {
             label: "JMAP session URL",
-            value: hand.session.clone(),
-            placeholder: "https://jmap.example.com/.well-known/jmap",
-            oninput: move |value: String| {
-                let next = match &*stage.peek() {
-                    Stage::ByHand(now) => Stage::ByHand(Hand {
-                        session: value,
-                        ..now.clone()
-                    }),
-                    _ => return,
-                };
-                stage.set(next);
-            },
-        }
-        p { class: "capnote",
-            "The address your provider gives for JMAP. Nothing is looked up, and nothing is sent to it until you use these settings."
+            help: "The address your provider gives for JMAP. Nothing is looked up, and nothing is sent to it until you use these settings.",
+            layout: RowLayout::Form,
+            TextField {
+                label: "Session URL",
+                value: hand.session.clone(),
+                placeholder: "https://jmap.example.com/.well-known/jmap".to_owned(),
+                oninput: move |value: String| {
+                    let next = match &*stage.peek() {
+                        Stage::ByHand(now) => Stage::ByHand(Hand {
+                            session: value,
+                            ..now.clone()
+                        }),
+                        _ => return,
+                    };
+                    stage.set(next);
+                },
+            }
         }
         if let Some(why) = why {
-            p { class: "capnote files-bad acct-said", role: "alert", "{why}" }
+            Note { text: why, tone: NoteTone::Refusal }
         }
         SignsInWith { auth: hand.auth, stage }
         Secret { address, token: hand.auth == HttpAuth::Bearer, on_secret }
@@ -433,9 +489,9 @@ fn Alternate(stage: Signal<Stage>, mut secret: Signal<Password>) -> Element {
     rsx! {
         div { class: "acct-alt",
             Button {
-                variant: ButtonVariant::Quiet,
+                bezel: Bezel::Inline,
                 label: label.to_owned(),
-                id: Some(id.to_owned()),
+                common: Common { id: Some(id.to_owned()), ..Common::default() },
                 onclick: move |_| {
                     let next = flow::alternate(&stage.peek());
                     secret.set(Password::default());
@@ -457,15 +513,16 @@ fn Credential(offer: Offer, on_secret: EventHandler<String>) -> Element {
             issuer,
             client: Client::Ready,
         } => rsx! {
-            p { class: "capnote",
-                "No password: you sign in with {flow::provider(issuer)} in your browser, and mailo keeps only the sign-in it is given, in the system keyring."
+            Note {
+                text: format!("No password: you sign in with {} in your browser, and mailo keeps only the sign-in it is given, in the system keyring.", flow::provider(issuer)),
+                tone: NoteTone::Help,
             }
         },
         SignIn::OAuth {
             issuer,
             client: Client::Missing,
         } => rsx! {
-            p { class: "capnote files-bad acct-said", "{flow::missing_client(issuer)}" }
+            Note { text: flow::missing_client(issuer), tone: NoteTone::Refusal }
         },
     }
 }
@@ -475,18 +532,17 @@ fn Credential(offer: Offer, on_secret: EventHandler<String>) -> Element {
 fn Secret(address: String, token: bool, on_secret: EventHandler<String>) -> Element {
     let what = if token { "API token" } else { "Password" };
     rsx! {
-        span { class: "files-k", "{what}" }
-        Field {
-            kind: FieldKind::Secret,
-            value: String::new(),
-            placeholder: format!("{what} for {address}"),
-            extra: Some("acct-in".to_owned()),
-            on_input: move |value: String| on_secret.call(value),
-            on_focus: |_| {},
-            on_blur: |_| {},
-        }
-        p { class: "capnote",
-            "It goes to the system keyring, and to these servers when mailo signs in. It is never saved anywhere else."
+        FieldRow {
+            label: what,
+            help: "It goes to the system keyring, and to these servers when mailo signs in. It is never saved anywhere else.",
+            layout: RowLayout::Form,
+            TextField {
+                label: what,
+                kind: FieldKind::Secure,
+                value: String::new(),
+                placeholder: format!("{what} for {address}"),
+                oninput: move |value: String| on_secret.call(value),
+            }
         }
     }
 }
@@ -496,7 +552,6 @@ fn Secret(address: String, token: bool, on_secret: EventHandler<String>) -> Elem
 #[component]
 fn Browser(signing: SigningIn) -> Element {
     let SigningIn { url, opened } = signing;
-    let copy_label = "Copy";
     let how = match opened {
         Opened::Browser => "If no browser opened, open this address in one:".to_owned(),
         Opened::Not(why) => {
@@ -504,14 +559,13 @@ fn Browser(signing: SigningIn) -> Element {
         }
     };
     rsx! {
-        p { class: "files-look acct-busy", role: "status", "Finish signing in in your browser" }
-        p { class: "capnote", "{how}" }
+        Busy { text: "Finish signing in in your browser".to_owned() }
+        Note { text: how, tone: NoteTone::Help }
         div { class: "acct-url",
-            span { class: "acct-link", "{url}" }
-            ds::Button {
-                variant: ds::ButtonVariant::Mini,
-                label: copy_label.to_string(),
-                aria_label: copy_label.to_string(),
+            Label { text: url.clone(), style: LabelStyle::Footnote, common: Common { extra_class: ds::root::pass_through::ExtraClass::parse("acct-link").ok(), ..Common::default() } }
+            Button {
+                label: "Copy",
+                common: Common { aria_label: Some("Copy".to_owned()), ..Common::default() },
                 onclick: on_primary(move || copy(&url)),
             }
         }

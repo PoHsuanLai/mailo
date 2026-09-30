@@ -10,7 +10,9 @@ use crate::space::{Pinned, Spaces};
 use crate::view::Shell;
 use chrono::Local;
 use dioxus::prelude::*;
-use ds::{AvatarTone, HoverCardPart, HoverMessage, Key, KeyHint, Shortcut};
+use ds::components::content::avatar::AvatarTone;
+use ds::components::overlays::hover_card::parts::{HoverCardPart, HoverMessage};
+use ds::prelude::*;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 use std::cell::RefCell;
@@ -46,7 +48,7 @@ pub(in crate::ui) fn HoverLayer(
         return rsx! {};
     };
     let hub = driver.hub();
-    let Some((key, kind)) = hub.open().or(hub.leaving()) else {
+    let Some((key, _)) = hub.open().or(hub.leaving()) else {
         return rsx! {};
     };
     let Some(hook) = Hook::of(&key) else {
@@ -66,7 +68,7 @@ pub(in crate::ui) fn HoverLayer(
         return rsx! {};
     };
     rsx! {
-        ds::HoverCard { key: "{key.0}", kind, parts, {more} }
+        HoverCard { key: "{key.0}", kind: hook.kind(), parts, {more} }
     }
 }
 
@@ -185,10 +187,7 @@ fn thread_card(store: &SqliteStore, id: ThreadId, shell: &Shell) -> Option<Card>
             HoverCardPart::Messages(recent),
             HoverCardPart::Foot {
                 text: foot.to_owned(),
-                keys: Some(KeyHint {
-                    shortcut: Shortcut(vec![Key::Space]),
-                    label: "peek".to_owned(),
-                }),
+                key: Some((Shortcut(vec![ShortcutKey::Space]), "peek".to_owned())),
             },
         ],
         more: rsx! {},
@@ -204,13 +203,11 @@ fn time_tip(store: &SqliteStore, id: ThreadId) -> Option<Card> {
         .format("%A %-d %B %Y, %H:%M")
         .to_string();
     Some(Card {
-        parts: Vec::new(),
-        more: rsx! {
-            div { class: "hc",
-                "{full}"
-                div { class: "sub", "your time" }
-            }
-        },
+        parts: vec![
+            HoverCardPart::Title(full),
+            HoverCardPart::Sub("your time".to_owned()),
+        ],
+        more: rsx! {},
     })
 }
 

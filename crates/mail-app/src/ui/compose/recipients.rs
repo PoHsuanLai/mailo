@@ -110,7 +110,6 @@ fn add(page: &mut Page, list: List, joining: Person) {
     if list == List::Cc {
         page.cc_row = CcRow::Shown;
     }
-    page.flash = Some(joining.address.clone());
     page.list_mut(list).push(joining);
     page.touch();
 }

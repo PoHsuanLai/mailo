@@ -5,8 +5,8 @@
 //! so it is done on a blocking thread started by the click or the key that asked for it, and never
 //! from a component body (F140).
 //!
-//! There is no webview anywhere. The document becomes a PDF through quire (`ds_native::pdf`,
-//! [`paper`]), and Print hands that PDF to the system's print dialog (`ds_native::print_dialog`,
+//! There is no webview anywhere. The document becomes a PDF through quire (`ds_blitz::pdf`,
+//! [`paper`]), and Print hands that PDF to the system's print dialog (`ds_blitz::print_dialog`,
 //! through a [`Printer`], which a test replaces). Save for printing writes the same PDF into the
 //! downloads directory, beside where an attachment goes, and says where. A remote image prints
 //! only when the reader's consent covers its message as the PDF is made; it is then fetched
@@ -147,7 +147,7 @@ mod native_print {
     use crate::print::{Pictures, Printed};
     use chrono::{DateTime, TimeZone, Utc};
     use dioxus::prelude::*;
-    use ds_native::{PrintError, PrintOutcome};
+    use ds_blitz::{PrintError, PrintOutcome};
     use mail_domain::MessageId;
     use mail_store::SqliteStore;
     use std::collections::BTreeMap;
@@ -283,7 +283,7 @@ mod native_print {
     /// The call that puts a PDF in front of the person: `(pdf, title)`.
     type Dialog = dyn Fn(&[u8], &str) -> Result<PrintOutcome, PrintError> + Send + Sync;
 
-    /// How a printout reaches paper: the system's print dialog (`ds_native::print_dialog`), or,
+    /// How a printout reaches paper: the system's print dialog (`ds_blitz::print_dialog`), or,
     /// in a test, whatever the test puts in its place. A root context: the window without one
     /// uses the system's.
     ///
@@ -305,7 +305,7 @@ mod native_print {
 
     impl Printer {
         /// A printer whose dialog is `dialog`, called with the PDF and its title off the UI
-        /// thread, and answering as `ds_native::print_dialog` would. For tests: no real dialog.
+        /// thread, and answering as `ds_blitz::print_dialog` would. For tests: no real dialog.
         pub fn with_dialog(
             dialog: impl Fn(&[u8], &str) -> Result<PrintOutcome, PrintError> + Send + Sync + 'static,
         ) -> Printer {
@@ -328,7 +328,7 @@ mod native_print {
                 });
             }
             Printer {
-                dialog: Arc::new(ds_native::print_dialog),
+                dialog: Arc::new(ds_blitz::print_dialog),
                 busy: Arc::clone(&BUSY),
             }
         }

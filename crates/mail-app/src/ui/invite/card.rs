@@ -30,6 +30,17 @@ impl Tag {
         }
     }
 
+    /// The chip that carries the word: accent for the ordinary ones, a failing status for a
+    /// cancellation, neutral for an answer or an event.
+    pub(in crate::ui) fn chip(self) -> ds::components::controls::chip::ChipVariant {
+        use ds::components::controls::chip::ChipVariant;
+        match self {
+            Tag::Invitation | Tag::Updated => ChipVariant::Accent,
+            Tag::Cancelled => ChipVariant::Status(ds::base::colour::contrast::Verdict::Fail),
+            Tag::Answer | Tag::Event => ChipVariant::Neutral,
+        }
+    }
+
     pub(in crate::ui) fn class(self) -> &'static str {
         match self {
             Tag::Invitation | Tag::Event => "inv-tag",

@@ -3,16 +3,23 @@
 use super::super::data::account_rows;
 use super::super::hover::{Hook, element, out, over, use_driver};
 use super::super::motion::{drag, motion};
+use super::tagged;
 use crate::provider::icon::{mark_of, mark_style};
 use crate::provider::{Provider, provider};
 use crate::query::{self};
 use crate::space::{self, Pinned, Scope, Space};
 use crate::view::{Shell, Source, folder_of, is_label_place};
 use dioxus::prelude::*;
-use ds::{
-    Anim, AvatarFace, AvatarShape, AvatarSize, AvatarTone, Colour, DropState, Here, Hex, Icon,
-    ItemKind, PersonSwatch, PlaceId, Presence, PulseKey, SidebarItem,
-};
+use ds::base::vocab::RowState;
+use ds::components::app::pin_tile::{PinFace, PinTile};
+use ds::components::content::avatar::{AvatarFace, AvatarShape, AvatarSize, AvatarTone};
+use ds::components::content::provider_mark::{MarkProvider, MarkStyle};
+use ds::components::lists::list::model::{ListItem, ListStyle};
+use ds::components::lists::row::row::RowMounted;
+use ds::host::measure::MountedRef;
+use ds::prelude::*;
+use ds::style::tokens::hex::{Colour, Hex};
+use ds::style::tokens::person::PersonSwatch;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 
@@ -133,15 +140,23 @@ pub(super) fn AccountTiles(
 ) -> Element {
     let several = counted.rows.len() > 1;
     let marks = shell.read().appearance.marks;
-    let pressed = |on: bool| if on { ds::Switch::On } else { ds::Switch::Off };
+    let picked = |on: bool| {
+        if on {
+            Selection::Selected
+        } else {
+            Selection::Unselected
+        }
+    };
+    // Each tile is quire's `PinTile`, in a grid of mailo's: `PinTiles` draws every tile's mark
+    // in one style, and a provider's own icon is per tile (quire request, requests-A.md).
     rsx! {
         div { class: "pins", role: "group", aria_label: "Accounts in this Space",
             if several {
-                ds::AccountTile {
-                    account: ds::AccountFace::All,
-                    pressed: pressed(shell.read().account.is_none()),
+                PinTile {
+                    face: PinFace::All,
+                    selection: picked(shell.read().account.is_none()),
                     unread: count_of(counted.all),
-                    onclick: move |()| {
+                    onclick: move |_| {
                         shell.write().account = None;
                         pages.set(1);
                     },
@@ -155,35 +170,29 @@ pub(super) fn AccountTiles(
                     let on = !several || shell.read().account == Some(id);
                     let colour = hex_colour(&space::avatar_color(&space, id, index));
                     let letter = initial(&address);
-                    let mut pick = move |()| {
-                        shell.write().account = Some(id);
-                        pages.set(1);
-                    };
                     // Local folders are on no provider: quire's neutral folder mark.
                     let (provider, mark) = match row.3 {
                         Some(via) => (mark_of(via), mark_style(via, marks)),
-                        None => (ds::Provider::Local, ds::MarkStyle::Letter),
+                        None => (MarkProvider::Local, MarkStyle::Letter),
                     };
                     rsx! {
-                        ds::AccountTile {
+                        PinTile {
                             key: "{id}",
-                            account: ds::AccountFace::One {
-                                initial: letter,
-                                colour,
-                                provider,
-                                address: Some(address),
-                            },
-                            pressed: pressed(on),
+                            face: PinFace::Account { initial: letter, colour, provider, address: Some(address) },
+                            selection: picked(on),
                             unread: count_of(n),
-                            onclick: move |()| pick(()),
                             mark,
+                            onclick: move |_| {
+                                shell.write().account = Some(id);
+                                pages.set(1);
+                            },
                         }
                     }
                 }
             }
-            ds::AddAccountTile {
-                title: "Add account…".to_owned(),
-                onclick: move |()| super::super::add_account::open(shell),
+            PinTile {
+                face: PinFace::Add { label: "Add account".to_owned(), hint: Some("Add account\u{2026}".to_owned()) },
+                onclick: move |_| super::super::add_account::open(shell),
             }
         }
     }
@@ -192,6 +201,13 @@ pub(super) fn AccountTiles(
 /// An unread count as a tile's badge holds it.
 fn count_of(n: u64) -> u32 {
     u32::try_from(n).unwrap_or(u32::MAX)
+}
+
+/// A place list's keys: its section headings and its places by index.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum PlaceKey {
+    Head(&'static str),
+    Place(usize),
 }
 
 #[component]
@@ -218,22 +234,65 @@ pub(super) fn PlaceList(
         })
         .map(|(index, place)| (index, place.name.clone()))
         .collect();
-    rsx! {
-        div { class: "s-h", "Places" }
-        for (index, place) in places.iter().take(split).enumerate() {
-            PlaceButton { index, name: place.name.clone(), icon: place_icon(&place.name), shell, pages, badges }
+    let selected = shell.read().selected;
+    let listed = |index: usize| index < split || labels.iter().any(|(at, _)| *at == index);
+    let mut items = vec![ListItem::heading(
+        PlaceKey::Head("Places"),
+        rsx! { SectionHeader { title: "Places" } },
+    )];
+    for (index, place) in places.iter().take(split).enumerate() {
+        items.push(place_item(
+            index,
+            &place.name,
+            place_icon(&place.name),
+            shell,
+            pages,
+            badges,
+        ));
+    }
+    if !labels.is_empty() {
+        items.push(ListItem::heading(
+            PlaceKey::Head("Labels"),
+            rsx! { SectionHeader { title: "Labels" } },
+        ));
+        for (index, name) in &labels {
+            items.push(place_item(*index, name, Icon::Tag, shell, pages, badges));
         }
-        if !labels.is_empty() {
-            div { class: "s-h", "Labels" }
-            for (index, name) in labels {
-                PlaceButton { index, name, icon: Icon::Tag, shell, pages, badges }
-            }
+    }
+    rsx! {
+        List::<PlaceKey> {
+            label: "Places",
+            items,
+            style: ListStyle::SourceList,
+            cursor: listed(selected).then_some(PlaceKey::Place(selected)),
+            onselect: move |key: PlaceKey| {
+                if let PlaceKey::Place(index) = key {
+                    shell.write().select(index);
+                    pages.set(1);
+                }
+            },
         }
     }
 }
 
+/// One place's row: quire's `Row` in the source list, its unread count a badge, outlined while
+/// a dragged row could land on it and lit under the pointer.
+fn place_item(
+    index: usize,
+    name: &str,
+    icon: Icon,
+    shell: Signal<Shell>,
+    pages: Signal<u32>,
+    badges: Memo<Vec<Option<u64>>>,
+) -> ListItem<PlaceKey> {
+    let content = rsx! {
+        PlaceRow { index, name: name.to_owned(), icon, shell, pages, badges }
+    };
+    ListItem::row(PlaceKey::Place(index), name, content)
+}
+
 #[component]
-fn PlaceButton(
+fn PlaceRow(
     index: usize,
     name: String,
     icon: Icon,
@@ -245,34 +304,22 @@ fn PlaceButton(
     let count = badges().get(index).copied().flatten();
     let state = use_hook(motion);
     let accepts = shell.read().places.get(index).is_some_and(drag::accepts);
-    let look = state.map_or_else(Look::default, |state| look(&state, index, &name, accepts));
+    let drop = state.map_or(DropState::Idle, |state| drop_of(&state, index, accepts));
     rsx! {
-        SidebarItem {
-            kind: ItemKind::Place { icon },
-            label: name.clone(),
-            here: if on { Here::Current } else { Here::Elsewhere },
-            // quire's count bumps itself whenever the number changes.
-            count: count.map(count_of),
-            presence: Presence::Present,
-            preview: look.dest.then_some(ds::Preview::Destination),
-            // The gulp plays for as long as the list's gulp timer runs for this place.
-            pulse: if look.gulp {
-                PulseKey::rest(Anim::Gulp).fired()
-            } else {
-                PulseKey::rest(Anim::Gulp)
+        Row {
+            leading: RowLeading::Icon(icon),
+            title: name.clone(),
+            common: tagged("place", name),
+            accessory: count.map_or(Accessory::None, |count| Accessory::Badge(count_of(count))),
+            state: RowState {
+                selection: if on { Selection::Selected } else { Selection::Unselected },
+                drop,
+                ..RowState::default()
             },
-            onclick: move |()| {
+            onclick: move |_| {
                 shell.write().select(index);
                 pages.set(1);
             },
-            onclose: None,
-            // Outlined while a dragged row could land here, lit under the pointer.
-            drop: match (look.target, look.can_drop) {
-                (true, _) => DropState::Target,
-                (false, true) => DropState::Accepts,
-                (false, false) => DropState::Idle,
-            },
-            place: Some(PlaceId(name.clone())),
             onpointerenter: move |_| {
                 if accepts {
                     drag::over(Some(index), index);
@@ -283,31 +330,18 @@ fn PlaceButton(
     }
 }
 
-/// How a place looks besides being there: where an op landed, where a hovered strip button
-/// would send a row, and its part in a drag.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-struct Look {
-    gulp: bool,
-    dest: bool,
-    /// Under a dragged row that it takes.
-    target: bool,
-    /// Takes the row being dragged, which is elsewhere.
-    can_drop: bool,
-}
-
-fn look(state: &super::super::motion::Motion, index: usize, name: &str, accepts: bool) -> Look {
-    let (target, can_drop) = match &*state.drag.read() {
+/// A place's part in a drag: outlined while a dragged row could land on it, lit under the
+/// pointer.
+fn drop_of(state: &super::super::motion::Motion, index: usize, accepts: bool) -> DropState {
+    match &*state.drag.read() {
         drag::Drag::Live { target, .. } if accepts => {
-            let here = *target == Some(index);
-            (here, !here)
+            if *target == Some(index) {
+                DropState::Target
+            } else {
+                DropState::Accepts
+            }
         }
-        _ => (false, false),
-    };
-    Look {
-        gulp: state.gulp.read().as_deref() == Some(name),
-        dest: *state.dest.read() == Some(name),
-        target,
-        can_drop,
+        _ => DropState::Idle,
     }
 }
 
@@ -319,58 +353,55 @@ pub(super) fn PinnedList(
     pins: Vec<u64>,
 ) -> Element {
     let driver = use_driver();
-    // Each pin's box, as it mounts: its card is placed beside it. Not a signal: nothing
+    // Each pin's row, as it mounts: its card is placed beside it. Not a signal: nothing
     // redraws for it.
-    let boxes =
-        use_hook(|| CopyValue::new(std::collections::HashMap::<usize, ds::MountedRef>::new()));
-    rsx! {
-        div { class: "s-h", "Pinned" }
-        for (index, pin) in space.pins.iter().enumerate() {
-            {
-                let name = match pin {
-                    Pinned::Person { name, .. } | Pinned::Search { name, .. } => name.clone(),
-                };
-                let query = match pin {
-                    Pinned::Person { email, .. } => format!("from:{email}"),
-                    Pinned::Search { query, .. } => query.clone(),
-                };
-                let avatar = AvatarFace {
-                    initial: initial(&name),
-                    size: AvatarSize::Size16,
-                    tone: AvatarTone::Account(PersonSwatch::nth(index + 3).colour()),
-                    shape: AvatarShape::Square,
-                };
-                let n = pins.get(index).copied().unwrap_or(0);
-                rsx! {
-                    // The item has no pointer hooks of its own, so the pin's card listens around it.
-                    div {
-                        key: "{name}",
-                        "data-hc": "pin:{index}",
-                        onmounted: move |event: MountedEvent| {
-                            let mut boxes = boxes;
-                            boxes.write().insert(index, ds::MountedRef(event.data()));
-                        },
-                        onpointerenter: move |_| {
-                            over(driver, Hook::Pin(index), element(boxes.peek().get(&index).cloned()));
-                        },
-                        onpointerleave: move |_| out(driver),
-                        SidebarItem {
-                            kind: ItemKind::Pinned { avatar },
-                            label: name.clone(),
-                            here: Here::Elsewhere,
-                            count: (n > 0).then(|| u32::try_from(n).unwrap_or(u32::MAX)),
-                            presence: Presence::Present,
-                            preview: None,
-                            pulse: PulseKey::rest(Anim::Gulp),
-                            onclick: move |()| {
-                                shell.write().search = query.clone();
-                                pages.set(1);
-                            },
-                            onclose: None,
-                        }
-                    }
-                }
+    let boxes = use_hook(|| CopyValue::new(std::collections::HashMap::<usize, MountedRef>::new()));
+    let mut items = vec![ListItem::heading(
+        "head".to_owned(),
+        rsx! { SectionHeader { title: "Pinned" } },
+    )];
+    for (index, pin) in space.pins.iter().enumerate() {
+        let name = match pin {
+            Pinned::Person { name, .. } | Pinned::Search { name, .. } => name.clone(),
+        };
+        let query = match pin {
+            Pinned::Person { email, .. } => format!("from:{email}"),
+            Pinned::Search { query, .. } => query.clone(),
+        };
+        let avatar = AvatarFace {
+            initial: initial(&name),
+            size: AvatarSize::Size16,
+            tone: AvatarTone::Account(PersonSwatch::nth(index + 3).colour()),
+            shape: AvatarShape::Square,
+        };
+        let n = pins.get(index).copied().unwrap_or(0);
+        let content = rsx! {
+            Row {
+                leading: RowLeading::Avatar(avatar),
+                title: name.clone(),
+                accessory: if n > 0 { Accessory::Badge(count_of(n)) } else { Accessory::None },
+                common: tagged("hc", format!("pin:{index}")),
+                onmounted: RowMounted::new(move |event: MountedEvent| {
+                    let mut boxes = boxes;
+                    boxes.write().insert(index, MountedRef(event.data()));
+                }),
+                onpointerenter: move |_| {
+                    over(driver, Hook::Pin(index), element(boxes.peek().get(&index).cloned()));
+                },
+                onpointerleave: move |_| out(driver),
+                onclick: move |_| {
+                    shell.write().search = query.clone();
+                    pages.set(1);
+                },
             }
+        };
+        items.push(ListItem::row(format!("pin-{index}-{name}"), name, content));
+    }
+    rsx! {
+        List::<String> {
+            label: "Pinned",
+            items,
+            style: ListStyle::SourceList,
         }
     }
 }

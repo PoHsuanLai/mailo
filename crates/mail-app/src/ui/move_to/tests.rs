@@ -259,29 +259,30 @@ async fn moving_to_a_folder_files_it_there_and_undo_brings_it_back() {
     let clicked = click(&mut dom, rows[0]);
     let menu = floated(&mut dom, clicked).await;
     let page = dioxus_ssr::render(&dom);
-    // quire's menu floats over the window, in the root's overlay, not inside the row.
+    // quire's palette floats over the window, in the root's overlay, not inside the row.
     let drawn = &page[page
-        .find("class=\"ds-popover ds-menu\"")
-        .expect("the menu did not open")..];
+        .find("class=\"ds-palette")
+        .expect("the picker did not open")..];
     for path in [TO, FROM, "收據"] {
         assert!(
-            drawn.contains(&format!("class=\"ds-menu-title\">{path}<")),
+            drawn.contains(&format!(">{path}</b>")),
             "{path} is not offered"
         );
     }
     for not in ["INBOX", "Sent", "Trash", "Lists", "travel"] {
         assert!(
-            !drawn.contains(&format!("class=\"ds-menu-title\">{not}<")),
+            !drawn.contains(&format!(">{not}</b>")),
             "{not} is offered: {drawn}"
         );
     }
 
-    // The first folder is the cursor's; Enter takes it.
+    // The first folder is the palette's selection; Enter takes it.
     chord(
         &mut dom,
         "Enter",
         Modifiers::empty(),
-        menu.one("data-kind", "rich"),
+        // The palette and its field are both named "Move to"; the keys go to the field.
+        *menu.all("aria-label", "Move to").last().expect("the field"),
     );
     settle(&mut dom).await;
     assert_eq!(
@@ -327,7 +328,7 @@ async fn moving_to_a_folder_files_it_there_and_undo_brings_it_back() {
 /// placed a frame after it is asked for.
 async fn floated(dom: &mut VirtualDom, mut drawn: Seen) -> Seen {
     for _ in 0..8 {
-        if drawn.get("data-kind", "rich").is_some()
+        if drawn.get("aria-label", "Move to").is_some()
             || tokio::time::timeout(std::time::Duration::from_millis(100), dom.wait_for_work())
                 .await
                 .is_err()
@@ -437,14 +438,13 @@ async fn a_row_dropped_on_a_folder_is_filed_there() {
     assert!(!folder_accepts(&page), "the drag outlived the drop: {page}");
 }
 
-/// Whether a folder's row (quire's tree item) is drawn as taking the row being dragged.
+/// Whether a folder's row (quire's `Row`, carrying `data-place`) is drawn as taking the row
+/// being dragged.
 fn folder_accepts(page: &str) -> bool {
-    page.match_indices("class=\"ds-tree-item-row ds-drop-place\"")
-        .any(|(at, _)| {
-            let tag = &page[at..];
-            let end = tag.find('>').unwrap_or(tag.len());
-            tag[..end].contains("data-drop=\"accepts\"")
-        })
+    page.match_indices("data-drop=\"accepts\"").any(|(at, _)| {
+        let tag_end = page[at..].find('>').map_or(page.len(), |end| at + end);
+        page[at..tag_end].contains("data-place=\"")
+    })
 }
 
 #[tokio::test]

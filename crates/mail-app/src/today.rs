@@ -79,15 +79,6 @@ impl Today {
         self.entries.retain(|entry| entry.space != space);
     }
 
-    /// Shortcuts in `space` that were opened within [`IDLE`], most recent first.
-    pub fn live(&self, space: usize, now: DateTime<Utc>) -> Vec<ThreadId> {
-        self.entries
-            .iter()
-            .filter(|entry| entry.space == space && !idle(entry, now))
-            .map(|entry| entry.thread)
-            .collect()
-    }
-
     /// Drop every shortcut that has been idle for more than [`IDLE`].
     pub fn prune(&mut self, now: DateTime<Utc>) {
         self.entries.retain(|entry| !idle(entry, now));
@@ -137,6 +128,18 @@ pub fn save(dir: &Path, today: &Today) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    impl Today {
+        /// Shortcuts in `space` that were opened within [`IDLE`], most recent first: the rule the
+        /// sidebar's tabs expire by.
+        fn live(&self, space: usize, now: DateTime<Utc>) -> Vec<ThreadId> {
+            self.entries
+                .iter()
+                .filter(|entry| entry.space == space && !super::idle(entry, now))
+                .map(|entry| entry.thread)
+                .collect()
+        }
+    }
+
     use super::{Today, load, save};
     use chrono::{DateTime, Utc};
     use mail_domain::ThreadId;

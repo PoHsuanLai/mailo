@@ -6,6 +6,7 @@ use super::store::{ACCOUNT, seeded};
 use crate::view::Shell;
 use dioxus::prelude::*;
 use dioxus_core::{NoOpMutations, VirtualDom};
+use ds::prelude::*;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
@@ -24,11 +25,11 @@ pub(in crate::ui) fn markup(store: Arc<SqliteStore>) -> String {
 ///
 /// Provided to `App` as a plain context, so a render in either scheme never touches the real
 /// config directory.
-pub(in crate::ui) fn in_scheme(scheme: ds::Scheme) -> ds_settings::Environment {
+pub(in crate::ui) fn in_scheme(scheme: Scheme) -> ds_settings::Environment {
     let mut environment = ds_settings::Environment::default();
     environment.settings.appearance.theme = match scheme {
-        ds::Scheme::Light => ds::Theme::Light,
-        ds::Scheme::Dark => ds::Theme::Dark,
+        Scheme::Light => Theme::Light,
+        Scheme::Dark => Theme::Dark,
     };
     environment
 }
@@ -36,14 +37,14 @@ pub(in crate::ui) fn in_scheme(scheme: ds::Scheme) -> ds_settings::Environment {
 /// An empty quire root in `scheme`, wearing `look`: what a component rendered on its own is
 /// placed inside, since a `.ds` root is where every token it reads is declared.
 #[component]
-fn EmptyRoot(scheme: ds::Scheme, look: ds::SpaceLook) -> Element {
+fn EmptyRoot(scheme: Scheme, look: SpaceLook) -> Element {
     let appearance = in_scheme(scheme).settings.appearance.appearance();
     rsx! {
-        ds::Ds {
+        Ds {
             appearance,
             look,
-            material: ds::Material::Window,
-            stylesheet: ds::Inject::Host,
+            material: Material::Window,
+            stylesheet: ds::assembly::ds::Inject::Host,
         }
     }
 }
@@ -53,11 +54,11 @@ fn EmptyRoot(scheme: ds::Scheme, look: ds::SpaceLook) -> Element {
 /// A body that is an `App` render has its own root, drawn in whatever scheme it was rendered
 /// in; a dark copy of it only flips `data-theme`, so its frame keeps the light Space's tint.
 /// Render `App` with [`in_scheme`] for a frame that is right in both.
-pub(in crate::ui) fn framed(body: &str, scheme: ds::Scheme, look: &ds::SpaceLook) -> String {
+pub(in crate::ui) fn framed(body: &str, scheme: Scheme, look: &SpaceLook) -> String {
     if body.contains("class=\"ds\"") {
         return match scheme {
-            ds::Scheme::Light => body.to_owned(),
-            ds::Scheme::Dark => body.replace("data-theme=\"light\"", "data-theme=\"dark\""),
+            Scheme::Light => body.to_owned(),
+            Scheme::Dark => body.replace("data-theme=\"light\"", "data-theme=\"dark\""),
         };
     }
     let mut dom = VirtualDom::new_with_props(
@@ -91,7 +92,7 @@ pub(in crate::ui) fn page(body: &str, head: &str) -> String {
         "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">\n\
          <title>mailo</title>\n<style>{}</style>\n<style>{STYLE}</style>\n\
          {head}</head>\n<body>{body}</body></html>\n",
-        ds::stylesheet(),
+        ds_shell::stylesheet(),
     )
 }
 
@@ -135,7 +136,7 @@ pub(in crate::ui) fn write_page(name: &str, page: &str) {
 /// own is placed in a root of each ([`framed`]).
 pub(in crate::ui) fn dump(name: &str, body: &str) {
     let look = crate::space::Space::default().look;
-    for (suffix, scheme) in [("", ds::Scheme::Light), ("-dark", ds::Scheme::Dark)] {
+    for (suffix, scheme) in [("", Scheme::Light), ("-dark", Scheme::Dark)] {
         write_page(
             &format!("{name}{suffix}"),
             &page(&framed(body, scheme, &look), ""),
@@ -151,11 +152,14 @@ pub(in crate::ui) fn dump(name: &str, body: &str) {
 #[component]
 fn ReaderHarness(thread: ThreadId) -> Element {
     let shell = use_signal(Shell::default);
+    // The reader draws quire's components, which read the `Ds` root's scope.
     rsx! {
-        div { class: "app",
-            div { class: "places" }
-            div { class: "list" }
-            div { class: "reader", Reader { thread, shell } }
+        Ds { appearance: Appearance::default(), material: Material::Window,
+            div { class: "app",
+                div { class: "places" }
+                div { class: "list" }
+                div { class: "reader", Reader { thread, shell } }
+            }
         }
     }
 }
@@ -519,7 +523,7 @@ impl Seen {
     }
 
     /// The conversation row whose box names the hook `thread` (`thread:{id}`): quire's
-    /// `ListRow` item, its sender's name and its time, the elements the row's hover hooks hang
+    /// `ThreadRow`, its sender's name and its time, the elements the row's hover hooks hang
     /// on. The name is the first class the row computes; the time is found among the rows by
     /// the row's own place.
     pub(in crate::ui) fn row_parts(&self, thread: &str) -> RowParts {
@@ -528,36 +532,30 @@ impl Seen {
             .first()
             .copied()
             .unwrap_or_else(|| panic!("no row for {thread}"));
+        // The name's class is the one the row computes (`ds-thread-name`, faded when long).
         let name = self
-            .after("data-hc", thread, "class")
-            .first()
-            .copied()
-            .unwrap_or_else(|| panic!("no name in the row for {thread}"));
-        let place = self
-            .fixed("class", "ds-row")
+            .attrs
             .iter()
-            .position(|id| *id == row)
-            .unwrap_or_else(|| panic!("the row for {thread} is not a quire row"));
-        let time = self.fixed("class", "ds-row-time")[place];
+            .skip_while(|(got_name, got_value, _)| !(got_name == "data-hc" && got_value == thread))
+            .find(|(got_name, got_value, _)| {
+                got_name == "class" && got_value.starts_with("ds-thread-name")
+            })
+            .map(|(_, _, id)| *id)
+            .unwrap_or_else(|| panic!("no name in the row for {thread}"));
+        // The time is the next static time cell after the name: one template per row.
+        let time = self
+            .fixed("class", "ds-thread-time")
+            .into_iter()
+            .filter(|id| id.0 > name.0)
+            .min_by_key(|id| id.0)
+            .unwrap_or_else(|| panic!("no time in the row for {thread}"));
         RowParts { row, name, time }
     }
 
-    /// The folder name at `path`: the button in quire's tree item row that carries
-    /// `data-place="{path}"` (the first element after the row, and before the next place, that
-    /// listens for a click), which is what a click lands on.
+    /// The element a click on the folder row whose path is `path` lands on: the row itself,
+    /// which is quire's `Row` carrying `data-place="{path}"`.
     pub(in crate::ui) fn folder(&self, path: &str) -> dioxus_core::ElementId {
-        let row = self.one("data-place", path);
-        let start = self
-            .attrs
-            .iter()
-            .position(|(name, value, _)| name == "data-place" && value == path)
-            .unwrap_or_default();
-        self.attrs[start + 1..]
-            .iter()
-            .take_while(|(name, _, _)| name != "data-place")
-            .find(|(name, value, id)| name == LISTENER && value == "click" && *id != row)
-            .map(|(_, _, id)| *id)
-            .unwrap_or_else(|| panic!("no button in the folder name for {path}"))
+        self.one("data-place", path)
     }
 
     /// The one element whose dynamic `name` attribute equals `value`.

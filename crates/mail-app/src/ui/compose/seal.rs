@@ -7,6 +7,10 @@
 //! that draws, with an OpenPGP key's passphrase asked for in the bar when it has one. S/MIME's
 //! private keys have none.
 
+use ds::prelude::*;
+use ds::root::common::Common;
+use ds::style::icon::render::Glyph;
+use ds::style::tokens::control_size::ControlSize;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
@@ -19,7 +23,6 @@ use super::super::press::on_primary;
 use crate::password::Password;
 use crate::pgp::PgpError;
 use crate::smime::SmimeError;
-use ds::{Glyph, Icon};
 
 /// What the warning bar says about signing and encrypting.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -119,11 +122,11 @@ pub(in crate::ui) enum BarAct {
 /// A button in the bar.
 fn act(words: &'static str, on_act: EventHandler<BarAct>, what: fn() -> BarAct) -> Element {
     rsx! {
-        ds::Button {
-            variant: ds::ButtonVariant::Mini,
+        Button {
+            size: ControlSize::Small,
             label: words.to_string(),
-            aria_label: words.to_string(),
             onclick: on_primary(move || on_act.call(what())),
+            common: Common { aria_label: Some(words.to_string()), ..Common::default() },
         }
     }
 }
@@ -148,11 +151,11 @@ pub(in crate::ui) fn SealWarn(bar: SealBar, on_act: EventHandler<BarAct>) -> Ele
             let look = "Look up keys";
             rsx! {
                 span { class: "grow", "No OpenPGP key for {listed}, so this cannot be encrypted to them. Nothing was sent." }
-                ds::Button {
-                    variant: ds::ButtonVariant::Mini,
+                Button {
+                    size: ControlSize::Small,
                     label: look.to_string(),
-                    aria_label: look.to_string(),
                     onclick: on_primary(move || on_act.call(BarAct::LookUp(addresses.clone()))),
+                    common: Common { aria_label: Some(look.to_string()), ..Common::default() },
                 }
                 {act(without, on_act, || BarAct::WithoutEncryption)}
             }
@@ -208,7 +211,7 @@ pub(in crate::ui) fn SealWarn(bar: SealBar, on_act: EventHandler<BarAct>) -> Ele
     };
     rsx! {
         div { class: "c-warn seal-warn", role: "alert",
-            Glyph { icon: Icon::Key, size: ds::IconSize::Compact }
+            Glyph { icon: Icon::Key, size: IconSize::Compact }
             {body}
         }
     }

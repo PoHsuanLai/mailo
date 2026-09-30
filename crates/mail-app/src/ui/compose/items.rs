@@ -4,7 +4,7 @@
 use super::super::menu::{MenuItem, Right, Tile};
 use super::page::Page;
 use crate::editor::{Action, Item, ParaKind, Person, filter, turn_into};
-use ds::Icon;
+use ds::prelude::*;
 
 fn tile(item: &Item) -> Tile {
     match item.action {

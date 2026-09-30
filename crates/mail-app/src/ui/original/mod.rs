@@ -37,7 +37,7 @@ impl std::fmt::Debug for ReaderNet {
 pub struct Original {
     consent: Consent,
     net: std::sync::Arc<net::MailNet>,
-    links: ds_native::FrameLinks,
+    links: ds_blitz::FrameLinks,
     pill: FramePill,
     images: ReaderNet,
 }
@@ -89,12 +89,12 @@ impl Original {
     }
 
     /// The network policy: every request beyond `data:` and the app's own `file:` is mailo's.
-    pub fn net(&self) -> ds_native::NetPolicy {
-        ds_native::NetPolicy::Custom(self.net.clone())
+    pub fn net(&self) -> ds_blitz::NetPolicy {
+        ds_blitz::NetPolicy::Custom(self.net.clone())
     }
 
     /// What a link clicked in a frame does, and where the pointer crossing one is reported.
-    pub fn links(&self) -> ds_native::FrameLinks {
+    pub fn links(&self) -> ds_blitz::FrameLinks {
         self.links.clone()
     }
 
@@ -104,13 +104,12 @@ impl Original {
         self.pill.clone()
     }
 
-    /// `config` with all of these: how a test's harness gets what the window gets.
-    pub fn harness(&self, config: ds_native::HarnessConfig) -> ds_native::HarnessConfig {
-        config
-            .with_net(self.net())
-            .with_frame_links(self.links())
-            .with_context(self.consent())
-            .with_context(self.pill())
-            .with_context(self.images())
+    /// The root contexts the window's own `launch` gives it beside the net and the links: what
+    /// a test's `HarnessConfig` takes through `with_contexts`, with `net()` and `links()`.
+    pub fn contexts(&self) -> ds_blitz::RootContexts {
+        ds_blitz::RootContexts::new()
+            .with(self.consent())
+            .with(self.pill())
+            .with(self.images())
     }
 }

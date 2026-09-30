@@ -10,6 +10,8 @@ use crate::provider::icon::Loaded;
 use crate::space::Spaces;
 use crate::view::Appearance;
 use dioxus::prelude::*;
+use ds::base::spawner::Spawner;
+use ds_settings::{AppName, ConfigRoot, Store, SystemPrefsSource, UserStyle, use_environment};
 use mail_store::SqliteStore;
 use std::sync::Arc;
 
@@ -50,14 +52,36 @@ pub fn run(
 /// The launched window's root: the window's settings, then [`Shell`].
 ///
 /// The settings are quire's: `appearance.toml` and the desktop's preferences, both watched, as
-/// one signal `App`'s root reads (`ds_settings::use_environment`). `main` imported
-/// `appearance.json` into the TOML file before the window opened. Only the launched window
-/// watches; a test renders `App` (or [`Shell`]) without this and never touches the real config
-/// directory.
+/// one signal `App`'s root reads (`ds_settings::use_environment`), and the person's own
+/// `style.css`, watched the same way and drawn after quire's and mailo's sheets (CONSUMING.md
+/// section 12). `main` imported `appearance.json` into the TOML file before the window opened.
+/// Only the launched window watches; a test renders `App` (or [`Shell`]) without this and never
+/// touches the real config directory.
 #[component]
 fn ShellRoot() -> Element {
-    let environment = ds_settings::use_environment(ds_settings::AppName::MAILO);
+    let store = Store::new(ConfigRoot::Xdg, AppName::MAILO);
+    let spawner: Arc<dyn Spawner> = Arc::new(ds_blitz::TokioSpawner::current());
+    let environment = use_environment(
+        store.clone(),
+        SystemPrefsSource::Portal,
+        Arc::clone(&spawner),
+    );
     use_context_provider(|| environment);
+    let mut user_style = use_signal({
+        let store = store.clone();
+        move || store.load::<UserStyle>().value
+    });
+    use_future(move || {
+        let store = store.clone();
+        let spawner = Arc::clone(&spawner);
+        async move {
+            let mut watch = store.watch::<UserStyle>(&*spawner);
+            while let Some(loaded) = watch.changed().await {
+                user_style.set(loaded.value);
+            }
+        }
+    });
+    use_context_provider(|| ReadSignal::new(user_style));
     rsx! { Shell {} }
 }
 

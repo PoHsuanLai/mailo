@@ -11,7 +11,10 @@ use crate::trust::spoof;
 use crate::view::Shell;
 use chrono::Local;
 use dioxus::prelude::*;
-use ds::{AvatarTone, FlagTone, HoverCardPart, HoverStat, Icon, Run, RunTone};
+use ds::components::content::avatar::AvatarTone;
+use ds::components::content::text_runs::{RunTone, TextRun};
+use ds::components::overlays::hover_card::parts::{FlagTone, HoverCardPart, HoverStat};
+use ds::prelude::*;
 use mail_domain::ThreadId;
 use mail_store::{SqliteStore, Store};
 
@@ -60,11 +63,11 @@ pub(super) fn sender_card(
             FlagTone::Danger,
             Icon::X,
             vec![
-                Run::new("The name says ", RunTone::Plain),
-                Run::new(flag.brand, RunTone::Strong),
-                Run::new("; the address is ", RunTone::Plain),
-                Run::new(flag.domain, RunTone::Strong),
-                Run::new(", which is not one of theirs.", RunTone::Plain),
+                TextRun::new("The name says ", RunTone::Plain),
+                TextRun::new(flag.brand, RunTone::Strong),
+                TextRun::new("; the address is ", RunTone::Plain),
+                TextRun::new(flag.domain, RunTone::Strong),
+                TextRun::new(", which is not one of theirs.", RunTone::Plain),
             ],
         ));
     }
@@ -82,14 +85,10 @@ pub(super) fn sender_card(
         div { class: "acts",
             // The card's actions are a menu drawn in the card, not over it.
             Floating {
-                kind: ds::MenuKind::Slim,
                 anchor: None,
                 title: String::new(),
                 items,
-                flow: ds::Flow::Inline,
-                // No row under a cursor: the card is pointed at, never arrowed through, and a
-                // first row drawn as selected reads as one already chosen.
-                active: ds::Cursor::Controlled(None),
+                flow: Flow::Inline,
                 on_pick: move |key: String| {
                     match key.as_str() {
                         "pin" => pin_person(spaces, &name, &email),

@@ -8,6 +8,9 @@
 //! what is stored is only its wrapping, the signature or the ciphertext. Those parts are in
 //! memory, in what the reader was opened to; Save writes one off the thread that draws.
 
+use ds::components::lists::list::model::ListStyle;
+use ds::prelude::*;
+use ds::style::tokens::control_size::ControlSize;
 use std::sync::Arc;
 
 use dioxus::prelude::*;
@@ -15,7 +18,6 @@ use mail_domain::{BlobId, MessageId};
 use mail_store::SqliteStore;
 
 use super::super::text::{AttachmentRow, Kept};
-use ds::{Glyph, Icon};
 
 /// The rows for one message. `saved` says where the last one went; `downloading` is the part
 /// being fetched, whose button stays disabled until the fetch ends.
@@ -27,40 +29,53 @@ pub(super) fn Attachments(
     saved: Signal<Option<String>>,
     downloading: Signal<Option<(MessageId, usize)>>,
 ) -> Element {
-    rsx! {
-        ul { class: "attachments",
-            for row in rows {
-                li { key: "{row.index}",
-                    Glyph { icon: Icon::Paperclip, size: ds::IconSize::Compact }
-                    span { class: "name", "{row.name}" }
-                    span { class: "size mono", "{row.size}" }
-                    ds::Button {
-                        variant: ds::ButtonVariant::Mini,
-                        label: if downloading() == Some((message, row.index)) {
-                            match row.kept {
-                                Kept::OnServer => "Downloading…",
-                                Kept::Here | Kept::Opened => "Saving…",
-                            }
-                        } else {
-                            match row.kept {
-                                Kept::Here | Kept::Opened => "Save",
-                                Kept::OnServer => "Download",
-                            }
-                        },
-                        availability: super::super::press::available(downloading() != Some((message, row.index))),
-                        onclick: {
-                            let index = row.index;
-                            let name = row.name.clone();
-                            let kept = row.kept;
-                            super::super::press::on_primary(move || match kept {
-                                Kept::Here => save_here(message, index, saved),
-                                Kept::Opened => save_opened(message, body, index, saved, downloading),
-                                Kept::OnServer => download(message, index, &name, saved, downloading),
-                            })
-                        },
-                    }
+    let items: Vec<ListItem<usize>> = rows
+        .iter()
+        .map(|row| {
+            let busy = downloading() == Some((message, row.index));
+            let label = if busy {
+                match row.kept {
+                    Kept::OnServer => "Downloading…",
+                    Kept::Here | Kept::Opened => "Saving…",
                 }
-            }
+            } else {
+                match row.kept {
+                    Kept::Here | Kept::Opened => "Save",
+                    Kept::OnServer => "Download",
+                }
+            };
+            let index = row.index;
+            let name = row.name.clone();
+            let kept = row.kept;
+            let button = rsx! {
+                Button {
+                    size: ControlSize::Small,
+                    label,
+                    availability: if busy { Availability::Disabled } else { Availability::Enabled },
+                    onclick: super::super::press::on_primary(move || match kept {
+                        Kept::Here => save_here(message, index, saved),
+                        Kept::Opened => save_opened(message, body, index, saved, downloading),
+                        Kept::OnServer => download(message, index, &name, saved, downloading),
+                    }),
+                }
+            };
+            ListItem::row(
+                row.index,
+                row.name.clone(),
+                rsx! {
+                    Row {
+                        leading: RowLeading::Icon(Icon::Paperclip),
+                        title: row.name.clone(),
+                        detail: Some(TextLine::from(row.size.clone())),
+                        accessory: Accessory::Slot(button),
+                    }
+                },
+            )
+        })
+        .collect();
+    rsx! {
+        div { class: "attachments",
+            List::<usize> { label: "Attachments", items, style: ListStyle::Inset }
         }
     }
 }

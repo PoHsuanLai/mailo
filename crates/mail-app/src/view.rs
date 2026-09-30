@@ -5,6 +5,8 @@
 //! of them needs a window to be wrong in. The rendering layer reads this and draws it.
 
 use chrono::{DateTime, Datelike, TimeDelta, TimeZone, Timelike, Utc, Weekday};
+use ds::prelude::*;
+use ds::style::appearance::peek::PeekMode;
 use mail_domain::*;
 use mail_mime::{Block, Document, Flowed, ImgSrc, RemoteImages, SanitizePolicy, Shape};
 use serde::de::Deserializer;
@@ -195,83 +197,8 @@ pub fn badge_filter(source: &Source) -> Option<Filter> {
     }
 }
 
-/// Which palette a Space resolves to: quire's, moved from here with its three states.
-pub use ds::Theme;
-
-/// How much the window moves while a Space is on screen.
-///
-/// mailo's own, and per Space: quire's [`ds::SpaceLook`] has no motion of its own, so this
-/// stays in [`crate::space::Space`] and becomes the root's `appearance.motion` through
-/// [`Motion::with_desktop`]. Three levels and no "follow the desktop": `Standard` is mailo's
-/// explicit default, never [`ds::Motion::System`]. `Calm` keeps every state change visible but
-/// removes the overshoot; the desktop's reduced-motion setting goes further and is honoured
-/// whatever this says.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Copy, Hash, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum Motion {
-    /// No overshoot, no stagger, no tilt.
-    Calm,
-    /// The design as drawn.
-    #[default]
-    Standard,
-    /// More spring, more stagger, more tilt.
-    Extra,
-}
-
-impl Motion {
-    /// Every level, in the order a picker offers them.
-    pub const ALL: [Motion; 3] = [Motion::Calm, Motion::Standard, Motion::Extra];
-
-    /// The stored word.
-    pub fn slug(self) -> &'static str {
-        match self {
-            Motion::Calm => "calm",
-            Motion::Standard => "standard",
-            Motion::Extra => "extra",
-        }
-    }
-
-    /// What a picker calls it.
-    pub fn label(self) -> &'static str {
-        match self {
-            Motion::Calm => "Calm",
-            Motion::Standard => "Standard",
-            Motion::Extra => "Extra",
-        }
-    }
-
-    /// The level a stored word names, or [`None`] for a word that is not one.
-    pub fn parse(word: &str) -> Option<Motion> {
-        Self::ALL.into_iter().find(|level| level.slug() == word)
-    }
-
-    /// The Space's level quire's `level` is, when it is one of the three a Space sets.
-    pub fn of(level: ds::Motion) -> Option<Motion> {
-        Self::ALL
-            .into_iter()
-            .find(|motion| ds::Motion::from(*motion) == level)
-    }
-
-    /// What the window's root is drawn at: this level, unless the desktop asks for reduced
-    /// motion, which wins whatever a Space says.
-    pub fn with_desktop(self, system: ds::SystemPrefs) -> ds::Motion {
-        match system.motion {
-            ds::ReducedMotion::Reduce => ds::Motion::Reduced,
-            ds::ReducedMotion::NoPreference => self.into(),
-        }
-    }
-}
-
-impl From<Motion> for ds::Motion {
-    /// One for one. `Standard` is an explicit choice, so it is quire's `Standard`, not `System`.
-    fn from(motion: Motion) -> Self {
-        match motion {
-            Motion::Calm => ds::Motion::Calm,
-            Motion::Standard => ds::Motion::Standard,
-            Motion::Extra => ds::Motion::Extra,
-        }
-    }
-}
+/// Which palette a Space resolves to: quire's, with its three states.
+pub use ds::prelude::Theme;
 
 /// Whether a provider chip draws the cached icon or the letter.
 ///
@@ -336,7 +263,7 @@ where
 
 /// Where the open reader sits. Per session, and not persisted.
 ///
-/// Side is the grid's third column, and mailo's own: quire's [`ds::PeekMode`] is only the two
+/// Side is the grid's third column, and mailo's own: quire's [`PeekMode`] is only the two
 /// that float. Floating is a stylesheet change on `div.app` — the reader component stays where
 /// it is in the tree, because moving it would reload the sandboxed frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -345,14 +272,14 @@ pub enum Peek {
     #[default]
     Side,
     /// Over the window: a centred panel, or the whole of it.
-    Float(ds::PeekMode),
+    Float(PeekMode),
 }
 
 impl Peek {
     /// A panel over the middle of the window.
-    pub const CENTER: Peek = Peek::Float(ds::PeekMode::Center);
+    pub const CENTER: Peek = Peek::Float(PeekMode::Center);
     /// The whole window.
-    pub const FULL: Peek = Peek::Float(ds::PeekMode::Full);
+    pub const FULL: Peek = Peek::Float(PeekMode::Full);
 
     /// `side`, `center` or `full`, written as `data-peek`.
     pub fn slug(self) -> &'static str {
@@ -3225,7 +3152,6 @@ mod appearance {
         // mailo used to leave `data-theme` off for System so a media query could decide.
         // quire resolves the scheme in Rust and always writes one, so the guarantee is now
         // about the resolution: System is the desktop's, Light and Dark are themselves.
-        use ds::{Appearance, Scheme, SystemPrefs, resolve};
         const CASES: &[(Theme, Scheme, Scheme)] = &[
             (Theme::System, Scheme::Dark, Scheme::Dark),
             (Theme::System, Scheme::Light, Scheme::Light),
@@ -3237,7 +3163,7 @@ mod appearance {
                 scheme: desktop,
                 ..SystemPrefs::default()
             };
-            let resolved = resolve(Appearance::default(), theme, system);
+            let resolved = resolve(ds::prelude::Appearance::default(), theme, system);
             assert_eq!(
                 resolved.scheme, expect,
                 "{theme:?} on a {desktop:?} desktop"
@@ -3258,26 +3184,5 @@ mod appearance {
         for &(word, expect) in CASES {
             assert_eq!(Theme::parse(word), expect, "{word:?}");
         }
-    }
-
-    #[test]
-    fn a_spaces_motion_is_quires_one_for_one_unless_the_desktop_reduces() {
-        use ds::{ReducedMotion, SystemPrefs};
-        let still = SystemPrefs::default();
-        let reduce = SystemPrefs {
-            motion: ReducedMotion::Reduce,
-            ..SystemPrefs::default()
-        };
-        const CASES: &[(Motion, ds::Motion)] = &[
-            (Motion::Calm, ds::Motion::Calm),
-            (Motion::Standard, ds::Motion::Standard),
-            (Motion::Extra, ds::Motion::Extra),
-        ];
-        for &(mine, theirs) in CASES {
-            assert_eq!(ds::Motion::from(mine), theirs, "{mine:?}");
-            assert_eq!(mine.with_desktop(still), theirs, "{mine:?}");
-            assert_eq!(mine.with_desktop(reduce), ds::Motion::Reduced, "{mine:?}");
-        }
-        assert_ne!(ds::Motion::from(Motion::default()), ds::Motion::System);
     }
 }

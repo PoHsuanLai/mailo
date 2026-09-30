@@ -1,12 +1,14 @@
-//! Spaces: a tint, a grain, and whose mail they show.
+//! Spaces: a tint, and whose mail they show.
 //!
 //! Stored in `spaces.json` under the config directory, beside appearance and
 //! not in the mail database. A cosmetic choice must not be a write against
 //! someone's mail.
 
 use crate::appearance::{Legacy, write_json};
-use crate::view::{Motion, Theme};
-use ds::{CardAccent, Dot, Grain, NEUTRAL_DOT, SpaceLook};
+use ds::prelude::{SpaceLook, Theme, Word};
+use ds::style::space::look::CardAccent;
+use ds::style::space::palette::{Dot, NEUTRAL_DOT};
+use ds::style::tokens::person::PersonSwatch;
 use mail_domain::AccountId;
 use serde::de::Deserializer;
 use serde::{Deserialize, Serialize};
@@ -22,14 +24,6 @@ pub use presets::{PRESET_NAMES, PRESETS};
 pub use recall::Recall;
 
 const FILE_NAME: &str = "spaces.json";
-const DEFAULT_GRAIN: u8 = 35;
-
-/// A Space's card accent when it has stored none: the Space's own hue.
-///
-/// quire's [`CardAccent`] defaults to Postmark, the design system's first-run value for a
-/// workspace; mailo's Spaces have always lent the card their hue unless told not to, and a
-/// `spaces.json` written before quire says nothing, so that is what nothing still means here.
-pub const DEFAULT_CARD_ACCENT: CardAccent = CardAccent::SpaceHue;
 
 /// Which accounts a Space shows.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -57,21 +51,19 @@ pub enum Pinned {
 /// One context: a name, how its frame looks, and whose mail it shows.
 ///
 /// The look is quire's [`SpaceLook`]: one to three dots (empty input is the neutral dot; a
-/// fourth is dropped), a grain from 0 to 100 (35 on first run), the palette this Space resolves
-/// to independently of the window, and whether the card follows its hue. It is written flat
-/// into `spaces.json`, beside the fields that are mailo's, so the file keeps the shape it had
-/// before the look was quire's; it is read through [`SpaceRaw`], leniently, field by field.
+/// fourth is dropped), the palette this Space resolves to independently of the window, and
+/// whether the card follows its hue. It is written flat into `spaces.json`, beside the fields
+/// that are mailo's; it is read through [`SpaceRaw`], leniently, field by field. A file written
+/// before quire's one Look still holds a `grain` and a `motion` per Space: both are read by
+/// nobody and dropped on the next write.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(from = "SpaceRaw")]
 pub struct Space {
     /// What the switcher calls it. "Space 1" until someone renames it.
     pub name: String,
-    /// The frame's dots, grain, theme and card accent: what the window's `Ds` root paints.
+    /// The frame's dots, theme and card accent: what the window's `Ds` root paints.
     #[serde(flatten)]
     pub look: SpaceLook,
-    /// How much the window moves while this Space is on screen. mailo's own: [`SpaceLook`]
-    /// has no motion (a gap reported to quire), so it stays beside the look.
-    pub motion: Motion,
     /// Whose mail this Space shows.
     pub scope: Scope,
     /// People and saved searches that stay put.
@@ -85,7 +77,7 @@ pub struct Space {
 
 /// The swatch an account at `index` takes when a Space has not chosen one, as stored.
 fn swatch(index: usize) -> String {
-    ds::PersonSwatch::nth(index).hex().css()
+    PersonSwatch::nth(index).hex().css()
 }
 
 /// The colour `id` wears in `space`, or the swatch at `index` when none was stored.
@@ -116,11 +108,9 @@ impl Default for Space {
             name: String::new(),
             look: SpaceLook {
                 dots: vec![NEUTRAL_DOT],
-                grain: Grain(DEFAULT_GRAIN),
                 theme: Theme::default(),
-                card_accent: DEFAULT_CARD_ACCENT,
+                card_accent: CardAccent::default(),
             },
-            motion: Motion::default(),
             scope: Scope::default(),
             pins: Vec::new(),
             colors: BTreeMap::new(),
@@ -159,13 +149,9 @@ struct SpaceRaw {
     name: String,
     #[serde(default)]
     dots: Vec<Dot>,
-    #[serde(default = "default_grain", deserialize_with = "de_grain")]
-    grain: u8,
     #[serde(default, deserialize_with = "de_theme")]
     theme: Theme,
-    #[serde(default, deserialize_with = "de_motion")]
-    motion: Motion,
-    #[serde(default = "default_card_accent", deserialize_with = "de_card_accent")]
+    #[serde(default, deserialize_with = "de_card_accent")]
     card_accent: CardAccent,
     #[serde(default, deserialize_with = "de_scope")]
     scope: Scope,
@@ -194,14 +180,6 @@ enum ScopeRaw {
     Unknown,
 }
 
-fn default_grain() -> u8 {
-    DEFAULT_GRAIN
-}
-
-fn default_card_accent() -> CardAccent {
-    DEFAULT_CARD_ACCENT
-}
-
 impl From<SpaceRaw> for Space {
     fn from(raw: SpaceRaw) -> Self {
         let mut dots: Vec<Dot> = raw.dots.into_iter().map(clamp_dot).collect();
@@ -214,11 +192,9 @@ impl From<SpaceRaw> for Space {
             name: raw.name,
             look: SpaceLook {
                 dots,
-                grain: Grain(raw.grain.min(100)),
                 theme: raw.theme,
                 card_accent: raw.card_accent,
             },
-            motion: raw.motion,
             scope: raw.scope,
             pins: raw.pins,
             colors: raw.colors,
@@ -260,18 +236,6 @@ fn clamp_dot(dot: Dot) -> Dot {
     Dot { hue, chroma }
 }
 
-fn de_grain<'de, D>(deserializer: D) -> Result<u8, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let value = i64::deserialize(deserializer)?;
-    Ok(match u8::try_from(value) {
-        Ok(grain) if grain <= 100 => grain,
-        _ if value <= 0 => 0,
-        _ => 100,
-    })
-}
-
 fn de_index<'de, D>(deserializer: D) -> Result<usize, D::Error>
 where
     D: Deserializer<'de>,
@@ -288,25 +252,17 @@ where
     Ok(Theme::parse(&word).unwrap_or_default())
 }
 
-fn de_motion<'de, D>(deserializer: D) -> Result<Motion, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let word = String::deserialize(deserializer)?;
-    Ok(Motion::parse(&word).unwrap_or_default())
-}
-
 fn de_card_accent<'de, D>(deserializer: D) -> Result<CardAccent, D::Error>
 where
     D: Deserializer<'de>,
 {
     let word = String::deserialize(deserializer)?;
     // `hint` is what mailo wrote before the look was quire's; `space_hue` is quire's word
-    // for the same choice, and what is written now.
+    // for the same choice, and what is written now. `postmark`, the accent mailo once had, and
+    // every other word are the chosen accent: Blue unless the person picked another.
     Ok(match word.as_str() {
         "hint" | "space_hue" => CardAccent::SpaceHue,
-        "postmark" => CardAccent::Postmark,
-        _ => DEFAULT_CARD_ACCENT,
+        _ => CardAccent::Chosen,
     })
 }
 
@@ -322,13 +278,13 @@ where
 
 /// The stored Spaces, or an empty list when there is no file or it cannot be read.
 ///
-/// Dots are kept to the first three, grain to 0..=100, and `current` to a real
+/// Dots are kept to the first three, and `current` to a real
 /// index. A missing dot list is the neutral dot. An unknown word for one field
 /// is that field's default, not a failure of the whole file.
 ///
-/// Theme and motion moved from `appearance.json` into each Space. A Space written before
-/// that has neither, and takes the window-wide values stored beside it in the same
-/// directory, so the first read after the upgrade looks the way the window did.
+/// The theme moved from `appearance.json` into each Space. A Space written before that has
+/// none, and takes the window-wide value stored beside it in the same directory, so the first
+/// read after the upgrade looks the way the window did.
 pub fn load(dir: &Path) -> Spaces {
     let Ok(bytes) = std::fs::read(dir.join(FILE_NAME)) else {
         return Spaces::default();
@@ -336,24 +292,22 @@ pub fn load(dir: &Path) -> Spaces {
     migrate::read_with(&bytes, &crate::appearance::legacy(dir))
 }
 
-/// Give every Space `look`'s theme and motion. For Spaces made before any were stored.
+/// Give every Space `look`'s theme. For Spaces made before any were stored.
 pub fn inherit(spaces: &mut Spaces, look: &Legacy) {
     for space in &mut spaces.spaces {
         space.look.theme = look.theme;
-        space.motion = look.motion;
     }
 }
 
 /// A Space for "+": named after its position, tinted from the next preset in turn.
 ///
-/// It covers every account, and keeps the current Space's theme and motion so making one
-/// does not also change how the window looks.
+/// It covers every account, and keeps the current Space's theme so making one does not also
+/// change how the window looks.
 pub fn new_space(spaces: &Spaces) -> Space {
     let count = spaces.spaces.len();
     let current = spaces.current_space();
     let mut made = Space {
         name: format!("Space {}", count + 1),
-        motion: current.motion,
         scope: Scope::All,
         ..Space::default()
     };

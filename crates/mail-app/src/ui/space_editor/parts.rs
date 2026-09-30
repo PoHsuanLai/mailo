@@ -1,40 +1,25 @@
-//! The editor's own controls around quire's: a segment and the provider marks.
+//! The editor's own control around quire's: the provider marks.
 
 use crate::appearance::WindowDirs;
 use crate::view::{Appearance, Marks as MarksKind, Shell};
 use dioxus::prelude::*;
-use ds::SegmentedControl;
-
-/// A row of mutually exclusive buttons, each saying with `aria-pressed` whether it is the one:
-/// quire's `SegmentedControl`, choosing by position. The caller's options say which is on.
-#[component]
-pub(in crate::ui) fn Seg(
-    label: String,
-    options: Vec<(String, bool)>,
-    on_pick: EventHandler<usize>,
-) -> Element {
-    let value = options.iter().position(|(_, on)| *on).unwrap_or(usize::MAX);
-    let options: Vec<(usize, String)> = options
-        .into_iter()
-        .enumerate()
-        .map(|(index, (name, _))| (index, name))
-        .collect();
-    rsx! {
-        SegmentedControl::<usize> { label, options, value, onchange: move |index| on_pick.call(index) }
-    }
-}
+use ds::components::controls::button_model::Bezel;
+use ds::components::controls::segmented::Tracking;
+use ds::components::fields::field_row::FieldRow;
+use ds::prelude::{Button, Choice, SegmentedControl};
 
 /// Provider marks: the window's, not the Space's, so a choice here is kept at once.
 #[component]
 pub(super) fn Marks(shell: Signal<Shell>) -> Element {
     let now = shell.read().appearance.marks;
     rsx! {
-        div {
-            div { class: "ed-label", "Provider marks" }
+        FieldRow {
+            label: "Provider marks",
+            help: "Their own icons on an account's tile, or a letter.",
             SegmentedControl::<MarksKind> {
                 label: "Provider marks",
-                options: MarksKind::ALL.into_iter().map(|marks| (marks, marks.label().to_owned())).collect::<Vec<_>>(),
-                value: now,
+                choices: MarksKind::ALL.into_iter().map(|marks| Choice::new(marks, marks.label())).collect::<Vec<_>>(),
+                tracking: Tracking::SelectOne(now),
                 onchange: move |marks| {
                     let look = Appearance { marks };
                     shell.write().appearance = look;
@@ -43,9 +28,8 @@ pub(super) fn Marks(shell: Signal<Shell>) -> Element {
                     }
                 },
             }
-            ds::Button {
-                variant: ds::ButtonVariant::Quiet,
-                extra_class: ds::ExtraClass::parse("marks-refresh").ok(),
+            Button {
+                bezel: Bezel::Inline,
                 label: "Refresh icons",
                 onclick: super::super::press::on_primary(refresh_icons),
             }

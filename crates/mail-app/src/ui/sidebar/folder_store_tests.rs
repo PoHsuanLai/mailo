@@ -11,6 +11,7 @@ use crate::ui::ops::take_back;
 use chrono::Utc;
 use dioxus::prelude::*;
 use dioxus_core::ElementId;
+use ds::prelude::*;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
@@ -81,6 +82,20 @@ fn add_pop(store: &SqliteStore) {
         POP,
         presets::manual_pop3("you@nowhere.example", &manual, Utc::now()),
     );
+}
+
+/// What the window draws over the next moments: a picked menu item blinks, then closes, then
+/// acts, on quire's clock.
+async fn later(dom: &mut VirtualDom) -> crate::ui::fixtures::Seen {
+    let mut seen = crate::ui::fixtures::Seen::default();
+    for _ in 0..10 {
+        let _ =
+            tokio::time::timeout(std::time::Duration::from_millis(60), dom.wait_for_work()).await;
+        let mut more = crate::ui::fixtures::Seen::default();
+        dom.render_immediate(&mut more);
+        seen = seen.merge(more);
+    }
+    seen
 }
 
 fn drawn(store: &SqliteStore) -> String {
@@ -293,10 +308,13 @@ async fn the_section_draws_nested_folders_and_leaves_out_places_and_unfollowed_o
             "{name} is drawn: {page}"
         );
     }
-    // 2026 is inside Projects: after its row, inside its group.
+    // 2026 is inside Projects: Projects is an outline branch, and its row is followed by 2026's.
     let projects = page.find("Actions for Projects").unwrap();
-    let group = page[projects..].find("ds-tree-item-children").unwrap() + projects;
-    assert!(page[group..].contains("Actions for 2026"), "{page}");
+    assert!(
+        page[..projects].rfind("class=\"ds-row-branch\"").is_some(),
+        "Projects is not a branch: {page}"
+    );
+    assert!(page[projects..].contains("Actions for 2026"), "{page}");
     assert!(page.contains("Show all"), "{page}");
 }
 
@@ -324,38 +342,33 @@ async fn the_menu_and_the_field_are_the_shared_ones_and_styled() {
         seen = seen.merge(more);
     }
     let menu = dioxus_ssr::render(&dom);
-    assert!(
-        menu.contains("class=\"ds-popover ds-menu\"") && menu.contains("data-kind=\"slim\""),
-        "{menu}"
-    );
+    assert!(menu.contains("class=\"ds-menu"), "{menu}");
     for item in ["New folder inside", "Rename", "Stop following", "Delete"] {
         assert!(menu.contains(item), "{item} missing: {menu}");
     }
-    // The first item is under the cursor: New folder inside.
-    let first = seen.all("aria-selected", "true")[0];
-    let seen = click(&mut dom, first);
+    // The first item is New folder inside.
+    let first = seen.fixed("class", "ds-menu-item")[0];
+    let picked = click(&mut dom, first);
+    let seen = picked.merge(later(&mut dom).await);
     let field = seen.one("aria-placeholder", "New folder");
     type_into(&mut dom, field, "a/b");
     chord(&mut dom, "Enter", Modifiers::empty(), field);
     let naming = dioxus_ssr::render(&dom);
-    // The shared field: quire's, in its bare face.
+    // The shared field: quire's `TextField`, without its bezel.
     assert!(
-        naming.contains("class=\"ds-input\" data-variant=\"bare\""),
+        naming.contains("class=\"ds-input\" data-variant=\"plain\""),
         "{naming}"
     );
     assert!(
         naming.contains("A folder name cannot contain “/”"),
         "the refusal is not said: {naming}"
     );
-    let missing = crate::ui::style::tests::unstyled_classes(
-        &(menu + &naming),
-        &crate::ui::style::tests::full_css(),
-    );
-    assert!(missing.is_empty(), "unstyled classes: {missing:?}");
+    let offences = crate::ui::style::tests::markup_offences(&(menu + &naming));
+    assert!(offences.is_empty(), "the markup lint: {offences:#?}");
 }
 
 /// The window with `Projects`' ⋯ menu open and its Rename picked, and the rename field.
-fn renaming_projects() -> (VirtualDom, ElementId, Arc<SqliteStore>, tempfile::TempDir) {
+async fn renaming_projects() -> (VirtualDom, ElementId, Arc<SqliteStore>, tempfile::TempDir) {
     let (store, dir) = imap_store();
     let mut dom = VirtualDom::new(App).with_root_context(store.clone());
     let seen = rebuild_into(&mut dom);
@@ -366,36 +379,33 @@ fn renaming_projects() -> (VirtualDom, ElementId, Arc<SqliteStore>, tempfile::Te
         dom.render_immediate(&mut more);
         seen = seen.merge(more);
     }
-    // Under the cursor is New folder inside; the first row not under it is Rename.
-    let rename = seen.all("aria-selected", "false")[0];
-    let field = click(&mut dom, rename).one("aria-placeholder", "Folder name");
+    // The menu's items in order: New folder inside, then Rename.
+    let rename = seen.fixed("class", "ds-menu-item")[1];
+    let picked = click(&mut dom, rename);
+    let field = picked
+        .merge(later(&mut dom).await)
+        .one("aria-placeholder", "Folder name");
     (dom, field, store, dir)
 }
 
-/// The rename field is quire's `TreeItem { editing }`: in the name's place, the name's button
-/// gone from the row and nothing drawn under it.
+/// The rename field: quire's `TextField` in the row's words, in place of the name.
 fn editing_markup(page: &str) -> Option<&str> {
-    let at = page.find("data-slot=\"editing\"")?;
-    let end = page[at..]
-        .find("</span>")
-        .map_or(page.len(), |end| at + end);
-    Some(&page[at..end])
+    let at = page.find("aria-label=\"Folder name\"")?;
+    let start = page[..at].rfind("<input")?;
+    let end = page[at..].find("/>").map_or(page.len(), |end| at + end);
+    Some(&page[start..end])
 }
 
 #[tokio::test]
 async fn a_rename_is_written_in_the_name_s_place_and_enter_makes_it() {
     dispatching();
-    let (mut dom, field, store, _dir) = renaming_projects();
+    let (mut dom, field, store, _dir) = renaming_projects().await;
     let page = dioxus_ssr::render(&dom);
     let slot = editing_markup(&page).unwrap_or_else(|| panic!("no editing slot:\n{page}"));
     assert!(
-        slot.contains("class=\"ds-input\" data-variant=\"bare\"")
+        slot.contains("class=\"ds-input\" data-variant=\"plain\"")
             && slot.contains("value=\"Projects\""),
         "{slot}"
-    );
-    assert!(
-        !page.contains("class=\"fold-edit\""),
-        "a field is drawn under the row"
     );
     type_into(&mut dom, field, "Plans");
     chord(&mut dom, "Enter", Modifiers::empty(), field);
@@ -414,11 +424,11 @@ async fn a_rename_is_written_in_the_name_s_place_and_enter_makes_it() {
 #[tokio::test]
 async fn escape_takes_the_rename_away_and_keeps_the_name() {
     dispatching();
-    let (mut dom, field, store, _dir) = renaming_projects();
+    let (mut dom, field, store, _dir) = renaming_projects().await;
     chord(&mut dom, "Escape", Modifiers::empty(), field);
     let page = dioxus_ssr::render(&dom);
     assert!(editing_markup(&page).is_none(), "Escape left the field");
-    assert!(page.contains(">Projects</button>"), "{page}");
+    assert!(page.contains(">Projects</b>"), "{page}");
     let paths: Vec<String> = store
         .folders(IMAP)
         .unwrap()
@@ -450,11 +460,9 @@ async fn several_accounts_are_each_named_over_their_folders() {
     inbox.account = other;
     store.put_folders(other, vec![inbox, lists]).unwrap();
     let page = frame(store);
-    assert!(page.contains("class=\"fold-acct\""), "{page}");
     assert!(page.contains("me@elsewhere.example"), "{page}");
-    let missing =
-        crate::ui::style::tests::unstyled_classes(&page, &crate::ui::style::tests::full_css());
-    assert!(missing.is_empty(), "unstyled classes: {missing:?}");
+    let offences = crate::ui::style::tests::markup_offences(&page);
+    assert!(offences.is_empty(), "the markup lint: {offences:#?}");
 }
 
 /// Writes `target/folders.html` and `folders-menu.html`, each with a `-dark` twin: the Work
@@ -501,7 +509,7 @@ async fn render_the_folders_to_a_file() {
     click(&mut dom, seen.one("aria-label", "Actions for 2026"));
     let open = dioxus_ssr::render(&dom);
     for (name, body) in [("folders", &closed), ("folders-menu", &open)] {
-        for (suffix, scheme) in [("", ds::Scheme::Light), ("-dark", ds::Scheme::Dark)] {
+        for (suffix, scheme) in [("", Scheme::Light), ("-dark", Scheme::Dark)] {
             let framed = crate::ui::fixtures::framed(body, scheme, &space.look);
             crate::ui::fixtures::write_page(
                 &format!("{name}{suffix}"),

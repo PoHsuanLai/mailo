@@ -11,6 +11,11 @@ mod events;
 mod reference;
 mod store;
 
+/// The words the tests drive quire's `Harness` with (`Drive`, `Key`): the one file
+/// `tests/support/drive.rs`, which the integration tests include too.
+#[path = "../../../tests/support/drive.rs"]
+pub(in crate::ui) mod drive;
+
 /// The throwaway certificate authority S/MIME tests make their certificates with: the one
 /// `mail-mime`'s tests and `tests/smime.rs` use, so all three build fixtures the same way.
 #[path = "../../../../mail-mime/tests/smime_support/mod.rs"]

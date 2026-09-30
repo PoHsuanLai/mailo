@@ -1,10 +1,10 @@
-//! The window: quire's `ds-native`, Blitz drawn with wgpu. The only frontend.
+//! The window: quire's `ds-blitz`, Blitz drawn with wgpu. The only frontend.
 //!
 //! The six values the window reads reach it as root contexts through
 //! `AppConfig::with_context`, the same call a test makes through `HarnessConfig`
 //! ([`contexts`]). Nothing is passed through a global.
 //!
-//! `ds-native` registers the fonts itself, holds and places the focus (`ds_native::focus`), and
+//! `ds-blitz` registers the fonts itself, holds and places the focus (`ds_blitz::focus`), and
 //! runs no script, so there is no keep-focus script, no "nothing mounted" note and no debug probe.
 
 use super::{Opening, Shell, ShellRoot};
@@ -13,7 +13,7 @@ use crate::space::Spaces;
 use crate::ui::original::Original;
 use crate::view::Appearance;
 use dioxus::prelude::*;
-use ds_native::{AppConfig, AppId, RootContexts};
+use ds_blitz::{AppConfig, AppId, RootContexts};
 use mail_store::SqliteStore;
 use std::sync::Arc;
 
@@ -48,7 +48,7 @@ pub(super) fn run(opening: Opening) {
         .with_context(original.pill())
         .with_context(original.images())
         .with_context(icons);
-    ds_native::launch(ShellRoot, config);
+    ds_blitz::launch(ShellRoot, config);
 }
 
 /// The root contexts the window reads, for `AppConfig` or `HarnessConfig::with_contexts`: the
@@ -77,7 +77,7 @@ pub fn contexts(
 
 /// The window as a test drives it: everything the launched window draws, but not its watch on
 /// the settings directory, so a test never reads or watches the real `~/.config`. Hand it to
-/// `ds_native::Harness` with [`contexts`], and with an [`Original`]'s `harness` for frames held
+/// `ds_blitz::Harness` with [`contexts`], and with an [`Original`]'s `harness` for frames held
 /// as the window holds them.
 pub fn root() -> Element {
     rsx! { Shell {} }

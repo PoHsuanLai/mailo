@@ -1,14 +1,17 @@
-use super::{Slide, space_key, switch};
+use super::{Moved, space_key, switch};
 use crate::space::{self, PRESETS, Scope, Space, Spaces};
 use crate::ui::app::App;
 use crate::ui::fixtures::{
     INSIDE_THE_SHELL, Scripts, Work, chord, dispatching, rebuild_into, root_attr, work,
 };
-use crate::view::{Motion, Shell, Theme};
+use crate::view::Shell;
 use dioxus::html::input_data::keyboard_types::Modifiers;
 use dioxus::prelude::*;
 use dioxus_core::{ElementId, VirtualDom};
-use ds::{CardAccent, FrameVars, Scheme, SpaceLook};
+use ds::prelude::{Scheme, SpaceLook, Theme, Word};
+use ds::style::space::frame_vars::FrameVars;
+use ds::style::space::look::CardAccent;
+use ds::style::space::palette::{Dot, derive, gradient};
 use mail_domain::{AccountId, ThreadId};
 use std::collections::BTreeMap;
 use uuid::Uuid;
@@ -78,7 +81,7 @@ fn each_space_gets_its_place_thread_and_tile_back() {
     shell.account = Some(account(1));
     shell.search = "from:dana".to_owned();
 
-    assert_eq!(switch(&mut spaces, &mut shell, 1), Some(Slide::Right));
+    assert_eq!(switch(&mut spaces, &mut shell, 1), Moved::Yes);
     assert_eq!(spaces.current, 1);
     assert_eq!(shell.scope, vec![account(2)], "the list is not Home's");
     assert_eq!(
@@ -97,7 +100,7 @@ fn each_space_gets_its_place_thread_and_tile_back() {
     shell.open(thread(9));
     shell.account = Some(account(2));
 
-    assert_eq!(switch(&mut spaces, &mut shell, 0), Some(Slide::Left));
+    assert_eq!(switch(&mut spaces, &mut shell, 0), Moved::Yes);
     assert_eq!(
         shell.scope,
         Vec::<AccountId>::new(),
@@ -107,7 +110,7 @@ fn each_space_gets_its_place_thread_and_tile_back() {
     assert_eq!(shell.open, Some(thread(7)));
     assert_eq!(shell.account, Some(account(1)));
 
-    assert_eq!(switch(&mut spaces, &mut shell, 1), Some(Slide::Right));
+    assert_eq!(switch(&mut spaces, &mut shell, 1), Moved::Yes);
     assert_eq!(place(&shell), "Sent");
     assert_eq!(shell.open, Some(thread(9)));
     assert_eq!(shell.account, Some(account(2)));
@@ -119,8 +122,8 @@ fn switching_to_where_you_are_or_nowhere_changes_nothing() {
     let mut shell = Shell::default();
     select(&mut shell, "Archive");
     let (before_spaces, before_shell) = (spaces.clone(), shell.clone());
-    assert_eq!(switch(&mut spaces, &mut shell, 0), None);
-    assert_eq!(switch(&mut spaces, &mut shell, 2), None);
+    assert_eq!(switch(&mut spaces, &mut shell, 0), Moved::No);
+    assert_eq!(switch(&mut spaces, &mut shell, 2), Moved::No);
     assert_eq!(spaces, before_spaces);
     assert_eq!(shell, before_shell);
 }
@@ -162,10 +165,16 @@ async fn ctrl_2_repaints_the_frame_and_scopes_the_list() {
         Modifiers::CONTROL,
         ElementId(INSIDE_THE_SHELL as usize),
     );
+    // The list is fetched off the thread that draws: let the answer land.
+    for _ in 0..12 {
+        let _ =
+            tokio::time::timeout(std::time::Duration::from_millis(150), dom.wait_for_work()).await;
+        dom.render_immediate(&mut dioxus_core::NoOpMutations);
+    }
     let page = dioxus_ssr::render(&dom);
 
     // The frame is the root's own to paint now: no script, the Space's gradient on `.ds`.
-    let gradient = ds::gradient(&ds::derive(&home.look.dots, Scheme::Light));
+    let gradient = gradient(&derive(&home.look.dots, Scheme::Light));
     let style = root_attr(&page, "style").unwrap_or_default();
     assert!(
         style.contains(&format!("--f-grad:{gradient};")),
@@ -256,48 +265,41 @@ async fn the_first_frame_and_a_switch_paint_a_space_the_same() {
     dispatching();
     let cases = [
         (
-            "dark postmark",
+            "dark, the card follows the Space",
             SpaceLook {
                 dots: PRESETS[1].to_vec(),
                 theme: Theme::Dark,
-                card_accent: CardAccent::Postmark,
-                grain: ds::Grain(70),
+                card_accent: CardAccent::SpaceHue,
             },
-            Motion::Standard,
             Scheme::Dark,
         ),
         (
-            "light hint, calm",
+            "light, the chosen accent",
             SpaceLook {
                 dots: PRESETS[3].to_vec(),
                 theme: Theme::Light,
                 ..Space::default().look
             },
-            Motion::Calm,
             Scheme::Light,
         ),
         (
-            "system postmark",
+            "system, a hand-made dot",
             SpaceLook {
-                // Pine, the retired accent preset, as a Space made from it keeps it.
-                dots: vec![ds::Dot {
+                dots: vec![Dot {
                     hue: 164.066_35,
                     chroma: 0.7,
                 }],
-                card_accent: CardAccent::Postmark,
                 ..Space::default().look
             },
-            Motion::Extra,
             // No desktop preference in a test: System is light.
             Scheme::Light,
         ),
     ];
-    for (name, look, motion, scheme) in cases {
+    for (name, look, scheme) in cases {
         let want = FrameVars::of(&look, scheme).style_attr();
         let other = Space {
             name: "Other".to_owned(),
             look: look.clone(),
-            motion,
             ..Space::default()
         };
 
@@ -324,11 +326,6 @@ async fn the_first_frame_and_a_switch_paint_a_space_the_same() {
                 Some(scheme.slug()),
                 "{name}, {how}"
             );
-            assert_eq!(
-                root_attr(page, "data-motion").as_deref(),
-                Some(ds::Motion::from(motion).slug()),
-                "{name}, {how}"
-            );
         }
     }
 }
@@ -352,8 +349,8 @@ async fn a_switch_keeps_the_old_gradient_behind_the_new_one() {
     };
     with_second(&built, home.clone());
     let mut dom = app_on(&built);
-    let old = ds::gradient(&ds::derive(&work_look.dots, Scheme::Light));
-    let new = ds::gradient(&ds::derive(&home.look.dots, Scheme::Light));
+    let old = gradient(&derive(&work_look.dots, Scheme::Light));
+    let new = gradient(&derive(&home.look.dots, Scheme::Light));
     let before = layers(&dioxus_ssr::render(&dom));
     assert!(
         before.iter().any(|(slot, g)| slot.is_none() && *g == old),
@@ -374,25 +371,31 @@ async fn a_switch_keeps_the_old_gradient_behind_the_new_one() {
     );
 }
 
-/// `postmark_writes_no_accent_and_clears_the_system_rule`, carried to `Ds`: a Space that lends
-/// the card its hue writes `--accent` on the root, a Postmark Space writes none, and switching
-/// from one to the other takes it away rather than leaving the last Space's behind.
+/// A Space whose card follows its hue writes `--accent` on the root, a Space that keeps the
+/// chosen accent writes none, and switching from one to the other takes it away rather than
+/// leaving the last Space's behind.
 #[tokio::test]
-async fn postmark_writes_no_accent_and_a_switch_to_it_clears_the_hue() {
+async fn the_chosen_accent_writes_none_and_a_switch_to_it_clears_the_hue() {
     dispatching();
     let built = work();
-    let postmark = Space {
+    let mut stored = space::load(&built.dirs.config);
+    stored.spaces[0].look.card_accent = CardAccent::SpaceHue;
+    space::save(&built.dirs.config, &stored).unwrap_or_else(|e| panic!("{e}"));
+    let chosen = Space {
         name: "Plain".to_owned(),
         look: SpaceLook {
-            card_accent: CardAccent::Postmark,
+            card_accent: CardAccent::Chosen,
             ..Space::default().look
         },
         ..Space::default()
     };
-    with_second(&built, postmark);
+    with_second(&built, chosen);
     let mut dom = app_on(&built);
     let hue = root_attr(&dioxus_ssr::render(&dom), "style").unwrap_or_default();
     assert!(hue.contains("--accent:"), "Work lends its hue: {hue}");
     let plain = root_attr(&switch_to(&mut dom, "2"), "style").unwrap_or_default();
-    assert!(!plain.contains("--accent"), "Postmark kept a hue: {plain}");
+    assert!(
+        !plain.contains("--accent"),
+        "the chosen accent kept a hue: {plain}"
+    );
 }

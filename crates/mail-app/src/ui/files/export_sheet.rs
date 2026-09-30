@@ -1,19 +1,23 @@
 //! The Export sheet: which messages, how many, in which format, to where, and the run.
 
+use ds::components::controls::button_model::Answers;
+use ds::components::controls::segmented::Tracking;
+use ds::components::fields::field_row::{FieldGroup, FieldRow, RowLayout};
+use ds::components::fields::text_field_model::Invalid;
+use ds::motion::detail::stamp::EventStamp;
+use ds::prelude::*;
 use std::sync::Arc;
 
 use dioxus::prelude::*;
 use mail_store::SqliteStore;
 
+use super::super::common::classed;
 use super::super::debounce::use_debounced;
-use super::super::field::{Field, FieldKind};
 use super::super::pick::{Ask, choose};
 use super::super::press::{SheetClose, available, on_primary};
-use super::super::space_editor::Seg;
 use super::work::{self, Counted, Format};
-use super::{Phase, Progress, run};
+use super::{Phase, Report, run};
 use crate::view::{FileSheet, Shell};
-use ds::Icon;
 
 /// The query the sheet's field holds.
 fn typed(shell: &Shell) -> String {
@@ -64,22 +68,22 @@ pub(super) fn ExportSheet(shell: Signal<Shell>) -> Element {
             .display()
             .to_string(),
     };
-    let (count_class, count_words, count) = match counted() {
-        None => ("files-look", "Counting…".to_owned(), None),
+    let (validity, count_words, count) = match counted() {
+        None => (Validity::Valid, "Counting…".to_owned(), None),
         Some(Counted::Blank) => (
-            "files-look",
+            Validity::Valid,
             "A search, or a place: inbox, sent, archive, all…".to_owned(),
             None,
         ),
-        Some(Counted::Some(0)) => ("files-look refused", "Nothing matches.".to_owned(), None),
-        Some(Counted::Some(n)) => ("files-look found", work::messages(n), Some(n)),
-        Some(Counted::Refused(why)) => ("files-look refused", why, None),
+        Some(Counted::Some(0)) => (refusal("Nothing matches."), String::new(), None),
+        Some(Counted::Some(n)) => (Validity::Valid, work::messages(n), Some(n)),
+        Some(Counted::Refused(why)) => (refusal(&why), String::new(), None),
     };
     let busy = phase.read().running();
     let can_run = count.is_some() && !busy && !target_path.trim().is_empty();
-    let options: Vec<(String, bool)> = Format::ALL
+    let formats: Vec<Choice<Format>> = Format::ALL
         .iter()
-        .map(|one| (one.label().to_owned(), *one == format()))
+        .map(|one| Choice::new(*one, one.label()))
         .collect();
     let what = if format().is_file() {
         "One mbox file. An existing file is never written over."
@@ -110,80 +114,69 @@ pub(super) fn ExportSheet(shell: Signal<Shell>) -> Element {
         }
     };
     rsx! {
-        div {
-            class: "files-wrap",
-            onclick: move |_| super::close(shell),
-            div {
-                class: "files",
-                role: "dialog",
-                aria_label: "Export mail",
-                onclick: move |event| event.stop_propagation(),
-                div { class: "files-head",
-                    h3 { "Export mail" }
-                    SheetClose { on_close: move |()| super::close(shell) }
-                }
-                div { class: "files-main",
-                    span { class: "files-k", "Which" }
-                    div { class: "files-path",
-                        Field {
-                            kind: FieldKind::Boxed,
+        Sheet {
+            label: "Export mail".to_owned(),
+            onclose: move |()| super::close(shell),
+            div { class: "sheet-form",
+                FieldGroup {
+                    FieldRow {
+                        label: "Which",
+                        help: Some(count_words.into()),
+                        layout: RowLayout::Form,
+                        TextField {
+                            label: "Which messages".to_owned(),
                             value: query,
                             placeholder: "inbox, sent, all, or a search: from:dana after:2026-01-01".to_owned(),
-                            extra: Some("files-in".to_owned()),
-                            on_input: move |value: String| {
+                            validity,
+                            focus: FieldFocus::OnMount,
+                            oninput: move |value: String| {
                                 shell.write().files = Some(FileSheet::Export { query: value });
                             },
-                            on_focus: |_| {},
-                            on_blur: |_| {},
                         }
                     }
-                    p { class: "{count_class}", aria_live: "polite", "{count_words}" }
-                    span { class: "files-k", "As" }
-                    div { class: "files-format",
-                        Seg {
+                    FieldRow {
+                        label: "As",
+                        help: Some(what.into()),
+                        layout: RowLayout::Form,
+                        SegmentedControl::<Format> {
                             label: "Format".to_owned(),
-                            options,
-                            on_pick: move |index: usize| {
-                                if let Some(one) = Format::ALL.get(index) {
-                                    format.set(*one);
-                                }
-                            },
+                            choices: formats,
+                            tracking: Tracking::SelectOne(format()),
+                            onchange: move |one: Format| format.set(one),
                         }
-                        span { class: "capnote", "{what}" }
                     }
-                    span { class: "files-k", "To" }
-                    div { class: "files-path",
-                        Field {
-                            kind: FieldKind::Boxed,
-                            value: target_path.clone(),
-                            placeholder: "Where to write it".to_owned(),
-                            extra: Some("files-in".to_owned()),
-                            on_input: move |value: String| place.set(Place::Typed(value)),
-                            on_focus: |_| {},
-                            on_blur: |_| {},
-                        }
-                        ds::Button {
-                            variant: ds::ButtonVariant::Mini,
-                            label: "Folder…".to_owned(),
-                            title: "Choose the directory it goes in".to_owned(),
-                            onclick: on_primary(move || {
-                                choose(Ask::Folder, Some(super::save_dir()), move |mut dirs| {
-                                    let dir = dirs.swap_remove(0);
-                                    let settled = debounced.settled.peek().text.clone();
-                                    let path = work::suggested(&dir, &settled, format());
-                                    place.set(Place::Typed(path.display().to_string()));
-                                });
-                            }),
+                    FieldRow {
+                        label: "To",
+                        layout: RowLayout::Form,
+                        div { class: "sheet-path",
+                            TextField {
+                                label: "Where to write it".to_owned(),
+                                value: target_path.clone(),
+                                placeholder: "Where to write it".to_owned(),
+                                common: classed("sheet-path-field"),
+                                oninput: move |value: String| place.set(Place::Typed(value)),
+                            }
+                            Button {
+                                label: "Folder…".to_owned(),
+                                title: "Choose the directory it goes in".to_owned(),
+                                onclick: on_primary(move || {
+                                    choose(Ask::Folder, Some(super::save_dir()), move |mut dirs| {
+                                        let dir = dirs.swap_remove(0);
+                                        let settled = debounced.settled.peek().text.clone();
+                                        let path = work::suggested(&dir, &settled, format());
+                                        place.set(Place::Typed(path.display().to_string()));
+                                    });
+                                }),
+                            }
                         }
                     }
                 }
-                div { class: "files-foot",
-                    Progress { phase: phase(), verb: "Exporting" }
-                    ds::Button {
-                        variant: ds::ButtonVariant::Primary,
-                        extra_class: ds::ExtraClass::parse("go").ok(),
+                div { class: "sheet-actions",
+                    Report { phase: phase(), verb: "Exporting" }
+                    SheetClose { label: "Cancel".to_owned(), on_close: move |()| super::close(shell) }
+                    Button {
+                        answers: Answers::Return,
                         label: if busy { "Exporting…" } else { "Export" },
-                        icon: Icon::Forward,
                         availability: available(can_run),
                         onclick: on_primary(move || start(())),
                     }
@@ -191,4 +184,12 @@ pub(super) fn ExportSheet(shell: Signal<Shell>) -> Element {
             }
         }
     }
+}
+
+/// A refusal quire's field draws under itself: the words, and one stamp for each phrasing.
+fn refusal(why: &str) -> Validity {
+    Validity::Invalid(Invalid {
+        message: why.to_owned().into(),
+        stamp: EventStamp(u32::try_from(why.len()).unwrap_or(0)),
+    })
 }

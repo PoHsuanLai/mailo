@@ -29,8 +29,6 @@ pub(in crate::ui) enum When {
 pub(in crate::ui) enum Drawn {
     /// The reader's find field, `.find input` (Ctrl F).
     FindField,
-    /// The sidebar's new folder name field, `.fold-edit input`.
-    FolderName,
 }
 
 impl Drawn {
@@ -38,7 +36,6 @@ impl Drawn {
     pub(in crate::ui) fn selector(self) -> &'static str {
         match self {
             Drawn::FindField => ".find input",
-            Drawn::FolderName => ".fold-edit input",
         }
     }
 }

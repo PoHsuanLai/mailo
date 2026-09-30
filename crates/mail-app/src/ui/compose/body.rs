@@ -5,9 +5,15 @@
 //! thing this file decides is which key goes where.
 
 use dioxus::prelude::*;
+use ds::components::controls::button_model::{Bezel, ImagePosition};
+use ds::components::controls::segmented::Tracking;
+use ds::components::menus::pop_up_button::PopUpButton;
+use ds::host::measure::{Anchor, MountedRef};
+use ds::prelude::*;
+use ds::style::tokens::control_size::ControlSize;
 
-use super::super::field::{Field, FieldKind};
-use super::super::menu::{Floating, MenuKey, anchor_at, menu_key, quire_entries};
+use super::super::common::classed;
+use super::super::menu::{MenuKey, anchor_at, menu_items, menu_key};
 use super::super::press::on_primary;
 use super::float::{
     Picked, commit, current_kind, mention_items, pick_mention, pick_slash, pick_turn, turn_items,
@@ -16,7 +22,6 @@ use super::page::{Float, Page};
 use super::templates::{self, TemplateFloat, page_slash_items};
 use crate::editor::{InputEvent, Mark, Node, Op, Presence, Range};
 use crate::view::Shell;
-use ds::{ButtonFace, ButtonVariant, Expanded, Switch, Trailing};
 
 /// Milliseconds on the wall clock, which is what groups typing into undo steps.
 pub(in crate::ui) fn now_ms() -> u64 {
@@ -35,7 +40,7 @@ pub(in crate::ui) fn Body(
     on_attach: EventHandler<()>,
 ) -> Element {
     // The float's box: quire's menus float against it when the caret has no rect yet.
-    let mut at_caret = use_signal(|| None::<ds::MountedRef>);
+    let mut at_caret = use_signal(|| None::<MountedRef>);
     // The surface measures the caret and the selection itself.
     let marks = use_signal(super::surface::Marks::default);
     let read = page.read();
@@ -53,7 +58,7 @@ pub(in crate::ui) fn Body(
             marks
                 .read()
                 .at
-                .map_or_else(|| anchor_at(at_caret()), ds::Anchor::Rect)
+                .map_or_else(|| anchor_at(at_caret()), Anchor::Rect)
         },
         marks.read().below_caret(),
         marks.read().above_selection(),
@@ -70,15 +75,15 @@ pub(in crate::ui) fn Body(
                         class: "c-float",
                         "data-anchor": "below",
                         style: below.clone(),
-                        onmounted: move |event| at_caret.set(Some(ds::MountedRef(event.data()))),
+                        onmounted: move |event| at_caret.set(Some(MountedRef(event.data()))),
                     }
-                    ds::Menu::<String> {
-                        kind: ds::MenuKind::Rich,
+                    Menu::<String> {
+                        placement: MenuPlacement::Popup,
                         anchor: at(),
-                        entries: quire_entries("", &page_slash_items(&page.read()), ds::AvatarSize::Size34, None),
+                        items: menu_items("", &page_slash_items(&page.read())),
                         onpick: move |key: String| pick(page, on_attach, &key),
                         onclose: move |()| close_float(page),
-                        active: ds::Cursor::Controlled(Some(active)),
+                        active: MenuCursor::Controlled(Some(active)),
                         on_active: move |to: Option<usize>| {
                             if let Some(to) = to {
                                 set_active(page, to);
@@ -91,20 +96,15 @@ pub(in crate::ui) fn Body(
                         class: "c-float",
                         "data-anchor": "below",
                         style: below.clone(),
-                        onmounted: move |event| at_caret.set(Some(ds::MountedRef(event.data()))),
+                        onmounted: move |event| at_caret.set(Some(MountedRef(event.data()))),
                     }
-                    ds::Menu::<String> {
-                        kind: ds::MenuKind::Slim,
+                    Menu::<String> {
+                        placement: MenuPlacement::Popup,
                         anchor: at(),
-                        entries: quire_entries(
-                            "Mention, and add to Cc",
-                            &mention_items(&page.read()),
-                            ds::AvatarSize::Size20,
-                            None,
-                        ),
+                        items: menu_items("Mention, and add to Cc", &mention_items(&page.read())),
                         onpick: move |key: String| pick_mention(&mut page.write(), &key),
                         onclose: move |()| close_float(page),
-                        active: ds::Cursor::Controlled(Some(active)),
+                        active: MenuCursor::Controlled(Some(active)),
                         on_active: move |to: Option<usize>| {
                             if let Some(to) = to {
                                 set_active(page, to);
@@ -117,7 +117,7 @@ pub(in crate::ui) fn Body(
                         class: "c-float",
                         "data-anchor": "below",
                         style: below.clone(),
-                        onmounted: move |event| at_caret.set(Some(ds::MountedRef(event.data()))),
+                        onmounted: move |event| at_caret.set(Some(MountedRef(event.data()))),
                         TemplateFloat { page, shell, at: at_caret() }
                     }
                 },
@@ -302,41 +302,39 @@ pub(in crate::ui) fn covered(page: &Page, range: Range, mark: Mark) -> bool {
         })
 }
 
-/// The selection bubble: Turn into, the five marks, and a link.
+/// The format bar over a selection: Turn into (a pop-up button), the four marks (a quire
+/// segmented control that holds any number down), inline code and a link.
 #[component]
 fn Bubble(page: Signal<Page>, place: Option<String>) -> Element {
-    // The Turn into button, which its menu floats against.
-    let mut turn_at = use_signal(|| None::<ds::MountedRef>);
     let read = page.read();
     let Some(range) = read.selection else {
         return rsx! {};
     };
     let float = read.float.clone();
     let kind = current_kind(&read);
-    let turn_label = turn_items(kind)
-        .into_iter()
-        .find(|item| matches!(item.right, super::super::menu::Right::Check(true)))
-        .map(|item| item.name)
-        .unwrap_or_else(|| "Text".to_owned());
-    let pressed = |mark| {
-        Some(if covered(&read, range, mark) {
-            Switch::On
-        } else {
-            Switch::Off
-        })
-    };
-    let (bold, italic, under, strike) = (
-        pressed(Mark::Bold),
-        pressed(Mark::Italic),
-        pressed(Mark::Underline),
-        pressed(Mark::Strike),
-    );
+    let held: Vec<Mark> = [
+        Mark::Bold,
+        Mark::Italic,
+        Mark::Underline,
+        Mark::Strike,
+        Mark::Code,
+    ]
+    .into_iter()
+    .filter(|mark| covered(&read, range, *mark))
+    .collect();
     drop(read);
-    let turn_open = if float == Float::Turn {
-        Expanded::Open
-    } else {
-        Expanded::Closed
-    };
+    let turn = turn_items(kind);
+    let now = turn
+        .iter()
+        .find(|item| matches!(item.right, super::super::menu::Right::Check(true)))
+        .map(|item| item.key.clone());
+    let marks = vec![
+        Choice::new(Mark::Bold, "B"),
+        Choice::new(Mark::Italic, "I"),
+        Choice::new(Mark::Underline, "U"),
+        Choice::new(Mark::Strike, "S"),
+        Choice::new(Mark::Code, "</>"),
+    ];
     rsx! {
         div {
             class: "bubble",
@@ -356,65 +354,61 @@ fn Bubble(page: Signal<Page>, place: Option<String>) -> Element {
                                 page.write().float = Float::Closed;
                             }
                         },
-                        Field {
-                            kind: FieldKind::Inline,
-                            value: typed,
+                        TextField {
+                            label: "Paste a link, then Enter".to_owned(),
+                            bezel: FieldBezel::Plain,
                             placeholder: "Paste a link, then Enter".to_owned(),
-                            extra: None,
-                            on_input: move |value: String| page.write().float = Float::Link(value),
-                            on_focus: |_| {},
-                            on_blur: |_| {},
+                            value: typed,
+                            common: classed("link-field"),
+                            oninput: move |value: String| page.write().float = Float::Link(value),
                         }
                     }
                 },
                 _ => rsx! {
-                    ds::Button {
-                        variant: ButtonVariant::Quiet,
-                        label: turn_label,
-                        trailing: Some(Trailing::Caret),
-                        expanded: turn_open,
-                        mounted: move |event: MountedEvent| turn_at.set(Some(ds::MountedRef(event.data()))),
-                        onclick: on_primary(move || {
-                            let open = page.read().float == Float::Turn;
-                            page.write().float = if open { Float::Closed } else { Float::Turn };
-                        }),
+                    PopUpButton::<String> {
+                        items: menu_items("", &turn),
+                        value: now,
+                        title: "Text".to_owned(),
+                        size: ControlSize::Small,
+                        onpick: move |key: String| pick_turn(&mut page.write(), &key),
                     }
-                    span { class: "sep" }
-                    ds::Button { variant: ButtonVariant::Quiet, face: ButtonFace::Bold, label: "Bold",
-                        title: "Bold (Ctrl B)".to_owned(), pressed: bold,
-                        onclick: on_primary(move || { format(page, "formatBold"); }) }
-                    ds::Button { variant: ButtonVariant::Quiet, face: ButtonFace::Italic, label: "Italic",
-                        title: "Italic (Ctrl I)".to_owned(), pressed: italic,
-                        onclick: on_primary(move || { format(page, "formatItalic"); }) }
-                    ds::Button { variant: ButtonVariant::Quiet, face: ButtonFace::Underline, label: "Underline",
-                        title: "Underline (Ctrl U)".to_owned(), pressed: under,
-                        onclick: on_primary(move || { format(page, "formatUnderline"); }) }
-                    ds::Button { variant: ButtonVariant::Quiet, face: ButtonFace::Strike, label: "Strikethrough",
-                        title: "Strikethrough (Ctrl Shift S)".to_owned(), pressed: strike,
-                        onclick: on_primary(move || { format(page, "formatStrikeThrough"); }) }
-                    ds::Button { variant: ButtonVariant::Quiet, label: "</>",
-                        title: "Inline code (Ctrl E)".to_owned(), aria_label: "Inline code".to_owned(),
-                        onclick: on_primary(move || { code(page); }) }
-                    span { class: "sep" }
-                    ds::Button { variant: ButtonVariant::Quiet, label: "Link",
+                    SegmentedControl::<Mark> {
+                        label: "Text style".to_owned(),
+                        choices: marks,
+                        tracking: Tracking::SelectAny(held),
+                        size: ControlSize::Small,
+                        onchange: move |mark: Mark| match mark {
+                            Mark::Code => {
+                                code(page);
+                            }
+                            Mark::Bold | Mark::Italic | Mark::Underline | Mark::Strike => {
+                                format(page, mark_command(mark));
+                            }
+                        },
+                    }
+                    Button {
+                        bezel: Bezel::Toolbar,
+                        label: "Link",
                         title: "Link (Ctrl K)".to_owned(),
-                        onclick: on_primary(move || page.write().float = Float::Link(String::new())) }
-                    if float == Float::Turn {
-                        // The editor keeps the keyboard and its selection: the menu is pointed
-                        // at, and highlights nothing until it is.
-                        Floating {
-                            kind: ds::MenuKind::Slim,
-                            anchor: turn_at(),
-                            title: "Turn into".to_owned(),
-                            items: turn_items(kind),
-                            active: ds::Cursor::Controlled(None),
-                            on_pick: move |key: String| pick_turn(&mut page.write(), &key),
-                            on_close: move |_| page.write().float = Float::Closed,
-                        }
+                        size: ControlSize::Small,
+                        icon: Icon::Link,
+                        image: ImagePosition::Only,
+                        onclick: on_primary(move || page.write().float = Float::Link(String::new())),
                     }
                 },
             }
         }
+    }
+}
+
+/// The editor command a mark's segment runs.
+fn mark_command(mark: Mark) -> &'static str {
+    match mark {
+        Mark::Bold => "formatBold",
+        Mark::Italic => "formatItalic",
+        Mark::Underline => "formatUnderline",
+        Mark::Strike => "formatStrikeThrough",
+        Mark::Code => "formatCode",
     }
 }
 

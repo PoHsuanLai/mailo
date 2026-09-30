@@ -68,7 +68,7 @@ dependencies = [
 [[package]]
 name = "accesskit_xplat"
 version = "0.2.0"
-source = "git+https://github.com/DioxusLabs/blitz?rev=e99fbdbd1d03b9f0aa1622c3f810d95daac92042#e99fbdbd1d03b9f0aa1622c3f810d95daac92042"
+source = "git+https://github.com/PoHsuanLai/blitz?rev=1b23fbd9d6465b7ee8acfe8e7deb36a2d5be6fad#1b23fbd9d6465b7ee8acfe8e7deb36a2d5be6fad"
 dependencies = [
  "accesskit",
  "accesskit_macos",
@@ -226,26 +226,12 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 [[package]]
 name = "anyrender"
 version = "0.13.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e00e1af5c6ac9b1e8ed8e431529a1024b7386d5385dce2a83494da3d39a6bab5"
+source = "git+https://github.com/PoHsuanLai/anyrender?rev=a0825ebfc0443f3ef0830c0e09f2d85df3da632b#a0825ebfc0443f3ef0830c0e09f2d85df3da632b"
 dependencies = [
  "kurbo",
  "peniko",
  "raw-window-handle",
  "smallvec",
-]
-
-[[package]]
-name = "anyrender_pdfrum"
-version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.1.11#09e9715b23b33b0d77214194ebaec23b7c55c554"
-dependencies = [
- "anyrender",
- "pdfrum-common",
- "pdfrum-edit",
- "pdfrum-object",
- "peniko",
- "skrifa 0.44.0",
 ]
 
 [[package]]
@@ -264,8 +250,7 @@ dependencies = [
 [[package]]
 name = "anyrender_vello_cpu"
 version = "0.17.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6fb392bf738b1e50c50fc82824ff3f875f15632717ba732fe68e2fe6e1011e6c"
+source = "git+https://github.com/PoHsuanLai/anyrender?rev=a0825ebfc0443f3ef0830c0e09f2d85df3da632b#a0825ebfc0443f3ef0830c0e09f2d85df3da632b"
 dependencies = [
  "anyrender",
  "bytemuck",
@@ -282,8 +267,7 @@ dependencies = [
 [[package]]
 name = "anyrender_vello_hybrid"
 version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "acface501bfa9d5b2abf9413ee5728ded41bd7f9c63b24162b9ea54f431d7e4f"
+source = "git+https://github.com/PoHsuanLai/anyrender?rev=a0825ebfc0443f3ef0830c0e09f2d85df3da632b#a0825ebfc0443f3ef0830c0e09f2d85df3da632b"
 dependencies = [
  "anyrender",
  "debug_timer 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -686,7 +670,7 @@ dependencies = [
 [[package]]
 name = "blitz-dom"
 version = "0.3.0-beta.2"
-source = "git+https://github.com/DioxusLabs/blitz?rev=e99fbdbd1d03b9f0aa1622c3f810d95daac92042#e99fbdbd1d03b9f0aa1622c3f810d95daac92042"
+source = "git+https://github.com/PoHsuanLai/blitz?rev=1b23fbd9d6465b7ee8acfe8e7deb36a2d5be6fad#1b23fbd9d6465b7ee8acfe8e7deb36a2d5be6fad"
 dependencies = [
  "accesskit",
  "anyrender",
@@ -697,7 +681,7 @@ dependencies = [
  "color",
  "cssparser 0.37.0",
  "cursor-icon",
- "debug_timer 0.1.3 (git+https://github.com/DioxusLabs/blitz?rev=e99fbdbd1d03b9f0aa1622c3f810d95daac92042)",
+ "debug_timer 0.1.3 (git+https://github.com/PoHsuanLai/blitz?rev=1b23fbd9d6465b7ee8acfe8e7deb36a2d5be6fad)",
  "euclid",
  "html-escape",
  "image",
@@ -730,7 +714,7 @@ dependencies = [
 [[package]]
 name = "blitz-html"
 version = "0.3.0-beta.2"
-source = "git+https://github.com/DioxusLabs/blitz?rev=e99fbdbd1d03b9f0aa1622c3f810d95daac92042#e99fbdbd1d03b9f0aa1622c3f810d95daac92042"
+source = "git+https://github.com/PoHsuanLai/blitz?rev=1b23fbd9d6465b7ee8acfe8e7deb36a2d5be6fad#1b23fbd9d6465b7ee8acfe8e7deb36a2d5be6fad"
 dependencies = [
  "blitz-dom",
  "blitz-traits",
@@ -739,9 +723,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "blitz-kit"
+version = "0.1.0"
+dependencies = [
+ "blitz-dom",
+ "blitz-traits",
+ "parley",
+ "serde",
+ "tokio",
+ "wgpu",
+]
+
+[[package]]
 name = "blitz-paint"
 version = "0.3.0-beta.2"
-source = "git+https://github.com/DioxusLabs/blitz?rev=e99fbdbd1d03b9f0aa1622c3f810d95daac92042#e99fbdbd1d03b9f0aa1622c3f810d95daac92042"
+source = "git+https://github.com/PoHsuanLai/blitz?rev=1b23fbd9d6465b7ee8acfe8e7deb36a2d5be6fad#1b23fbd9d6465b7ee8acfe8e7deb36a2d5be6fad"
 dependencies = [
  "anyrender",
  "anyrender_svg",
@@ -762,7 +758,7 @@ dependencies = [
 [[package]]
 name = "blitz-shell"
 version = "0.3.0-beta.2"
-source = "git+https://github.com/DioxusLabs/blitz?rev=e99fbdbd1d03b9f0aa1622c3f810d95daac92042#e99fbdbd1d03b9f0aa1622c3f810d95daac92042"
+source = "git+https://github.com/PoHsuanLai/blitz?rev=1b23fbd9d6465b7ee8acfe8e7deb36a2d5be6fad#1b23fbd9d6465b7ee8acfe8e7deb36a2d5be6fad"
 dependencies = [
  "accesskit",
  "accesskit_xplat",
@@ -784,7 +780,7 @@ dependencies = [
 [[package]]
 name = "blitz-traits"
 version = "0.3.0-beta.2"
-source = "git+https://github.com/DioxusLabs/blitz?rev=e99fbdbd1d03b9f0aa1622c3f810d95daac92042#e99fbdbd1d03b9f0aa1622c3f810d95daac92042"
+source = "git+https://github.com/PoHsuanLai/blitz?rev=1b23fbd9d6465b7ee8acfe8e7deb36a2d5be6fad#1b23fbd9d6465b7ee8acfe8e7deb36a2d5be6fad"
 dependencies = [
  "atomic_refcell",
  "bitflags",
@@ -1657,7 +1653,7 @@ checksum = "da220af51a1a335e9a930beaaef53d261e41ea9eecfb3d973a3ddae1a7284b9c"
 [[package]]
 name = "debug_timer"
 version = "0.1.3"
-source = "git+https://github.com/DioxusLabs/blitz?rev=e99fbdbd1d03b9f0aa1622c3f810d95daac92042#e99fbdbd1d03b9f0aa1622c3f810d95daac92042"
+source = "git+https://github.com/PoHsuanLai/blitz?rev=1b23fbd9d6465b7ee8acfe8e7deb36a2d5be6fad#1b23fbd9d6465b7ee8acfe8e7deb36a2d5be6fad"
 
 [[package]]
 name = "der"
@@ -2023,7 +2019,7 @@ dependencies = [
 [[package]]
 name = "dioxus-native"
 version = "0.7.0"
-source = "git+https://github.com/DioxusLabs/blitz?rev=e99fbdbd1d03b9f0aa1622c3f810d95daac92042#e99fbdbd1d03b9f0aa1622c3f810d95daac92042"
+source = "git+https://github.com/PoHsuanLai/blitz?rev=1b23fbd9d6465b7ee8acfe8e7deb36a2d5be6fad#1b23fbd9d6465b7ee8acfe8e7deb36a2d5be6fad"
 dependencies = [
  "android-activity",
  "anyrender",
@@ -2055,7 +2051,7 @@ dependencies = [
 [[package]]
 name = "dioxus-native-dom"
 version = "0.7.0"
-source = "git+https://github.com/DioxusLabs/blitz?rev=e99fbdbd1d03b9f0aa1622c3f810d95daac92042#e99fbdbd1d03b9f0aa1622c3f810d95daac92042"
+source = "git+https://github.com/PoHsuanLai/blitz?rev=1b23fbd9d6465b7ee8acfe8e7deb36a2d5be6fad#1b23fbd9d6465b7ee8acfe8e7deb36a2d5be6fad"
 dependencies = [
  "blitz-dom",
  "blitz-traits",
@@ -2165,27 +2161,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "dirs"
-version = "6.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3e8aa94d75141228480295a7d0e7feb620b1a5ad9f12bc40be62411e38cce4e"
-dependencies = [
- "dirs-sys",
-]
-
-[[package]]
-name = "dirs-sys"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e01a3366d27ee9890022452ee61b2b63a67e6f13f58900b651ff5665f0bb1fab"
-dependencies = [
- "libc",
- "option-ext",
- "redox_users",
- "windows-sys 0.61.2",
-]
-
-[[package]]
 name = "dispatch2"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2247,32 +2222,30 @@ checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
 [[package]]
 name = "ds"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.1.11#09e9715b23b33b0d77214194ebaec23b7c55c554"
 dependencies = [
- "cssparser 0.37.0",
  "dioxus",
- "futures-timer",
- "image",
+ "ds-core",
+ "ds-motion",
+ "ds-style",
  "serde",
- "serde_json",
  "thiserror 2.0.20",
 ]
 
 [[package]]
-name = "ds-native"
+name = "ds-blitz"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.1.11#09e9715b23b33b0d77214194ebaec23b7c55c554"
 dependencies = [
  "anyrender",
- "anyrender_pdfrum",
- "anyrender_vello_cpu",
  "anyrender_vello_hybrid",
  "arboard",
  "blitz-dom",
  "blitz-html",
+ "blitz-kit",
  "blitz-paint",
+ "blitz-shell",
  "blitz-traits",
  "dioxus",
+ "dioxus-asset-resolver",
  "dioxus-native",
  "dioxus-native-dom",
  "ds",
@@ -2280,27 +2253,96 @@ dependencies = [
  "keyboard-types 0.7.0",
  "memfd",
  "parley",
+ "pdfrum",
+ "pdfrum-anyrender",
  "peniko",
  "thiserror 2.0.20",
  "tokio",
+ "webbrowser",
  "wgpu",
  "zbus",
 ]
 
 [[package]]
-name = "ds-settings"
+name = "ds-core"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.1.11#09e9715b23b33b0d77214194ebaec23b7c55c554"
+dependencies = [
+ "ds-core-derive",
+ "futures-timer",
+ "keyboard-types 0.7.0",
+ "serde",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "ds-core-derive"
+version = "0.1.0"
+dependencies = [
+ "proc-macro-crate",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "ds-harness"
+version = "0.1.0"
+dependencies = [
+ "anyrender",
+ "anyrender_vello_cpu",
+ "anyrender_vello_hybrid",
+ "blitz-dom",
+ "blitz-html",
+ "blitz-kit",
+ "blitz-paint",
+ "blitz-traits",
+ "dioxus",
+ "dioxus-native-dom",
+ "ds",
+ "ds-blitz",
+ "ds-core",
+ "image",
+ "keyboard-types 0.7.0",
+ "peniko",
+ "rustc-hash 2.1.3",
+ "thiserror 2.0.20",
+ "vello_common 0.1.0",
+ "vello_hybrid",
+ "wgpu",
+ "wgpu_context",
+]
+
+[[package]]
+name = "ds-lint"
+version = "0.1.0"
+dependencies = [
+ "cssparser 0.37.0",
+ "ds-core",
+ "ds-style",
+]
+
+[[package]]
+name = "ds-motion"
+version = "0.1.0"
 dependencies = [
  "dioxus",
- "dirs",
- "ds",
+ "ds-core",
+ "ds-style",
+]
+
+[[package]]
+name = "ds-settings"
+version = "0.1.0"
+dependencies = [
+ "dioxus",
+ "ds-core",
  "ds-settings-derive",
+ "ds-style",
+ "futures-timer",
  "notify",
  "serde",
  "serde_json",
  "thiserror 2.0.20",
- "tokio",
  "toml",
  "zbus",
 ]
@@ -2308,11 +2350,37 @@ dependencies = [
 [[package]]
 name = "ds-settings-derive"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.1.11#09e9715b23b33b0d77214194ebaec23b7c55c554"
 dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "ds-shell"
+version = "0.1.0"
+dependencies = [
+ "dioxus",
+ "ds",
+ "ds-core",
+ "ds-motion",
+ "ds-style",
+ "image",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "ds-style"
+version = "0.1.0"
+dependencies = [
+ "dioxus",
+ "ds-core",
+ "ds-core-derive",
+ "image",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2942,8 +3010,7 @@ dependencies = [
 [[package]]
 name = "glifo"
 version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ed4a1bb24121291d27230c1b1b44e07d6a9b28cefdb32fe1581dfb84e14f940a"
+source = "git+https://github.com/PoHsuanLai/vello?rev=1722f6234e10b95d574d2252698a6cc7cdcadb82#1722f6234e10b95d574d2252698a6cc7cdcadb82"
 dependencies = [
  "bytemuck",
  "foldhash 0.2.0",
@@ -4235,8 +4302,11 @@ dependencies = [
  "dioxus-native-dom",
  "dioxus-ssr",
  "ds",
- "ds-native",
+ "ds-blitz",
+ "ds-harness",
+ "ds-lint",
  "ds-settings",
+ "ds-shell",
  "futures-util",
  "image",
  "latchkey",
@@ -4263,6 +4333,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.20",
  "tokio",
+ "toml",
  "unicode-segmentation",
  "url",
  "uuid",
@@ -5189,12 +5260,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7c87def4c32ab89d880effc9e097653c8da5d6ef28e6b539d313baaacfbafcbe"
 
 [[package]]
-name = "option-ext"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
-
-[[package]]
 name = "orbclient"
 version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5364,8 +5429,7 @@ dependencies = [
 [[package]]
 name = "pdfrum"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1fd84b50446e751b57079970d76bc9983517f926915612371fa7dd9ef3f71291"
+source = "git+https://github.com/PoHsuanLai/pdfrum?rev=613710405bcd239684e23fb8ad2bcb9aab329549#613710405bcd239684e23fb8ad2bcb9aab329549"
 dependencies = [
  "kurbo",
  "pdfrum-common",
@@ -5384,10 +5448,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "pdfrum-anyrender"
+version = "0.4.0"
+source = "git+https://github.com/PoHsuanLai/pdfrum?rev=613710405bcd239684e23fb8ad2bcb9aab329549#613710405bcd239684e23fb8ad2bcb9aab329549"
+dependencies = [
+ "anyrender",
+ "pdfrum-common",
+ "pdfrum-edit",
+ "pdfrum-object",
+ "peniko",
+ "skrifa 0.47.0",
+]
+
+[[package]]
 name = "pdfrum-cmap"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "563cad9ad77908b940e123bfb8326cfa2fcf7521b9a6ba9d1d556ba2d56eb824"
+source = "git+https://github.com/PoHsuanLai/pdfrum?rev=613710405bcd239684e23fb8ad2bcb9aab329549#613710405bcd239684e23fb8ad2bcb9aab329549"
 dependencies = [
  "pdfrum-common",
  "pdfrum-object",
@@ -5397,8 +5473,7 @@ dependencies = [
 [[package]]
 name = "pdfrum-common"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15df8ca64e7d163c9092cbcc01d1067af6a99f065c801365407742b818068a6c"
+source = "git+https://github.com/PoHsuanLai/pdfrum?rev=613710405bcd239684e23fb8ad2bcb9aab329549#613710405bcd239684e23fb8ad2bcb9aab329549"
 dependencies = [
  "kurbo",
 ]
@@ -5406,8 +5481,7 @@ dependencies = [
 [[package]]
 name = "pdfrum-crypt"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1af6197a7e64dfc30364fa201dbf57d5e842bfe0a0bd1cf2a274f22fba4d3a8a"
+source = "git+https://github.com/PoHsuanLai/pdfrum?rev=613710405bcd239684e23fb8ad2bcb9aab329549#613710405bcd239684e23fb8ad2bcb9aab329549"
 dependencies = [
  "aes 0.9.3",
  "cbc 0.2.1",
@@ -5425,8 +5499,7 @@ dependencies = [
 [[package]]
 name = "pdfrum-doc"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0f951522312e5b9d205acbcc7c5a5ed577fc8e604e5f4134009467089a2fea8e"
+source = "git+https://github.com/PoHsuanLai/pdfrum?rev=613710405bcd239684e23fb8ad2bcb9aab329549#613710405bcd239684e23fb8ad2bcb9aab329549"
 dependencies = [
  "kurbo",
  "pdfrum-common",
@@ -5442,8 +5515,7 @@ dependencies = [
 [[package]]
 name = "pdfrum-edit"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6f5eb53bc1c67aa7fd7fe0f6b834241db3f963b9144aac60d9b054e392dde5c8"
+source = "git+https://github.com/PoHsuanLai/pdfrum?rev=613710405bcd239684e23fb8ad2bcb9aab329549#613710405bcd239684e23fb8ad2bcb9aab329549"
 dependencies = [
  "getrandom 0.4.3",
  "kurbo",
@@ -5466,8 +5538,7 @@ dependencies = [
 [[package]]
 name = "pdfrum-filters"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fa99d459566a839a1335653a5777a63a8de8310cd0251aa40e3251b4a04f93ac"
+source = "git+https://github.com/PoHsuanLai/pdfrum?rev=613710405bcd239684e23fb8ad2bcb9aab329549#613710405bcd239684e23fb8ad2bcb9aab329549"
 dependencies = [
  "miniz_oxide 0.9.1",
  "pdfrum-common",
@@ -5479,8 +5550,7 @@ dependencies = [
 [[package]]
 name = "pdfrum-font"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e2f28e5495fc33cbc663d321d3cee08c804a9549521058b5f3c6d1158b98e5b0"
+source = "git+https://github.com/PoHsuanLai/pdfrum?rev=613710405bcd239684e23fb8ad2bcb9aab329549#613710405bcd239684e23fb8ad2bcb9aab329549"
 dependencies = [
  "pdfrum-cmap",
  "pdfrum-common",
@@ -5496,8 +5566,7 @@ dependencies = [
 [[package]]
 name = "pdfrum-object"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b8a893504e195bd255560e4b935f892d0a3bdb6bc9702ed3069590dd72ca1795"
+source = "git+https://github.com/PoHsuanLai/pdfrum?rev=613710405bcd239684e23fb8ad2bcb9aab329549#613710405bcd239684e23fb8ad2bcb9aab329549"
 dependencies = [
  "bytes",
  "pdfrum-common",
@@ -5508,8 +5577,7 @@ dependencies = [
 [[package]]
 name = "pdfrum-page"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "95fdc5326521db13c5523e011727f1dd3c93f8690ff7e086c37df4220ad0a7df"
+source = "git+https://github.com/PoHsuanLai/pdfrum?rev=613710405bcd239684e23fb8ad2bcb9aab329549#613710405bcd239684e23fb8ad2bcb9aab329549"
 dependencies = [
  "kurbo",
  "moxcms 0.9.1",
@@ -5525,8 +5593,7 @@ dependencies = [
 [[package]]
 name = "pdfrum-parser"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6daa411e09268d0407d7d9c188f647cf50ed838a5a668496f82ce049ab8ed3ec"
+source = "git+https://github.com/PoHsuanLai/pdfrum?rev=613710405bcd239684e23fb8ad2bcb9aab329549#613710405bcd239684e23fb8ad2bcb9aab329549"
 dependencies = [
  "pdfrum-common",
  "pdfrum-crypt",
@@ -5538,8 +5605,7 @@ dependencies = [
 [[package]]
 name = "pdfrum-raster-vello-cpu"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "19595f1e988d8c3e9f74d479cf17dde78000ace7a5be73e1480e9f4d37910f2a"
+source = "git+https://github.com/PoHsuanLai/pdfrum?rev=613710405bcd239684e23fb8ad2bcb9aab329549#613710405bcd239684e23fb8ad2bcb9aab329549"
 dependencies = [
  "kurbo",
  "pdfrum-page",
@@ -5551,8 +5617,7 @@ dependencies = [
 [[package]]
 name = "pdfrum-render"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb774cd391df21eb6b435ab8fac643c2d60fe151971a48b704611aa47d2f6b0d"
+source = "git+https://github.com/PoHsuanLai/pdfrum?rev=613710405bcd239684e23fb8ad2bcb9aab329549#613710405bcd239684e23fb8ad2bcb9aab329549"
 dependencies = [
  "kurbo",
  "pdfrum-common",
@@ -5567,8 +5632,7 @@ dependencies = [
 [[package]]
 name = "pdfrum-text"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4541cff62b0cd7c8314a0b4c134726a52932c5d7eaa7b9351721df63a14451da"
+source = "git+https://github.com/PoHsuanLai/pdfrum?rev=613710405bcd239684e23fb8ad2bcb9aab329549#613710405bcd239684e23fb8ad2bcb9aab329549"
 dependencies = [
  "kurbo",
  "pdfrum-common",
@@ -5582,8 +5646,7 @@ dependencies = [
 [[package]]
 name = "pdfrum-type1"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d6c6a82e9a57cb3b8e18fd3e28a4904a92bae099bb92b4d64d1f6d4805c6c685"
+source = "git+https://github.com/PoHsuanLai/pdfrum?rev=613710405bcd239684e23fb8ad2bcb9aab329549#613710405bcd239684e23fb8ad2bcb9aab329549"
 dependencies = [
  "pdfrum-common",
  "read-fonts 0.44.0",
@@ -5876,8 +5939,7 @@ dependencies = [
 [[package]]
 name = "pixels_window_renderer"
 version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "320b195ebb5b4513d7c538fc7686ebd4ee3fa1f945e5995c70338f6d78fb07de"
+source = "git+https://github.com/PoHsuanLai/anyrender?rev=a0825ebfc0443f3ef0830c0e09f2d85df3da632b#a0825ebfc0443f3ef0830c0e09f2d85df3da632b"
 dependencies = [
  "anyrender",
  "debug_timer 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -6450,16 +6512,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "737970939a87c6fa31e7acad13307bccbb017a073b695b6089a2c484f929e20e"
 dependencies = [
  "bitflags",
-]
-
-[[package]]
-name = "redox_users"
-version = "0.5.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "60dc65c0ff1a7ae1294b0c67b9f14baf70b644404010370171787bfac1038fc0"
-dependencies = [
- "libredox",
- "thiserror 2.0.20",
 ]
 
 [[package]]
@@ -7621,7 +7673,7 @@ dependencies = [
 [[package]]
 name = "stylo_taffy"
 version = "0.3.0-beta.2"
-source = "git+https://github.com/DioxusLabs/blitz?rev=e99fbdbd1d03b9f0aa1622c3f810d95daac92042#e99fbdbd1d03b9f0aa1622c3f810d95daac92042"
+source = "git+https://github.com/PoHsuanLai/blitz?rev=1b23fbd9d6465b7ee8acfe8e7deb36a2d5be6fad#1b23fbd9d6465b7ee8acfe8e7deb36a2d5be6fad"
 dependencies = [
  "bitflags",
  "stylo",
@@ -8414,8 +8466,7 @@ checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
 [[package]]
 name = "vello_common"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2e9aed918117e8152c9eddfd8362d73c465c23f26c44786aa331707b8a64fa2"
+source = "git+https://github.com/PoHsuanLai/vello?rev=1722f6234e10b95d574d2252698a6cc7cdcadb82#1722f6234e10b95d574d2252698a6cc7cdcadb82"
 dependencies = [
  "bytemuck",
  "fearless_simd",
@@ -8445,8 +8496,7 @@ dependencies = [
 [[package]]
 name = "vello_cpu"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ac7349e1f55f6b801c7c277958df4ea53e7f20f21e8014910ad888b2ecda93ea"
+source = "git+https://github.com/PoHsuanLai/vello?rev=1722f6234e10b95d574d2252698a6cc7cdcadb82#1722f6234e10b95d574d2252698a6cc7cdcadb82"
 dependencies = [
  "bytemuck",
  "crossbeam-channel",
@@ -8473,8 +8523,7 @@ dependencies = [
 [[package]]
 name = "vello_hybrid"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "02606e4115d3d31ce33111dffa623dfa79629558bca8485d5ff4dde14ff884f9"
+source = "git+https://github.com/PoHsuanLai/vello?rev=1722f6234e10b95d574d2252698a6cc7cdcadb82#1722f6234e10b95d574d2252698a6cc7cdcadb82"
 dependencies = [
  "bytemuck",
  "glifo 0.2.0",
@@ -8489,8 +8538,7 @@ dependencies = [
 [[package]]
 name = "vello_sparse_shaders"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c92bcc433a5f64ae44d54f86541e65459d85d4fa2f879f35769009f608a877d8"
+source = "git+https://github.com/PoHsuanLai/vello?rev=1722f6234e10b95d574d2252698a6cc7cdcadb82#1722f6234e10b95d574d2252698a6cc7cdcadb82"
 dependencies = [
  "wesl",
  "wesl-macros",
@@ -9069,8 +9117,7 @@ dependencies = [
 [[package]]
 name = "wgpu_context"
 version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d6c2553d5b114dfd941fa3372c7df1e1cde7bd81800e89aa13b7e3af2e4be9b"
+source = "git+https://github.com/PoHsuanLai/anyrender?rev=a0825ebfc0443f3ef0830c0e09f2d85df3da632b#a0825ebfc0443f3ef0830c0e09f2d85df3da632b"
 dependencies = [
  "futures-intrusive",
  "wgpu",

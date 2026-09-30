@@ -1,5 +1,6 @@
 //! The page against a real store: the guards, autosave, Esc, and Send then Undo.
 
+use ds::prelude::*;
 use mail_store::Store;
 
 use super::super::desk::reopen;
@@ -25,7 +26,7 @@ fn queued(store: &SqliteStore) -> usize {
 }
 
 #[tokio::test]
-async fn send_with_nobody_to_send_to_queues_nothing_and_shakes_the_to_row() {
+async fn send_with_nobody_to_send_to_queues_nothing_and_marks_the_to_field_invalid() {
     let (store, _dir) = seeded();
     let draft = fresh_draft(&store);
     let before = queued(&store);
@@ -34,7 +35,11 @@ async fn send_with_nobody_to_send_to_queues_nothing_and_shakes_the_to_row() {
     window
         .dom
         .in_runtime(|| type_text(&mut page.write(), "hello"));
-    window.render();
+    let untouched = window.render();
+    assert!(
+        !untouched.contains(r#"data-validity="invalid""#),
+        "the To field was refused before Send was pressed:\n{untouched}"
+    );
 
     let send = seen.one("aria-label", "Send");
     click(&mut window.dom, send);
@@ -50,15 +55,17 @@ async fn send_with_nobody_to_send_to_queues_nothing_and_shakes_the_to_row() {
         "the draft moved"
     );
     assert!(
-        markup.contains(r#"class="prop-row shake""#),
-        "the To row did not shake:\n{markup}"
+        markup.contains(r#"data-validity="invalid""#)
+            && markup.contains("Add at least one person to send to."),
+        "the To field was not marked and did not say why:\n{markup}"
     );
 
-    // A second press shakes it again: the class changes so the animation restarts.
+    // A second press is a new refusal: the guard counts it, so quire's field treats it as one.
     click(&mut window.dom, send);
     let markup = window.render();
-    assert!(
-        markup.contains(r#"class="prop-row shake again""#),
+    assert_eq!(
+        window.dom.in_runtime(|| page.peek().guard),
+        Guard::NoRecipient(2),
         "{markup}"
     );
     assert_eq!(queued(&store), before);
@@ -291,38 +298,6 @@ async fn the_composer_draws_no_raw_markup_beyond_its_exceptions() {
 }
 
 #[tokio::test]
-async fn a_person_who_joins_flashes_until_the_flash_settles() {
-    let (store, _dir) = seeded();
-    let draft = fresh_draft(&store);
-    let (mut window, _) = Window::open(store.clone(), draft.clone(), None);
-    let mut page = window.page();
-    window.render();
-    window.dom.in_runtime(|| {
-        let mut write = page.write();
-        write.to = vec![dana()];
-        write.flash = Some(dana().address);
-    });
-    let markup = window.render();
-    assert!(
-        markup.contains("a-chip-flash"),
-        "the person who joined does not flash:\n{markup}"
-    );
-
-    let flash = ds::settle(
-        ds::Anim::ChipFlash,
-        ds::MotionLevel::Standard,
-        ds::StaggerIndex::default(),
-    );
-    let markup = run_for(&mut window, flash).await;
-    assert!(
-        !markup.contains("a-chip-flash"),
-        "the chip still flashed once its flash had settled:\n{markup}"
-    );
-    let flash = window.dom.in_runtime(|| page.peek().flash.clone());
-    assert_eq!(flash, None, "the page still names someone to flash");
-}
-
-#[tokio::test]
 async fn a_sent_page_folds_away_on_quires_clock() {
     let (store, _dir) = seeded();
     let draft = fresh_draft(&store);
@@ -343,13 +318,9 @@ async fn a_sent_page_folds_away_on_quires_clock() {
         "the page did not fold:\n{markup}"
     );
 
-    // Nothing the window says takes it away: the fold's timer does, once `compose-send` has
+    // Nothing the window says takes it away: the fold's timer does, once the fade has
     // settled.
-    let fold = ds::settle(
-        ds::Anim::ComposeSend,
-        ds::MotionLevel::Standard,
-        ds::StaggerIndex::default(),
-    );
+    let fold = settle(Anim::Fade, MotionLevel::Standard);
     let markup = run_for(&mut window, fold).await;
     assert!(
         !markup.contains("cpage"),

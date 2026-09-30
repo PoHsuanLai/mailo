@@ -11,6 +11,7 @@ use crate::unsubscribe::{Found, Outcome};
 use crate::view::Shell;
 use dioxus::prelude::*;
 use dioxus_core::{NoOpMutations, VirtualDom};
+use ds::prelude::*;
 use mail_domain::*;
 use mail_mime::{ListHeaders, ListId};
 use mail_store::{SqliteStore, Store};
@@ -143,7 +144,7 @@ async fn settle(dom: &mut VirtualDom, span: Duration) {
 #[component]
 fn Open(thread: ThreadId) -> Element {
     let shell = use_signal(Shell::default);
-    rsx! { Reader { thread, shell } }
+    rsx! { ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window, Reader { thread, shell } } }
 }
 
 /// The reader on `thread`, once its lookup has landed.
@@ -220,7 +221,7 @@ async fn the_head_offers_unsubscribe_only_when_the_thread_has_a_way_out() {
 fn Moving(first: ThreadId) -> Element {
     let shell = use_signal(Shell::default);
     let thread = use_context_provider(|| Signal::new(first));
-    rsx! { Reader { thread: thread(), shell } }
+    rsx! { ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window, Reader { thread: thread(), shell } } }
 }
 
 #[tokio::test]
@@ -255,13 +256,18 @@ async fn the_answer_for_one_thread_is_never_shown_under_the_next() {
 fn Popover(offer: Offer) -> Element {
     let phase = use_signal(|| Phase::Asking);
     let asked = ask(&offer).unwrap();
-    rsx! { Confirm { offer, asked, phase } }
+    rsx! {
+        Ds { appearance: Appearance::default(), material: Material::Window,
+            Confirm { offer, asked, phase, anchor: ds::host::measure::Anchor::Point(Point::default()) }
+        }
+    }
 }
 
 fn popover(headers: &str) -> String {
     let offer = offer_from(headers).unwrap();
     let mut dom = VirtualDom::new_with_props(Popover, PopoverProps { offer });
     dom.rebuild_in_place();
+    crate::ui::fixtures::drain(&mut dom);
     // The renderer escapes the apostrophe; the words are compared as they read.
     dioxus_ssr::render(&dom).replace("&#39;", "'")
 }
@@ -373,7 +379,7 @@ async fn neither_the_list_nor_a_hover_card_reads_a_list_header() {
     pointer(&mut dom, "pointerover", row, resting());
     settle(
         &mut dom,
-        ds::delays::HOVER_OPEN + Duration::from_millis(250),
+        ds::style::tokens::delay::DelayToken::CardOpen.delay() + Duration::from_millis(250),
     )
     .await;
     assert!(

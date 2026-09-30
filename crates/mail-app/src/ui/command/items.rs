@@ -6,12 +6,12 @@
 //! "dana" would never be a person. Who the People rows are is the contact book's answer
 //! (`people.rs`), the one the composer's To field gets.
 
+use ds::prelude::*;
 use std::collections::HashMap;
 
 use super::super::menu::{MenuItem, Right, Run, Tile, Tone};
 use crate::search::{self, ActionHit, Command, MailHit, PersonHit, Results, Top};
 use chrono::{DateTime, Utc};
-use ds::Icon;
 use mail_domain::ThreadId;
 use mail_store::SqliteStore;
 
@@ -241,7 +241,9 @@ fn query_marks(query: &str, text: &str) -> Vec<u32> {
 /// A person's avatar fill, stable for an address: quire's person hash (design/03 section 13),
 /// the colour its `Avatar` gives the same address, as the text a tile's style takes.
 pub(in crate::ui) fn avatar_color(email: &str) -> String {
-    ds::person_hue(email).hex().css()
+    ds::components::content::avatar::person_hue(email)
+        .hex()
+        .css()
 }
 
 fn action_item(hit: &ActionHit, group: &str) -> MenuItem {

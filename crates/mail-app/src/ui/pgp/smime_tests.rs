@@ -405,7 +405,10 @@ async fn a_good_smime_signature_says_who_signed_and_their_certificate() {
     assert!(page.contains("the owl note is signed"), "{page}");
     // What was signed is listed; the signature itself is not an attachment.
     assert!(page.contains("map.bin"), "{page}");
-    assert!(!page.contains("smime.p7s"), "{page}");
+    assert!(
+        !super::tests::without_leaving(&page).contains("smime.p7s"),
+        "{page}"
+    );
 }
 
 #[tokio::test]
@@ -508,9 +511,8 @@ async fn a_signature_from_an_authority_nobody_trusts_is_amber_and_says_why() {
     assert!(page.contains("the crane is signed by a stranger"), "{page}");
     let drawn = seals(&page);
     assert!(drawn.contains("seal-line detail"), "{drawn}");
-    let missing =
-        crate::ui::style::tests::unstyled_classes(&drawn, &crate::ui::style::tests::full_css());
-    assert!(missing.is_empty(), "unstyled classes: {missing:?}");
+    let offences = crate::ui::style::tests::markup_offences(&drawn);
+    assert!(offences.is_empty(), "the markup lint: {offences:#?}");
 }
 
 #[tokio::test]

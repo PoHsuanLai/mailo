@@ -13,7 +13,16 @@ use crate::view::{Peek, Reading, Shell};
 use attachments::Attachments;
 use blocks::MessageView;
 use dioxus::prelude::*;
-use ds::{Glyph, Icon, IconButton, IconButtonVariant, Switch};
+use ds::components::content::avatar::{
+    AvatarFace, AvatarShape, AvatarSize, AvatarTone, person_hue,
+};
+use ds::components::content::label::{LabelRole, LabelStyle};
+use ds::components::controls::button_model::{Bezel, ImagePosition};
+use ds::components::controls::segmented::Tracking;
+use ds::prelude::*;
+use ds::root::common::Common;
+use ds::style::icon::render::Glyph;
+use ds::style::tokens::control_size::ControlSize;
 pub(super) use find_bar::open_find;
 use find_bar::{FindBar, marking};
 use mail_domain::*;
@@ -21,69 +30,47 @@ use mail_store::{SqliteStore, Store};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-#[cfg(test)]
-thread_local! {
-    static READER_MOUNTS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
-}
-
-/// How many times [`Reader`] has mounted on this thread.
-///
-/// A re-render leaves it alone. A component that was thrown away and built again increments
-/// it, which is the difference a peek-mode change must not make.
-#[cfg(test)]
-pub(super) fn reader_mounts() -> u32 {
-    READER_MOUNTS.with(std::cell::Cell::get)
-}
-
-#[cfg(test)]
-pub(super) fn reset_reader_mounts() {
-    READER_MOUNTS.with(|mounts| mounts.set(0));
-}
-
 /// The first character of `name`, uppercased.
 ///
 /// `chars`, not bytes: a CJK name's first byte is not a letter.
-fn initial(name: &str) -> String {
-    match name.chars().next() {
-        Some(c) => c.to_uppercase().collect(),
-        None => String::new(),
-    }
+fn initial(name: &str) -> char {
+    name.chars()
+        .next()
+        .and_then(|c| c.to_uppercase().next())
+        .unwrap_or('?')
 }
 
-/// Reader / Original. A span, so it can sit in the header without becoming the
-/// iframe's parent.
+/// Reader / Original: quire's segmented control, in a span so it can sit in the header without
+/// becoming the iframe's parent.
 #[component]
 fn ViewSwitch(message_id: MessageId, mut original: Signal<HashMap<MessageId, bool>>) -> Element {
     let showing = original.read().get(&message_id) == Some(&true);
-    let reader = "Reader";
-    let original_label = "Original";
+    let choices = vec![Choice::new(false, "Reader"), Choice::new(true, "Original")];
     rsx! {
-        span { class: "view-switch", role: "group", aria_label: "How to show this message",
-            ds::Button {
-                variant: ds::ButtonVariant::Mini,
-                label: reader,
-                aria_label: reader.to_owned(),
-                pressed: if showing { ds::Switch::Off } else { ds::Switch::On },
-                onclick: on_primary(move || {
-                    original.write().insert(message_id, false);
-                }),
-            }
-            ds::Button {
-                variant: ds::ButtonVariant::Mini,
-                label: original_label,
-                aria_label: original_label.to_owned(),
-                pressed: if showing { ds::Switch::On } else { ds::Switch::Off },
-                onclick: on_primary(move || {
-                    original.write().insert(message_id, true);
-                }),
+        span { class: "view-switch",
+            SegmentedControl::<bool> {
+                label: "How to show this message",
+                choices,
+                tracking: Tracking::SelectOne(showing),
+                size: ControlSize::Small,
+                onchange: move |original_view: bool| {
+                    original.write().insert(message_id, original_view);
+                },
             }
         }
     }
 }
 
-fn sender_initial(message: &Message) -> String {
+/// The sender's avatar: their first letter on the hue their address hashes to, as everywhere
+/// else a person is drawn.
+fn sender_face(message: &Message) -> AvatarFace {
     let named = message.from.name.as_deref().filter(|name| !name.is_empty());
-    initial(named.unwrap_or(message.from.email.as_str()))
+    AvatarFace {
+        initial: initial(named.unwrap_or(message.from.email.as_str())),
+        size: AvatarSize::Size28,
+        tone: AvatarTone::Person(person_hue(&message.from.email)),
+        shape: AvatarShape::Round,
+    }
 }
 
 /// The host a remote image would report the open to.
@@ -101,19 +88,20 @@ fn show_images() -> &'static str {
 fn peek_tool(peek: Peek, current: Peek, icon: Icon, mut shell: Signal<Shell>) -> Element {
     let label = peek.label();
     let pressed = if current == peek {
-        Switch::On
+        Check::On
     } else {
-        Switch::Off
+        Check::Off
     };
     rsx! {
-        IconButton {
-            variant: IconButtonVariant::Tool,
-            icon,
-            label: label.to_owned(),
-            pressed,
-            onclick: move |_| shell.write().peek = peek,
-        }
+            Button {
+        bezel: Bezel::Toolbar,
+        image: ImagePosition::Only,
+        label: label.to_owned(),
+        icon: Some(IconSource::Glyph(icon)),
+        value: Some(pressed),
+        onclick: move |_| shell.write().peek = peek,
     }
+        }
 }
 
 /// The key [`super::unsubscribe::Leave`] is mounted under: the thread and what each of its
@@ -174,14 +162,10 @@ pub(super) fn Reader(
         let pictures = use_context_provider(remote::Pictures::new);
         pictures.hold(thread, shell.read().show_remote_images);
     }
-    #[cfg(test)]
-    use_hook(|| {
-        READER_MOUNTS.with(|mounts| mounts.set(mounts.get().saturating_add(1)));
-    });
     let Ok(loaded) = store.thread(thread) else {
         return rsx! {
             div { class: "reader-empty",
-                p { "That conversation is gone." }
+                EmptyState { title: "That conversation is gone." }
             }
         };
     };
@@ -246,7 +230,7 @@ pub(super) fn Reader(
         .unwrap_or_else(|| loaded.summary.subject.clone());
     let meta = shown.last().map(|(message, _, _)| {
         (
-            sender_initial(message),
+            sender_face(message),
             from_name(message),
             address(message),
             stamp(message),
@@ -289,154 +273,155 @@ pub(super) fn Reader(
         .collect();
 
     rsx! {
-        {fetcher}
-        div { class: "reader-head",
-            div { class: "head-row",
-                if finding.is_some() {
-                    FindBar { shell, total, invalid }
-                } else {
-                    span { class: "spacer" }
-                }
-                div { class: "bar-tools",
-                    if let Some(revision) = revision {
-                        super::move_to::MoveTool { thread, shell, revision }
+            {fetcher}
+            div { class: "reader-head",
+                div { class: "head-row",
+                    if finding.is_some() {
+                        FindBar { shell, total, invalid }
+                    } else {
+                        span { class: "spacer" }
                     }
-                    super::print::PrintTool { thread }
-                    {peek_tool(Peek::Side, peek, Icon::Panel, shell)}
-                    {peek_tool(Peek::CENTER, peek, Icon::Square, shell)}
-                    {peek_tool(Peek::FULL, peek, Icon::Maximize, shell)}
-                }
-            }
-            if let Some(why) = problem {
-                pre { class: "find-err mono", "{why}" }
-            }
-            h2 { "{subject}" }
-            if let Some((initial, from, addr, when)) = meta {
-                div { class: "reader-meta",
-                    div { class: "reader-av", "{initial}" }
-                    div {
-                        div { class: "reader-from", "{from}" }
-                        div { class: "mono reader-addr", "{addr}" }
-                        div { class: "mono when", "{when}" }
+                    div { class: "bar-tools",
+                        if let Some(revision) = revision {
+                            super::move_to::MoveTool { thread, shell, revision }
+                        }
+                        super::print::PrintTool { thread }
+                        {peek_tool(Peek::Side, peek, Icon::Panel, shell)}
+                        {peek_tool(Peek::CENTER, peek, Icon::Square, shell)}
+                        {peek_tool(Peek::FULL, peek, Icon::Maximize, shell)}
                     }
-                    // Its own template, so the key is that template's root key and a new one
-                    // remounts it: rsx reads a key only on a template's root node, and one on a
-                    // nested component is dropped, in a release build and a debug one alike.
-                    {rsx! { super::unsubscribe::Leave { key: "{leave_key}", thread, bodies: bodies.clone(), revision } }}
                 }
+                if let Some(why) = problem {
+                    pre { class: "find-err mono", "{why}" }
+                }
+                h2 { Label { text: subject, style: LabelStyle::Title } }
+                if let Some((face, from, addr, when)) = meta {
+                    div { class: "reader-meta",
+                        Avatar { initial: face.initial, size: face.size, tone: face.tone }
+                        div { class: "reader-who",
+                            Label { text: from, style: LabelStyle::Headline }
+                            Label { text: addr, role: LabelRole::Secondary, style: LabelStyle::Footnote }
+                            Label { text: when, role: LabelRole::Tertiary, style: LabelStyle::Footnote }
+                        }
+                        // Its own template, so the key is that template's root key and a new one
+                        // remounts it: rsx reads a key only on a template's root node, and one on a
+                        // nested component is dropped, in a release build and a debug one alike.
+                        {rsx! { super::unsubscribe::Leave { key: "{leave_key}", thread, bodies: bodies.clone(), revision } }}
+                    }
+                }
+                // Under the head, where a question about this message belongs. Keyed like Leave.
+                {rsx! { super::receipt::Receipts { key: "{leave_key}", bodies } }}
             }
-            // Under the head, where a question about this message belongs. Keyed like Leave.
-            {rsx! { super::receipt::Receipts { key: "{leave_key}", bodies } }}
-        }
-        div { class: "reader-body",
-            if let Some(where_it_went) = saved() {
-                // Where it went, named. A file saved somewhere the user cannot point at is a file
-                // they have lost, and this pane's previous answer was to print a command to run.
-                p { class: "notice", "{where_it_went}" }
-            }
-            if let Some(host) = from_host {
-                div { class: "consent",
-                    Glyph { icon: Icon::X }
-                    span {
-                        if showing {
-                            "Showing remote images from {host}"
-                        } else {
-                            "Remote images blocked — loading them tells the sender you opened this"
+            div { class: "reader-body",
+                if let Some(where_it_went) = saved() {
+                    // Where it went, named. A file saved somewhere the user cannot point at is a file
+                    // they have lost, and this pane's previous answer was to print a command to run.
+                    p { class: "notice", Label { text: where_it_went } }
+                }
+                if let Some(host) = from_host {
+                    div { class: "consent",
+                        Glyph { icon: Icon::Image }
+                        Label {
+                            text: if showing {
+                                format!("Showing remote images from {host}")
+                            } else {
+                                "Remote images blocked — loading them tells the sender you opened this".to_owned()
+                            },
+                            role: LabelRole::Secondary,
+                        }
+                        if !showing {
+                            Button {
+        size: ControlSize::Small,
+        label: show_images(),
+    common: Common { aria_label: Some(show_images().to_owned()), ..Common::default() },
+        // The press takes the button away, and on Blitz the keyboard with it (quire focuses the
+        // pressed button a frame later, gone or not): it is handed back to the window, as a
+        // closing panel hands it back.
+                                    onclick: on_primary(move || {
+                                        shell.write().show_remote_images = true;
+                                        super::host::Host::focus_app();
+                                    }),
+    }
                         }
                     }
-                    if !showing {
-                        ds::Button {
-                            variant: ds::ButtonVariant::Mini,
-                            label: show_images(),
-                            aria_label: show_images(),
-                            // The press takes the button away, and on Blitz the keyboard with
-                            // it (quire focuses the pressed button a frame later, gone or not):
-                            // it is handed back to the window, as a closing panel hands it back.
-                            onclick: on_primary(move || {
-                                shell.write().show_remote_images = true;
-                                super::host::Host::focus_app();
-                            }),
-                        }
-                    }
                 }
-            }
-            for (((message, reading, _), found), attached) in shown.into_iter().zip(founds).zip(attached) {
-                article { key: "{message.id}", class: "frame",
-                    header {
-                        strong { "{from_name(&message)}" }
-                        span { class: "mono", "{address(&message)}" }
-                        time { class: "mono", "{stamp(&message)}" }
-                        if reading.frame_html().is_some() {
-                            // Offered wherever there is a frame, not only for
-                            // `Reading::Layout`: the frame is mounted for every HTML body,
-                            // and Original is the escape hatch when the blocks got a
-                            // message wrong. The mockup offers it on the receipt too.
-                            // A span, not a div: a div between the article and its iframe
-                            // is a new parent, and a new parent reloads the frame.
-                            // The labels are computed so a test can find the control: a
-                            // literal attribute never appears in the render mutations.
-                            ViewSwitch { message_id: message.id, original }
+                for (((message, reading, _), found), attached) in shown.into_iter().zip(founds).zip(attached) {
+                    article { key: "{message.id}", class: "frame",
+                        header {
+                            Label { text: from_name(&message), style: LabelStyle::Headline }
+                            Label { text: address(&message), role: LabelRole::Secondary, style: LabelStyle::Footnote }
+                            time { Label { text: stamp(&message), role: LabelRole::Tertiary, style: LabelStyle::Footnote } }
+                            if reading.frame_html().is_some() {
+                                // Offered wherever there is a frame, not only for
+                                // `Reading::Layout`: the frame is mounted for every HTML body,
+                                // and Original is the escape hatch when the blocks got a
+                                // message wrong. The mockup offers it on the receipt too.
+                                // A span, not a div: a div between the article and its iframe
+                                // is a new parent, and a new parent reloads the frame.
+                                // The labels are computed so a test can find the control: a
+                                // literal attribute never appears in the render mutations.
+                                ViewSwitch { message_id: message.id, original }
+                            }
                         }
-                    }
-                    // What the message's OpenPGP or S/MIME says, and its passphrase field. A
-                    // sibling before the frame, like the invitation under it, for the same reason.
-                    super::pgp::Seal {
-                        key: "{message.id}-{message.body.raw():?}",
-                        message: message.id,
-                        body: message.body.raw(),
-                        landed,
-                    }
-                    // A calendar invitation, drawn by this window and never inside the sender's
-                    // HTML. A sibling before the frame, not its parent: it lands after the first
-                    // paint, and inserting a sibling does not move the iframe. Keyed on the
-                    // message and its body, so a body arriving asks again.
-                    super::invite::Invitation {
-                        key: "{message.id}-{message.body.raw():?}",
-                        message: message.id,
-                        body: message.body.raw(),
-                    }
-                    // What is attached, if anything: what was sent, or what a protected
-                    // message was opened to holds. Keyed like the seal, so a body arriving asks
-                    // again.
-                    if !attached.is_empty() {
-                        Attachments {
+                        // What the message's OpenPGP or S/MIME says, and its passphrase field. A
+                        // sibling before the frame, like the invitation under it, for the same reason.
+                        super::pgp::Seal {
                             key: "{message.id}-{message.body.raw():?}",
                             message: message.id,
                             body: message.body.raw(),
-                            rows: attached,
-                            saved,
-                            downloading,
+                            landed,
                         }
-                    }
-                    // The iframe, when this message has one, is the first element MessageView
-                    // draws, and it is drawn on every render. Toggling Reader / Original changes
-                    // a class. Conditionally rendering the iframe would reload it: a new parent,
-                    // or a frame that was not in the tree, re-runs the document, loses scroll,
-                    // and re-fetches anything just consented to.
-                    if matches!(reading, Reading::NotFetched) {
-                        p { class: "pending", "Body not downloaded yet." }
-                    } else {
-                        MessageView {
-                            message_id: message.id,
-                            reading: reading.clone(),
-                            original,
-                            quotes,
-                            shell,
-                            found,
+                        // A calendar invitation, drawn by this window and never inside the sender's
+                        // HTML. A sibling before the frame, not its parent: it lands after the first
+                        // paint, and inserting a sibling does not move the iframe. Keyed on the
+                        // message and its body, so a body arriving asks again.
+                        super::invite::Invitation {
+                            key: "{message.id}-{message.body.raw():?}",
+                            message: message.id,
+                            body: message.body.raw(),
+                        }
+                        // What is attached, if anything: what was sent, or what a protected
+                        // message was opened to holds. Keyed like the seal, so a body arriving asks
+                        // again.
+                        if !attached.is_empty() {
+                            Attachments {
+                                key: "{message.id}-{message.body.raw():?}",
+                                message: message.id,
+                                body: message.body.raw(),
+                                rows: attached,
+                                saved,
+                                downloading,
+                            }
+                        }
+                        // The iframe, when this message has one, is the first element MessageView
+                        // draws, and it is drawn on every render. Toggling Reader / Original changes
+                        // a class. Conditionally rendering the iframe would reload it: a new parent,
+                        // or a frame that was not in the tree, re-runs the document, loses scroll,
+                        // and re-fetches anything just consented to.
+                        if matches!(reading, Reading::NotFetched) {
+                            p { class: "pending", "Body not downloaded yet." }
+                        } else {
+                            MessageView {
+                                message_id: message.id,
+                                reading: reading.clone(),
+                                original,
+                                quotes,
+                                shell,
+                                found,
+                            }
                         }
                     }
                 }
-            }
-            if any_frame {
-                div { class: "frame-note",
-                    Glyph { icon: Icon::Key, size: ds::IconSize::Small }
-                    span { "sandboxed frame · no scripts, no same-origin" }
+                if any_frame {
+                    div { class: "frame-note",
+                        Glyph { icon: Icon::Key, size: IconSize::Small }
+                        span { "sandboxed frame · no scripts, no same-origin" }
+                    }
                 }
+                // An inline reply, after every frame so no iframe gains a new parent.
+                {children}
             }
-            // An inline reply, after every frame so no iframe gains a new parent.
-            {children}
         }
-    }
 }
 
 /// The Original frame as the reader draws it, in mailo's stylesheet, and nothing else: for the

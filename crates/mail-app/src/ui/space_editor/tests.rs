@@ -1,14 +1,25 @@
 use crate::space::{self, PRESET_NAMES, PRESETS, Space};
 use crate::ui::app::App;
 use crate::ui::fixtures::{
-    INSIDE_THE_SHELL, Scripts, Seen, Work, click, dispatching, press, rebuild_into, root_attr,
-    type_into, work,
+    INSIDE_THE_SHELL, Scripts, Seen, Work, dispatching, drain_seen, press, rebuild_into, root_attr,
+    work,
 };
-use crate::ui::sidebar::tests::{Button, buttons_in, pressed};
-use crate::view::{Motion, Theme};
+use crate::ui::sidebar::tests::{Button, buttons_in};
 use dioxus::prelude::*;
 use dioxus_core::VirtualDom;
-use ds::{CardAccent, Grain, SpaceLook};
+use ds::prelude::{Scheme, SpaceLook, Theme, Typeface};
+use ds::style::space::look::CardAccent;
+
+/// A click, and the render after it: the sheet is quire's, drawn in its overlay, which follows
+/// the window by one render.
+fn click(dom: &mut VirtualDom, element: dioxus_core::ElementId) -> Seen {
+    crate::ui::fixtures::click(dom, element).merge(drain_seen(dom))
+}
+
+/// Text typed into a field, and the render after it.
+fn type_into(dom: &mut VirtualDom, element: dioxus_core::ElementId, text: &str) -> Seen {
+    crate::ui::fixtures::type_into(dom, element, text).merge(drain_seen(dom))
+}
 
 /// The window on the Work Space, with the editor opened from the Space's name.
 ///
@@ -29,7 +40,8 @@ fn opened_with(environment: ds_settings::Environment) -> (VirtualDom, Seen, Work
         .with_root_context(environment);
     let seen = rebuild_into(&mut dom);
     let name = seen.one("aria-label", "Edit the Work Space");
-    let seen = click(&mut dom, name);
+    // The sheet is drawn by the render after the click that asked for it.
+    let seen = click(&mut dom, name).merge(drain_seen(&mut dom));
     (dom, seen, built, scripts)
 }
 
@@ -39,9 +51,27 @@ pub(in crate::ui) fn editor_open_markup() -> String {
     dioxus_ssr::render(&dom)
 }
 
+/// The identity of every segment that is the chosen one (`aria-checked`, a quire segmented
+/// control's own word for it). Every segment must say true or false.
+fn pressed<'a>(buttons: &'a [Button], id: impl Fn(&'a Button) -> &'a str) -> Vec<&'a str> {
+    let mut on = Vec::new();
+    for button in buttons {
+        let state = button.attr("aria-checked");
+        assert!(
+            state == "true" || state == "false",
+            "aria-checked is {state:?} on {}",
+            id(button)
+        );
+        if state == "true" {
+            on.push(id(button));
+        }
+    }
+    on
+}
+
 /// Each segmented control's `aria-label`, and its buttons.
 fn segments(page: &str) -> Vec<(String, Vec<Button>)> {
-    const OPEN: &str = "class=\"ds-segmented\" data-size=\"regular\" role=\"group\" aria-label=\"";
+    const OPEN: &str = "class=\"ds-segmented\" role=\"radiogroup\" aria-label=\"";
     let mut out = Vec::new();
     let mut rest = page;
     while let Some(at) = rest.find(OPEN) {
@@ -62,8 +92,8 @@ async fn the_editor_opens_on_the_spaces_own_choices() {
     let page = dioxus_ssr::render(&dom);
     assert!(page.contains("aria-label=\"Space editor\""), "{page}");
 
-    // Appearance, Motion (a Space's three levels) and Accent are quire's `SpaceEditor`'s own
-    // rows and names; Provider marks is mailo's row under it.
+    // Appearance and Accent are quire's `SpaceEditor`'s own rows and names; Provider marks is
+    // mailo's row under it. There is no Motion row (a Space sets no motion) and no Grain.
     let groups = [
         (
             "Appearance",
@@ -71,13 +101,8 @@ async fn the_editor_opens_on_the_spaces_own_choices() {
             "System",
         ),
         (
-            "Motion",
-            ["Calm", "Standard", "Extra"].as_slice(),
-            "Standard",
-        ),
-        (
             "Accent",
-            ["A hint of the Space", "Postmark"].as_slice(),
+            ["A hint of the Space", "The accent"].as_slice(),
             "A hint of the Space",
         ),
         (
@@ -120,13 +145,12 @@ async fn the_editor_opens_on_the_spaces_own_choices() {
         2,
         "the Work Space has two dots: {page}"
     );
-    let grain = page
-        .find("aria-label=\"Grain\"")
-        .and_then(|at| page[..at].rfind('<').map(|open| &page[open..at]));
-    assert!(
-        grain.is_some_and(|tag| tag.starts_with("<div class=\"ds-slider\" role=\"slider\"")),
-        "grain is not quire's Slider: {grain:?}"
-    );
+    for gone in ["Grain", "Motion"] {
+        assert!(
+            !page.contains(&format!("aria-label=\"{gone}\"")),
+            "the editor still offers {gone}: {page}"
+        );
+    }
 }
 
 #[tokio::test]
@@ -139,7 +163,7 @@ async fn escape_puts_the_space_back_exactly_and_writes_nothing() {
     let _ = type_into(&mut dom, seen.one("value", "Work"), "Elsewhere");
     let _ = click(
         &mut dom,
-        seen.after("aria-label", "Appearance", "aria-pressed")[2],
+        seen.after("aria-label", "Appearance", "aria-checked")[2],
     );
     let edited = dioxus_ssr::render(&dom);
     assert!(
@@ -185,18 +209,13 @@ async fn save_writes_the_space_and_it_reads_back_the_same() {
     let _ = type_into(&mut dom, seen.one("value", "Work"), "Studio");
     let _ = click(
         &mut dom,
-        seen.after("aria-label", "Appearance", "aria-pressed")[2],
+        seen.after("aria-label", "Appearance", "aria-checked")[2],
     );
     let live = dioxus_ssr::render(&dom);
     let _ = click(
         &mut dom,
-        seen.after("aria-label", "Accent", "aria-pressed")[1],
+        seen.after("aria-label", "Accent", "aria-checked")[1],
     );
-    // Grain is quire's Slider: a key moves it one step, 35 to 80 in 45.
-    let grain = seen.one("aria-label", "Grain");
-    for _ in 35..80 {
-        press(&mut dom, "ArrowRight", u32::try_from(grain.0).unwrap_or(0));
-    }
     let _ = click(&mut dom, seen.one("title", "Save this Space and close"));
 
     let page = dioxus_ssr::render(&dom);
@@ -208,15 +227,13 @@ async fn save_writes_the_space_and_it_reads_back_the_same() {
         name: "Studio".to_owned(),
         look: SpaceLook {
             theme: Theme::Dark,
-            card_accent: CardAccent::Postmark,
-            grain: Grain(80),
+            card_accent: CardAccent::Chosen,
             ..before.look.clone()
         },
         ..before.clone()
     };
     assert_ne!(before, want, "the edits above changed nothing");
     assert_eq!(space::load(&built.dirs.config).current_space(), want);
-    assert_eq!(want.motion, Motion::Standard);
     assert_eq!(
         root_attr(&live, "data-theme").as_deref(),
         Some("dark"),
@@ -228,7 +245,7 @@ async fn save_writes_the_space_and_it_reads_back_the_same() {
 #[ignore]
 async fn render_the_space_editor_to_a_file() {
     // Rendered once per scheme, so the swatches and the field are the ones each scheme shows.
-    for (suffix, scheme) in [("", ds::Scheme::Light), ("-dark", ds::Scheme::Dark)] {
+    for (suffix, scheme) in [("", Scheme::Light), ("-dark", Scheme::Dark)] {
         let (dom, _, _built, _) = opened_with(crate::ui::fixtures::in_scheme(scheme));
         crate::ui::fixtures::write_page(
             &format!("space-editor{suffix}"),
@@ -238,21 +255,18 @@ async fn render_the_space_editor_to_a_file() {
 }
 
 #[tokio::test]
-async fn the_frame_follows_the_typeface_setting() {
-    // mailo speaks in the desktop's typeface, not a pinned one: `appearance.typeface` decides,
-    // and a first run is the system face.
-    for (typeface, stamped) in [
-        (ds::Typeface::System, "system"),
-        (ds::Typeface::Editorial, "editorial"),
-    ] {
+async fn the_frame_is_always_the_system_typeface() {
+    // One Look: mailo's chrome is Inter, whatever `appearance.typeface` says. The editorial
+    // faces are the design system's own voice, not mail's.
+    for typeface in [Typeface::System, Typeface::Editorial] {
         let mut environment = ds_settings::Environment::default();
         environment.settings.appearance.typeface = typeface;
         let (dom, _, _built, _) = opened_with(environment);
         let page = dioxus_ssr::render(&dom);
         assert_eq!(
             root_attr(&page, "data-typeface").as_deref(),
-            Some(stamped),
-            "{typeface:?} did not reach the frame"
+            Some("system"),
+            "{typeface:?} reached the frame"
         );
     }
 }

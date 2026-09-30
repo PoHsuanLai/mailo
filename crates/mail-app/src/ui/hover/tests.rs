@@ -5,7 +5,7 @@ use crate::ui::app::App;
 use crate::ui::fixtures::{FakePointer, dispatching, pointer, rebuild_into, work};
 use dioxus::prelude::*;
 use dioxus_core::{NoOpMutations, VirtualDom};
-use ds::delays::HOVER_OPEN;
+use ds::style::tokens::delay::DelayToken;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 use std::time::Duration;
@@ -20,7 +20,7 @@ fn changes(store: &SqliteStore) -> i64 {
         .unwrap_or(0)
 }
 
-/// What a test waits past quire's hover open delay (`ds::delays::HOVER_OPEN`) before it looks
+/// What a test waits past quire's hover open delay (`DelayToken::CardOpen.delay()`) before it looks
 /// for the card: the card's own frames, on a loaded machine.
 const SLACK: Duration = Duration::from_millis(300);
 
@@ -71,13 +71,13 @@ async fn hovering_a_row_for_a_second_writes_nothing() {
     pointer(&mut dom, "pointerenter", row, over((12.0, 10.0)));
     pointer(&mut dom, "pointerover", row, over((12.0, 10.0)));
     // "Not yet" only at half the delay (quire's CONVENTIONS §11).
-    wait(&mut dom, HOVER_OPEN / 2).await;
+    wait(&mut dom, DelayToken::CardOpen.delay() / 2).await;
     let early = dioxus_ssr::render(&dom);
     assert!(
         card(&early).is_none(),
         "a card opened before the pointer had rested"
     );
-    wait(&mut dom, HOVER_OPEN + SLACK).await;
+    wait(&mut dom, DelayToken::CardOpen.delay() + SLACK).await;
 
     let page = dioxus_ssr::render(&dom);
     let shown = card(&page).expect("no card after the open delay and its slack");
@@ -109,7 +109,7 @@ async fn the_sender_card_flags_a_borrowed_name() {
     pointer(&mut dom, "pointerenter", parts.row, over((12.0, 10.0)));
     pointer(&mut dom, "pointerover", parts.row, over((12.0, 10.0)));
     pointer(&mut dom, "pointerenter", parts.name, over((4.0, 4.0)));
-    wait(&mut dom, HOVER_OPEN + SLACK).await;
+    wait(&mut dom, DelayToken::CardOpen.delay() + SLACK).await;
     let page = dioxus_ssr::render(&dom);
     let shown = card(&page).expect("no sender card");
     assert!(

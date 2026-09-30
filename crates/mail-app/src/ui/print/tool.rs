@@ -1,9 +1,16 @@
 //! The reader head's Print tool, and the small menu it opens.
 
+use super::super::menu::anchor_at;
 use super::super::press::on_primary;
 use super::{Job, print, save};
 use dioxus::prelude::*;
-use ds::{IconButton, IconButtonVariant, SegmentedControl, Switch};
+use ds::base::geometry::placement::{Align, Side};
+use ds::components::controls::button_model::{Answers, Bezel, ImagePosition};
+use ds::components::controls::segmented::Tracking;
+use ds::host::measure::{Anchor, MountedRef};
+use ds::prelude::*;
+use ds::root::common::Common;
+use ds::root::pass_through::ExtraClass;
 use mail_domain::ThreadId;
 use mail_mime::Pages;
 
@@ -13,79 +20,82 @@ pub(super) const CHOICES: [(Pages, &str); 2] = [
     (Pages::PerMessage, "Each message on its own page"),
 ];
 
-/// Print, in the head's tools. It opens a menu rather than printing at once: the choice of pages
-/// is there, and Save for printing beside it. Ctrl P prints without asking.
+/// Print, in the head's tools. It opens a popover rather than printing at once: the choice of
+/// pages is there, and Save for printing beside it. Ctrl P prints without asking.
 #[component]
 pub(in crate::ui) fn PrintTool(thread: ThreadId) -> Element {
-    let mut open = use_signal(|| false);
+    let mut open = use_signal(|| Shown::Hidden);
+    let mut tool = use_signal(|| None::<MountedRef>);
     let pages = use_signal(|| Pages::Flow);
     let label = "Print this conversation";
     rsx! {
-        IconButton {
-            variant: IconButtonVariant::Tool,
-            icon: ds::Icon::Printer,
-            label: label.to_owned(),
-            expanded: if open() { Switch::On } else { Switch::Off },
-            onclick: move |_| open.toggle(),
+        Button {
+            bezel: Bezel::Toolbar,
+            image: ImagePosition::Only,
+            label,
+            icon: Some(IconSource::Glyph(Icon::Printer)),
+            shown: Some(open()),
+            onclick: move |_| open.set(if open() == Shown::Visible { Shown::Hidden } else { Shown::Visible }),
+            common: Common {
+                mounted: Some(EventHandler::new(move |event: MountedEvent| tool.set(Some(MountedRef(event.data()))))),
+                ..Common::default()
+            },
         }
-        if open() {
-            PrintMenu { thread, pages, open }
+        if open() == Shown::Visible {
+            PrintMenu { thread, pages, anchor: anchor_at(tool()), onclose: move |()| open.set(Shown::Hidden) }
         }
     }
 }
 
 /// The choice of pages, Print, and Save for printing.
 #[component]
-fn PrintMenu(thread: ThreadId, pages: Signal<Pages>, open: Signal<bool>) -> Element {
+fn PrintMenu(
+    thread: ThreadId,
+    pages: Signal<Pages>,
+    anchor: Anchor,
+    onclose: EventHandler<()>,
+) -> Element {
     let mut pages = pages;
-    let mut open = open;
-    let chosen = pages();
     let job = Job {
         thread,
-        pages: chosen,
+        pages: pages(),
     };
-    let print_label = "Print";
-    let save_label = "Save for printing…";
+    let choices: Vec<Choice<Pages>> = CHOICES
+        .into_iter()
+        .map(|(choice, name)| Choice::new(choice, name))
+        .collect();
     rsx! {
-        div {
-            class: "fmenu print-menu",
-            role: "dialog",
-            aria_label: "Print options",
-            // Focusable, so the window's focus keeper lands here and Esc reaches it.
-            tabindex: "-1",
-            onkeydown: move |event| {
-                if event.key().to_string() == "Escape" {
-                    event.stop_propagation();
-                    open.set(false);
+            Popover {
+                anchor,
+                placement: Placement::new(Side::Bottom, Align::End),
+                gap: Px(4.0),
+                onclose,
+                common: Common { extra_class: ExtraClass::parse("print-menu").ok(), ..Common::default() },
+                SegmentedControl::<Pages> {
+                    label: "Pages",
+                    choices,
+                    tracking: Tracking::SelectOne(pages()),
+                    onchange: move |choice| pages.set(choice),
                 }
-            },
-            div { class: "g", "Print" }
-            SegmentedControl::<Pages> {
-                label: "Pages",
-                options: CHOICES.into_iter().map(|(choice, name)| (choice, name.to_owned())).collect::<Vec<_>>(),
-                value: chosen,
-                onchange: move |choice| pages.set(choice),
-            }
-            div { class: "acts",
-                ds::Button {
-                    variant: ds::ButtonVariant::Mini,
-                    label: save_label.to_string(),
-                    aria_label: save_label.to_string(),
-                    onclick: on_primary(move || {
-                        open.set(false);
-                        save(job);
-                    }),
-                }
-                ds::Button {
-                    variant: ds::ButtonVariant::Primary,
-                    label: print_label.to_string(),
-                    aria_label: print_label.to_string(),
-                    onclick: on_primary(move || {
-                        open.set(false);
-                        print(job);
-                    }),
+                div { class: "acts",
+                    Button {
+                        label: "Save for printing…",
+                        onclick: on_primary(move || {
+                            onclose.call(());
+                            save(job);
+                        }),
+        common: Common { aria_label: Some("Save for printing…".to_owned()), ..Common::default() },
+    }
+                    Button {
+                        label: "Print",
+                        answers: Answers::Return,
+                        onclick: on_primary(move || {
+                            onclose.call(());
+                            print(job);
+                        }),
+        common: Common { aria_label: Some("Print".to_owned()), ..Common::default() },
+    }
                 }
             }
         }
-    }
 }

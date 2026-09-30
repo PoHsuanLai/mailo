@@ -23,7 +23,7 @@ fn Sheet() -> Element {
         keys: Some(crate::view::KeysSheet),
         ..Shell::default()
     });
-    rsx! { KeysSheet { shell } }
+    rsx! { ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window, KeysSheet { shell } } }
 }
 
 pub(super) fn sheet(store: &Arc<SqliteStore>, seams: super::Seams) -> (VirtualDom, Seen) {
@@ -32,6 +32,8 @@ pub(super) fn sheet(store: &Arc<SqliteStore>, seams: super::Seams) -> (VirtualDo
         .with_root_context(store.clone())
         .with_root_context(seams);
     let seen = rebuild_into(&mut dom);
+    // The sheet is quire's and floats in the root's overlay, drawn the render after it asks.
+    let seen = seen.merge(crate::ui::fixtures::drain_seen(&mut dom));
     (dom, seen)
 }
 
@@ -281,7 +283,6 @@ async fn every_class_on_the_sheet_is_styled() {
     );
     let page = dioxus_ssr::render(&dom);
     assert!(page.contains("keys-confirm"), "{page}");
-    let missing =
-        crate::ui::style::tests::unstyled_classes(&page, &crate::ui::style::tests::full_css());
-    assert!(missing.is_empty(), "unstyled classes: {missing:?}");
+    let offences = crate::ui::style::tests::markup_offences(&page);
+    assert!(offences.is_empty(), "the markup lint: {offences:#?}");
 }

@@ -12,7 +12,7 @@
 use super::{Motion, act, motion};
 use crate::view::{Place, Shell, Source, place_filter};
 use dioxus::prelude::*;
-use ds::{DragGhost, Point, Px};
+use ds::prelude::*;
 use mail_domain::*;
 use mail_store::SqliteStore;
 use std::sync::Arc;

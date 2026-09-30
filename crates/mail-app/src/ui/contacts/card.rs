@@ -4,12 +4,17 @@
 //! The name is typed into the card itself. Every key typed there stops at the field, so a
 //! letter is a letter and not the shortcut it would be over the list.
 
+use ds::components::content::label::{LabelRole, LabelStyle};
+use ds::components::controls::button_model::ButtonRole;
+use ds::prelude::*;
+use ds::root::common::Common;
+use ds::root::pass_through::ExtraClass;
+use ds::style::tokens::control_size::ControlSize;
 use std::sync::Arc;
 
 use dioxus::prelude::*;
 use mail_store::{SqliteStore, Store};
 
-use super::super::field::{Field, FieldKind};
 use super::super::press::on_primary;
 use super::book::{self, Standing};
 
@@ -83,47 +88,47 @@ pub(in crate::ui) fn ContactPart(email: String, name: String) -> Element {
                                 _ => {}
                             }
                         },
-                        Field {
-                            kind: FieldKind::Inline,
-                            value: typed,
+                        TextField {
+                            label: "Their name".to_owned(),
+                            bezel: FieldBezel::Plain,
                             placeholder: "Their name".to_owned(),
-                            extra: Some("book-name".to_owned()),
-                            on_input: move |value: String| doing.set(Doing::Naming(value)),
-                            on_focus: |_| {},
-                            on_blur: |_| {},
+                            value: typed,
+                            oninput: move |value: String| doing.set(Doing::Naming(value)),
+                            common: Common { extra_class: ExtraClass::parse("book-name").ok(), ..Common::default() },
                         }
-                        ds::Button {
-                            variant: ds::ButtonVariant::Primary,
+                        Button {
                             label: "Save".to_owned(),
-                            aria_label: format!("Save the name for {email}"),
+                            size: ControlSize::Small,
                             onclick: on_primary(keep_on_click),
+                            common: Common { aria_label: Some(format!("Save the name for {email}")), ..Common::default() },
                         }
                     }
                 },
                 shown => rsx! {
                     div { class: "standing",
-                        span { class: "origin", "{standing.label()}" }
-                        ds::Button {
-                            variant: ds::ButtonVariant::Secondary,
+                        Label { text: standing.label().to_owned(), role: LabelRole::Secondary, style: LabelStyle::Footnote }
+                        Button {
                             label: standing.name_action().to_owned(),
-                            aria_label: format!("{}: {email}", standing.name_action()),
+                            size: ControlSize::Small,
                             onclick: {
                                 let current = current.clone();
                                 on_primary(move || doing.set(Doing::Naming(current.clone())))
                             },
+                            common: Common { aria_label: Some(format!("{}: {email}", standing.name_action())), ..Common::default() },
                         }
                         if standing != Standing::Unknown {
-                            ds::Button {
-                                variant: ds::ButtonVariant::Danger,
+                            Button {
+                                role: ButtonRole::Destructive,
                                 label: "Forget",
-                                aria_label: format!("Forget {email}"),
+                                size: ControlSize::Small,
                                 onclick: on_primary(move || forget(())),
+                                common: Common { aria_label: Some(format!("Forget {email}")), ..Common::default() },
                             }
-                            span { class: "capnote", "Mail may teach it again" }
+                            Label { text: "Mail may teach it again".to_owned(), role: LabelRole::Tertiary, style: LabelStyle::Footnote }
                         }
                     }
                     if let Doing::Failed(why) = shown {
-                        p { class: "capnote", "{why}" }
+                        Label { text: why, role: LabelRole::Tertiary, style: LabelStyle::Footnote }
                     }
                 },
             }

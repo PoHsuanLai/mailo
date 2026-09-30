@@ -14,6 +14,7 @@ mod smime;
 mod templates;
 mod wire;
 
+use ds::prelude::*;
 use std::cell::Cell;
 use std::sync::Arc;
 
@@ -211,10 +212,10 @@ fn PageHarness(draft: Draft) -> Element {
     let open = composing(&shell.read());
     // Inside a quire root, as the window has it: the page's menus float in its overlay.
     rsx! {
-        ds::Ds {
-            appearance: ds::Appearance::default(),
-            material: ds::Material::Window,
-            stylesheet: ds::Inject::Host,
+        Ds {
+            appearance: Appearance::default(),
+            material: Material::Window,
+            stylesheet: ds::assembly::ds::Inject::Host,
             div { class: "app",
                 if let Some((id, _)) = open {
                     ComposerPage { key: "{id}", draft: id, shell, revision }

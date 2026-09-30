@@ -1,87 +1,35 @@
 /* ---- a calendar invitation: a card at the top of the message, drawn by us, never inside the
-   sender's HTML. It reads as a ticket stub: the head names what is asked, the facts sit in a
-   quiet column, and the answers are the only loud thing on it. ---- */
+   sender's HTML. Layout only: the words are quire's Label, the tag and the attendees its Chip,
+   the three answers its SegmentedControl. ---- */
 .invite {
-  margin: 0 0 var(--s-14); padding: var(--s-12) var(--s-14) var(--s-12); border: var(--hair) solid var(--line);
-  border-left: 3px solid var(--accent); border-radius: var(--r-btn); background: var(--surface);
-  box-shadow: var(--shadow-1); font-size: var(--fs-control); line-height: 1.45; color: var(--ink);
-  animation: rise var(--t-move) var(--e-out);
+  display: grid; gap: var(--s-10); margin: 0 0 var(--s-14); padding: var(--s-12) var(--s-14);
+  border: var(--hair) solid var(--line); border-radius: var(--r-card); background: var(--surface);
+  box-shadow: var(--shadow-1);
 }
-.invite:has(.inv-tag.cancelled) { border-left-color: var(--danger); }
 .inv-head { display: flex; align-items: center; gap: var(--s-9); flex-wrap: wrap; }
-.inv-tag {
-  flex: none; padding: var(--s-2) var(--s-8); border-radius: var(--r-chip); background: var(--accent-soft);
-  color: var(--ink); font-family: var(--font-data); font-size: var(--fs-micro); letter-spacing: .06em;
-  text-transform: uppercase;
-}
-.inv-tag.updated { background: var(--c-amber-soft); }
-.inv-tag.answer { background: var(--c-green-soft); }
-.inv-tag.cancelled { background: var(--danger); color: var(--danger-ink); font-weight: 700; }
-.inv-title {
-  flex: 1 1 200px; min-width: 0; margin: 0; font-family: var(--font-display); font-size: var(--fs-title);
-  font-weight: 700; line-height: 1.2; overflow-wrap: anywhere;
-}
-.invite:has(.inv-tag.cancelled) .inv-title { color: var(--ink-soft); text-decoration: line-through; text-decoration-color: var(--danger); }
+.inv-tag, .inv-tag.updated, .inv-tag.answer { flex: none; }
+.inv-title { flex: 1 1 200px; min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.invite:has(.inv-tag.cancelled) .inv-title { text-decoration: line-through; }
 .inv-head .inv-save { margin-left: auto; }
 
-.inv-facts { display: grid; gap: var(--s-3); margin: var(--s-10) 0 0; }
+.inv-facts { display: grid; gap: var(--s-3); margin: 0; }
 .inv-row { display: grid; grid-template-columns: 74px 1fr; gap: var(--s-10); align-items: baseline; }
-.inv-row dt { margin: 0; font-size: var(--fs-eyebrow); color: var(--ink-faint); }
-.inv-row dt .ds-ic { color: var(--ink-faint); transform: translateY(2px); }
-.inv-row dd { margin: 0; min-width: 0; color: var(--ink-soft); overflow-wrap: anywhere; }
-.inv-when { display: block; font-weight: 700; color: var(--ink); }
-.inv-theirs { display: block; font-size: var(--fs-eyebrow); color: var(--ink-faint); }
+.inv-row dt { margin: 0; }
+.inv-row dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.inv-when, .inv-theirs { display: block; }
 
-.inv-people { display: flex; flex-wrap: wrap; gap: var(--s-4); margin: var(--s-10) 0 0; padding: 0; list-style: none; }
-.att {
-  display: inline-flex; align-items: center; gap: var(--s-5); max-width: 220px; padding: var(--s-2) var(--s-8) var(--s-2) var(--s-6);
-  border: var(--hair) solid var(--line-soft); border-radius: var(--r-pill); background: var(--surface-2);
-  font-size: var(--fs-help); color: var(--ink-soft); white-space: nowrap; overflow: hidden;
-}
-.att .dot { flex: none; width: 7px; height: 7px; border-radius: var(--r-pill); background: var(--line); }
-.att.yes .dot { background: var(--ok); }
-.att.no .dot { background: var(--danger); }
-.att.maybe .dot { background: var(--warn); }
-.att.waiting .dot { background: transparent; box-shadow: 0 0 0 1.5px var(--ink-faint) inset; }
-.att.no { text-decoration: line-through; text-decoration-color: var(--ink-faint); }
-.att.rest { padding: 0; border-style: dashed; background: none; }
-.att.rest .link { padding: var(--s-2) var(--s-9); font-family: var(--font-data); font-size: var(--fs-note); }
+.inv-people { display: flex; flex-wrap: wrap; gap: var(--s-4); margin: 0; padding: 0; list-style: none; }
+.att.yes, .att.maybe, .att.waiting, .att.rest { display: inline-flex; }
+.att.no { text-decoration: line-through; }
 
-.invite .link {
-  border: 0; padding: 0; background: none; cursor: pointer; font: inherit; font-size: var(--fs-small);
-  font-weight: 700; color: var(--accent); text-decoration: underline; text-underline-offset: 2px;
-  text-decoration-color: var(--accent-soft);
-}
-.invite .link:hover { text-decoration-color: var(--accent); }
-
-.inv-summary { margin: var(--s-10) 0 0; font-weight: 700; }
-.inv-comment { margin: var(--s-4) 0 0; color: var(--ink-soft); font-style: italic; }
-.inv-about { margin: var(--s-10) 0 0; padding-top: var(--s-9); border-top: var(--hair) solid var(--line-soft); }
-.inv-desc { margin: 0; white-space: pre-line; color: var(--ink-soft); overflow-wrap: anywhere; }
-/* Folded, the description is meant to stop at three lines until More. Blitz has no line clamp
-   (stylo parses `-webkit-line-clamp` and `display: -webkit-box` for Gecko only), so the fold is
-   not drawn yet and this keeps only what a clamp would need; the cut belongs in the markup. */
+.inv-summary, .inv-comment, .inv-why, .inv-before { margin: 0; }
+.inv-about { padding-top: var(--s-9); border-top: var(--hair) solid var(--line-soft); }
+.inv-desc { margin: 0; white-space: pre-line; overflow-wrap: anywhere; }
 .inv-desc.folded { overflow: hidden; }
-.inv-about .link { margin-top: var(--s-3); }
+.inv-answered { display: flex; align-items: center; flex-wrap: wrap; gap: var(--s-4) var(--s-8); }
+.inv-answered .said, .inv-answered .inv-note { min-width: 0; overflow-wrap: anywhere; }
+.inv-answered .inv-change { margin-left: auto; }
 
-.inv-why { margin: var(--s-10) 0 0; font-size: var(--fs-small); color: var(--ink-faint); }
-.inv-why.failed { color: var(--danger); }
-.inv-before { margin: var(--s-10) 0 0; font-size: var(--fs-small); color: var(--ink-soft); }
-.inv-answered {
-  display: flex; align-items: center; flex-wrap: wrap; gap: var(--s-4) var(--s-8); margin: var(--s-12) 0 0; padding: var(--s-7) var(--s-10);
-  border-radius: var(--r-btn); background: var(--c-green-soft);
-  color: var(--ink);
-}
-.inv-answered .ds-ic { color: var(--ok); }
-.inv-answered .said { font-weight: 700; }
-.inv-answered .inv-note { color: var(--ink-soft); font-style: italic; min-width: 0; overflow-wrap: anywhere; }
-.inv-answered .link { margin-left: auto; }
-
-.inv-acts { display: flex; flex-wrap: wrap; gap: var(--s-6); margin: var(--s-12) 0 0; }
-.inv-acts .mini { padding: var(--s-6) var(--s-13); }
-.inv-acts .mini[*|aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-.inv-noting {
-  display: flex; align-items: center; gap: var(--s-6); margin: var(--s-8) 0 0;
-  animation: rise var(--t-quick) var(--e-out);
-}
-.inv-noting .inv-note-field { flex: 1 1 auto; min-width: 0; font-size: var(--fs-meta); }
+.inv-acts { display: flex; flex-wrap: wrap; gap: var(--s-6); }
+.inv-noting { display: flex; align-items: center; gap: var(--s-6); }
+.inv-noting .inv-note-field { flex: 1 1 auto; min-width: 0; }

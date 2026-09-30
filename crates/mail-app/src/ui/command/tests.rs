@@ -24,10 +24,10 @@ pub(in crate::ui) fn MenuPicture() -> Element {
     let spaces = use_signal(crate::space::Spaces::default);
     // Inside a quire root, as the window has it: the palette floats in its overlay.
     rsx! {
-        ds::Ds {
-            appearance: ds::Appearance::default(),
-            material: ds::Material::Window,
-            stylesheet: ds::Inject::Host,
+        Ds {
+            appearance: Appearance::default(),
+            material: Material::Window,
+            stylesheet: ds::assembly::ds::Inject::Host,
             CommandMenu { shell, pages, revision, side_hidden, sync_state, spaces }
         }
     }
@@ -57,10 +57,10 @@ pub(in crate::ui) fn OpenMenus() -> Element {
     .into_iter()
     .next();
     rsx! {
-        ds::Ds {
-            appearance: ds::Appearance::default(),
-            material: ds::Material::Window,
-            stylesheet: ds::Inject::Host,
+        Ds {
+            appearance: Appearance::default(),
+            material: Material::Window,
+            stylesheet: ds::assembly::ds::Inject::Host,
             CommandMenu { shell, pages, revision, side_hidden, sync_state, spaces }
             // quire's menu, floating in the same root's overlay.
             if let Some(summary) = summary {
@@ -70,7 +70,6 @@ pub(in crate::ui) fn OpenMenus() -> Element {
                 }
             }
         }
-        li { class: "list-g", "Today" }
     }
 }
 
@@ -188,7 +187,7 @@ async fn dana_is_marked_in_the_persons_name() {
     let people = page.find(">People<").expect("no People group on dana");
     let after = &page[people..];
     let name = &after[after
-        .find("<b class=\"ds-menu-title\">")
+        .find("<b class=\"ds-row-title")
         .expect("a person item has a name")..];
     let name = &name[..name.find("</b>").expect("the name closes")];
     assert!(
@@ -209,7 +208,7 @@ async fn render_the_menus_to_a_file() {
 
     dispatching();
     // Rendered once per scheme, so the Space's tint and hue are the ones each scheme derives.
-    for (suffix, scheme) in [("", ds::Scheme::Light), ("-dark", ds::Scheme::Dark)] {
+    for (suffix, scheme) in [("", Scheme::Light), ("-dark", Scheme::Dark)] {
         let built = work();
         let mut dom = VirtualDom::new(App)
             .with_root_context(built.store.clone())

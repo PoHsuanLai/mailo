@@ -116,7 +116,7 @@ fn outbox(store: &SqliteStore) -> usize {
 #[component]
 fn Open(thread: ThreadId) -> Element {
     let shell = use_signal(Shell::default);
-    rsx! { Reader { thread, shell } }
+    rsx! { ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window, Reader { thread, shell } } }
 }
 
 /// Let the dom's tasks run for `for_ms`, keeping every attribute the renders set.
@@ -256,7 +256,9 @@ async fn an_answered_request_is_a_note_and_nothing_to_press() {
     for (thread, note) in [(sent, "Receipt sent"), (declined, "Receipt declined")] {
         let (_, _, markup) = reader_on(store.clone(), thread).await;
         assert!(
-            markup.contains(&format!("class=\"receipt-note mono\">{note}</p>")),
+            markup.contains(&format!(
+                "data-role=\"tertiary\" data-style=\"footnote\">{note}</span>"
+            )),
             "{markup}"
         );
         assert!(!markup.contains("Send receipt"), "{markup}");
@@ -303,7 +305,7 @@ async fn send_receipt_queues_exactly_one_receipt_and_settles_the_bar() {
         Some(ReceiptAnswer::Sent)
     );
     assert!(
-        markup.contains("class=\"receipt-note mono\">Receipt sent</p>"),
+        markup.contains("data-role=\"tertiary\" data-style=\"footnote\">Receipt sent</span>"),
         "{markup}"
     );
     assert!(!markup.contains("aria-label=\"Send receipt\""), "{markup}");

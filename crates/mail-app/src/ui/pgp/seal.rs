@@ -2,6 +2,7 @@
 //! OpenPGP key is locked.
 
 use dioxus::prelude::*;
+use ds::prelude::*;
 use mail_domain::{BlobId, MessageId};
 use mail_store::SqliteStore;
 use std::sync::Arc;
@@ -53,13 +54,13 @@ pub(in crate::ui) fn Seal(
         None | Some(Look::Plain) => rsx! {},
         Some(Look::Failed(why)) => rsx! {
             div { class: "seal", role: "status", aria_label: "Signature and encryption",
-                p { class: "seal-line bad", "{why}" }
+                p { class: "seal-line bad", Label { text: why.clone() } }
             }
         },
         Some(Look::Opened(opened)) => rsx! {
             div { class: "seal", role: "status", aria_label: opened.scheme.name(),
                 for (at, said) in opened.said.into_iter().enumerate() {
-                    p { key: "{at}", class: said.tone.class(), "{said.text}" }
+                    p { key: "{at}", class: said.tone.class(), Label { text: said.text.clone() } }
                 }
             }
         },

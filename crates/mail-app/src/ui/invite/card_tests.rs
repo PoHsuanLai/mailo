@@ -12,7 +12,7 @@ use mail_domain::*;
 #[component]
 fn Alone(card: Card) -> Element {
     let known = use_signal(|| None);
-    rsx! { InviteCard { card, known } }
+    rsx! { ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window, InviteCard { card, known } } }
 }
 
 /// Nine hours east of UTC: never Berlin's offset, so the organiser's time always differs.
@@ -40,11 +40,7 @@ fn drawn(card: Card) -> String {
     dioxus_ssr::render(&dom).replace("&#39;", "'")
 }
 
-const BUTTONS: &[&str] = &[
-    "aria-label=\"Accept\"",
-    "aria-label=\"Maybe\"",
-    "aria-label=\"Decline\"",
-];
+const BUTTONS: &[&str] = &[">Accept<", ">Maybe<", ">Decline<"];
 
 #[test]
 fn every_kind_and_every_place_draws_what_it_should() {
@@ -111,7 +107,7 @@ fn every_kind_and_every_place_draws_what_it_should() {
             Some((Attendance::Accepted, 0)),
             false,
             &[
-                "<span class=\"said\">You accepted</span>",
+                ">You accepted</span>",
                 "“See you there”",
                 "aria-label=\"Change answer\"",
             ],
@@ -121,7 +117,7 @@ fn every_kind_and_every_place_draws_what_it_should() {
             &update,
             None,
             true,
-            &["class=\"inv-tag updated\">Updated</span>"],
+            &["data-variant=\"accent\">Updated</span>"],
         ),
         (
             "update, answered before it",
@@ -135,7 +131,7 @@ fn every_kind_and_every_place_draws_what_it_should() {
             &update,
             Some((Attendance::Tentative, 2)),
             false,
-            &["<span class=\"said\">You said maybe</span>"],
+            &[">You said maybe</span>"],
         ),
         (
             "cancelled",
@@ -143,7 +139,7 @@ fn every_kind_and_every_place_draws_what_it_should() {
             None,
             false,
             &[
-                "class=\"inv-tag cancelled\">Cancelled</span>",
+                "data-status=\"bad\">Cancelled</span>",
                 "This event will not take place.",
             ],
         ),
@@ -298,13 +294,15 @@ async fn every_class_the_card_draws_is_styled() {
         },
     );
     let seen = crate::ui::fixtures::rebuild_into(&mut dom);
-    crate::ui::fixtures::click(&mut dom, seen.one("aria-label", "Accept"));
+    crate::ui::fixtures::click(
+        &mut dom,
+        seen.after("aria-label", "Answer", "aria-pressed")[0],
+    );
     let noting = dioxus_ssr::render(&dom);
     assert!(noting.contains("inv-noting"), "{noting}");
     page += &noting;
-    let missing =
-        crate::ui::style::tests::unstyled_classes(&page, &crate::ui::style::tests::full_css());
-    assert!(missing.is_empty(), "unstyled classes: {missing:?}");
+    let offences = crate::ui::style::tests::markup_offences(&page);
+    assert!(offences.is_empty(), "the markup lint: {offences:#?}");
 }
 
 #[test]
