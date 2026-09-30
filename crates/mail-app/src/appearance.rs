@@ -84,18 +84,6 @@ pub fn quire(dir: &Path) -> AppearanceFile {
     file
 }
 
-/// `accent` in `dir/appearance.toml`, the rest of the file as it was.
-///
-/// The accent is quire's setting and the desktop's, not mailo's: every quire program reads the
-/// same file, and the window's `use_environment` watches it, so the choice is drawn a moment
-/// after it is written.
-pub fn set_accent(dir: &Path, accent: Accent) -> Result<(), String> {
-    let mut file = quire(dir);
-    file.appearance.accent = accent;
-    let text = toml::to_string(&file).map_err(|e| e.to_string())?;
-    write_text(dir, QUIRE_FILE_NAME, &text)
-}
-
 /// What `appearance.json` said, read leniently and never written.
 ///
 /// The theme seeds `appearance.toml` and a Space written before Spaces had a theme; the marks
@@ -223,7 +211,7 @@ pub struct WindowDirs {
 
 #[cfg(test)]
 mod tests {
-    use super::{Legacy, legacy, load, quire, save, set_accent};
+    use super::{Legacy, legacy, load, quire, save};
     use crate::view::{Appearance, Marks, Theme};
     use ds::prelude::{Accent, Motion};
     use std::path::Path;
@@ -433,21 +421,6 @@ mod tests {
         )
         .unwrap_or_else(|err| panic!("{err}"));
         assert_eq!(load(dir.path()).marks, Marks::Icons);
-    }
-
-    #[test]
-    fn an_accent_is_written_and_the_rest_of_the_file_is_kept() {
-        let dir = tempfile::tempdir().unwrap_or_else(|err| panic!("{err}"));
-        std::fs::write(
-            dir.path().join("appearance.toml"),
-            "[appearance]\ntheme = \"dark\"\n",
-        )
-        .unwrap_or_else(|err| panic!("{err}"));
-        assert_eq!(quire(dir.path()).appearance.accent, Accent::Blue);
-        set_accent(dir.path(), Accent::Orange).unwrap_or_else(|err| panic!("{err}"));
-        let after = quire(dir.path());
-        assert_eq!(after.appearance.accent, Accent::Orange);
-        assert_eq!(after.appearance.theme, Theme::Dark, "the theme was lost");
     }
 
     #[test]

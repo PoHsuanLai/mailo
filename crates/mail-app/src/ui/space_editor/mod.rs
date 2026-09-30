@@ -19,7 +19,7 @@ mod notify;
 mod parts;
 
 use self::notify::Notifications;
-use self::parts::{AccentChoice, Marks as MarksChoice};
+use self::parts::Marks as MarksChoice;
 use super::frame::keep;
 use super::press::on_primary;
 use crate::space::Spaces;
@@ -109,7 +109,6 @@ pub(super) fn SpaceEditor(
                     measured: MeasuredIn::EachScheme,
                 }
                 FieldGroup { title: "Mail",
-                    AccentChoice {}
                     MarksChoice { shell }
                     Notifications {}
                     FieldRow {

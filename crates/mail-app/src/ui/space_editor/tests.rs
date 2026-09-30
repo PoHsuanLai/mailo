@@ -154,36 +154,27 @@ async fn the_editor_opens_on_the_spaces_own_choices() {
 }
 
 #[tokio::test]
-async fn the_accent_is_one_of_the_macs_eight_and_a_pick_is_written_to_appearance_toml() {
+async fn the_editor_has_no_global_accent_picker_and_writes_no_appearance_toml() {
     let (mut dom, seen, built, _scripts) = opened();
     let file = built.dirs.config.join("appearance.toml");
-    assert!(!file.exists(), "a window that chose nothing wrote a file");
     let page = dioxus_ssr::render(&dom);
-    let names = [
-        "Blue", "Purple", "Pink", "Red", "Orange", "Yellow", "Green", "Graphite",
-    ];
-    // The eight radios follow their group; later controls' checks follow them.
-    let marks = seen.after("aria-label", "Accent colour", "aria-checked");
-    assert!(marks.len() >= names.len(), "eight accents: {page}");
-    for name in names {
-        assert!(
-            page.contains(&format!("class=\"ds-radio-group-name\">{name}<")),
-            "no {name} swatch: {page}"
-        );
-    }
-    // Blue, the default, is the checked one; Red is the fourth.
-    let on: Vec<&str> = page
-        .split("class=\"ds-radio-group-item\"")
-        .skip(1)
-        .map(|item| item.split_once('>').map_or("", |(attrs, _)| attrs))
-        .filter(|attrs| attrs.contains("aria-checked=\"true\""))
-        .collect();
-    assert_eq!(on.len(), 1, "one accent is chosen: {on:?}");
-    let _ = click(&mut dom, marks[3]);
-    let written = std::fs::read_to_string(&file).unwrap_or_else(|e| panic!("{e}"));
+    // The global accent is the desktop's (design/22-SETTINGS.md section 9.5): no swatches here.
     assert!(
-        written.contains("accent = \"red\""),
-        "the pick did not reach appearance.toml:\n{written}"
+        !page.contains("Accent colour"),
+        "a global accent picker: {page}"
+    );
+    assert!(
+        !page.contains("class=\"ds-radio-group-name\""),
+        "accent swatches: {page}"
+    );
+    // The Space's own choice stays: the second segment of "Accent" is the chosen accent.
+    let _ = click(
+        &mut dom,
+        seen.after("aria-label", "Accent", "aria-checked")[1],
+    );
+    assert!(
+        !file.exists(),
+        "choosing a Space's accent wrote appearance.toml"
     );
 }
 

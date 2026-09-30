@@ -3982,6 +3982,13 @@ checkout of quire in cargo's cache cannot resolve it. Nothing in quire's own gat
 because they build in a tree where the sibling exists. The fix is on quire's side (name
 `blitz-kit` by git and rev); until then a local `[patch]` points the quire crates at a checkout.
 
+**The global accent is not mailo's.** A swatch picker in the Space editor that wrote
+`appearance.toml` (and `appearance::set_accent`) was tried and removed: the file is quire's, set in
+the desktop's Settings app and the control centre, and a program never renders its own UI for keys
+the schema covers (design/22-SETTINGS.md section 9.5). mailo only reads it. The per-Space choice
+(`CardAccent`, card keeps the accent or borrows the Space's hue) stays, drawn by quire's
+`SpaceEditor`; its labels there differ from what was asked for, a quire request.
+
 **The lint is the review.** With mailo's CSS in the `app` layer and quire's Strict lint and
 markup lint over every rendered surface, a selector that reaches into a `ds-` part, a literal
 size, a raw control or a class nothing styles fails a test. The port took the stylesheet from
