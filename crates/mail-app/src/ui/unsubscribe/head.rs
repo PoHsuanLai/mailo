@@ -187,7 +187,7 @@ fn take(offer: Offer, mut phase: Signal<Phase>, revision: Option<Signal<u64>>) {
             }
             Ok(Err(why)) => phase.set(Phase::Failed(why)),
             Err(error) => phase.set(Phase::Failed(format!(
-                "The unsubscribe stopped before it finished: {error}"
+                "Couldn\u{2019}t unsubscribe: {error}"
             ))),
         }
     });

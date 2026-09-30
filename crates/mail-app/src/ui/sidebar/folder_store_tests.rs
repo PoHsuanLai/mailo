@@ -361,7 +361,7 @@ async fn the_menu_and_the_field_are_the_shared_ones_and_styled() {
         "{naming}"
     );
     assert!(
-        naming.contains("A folder name cannot contain “/”"),
+        naming.contains("A folder name can’t contain “/”"),
         "the refusal is not said: {naming}"
     );
     let offences = crate::ui::style::tests::markup_offences(&(menu + &naming));

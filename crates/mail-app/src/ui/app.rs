@@ -595,8 +595,7 @@ pub(super) fn App() -> Element {
             (None, None) => rsx! {
                 EmptyState {
                     form: ds::components::overlays::empty_state::EmptyForm::Empty,
-                    title: "Nothing open",
-                    description: Some("Pick a thread to read it.".into()),
+                    title: "No message selected",
                 }
             },
         }
@@ -807,7 +806,7 @@ mod tests {
         let (store, _dir) = empty();
         let markup = markup(store);
 
-        assert!(markup.contains("No account yet"), "{markup}");
+        assert!(markup.contains("No account"), "{markup}");
         // The angle brackets come back escaped, which is the renderer doing its job; asserting
         // on one spelling of the escape would be asserting on dioxus rather than on the shell.
         assert!(
@@ -1239,7 +1238,7 @@ mod tests {
                 ));
             }
             if *action == "start" {
-                if !page.contains("Nothing open") || !page.contains("Pick a thread") {
+                if !page.contains("No message selected") {
                     failures.push(format!(
                         "the empty reader does not say what is open:\n{page}"
                     ));

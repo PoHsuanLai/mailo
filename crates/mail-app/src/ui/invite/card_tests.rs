@@ -139,10 +139,7 @@ fn every_kind_and_every_place_draws_what_it_should() {
             &cancelled,
             None,
             false,
-            &[
-                "data-status=\"bad\">Cancelled</span>",
-                "This event will not take place.",
-            ],
+            &["data-status=\"bad\">Cancelled</span>"],
         ),
         (
             "reply",
@@ -156,21 +153,21 @@ fn every_kind_and_every_place_draws_what_it_should() {
             &published,
             None,
             false,
-            &[">Event</span>", "it asks for no answer"],
+            &[">Event</span>", "No answer needed."],
         ),
         (
             "organiser",
             &organised,
             None,
             false,
-            &["You organised this event, so there is nothing to answer."],
+            &["You organised this event."],
         ),
         (
             "not listed",
             &elsewhere,
             None,
             false,
-            &["None of this account's addresses is among the attendees"],
+            &["You are not listed as an attendee."],
         ),
     ];
     for (case, calendar, answered, buttons, says) in cases {

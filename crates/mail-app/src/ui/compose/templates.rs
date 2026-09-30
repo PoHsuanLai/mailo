@@ -63,7 +63,7 @@ pub(in crate::ui) fn page_slash_items(page: &Page) -> Vec<MenuItem> {
         offer(
             START_KEY,
             "Start from a template",
-            "A message you kept, in place of this empty one",
+            "A saved message",
             &["template", "start"],
         );
     }
@@ -321,7 +321,7 @@ pub(in crate::ui) fn TemplateFloat(
                             label: placeholder.clone(),
                             placeholder: placeholder,
                             value: name,
-                            help: Some("Enter keeps it. The message stays as it is.".into()),
+                            help: None,
                             focus: FieldFocus::OnMount,
                             oninput: move |value: String| page.write().float = Float::SaveTemplate(value),
                             common: Common { extra_class: ExtraClass::parse("tpl-name").ok(), ..Common::default() },
@@ -350,7 +350,7 @@ fn TemplateList(page: Signal<Page>, shell: Signal<Shell>, active: usize) -> Elem
             query: query(),
             tokens: Vec::new(),
             groups: palette_groups(&rows, AvatarSize::Size22, Some(remove)),
-            empty: "No templates yet. Write one, then type / and choose Save as template…".to_owned(),
+            empty: "No templates".to_owned(),
             selected: Some(active.min(rows.len().saturating_sub(1))),
             on_select: move |to: usize| page.write().float = Float::Templates { active: to },
             oninput: move |text: String| query.set(text),

@@ -63,16 +63,13 @@ pub(in crate::ui) fn line(standing: &Standing) -> Option<Line> {
             // before saying yes: anyone can write that header.
             let warning = match &ask.return_path {
                 ReturnPath::Differs { return_path } => Some(format!(
-                    "The receipt would go to {}, not to {return_path}, where this message came from.",
+                    "The receipt goes to {}, not {return_path}.",
                     to.join(", ")
                 )),
                 ReturnPath::Agrees | ReturnPath::Unknown => None,
             };
             Some(Line::Asking {
-                sentence: format!(
-                    "{} asked to be told when you've read this.",
-                    standing.sender
-                ),
+                sentence: format!("{} asked for a read receipt.", standing.sender),
                 warning,
             })
         }

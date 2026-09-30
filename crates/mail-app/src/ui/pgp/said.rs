@@ -44,10 +44,7 @@ fn line(tone: Tone, text: impl Into<String>) -> Said {
 /// The line said when only part of a message is signed.
 fn partly(coverage: Option<Coverage>, out: &mut Vec<Said>) {
     if coverage == Some(Coverage::Part) {
-        out.push(line(
-            Tone::Unknown,
-            "Only part of this message is signed; the rest could say anything",
-        ));
+        out.push(line(Tone::Unknown, "Only part of this message is signed"));
     }
 }
 
@@ -62,17 +59,14 @@ pub(in crate::ui) fn said(protected: &crate::pgp::Protected) -> Vec<Said> {
             line(
                 Tone::Unknown,
                 format!(
-                    "Encrypted to keys you do not hold ({}), so it cannot be read here",
+                    "Encrypted to keys you don\u{2019}t have ({})",
                     ids.join(", ")
                 ),
             )
         }
         Encryption::Locked { key } => line(
             Tone::Unknown,
-            format!(
-                "Encrypted to your key {}, which needs its passphrase",
-                short(*key)
-            ),
+            format!("Encrypted to your key {}: passphrase needed", short(*key)),
         ),
         Encryption::Unreadable { why } => line(
             Tone::Bad,
@@ -115,7 +109,7 @@ pub(in crate::ui) fn said(protected: &crate::pgp::Protected) -> Vec<Said> {
             out.push(line(
                 Tone::Unknown,
                 format!(
-                    "Signed by key {}, which you do not have, so the signature cannot be checked",
+                    "Signed by key {}, which you don\u{2019}t have",
                     grouped(&issuer.to_string())
                 ),
             ));
@@ -250,7 +244,7 @@ pub(in crate::ui) fn doubt(problem: &CertProblem) -> String {
                                      other than signing mail"
             .to_owned(),
         CertProblem::NotFrom { from } if from.is_empty() => {
-            "The message names no sender to check its certificate against".to_owned()
+            "No sender to check the certificate against".to_owned()
         }
         CertProblem::NotFrom { from } => format!(
             "Signed with a certificate for someone else's address: it is not for {from}, who \
@@ -263,23 +257,18 @@ pub(in crate::ui) fn doubt(problem: &CertProblem) -> String {
 /// too weak to mean anything, or unreadable, is amber; one this client cannot check says so.
 fn bad(why: &BadSignature) -> Said {
     match why {
-        BadSignature::Altered => line(
-            Tone::Bad,
-            "Bad S/MIME signature: the message was changed after it was signed",
-        ),
+        BadSignature::Altered => line(Tone::Bad, "Bad S/MIME signature: changed after signing"),
         BadSignature::Forged => line(
             Tone::Bad,
-            "Bad S/MIME signature: it does not match its certificate, so it is forged or damaged",
+            "Bad S/MIME signature: does not match its certificate",
         ),
         BadSignature::Weak { algorithm } => line(
             Tone::Warn,
-            format!(
-                "S/MIME signature made with {algorithm}, which is too weak to mean anything now"
-            ),
+            format!("S/MIME signature made with {algorithm}, which is too weak"),
         ),
         BadSignature::Unsupported { algorithm } => line(
             Tone::Unknown,
-            format!("S/MIME signature made with {algorithm}, which this client does not check"),
+            format!("S/MIME signature made with {algorithm}, which is not checked"),
         ),
         BadSignature::Malformed { why } => line(
             Tone::Warn,

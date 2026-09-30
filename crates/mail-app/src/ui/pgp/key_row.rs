@@ -138,7 +138,7 @@ pub(in crate::ui) fn KeyRow(
                     Button {
                         label: "Verify",
                         bezel: Bezel::Inline,
-                        title: "Only after comparing the fingerprint with its owner".to_owned(),
+                        title: "Check the fingerprint first".to_owned(),
                         availability: available(!working),
                         onclick: on_primary(move || run.call(Job::Verify(fingerprint))),
         common: Common { aria_label: Some(format!("Mark {id} verified")), ..Common::default() },
@@ -176,7 +176,7 @@ pub(in crate::ui) fn KeyRow(
                 Confirm::ExportSecret(asked) if asked == fingerprint => rsx! {
                     ConfirmBar {
                         sentence: format!(
-                            "This writes the secret half of {id} to a file. Anyone who has that file can read your encrypted mail and sign as you: keep it offline, and never mail it."
+                            "Anyone with this file can read your mail and sign as you. Keep it offline."
                         ),
                         act: "Save the secret key…".to_owned(),
                         confirm,
@@ -189,7 +189,7 @@ pub(in crate::ui) fn KeyRow(
                 Confirm::Delete(asked) if asked == fingerprint => rsx! {
                     ConfirmBar {
                         sentence: format!(
-                            "Deleting {id} also deletes its secret key from your keyring. It cannot be recovered, and mail encrypted to it can never be read again. Export it first if you may need it."
+                            "Deleting {id} also deletes its secret key. This cannot be undone."
                         ),
                         act: "Delete the key and its secret".to_owned(),
                         confirm,

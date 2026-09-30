@@ -226,7 +226,7 @@ pub(in crate::ui) fn ParkedDrafts(shell: Signal<Shell>, space_index: usize) -> E
                 Row {
                     leading: RowLeading::Icon(Icon::Pen),
                     title: parked.title.clone(),
-                    detail: Some("A draft you put aside".into()),
+                    detail: None,
                     onclick: move |_| reopen(desk, shell, draft),
                 }
             };

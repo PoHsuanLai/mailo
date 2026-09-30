@@ -71,11 +71,7 @@ pub(super) fn ExportSheet(shell: Signal<Shell>) -> Element {
     };
     let (validity, count_words, count) = match counted() {
         None => (Validity::Valid, "Counting…".to_owned(), None),
-        Some(Counted::Blank) => (
-            Validity::Valid,
-            "A search, or a place: inbox, sent, archive, all…".to_owned(),
-            None,
-        ),
+        Some(Counted::Blank) => (Validity::Valid, "A place or a search".to_owned(), None),
         Some(Counted::Some(0)) => (refusal("Nothing matches."), String::new(), None),
         Some(Counted::Some(n)) => (Validity::Valid, work::messages(n), Some(n)),
         Some(Counted::Refused(why)) => (refusal(&why), String::new(), None),
@@ -87,11 +83,11 @@ pub(super) fn ExportSheet(shell: Signal<Shell>) -> Element {
         .map(|one| Choice::new(*one, one.label()))
         .collect();
     let what = if format().is_file() {
-        "One mbox file. An existing file is never written over."
+        "One mbox file"
     } else if format() == Format::Maildir {
-        "A Maildir; places and labels become its folders."
+        "A Maildir folder per place"
     } else {
-        "A directory with one .eml file per message."
+        "One .eml file per message"
     };
     let start = {
         let target_path = target_path.clone();
@@ -128,7 +124,7 @@ pub(super) fn ExportSheet(shell: Signal<Shell>) -> Element {
                         TextField {
                             label: "Which messages".to_owned(),
                             value: query,
-                            placeholder: "inbox, sent, all, or a search: from:dana after:2026-01-01".to_owned(),
+                            placeholder: "inbox, all, from:dana".to_owned(),
                             validity,
                             focus: FieldFocus::OnMount,
                             oninput: move |value: String| {

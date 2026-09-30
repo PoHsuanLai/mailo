@@ -46,7 +46,7 @@ pub(super) fn TemplateMenu(shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
     let typed = shell.read().command.clone().unwrap_or_default();
     let items = template_rows(&all, &typed);
     let empty = if all.is_empty() {
-        "No templates yet. In a message, type / and choose Save as template…"
+        "No templates"
     } else {
         "Nothing matches."
     };

@@ -26,8 +26,7 @@ use ds_blitz::{Margins, PageSize, PageSpec};
 use mail_mime::{Options, Script};
 
 /// What the top of a printout says when it names a picture instead of drawing it.
-pub(in crate::ui) const PICTURES_NOTE: &str =
-    "Pictures that are not part of the message are not printed; each is named where it appears.";
+pub(in crate::ui) const PICTURES_NOTE: &str = "Other pictures are named, not printed.";
 
 /// Which regional CJK face leads: the ideographs are shared, their shapes are not.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

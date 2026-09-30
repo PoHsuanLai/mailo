@@ -27,7 +27,7 @@ pub(in crate::ui) fn item(receipt: ReceiptRequest) -> MenuItem {
         key: KEY.to_owned(),
         tile: Tile::Icon(Icon::Check),
         name: ASK.to_owned(),
-        help: Some("their mail app may ask them first".to_owned()),
+        help: None,
         right: Right::Check(receipt == ReceiptRequest::Requested),
         group: Some("Also".to_owned()),
         marks: Vec::new(),

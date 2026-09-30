@@ -22,7 +22,6 @@ use ds::components::controls::segmented::Tracking;
 use ds::components::overlays::inline_banner::InlineBanner;
 use ds::prelude::*;
 use ds::root::common::Common;
-use ds::style::icon::render::Glyph;
 use ds::style::tokens::control_size::ControlSize;
 pub(super) use find_bar::open_find;
 use find_bar::{FindBar, marking};
@@ -166,7 +165,7 @@ pub(super) fn Reader(
     let Ok(loaded) = store.thread(thread) else {
         return rsx! {
             div { class: "reader-empty",
-                EmptyState { title: "That conversation is gone." }
+                EmptyState { title: "Conversation gone" }
             }
         };
     };
@@ -242,9 +241,6 @@ pub(super) fn Reader(
         .rev()
         .find(|(_, _, remote)| *remote)
         .map(|(message, _, _)| host_of(&message.from.email).to_owned());
-    let any_frame = shown
-        .iter()
-        .any(|(_, reading, _)| reading.frame_html().is_some());
     // ⌘F's marks, or the list search's while no find is open. Blocks only: the frame is
     // never read and never marked.
     let (highlight, problem) = marking(&shell.read());
@@ -331,7 +327,6 @@ pub(super) fn Reader(
                         severity: Severity::Warn,
                         icon: Some(Icon::Image),
                         text: "Remote images blocked",
-                        detail: Some("Loading them tells the sender you opened this.".into()),
                         actions: rsx! {
                             Button {
                                 size: ControlSize::Small,
@@ -403,7 +398,7 @@ pub(super) fn Reader(
                     // or a frame that was not in the tree, re-runs the document, loses scroll,
                     // and re-fetches anything just consented to.
                     if matches!(reading, Reading::NotFetched) {
-                        p { class: "pending", "Body not downloaded yet." }
+                        p { class: "pending", "Not downloaded" }
                     } else {
                         MessageView {
                             message_id: message.id,
@@ -414,12 +409,6 @@ pub(super) fn Reader(
                             found,
                         }
                     }
-                }
-            }
-            if any_frame {
-                div { class: "frame-note",
-                    Glyph { icon: Icon::Key, size: IconSize::Small }
-                    span { "sandboxed frame · no scripts, no same-origin" }
                 }
             }
             // An inline reply, after every frame so no iframe gains a new parent.

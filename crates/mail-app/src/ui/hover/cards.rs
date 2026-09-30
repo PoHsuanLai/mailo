@@ -183,11 +183,7 @@ fn thread_card(store: &SqliteStore, id: ThreadId, shell: &Shell) -> Option<Card>
         })
         .collect();
     let unread = summary.read == ReadState::Unread;
-    let foot = if unread {
-        "stays unread while you look"
-    } else {
-        "already read"
-    };
+    let foot = if unread { "Stays unread" } else { "Read" };
     Some(Card {
         parts: vec![
             HoverCardPart::Title(summary.subject.clone()),

@@ -34,7 +34,7 @@ pub(in crate::ui) const PICK_KEY: &str = "at";
 pub(in crate::ui) const PICK_LABEL: &str = "Pick a time…";
 
 /// What the example phrases are, where the field has nothing to go on.
-const TRY: &str = "Type a time: tomorrow 9, fri 17:00, +2h";
+const TRY: &str = "Type a time, like tomorrow 9";
 
 /// What Send does with the Sends row's choice. A time that has already gone is refused, in
 /// words, rather than sent at once: the person asked for later, and "now" is not later.
@@ -154,7 +154,7 @@ pub(in crate::ui) fn PickTime(page: Signal<Page>, anchor: Option<MountedRef>) ->
                 Label { text: "Send at".to_owned(), role: LabelRole::Secondary }
                 TextField {
                     label: "Send at".to_owned(),
-                    placeholder: "tomorrow 9, fri 17:00, +2h".to_owned(),
+                    placeholder: "tomorrow 9".to_owned(),
                     value: typed.clone(),
                     validity,
                     help: says.map(TextLine::from),

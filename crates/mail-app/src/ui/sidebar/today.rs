@@ -97,12 +97,6 @@ pub(super) fn TodayList(
         }
         super::super::compose::ParkedDrafts { shell, space_index }
         super::super::compose::ScheduledDrafts { shell }
-        if !live && today.read().parked(space_index).is_empty() {
-            Label {
-                text: "Threads you open land here, like tabs. They drop off after 12 idle hours; the mail stays where it is.",
-                role: ds::components::content::label::LabelRole::Tertiary,
-            }
-        }
         TodayTabs::<ThreadId> {
             label: "Today",
             tabs,

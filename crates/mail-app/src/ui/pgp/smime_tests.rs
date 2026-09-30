@@ -164,10 +164,7 @@ fn every_smime_verdict_is_said_in_words_and_a_changed_or_forged_one_is_unmissabl
                     Tone::Good,
                     "Encrypted with S/MIME, and decrypted for reading",
                 ),
-                line(
-                    Tone::Bad,
-                    "Bad S/MIME signature: the message was changed after it was signed",
-                ),
+                line(Tone::Bad, "Bad S/MIME signature: changed after signing"),
                 line(Tone::Detail, DETAIL),
             ],
         ),
@@ -178,8 +175,7 @@ fn every_smime_verdict_is_said_in_words_and_a_changed_or_forged_one_is_unmissabl
                 line(Tone::Plain, "Not encrypted"),
                 line(
                     Tone::Bad,
-                    "Bad S/MIME signature: it does not match its certificate, so it is forged \
-                     or damaged",
+                    "Bad S/MIME signature: does not match its certificate",
                 ),
                 line(Tone::Detail, DETAIL),
             ],
@@ -196,7 +192,7 @@ fn every_smime_verdict_is_said_in_words_and_a_changed_or_forged_one_is_unmissabl
                 line(Tone::Plain, "Not encrypted"),
                 line(
                     Tone::Warn,
-                    "S/MIME signature made with SHA-1, which is too weak to mean anything now",
+                    "S/MIME signature made with SHA-1, which is too weak",
                 ),
                 line(Tone::Detail, DETAIL),
             ],
@@ -213,7 +209,7 @@ fn every_smime_verdict_is_said_in_words_and_a_changed_or_forged_one_is_unmissabl
                 line(Tone::Plain, "Not encrypted"),
                 line(
                     Tone::Unknown,
-                    "S/MIME signature made with Ed448, which this client does not check",
+                    "S/MIME signature made with Ed448, which is not checked",
                 ),
                 line(Tone::Detail, DETAIL),
             ],
@@ -253,10 +249,7 @@ fn every_smime_verdict_is_said_in_words_and_a_changed_or_forged_one_is_unmissabl
                     "Signed with S/MIME by a certificate neither the message nor you hold, so \
                      the signature cannot be checked",
                 ),
-                line(
-                    Tone::Unknown,
-                    "Only part of this message is signed; the rest could say anything",
-                ),
+                line(Tone::Unknown, "Only part of this message is signed"),
             ],
         ),
         (
@@ -338,7 +331,7 @@ fn each_certificate_problem_is_named_in_amber_and_says_what_it_means() {
             CertProblem::NotFrom {
                 from: String::new(),
             },
-            "The message names no sender to check its certificate against",
+            "No sender to check the certificate against",
         ),
     ];
     for (problem, words) in cases {
@@ -425,7 +418,7 @@ async fn a_changed_smime_message_is_said_on_the_danger_ground() {
         said[1],
         (
             "seal-line bad".to_owned(),
-            "Bad S/MIME signature: the message was changed after it was signed".to_owned()
+            "Bad S/MIME signature: changed after signing".to_owned()
         )
     );
     assert!(!shows(&page, "seal-line good"), "{page}");
@@ -477,9 +470,7 @@ async fn a_forged_smime_signature_is_said_on_the_danger_ground() {
         said[1],
         (
             "seal-line bad".to_owned(),
-            "Bad S/MIME signature: it does not match its certificate, so it is forged or \
-             damaged"
-                .to_owned()
+            "Bad S/MIME signature: does not match its certificate".to_owned()
         ),
         "{said:?}"
     );

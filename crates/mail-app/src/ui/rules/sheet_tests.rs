@@ -150,10 +150,7 @@ async fn a_condition_the_rules_cannot_read_says_why_and_save_is_refused() {
     // Read, it says how much it matches here now, and Save is back.
     type_into(&mut dom, query, "from:ada");
     let page = dioxus_ssr::render(&dom);
-    assert!(
-        page.contains("1 conversation here matches it now."),
-        "{page}"
-    );
+    assert!(page.contains("1 conversation matches"), "{page}");
     assert!(
         !tag(&page, "aria-label=\"Save New rule\"").contains("disabled"),
         "{page}"

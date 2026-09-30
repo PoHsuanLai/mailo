@@ -199,7 +199,7 @@ pub(super) fn LabelMenu(
     items.extend(create);
     let account = summary.account;
     let empty = if shell.read().labels.is_empty() {
-        "No labels yet. They arrive with the first sync."
+        "No labels"
     } else {
         "No label matches."
     };

@@ -58,12 +58,7 @@ pub(in crate::ui) fn kinds(folders: bool) -> Vec<MenuItem> {
         Some("Put a label on it"),
     )];
     if folders {
-        out.push(item(
-            "file",
-            Icon::FolderInput,
-            "Move to folder…",
-            Some("Out of the inbox, into one of your folders"),
-        ));
+        out.push(item("file", Icon::FolderInput, "Move to folder…", None));
     }
     out.extend([
         item("read", Icon::MailOpen, "Mark read", None),

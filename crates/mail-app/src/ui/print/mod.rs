@@ -133,7 +133,7 @@ pub(in crate::ui) fn save(job: Job) {
         .await;
         tell_through(
             said,
-            done.unwrap_or_else(|error| format!("The save stopped before it finished: {error}")),
+            done.unwrap_or_else(|error| format!("Couldn\u{2019}t save: {error}")),
         );
     });
 }
@@ -350,8 +350,7 @@ mod native_print {
     }
 
     /// What a second Print says while the first is under way.
-    pub(in crate::ui) const BUSY: &str =
-        "A printout is already being made; finish with its print dialog first.";
+    pub(in crate::ui) const BUSY: &str = "Finish the open print dialog first.";
 
     /// [`super::print`]: the PDF built and handed to the dialog on a blocking thread
     /// (the layout is slow next to a click, and the dialog blocks until it is answered), and
@@ -382,7 +381,7 @@ mod native_print {
             .await;
             let words = done.unwrap_or_else(|error| {
                 eprintln!("print: {error}");
-                format!("The printout stopped before it was made: {error}")
+                format!("Couldn\u{2019}t print: {error}")
             });
             tell_through(said, words);
         });
@@ -412,7 +411,7 @@ mod native_print {
             Ok((title, pdf)) => said((printer.dialog)(&pdf, &title)),
             Err(why) => {
                 eprintln!("print: {why}");
-                format!("Could not print: {why}")
+                format!("Couldn\u{2019}t print: {why}")
             }
         }
     }
@@ -421,15 +420,13 @@ mod native_print {
     pub(in crate::ui) fn said(outcome: Result<PrintOutcome, PrintError>) -> String {
         match outcome {
             Ok(PrintOutcome::Printed) => "Sent to the printer.".to_owned(),
-            Ok(PrintOutcome::Cancelled) => "Printing cancelled; nothing was printed.".to_owned(),
-            Ok(PrintOutcome::Opened(path)) => format!(
-                "There is no print dialog here, so the printout opened in your PDF viewer \
-                 to print from there: {}",
-                path.display()
-            ),
+            Ok(PrintOutcome::Cancelled) => "Printing cancelled".to_owned(),
+            Ok(PrintOutcome::Opened(path)) => {
+                format!("Opened in your PDF viewer to print: {}", path.display())
+            }
             Err(why) => {
                 eprintln!("print: {why}");
-                format!("Could not print: {why}")
+                format!("Couldn\u{2019}t print: {why}")
             }
         }
     }

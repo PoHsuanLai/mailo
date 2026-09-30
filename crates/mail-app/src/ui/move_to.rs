@@ -176,7 +176,7 @@ pub(in crate::ui) fn MoveMenu(
             query: query(),
             groups: palette_groups(&shown, AvatarSize::Size22, None),
             empty: if found.is_empty() {
-                "This account has no folders of its own to move to.".to_owned()
+                "No folders".to_owned()
             } else {
                 "No folder matches.".to_owned()
             },

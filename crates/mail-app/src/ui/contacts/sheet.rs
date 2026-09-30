@@ -62,9 +62,9 @@ pub(in crate::ui) fn ContactsSheet(shell: Signal<Shell>) -> Element {
         format!("{total} contacts")
     };
     let empty = if filter.trim().is_empty() {
-        "The book is empty. Mail you send and receive fills it."
+        "No contacts"
     } else {
-        "Nobody in the book matches."
+        "No matches"
     };
     let items: Vec<ListItem<String>> = rows
         .into_iter()
@@ -139,7 +139,7 @@ pub(in crate::ui) fn ContactsSheet(shell: Signal<Shell>) -> Element {
                     SheetClose { label: "Done".to_owned(), on_close: move |()| super::close(shell) }
                 }
                 Label {
-                    text: "CardDAV address books sync from the command line, not from here:".to_owned(),
+                    text: "CardDAV syncs from the command line:".to_owned(),
                     role: LabelRole::Tertiary,
                     style: LabelStyle::Footnote,
                 }
@@ -224,7 +224,7 @@ fn BookRow(
                 move || {
                     let store = consume_context::<Arc<SqliteStore>>();
                     said.set(Some(match book::forget(store.as_ref(), &address) {
-                        Ok(_) => format!("Forgot {address}. Mail may teach it again."),
+                        Ok(_) => format!("Forgot {address}"),
                         Err(why) => why,
                     }));
                     changed += 1;

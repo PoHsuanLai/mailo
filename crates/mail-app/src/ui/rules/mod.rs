@@ -75,7 +75,7 @@ pub(in crate::ui) fn RulesSheet(shell: Signal<Shell>, revision: Signal<u64>) -> 
                 match account {
                     None => rsx! {
                         Label {
-                            text: "Add an account first: a rule belongs to one.".to_owned(),
+                            text: "Add an account first.".to_owned(),
                             role: LabelRole::Secondary,
                         }
                     },

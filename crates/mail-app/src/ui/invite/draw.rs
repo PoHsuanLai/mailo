@@ -335,7 +335,7 @@ fn give(
             }
             Ok(Err(why)) => phase.set(Phase::Failed(why)),
             Err(error) => phase.set(Phase::Failed(format!(
-                "The answer stopped before it was queued: {error}"
+                "Couldn\u{2019}t send the answer: {error}"
             ))),
         }
     });

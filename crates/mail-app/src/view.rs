@@ -2163,9 +2163,9 @@ impl Nothing {
     /// What to say.
     pub fn message(&self) -> String {
         match self {
-            Nothing::NoAccount => "No account yet. Add one from a terminal:".to_owned(),
-            Nothing::NoMatch(needle) => format!("Nothing matches {needle:?}."),
-            Nothing::EmptyFolder => "Nothing here.".to_owned(),
+            Nothing::NoAccount => "No account".to_owned(),
+            Nothing::NoMatch(needle) => format!("No results for \u{201c}{needle}\u{201d}"),
+            Nothing::EmptyFolder => "Empty".to_owned(),
         }
     }
 
@@ -3047,7 +3047,7 @@ mod nothing_tests {
     fn an_empty_folder_is_ordinary_and_says_so_briefly() {
         assert_eq!(nothing_to_show(2, ""), Nothing::EmptyFolder);
         assert_eq!(nothing_to_show(2, "   "), Nothing::EmptyFolder);
-        assert_eq!(nothing_to_show(2, "").message(), "Nothing here.");
+        assert_eq!(nothing_to_show(2, "").message(), "Empty");
         assert_eq!(nothing_to_show(2, "").command(), None);
     }
 }

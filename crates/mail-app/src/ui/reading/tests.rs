@@ -95,10 +95,6 @@ async fn the_reader_does_not_offer_to_load_images_a_message_does_not_have() {
     assert_eq!(text_of(&markup, "reader-av"), "G", "{markup}");
     assert_eq!(text_of(&markup, "reader-from"), "GitHub", "{markup}");
     assert!(
-        markup.contains("sandboxed frame · no scripts, no same-origin"),
-        "an HTML message did not say it was sandboxed:\n{markup}"
-    );
-    assert!(
         markup.contains("sandbox=\"\""),
         "the frame is not sandboxed:\n{markup}"
     );

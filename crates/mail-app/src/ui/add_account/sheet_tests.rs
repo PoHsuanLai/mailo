@@ -438,9 +438,9 @@ async fn a_session_typed_by_hand_with_a_token_adds_with_bearer_and_keeps_the_tok
         "http://jmap.example.test/session",
     ));
     let shown = page(&open);
-    assert!(shown.contains("starts with https://"), "{shown}");
+    assert!(shown.contains("must start with https://"), "{shown}");
     let seen = seen.merge(type_into(&mut open.dom, url, SESSION));
-    assert!(!page(&open).contains("starts with https://"));
+    assert!(!page(&open).contains("must start with https://"));
     let token = segments(&seen, "Signs in with")[1];
     let seen = seen.merge(click(&mut open.dom, token));
     type_into(
@@ -470,10 +470,7 @@ async fn a_session_typed_by_hand_with_a_token_adds_with_bearer_and_keeps_the_tok
         "the keyring fake"
     );
     let shown = page(&open);
-    assert!(
-        shown.contains("The token is in the system keyring."),
-        "{shown}"
-    );
+    assert!(shown.contains("Token saved."), "{shown}");
     assert!(!shown.contains(TOKEN), "the page holds the token");
     assert!(
         !open.snapshot.get().contains(TOKEN),
@@ -619,7 +616,7 @@ async fn a_browser_that_will_not_open_leaves_the_address_to_open_by_hand() {
     let (mut open, _) = press_sign_in(&store, seams).await;
     let shown = page(&open);
     assert!(
-        shown.contains("mailo could not open a browser (no browser is opened in tests)"),
+        shown.contains("Couldn’t open a browser (no browser is opened in tests)"),
         "{shown}"
     );
     assert!(shown.contains(&format!(">{SIGN_IN}<")), "{shown}");

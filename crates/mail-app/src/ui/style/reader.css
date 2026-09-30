@@ -16,11 +16,6 @@ article.frame header {
 }
 article.frame header time { margin-left: auto; }
 article.frame + article.frame { margin-top: var(--s-18); padding-top: var(--s-14); border-top: var(--hair) solid var(--line-soft); }
-.frame-note {
-  margin-top: var(--s-16); padding-top: var(--s-10); border-top: var(--hair) solid var(--line-soft);
-  display: flex; align-items: center; gap: var(--s-7);
-  font-size: var(--fs-caption); line-height: 1.5; color: var(--ink-faint);
-}
 .img-ph {
   margin-top: var(--s-12); height: 86px; border-radius: var(--r-btn); background: var(--surface-2);
   border: var(--hair) solid var(--line); display: grid; place-items: center;

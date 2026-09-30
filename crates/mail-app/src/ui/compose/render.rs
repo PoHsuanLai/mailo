@@ -271,7 +271,7 @@ fn Obj(n: usize, object: Object, menu: bool, quoted: Fold, page: Signal<Page>) -
                 if src.as_str().is_empty() {
                     div { class: "pick",
                         Glyph { icon: Icon::Paperclip, size: IconSize::Large }
-                        span { "Add an image. It is embedded in the message, never fetched." }
+                        span { "Add an image" }
                     }
                 } else {
                     div { class: "imgbox", img { src: "{src.as_str()}", alt: "{alt}" } }

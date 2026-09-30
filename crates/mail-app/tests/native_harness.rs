@@ -697,7 +697,7 @@ fn print_first_row(harness: &mut Harness) -> String {
 fn print_hands_the_conversation_to_the_print_dialog_as_a_pdf() {
     let (mut harness, _dir, _store, printed) = open_printing(|| Ok(PrintOutcome::Cancelled));
     let said = print_first_row(&mut harness);
-    assert_eq!(said, "Printing cancelled; nothing was printed.");
+    assert_eq!(said, "Printing cancelled");
     let printed = printed.lock().unwrap().clone();
     assert_eq!(
         printed.len(),
@@ -719,8 +719,7 @@ fn print_without_a_dialog_says_where_the_pdf_opened() {
     let said = print_first_row(&mut harness);
     assert_eq!(
         said,
-        "There is no print dialog here, so the printout opened in your PDF viewer to print \
-         from there: /tmp/Flight-to-the-conference-1.pdf"
+        "Opened in your PDF viewer to print: /tmp/Flight-to-the-conference-1.pdf"
     );
     assert_eq!(printed.lock().unwrap().len(), 1);
 }

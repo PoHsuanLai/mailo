@@ -35,7 +35,6 @@ mod tests;
 
 use ds::components::content::label::LabelRole;
 use ds::components::controls::button_model::{Answers, Bezel, ImagePosition};
-use ds::components::controls::key_equivalent::{KeyEquivalent, KeyStyle};
 use ds::components::overlays::inline_banner::InlineBanner;
 use ds::prelude::*;
 use ds::root::common::Common;
@@ -237,7 +236,7 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                         bezel: Bezel::Toolbar,
                         icon: Icon::Archive,
                         label: "Keep for later".to_owned(),
-                        title: "Keep for later: it waits in Today (Esc)".to_owned(),
+                        title: "Keep for later (Esc)".to_owned(),
                         onclick: move |_| desk::park(desk, page, shell),
                         image: ImagePosition::Only,
                     }
@@ -274,19 +273,10 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                     }
                 }
                 Props { page, shell }
-                Body { page, shell, on_attach: move |_| page.write().notice = Some("Pick the file with Attach, below.".to_owned()) }
-                if !reply {
-                    div { class: "c-hint",
-                        span { {cap(&[ShortcutKey::Char('/')])} " headings, lists, images…" }
-                        span { "select text to style it" }
-                        span { {cap(&[ShortcutKey::Char('@')])} " mention" }
-                        span { {cap(&[ShortcutKey::Super, ShortcutKey::Enter])} " send" }
-                        span { {cap(&[ShortcutKey::Escape])} " keep for later" }
-                    }
-                }
+                Body { page, shell, on_attach: move |_| page.write().notice = Some("Use Attach below.".to_owned()) }
                 if plain() == Fold::Open {
                     div { class: "plain",
-                        span { class: "cap", "text/plain, format=flowed — sent alongside the HTML, from the same document" }
+                        span { class: "cap", "Plain text" }
                         "{flowed}"
                     }
                 }
@@ -296,7 +286,7 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                     InlineBanner {
                         severity: Severity::Warn,
                         icon: Some(Icon::Paperclip),
-                        text: "You wrote about an attachment, and nothing is attached.",
+                        text: "No file attached",
                         actions: rsx! {
                             Attach { page, label: "Attach a file" }
                             Button {
@@ -325,17 +315,6 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                     common: Common { aria_label: Some(send_label.to_owned()), ..Common::default() },
                 }
             }
-        }
-    }
-}
-
-/// A key-cap for `keys`: quire's `KeyEquivalent`, drawn as a cap.
-fn cap(keys: &[ShortcutKey]) -> Element {
-    rsx! {
-        KeyEquivalent {
-            shortcut: Shortcut(keys.to_vec()),
-            style: KeyStyle::Cap,
-            size: ControlSize::Small,
         }
     }
 }

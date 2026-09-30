@@ -117,7 +117,6 @@
 }
 .link-field { width: 220px; }
 
-.c-hint { margin-top: var(--s-18); color: var(--ink-faint); display: flex; gap: var(--s-12); flex-wrap: wrap; }
 .plain {
   margin-top: var(--s-14); border: var(--hair) solid var(--line-soft); border-radius: var(--r-field); background: var(--surface-2);
   padding: var(--s-12) var(--s-14); font-family: var(--font-code); line-height: 1.6; white-space: pre-wrap; color: var(--ink-soft);

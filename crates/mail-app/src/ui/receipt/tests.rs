@@ -160,7 +160,7 @@ fn the_bar_says_who_asks_and_warns_when_the_receipt_goes_elsewhere() {
         sender: "Ada".to_owned(),
         state,
     };
-    let sentence = "Ada asked to be told when you've read this.".to_owned();
+    let sentence = "Ada asked for a read receipt.".to_owned();
     let cases = [
         (
             "agrees",
@@ -189,9 +189,7 @@ fn the_bar_says_who_asks_and_warns_when_the_receipt_goes_elsewhere() {
             Some(Line::Asking {
                 sentence,
                 warning: Some(
-                    "The receipt would go to tracker@elsewhere.test, not to ada@example.test, \
-                     where this message came from."
-                        .to_owned(),
+                    "The receipt goes to tracker@elsewhere.test, not ada@example.test.".to_owned(),
                 ),
             }),
         ),
@@ -218,10 +216,7 @@ async fn a_message_that_asks_shows_the_bar_under_the_head() {
     let (store, _dir) = seeded();
     let (thread, _) = put(&store, ASKS, Held::Body);
     let (_, _, markup) = reader_on(store, thread).await;
-    assert!(
-        markup.contains("Ada asked to be told when you've read this."),
-        "{markup}"
-    );
+    assert!(markup.contains("Ada asked for a read receipt."), "{markup}");
     assert!(markup.contains("aria-label=\"Send receipt\""), "{markup}");
     assert!(markup.contains("aria-label=\"Don't send\""), "{markup}");
     assert!(!markup.contains("class=\"warn\""), "{markup}");
@@ -236,10 +231,7 @@ async fn a_request_to_another_domain_is_warned_about() {
     let (thread, _) = put(&store, ASKS_ELSEWHERE, Held::Body);
     let (_, _, markup) = reader_on(store, thread).await;
     assert!(
-        markup.contains(
-            "The receipt would go to tracker@elsewhere.test, not to ada@example.test, \
-             where this message came from."
-        ),
+        markup.contains("The receipt goes to tracker@elsewhere.test, not ada@example.test."),
         "{markup}"
     );
     assert!(markup.contains("aria-label=\"Send receipt\""), "{markup}");

@@ -960,17 +960,15 @@ fn print_hands_the_pdf_to_the_dialog_and_says_what_became_of_it() {
         ),
         (
             || Ok(PrintOutcome::Cancelled),
-            "Printing cancelled; nothing was printed.".to_owned(),
+            "Printing cancelled".to_owned(),
         ),
         (
             || Ok(PrintOutcome::Opened(PathBuf::from("/tmp/Quarterly-1.pdf"))),
-            "There is no print dialog here, so the printout opened in your PDF viewer to \
-             print from there: /tmp/Quarterly-1.pdf"
-                .to_owned(),
+            "Opened in your PDF viewer to print: /tmp/Quarterly-1.pdf".to_owned(),
         ),
         (
             || Err(PrintError::NoViewer("xdg-open is missing".to_owned())),
-            "Could not print: no viewer opened the PDF: xdg-open is missing".to_owned(),
+            "Couldn’t print: no viewer opened the PDF: xdg-open is missing".to_owned(),
         ),
     ];
     for (answer, words) in cases {
@@ -1006,7 +1004,7 @@ fn a_thread_that_is_gone_is_said_and_no_dialog_opens() {
         &chrono::Utc,
         now(),
     );
-    assert!(got.starts_with("Could not print:"), "{got}");
+    assert!(got.starts_with("Couldn’t print:"), "{got}");
     assert!(seen.lock().unwrap().is_empty());
 }
 
@@ -1019,10 +1017,7 @@ fn one_print_at_a_time() {
     assert!(printer.claim().is_some(), "the printer stayed taken");
     // What the second Print says is a sentence, not a code.
     assert!(BUSY.ends_with('.'));
-    assert_eq!(
-        said(Ok(PrintOutcome::Cancelled)),
-        "Printing cancelled; nothing was printed."
-    );
+    assert_eq!(said(Ok(PrintOutcome::Cancelled)), "Printing cancelled");
 }
 
 /// A sample printout, for looking at: a CJK-and-English thread with an inline image.

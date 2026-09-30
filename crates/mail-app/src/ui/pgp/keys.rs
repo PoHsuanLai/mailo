@@ -123,7 +123,7 @@ pub(in crate::ui) fn work(store: &SqliteStore, seams: &Seams, job: Job) -> Resul
                 crate::pgp::keys::export_secret(store, secrets, &key).map_err(|e| e.to_string())?;
             write(&path, &armored)?;
             format!(
-                "Saved the secret key of {} to {}. Keep that file offline.",
+                "Saved the secret key of {} to {}",
                 who(&key),
                 path.display()
             )
@@ -145,7 +145,7 @@ fn generate(store: &SqliteStore, secrets: &dyn Secrets, address: &str) -> Result
     let key = crate::pgp::keys::generate(store, secrets, address, Utc::now())
         .map_err(|e| e.to_string())?;
     Ok(format!(
-        "Made a key for {address}, {}. Its secret half is in your system keyring.",
+        "Made a key for {address}, {}",
         short(key.fingerprint)
     ))
 }
@@ -259,7 +259,7 @@ pub(in crate::ui) fn KeysSheet(shell: Signal<Shell>) -> Element {
                         section { class: "keys-part",
                             SectionHeader { title: "OpenPGP" }
                             Label {
-                                text: "Yours sign what you send and open what is sent to you. Theirs let you encrypt to them and check what they sign.",
+                                text: "Yours sign and decrypt. Theirs encrypt and verify.",
                                 role: LabelRole::Secondary,
                                 style: LabelStyle::Footnote,
                             }

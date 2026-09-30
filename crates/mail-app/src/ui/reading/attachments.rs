@@ -148,7 +148,7 @@ fn download(
         .await;
         let sentence = match done {
             Ok(Ok(sentence) | Err(sentence)) => sentence,
-            Err(error) => format!("The download stopped before it finished: {error}"),
+            Err(error) => format!("Download failed: {error}"),
         };
         saved.set(Some(sentence));
         downloading.set(None);

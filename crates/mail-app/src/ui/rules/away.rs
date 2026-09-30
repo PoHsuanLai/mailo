@@ -133,7 +133,7 @@ where
         store
             .put_vacation(row.id, None, now)
             .map_err(|e| e.to_string())?;
-        return Ok("The vacation reply is off here. Put on server takes it off there.".to_owned());
+        return Ok("Vacation reply off.".to_owned());
     }
     if away.subject.trim().is_empty() {
         return Err("The reply needs a subject.".to_owned());
@@ -171,7 +171,7 @@ where
         .put_vacation(row.id, Some(&reply), now)
         .map_err(|e| e.to_string())?;
     Ok(format!(
-        "Kept: “{}”, {}. Put on server starts it there.",
+        "Saved: “{}”, {}.",
         reply.subject,
         span(&reply.during, now, zone)
     ))
@@ -194,9 +194,7 @@ fn addresses(typed: &str) -> Result<Vec<String>, String> {
         }
     }
     if out.is_empty() {
-        return Err(
-            "The reply needs at least one of your addresses to answer mail for.".to_owned(),
-        );
+        return Err("Add an address to reply for.".to_owned());
     }
     Ok(out)
 }
@@ -280,7 +278,7 @@ pub(super) fn AwayPart(row: AccountRow) -> Element {
                             kind: FieldKind::Multiline,
                             rows: FieldRows::Four,
                             value: form.body.clone(),
-                            placeholder: "I am away and reading mail when I am back.".to_owned(),
+                            placeholder: "Reply text".to_owned(),
                             oninput: move |value: String| away.write().body = value,
                         }
                     }

@@ -397,13 +397,9 @@ fn every_verdict_is_said_in_words_and_a_bad_one_is_unmissable() {
                 line(Tone::Plain, "Not encrypted"),
                 line(
                     Tone::Unknown,
-                    "Signed by key 1212 1212 1212 1212, which you do not have, so the \
-                     signature cannot be checked",
+                    "Signed by key 1212 1212 1212 1212, which you don’t have",
                 ),
-                line(
-                    Tone::Unknown,
-                    "Only part of this message is signed; the rest could say anything",
-                ),
+                line(Tone::Unknown, "Only part of this message is signed"),
             ],
         ),
         (
@@ -417,8 +413,7 @@ fn every_verdict_is_said_in_words_and_a_bad_one_is_unmissable() {
             vec![
                 line(
                     Tone::Unknown,
-                    "Encrypted to keys you do not hold (3434 3434 3434 3434), so it cannot be \
-                     read here",
+                    "Encrypted to keys you don’t have (3434 3434 3434 3434)",
                 ),
                 line(Tone::Plain, "Not signed"),
             ],
@@ -547,9 +542,7 @@ async fn a_signature_by_a_key_not_held_cannot_be_checked_and_does_not_look_good(
         said[1],
         (
             "seal-line unknown".to_owned(),
-            format!(
-                "Signed by key {issuer}, which you do not have, so the signature cannot be checked"
-            )
+            format!("Signed by key {issuer}, which you don’t have")
         )
     );
     assert!(!shows(&page, "seal-line good"), "{page}");
@@ -620,16 +613,13 @@ fn locked(
     (message, passphrase, key.fingerprint())
 }
 
-const ASKED: &str = "This message is encrypted to a key with a passphrase";
+const ASKED: &str = "Passphrase for key";
 
 /// The passphrase field for `key`, found by its label.
 fn field(seen: &Seen, key: Fingerprint) -> dioxus_core::ElementId {
     seen.one(
         "aria-label",
-        &format!(
-            "Passphrase: This message is encrypted to a key with a passphrase: your key {}.",
-            super::short(key)
-        ),
+        &format!("Passphrase: Passphrase for key {}", super::short(key)),
     )
 }
 
@@ -642,7 +632,7 @@ async fn a_locked_key_is_asked_for_inline_and_opens_with_its_passphrase() {
     let page = until(&mut dom, &mut seen, |page| page.contains(ASKED)).await;
     assert!(page.contains(ASKED), "{page}");
     assert!(!page.contains("the otter sleeps at noon"), "{page}");
-    assert!(!page.contains("did not unlock"), "{page}");
+    assert!(!page.contains("Wrong passphrase"), "{page}");
 
     let mut typed = type_into(&mut dom, field(&seen, key), &passphrase);
     let page = markup(&dom);
@@ -692,11 +682,11 @@ async fn a_wrong_passphrase_says_so_and_can_be_tried_again() {
 
     type_into(&mut dom, field(&seen, key), "not the words");
     let mut after = click(&mut dom, seen.one("aria-label", "Unlock"));
-    let page = until(&mut dom, &mut after, |page| page.contains("did not unlock")).await;
-    assert!(
-        page.contains("That passphrase did not unlock the key. Try again."),
-        "{page}"
-    );
+    let page = until(&mut dom, &mut after, |page| {
+        page.contains("Wrong passphrase")
+    })
+    .await;
+    assert!(page.contains("Wrong passphrase."), "{page}");
     assert!(!page.contains("the badger sleeps at noon"), "{page}");
 
     // The field and its button are drawn again, and the right words open it.
@@ -708,7 +698,7 @@ async fn a_wrong_passphrase_says_so_and_can_be_tried_again() {
     })
     .await;
     assert!(page.contains("the badger sleeps at noon"), "{page}");
-    assert!(!page.contains("did not unlock"), "{page}");
+    assert!(!page.contains("Wrong passphrase"), "{page}");
 }
 
 #[tokio::test]
@@ -752,7 +742,7 @@ async fn a_signature_on_only_part_of_a_message_says_so() {
         said.last().unwrap(),
         &(
             "seal-line unknown".to_owned(),
-            "Only part of this message is signed; the rest could say anything".to_owned()
+            "Only part of this message is signed".to_owned()
         )
     );
     assert!(page.contains("the crane part is signed"), "{page}");
@@ -870,7 +860,10 @@ async fn render_the_reader_badges_and_the_keys_sheet_to_a_file() {
         if done == ASKED {
             type_into(&mut dom, field(&seen, locked_key), "wrong");
             let mut after = click(&mut dom, seen.one("aria-label", "Unlock"));
-            until(&mut dom, &mut after, |page| page.contains("did not unlock")).await;
+            until(&mut dom, &mut after, |page| {
+                page.contains("Wrong passphrase")
+            })
+            .await;
         }
         body.push_str(&format!(
             "<section class=\"reader\" style=\"width:640px;height:340px;margin:16px\">{}</section>",

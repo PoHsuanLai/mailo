@@ -158,7 +158,7 @@ async fn an_identity_files_password_is_asked_in_the_sheet_and_never_drawn() {
     settle(&mut dom, &mut done).await;
     let page = markup(&dom);
     assert!(
-        page.contains("Imported your identity for me@example.test."),
+        page.contains("Imported your identity for me@example.test"),
         "{page}"
     );
     assert!(!page.contains(PASSWORD), "the password is in the markup");

@@ -83,10 +83,7 @@ pub(in crate::ui) fn work(
         CertJob::Trust(fingerprint, trust) => {
             crate::smime::certs::trust(store, fingerprint, trust).map_err(|e| e.to_string())?;
             match trust {
-                KeyTrust::Verified => format!(
-                    "Trusted {}: signatures by it, and by certificates it issued, are believed",
-                    cert_short(fingerprint)
-                ),
+                KeyTrust::Verified => format!("Trusted {}", cert_short(fingerprint)),
                 KeyTrust::Unverified => {
                     format!("{} is no longer trusted", cert_short(fingerprint))
                 }
@@ -123,10 +120,7 @@ fn import(
             .iter()
             .find(|one| one.cert.secret == SecretHeld::Held)
         {
-            Some(own) => format!(
-                "Imported your identity for {}. Its private key is in your system keyring.",
-                whose(&own.cert)
-            ),
+            Some(own) => format!("Imported your identity for {}", whose(&own.cert)),
             None if names.is_empty() => format!("{} holds no certificate.", path.display()),
             None => format!("Imported {}", names.join(", ")),
         },
@@ -186,7 +180,7 @@ pub(in crate::ui) fn CertPart(
             section { class: "keys-part",
                 SectionHeader { title: "S/MIME" }
                 Label {
-                    text: "Yours, from an identity file (.p12, .pfx), sign what you send and open what is sent to you. Theirs come from their signed mail or a certificate file (.pem, .der), and let you encrypt to them.",
+                    text: "Yours sign and decrypt. Theirs encrypt and verify.",
                     role: LabelRole::Secondary,
                     style: LabelStyle::Footnote,
                 }
@@ -301,7 +295,7 @@ fn CertRow(cert: SmimeCert, confirm: Signal<Confirm>, run: Callback<Job>, busy: 
                     Button {
                         label: "Trust",
                         bezel: Bezel::Inline,
-                        title: "Only after checking the fingerprint with its owner: it then vouches for every certificate it issued".to_owned(),
+                        title: "Check the fingerprint first".to_owned(),
                         availability: available(!working),
                         onclick: on_primary(move || run.call(Job::Cert(CertJob::Trust(fingerprint, KeyTrust::Verified)))),
         common: Common { aria_label: Some(format!("Trust {id}")), ..Common::default() },
@@ -338,7 +332,7 @@ fn CertRow(cert: SmimeCert, confirm: Signal<Confirm>, run: Callback<Job>, busy: 
             if confirm() == Confirm::DeleteCert(fingerprint) {
                 ConfirmBar {
                     sentence: format!(
-                        "Deleting {id} also deletes its private key from your keyring. It cannot be recovered, and mail encrypted to it can never be read again. Keep the identity file you imported it from."
+                        "Deleting {id} also deletes its private key. This cannot be undone."
                     ),
                     act: "Delete the certificate and its private key".to_owned(),
                     confirm,

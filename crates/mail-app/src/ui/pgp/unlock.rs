@@ -45,7 +45,7 @@ pub(in crate::ui) fn Unlock(
 }
 
 /// What is said when the passphrase typed did not open the key.
-pub(in crate::ui) const WRONG: &str = "That passphrase did not unlock the key. Try again.";
+pub(in crate::ui) const WRONG: &str = "Wrong passphrase.";
 
 /// The field and its button, nothing else: for a place that says the prompt itself (the
 /// composer's banner, which says it as the banner's text). `prompt` names the field for

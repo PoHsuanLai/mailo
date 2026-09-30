@@ -125,7 +125,7 @@ pub(in crate::ui) fn card_of<Z: TimeZone>(
         occurrence: invite
             .recurrence_id
             .is_some()
-            .then_some("About one occurrence of a repeating event"),
+            .then_some("One occurrence of a series"),
         repeats: invite.repeats.clone(),
         location: invite.location.as_deref().map(one_line),
         organiser: invite.organiser.as_ref().map(name_of),
@@ -158,25 +158,18 @@ pub(in crate::ui) fn card_of<Z: TimeZone>(
 fn stand(invite: &Invite, answered: Option<&InviteAnswer>) -> Stand {
     match invite.kind {
         Kind::Request(_) => {}
-        Kind::Cancelled => return Stand::Closed(Some("This event will not take place.")),
+        Kind::Cancelled => return Stand::Closed(None),
         Kind::Reply => return Stand::Closed(None),
         Kind::Published => {
-            return Stand::Closed(Some(
-                "An event to add to a calendar; it asks for no answer.",
-            ));
+            return Stand::Closed(Some("No answer needed."));
         }
     }
     let recorded = match &invite.me {
         Me::Organiser => {
-            return Stand::Closed(Some(
-                "You organised this event, so there is nothing to answer.",
-            ));
+            return Stand::Closed(Some("You organised this event."));
         }
         Me::NotListed => {
-            return Stand::Closed(Some(
-                "None of this account's addresses is among the attendees, so it cannot be \
-                 answered from here.",
-            ));
+            return Stand::Closed(Some("You are not listed as an attendee."));
         }
         Me::Invited { answer, .. } => *answer,
     };

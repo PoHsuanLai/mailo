@@ -137,7 +137,7 @@ async fn deleting_a_key_with_its_secret_is_asked_again_first() {
 
     let mut asked = click(&mut dom, seen.one("aria-label", &format!("Delete {id}")));
     let page = dioxus_ssr::render(&dom);
-    assert!(page.contains("cannot be recovered"), "{page}");
+    assert!(page.contains("cannot be undone"), "{page}");
     assert!(
         store.pgp_key(mine.fingerprint).unwrap().is_some(),
         "deleted before the answer"
@@ -208,7 +208,7 @@ async fn exporting_the_secret_key_is_asked_again_and_only_then_written() {
     dom.render_immediate(&mut NoOpMutations);
     let page = dioxus_ssr::render(&dom);
     assert!(
-        page.contains("Anyone who has that file can read your encrypted mail"),
+        page.contains("Anyone with this file can read your mail"),
         "{page}"
     );
     assert_eq!(
@@ -229,7 +229,7 @@ async fn exporting_the_secret_key_is_asked_again_and_only_then_written() {
         let mode = std::fs::metadata(&out).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o600, "a secret key readable by others");
     }
-    assert!(dioxus_ssr::render(&dom).contains("Keep that file offline"));
+    assert!(dioxus_ssr::render(&dom).contains("Saved the secret key"));
 }
 
 #[tokio::test]

@@ -324,18 +324,8 @@ async fn a_cancellation_and_an_organisers_own_invitation_offer_nothing_to_press(
         "",
     );
     for (case, calendar, method, says) in [
-        (
-            "cancelled",
-            cancelled,
-            "CANCEL",
-            "This event will not take place.",
-        ),
-        (
-            "organiser",
-            mine,
-            "REQUEST",
-            "You organised this event, so there is nothing to answer.",
-        ),
+        ("cancelled", cancelled, "CANCEL", "Cancelled"),
+        ("organiser", mine, "REQUEST", "You organised this event."),
     ] {
         let (thread, _) = put(&store, &calendar, method);
         let queued = outbox(&store);

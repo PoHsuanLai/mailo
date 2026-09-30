@@ -146,9 +146,7 @@ fn give(
                 tell(said, Follow::Nothing);
             }
             Ok(Err(why)) => phase.set(Phase::Failed(why)),
-            Err(error) => phase.set(Phase::Failed(format!(
-                "The answer stopped before it was given: {error}"
-            ))),
+            Err(error) => phase.set(Phase::Failed(format!("Couldn\u{2019}t answer: {error}"))),
         }
     });
 }

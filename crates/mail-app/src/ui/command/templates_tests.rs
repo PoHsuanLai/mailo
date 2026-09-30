@@ -123,7 +123,7 @@ async fn new_from_template_lists_starts_and_deletes() {
         crate::template::all(&store).is_ok_and(|all| all.is_empty()),
         "the template is still kept"
     );
-    assert!(markup.contains("No templates yet"), "{markup}");
+    assert!(markup.contains("No templates"), "{markup}");
     let offences = crate::ui::style::tests::markup_offences(&markup);
     assert!(offences.is_empty(), "the markup lint: {offences:#?}");
 }

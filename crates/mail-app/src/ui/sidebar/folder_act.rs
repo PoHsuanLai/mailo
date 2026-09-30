@@ -138,14 +138,10 @@ pub(in crate::ui) fn told(work: &FolderWork, delimiter: Option<char>) -> String 
 pub(in crate::ui) fn refused(refusal: &Refusal) -> String {
     match refusal {
         Refusal::Folder(error) => match error {
-            FolderError::SingleMailbox => {
-                "A POP3 account has one mailbox, and no folders to make.".to_owned()
-            }
-            FolderError::KeptLocally => {
-                "This mail is kept on this computer: it has labels, not server folders.".to_owned()
-            }
+            FolderError::SingleMailbox => "POP3 has no folders.".to_owned(),
+            FolderError::KeptLocally => "Local mail has labels, not folders.".to_owned(),
             FolderError::Special { path, special } => format!(
-                "“{path}” is the account's {} folder. Other mail apps depend on it, so it stays as it is.",
+                "“{path}” is the account's {} folder and stays as it is.",
                 special.name()
             ),
             FolderError::NotEmpty { path, messages } => {
@@ -192,14 +188,12 @@ pub(in crate::ui) fn child_path(
     if let Some(d) = delimiter
         && name.contains(d)
     {
-        return Err(format!(
-            "A folder name cannot contain “{d}”: it separates folders."
-        ));
+        return Err(format!("A folder name can\u{2019}t contain “{d}”."));
     }
     match (parent, delimiter) {
         (None, _) => Ok(name.to_owned()),
         (Some(parent), Some(d)) => Ok(format!("{parent}{d}{name}")),
-        (Some(_), None) => Err("This server keeps every folder at the top level.".to_owned()),
+        (Some(_), None) => Err("This server has no subfolders.".to_owned()),
     }
 }
 

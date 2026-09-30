@@ -114,10 +114,7 @@ async fn the_sheet_renames_and_forgets_an_entry() {
     assert_eq!(store.contacts().unwrap_or_default().len(), before - 1);
     let page = dioxus_ssr::render(&dom);
     assert!(!listed(&page).contains(&HEARD.to_owned()), "{page}");
-    assert!(
-        page.contains(&format!("Forgot {HEARD}. Mail may teach it again.")),
-        "{page}"
-    );
+    assert!(page.contains(&format!("Forgot {HEARD}")), "{page}");
 }
 
 /// Let the dialog's thread and the reads after it land, and draw what they wrote.

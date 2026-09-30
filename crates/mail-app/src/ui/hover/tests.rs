@@ -83,7 +83,7 @@ async fn hovering_a_row_for_a_second_writes_nothing() {
     let shown = card(&page).expect("no card after the open delay and its slack");
     assert_eq!(changes(&store), before, "hovering a row wrote to the store");
     assert!(
-        shown.contains("stays unread while you look"),
+        shown.contains("Stays unread"),
         "the thread card did not open, or does not say it leaves the thread unread:\n{shown}"
     );
     assert_eq!(
@@ -126,7 +126,7 @@ async fn the_sender_card_flags_a_borrowed_name() {
         "the flag does not name the real domain:\n{shown}"
     );
     assert!(
-        shown.contains("First mail from this address"),
+        shown.contains("First message from this address"),
         "a first-time sender is not called one:\n{shown}"
     );
 }

@@ -68,10 +68,7 @@ pub(in crate::ui) fn Seal(
             }
         },
         Some(Look::Locked { key, tried }) => {
-            let prompt = format!(
-                "This message is encrypted to a key with a passphrase: your key {}.",
-                short(key)
-            );
+            let prompt = format!("Passphrase for key {}", short(key));
             rsx! {
                 div { class: "seal", role: "status", aria_label: "OpenPGP",
                     Unlock {

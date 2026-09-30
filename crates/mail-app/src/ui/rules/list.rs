@@ -64,7 +64,7 @@ pub(super) fn RulesPart(account: AccountId, revision: Signal<u64>) -> Element {
         section { class: "rules-part",
             SectionHeader { title: "Rules".to_owned() }
             Label {
-                text: "They sort new mail as it arrives, first to last. A condition is written the way a search is.".to_owned(),
+                text: "Applied to new mail, in order.".to_owned(),
                 role: LabelRole::Secondary,
                 style: LabelStyle::Footnote,
             }

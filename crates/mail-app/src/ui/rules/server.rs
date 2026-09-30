@@ -143,7 +143,7 @@ pub(super) fn ServerPart(row: AccountRow) -> Element {
         section { class: "rules-part",
             SectionHeader { title: "On the server".to_owned() }
             Label {
-                text: "Rules run here as mail arrives. On the server they run while this computer is off, and the vacation reply only runs there.".to_owned(),
+                text: "Runs on the server while this computer is off.".to_owned(),
                 role: LabelRole::Secondary,
                 style: LabelStyle::Footnote,
             }

@@ -148,7 +148,7 @@ pub(in crate::ui) fn SealWarn(bar: SealBar, on_act: EventHandler<BarAct>) -> Ele
             let listed = addresses.join(", ");
             (
                 Severity::Info,
-                format!("Asking the domains of {listed} for their keys…"),
+                format!("Looking up keys for {listed}…"),
                 rsx! {},
                 None,
             )
@@ -158,9 +158,7 @@ pub(in crate::ui) fn SealWarn(bar: SealBar, on_act: EventHandler<BarAct>) -> Ele
             let look = "Look up keys";
             (
                 Severity::Warn,
-                format!(
-                    "No OpenPGP key for {listed}, so this cannot be encrypted to them. Nothing was sent."
-                ),
+                format!("No OpenPGP key for {listed}"),
                 rsx! {
                     Button {
                         size: ControlSize::Small,
@@ -175,9 +173,7 @@ pub(in crate::ui) fn SealWarn(bar: SealBar, on_act: EventHandler<BarAct>) -> Ele
         }
         SealBar::NoOwnKey(address) => (
             Severity::Warn,
-            format!(
-                "{address} has no OpenPGP key of its own to sign or encrypt with. Nothing was sent."
-            ),
+            format!("No OpenPGP key for {address}"),
             rsx! {
                 {act("Create a key…", on_act, || BarAct::OpenSheet)}
                 {act("Send without OpenPGP", on_act, || BarAct::Plain)}
@@ -189,16 +185,14 @@ pub(in crate::ui) fn SealWarn(bar: SealBar, on_act: EventHandler<BarAct>) -> Ele
             // S/MIME has no directory to ask: a certificate arrives with its owner's signed mail.
             (
                 Severity::Warn,
-                format!("No S/MIME certificate for {listed}, so this cannot be encrypted to them. Nothing was sent."),
+                format!("No S/MIME certificate for {listed}"),
                 rsx! { {act(without, on_act, || BarAct::WithoutEncryption)} },
-                Some("A signed message from them brings their certificate, and mailo keeps it; or import one in Keys and certificates.".to_owned()),
+                None,
             )
         }
         SealBar::NoOwnCert(address) => (
             Severity::Warn,
-            format!(
-                "{address} has no current S/MIME certificate of its own to sign or encrypt with. Nothing was sent."
-            ),
+            format!("No S/MIME certificate for {address}"),
             rsx! {
                 {act("Import your certificate…", on_act, || BarAct::OpenSheet)}
                 {act("Send without S/MIME", on_act, || BarAct::Plain)}
@@ -207,34 +201,21 @@ pub(in crate::ui) fn SealWarn(bar: SealBar, on_act: EventHandler<BarAct>) -> Ele
         ),
         SealBar::OwnCertCannotEncrypt(address) => (
             Severity::Warn,
-            format!(
-                "Your S/MIME certificate for {address} cannot be encrypted to (only RSA certificates can), so your own copy in Sent could not be read. Nothing was sent."
-            ),
+            format!("Your S/MIME certificate for {address} can\u{2019}t decrypt your copy"),
             rsx! { {act(without, on_act, || BarAct::WithoutEncryption)} },
             None,
         ),
-        SealBar::Blind(scheme, addresses) => {
+        SealBar::Blind(_, addresses) => {
             let listed = addresses.join(", ");
-            let names = match scheme {
-                Scheme::OpenPgp => "key",
-                Scheme::Smime => "certificate",
-            };
             (
                 Severity::Warn,
-                format!(
-                    "Encrypted mail names every {names} it is encrypted to, so everyone would learn it went to your Bcc recipients too ({listed})."
-                ),
+                format!("Encrypting would reveal your Bcc recipients ({listed})"),
                 rsx! { {act(without, on_act, || BarAct::WithoutEncryption)} },
-                Some(
-                    "Send them a separate message, or send this one without encryption.".to_owned(),
-                ),
+                None,
             )
         }
         SealBar::Locked { key, tried } => {
-            let prompt = format!(
-                "Your OpenPGP key {} needs its passphrase to sign or encrypt this message.",
-                short(key)
-            );
+            let prompt = format!("Passphrase for key {}", short(key));
             (
                 if tried == Tried::Wrong {
                     Severity::Danger

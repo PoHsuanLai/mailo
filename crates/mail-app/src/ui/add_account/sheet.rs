@@ -39,9 +39,7 @@ fn look_up(shell: Signal<Shell>, mut stage: Signal<Stage>) {
         let done =
             tokio::task::spawn_blocking(move || flow::look(&typed, &seams, chrono::Utc::now()))
                 .await;
-        stage.set(done.unwrap_or_else(|error| {
-            Stage::Missed(format!("The lookup stopped before it finished: {error}"))
-        }));
+        stage.set(done.unwrap_or_else(|error| Stage::Missed(format!("Lookup failed: {error}"))));
     });
 }
 
@@ -328,10 +326,7 @@ fn Below(
             },
             (sign_in, _) => {
                 let waiting = match sign_in {
-                    SignIn::Password => format!(
-                        "Saving the account and putting the {} in the system keyring\u{2026}",
-                        if offer.token() { "token" } else { "password" }
-                    ),
+                    SignIn::Password => "Saving\u{2026}".to_owned(),
                     SignIn::OAuth { issuer, .. } => {
                         format!(
                             "Starting the sign-in with {}\u{2026}",
@@ -370,7 +365,7 @@ fn Found(offer: Offer) -> Element {
         FieldRow { label: "Found", layout: RowLayout::Form,
             Label { text: offer.source.clone(), role: LabelRole::Secondary }
         }
-        Note { text: "Nothing has been sent to these servers yet.".to_owned(), tone: NoteTone::Help }
+        Note { text: "Nothing sent yet.".to_owned(), tone: NoteTone::Help }
     }
 }
 
@@ -454,8 +449,7 @@ fn ByHand(
     rsx! {
         FieldRow {
             label: "JMAP session URL",
-            help: "The address your provider gives for JMAP. Nothing is looked up, and nothing is sent to it until you use these settings.",
-            layout: RowLayout::Form,
+                        layout: RowLayout::Form,
             TextField {
                 label: "Session URL",
                 value: hand.session.clone(),
@@ -516,7 +510,7 @@ fn Credential(offer: Offer, on_secret: EventHandler<String>) -> Element {
             client: Client::Ready,
         } => rsx! {
             Note {
-                text: format!("No password: you sign in with {} in your browser, and mailo keeps only the sign-in it is given, in the system keyring.", flow::provider(issuer)),
+                text: format!("Sign in with {} in your browser.", flow::provider(issuer)),
                 tone: NoteTone::Help,
             }
         },
@@ -536,8 +530,7 @@ fn Secret(address: String, token: bool, on_secret: EventHandler<String>) -> Elem
     rsx! {
         FieldRow {
             label: what,
-            help: "It goes to the system keyring, and to these servers when mailo signs in. It is never saved anywhere else.",
-            layout: RowLayout::Form,
+                        layout: RowLayout::Form,
             TextField {
                 label: what,
                 kind: FieldKind::Secure,
@@ -555,9 +548,9 @@ fn Secret(address: String, token: bool, on_secret: EventHandler<String>) -> Elem
 fn Browser(signing: SigningIn) -> Element {
     let SigningIn { url, opened } = signing;
     let how = match opened {
-        Opened::Browser => "If no browser opened, open this address in one:".to_owned(),
+        Opened::Browser => "Open this address in a browser:".to_owned(),
         Opened::Not(why) => {
-            format!("mailo could not open a browser ({why}). Open this address in one:")
+            format!("Couldn\u{2019}t open a browser ({why}). Open this address in one:")
         }
     };
     rsx! {

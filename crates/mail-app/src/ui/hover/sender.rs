@@ -75,7 +75,7 @@ pub(super) fn sender_card(
         parts.push(HoverCardPart::flag(
             FlagTone::Info,
             Icon::Mail,
-            "First mail from this address. Nothing else in the store has come from it.",
+            "First message from this address",
         ));
     }
     let more = rsx! {

@@ -98,7 +98,6 @@ pub(super) fn ThreadList(
         .iter()
         .map(|(name, id)| (*id, name.clone()))
         .collect();
-    let inbox = place == "Inbox" && shell.read().search.trim().is_empty();
     // Local folders are never synced: with only them in view there is no Sync, and no word of one.
     let quiet = syncs_nothing(&rows(), shell.read().account, &shell.read().scope);
     let note = if quiet {
@@ -189,13 +188,7 @@ pub(super) fn ThreadList(
             TextRun::new("Run ", RunTone::Plain),
             TextRun::new(command, RunTone::Code),
         ])),
-        None => matches!(nothing(), Nothing::EmptyFolder).then(|| {
-            TextLine::from(if inbox {
-                "Inbox zero."
-            } else {
-                "This place is empty."
-            })
-        }),
+        None => None,
     };
     rsx! {
         div { class: "list-col",
@@ -265,7 +258,7 @@ pub(super) fn ThreadList(
                         bezel: Bezel::Toolbar,
                         label: "Compose",
                         icon: Some(IconSource::Glyph(Icon::Pen)),
-                        title: Some("Write a new message (c)".to_owned()),
+                        title: Some("New message (\u{2318}N)".to_owned()),
                         onclick: on_primary(move || {
                             let store = consume_context::<Arc<SqliteStore>>();
                             let known = shell.peek().accounts.clone();

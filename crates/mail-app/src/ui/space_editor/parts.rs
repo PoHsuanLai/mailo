@@ -15,7 +15,6 @@ pub(super) fn Marks(shell: Signal<Shell>) -> Element {
     rsx! {
         FieldRow {
             label: "Provider marks",
-            help: "Their own icons on an account's tile, or a letter.",
             SegmentedControl::<MarksKind> {
                 label: "Provider marks",
                 choices: MarksKind::ALL.into_iter().map(|marks| Choice::new(marks, marks.label())).collect::<Vec<_>>(),

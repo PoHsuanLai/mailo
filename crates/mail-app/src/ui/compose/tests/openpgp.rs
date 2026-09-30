@@ -157,8 +157,7 @@ async fn no_key_for_a_recipient_names_them_and_holds_the_send_until_a_choice() {
     let mut after = click(&mut window.dom, seen.one("aria-label", "Send"));
     let markup = window.render();
     assert!(
-        markup
-            .contains("No OpenPGP key for dana@example.test, so this cannot be encrypted to them."),
+        markup.contains("No OpenPGP key for dana@example.test"),
         "{markup}"
     );
     assert!(markup.contains("class=\"ds-inline-banner\""), "{markup}");
@@ -263,7 +262,7 @@ async fn no_key_of_ones_own_offers_to_make_one() {
     let after = click(&mut window.dom, seen.one("aria-label", "Send"));
     let markup = window.render();
     assert!(
-        markup.contains("me@example.test has no OpenPGP key of its own"),
+        markup.contains("No OpenPGP key for me@example.test"),
         "{markup}"
     );
     assert!(queued(&store).is_empty());
@@ -297,7 +296,7 @@ async fn a_locked_key_is_asked_for_in_the_bar_and_a_wrong_passphrase_said() {
 
     let mut after = click(&mut window.dom, seen.one("aria-label", "Send"));
     let prompt = format!(
-        "Your OpenPGP key {} needs its passphrase to sign or encrypt this message.",
+        "Passphrase for key {}",
         crate::ui::pgp::short(key.fingerprint())
     );
     let markup = until(&mut window, &mut after, |page| page.contains(&prompt)).await;
@@ -313,13 +312,10 @@ async fn a_locked_key_is_asked_for_in_the_bar_and_a_wrong_passphrase_said() {
     type_into(&mut window.dom, field, "not it");
     let mut wrong = click(&mut window.dom, after.one("aria-label", "Unlock and send"));
     let markup = until(&mut window, &mut wrong, |page| {
-        page.contains("did not unlock")
+        page.contains("Wrong passphrase")
     })
     .await;
-    assert!(
-        markup.contains("That passphrase did not unlock the key."),
-        "{markup}"
-    );
+    assert!(markup.contains("Wrong passphrase."), "{markup}");
     assert!(queued(&store).is_empty());
 
     let all = after.merge(wrong);

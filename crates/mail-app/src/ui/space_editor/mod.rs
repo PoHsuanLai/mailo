@@ -115,7 +115,6 @@ pub(super) fn SpaceEditor(
                     Notifications {}
                     FieldRow {
                         label: "Accounts",
-                        help: "A new account joins this Space when the Space shows only some accounts.",
                         Button {
                             label: "Add Account\u{2026}",
                             onclick: on_primary(move || super::add_account::open(shell)),
@@ -123,7 +122,6 @@ pub(super) fn SpaceEditor(
                     }
                     FieldRow {
                         label: "Contacts",
-                        help: "Who the composer suggests: import, export, rename, forget.",
                         Button {
                             label: "Contacts\u{2026}",
                             onclick: on_primary(move || super::contacts::open(shell)),
@@ -131,7 +129,6 @@ pub(super) fn SpaceEditor(
                     }
                     FieldRow {
                         label: "Rules",
-                        help: "What new mail sorts into, the vacation reply, and the server's copy.",
                         Button {
                             label: "Rules\u{2026}",
                             onclick: on_primary(move || super::rules::open(shell)),
@@ -139,7 +136,6 @@ pub(super) fn SpaceEditor(
                     }
                     FieldRow {
                         label: "Keys and certificates",
-                        help: "OpenPGP keys and S/MIME certificates, yours and your correspondents': make, import, export, trust, delete.",
                         Button {
                             label: "Keys and Certificates\u{2026}",
                             onclick: on_primary(move || super::pgp::keys::open(shell)),

@@ -69,7 +69,7 @@ pub(super) fn ImportSheet(shell: Signal<Shell>, revision: Signal<u64>) -> Elemen
     let (validity, look_words) = match &shown {
         Looked::Blank => (
             Validity::Valid,
-            "An mbox file, a Maildir directory or one .eml message. ~ is your home.".to_owned(),
+            "An mbox file, a Maildir or an .eml message".to_owned(),
         ),
         Looked::Mail { said, .. } => (Validity::Valid, said.clone()),
         Looked::Refused(why) => (
@@ -89,10 +89,8 @@ pub(super) fn ImportSheet(shell: Signal<Shell>, revision: Signal<u64>) -> Elemen
     let hint = format!("{}/Takeout/All mail.mbox", tilde_here(&super::save_dir()));
     let chosen = dest();
     let note = match chosen {
-        Dest::Local => "Kept on this computer: searchable, never synced, never sent anywhere.",
-        Dest::Folder { .. } => {
-            "Uploaded through the account's outbox; whatever cannot go now waits for the next sync."
-        }
+        Dest::Local => "Stays on this computer",
+        Dest::Folder { .. } => "Uploaded to the account",
     };
     // Read only while the menu is open: it lists every IMAP account's folders.
     let items = if menu_open() {
