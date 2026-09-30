@@ -488,7 +488,7 @@ async fn a_signed_message_says_who_signed_it_over_its_body() {
         sealed(&raw, OpenPgp::Sign, Some(&mine(&secrets, &key)), &[], 21),
     );
     let (mut dom, mut seen) = reader(store, secrets, message.thread);
-    let page = until(&mut dom, &mut seen, |page| shows(&page, "seal-line")).await;
+    let page = until(&mut dom, &mut seen, |page| shows(page, "seal-line")).await;
     assert!(looked_at(message.id));
     let said = lines(&page);
     assert_eq!(
@@ -520,7 +520,7 @@ async fn a_bad_signature_is_said_on_the_danger_ground() {
     let tampered = text.replace("pay the heron invoice", "pay the forged invoice");
     let message = arrive(&store, tampered.into_bytes());
     let (mut dom, mut seen) = reader(store, secrets, message.thread);
-    let page = until(&mut dom, &mut seen, |page| shows(&page, "seal-line")).await;
+    let page = until(&mut dom, &mut seen, |page| shows(page, "seal-line")).await;
     let said = lines(&page);
     assert_eq!(said[1].0, "seal-line bad", "{said:?}");
     assert!(said[1].1.starts_with("Bad signature"), "{said:?}");
@@ -535,7 +535,7 @@ async fn a_signature_by_a_key_not_held_cannot_be_checked_and_does_not_look_good(
     let raw = letter("lynx", "the lynx is signed by bea");
     let message = arrive(&store, sealed(&raw, OpenPgp::Sign, Some(&bea), &[], 24));
     let (mut dom, mut seen) = reader(store, secrets, message.thread);
-    let page = until(&mut dom, &mut seen, |page| shows(&page, "seal-line")).await;
+    let page = until(&mut dom, &mut seen, |page| shows(page, "seal-line")).await;
     let said = lines(&page);
     let issuer = super::grouped(&bea.fingerprint().key_id().to_string());
     assert_eq!(
@@ -735,7 +735,7 @@ async fn a_signature_on_only_part_of_a_message_says_so() {
     );
     let message = arrive(&store, raw.into_bytes());
     let (mut dom, mut seen) = reader(store, secrets, message.thread);
-    let page = until(&mut dom, &mut seen, |page| shows(&page, "seal-line")).await;
+    let page = until(&mut dom, &mut seen, |page| shows(page, "seal-line")).await;
     let said = lines(&page);
     assert_eq!(said[1].0, "seal-line good", "{said:?}");
     assert_eq!(
@@ -773,7 +773,7 @@ async fn a_plain_message_says_nothing_and_every_seal_class_is_styled() {
     .replace("\r\nwren\r\n", "\r\nwrong\r\n");
     let bad = arrive(&store, bad.into_bytes());
     let (mut dom, mut seen) = reader(store, secrets, bad.thread);
-    page += &until(&mut dom, &mut seen, |page| shows(&page, "seal-line bad")).await;
+    page += &until(&mut dom, &mut seen, |page| shows(page, "seal-line bad")).await;
     assert!(shows(&page, "seal-line bad"), "{page}");
     let drawn = seals(&page);
     assert!(

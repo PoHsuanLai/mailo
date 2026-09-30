@@ -183,13 +183,12 @@ pub(super) fn ThreadList(
         Nothing::NoMatch(_) => EmptyForm::NoResults,
         Nothing::NoAccount | Nothing::EmptyFolder => EmptyForm::Empty,
     };
-    let empty_description: Option<TextLine> = match nothing().command() {
-        Some(command) => Some(TextLine::Runs(vec![
+    let empty_description: Option<TextLine> = nothing().command().map(|command| {
+        TextLine::Runs(vec![
             TextRun::new("Run ", RunTone::Plain),
             TextRun::new(command, RunTone::Code),
-        ])),
-        None => None,
-    };
+        ])
+    });
     rsx! {
         div { class: "list-col",
             // The list's header is quire's 52 px `Toolbar`; what it holds (the place, its status

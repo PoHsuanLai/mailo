@@ -369,7 +369,7 @@ async fn a_good_smime_signature_says_who_signed_and_their_certificate() {
     let raw = letter("owl", "the owl note is signed");
     let message = arrive(&store, sealed(&raw, Smime::Sign, &bea(), &[]));
     let (mut dom, mut seen) = reader(store, secrets, message.thread);
-    let page = until(&mut dom, &mut seen, |page| shows(&page, "seal-line")).await;
+    let page = until(&mut dom, &mut seen, |page| shows(page, "seal-line")).await;
     let said = lines(&page);
     assert_eq!(
         said[0],
@@ -412,7 +412,7 @@ async fn a_changed_smime_message_is_said_on_the_danger_ground() {
     let tampered = signed.replace("pay the heron invoice", "pay the forged invoice");
     let message = arrive(&store, tampered.into_bytes());
     let (mut dom, mut seen) = reader(store, secrets, message.thread);
-    let page = until(&mut dom, &mut seen, |page| shows(&page, "seal-line bad")).await;
+    let page = until(&mut dom, &mut seen, |page| shows(page, "seal-line bad")).await;
     let said = lines(&page);
     assert_eq!(
         said[1],
@@ -464,7 +464,7 @@ async fn a_forged_smime_signature_is_said_on_the_danger_ground() {
     let signed = String::from_utf8(sealed(&raw, Smime::Sign, &bea(), &[])).unwrap();
     let message = arrive(&store, forged(&signed).into_bytes());
     let (mut dom, mut seen) = reader(store, secrets, message.thread);
-    let page = until(&mut dom, &mut seen, |page| shows(&page, "seal-line bad")).await;
+    let page = until(&mut dom, &mut seen, |page| shows(page, "seal-line bad")).await;
     let said = lines(&page);
     assert_eq!(
         said[1],
@@ -485,7 +485,7 @@ async fn a_signature_from_an_authority_nobody_trusts_is_amber_and_says_why() {
     let raw = letter("crane", "the crane is signed by a stranger");
     let message = arrive(&store, sealed(&raw, Smime::Sign, &stranger, &[]));
     let (mut dom, mut seen) = reader(store, secrets, message.thread);
-    let page = until(&mut dom, &mut seen, |page| shows(&page, "seal-line warn")).await;
+    let page = until(&mut dom, &mut seen, |page| shows(page, "seal-line warn")).await;
     let said = lines(&page);
     assert_eq!(said[1].0, "seal-line warn", "{said:?}");
     assert_eq!(

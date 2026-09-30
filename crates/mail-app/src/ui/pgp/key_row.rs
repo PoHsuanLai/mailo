@@ -175,9 +175,7 @@ pub(in crate::ui) fn KeyRow(
             match asking {
                 Confirm::ExportSecret(asked) if asked == fingerprint => rsx! {
                     ConfirmBar {
-                        sentence: format!(
-                            "Anyone with this file can read your mail and sign as you. Keep it offline."
-                        ),
+                        sentence: "Anyone with this file can read your mail and sign as you. Keep it offline.".to_owned(),
                         act: "Save the secret key…".to_owned(),
                         confirm,
                         on_yes: move |_| {
