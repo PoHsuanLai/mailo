@@ -210,5 +210,10 @@ fn screens() {
         h.advance(ms(200));
         h.key(Key::Enter);
         shot(&mut h, &out, "sheet", dark);
+        // Sheet: the Space editor, through the gear beside the Space's name.
+        h.key(Key::Escape);
+        h.advance(ms(400));
+        click(&mut h, "[*|aria-label=\"Space settings\"]");
+        shot(&mut h, &out, "space-editor", dark);
     }
 }

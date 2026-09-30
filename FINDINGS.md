@@ -3969,3 +3969,36 @@ A retryable failure is unchanged: the entry stays whole and queued, and its retr
 where the messages are now (F156). An operation refused in every part is undone whole, as
 before. No schema change: the undo is still one patch per entry, and it is split by message when
 it is applied.
+
+### F160 — The move to quire v0.2.0, and what mailo still asks of quire
+
+quire v0.2.0 is the settled desktop design (one Look, the Mac's values; Arc's ideas as features)
+and it renamed, merged or deleted most of the names `mail-app` imported. The port is one commit
+because nothing smaller compiles; `docs/quire-0.2-upgrade.md` has the per-surface table, every
+user-visible change and how to continue. What is worth remembering here:
+
+**The tag cannot be fetched.** quire's manifest names `blitz-kit` by a relative path, so a git
+checkout of quire in cargo's cache cannot resolve it. Nothing in quire's own gates sees this,
+because they build in a tree where the sibling exists. The fix is on quire's side (name
+`blitz-kit` by git and rev); until then a local `[patch]` points the quire crates at a checkout.
+
+**The lint is the review.** With mailo's CSS in the `app` layer and quire's Strict lint and
+markup lint over every rendered surface, a selector that reaches into a `ds-` part, a literal
+size, a raw control or a class nothing styles fails a test. The port took the stylesheet from
+1128 lines to 547 with that lint as its guide. The one exception left (`FieldRow`'s control
+cell) names its reason and goes when quire has the component.
+
+**Two things the old tests asserted were about the old shape, not the behaviour.** The reader's
+"does not remount on a peek change" was a fact about a CSS-only peek; with quire's `Peek` the
+reader is built again in the panel, and the test now asserts what matters (the same thread and
+the same sanitized document). "A toast is shown" was a `data-shown` attribute; it is now the
+toast's presence and that it is not leaving.
+
+**Quire requests.** Filterable pick list that can stay open; menu second line and hint; per-tile
+mark on `PinTiles`; `Common` and hooks on `TodayTabs` tabs, `RowAction` and `ThreadRow`'s inner
+row; an inline edit slot on `Row`; more than one `SectionHeader` action; a tooltip keyed by a
+hook; a toast action other than Undo; an inline banner; a status tone for `Label`; a read-only
+label and value list; a row's action overflow and row-scoped confirmation; a `FieldRow` whose
+control cell wraps; a multi-line `TextField`; code runs in `EmptyState`; format glyphs; a public
+`EditPointer` constructor; `SpaceEditor` in `ds` rather than `ds-shell`. The reasons are in
+`docs/quire-0.2-upgrade.md`.
