@@ -1,15 +1,14 @@
-//! The undo toast, and the one offer that is not an undo.
+//! The window's toast host: what its buttons do.
 //!
-//! An undo and plain words are quire's toast, through the window root's host: what it needs from
-//! here is a handler that outlives the toast, which is why this component, mounted as long as
-//! the list, makes it. Leaving a mailing list offers something a toast cannot carry (archive
-//! what it already sent), so that is a quire `Alert`, which waits for an answer.
+//! Every toast is quire's, through the window root's host: an undo, plain words, and the one
+//! offer that is not an undo (leaving a mailing list offers to archive what it already sent, a
+//! button on the toast). The handlers belong to the scope that made them and must outlive the
+//! toast, which is why this component, mounted as long as the list, makes them.
 
 use super::{Follow, Toasts, motion, undo_by};
 use crate::undo::UndoHandle;
 use crate::view::Shell;
 use dioxus::prelude::*;
-use ds::components::overlays::alert_model::{AlertButton, AlertRole};
 use ds::prelude::*;
 use ds::stack::toast_hub::UndoToken;
 use mail_store::SqliteStore;
@@ -26,30 +25,21 @@ pub(in crate::ui) fn Toast(shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
         let on_undo = EventHandler::new(move |token: UndoToken| {
             undo_by(&store, shell, revision, Some(state), UndoHandle(token.0));
         });
+        let on_archive = EventHandler::new(move |()| {
+            let mut said = state.toast;
+            let offered = said.peek().clone();
+            said.set(None);
+            if let Some(Follow::ArchiveFrom { sender, list }) = offered.map(|said| said.follow) {
+                let store = consume_context::<Arc<SqliteStore>>();
+                crate::ui::unsubscribe::archive_list(&store, shell, revision, &sender, &list);
+            }
+        });
         let mut toasts = state.toasts;
-        toasts.set(Some(Toasts { hub, on_undo }));
+        toasts.set(Some(Toasts {
+            hub,
+            on_undo,
+            on_archive,
+        }));
     });
-    let mut said_signal = state.toast;
-    let Some(said) = said_signal.read().clone() else {
-        return rsx! {};
-    };
-    let Follow::ArchiveFrom { sender, list } = said.follow else {
-        return rsx! {};
-    };
-    let archive = EventHandler::new(move |()| {
-        let store = consume_context::<Arc<SqliteStore>>();
-        crate::ui::unsubscribe::archive_list(&store, shell, revision, &sender, &list);
-        said_signal.set(None);
-    });
-    let not_now = EventHandler::new(move |()| said_signal.set(None));
-    rsx! {
-        Alert {
-            title: said.text,
-            message: Some(TextLine::from("Archive everything it already sent?")),
-            buttons: vec![
-                AlertButton::new("Archive All", AlertRole::Normal, archive),
-                AlertButton::new("Cancel", AlertRole::Cancel, not_now),
-            ],
-        }
-    }
+    rsx! {}
 }

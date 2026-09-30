@@ -80,7 +80,7 @@ pub(in crate::ui) fn Body(
                     Menu::<String> {
                         placement: MenuPlacement::Popup,
                         anchor: at(),
-                        items: menu_items("", &page_slash_items(&page.read())),
+                        items: menu_items("", &page_slash_items(&page.read()), false),
                         onpick: move |key: String| pick(page, on_attach, &key),
                         onclose: move |()| close_float(page),
                         active: MenuCursor::Controlled(Some(active)),
@@ -101,7 +101,7 @@ pub(in crate::ui) fn Body(
                     Menu::<String> {
                         placement: MenuPlacement::Popup,
                         anchor: at(),
-                        items: menu_items("Mention, and add to Cc", &mention_items(&page.read())),
+                        items: menu_items("Mention, and add to Cc", &mention_items(&page.read()), false),
                         onpick: move |key: String| pick_mention(&mut page.write(), &key),
                         onclose: move |()| close_float(page),
                         active: MenuCursor::Controlled(Some(active)),
@@ -366,7 +366,7 @@ fn Bubble(page: Signal<Page>, place: Option<String>) -> Element {
                 },
                 _ => rsx! {
                     PopUpButton::<String> {
-                        items: menu_items("", &turn),
+                        items: menu_items("", &turn, false),
                         value: now,
                         title: "Text".to_owned(),
                         size: ControlSize::Small,

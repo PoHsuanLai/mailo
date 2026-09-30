@@ -20,7 +20,7 @@ use super::ops::{perform, resolve, take_back};
 use crate::undo::{Undo, UndoHandle};
 use crate::view::Shell;
 use dioxus::prelude::*;
-use ds::stack::toast_hub::{ToastHub, UndoToken};
+use ds::stack::toast_hub::{ToastAction, ToastHub, UndoToken};
 use mail_domain::*;
 use mail_store::SqliteStore;
 #[cfg(test)]
@@ -51,13 +51,17 @@ pub(in crate::ui) enum Follow {
 pub(super) struct Toasts {
     pub hub: ToastHub,
     pub on_undo: EventHandler<UndoToken>,
+    /// What the "Archive All" button of a leave-a-list toast does: it reads the list it offered
+    /// from [`Motion::toast`] when pressed.
+    pub on_archive: EventHandler<()>,
 }
 
 /// The motion state the window shares.
 #[derive(Clone, Copy)]
 pub(super) struct Motion {
-    /// The offer mailo still puts itself: one with a follow-up that is not an undo, drawn as
-    /// a quire `Alert`. Every other toast is quire's, through [`Motion::toasts`].
+    /// The follow-up a toast on screen offers that is not an undo (archive what a list already
+    /// sent), kept here for its button's handler to read. The toast itself is quire's, through
+    /// [`Motion::toasts`].
     pub toast: Signal<Option<Said>>,
     /// The window root's toast host and the handler its undo calls, once the list has mounted
     /// under the root. Not reactive: only a toast being said reads it.
@@ -208,33 +212,44 @@ pub(super) fn key(
 }
 
 impl Motion {
-    /// Put up the toast. The next op replaces it; otherwise it leaves on its own. An undo or
-    /// plain words are quire's toast; a follow-up is an alert that waits to be answered, and
-    /// takes quire's toast down.
+    /// Put up the toast. The next op replaces it; otherwise it leaves on its own. All of them are
+    /// quire's: an undo, plain words, or a button of the follow-up's own ("Archive All").
     fn say(mut self, text: String, follow: Follow) {
-        if let Some(toasts) = *self.toasts.peek() {
-            match follow {
-                Follow::Undo(handle) => {
-                    self.toast.set(None);
+        let toasts = *self.toasts.peek();
+        match (follow, toasts) {
+            (Follow::Undo(handle), Some(toasts)) => {
+                self.toast.set(None);
+                toasts
+                    .hub
+                    .push_undoable(text, UndoToken(handle.0), toasts.on_undo);
+            }
+            (Follow::Nothing, Some(toasts)) => {
+                self.toast.set(None);
+                toasts.hub.push(text, None);
+            }
+            (Follow::ArchiveFrom { sender, list }, toasts) => {
+                let serial = self.toast.peek().as_ref().map_or(0, |said| said.serial) + 1;
+                self.toast.set(Some(Said {
+                    text: text.clone(),
+                    serial,
+                    follow: Follow::ArchiveFrom { sender, list },
+                }));
+                if let Some(toasts) = toasts {
                     toasts
                         .hub
-                        .push_undoable(text, UndoToken(handle.0), toasts.on_undo);
-                    return;
+                        .push_action(text, ToastAction::new("Archive All"), toasts.on_archive);
                 }
-                Follow::Nothing => {
-                    self.toast.set(None);
-                    toasts.hub.push(text, None);
-                    return;
-                }
-                Follow::ArchiveFrom { .. } => toasts.hub.hide(),
+            }
+            // No host yet (a window still mounting): the words are kept, as before.
+            (follow @ (Follow::Undo(_) | Follow::Nothing), None) => {
+                let serial = self.toast.peek().as_ref().map_or(0, |said| said.serial) + 1;
+                self.toast.set(Some(Said {
+                    text,
+                    serial,
+                    follow,
+                }));
             }
         }
-        let serial = self.toast.peek().as_ref().map_or(0, |said| said.serial) + 1;
-        self.toast.set(Some(Said {
-            text,
-            serial,
-            follow,
-        }));
     }
 }
 

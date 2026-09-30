@@ -137,6 +137,7 @@ pub(super) fn MailRow(
     // and until then the menu is placed against the row's own box.
     let mut snooze_at = use_signal(|| None::<Rect>);
     let mut label_at = use_signal(|| None::<Rect>);
+    let mut move_at = use_signal(|| None::<Rect>);
     let mut row_box = use_signal(|| None::<MountedRef>);
     // The focus inside the row shows its strip, as the pointer over it does.
     let mut focused = use_signal(|| false);
@@ -229,7 +230,7 @@ pub(super) fn MailRow(
         label: move_label.clone(),
         fly: move_label.clone(),
         onhover: None,
-        onclick: EventHandler::new(|_: Rect| {}),
+        onclick: EventHandler::new(move |rect: Rect| move_at.set(Some(rect))),
     });
     let open_menus = {
         let read = shell.read();
@@ -330,6 +331,8 @@ pub(super) fn MailRow(
                     thread: id,
                     shell,
                     revision,
+                    anchor: row_box(),
+                    placed: move_at(),
                     on_close: move |_| shell.write().filing = None,
                 }
             }

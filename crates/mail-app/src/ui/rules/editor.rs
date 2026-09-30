@@ -18,7 +18,7 @@ use mail_domain::{AccountId, AfterMatch, RuleAction};
 use mail_store::SqliteStore;
 use std::sync::Arc;
 
-use super::super::menu::{Floating, MenuItem, Right, Tile, narrowed, palette_groups};
+use super::super::menu::{Floating, MenuItem, Right, Tile, anchor_at, narrowed, palette_groups};
 use super::super::move_to::destinations;
 use super::super::press::{available, on_primary};
 use super::work::{self, Draft};
@@ -263,6 +263,7 @@ pub(super) fn RuleEditor(
                         }
                         if matches!(adding(), Adding::Labels | Adding::Folders) {
                             ActionPicker {
+                                anchor: add_at(),
                                 adding: adding(),
                                 names: names.clone(),
                                 folders: folders.clone(),
@@ -330,10 +331,11 @@ pub(super) fn RuleEditor(
     }
 }
 
-/// Which label or folder an action names: quire's palette over the window, the rows narrowed as
-/// the person types. A label typed that the account lacks is offered as "Create".
+/// Which label or folder an action names: quire's `PickList` under the Add button, the rows
+/// narrowed as the person types. A label typed that the account lacks is offered as "Create".
 #[component]
 fn ActionPicker(
+    anchor: Option<MountedRef>,
     adding: Adding,
     names: Vec<String>,
     folders: Vec<String>,
@@ -358,11 +360,11 @@ fn ActionPicker(
     };
     let shown = narrowed(&items, &query());
     rsx! {
-        CommandPalette::<String> {
-            label: label.to_owned(),
-            placeholder: placeholder.to_owned(),
+        PickList::<String> {
+            anchor: anchor_at(anchor),
+            label,
+            placeholder,
             query: query(),
-            tokens: Vec::new(),
             groups: palette_groups(&shown, AvatarSize::Size22, None),
             empty: "Nothing matches.".to_owned(),
             oninput: move |text: String| query.set(text),

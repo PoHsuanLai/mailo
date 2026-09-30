@@ -20,6 +20,10 @@ pub(in crate::ui) enum Tile {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::ui) enum Right {
     Shortcut(String),
+    /// A short faint word at the end, before any key: the time a snooze lands on, what a
+    /// markdown trigger types.
+    Hint(String),
+    /// A state mark. In a menu of toggles the pick keeps the menu open.
     Check(bool),
     /// A trailing ×, labelled with these words, that hands the item's key to `on_remove`.
     Remove(String),

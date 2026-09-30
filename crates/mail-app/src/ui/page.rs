@@ -5,7 +5,7 @@
 use ds::prelude::*;
 use std::collections::BTreeMap;
 
-use super::menu::{Checklist, Floating, MenuItem, Right, Tile};
+use super::menu::{Floating, MenuItem, Right, Tile};
 use super::press::on_primary;
 use crate::view::{PageGroup, PageMenu, PageParts, Shell};
 use chrono::{DateTime, TimeZone, Utc};
@@ -205,7 +205,7 @@ fn part_items(parts: PageParts) -> Vec<MenuItem> {
 }
 
 /// The Group and Properties buttons, and whichever menu is open: Group is a menu with a check
-/// on the chosen grouping, Properties a checklist of the parts a row shows.
+/// on the chosen grouping, Properties a menu of toggles for the parts a row shows.
 #[component]
 pub(super) fn PageMenus(shell: Signal<Shell>) -> Element {
     let open = shell.read().page_menu;
@@ -280,10 +280,11 @@ pub(super) fn PageMenus(shell: Signal<Shell>) -> Element {
             }
         }
         if open == PageMenu::Properties {
-            // A checklist: each pick shows or hides a part, and the popover stays open.
-            Checklist {
+            // A menu of toggles: each pick shows or hides a part, and the menu stays open.
+            Floating {
                 anchor: parts_button(),
                 title: "This page".to_owned(),
+                toggles: true,
                 items: part_items(parts),
                 on_pick: move |key: String| {
                     if let Some(part) = shell.write().parts.part_mut(&key) {

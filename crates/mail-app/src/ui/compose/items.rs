@@ -51,7 +51,7 @@ pub(in crate::ui) fn slash_items(query: &str) -> Vec<MenuItem> {
     let grouped = query.trim().is_empty();
     filter(query)
         .into_iter()
-        .map(|item| row(item, grouped, Right::Shortcut(item.markdown.to_owned())))
+        .map(|item| row(item, grouped, Right::Hint(item.markdown.to_owned())))
         .collect()
 }
 
@@ -111,7 +111,7 @@ pub(in crate::ui) fn object_items() -> Vec<MenuItem> {
         tile: Tile::Icon(icon),
         name: name.to_owned(),
         help: None,
-        right: Right::Shortcut(shortcut.to_owned()),
+        right: if shortcut.is_empty() { Right::None } else { Right::Hint(shortcut.to_owned()) },
         group: None,
         marks: Vec::new(),
         title: Vec::new(),

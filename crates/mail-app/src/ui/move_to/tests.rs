@@ -259,9 +259,9 @@ async fn moving_to_a_folder_files_it_there_and_undo_brings_it_back() {
     let clicked = click(&mut dom, rows[0]);
     let menu = floated(&mut dom, clicked).await;
     let page = dioxus_ssr::render(&dom);
-    // quire's palette floats over the window, in the root's overlay, not inside the row.
+    // quire's pick list floats under the row's button, in the root's overlay, not inside the row.
     let drawn = &page[page
-        .find("class=\"ds-palette")
+        .find("class=\"ds-pick-list")
         .expect("the picker did not open")..];
     for path in [TO, FROM, "收據"] {
         assert!(
@@ -276,12 +276,12 @@ async fn moving_to_a_folder_files_it_there_and_undo_brings_it_back() {
         );
     }
 
-    // The first folder is the palette's selection; Enter takes it.
+    // The first folder is the list's selection; Enter takes it.
     chord(
         &mut dom,
         "Enter",
         Modifiers::empty(),
-        // The palette and its field are both named "Move to"; the keys go to the field.
+        // The list and its field are both named "Move to"; the keys go to the field.
         *menu.all("aria-label", "Move to").last().expect("the field"),
     );
     settle(&mut dom).await;

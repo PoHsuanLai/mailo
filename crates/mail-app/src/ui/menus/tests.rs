@@ -187,8 +187,8 @@ fn snooze_help_is_the_time_snooze_until_resolves() {
         assert_eq!(item.name, name, "{phrase}");
         let at = crate::view::snooze_until(phrase, now, &zone).expect(phrase);
         assert_eq!(
-            item.help.as_deref(),
-            Some(super::snooze_help(at, &zone).as_str()),
+            item.right,
+            Right::Hint(super::snooze_help(at, &zone)),
             "{phrase}"
         );
     }

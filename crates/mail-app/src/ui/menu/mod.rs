@@ -1,28 +1,22 @@
-//! One place for every list of choices: quire's `Menu`, `CommandPalette` and `Popover`.
+//! One place for every list of choices: quire's `Menu`, `CommandPalette` and `PickList`.
 //!
 //! mailo describes its rows as [`MenuItem`]s (a tile, a name, one line of help, and a shortcut, a
-//! check or a remove on the right) and hands them to quire as one of three things:
+//! hint, a check or a remove on the right) and hands them to quire as one of two things:
 //!
 //! - [`Floating`]: an `NSMenu`, a short list of commands hung from the control that opened it.
-//!   The Mac's menu has no help line and no filter, so a row's help is not drawn here; a list
-//!   whose rows need it is a [`Picker`].
-//! - [`Picker`]: a quire `CommandPalette` over the window, for a list a person narrows by typing
-//!   (Move to, Import into): a field, the rows under their group headers, the query marked in
-//!   each name, a help line under it.
-//! - [`Checklist`]: a quire `Popover` of checkboxes, for a set a person toggles several of
-//!   before dismissing it (Labels, the page's Properties).
+//!   The Mac's menu has no help line and no filter, so a row's help is not drawn here; its
+//!   [`Right::Hint`] is, at the trailing end. A menu of toggles (`toggles`) stays open on a pick.
+//! - [`palette_groups`]: the rows of quire's `PickList` (a popover under its control, a field
+//!   narrowing the rows, a row that toggles keeps it open) and of the command palette. A list a
+//!   person narrows by typing (Move to, Import into, Labels) is a `PickList` whose caller holds
+//!   the query and narrows the items with [`narrowed`].
 
 mod state;
 
-use super::common::classed;
 use crate::search::match_list;
 use dioxus::prelude::*;
-use ds::base::geometry::placement::{Align, Side};
 use ds::components::content::avatar::{AvatarFace, AvatarShape, AvatarSize, AvatarTone};
-use ds::components::content::label::LabelRole;
 use ds::components::content::text_runs::{RunTone, TextRun};
-use ds::components::controls::button_model::Bezel;
-use ds::components::controls::checkbox::Checkbox;
 use ds::components::menus::item::item::MenuImage;
 use ds::components::menus::palette::palette_group::{PaletteGroup, PaletteGroups, PaletteRow};
 use ds::host::measure::{Anchor, MountedRef};
@@ -50,14 +44,15 @@ pub(in crate::ui) fn Floating(
     /// Floating over the window, or drawn in the caller's flow.
     #[props(default)]
     flow: Flow,
+    /// A menu of toggles: a pick on a checked or unchecked item yields the key and the menu
+    /// stays up, so several can be toggled before it is dismissed.
+    #[props(default)]
+    toggles: bool,
     on_pick: EventHandler<String>,
     on_close: EventHandler<()>,
 ) -> Element {
-    let anchor = match placed {
-        Some(rect) => Anchor::Rect(rect),
-        None => anchor_at(anchor),
-    };
-    let mut choices = menu_items(&title, &items);
+    let anchor = anchor_for(anchor, placed);
+    let mut choices = menu_items(&title, &items, toggles);
     if let Some(note) = note {
         choices.push(ds::components::menus::item::item::MenuItem::Info {
             title: note,
@@ -82,6 +77,7 @@ pub(in crate::ui) fn Floating(
 pub(in crate::ui) fn menu_items(
     title: &str,
     items: &[MenuItem],
+    toggles: bool,
 ) -> Vec<ds::components::menus::item::item::MenuItem<String>> {
     use ds::components::menus::item::item::MenuItem as Line;
     let mut out = Vec::new();
@@ -100,8 +96,19 @@ pub(in crate::ui) fn menu_items(
         // A choice among several is marked by its check and carries no picture: a menu of
         // states draws one mark per row, not a mark and an icon.
         line = match (&item.right, &item.tile) {
-            (Right::Check(true), _) => line.with_check(Check::On),
-            (Right::Check(false), _) => line.with_check(Check::Off),
+            (Right::Check(on), _) => {
+                let check = if *on { Check::On } else { Check::Off };
+                let line = line.with_check(check);
+                if toggles {
+                    line.with_after(AfterPick::KeepOpen)
+                } else {
+                    line
+                }
+            }
+            (Right::Hint(hint), Tile::Icon(icon)) => line
+                .with_image(MenuImage::Icon(*icon))
+                .with_hint(hint.clone()),
+            (Right::Hint(hint), _) => line.with_hint(hint.clone()),
             (Right::Shortcut(_) | Right::Remove(_) | Right::None, Tile::Icon(icon)) => {
                 line.with_image(MenuImage::Icon(*icon))
             }
@@ -118,6 +125,15 @@ fn plain(item: &MenuItem) -> String {
         item.name.clone()
     } else {
         item.title.iter().map(|run| run.text.as_str()).collect()
+    }
+}
+
+/// Where a menu or pick list goes: against `placed`, the opener's rect once measured, else the
+/// element `anchor`.
+pub(in crate::ui) fn anchor_for(anchor: Option<MountedRef>, placed: Option<Rect>) -> Anchor {
+    match placed {
+        Some(rect) => Anchor::Rect(rect),
+        None => anchor_at(anchor),
     }
 }
 
@@ -177,7 +193,7 @@ fn palette_row(
         Some(line_of(&item.detail))
     };
     let accessory = match &item.right {
-        Right::Shortcut(keys) => Accessory::Text(keys.clone()),
+        Right::Shortcut(text) | Right::Hint(text) => Accessory::Text(text.clone()),
         Right::Check(true) => Accessory::Check(Check::On),
         Right::Check(false) | Right::Remove(_) | Right::None => Accessory::None,
     };
@@ -192,11 +208,17 @@ fn palette_row(
         }
         _ => None,
     };
+    // A row that toggles a set member keeps the list open, and the caller redraws its check.
+    let after = match item.right {
+        Right::Check(_) => AfterPick::KeepOpen,
+        _ => AfterPick::Close,
+    };
     PaletteRow {
         detail,
         leading: leading(&item.tile, avatar),
         accessory,
         action,
+        after,
         ..PaletteRow::new(item.key.clone(), title)
     }
 }
@@ -240,38 +262,6 @@ fn leading(tile: &Tile, size: AvatarSize) -> RowLeading {
     }
 }
 
-/// A list a person narrows by typing: quire's `CommandPalette` over the window, its rows the
-/// items ranked by mailo's fuzzy matcher, the query marked in each name.
-///
-/// A pick closes it and hands back the item's key. `empty` is what it says when nothing matches.
-#[component]
-pub(in crate::ui) fn Picker(
-    label: String,
-    placeholder: String,
-    items: Vec<MenuItem>,
-    empty: String,
-    #[props(default)] on_remove: Option<EventHandler<String>>,
-    on_pick: EventHandler<String>,
-    on_close: EventHandler<()>,
-) -> Element {
-    let mut query = use_signal(String::new);
-    let shown = narrowed(&items, &query());
-    let groups = palette_groups(&shown, AvatarSize::Size22, on_remove);
-    rsx! {
-        CommandPalette::<String> {
-            label,
-            placeholder,
-            query: query(),
-            tokens: Vec::new(),
-            groups,
-            empty,
-            oninput: move |text: String| query.set(text),
-            onpick: on_pick,
-            onclose: on_close,
-        }
-    }
-}
-
 /// The items a query keeps, best match first with the matched characters marked; every item, in
 /// order, while the query is empty.
 pub(in crate::ui) fn narrowed(items: &[MenuItem], query: &str) -> Vec<MenuItem> {
@@ -288,88 +278,6 @@ pub(in crate::ui) fn narrowed(items: &[MenuItem], query: &str) -> Vec<MenuItem> 
             })
         })
         .collect()
-}
-
-/// A set a person toggles several of: a quire `Popover` of `Checkbox`es under the control that
-/// opened it. It stays up as each is toggled and closes on Escape or a click outside. `on_pick`
-/// hears the key of the one toggled. An item with no check (`Right::Check`) is an action, drawn
-/// as an inline button ("Create a label"). With a `placeholder` the popover opens with a search
-/// field whose text `on_query` hears; the caller narrows `items` by it.
-#[component]
-pub(in crate::ui) fn Checklist(
-    anchor: Option<MountedRef>,
-    #[props(default)] placed: Option<Rect>,
-    title: String,
-    items: Vec<MenuItem>,
-    #[props(default)] placeholder: Option<String>,
-    #[props(default)] query: String,
-    #[props(default)] on_query: Option<EventHandler<String>>,
-    #[props(default)] note: Option<String>,
-    on_pick: EventHandler<String>,
-    on_close: EventHandler<()>,
-) -> Element {
-    let anchor = match placed {
-        Some(rect) => Anchor::Rect(rect),
-        None => anchor_at(anchor),
-    };
-    rsx! {
-        Popover {
-            anchor,
-            placement: ds::base::geometry::placement::Placement::new(Side::Bottom, Align::Start),
-            gap: Px(4.0),
-            arrow: ds::components::overlays::popover::Arrow::None,
-            onclose: on_close,
-            div { class: "checklist",
-                if !title.is_empty() {
-                    Label { text: title, role: LabelRole::Secondary }
-                }
-                if let Some(placeholder) = placeholder {
-                    TextField {
-                        label: placeholder.clone(),
-                        placeholder,
-                        value: query,
-                        kind: FieldKind::Search,
-                        focus: FieldFocus::OnMount,
-                        common: classed("checklist-filter"),
-                        oninput: move |text: String| {
-                            if let Some(on_query) = on_query {
-                                on_query.call(text);
-                            }
-                        },
-                    }
-                }
-                for item in items {
-                    match item.right {
-                        Right::Check(on) => rsx! {
-                            Checkbox {
-                                key: "{item.key}",
-                                label: plain(&item),
-                                value: if on { Check::On } else { Check::Off },
-                                onchange: {
-                                    let key = item.key.clone();
-                                    move |_| on_pick.call(key.clone())
-                                },
-                            }
-                        },
-                        _ => rsx! {
-                            Button {
-                                key: "{item.key}",
-                                bezel: Bezel::Inline,
-                                label: plain(&item),
-                                onclick: {
-                                    let key = item.key.clone();
-                                    move |_| on_pick.call(key.clone())
-                                },
-                            }
-                        },
-                    }
-                }
-                if let Some(note) = note {
-                    Label { text: note, role: LabelRole::Tertiary }
-                }
-            }
-        }
-    }
 }
 
 #[cfg(test)]

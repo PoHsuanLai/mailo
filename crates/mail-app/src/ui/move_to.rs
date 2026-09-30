@@ -9,12 +9,15 @@
 //! and elsewhere the label a move into it files under, named by its path — the same one a rule
 //! finds or makes (`mail_store::rules`), so a folder is one label whichever way mail got there.
 
-use super::menu::{MenuItem, Picker, Right, Tile};
+use super::menu::{MenuItem, Right, Tile, anchor_for, narrowed, palette_groups};
 use super::motion::drag::Drag;
 use super::motion::{act, motion};
 use crate::view::Shell;
 use dioxus::prelude::*;
+use ds::components::content::avatar::AvatarSize;
 use ds::components::controls::button_model::{Bezel, ImagePosition};
+use ds::host::measure::MountedRef;
+use ds::root::common::Common;
 use ds::prelude::*;
 use mail_domain::Label;
 use mail_domain::*;
@@ -147,36 +150,44 @@ pub(in crate::ui) fn items(destinations: &[Destination]) -> Vec<MenuItem> {
         .collect()
 }
 
-/// The folders `thread` can be moved to, and the move: a quire palette over the window, its
-/// field narrowing the account's folders as it is typed into.
+/// The folders `thread` can be moved to, and the move: quire's `PickList` under the control
+/// that opened it, its field narrowing the account's folders as it is typed into.
 #[component]
 pub(in crate::ui) fn MoveMenu(
     thread: ThreadId,
     shell: Signal<Shell>,
     revision: Signal<u64>,
+    anchor: Option<MountedRef>,
+    /// The opener's rect once measured, which wins over `anchor`.
+    #[props(default)]
+    placed: Option<Rect>,
     on_close: EventHandler<()>,
 ) -> Element {
     let store = consume_context::<Arc<SqliteStore>>();
     let account = account_of(&store, thread);
     let found = account.map_or_else(Vec::new, |a| destinations(&store, a));
+    let mut query = use_signal(String::new);
+    let shown = narrowed(&items(&found), &query());
     rsx! {
-        Picker {
-            label: "Move to".to_owned(),
-            placeholder: "Move to…".to_owned(),
-            items: items(&found),
+        PickList::<String> {
+            anchor: anchor_for(anchor, placed),
+            label: "Move to",
+            placeholder: "Move to…",
+            query: query(),
+            groups: palette_groups(&shown, AvatarSize::Size22, None),
             empty: if found.is_empty() {
                 "This account has no folders of its own to move to.".to_owned()
             } else {
                 "No folder matches.".to_owned()
             },
-            on_pick: move |path: String| {
+            oninput: move |text: String| query.set(text),
+            onpick: move |path: String| {
                 let Some(account) = account else { return };
                 let store = consume_context::<Arc<SqliteStore>>();
                 let folder = MailboxRef { account, path };
-                on_close.call(());
                 file_into(&store, shell, revision, thread, &folder);
             },
-            on_close: move |_| on_close.call(()),
+            onclose: move |()| on_close.call(()),
         }
     }
 }
@@ -189,6 +200,7 @@ pub(in crate::ui) fn MoveTool(
     revision: Signal<u64>,
 ) -> Element {
     let mut open = use_signal(|| Shown::Hidden);
+    let mut button = use_signal(|| None::<MountedRef>);
     rsx! {
         Button {
             bezel: Bezel::Toolbar,
@@ -197,10 +209,22 @@ pub(in crate::ui) fn MoveTool(
             label: "Move to a folder",
             title: Some("Move to…".to_owned()),
             shown: open(),
-            onclick: move |_| open.set(Shown::Visible),
+            common: Common {
+                mounted: Some(EventHandler::new(move |event: MountedEvent| {
+                    button.set(Some(MountedRef(event.data())));
+                })),
+                ..Common::default()
+            },
+            onclick: move |_| open.set(if open() == Shown::Visible { Shown::Hidden } else { Shown::Visible }),
         }
         if open() == Shown::Visible {
-            MoveMenu { thread, shell, revision, on_close: move |_| open.set(Shown::Hidden) }
+            MoveMenu {
+                thread,
+                shell,
+                revision,
+                anchor: button(),
+                on_close: move |_| open.set(Shown::Hidden),
+            }
         }
     }
 }

@@ -453,7 +453,7 @@ fn Recipients(page: Signal<Page>, list: List, refused: Option<u32>) -> Element {
                     Menu::<String> {
                         placement: MenuPlacement::Popup,
                         anchor: anchor_at(field_at()),
-                        items: menu_items("From your contacts", &items),
+                        items: menu_items("From your contacts", &items, false),
                         onpick: move |key: String| pick_person(&mut page.write(), list, &key),
                         onclose: move |()| {
                             if matches!(page.peek().float, Float::People { list: open, .. } if open == list) {

@@ -3,11 +3,12 @@
 //! A label and a snooze time are not things a button can carry, so the row opens one of these
 //! instead of performing the operation itself. Split from [`super::app`] (`CONVENTIONS.md` §8).
 
-use super::menu::{Checklist, Floating, MenuItem, Right, Run, Tile, Tone};
+use super::menu::{Floating, MenuItem, Right, Tile, anchor_for, palette_groups};
 use super::motion::act;
 use crate::view::Shell;
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
+use ds::components::content::avatar::AvatarSize;
 use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use mail_domain::*;
@@ -86,8 +87,8 @@ where
                 key: (*phrase).to_owned(),
                 tile: Tile::Icon(Icon::Clock),
                 name: (*says).to_owned(),
-                help: Some(snooze_help(at, zone)),
-                right: Right::None,
+                help: None,
+                right: Right::Hint(snooze_help(at, zone)),
                 group: None,
                 marks: Vec::new(),
                 title: Vec::new(),
@@ -149,18 +150,8 @@ pub(super) fn SnoozeMenu(
     placed: Option<Rect>,
 ) -> Element {
     let now = Utc::now();
-    // The Mac's menu has no second line, so each choice says its time after its name.
-    let items: Vec<MenuItem> = snooze_items(now, &chrono::Local)
-        .into_iter()
-        .map(|item| MenuItem {
-            title: vec![Run {
-                text: format!("{} · {}", item.name, item.help.clone().unwrap_or_default()),
-                marks: Vec::new(),
-                tone: Tone::Plain,
-            }],
-            ..item
-        })
-        .collect();
+    // The Mac's menu has no second line, so each choice says its time at its trailing end.
+    let items = snooze_items(now, &chrono::Local);
     rsx! {
         Floating {
             anchor,
@@ -207,22 +198,21 @@ pub(super) fn LabelMenu(
     let mut items = super::menu::narrowed(&base, &typed());
     items.extend(create);
     let account = summary.account;
-    let note = shell
-        .read()
-        .labels
-        .is_empty()
-        .then(|| "No labels yet. They arrive with the first sync.".to_owned());
+    let empty = if shell.read().labels.is_empty() {
+        "No labels yet. They arrive with the first sync."
+    } else {
+        "No label matches."
+    };
     rsx! {
-        Checklist {
-            anchor,
-            placed,
-            title: "Labels".to_owned(),
-            items,
-            placeholder: Some("Filter labels…".to_owned()),
+        PickList::<String> {
+            anchor: anchor_for(anchor, placed),
+            label: "Labels",
+            placeholder: "Filter labels…",
             query: typed(),
-            note,
-            on_query: move |value| typed.set(value),
-            on_pick: move |key: String| {
+            groups: palette_groups(&items, AvatarSize::Size22, None),
+            empty,
+            oninput: move |value: String| typed.set(value),
+            onpick: move |key: String| {
                 let store = consume_context::<Arc<SqliteStore>>();
                 if let Some(name) = key.strip_prefix("create:") {
                     let Some(created) = create_label(&store, account, name) else {
@@ -245,7 +235,7 @@ pub(super) fn LabelMenu(
                 let wanted = if on { Membership::Out } else { Membership::In };
                 act(&store, shell, revision, id, Op::Label(which, wanted));
             },
-            on_close: move |_| shell.write().labelling = None,
+            onclose: move |()| shell.write().labelling = None,
         }
     }
 }

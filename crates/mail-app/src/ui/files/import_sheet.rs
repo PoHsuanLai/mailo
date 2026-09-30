@@ -1,6 +1,8 @@
 //! The Import sheet: a path, what is at it, where it goes, and the run.
 
 use ds::base::press::Press;
+use ds::components::content::avatar::AvatarSize;
+use ds::host::measure::MountedRef;
 use ds::components::controls::button_marks::Trailing;
 use ds::components::controls::button_model::Answers;
 use ds::components::fields::field_row::{FieldGroup, FieldRow, RowLayout};
@@ -15,7 +17,7 @@ use mail_store::SqliteStore;
 
 use super::super::common::classed;
 use super::super::debounce::use_debounced;
-use super::super::menu::{MenuItem, Picker, Right, Tile};
+use super::super::menu::{MenuItem, Right, Tile, anchor_at, narrowed, palette_groups};
 use super::super::pick::{Ask, choose};
 use super::super::press::{SheetClose, available, on_primary};
 use super::work::{self, Dest, Looked};
@@ -59,6 +61,8 @@ pub(super) fn ImportSheet(shell: Signal<Shell>, revision: Signal<u64>) -> Elemen
     });
     let mut dest = use_signal(Dest::default);
     let mut menu_open = use_signal(|| false);
+    let mut into_button = use_signal(|| None::<MountedRef>);
+    let mut find = use_signal(String::new);
     let phase = use_signal(|| Phase::Ready);
     let shown = looked();
     let (validity, look_words) = match &shown {
@@ -166,16 +170,22 @@ pub(super) fn ImportSheet(shell: Signal<Shell>, revision: Signal<u64>) -> Elemen
                             onclick: move |_: Press| menu_open.set(!menu_open()),
                             common: Common {
                                 aria_label: Some(format!("Import into: {}", chosen.label())),
+                                mounted: Some(EventHandler::new(move |event: MountedEvent| {
+                                    into_button.set(Some(MountedRef(event.data())));
+                                })),
                                 ..Common::default()
                             },
                         }
                         if menu_open() {
-                            Picker {
-                                label: "Import into".to_owned(),
-                                placeholder: "Find a folder".to_owned(),
-                                items,
-                                empty: "No folder matches.".to_owned(),
-                                on_pick: move |key: String| {
+                            PickList::<String> {
+                                anchor: anchor_at(into_button()),
+                                label: "Import into",
+                                placeholder: "Find a folder",
+                                query: find(),
+                                groups: palette_groups(&narrowed(&items, &find()), AvatarSize::Size22, None),
+                                empty: "No folder matches.",
+                                oninput: move |text: String| find.set(text),
+                                onpick: move |key: String| {
                                     let store = consume_context::<Arc<SqliteStore>>();
                                     if let Some(found) = work::destinations(&store)
                                         .into_iter()
@@ -183,9 +193,11 @@ pub(super) fn ImportSheet(shell: Signal<Shell>, revision: Signal<u64>) -> Elemen
                                     {
                                         dest.set(found);
                                     }
-                                    menu_open.set(false);
                                 },
-                                on_close: move |()| menu_open.set(false),
+                                onclose: move |()| {
+                                    menu_open.set(false);
+                                    find.set(String::new());
+                                },
                             }
                         }
                     }
