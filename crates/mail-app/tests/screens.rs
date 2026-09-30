@@ -114,6 +114,40 @@ fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
         )
         .unwrap();
     }
+    // A newsletter that asks for a read receipt and draws a remote image: the reader's banners.
+    let date = (now - chrono::Duration::minutes(90)).to_rfc2822();
+    let raw = format!(
+        "From: Weekly Notes <notes@example.test>\r\nTo: me@example.test\r\nSubject: Weekly notes\r\nDate: {date}\r\nMessage-ID: <seednews@example.test>\r\nDisposition-Notification-To: notes@example.test\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<p>Twelve new knits, and a pattern for the autumn.</p><img src=\"https://images.example.test/knit.png\" width=\"320\" height=\"120\">\r\n"
+    );
+    absorb(
+        &store,
+        ACCOUNT,
+        MailboxRef {
+            account: ACCOUNT,
+            path: "INBOX".to_owned(),
+        },
+        Some(SyncCursor::Pop),
+        vec![Arrival {
+            remote: RemoteRef::Pop {
+                uidl: "seednews".to_owned(),
+            },
+            raw: raw.into_bytes(),
+        }],
+        false,
+        now,
+    )
+    .unwrap();
+    // A few labels, for the label picker.
+    {
+        let db = store.connection();
+        for name in ["Travel", "Receipts", "Family"] {
+            db.execute(
+                "INSERT INTO labels (id, account, name, origin) VALUES (?1, ?2, ?3, '\"user\"')",
+                rusqlite::params![LabelId::generate().to_string(), ACCOUNT.to_string(), name],
+            )
+            .unwrap();
+        }
+    }
     Arc::new(store)
 }
 
@@ -160,28 +194,74 @@ fn click(harness: &mut Harness, selector: &str) {
     harness.advance(ms(300));
 }
 
+/// The first row's subject line, where a click opens it (the strip lies over the row's middle).
+fn open_row(h: &mut Harness, n: usize) {
+    let sub = h
+        .rect(&format!(
+            ".ds-list > .ds-list-item:nth-child({n}) .ds-thread-sub"
+        ))
+        .expect("row");
+    h.click(Point {
+        x: Px(sub.origin.x.0 + 24.0),
+        y: Px(sub.origin.y.0 + sub.size.height.0 / 2.0),
+    });
+    h.advance(ms(500));
+}
+
+/// The pointer over row `n`, so its strip shows, then the strip's button `op`.
+fn strip(h: &mut Harness, n: usize, op: &str) {
+    let sub = format!(".ds-list > .ds-list-item:nth-child({n}) .ds-thread-sub");
+    let at = h.centre(&sub).expect("row");
+    h.pointer_move(at);
+    h.advance(ms(300));
+    click(
+        h,
+        &format!(".ds-list > .ds-list-item:nth-child({n}) .ds-strip [*|data-op={op}]"),
+    );
+}
+
 #[test]
 #[ignore = "picture generator: set MAILO_SHOTS to a directory and run with --ignored"]
 fn screens() {
     let out = std::env::var("MAILO_SHOTS").expect("MAILO_SHOTS names the directory");
     for dark in [false, true] {
-        // Main window: list + reader.
+        // The list, nothing open: the reader's empty state.
         let (mut h, _d) = open(dark);
-        let sub = h
-            .rect(".ds-list > .ds-list-item:nth-child(1) .ds-thread-sub")
-            .expect("row");
-        h.click(Point {
-            x: Px(sub.origin.x.0 + 24.0),
-            y: Px(sub.origin.y.0 + sub.size.height.0 / 2.0),
-        });
-        h.advance(ms(500));
-        shot(&mut h, &out, "main", dark);
-        // A menu.
-        click(&mut h, ".bar-tools .ds-button:nth-child(1)");
-        shot(&mut h, &out, "menu", dark);
+        shot(&mut h, &out, "inbox-list", dark);
+        // An empty folder: the list's empty state.
+        click(&mut h, "[*|data-place=\"Trash\"]");
+        shot(&mut h, &out, "empty-state", dark);
+
+        // The reader, then the same message in the centre peek.
+        let (mut h, _d) = open(dark);
+        open_row(&mut h, 1);
+        shot(&mut h, &out, "reader", dark);
+        click(&mut h, "[*|aria-label=\"Centre peek\"]");
+        shot(&mut h, &out, "peek", dark);
+
+        // A message with banners: remote images blocked and a read receipt asked for.
+        let (mut h, _d) = open(dark);
+        open_row(&mut h, 2);
+        shot(&mut h, &out, "reader-banners", dark);
+
+        // The row's menus: labels, snooze.
+        let (mut h, _d) = open(dark);
+        strip(&mut h, 1, "add-label");
+        shot(&mut h, &out, "label-picker", dark);
         h.key(Key::Escape);
         h.advance(ms(400));
+        strip(&mut h, 1, "snooze");
+        shot(&mut h, &out, "snooze-menu", dark);
+
+        // A toast with its action: Archive, then Undo on the toast.
+        let (mut h, _d) = open(dark);
+        strip(&mut h, 1, "archive");
+        h.advance(ms(500));
+        shot(&mut h, &out, "toast-action", dark);
+
         // Composer.
+        let (mut h, _d) = open(dark);
+        open_row(&mut h, 1);
         h.key(Key::Char('c'));
         h.advance(ms(500));
         click(&mut h, ".c-body");
@@ -189,17 +269,15 @@ fn screens() {
             h.key(if c == ' ' { Key::Space } else { Key::Char(c) });
         }
         shot(&mut h, &out, "composer", dark);
-        h.key(Key::Escape);
-        h.advance(ms(400));
-        // Palette.
+
+        // The command pill's menu, then the Add Account sheet from it.
         let (mut h, _d) = open(dark);
         h.chord(&[Key::Ctrl], Key::Char('k'));
         h.advance(ms(400));
         for c in "ar".chars() {
             h.key(Key::Char(c));
         }
-        shot(&mut h, &out, "palette", dark);
-        // Sheet: Add account.
+        shot(&mut h, &out, "command-menu", dark);
         h.key(Key::Escape);
         h.advance(ms(400));
         h.chord(&[Key::Ctrl], Key::Char('k'));
@@ -209,11 +287,11 @@ fn screens() {
         }
         h.advance(ms(200));
         h.key(Key::Enter);
-        shot(&mut h, &out, "sheet", dark);
-        // Sheet: the Space editor, through the gear beside the Space's name.
+        shot(&mut h, &out, "add-account-sheet", dark);
+        // The Space editor, through the gear beside the Space's name.
         h.key(Key::Escape);
         h.advance(ms(400));
         click(&mut h, "[*|aria-label=\"Space settings\"]");
-        shot(&mut h, &out, "space-editor", dark);
+        shot(&mut h, &out, "space-editor-sheet", dark);
     }
 }

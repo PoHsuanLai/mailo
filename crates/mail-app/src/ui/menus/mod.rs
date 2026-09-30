@@ -18,7 +18,7 @@ use std::sync::Arc;
 /// The four times the snooze menu offers, as `(what it says, the phrase it means)`.
 const SNOOZE: &[(&str, &str)] = &[
     ("Later today", "later"),
-    ("Tomorrow 09:00", "tomorrow"),
+    ("Tomorrow", "tomorrow"),
     ("This weekend", "weekend"),
     ("Next week", "monday"),
 ];
@@ -29,6 +29,21 @@ where
     Tz::Offset: std::fmt::Display,
 {
     at.with_timezone(zone).format("%Y-%m-%d %H:%M").to_string()
+}
+
+/// The time a snooze lands on, short enough for the end of a menu row: `7:30 PM` today or
+/// tomorrow (the name says which), `Sat 9:00 AM` within the week, `Mon 12 Oct` past it.
+pub(super) fn snooze_hint<Tz: TimeZone>(at: DateTime<Utc>, now: DateTime<Utc>, zone: &Tz) -> String
+where
+    Tz::Offset: std::fmt::Display,
+{
+    let there = at.with_timezone(zone);
+    let days = (there.date_naive() - now.with_timezone(zone).date_naive()).num_days();
+    match days {
+        ..=1 => there.format("%-I:%M %p").to_string(),
+        2..=6 => there.format("%a %-I:%M %p").to_string(),
+        _ => there.format("%a %-d %b").to_string(),
+    }
 }
 
 /// A time to come as a person says it: `Today 17:00`, `Tomorrow 08:00`, `Tue 08:00` within the
@@ -74,7 +89,7 @@ where
     words
 }
 
-/// The snooze menu's rows. Help text is [`snooze_help`] of [`crate::view::snooze_until`].
+/// The snooze menu's rows. The hint is [`snooze_hint`] of [`crate::view::snooze_until`].
 pub(super) fn snooze_items<Tz: TimeZone>(now: DateTime<Utc>, zone: &Tz) -> Vec<MenuItem>
 where
     Tz::Offset: std::fmt::Display,
@@ -88,7 +103,7 @@ where
                 tile: Tile::Icon(Icon::Clock),
                 name: (*says).to_owned(),
                 help: None,
-                right: Right::Hint(snooze_help(at, zone)),
+                right: Right::Hint(snooze_hint(at, now, zone)),
                 group: None,
                 marks: Vec::new(),
                 title: Vec::new(),

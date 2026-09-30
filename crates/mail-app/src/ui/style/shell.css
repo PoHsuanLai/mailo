@@ -42,7 +42,6 @@
   min-width: 0; min-height: 0; background: var(--surface); color: var(--ink);
   border-radius: var(--r-card); overflow: hidden; box-shadow: var(--shadow-card);
 }
-.app[*|data-peek="center"] .card, .app[*|data-peek="full"] .card { overflow: visible; }
 .list-col { display: flex; flex-direction: column; height: 100%; min-width: 0; min-height: 0; background: var(--surface); }
 /* The list's header: quire's `Toolbar` holds it as its centre. */
 .list-head { display: flex; align-items: center; gap: var(--s-8); width: 100%; min-width: 0; }

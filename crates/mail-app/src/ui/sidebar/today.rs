@@ -83,7 +83,11 @@ pub(super) fn TodayList(
     let selected = shell.read().selected_tab();
     let dirs_close = dirs.clone();
     let dirs_clear = dirs.clone();
+    // Nothing in Today, no heading: a source list does not show an empty group.
+    let scheduled = !super::super::compose::waiting(&store).is_empty();
+    let any = live || scheduled || !today.read().parked(space_index).is_empty();
     rsx! {
+        if any {
         SectionHeader {
             title: "Today",
             actions: if live {
@@ -94,6 +98,7 @@ pub(super) fn TodayList(
             } else {
                 Vec::new()
             },
+        }
         }
         super::super::compose::ParkedDrafts { shell, space_index }
         super::super::compose::ScheduledDrafts { shell }

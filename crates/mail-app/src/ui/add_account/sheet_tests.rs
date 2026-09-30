@@ -174,7 +174,7 @@ async fn look_up_shows_what_was_found_and_adds_nothing_until_it_is_used() {
         seams(&fake, ok("ada@example.test"), false),
         Vec::new(),
     );
-    assert!(page(&open).contains("only the domain"), "{}", page(&open));
+    assert!(page(&open).contains("is looked up"), "{}", page(&open));
 
     let seen = look_up(&mut open, "ada@example.test").await;
     let shown = page(&open);

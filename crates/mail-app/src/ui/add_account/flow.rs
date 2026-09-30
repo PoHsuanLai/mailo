@@ -314,19 +314,11 @@ pub(in crate::ui) fn domain_of(typed: &str) -> Option<String> {
 pub(in crate::ui) fn before_looking(typed: &str, now: chrono::DateTime<chrono::Utc>) -> String {
     let address = typed.trim().to_lowercase();
     match domain_of(&address) {
-        Some(domain) if mail_domain::presets::preset_for(&address, now).is_some() => format!(
-            "mailo knows {domain}: nothing is looked up, and nothing is sent until you use \
-             the settings."
-        ),
-        Some(domain) => format!(
-            "Looking up sends only the domain, {domain}, to DNS, and over HTTPS to its \
-             autoconfig servers and to https://{domain}/.well-known/jmap. Your address and \
-             password stay here until you use what is found."
-        ),
-        None => "Looking up sends only the domain, to DNS, and over HTTPS to its autoconfig \
-                 servers and its /.well-known/jmap. Your address and password stay here until \
-                 you use what is found."
-            .to_owned(),
+        Some(domain) if mail_domain::presets::preset_for(&address, now).is_some() => {
+            format!("{domain} is known. Nothing is looked up.")
+        }
+        Some(domain) => format!("Only {domain} is looked up."),
+        None => "Only the domain is looked up.".to_owned(),
     }
 }
 

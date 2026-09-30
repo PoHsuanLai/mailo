@@ -198,7 +198,7 @@ fn a_known_domain_is_not_looked_up_but_is_still_shown() {
             client: Client::Missing,
         }
     );
-    assert!(flow::before_looking("ada@gmail.com", now()).contains("nothing is looked up"));
+    assert!(flow::before_looking("ada@gmail.com", now()).contains("Nothing is looked up"));
 }
 
 #[test]
@@ -438,7 +438,7 @@ fn what_is_not_an_address_is_never_looked_up() {
 #[test]
 fn the_sheet_says_only_the_domain_leaves_before_anything_does() {
     let said = flow::before_looking("ada@example.test", now());
-    assert!(said.contains("only the domain, example.test"), "{said}");
+    assert!(said.contains("Only example.test is looked up"), "{said}");
     assert!(!said.contains("ada@"), "{said}");
 }
 

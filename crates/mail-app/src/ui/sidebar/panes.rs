@@ -352,6 +352,10 @@ pub(super) fn PinnedList(
     // Each pin's row, as it mounts: its card is placed beside it. Not a signal: nothing
     // redraws for it.
     let boxes = use_hook(|| CopyValue::new(std::collections::HashMap::<usize, MountedRef>::new()));
+    // No pins, no heading: a source list does not show an empty group.
+    if space.pins.is_empty() {
+        return rsx! {};
+    }
     let mut items = vec![ListItem::heading(
         "head".to_owned(),
         rsx! { SectionHeader { title: "Pinned" } },

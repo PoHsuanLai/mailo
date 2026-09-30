@@ -83,6 +83,7 @@ pub(in crate::ui) fn Bar(
             let send = "Send receipt";
             let decline = "Don't send";
             rsx! {
+                div { class: "banners",
                 InlineBanner {
                     severity: Severity::Info,
                     icon: Some(Icon::Mail),
@@ -109,6 +110,7 @@ pub(in crate::ui) fn Bar(
                 }
                 if let Some(why) = failed {
                     InlineBanner { severity: Severity::Danger, text: why }
+                }
                 }
             }
         }

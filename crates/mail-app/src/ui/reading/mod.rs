@@ -310,6 +310,7 @@ pub(super) fn Reader(
             {rsx! { super::receipt::Receipts { key: "{leave_key}", bodies } }}
         }
         div { class: "reader-body",
+            div { class: "banners",
             if let Some(where_it_went) = saved() {
                 // Where it went, named. A file saved somewhere the user cannot point at is a file
                 // they have lost, and this pane's previous answer was to print a command to run.
@@ -343,6 +344,7 @@ pub(super) fn Reader(
                         },
                     }
                 }
+            }
             }
             for (((message, reading, _), found), attached) in shown.into_iter().zip(founds).zip(attached) {
                 article { key: "{message.id}", class: "frame",

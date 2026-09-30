@@ -1,4 +1,4 @@
-/* The peek modes position the reader against the window. */
+/* The edge strip and the peeking sidebar are placed against the window. */
 .app { position: relative; }
 
 /* ---- reader ---- */
@@ -41,15 +41,10 @@ article.frame + article.frame { margin-top: var(--s-18); padding-top: var(--s-14
 .reader-empty { flex: 1; display: grid; place-items: center; padding: var(--s-22); }
 
 .bar-tools { display: flex; align-items: center; gap: var(--s-5); position: relative; }
-/* --- reading modes: side peek, centre peek, full --- */
-.app[*|data-peek="center"] .reader {
-  position: absolute; inset: 34px 10% 34px 10%; z-index: var(--z-peek); border: var(--hair) solid var(--line);
-  border-radius: var(--r-panel); box-shadow: var(--shadow-2); overflow: hidden;
-  animation: peek-in var(--t-move) var(--e-out);
-}
-.app[*|data-peek="full"] .reader {
-  position: absolute; inset: 0; z-index: var(--z-peek); animation: peek-in var(--t-move) var(--e-out);
-}
+/* Banners in the reader's flow: one above another, a gap under the last. */
+.banners { display: grid; gap: var(--s-8); margin: var(--s-10) 0 var(--s-12); }
+.banners:empty { display: none; }
+/* The centre and full peeks are quire's `Peek`, drawn over the window: nothing here places them. */
 
 /* Parsed blocks. One measure, the shell's type, no sender CSS. */
 .reader-body .blocks { max-width: 66ch; display: grid; gap: var(--s-11); }
