@@ -273,7 +273,7 @@ const LIAR: &str = "a + a";
 
 /// The Original segment of the head's Reader / Original control (quire's `SegmentedControl`).
 const ORIGINAL: &str = ".view-switch .ds-segmented-segment:nth-child(2)";
-const SHOW_IMAGES: &str = ".consent .ds-button";
+const SHOW_IMAGES: &str = ".ds-inline-banner .ds-button";
 const FRAME: &str = "article.frame iframe.html";
 
 fn frame_width(harness: &Harness, selector: &str) -> f32 {
@@ -474,7 +474,7 @@ fn hovering_a_link_in_the_frame_shows_where_it_goes() {
     // Off every link: the pill goes, and nothing was opened.
     let off = window
         .harness
-        .centre(".consent")
+        .centre(".ds-inline-banner")
         .expect("the consent strip");
     window.harness.pointer_move(off);
     window.harness.advance(ms(100));
@@ -498,7 +498,7 @@ fn the_window_and_the_frame_share_no_nodes() {
     assert_eq!(frame.count("h3"), 2);
     assert!(frame.text().contains("Twelve new knits"));
     assert_eq!(
-        frame.count(".reader, .reader-body, .app, .consent, iframe"),
+        frame.count(".reader, .reader-body, .app, .ds-inline-banner, iframe"),
         0
     );
     // The window's own copy of the words is its blocks (the Reader view, hidden), never the
