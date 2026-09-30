@@ -166,6 +166,7 @@ fn escape_restores_the_saved_space_exactly() {
     let saved = Space {
         name: "Home".to_owned(),
         look: SpaceLook {
+            grain: ds::prelude::Grain(35),
             dots: PRESETS[3].to_vec(),
             theme: Theme::Dark,
             card_accent: CardAccent::Chosen,

@@ -8,7 +8,9 @@ use dioxus::prelude::*;
 use ds::base::time::clock;
 use ds::components::app::today_tabs::{TodayTab, TodayTabs};
 use ds::components::content::avatar::{AvatarFace, AvatarShape, AvatarSize, AvatarTone};
+use ds::components::lists::section_header::HeaderAction;
 use ds::prelude::*;
+use ds::root::common::Common;
 use ds::style::tokens::person::PersonSwatch;
 use mail_domain::ThreadId;
 use mail_store::{SqliteStore, Store};
@@ -45,6 +47,9 @@ pub(super) fn TodayList(
                 title: loaded.summary.subject.clone(),
                 leading: RowLeading::Avatar(face),
                 expires: clock::now() + left,
+                common: Common::default(),
+                onpointerenter: None,
+                onpointerleave: None,
             })
         })
         .collect();
@@ -55,15 +60,14 @@ pub(super) fn TodayList(
     rsx! {
         SectionHeader {
             title: "Today",
-            action: live.then(|| {
-                (
-                    "Clear".to_owned(),
-                    EventHandler::new(move |()| {
-                        today.write().clear(space_index);
-                        save(&dirs_clear, &today.read());
-                    }),
-                )
-            }),
+            actions: if live {
+                vec![HeaderAction::new("Clear", EventHandler::new(move |()| {
+                    today.write().clear(space_index);
+                    save(&dirs_clear, &today.read());
+                }))]
+            } else {
+                Vec::new()
+            },
         }
         super::super::compose::ParkedDrafts { shell, space_index }
         super::super::compose::ScheduledDrafts { shell }

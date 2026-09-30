@@ -14,6 +14,7 @@ use dioxus::prelude::*;
 use ds::components::lists::list::model::{ListItem, ListStyle};
 use ds::components::lists::row::row::Outline;
 use ds::host::measure::MountedRef;
+use ds::components::lists::section_header::HeaderAction;
 use ds::prelude::*;
 use mail_domain::AccountId;
 
@@ -190,14 +191,18 @@ pub(super) fn FolderList(
     rsx! {
         SectionHeader {
             title: "Folders",
-            action: ("New".to_owned(), EventHandler::new(move |()| {
-                if several {
-                    open.set(Open::Accounts);
-                } else if let Some(account) = first {
-                    open.set(Open::Naming { account, parent: None, text: String::new() });
-                }
-            })),
-            on_action_mounted: move |event: MountedEvent| new_button.set(Some(MountedRef(event.data()))),
+            actions: vec![HeaderAction {
+                onmounted: Some(EventHandler::new(move |event: MountedEvent| {
+                    new_button.set(Some(MountedRef(event.data())));
+                })),
+                ..HeaderAction::new("New", EventHandler::new(move |()| {
+                    if several {
+                        open.set(Open::Accounts);
+                    } else if let Some(account) = first {
+                        open.set(Open::Naming { account, parent: None, text: String::new() });
+                    }
+                }))
+            }],
         }
         if *open.read() == Open::Accounts {
             Floating {

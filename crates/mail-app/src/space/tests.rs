@@ -1,5 +1,5 @@
-use super::{PRESETS, Pinned, Recall, Scope, Space, Spaces, load, new_space, save};
-use ds::prelude::{SpaceLook, Theme};
+use super::{PRESETS, Pinned, Recall, Scope, Space, Spaces, load, new_space, preset_grain, save};
+use ds::prelude::{Grain, SpaceLook, Theme};
 use ds::style::space::look::CardAccent;
 use ds::style::space::palette::Dot;
 use mail_domain::{AccountId, ThreadId};
@@ -33,6 +33,13 @@ fn plain(name: &str) -> Space {
     }
 }
 
+/// The Space `plain(name)` reads back as at `index` in a file that stored no grain: the preset's.
+fn plain_at(name: &str, index: usize) -> Space {
+    let mut space = plain(name);
+    space.look.grain = Grain(preset_grain(index));
+    space
+}
+
 /// The first-run look, edited.
 fn look(edit: impl FnOnce(&mut SpaceLook)) -> SpaceLook {
     let mut look = Space::default().look;
@@ -62,6 +69,7 @@ fn spaces_round_trip() {
                     Space {
                         name: "Work".to_owned(),
                         look: SpaceLook {
+                            grain: ds::prelude::Grain(35),
                             dots: vec![
                                 Dot {
                                     hue: 268.0,
@@ -91,6 +99,7 @@ fn spaces_round_trip() {
                     Space {
                         name: "Home".to_owned(),
                         look: SpaceLook {
+                            grain: ds::prelude::Grain(35),
                             dots: PRESETS[1].to_vec(),
                             theme: Theme::Light,
                             card_accent: CardAccent::SpaceHue,
@@ -260,7 +269,7 @@ fn out_of_range_values_are_clamped() {
             Spaces {
                 current: 1,
                 recall: BTreeMap::new(),
-                spaces: vec![plain("A"), plain("B")],
+                spaces: vec![plain_at("A", 0), plain_at("B", 1)],
             },
         ),
     ];
@@ -357,6 +366,7 @@ fn a_spaces_file_from_before_quire_still_loads_and_round_trips() {
             Space {
                 name: "Work".to_owned(),
                 look: SpaceLook {
+                    grain: ds::prelude::Grain(35),
                     dots: vec![
                         Dot {
                             hue: 268.0,
@@ -380,6 +390,7 @@ fn a_spaces_file_from_before_quire_still_loads_and_round_trips() {
             Space {
                 name: "Home".to_owned(),
                 look: SpaceLook {
+                    grain: ds::prelude::Grain(55),
                     dots: vec![Dot {
                         hue: 152.0,
                         chroma: 0.62,
@@ -403,11 +414,22 @@ fn a_spaces_file_from_before_quire_still_loads_and_round_trips() {
     let work = &written["spaces"][0];
     // Flat, as before: the look is not nested under a key of its own.
     assert!(work.get("look").is_none(), "{work}");
-    // What no build reads is not written back.
-    assert!(work.get("grain").is_none(), "{work}");
+    // The grain is read and written again; what no build reads (`motion`) is not.
+    assert_eq!(work["grain"], 35, "{work}");
     assert!(work.get("motion").is_none(), "{work}");
     assert_eq!(work["theme"], "dark", "{work}");
     assert_eq!(work["card_accent"], "space_hue", "{work}");
     assert_eq!(work["dots"][0]["hue"], 268.0, "{work}");
     assert_eq!(load(dir.path()), want, "after saving");
+}
+
+#[test]
+fn a_space_without_a_grain_key_takes_its_presets_grain() {
+    let read: Spaces = serde_json::from_str(
+        r#"{"spaces":[{"name":"A"},{"name":"B","grain":7},{"name":"C","grain":"loud"}]}"#,
+    )
+    .unwrap_or_else(|e| panic!("{e}"));
+    let grains: Vec<u8> = read.spaces.iter().map(|space| space.look.grain.0).collect();
+    // Dusk's 35, what was stored, and Harbour's (the default's 35) for a value that is not a number.
+    assert_eq!(grains, [35, 7, 35]);
 }

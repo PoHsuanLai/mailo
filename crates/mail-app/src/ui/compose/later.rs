@@ -235,16 +235,16 @@ pub(in crate::ui) fn ScheduledDrafts(shell: Signal<Shell>) -> Element {
                     detail: Some(why.unwrap_or_else(|| format!("Waiting to be sent {words}")).into()),
                     accessory: Accessory::Text(words.clone()),
                     // A message waiting for its time opens nothing; Cancel is its one act.
-                    action: Some(RowAction {
-                        icon: Icon::X,
-                        label: format!("Cancel sending {}", one.title),
-                        on_press: EventHandler::new(move |_| {
+                    action: Some(RowAction::new(
+                        Icon::X,
+                        format!("Cancel sending {}", one.title),
+                        EventHandler::new(move |_| {
                             match cancel_waiting(desk, shell, draft) {
                                 Ok(()) => refused.set(None),
                                 Err(why) => refused.set(Some((draft, why))),
                             }
                         }),
-                    }),
+                    )),
                 }
             };
             ListItem::row(draft, one.title.clone(), row)

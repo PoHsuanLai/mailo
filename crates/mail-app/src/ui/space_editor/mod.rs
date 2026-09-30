@@ -29,9 +29,8 @@ use dioxus::prelude::*;
 use ds::components::controls::button_model::Answers;
 use ds::components::fields::field_row::{FieldGroup, FieldRow};
 use ds::components::overlays::sheet_attach::Attach;
+use ds::components::app::space_editor::{DotIndex, SpaceEditor as LookEditor, rows::MeasuredIn};
 use ds::prelude::*;
-use ds_shell::prelude::SpaceEditor as LookEditor;
-use ds_shell::space_editor::{DotIndex, rows::MeasuredIn};
 
 /// Apply `edit` to the draft and put the result in the window's Spaces, which the frame's
 /// root reads.

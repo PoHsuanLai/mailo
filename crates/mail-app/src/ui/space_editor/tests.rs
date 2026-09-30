@@ -93,7 +93,7 @@ async fn the_editor_opens_on_the_spaces_own_choices() {
     assert!(page.contains("aria-label=\"Space editor\""), "{page}");
 
     // Appearance and Accent are quire's `SpaceEditor`'s own rows and names; Provider marks is
-    // mailo's row under it. There is no Motion row (a Space sets no motion) and no Grain.
+    // mailo's row under it. There is no Motion row (a Space sets no motion); Grain is back, quire's own row.
     let groups = [
         (
             "Appearance",
@@ -102,8 +102,8 @@ async fn the_editor_opens_on_the_spaces_own_choices() {
         ),
         (
             "Accent",
-            ["A hint of the Space", "The accent"].as_slice(),
-            "A hint of the Space",
+            ["Space colour", "Your accent"].as_slice(),
+            "Space colour",
         ),
         (
             "Provider marks",
@@ -145,12 +145,11 @@ async fn the_editor_opens_on_the_spaces_own_choices() {
         2,
         "the Work Space has two dots: {page}"
     );
-    for gone in ["Grain", "Motion"] {
-        assert!(
-            !page.contains(&format!("aria-label=\"{gone}\"")),
-            "the editor still offers {gone}: {page}"
-        );
-    }
+    assert!(
+        !page.contains("aria-label=\"Motion\""),
+        "the editor still offers Motion: {page}"
+    );
+    assert!(page.contains("aria-label=\"Grain\""), "no Grain row: {page}");
 }
 
 #[tokio::test]

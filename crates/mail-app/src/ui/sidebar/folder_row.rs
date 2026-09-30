@@ -123,10 +123,10 @@ pub(super) fn FolderRow(
     // The row itself: the menu and its confirmation hang from it.
     let row_ref = use_signal(|| None::<MountedRef>);
     let path = node.path.clone();
-    let menu = RowAction {
-        icon: Icon::Ellipsis,
-        label: format!("Actions for {name}"),
-        on_press: EventHandler::new(move |_: Press| {
+    let menu = RowAction::new(
+        Icon::Ellipsis,
+        format!("Actions for {name}"),
+        EventHandler::new(move |_: Press| {
             note.set(None);
             let showing = matches!(&*open.peek(), Open::Actions(at) if *at == menu_spot);
             open.set(if showing {
@@ -135,7 +135,7 @@ pub(super) fn FolderRow(
                 Open::Actions(menu_spot.clone())
             });
         }),
-    };
+    );
     // Choosing the folder is the row's press; a folder that is no place has a name only. A
     // right-click is the menu's, whatever the folder is.
     let context_spot = spot.clone();

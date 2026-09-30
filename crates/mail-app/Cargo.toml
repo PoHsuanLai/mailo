@@ -37,18 +37,15 @@ dioxus = { version = "0.7" }
 # quire, the shared design system (github.com/PoHsuanLai/quire), pinned to a release tag.
 # To try an unreleased quire, point every quire line at a checkout with a `[patch]` in a local,
 # uncommitted `.cargo/config.toml`, never here.
-ds = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.2.1" }
+ds = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.2.2" }
 # Settings I/O: `appearance.toml` (imported once from `appearance.json`), the settings portal.
-ds-settings = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.2.1", features = ["dioxus"] }
-# The Space editor (`SpaceEditor`) and the Space dots are shell components; mailo draws them in
-# its own window.
-ds-shell = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.2.1" }
+ds-settings = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.2.2", features = ["dioxus"] }
 # `mailo.toml`, and the `appearance.toml` written once on the first run after the move.
 toml = "1"
 # The window: quire's Blitz host (the window, its fonts, focus, clipboard, PDF output), and
 # `print`: the system's print dialog for a PDF (the desktop portal on Linux, else the PDF opened
 # in the viewer).
-ds-blitz = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.2.1", features = ["pdf", "print"] }
+ds-blitz = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.2.2", features = ["pdf", "print"] }
 blitz-dom = { workspace = true }
 dioxus-native-dom = { workspace = true }
 # ASCII-case-insensitive multi-pattern search for highlights. Already in the tree via `regex`.
@@ -113,8 +110,8 @@ pdfrum = { git = "https://github.com/PoHsuanLai/pdfrum", rev = "613710405bcd2396
 # The linter (`lint::assert_clean`, the markup lint) and the test driver (`Harness`, `Driver`,
 # `Query`, `snapshot`; `pdf` is `Harness::pdf` for the print tests): quire's own crates, at the
 # same tag.
-ds-lint = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.2.1" }
-ds-harness = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.2.1", features = ["pdf"] }
+ds-lint = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.2.2" }
+ds-harness = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.2.2", features = ["pdf"] }
 
 [lints]
 workspace = true

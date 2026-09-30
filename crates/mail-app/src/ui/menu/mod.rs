@@ -184,11 +184,11 @@ fn palette_row(
     let action = match (&item.right, on_remove) {
         (Right::Remove(label), Some(remove)) => {
             let key = item.key.clone();
-            Some(RowAction {
-                icon: Icon::X,
-                label: label.clone(),
-                on_press: EventHandler::new(move |_| remove.call(key.clone())),
-            })
+            Some(RowAction::new(
+                Icon::X,
+                label.clone(),
+                EventHandler::new(move |_| remove.call(key.clone())),
+            ))
         }
         _ => None,
     };

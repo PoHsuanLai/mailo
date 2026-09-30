@@ -583,7 +583,7 @@ pub(super) fn App() -> Element {
                 EmptyState {
                     form: ds::components::overlays::empty_state::EmptyForm::Empty,
                     title: "Nothing open",
-                    description: Some("Pick a thread to read it.".to_owned()),
+                    description: Some("Pick a thread to read it.".into()),
                 }
             },
         }
@@ -694,8 +694,6 @@ fn Frame(spaces: Signal<Spaces>, children: Element) -> Element {
             system: environment.system,
             look: space.look,
             material: Material::Window,
-            // The Space editor and the Space dots are shell components, so the sheet is the shell's.
-            sheet: Some(ds_shell::stylesheet()),
             tint_alpha: Some(environment.tint_alpha()),
             stack: Some(environment.material_stack()),
             // One Look: Inter. The editorial faces are the design system's, not mail chrome's.

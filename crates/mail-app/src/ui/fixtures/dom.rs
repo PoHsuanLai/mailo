@@ -92,7 +92,7 @@ pub(in crate::ui) fn page(body: &str, head: &str) -> String {
         "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">\n\
          <title>mailo</title>\n<style>{}</style>\n<style>{STYLE}</style>\n\
          {head}</head>\n<body>{body}</body></html>\n",
-        ds_shell::stylesheet(),
+        ds::stylesheet(),
     )
 }
 

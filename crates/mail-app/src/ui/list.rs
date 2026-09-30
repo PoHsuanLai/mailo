@@ -18,6 +18,7 @@ use dioxus::prelude::*;
 use ds::components::content::label::{Label, LabelRole, LabelStyle};
 use ds::components::controls::button_model::{Bezel, ImagePosition};
 use ds::components::overlays::empty_state::EmptyForm;
+use ds::components::content::text_runs::RunTone;
 use ds::prelude::*;
 use ds::style::tokens::control_size::ControlSize;
 use mail_domain::*;
@@ -182,16 +183,19 @@ pub(super) fn ThreadList(
         Nothing::NoMatch(_) => EmptyForm::NoResults,
         Nothing::NoAccount | Nothing::EmptyFolder => EmptyForm::Empty,
     };
-    let empty_description = nothing().command().map(str::to_owned).or_else(|| {
-        matches!(nothing(), Nothing::EmptyFolder).then(|| {
-            if inbox {
+    let empty_description: Option<TextLine> = match nothing().command() {
+        Some(command) => Some(TextLine::Runs(vec![
+            TextRun::new("Run ", RunTone::Plain),
+            TextRun::new(command, RunTone::Code),
+        ])),
+        None => matches!(nothing(), Nothing::EmptyFolder).then(|| {
+            TextLine::from(if inbox {
                 "Inbox zero."
             } else {
                 "This place is empty."
-            }
-            .to_owned()
-        })
-    });
+            })
+        }),
+    };
     rsx! {
         div { class: "list-col",
             div { class: "list-bar",

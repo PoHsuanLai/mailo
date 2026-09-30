@@ -234,6 +234,7 @@ pub(in crate::ui) fn work() -> Work {
         spaces: vec![Space {
             name: "Work".to_owned(),
             look: SpaceLook {
+                grain: ds::prelude::Grain(35),
                 dots: vec![
                     Dot {
                         hue: 268.0,

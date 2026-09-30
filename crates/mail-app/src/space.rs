@@ -6,7 +6,8 @@
 
 use crate::appearance::{Legacy, write_json};
 use ds::prelude::{SpaceLook, Theme, Word};
-use ds::style::space::look::CardAccent;
+use ds::style::space::look::{CardAccent, Grain};
+use ds::style::space::presets::default_look;
 use ds::style::space::palette::{Dot, NEUTRAL_DOT};
 use ds::style::tokens::person::PersonSwatch;
 use mail_domain::AccountId;
@@ -54,8 +55,8 @@ pub enum Pinned {
 /// fourth is dropped), the palette this Space resolves to independently of the window, and
 /// whether the card follows its hue. It is written flat into `spaces.json`, beside the fields
 /// that are mailo's; it is read through [`SpaceRaw`], leniently, field by field. A file written
-/// before quire's one Look still holds a `grain` and a `motion` per Space: both are read by
-/// nobody and dropped on the next write.
+/// before quire's one Look may still hold a `motion` per Space: nobody reads it, and the next
+/// write drops it. The `grain` key is read again; a file without one takes the preset's own.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(from = "SpaceRaw")]
 pub struct Space {
@@ -108,6 +109,7 @@ impl Default for Space {
             name: String::new(),
             look: SpaceLook {
                 dots: vec![NEUTRAL_DOT],
+                grain: Grain::default(),
                 theme: Theme::default(),
                 card_accent: CardAccent::default(),
             },
@@ -149,6 +151,9 @@ struct SpaceRaw {
     name: String,
     #[serde(default)]
     dots: Vec<Dot>,
+    /// Absent, or not a number: the preset's own grain for this Space's place in the list.
+    #[serde(default, deserialize_with = "de_grain")]
+    grain: Option<u8>,
     #[serde(default, deserialize_with = "de_theme")]
     theme: Theme,
     #[serde(default, deserialize_with = "de_card_accent")]
@@ -164,7 +169,7 @@ struct SpaceRaw {
 #[derive(Deserialize)]
 struct SpacesRaw {
     #[serde(default)]
-    spaces: Vec<Space>,
+    spaces: Vec<SpaceRaw>,
     #[serde(default, deserialize_with = "de_index")]
     current: usize,
     #[serde(default, deserialize_with = "recall::de_recall")]
@@ -182,6 +187,13 @@ enum ScopeRaw {
 
 impl From<SpaceRaw> for Space {
     fn from(raw: SpaceRaw) -> Self {
+        Self::from_raw(raw, 0)
+    }
+}
+
+impl Space {
+    /// `raw` as the Space at `index`: a missing grain is that index's preset default.
+    fn from_raw(raw: SpaceRaw, index: usize) -> Self {
         let mut dots: Vec<Dot> = raw.dots.into_iter().map(clamp_dot).collect();
         if dots.is_empty() {
             dots.push(NEUTRAL_DOT);
@@ -192,6 +204,9 @@ impl From<SpaceRaw> for Space {
             name: raw.name,
             look: SpaceLook {
                 dots,
+                grain: raw
+                    .grain
+                    .map_or_else(|| Grain(preset_grain(index)), Grain),
                 theme: raw.theme,
                 card_accent: raw.card_accent,
             },
@@ -204,7 +219,12 @@ impl From<SpaceRaw> for Space {
 
 impl From<SpacesRaw> for Spaces {
     fn from(raw: SpacesRaw) -> Self {
-        let spaces = raw.spaces;
+        let spaces: Vec<Space> = raw
+            .spaces
+            .into_iter()
+            .enumerate()
+            .map(|(index, space)| Space::from_raw(space, index))
+            .collect();
         let current = match spaces.len() {
             0 => 0,
             count => raw.current.min(count - 1),
@@ -242,6 +262,21 @@ where
 {
     let value = i64::deserialize(deserializer)?;
     Ok(usize::try_from(value).unwrap_or(0))
+}
+
+fn de_grain<'de, D>(deserializer: D) -> Result<Option<u8>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(value
+        .as_u64()
+        .map(|grain| u8::try_from(grain).unwrap_or(u8::MAX).min(100)))
+}
+
+/// The grain the preset at `index` paints with.
+fn preset_grain(index: usize) -> u8 {
+    default_look(index, Grain::default(), CardAccent::default()).grain.0
 }
 
 fn de_theme<'de, D>(deserializer: D) -> Result<Theme, D::Error>
@@ -312,6 +347,7 @@ pub fn new_space(spaces: &Spaces) -> Space {
         ..Space::default()
     };
     made.look.dots = PRESETS[count % PRESETS.len()].to_vec();
+    made.look.grain = Grain(preset_grain(count));
     made.look.theme = current.look.theme;
     made
 }
@@ -323,10 +359,7 @@ pub fn save(dir: &Path, spaces: &Spaces) -> Result<(), String> {
 
 /// The first-run look with the dots of preset `index`, in turn.
 fn preset_look(index: usize) -> SpaceLook {
-    SpaceLook {
-        dots: PRESETS[index % PRESETS.len()].to_vec(),
-        ..Space::default().look
-    }
+    default_look(index, Grain::default(), CardAccent::default())
 }
 
 /// One Space per account, named "Space 1" onward, tinted from [`PRESETS`] in order.

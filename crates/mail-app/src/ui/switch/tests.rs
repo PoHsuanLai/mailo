@@ -267,6 +267,7 @@ async fn the_first_frame_and_a_switch_paint_a_space_the_same() {
         (
             "dark, the card follows the Space",
             SpaceLook {
+                grain: ds::prelude::Grain(35),
                 dots: PRESETS[1].to_vec(),
                 theme: Theme::Dark,
                 card_accent: CardAccent::SpaceHue,
@@ -285,6 +286,7 @@ async fn the_first_frame_and_a_switch_paint_a_space_the_same() {
         (
             "system, a hand-made dot",
             SpaceLook {
+                grain: ds::prelude::Grain(35),
                 dots: vec![Dot {
                     hue: 164.066_35,
                     chroma: 0.7,

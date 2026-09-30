@@ -40,7 +40,7 @@ pub(in crate::ui) mod tests {
 
     /// Everything the window's markup is styled by: quire's stylesheet, then mailo's.
     pub(in crate::ui) fn full_css() -> String {
-        format!("{}\n{STYLE}", ds_shell::stylesheet())
+        format!("{}\n{STYLE}", ds::stylesheet())
     }
 
     /// The custom properties mailo's own rules declare on an element, each for its own box.
@@ -51,7 +51,7 @@ pub(in crate::ui) mod tests {
             profile: Profile::Strict,
             own_vars: PER_ELEMENT.iter().map(|name| (*name).to_owned()).collect(),
             exceptions: super::exceptions::STYLE,
-            ..LintConfig::new(&ds_shell::kits())
+            ..LintConfig::new(&ds::kits())
         }
     }
 
@@ -63,7 +63,7 @@ pub(in crate::ui) mod tests {
             &full_css(),
             &LintConfig {
                 exceptions: super::exceptions::MARKUP,
-                ..LintConfig::new(&ds_shell::kits())
+                ..LintConfig::new(&ds::kits())
             },
         )
     }

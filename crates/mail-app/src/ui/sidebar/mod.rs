@@ -27,7 +27,6 @@ use ds::root::common::Common;
 use ds::root::pass_through::{DataAttr, DataName, ExtraClass};
 use ds::style::space::frame_vars::FrameVars;
 use ds::style::tokens::control_size::ControlSize;
-use ds_shell::prelude::SpaceDot;
 
 /// A `data-<name>` of mailo's own on a quire component: where a hover card or a test finds the
 /// thing the element stands for.
