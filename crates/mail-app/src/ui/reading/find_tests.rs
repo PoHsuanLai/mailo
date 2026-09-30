@@ -1,4 +1,4 @@
-//! Ctrl F in the reader, driven through the field the way a person types into it.
+//! ⌘F in the reader, driven through the field the way a person types into it.
 
 use super::Reader;
 use super::blocks::{iframe_mounts, reset_iframe_mounts};
@@ -15,7 +15,7 @@ use dioxus::prelude::*;
 use dioxus_core::{ElementId, VirtualDom};
 use mail_domain::ThreadId;
 
-/// The reader on `thread`, with Ctrl F already open.
+/// The reader on `thread`, with ⌘F already open.
 #[component]
 fn Finding(thread: ThreadId) -> Element {
     let shell = use_signal(|| Shell {
@@ -289,7 +289,7 @@ async fn ctrl_f_opens_the_field_on_the_open_thread_and_esc_closes_it() {
     };
     assert!(
         host.asked().contains(&search),
-        "Ctrl F with nothing open did not reach the search box: {:?}",
+        "⌘F with nothing open did not reach the search box: {:?}",
         host.asked()
     );
     assert!(!dioxus_ssr::render(&dom).contains("Find in this thread"));
@@ -303,7 +303,7 @@ async fn ctrl_f_opens_the_field_on_the_open_thread_and_esc_closes_it() {
     let page = dioxus_ssr::render(&dom);
     assert!(
         page.contains("Find in this thread"),
-        "Ctrl F opened no field:\n{page}"
+        "⌘F opened no field:\n{page}"
     );
     assert!(
         host.asked()

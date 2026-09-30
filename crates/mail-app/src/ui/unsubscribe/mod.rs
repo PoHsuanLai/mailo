@@ -242,7 +242,7 @@ pub(in crate::ui) fn archive_from(store: &SqliteStore, sender: &str) -> Vec<Undo
         .collect()
 }
 
-/// The toast's "Archive all from this list": [`archive_from`], kept for Ctrl Z one at a time,
+/// The toast's "Archive all from this list": [`archive_from`], kept for ⌘Z one at a time,
 /// and said.
 pub(in crate::ui) fn archive_list(
     store: &SqliteStore,

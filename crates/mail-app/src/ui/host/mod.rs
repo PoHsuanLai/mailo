@@ -27,7 +27,7 @@ pub(in crate::ui) enum When {
 /// draws it reaches the page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::ui) enum Drawn {
-    /// The reader's find field, `.find input` (Ctrl F).
+    /// The reader's find field, `.find input` (⌘F).
     FindField,
 }
 

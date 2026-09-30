@@ -1,3 +1,4 @@
+use super::chord::Chord;
 use super::command::CommandMenu;
 use super::compose::{self, ComposerPage, PageKind, SendPill};
 use super::data::{PAGE, accounts, count_badges, warm_the_first_screenful};
@@ -339,40 +340,49 @@ pub(super) fn App() -> Element {
             return;
         }
         let typing_now = in_a_field() || shell.read().composing.is_some();
-        if super::motion::key(&key, event.modifiers().ctrl(), typing_now, shell, revision) {
+        let modifiers = event.modifiers();
+        let chord = super::chord::chord(&key, modifiers);
+        if super::motion::key(
+            &key,
+            chord == Some(Chord::Undo),
+            typing_now,
+            shell,
+            revision,
+        ) {
             return;
         }
-        if key == "s" && event.modifiers().ctrl() {
-            side_hidden.set(!side_hidden());
-            return;
-        }
-        if event.modifiers().ctrl()
-            && let Some(index) = super::switch::space_key(&key)
-        {
-            super::switch::go(spaces, shell, pages, index);
-            return;
-        }
-        if (key == "f" || key == "F") && event.modifiers().ctrl() {
-            super::reading::open_find(shell);
-            return;
-        }
-        if (key == "p" || key == "P") && event.modifiers().ctrl() {
-            // The open conversation, as one flow. Nothing open: nothing printed, nothing said.
-            let open = shell.read().open;
-            if let Some(job) = super::print::job_for(open) {
-                super::print::print(job);
+        match chord {
+            Some(Chord::ToggleSidebar) => {
+                side_hidden.set(!side_hidden());
+                return;
             }
-            return;
-        }
-        if (key == "t" || key == "T") && event.modifiers().ctrl() {
-            let open = shell.read().command.is_some();
-            if open {
-                shell.write().command = None;
-                super::host::Host::focus_app();
-            } else {
-                shell.write().command = Some(String::new());
+            Some(Chord::SwitchSpace(index)) => {
+                super::switch::go(spaces, shell, pages, index);
+                return;
             }
-            return;
+            Some(Chord::Find) => {
+                super::reading::open_find(shell);
+                return;
+            }
+            Some(Chord::Print) => {
+                // The open conversation, as one flow. Nothing open: nothing printed, nothing said.
+                let open = shell.read().open;
+                if let Some(job) = super::print::job_for(open) {
+                    super::print::print(job);
+                }
+                return;
+            }
+            Some(Chord::CommandMenu) => {
+                let open = shell.read().command.is_some();
+                if open {
+                    shell.write().command = None;
+                    super::host::Host::focus_app();
+                } else {
+                    shell.write().command = Some(String::new());
+                }
+                return;
+            }
+            Some(Chord::Undo) | None => {}
         }
         // A menu is showing its own cursor. Shortcuts would archive a thread the user is
         // trying to filter for, and the menu's own handler already took the arrows.
@@ -414,7 +424,8 @@ pub(super) fn App() -> Element {
                 return;
             }
         }
-        let Some(action) = crate::view::shortcut(&key, typing) else {
+        let Some(action) = crate::view::shortcut(&key, typing, super::chord::command(modifiers))
+        else {
             return;
         };
         let store = consume_context::<Arc<SqliteStore>>();

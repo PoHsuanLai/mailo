@@ -219,7 +219,7 @@ async fn ctrl_z_undoes_the_same_way() {
         ElementId(INSIDE_THE_SHELL as usize),
     );
 
-    assert_eq!(mailboxes(&store, dana), before, "Ctrl Z did not undo");
+    assert_eq!(mailboxes(&store, dana), before, "⌘Z did not undo");
 }
 
 #[tokio::test]

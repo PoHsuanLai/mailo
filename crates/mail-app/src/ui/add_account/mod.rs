@@ -1,4 +1,4 @@
-//! Adding an account from the window: "Add account…" from Ctrl T, the "+" after the account
+//! Adding an account from the window: "Add account…" from ⌘K, the "+" after the account
 //! tiles, and the Space editor.
 //!
 //! An address, then Look up — which sends only its domain — then what was found, where it came

@@ -6,6 +6,7 @@
 
 mod add_account;
 mod app;
+mod chord;
 mod command;
 mod common;
 mod compose;

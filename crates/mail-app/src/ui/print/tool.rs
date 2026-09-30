@@ -21,7 +21,7 @@ pub(super) const CHOICES: [(Pages, &str); 2] = [
 ];
 
 /// Print, in the head's tools. It opens a popover rather than printing at once: the choice of
-/// pages is there, and Save for printing beside it. Ctrl P prints without asking.
+/// pages is there, and Save for printing beside it. ⌘P prints without asking.
 #[component]
 pub(in crate::ui) fn PrintTool(thread: ThreadId) -> Element {
     let mut open = use_signal(|| Shown::Hidden);

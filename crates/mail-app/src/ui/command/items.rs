@@ -1,4 +1,4 @@
-//! The rows of the Ctrl T menu, built from one `search::run`.
+//! The rows of the ⌘K menu, built from one `search::run`.
 //!
 //! The ranker's sender affinity comes from the one grouped sender history the hover cards read
 //! (`ui::history`): how many conversations, and whether you have written to them.
@@ -248,9 +248,9 @@ pub(in crate::ui) fn avatar_color(email: &str) -> String {
 
 fn action_item(hit: &ActionHit, group: &str) -> MenuItem {
     let shortcut = match hit.command.label.as_str() {
-        "Compose" => Some("C".to_owned()),
-        "Hide sidebar" => Some("Ctrl S".to_owned()),
-        "Print conversation" => Some("Ctrl P".to_owned()),
+        "Compose" => Some("\u{2318}N".to_owned()),
+        "Hide sidebar" => Some("\u{2303}\u{2318}S".to_owned()),
+        "Print conversation" => Some("\u{2318}P".to_owned()),
         _ => None,
     };
     MenuItem {

@@ -104,7 +104,7 @@ pub(super) fn Places(
             common: Common { extra_class: ExtraClass::parse("side").ok(), ..Common::default() },
             CommandPill {
                 label: "Search or run a command".to_owned(),
-                shortcut: Shortcut(vec![ShortcutKey::Ctrl, ShortcutKey::Char('t')]),
+                shortcut: Shortcut(vec![ShortcutKey::Super, ShortcutKey::Char('k')]),
                 onclick: move |()| {
                     shell.write().command = Some(String::new());
                 },
@@ -134,9 +134,9 @@ pub(super) fn Places(
                     for (index, one) in spaces.read().spaces.iter().enumerate() {
                         {
                             let selection = Selection::of(&index, &space_index);
-                            // Ctrl and the Space's place, one to nine: the keys `App` switches on.
+                            // ⌘ and the Space's place, one to nine: the keys `App` switches on.
                             let keys = char::from_digit(u32::try_from(index + 1).unwrap_or(0), 10)
-                                .map_or_else(Vec::new, |digit| vec![ShortcutKey::Ctrl, ShortcutKey::Char(digit)]);
+                                .map_or_else(Vec::new, |digit| vec![ShortcutKey::Super, ShortcutKey::Char(digit)]);
                             rsx! {
                                 SpaceDot {
                                     key: "{index}",
@@ -187,7 +187,7 @@ pub(super) fn Places(
                     size: ControlSize::Small,
                     icon: Icon::PanelLeft,
                     label: "Hide sidebar",
-                    title: "Hide the sidebar (Ctrl S)".to_owned(),
+                    title: "Hide the sidebar (\u{2303}\u{2318}S)".to_owned(),
                     onclick: move |_| side_hidden.set(!side_hidden()),
                 }
             }

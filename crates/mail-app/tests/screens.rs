@@ -193,7 +193,7 @@ fn screens() {
         h.advance(ms(400));
         // Palette.
         let (mut h, _d) = open(dark);
-        h.chord(&[Key::Ctrl], Key::Char('t'));
+        h.chord(&[Key::Ctrl], Key::Char('k'));
         h.advance(ms(400));
         for c in "ar".chars() {
             h.key(Key::Char(c));
@@ -202,7 +202,7 @@ fn screens() {
         // Sheet: Add account.
         h.key(Key::Escape);
         h.advance(ms(400));
-        h.chord(&[Key::Ctrl], Key::Char('t'));
+        h.chord(&[Key::Ctrl], Key::Char('k'));
         h.advance(ms(400));
         for c in "add acc".chars() {
             h.key(if c == ' ' { Key::Space } else { Key::Char(c) });

@@ -486,12 +486,12 @@ pub struct Shell {
     pub rules: Option<RulesSheet>,
     /// The keys and certificates sheet while it is open. `None` is closed.
     pub keys: Option<KeysSheet>,
-    /// Ctrl F in the open thread. `None` is closed, and marks nothing.
+    /// ⌘F in the open thread. `None` is closed, and marks nothing.
     ///
     /// Belongs to the thread it was opened on: [`Self::open`] and [`Self::close`] drop it, so a
     /// find never carries its count into a conversation it was not typed for.
     pub find: Option<crate::search::Find>,
-    /// What the undo toast and Ctrl Z can take back, newest last.
+    /// What the undo toast and ⌘Z can take back, newest last.
     pub undo: crate::undo::UndoStack,
 }
 
@@ -943,10 +943,19 @@ pub enum Shortcut {
 /// typing in is the one thing you must be able to do from inside it.
 ///
 /// Keys are named as the DOM names them, so the caller does not have to invent a second
-/// vocabulary for the same events.
-pub fn shortcut(key: &str, typing: bool) -> Option<Shortcut> {
+/// vocabulary for the same events. `command` is whether ⌘ is held (`ui::chord::command`).
+pub fn shortcut(key: &str, typing: bool, command: bool) -> Option<Shortcut> {
     if key == "Escape" {
         return Some(Shortcut::Back);
+    }
+    // ⌘ held, the Mac's own: ⌘N writes a message wherever the caret is, ⌘⌫ trashes. No bare letter
+    // is a shortcut with ⌘ held, because ⌘C is copy and ⌘A is select all.
+    if command {
+        return match key {
+            "n" | "N" => Some(Shortcut::Compose),
+            "Delete" | "Backspace" if !typing => Some(Shortcut::Trash),
+            _ => None,
+        };
     }
     if typing {
         return None;
@@ -1523,11 +1532,17 @@ mod tests {
         assert_eq!(shell.selected_tab(), None);
 
         shell.open(thread);
-        assert!(shell.place_selected(0), "a thread from the list keeps the place");
+        assert!(
+            shell.place_selected(0),
+            "a thread from the list keeps the place"
+        );
         assert_eq!(shell.selected_tab(), None);
 
         shell.open_from_today(thread);
-        assert!(!shell.place_selected(0), "a tab and a place are both selected");
+        assert!(
+            !shell.place_selected(0),
+            "a tab and a place are both selected"
+        );
         assert_eq!(shell.selected_tab(), Some(thread));
 
         shell.select(1);
@@ -2442,26 +2457,40 @@ mod keyboard {
     fn a_letter_is_a_shortcut_while_reading_and_a_letter_while_writing() {
         // The bug this exists to prevent: typing "e" into a reply archiving the conversation
         // behind it.
-        assert_eq!(shortcut("e", false), Some(Shortcut::Archive));
-        assert_eq!(shortcut("e", true), None);
+        assert_eq!(shortcut("e", false, false), Some(Shortcut::Archive));
+        assert_eq!(shortcut("e", true, false), None);
         for key in ["j", "k", "s", "u", "r", "a", "#", "ArrowDown", "ArrowUp"] {
-            assert!(shortcut(key, false).is_some(), "{key} does nothing");
-            assert_eq!(shortcut(key, true), None, "{key} fired while typing");
+            assert!(shortcut(key, false, false).is_some(), "{key} does nothing");
+            assert_eq!(shortcut(key, true, false), None, "{key} fired while typing");
         }
+    }
+
+    #[test]
+    fn command_held_is_the_macs_and_never_a_bare_letter() {
+        // ⌘N writes a message from anywhere, ⌘⌫ trashes while reading, and ⌘C, ⌘A and the
+        // rest are the field's and the Mac's: none of them archives, replies or forwards.
+        assert_eq!(shortcut("n", false, true), Some(Shortcut::Compose));
+        assert_eq!(shortcut("N", true, true), Some(Shortcut::Compose));
+        assert_eq!(shortcut("Backspace", false, true), Some(Shortcut::Trash));
+        assert_eq!(shortcut("Backspace", true, true), None);
+        for key in ["c", "a", "e", "r", "f", "p", "s", "u", "j", "k"] {
+            assert_eq!(shortcut(key, false, true), None, "⌘{key} is not ours");
+        }
+        assert_eq!(shortcut("Escape", true, true), Some(Shortcut::Back));
     }
 
     #[test]
     fn escape_works_from_inside_the_thing_it_closes() {
         // The one exception, and it has to be: closing what you are typing in is not something
         // you can be asked to reach for the mouse to do.
-        assert_eq!(shortcut("Escape", true), Some(Shortcut::Back));
-        assert_eq!(shortcut("Escape", false), Some(Shortcut::Back));
+        assert_eq!(shortcut("Escape", true, false), Some(Shortcut::Back));
+        assert_eq!(shortcut("Escape", false, false), Some(Shortcut::Back));
     }
 
     #[test]
     fn a_key_that_is_not_a_shortcut_is_left_alone() {
         for key in ["z", "F5", "Tab", "Shift", " ", "1"] {
-            assert_eq!(shortcut(key, false), None, "{key} was swallowed");
+            assert_eq!(shortcut(key, false, false), None, "{key} was swallowed");
         }
     }
 
@@ -2509,8 +2538,8 @@ mod keyboard {
 
     #[test]
     fn f_forwards_and_is_not_an_operation() {
-        assert_eq!(shortcut("f", false), Some(Shortcut::Forward));
-        assert_eq!(shortcut("f", true), None, "fired while typing");
+        assert_eq!(shortcut("f", false, false), Some(Shortcut::Forward));
+        assert_eq!(shortcut("f", true, false), None, "fired while typing");
         let inbox = summary(ReadState::Read, Star::Unstarred, MailboxRole::Inbox);
         assert_eq!(
             op_for_shortcut(Shortcut::Forward, &inbox),
@@ -2522,8 +2551,8 @@ mod keyboard {
     #[test]
     fn p_pins_and_unpins_and_the_rank_is_the_clock() {
         let now = Utc.with_ymd_and_hms(2026, 9, 22, 6, 0, 0).unwrap();
-        assert_eq!(shortcut("p", false), Some(Shortcut::TogglePin));
-        assert_eq!(shortcut("p", true), None, "fired while typing");
+        assert_eq!(shortcut("p", false, false), Some(Shortcut::TogglePin));
+        assert_eq!(shortcut("p", true, false), None, "fired while typing");
 
         let unpinned = summary(ReadState::Read, Star::Unstarred, MailboxRole::Inbox);
         assert_eq!(

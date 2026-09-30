@@ -1,4 +1,4 @@
-//! The Ctrl T menu: a field, the operator chips, and the grouped results.
+//! The ⌘K menu: a field, the operator chips, and the grouped results.
 //!
 //! The rows are built in [`items`]; this file is the overlay and what a pick does. The search
 //! runs off the thread that draws, once the field has been still for [`super::debounce::QUIET`],
@@ -106,11 +106,11 @@ pub(super) fn CommandMenu(
     }
 }
 
-/// Ctrl T in the palette's field closes it, as Ctrl T in the window opens it. The field holds
-/// the keyboard while the palette is up, so the window's own shortcut never hears it.
+/// ⌘K in the palette's field closes it, as ⌘K in the window opens it. The field holds the
+/// keyboard while the palette is up, so the window's own shortcut never hears it.
 fn toggle_key(event: &KeyboardEvent, shell: Signal<Shell>) {
     let key = event.key().to_string();
-    if event.modifiers().ctrl() && (key == "t" || key == "T") {
+    if super::chord::chord(&key, event.modifiers()) == Some(super::chord::Chord::CommandMenu) {
         event.prevent_default();
         close(shell);
     }

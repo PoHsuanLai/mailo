@@ -102,7 +102,7 @@ pub(super) fn NameField(
             onkey: move |event: KeyboardEvent| {
                 // Ctrl chords are still the window's. Every other key is the field's: a letter
                 // typed into a name is not a shortcut.
-                if event.modifiers().ctrl() {
+                if event.modifiers().ctrl() || event.modifiers().meta() {
                     return;
                 }
                 event.stop_propagation();

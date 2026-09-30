@@ -1,4 +1,4 @@
-//! Ctrl F: a small field in the reader head that finds in the open thread.
+//! ⌘F: a small field in the reader head that finds in the open thread.
 //!
 //! What it finds is [`crate::search::find_highlight`]: plain words, or one `re:/…/`. Where it
 //! finds it is `found.rs`, over the parsed blocks only. Enter and Shift+Enter move through the
@@ -17,7 +17,7 @@ use ds::style::icon::render::Glyph;
 /// The current match, which Enter and typing bring into the middle of the reader.
 const CURRENT: &str = "mark.hit.now";
 
-/// Ctrl F. With a thread open it opens the find field, or selects its text when it is already
+/// ⌘F. With a thread open it opens the find field, or selects its text when it is already
 /// open. With nothing open there is no thread to find in, so it goes to the list's search box.
 pub(in crate::ui) fn open_find(mut shell: Signal<Shell>) {
     if shell.peek().open.is_none() {
@@ -44,9 +44,13 @@ pub(super) fn FindBar(shell: Signal<Shell>, total: usize, invalid: bool) -> Elem
                 onkeydown: move |event: Event<KeyboardData>| {
                     let key = event.key().to_string();
                     let modifiers = event.modifiers();
-                    let find_chord = key == "f" || key == "F";
-                    // Other chords are the window's: Ctrl T still opens the command menu from here.
-                    if modifiers.ctrl() && !find_chord {
+                    let find_chord = super::super::chord::chord(&key, modifiers)
+                        == Some(super::super::chord::Chord::Find);
+                    // Other chords are the window's: ⌘K still opens the command menu from here.
+                    if (super::super::chord::command(modifiers)
+                        || super::super::chord::control_command(modifiers))
+                        && !find_chord
+                    {
                         return;
                     }
                     // Everything else stays in the field. A letter typed here is not a shortcut.

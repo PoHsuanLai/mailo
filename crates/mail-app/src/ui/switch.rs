@@ -10,7 +10,7 @@ use crate::space::{self, Recall, Space, Spaces};
 use crate::view::{PageMenu, Shell};
 use dioxus::prelude::*;
 
-/// The Space Ctrl and a digit ask for: `"1"` is the first. `None` for any other key.
+/// The Space ⌘ and a digit ask for: `"1"` is the first. `None` for any other key.
 pub(super) fn space_key(key: &str) -> Option<usize> {
     let mut chars = key.chars();
     let digit = chars.next()?.to_digit(10)?;

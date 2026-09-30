@@ -1,4 +1,4 @@
-//! The Ctrl T menu over the reference fixture, and the pages its screenshots are taken from.
+//! The ⌘K menu over the reference fixture, and the pages its screenshots are taken from.
 
 use super::super::app::App;
 use super::items::{Pick, interpret, rows_of, search_now, tokens};
@@ -77,7 +77,7 @@ fn at_dana(store: &SqliteStore) -> (Results, HashMap<String, String>) {
     search_now(store, "dana", Utc::now())
 }
 
-/// The addresses the Ctrl T menu's person rows name for `query`, top hit first, as drawn.
+/// The addresses the ⌘K menu's person rows name for `query`, top hit first, as drawn.
 pub(in crate::ui) fn people_for(store: &SqliteStore, query: &str) -> Vec<String> {
     let (results, names) = search_now(store, query, Utc::now());
     rows_of(&results, &names, query)
@@ -216,7 +216,7 @@ async fn render_the_menus_to_a_file() {
             .with_root_context(in_scheme(scheme));
         dom.rebuild_in_place();
         settle(&mut dom).await;
-        // Ctrl T in the window, then "dana" in quire's palette, which floats in the root's
+        // ⌘K in the window, then "dana" in quire's palette, which floats in the root's
         // overlay and answers once the field has been still.
         crate::ui::fixtures::chord(
             &mut dom,

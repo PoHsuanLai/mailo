@@ -245,7 +245,7 @@ pub(super) fn Reader(
     let any_frame = shown
         .iter()
         .any(|(_, reading, _)| reading.frame_html().is_some());
-    // Ctrl F's marks, or the list search's while no find is open. Blocks only: the frame is
+    // ⌘F's marks, or the list search's while no find is open. Blocks only: the frame is
     // never read and never marked.
     let (highlight, problem) = marking(&shell.read());
     let finding = shell.read().find.clone();

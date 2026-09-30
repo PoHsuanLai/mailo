@@ -229,7 +229,7 @@ async fn ctrl_p_with_nothing_open_does_nothing_and_with_a_thread_starts_printing
     assert_eq!(
         dioxus_ssr::render(&dom),
         before,
-        "Ctrl P with nothing open changed the window"
+        "⌘P with nothing open changed the window"
     );
 
     let row = seen.one(

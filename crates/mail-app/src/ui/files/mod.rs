@@ -1,4 +1,4 @@
-//! Mail files in the window: "Import mail…" and "Export mail…" from Ctrl T.
+//! Mail files in the window: "Import mail…" and "Export mail…" from ⌘K.
 //!
 //! [`work`] is every question and every write, as functions of a store and a path; the two
 //! sheets only draw what it answers. The path is typed, and a Maildir is a directory. The native

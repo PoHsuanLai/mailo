@@ -286,7 +286,7 @@ pub(super) fn caps_here(
 
 /// Apply one resolved operation: locally, and to the server when it has a server half.
 ///
-/// Returns what it takes to undo it, which the window keeps for the toast and Ctrl Z.
+/// Returns what it takes to undo it, which the window keeps for the toast and ⌘Z.
 pub(super) fn perform(store: &SqliteStore, thread: ThreadId, op: Op) -> Option<Undo> {
     let loaded = store.thread(thread).ok()?;
     let messages: Vec<Message> = loaded

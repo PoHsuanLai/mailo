@@ -42,7 +42,7 @@ pub(in crate::ui) struct Job {
     pub pages: Pages,
 }
 
-/// What Ctrl P, or the menu's Print, prints: the open conversation as one flow. With nothing
+/// What ⌘P, or the menu's Print, prints: the open conversation as one flow. With nothing
 /// open there is nothing to print, and nothing is said.
 pub(in crate::ui) fn job_for(open: Option<ThreadId>) -> Option<Job> {
     open.map(|thread| Job {

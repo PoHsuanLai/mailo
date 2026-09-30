@@ -1,4 +1,4 @@
-//! "New from template" in Ctrl T: the action lists the templates, Enter starts a draft from the
+//! "New from template" in ⌘K: the action lists the templates, Enter starts a draft from the
 //! active one and opens it, and the × deletes one.
 
 use std::cell::Cell;
@@ -14,7 +14,7 @@ thread_local! {
     static SHELL: Cell<Option<Signal<Shell>>> = const { Cell::new(None) };
 }
 
-/// Ctrl T open on `typed`, over the store the test holds.
+/// ⌘K open on `typed`, over the store the test holds.
 #[component]
 fn Open(typed: String) -> Element {
     let shell = use_signal(|| Shell {
@@ -95,7 +95,7 @@ async fn new_from_template_lists_starts_and_deletes() {
     assert_eq!(started.text, template.text);
     assert!(
         dom.in_runtime(|| shell.peek().command.is_none()),
-        "Ctrl T stayed open"
+        "⌘K stayed open"
     );
 
     // Open again on the list, and delete from it.
@@ -128,7 +128,7 @@ async fn new_from_template_lists_starts_and_deletes() {
     assert!(offences.is_empty(), "the markup lint: {offences:#?}");
 }
 
-/// Ctrl T listing two templates over the Work Space, in both themes (`target/later-ctrl-t.html`).
+/// ⌘K listing two templates over the Work Space, in both themes (`target/later-ctrl-t.html`).
 #[tokio::test]
 #[ignore = "writes target/later-ctrl-t.html and its -dark twin for a person to look at"]
 async fn render_new_from_template_to_a_file() {

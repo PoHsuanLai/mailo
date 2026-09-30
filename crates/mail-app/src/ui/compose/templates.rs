@@ -1,5 +1,5 @@
 //! Templates in the window: "Save as template…" and "Start from a template" in the `/` menu, and
-//! the rows every list of templates draws, here and in Ctrl T.
+//! the rows every list of templates draws, here and in ⌘K.
 //!
 //! Every write goes through `crate::template`, the module `mailo template` uses. Templates are
 //! local only; see `mail_domain::template`.

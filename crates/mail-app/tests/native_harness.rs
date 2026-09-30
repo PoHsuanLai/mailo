@@ -403,9 +403,13 @@ fn the_toast_hides_after_its_hold() {
 fn ctrl_t_opens_the_palette_with_the_keyboard_in_its_field() {
     let (mut harness, _dir) = open();
     assert_eq!(harness.count(".ds-palette"), 0);
-    harness.chord(&[Key::Ctrl], Key::Char('t'));
+    harness.chord(&[Key::Ctrl], Key::Char('k'));
     harness.advance(ms(300));
-    assert_eq!(harness.count(".ds-palette"), 1, "Ctrl T opened no palette");
+    assert_eq!(
+        harness.count(".ds-palette"),
+        1,
+        "Cmd K (Ctrl under Toshy) opened no palette"
+    );
     assert!(
         harness.is_focused(".ds-palette input"),
         "the palette's field does not hold the keyboard"
@@ -460,7 +464,7 @@ fn ctrl_f_puts_the_keyboard_in_the_find_field_and_escape_gives_it_back() {
     // Found by selector and focused in the document (`ui/host/native.rs`).
     assert!(
         harness.is_focused(".find input"),
-        "Ctrl F left the keyboard elsewhere"
+        "⌘F left the keyboard elsewhere"
     );
     for key in "body".chars() {
         harness.key(Key::Char(key));
@@ -674,7 +678,7 @@ fn a_press_on_a_row_s_strip_leaves_the_keyboard_working() {
     );
 }
 
-/// Ctrl P on the first row's conversation, and the toast that says how it ended. The PDF is made
+/// ⌘P on the first row's conversation, and the toast that says how it ended. The PDF is made
 /// on a blocking thread, so this waits (with time passing) for the toast rather than a frame.
 fn print_first_row(harness: &mut Harness) -> String {
     open_row(harness, 1);
@@ -686,7 +690,7 @@ fn print_first_row(harness: &mut Harness) -> String {
             return said;
         }
     }
-    panic!("Ctrl P put up no toast:\n{}", harness.html());
+    panic!("⌘P put up no toast:\n{}", harness.html());
 }
 
 #[test]

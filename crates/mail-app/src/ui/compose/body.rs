@@ -389,7 +389,7 @@ fn Bubble(page: Signal<Page>, place: Option<String>) -> Element {
                     Button {
                         bezel: Bezel::Toolbar,
                         label: "Link",
-                        title: "Link (Ctrl K)".to_owned(),
+                        title: "Link (\u{2318}K)".to_owned(),
                         size: ControlSize::Small,
                         icon: Icon::Link,
                         image: ImagePosition::Only,

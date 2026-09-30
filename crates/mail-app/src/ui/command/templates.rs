@@ -1,4 +1,4 @@
-//! Ctrl T's "New from template": the same overlay, listing every template through the one
+//! ⌘K's "New from template": the same overlay, listing every template through the one
 //! [`Menu`]. Picking one starts a draft from it and opens that draft as a composer page; the ×
 //! deletes one.
 
@@ -34,7 +34,7 @@ pub(in crate::ui) fn start(store: &SqliteStore, key: &str) -> Result<Draft, Stri
     crate::template::start(store, id, &[], Utc::now())
 }
 
-/// The overlay, while Ctrl T is listing templates: quire's palette again. The field narrows
+/// The overlay, while ⌘K is listing templates: quire's palette again. The field narrows
 /// the list; each row's × deletes its template.
 #[component]
 pub(super) fn TemplateMenu(shell: Signal<Shell>, revision: Signal<u64>) -> Element {

@@ -229,7 +229,7 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                         bezel: Bezel::Toolbar,
                         icon: Icon::Maximize,
                         label: "Focus".to_owned(),
-                        title: "Focus (Ctrl Shift F)".to_owned(),
+                        title: "Focus (\u{21e7}\u{2318}F)".to_owned(),
                         onclick: move |_| toggle_focus(page, desk),
                         image: ImagePosition::Only,
                     }
@@ -280,7 +280,7 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                         span { {cap(&[ShortcutKey::Char('/')])} " headings, lists, images…" }
                         span { "select text to style it" }
                         span { {cap(&[ShortcutKey::Char('@')])} " mention" }
-                        span { {cap(&[ShortcutKey::Ctrl, ShortcutKey::Enter])} " send" }
+                        span { {cap(&[ShortcutKey::Super, ShortcutKey::Enter])} " send" }
                         span { {cap(&[ShortcutKey::Escape])} " keep for later" }
                     }
                 }

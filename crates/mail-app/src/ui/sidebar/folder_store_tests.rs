@@ -135,7 +135,7 @@ fn made_renamed_and_deleted_through_the_window_and_each_undone() {
     assert_eq!(drawn(&store), "Projects (2026), 收據");
     assert_eq!(queued(&store), 3, "each was queued for the server");
 
-    // Undone newest first, as Ctrl Z does, and each tells the server the reverse.
+    // Undone newest first, as ⌘Z does, and each tells the server the reverse.
     assert!(take_back(&store, gone.undo.as_ref().unwrap()));
     assert_eq!(drawn(&store), "Projects (2026, Bills), 收據");
     assert!(take_back(&store, moved.undo.as_ref().unwrap()));

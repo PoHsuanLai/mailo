@@ -136,7 +136,7 @@ pub(in crate::ui) fn tell_through(motion: Option<Motion>, text: String) {
     }
 }
 
-/// Take back the newest op: Ctrl Z.
+/// Take back the newest op: ⌘Z.
 pub(super) fn undo_last(
     store: &SqliteStore,
     mut shell: Signal<Shell>,
@@ -187,12 +187,11 @@ fn restore(
     true
 }
 
-/// The keys motion owns: Esc drops a drag, Ctrl Z undoes, and the hover card takes Space and
-/// Esc. Returns whether the key was handled. Never while typing: Ctrl Z in a field is the
-/// field's own.
+/// The keys motion owns: Esc drops a drag, ⌘Z (`undo`) undoes, and the hover card takes Space and
+/// Esc. Returns whether the key was handled. Never while typing: ⌘Z in a field is the field's own.
 pub(super) fn key(
     name: &str,
-    ctrl: bool,
+    undo: bool,
     typing: bool,
     shell: Signal<Shell>,
     revision: Signal<u64>,
@@ -203,7 +202,7 @@ pub(super) fn key(
     if typing {
         return false;
     }
-    if ctrl && (name == "z" || name == "Z") {
+    if undo {
         let store = consume_context::<std::sync::Arc<SqliteStore>>();
         undo_last(&store, shell, revision);
         return true;

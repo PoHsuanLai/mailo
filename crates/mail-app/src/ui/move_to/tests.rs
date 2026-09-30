@@ -303,7 +303,7 @@ async fn moving_to_a_folder_files_it_there_and_undo_brings_it_back() {
     let page = dioxus_ssr::render(&dom);
     assert!(page.contains("Moved to folder"), "no toast: {page}");
 
-    // Ctrl Z: back where it was, and the server never hears of it.
+    // ⌘Z: back where it was, and the server never hears of it.
     chord(
         &mut dom,
         "z",
