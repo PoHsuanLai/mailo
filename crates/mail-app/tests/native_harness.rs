@@ -616,13 +616,14 @@ fn renaming(fallback: FocusFallback) -> (Harness, tempfile::TempDir, Arc<SqliteS
     // New folder inside, then Rename.
     harness.key(Key::Down);
     harness.key(Key::Enter);
-    harness.advance(ms(300));
-    assert_eq!(harness.count(".ds-menu"), 0, "the pick left the menu open");
-    assert!(
-        harness.is_focused(RENAMING),
-        "the rename field does not have the keyboard:\n{}",
-        harness.html()
-    );
+    // A fixed wait lands before select-all on a loaded runner: the field is focused and the
+    // value is the old name, but the selection is still collapsed, so the next key would not
+    // replace it. Wait for the selection itself.
+    settle_until(&mut harness, |harness| {
+        harness.count(".ds-menu") == 0
+            && harness.is_focused(RENAMING)
+            && harness.selected_text(RENAMING).as_deref() == Some(PROJECTS)
+    });
     (harness, dir, store)
 }
 
