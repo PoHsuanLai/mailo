@@ -25,7 +25,6 @@ fn Open(typed: String) -> Element {
     let pages = use_signal(|| 1u32);
     let revision = use_signal(|| 0u64);
     let side_hidden = use_signal(|| false);
-    let sync_state = use_signal(|| crate::view::SyncState::Idle);
     let spaces = use_signal(crate::space::Spaces::default);
     // Inside a quire root, as the window has it: the palette floats in its overlay.
     rsx! {
@@ -33,7 +32,7 @@ fn Open(typed: String) -> Element {
             appearance: Appearance::default(),
             material: Material::Window,
             stylesheet: ds::assembly::ds::Inject::Host,
-            CommandMenu { shell, pages, revision, side_hidden, sync_state, spaces }
+            CommandMenu { shell, pages, revision, side_hidden, spaces }
         }
     }
 }

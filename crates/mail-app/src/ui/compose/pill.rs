@@ -176,11 +176,20 @@ pub(in crate::ui) fn SendPill(shell: Signal<Shell>) -> Element {
     };
     let token = use_hook(PendingToken::start);
     let mut tick = use_signal(|| 0u64);
+    let fetching = try_use_context::<super::super::fetching::Fetching>();
     use_future(move || async move {
+        // The send this pill last asked a pass for: the outbox is drained by a pass, and nothing
+        // else starts one when the grace period ends.
+        let mut asked = None;
         loop {
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-            if desk.outbox.peek().is_some() {
-                tick += 1;
+            let Some(out) = desk.outbox.peek().clone() else {
+                continue;
+            };
+            tick += 1;
+            if let Some(fetching) = fetching {
+                let store = consume_context::<Arc<SqliteStore>>();
+                fetching.drain_when_due(&store, out.draft, out.due, Utc::now(), &mut asked);
             }
         }
     });

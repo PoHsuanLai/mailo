@@ -27,6 +27,7 @@ fn waiting(until: DateTime<Utc>, failures: u32) -> Link {
         until,
         why: Pause::Unreachable,
         failures,
+        first: First::No,
     }
 }
 
@@ -40,12 +41,16 @@ fn syncing(first: First, after: Link) -> Link {
 }
 
 fn broken() -> Link {
-    Link::Broken { why: "no".into() }
+    Link::Broken {
+        why: "no".into(),
+        first: First::No,
+    }
 }
 
 fn signin() -> Link {
     Link::NeedsSignIn {
         why: "rejected".into(),
+        first: First::No,
     }
 }
 
@@ -204,7 +209,8 @@ fn the_named_wait_is_a_floor() {
         Link::Waiting {
             until: t(15, 0),
             why: Pause::ServerBusy,
-            failures: 1
+            failures: 1,
+            first: First::No
         }
     );
 }
@@ -219,7 +225,8 @@ fn an_ordinary_named_wait_is_capped_but_a_throttle_is_honoured_in_full() {
         Link::Waiting {
             until: t(30, 0),
             why: Pause::Unreachable,
-            failures: 1
+            failures: 1,
+            first: First::No
         }
     );
     let (to, fx) = go(&running, failed(hours, Pause::Throttled), t(0, 0));
@@ -229,7 +236,8 @@ fn an_ordinary_named_wait_is_capped_but_a_throttle_is_honoured_in_full() {
         Link::Waiting {
             until,
             why: Pause::Throttled,
-            failures: 1
+            failures: 1,
+            first: First::No
         }
     );
     assert_eq!(fx, vec![Effect::WakeAt(until)]);
@@ -257,13 +265,31 @@ fn rejection_and_fatal_stop_without_a_wake() {
         },
         t(0, 0),
     );
-    assert_eq!((to, fx), (Link::NeedsSignIn { why: "bad".into() }, vec![]));
+    assert_eq!(
+        (to, fx),
+        (
+            Link::NeedsSignIn {
+                why: "bad".into(),
+                first: First::No
+            },
+            vec![]
+        )
+    );
     let (to, fx) = go(
         &running,
         failed(Retry::Fatal("gone".into()), Pause::Unreachable),
         t(0, 0),
     );
-    assert_eq!((to, fx), (Link::Broken { why: "gone".into() }, vec![]));
+    assert_eq!(
+        (to, fx),
+        (
+            Link::Broken {
+                why: "gone".into(),
+                first: First::No
+            },
+            vec![]
+        )
+    );
 }
 
 #[test]
@@ -305,8 +331,97 @@ fn signing_in_starts_a_pass() {
     let (to, fx) = go(&signin(), Event::SignedIn, t(0, 0));
     assert_eq!(
         (to, fx),
-        (syncing(First::No, Link::Fresh), vec![Effect::RunPass])
+        (syncing(First::No, signin()), vec![Effect::RunPass])
     );
+}
+
+/// What a link at `first` rests as, for each way a first pass can fail.
+fn failures_from_fresh() -> Vec<(&'static str, Event)> {
+    vec![
+        (
+            "unreachable",
+            failed(Retry::After(secs(5)), Pause::Unreachable),
+        ),
+        ("dropped", failed(Retry::Now, Pause::Unreachable)),
+        ("rejected", failed(Retry::NeedsReauth, Pause::Unreachable)),
+        (
+            "fatal",
+            failed(Retry::Fatal("no".into()), Pause::ServerBusy),
+        ),
+    ]
+}
+
+#[test]
+fn a_retry_after_a_failed_first_pass_is_still_the_first() {
+    // The list says "Empty" if it is not: nothing has ever been fetched, so a skeleton is the
+    // truth. Every way the first pass can fail, then every way back into a pass.
+    for (name, event) in failures_from_fresh() {
+        let (resting, _) = go(&syncing(First::Yes, Link::Fresh), event, t(0, 0));
+        assert_eq!(
+            resting.first(),
+            First::Yes,
+            "{name}: failing forgot it was the first"
+        );
+        let start = match resting {
+            Link::NeedsSignIn { .. } => Event::SignedIn,
+            _ => Event::Start(Trigger::Manual),
+        };
+        let (again, fx) = go(&resting, start, t(10, 0));
+        assert_eq!(fx, vec![Effect::RunPass], "{name}");
+        assert!(
+            matches!(
+                again,
+                Link::Syncing {
+                    first: First::Yes,
+                    ..
+                }
+            ),
+            "{name}: the retry is not the first pass: {again:?}"
+        );
+    }
+}
+
+#[test]
+fn a_retry_that_waits_twice_is_still_the_first_until_one_finishes() {
+    let (first, _) = go(
+        &syncing(First::Yes, Link::Fresh),
+        failed(Retry::After(secs(5)), Pause::Unreachable),
+        t(0, 0),
+    );
+    let (second, _) = go(&first, Event::Tick, t(10, 0));
+    let (again, _) = go(
+        &second,
+        failed(Retry::After(secs(5)), Pause::Unreachable),
+        t(10, 1),
+    );
+    assert_eq!(again.first(), First::Yes);
+    let (running, _) = go(&again, Event::Tick, t(40, 0));
+    let (done, _) = go(&running, Event::Finished { trouble: vec![] }, t(41, 0));
+    assert_eq!(done.first(), First::No, "a finished pass ends it");
+}
+
+#[test]
+fn an_account_that_has_been_fetched_never_goes_back_to_first() {
+    let (resting, _) = go(
+        &syncing(First::No, current(t(0, 0), Live::Polling)),
+        failed(Retry::After(secs(5)), Pause::Unreachable),
+        t(1, 0),
+    );
+    assert_eq!(resting.first(), First::No);
+    let (again, _) = go(&resting, Event::Start(Trigger::Manual), t(2, 0));
+    assert!(matches!(
+        again,
+        Link::Syncing {
+            first: First::No,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn cancelling_a_first_pass_returns_to_fresh() {
+    let (to, _) = go(&syncing(First::Yes, Link::Fresh), Event::Cancel, t(0, 0));
+    assert_eq!((to.first(), to), (First::Yes, Link::Fresh));
 }
 
 #[test]

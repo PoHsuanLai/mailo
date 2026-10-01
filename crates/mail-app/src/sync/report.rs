@@ -11,8 +11,11 @@ use std::collections::BTreeMap;
 use std::time::Duration;
 
 use mail_domain::{AccountId, MessageId, Retry, Retryable};
-use mail_runtime::SyncReport;
+use mail_proto::ProtoError;
+use mail_runtime::{RuntimeError, SyncReport};
 use tokio::sync::watch;
+
+use crate::fetch::Pause;
 
 /// What one account's pass fetched and settled. [`SyncReport`] without its trouble, which is
 /// kept as [`Trouble`] so that each piece of it carries its decision.
@@ -69,6 +72,8 @@ pub enum PassEnd {
         address: String,
         retry: Retry,
         why: String,
+        /// Why the server is to be left alone, when `retry` says to wait.
+        pause: Pause,
     },
     /// The caller's cancel signal ended it.
     Cancelled { account: AccountId, address: String },
@@ -79,6 +84,39 @@ pub enum PassEnd {
 pub(crate) struct Failure {
     pub retry: Retry,
     pub why: String,
+    /// What kind of wait `retry` asks for. Said only where the error is classified: the delay
+    /// alone cannot tell a rate limit from a dropped connection.
+    pub pause: Pause,
+}
+
+/// An error that knows why a wait after it is a wait.
+pub(crate) trait Pauses {
+    /// What the server did, as far as this error can tell.
+    fn pause(&self) -> Pause;
+}
+
+impl Pauses for RuntimeError {
+    fn pause(&self) -> Pause {
+        match self {
+            RuntimeError::Connect(_)
+            | RuntimeError::Io(_)
+            | RuntimeError::Tls(_)
+            | RuntimeError::Proto(ProtoError::UnexpectedEof) => Pause::Unreachable,
+            RuntimeError::Proto(ProtoError::Throttled { .. }) => Pause::Throttled,
+            // A transient refusal is the server saying "not now". Everything else that waits is
+            // a server that answered, and answered badly. Graph folds a `429` in with `503`
+            // (`graph::refused`), so the two cannot be told apart here and are not guessed at.
+            _ => Pause::ServerBusy,
+        }
+    }
+}
+
+/// A store failure is ours, not the server's, and none of the three says so. A wait after one is
+/// the same wait, so it takes the mildest.
+impl Pauses for mail_store::StoreError {
+    fn pause(&self) -> Pause {
+        Pause::ServerBusy
+    }
 }
 
 /// Where a pass is, for a window to show. Emitted as each step starts and as it finishes; a
@@ -129,14 +167,25 @@ impl Failure {
         Failure {
             retry: Retry::Fatal(why.clone()),
             why,
+            pause: Pause::ServerBusy,
+        }
+    }
+
+    /// A credential that is missing or refused: nothing to wait for, so the pause is not read.
+    pub fn reauth(why: impl Into<String>) -> Self {
+        Failure {
+            retry: Retry::NeedsReauth,
+            why: why.into(),
+            pause: Pause::ServerBusy,
         }
     }
 
     /// A typed error, with `prefix` before what it says.
-    pub fn of<E: Retryable + std::fmt::Display>(prefix: &str, e: &E) -> Self {
+    pub fn of<E: Retryable + Pauses + std::fmt::Display>(prefix: &str, e: &E) -> Self {
         Failure {
             retry: e.retry(),
             why: format!("{prefix}{e}"),
+            pause: e.pause(),
         }
     }
 }
@@ -320,5 +369,9 @@ pub fn summarise(ends: &[PassEnd], now: chrono::DateTime<chrono::Utc>) -> super:
     }
 }
 
+mod event;
+pub use event::outcome;
+#[cfg(test)]
+mod event_tests;
 #[cfg(test)]
 mod tests;

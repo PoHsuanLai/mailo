@@ -8,6 +8,8 @@ pub use crate::notify::Announce;
 pub mod due;
 pub mod report;
 
+mod body;
+pub use body::{fetch_body, fetch_body_with};
 mod jmap;
 mod search;
 
@@ -115,7 +117,7 @@ pub(crate) fn configured(store: &SqliteStore) -> Result<Vec<Configured>, String>
 pub struct Ran {
     pub text: String,
     /// Some account's credential was rejected. A poll loop must stop on this rather than back
-    /// off: see `view::next_sync`.
+    /// off: see `fetch::step`.
     pub rejected: bool,
     /// The longest wait any server asked for. A poll loop must not knock again before it.
     pub hold: Option<std::time::Duration>,
@@ -487,11 +489,12 @@ fn ended(
             account: account.id,
             address: account.address.clone(),
         },
-        Err(Failure { retry, why }) => PassEnd::Failed {
+        Err(Failure { retry, why, pause }) => PassEnd::Failed {
             account: account.id,
             address: account.address.clone(),
             retry,
             why,
+            pause,
         },
     }
 }
@@ -539,16 +542,13 @@ async fn signed_in_typed(
         // thing entirely.
         //
         // The remedy is the user signing in again, so it is classified as one.
-        return Err(Failure {
-            retry: Retry::NeedsReauth,
-            why: format!(
-                concat!(
-                    "the sign-in has expired and no OAuth client id is configured ",
-                    "for {:?}. Re-run: MAILO_OAUTH_CLIENT_ID=… mailo account add {}",
-                ),
-                issuer, account.address
+        return Err(Failure::reauth(format!(
+            concat!(
+                "the sign-in has expired and no OAuth client id is configured ",
+                "for {:?}. Re-run: MAILO_OAUTH_CLIENT_ID=… mailo account add {}",
             ),
-        });
+            issuer, account.address
+        )));
     };
     let http = signin::http_client().map_err(|e| Failure::of("", &e))?;
     let scopes = mail_runtime::oauth::incoming_scopes(scopes);
@@ -622,9 +622,11 @@ async fn one(
             purpose: SecretPurpose::IncomingPassword,
         })
         // A credential that is not there is one to be asked for again.
-        .map_err(|_| Failure {
-            retry: Retry::NeedsReauth,
-            why: crate::view::no_credential(&account.address, &account.plan.auth),
+        .map_err(|_| {
+            Failure::reauth(crate::view::no_credential(
+                &account.address,
+                &account.plan.auth,
+            ))
         })?;
     let credential = signed_in_typed(account, stored, secrets.as_ref(), registry, now).await?;
     // Not fatal to the pass: an account that cannot send can still receive.

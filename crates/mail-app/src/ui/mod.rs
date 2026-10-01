@@ -17,6 +17,7 @@ mod contacts;
 mod data;
 mod debounce;
 mod destroy;
+mod fetching;
 mod files;
 mod folder_open;
 mod follow_up;

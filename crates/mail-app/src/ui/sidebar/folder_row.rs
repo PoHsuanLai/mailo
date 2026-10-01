@@ -1,6 +1,6 @@
 //! One folder's row, the menu under it, and what its picks do.
 
-use super::super::folder_open;
+use super::super::fetching;
 use super::super::menu::{Floating, menu_items};
 use super::super::move_to;
 use super::folder_act::{act, messages_word, refused, renamed_path};
@@ -143,7 +143,7 @@ pub(super) fn FolderRow(
         shell.write().select(index);
         pages.set(1);
         if let Some(mailbox) = fetched.clone() {
-            folder_open::opened(mailbox, revision);
+            fetching::opened(mailbox, revision);
         }
     });
     // A rename is written where the name is; taking `renaming` away, when `open` moves on,

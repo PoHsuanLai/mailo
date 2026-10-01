@@ -15,8 +15,9 @@ use super::press::{available, on_primary};
 use super::row::{DraftRow, MailRow};
 use super::server_search::{Asked, ServerSearch, found_threads};
 use super::view_groups::group_list;
+use crate::fetch::Tone;
 use crate::provider::provider;
-use crate::view::{Nothing, Shell, SyncState, synced};
+use crate::view::{Nothing, Shell};
 use dioxus::prelude::*;
 use ds::components::chrome::toolbar::view::Toolbar;
 use ds::components::content::label::{Label, LabelRole, LabelStyle};
@@ -62,7 +63,6 @@ pub(super) fn ThreadList(
     drafts: Memo<Vec<Draft>>,
     nothing: Memo<Nothing>,
     more: Memo<bool>,
-    sync_state: Signal<SyncState>,
     marking: Memo<Marking>,
     /// A search's top results, drawn above the date-ordered rows.
     top: Memo<Vec<ThreadSummary>>,
@@ -137,14 +137,16 @@ pub(super) fn ThreadList(
         .collect();
     // Local folders are never synced: with only them in view there is no Sync, and no word of one.
     let quiet = syncs_nothing(&rows(), shell.read().account, &shell.read().scope);
-    let note = if quiet {
-        None
-    } else {
-        sync_state.read().message().map(|text| text.to_owned())
-    };
+    // Said by the links of the accounts in view, and said of nothing when they have none.
+    let fetching = try_consume_context::<super::fetching::Fetching>();
+    let syncing = fetching.is_some_and(|fetching| fetching.busy_in(&shell.read()));
+    let line = fetching
+        .filter(|_| !quiet)
+        .map(|fetching| fetching.status(&shell.read(), super::clock::now()));
+    let bad = line.as_ref().is_some_and(|line| line.tone != Tone::Plain);
+    let note = line.map(|line| line.text).filter(|text| !text.is_empty());
     let search_note = marking.read().note();
     let invalid = matches!(marking.read().scope, Scope::Invalid(_));
-    let bad = sync_state.read().is_failure();
     let accounts = rows();
     let highlight = marking.read().highlight.clone();
     let brought = from_server();
@@ -341,29 +343,8 @@ pub(super) fn ThreadList(
                                         image: ImagePosition::Only,
                                         label: "Sync now",
                                         icon: Some(IconSource::Glyph(Icon::Refresh)),
-                                        availability: available(sync_state.read().may_start()),
-                                        onclick: on_primary(move || {
-                                            if !sync_state.read().may_start() {
-                                                return;
-                                            }
-                                            sync_state.set(SyncState::Running);
-                                            super::folder_open::forget();
-                                            let store = consume_context::<Arc<SqliteStore>>();
-                                            spawn(async move {
-                                                // `spawn_blocking`, not this task: sync::run opens sockets and
-                                                // builds its own runtime, and `Runtime::block_on` inside an async
-                                                // context panics.
-                                                let done = tokio::task::spawn_blocking(move || {
-                                                    crate::sync::run(store, chrono::Utc::now())
-                                                })
-                                                .await;
-                                                sync_state.set(match done {
-                                                    Ok(result) => synced(result.map(|ran| ran.text)),
-                                                    Err(e) => synced(Err(format!("the sync pass stopped: {e}"))),
-                                                });
-                                                revision += 1;
-                                            });
-                                        }),
+                                        availability: available(!syncing),
+                                        onclick: on_primary(move || super::fetching::sync_now(&shell.read())),
                                     }
                                 }
                                 Button {

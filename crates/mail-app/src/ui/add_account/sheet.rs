@@ -22,7 +22,8 @@ use mail_store::SqliteStore;
 
 use super::super::hover::copy;
 use super::super::press::{available, on_primary};
-use super::flow::{self, Client, Hand, Offer, Opened, SignIn, SigningIn, Stage};
+use super::copy::{self, Action, Notice};
+use super::flow::{self, Client, Hand, Miss, Offer, Opened, Refusal, SignIn, SigningIn, Stage};
 use crate::password::Password;
 use crate::space::Spaces;
 use crate::view::Shell;
@@ -39,7 +40,9 @@ fn look_up(shell: Signal<Shell>, mut stage: Signal<Stage>) {
         let done =
             tokio::task::spawn_blocking(move || flow::look(&typed, &seams, chrono::Utc::now()))
                 .await;
-        stage.set(done.unwrap_or_else(|error| Stage::Missed(format!("Lookup failed: {error}"))));
+        stage.set(done.unwrap_or_else(|error| {
+            Stage::Missed(Miss::Broken(format!("Lookup failed: {error}")))
+        }));
     });
 }
 
@@ -80,7 +83,10 @@ fn use_offer(
         })
         .await;
         let next = done.unwrap_or_else(|error| {
-            Stage::Refused(kept, format!("It stopped before it finished: {error}"))
+            Stage::Refused(
+                kept,
+                Refusal::Other(format!("It stopped before it finished: {error}")),
+            )
         });
         if let Stage::Added { account, .. } = &next {
             revision += 1;
@@ -210,7 +216,7 @@ pub(in crate::ui) fn AddAccountSheet(
                         oninput: on_address,
                     }
                 }
-                Below { shown: shown.clone(), typed: typed.clone(), signing: signing(), stage, secret, on_secret: move |value: String| {
+                Below { shown: shown.clone(), shell, typed: typed.clone(), signing: signing(), stage, secret, on_secret: move |value: String| {
                     secret.set(Password::new(value));
                 } }
                 div { class: "acct-foot",
@@ -263,6 +269,52 @@ impl NoteTone {
     }
 }
 
+/// What went wrong, in a sentence, with a line of detail and the one thing to do about it.
+#[component]
+fn Problem(
+    notice: Notice,
+    shell: Signal<Shell>,
+    stage: Signal<Stage>,
+    mut secret: Signal<Password>,
+) -> Element {
+    let Notice {
+        headline,
+        detail,
+        action,
+    } = notice;
+    rsx! {
+        Note { text: headline, tone: NoteTone::Refusal }
+        if let Some(detail) = detail {
+            Note { text: detail, tone: NoteTone::Help }
+        }
+        if let Some(action) = action {
+            div { class: "acct-alt",
+                Button {
+                    bezel: Bezel::Inline,
+                    label: action.label().to_owned(),
+                    common: Common { id: Some(action_id(action).to_owned()), ..Common::default() },
+                    onclick: move |_| match action {
+                        Action::EnterServerSettings => {
+                            let next = flow::alternate(&stage.peek());
+                            secret.set(Password::default());
+                            stage.set(next);
+                        }
+                        Action::TryAgain => look_up(shell, stage),
+                    },
+                }
+            }
+        }
+    }
+}
+
+/// The id a notice's button is found by.
+fn action_id(action: Action) -> &'static str {
+    match action {
+        Action::EnterServerSettings => "acct-server-settings",
+        Action::TryAgain => "acct-try-again",
+    }
+}
+
 /// Work in progress: quire's spinner beside what is being done, said as a status.
 #[component]
 fn Busy(text: String) -> Element {
@@ -284,6 +336,7 @@ fn Busy(text: String) -> Element {
 #[component]
 fn Below(
     shown: Stage,
+    shell: Signal<Shell>,
     typed: String,
     signing: Option<SigningIn>,
     stage: Signal<Stage>,
@@ -298,21 +351,27 @@ fn Below(
         Stage::Looking => rsx! {
             Busy { text: format!("Looking up the servers for {}\u{2026}", flow::domain_of(&typed).unwrap_or_default()) }
         },
-        Stage::Missed(why) => rsx! {
-            Note { text: why, tone: NoteTone::Refusal }
-            Alternate { stage, secret }
-        },
+        Stage::Missed(miss) => {
+            let notice = copy::missed(&miss);
+            let by_hand = notice.action == Some(Action::EnterServerSettings);
+            rsx! {
+                Problem { notice, shell, stage, secret }
+                if !by_hand {
+                    Alternate { stage, secret }
+                }
+            }
+        }
         Stage::Found(offer) => rsx! {
             Found { offer: offer.clone() }
             Ways { offer: offer.clone(), stage, secret }
-            Credential { offer, on_secret }
+            Credential { offer, shell, stage, secret, on_secret }
             Alternate { stage, secret }
         },
         Stage::Refused(offer, why) => rsx! {
             Found { offer: offer.clone() }
             Ways { offer: offer.clone(), stage, secret }
-            Credential { offer, on_secret }
-            Note { text: why, tone: NoteTone::Refusal }
+            Credential { offer, shell, stage, secret, on_secret }
+            Problem { notice: copy::refused(&why), shell, stage, secret }
             Alternate { stage, secret }
         },
         Stage::ByHand(hand) => rsx! {
@@ -500,7 +559,13 @@ fn Alternate(stage: Signal<Stage>, mut secret: Signal<Password>) -> Element {
 
 /// The password or token field, or what a browser sign-in will do.
 #[component]
-fn Credential(offer: Offer, on_secret: EventHandler<String>) -> Element {
+fn Credential(
+    offer: Offer,
+    shell: Signal<Shell>,
+    stage: Signal<Stage>,
+    secret: Signal<Password>,
+    on_secret: EventHandler<String>,
+) -> Element {
     match offer.sign_in {
         SignIn::Password => rsx! {
             Secret { address: offer.address.clone(), token: offer.token(), on_secret }
@@ -518,7 +583,7 @@ fn Credential(offer: Offer, on_secret: EventHandler<String>) -> Element {
             issuer,
             client: Client::Missing,
         } => rsx! {
-            Note { text: flow::missing_client(issuer), tone: NoteTone::Refusal }
+            Problem { notice: copy::needs_client_id(issuer), shell, stage, secret }
         },
     }
 }

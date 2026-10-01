@@ -54,11 +54,21 @@ pub enum Link {
         why: Pause,
         /// Passes failed in a row, which sets how long the next wait is.
         failures: u32,
+        /// Whether no pass has ever finished, so that the retry is still the first.
+        first: First,
     },
     /// The server rejected the credential. Trying again cannot help and costs a failed login.
-    NeedsSignIn { why: String },
+    NeedsSignIn {
+        why: String,
+        /// Whether no pass has ever finished.
+        first: First,
+    },
     /// Failed for a reason no retry changes.
-    Broken { why: String },
+    Broken {
+        why: String,
+        /// Whether no pass has ever finished.
+        first: First,
+    },
 }
 
 /// Whether a pass is the one that fills an account that has never been fetched.
@@ -176,6 +186,19 @@ impl Link {
         }
     }
 
+    /// Whether a pass begun from here is the one that fills an account that has never been
+    /// fetched: true from the start until some pass finishes, however many fail on the way.
+    pub fn first(&self) -> First {
+        match self {
+            Link::Fresh => First::Yes,
+            Link::Current { .. } => First::No,
+            Link::Syncing { first, .. }
+            | Link::Waiting { first, .. }
+            | Link::NeedsSignIn { first, .. }
+            | Link::Broken { first, .. } => *first,
+        }
+    }
+
     /// Whether a pass is running.
     pub fn is_busy(&self) -> bool {
         matches!(self, Link::Syncing { .. })
@@ -221,15 +244,7 @@ pub fn step(link: &Link, event: Event, now: DateTime<Utc>, every: Duration) -> (
             Event::Tick,
         ) if now >= later(*at, every) => begin(link),
         (Link::Waiting { until, .. }, Event::Tick) if now >= *until => begin(link),
-        (Link::NeedsSignIn { .. }, Event::SignedIn) => (
-            Link::Syncing {
-                first: First::No,
-                step: Step::Connecting,
-                count: None,
-                after: Box::new(Link::Fresh),
-            },
-            vec![Effect::RunPass],
-        ),
+        (Link::NeedsSignIn { .. }, Event::SignedIn) => begin(link),
         (Link::Current { at, trouble, live }, Event::Live(now_live)) if *live != now_live => {
             let current = Link::Current {
                 at: *at,
@@ -253,12 +268,8 @@ fn unchanged(link: &Link) -> (Link, Vec<Effect>) {
 
 /// A pass starts from `from`, which is what a cancel returns to.
 fn begin(from: &Link) -> (Link, Vec<Effect>) {
-    let first = match from {
-        Link::Fresh => First::Yes,
-        _ => First::No,
-    };
     let syncing = Link::Syncing {
-        first,
+        first: from.first(),
         step: Step::Connecting,
         count: None,
         after: Box::new(from.clone()),
@@ -296,7 +307,7 @@ fn running(link: &Link, event: Event, now: DateTime<Utc>, every: Duration) -> (L
                 wake,
             )
         }
-        Event::Failed { retry, why, pause } => failed(after, retry, why, pause, now, every),
+        Event::Failed { retry, why, pause } => failed(*first, after, retry, why, pause, now, every),
         Event::Cancel => ((**after).clone(), vec![Effect::CancelPass]),
         Event::Live(live) => {
             // Remembered for when the pass finishes, which is when it matters.
@@ -318,6 +329,7 @@ fn running(link: &Link, event: Event, now: DateTime<Utc>, every: Duration) -> (L
 
 /// A pass failed. `after` is where it began, which holds the failures so far.
 fn failed(
+    first: First,
     after: &Link,
     retry: Retry,
     why: String,
@@ -336,6 +348,7 @@ fn failed(
                 until,
                 why: pause,
                 failures,
+                first,
             },
             vec![Effect::WakeAt(until)],
         )
@@ -352,10 +365,11 @@ fn failed(
                 Pause::Unreachable | Pause::ServerBusy => wait(named.max(own).min(BACKOFF_CEILING)),
             }
         }
-        Retry::NeedsReauth => (Link::NeedsSignIn { why }, vec![]),
+        Retry::NeedsReauth => (Link::NeedsSignIn { why, first }, vec![]),
         Retry::Fatal(fatal) => (
             Link::Broken {
                 why: if fatal.is_empty() { why } else { fatal },
+                first,
             },
             vec![],
         ),

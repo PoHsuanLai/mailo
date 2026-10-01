@@ -13,8 +13,8 @@ use super::style::STYLE;
 use crate::selection::Toward;
 use crate::space::Spaces;
 use crate::view::{
-    Appearance, Listing, PageMenu, Peek, Shell, Shortcut, Source, SyncState, badge_filter,
-    folder_filter, nothing_to_show, places_with, synced,
+    Appearance, Listing, PageMenu, Peek, Shell, Shortcut, Source, badge_filter, folder_filter,
+    nothing_to_show, places_with,
 };
 use dioxus::prelude::*;
 use ds::components::chrome::split_view::model::{Collapsing, PaneSpec, SplitPane};
@@ -106,9 +106,9 @@ pub(super) fn App() -> Element {
     // How many pages of the list have been asked for. Reset whenever the list itself changes,
     // because "page 3" of the Inbox means nothing once the user is looking at Archive.
     let pages = use_signal(|| 1u32);
-    let mut sync_state = use_signal(|| SyncState::Idle);
-    // Opening a folder fetches it, and says so where a sync does.
-    super::folder_open::use_fetching(sync_state);
+    // Mail that only arrives when you press a button is mail you miss: every account's link, the
+    // timers that poll them and the loop that runs their passes (`fetching`).
+    super::fetching::use_fetching(revision);
     // The unread count on the dock or the Dash, when the window was launched with one.
     super::launcher_count::use_launcher_count(revision, shell);
 
@@ -614,88 +614,6 @@ pub(super) fn App() -> Element {
     // a conversation nobody answered comes back to the top of the inbox (`crate::follow_up`).
     super::follow_up::use_reminders(revision);
 
-    // Mail that only arrives when you press a button is mail you miss. `AccountEngine::watch`
-    // has existed since phase 3 and nothing called it; this is the poll half of it, which is
-    // what every account's `WatchMode::Poll` already asks for.
-    //
-    // The decision of *when* is `view::next_sync`, not here — in particular the rule that a
-    // rejected credential stops the loop rather than slowing it. Five minutes is 288 attempts a
-    // day, and 288 failed logins a day against the user's own mail server is how an account gets
-    // locked.
-    let _poll = use_future(move || async move {
-        let mut failures = 0u32;
-        let interval = {
-            let store = consume_context::<Arc<SqliteStore>>();
-            crate::sync::poll_interval(&store)
-        };
-        // A beat before the first pass, so opening the window is not also a network round trip
-        // competing with the first paint.
-        let mut wait = std::time::Duration::from_secs(2);
-        // When each account's last timed pass started. The loop wakes at the shortest interval
-        // any account asks for, and an account is synced only once its own has passed.
-        let mut last = std::collections::HashMap::new();
-        loop {
-            tokio::time::sleep(wait).await;
-
-            // Never two at once: a pass the user started is the same request, and two passes on
-            // one account race each other's writes for the same rows.
-            if !sync_state.read().may_start() {
-                wait = interval;
-                continue;
-            }
-            let store = consume_context::<Arc<SqliteStore>>();
-            let intervals = crate::sync::due::intervals(&store);
-            let started = std::time::Instant::now();
-            let due = crate::sync::due::due(&intervals, &last, started);
-            // With no account to sync at all, the pass still runs, to say why there is none.
-            if due.is_empty() && !intervals.is_empty() {
-                wait = interval;
-                continue;
-            }
-            last.extend(due.iter().map(|account| (*account, started)));
-            sync_state.set(SyncState::Running);
-            let done = tokio::task::spawn_blocking(move || {
-                crate::sync::due::run_due(store, chrono::Utc::now(), &due)
-            })
-            .await;
-
-            // Order matters: a pass can both be refused and be told to slow down, and only one
-            // of the two is worth stopping the loop for.
-            let passed = match &done {
-                Ok(Ok(ran)) if ran.rejected => crate::view::Passed::Rejected,
-                Ok(Ok(ran)) => match ran.hold {
-                    Some(wait) => crate::view::Passed::Throttled { wait },
-                    None => crate::view::Passed::Fine,
-                },
-                // A pass that could not run at all, and a task that panicked, are both worth
-                // trying again: a laptop lid is the usual cause of the first.
-                Ok(Err(_)) | Err(_) => crate::view::Passed::Transient,
-            };
-            failures = match passed {
-                // Being asked to wait is not a failure, and counting it as one would double a
-                // wait the server had already named.
-                crate::view::Passed::Fine | crate::view::Passed::Throttled { .. } => 0,
-                _ => failures.saturating_add(1),
-            };
-            sync_state.set(match done {
-                Ok(result) => synced(result.map(|ran| ran.text)),
-                Err(e) => synced(Err(format!("the sync pass stopped: {e}"))),
-            });
-            revision += 1;
-
-            match crate::view::next_sync(passed, failures, interval) {
-                crate::view::NextSync::After(next) => wait = next,
-                crate::view::NextSync::Wait(why) => {
-                    // Said once and then nothing more. The Sync button still works, so a user
-                    // who has fixed the credential is one click from finding out.
-                    sync_state.set(SyncState::Failed(why));
-                    revision += 1;
-                    return;
-                }
-            }
-        }
-    });
-
     let peek = shell.read().peek;
     let frame_class = if side_hidden() { "app no-side" } else { "app" };
     // The open thread or the composer: a column of the card, or, floating, quire's `Peek` over it.
@@ -742,7 +660,7 @@ pub(super) fn App() -> Element {
                 panes: vec![SplitPane::new(LIST, rsx! {
                     ThreadList {
                         shell, pages, revision, in_a_field, threads, drafts, nothing, more,
-                        sync_state, marking, top,
+                        marking, top,
                     }
                 })],
                 section { class: "reader",
@@ -800,7 +718,7 @@ pub(super) fn App() -> Element {
             SpaceEditor { spaces, editing, shell }
             super::hover::HoverLayer { shell, revision, spaces: Some(spaces) }
             if shell.read().command.is_some() {
-                CommandMenu { shell, pages, revision, side_hidden, sync_state, spaces }
+                CommandMenu { shell, pages, revision, side_hidden, spaces }
             }
             if shell.read().contacts.is_some() {
                 super::contacts::ContactsSheet { shell }

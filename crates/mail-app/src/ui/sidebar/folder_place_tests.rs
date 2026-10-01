@@ -6,6 +6,7 @@ use super::super::app::App;
 use super::super::folder_open::Fetcher;
 use super::super::motion::belongs;
 use super::folder_tests::{IMAP, folder};
+use crate::fetch::FolderFetch;
 use crate::sync::Ran;
 use crate::ui::fixtures::{Seen, click, dispatching, empty, rebuild_into};
 use crate::view::{Shell, folder_of, places_with};
@@ -185,6 +186,13 @@ async fn settle(dom: &mut VirtualDom) {
     }
 }
 
+/// Where the on-demand fetch of `path` on the account stands, as the window's fetching has it.
+fn folder_state(dom: &mut VirtualDom, path: &str) -> FolderFetch {
+    dom.in_scope(ScopeId::APP, || {
+        consume_context::<super::super::fetching::Fetching>().folder(IMAP, path)
+    })
+}
+
 /// The folder row whose path is `path`: from the row that names it to the next row.
 fn row<'a>(page: &'a str, path: &str, _name: &str) -> &'a str {
     let start = page
@@ -275,11 +283,15 @@ async fn opening_fetches_once_per_choice_and_not_again_within_the_minute() {
     click(&mut dom, seen.folder(PROJECTS));
     settle(&mut dom).await;
     assert_eq!(calls.load(Ordering::SeqCst), 1);
-    let page = dioxus_ssr::render(&dom);
+    // Where the folder stands is the fetching's, not a line in the list bar: opening it no
+    // longer writes the status every account shares.
     assert!(
-        list(&page).contains("fetched Projects/2026"),
-        "what the fetch said is not in the status line: {}",
-        list(&page)
+        matches!(
+            folder_state(&mut dom, PROJECTS),
+            FolderFetch::Fetched { .. }
+        ),
+        "{:?}",
+        folder_state(&mut dom, PROJECTS)
     );
 
     // Redrawing is not opening.
@@ -317,24 +329,32 @@ async fn opening_fetches_once_per_choice_and_not_again_within_the_minute() {
 }
 
 #[tokio::test]
-async fn a_fetch_that_fails_says_why_in_the_status_line() {
+async fn a_fetch_that_fails_is_the_folders_to_say() {
     let (store, _dir, _) = store();
     let (fetcher, calls) = counting(Err("the server has no such folder any more"));
     let (mut dom, seen) = window(store, fetcher);
     click(&mut dom, seen.folder(RECEIPTS));
     settle(&mut dom).await;
     assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        folder_state(&mut dom, RECEIPTS),
+        FolderFetch::Refused(format!(
+            "{RECEIPTS} was not fetched: the server has no such folder any more"
+        ))
+    );
+    // And it does not reach the list bar as a failure of every account's sync.
     let page = dioxus_ssr::render(&dom);
-    let bar = list(&page);
-    let status = &bar[bar
-        .find("class=\"ds-label status bad\"")
-        .expect("no failure line")..];
     assert!(
-        status.contains("收據 was not fetched: the server has no such folder any more"),
-        "{status}"
+        !list(&page).contains("class=\"ds-label status bad\""),
+        "{}",
+        list(&page)
     );
     // What was already held is still listed.
-    assert!(bar.contains("Your receipt for September"), "{bar}");
+    assert!(
+        list(&page).contains("Your receipt for September"),
+        "{}",
+        list(&page)
+    );
 }
 
 #[test]
