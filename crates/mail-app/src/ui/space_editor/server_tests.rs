@@ -3,7 +3,7 @@
 
 use crate::server_search::{self, Automatic};
 use crate::ui::app::App;
-use crate::ui::fixtures::{Seen, Work, click, dispatching, rebuild_into, work};
+use crate::ui::fixtures::{Seen, Work, click, dispatching, drain_seen, rebuild_into, work};
 use dioxus::dioxus_core::VirtualDom;
 
 fn opened(built: &Work) -> (VirtualDom, Seen) {
@@ -12,7 +12,9 @@ fn opened(built: &Work) -> (VirtualDom, Seen) {
         .with_root_context(built.store.clone())
         .with_root_context(built.dirs.clone());
     let seen = rebuild_into(&mut dom);
-    let seen = click(&mut dom, seen.one("aria-label", "Edit the Work Space"));
+    // The sheet is drawn by the render after the click that asked for it.
+    let seen =
+        click(&mut dom, seen.one("aria-label", "Edit the Work Space")).merge(drain_seen(&mut dom));
     (dom, seen)
 }
 
@@ -36,7 +38,7 @@ async fn the_switch_is_off_until_turned_on_and_keeps_the_setting() {
     let segments = seen.after(
         "aria-label",
         "Search the server automatically",
-        "aria-pressed",
+        "aria-checked",
     );
     click(&mut dom, segments[0]);
     assert_eq!(

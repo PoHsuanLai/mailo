@@ -191,9 +191,9 @@ fn a_name_is_one_level() {
         (None, "Receipts", Some('/'), Ok("Receipts")),
         (Some("Projects"), " 2026 ", Some('/'), Ok("Projects/2026")),
         (Some("專案"), "收據", Some('/'), Ok("專案/收據")),
-        (None, "a/b", Some('/'), Err("cannot contain “/”")),
+        (None, "a/b", Some('/'), Err("can’t contain “/”")),
         (None, "a/b", None, Ok("a/b")),
-        (Some("Work"), "x", None, Err("top level")),
+        (Some("Work"), "x", None, Err("no subfolders")),
         (None, "  ", Some('/'), Err("Type a name")),
     ];
     for (parent, name, delimiter, want) in CASES {

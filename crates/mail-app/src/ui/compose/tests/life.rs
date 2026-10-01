@@ -1,5 +1,6 @@
 //! The page against a real store: the guards, autosave, Esc, and Send then Undo.
 
+use ds::prelude::*;
 use mail_store::Store;
 
 use super::super::desk::reopen;
@@ -7,7 +8,7 @@ use super::super::page::{Guard, Phase};
 use super::*;
 use crate::editor::{to_flowed, to_html};
 use crate::ui::fixtures::{ACCOUNT, click, press, seeded};
-use ds_native::harness::SETTLE_BOUND;
+use ds_harness::harness::SETTLE_BOUND;
 
 fn far() -> DateTime<Utc> {
     Utc::now() + chrono::TimeDelta::days(365)
@@ -26,7 +27,7 @@ fn queued(store: &SqliteStore) -> usize {
 }
 
 #[tokio::test]
-async fn send_with_nobody_to_send_to_queues_nothing_and_shakes_the_to_row() {
+async fn send_with_nobody_to_send_to_queues_nothing_and_marks_the_to_field_invalid() {
     let (store, _dir) = seeded();
     let draft = fresh_draft(&store);
     let before = queued(&store);
@@ -35,7 +36,11 @@ async fn send_with_nobody_to_send_to_queues_nothing_and_shakes_the_to_row() {
     window
         .dom
         .in_runtime(|| type_text(&mut page.write(), "hello"));
-    window.render();
+    let untouched = window.render();
+    assert!(
+        !untouched.contains(r#"data-validity="invalid""#),
+        "the To field was refused before Send was pressed:\n{untouched}"
+    );
 
     let send = seen.one("aria-label", "Send");
     click(&mut window.dom, send);
@@ -51,15 +56,17 @@ async fn send_with_nobody_to_send_to_queues_nothing_and_shakes_the_to_row() {
         "the draft moved"
     );
     assert!(
-        markup.contains(r#"class="prop-row shake""#),
-        "the To row did not shake:\n{markup}"
+        markup.contains(r#"data-validity="invalid""#)
+            && markup.contains("Add at least one person to send to."),
+        "the To field was not marked and did not say why:\n{markup}"
     );
 
-    // A second press shakes it again: the class changes so the animation restarts.
+    // A second press is a new refusal: the guard counts it, so quire's field treats it as one.
     click(&mut window.dom, send);
     let markup = window.render();
-    assert!(
-        markup.contains(r#"class="prop-row shake again""#),
+    assert_eq!(
+        window.dom.in_runtime(|| page.peek().guard),
+        Guard::NoRecipient(2),
         "{markup}"
     );
     assert_eq!(queued(&store), before);
@@ -78,12 +85,15 @@ async fn an_attachment_mentioned_and_missing_shows_one_bar_until_send_anyway() {
         type_text(&mut write, "I attached the agenda.");
     });
     let markup = window.render();
-    assert!(!markup.contains("c-warn"), "the bar showed before Send");
+    assert!(
+        !markup.contains("ds-inline-banner"),
+        "the bar showed before Send"
+    );
 
     let after_send = click(&mut window.dom, seen.one("aria-label", "Send"));
     let markup = window.render();
     assert_eq!(
-        markup.matches(r#"class="c-warn""#).count(),
+        markup.matches(r#"class="ds-inline-banner""#).count(),
         1,
         "one warning bar:\n{markup}"
     );
@@ -310,51 +320,6 @@ async fn the_composer_draws_no_raw_markup_beyond_its_exceptions() {
 }
 
 #[tokio::test]
-async fn a_person_who_joins_flashes_until_the_flash_settles() {
-    let (store, _dir) = seeded();
-    let draft = fresh_draft(&store);
-    let (mut window, _) = Window::open(store.clone(), draft.clone(), None);
-    let mut page = window.page();
-    window.render();
-    let joined = tokio::time::Instant::now();
-    window.dom.in_runtime(|| {
-        let mut write = page.write();
-        write.to = vec![dana()];
-        write.flash = Some(dana().address);
-    });
-    let markup = window.render();
-    assert!(
-        markup.contains("a-chip-flash"),
-        "the person who joined does not flash:\n{markup}"
-    );
-
-    // quire's timer sleeps on its own timer thread (`futures-timer`), which wakes when the
-    // scheduler lets it: on a loaded machine, or on Windows' coarse timers, a few milliseconds
-    // after tokio's. Waiting exactly the settle time and looking once raced that thread. Wait
-    // for the flash to end, and check it did not end before its settle time.
-    let flash = ds::settle(
-        ds::Anim::ChipFlash,
-        ds::MotionLevel::Standard,
-        ds::StaggerIndex::default(),
-    );
-    let (markup, ended) = run_until(&mut window, flash + SETTLE_BOUND, |markup| {
-        !markup.contains("a-chip-flash")
-    })
-    .await;
-    let took = ended - joined;
-    assert!(
-        !markup.contains("a-chip-flash"),
-        "the chip still flashed {took:?} after it joined, past its flash of {flash:?}:\n{markup}"
-    );
-    assert!(
-        took >= flash,
-        "the flash ended after {took:?}, before its settle time of {flash:?}"
-    );
-    let flash = window.dom.in_runtime(|| page.peek().flash.clone());
-    assert_eq!(flash, None, "the page still names someone to flash");
-}
-
-#[tokio::test]
 async fn a_sent_page_folds_away_on_quires_clock() {
     let (store, _dir) = seeded();
     let draft = fresh_draft(&store);
@@ -376,13 +341,9 @@ async fn a_sent_page_folds_away_on_quires_clock() {
         "the page did not fold:\n{markup}"
     );
 
-    // Nothing the window says takes it away: the fold's timer does, once `compose-send` has
-    // settled. Waited for, not timed: the timer's thread can wake late (see the flash's test).
-    let fold = ds::settle(
-        ds::Anim::ComposeSend,
-        ds::MotionLevel::Standard,
-        ds::StaggerIndex::default(),
-    );
+    // Nothing the window says takes it away: the fold's timer does, once the fade has
+    // settled. Waited for, not timed: the timer's thread can wake late.
+    let fold = settle(Anim::Fade, MotionLevel::Standard);
     let (markup, gone) = run_until(&mut window, fold + SETTLE_BOUND, |markup| {
         !markup.contains("cpage")
     })

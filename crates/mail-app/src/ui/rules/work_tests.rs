@@ -116,14 +116,11 @@ fn a_condition_the_rules_cannot_read_is_refused_in_words_and_not_kept() {
             "from:bank.example before:yesterday",
             "needs a date, like before:2026-10-08",
         ),
-        (
-            "label:nowhere",
-            "There is no label called “nowhere” on this account.",
-        ),
+        ("label:nowhere", "No label “nowhere” on this account."),
         ("is:important", "is: takes unread"),
         ("in:elsewhere", "in: takes inbox"),
         ("subject:", "“subject:” needs something after the colon."),
-        ("   ", "A rule needs a condition"),
+        ("   ", "Add a condition"),
     ];
     for (typed, said) in CASES {
         let refused = work::read_condition(typed, &work::labels(&store, ACCOUNT), &Utc);
@@ -168,7 +165,7 @@ fn a_rule_needs_a_name_one_of_its_own_and_something_to_do() {
     );
     assert_eq!(blank.unwrap_err(), "A rule needs a name.");
     let idle = work::save(&store, ACCOUNT, &draft("Idle", "from:a", Vec::new()), &Utc);
-    assert!(idle.unwrap_err().contains("something to do"));
+    assert!(idle.unwrap_err().contains("Add an action"));
     work::save(
         &store,
         ACCOUNT,
@@ -182,7 +179,11 @@ fn a_rule_needs_a_name_one_of_its_own_and_something_to_do() {
         &draft("Twice", "from:b", vec![RuleAction::Star]),
         &Utc,
     );
-    assert!(again.unwrap_err().contains("already a rule called “Twice”"));
+    assert!(
+        again
+            .unwrap_err()
+            .contains("A rule called “Twice” already exists")
+    );
     assert_eq!(store.rules(ACCOUNT).unwrap().len(), 1);
 }
 

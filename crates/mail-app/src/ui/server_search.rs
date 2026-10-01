@@ -15,6 +15,8 @@ use super::press::on_primary;
 use crate::appearance::WindowDirs;
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
+use ds::prelude::*;
+use ds::style::tokens::control_size::ControlSize;
 use mail_domain::{AccountId, ThreadId};
 use mail_runtime::Searched;
 use mail_store::{SqliteStore, Store};
@@ -247,14 +249,14 @@ pub(super) fn ServerSearch(
                                 p { class: if bad { "status bad" } else { "status" }, "{said}" }
                             }
                             if ask {
-                                ds::Button {
-                                    variant: ds::ButtonVariant::Mini,
+                                Button {
+                                    size: ControlSize::Small,
                                     label: if answer.is_some() {
                                         format!("Search {address} on the server again")
                                     } else {
                                         format!("Search {address} on the server")
                                     },
-                                    icon: ds::Icon::Search,
+                                    icon: Icon::Search,
                                     onclick: on_primary(move || start(asked, revision, line.clone(), account)),
                                 }
                             }

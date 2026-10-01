@@ -2,7 +2,7 @@
 //!
 //! A search is [`crate::search::search_list`], the function `mailo search` calls, with the
 //! window's label index and local midnight, over the accounts the Space shows. So `from:`, a
-//! prefix, a phrase and `re:/…/` mean the same thing in the list, in Ctrl T and in the terminal.
+//! prefix, a phrase and `re:/…/` mean the same thing in the list, in ⌘K and in the terminal.
 //! The rows are the matches in date order, paginated like a place; above them, a strip of the
 //! few top results ranked within the newest matches. An empty box is the place's own list.
 //!

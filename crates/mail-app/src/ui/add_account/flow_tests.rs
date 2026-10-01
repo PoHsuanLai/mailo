@@ -198,7 +198,7 @@ fn a_known_domain_is_not_looked_up_but_is_still_shown() {
             client: Client::Missing,
         }
     );
-    assert!(flow::before_looking("ada@gmail.com", now()).contains("nothing is looked up"));
+    assert!(flow::before_looking("ada@gmail.com", now()).contains("Nothing is looked up"));
 }
 
 #[test]
@@ -310,8 +310,7 @@ fn jmap_found_alone_is_offered_and_added_with_its_session() {
     );
     assert_eq!(fake.kept(account.unwrap()).as_deref(), Some("s3cret-pass"));
     assert!(
-        said.iter()
-            .any(|line| line.contains("The password is in the system keyring")),
+        said.iter().any(|line| line.contains("Password saved for")),
         "{said:?}"
     );
 }
@@ -359,10 +358,7 @@ fn a_session_typed_by_hand_with_a_token_adds_with_bearer() {
         }]
     );
     assert_eq!(fake.kept(account.unwrap()).as_deref(), Some(TOKEN));
-    assert!(
-        said.contains(&"The token is in the system keyring.".to_owned()),
-        "{said:?}"
-    );
+    assert!(said.contains(&"Token saved.".to_owned()), "{said:?}");
     assert!(!format!("{stage:?}").contains(TOKEN), "{stage:?}");
     assert_eq!(fake.looked(), 0, "a typed server is not looked up");
     assert!(fake.searched.lock().unwrap().is_empty());
@@ -376,7 +372,7 @@ fn a_session_url_by_hand_must_be_https_and_says_why() {
     };
     assert_eq!(
         flow::by_hand("ada@example.test", &hand("")).unwrap_err(),
-        "Type the JMAP session URL."
+        "Enter the JMAP session URL."
     );
     for bad in [
         "http://jmap.example.test/session",
@@ -442,7 +438,7 @@ fn what_is_not_an_address_is_never_looked_up() {
 #[test]
 fn the_sheet_says_only_the_domain_leaves_before_anything_does() {
     let said = flow::before_looking("ada@example.test", now());
-    assert!(said.contains("only the domain, example.test"), "{said}");
+    assert!(said.contains("Only example.test is looked up"), "{said}");
     assert!(!said.contains("ada@"), "{said}");
 }
 
@@ -467,7 +463,7 @@ fn using_the_offer_hands_the_password_to_the_add_and_it_lands_in_the_keyring_fak
     assert_eq!(fake.kept(account.unwrap()).as_deref(), Some("s3cret-pass"));
     assert_eq!(said[0], "Added ada@example.test.");
     assert!(
-        said.iter().any(|line| line.contains("system keyring")),
+        said.iter().any(|line| line.contains("Password saved")),
         "{said:?}"
     );
     assert!(!format!("{stage:?}").contains("s3cret"), "{stage:?}");
@@ -540,7 +536,7 @@ fn what_add_printed_is_said_in_words() {
         said,
         [
             "Added ada@example.test.",
-            "The password is in the system keyring, for the login ada.",
+            "Password saved for ada.",
             "Warning: this server wants an app password",
         ]
     );
@@ -550,7 +546,7 @@ fn what_add_printed_is_said_in_words() {
         signed,
         [
             "ada@gmail.com was already here; its settings are updated.",
-            "Signed in. The sign-in is in the system keyring.",
+            "Signed in.",
         ]
     );
 }

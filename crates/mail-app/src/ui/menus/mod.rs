@@ -3,13 +3,15 @@
 //! A label and a snooze time are not things a button can carry, so the row opens one of these
 //! instead of performing the operation itself. Split from [`super::app`] (`CONVENTIONS.md` §8).
 
-use super::menu::{Floating, MenuItem, Right, Tile};
+use super::menu::{Floating, MenuItem, Right, Tile, anchor_for, palette_groups};
 use super::motion::{act, act_all};
 use super::picks::{label_all, with_selection};
 use crate::view::Shell;
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
-use ds::{Filter, Icon, MenuKind, MountedRef, PickDismiss};
+use ds::components::content::avatar::AvatarSize;
+use ds::host::measure::MountedRef;
+use ds::prelude::*;
 use mail_domain::*;
 use mail_store::SqliteStore;
 use std::sync::Arc;
@@ -17,7 +19,7 @@ use std::sync::Arc;
 /// The four times the snooze menu offers, as `(what it says, the phrase it means)`.
 const SNOOZE: &[(&str, &str)] = &[
     ("Later today", "later"),
-    ("Tomorrow 09:00", "tomorrow"),
+    ("Tomorrow", "tomorrow"),
     ("This weekend", "weekend"),
     ("Next week", "monday"),
 ];
@@ -28,6 +30,21 @@ where
     Tz::Offset: std::fmt::Display,
 {
     at.with_timezone(zone).format("%Y-%m-%d %H:%M").to_string()
+}
+
+/// The time a snooze lands on, short enough for the end of a menu row: `7:30 PM` today or
+/// tomorrow (the name says which), `Sat 9:00 AM` within the week, `Mon 12 Oct` past it.
+pub(super) fn snooze_hint<Tz: TimeZone>(at: DateTime<Utc>, now: DateTime<Utc>, zone: &Tz) -> String
+where
+    Tz::Offset: std::fmt::Display,
+{
+    let there = at.with_timezone(zone);
+    let days = (there.date_naive() - now.with_timezone(zone).date_naive()).num_days();
+    match days {
+        ..=1 => there.format("%-I:%M %p").to_string(),
+        2..=6 => there.format("%a %-I:%M %p").to_string(),
+        _ => there.format("%a %-d %b").to_string(),
+    }
 }
 
 /// A time to come as a person says it: `Today 17:00`, `Tomorrow 08:00`, `Tue 08:00` within the
@@ -73,7 +90,7 @@ where
     words
 }
 
-/// The snooze menu's rows. Help text is [`snooze_help`] of [`crate::view::snooze_until`].
+/// The snooze menu's rows. The hint is [`snooze_hint`] of [`crate::view::snooze_until`].
 pub(super) fn snooze_items<Tz: TimeZone>(now: DateTime<Utc>, zone: &Tz) -> Vec<MenuItem>
 where
     Tz::Offset: std::fmt::Display,
@@ -86,8 +103,8 @@ where
                 key: (*phrase).to_owned(),
                 tile: Tile::Icon(Icon::Clock),
                 name: (*says).to_owned(),
-                help: Some(snooze_help(at, zone)),
-                right: Right::None,
+                help: None,
+                right: Right::Hint(snooze_hint(at, now, zone)),
                 group: None,
                 marks: Vec::new(),
                 title: Vec::new(),
@@ -146,13 +163,13 @@ pub(super) fn SnoozeMenu(
     anchor: Option<MountedRef>,
     /// The snooze button's rect once measured, which wins over `anchor`.
     #[props(default)]
-    placed: Option<ds::Rect>,
+    placed: Option<Rect>,
 ) -> Element {
     let now = Utc::now();
+    // The Mac's menu has no second line, so each choice says its time at its trailing end.
     let items = snooze_items(now, &chrono::Local);
     rsx! {
         Floating {
-            kind: MenuKind::Rich,
             anchor,
             placed,
             title: "Snooze until".to_owned(),
@@ -192,29 +209,31 @@ pub(super) fn LabelMenu(
     anchor: Option<MountedRef>,
     /// The Label button's rect once measured, which wins over `anchor`.
     #[props(default)]
-    placed: Option<ds::Rect>,
+    placed: Option<Rect>,
 ) -> Element {
     let mut typed = use_signal(String::new);
-    let items = label_items(&shell.read().labels, &summary, &typed());
+    let (create, base): (Vec<MenuItem>, Vec<MenuItem>) =
+        label_items(&shell.read().labels, &summary, &typed())
+            .into_iter()
+            .partition(|item| item.key.starts_with("create:"));
+    let mut items = super::menu::narrowed(&base, &typed());
+    items.extend(create);
     let account = summary.account;
-    let note = shell
-        .read()
-        .labels
-        .is_empty()
-        .then(|| "No labels yet. They arrive with the first sync.".to_owned());
+    let empty = if shell.read().labels.is_empty() {
+        "No labels"
+    } else {
+        "No label matches."
+    };
     rsx! {
-        Floating {
-            kind: MenuKind::Rich,
-            anchor,
-            placed,
-            title: "Labels".to_owned(),
-            items,
-            // What is typed shows in a line at the top, as the labels narrow.
-            filter: Filter::Field { placeholder: "Filter labels…".to_owned() },
-            note,
-            dismiss: PickDismiss::Stay,
-            on_query: move |value| typed.set(value),
-            on_pick: move |key: String| {
+        PickList::<String> {
+            anchor: anchor_for(anchor, placed),
+            label: "Labels",
+            placeholder: "Filter labels…",
+            query: typed(),
+            groups: palette_groups(&items, AvatarSize::Size22, None),
+            empty,
+            oninput: move |value: String| typed.set(value),
+            onpick: move |key: String| {
                 let store = consume_context::<Arc<SqliteStore>>();
                 // A label is one account's, so a picked row on another account is left alone.
                 let picked = with_selection(shell, id);
@@ -254,7 +273,7 @@ pub(super) fn LabelMenu(
                 let wanted = if on { Membership::Out } else { Membership::In };
                 act(&store, shell, revision, id, Op::Label(which, wanted));
             },
-            on_close: move |_| shell.write().labelling = None,
+            onclose: move |()| shell.write().labelling = None,
         }
     }
 }

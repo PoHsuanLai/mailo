@@ -4,7 +4,9 @@
 use super::Loaded;
 use crate::provider::Provider;
 use dioxus::prelude::*;
-use ds::{ImageSource, MarkSize, MarkStyle, ProviderMark};
+use ds::components::content::provider_mark::{MarkProvider, MarkStyle};
+use ds::prelude::*;
+use ds::style::tokens::control_size::ControlSize;
 
 /// Where the chip sits, which is the mark's size.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -27,14 +29,14 @@ pub(crate) fn current() -> Loaded {
 }
 
 /// quire's name for `provider`: the two tables are the same six, letter for letter.
-pub(crate) fn mark_of(provider: Provider) -> ds::Provider {
+pub(crate) fn mark_of(provider: Provider) -> MarkProvider {
     match provider {
-        Provider::Google => ds::Provider::Google,
-        Provider::Microsoft => ds::Provider::Microsoft,
-        Provider::Fastmail => ds::Provider::Fastmail,
-        Provider::Icloud => ds::Provider::ICloud,
-        Provider::Yahoo => ds::Provider::Yahoo,
-        Provider::Imap => ds::Provider::Imap,
+        Provider::Google => MarkProvider::Google,
+        Provider::Microsoft => MarkProvider::Microsoft,
+        Provider::Fastmail => MarkProvider::Fastmail,
+        Provider::Icloud => MarkProvider::ICloud,
+        Provider::Yahoo => MarkProvider::Yahoo,
+        Provider::Imap => MarkProvider::Imap,
     }
 }
 
@@ -53,8 +55,8 @@ pub(crate) fn mark_style(provider: Provider, marks: crate::view::Marks) -> MarkS
 pub(crate) fn ProvChip(provider: Provider, marks: crate::view::Marks, place: ChipPlace) -> Element {
     let style = mark_style(provider, marks);
     let size = match place {
-        ChipPlace::Row => MarkSize::Row,
-        ChipPlace::Inline => MarkSize::Inline,
+        ChipPlace::Row => ControlSize::Small,
+        ChipPlace::Inline => ControlSize::Mini,
     };
     rsx! {
         ProviderMark { provider: mark_of(provider), size, style }

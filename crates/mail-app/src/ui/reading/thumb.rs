@@ -9,7 +9,9 @@
 use std::sync::{Arc, Mutex};
 
 use dioxus::prelude::*;
-use ds::{Glyph, Icon, PdfPage, PdfThumb, Px, Size};
+use ds::components::content::pdf_thumb::PdfPage;
+use ds::prelude::*;
+use ds::style::icon::render::Glyph;
 use mail_domain::MessageId;
 use mail_store::SqliteStore;
 
@@ -60,9 +62,9 @@ pub(super) fn thumbnail(store: &SqliteStore, message: MessageId, index: usize) -
         return had;
     }
     let shown = match preview::load(store, message, index) {
-        Ok((Kind::Pdf, bytes)) => Shown::Pdf(ds_native::pdf_thumb_bytes(
+        Ok((Kind::Pdf, bytes)) => Shown::Pdf(ds_blitz::pdf_thumb_bytes(
             bytes,
-            ds_native::DeviceBox {
+            ds_blitz::DeviceBox {
                 width: preview::THUMB.width,
                 height: preview::THUMB.height,
             },
@@ -111,10 +113,10 @@ pub(super) fn Thumb(
     };
     match shown {
         Shown::Nothing => rsx! {
-            Glyph { icon: Icon::Paperclip, size: ds::IconSize::Compact }
+            Glyph { icon: Icon::Paperclip, size: IconSize::Compact }
         },
         Shown::Refused(why) => rsx! {
-            Glyph { icon: Icon::Paperclip, size: ds::IconSize::Compact }
+            Glyph { icon: Icon::Paperclip, size: IconSize::Compact }
             span { class: "att-note", "{why}" }
         },
         Shown::Image(picture) => rsx! {

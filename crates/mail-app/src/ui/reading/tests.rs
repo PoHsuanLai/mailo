@@ -7,6 +7,7 @@ use crate::ui::fixtures::{
 use crate::view::{Reading, Shell};
 use dioxus::prelude::*;
 use dioxus_core::VirtualDom;
+use ds::prelude::*;
 use mail_domain::*;
 use mail_mime::{RemoteImages, SanitizePolicy};
 use mail_store::{SqliteStore, Store};
@@ -15,12 +16,12 @@ use std::sync::Arc;
 #[test]
 fn the_avatar_is_the_first_character_not_the_first_byte() {
     // `校園` is three bytes per character. Indexing the bytes and casting would not be `校`.
-    const CASES: &[(&str, &str)] = &[
-        ("Ada", "A"),
-        ("github", "G"),
-        ("校園資訊網路中心", "校"),
-        ("émail", "É"),
-        ("", ""),
+    const CASES: &[(&str, char)] = &[
+        ("Ada", 'A'),
+        ("github", 'G'),
+        ("校園資訊網路中心", '校'),
+        ("émail", 'É'),
+        ("", '?'),
     ];
     let mut failures = Vec::new();
     for (name, expect) in CASES {
@@ -33,10 +34,23 @@ fn the_avatar_is_the_first_character_not_the_first_byte() {
 }
 
 fn text_of(markup: &str, class: &str) -> String {
-    let needle = format!(r#"class="{class}">"#);
-    let Some((_, rest)) = markup.split_once(&needle) else {
+    // The avatar is quire's `span.ds-avatar`, the sender's name its first headline `Label`.
+    let needles: Vec<String> = match class {
+        // Quire's avatar, or the letter the brand logo falls back to.
+        "reader-av" => vec![
+            r#"class="ds-avatar""#.to_owned(),
+            r#"class="reader-av""#.to_owned(),
+        ],
+        "reader-from" => vec![
+            r#"data-style="headline""#.to_owned(),
+            r#"class="reader-from""#.to_owned(),
+        ],
+        other => vec![format!(r#"class="{other}""#)],
+    };
+    let Some((_, rest)) = needles.iter().find_map(|needle| markup.split_once(needle)) else {
         panic!("no {class} in:\n{markup}");
     };
+    let rest = rest.split_once('>').map_or(rest, |(_, after)| after);
     let end = rest.find('<').unwrap_or(rest.len());
     rest[..end].to_owned()
 }
@@ -47,6 +61,9 @@ fn no_div_between_article_and_iframe(markup: &str) {
     let Some(start) = markup.find("<article") else {
         panic!("no article:\n{markup}");
     };
+    // The head holds the Reader / Original switch, which is quire's `div`: the frame's parent is
+    // what must not change, so what is measured is what follows the head.
+    let start = start + markup[start..].find("</header>").unwrap_or(0);
     let Some(rel) = markup[start..].find("<iframe") else {
         panic!("no iframe:\n{markup}");
     };
@@ -84,10 +101,6 @@ async fn the_reader_does_not_offer_to_load_images_a_message_does_not_have() {
     );
     assert_eq!(text_of(&markup, "reader-av"), "G", "{markup}");
     assert_eq!(text_of(&markup, "reader-from"), "GitHub", "{markup}");
-    assert!(
-        markup.contains("sandboxed frame · no scripts, no same-origin"),
-        "an HTML message did not say it was sandboxed:\n{markup}"
-    );
     assert!(
         markup.contains("sandbox=\"\""),
         "the frame is not sandboxed:\n{markup}"
@@ -132,11 +145,11 @@ async fn a_cjk_sender_is_named_by_its_first_character() {
 #[component]
 fn Open(thread: ThreadId) -> Element {
     let shell = use_signal(Shell::default);
-    rsx! { Reader { thread, shell } }
+    rsx! { ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window, Reader { thread, shell } } }
 }
 
 fn consent_buttons(markup: &str) -> usize {
-    let Some(at) = markup.find(r#"class="consent""#) else {
+    let Some(at) = markup.find(r#"class="ds-inline-banner""#) else {
         panic!("no consent bar:\n{markup}");
     };
     let rest = &markup[at..];
@@ -187,28 +200,23 @@ async fn showing_images_removes_the_consent_button() {
 /// Taken from that list alone. A `contains("Download")` over the whole page would pass for
 /// any screen that mentioned the word.
 fn attachment_items(markup: &str) -> Vec<&str> {
-    let Some((_, rest)) = markup.split_once(r#"<ul class="attachments">"#) else {
+    let Some((_, rest)) = markup.split_once(r#"class="attachments""#) else {
         panic!("the reader drew no attachment list:\n{markup}");
     };
-    let Some((list, _)) = rest.split_once("</ul>") else {
-        panic!("the attachment list was not closed:\n{markup}");
-    };
-    let mut items = Vec::new();
-    let mut rest = list;
-    while let Some(at) = rest.find("<li>") {
-        let from = &rest[at..];
-        let Some(close) = from.find("</li>") else {
-            panic!("an attachment row was not closed:\n{markup}");
-        };
-        items.push(&from[..close + "</li>".len()]);
-        rest = &from[close + "</li>".len()..];
+    // A quire `List` of `Row`s: one `ds-list-item` each, the list ending where the next
+    // section of the reader starts.
+    let list = rest.split("</article>").next().unwrap_or(rest);
+    let mut items: Vec<&str> = list.split(r#"<div class="ds-list-item""#).skip(1).collect();
+    // What follows the last row is the rest of the message, not part of it.
+    if let Some(last) = items.last_mut() {
+        *last = last.split(r#"<div class="blocks"#).next().unwrap_or(last);
     }
     items
 }
 
 fn row_has(item: &str, name: &str, size: &str, action: &str) -> Result<(), String> {
-    let name_cell = format!(r#"class="name">{name}</span>"#);
-    let size_cell = format!(r#"class="size mono">{size}</span>"#);
+    let name_cell = format!(r#"class="ds-row-title ds-truncate">{name}</b>"#);
+    let size_cell = format!(r#"class="ds-row-detail ds-truncate">{size}</small>"#);
     // quire's Button sets its label in a span.
     let button = format!(">{action}</span></button>");
     let mut missing = Vec::new();
@@ -725,7 +733,7 @@ async fn the_original_tab_does_not_remount_the_iframe() {
     #[component]
     fn Open(thread: ThreadId) -> Element {
         let shell = use_signal(Shell::default);
-        rsx! { Reader { thread, shell } }
+        rsx! { ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window, Reader { thread, shell } } }
     }
     let shape = {
         let message = store
@@ -740,7 +748,7 @@ async fn the_original_tab_does_not_remount_the_iframe() {
     let seen = rebuild_into(&mut dom);
     let before = dioxus_ssr::render(&dom);
     assert!(
-        before.contains("aria-label=\"Original\""),
+        before.contains(">Original<"),
         "a laid-out message offered no Original tab (shape {shape}):\n{before}"
     );
     assert!(
@@ -751,7 +759,7 @@ async fn the_original_tab_does_not_remount_the_iframe() {
     let mounted = iframe_mounts();
     assert!(mounted >= 1, "the frame never mounted");
 
-    let id = seen.one("aria-label", "Original");
+    let id = seen.after("aria-label", "How to show this message", "aria-checked")[1];
     click(&mut dom, id);
     let after = dioxus_ssr::render(&dom);
     assert_eq!(
@@ -807,7 +815,7 @@ const READER_ONLY: &str = ".app { grid-template-columns: minmax(0, 1fr); } \
 pub(super) fn dump_page(name: &str, body: &str) {
     let look = crate::space::Space::default().look;
     let head = format!("<style>{READER_ONLY}</style>");
-    for (suffix, scheme) in [("", ds::Scheme::Light), ("-dark", ds::Scheme::Dark)] {
+    for (suffix, scheme) in [("", Scheme::Light), ("-dark", Scheme::Dark)] {
         let column = format!("<div style=\"width: 760px; margin: 0 auto\">{body}</div>");
         let framed = crate::ui::fixtures::framed(&column, scheme, &look);
         crate::ui::fixtures::write_page(

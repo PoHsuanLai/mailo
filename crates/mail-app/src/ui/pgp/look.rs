@@ -99,7 +99,7 @@ fn look(
                 ))),
             };
         }
-        Err(e) => return Look::Failed(format!("This message's OpenPGP could not be opened: {e}")),
+        Err(e) => return Look::Failed(format!("Can\u{2019}t open OpenPGP: {e}")),
     }
     match crate::smime::open_message(store, secrets, &stored, Utc::now()) {
         Ok(None) => Look::Plain,
@@ -109,7 +109,7 @@ fn look(
             said_smime(&protected),
             protected.shown,
         ))),
-        Err(e) => Look::Failed(format!("This message's S/MIME could not be opened: {e}")),
+        Err(e) => Look::Failed(format!("Can\u{2019}t open S/MIME: {e}")),
     }
 }
 
@@ -300,11 +300,9 @@ pub(in crate::ui) fn save_attachment(
     dir: &Path,
 ) -> Result<PathBuf, String> {
     let Some(Look::Opened(opened)) = last(message, body) else {
-        return Err("That message is not open any more; open it again to save this.".to_owned());
+        return Err("The message is closed. Open it again.".to_owned());
     };
-    let shown = opened
-        .shown
-        .ok_or("That message could not be opened, so its attachments cannot be read.")?;
+    let shown = opened.shown.ok_or("Can\u{2019}t read the attachments.")?;
     let attachment = crate::attach::opened_attachment(&shown, index)?;
     crate::attach::save_opened(&attachment, dir)
 }

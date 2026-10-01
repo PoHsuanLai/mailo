@@ -3,7 +3,7 @@
 //! The blocks are walked in reading order, one text leaf at a time, and each leaf is named by
 //! the same key the renderer gives it: the block path `blocks.rs` already keys elements with,
 //! then `/` and the span's index. The renderer looks its marks up by that key, so the order it
-//! happens to draw in cannot renumber a match, and Ctrl F's "3 of 12" counts exactly the marks
+//! happens to draw in cannot renumber a match, and ⌘F's "3 of 12" counts exactly the marks
 //! on the page.
 //!
 //! Only blocks. The Original frame is the sender's document in a sandbox; nothing here reads
@@ -54,7 +54,7 @@ impl Found {
 
 /// Mark `highlight` in each document, numbering across all of them.
 ///
-/// `find`, when Ctrl F is open, picks the current match. The second value is the total, which
+/// `find`, when ⌘F is open, picks the current match. The second value is the total, which
 /// is what the find bar counts against.
 pub(super) fn find_in(
     documents: &[Option<&Document>],

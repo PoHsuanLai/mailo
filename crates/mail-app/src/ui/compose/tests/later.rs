@@ -197,7 +197,7 @@ async fn scheduling_holds_the_draft_until_its_time_and_cancel_brings_back_the_pa
         [(draft.id, at)]
     );
     assert!(
-        markup.contains(r#"class="today-at later""#),
+        markup.contains("Waiting to be sent"),
         "not in Today:\n{markup}"
     );
 

@@ -1407,15 +1407,13 @@ fn to_sync(account: &Configured, folders: &[Folder]) -> Vec<MailboxRef> {
     // message that is in the inbox as archived and it would leave the list. That needs the
     // message to carry a set of mailboxes rather than one, which is a domain change and not a
     // sync one. A message in Sent is not also in the inbox, so Sent is safe today.
-    for role in [MailboxRole::Sent] {
-        if let Some(path) = account.caps.folders.path(role)
-            && !path.eq_ignore_ascii_case("INBOX")
-        {
-            out.push(MailboxRef {
-                account: account.id,
-                path: path.to_owned(),
-            });
-        }
+    if let Some(path) = account.caps.folders.path(MailboxRole::Sent)
+        && !path.eq_ignore_ascii_case("INBOX")
+    {
+        out.push(MailboxRef {
+            account: account.id,
+            path: path.to_owned(),
+        });
     }
     let folders_are_folders = matches!(
         account.plan.incoming,

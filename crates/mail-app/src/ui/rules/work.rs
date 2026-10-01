@@ -156,10 +156,7 @@ pub(in crate::ui) fn read_condition<Tz: TimeZone>(
     zone: &Tz,
 ) -> Result<Filter, String> {
     if text.trim().is_empty() {
-        return Err(
-            "A rule needs a condition, in the words a search takes: from:news@example.com"
-                .to_owned(),
-        );
+        return Err("Add a condition, like from:news@example.com".to_owned());
     }
     let named = crate::query::named(labels);
     for word in text.split_whitespace() {
@@ -186,7 +183,7 @@ fn refusal(word: &str, field: &str, value: &str) -> String {
     }
     match field {
         "before" | "after" => format!("“{word}” needs a date, like {field}:2026-10-08."),
-        "label" => format!("There is no label called “{value}” on this account."),
+        "label" => format!("No label “{value}” on this account."),
         "is" => "is: takes unread, read, starred, unstarred, pinned or snoozed.".to_owned(),
         "in" => "in: takes inbox, archive, sent, drafts, spam or trash.".to_owned(),
         "has" => "has: takes attachment.".to_owned(),
@@ -209,10 +206,10 @@ pub(in crate::ui) fn matching(
 /// What the live count under the condition says.
 pub(in crate::ui) fn matching_words(count: u64) -> String {
     match count {
-        0 => "Nothing here matches it now; new mail still can.".to_owned(),
-        1 => "1 conversation here matches it now.".to_owned(),
+        0 => "No matches yet".to_owned(),
+        1 => "1 conversation matches".to_owned(),
         n => format!(
-            "{} conversations here match it now.",
+            "{} conversations match",
             grouped(usize::try_from(n).unwrap_or(usize::MAX))
         ),
     }
@@ -235,15 +232,11 @@ pub(in crate::ui) fn save<Tz: TimeZone>(
         .iter()
         .any(|rule| rule.name == name && Some(rule.id) != draft.id)
     {
-        return Err(format!(
-            "There is already a rule called “{name}” on this account."
-        ));
+        return Err(format!("A rule called “{name}” already exists."));
     }
     let filter = read_condition(&draft.query, &labels(store, account), zone)?;
     if draft.actions.is_empty() && draft.after == AfterMatch::Continue {
-        return Err(
-            "A rule needs something to do: add an action, or stop the rules after it.".to_owned(),
-        );
+        return Err("Add an action.".to_owned());
     }
     let kept = draft
         .id

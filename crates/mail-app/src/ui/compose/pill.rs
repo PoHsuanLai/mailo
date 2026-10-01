@@ -3,6 +3,10 @@
 //! What it says is [`face`], a function of the send, the stored `SendState` and the time, so the
 //! three `Retry` faces are a table in the tests rather than something to catch on screen.
 
+use ds::components::app::send_mood::SendMood;
+use ds::components::app::send_pill::{PillAction, SendPill as Pill};
+use ds::motion::detail::operation::{Operation, PendingToken};
+use ds::prelude::*;
 use std::sync::Arc;
 
 use chrono::{DateTime, TimeZone, Utc};
@@ -122,46 +126,43 @@ where
 }
 
 /// Where a stopped ring rests: two sevenths of it left, as mailo's pill always drew it.
-const STILL: ds::Fraction = ds::Fraction(702);
+const STILL: Fraction = Fraction(702);
 
 impl Face {
-    /// The ring quire's pill draws for this face, and how far it has drained. `due` is when the
-    /// grace period ends, which a countdown drains towards.
-    fn ring(&self, due: DateTime<Utc>, now: DateTime<Utc>) -> (ds::SendRing, ds::Fraction) {
+    /// How much of the grace period has gone, for quire's ring, which shows what is left. `due` is
+    /// when the grace period ends, which a countdown drains towards. Every other face is drawn
+    /// as a ring with nothing gone, except a stopped one, which rests where it failed.
+    fn gone(&self, due: DateTime<Utc>, now: DateTime<Utc>) -> Fraction {
         match self.ring {
             Ring::Countdown => {
                 let grace = super::life::GRACE.num_milliseconds().max(1);
                 let left = (due - now).num_milliseconds().clamp(0, grace);
-                let gone = (grace - left) * 1000 / grace;
-                (
-                    ds::SendRing::Drain,
-                    ds::Fraction(u16::try_from(gone).unwrap_or(1000)),
-                )
+                let share = (grace - left) * 1000 / grace;
+                Fraction(u16::try_from(share).unwrap_or(1000))
             }
-            Ring::Spin => (ds::SendRing::Spin, ds::Fraction(0)),
-            Ring::Full => (ds::SendRing::Drain, ds::Fraction(0)),
-            Ring::Still => (ds::SendRing::Drain, STILL),
+            Ring::Spin | Ring::Full => Fraction(0),
+            Ring::Still => STILL,
         }
     }
 }
 
 impl Mood {
-    fn quire(self) -> ds::SendMood {
+    /// quire's pill knows two: calm, and danger. A send that will retry by itself is calm; one
+    /// that needs the person, or will never go, is danger.
+    fn quire(self) -> SendMood {
         match self {
-            Mood::Calm => ds::SendMood::Calm,
-            Mood::Nudge => ds::SendMood::Nudge,
-            Mood::Shake => ds::SendMood::Shake,
-            Mood::Fatal => ds::SendMood::Fatal,
+            Mood::Calm | Mood::Nudge => SendMood::Calm,
+            Mood::Shake | Mood::Fatal => SendMood::Fatal,
         }
     }
 }
 
 impl Offer {
-    fn quire(self) -> ds::PillAction {
+    fn quire(self) -> PillAction {
         match self {
-            Offer::Undo => ds::PillAction::Undo,
-            Offer::Cancel => ds::PillAction::Cancel,
-            Offer::Nothing => ds::PillAction::Nothing,
+            Offer::Undo => PillAction::Undo,
+            Offer::Cancel => PillAction::Cancel,
+            Offer::Nothing => PillAction::Nothing,
         }
     }
 }
@@ -173,6 +174,7 @@ pub(in crate::ui) fn SendPill(shell: Signal<Shell>) -> Element {
     let Some(desk) = try_use_context::<Desk>() else {
         return rsx! {};
     };
+    let token = use_hook(PendingToken::start);
     let mut tick = use_signal(|| 0u64);
     use_future(move || async move {
         loop {
@@ -192,21 +194,20 @@ pub(in crate::ui) fn SendPill(shell: Signal<Shell>) -> Element {
     let Some(face) = face(&out, state.as_ref(), now, &chrono::Local) else {
         return rsx! {};
     };
-    let (ring, progress) = face.ring(out.due, now);
-    let phase = match state {
-        Some(SendState::Sent { .. }) => ds::SendPhase::Done,
-        _ => ds::SendPhase::Counting,
+    let progress = face.gone(out.due, now);
+    let operation = match state {
+        Some(SendState::Sent { .. }) => Operation::Idle,
+        _ => Operation::Running(token),
     };
     let draft = out.draft;
     rsx! {
         div { class: "send-at",
-            ds::SendPill {
+            Pill {
                 text: face.text,
                 progress,
-                phase,
+                operation,
                 mood: face.mood.quire(),
                 action: face.offer.quire(),
-                ring,
                 refusal: out.refused,
                 // Refused, it is said on the pill and in the toast; nothing else to do here.
                 onundo: move |()| {

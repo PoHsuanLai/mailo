@@ -1,12 +1,13 @@
-//! The Space editor: a sheet over the frame, opened from the Space's name, "+" or the gear.
+//! The Space editor: a quire `Sheet` hung from the window's top, opened from the Space's name,
+//! "+" or the gear.
 //!
 //! Every change goes into the window's Spaces at once, so the frame's `Ds` root repaints with
 //! it (cross-fading, as a switch does), Save writes `spaces.json`, and Esc puts the Space back
 //! exactly as the sheet found it. The Space's own look is quire's `SpaceEditor`: its name, the
-//! colour field and its stops, grain, theme, the card's accent, the presets and the measured
-//! contrast. What quire's editor does not draw stays mailo's, in a card under it: the Space's
-//! motion, provider marks, notifications, spelling, brand logos, searching the server, which accounts are kept offline
-//! in full, the accounts, contacts, rules, keys and the keyboard, and Cancel and Save.
+//! colour field and its stops, theme, the card's accent, the presets and the measured contrast.
+//! What quire's editor does not draw stays mailo's, in form rows under it: provider marks,
+//! notifications, which accounts are kept offline, spelling, brand logos, searching the server,
+//! the accounts, contacts, rules, keys and the keyboard, and Cancel and Save.
 //!
 //! The drag preview, decided (quire's migration brief §5.1, which left it open): a drag in the
 //! colour field repaints the frame through `Ds`'s own cross-fade, each step like any other
@@ -30,12 +31,19 @@ use self::offline::OfflineCopy;
 use self::parts::Marks as MarksChoice;
 use self::server::ServerSearch;
 use self::spelling::Spelling;
+use super::common::{classed, in_card};
 use super::frame::keep;
-use super::press::{SheetClose, on_primary};
+use super::press::on_primary;
 use crate::space::Spaces;
 use crate::space::edit::Draft;
-use crate::view::{Motion, Shell};
+use crate::view::Shell;
 use dioxus::prelude::*;
+use ds::components::app::space_editor::{DotIndex, SpaceEditor as LookEditor, rows::MeasuredIn};
+use ds::components::controls::button_model::Answers;
+use ds::components::fields::field_row::{FieldGroup, FieldRow};
+use ds::components::overlays::sheet_attach::Attach;
+use ds::prelude::*;
+use ds::root::common::Common;
 
 /// Apply `edit` to the draft and put the result in the window's Spaces, which the frame's
 /// root reads.
@@ -90,101 +98,86 @@ pub(super) fn SpaceEditor(
     editing: Signal<Option<Draft>>,
     shell: Signal<Shell>,
 ) -> Element {
-    let scheme = ds::use_env().scheme;
+    let scheme = use_scope().scheme;
     let Some(draft) = editing.read().clone() else {
         return rsx! {};
     };
     let space = draft.space.clone();
-    let motion_now = space.motion;
     rsx! {
-        div {
-            class: "editor",
-            role: "dialog",
-            aria_label: "Edit this Space",
-            // The two cards scroll; the foot under them stays put.
+        Sheet {
+            label: "Edit this Space",
+            attach: Attach::Window,
+            common: in_card(),
+            onclose: move |()| cancel(editing, spaces),
+            // The look scrolls; the foot under it stays put.
             div { class: "ed-scroll",
-            ds::SpaceEditor {
-                look: space.look.clone(),
-                scheme,
-                active_dot: ds::DotIndex(u8::try_from(draft.active).unwrap_or(0)),
-                name: Some(space.name.clone()),
-                onchange: move |look: ds::SpaceLook| change(editing, spaces, |draft| draft.space.look = look),
-                on_active_dot: move |dot: ds::DotIndex| change(editing, spaces, |draft| draft.active = usize::from(dot.0)),
-                on_rename: move |name: String| change(editing, spaces, |draft| draft.space.name = name),
-                measured: ds::MeasuredIn::EachScheme,
-                // A Space's own three levels (`view::Motion`): quire's Contact levels.
-                motion: Some(ds::MotionChoice {
-                    level: motion_now.into(),
-                    on_motion: EventHandler::new(move |level: ds::Motion| {
-                        if let Some(motion) = Motion::of(level) {
-                            change(editing, spaces, |draft| draft.space.motion = motion);
+                LookEditor {
+                    common: classed("ed-look"),
+                    look: space.look.clone(),
+                    scheme,
+                    active_dot: DotIndex(u8::try_from(draft.active).unwrap_or(0)),
+                    name: Some(space.name.clone()),
+                    onchange: move |look: SpaceLook| change(editing, spaces, |draft| draft.space.look = look),
+                    on_active_dot: move |dot: DotIndex| change(editing, spaces, |draft| draft.active = usize::from(dot.0)),
+                    on_rename: move |name: String| change(editing, spaces, |draft| draft.space.name = name),
+                    measured: MeasuredIn::EachScheme,
+                }
+                FieldGroup { title: "Mail",
+                    MarksChoice { shell }
+                    Notifications {}
+                    FieldRow {
+                        label: "Accounts",
+                        Button {
+                            label: "Add Account\u{2026}",
+                            onclick: on_primary(move || super::add_account::open(shell)),
                         }
-                    }),
-                }),
-                motion_levels: ds::MotionLevels::Contact,
-            }
-            div { class: "ed-more",
-            MarksChoice { shell }
-            Notifications {}
-            OfflineCopy {}
-            Spelling {}
-            BrandLogos {}
-            ServerSearch {}
-            div {
-                div { class: "ed-label", "Accounts" }
-                ds::Button {
-                    variant: ds::ButtonVariant::Mini,
-                    label: "Add account…".to_owned(),
-                    onclick: on_primary(move || super::add_account::open(shell)),
+                    }
+                    FieldRow {
+                        label: "Contacts",
+                        Button {
+                            label: "Contacts\u{2026}",
+                            onclick: on_primary(move || super::contacts::open(shell)),
+                        }
+                    }
+                    FieldRow {
+                        label: "Rules",
+                        Button {
+                            label: "Rules\u{2026}",
+                            onclick: on_primary(move || super::rules::open(shell)),
+                        }
+                    }
+                    FieldRow {
+                        label: "Keys and certificates",
+                        Button {
+                            label: "Keys and Certificates\u{2026}",
+                            onclick: on_primary(move || super::pgp::keys::open(shell)),
+                        }
+                    }
+                    OfflineCopy {}
+                    Spelling {}
+                    BrandLogos {}
+                    ServerSearch {}
+                    FieldRow {
+                        label: "Keyboard",
+                        Button {
+                            label: "Keyboard Shortcuts\u{2026}",
+                            common: Common { aria_label: Some("Keyboard shortcuts".to_owned()), ..Common::default() },
+                            onclick: on_primary(move || super::keyboard::open(shell)),
+                        }
+                    }
                 }
-                p { class: "capnote", "A new account joins this Space when the Space shows only some accounts." }
-            }
-            div {
-                div { class: "ed-label", "Contacts" }
-                ds::Button {
-                    variant: ds::ButtonVariant::Mini,
-                    label: "Contacts…".to_owned(),
-                    onclick: on_primary(move || super::contacts::open(shell)),
-                }
-                p { class: "capnote", "Who the composer suggests: import, export, rename, forget." }
-            }
-            div {
-                div { class: "ed-label", "Rules" }
-                ds::Button {
-                    variant: ds::ButtonVariant::Mini,
-                    label: "Rules…".to_owned(),
-                    onclick: on_primary(move || super::rules::open(shell)),
-                }
-                p { class: "capnote", "What new mail sorts into, the vacation reply, and the server's copy." }
-            }
-            div {
-                div { class: "ed-label", "Keys and certificates" }
-                ds::Button {
-                    variant: ds::ButtonVariant::Mini,
-                    label: "Keys and certificates…".to_owned(),
-                    onclick: on_primary(move || super::pgp::keys::open(shell)),
-                }
-                p { class: "capnote", "OpenPGP keys and S/MIME certificates, yours and your correspondents': make, import, export, trust, delete." }
-            }
-            div {
-                div { class: "ed-label", "Keyboard" }
-                ds::Button {
-                    variant: ds::ButtonVariant::Mini,
-                    label: "Keyboard shortcuts…".to_owned(),
-                    aria_label: "Keyboard shortcuts".to_owned(),
-                    onclick: on_primary(move || super::keyboard::open(shell)),
-                }
-                p { class: "capnote", "Which key archives, stars, replies and moves: give an action the key you want, or put it back." }
-            }
-            }
             }
             // The sheet's own foot, outside the scroller, so Save stays in reach wherever the
-            // cards are scrolled.
+            // look is scrolled. Cancel answers Escape, Save Return.
             div { class: "ed-foot",
-                SheetClose { label: "Cancel", on_close: move |()| cancel(editing, spaces) }
-                ds::Button {
-                    variant: ds::ButtonVariant::Primary,
-                    label: "Save".to_owned(),
+                Button {
+                    label: "Cancel",
+                    answers: Answers::Escape,
+                    onclick: on_primary(move || cancel(editing, spaces)),
+                }
+                Button {
+                    label: "Save",
+                    answers: Answers::Return,
                     title: SAVE_TITLE.to_owned(),
                     onclick: on_primary(move || save(editing, spaces)),
                 }

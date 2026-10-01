@@ -1,14 +1,18 @@
 //! Saved views, driven the way their user drives them: a search kept with "Save as view", the
 //! view in the sidebar, its list grouped and its rows' strip as it was saved, several of its rows
 //! picked and archived at once, and the view deleted — in the real window on Blitz
-//! (`ds_native::Harness`).
+//! (`ds_harness::Harness`).
 //!
 //! Every case opens the real window over a store seeded in a `TempDir`. The window is handed no
 //! directories, so it writes no file anywhere; nothing here touches the real store or config.
 
-use dioxus::prelude::Modifiers;
-use ds::{Key, Point};
-use ds_native::{Harness, HarnessConfig, NetPolicy, PrintOutcome, Viewport};
+use ds::prelude::{Point, ShortcutKey as Key};
+use ds_blitz::{NetPolicy, PrintOutcome};
+use ds_harness::{Driver, Harness, HarnessConfig, Query as Read, Viewport};
+
+#[path = "support/drive.rs"]
+mod drive;
+use drive::Drive;
 use mail_domain::*;
 use mail_runtime::{Arrival, absorb};
 use mail_store::{SqliteStore, Store};
@@ -120,7 +124,7 @@ fn open() -> (Harness, tempfile::TempDir, Arc<SqliteStore>) {
     let config = HarnessConfig::new(VIEW)
         .with_net(NetPolicy::Local)
         .with_contexts(contexts);
-    let mut harness = Harness::with_config(mail_app::ui::native::root, config);
+    let mut harness = Harness::new(mail_app::ui::native::root, config);
     harness.advance(ms(300));
     (harness, dir, store)
 }
@@ -148,17 +152,18 @@ fn type_text(harness: &mut Harness, text: &str) {
     harness.advance(ms(100));
 }
 
-/// The list as drawn, top to bottom: a group header as `# title`, a row as its subject.
+/// The message list as drawn, top to bottom: a group header as `# title`, a row as its subject.
 fn lines(harness: &Harness) -> Vec<String> {
-    (1..=harness.count(".ds-list > *"))
+    let root = ".list .ds-list";
+    (1..=harness.count(&format!("{root} > *")))
         .filter_map(|n| {
-            let at = format!(".ds-list > :nth-child({n})");
-            if harness.has_class(&at, "list-g") {
-                harness.text_of(&at).map(|t| format!("# {}", t.trim()))
-            } else if harness.has_class(&at, "row") {
-                harness.text_of(&format!("{at} .ds-row-sub"))
+            let at = format!("{root} > :nth-child({n})");
+            if harness.count(&format!("{at} .ds-section-header")) > 0 {
+                harness
+                    .text_of(&format!("{at} .ds-section-header-title"))
+                    .map(|t| format!("# {}", t.trim()))
             } else {
-                None
+                harness.text_of(&format!("{at} .ds-thread-sub"))
             }
         })
         .collect()
@@ -166,24 +171,24 @@ fn lines(harness: &Harness) -> Vec<String> {
 
 /// The list child (1-based) that draws `subject`'s row.
 fn row_of(harness: &Harness, subject: &str) -> usize {
-    (1..=harness.count(".ds-list > *"))
+    (1..=harness.count(".list .ds-list > *"))
         .find(|n| {
             harness
-                .text_of(&format!(".ds-list > :nth-child({n}) .ds-row-sub"))
+                .text_of(&format!(".list .ds-list > :nth-child({n}) .ds-thread-sub"))
                 .as_deref()
                 == Some(subject)
         })
         .unwrap_or_else(|| panic!("no row for {subject}:\n{:?}", lines(harness)))
 }
 
-fn click_subject(harness: &mut Harness, subject: &str, held: Modifiers) {
+fn click_subject(harness: &mut Harness, subject: &str, held: &[Key]) {
     let n = row_of(harness, subject);
     let rect = harness
-        .rect(&format!(".ds-list > :nth-child({n}) .ds-row-sub"))
+        .rect(&format!(".list .ds-list > :nth-child({n}) .ds-thread-sub"))
         .expect("the subject line");
     let at = Point {
-        x: ds::Px(rect.origin.x.0 + 24.0),
-        y: ds::Px(rect.origin.y.0 + rect.size.height.0 / 2.0),
+        x: ds::prelude::Px(rect.origin.x.0 + 24.0),
+        y: ds::prelude::Px(rect.origin.y.0 + rect.size.height.0 / 2.0),
     };
     harness.click_with(at, held);
     harness.advance(ms(300));
@@ -192,11 +197,11 @@ fn click_subject(harness: &mut Harness, subject: &str, held: Modifiers) {
 /// The ops a row's hover strip offers, in order, by their `data-op`.
 fn strip_of(harness: &Harness, subject: &str) -> Vec<String> {
     let n = row_of(harness, subject);
-    let strip = format!(".ds-list > :nth-child({n}) .ds-strip [*|data-op]");
+    let strip = format!(".list .ds-list > :nth-child({n}) .ds-strip [*|data-op]");
     (1..=harness.count(&strip))
         .filter_map(|k| {
             harness.attr(
-                &format!(".ds-list > :nth-child({n}) .ds-strip [*|data-op]:nth-of-type({k})"),
+                &format!(".list .ds-list > :nth-child({n}) .ds-strip [*|data-op]:nth-of-type({k})"),
                 "data-op",
             )
         })
@@ -218,8 +223,11 @@ fn make_the_view(harness: &mut Harness) {
     assert_eq!(harness.count(&sheet), 1, "Save as view opened no sheet");
     // The name starts as the search; replace it.
     press(harness, &format!("{sheet} .rules-part:nth-child(1) input"));
+    // From the start with Delete: on macOS Blitz leaves Backspace in a field to the system's key
+    // bindings, which a headless window never gets.
+    harness.key(Key::Home);
     for _ in 0.."in:inbox".len() {
-        harness.key(Key::Backspace);
+        harness.key(Key::Delete);
     }
     type_text(harness, "Mine");
     press(harness, &labelled("Group by: No grouping"));
@@ -228,8 +236,9 @@ fn make_the_view(harness: &mut Harness) {
         1,
         "the grouping menu did not open"
     );
-    harness.key(Key::Down);
-    harness.key(Key::Enter);
+    // Chosen with a press on its row: the menu takes the focus a frame after it opens, and a key
+    // sent before it has it goes to the field instead, which the hosted macOS runner shows.
+    press(harness, ".ds-menu .ds-menu-item:nth-child(3)");
     harness.advance(ms(300));
     assert_eq!(
         harness.count(&labelled("Group by: Unread, then read")),
@@ -248,8 +257,8 @@ fn make_the_view(harness: &mut Harness) {
 fn a_search_saved_as_a_view_is_a_place_grouped_and_offered_as_it_was_saved() {
     let (mut harness, _dir, store) = open();
     // Two read, two not: pick the first two and mark them read.
-    click_subject(&mut harness, INBOX[0].1, Modifiers::empty());
-    click_subject(&mut harness, INBOX[1].1, Modifiers::CONTROL);
+    click_subject(&mut harness, INBOX[0].1, &[]);
+    click_subject(&mut harness, INBOX[1].1, &[Key::Ctrl]);
     harness.key(Key::Char('u'));
     harness.advance(ms(600));
     // Let the selection go. With two picked, the selection bar pushes the list bar's tools past
@@ -273,7 +282,7 @@ fn a_search_saved_as_a_view_is_a_place_grouped_and_offered_as_it_was_saved() {
         "the view is not in the sidebar"
     );
     assert_eq!(harness.attr(".search input", "value").as_deref(), Some(""));
-    let title = harness.text_of(".list-bar h2").unwrap_or_default();
+    let title = harness.text_of(".list-title .ds-label").unwrap_or_default();
     assert!(title.starts_with("Mine"), "{title}");
 
     // Grouped by read state, the list order kept inside each band.
@@ -311,13 +320,13 @@ fn several_rows_picked_in_a_view_are_archived_as_one_gesture() {
     make_the_view(&mut harness);
     press(&mut harness, &place("Mine"));
     let before = lines(&harness).len();
-    click_subject(&mut harness, INBOX[1].1, Modifiers::empty());
-    click_subject(&mut harness, INBOX[3].1, Modifiers::CONTROL);
-    let picked: Vec<usize> = (1..=harness.count(".ds-list > *"))
+    click_subject(&mut harness, INBOX[1].1, &[]);
+    click_subject(&mut harness, INBOX[3].1, &[Key::Ctrl]);
+    let picked: Vec<usize> = (1..=harness.count(".list .ds-list > *"))
         .filter(|n| {
             harness
                 .attr(
-                    &format!(".ds-list > :nth-child({n}) .ds-row"),
+                    &format!(".list .ds-list > :nth-child({n}) .ds-row"),
                     "aria-selected",
                 )
                 .as_deref()
@@ -381,6 +390,6 @@ fn a_view_deleted_from_its_editor_leaves_the_sidebar_and_the_store() {
         0,
         "the view is still in the sidebar"
     );
-    let title = harness.text_of(".list-bar h2").unwrap_or_default();
+    let title = harness.text_of(".list-title .ds-label").unwrap_or_default();
     assert!(title.starts_with("Inbox"), "{title}");
 }

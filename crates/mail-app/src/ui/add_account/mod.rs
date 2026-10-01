@@ -1,4 +1,4 @@
-//! Adding an account from the window: "Add account…" from Ctrl T, the "+" after the account
+//! Adding an account from the window: "Add account…" from ⌘K, the "+" after the account
 //! tiles, and the Space editor.
 //!
 //! An address, then Look up — which sends only its domain — then what was found, where it came
@@ -23,7 +23,7 @@ pub(in crate::ui) fn seams() -> flow::Seams {
 /// Open the sheet with an empty address, and put the cursor in it.
 pub(in crate::ui) fn open(mut shell: Signal<Shell>) {
     shell.write().adding = Some(String::new());
-    crate::ui::host::Host::focus_next_frame(".acct-sheet .files-main input");
+    crate::ui::host::Host::focus_next_frame(".acct-sheet input");
 }
 
 /// Close the sheet and give the keyboard back to the window. The password, if one was typed,

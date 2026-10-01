@@ -1,13 +1,17 @@
 //! Muting a conversation, driven the way its user drives it in the real window on Blitz
-//! (`ds_native::Harness`): the row's Mute button, the reader's, `m` on the open conversation and
+//! (`ds_harness::Harness`): the row's Mute button, the reader's, `m` on the open conversation and
 //! on a selection, and Ctrl Z taking each back.
 //!
 //! Every case opens the real window over a store seeded in a `TempDir`. The window is handed no
 //! directories, so it writes no file anywhere; nothing here touches the real store or config.
 
-use dioxus::prelude::Modifiers;
-use ds::{Key, Point};
-use ds_native::{Harness, HarnessConfig, NetPolicy, PrintOutcome, Viewport};
+use ds::prelude::{Point, ShortcutKey as Key};
+use ds_blitz::{NetPolicy, PrintOutcome};
+use ds_harness::{Driver, Harness, HarnessConfig, Query as Read, Viewport};
+
+#[path = "support/drive.rs"]
+mod drive;
+use drive::Drive;
 use mail_domain::*;
 use mail_runtime::{Arrival, absorb};
 use mail_store::{SqliteStore, Store};
@@ -121,14 +125,14 @@ fn open() -> (Harness, tempfile::TempDir, Arc<SqliteStore>) {
     let config = HarnessConfig::new(VIEW)
         .with_net(NetPolicy::Local)
         .with_contexts(contexts);
-    let mut harness = Harness::with_config(mail_app::ui::native::root, config);
+    let mut harness = Harness::new(mail_app::ui::native::root, config);
     harness.advance(ms(300));
     (harness, dir, store)
 }
 
 /// The `n`th row of the list (1-based).
 fn row(n: usize) -> String {
-    format!(".ds-list > .row:nth-child({n})")
+    format!(".list .ds-list > .ds-list-item:nth-child({n})")
 }
 
 fn centre(harness: &Harness, selector: &str) -> Point {
@@ -139,15 +143,15 @@ fn centre(harness: &Harness, selector: &str) -> Point {
 
 /// Click the `n`th row where a person reads it: the start of its subject line, clear of the
 /// hover strip.
-fn click_row(harness: &mut Harness, n: usize, held: Modifiers) {
-    let subject = format!("{} .ds-row-sub", row(n));
+fn click_row(harness: &mut Harness, n: usize, held: &[Key]) {
+    let subject = format!("{} .ds-thread-sub", row(n));
     let rect = harness
         .rect(&subject)
         .unwrap_or_else(|| panic!("{subject} is not drawn:\n{}", harness.html()));
     harness.click_with(
         Point {
-            x: ds::Px(rect.origin.x.0 + 24.0),
-            y: ds::Px(rect.origin.y.0 + rect.size.height.0 / 2.0),
+            x: ds::prelude::Px(rect.origin.x.0 + 24.0),
+            y: ds::prelude::Px(rect.origin.y.0 + rect.size.height.0 / 2.0),
         },
         held,
     );
@@ -179,7 +183,7 @@ fn muted(store: &SqliteStore) -> Vec<String> {
 
 /// Which rows (1-based) carry the muted glyph, top to bottom.
 fn marked(harness: &Harness) -> Vec<usize> {
-    (1..=harness.count(".ds-list > .row"))
+    (1..=harness.count(".list .ds-thread"))
         .filter(|n| harness.count(&format!("{} .mute-mark", row(*n))) > 0)
         .collect()
 }
@@ -194,8 +198,8 @@ fn the_row_s_mute_button_mutes_it_marks_it_and_ctrl_z_unmutes_it() {
     assert_eq!(muted(&store), Vec::<String>::new());
     assert_eq!(marked(&harness), Vec::<usize>::new());
 
-    click_row(&mut harness, 1, Modifiers::empty());
-    let second = format!("{} .ds-row-sub", row(2));
+    click_row(&mut harness, 1, &[]);
+    let second = format!("{} .ds-thread-sub", row(2));
     harness.pointer_move(centre(&harness, &second));
     harness.advance(ms(300));
     let mute = format!("{} .ds-strip [*|data-op=mute]", row(2));
@@ -206,7 +210,7 @@ fn the_row_s_mute_button_mutes_it_marks_it_and_ctrl_z_unmutes_it() {
     assert_eq!(marked(&harness), vec![2], "the row shows it is muted");
     assert!(toast(&harness).contains("Muted"), "{}", toast(&harness));
     // Muting leaves the conversation where it is: it is about the replies still to come.
-    assert_eq!(harness.count(".ds-list > .row"), INBOX.len());
+    assert_eq!(harness.count(".list .ds-thread"), INBOX.len());
 
     harness.chord(&[Key::Ctrl], Key::Char('z'));
     harness.advance(ms(600));
@@ -217,7 +221,7 @@ fn the_row_s_mute_button_mutes_it_marks_it_and_ctrl_z_unmutes_it() {
 #[test]
 fn the_reader_mutes_the_open_conversation_says_so_and_m_unmutes_it() {
     let (mut harness, _dir, store) = open();
-    click_row(&mut harness, 3, Modifiers::empty());
+    click_row(&mut harness, 3, &[]);
     assert_eq!(harness.count(".reader-head .muted-note"), 0);
 
     let tool = "[*|aria-label=\"Mute this conversation\"]";
@@ -259,8 +263,8 @@ fn the_reader_mutes_the_open_conversation_says_so_and_m_unmutes_it() {
 #[test]
 fn m_on_a_selection_mutes_every_picked_conversation_and_one_undo_takes_all_back() {
     let (mut harness, _dir, store) = open();
-    click_row(&mut harness, 1, Modifiers::empty());
-    click_row(&mut harness, 3, Modifiers::SHIFT);
+    click_row(&mut harness, 1, &[]);
+    click_row(&mut harness, 3, &[Key::Shift]);
     harness.key(Key::Char('m'));
     harness.advance(ms(600));
     let three: Vec<String> = INBOX[..3].iter().map(|(_, s)| s.to_string()).collect();
@@ -282,13 +286,13 @@ fn m_on_a_selection_mutes_every_picked_conversation_and_one_undo_takes_all_back(
 fn the_selection_bar_s_mute_mutes_the_rest_of_a_half_muted_selection() {
     let (mut harness, _dir, store) = open();
     // The second is muted first, on its own.
-    click_row(&mut harness, 2, Modifiers::empty());
+    click_row(&mut harness, 2, &[]);
     harness.key(Key::Char('m'));
     harness.advance(ms(600));
     assert_eq!(muted(&store), vec![INBOX[1].1.to_owned()]);
 
-    click_row(&mut harness, 1, Modifiers::empty());
-    click_row(&mut harness, 2, Modifiers::CONTROL);
+    click_row(&mut harness, 1, &[]);
+    click_row(&mut harness, 2, &[Key::Ctrl]);
     let button = "[*|aria-label=\"Mute the 2 selected\"]";
     harness.click(centre(&harness, button));
     harness.advance(ms(600));

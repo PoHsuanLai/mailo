@@ -1,4 +1,4 @@
-//! The Ctrl T menu: a field, the operator chips, and the grouped results.
+//! The ⌘K menu: a field, the operator chips, and the grouped results.
 //!
 //! The rows are built in [`items`]; this file is the overlay and what a pick does. The search
 //! runs off the thread that draws, once the field has been still for [`super::debounce::QUIET`],
@@ -12,12 +12,14 @@ mod templates;
 pub(in crate::ui) use items::avatar_color;
 
 use super::debounce::{Settled, use_debounced};
-use super::menu::{Right, quire_groups};
+use super::menu::{Right, palette_groups};
 use super::ops::{Composes, start_composing, start_new};
 use crate::search::Results;
-use crate::view::{PageMenu, Shell, Theme};
+use crate::view::{PageMenu, Shell};
 use chrono::Utc;
 use dioxus::prelude::*;
+use ds::components::content::avatar::AvatarSize;
+use ds::prelude::*;
 use items::{Pick, interpret, rows_of, search_now, tokens};
 use mail_store::SqliteStore;
 use std::collections::HashMap;
@@ -89,16 +91,15 @@ pub(super) fn CommandMenu(
     if listing() == Listing::Templates {
         return rsx! { templates::TemplateMenu { shell, revision } };
     }
-    let groups = quire_groups(&items, ds::AvatarSize::Size34, None);
+    let groups = palette_groups(&items, AvatarSize::Size22, None);
     rsx! {
-        ds::CommandPalette::<String> {
+        CommandPalette::<String> {
             label: "Search and commands".to_owned(),
             placeholder,
             query,
             tokens: chips,
             groups,
             empty: "Nothing matches.".to_owned(),
-            entrance: ds::PaletteEntrance::Opaque,
             oninput: move |value| {
                 shell.write().command = Some(value);
             },
@@ -112,11 +113,11 @@ pub(super) fn CommandMenu(
     }
 }
 
-/// Ctrl T in the palette's field closes it, as Ctrl T in the window opens it. The field holds
-/// the keyboard while the palette is up, so the window's own shortcut never hears it.
+/// ⌘K in the palette's field closes it, as ⌘K in the window opens it. The field holds the
+/// keyboard while the palette is up, so the window's own shortcut never hears it.
 fn toggle_key(event: &KeyboardEvent, shell: Signal<Shell>) {
     let key = event.key().to_string();
-    if event.modifiers().ctrl() && (key == "t" || key == "T") {
+    if super::chord::chord(&key, event.modifiers()) == Some(super::chord::Chord::CommandMenu) {
         event.prevent_default();
         close(shell);
     }
@@ -335,10 +336,10 @@ fn run_action(
             super::keyboard::open(shell);
         }
         "Theme light" | "Theme dark" | "Theme system" => {
-            let theme = match label {
-                "Theme light" => Theme::Light,
-                "Theme dark" => Theme::Dark,
-                _ => Theme::System,
+            let theme: ds::prelude::Theme = match label {
+                "Theme light" => ds::prelude::Theme::Light,
+                "Theme dark" => ds::prelude::Theme::Dark,
+                _ => ds::prelude::Theme::System,
             };
             // The theme is the current Space's now, so this is a change to that Space. The
             // window's `Ds` root reads it from the Spaces; there is nothing to repaint by hand.

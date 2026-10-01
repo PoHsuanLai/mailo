@@ -9,7 +9,8 @@
 
 use crate::auth::{Standing, sentence, standing};
 use dioxus::prelude::*;
-use ds::{Glyph, Icon, IconSize};
+use ds::prelude::*;
+use ds::style::icon::render::Glyph;
 use mail_domain::{BlobId, MessageId};
 use mail_mime::AuthResults;
 use mail_store::{SqliteStore, Store};
@@ -95,7 +96,9 @@ pub(in crate::ui) fn SenderChecks(message: MessageId, body: Option<BlobId>) -> E
         div {
             class: "sender-checks",
             "data-standing": standing.word(),
-            Glyph { icon: glyph(standing), size: IconSize::Small }
+            span { class: "sender-mark",
+                Glyph { icon: glyph(standing), size: IconSize::Small }
+            }
             span { "{said}" }
         }
     }

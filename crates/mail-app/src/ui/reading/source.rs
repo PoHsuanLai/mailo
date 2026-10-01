@@ -15,6 +15,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use dioxus::prelude::*;
+use ds::prelude::Button;
+use ds::root::common::Common;
+use ds::style::tokens::control_size::ControlSize;
 use mail_domain::{BlobId, MessageId};
 use mail_store::{SqliteStore, Store};
 
@@ -239,10 +242,13 @@ pub(super) fn SourceView(
     rsx! {
         div { class: "source",
             div { class: "source-tools",
-                ds::Button {
-                    variant: ds::ButtonVariant::Mini,
+                Button {
+                    size: ControlSize::Small,
                     label: "Forward as attachment",
-                    aria_label: "Forward as attachment".to_owned(),
+                    common: Common {
+                        aria_label: Some("Forward as attachment".to_owned()),
+                        ..Common::default()
+                    },
                     onclick: super::super::press::on_primary(move || {
                         forward_attached(message, shell, revision, said)
                     }),
@@ -250,10 +256,13 @@ pub(super) fn SourceView(
             }
             match loaded {
                 None => rsx! {
-                    ds::Button {
-                        variant: ds::ButtonVariant::Mini,
+                    Button {
+                        size: ControlSize::Small,
                         label: "Load the source",
-                        aria_label: "Load the source".to_owned(),
+                        common: Common {
+                            aria_label: Some("Load the source".to_owned()),
+                            ..Common::default()
+                        },
                         onclick: super::super::press::on_primary(move || load(message, blob, sources)),
                     }
                 },

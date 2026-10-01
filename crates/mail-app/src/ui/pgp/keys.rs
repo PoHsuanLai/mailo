@@ -1,7 +1,7 @@
 //! The keys and certificates sheet: OpenPGP keys, then S/MIME certificates, the user's own first
 //! in each, and what can be done to each.
 //!
-//! Ctrl T "Keys and certificates…" and the Space editor open it. Every change goes through
+//! ⌘K "Keys and certificates…" and the Space editor open it. Every change goes through
 //! [`crate::pgp::keys`] or [`crate::smime::certs`], the functions `mailo pgp` and `mailo smime`
 //! use, and runs on a blocking thread: a key is made, imported, exported or forgotten in the
 //! keyring, and a file is read or written, none of which the thread that draws may wait on. The
@@ -11,8 +11,15 @@
 //! Nothing here clears what the reader found when it opened a message: every change moves the
 //! count of key changes, and the reader opens a message again when that has moved.
 
+use super::super::common::in_card;
 use chrono::Utc;
 use dioxus::prelude::*;
+use ds::components::content::label::{LabelRole, LabelStyle};
+use ds::components::lists::list::model::ListStyle;
+use ds::components::overlays::sheet_attach::Attach;
+use ds::components::overlays::sheet_width::SheetWidth;
+use ds::prelude::*;
+use ds::root::common::Common;
 use mail_domain::{Fingerprint, PgpKey, SecretHeld};
 use mail_runtime::Secrets;
 use mail_store::{SqliteStore, Store};
@@ -26,7 +33,6 @@ use super::key_row::{Confirm, KeyRow};
 use super::{Busy, Seams, seams, short, who};
 use crate::pgp::WithSecret;
 use crate::view::{KeysSheet as Showing, Shell};
-use ds::Icon;
 
 /// What the sheet and its menu entry are called.
 pub(in crate::ui) const TITLE: &str = "Keys and certificates";
@@ -117,7 +123,7 @@ pub(in crate::ui) fn work(store: &SqliteStore, seams: &Seams, job: Job) -> Resul
                 crate::pgp::keys::export_secret(store, secrets, &key).map_err(|e| e.to_string())?;
             write(&path, &armored)?;
             format!(
-                "Saved the secret key of {} to {}. Keep that file offline.",
+                "Saved the secret key of {} to {}",
                 who(&key),
                 path.display()
             )
@@ -139,7 +145,7 @@ fn generate(store: &SqliteStore, secrets: &dyn Secrets, address: &str) -> Result
     let key = crate::pgp::keys::generate(store, secrets, address, Utc::now())
         .map_err(|e| e.to_string())?;
     Ok(format!(
-        "Made a key for {address}, {}. Its secret half is in your system keyring.",
+        "Made a key for {address}, {}",
         short(key.fingerprint)
     ))
 }
@@ -227,65 +233,74 @@ pub(in crate::ui) fn KeysSheet(shell: Signal<Shell>) -> Element {
     });
     let working = busy() == Busy::Working;
     let import_label = "Import from a file…";
+    let key_items: Vec<ListItem<String>> = keys
+        .into_iter()
+        .map(|key| {
+            let id = key.fingerprint.to_string();
+            let name = who(&key);
+            ListItem::row(
+                id.clone(),
+                name,
+                rsx! { KeyRow { key: "{id}", pgp: key, confirm, run, busy: busy() } },
+            )
+        })
+        .collect();
     rsx! {
-        div {
-            class: "keys-wrap",
-            onclick: move |_| close(shell),
-            div {
-                class: "keys",
-                role: "dialog",
-                aria_label: TITLE,
-                onclick: move |event| event.stop_propagation(),
-                div { class: "keys-head",
-                    h3 { "{TITLE}" }
-                    SheetClose { on_close: move |()| close(shell) }
-                }
-                match said() {
-                    Some(Ok(text)) => rsx! { p { class: "capnote said keys-said", role: "status", "{text}" } },
-                    Some(Err(why)) => rsx! { p { class: "capnote files-bad keys-said", role: "alert", "{why}" } },
-                    None => rsx! {},
-                }
-                div { class: "keys-main",
-                    section { class: "keys-part",
-                        h4 { class: "keys-sub", "OpenPGP" }
-                        p { class: "capnote",
-                            "Yours sign what you send and open what is sent to you. Theirs let you encrypt to them and check what they sign."
-                        }
-                        ul { class: "keys-list",
-                            for key in keys {
-                                KeyRow { key: "{key.fingerprint}", pgp: key.clone(), confirm, run, busy: busy() }
+            Sheet {
+                label: TITLE,
+                attach: Attach::Window,
+                common: in_card(),
+                width: SheetWidth::Wide,
+                onclose: move |()| close(shell),
+                div { class: "keys",
+                    Label { text: TITLE, style: LabelStyle::Title }
+                    match said() {
+                        Some(Ok(text)) => rsx! { p { class: "keys-said", role: "status", Label { text, role: LabelRole::Secondary } } },
+                        Some(Err(why)) => rsx! { p { class: "keys-said", role: "alert", Label { text: why, role: LabelRole::Secondary } } },
+                        None => rsx! {},
+                    }
+                    div { class: "keys-main",
+                        section { class: "keys-part",
+                            SectionHeader { title: "OpenPGP" }
+                            Label {
+                                text: "Yours sign and decrypt. Theirs encrypt and verify.",
+                                role: LabelRole::Secondary,
+                                style: LabelStyle::Footnote,
                             }
-                            if let Some(why) = failed {
-                                li { class: "keys-none", "{why}" }
-                            }
-                        }
-                        div { class: "keys-acts",
-                            for address in keyless {
-                                ds::Button {
-                                    key: "{address}",
-                                    variant: ds::ButtonVariant::Mini,
-                                    label: format!("Make a key for {address}"),
-                                    icon: Icon::Plus,
-                                    aria_label: format!("Make a key for {address}"),
-                                    availability: available(!working),
-                                    onclick: {
-                                        let address = address.clone();
-                                        on_primary(move || run.call(Job::Generate(address.clone())))
-                                    },
+                            div { class: "keys-list",
+                                List::<String> { label: "OpenPGP keys", items: key_items, style: ListStyle::Inset }
+                                if let Some(why) = failed {
+                                    Label { text: why, role: LabelRole::Tertiary }
                                 }
                             }
-                            ds::Button {
-                                variant: ds::ButtonVariant::Mini,
-                                label: import_label.to_string(),
-                                aria_label: import_label.to_string(),
-                                availability: available(!working),
-                                onclick: on_primary(move || run.call(Job::Import)),
+                            div { class: "keys-acts",
+                                for address in keyless {
+                                    Button {
+                                        key: "{address}",
+                                        label: format!("Make a key for {address}"),
+                                        icon: Some(IconSource::Glyph(Icon::Plus)),
+                                        availability: available(!working),
+                                        onclick: {
+                                            let address = address.clone();
+                                            on_primary(move || run.call(Job::Generate(address.clone())))
+                                        },
+        common: Common { aria_label: Some(format!("Make a key for {address}")), ..Common::default() },
+    }
+                                }
+                                Button {
+                                    label: import_label,
+                                    availability: available(!working),
+                                    onclick: on_primary(move || run.call(Job::Import)),
+        common: Common { aria_label: Some(import_label.to_string()), ..Common::default() },
+    }
                             }
                         }
+                        CertPart { certs, failed: certs_failed, confirm, run, busy: busy() }
                     }
-                    CertPart { certs, failed: certs_failed, confirm, run, busy: busy() }
+                    div { class: "keys-foot",
+                        SheetClose { on_close: move |()| close(shell) }
+                    }
                 }
             }
         }
-    }
 }

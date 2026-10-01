@@ -3,6 +3,7 @@
 //! The menu offers the contact groups whose name fits what was typed above the people, and
 //! choosing a group puts each of its members on the message (`contacts::groups`).
 
+use ds::prelude::Icon;
 use mail_store::Store;
 
 use super::super::contacts::book::suggest;
@@ -83,7 +84,7 @@ fn group_row(offer: &Offer) -> MenuItem {
     }
     MenuItem {
         key: format!("{GROUP_KEY}{}", offer.id),
-        tile: Tile::Icon(ds::Icon::Group),
+        tile: Tile::Icon(Icon::Group),
         name: offer.name.clone(),
         help: Some(help),
         right: Right::None,
@@ -156,7 +157,6 @@ fn add(page: &mut Page, list: List, joining: Person) {
     if list == List::Cc {
         page.cc_row = CcRow::Shown;
     }
-    page.flash = Some(joining.address.clone());
     page.list_mut(list).push(joining);
     page.touch();
 }

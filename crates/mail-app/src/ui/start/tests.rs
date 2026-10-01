@@ -61,7 +61,8 @@ fn a_window_started_on_a_thread_opens_it_in_the_reader() {
         dom.rebuild_in_place();
         dioxus_ssr::render(&dom)
     };
-    let heading = "<h2>Re: Re: Re: Fwd: supervision meeting — moved to Thursday</h2>";
+    let heading =
+        "data-style=\"title\">Re: Re: Re: Fwd: supervision meeting — moved to Thursday</span></h2>";
 
     let plain = paint(None);
     assert!(

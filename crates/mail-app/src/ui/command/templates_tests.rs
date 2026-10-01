@@ -1,4 +1,4 @@
-//! "New from template" in Ctrl T: the action lists the templates, Enter starts a draft from the
+//! "New from template" in ⌘K: the action lists the templates, Enter starts a draft from the
 //! active one and opens it, and the × deletes one.
 
 use std::cell::Cell;
@@ -14,7 +14,7 @@ thread_local! {
     static SHELL: Cell<Option<Signal<Shell>>> = const { Cell::new(None) };
 }
 
-/// Ctrl T open on `typed`, over the store the test holds.
+/// ⌘K open on `typed`, over the store the test holds.
 #[component]
 fn Open(typed: String) -> Element {
     let shell = use_signal(|| Shell {
@@ -29,10 +29,10 @@ fn Open(typed: String) -> Element {
     let spaces = use_signal(crate::space::Spaces::default);
     // Inside a quire root, as the window has it: the palette floats in its overlay.
     rsx! {
-        ds::Ds {
-            appearance: ds::Appearance::default(),
-            material: ds::Material::Window,
-            stylesheet: ds::Inject::Host,
+        Ds {
+            appearance: Appearance::default(),
+            material: Material::Window,
+            stylesheet: ds::assembly::ds::Inject::Host,
             CommandMenu { shell, pages, revision, side_hidden, sync_state, spaces }
         }
     }
@@ -95,7 +95,7 @@ async fn new_from_template_lists_starts_and_deletes() {
     assert_eq!(started.text, template.text);
     assert!(
         dom.in_runtime(|| shell.peek().command.is_none()),
-        "Ctrl T stayed open"
+        "⌘K stayed open"
     );
 
     // Open again on the list, and delete from it.
@@ -123,13 +123,12 @@ async fn new_from_template_lists_starts_and_deletes() {
         crate::template::all(&store).is_ok_and(|all| all.is_empty()),
         "the template is still kept"
     );
-    assert!(markup.contains("No templates yet"), "{markup}");
-    let missing =
-        crate::ui::style::tests::unstyled_classes(&markup, &crate::ui::style::tests::full_css());
-    assert!(missing.is_empty(), "unstyled classes: {missing:?}");
+    assert!(markup.contains("No templates"), "{markup}");
+    let offences = crate::ui::style::tests::markup_offences(&markup);
+    assert!(offences.is_empty(), "the markup lint: {offences:#?}");
 }
 
-/// Ctrl T listing two templates over the Work Space, in both themes (`target/later-ctrl-t.html`).
+/// ⌘K listing two templates over the Work Space, in both themes (`target/later-ctrl-t.html`).
 #[tokio::test]
 #[ignore = "writes target/later-ctrl-t.html and its -dark twin for a person to look at"]
 async fn render_new_from_template_to_a_file() {

@@ -1,6 +1,7 @@
 //! The sheets as drawn, every class they use styled, a file of each to look at, and local folders
 //! as the frame draws them: named so, and with nothing to sync.
 
+use ds::prelude::*;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -10,9 +11,26 @@ use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 
 use super::work::{Dest, Looked, import_now, look};
-use super::{FilesSheet, Phase, Progress};
-use crate::ui::fixtures::{click, dispatching, rebuild_into};
+use super::{FilesSheet, Phase, Report};
+use crate::ui::fixtures::{Seen, click, dispatching, drain_seen, rebuild_into};
 use crate::view::{FileSheet, Shell};
+
+/// The first render, then the ones after it, keeping every attribute they set: a quire sheet is
+/// drawn a frame after the one that asked for it, on quire's clock.
+async fn landed(dom: &mut VirtualDom) -> Seen {
+    let mut seen = rebuild_into(dom);
+    for _ in 0..40 {
+        let quiet = std::time::Duration::from_millis(150);
+        if tokio::time::timeout(quiet, dom.wait_for_work())
+            .await
+            .is_err()
+        {
+            break;
+        }
+        dom.render_immediate(&mut seen);
+    }
+    seen.merge(drain_seen(dom))
+}
 
 /// The sheet `open` names, alone.
 #[component]
@@ -24,10 +42,10 @@ fn Sheet(open: FileSheet) -> Element {
     let revision = use_signal(|| 0u64);
     // Inside a quire root, as the window has it: the sheet's menu floats in its overlay.
     rsx! {
-        ds::Ds {
-            appearance: ds::Appearance::default(),
-            material: ds::Material::Window,
-            stylesheet: ds::Inject::Host,
+        Ds {
+            appearance: Appearance::default(),
+            material: Material::Window,
+            stylesheet: ds::assembly::ds::Inject::Host,
             FilesSheet { shell, revision }
         }
     }
@@ -49,7 +67,7 @@ fn Phases() -> Element {
             Phase::Finished("1204 message(s) read; 1204 kept in local folders; 0 already there".to_owned()),
             Phase::Failed("There is nothing at ~/gone.mbox.".to_owned()),
         ] {
-            div { class: "files-foot", Progress { phase, verb: "Importing" } }
+            div { class: "sheet-actions", Report { phase, verb: "Importing" } }
         }
     }
 }
@@ -105,7 +123,7 @@ async fn the_import_sheet_says_what_is_at_the_path_and_where_it_goes() {
             path: root.display().to_string(),
         },
     );
-    let seen = rebuild_into(&mut dom);
+    let seen = landed(&mut dom).await;
     let page = dioxus_ssr::render(&dom);
     assert!(page.contains("Maildir, 2 messages"), "{page}");
     assert!(page.contains("Local folders"), "{page}");
@@ -133,7 +151,7 @@ async fn the_import_sheet_refuses_in_words() {
             path: gone.display().to_string(),
         },
     );
-    rebuild_into(&mut dom);
+    landed(&mut dom).await;
     let page = dioxus_ssr::render(&dom);
     assert!(
         page.contains(&format!("There is nothing at {}.", gone.display())),
@@ -146,7 +164,7 @@ async fn the_import_sheet_refuses_in_words() {
 }
 
 /// Both sheets, the destination menu open, and every phase of a run.
-fn every_state(store: &Arc<SqliteStore>, root: &Path) -> String {
+async fn every_state(store: &Arc<SqliteStore>, root: &Path) -> String {
     let mut import = sheet(
         store,
         root,
@@ -154,7 +172,7 @@ fn every_state(store: &Arc<SqliteStore>, root: &Path) -> String {
             path: root.display().to_string(),
         },
     );
-    let seen = rebuild_into(&mut import);
+    let seen = landed(&mut import).await;
     click(
         &mut import,
         seen.one("aria-label", "Import into: Local folders"),
@@ -176,19 +194,17 @@ fn every_state(store: &Arc<SqliteStore>, root: &Path) -> String {
 async fn every_class_the_mail_file_sheets_draw_is_styled() {
     dispatching();
     let (store, dir) = crate::ui::fixtures::seeded();
-    let markup = every_state(&store, &a_maildir(dir.path()));
+    let markup = every_state(&store, &a_maildir(dir.path())).await;
     // The destination is quire's dropdown value now, named for what it holds.
     for class in [
         "aria-label=\"Import into: ",
-        "files-bar",
-        "files-bad",
-        "seg",
+        "ds-progress",
+        "role=\"alert\"",
     ] {
         assert!(markup.contains(class), "{class} was not drawn");
     }
-    let missing =
-        crate::ui::style::tests::unstyled_classes(&markup, &crate::ui::style::tests::full_css());
-    assert!(missing.is_empty(), "unstyled classes: {missing:?}");
+    let offences = crate::ui::style::tests::markup_offences(&markup);
+    assert!(offences.is_empty(), "markup offences: {offences:#?}");
 }
 
 /// Whether the list bar offers a sync.
@@ -210,7 +226,7 @@ async fn local_folders_are_named_so_and_have_nothing_to_sync() {
     let mut dom = VirtualDom::new(crate::ui::app::App)
         .with_root_context(store.clone())
         .with_root_context(everything);
-    let seen = rebuild_into(&mut dom);
+    let seen = landed(&mut dom).await;
     let page = dioxus_ssr::render(&dom);
     assert!(
         syncs(&page),
@@ -225,7 +241,7 @@ async fn local_folders_are_named_so_and_have_nothing_to_sync() {
     let page = dioxus_ssr::render(&dom);
     assert!(!syncs(&page), "local folders offered a sync");
     assert!(
-        page.contains("<span class=\"mono\">Local folders</span>"),
+        page.contains(">Local folders<"),
         "the header does not say Local folders: {page}"
     );
 
@@ -304,7 +320,7 @@ async fn render_the_mail_file_sheets_to_files() {
             path: root.display().to_string(),
         },
     );
-    let seen = rebuild_into(&mut import);
+    let seen = landed(&mut import).await;
     click(
         &mut import,
         seen.one("aria-label", "Import into: Local folders"),

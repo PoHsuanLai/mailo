@@ -8,12 +8,18 @@
 //! There is no second row whose choice the first would have to undo.
 
 use dioxus::prelude::*;
+use ds::base::press::Press;
+use ds::components::controls::button_marks::Trailing;
+use ds::components::controls::button_model::Bezel;
+use ds::components::fields::field_row::{FieldRow, RowLayout};
+use ds::host::measure::MountedRef;
+use ds::prelude::*;
+use ds::root::common::Common;
 use mail_domain::{Draft, OpenPgp, Smime};
 
 use super::super::menu::{Floating, MenuItem, Right, Tile};
 use super::page::{Float, Page};
 use super::seal::SealBar;
-use ds::{Glyph, Icon, MenuKind, MountedRef};
 
 /// What a protection does to the message.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -183,34 +189,37 @@ pub(in crate::ui) fn ProtectionRow(page: Signal<Page>) -> Element {
     let name = "Protection";
     let mut value = use_signal(|| None::<MountedRef>);
     rsx! {
-        div { class: "prop-row", "data-row": "protection",
-            div { class: "k", Glyph { icon: Icon::Key, size: ds::IconSize::Compact }, "Protection" }
-            div { class: "v",
-                ds::Button {
-                    variant: ds::ButtonVariant::Quiet,
-                    label: shown.to_owned(),
-                    aria_label: format!("{name}: {shown}"),
-                    trailing: Some(ds::Trailing::Caret),
-                    expanded: if open { ds::Expanded::Open } else { ds::Expanded::Closed },
-                    mounted: move |event: MountedEvent| value.set(Some(MountedRef(event.data()))),
-                    onclick: move |_: ds::Press| {
-                        let next = if open { Float::Closed } else { Float::Protection };
-                        page.write().float = next;
+        FieldRow {
+            label: "Protection",
+            layout: RowLayout::Form,
+            common: super::props::row("protection"),
+            Button {
+                bezel: Bezel::Inline,
+                label: shown.to_owned(),
+                trailing: Some(Trailing::Glyph(Icon::ChevronDown)),
+                shown: Some(if open { Shown::Visible } else { Shown::Hidden }),
+                onclick: move |_: Press| {
+                    let next = if open { Float::Closed } else { Float::Protection };
+                    page.write().float = next;
+                },
+                common: Common {
+                    aria_label: Some(format!("{name}: {shown}")),
+                    mounted: Some(EventHandler::new(move |event: MountedEvent| value.set(Some(MountedRef(event.data()))))),
+                    ..Common::default()
+                },
+            }
+            if open {
+                Floating {
+                    placement: MenuPlacement::Popup,
+                    anchor: value(),
+                    title: "Protection".to_owned(),
+                    items: items(protection),
+                    on_pick: move |key: String| pick(&mut page.write(), &key),
+                    on_close: move |_| {
+                        if page.peek().float == Float::Protection {
+                            page.write().float = Float::Closed;
+                        }
                     },
-                }
-                if open {
-                    Floating {
-                        kind: MenuKind::Dropdown,
-                        anchor: value(),
-                        title: "Protection".to_owned(),
-                        items: items(protection),
-                        on_pick: move |key: String| pick(&mut page.write(), &key),
-                        on_close: move |_| {
-                            if page.peek().float == Float::Protection {
-                                page.write().float = Float::Closed;
-                            }
-                        },
-                    }
                 }
             }
         }

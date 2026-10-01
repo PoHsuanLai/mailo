@@ -1,164 +1,145 @@
-//! One menu for every list of choices: quire's `Menu`.
+//! One place for every list of choices: quire's `Menu`, `CommandPalette` and `PickList`.
 //!
 //! mailo describes its rows as [`MenuItem`]s (a tile, a name, one line of help, and a shortcut, a
-//! check or a remove on the right) and hands them to quire as entries, rows or groups. Every
-//! menu is quire's: [`Floating`] for one anchored to what opened it, a checklist that stays open,
-//! or rows drawn inside a card.
+//! hint, a check or a remove on the right) and hands them to quire as one of two things:
+//!
+//! - [`Floating`]: an `NSMenu`, a short list of commands hung from the control that opened it.
+//!   The Mac's menu has no help line and no filter, so a row's help is not drawn here; its
+//!   [`Right::Hint`] is, at the trailing end. A menu of toggles (`toggles`) stays open on a pick.
+//! - [`palette_groups`]: the rows of quire's `PickList` (a popover under its control, a field
+//!   narrowing the rows, a row that toggles keeps it open) and of the command palette. A list a
+//!   person narrows by typing (Move to, Import into, Labels) is a `PickList` whose caller holds
+//!   the query and narrows the items with [`narrowed`].
 
 mod state;
 
+use crate::search::match_list;
 use dioxus::prelude::*;
-use ds::{
-    Anchor, Availability, AvatarFace, AvatarShape, AvatarSize, AvatarTone, Check, Cursor, Filter,
-    Flow, Icon, MenuEntry, MenuKind, MountedRef, PickDismiss, Point, Trail,
-};
+use ds::components::content::avatar::{AvatarFace, AvatarShape, AvatarSize, AvatarTone};
+use ds::components::content::text_runs::{RunTone, TextRun};
+use ds::components::menus::item::item::MenuImage;
+use ds::components::menus::palette::palette_group::{PaletteGroup, PaletteGroups, PaletteRow};
+use ds::host::measure::{Anchor, MountedRef};
+use ds::prelude::*;
 pub(super) use state::{MenuItem, MenuKey, Piece, Right, Run, Tile, Tone, menu_key, pieces};
 
-/// A list of choices drawn by quire's `Menu`: floating over the window, anchored to the element
+/// A list of commands drawn by quire's `Menu`: floating over the window, anchored to the element
 /// that opened it, holding the keyboard while it is open. `anchor` is `None` only before that
 /// element has mounted, as in a document with no renderer, where the menu sits at the corner.
 ///
-/// `dismiss: PickDismiss::Stay` keeps a toggle checklist open as each row is picked (Labels,
-/// the page's Properties); `flow: Flow::Inline` draws the rows where the caller renders them
-/// (the sender card's actions); `on_query` hears the typed filter (a "Create …" row).
+/// `flow: Flow::Inline` draws the rows where the caller renders them (the sender card's
+/// actions). A row's `help` is not drawn: the Mac's menu has no second line (design/27 5.1).
 #[component]
 pub(in crate::ui) fn Floating(
-    kind: MenuKind,
+    #[props(default)] placement: MenuPlacement,
     anchor: Option<MountedRef>,
     /// The opener's rect once measured, which wins over `anchor`.
     #[props(default)]
-    placed: Option<ds::Rect>,
+    placed: Option<Rect>,
     title: String,
     items: Vec<MenuItem>,
-    /// Typing narrows the rows, as quire's ranker marks them.
-    #[props(default)]
-    filter: Filter,
     /// A line under the rows that is not a choice: why there is nothing to choose.
     #[props(default)]
     note: Option<String>,
-    /// Whether a pick closes the menu.
-    #[props(default)]
-    dismiss: PickDismiss,
     /// Floating over the window, or drawn in the caller's flow.
     #[props(default)]
     flow: Flow,
-    /// Whose highlight the rows show.
+    /// A menu of toggles: a pick on a checked or unchecked item yields the key and the menu
+    /// stays up, so several can be toggled before it is dismissed.
     #[props(default)]
-    active: Cursor,
-    /// Hears the typed filter's text as it changes.
-    #[props(default)]
-    on_query: Option<EventHandler<String>>,
+    toggles: bool,
     on_pick: EventHandler<String>,
     on_close: EventHandler<()>,
 ) -> Element {
-    let anchor = match placed {
-        Some(rect) => Anchor::Rect(rect),
-        None => anchor_at(anchor),
-    };
-    let avatar = match kind {
-        MenuKind::Rich => AvatarSize::Size34,
-        MenuKind::Slim | MenuKind::Dropdown | MenuKind::Context => AvatarSize::Size20,
-    };
-    let mut entries = entries(&title, &items, avatar);
+    let anchor = anchor_for(anchor, placed);
+    let mut choices = menu_items(&title, &items, toggles);
     if let Some(note) = note {
-        entries.push(MenuEntry::Info {
+        choices.push(ds::components::menus::item::item::MenuItem::Info {
             title: note,
             detail: None,
         });
     }
     rsx! {
-        ds::Menu::<String> {
-            kind,
+        Menu::<String> {
+            placement,
             anchor,
-            entries,
-            filter,
-            dismiss,
+            items: choices,
             flow,
-            active,
-            onquery: on_query,
             onpick: on_pick,
             onclose: on_close,
         }
     }
 }
 
-/// mailo's items as quire's entries: the title and each new group become headers, a key is
-/// the value a pick hands back, and a check is the item's check mark.
-pub(in crate::ui) fn entries(
+/// mailo's items as a menu's: the title and each new group become headers, a key is the value a
+/// pick hands back, a check is the item's state mark (and then no image) and an icon tile is
+/// its image.
+pub(in crate::ui) fn menu_items(
     title: &str,
     items: &[MenuItem],
-    avatar: AvatarSize,
-) -> Vec<MenuEntry<String>> {
+    toggles: bool,
+) -> Vec<ds::components::menus::item::item::MenuItem<String>> {
+    use ds::components::menus::item::item::MenuItem as Line;
     let mut out = Vec::new();
     if !title.is_empty() {
-        out.push(MenuEntry::Header(title.to_owned()));
+        out.push(Line::Header(title.to_owned()));
     }
     let mut last: Option<&str> = None;
     for item in items {
         if let Some(group) = item.group.as_deref()
             && last != Some(group)
         {
-            out.push(MenuEntry::Header(group.to_owned()));
+            out.push(Line::Header(group.to_owned()));
             last = Some(group);
         }
-        let joined = |parts: &[Run]| {
-            parts
-                .iter()
-                .map(|run| run.text.as_str())
-                .collect::<String>()
+        let mut line = Line::new(item.key.clone(), plain(item));
+        // The row's second line. A trailing hint, when the item has one, replaces it: quire's
+        // menu has one faint word at the end, and that word is the hint.
+        if let Some(help) = &item.help {
+            line = line.with_hint(help.clone());
+        }
+        // A choice among several is marked by its check and carries no picture: a menu of
+        // states draws one mark per row, not a mark and an icon.
+        line = match (&item.right, &item.tile) {
+            (Right::Check(on), _) => {
+                let check = if *on { Check::On } else { Check::Off };
+                let line = line.with_check(check);
+                if toggles {
+                    line.with_after(AfterPick::KeepOpen)
+                } else {
+                    line
+                }
+            }
+            (Right::Hint(hint), Tile::Icon(icon)) => line
+                .with_image(MenuImage::Icon(*icon))
+                .with_hint(hint.clone()),
+            (Right::Hint(hint), _) => line.with_hint(hint.clone()),
+            (Right::Shortcut(_) | Right::Remove(_) | Right::None, Tile::Icon(icon)) => {
+                line.with_image(MenuImage::Icon(*icon))
+            }
+            (Right::Shortcut(_) | Right::Remove(_) | Right::None, _) => line,
         };
-        let title = if item.title.is_empty() {
-            item.name.clone()
-        } else {
-            joined(&item.title)
-        };
-        let detail = if item.detail.is_empty() {
-            item.help.clone()
-        } else {
-            Some(joined(&item.detail))
-        };
-        let (trail, check) = match &item.right {
-            Right::Shortcut(keys) => (Trail::Note(keys.clone()), None),
-            Right::Check(true) => (Trail::None, Some(Check::Checked)),
-            Right::Check(false) => (Trail::None, Some(Check::Unchecked)),
-            Right::Remove(_) | Right::None => (Trail::None, None),
-        };
-        out.push(MenuEntry::Item {
-            value: item.key.clone(),
-            title,
-            detail,
-            tile: Some(quire_tile(&item.tile, avatar)),
-            trail,
-            check,
-            availability: Availability::Enabled,
-        });
+        out.push(line);
     }
     out
 }
 
-/// quire's entries for a floating menu: its title and each new group as headers, then mailo's
-/// items as [`quire_rows`].
-pub(in crate::ui) fn quire_entries(
-    title: &str,
-    items: &[MenuItem],
-    avatar: AvatarSize,
-    on_remove: Option<EventHandler<String>>,
-) -> Vec<MenuEntry<String>> {
-    let mut out = Vec::new();
-    if !title.is_empty() {
-        out.push(MenuEntry::Header(title.to_owned()));
+/// What an item is called, with its runs joined.
+fn plain(item: &MenuItem) -> String {
+    if item.title.is_empty() {
+        item.name.clone()
+    } else {
+        item.title.iter().map(|run| run.text.as_str()).collect()
     }
-    let mut last: Option<&str> = None;
-    for item in items {
-        if let Some(group) = item.group.as_deref()
-            && last != Some(group)
-        {
-            out.push(MenuEntry::Header(group.to_owned()));
-            last = Some(group);
-        }
-        out.push(quire_row(item, avatar, on_remove));
+}
+
+/// Where a menu or pick list goes: against `placed`, the opener's rect once measured, else the
+/// element `anchor`.
+pub(in crate::ui) fn anchor_for(anchor: Option<MountedRef>, placed: Option<Rect>) -> Anchor {
+    match placed {
+        Some(rect) => Anchor::Rect(rect),
+        None => anchor_at(anchor),
     }
-    out
 }
 
 /// Where a floating menu goes: against the element `at`, or the window's corner before that
@@ -167,124 +148,141 @@ pub(in crate::ui) fn anchor_at(at: Option<MountedRef>) -> Anchor {
     at.map_or(Anchor::Point(Point::default()), Anchor::Mounted)
 }
 
-/// mailo's items as quire's rows, each carrying its own runs: a marked piece is a `Mark` run, a
-/// strong or faint run keeps its tone, and a name with no marks and no tone stays plain, so the
-/// menu's own filter can still mark it. A [`Right::Remove`] is the row's trailing ×, which hands
-/// the item's key to `on_remove` and picks nothing.
-pub(in crate::ui) fn quire_rows(
+/// mailo's items as palette groups: one group per run of items that share a title, in the order
+/// the items come; an item with no group joins the one before it, or an untitled first group.
+/// A [`Right::Remove`] is the row's trailing x, which hands the item's key to `on_remove` and
+/// picks nothing.
+pub(in crate::ui) fn palette_groups(
     items: &[MenuItem],
     avatar: AvatarSize,
     on_remove: Option<EventHandler<String>>,
-) -> Vec<MenuEntry<String>> {
-    items
-        .iter()
-        .map(|item| quire_row(item, avatar, on_remove))
-        .collect()
-}
-
-/// [`quire_rows`] under their group titles, as quire's palette takes them: one group per run of
-/// items that share a title, in the order the items come; an item with no group joins the one
-/// before it, or an untitled first group.
-pub(in crate::ui) fn quire_groups(
-    items: &[MenuItem],
-    avatar: AvatarSize,
-    on_remove: Option<EventHandler<String>>,
-) -> Vec<(String, Vec<MenuEntry<String>>)> {
-    let mut groups: Vec<(String, Vec<MenuEntry<String>>)> = Vec::new();
+) -> PaletteGroups<String> {
+    let mut groups: Vec<PaletteGroup<String>> = Vec::new();
     for item in items {
-        let row = quire_row(item, avatar, on_remove);
-        match (item.group.as_deref(), groups.last_mut()) {
-            (Some(group), Some((title, rows))) if title == group => rows.push(row),
-            (None, Some((_, rows))) => rows.push(row),
-            (group, _) => groups.push((group.unwrap_or_default().to_owned(), vec![row])),
+        let row = palette_row(item, avatar, on_remove);
+        let title = item.group.as_deref();
+        match (title, groups.last_mut()) {
+            (Some(group), Some(last)) if last.title == group => push(last, row),
+            (None, Some(last)) => push(last, row),
+            (group, _) => groups.push(PaletteGroup::list(group.unwrap_or_default(), vec![row])),
         }
     }
-    groups
+    PaletteGroups(groups)
 }
 
-fn quire_row(
+fn push(group: &mut PaletteGroup<String>, row: PaletteRow<String>) {
+    if let ds::components::menus::palette::palette_group::GroupEntries::List(rows) =
+        &mut group.entries
+    {
+        rows.push(row);
+    }
+}
+
+fn palette_row(
     item: &MenuItem,
     avatar: AvatarSize,
     on_remove: Option<EventHandler<String>>,
-) -> MenuEntry<String> {
+) -> PaletteRow<String> {
     let title = if item.title.is_empty() {
-        text_of(&[Run {
+        line_of(&[Run {
             text: item.name.clone(),
             marks: item.marks.clone(),
             tone: Tone::Plain,
         }])
     } else {
-        text_of(&item.title)
+        line_of(&item.title)
     };
     let detail = if item.detail.is_empty() {
-        item.help.clone().map(ds::Text::from)
+        item.help.clone().map(TextLine::from)
     } else {
-        Some(text_of(&item.detail))
+        Some(line_of(&item.detail))
     };
-    let (trail, check) = match &item.right {
-        Right::Shortcut(keys) => (Trail::Note(keys.clone()), None),
-        Right::Check(true) => (Trail::None, Some(Check::Checked)),
-        Right::Check(false) => (Trail::None, Some(Check::Unchecked)),
-        Right::Remove(_) | Right::None => (Trail::None, None),
+    let accessory = match &item.right {
+        Right::Shortcut(text) | Right::Hint(text) => Accessory::Text(text.clone()),
+        Right::Check(true) => Accessory::Check(Check::On),
+        Right::Check(false) | Right::Remove(_) | Right::None => Accessory::None,
     };
-    let trailing = match (&item.right, on_remove) {
+    let action = match (&item.right, on_remove) {
         (Right::Remove(label), Some(remove)) => {
             let key = item.key.clone();
-            Some(ds::RowAction {
-                icon: Icon::X,
-                label: label.clone(),
-                on_press: EventHandler::new(move |_| remove.call(key.clone())),
-            })
+            Some(RowAction::new(
+                Icon::X,
+                label.clone(),
+                EventHandler::new(move |_| remove.call(key.clone())),
+            ))
         }
         _ => None,
     };
-    MenuEntry::Row(ds::MenuRow {
-        tile: Some(quire_tile(&item.tile, avatar)),
+    // A row that toggles a set member keeps the list open, and the caller redraws its check.
+    let after = match item.right {
+        Right::Check(_) => AfterPick::KeepOpen,
+        _ => AfterPick::Close,
+    };
+    PaletteRow {
         detail,
-        trail,
-        check,
-        trailing,
-        ..ds::MenuRow::new(item.key.clone(), title)
-    })
+        leading: leading(&item.tile, avatar),
+        accessory,
+        action,
+        after,
+        ..PaletteRow::new(item.key.clone(), title)
+    }
 }
 
-/// Runs as quire's text: plain when nothing in them is marked or toned.
-fn text_of(parts: &[Run]) -> ds::Text {
+/// Runs as quire's line: plain when nothing in them is marked or toned.
+fn line_of(parts: &[Run]) -> TextLine {
     let plain = parts
         .iter()
         .all(|run| run.marks.is_empty() && run.tone == Tone::Plain);
     if plain {
-        return ds::Text::Plain(parts.iter().map(|run| run.text.as_str()).collect());
+        return TextLine::Plain(parts.iter().map(|run| run.text.as_str()).collect());
     }
     let mut runs = Vec::new();
     for run in parts {
         let tone = match run.tone {
-            Tone::Plain => ds::RunTone::Plain,
-            Tone::Strong => ds::RunTone::Strong,
-            Tone::Faint => ds::RunTone::Faint,
+            Tone::Plain => RunTone::Plain,
+            Tone::Strong => RunTone::Strong,
+            Tone::Faint => RunTone::Faint,
         };
         for piece in pieces(&run.text, &run.marks) {
             runs.push(match piece {
-                Piece::Plain(text) => ds::Run::new(text, tone),
-                Piece::Mark(text) => ds::Run::new(text, ds::RunTone::Mark),
+                Piece::Plain(text) => TextRun::new(text, tone),
+                Piece::Mark(text) => TextRun::new(text, RunTone::Mark),
             });
         }
     }
-    ds::Text::Runs(runs)
+    TextLine::Runs(runs)
 }
 
-fn quire_tile(tile: &Tile, size: AvatarSize) -> ds::Tile {
+fn leading(tile: &Tile, size: AvatarSize) -> RowLeading {
     match tile {
-        Tile::Icon(icon) => ds::Tile::Icon(*icon),
-        Tile::Avatar { letter, color } => ds::Tile::Avatar(AvatarFace {
+        Tile::Icon(icon) => RowLeading::Icon(*icon),
+        Tile::Avatar { letter, color } => RowLeading::Avatar(AvatarFace {
             initial: *letter,
             size,
             tone: AvatarTone::Account(super::sidebar::hex_colour(color)),
             shape: AvatarShape::Round,
         }),
-        Tile::Glyph(ch) => ds::Tile::Text(ch.to_string()),
-        Tile::Text(text) => ds::Tile::Text((*text).to_owned()),
+        Tile::Glyph(ch) => RowLeading::Text(ch.to_string()),
+        Tile::Text(text) => RowLeading::Text((*text).to_owned()),
     }
+}
+
+/// The items a query keeps, best match first with the matched characters marked; every item, in
+/// order, while the query is empty.
+pub(in crate::ui) fn narrowed(items: &[MenuItem], query: &str) -> Vec<MenuItem> {
+    if query.trim().is_empty() {
+        return items.to_vec();
+    }
+    let names: Vec<&str> = items.iter().map(|item| item.name.as_str()).collect();
+    match_list(query, &names)
+        .into_iter()
+        .filter_map(|hit| {
+            items.get(hit.index).map(|item| MenuItem {
+                marks: hit.indices,
+                ..item.clone()
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]

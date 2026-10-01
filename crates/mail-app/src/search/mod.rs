@@ -5,7 +5,7 @@
 //! query is then asked for is the split Gmail and Apple Mail make: the matches in date order,
 //! which is cheap and paginated ([`Prepared::listed`]), and a few top results ranked inside a
 //! window of the newest matches ([`Prepared::top`]), so a common word costs no more to rank than
-//! a rare one. `mailo search` and the list box call [`search_list`], Ctrl T calls [`run`], and
+//! a rare one. `mailo search` and the list box call [`search_list`], ⌘K calls [`run`], and
 //! all three go through [`prepare`], so the terminal and the window cannot drift on a query.
 
 #[path = "expand.rs"]

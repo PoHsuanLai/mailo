@@ -6,6 +6,12 @@
 //! when the file turns out to need one: typed into a [`Password`], moved into the one import
 //! that uses it, and dropped with it — never drawn, never in a signal.
 
+use ds::components::content::label::{LabelRole, LabelStyle};
+use ds::components::content::text_runs::RunTone;
+use ds::components::controls::button_model::{Answers, Bezel, ButtonRole};
+use ds::components::lists::list::model::ListStyle;
+use ds::prelude::*;
+use ds::root::common::Common;
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
@@ -77,10 +83,7 @@ pub(in crate::ui) fn work(
         CertJob::Trust(fingerprint, trust) => {
             crate::smime::certs::trust(store, fingerprint, trust).map_err(|e| e.to_string())?;
             match trust {
-                KeyTrust::Verified => format!(
-                    "Trusted {}: signatures by it, and by certificates it issued, are believed",
-                    cert_short(fingerprint)
-                ),
+                KeyTrust::Verified => format!("Trusted {}", cert_short(fingerprint)),
                 KeyTrust::Unverified => {
                     format!("{} is no longer trusted", cert_short(fingerprint))
                 }
@@ -117,10 +120,7 @@ fn import(
             .iter()
             .find(|one| one.cert.secret == SecretHeld::Held)
         {
-            Some(own) => format!(
-                "Imported your identity for {}. Its private key is in your system keyring.",
-                whose(&own.cert)
-            ),
+            Some(own) => format!("Imported your identity for {}", whose(&own.cert)),
             None if names.is_empty() => format!("{} holds no certificate.", path.display()),
             None => format!("Imported {}", names.join(", ")),
         },
@@ -164,59 +164,70 @@ pub(in crate::ui) fn CertPart(
         Confirm::Password(path) => Some(path),
         _ => None,
     };
+    let items: Vec<ListItem<String>> = certs
+        .into_iter()
+        .map(|cert| {
+            let id = cert.fingerprint.to_string();
+            let name = cert.subject.clone();
+            ListItem::row(
+                id.clone(),
+                name,
+                rsx! { CertRow { key: "{id}", cert, confirm, run, busy } },
+            )
+        })
+        .collect();
     rsx! {
-        section { class: "keys-part",
-            h4 { class: "keys-sub", "S/MIME" }
-            p { class: "capnote",
-                "Yours, from an identity file (.p12, .pfx), sign what you send and open what is sent to you. Theirs come from their signed mail or a certificate file (.pem, .der), and let you encrypt to them."
-            }
-            ul { class: "keys-list",
-                for cert in certs {
-                    CertRow { key: "{cert.fingerprint}", cert: cert.clone(), confirm, run, busy }
+            section { class: "keys-part",
+                SectionHeader { title: "S/MIME" }
+                Label {
+                    text: "Yours sign and decrypt. Theirs encrypt and verify.",
+                    role: LabelRole::Secondary,
+                    style: LabelStyle::Footnote,
                 }
-                if let Some(why) = failed {
-                    li { class: "keys-none", "{why}" }
+                div { class: "keys-list",
+                    List::<String> { label: "S/MIME certificates", items, style: ListStyle::Inset }
+                    if let Some(why) = failed {
+                        Label { text: why, role: LabelRole::Tertiary }
+                    }
                 }
-            }
-            if let Some(path) = asking {
-                {
-                    let file = path
-                        .file_name()
-                        .map_or_else(|| path.display().to_string(), |name| name.to_string_lossy().into_owned());
-                    rsx! {
-                        div { class: "keys-ask",
-                            Unlock {
-                                prompt: format!("{file} is an identity file. Type the password it was saved with to import it."),
-                                tried: Tried::Nothing,
-                                act: "Import".to_owned(),
-                                noun: "Password".to_owned(),
-                                working: busy,
-                                on_unlock: move |password: Password| {
-                                    confirm.set(Confirm::Nothing);
-                                    run.call(Job::Cert(CertJob::ImportWith(path.clone(), password)));
-                                },
-                            }
-                            ds::Button {
-                                variant: ds::ButtonVariant::Mini,
-                                label: "Cancel".to_owned(),
-                                aria_label: format!("Cancel: Import {file}"),
-                                onclick: on_primary(move || confirm.set(Confirm::Nothing)),
+                if let Some(path) = asking {
+                    {
+                        let file = path
+                            .file_name()
+                            .map_or_else(|| path.display().to_string(), |name| name.to_string_lossy().into_owned());
+                        rsx! {
+                            div { class: "keys-ask",
+                                Unlock {
+                                    prompt: format!("{file} is an identity file. Type the password it was saved with to import it."),
+                                    tried: Tried::Nothing,
+                                    act: "Import".to_owned(),
+                                    noun: "Password".to_owned(),
+                                    working: busy,
+                                    on_unlock: move |password: Password| {
+                                        confirm.set(Confirm::Nothing);
+                                        run.call(Job::Cert(CertJob::ImportWith(path.clone(), password)));
+                                    },
+                                }
+                                Button {
+                                    label: "Cancel",
+                                    answers: Answers::Escape,
+                                    onclick: on_primary(move || confirm.set(Confirm::Nothing)),
+        common: Common { aria_label: Some(format!("Cancel: Import {file}")), ..Common::default() },
+    }
                             }
                         }
                     }
                 }
-            }
-            div { class: "keys-acts",
-                ds::Button {
-                    variant: ds::ButtonVariant::Mini,
-                    label: import_label.to_string(),
-                    aria_label: import_label.to_string(),
-                    availability: available(!working),
-                    onclick: on_primary(move || run.call(Job::Cert(CertJob::Import))),
+                div { class: "keys-acts",
+                    Button {
+                        label: import_label,
+                        availability: available(!working),
+                        onclick: on_primary(move || run.call(Job::Cert(CertJob::Import))),
+        common: Common { aria_label: Some(import_label.to_string()), ..Common::default() },
+    }
                 }
             }
         }
-    }
 }
 
 /// One certificate, its actions, and the question asked before deleting one with a private key.
@@ -247,24 +258,13 @@ fn CertRow(cert: SmimeCert, confirm: Signal<Confirm>, run: Callback<Job>, busy: 
         .filter(|part| !part.is_empty())
         .collect::<Vec<_>>()
         .join(" · ");
-    let row_class = if mine { "keys-row mine" } else { "keys-row" };
     let (copied, saved, deleted, gone) = (cert.clone(), cert.clone(), cert.clone(), cert.clone());
     let mut confirm = confirm;
-    rsx! {
-        li { class: "{row_class}",
-            div { class: "keys-text",
-                b { "{cert.subject}" }
-                span { class: "keys-fpr", "{id}" }
-                span { class: "keys-meta", "{meta}" }
-            }
+    let actions = rsx! {
             div { class: "keys-row-acts",
-                if mine {
-                    span { class: "keys-tag", "yours" }
-                }
-                ds::Button {
-                    variant: ds::ButtonVariant::Secondary,
-                    label: "Copy".to_owned(),
-                    aria_label: format!("Copy the certificate {id}"),
+                Button {
+                    label: "Copy",
+                    bezel: Bezel::Inline,
                     onclick: on_primary(move || {
                         if let Ok(pem) = crate::smime::certs::export(&copied) {
                             super::super::hover::copy(&pem);
@@ -274,36 +274,37 @@ fn CertRow(cert: SmimeCert, confirm: Signal<Confirm>, run: Callback<Job>, busy: 
                             );
                         }
                     }),
+                    common: Common { aria_label: Some(format!("Copy the certificate {id}")), ..Common::default() },
                 }
-                ds::Button {
-                    variant: ds::ButtonVariant::Secondary,
-                    label: "Save…".to_owned(),
-                    aria_label: format!("Save the certificate {id}"),
+                Button {
+                    label: "Save…",
+                    bezel: Bezel::Inline,
                     availability: available(!working),
                     onclick: on_primary(move || run.call(Job::Cert(CertJob::Save(saved.clone())))),
-                }
+        common: Common { aria_label: Some(format!("Save the certificate {id}")), ..Common::default() },
+    }
                 if trusted {
-                    ds::Button {
-                        variant: ds::ButtonVariant::Secondary,
-                        label: "Don't trust".to_owned(),
-                        aria_label: format!("Stop trusting {id}"),
+                    Button {
+                        label: "Don't trust",
+                        bezel: Bezel::Inline,
                         availability: available(!working),
                         onclick: on_primary(move || run.call(Job::Cert(CertJob::Trust(fingerprint, KeyTrust::Unverified)))),
-                    }
+        common: Common { aria_label: Some(format!("Stop trusting {id}")), ..Common::default() },
+    }
                 } else {
-                    ds::Button {
-                        variant: ds::ButtonVariant::Secondary,
-                        label: "Trust".to_owned(),
-                        aria_label: format!("Trust {id}"),
-                        title: "Only after checking the fingerprint with its owner: it then vouches for every certificate it issued".to_owned(),
+                    Button {
+                        label: "Trust",
+                        bezel: Bezel::Inline,
+                        title: "Check the fingerprint first".to_owned(),
                         availability: available(!working),
                         onclick: on_primary(move || run.call(Job::Cert(CertJob::Trust(fingerprint, KeyTrust::Verified)))),
-                    }
+        common: Common { aria_label: Some(format!("Trust {id}")), ..Common::default() },
+    }
                 }
-                ds::Button {
-                    variant: ds::ButtonVariant::Danger,
-                    label: "Delete".to_owned(),
-                    aria_label: format!("Delete {id}"),
+                Button {
+                    label: "Delete",
+                    bezel: Bezel::Inline,
+                    role: ButtonRole::Destructive,
                     availability: available(!working),
                     onclick: on_primary(move || {
                         if deleted.secret == SecretHeld::Held {
@@ -312,12 +313,26 @@ fn CertRow(cert: SmimeCert, confirm: Signal<Confirm>, run: Callback<Job>, busy: 
                             run.call(Job::Cert(CertJob::Delete(deleted.clone(), WithSecret::Refuse)));
                         }
                     }),
+                    common: Common { aria_label: Some(format!("Delete {id}")), ..Common::default() },
                 }
+            }
+        };
+    let title = TextLine::Runs(vec![
+        TextRun::new(cert.subject.clone(), RunTone::Strong),
+        TextRun::new(format!("  {id}"), RunTone::Faint),
+    ]);
+    rsx! {
+        div { class: if mine { "keys-row mine" } else { "keys-row" },
+            Row {
+                leading: RowLeading::Icon(if mine { Icon::Key } else { Icon::Mail }),
+                title,
+                detail: Some(TextLine::from(meta)),
+                accessory: Accessory::Slot(actions),
             }
             if confirm() == Confirm::DeleteCert(fingerprint) {
                 ConfirmBar {
                     sentence: format!(
-                        "Deleting {id} also deletes its private key from your keyring. It cannot be recovered, and mail encrypted to it can never be read again. Keep the identity file you imported it from."
+                        "Deleting {id} also deletes its private key. This cannot be undone."
                     ),
                     act: "Delete the certificate and its private key".to_owned(),
                     confirm,

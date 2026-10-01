@@ -1,3 +1,4 @@
+use super::chord::Chord;
 use super::command::CommandMenu;
 use super::compose::{self, ComposerPage, PageKind, SendPill};
 use super::data::{PAGE, accounts, count_badges, warm_the_first_screenful};
@@ -10,21 +11,19 @@ use super::sidebar::Places;
 use super::space_editor::SpaceEditor;
 use super::style::STYLE;
 use crate::selection::Toward;
-use crate::space::{Space, Spaces};
+use crate::space::Spaces;
 use crate::view::{
-    Appearance, Listing, PageMenu, Shell, Shortcut, Source, SyncState, badge_filter, folder_filter,
-    nothing_to_show, places_with, synced,
+    Appearance, Listing, PageMenu, Peek, Shell, Shortcut, Source, SyncState, badge_filter,
+    folder_filter, nothing_to_show, places_with, synced,
 };
 use dioxus::prelude::*;
-use ds::{Ds, Material};
-use ds_settings::Environment;
+use ds::components::chrome::split_view::model::{Collapsing, PaneSpec, SplitPane};
+use ds::components::chrome::split_view::view::SplitView;
+use ds::prelude::*;
+use ds_settings::{Environment, UserStyle};
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
-
-/// The stacking layer of the scrim under a floating peek: the peek's own, so the peeked reader,
-/// drawn after it, is above it, and every floating surface (the command menu, a menu) above both.
-pub(in crate::ui) const SCRIM_LAYER: ds::ZLayer = ds::ZLayer::Peek;
 
 #[component]
 pub(super) fn App() -> Element {
@@ -72,16 +71,10 @@ pub(super) fn App() -> Element {
     let mut today_list = use_signal(|| boot.today.clone());
     let dirs = boot.dirs.clone();
     let mut side_hidden = use_signal(|| false);
-    // The hidden sidebar, shown as a floating panel while the pointer is at the left edge.
-    let mut side_peek = use_signal(|| false);
     // The Space editor's draft, while the sheet is open.
     let editing = use_signal(|| None::<crate::space::edit::Draft>);
-    // Which way the sidebar's contents slid in on the last switch.
-    let slide = use_signal(|| None::<super::switch::Slide>);
     let desk = compose::use_desk(today_list, spaces, dirs.clone(), side_hidden);
     compose::use_test_dictionaries();
-    let mut entering = use_signal(|| true);
-    let mut just_added = use_signal(|| None::<mail_domain::ThreadId>);
     let mut seen_open = use_signal(|| None::<mail_domain::ThreadId>);
     let mut scoped = use_signal(|| false);
     let mut label_ids = use_signal(Vec::<mail_domain::LabelId>::new);
@@ -262,32 +255,14 @@ pub(super) fn App() -> Element {
         if open == seen_open() {
             return;
         }
-        let already = open.is_some_and(|id| {
-            today_list
-                .peek()
-                .live(spaces.peek().current, chrono::Utc::now())
-                .contains(&id)
-        });
         seen_open.set(open);
         let Some(id) = open else {
             return;
         };
         let index = spaces.peek().current;
         today_list.write().opened(index, id, chrono::Utc::now());
-        if !already {
-            just_added.set(Some(id));
-        }
         if let Some(dirs) = today_dirs.clone() {
             let _ = crate::today::save(&dirs.state, &today_list.read());
-        }
-    });
-
-    let mut list_watch = use_signal(|| (0usize, None::<mail_domain::AccountId>));
-    use_effect(move || {
-        let now = (shell.read().selected, shell.read().account);
-        if now != list_watch() {
-            list_watch.set(now);
-            entering.set(true);
         }
     });
 
@@ -435,41 +410,49 @@ pub(super) fn App() -> Element {
             return;
         }
         let typing_now = in_a_field() || shell.read().composing.is_some();
-        if super::motion::key(&key, event.modifiers().ctrl(), typing_now, shell, revision) {
+        let modifiers = event.modifiers();
+        let chord = super::chord::chord(&key, modifiers);
+        if super::motion::key(
+            &key,
+            chord == Some(Chord::Undo),
+            typing_now,
+            shell,
+            revision,
+        ) {
             return;
         }
-        if key == "s" && event.modifiers().ctrl() {
-            side_peek.set(false);
-            side_hidden.set(!side_hidden());
-            return;
-        }
-        if event.modifiers().ctrl()
-            && let Some(index) = super::switch::space_key(&key)
-        {
-            super::switch::go(spaces, shell, pages, slide, index);
-            return;
-        }
-        if (key == "f" || key == "F") && event.modifiers().ctrl() {
-            super::reading::open_find(shell);
-            return;
-        }
-        if (key == "p" || key == "P") && event.modifiers().ctrl() {
-            // The open conversation, as one flow. Nothing open: nothing printed, nothing said.
-            let open = shell.read().open;
-            if let Some(job) = super::print::job_for(open) {
-                super::print::print(job);
+        match chord {
+            Some(Chord::ToggleSidebar) => {
+                side_hidden.set(!side_hidden());
+                return;
             }
-            return;
-        }
-        if (key == "t" || key == "T") && event.modifiers().ctrl() {
-            let open = shell.read().command.is_some();
-            if open {
-                shell.write().command = None;
-                super::host::Host::focus_app();
-            } else {
-                shell.write().command = Some(String::new());
+            Some(Chord::SwitchSpace(index)) => {
+                super::switch::go(spaces, shell, pages, index);
+                return;
             }
-            return;
+            Some(Chord::Find) => {
+                super::reading::open_find(shell);
+                return;
+            }
+            Some(Chord::Print) => {
+                // The open conversation, as one flow. Nothing open: nothing printed, nothing said.
+                let open = shell.read().open;
+                if let Some(job) = super::print::job_for(open) {
+                    super::print::print(job);
+                }
+                return;
+            }
+            Some(Chord::CommandMenu) => {
+                let open = shell.read().command.is_some();
+                if open {
+                    shell.write().command = None;
+                    super::host::Host::focus_app();
+                } else {
+                    shell.write().command = Some(String::new());
+                }
+                return;
+            }
+            Some(Chord::Undo) | None => {}
         }
         // A menu is showing its own cursor. Shortcuts would archive a thread the user is
         // trying to filter for, and the menu's own handler already took the arrows.
@@ -500,8 +483,8 @@ pub(super) fn App() -> Element {
         }
         let typing = in_a_field() || shell.read().composing.is_some();
         let listed = || -> Vec<ThreadId> { threads().iter().map(|t| t.id).collect() };
-        // Ctrl A picks every listed conversation. In a field it is the field's select-all.
-        if (key == "a" || key == "A") && event.modifiers().ctrl() {
+        // ⌘A picks every listed conversation. In a field it is the field's select-all.
+        if (key == "a" || key == "A") && super::chord::command(modifiers) {
             if !typing {
                 shell.write().pick_all(&listed());
             }
@@ -533,13 +516,24 @@ pub(super) fn App() -> Element {
             }
             return;
         }
-        let key = if event.modifiers().shift() {
-            crate::view::shifted(&key).to_owned()
+        // ⌘ held is the Mac's: ⌘N writes a message wherever the caret is, ⌘⌫ trashes while
+        // reading. No bare letter is a shortcut with ⌘ held — ⌘C is copy, and ⌘A was select-all
+        // above — because the keymap does not own chords. Esc still closes.
+        let action = if super::chord::command(modifiers) && key != "Escape" {
+            let Some(action) = crate::view::command_shortcut(&key, typing) else {
+                return;
+            };
+            action
         } else {
-            key
-        };
-        let Some(action) = shell.read().keymap.action(&key, typing) else {
-            return;
+            let key = if event.modifiers().shift() {
+                crate::view::shifted(&key).to_owned()
+            } else {
+                key
+            };
+            let Some(action) = shell.read().keymap.action(&key, typing) else {
+                return;
+            };
+            action
         };
         let store = consume_context::<Arc<SqliteStore>>();
         let open = shell.read().open;
@@ -702,16 +696,76 @@ pub(super) fn App() -> Element {
         }
     });
 
-    let peek = shell.read().peek.slug();
-    let close_label = "Close";
-    let frame_class = match (side_hidden(), side_peek()) {
-        (false, _) => "app",
-        (true, false) => "app no-side",
-        (true, true) => "app no-side side-peek",
+    let peek = shell.read().peek;
+    let frame_class = if side_hidden() { "app no-side" } else { "app" };
+    // The open thread or the composer: a column of the card, or, floating, quire's `Peek` over it.
+    let reading = rsx! {
+        // A new message is a page in this column; a reply sits under its thread.
+        match (compose::composing(&shell.read()), shell.read().open) {
+            (Some((draft, PageKind::Reply)), Some(thread)) => rsx! {
+                Reader { thread, shell, revision,
+                    ComposerPage { key: "{draft}", draft, shell, revision }
+                }
+            },
+            (Some((draft, _)), _) => rsx! { ComposerPage { key: "{draft}", draft, shell, revision } },
+            (None, Some(thread)) => rsx! { Reader { thread, shell, revision } },
+            (None, None) => rsx! {
+                EmptyState {
+                    form: ds::components::overlays::empty_state::EmptyForm::Empty,
+                    title: "No message selected",
+                }
+            },
+        }
+    };
+    let floating = shell.read().open.is_some() || compose::composing(&shell.read()).is_some();
+    let pinned = if side_hidden() {
+        Shown::Hidden
+    } else {
+        Shown::Visible
+    };
+    let side_body = if side_hidden() {
+        rsx! {}
+    } else {
+        rsx! {
+            Places {
+                shell, pages, badges, revision, spaces, today: today_list, dirs: dirs.clone(),
+                side_hidden, editing,
+            }
+        }
+    };
+    // The card: the list in a pane of its own (resizable, with a hairline between it and the
+    // reader), then the reader, which takes what is left.
+    let card = rsx! {
+        div { class: "card",
+            SplitView {
+                label: "List and reader",
+                panes: vec![SplitPane::new(LIST, rsx! {
+                    ThreadList {
+                        shell, pages, revision, in_a_field, threads, drafts, nothing, more,
+                        sync_state, marking, top,
+                    }
+                })],
+                section { class: "reader",
+                    match (peek, floating) {
+                        (Peek::Float(mode), true) => rsx! {
+                            ds::components::app::peek::Peek {
+                                mode,
+                                label: "Reader",
+                                onclose: move |()| shell.write().close(),
+                                {reading}
+                            }
+                        },
+                        _ => reading,
+                    }
+                    super::hover::LinkPill {}
+                }
+            }
+            SendPill { shell }
+        }
     };
     rsx! {
         Frame { spaces,
-        style { {STYLE} }
+        AppStyle { css: STYLE }
         div { class: frame_class,
             tabindex: "0",
             onmounted: super::host::Host::app_mounted,
@@ -724,23 +778,24 @@ pub(super) fn App() -> Element {
             onpointerup: move |_| {
                 super::motion::drag::release(shell, revision);
             },
-            "data-peek": "{peek}",
+            "data-peek": peek.slug(),
+            // The window is quire's `SplitView`: the sidebar pane, resizable and folding away past
+            // half its least, then the card. Pinned, the sidebar is the pane's body; hidden, its
+            // `EdgePeek` moves out of the pane (which clips what floats over it) into a
+            // zero-width host at the window's edge.
+            SplitView {
+                label: "Mail",
+                panes: vec![SplitPane::new(SIDEBAR, side_body).shown(pinned)],
+                on_shown: move |(_, shown): (usize, Shown)| side_hidden.set(shown == Shown::Hidden),
+                {card}
+            }
             if side_hidden() {
-                ds::EdgeStrip { onenter: move |()| side_peek.set(true) }
-            }
-            if shell.read().open.is_some() && shell.read().peek.floats() {
-                // quire's inline scrim on the peek's layer: the peeked reader, drawn later on the
-                // same layer, sits above it, and the panes' own positioned rows below.
-                ds::Scrim {
-                    flow: ds::Flow::Inline,
-                    layer: Some(SCRIM_LAYER),
-                    label: close_label.to_owned(),
-                    onclose: move |()| shell.write().close(),
+                div { class: "edge-host",
+                    Places {
+                        shell, pages, badges, revision, spaces, today: today_list, dirs: dirs.clone(),
+                        side_hidden, editing,
+                    }
                 }
-            }
-            Places {
-                shell, pages, badges, revision, spaces, today: today_list, dirs: dirs.clone(),
-                side_hidden, side_peek, just_added, editing, slide,
             }
             SpaceEditor { spaces, editing, shell }
             super::hover::HoverLayer { shell, revision, spaces: Some(spaces) }
@@ -774,36 +829,26 @@ pub(super) fn App() -> Element {
             if shell.read().destroying.is_some() {
                 super::destroy::DestroySheet { shell, revision }
             }
-            div { class: "card",
-            ThreadList {
-                shell, pages, revision, in_a_field, threads, drafts, nothing, more,
-                sync_state, entering, marking, top,
-            }
-            section { class: "reader",
-                // A new message is a page in this column; a reply sits under its thread.
-                match (compose::composing(&shell.read()), shell.read().open) {
-                    (Some((draft, PageKind::Reply)), Some(thread)) => rsx! {
-                        Reader { thread, shell, revision,
-                            ComposerPage { key: "{draft}", draft, shell, revision }
-                        }
-                    },
-                    (Some((draft, _)), _) => rsx! { ComposerPage { key: "{draft}", draft, shell, revision } },
-                    (None, Some(thread)) => rsx! { Reader { thread, shell, revision } },
-                    (None, None) => rsx! {
-                        div { class: "reader-empty",
-                            p { "Nothing open" }
-                            p { class: "mono", "pick a thread" }
-                        }
-                    },
-                }
-                super::hover::LinkPill {}
-            }
-            SendPill { shell }
-            }
         }
         }
     }
 }
+
+/// The sidebar pane: 232 wide, 180 to 320, and it folds away past half of its least.
+const SIDEBAR: PaneSpec = PaneSpec {
+    preferred: Px(232.0),
+    min: Px(180.0),
+    max: Px(320.0),
+    collapsing: Collapsing::Snaps,
+};
+
+/// The list pane: 400 wide, 280 to 640, and it does not fold.
+const LIST: PaneSpec = PaneSpec {
+    preferred: Px(400.0),
+    min: Px(280.0),
+    max: Px(640.0),
+    collapsing: Collapsing::Never,
+};
 
 /// What the window resolves its look from: the live settings and desktop preferences `launch`
 /// provides, else a fixed value a test provides, else the first run.
@@ -817,18 +862,27 @@ fn environment() -> Environment {
     try_consume_context::<Environment>().unwrap_or_default()
 }
 
+/// The person's own stylesheet, live when `launch` watches the config directory, else empty.
+fn user_style() -> ReadSignal<UserStyle> {
+    match try_consume_context::<ReadSignal<UserStyle>>() {
+        Some(live) => live,
+        None => ReadSignal::new(use_signal(UserStyle::default)),
+    }
+}
+
 /// The quire root the window draws inside, wearing the current Space.
 ///
 /// Its own component so a Space change re-renders only the root's attributes and frame
-/// layers, not `App`: the children are `App`'s, unchanged. The Space's look is the frame; its
-/// motion is the root's motion level, since quire's `SpaceLook` has none (reported to quire);
-/// the rest of the appearance, the typeface included, is `appearance.toml`'s. A switch or an edit only writes the
-/// Spaces, and `Ds` cross-fades the frame's layers itself.
+/// layers, not `App`: the children are `App`'s, unchanged. The Space's look is the frame (the
+/// sidebar sits on its colour, the card on paper); its motion is the root's motion level, since
+/// quire's `SpaceLook` has none (reported to quire); the rest of the appearance, the typeface
+/// included, is `appearance.toml`'s. A switch or an edit only writes the Spaces, and `Ds`
+/// cross-fades the frame's layers itself.
 #[component]
 pub(super) fn Frame(spaces: Signal<Spaces>, children: Element) -> Element {
     let environment = environment();
     let space = spaces.read().current_space();
-    let appearance = window_appearance(&environment, &space);
+    let appearance = window_appearance(&environment);
     rsx! {
         Ds {
             appearance,
@@ -836,18 +890,20 @@ pub(super) fn Frame(spaces: Signal<Spaces>, children: Element) -> Element {
             look: space.look,
             material: Material::Window,
             tint_alpha: Some(environment.tint_alpha()),
-            typeface: Some(environment.settings.appearance.typeface()),
+            stack: Some(environment.material_stack()),
+            // One Look: Inter. The editorial faces are the design system's, not mail chrome's.
+            typeface: Some(Typeface::System),
+            user_style: user_style(),
+            surface: Some("window"),
             {children}
         }
     }
 }
 
-/// `appearance.toml`'s appearance, moving as `space` says unless the desktop asks for less.
-pub(super) fn window_appearance(environment: &Environment, space: &Space) -> ds::Appearance {
-    ds::Appearance {
-        motion: space.motion.with_desktop(environment.system),
-        ..environment.settings.appearance.appearance()
-    }
+/// `appearance.toml`'s appearance. How much the window moves is the person's motion setting and
+/// the desktop's reduced-motion preference (`Ds { system }`), never a Space's.
+pub(super) fn window_appearance(environment: &Environment) -> ds::prelude::Appearance {
+    environment.settings.appearance.appearance()
 }
 
 #[cfg(test)]
@@ -879,15 +935,16 @@ mod tests {
         let (store, _dir) = empty();
         let markup = markup(store);
 
-        assert!(markup.contains("No account yet"), "{markup}");
+        assert!(markup.contains("No account"), "{markup}");
         // The angle brackets come back escaped, which is the renderer doing its job; asserting
         // on one spelling of the escape would be asserting on dioxus rather than on the shell.
         assert!(
             markup.contains("mailo account add"),
             "the command is not on the page:\n{markup}"
         );
+        // Set apart from the prose: it is the empty state's own body line, under its title.
         assert!(
-            markup.contains("class=\"command\""),
+            markup.contains("ds-empty-state-body"),
             "it is not set apart from the prose, so it reads as italic advice:\n{markup}"
         );
         // The words on the page, not in the stylesheets it carries (quire's CSS has comments).
@@ -1220,10 +1277,9 @@ mod tests {
         rest.split('"').next().unwrap_or("").to_owned()
     }
 
-    fn scrim_count(page: &str) -> usize {
-        shell_markup(page)
-            .matches(r#"class="ds-scrim" data-flow="inline""#)
-            .count()
+    /// How many of quire's `Peek` panels are up: the reader over the card.
+    fn peeks_up(page: &str) -> usize {
+        page.matches(r#"class="ds-peek""#).count()
     }
 
     fn iframe_srcdoc(page: &str) -> String {
@@ -1247,7 +1303,7 @@ mod tests {
             .to_owned()
     }
 
-    /// `(what to do, the data-peek value, whether the scrim is up)`.
+    /// `(what to do, the data-peek value, whether quire's peek panel is up)`.
     ///
     /// The slugs are literals. The shell writes `Peek::slug()`; if this table called `slug()`
     /// too, the two would agree whatever the function returned.
@@ -1264,7 +1320,7 @@ mod tests {
     ];
 
     #[tokio::test]
-    async fn each_peek_writes_data_peek_and_the_scrim_only_while_a_thread_is_open() {
+    async fn each_peek_writes_data_peek_and_the_panel_only_while_a_thread_is_open() {
         use crate::ui::fixtures::{click, key};
 
         dispatching();
@@ -1280,27 +1336,38 @@ mod tests {
                 "open" | "escape" => {
                     let key_name = if *action == "open" { "j" } else { "Escape" };
                     seen = key(&mut dom, key_name);
+                    // A panel quire floats is drawn on the render after the one that asked.
+                    let later = crate::ui::fixtures::drain_seen(&mut dom);
+                    seen = seen.merge(later);
                 }
                 "scrim" => {
-                    let id = seen.one("aria-label", "Close");
-                    seen = click(&mut dom, id);
+                    // The panel has two ways to close it, the scrim and its own tool; the scrim
+                    // is the first drawn.
+                    let id = *seen
+                        .all("aria-label", "Close peek")
+                        .first()
+                        .expect("the panel draws no way to close it");
+                    click(&mut dom, id);
+                    crate::ui::fixtures::drain(&mut dom);
                 }
                 label => {
                     let id = seen.one("aria-label", label);
-                    seen = click(&mut dom, id);
+                    click(&mut dom, id);
+                    let later = crate::ui::fixtures::drain_seen(&mut dom);
+                    seen = seen.merge(later);
                 }
             }
             let page = dioxus_ssr::render(&dom);
             let got = peek_attr(&page);
-            let scrims = scrim_count(&page);
-            let want_scrims = if *scrim { 1 } else { 0 };
-            if got != *slug || scrims != want_scrims {
+            let panels = peeks_up(&page);
+            let want_panels = if *scrim { 1 } else { 0 };
+            if got != *slug || panels != want_panels {
                 failures.push(format!(
-                    "{action}: data-peek {got:?} (want {slug:?}), {scrims} scrims (want {want_scrims})"
+                    "{action}: data-peek {got:?} (want {slug:?}), {panels} peek panels (want {want_panels})"
                 ));
             }
             if *action == "start" {
-                if !page.contains("Nothing open") || !page.contains("pick a thread") {
+                if !page.contains("No message selected") {
                     failures.push(format!(
                         "the empty reader does not say what is open:\n{page}"
                     ));
@@ -1314,20 +1381,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn changing_the_peek_does_not_remount_the_reader() {
-        use crate::ui::fixtures::{click, key};
-        use crate::ui::reading::{reader_mounts, reset_reader_mounts};
+    async fn changing_the_peek_keeps_the_same_thread_and_document_in_the_reader() {
+        use crate::ui::fixtures::{click, drain_seen, key};
 
         dispatching();
-        reset_reader_mounts();
         let (store, _dir) = realistic();
         let mut dom = VirtualDom::new(App).with_root_context(store);
         dom.rebuild_in_place();
 
-        // The newest rows are plain text. Walk until the open thread is one with a frame,
-        // which is the node a remount would reload. The peek buttons are created on the first
-        // open and not rewritten while only the message changes, so their ids come from that
-        // first render.
+        // The newest rows are plain text. Walk until the open thread is one with a frame. The
+        // peek buttons are created on the first open and not rewritten while only the message
+        // changes, so their ids come from that first render.
         let mut centre = None;
         let mut full = None;
         let mut page = String::new();
@@ -1344,21 +1408,26 @@ mod tests {
             shell_markup(&page).contains("<iframe"),
             "no HTML thread in the fixture:\n{page}"
         );
-        let mounted = reader_mounts();
-        assert!(mounted >= 1, "the reader never mounted");
         let srcdoc = iframe_srcdoc(&page);
         let centre = centre.expect("the reader never drew Centre peek");
         let full = full.expect("the reader never drew Full page");
 
+        // The reader moves from the card's column into quire's panel and stays the same thread:
+        // its frame is built again, from the same sanitized document.
         click(&mut dom, centre);
-        click(&mut dom, full);
-        let after = dioxus_ssr::render(&dom);
+        let seen = drain_seen(&mut dom);
+        let floating = dioxus_ssr::render(&dom);
+        assert_eq!(peek_attr(&floating), "center");
+        assert_eq!(peeks_up(&floating), 1, "the reader is not in quire's panel");
         assert_eq!(
-            reader_mounts(),
-            mounted,
-            "peek changed the reader's mount count, so the iframe was recreated: {mounted} before, {} after",
-            reader_mounts()
+            iframe_srcdoc(&floating),
+            srcdoc,
+            "the panel shows another document"
         );
+        let full = seen.get("aria-label", "Full page").unwrap_or(full);
+        click(&mut dom, full);
+        drain_seen(&mut dom);
+        let after = dioxus_ssr::render(&dom);
         assert_eq!(
             peek_attr(&after),
             "full",
@@ -1370,6 +1439,7 @@ mod tests {
             "peek replaced the iframe's document"
         );
     }
+
     /// `page` without its `<style>` elements.
     fn without_styles(page: &str) -> String {
         let mut shown = String::new();

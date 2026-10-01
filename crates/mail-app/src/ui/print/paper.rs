@@ -1,5 +1,5 @@
 //! The printout on paper, for the `native` frontend: [`crate::print`]'s document made into a PDF
-//! by quire (`ds_native::pdf`), with no webview anywhere.
+//! by quire (`ds_blitz::pdf`), with no webview anywhere.
 //!
 //! Blitz lays the document out and quire cuts it into pages. Neither reads CSS fragmentation
 //! (`break-before`, `break-inside`, `@page`), so the page rules `mail_mime::print` writes as CSS
@@ -29,12 +29,11 @@
 //! named, as the document's `<p class="missing">`.
 
 use crate::print::{Pictures, Printed};
-use ds_native::{Margins, PageSize, PageSpec};
+use ds_blitz::{Margins, PageSize, PageSpec};
 use mail_mime::{Options, Script};
 
 /// What the top of a printout says when it names a picture instead of drawing it.
-pub(in crate::ui) const PICTURES_NOTE: &str =
-    "Pictures that are not part of the message are not printed; each is named where it appears.";
+pub(in crate::ui) const PICTURES_NOTE: &str = "Other pictures are named, not printed.";
 
 /// Which regional CJK face leads: the ideographs are shared, their shapes are not.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -324,7 +323,7 @@ where
 /// `printed` as a PDF on `paper`. Blocking, and slow next to a click (the layout, and the first
 /// time in a process a scan of the system's fonts): never on the render path (F140).
 pub(in crate::ui) fn pdf(printed: &Printed, paper: &Paper) -> Result<Vec<u8>, String> {
-    ds_native::pdf(&printed.html, paper.spec).map_err(|error| error.to_string())
+    ds_blitz::pdf(&printed.html, paper.spec).map_err(|error| error.to_string())
 }
 
 /// What a print dialog, and a PDF file, are titled: the subject, or "(no subject)".

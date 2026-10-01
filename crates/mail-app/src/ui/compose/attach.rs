@@ -7,7 +7,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use dioxus::prelude::*;
-use ds::Icon;
+use ds::file_drop::drag::FileDrop;
+use ds::file_drop::hook::{FileDropHandle, use_file_drop};
+use ds::prelude::*;
+use ds::root::common::Common;
+use ds::style::tokens::control_size::ControlSize;
 use mail_store::SqliteStore;
 
 use super::life;
@@ -20,26 +24,27 @@ use crate::ui::press::on_primary;
 #[component]
 pub(super) fn Attach(page: Signal<Page>, label: &'static str) -> Element {
     rsx! {
-        ds::Button {
-            variant: ds::ButtonVariant::Mini,
-            extra_class: ds::ExtraClass::parse("attach").ok(),
+        Button {
+            size: ControlSize::Small,
             label,
-            aria_label: label.to_owned(),
             icon: Icon::Paperclip,
             onclick: on_primary(move || {
                 crate::ui::pick::choose(crate::ui::pick::Ask::Attachments, None, move |paths| {
                     attach(page, paths);
                 });
             }),
+            // A plain label is the visible name. The composer's tests find this button by its
+            // accessible name, which quire copies onto aria-label only for an icon-only button.
+            common: Common { aria_label: Some(label.to_owned()), ..Common::default() },
         }
     }
 }
 
 /// The page as a drop target: files let go on it are attached, in the order they came. Its
 /// element takes the handle's `onmounted` and `data-drop`.
-pub(super) fn use_drop_target(page: Signal<Page>) -> ds::FileDropHandle {
+pub(super) fn use_drop_target(page: Signal<Page>) -> FileDropHandle {
     // The drop handler is an event, not the component body, so reading can start here.
-    ds::use_file_drop(move |files: ds::FileDrop| attach(page, files.paths))
+    use_file_drop(move |files: FileDrop| attach(page, files.paths))
 }
 
 /// A file asked for, read when it is a regular file within the budget.

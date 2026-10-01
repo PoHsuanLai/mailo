@@ -2,7 +2,7 @@
 //! was typed, what the Contacts sheet lists, and the few writes a person can make by hand.
 //!
 //! Every suggestion goes through [`suggest`], so the To and Cc fields, `@` in the body and the
-//! Ctrl T menu's People rank the same people in the same order. Import and export are
+//! ⌘K menu's People rank the same people in the same order. Import and export are
 //! `crate::contacts`' — the functions `mailo contacts import|export` run — so the window and the
 //! command line cannot disagree about what a vCard holds.
 

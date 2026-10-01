@@ -1,4 +1,4 @@
-//! Spelling in the composer, on the real window (Blitz, through `ds_native::Harness`): a
+//! Spelling in the composer, on the real window (Blitz, through `ds_harness::Harness`): a
 //! misspelling is marked once the caret has left it, the word being typed is not, a suggestion
 //! picked from the menu replaces the word as one undo step, the menu taking the keyboard neither
 //! parks nor closes the draft, and turning spelling off takes the marks away.
@@ -10,10 +10,17 @@
 //! nothing it does can reach the user's own spelling list either (the workspace forbids the
 //! `unsafe` that setting them in-process would need).
 
-use ds::{Key, Lang, Point, PointerButton, Px};
-use ds_native::harness::settle_until;
-use ds_native::spell::SpellConfig;
-use ds_native::{FocusFallback, Harness, HarnessConfig, NetPolicy, PrintOutcome, Viewport};
+use ds::base::press::PointerButton;
+use ds::prelude::{Point, Px, ShortcutKey as Key};
+use ds::spell::lang::Lang;
+use ds_blitz::spell::SpellConfig;
+use ds_blitz::{FocusFallback, NetPolicy, PrintOutcome};
+use ds_harness::harness::settle_until;
+use ds_harness::{Driver, Harness, HarnessConfig, Query, Viewport};
+
+#[path = "support/drive.rs"]
+mod drive;
+use drive::Drive;
 use mail_app::ui::native::Dictionaries;
 use mail_domain::*;
 use mail_store::SqliteStore;
@@ -43,7 +50,7 @@ fn ms(n: u64) -> Duration {
 
 /// How long quire waits after typing stops before it checks.
 fn debounce() -> Duration {
-    ds::DelayToken::SpellDebounce.delay(ds::MotionLevel::Standard)
+    ds::style::tokens::delay::DelayToken::SpellDebounce.delay()
 }
 
 /// Run `case` in a child process of this test binary with `HOME` and `XDG_DATA_HOME` in a
@@ -136,7 +143,7 @@ fn composing_in(view: Viewport) -> (Harness, tempfile::TempDir) {
         .with_net(NetPolicy::Local)
         .with_focus_fallback(FocusFallback::Ancestor)
         .with_contexts(contexts);
-    let mut harness = Harness::with_config(mail_app::ui::native::root, config);
+    let mut harness = Harness::new(mail_app::ui::native::root, config);
     harness.advance(ms(300));
     harness.key(Key::Char('c'));
     settle_until(&mut harness, |h| h.count(".cpage .c-body") == 1);
@@ -152,29 +159,26 @@ fn centre(harness: &Harness, selector: &str) -> Point {
         .unwrap_or_else(|| panic!("{selector} is not drawn:\n{}", harness.html()))
 }
 
-/// Wheel the settings down, as a person would, until all of `selector` lies between the sheet's
-/// top and its foot, neither of which scrolls, or the scroller stops moving. (Not measured
-/// against the scroller's own rect: Blitz subtracts an element's own scroll offset from its
-/// client rect, so a scrolled scroller reads as moved up although it is drawn where it was.)
-fn wheel_into_settings_view(harness: &mut Harness, selector: &str) {
-    let rect = |harness: &Harness, selector: &str| {
-        harness
-            .rect(selector)
-            .unwrap_or_else(|| panic!("{selector} is not drawn:\n{}", harness.html()))
+/// Wheel the settings list until `selector`'s centre is that element. The wheel goes through
+/// the scroller's padding, at its top corner: a wheel over the look editor is consumed by the
+/// editor and the list below it never moves.
+fn reveal_in_scroller(harness: &mut Harness, selector: &str) {
+    let scroll = harness
+        .rect(".ed-scroll")
+        .unwrap_or_else(|| panic!("the settings list is not drawn:\n{}", harness.html()));
+    let at = Point {
+        x: Px(scroll.origin.x.0 + 4.0),
+        y: Px(scroll.origin.y.0 + 4.0),
     };
-    let at = centre(harness, ".editor .ed-scroll");
-    let mut last = f32::NAN;
-    for _ in 0..50 {
-        let top = rect(harness, ".editor").origin.y.0;
-        let foot = rect(harness, ".editor .ed-foot").origin.y.0;
-        let found = rect(harness, selector);
-        let y = found.origin.y.0;
-        if (y >= top && y + found.size.height.0 <= foot) || (y - last).abs() < 0.5 {
+    for _ in 0..60 {
+        if harness
+            .centre(selector)
+            .is_some_and(|found| harness.hits(found, selector))
+        {
             return;
         }
-        last = y;
-        harness.wheel(at, Px(0.0), Px(-120.0));
-        harness.advance(ms(20));
+        harness.wheel(at, Px(0.0), Px(-160.0));
+        harness.advance(ms(16));
     }
 }
 
@@ -301,21 +305,38 @@ fn escape_closes_the_spelling_menu_and_leaves_the_draft_open() {
     );
 }
 
+/// [`settle_until`], naming the state it was waiting on.
+fn until(harness: &mut Harness, what: &str, done: impl Fn(&Harness) -> bool) {
+    let started = harness.now();
+    while harness.now().saturating_duration_since(started) < Duration::from_secs(3) {
+        if done(harness) {
+            return;
+        }
+        harness.advance(Duration::from_millis(10));
+    }
+    assert!(done(harness), "{what}:\n{}", harness.html());
+}
+
 fn off_removes_the_marks() {
     let (mut harness, _dir) = composing_in(VIEW);
     type_text(&mut harness, "teh cat");
     settle_until(&mut harness, |h| marks(h) == 1);
     // The settings, from the Space's name in the sidebar, beside the open draft.
     harness.click(centre(&harness, ".space-name"));
-    // Blitz's selectors name an attribute with a dash through the any-namespace form.
-    let off = "[*|aria-label=\"Check spelling\"] button:last-child";
-    settle_until(&mut harness, |h| h.count(off) == 1);
-    wheel_into_settings_view(&mut harness, off);
-    settle_until(&mut harness, |h| {
+    // Blitz's selectors name an attribute with a dash through the any-namespace form. Off is the
+    // second segment; the thumb is the control's last child, so it is not `button:last-child`.
+    let off = "[*|aria-label=\"Check spelling\"] .ds-segmented-segment:nth-child(2)";
+    until(&mut harness, "Off is drawn", |h| {
+        h.text_of(off).is_some_and(|text| text.trim() == "Off")
+    });
+    // A wheel over the look editor is consumed there. The scroller's own padding is the
+    // settings list, and that is what has to move for Off to come into reach.
+    reveal_in_scroller(&mut harness, off);
+    until(&mut harness, "Off can be pressed", |h| {
         h.centre(off).is_some_and(|at| h.hits(at, off))
     });
     harness.click(centre(&harness, off));
-    settle_until(&mut harness, |h| marks(h) == 0);
+    until(&mut harness, "the marks leave", |h| marks(h) == 0);
     harness.advance(debounce() * 3);
     assert_eq!(marks(&harness), 0, "a mark came back with spelling off");
     assert_eq!(body(&harness), "teh cat", "the draft changed");

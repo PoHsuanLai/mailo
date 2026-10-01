@@ -1,4 +1,4 @@
-//! Files dragged in from a file manager, on the real window (Blitz, through `ds_native::Harness`):
+//! Files dragged in from a file manager, on the real window (Blitz, through `ds_harness::Harness`):
 //! files let go on an open composer are attached as the Attach dialog's are, a folder is refused
 //! with a note, the page lights while files are over it, and a drop anywhere else attaches
 //! nothing.
@@ -6,9 +6,15 @@
 //! The drag is fed as the window's hook feeds winit's events (`Harness::file_drag`). Every file
 //! dropped is written into a `TempDir` first.
 
-use ds::{DropAcceptance, FileDragInput, Offer, Point};
-use ds_native::harness::settle_until;
-use ds_native::{FocusFallback, Harness, HarnessConfig, NetPolicy, PrintOutcome, Viewport};
+use ds::file_drop::drag::{DropAcceptance, FileDragInput, Offer};
+use ds::prelude::Point;
+use ds_blitz::{FocusFallback, NetPolicy, PrintOutcome};
+use ds_harness::harness::settle_until;
+use ds_harness::{Driver, Harness, HarnessConfig, Query, Viewport};
+
+#[path = "support/drive.rs"]
+mod drive;
+use drive::Drive;
 use mail_domain::*;
 use mail_runtime::{Arrival, absorb};
 use mail_store::{SqliteStore, Store};
@@ -93,10 +99,10 @@ fn composing() -> (Harness, tempfile::TempDir, Arc<SqliteStore>) {
         .with_net(NetPolicy::Local)
         .with_focus_fallback(FocusFallback::Ancestor)
         .with_contexts(contexts);
-    let mut harness = Harness::with_config(mail_app::ui::native::root, config);
+    let mut harness = Harness::new(mail_app::ui::native::root, config);
     harness.advance(ms(300));
-    settle_until(&mut harness, |h| h.count(".ds-list .ds-row") == 1);
-    harness.key(ds::Key::Char('c'));
+    settle_until(&mut harness, |h| h.count(".list .ds-thread") == 1);
+    harness.key(ds::prelude::ShortcutKey::Char('c'));
     settle_until(&mut harness, |h| h.count(".cpage .c-body") == 1);
     harness.advance(ms(300));
     (harness, dir, store)
@@ -142,7 +148,7 @@ fn attached_names(store: &SqliteStore) -> Vec<String> {
 
 /// The Attached row's chips, as their text.
 fn chips(harness: &Harness) -> usize {
-    harness.count(".c-props .prop-row .ds-chip")
+    harness.count(".c-props [*|data-row=attached] .ds-chip")
 }
 
 #[test]
@@ -178,7 +184,7 @@ fn a_folder_dropped_on_the_composer_is_refused_with_a_note() {
 
     let note = "photos is a folder; attach the files in it instead";
     settle_until(&mut harness, |h| {
-        h.text_of(".cpage .notice").as_deref() == Some(note)
+        h.text_of(".cpage .ds-inline-banner-body").as_deref() == Some(note)
     });
     assert_eq!(chips(&harness), before, "nothing was attached");
     assert!(attached_names(&store).is_empty());
@@ -191,7 +197,7 @@ fn files_dragged_over_the_window_light_the_composer_and_over_it_target_it() {
     let drop_attr = |h: &Harness| h.attr(".cpage", "data-drop");
     assert_eq!(drop_attr(&harness), None, "nothing lit before a drag");
 
-    let list = centre(&harness, ".ds-list .ds-row");
+    let list = centre(&harness, ".list .ds-thread");
     harness.file_drag(FileDragInput::Entered { point: Some(list) });
     let over_list = harness.file_drag(FileDragInput::Offered(Offer::Files(vec![agenda])));
     assert_eq!(over_list, DropAcceptance::Refuse, "the list takes no files");
@@ -212,7 +218,7 @@ fn files_dropped_outside_the_composer_attach_nothing() {
     let agenda = file(dir.path(), "agenda.txt", "Friday");
     let before = chips(&harness);
 
-    let list = centre(&harness, ".ds-list .ds-row");
+    let list = centre(&harness, ".list .ds-thread");
     let told = drop_at(&mut harness, list, vec![agenda.clone()]);
     assert_eq!(
         told,

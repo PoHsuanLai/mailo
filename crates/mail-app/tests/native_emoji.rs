@@ -1,13 +1,18 @@
-//! Emoji in the composer, on the real window (Blitz, through `ds_native::Harness`): `:smi` offers
+//! Emoji in the composer, on the real window (Blitz, through `ds_harness::Harness`): `:smi` offers
 //! emoji by name and Enter puts the first in the body, where one Ctrl Z takes it out again; the
 //! foot's button opens the picker, where a click picks; the picker is walked with the arrows,
 //! Enter and Escape; and what was picked is first in a new window's picker.
 //!
 //! The recent emoji are kept in the window's state directory, here a `TempDir`.
 
-use ds::{Key, Point};
-use ds_native::harness::settle_until;
-use ds_native::{FocusFallback, Harness, HarnessConfig, NetPolicy, PrintOutcome, Viewport};
+use ds::prelude::{Point, ShortcutKey as Key};
+use ds_harness::harness::settle_until;
+use ds_harness::{Driver, Harness, HarnessConfig, Query, Viewport};
+
+#[path = "support/drive.rs"]
+mod drive;
+use drive::Drive;
+use ds_blitz::{FocusFallback, NetPolicy, PrintOutcome};
 use mail_app::appearance::WindowDirs;
 use mail_domain::*;
 use mail_store::SqliteStore;
@@ -73,7 +78,7 @@ fn composing_over(store: &Arc<SqliteStore>, dirs: &WindowDirs) -> Harness {
         .with_net(NetPolicy::Local)
         .with_focus_fallback(FocusFallback::Ancestor)
         .with_contexts(contexts);
-    let mut harness = Harness::with_config(mail_app::ui::native::root, config);
+    let mut harness = Harness::new(mail_app::ui::native::root, config);
     harness.advance(ms(300));
     harness.key(Key::Char('c'));
     settle_until(&mut harness, |h| h.count(".cpage .c-body") == 1);
@@ -185,7 +190,7 @@ fn the_button_opens_the_picker_a_click_picks_and_a_new_window_has_it_first() {
     assert_eq!(harness.count(CELL), 1, "only what was picked is recent");
     assert_eq!(
         harness
-            .text_of(".em-tabs [*|aria-selected=true]")
+            .text_of(".em-tabs [*|aria-checked=true]")
             .as_deref()
             .map(str::trim),
         Some("🕘"),

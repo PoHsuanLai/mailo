@@ -1,13 +1,18 @@
-//! The launcher's unread count, from the real window on Blitz (`ds_native::Harness`): the window
+//! The launcher's unread count, from the real window on Blitz (`ds_harness::Harness`): the window
 //! counts its inbox when it opens, and again when the user reads a conversation or takes that back.
 //!
 //! The window is handed a recorder as its launcher, so nothing reaches a dock or the session bus;
 //! the message a count becomes is a table in `launcher/unity.rs`. It is handed no directories, so
 //! it writes no file anywhere.
 
-use ds::{Key, Point};
-use ds_native::harness::settle_until;
-use ds_native::{Harness, HarnessConfig, NetPolicy, PrintOutcome, Viewport};
+use ds::prelude::{Point, ShortcutKey as Key};
+use ds_harness::harness::settle_until;
+use ds_harness::{Driver, Harness, HarnessConfig, Query, Viewport};
+
+#[path = "support/drive.rs"]
+mod drive;
+use drive::Drive;
+use ds_blitz::{NetPolicy, PrintOutcome};
 use mail_app::launcher::{Badge, Launcher, Unread};
 use mail_domain::*;
 use mail_runtime::{Arrival, absorb};
@@ -137,12 +142,12 @@ fn open() -> (Harness, tempfile::TempDir, Arc<Recorder>) {
     let config = HarnessConfig::new(VIEW)
         .with_net(NetPolicy::Local)
         .with_contexts(contexts);
-    let harness = Harness::with_config(mail_app::ui::native::root, config);
+    let harness = Harness::new(mail_app::ui::native::root, config);
     (harness, dir, recorder)
 }
 
 fn row(n: usize) -> String {
-    format!(".ds-list > .row:nth-child({n})")
+    format!(".list .ds-list > .ds-list-item:nth-child({n})")
 }
 
 fn centre(harness: &Harness, selector: &str) -> Point {
@@ -157,7 +162,7 @@ fn the_window_counts_its_inbox_and_counts_again_when_one_is_read_and_unread() {
     settle_until(&mut harness, |_| recorder.seen() == [3]);
 
     // Read the second conversation from its hover strip.
-    harness.pointer_move(centre(&harness, &format!("{} .ds-row-sub", row(2))));
+    harness.pointer_move(centre(&harness, &format!("{} .ds-thread-sub", row(2))));
     harness.advance(ms(300));
     let read = format!("{} .ds-strip [*|data-op=mark-read]", row(2));
     harness.click(centre(&harness, &read));
@@ -168,7 +173,7 @@ fn the_window_counts_its_inbox_and_counts_again_when_one_is_read_and_unread() {
     settle_until(&mut harness, |_| recorder.seen() == [3, 2, 3]);
 
     // A write that leaves the count where it is (a pin) sends the launcher nothing.
-    harness.pointer_move(centre(&harness, &format!("{} .ds-row-sub", row(1))));
+    harness.pointer_move(centre(&harness, &format!("{} .ds-thread-sub", row(1))));
     harness.advance(ms(300));
     let pin = format!("{} .ds-strip [*|data-op=pin]", row(1));
     harness.click(centre(&harness, &pin));

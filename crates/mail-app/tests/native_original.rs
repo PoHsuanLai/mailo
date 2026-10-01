@@ -7,16 +7,19 @@
 //! real mail store or the real config. The component-level guarantees, with bodies fed around
 //! the sanitizer, are `tests/native_frame.rs`.
 
-use ds::Point;
-use ds_native::{
-    AppNet, Harness, HarnessConfig, NetDecision, NetReply, NetRequest, RequestOrigin, Viewport,
-};
+use ds::prelude::*;
+use ds_blitz::{AppNet, NetDecision, NetPolicy, NetReply, NetRequest, RequestOrigin, RootContexts};
+use ds_harness::{ClassPresence, Driver, Harness, HarnessConfig, Query, Viewport};
 use mail_app::ui::native::{Browse, Fetch, Original};
 use mail_domain::*;
 use mail_runtime::{Arrival, absorb};
 use mail_store::SqliteStore;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
+
+#[path = "support/drive.rs"]
+mod drive;
+use drive::{Drive, Key};
 
 const ACCOUNT: AccountId =
     AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b2"));
@@ -202,7 +205,7 @@ fn ms(n: u64) -> Duration {
     Duration::from_millis(n)
 }
 
-fn contexts(dir: &std::path::Path) -> ds_native::RootContexts {
+fn contexts(dir: &std::path::Path) -> RootContexts {
     mail_app::ui::native::contexts(
         seeded(dir),
         mail_app::view::Appearance::default(),
@@ -218,8 +221,12 @@ fn open() -> Window {
     let fetched = Arc::new(Fetched::default());
     let opened = Arc::new(Opened::default());
     let original = Original::new(fetched.clone(), opened.clone());
-    let config = original.harness(HarnessConfig::new(VIEW).with_contexts(contexts(dir.path())));
-    let mut harness = Harness::with_config(mail_app::ui::native::root, config);
+    let config = HarnessConfig::new(VIEW)
+        .with_contexts(contexts(dir.path()))
+        .with_net(original.net())
+        .with_frame_links(original.links())
+        .with_contexts(original.contexts());
+    let mut harness = Harness::new(mail_app::ui::native::root, config);
     harness.advance(ms(300));
     Window {
         harness,
@@ -231,17 +238,17 @@ fn open() -> Window {
 }
 
 fn row(n: usize) -> String {
-    format!(".ds-list > .row:nth-child({n}) .ds-row")
+    format!(".ds-list > .ds-list-item:nth-child({n}) .ds-thread")
 }
 
 fn open_row(harness: &mut Harness, n: usize) {
-    let subject = format!("{} .ds-row-sub", row(n));
+    let subject = format!("{} .ds-thread-sub", row(n));
     let rect = harness
         .rect(&subject)
         .unwrap_or_else(|| panic!("{subject} is not drawn:\n{}", harness.html()));
     harness.click(Point {
-        x: ds::Px(rect.origin.x.0 + 24.0),
-        y: ds::Px(rect.origin.y.0 + rect.size.height.0 / 2.0),
+        x: Px(rect.origin.x.0 + 24.0),
+        y: Px(rect.origin.y.0 + rect.size.height.0 / 2.0),
     });
     harness.advance(ms(300));
 }
@@ -265,8 +272,9 @@ const LINK: &str = "a";
 /// The link beside it, whose text names one domain and whose target is another.
 const LIAR: &str = "a + a";
 
-const ORIGINAL: &str = ".view-switch .ds-button:nth-child(2)";
-const SHOW_IMAGES: &str = ".consent .ds-button";
+/// The Original segment of the head's Reader / Original control (quire's `SegmentedControl`).
+const ORIGINAL: &str = ".view-switch .ds-segmented-segment:nth-child(2)";
+const SHOW_IMAGES: &str = ".ds-inline-banner .ds-button";
 const FRAME: &str = "article.frame iframe.html";
 
 fn frame_width(harness: &Harness, selector: &str) -> f32 {
@@ -284,12 +292,12 @@ fn newsletter_original() -> Window {
     let mut window = open();
     open_row(&mut window.harness, 1);
     assert_eq!(
-        window.harness.attr(ORIGINAL, "aria-label").as_deref(),
+        window.harness.text_of(ORIGINAL).as_deref(),
         Some("Original")
     );
     click(&mut window.harness, ORIGINAL);
     assert!(
-        !window.harness.has_class(FRAME, "is-hidden"),
+        window.harness.has_class(FRAME, "is-hidden") == ClassPresence::Absent,
         "the Original view did not show"
     );
     window
@@ -345,7 +353,7 @@ fn consent_covers_the_open_thread_only_and_closing_revokes_it() {
     let mut window = newsletter_original();
     click(&mut window.harness, SHOW_IMAGES);
     assert!(!window.fetched.urls().contains(&OTHER.to_owned()));
-    window.harness.key(ds::Key::Escape);
+    window.harness.key(Key::Escape);
     window.harness.advance(ms(400));
     assert_eq!(
         window.harness.count(FRAME),
@@ -366,10 +374,12 @@ fn hovering_fetches_nothing() {
     for n in 1..=3 {
         let at = window
             .harness
-            .centre(&format!("{} .ds-row-name", row(n)))
+            .centre(&format!("{} .ds-thread-from", row(n)))
             .expect("a row's sender");
         window.harness.pointer_move(at);
-        window.harness.advance(ds::delays::HOVER_OPEN + ms(250));
+        window
+            .harness
+            .advance(ds::style::tokens::delay::DelayToken::CardOpen.delay() + ms(250));
     }
     assert_eq!(window.fetched.count(), 0, "hovering fetched");
 
@@ -379,10 +389,12 @@ fn hovering_fetches_nothing() {
     for n in 2..=3 {
         let at = window
             .harness
-            .centre(&format!("{} .ds-row-name", row(n)))
+            .centre(&format!("{} .ds-thread-from", row(n)))
             .expect("a row's sender");
         window.harness.pointer_move(at);
-        window.harness.advance(ds::delays::HOVER_OPEN + ms(250));
+        window
+            .harness
+            .advance(ds::style::tokens::delay::DelayToken::CardOpen.delay() + ms(250));
     }
     assert_eq!(window.fetched.count(), n, "hovering another row fetched");
 }
@@ -464,7 +476,7 @@ fn hovering_a_link_in_the_frame_shows_where_it_goes() {
     // Off every link: the pill goes, and nothing was opened.
     let off = window
         .harness
-        .centre(".consent")
+        .centre(".ds-inline-banner")
         .expect("the consent strip");
     window.harness.pointer_move(off);
     window.harness.advance(ms(100));
@@ -488,7 +500,7 @@ fn the_window_and_the_frame_share_no_nodes() {
     assert_eq!(frame.count("h3"), 2);
     assert!(frame.text().contains("Twelve new knits"));
     assert_eq!(
-        frame.count(".reader, .reader-body, .app, .consent, iframe"),
+        frame.count(".reader, .reader-body, .app, .ds-inline-banner, iframe"),
         0
     );
     // The window's own copy of the words is its blocks (the Reader view, hidden), never the
@@ -522,12 +534,14 @@ fn the_windows_own_document_asks_for_nothing_remote() {
     let requests = Arc::new(Requests::default());
     let config = HarnessConfig::new(VIEW)
         .with_contexts(contexts(dir.path()))
-        .with_net(ds_native::NetPolicy::Custom(requests.clone()));
-    let mut harness = Harness::with_config(mail_app::ui::native::root, config);
+        .with_net(NetPolicy::Custom(requests.clone()));
+    let mut harness = Harness::new(mail_app::ui::native::root, config);
     harness.advance(ms(300));
     open_row(&mut harness, 1);
     click(&mut harness, ORIGINAL);
-    let at = harness.centre(&format!("{} .ds-row-name", row(2))).unwrap();
+    let at = harness
+        .centre(&format!("{} .ds-thread-from", row(2)))
+        .unwrap();
     harness.pointer_move(at);
     harness.advance(ms(700));
     let seen = requests

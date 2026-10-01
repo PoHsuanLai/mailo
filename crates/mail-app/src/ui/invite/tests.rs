@@ -171,12 +171,18 @@ fn outbox(store: &SqliteStore) -> usize {
 #[derive(Clone)]
 struct Saves(std::path::PathBuf);
 
+/// The `n`th segment of the card's Accept / Maybe / Decline control: quire's segments carry no
+/// label of their own, so each is found as the nth after the group's.
+fn answer(seen: &Seen, n: usize) -> dioxus_core::ElementId {
+    seen.after("aria-label", "Answer", "aria-pressed")[n]
+}
+
 #[component]
 fn Open(thread: ThreadId) -> Element {
     let shell = use_signal(Shell::default);
     let saves = use_context::<Saves>();
     use_context_provider(|| SaveDir(saves.0.clone()));
-    rsx! { Reader { thread, shell } }
+    rsx! { ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window, Reader { thread, shell } } }
 }
 
 /// Let the dom's tasks run for `for_ms`, keeping every attribute the renders set.
@@ -221,7 +227,7 @@ async fn opening_an_invitation_shows_the_card_and_answers_nothing() {
     // It was looked at and shown: the assertions below are about a reader that did its work.
     assert!(looked_at(message), "the card never looked");
     assert!(page.contains("class=\"invite\""), "{page}");
-    assert!(page.contains("Design review") && page.contains("aria-label=\"Accept\""));
+    assert!(page.contains("Design review") && page.contains(">Accept<"));
     // At the top of the message, above its body, and not inside the sender's HTML.
     let card = page.find("class=\"invite\"").unwrap();
     assert!(card < page.find("You are invited to Design review.").unwrap());
@@ -238,7 +244,7 @@ async fn accept_with_a_note_queues_one_reply_and_change_answer_queues_another() 
     let (mut dom, seen, _) = reader_on(store.clone(), thread, dir.path()).await;
 
     // Choosing an answer opens its note, and sends nothing yet.
-    let mut seen = click(&mut dom, seen.one("aria-label", "Accept"));
+    let mut seen = click(&mut dom, answer(&seen, 0));
     settle(&mut dom, &mut seen, 50).await;
     assert_eq!(submissions(&store).len(), before, "choosing sent");
     let field = seen.one("aria-placeholder", "Add a note (optional)");
@@ -260,16 +266,13 @@ async fn accept_with_a_note_queues_one_reply_and_change_answer_queues_another() 
     assert_eq!(kept.attendance, Attendance::Accepted);
     assert_eq!(kept.comment.as_deref(), Some("See you there"));
     let page = markup(&dom);
-    assert!(
-        page.contains("<span class=\"said\">You accepted</span>"),
-        "{page}"
-    );
-    assert!(!page.contains("aria-label=\"Accept\""), "{page}");
+    assert!(page.contains(">You accepted</span>"), "{page}");
+    assert!(!page.contains(">Accept<"), "{page}");
 
     // Change answer offers the three again; Decline and Send queue one more.
     let mut seen = click(&mut dom, seen.one("aria-label", "Change answer"));
     settle(&mut dom, &mut seen, 50).await;
-    let mut seen = click(&mut dom, seen.one("aria-label", "Decline"));
+    let mut seen = click(&mut dom, answer(&seen, 2));
     settle(&mut dom, &mut seen, 50).await;
     let mut seen = click(&mut dom, seen.one("aria-label", "Send answer"));
     settle(&mut dom, &mut seen, 400).await;
@@ -282,7 +285,7 @@ async fn accept_with_a_note_queues_one_reply_and_change_answer_queues_another() 
         store.invite_answer(message).unwrap().unwrap().attendance,
         Attendance::Declined
     );
-    assert!(markup(&dom).contains("<span class=\"said\">You declined</span>"));
+    assert!(markup(&dom).contains(">You declined</span>"));
 }
 
 #[tokio::test]
@@ -291,7 +294,7 @@ async fn escape_takes_the_note_back_and_sends_nothing() {
     let (thread, message) = put(&store, &request(0), "REQUEST");
     let before = submissions(&store).len();
     let (mut dom, seen, _) = reader_on(store.clone(), thread, dir.path()).await;
-    let mut seen = click(&mut dom, seen.one("aria-label", "Maybe"));
+    let mut seen = click(&mut dom, answer(&seen, 1));
     settle(&mut dom, &mut seen, 50).await;
     let field = seen.one("aria-placeholder", "Add a note (optional)");
     let mut seen = chord(&mut dom, "Escape", Modifiers::empty(), field);
@@ -321,18 +324,8 @@ async fn a_cancellation_and_an_organisers_own_invitation_offer_nothing_to_press(
         "",
     );
     for (case, calendar, method, says) in [
-        (
-            "cancelled",
-            cancelled,
-            "CANCEL",
-            "This event will not take place.",
-        ),
-        (
-            "organiser",
-            mine,
-            "REQUEST",
-            "You organised this event, so there is nothing to answer.",
-        ),
+        ("cancelled", cancelled, "CANCEL", "Cancelled"),
+        ("organiser", mine, "REQUEST", "You organised this event."),
     ] {
         let (thread, _) = put(&store, &calendar, method);
         let queued = outbox(&store);
@@ -341,7 +334,8 @@ async fn a_cancellation_and_an_organisers_own_invitation_offer_nothing_to_press(
         for label in ["Accept", "Maybe", "Decline", "Send answer", "Change answer"] {
             assert!(seen.get("aria-label", label).is_none(), "{case}: {label}");
             assert!(
-                !page.contains(&format!("aria-label=\"{label}\"")),
+                !page.contains(&format!("aria-label=\"{label}\""))
+                    && !page.contains(&format!(">{label}<")),
                 "{case}: {label}"
             );
         }

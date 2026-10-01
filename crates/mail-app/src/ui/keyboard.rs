@@ -15,7 +15,10 @@ use crate::appearance::WindowDirs;
 use crate::keymap::{self, DEFAULTS, Keymap, Refused};
 use crate::view::{KeyboardSheet as Showing, Shell, Shortcut};
 use dioxus::prelude::*;
-use ds::{Icon, Kbd, KbdSize, Key};
+use ds::components::controls::key_equivalent::{KeyEquivalent, KeyStyle};
+use ds::prelude::{Button, Icon, Shortcut as Caps, ShortcutKey as Key};
+use ds::root::common::Common;
+use ds::style::tokens::control_size::ControlSize;
 
 /// What the sheet and its menu entry are called.
 pub(in crate::ui) const TITLE: &str = "Keyboard shortcuts";
@@ -138,7 +141,11 @@ fn KeyCaps(named: String) -> Element {
             if drawn.is_empty() {
                 "{named}"
             } else {
-                Kbd { shortcut: ds::Shortcut(drawn), size: KbdSize::Small }
+                KeyEquivalent {
+                    shortcut: Caps(drawn),
+                    style: KeyStyle::Cap,
+                    size: ControlSize::Small,
+                }
             }
         }
     }
@@ -197,11 +204,14 @@ pub(in crate::ui) fn KeyboardSheet(shell: Signal<Shell>) -> Element {
                             p { class: "capnote files-bad", role: "alert", "{why}" }
                         }
                         if any_changed {
-                            ds::Button {
-                                variant: ds::ButtonVariant::Mini,
+                            Button {
+                                size: ControlSize::Small,
                                 label: "Reset all".to_owned(),
                                 icon: Icon::Refresh,
-                                aria_label: "Reset every shortcut".to_owned(),
+                                common: Common {
+                                    aria_label: Some("Reset every shortcut".to_owned()),
+                                    ..Common::default()
+                                },
                                 onclick: on_primary(move || settle(shell, Ok(Keymap::default()))),
                             }
                         }
@@ -235,17 +245,23 @@ fn KeyRow(
                 }
             }
             span { class: "rules-row-acts kb-acts",
-                ds::Button {
-                    variant: ds::ButtonVariant::Mini,
+                Button {
+                    size: ControlSize::Small,
                     label: if listening { "Waiting".to_owned() } else { "Change".to_owned() },
-                    aria_label: format!("Change the key for {name}"),
+                    common: Common {
+                        aria_label: Some(format!("Change the key for {name}")),
+                        ..Common::default()
+                    },
                     onclick: on_primary(move || listen(shell, action)),
                 }
                 if changed {
-                    ds::Button {
-                        variant: ds::ButtonVariant::Mini,
+                    Button {
+                        size: ControlSize::Small,
                         label: "Reset".to_owned(),
-                        aria_label: format!("Reset {name}"),
+                        common: Common {
+                            aria_label: Some(format!("Reset {name}")),
+                            ..Common::default()
+                        },
                         onclick: on_primary(move || {
                             let back = keymap::reset(&shell.peek().keymap, action);
                             settle(shell, back);

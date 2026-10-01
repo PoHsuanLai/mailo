@@ -4,10 +4,13 @@
 //! `notify.json`, beside `appearance.json`, which is where `mailo watch` reads it. The watch
 //! raises the notifications; this only says whether it should.
 
-use super::parts::Seg;
 use crate::appearance::WindowDirs;
 use crate::notify::{self, Setting};
 use dioxus::prelude::*;
+use ds::components::content::label::LabelRole;
+use ds::components::controls::segmented::Tracking;
+use ds::components::fields::field_row::FieldRow;
+use ds::prelude::{Choice, Label, SegmentedControl};
 
 const CHOICES: [(Setting, &str); 2] = [(Setting::On, "On"), (Setting::Off, "Off")];
 
@@ -25,16 +28,20 @@ pub(super) fn Notifications() -> Element {
     let mut failed = use_signal(|| None::<String>);
     let current = now();
     rsx! {
-        div {
-            div { class: "ed-label", "New mail on the desktop" }
-            Seg {
-                label: "Notifications".to_owned(),
-                options: CHOICES
+        FieldRow {
+            label: "New mail on the desktop",
+            help: match current {
+                Setting::On => "mailo watch shows new unread inbox mail as it arrives.",
+                Setting::Off => "mailo watch keeps new mail to itself.",
+            },
+            SegmentedControl::<Setting> {
+                label: "Notifications",
+                choices: CHOICES
                     .iter()
-                    .map(|(setting, name)| ((*name).to_owned(), *setting == current))
+                    .map(|(setting, name)| Choice::new(*setting, *name))
                     .collect::<Vec<_>>(),
-                on_pick: move |index: usize| {
-                    let setting = CHOICES[index % CHOICES.len()].0;
+                tracking: Tracking::SelectOne(current),
+                onchange: move |setting: Setting| {
                     let kept = match &dirs {
                         Some(dirs) => notify::save(&dirs.config, setting),
                         None => Err("There is no config directory to keep this in.".to_owned()),
@@ -48,14 +55,8 @@ pub(super) fn Notifications() -> Element {
                     }
                 },
             }
-            p { class: "capnote",
-                match current {
-                    Setting::On => "mailo watch shows new unread inbox mail as it arrives.",
-                    Setting::Off => "mailo watch keeps new mail to itself.",
-                }
-            }
             if let Some(why) = failed() {
-                p { class: "capnote", "{why}" }
+                Label { text: why, role: LabelRole::Secondary }
             }
         }
     }

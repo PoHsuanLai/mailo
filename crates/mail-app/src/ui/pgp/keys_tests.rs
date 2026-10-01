@@ -24,7 +24,7 @@ fn Sheet() -> Element {
         keys: Some(crate::view::KeysSheet),
         ..Shell::default()
     });
-    rsx! { KeysSheet { shell } }
+    rsx! { ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window, KeysSheet { shell } } }
 }
 
 pub(super) fn sheet(store: &Arc<SqliteStore>, seams: super::Seams) -> (VirtualDom, Seen) {
@@ -33,6 +33,8 @@ pub(super) fn sheet(store: &Arc<SqliteStore>, seams: super::Seams) -> (VirtualDo
         .with_root_context(store.clone())
         .with_root_context(seams);
     let seen = rebuild_into(&mut dom);
+    // The sheet is quire's and floats in the root's overlay, drawn the render after it asks.
+    let seen = seen.merge(crate::ui::fixtures::drain_seen(&mut dom));
     (dom, seen)
 }
 
@@ -160,7 +162,7 @@ async fn deleting_a_key_with_its_secret_is_asked_again_first() {
 
     let mut asked = click(&mut dom, seen.one("aria-label", &format!("Delete {id}")));
     let page = dioxus_ssr::render(&dom);
-    assert!(page.contains("cannot be recovered"), "{page}");
+    assert!(page.contains("cannot be undone"), "{page}");
     assert!(
         store.pgp_key(mine.fingerprint).unwrap().is_some(),
         "deleted before the answer"
@@ -231,7 +233,7 @@ async fn exporting_the_secret_key_is_asked_again_and_only_then_written() {
     dom.render_immediate(&mut NoOpMutations);
     let page = dioxus_ssr::render(&dom);
     assert!(
-        page.contains("Anyone who has that file can read your encrypted mail"),
+        page.contains("Anyone with this file can read your mail"),
         "{page}"
     );
     assert_eq!(
@@ -252,7 +254,7 @@ async fn exporting_the_secret_key_is_asked_again_and_only_then_written() {
         let mode = std::fs::metadata(&out).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o600, "a secret key readable by others");
     }
-    assert!(dioxus_ssr::render(&dom).contains("Keep that file offline"));
+    assert!(dioxus_ssr::render(&dom).contains("Saved the secret key"));
 }
 
 #[tokio::test]
@@ -306,7 +308,6 @@ async fn every_class_on_the_sheet_is_styled() {
     );
     let page = dioxus_ssr::render(&dom);
     assert!(page.contains("keys-confirm"), "{page}");
-    let missing =
-        crate::ui::style::tests::unstyled_classes(&page, &crate::ui::style::tests::full_css());
-    assert!(missing.is_empty(), "unstyled classes: {missing:?}");
+    let offences = crate::ui::style::tests::markup_offences(&page);
+    assert!(offences.is_empty(), "the markup lint: {offences:#?}");
 }

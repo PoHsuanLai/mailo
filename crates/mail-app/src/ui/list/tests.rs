@@ -174,9 +174,17 @@ mod searching_in_the_window {
     /// in the markup, and `page.contains("hi")` is true of `white-space` and `this`. That is
     /// the substring rule in `CONVENTIONS.md`, caught here by a test of its own making.
     pub(super) fn listed(page: &str) -> Vec<String> {
-        page.split(r#"<div class="ds-row-sub ds-truncate">"#)
+        // A row that has left is still drawn until its exit settles, under
+        // `data-presence="leaving"`: it is not one of the rows the list is showing.
+        page.split(r#"class="ds-list-item""#)
             .skip(1)
-            .filter_map(|rest| rest.split_once("</div>"))
+            .filter(|item| {
+                !item
+                    .trim_start()
+                    .starts_with(r#"role="none" data-presence="leaving""#)
+            })
+            .filter_map(|item| item.split_once(r#"<div class="ds-thread-sub ds-truncate">"#))
+            .filter_map(|(_, rest)| rest.split_once("</div>"))
             .map(|(subject, _)| subject.to_owned())
             .collect()
     }
@@ -212,7 +220,7 @@ mod searching_in_the_window {
         let (store, _dir) = labelled();
         let page = typing(store, "label:travel", |page| listed(page) == ["hi"]).await;
         assert!(
-            page.contains(r#"class="field search""#)
+            page.contains(r#"class="ds-text-field search""#)
                 && page.contains(r#"aria-placeholder="Search all mail""#)
                 && page.contains(r#"value="label:travel""#),
             "the search box lost the text:\n{page}"

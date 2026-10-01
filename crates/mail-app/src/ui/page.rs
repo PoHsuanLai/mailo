@@ -2,6 +2,7 @@
 //!
 //! Neither asks the store for a different query. The menu title says so.
 
+use ds::prelude::*;
 use std::collections::BTreeMap;
 
 use super::menu::{Floating, MenuItem, Right, Tile};
@@ -9,7 +10,10 @@ use super::press::on_primary;
 use crate::view::{PageGroup, PageMenu, PageParts, Shell};
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
-use ds::{Icon, MenuKind, MountedRef};
+use ds::components::controls::button_model::Bezel;
+use ds::host::measure::MountedRef;
+use ds::root::common::Common;
+use ds::style::tokens::control_size::ControlSize;
 use mail_domain::{LabelId, ReadState, ThreadSummary};
 
 /// One band of the loaded page.
@@ -207,7 +211,8 @@ fn part_items(parts: PageParts) -> Vec<MenuItem> {
     .collect()
 }
 
-/// The Group and Properties buttons, and whichever menu is open.
+/// The Group and Properties buttons, and whichever menu is open: Group is a menu with a check
+/// on the chosen grouping, Properties a menu of toggles for the parts a row shows.
 #[component]
 pub(super) fn PageMenus(shell: Signal<Shell>) -> Element {
     let open = shell.read().page_menu;
@@ -215,14 +220,27 @@ pub(super) fn PageMenus(shell: Signal<Shell>) -> Element {
     let parts = shell.read().parts;
     let mut group_button = use_signal(|| None::<MountedRef>);
     let mut parts_button = use_signal(|| None::<MountedRef>);
+    let shown = |menu: PageMenu| {
+        if open == menu {
+            Shown::Visible
+        } else {
+            Shown::Hidden
+        }
+    };
     rsx! {
-        ds::Button {
-            variant: ds::ButtonVariant::Mini,
+        Button {
+            bezel: Bezel::Toolbar,
+            size: ControlSize::Small,
             label: "Group",
-            icon: Icon::Group,
-            aria_label: "Group".to_owned(),
-            mounted: move |event: MountedEvent| group_button.set(Some(MountedRef(event.data()))),
-            expanded: if open == PageMenu::Group { ds::Expanded::Open } else { ds::Expanded::Closed },
+            icon: Some(IconSource::Glyph(Icon::Group)),
+            shown: shown(PageMenu::Group),
+            common: Common {
+                aria_label: Some("Group".to_owned()),
+                mounted: Some(EventHandler::new(move |event: MountedEvent| {
+                    group_button.set(Some(MountedRef(event.data())));
+                })),
+                ..Common::default()
+            },
             onclick: on_primary(move || {
                 let next = if shell.peek().page_menu == PageMenu::Group {
                     PageMenu::Closed
@@ -232,13 +250,19 @@ pub(super) fn PageMenus(shell: Signal<Shell>) -> Element {
                 shell.write().page_menu = next;
             }),
         }
-        ds::Button {
-            variant: ds::ButtonVariant::Mini,
+        Button {
+            bezel: Bezel::Toolbar,
+            size: ControlSize::Small,
             label: "Properties",
-            icon: Icon::Columns,
-            aria_label: "Properties".to_owned(),
-            mounted: move |event: MountedEvent| parts_button.set(Some(MountedRef(event.data()))),
-            expanded: if open == PageMenu::Properties { ds::Expanded::Open } else { ds::Expanded::Closed },
+            icon: Some(IconSource::Glyph(Icon::Columns)),
+            shown: shown(PageMenu::Properties),
+            common: Common {
+                aria_label: Some("Properties".to_owned()),
+                mounted: Some(EventHandler::new(move |event: MountedEvent| {
+                    parts_button.set(Some(MountedRef(event.data())));
+                })),
+                ..Common::default()
+            },
             onclick: on_primary(move || {
                 let next = if shell.peek().page_menu == PageMenu::Properties {
                     PageMenu::Closed
@@ -250,9 +274,8 @@ pub(super) fn PageMenus(shell: Signal<Shell>) -> Element {
         }
         if open == PageMenu::Group {
             Floating {
-                kind: MenuKind::Rich,
                 anchor: group_button(),
-                title: "This page".to_owned(),
+                title: String::new(),
                 items: group_items(group),
                 on_pick: move |key: String| {
                     if let Some(group) = group_from(&key) {
@@ -264,13 +287,12 @@ pub(super) fn PageMenus(shell: Signal<Shell>) -> Element {
             }
         }
         if open == PageMenu::Properties {
-            // A checklist: each pick shows or hides a part, and the menu stays open.
+            // A menu of toggles: each pick shows or hides a part, and the menu stays open.
             Floating {
-                kind: MenuKind::Rich,
                 anchor: parts_button(),
                 title: "This page".to_owned(),
+                toggles: true,
                 items: part_items(parts),
-                dismiss: ds::PickDismiss::Stay,
                 on_pick: move |key: String| {
                     if let Some(part) = shell.write().parts.part_mut(&key) {
                         *part = (*part).toggle();

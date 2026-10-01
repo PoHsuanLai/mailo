@@ -1,21 +1,24 @@
 //! The window on Blitz (`native`), driven the way its user drives it: pointer, keys and time,
-//! against a real, headless Blitz document through `ds_native::Harness`.
+//! against a real, headless Blitz document through `ds_harness::Harness`.
 //!
 //! Every case opens the real window (`mail_app::ui::native::root`, which is the launched window
 //! less its watch on the settings directory) over a store seeded in a `TempDir`. The window is
 //! handed no directories, so it writes no file anywhere; nothing here reads or touches the real
 //! mail store or the real config.
 
-use ds::{Key, Point};
-use ds_native::harness::settle_until;
-use ds_native::{
-    FocusFallback, Harness, HarnessConfig, NetPolicy, PrintError, PrintOutcome, Viewport,
-};
+use ds::prelude::*;
+use ds_blitz::{FocusFallback, NetPolicy, PrintError, PrintOutcome};
+use ds_harness::harness::settle_until;
+use ds_harness::{Driver, Harness, HarnessConfig, Query, Viewport};
 use mail_domain::*;
 use mail_runtime::{Arrival, absorb};
 use mail_store::{SqliteStore, Store};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+
+#[path = "support/drive.rs"]
+mod drive;
+use drive::{Drive, Key};
 
 const ACCOUNT: AccountId =
     AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
@@ -34,9 +37,9 @@ const INBOX: [(&str, &str); 4] = [
     ("edsger@example.test", "Notes from the review"),
 ];
 
-/// How long quire waits, at the default motion level, for `token`.
-fn delay(token: ds::DelayToken) -> Duration {
-    token.delay(ds::MotionLevel::Standard)
+/// How long quire waits for `token`.
+fn delay(token: ds::style::tokens::delay::DelayToken) -> Duration {
+    token.delay()
 }
 
 fn ms(n: u64) -> Duration {
@@ -179,7 +182,7 @@ fn launch_at(
         .with_net(NetPolicy::Local)
         .with_focus_fallback(fallback)
         .with_contexts(contexts);
-    let mut harness = Harness::with_config(mail_app::ui::native::root, config);
+    let mut harness = Harness::new(mail_app::ui::native::root, config);
     // quire's entrances run on a frame's wait after mount.
     harness.advance(ms(300));
     (harness, dir, store, printed)
@@ -187,7 +190,7 @@ fn launch_at(
 
 /// The subjects of the list's rows, top to bottom, as the document holds them.
 fn subjects(harness: &Harness) -> Vec<String> {
-    const SUBJECT: &str = "class=\"ds-row-sub ds-truncate\">";
+    const SUBJECT: &str = "class=\"ds-thread-sub ds-truncate\">";
     harness
         .html()
         .split(SUBJECT)
@@ -214,20 +217,20 @@ fn text(html: &str) -> String {
 
 /// The `n`th row of the list (1-based), as the element a click lands on.
 fn row(n: usize) -> String {
-    format!(".ds-list > .row:nth-child({n}) .ds-row")
+    format!(".ds-list > .ds-list-item:nth-child({n}) .ds-thread")
 }
 
 /// Click the `n`th row where a person reads it: the start of its subject line. The row's hover
 /// strip (Archive first) is laid out over the right half of the row from its middle down, and
 /// a click at the row's very centre lands on it.
 fn open_row(harness: &mut Harness, n: usize) {
-    let subject = format!("{} .ds-row-sub", row(n));
+    let subject = format!("{} .ds-thread-sub", row(n));
     let rect = harness
         .rect(&subject)
         .unwrap_or_else(|| panic!("{subject} is not drawn:\n{}", harness.html()));
     harness.click(Point {
-        x: ds::Px(rect.origin.x.0 + 24.0),
-        y: ds::Px(rect.origin.y.0 + rect.size.height.0 / 2.0),
+        x: Px(rect.origin.x.0 + 24.0),
+        y: Px(rect.origin.y.0 + rect.size.height.0 / 2.0),
     });
     harness.advance(ms(300));
 }
@@ -260,7 +263,7 @@ fn the_window_opens_on_the_seeded_inbox() {
         );
     }
     // Nothing open yet, and the keyboard is the window's from the first frame.
-    assert_eq!(harness.count(".reader-empty"), 1);
+    assert_eq!(harness.count(".reader .ds-empty-state"), 1);
     assert!(
         harness.is_focused(".app"),
         "the window does not hold the keyboard"
@@ -314,14 +317,23 @@ fn a_window_started_from_a_mailto_link_opens_on_the_composer() {
 fn clicking_a_row_opens_it_in_the_reader() {
     let (mut harness, _dir) = open();
     open_row(&mut harness, 2);
-    assert_eq!(harness.count(".reader-empty"), 0, "the reader stayed empty");
+    assert_eq!(
+        harness.count(".reader .ds-empty-state"),
+        0,
+        "the reader stayed empty"
+    );
     let reader = harness.text_of(".reader").unwrap_or_default();
     assert!(
         reader.contains("The body of The invoice for September."),
         "the reader does not show the clicked thread: {reader}"
     );
     assert_eq!(
-        harness.attr(&row(2), "aria-selected").as_deref(),
+        harness
+            .attr(
+                ".ds-list > .ds-list-item:nth-child(2) .ds-row",
+                "aria-selected"
+            )
+            .as_deref(),
         Some("true")
     );
 }
@@ -357,8 +369,8 @@ fn a_menu_opens_on_click_and_closes_on_escape() {
 #[test]
 fn a_hover_card_opens_after_its_delay_and_not_before() {
     let (mut harness, _dir) = open();
-    let sender = format!("{} .ds-row-name", row(1));
-    let open_after = ds::delays::HOVER_OPEN;
+    let sender = format!("{} .ds-thread-name", row(1));
+    let open_after = delay(ds::style::tokens::delay::DelayToken::CardOpen);
     let asked = Instant::now();
     harness.pointer_move(centre(&harness, &sender));
     // `advance` lets wall-clock time pass, and hover intent sleeps on real timers, so under a
@@ -419,14 +431,15 @@ fn the_toast_hides_after_its_hold() {
     let (mut harness, _dir) = open();
     open_row(&mut harness, 1);
     assert_eq!(harness.count(".ds-toast"), 0);
-    let hold = delay(ds::DelayToken::ToastHold);
+    let hold = delay(ds::style::tokens::delay::DelayToken::ToastHold);
     let asked = Instant::now();
     harness.key(Key::Char('e'));
     harness.advance(ms(300));
-    assert_eq!(
-        harness.attr(".ds-toast", "data-shown").as_deref(),
-        Some("shown"),
-        "archiving put up no toast"
+    assert_eq!(harness.count(".ds-toast"), 1, "archiving put up no toast");
+    assert_ne!(
+        harness.attr(".ds-toast", "data-presence").as_deref(),
+        Some("leaving"),
+        "the toast is already going"
     );
     // Still up at half its hold (quire's CONVENTIONS §11: a "not yet" only at or under half the
     // window), then gone within the settle bound, and never before the whole hold.
@@ -449,9 +462,13 @@ fn the_toast_hides_after_its_hold() {
 fn ctrl_t_opens_the_palette_with_the_keyboard_in_its_field() {
     let (mut harness, _dir) = open();
     assert_eq!(harness.count(".ds-palette"), 0);
-    harness.chord(&[Key::Ctrl], Key::Char('t'));
+    harness.chord(&[Key::Ctrl], Key::Char('k'));
     harness.advance(ms(300));
-    assert_eq!(harness.count(".ds-palette"), 1, "Ctrl T opened no palette");
+    assert_eq!(
+        harness.count(".ds-palette"),
+        1,
+        "Cmd K (Ctrl under Toshy) opened no palette"
+    );
     assert!(
         harness.is_focused(".ds-palette input"),
         "the palette's field does not hold the keyboard"
@@ -506,7 +523,7 @@ fn ctrl_f_puts_the_keyboard_in_the_find_field_and_escape_gives_it_back() {
     // Found by selector and focused in the document (`ui/host/native.rs`).
     assert!(
         harness.is_focused(".find input"),
-        "Ctrl F left the keyboard elsewhere"
+        "⌘F left the keyboard elsewhere"
     );
     for key in "body".chars() {
         harness.key(Key::Char(key));
@@ -577,7 +594,7 @@ fn with_folders(store: &SqliteStore) {
 }
 
 /// The field a folder's rename is written in, in its name's place.
-const RENAMING: &str = "[*|data-slot=editing] input";
+const RENAMING: &str = ".ds-row input[*|aria-label=\"Folder name\"]";
 
 /// The window over [`with_folders`], the first conversation open, and [`PROJECTS`]' rename
 /// begun from its ⋯ menu: the field in its name's place has the keyboard.
@@ -599,13 +616,14 @@ fn renaming(fallback: FocusFallback) -> (Harness, tempfile::TempDir, Arc<SqliteS
     // New folder inside, then Rename.
     harness.key(Key::Down);
     harness.key(Key::Enter);
-    harness.advance(ms(300));
-    assert_eq!(harness.count(".ds-menu"), 0, "the pick left the menu open");
-    assert!(
-        harness.is_focused(RENAMING),
-        "the rename field does not have the keyboard:\n{}",
-        harness.html()
-    );
+    // A fixed wait lands before select-all on a loaded runner: the field is focused and the
+    // value is the old name, but the selection is still collapsed, so the next key would not
+    // replace it. Wait for the selection itself.
+    settle_until(&mut harness, |harness| {
+        harness.count(".ds-menu") == 0
+            && harness.is_focused(RENAMING)
+            && harness.selected_text(RENAMING).as_deref() == Some(PROJECTS)
+    });
     (harness, dir, store)
 }
 
@@ -701,7 +719,7 @@ fn without_quire_s_fallback_a_removal_leaves_the_keyboard_nowhere() {
 fn a_press_on_a_row_s_strip_leaves_the_keyboard_working() {
     let (mut harness, _dir) = open();
     open_row(&mut harness, 1);
-    let third = format!("{} .ds-row-sub", row(3));
+    let third = format!("{} .ds-thread-sub", row(3));
     harness.pointer_move(centre(&harness, &third));
     harness.advance(ms(300));
     let archive = format!("{} .ds-strip [*|data-op=archive]", row(3));
@@ -731,7 +749,7 @@ fn a_press_on_a_row_s_strip_leaves_the_keyboard_working() {
     );
 }
 
-/// Ctrl P on the first row's conversation, and the toast that says how it ended. The PDF is made
+/// ⌘P on the first row's conversation, and the toast that says how it ended. The PDF is made
 /// on a blocking thread, so this waits (with time passing) for the toast rather than a frame.
 fn print_first_row(harness: &mut Harness) -> String {
     open_row(harness, 1);
@@ -739,18 +757,18 @@ fn print_first_row(harness: &mut Harness) -> String {
     let started = Instant::now();
     while started.elapsed() < Duration::from_secs(120) {
         harness.advance(ms(50));
-        if let Some(said) = harness.text_of(".ds-toast-text") {
+        if let Some(said) = harness.text_of(".ds-toast-body") {
             return said;
         }
     }
-    panic!("Ctrl P put up no toast:\n{}", harness.html());
+    panic!("⌘P put up no toast:\n{}", harness.html());
 }
 
 #[test]
 fn print_hands_the_conversation_to_the_print_dialog_as_a_pdf() {
     let (mut harness, _dir, _store, printed) = open_printing(|| Ok(PrintOutcome::Cancelled));
     let said = print_first_row(&mut harness);
-    assert_eq!(said, "Printing cancelled; nothing was printed.");
+    assert_eq!(said, "Printing cancelled");
     let printed = printed.lock().unwrap().clone();
     assert_eq!(
         printed.len(),
@@ -772,8 +790,7 @@ fn print_without_a_dialog_says_where_the_pdf_opened() {
     let said = print_first_row(&mut harness);
     assert_eq!(
         said,
-        "There is no print dialog here, so the printout opened in your PDF viewer to print \
-         from there: /tmp/Flight-to-the-conference-1.pdf"
+        "Opened in your PDF viewer to print: /tmp/Flight-to-the-conference-1.pdf"
     );
     assert_eq!(printed.lock().unwrap().len(), 1);
 }
@@ -990,16 +1007,16 @@ fn a_click_puts_the_caret_where_it_lands() {
     let middle = text.origin.y.0 + text.size.height.0 / 2.0;
     // Before the first letter.
     harness.click(Point {
-        x: ds::Px(text.origin.x.0 + 1.0),
-        y: ds::Px(middle),
+        x: Px(text.origin.x.0 + 1.0),
+        y: Px(middle),
     });
     harness.advance(ms(100));
     type_text(&mut harness, "X");
     assert_eq!(paragraphs(&harness), vec!["Xhello world"]);
     // Past the end of the line.
     harness.click(Point {
-        x: ds::Px(text.origin.x.0 + text.size.width.0 + 40.0),
-        y: ds::Px(middle),
+        x: Px(text.origin.x.0 + text.size.width.0 + 40.0),
+        y: Px(middle),
     });
     harness.advance(ms(100));
     type_text(&mut harness, "!");
@@ -1141,12 +1158,12 @@ fn run_ends(harness: &Harness) -> (Point, Point) {
     let middle = text.origin.y.0 + text.size.height.0 / 2.0;
     (
         Point {
-            x: ds::Px(text.origin.x.0 + 1.0),
-            y: ds::Px(middle),
+            x: Px(text.origin.x.0 + 1.0),
+            y: Px(middle),
         },
         Point {
-            x: ds::Px(text.origin.x.0 + text.size.width.0 + 40.0),
-            y: ds::Px(middle),
+            x: Px(text.origin.x.0 + text.size.width.0 + 40.0),
+            y: Px(middle),
         },
     )
 }
@@ -1159,7 +1176,7 @@ fn shift_click_selects_from_the_caret_to_where_it_lands() {
     harness.click(start);
     harness.advance(ms(100));
     assert_eq!(harness.count(".c-sel"), 0, "a plain click selected");
-    harness.click_with(end, dioxus::prelude::Modifiers::SHIFT);
+    harness.click_with(end, &[Key::Shift]);
     harness.advance(ms(100));
     assert!(
         harness.count(".c-sel") >= 1,
@@ -1231,11 +1248,11 @@ fn composer_snapshot() {
 #[test]
 fn going_to_another_folder_ends_a_rename() {
     let (mut harness, _dir, store) = renaming(FocusFallback::Ancestor);
-    // The field keeps the keyboard through a press on another folder's name (quire v0.1.11), so
-    // the rename ends because mailo ends it, not because the field lost focus.
-    // While Projects is being renamed, its name is the field, so the one name button left is
-    // Receipts'.
-    let other = "button.ds-tree-item-label";
+    // The field keeps the keyboard through a press on another folder's name (quire v0.1.11, and
+    // still in v0.2.0), so the rename ends because mailo ends it, not because the field lost focus.
+    // While Projects is being renamed, its name is the field; Receipts' row is the other
+    // folder.
+    let other = ".ds-row[*|data-place=\"Receipts\"]";
     assert!(
         harness.count(other) > 0,
         "no other folder to go to:\n{}",

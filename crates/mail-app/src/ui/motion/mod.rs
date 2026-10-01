@@ -1,15 +1,12 @@
 //! Motion keyed to state.
 //!
 //! Every animation here starts because something the window already knows became true, never
-//! because a timer stands in for it (Part E, decision 4), and every one is timed by quire's
-//! motion clock (`ds::settle`, through `ds::Roster` and `ds::MotionTimer`), never by the
-//! webview's `animationend` (coherence rule 4):
+//! because a timer stands in for it, and every one is quire's, timed by quire's motion clock
+//! (`ds::prelude::settle`), never by an `animationend` event (coherence rule 4):
 //!
-//! - a row leaves (`data-presence="leaving"`) because an op was applied and the row no longer
-//!   belongs to the list; the list's roster keeps it drawn until its exit settles;
-//! - the rows below it heal once it has gone, again the roster's doing;
-//! - a place `gulp`s because an op landed there, and a label `chip-land`s because it was added;
-//! - the undo toast is up because an op was applied, and it names it.
+//! - a row leaves because an op was applied and the row no longer belongs to the list: quire's
+//!   `List` plays the exit for a key that stops being listed and closes the gap;
+//! - the undo toast is up because an op was applied, and it names it (quire's `ToastHost`).
 //!
 //! **The store write happens first and at once.** Only the row's unmount waits.
 
@@ -22,37 +19,11 @@ pub(super) use toast::Toast;
 use super::ops::{perform, resolve, take_back};
 use crate::undo::{Undo, UndoHandle};
 use crate::view::Shell;
-use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
-use ds::{Emphasis, Exit, MotionTimer, Roster, ToastHub, UndoToken};
+use ds::prelude::Icon;
+use ds::stack::toast_hub::{ToastAction, ToastHub, UndoToken};
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
-
-/// A row that has left the list and is still being drawn while it goes. The roster knows a row
-/// by its thread; an undo while the row is still leaving takes its exit back
-/// (`Roster::stay`), so the row stays in place under the same key and nothing below heals.
-#[derive(Debug, Clone, PartialEq)]
-pub(super) struct Leaving {
-    /// Its key in the roster.
-    pub key: ThreadId,
-    /// The row as it was drawn before the op.
-    pub summary: ThreadSummary,
-}
-
-/// The list's roster and the timers of the motion an op starts, made by the list, which is
-/// inside the window's quire root and so reads its motion level. Every one belongs to the list
-/// and is dropped with it.
-#[derive(Clone, Copy)]
-pub(super) struct Clock {
-    pub roster: Roster<ThreadId>,
-    /// How long the place an op landed in gulps.
-    pub gulp: MotionTimer,
-    /// How long a label that was just added lands.
-    pub landing: MotionTimer,
-    /// What each timer does once it has settled.
-    pub gulped: EventHandler<()>,
-    pub landed: EventHandler<()>,
-}
 
 /// What the toast says, and which op it belongs to.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -76,28 +47,28 @@ pub(in crate::ui) enum Follow {
     Nothing,
 }
 
-/// quire's toast host, and what its undo does: made by a component that lives as long as the
+/// quire's toast host, and what its buttons do: made by a component that lives as long as the
 /// window, because the handler belongs to the scope that made it and must outlive the toast.
 #[derive(Clone, Copy)]
 pub(super) struct Toasts {
     pub hub: ToastHub,
     pub on_undo: EventHandler<UndoToken>,
+    /// What the "Archive All" button of a leave-a-list toast does: it reads the list it offered
+    /// from [`Motion::toast`] when pressed.
+    pub on_archive: EventHandler<()>,
+    /// What the "Undo" button of a block toast does: it reads the rule it offered from
+    /// [`Motion::toast`] when pressed.
+    pub on_unblock: EventHandler<()>,
 }
 
 /// The motion state the window shares.
 #[derive(Clone, Copy)]
 pub(super) struct Motion {
-    pub leaving: Signal<Vec<Leaving>>,
-    /// The place an op just landed in.
-    pub gulp: Signal<Option<String>>,
-    /// A label just added to a row.
-    pub landing: Signal<Option<(ThreadId, LabelId)>>,
-    /// The rows an undo just brought back.
-    pub returning: Signal<Vec<ThreadId>>,
-    /// The toast mailo still draws itself: one with a follow-up that is not an undo. Every
-    /// other toast is quire's, through [`Motion::toasts`].
+    /// The follow-up a toast on screen offers that is not an undo (archive what a list already
+    /// sent, or take a block back), kept here for its button's handler to read. The toast
+    /// itself is quire's, through [`Motion::toasts`].
     pub toast: Signal<Option<Said>>,
-    /// The window root's toast host and the handler its undo calls, once the list has mounted
+    /// The window root's toast host and the handlers its buttons call, once the list has mounted
     /// under the root. Not reactive: only a toast being said reads it.
     pub toasts: CopyValue<Option<Toasts>>,
     /// The place a hovered Archive or Snooze button would send the row to.
@@ -105,28 +76,16 @@ pub(super) struct Motion {
     pub drag: Signal<drag::Drag>,
     /// The ids the list drew last, in order. Not reactive: only an op reads it.
     pub order: CopyValue<Vec<ThreadId>>,
-    /// The list's roster and timers, once the list has mounted. Not reactive: only an op reads
-    /// it.
-    pub clock: CopyValue<Option<Clock>>,
-    /// The scope that owns all of this. The toast's timeout runs there, so a row that unmounts
-    /// does not cancel it.
-    owner: ScopeId,
 }
 
 /// Make the motion state for the window. Called once, from `App`.
 pub(super) fn use_motion() -> Motion {
     use_context_provider(|| Motion {
-        leaving: Signal::new(Vec::new()),
-        gulp: Signal::new(None),
-        landing: Signal::new(None),
-        returning: Signal::new(Vec::new()),
         toast: Signal::new(None),
         toasts: CopyValue::new(None),
         dest: Signal::new(None),
         drag: Signal::new(drag::Drag::Idle),
         order: CopyValue::new(Vec::new()),
-        clock: CopyValue::new(None),
-        owner: dioxus::core::current_scope_id(),
     })
 }
 
@@ -134,9 +93,6 @@ pub(super) fn use_motion() -> Motion {
 pub(super) fn motion() -> Option<Motion> {
     try_consume_context::<Motion>()
 }
-
-/// How long mailo's own toast stays. quire's holds its own.
-const TOAST: std::time::Duration = std::time::Duration::from_secs(6);
 
 /// Apply what a button means, and let the window show it.
 pub(super) fn act_kind(
@@ -161,11 +117,11 @@ pub(super) fn act(
 }
 
 /// Apply each op to its conversation now, as one gesture: one undo entry that takes every one
-/// of them back, one toast that counts them, and each row's own motion. Returns how many were
-/// applied.
+/// of them back, and one toast that counts them. Returns how many were applied.
 ///
 /// `Op::apply` is about one thread, so the ops are applied one by one; what makes them one
-/// gesture is that their undos are kept together (`UndoStack::push_all`).
+/// gesture is that their undos are kept together (`UndoStack::push_all`). A row that no longer
+/// belongs to the list leaves with it: quire's `List` plays that exit.
 pub(super) fn act_all(
     store: &SqliteStore,
     mut shell: Signal<Shell>,
@@ -175,26 +131,23 @@ pub(super) fn act_all(
     let mut undos = Vec::new();
     let mut done = Vec::new();
     for (thread, op) in ops {
-        let before = store.thread(thread).ok().map(|loaded| loaded.summary);
         if let Some(undo) = perform(store, thread, op.clone()) {
             undos.push(undo);
-            done.push((thread, op, before));
+            done.push(op);
         }
     }
     let count = undos.len();
     let said = match done.as_slice() {
         [] => return 0,
-        [(_, op, _), ..] if count > 1 => crate::undo::said_of(op, count, &chrono::Local),
+        [op, ..] if count > 1 => crate::undo::said_of(op, count, &chrono::Local),
         _ => undos[0].said.clone(),
     };
     let Some(handle) = shell.write().undo.push_all(undos) else {
         return 0;
     };
     revision += 1;
-    if let Some(motion) = motion() {
-        for (thread, op, before) in done {
-            motion.landed(store, shell, thread, &op, before);
-        }
+    if let Some(mut motion) = motion() {
+        motion.dest.set(None);
         motion.say(said, Follow::Undo(handle));
     }
     count
@@ -202,8 +155,9 @@ pub(super) fn act_all(
 
 /// Apply what a button means to each of `threads`, as one gesture ([`act_all`]).
 ///
-/// Resolved per conversation, and only where that conversation allows it (`view::offers`): archiving a selection that holds something already archived archives
-/// the rest and leaves that one be, and its undo does not "restore" what the gesture never moved.
+/// Resolved per conversation, and only where that conversation allows it (`view::offers`):
+/// archiving a selection that holds something already archived archives the rest and leaves
+/// that one be, and its undo does not "restore" what the gesture never moved.
 pub(super) fn act_kind_all(
     store: &SqliteStore,
     shell: Signal<Shell>,
@@ -225,9 +179,10 @@ pub(super) fn act_kind_all(
 }
 
 /// Delete forever what each of `threads` holds in `bin`, as one gesture the user has already
-/// confirmed: each row's leaving, and a toast that says how many messages went, with no Undo.
-/// Nothing goes on the undo stack, and what is there about those messages is forgotten, so Ctrl
-/// Z cannot claim to bring any of them back. Returns how many messages were deleted.
+/// confirmed. Nothing goes on the undo stack, and what is there about those messages is
+/// forgotten, so ⌘Z cannot claim to bring any of them back. Returns how many messages were
+/// deleted. The rows leave with the list: quire's `List` plays the exit, and the toast has no
+/// Undo.
 pub(in crate::ui) fn destroy_all(
     store: &SqliteStore,
     mut shell: Signal<Shell>,
@@ -235,12 +190,9 @@ pub(in crate::ui) fn destroy_all(
     threads: &[ThreadId],
 ) -> usize {
     let mut gone = Vec::new();
-    let mut done = Vec::new();
     for thread in threads {
-        let before = store.thread(*thread).ok().map(|loaded| loaded.summary);
         if let Some(messages) = super::ops::destroy(store, *thread) {
             gone.extend(messages);
-            done.push((*thread, before));
         }
     }
     if gone.is_empty() {
@@ -255,9 +207,6 @@ pub(in crate::ui) fn destroy_all(
     }
     revision += 1;
     if let Some(motion) = motion() {
-        for (thread, before) in done {
-            motion.landed(store, shell, thread, &Op::Destroy, before);
-        }
         motion.say(crate::destroy::said(gone.len()), Follow::Nothing);
     }
     gone.len()
@@ -278,7 +227,7 @@ pub(in crate::ui) fn tell_through(motion: Option<Motion>, text: String) {
     }
 }
 
-/// Take back the newest op: Ctrl Z.
+/// Take back the newest op: ⌘Z.
 pub(super) fn undo_last(
     store: &SqliteStore,
     mut shell: Signal<Shell>,
@@ -326,34 +275,24 @@ fn restore(
         return false;
     }
     revision += 1;
+    // A row listed again while it leaves stays where it was (quire's `List`), and one whose
+    // exit has settled enters again: the list is told nothing.
     if let Some(mut motion) = motion {
         motion.toast.set(None);
         if let Some(toasts) = *motion.toasts.peek() {
             toasts.hub.hide();
         }
-        for thread in back.iter().filter_map(|part| part.thread) {
-            // Still leaving: its exit is taken back and it stays where it was, so the rows
-            // below never heal. Once its exit has settled the roster no longer holds it, and
-            // listed again it enters, as a row back from an undo.
-            let was_leaving = motion.leaving.peek().iter().any(|row| row.key == thread);
-            if was_leaving && let Some(clock) = *motion.clock.peek() {
-                let _ = clock.roster.stay(thread);
-            }
-            motion.leaving.write().retain(|row| row.key != thread);
-        }
-        motion
-            .returning
-            .set(back.iter().filter_map(|part| part.thread).collect());
     }
     true
 }
 
-/// The keys motion owns: Esc drops a drag, Ctrl Z undoes, and the hover card takes Space and
-/// Esc. Returns whether the key was handled. Never while typing: Ctrl Z in a field is the
-/// field's own.
+/// The keys motion owns: Esc drops a drag, ⌘Z undoes, and the hover card takes Space and
+/// Esc. `undo` is the undo chord from the main window, or Ctrl from a conversation window;
+/// the key is z either way. Returns whether the key was handled. Never while typing: ⌘Z in a
+/// field is the field's own.
 pub(super) fn key(
     name: &str,
-    ctrl: bool,
+    undo: bool,
     typing: bool,
     shell: Signal<Shell>,
     revision: Signal<u64>,
@@ -364,7 +303,7 @@ pub(super) fn key(
     if typing {
         return false;
     }
-    if ctrl && (name == "z" || name == "Z") {
+    if undo && name.eq_ignore_ascii_case("z") {
         let store = consume_context::<std::sync::Arc<SqliteStore>>();
         undo_last(&store, shell, revision);
         return true;
@@ -372,140 +311,57 @@ pub(super) fn key(
     super::hover::key(name, shell)
 }
 
-/// The row's exit, when `op` takes a row out of a list: snooze curls away, everything else
-/// folds, as mailo's rows always have.
-fn exit(op: &Op) -> Option<Exit> {
-    match op {
-        // Filed into a folder is out of the inbox, the way archiving is.
-        Op::Archive | Op::File(_) | Op::Trash | Op::Spam | Op::Restore | Op::Destroy => {
-            Some(Exit::Fold)
-        }
-        Op::SetSnooze(Snooze::Until(_)) => Some(Exit::Curl),
-        _ => None,
-    }
-}
-
-/// The sidebar place an op lands in, by name.
-pub(super) fn destination(op: &Op, labels: &[(String, LabelId)]) -> Option<String> {
-    let name = match op {
-        Op::Archive => "Archive",
-        Op::Trash => "Trash",
-        Op::Spam => "Spam",
-        Op::Restore => "Inbox",
-        Op::SetSnooze(Snooze::Until(_)) => "Snoozed",
-        Op::SetStar(Star::Starred) => "Starred",
-        Op::SetPin(Pin::Rank(_)) => "Pinned",
-        Op::Label(id, Membership::In) => {
-            return labels
-                .iter()
-                .find(|(_, label)| label == id)
-                .map(|(name, _)| name.clone());
-        }
-        _ => return None,
-    };
-    Some(name.to_owned())
-}
-
 impl Motion {
-    /// What an op that has been applied looks like.
-    fn landed(
-        mut self,
-        store: &SqliteStore,
-        shell: Signal<Shell>,
-        thread: ThreadId,
-        op: &Op,
-        before: Option<ThreadSummary>,
-    ) {
-        let clock = *self.clock.peek();
-        self.dest.set(None);
-        if let Some(place) = destination(op, &shell.peek().labels) {
-            self.gulp.set(Some(place));
-            if let Some(clock) = clock {
-                clock.gulp.start(clock.gulped);
-            }
-        }
-        if let Op::Label(label, Membership::In) = op {
-            self.landing.set(Some((thread, *label)));
-            if let Some(clock) = clock {
-                clock.landing.start(clock.landed);
-            }
-        }
-        let (Some(exit), Some(before)) = (exit(op), before) else {
-            return;
-        };
-        if self.stays(store, shell, thread) || !self.order.read().contains(&thread) {
-            return;
-        }
-        let key = thread;
-        let emphasis = if before.read == ReadState::Unread {
-            Emphasis::Strong
-        } else {
-            Emphasis::Plain
-        };
-        let mut leaving = self.leaving.write();
-        // A row's summary is kept while the roster still draws it leaving, and no longer.
-        let drawn = clock
-            .map(|clock| clock.roster.entries())
-            .unwrap_or_default();
-        leaving.retain(|row| {
-            row.key != thread
-                && drawn.iter().any(|entry| {
-                    entry.key == row.key && matches!(entry.presence, ds::Presence::Leaving(_))
-                })
-        });
-        leaving.push(Leaving {
-            key,
-            summary: before,
-        });
-        drop(leaving);
-        if let Some(clock) = clock {
-            clock.roster.leave(key, exit, emphasis);
-        }
-    }
-
-    /// Whether the row still belongs to the list it is in. A search is global, so a row there
-    /// stays whatever happened to it; a place is its filter, asked of the row as it is now.
-    fn stays(&self, store: &SqliteStore, shell: Signal<Shell>, thread: ThreadId) -> bool {
-        belongs(store, &shell.peek(), thread, Utc::now())
-    }
-
-    /// Put up the toast. The next op replaces it; otherwise it leaves on its own. An undo or
-    /// plain words are quire's toast; a follow-up is mailo's own, and takes quire's down.
+    /// Put up the toast. The next op replaces it; otherwise it leaves on its own. All of them are
+    /// quire's: an undo, plain words, or one button of the follow-up's own ("Archive All", or
+    /// "Undo" for a block).
     fn say(mut self, text: String, follow: Follow) {
-        if let Some(toasts) = *self.toasts.peek() {
-            match follow {
-                Follow::Undo(handle) => {
-                    self.toast.set(None);
-                    toasts
-                        .hub
-                        .push_undoable(text, UndoToken(handle.0), toasts.on_undo);
-                    return;
-                }
-                Follow::Nothing => {
-                    self.toast.set(None);
-                    toasts.hub.push(text, None);
-                    return;
-                }
-                Follow::ArchiveFrom { .. } | Follow::Unblock { .. } => toasts.hub.hide(),
+        let toasts = *self.toasts.peek();
+        match (follow, toasts) {
+            (Follow::Undo(handle), Some(toasts)) => {
+                self.toast.set(None);
+                toasts
+                    .hub
+                    .push_undoable(text, UndoToken(handle.0), toasts.on_undo);
+            }
+            (Follow::Nothing, Some(toasts)) => {
+                self.toast.set(None);
+                toasts.hub.push(text, None);
+            }
+            (follow @ Follow::ArchiveFrom { .. }, Some(toasts)) => {
+                let serial = self.toast.peek().as_ref().map_or(0, |said| said.serial) + 1;
+                self.toast.set(Some(Said {
+                    text: text.clone(),
+                    serial,
+                    follow,
+                }));
+                toasts
+                    .hub
+                    .push_action(text, ToastAction::new("Archive All"), toasts.on_archive);
+            }
+            (follow @ Follow::Unblock { .. }, Some(toasts)) => {
+                let serial = self.toast.peek().as_ref().map_or(0, |said| said.serial) + 1;
+                self.toast.set(Some(Said {
+                    text: text.clone(),
+                    serial,
+                    follow,
+                }));
+                toasts.hub.push_action(
+                    text,
+                    ToastAction::new("Undo").with_icon(Icon::Undo),
+                    toasts.on_unblock,
+                );
+            }
+            // No host yet (a window still mounting): the words are kept, as before.
+            (follow, None) => {
+                let serial = self.toast.peek().as_ref().map_or(0, |said| said.serial) + 1;
+                self.toast.set(Some(Said {
+                    text,
+                    serial,
+                    follow,
+                }));
             }
         }
-        let serial = self.toast.peek().as_ref().map_or(0, |said| said.serial) + 1;
-        self.toast.set(Some(Said {
-            text,
-            serial,
-            follow,
-        }));
-        dioxus::core::Runtime::current().spawn(self.owner, async move {
-            tokio::time::sleep(TOAST).await;
-            if self
-                .toast
-                .peek()
-                .as_ref()
-                .is_some_and(|said| said.serial == serial)
-            {
-                self.toast.set(None);
-            }
-        });
     }
 }
 
@@ -513,12 +369,15 @@ impl Motion {
 ///
 /// A search is global, so a row there stays whatever happened to it; a place is its filter,
 /// asked of the thread with the folders the server holds its messages in, so a folder's place
-/// keeps a row that was starred and lets go of one whose mail has left the folder.
+/// keeps a row that was starred and lets go of one whose mail has left the folder. What the
+/// list draws is the store's own answer to that query; this asks it of one thread, for the
+/// tests that pin the two to each other.
+#[cfg(test)]
 pub(in crate::ui) fn belongs(
     store: &SqliteStore,
     shell: &Shell,
     thread: ThreadId,
-    now: DateTime<Utc>,
+    now: chrono::DateTime<chrono::Utc>,
 ) -> bool {
     if !shell.search.trim().is_empty() {
         return true;
@@ -526,24 +385,18 @@ pub(in crate::ui) fn belongs(
     let Ok(after) = store.thread(thread) else {
         return false;
     };
-    let folders = folders_of(store, &after);
+    let folders: Vec<Placed> = after
+        .messages
+        .iter()
+        .filter_map(|message| store.placed(*message).ok())
+        .flatten()
+        .collect();
     shell.query(1).filter.fit(&MatchCtx {
         summary: &after.summary,
         corpus: None,
         folders: &folders,
         now,
     })
-}
-
-/// Every server folder a message of `thread` is addressed in, with whether it is still filed
-/// there: what `Filter::InFolder` weighs (`Store::placed`).
-fn folders_of(store: &SqliteStore, thread: &Thread) -> Vec<Placed> {
-    thread
-        .messages
-        .iter()
-        .filter_map(|message| store.placed(*message).ok())
-        .flatten()
-        .collect()
 }
 
 #[cfg(test)]

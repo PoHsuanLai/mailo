@@ -13,7 +13,7 @@ use mail_mime::smime::{Cert, Identity, Sealing};
 use mail_runtime::MapSecrets;
 use mail_store::SqliteStore;
 
-use super::tests::{ME, arrive, lines, reader, seals, until};
+use super::tests::{ME, arrive, lines, reader, seals, shows, until};
 use super::{Said, Tone, doubt, said_smime};
 use crate::smime::Protected;
 use crate::ui::fixtures::seeded;
@@ -164,10 +164,7 @@ fn every_smime_verdict_is_said_in_words_and_a_changed_or_forged_one_is_unmissabl
                     Tone::Good,
                     "Encrypted with S/MIME, and decrypted for reading",
                 ),
-                line(
-                    Tone::Bad,
-                    "Bad S/MIME signature: the message was changed after it was signed",
-                ),
+                line(Tone::Bad, "Bad S/MIME signature: changed after signing"),
                 line(Tone::Detail, DETAIL),
             ],
         ),
@@ -178,8 +175,7 @@ fn every_smime_verdict_is_said_in_words_and_a_changed_or_forged_one_is_unmissabl
                 line(Tone::Plain, "Not encrypted"),
                 line(
                     Tone::Bad,
-                    "Bad S/MIME signature: it does not match its certificate, so it is forged \
-                     or damaged",
+                    "Bad S/MIME signature: does not match its certificate",
                 ),
                 line(Tone::Detail, DETAIL),
             ],
@@ -196,7 +192,7 @@ fn every_smime_verdict_is_said_in_words_and_a_changed_or_forged_one_is_unmissabl
                 line(Tone::Plain, "Not encrypted"),
                 line(
                     Tone::Warn,
-                    "S/MIME signature made with SHA-1, which is too weak to mean anything now",
+                    "S/MIME signature made with SHA-1, which is too weak",
                 ),
                 line(Tone::Detail, DETAIL),
             ],
@@ -213,7 +209,7 @@ fn every_smime_verdict_is_said_in_words_and_a_changed_or_forged_one_is_unmissabl
                 line(Tone::Plain, "Not encrypted"),
                 line(
                     Tone::Unknown,
-                    "S/MIME signature made with Ed448, which this client does not check",
+                    "S/MIME signature made with Ed448, which is not checked",
                 ),
                 line(Tone::Detail, DETAIL),
             ],
@@ -253,10 +249,7 @@ fn every_smime_verdict_is_said_in_words_and_a_changed_or_forged_one_is_unmissabl
                     "Signed with S/MIME by a certificate neither the message nor you hold, so \
                      the signature cannot be checked",
                 ),
-                line(
-                    Tone::Unknown,
-                    "Only part of this message is signed; the rest could say anything",
-                ),
+                line(Tone::Unknown, "Only part of this message is signed"),
             ],
         ),
         (
@@ -338,7 +331,7 @@ fn each_certificate_problem_is_named_in_amber_and_says_what_it_means() {
             CertProblem::NotFrom {
                 from: String::new(),
             },
-            "The message names no sender to check its certificate against",
+            "No sender to check the certificate against",
         ),
     ];
     for (problem, words) in cases {
@@ -366,9 +359,6 @@ fn each_certificate_problem_is_named_in_amber_and_says_what_it_means() {
             "{problem:?}"
         );
     }
-    // Amber, and never the danger ground or the good one.
-    assert_eq!(Tone::Warn.class(), "seal-line warn");
-    assert_eq!(Tone::Detail.class(), "seal-line detail");
 }
 
 #[tokio::test]
@@ -379,7 +369,7 @@ async fn a_good_smime_signature_says_who_signed_and_their_certificate() {
     let raw = letter("owl", "the owl note is signed");
     let message = arrive(&store, sealed(&raw, Smime::Sign, &bea(), &[]));
     let (mut dom, mut seen) = reader(store, secrets, message.thread);
-    let page = until(&mut dom, &mut seen, |page| page.contains("seal-line")).await;
+    let page = until(&mut dom, &mut seen, |page| shows(page, "seal-line")).await;
     let said = lines(&page);
     assert_eq!(
         said[0],
@@ -405,7 +395,10 @@ async fn a_good_smime_signature_says_who_signed_and_their_certificate() {
     assert!(page.contains("the owl note is signed"), "{page}");
     // What was signed is listed; the signature itself is not an attachment.
     assert!(page.contains("map.bin"), "{page}");
-    assert!(!page.contains("smime.p7s"), "{page}");
+    assert!(
+        !super::tests::without_leaving(&page).contains("smime.p7s"),
+        "{page}"
+    );
 }
 
 #[tokio::test]
@@ -419,16 +412,16 @@ async fn a_changed_smime_message_is_said_on_the_danger_ground() {
     let tampered = signed.replace("pay the heron invoice", "pay the forged invoice");
     let message = arrive(&store, tampered.into_bytes());
     let (mut dom, mut seen) = reader(store, secrets, message.thread);
-    let page = until(&mut dom, &mut seen, |page| page.contains("seal-line bad")).await;
+    let page = until(&mut dom, &mut seen, |page| shows(page, "seal-line bad")).await;
     let said = lines(&page);
     assert_eq!(
         said[1],
         (
             "seal-line bad".to_owned(),
-            "Bad S/MIME signature: the message was changed after it was signed".to_owned()
+            "Bad S/MIME signature: changed after signing".to_owned()
         )
     );
-    assert!(!page.contains("seal-line good"), "{page}");
+    assert!(!shows(&page, "seal-line good"), "{page}");
 }
 
 /// `signed` with one byte of its RSA signature value changed: the content and the certificate
@@ -471,15 +464,13 @@ async fn a_forged_smime_signature_is_said_on_the_danger_ground() {
     let signed = String::from_utf8(sealed(&raw, Smime::Sign, &bea(), &[])).unwrap();
     let message = arrive(&store, forged(&signed).into_bytes());
     let (mut dom, mut seen) = reader(store, secrets, message.thread);
-    let page = until(&mut dom, &mut seen, |page| page.contains("seal-line bad")).await;
+    let page = until(&mut dom, &mut seen, |page| shows(page, "seal-line bad")).await;
     let said = lines(&page);
     assert_eq!(
         said[1],
         (
             "seal-line bad".to_owned(),
-            "Bad S/MIME signature: it does not match its certificate, so it is forged or \
-             damaged"
-                .to_owned()
+            "Bad S/MIME signature: does not match its certificate".to_owned()
         ),
         "{said:?}"
     );
@@ -494,7 +485,7 @@ async fn a_signature_from_an_authority_nobody_trusts_is_amber_and_says_why() {
     let raw = letter("crane", "the crane is signed by a stranger");
     let message = arrive(&store, sealed(&raw, Smime::Sign, &stranger, &[]));
     let (mut dom, mut seen) = reader(store, secrets, message.thread);
-    let page = until(&mut dom, &mut seen, |page| page.contains("seal-line warn")).await;
+    let page = until(&mut dom, &mut seen, |page| shows(page, "seal-line warn")).await;
     let said = lines(&page);
     assert_eq!(said[1].0, "seal-line warn", "{said:?}");
     assert_eq!(
@@ -504,13 +495,12 @@ async fn a_signature_from_an_authority_nobody_trusts_is_amber_and_says_why() {
             doubt(&CertProblem::Untrusted).replace('\'', "&#39;")
         )
     );
-    assert!(!page.contains("seal-line good"), "{page}");
+    assert!(!shows(&page, "seal-line good"), "{page}");
     assert!(page.contains("the crane is signed by a stranger"), "{page}");
     let drawn = seals(&page);
-    assert!(drawn.contains("seal-line detail"), "{drawn}");
-    let missing =
-        crate::ui::style::tests::unstyled_classes(&drawn, &crate::ui::style::tests::full_css());
-    assert!(missing.is_empty(), "unstyled classes: {missing:?}");
+    assert!(shows(&drawn, "seal-line detail"), "{drawn}");
+    let offences = crate::ui::style::tests::markup_offences(&drawn);
+    assert!(offences.is_empty(), "the markup lint: {offences:#?}");
 }
 
 #[tokio::test]

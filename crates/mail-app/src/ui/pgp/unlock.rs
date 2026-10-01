@@ -7,12 +7,16 @@
 //! zeroed wherever it is dropped. The field is [`FieldKind::Secret`], which never draws a value:
 //! the markup never holds it.
 
+use ds::components::content::label::LabelRole;
+use ds::components::controls::button_model::Answers;
+use ds::prelude::*;
+use ds::root::common::Common;
+use ds::root::pass_through::ExtraClass;
 use std::cell::RefCell;
 use std::rc::Rc;
 
 use dioxus::prelude::*;
 
-use super::super::field::{Field, FieldKind};
 use super::super::press::{available, on_primary};
 use super::{Busy, Tried};
 use crate::password::Password;
@@ -24,6 +28,31 @@ use crate::password::Password;
 pub(in crate::ui) fn Unlock(
     prompt: String,
     tried: Tried,
+    act: String,
+    noun: Option<String>,
+    working: Busy,
+    on_unlock: EventHandler<Password>,
+) -> Element {
+    rsx! {
+        div { class: "unlock", role: "group", aria_label: "{prompt}",
+            p { class: "say", Label { text: prompt.clone(), role: LabelRole::Secondary } }
+            if tried == Tried::Wrong {
+                p { class: "why", role: "alert", Label { text: WRONG, role: LabelRole::Secondary } }
+            }
+            Passphrase { prompt: prompt.clone(), act, noun, working, on_unlock }
+        }
+    }
+}
+
+/// What is said when the passphrase typed did not open the key.
+pub(in crate::ui) const WRONG: &str = "Wrong passphrase.";
+
+/// The field and its button, nothing else: for a place that says the prompt itself (the
+/// composer's banner, which says it as the banner's text). `prompt` names the field for
+/// assistive technology.
+#[component]
+pub(in crate::ui) fn Passphrase(
+    prompt: String,
     act: String,
     noun: Option<String>,
     working: Busy,
@@ -41,35 +70,28 @@ pub(in crate::ui) fn Unlock(
     let noun = noun.unwrap_or_else(|| "Passphrase".to_owned());
     let label = format!("{noun}: {prompt}");
     rsx! {
-        div { class: "unlock", role: "group", aria_label: "{prompt}",
-            p { class: "say", "{prompt}" }
-            if tried == Tried::Wrong {
-                p { class: "why", role: "alert", "That passphrase did not unlock the key. Try again." }
+        div {
+            class: "unlock-row",
+            onkeydown: move |event: KeyboardEvent| {
+                if event.key().to_string() == "Enter" {
+                    event.prevent_default();
+                    on_enter();
+                }
+            },
+            TextField {
+                kind: FieldKind::Secure,
+                label: label.clone(),
+                value: String::new(),
+                placeholder: label,
+                oninput: move |value: String| *held.borrow_mut() = Password::new(value),
+                common: Common { extra_class: ExtraClass::parse("unlock-field").ok(), ..Common::default() },
             }
-            div {
-                class: "unlock-row",
-                onkeydown: move |event: KeyboardEvent| {
-                    if event.key().to_string() == "Enter" {
-                        event.prevent_default();
-                        on_enter();
-                    }
-                },
-                Field {
-                    kind: FieldKind::Secret,
-                    value: String::new(),
-                    placeholder: label,
-                    extra: Some("unlock-field".to_owned()),
-                    on_input: move |value: String| *held.borrow_mut() = Password::new(value),
-                    on_focus: |_| {},
-                    on_blur: |_| {},
-                }
-                ds::Button {
-                    variant: ds::ButtonVariant::Primary,
-                    label: if working == Busy::Working { "Working…".to_owned() } else { act.to_string() },
-                    aria_label: act.to_string(),
-                    availability: available(working != Busy::Working),
-                    onclick: on_primary(give),
-                }
+            Button {
+                answers: Answers::Return,
+                label: if working == Busy::Working { "Working…".to_owned() } else { act.to_string() },
+                availability: available(working != Busy::Working),
+                onclick: on_primary(give),
+                common: Common { aria_label: Some(act.to_string()), ..Common::default() },
             }
         }
     }

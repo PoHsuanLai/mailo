@@ -8,14 +8,15 @@ mod add_account;
 mod app;
 mod brand;
 mod checks;
+mod chord;
 mod clock;
 mod command;
+mod common;
 mod compose;
 mod contacts;
 mod data;
 mod debounce;
 mod destroy;
-mod field;
 mod files;
 mod folder_open;
 mod follow_up;
@@ -67,7 +68,7 @@ mod shell_tests;
 
 pub use launch::run;
 
-/// The window on Blitz, for a test to drive through `ds_native::Harness`.
+/// The window on Blitz, for a test to drive through `ds_harness::Harness`.
 pub mod native {
     pub use super::brand::BrandCache;
     pub use super::clock::WallClock;

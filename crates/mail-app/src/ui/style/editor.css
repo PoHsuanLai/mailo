@@ -1,41 +1,15 @@
-/* The Space editor: a sheet over the frame, above the foot it was opened from, so the frame
-   behind it stays in view while every change repaints it. The sheet is two cards that scroll
-   together: quire's SpaceEditor, then mailo's own rows under it on the same paper. Under them,
-   outside the scroller, the foot with Save. The sheet clips, as the scroller did when it was
-   the whole sheet. */
-.editor {
-  position: absolute; left: 12px; bottom: 50px; z-index: var(--z-card); width: 300px;
-  max-height: calc(100% - 66px); overflow: hidden;
-  display: flex; flex-direction: column; color: var(--ink);
-  animation: cmdk-rise var(--t-move) var(--e-spring);
-}
-/* The two cards. The padding under them is the gap they keep from the foot, inside the scroller
-   so the last card's shadow shows in it. */
+/* The Space editor: quire's `Sheet` holds a scroller (quire's SpaceEditor, then form rows for
+   what is mailo's) and, under it, the foot with Cancel and Save, which stays in reach however
+   far the scroller is. */
 .ed-scroll {
-  flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-width: thin;
-  display: grid; gap: var(--s-8); padding-bottom: var(--s-8);
-}
-/* It moves on open and never fades: a frame caught mid-open still shows an opaque sheet. */
-.ed-more {
+  max-height: 70vh; overflow-y: auto; scrollbar-width: none;
   display: grid; gap: var(--s-14); padding: var(--s-14);
-  background: var(--surface); color: var(--ink);
-  border: var(--hair) solid var(--line); border-radius: var(--r-panel); box-shadow: var(--shadow-1);
 }
-.ed-label {
-  display: flex; align-items: center; margin-bottom: var(--s-6);
-  font-family: var(--font-data); font-size: var(--fs-caption); letter-spacing: 0.14em; text-transform: uppercase;
-  color: var(--ink-faint);
-}
-.ed-label .r { margin-left: auto; letter-spacing: 0.02em; text-transform: none; }
-
-.capnote { font-size: var(--fs-help); color: var(--ink-faint); line-height: 1.45; margin: 0; }
-
-/* Save stays in reach however far the sheet is scrolled: it is outside the scroller. */
+/* quire's editor draws its own card; inside a sheet that is a card in a card, so the sheet's is the
+   only frame. */
+.ed-look { border: 0; border-radius: 0; background: transparent; box-shadow: none; padding: 0; }
+.ed-label { margin: 0; color: var(--ink-soft); }
 .ed-foot {
-  flex: none; display: flex; justify-content: flex-end; gap: var(--s-8);
-  padding: var(--s-10) var(--s-14); background: var(--surface); border: var(--hair) solid var(--line-soft);
-  border-radius: var(--r-panel); box-shadow: var(--shadow-1);
+  display: flex; justify-content: flex-end; gap: var(--s-8);
+  padding: var(--s-10) var(--s-14);
 }
-.ed-foot .k { font-family: var(--font-data); font-size: var(--fs-caption); font-weight: 400; color: var(--ink-faint); }
-.mini.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
-.mini.primary:hover { background: var(--accent); color: var(--accent-ink); }

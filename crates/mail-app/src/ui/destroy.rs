@@ -10,7 +10,9 @@ use super::press::{SheetClose, on_primary};
 use crate::destroy::{Bin, Destroying, Reach, bin_shown, doomed, offered, words};
 use crate::view::Shell;
 use dioxus::prelude::*;
-use ds::Icon;
+use ds::prelude::*;
+use ds::root::common::Common;
+use ds::style::tokens::control_size::ControlSize;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
@@ -50,10 +52,7 @@ pub(in crate::ui) fn ask_everything(store: &SqliteStore, mut shell: Signal<Shell
     };
     let mut query = shell.peek().query(PAGE);
     let mut threads = Vec::new();
-    loop {
-        let Ok(page) = store.threads(&query, chrono::Utc::now()) else {
-            break;
-        };
+    while let Ok(page) = store.threads(&query, chrono::Utc::now()) {
         threads.extend(page.items.iter().map(|summary| summary.id));
         match page.next {
             Some(next) if !page.items.is_empty() => query.page.after = Some(next),
@@ -128,11 +127,14 @@ pub(in crate::ui) fn DestroySheet(shell: Signal<Shell>, revision: Signal<u64>) -
                 div { class: "rules-part",
                     p { class: "destroy-body", "{said.body}" }
                     div { class: "rules-acts",
-                        ds::Button {
-                            variant: ds::ButtonVariant::Mini,
+                        Button {
+                            size: ControlSize::Small,
                             label: said.confirm.clone(),
                             icon: Icon::Trash,
-                            aria_label: said.confirm.clone(),
+                            common: Common {
+                                aria_label: Some(said.confirm.clone()),
+                                ..Common::default()
+                            },
                             onclick: on_primary(move || confirm(shell, revision)),
                         }
                     }
@@ -150,12 +152,15 @@ pub(in crate::ui) fn EmptyButton(shell: Signal<Shell>) -> Element {
     };
     let name = format!("Empty {}", bin.name());
     rsx! {
-        ds::Button {
-            variant: ds::ButtonVariant::Mini,
+        Button {
+            size: ControlSize::Small,
             label: name.clone(),
             icon: Icon::Trash,
-            aria_label: name.clone(),
-            title: format!("Delete everything in {} forever", bin.name()),
+            title: Some(format!("Delete everything in {} forever", bin.name())),
+            common: Common {
+                aria_label: Some(name.clone()),
+                ..Common::default()
+            },
             onclick: on_primary(move || {
                 let store = consume_context::<Arc<SqliteStore>>();
                 ask_everything(&store, shell);

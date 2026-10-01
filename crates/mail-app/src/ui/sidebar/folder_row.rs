@@ -1,26 +1,35 @@
 //! One folder's row, the menu under it, and what its picks do.
 
 use super::super::folder_open;
-use super::super::menu::Floating;
+use super::super::menu::{Floating, menu_items};
 use super::super::move_to;
 use super::folder_act::{act, messages_word, refused, renamed_path};
-use super::folder_parts::{Naming, RenameField, Said, actions, item};
+use super::folder_parts::{NameField, Naming, Said, actions};
 use super::folder_tree::{Kind, Node};
-use super::folders::{Note, Open, Spot, Wires, focus_name};
+use super::folders::{Note, Open, Spot, Wires};
+use super::tagged;
 use crate::folder::Refusal;
 use crate::view::{Source, folder_of};
 use dioxus::prelude::*;
-use ds::{
-    DataAttr, DataName, Disclosure, DropState, Here, Icon, IconButton, IconButtonVariant, MenuKind,
-    MountedRef, PlaceId, Press, Propagation, Switch, TreeItem, TreeShape,
-};
+use ds::base::press::Press;
+use ds::base::vocab::RowState;
+use ds::components::controls::badge::{Badge, BadgeContent, BadgeTone};
+use ds::components::controls::button_model::ButtonRole;
+use ds::components::lists::row::confirm::RowConfirm;
+use ds::components::lists::row::row::{Outline, RowMounted};
+use ds::components::menus::pop_up_button::{PopUpButton, PopUpKind};
+use ds::host::measure::MountedRef;
+use ds::prelude::*;
+use ds::style::tokens::control_size::ControlSize;
 use mail_domain::{
     AccountId, Filter, FolderError, FolderWork, Holds, MailboxRef, NonEmpty, Subscription,
 };
 use mail_store::SqliteStore;
 use std::sync::Arc;
 
-/// One folder and, beneath it, what it holds.
+/// One folder and, beneath it, what it holds: quire's `Row`, a branch while it has children or
+/// something open under it. Its name chooses it, its ⋯ opens the folder's menu, and a
+/// right-click opens the same menu.
 #[component]
 pub(super) fn FolderRow(
     node: Node,
@@ -48,13 +57,12 @@ pub(super) fn FolderRow(
         path: node.path.clone(),
     };
     let fetched = label.is_none().then(|| mailbox.clone());
-    let data_path = node.path.clone();
     let place = shell.read().places.iter().position(|p| match label {
         Some(id) => p.source == Source::Mail(Filter::HasLabel(id)),
         None => folder_of(p) == Some(&mailbox),
     });
     let count = place.and_then(|index| badges().get(index).copied().flatten());
-    let current = place.is_some_and(|index| shell.read().selected == index);
+    let current = place.is_some_and(|index| shell.read().place_selected(index));
     let dim = matches!(
         node.kind,
         Kind::Listed {
@@ -70,34 +78,38 @@ pub(super) fn FolderRow(
             ..
         }
     );
-    let mut over = use_signal(|| false);
+    let mut over = use_signal(|| DragOver::No);
     // Outlined while a dragged row could land here, lit under the pointer: quire's drop rules,
     // the same as a place's.
     let drop = match (takes && move_to::dragging(), over()) {
-        (true, true) => DropState::Target,
-        (true, false) => DropState::Accepts,
+        (true, DragOver::Yes) => DropState::Target,
+        (true, DragOver::No) => DropState::Accepts,
         (false, _) => DropState::Idle,
     };
     let target = mailbox.clone();
     let on_up = move |event: Event<PointerData>| {
-        over.set(false);
+        over.set(DragOver::No);
         if takes && move_to::drop_on(shell, revision, &target) {
             event.stop_propagation();
         }
     };
-    let on_enter = move |_: Event<PointerData>| over.set(takes && move_to::dragging());
-    let on_leave = move |_: Event<PointerData>| over.set(false);
+    let on_enter = move |_: Event<PointerData>| {
+        over.set(if takes && move_to::dragging() {
+            DragOver::Yes
+        } else {
+            DragOver::No
+        });
+    };
+    let on_leave = move |_: Event<PointerData>| over.set(DragOver::No);
     let parent = !node.children.is_empty();
     // Open until the person closes it; a folder whose new-folder field or note is showing stays
     // open so they show.
-    let mut disclosure = use_signal(|| Disclosure::Open);
+    let mut disclosure = use_signal(|| Shown::Visible);
     let now = open.read().clone();
     let renaming = match &now {
         Open::Renaming { spot: at, text } if *at == spot => Some(text.clone()),
         _ => None,
     };
-    let menu_open =
-        matches!(&now, Open::Actions(at) | Open::Confirm { spot: at, .. } if *at == spot);
     let naming_here = matches!(
         &now,
         Open::Naming { account: at, parent: Some(inside), .. }
@@ -109,53 +121,42 @@ pub(super) fn FolderRow(
         });
     let showing_below = naming_here || said_here;
     let items = actions(&node);
-    let menu_spot = spot.clone();
     let closing = spot.clone();
     let rename_spot = spot.clone();
-    // The ⋯ button: the menu and its confirmation float beside it, over the sidebar's edge.
-    let mut more = use_signal(|| None::<MountedRef>);
+    // The row itself: the menu and its confirmation hang from it.
+    let row_ref = use_signal(|| None::<MountedRef>);
     let path = node.path.clone();
-    let trailing = rsx! {
-        IconButton {
-            variant: IconButtonVariant::Strip,
-            icon: Icon::Ellipsis,
-            label: format!("Actions for {name}"),
-            expanded: if menu_open { Switch::On } else { Switch::Off },
-            data: folder_data(&data_path),
-            mounted: move |event: MountedEvent| more.set(Some(MountedRef(event.data()))),
-            propagation: Propagation::Stop,
-            onclick: move |_| {
-                note.set(None);
-                let showing = matches!(&*open.peek(), Open::Actions(at) if *at == menu_spot);
-                open.set(if showing { Open::Closed } else { Open::Actions(menu_spot.clone()) });
-            },
+    // Choosing the folder is the row's press; a folder that is no place has a name only. A
+    // right-click is the menu's, whatever the folder is.
+    let context_spot = spot.clone();
+    let onclick = EventHandler::new(move |press: Press| {
+        if press.button == ds::base::press::PointerButton::Secondary {
+            note.set(None);
+            open.set(Open::Actions(context_spot.clone()));
+            return;
         }
-    };
-    // Choosing the folder is its name's press; a folder that is no place has a name only.
-    let onselect = place.map(|index| {
-        EventHandler::new(move |_: Press| {
-            // Going to another folder ends a rename in progress: its field keeps the keyboard
-            // through the press (quire v0.1.11), so the slot must be taken away here.
-            if matches!(*open.peek(), Open::Renaming { .. }) {
-                open.set(Open::Closed);
-            }
-            shell.write().select(index);
-            pages.set(1);
-            if let Some(mailbox) = fetched.clone() {
-                folder_open::opened(mailbox, revision);
-            }
-        })
+        let Some(index) = place else { return };
+        // Going to another folder ends a rename in progress.
+        if matches!(*open.peek(), Open::Renaming { .. }) {
+            open.set(Open::Closed);
+        }
+        shell.write().select(index);
+        pages.set(1);
+        if let Some(mailbox) = fetched.clone() {
+            folder_open::opened(mailbox, revision);
+        }
     });
-    // A rename is written where the name is (quire's `editing` slot); taking the slot away,
-    // when `open` moves on, ends it.
+    // A rename is written where the name is; taking `renaming` away, when `open` moves on,
+    // ends it.
     let editing = renaming.map(|text| {
         rsx! {
-            RenameField {
+            NameField {
                 value: text,
+                placeholder: "Folder name".to_owned(),
                 on_input: move |text: String| {
                     open.set(Open::Renaming { spot: rename_spot.clone(), text });
                 },
-                on_commit: move |_| {
+                on_commit: move |()| {
                     let Open::Renaming { spot, text } = open.peek().clone() else { return };
                     let to = match renamed_path(&spot.path, &text, delimiter) {
                         Ok(to) if to == spot.path => {
@@ -171,7 +172,7 @@ pub(super) fn FolderRow(
                     let work = FolderWork::Rename { from: spot.path.clone(), to };
                     run(wires, account, Some(spot.path.clone()), work, delimiter);
                 },
-                on_cancel: move |_| open.set(Open::Closed),
+                on_cancel: move |()| open.set(Open::Closed),
             }
         }
     });
@@ -183,120 +184,114 @@ pub(super) fn FolderRow(
         }
         Said { wires, account: Some(account), path: Some(node.path.clone()) }
     };
-    // The ⋯'s menus float beside it, so where they sit in the tree does not matter, except that
-    // a closed folder hides what it holds: they go after the whole item.
-    let menus = rsx! {
-        match now {
-            Open::Actions(at) if at == spot => rsx! {
-                Floating {
-                    kind: MenuKind::Slim,
-                    anchor: more(),
-                    title: name.clone(),
-                    items,
-                    on_pick: move |key: String| pick(wires, &key, account, path.clone(), delimiter),
-                    // A pick that opened a field or the confirmation keeps it open.
-                    on_close: move |_| close(open, |now| matches!(now, Open::Actions(at) if *at == closing)),
-                }
+    // A right-click opens the folder's menu against the row; the ⋯ in the row is its own
+    // `PopUpButton` of the same items.
+    let menus = match now.clone() {
+        Open::Actions(at) if at == spot => rsx! {
+            Floating {
+                anchor: row_ref(),
+                title: name.clone(),
+                items: items.clone(),
+                on_pick: move |key: String| pick(wires, &key, account, path.clone(), delimiter),
+                // A pick that opened a field or the confirmation keeps it open.
+                on_close: move |_| close(open, |now| matches!(now, Open::Actions(at) if *at == closing)),
+            }
+        },
+        _ => rsx! {},
+    };
+    let selection = if current {
+        Selection::Selected
+    } else {
+        Selection::Unselected
+    };
+    let outline = if parent || showing_below {
+        Outline::Branch(if showing_below {
+            Shown::Visible
+        } else {
+            disclosure()
+        })
+    } else {
+        Outline::Leaf
+    };
+    // Deleting a folder that holds mail asks in the row's own line.
+    let confirm = match &now {
+        Open::Confirm { spot: at, messages } if *at == spot => {
+            let delete = at.clone();
+            Some(RowConfirm {
+                question: format!(
+                    "Delete \u{201c}{name}\u{201d} and the {} in it?",
+                    messages_word(*messages)
+                ),
+                confirm: "Delete Folder and Mail".to_owned(),
+                role: ButtonRole::Destructive,
+                on_confirm: EventHandler::new(move |()| {
+                    let work = FolderWork::Delete {
+                        path: delete.path.clone(),
+                        non_empty: NonEmpty::Allow,
+                    };
+                    run(wires, account, Some(delete.path.clone()), work, delimiter);
+                }),
+                on_cancel: EventHandler::new(move |()| open.set(Open::Closed)),
+            })
+        }
+        _ => None,
+    };
+    let overflow_path = node.path.clone();
+    let overflow_name = name.clone();
+    let accessory = rsx! {
+        if let Some(count) = count {
+            Badge {
+                content: BadgeContent::Number(u32::try_from(count).unwrap_or(u32::MAX)),
+                tone: BadgeTone::Quiet,
+                size: ControlSize::Small,
+            }
+        }
+        PopUpButton::<String> {
+            kind: PopUpKind::Overflow,
+            title: Some(format!("Actions for {overflow_name}")),
+            size: ControlSize::Small,
+            items: menu_items("", &items, false),
+            onpick: move |key: String| {
+                note.set(None);
+                pick(wires, &key, account, overflow_path.clone(), delimiter);
             },
-            Open::Confirm { spot: at, messages } if at == spot => rsx! {
-                Floating {
-                    kind: MenuKind::Slim,
-                    anchor: more(),
-                    title: format!("Holds {}. Delete them with the folder?", messages_word(messages)),
-                    items: vec![
-                        item("delete", Icon::Trash, "Delete folder and mail", Some("This cannot be undone")),
-                        item("keep", Icon::X, "Keep the folder", None),
-                    ],
-                    on_pick: move |key: String| {
-                        if key == "delete" {
-                            let work = FolderWork::Delete { path: at.path.clone(), non_empty: NonEmpty::Allow };
-                            run(wires, account, Some(at.path.clone()), work, delimiter);
-                        } else {
-                            open.set(Open::Closed);
-                        }
-                    },
-                    on_close: move |_| close(open, |now| matches!(now, Open::Confirm { .. })),
-                }
-            },
-            _ => rsx! {},
         }
     };
     let children = node.children.clone();
-    let here = if current {
-        Here::Current
-    } else {
-        Here::Elsewhere
-    };
-    let count = count.map(|count| u32::try_from(count).unwrap_or(u32::MAX));
-    // `.fold` holds the row and what shows under it; `dim` quietens a folder not followed.
-    let class = if dim { "fold dim" } else { "fold" };
-    if parent {
-        let shown = if showing_below {
-            Disclosure::Open
-        } else {
-            disclosure()
-        };
-        rsx! {
-            div { class,
-                TreeItem {
-                    label: name.clone(),
-                    open: shown,
-                    on_toggle: move |to| disclosure.set(to),
-                    count,
-                    here,
-                    onselect,
-                    trailing,
-                    editing: editing.clone(),
-                    drop,
-                    place: PlaceId(data_path.clone()),
-                    onpointerenter: on_enter,
-                    onpointerleave: on_leave,
-                    onpointerup: on_up,
-                    // What the folder has open (its name field, a refusal) first, one step in,
-                    // where a new folder inside it goes; then what it holds.
-                    {below}
-                    for child in children {
-                        FolderRow { key: "{child.path}", node: child, account, delimiter, wires }
-                    }
-                }
-                {menus}
+    let common = tagged("place", node.path.clone());
+    let common = if dim { super::dimmed(common) } else { common };
+    rsx! {
+        Row {
+            title: name.clone(),
+            edit: editing,
+            accessory: Accessory::Slot(accessory),
+            confirm,
+            state: RowState { selection, drop, ..RowState::default() },
+            outline,
+            on_toggle: move |to| disclosure.set(to),
+            onclick,
+            onmounted: RowMounted::new(move |event: MountedEvent| { let mut at = row_ref; at.set(Some(MountedRef(event.data()))); }),
+            onpointerenter: on_enter,
+            onpointerleave: on_leave,
+            onpointerup: on_up,
+            common,
+            // What the folder has open (its name field, a refusal) first, one step in, where a
+            // new folder inside it goes; then what it holds.
+            {below}
+            for child in children {
+                FolderRow { key: "{child.path}", node: child, account, delimiter, wires }
             }
         }
-    } else {
-        rsx! {
-            div { class,
-                TreeItem {
-                    label: name.clone(),
-                    open: Disclosure::Closed,
-                    on_toggle: |_| {},
-                    shape: TreeShape::Leaf,
-                    count,
-                    here,
-                    onselect,
-                    trailing,
-                    editing: editing.clone(),
-                    drop,
-                    place: PlaceId(data_path.clone()),
-                    onpointerenter: on_enter,
-                    onpointerleave: on_leave,
-                    onpointerup: on_up,
-                }
-                {below}
-                {menus}
-            }
-        }
+        {menus}
     }
 }
 
-/// `data-folder="{path}"` on a folder's ⋯, where a test or a drag finds the folder it names.
-fn folder_data(path: &str) -> Vec<DataAttr> {
-    DataName::parse(FOLDER_DATA)
-        .map(|name| vec![DataAttr::new(name, path)])
-        .unwrap_or_default()
+/// Whether the pointer is over a folder that takes the row being dragged.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DragOver {
+    Yes,
+    No,
 }
-
-/// The `data-*` name a folder's path is written under.
-const FOLDER_DATA: &str = "folder";
 
 /// A menu closed: the section closes it too, unless a pick has already moved on to something
 /// else (a name field, the delete confirmation), which `still` tells apart.
@@ -320,7 +315,6 @@ fn pick(wires: Wires, key: &str, account: AccountId, path: String, delimiter: Op
                 parent: Some(path),
                 text: String::new(),
             });
-            focus_name();
         }
         "rename" => {
             let text = super::folder_act::leaf(&path, delimiter).to_owned();

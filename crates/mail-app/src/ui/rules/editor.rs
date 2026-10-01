@@ -3,17 +3,25 @@
 
 use chrono::Utc;
 use dioxus::prelude::*;
+use ds::components::content::avatar::AvatarSize;
+use ds::components::content::label::{LabelRole, LabelStyle};
+use ds::components::controls::button_model::{Bezel, ImagePosition};
+use ds::components::controls::segmented::Tracking;
+use ds::components::fields::field_row::{FieldGroup, FieldRow, RowLayout};
+use ds::components::fields::text_field_model::Invalid;
+use ds::host::measure::MountedRef;
+use ds::motion::detail::stamp::EventStamp;
+use ds::prelude::*;
+use ds::root::common::Common;
+use ds::style::icon::render::Glyph;
 use mail_domain::{AccountId, AfterMatch, RuleAction};
 use mail_store::SqliteStore;
 use std::sync::Arc;
 
-use super::super::field::{Field, FieldKind};
-use super::super::menu::{Floating, MenuItem, Right, Tile};
+use super::super::menu::{Floating, MenuItem, Right, Tile, anchor_at, narrowed, palette_groups};
 use super::super::move_to::destinations;
 use super::super::press::{available, on_primary};
-use super::super::space_editor::Seg;
 use super::work::{self, Draft};
-use ds::{Glyph, Icon};
 
 /// Which menu the "Add an action" button has open.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,12 +58,7 @@ pub(in crate::ui) fn kinds(folders: bool) -> Vec<MenuItem> {
         Some("Put a label on it"),
     )];
     if folders {
-        out.push(item(
-            "file",
-            Icon::FolderInput,
-            "Move to folder…",
-            Some("Out of the inbox, into one of your folders"),
-        ));
+        out.push(item("file", Icon::FolderInput, "Move to folder…", None));
     }
     out.extend([
         item("read", Icon::MailOpen, "Mark read", None),
@@ -123,9 +126,8 @@ pub(super) fn RuleEditor(
     said: Signal<Option<Result<String, String>>>,
 ) -> Element {
     let mut adding = use_signal(|| Adding::Closed);
-    let mut typed = use_signal(String::new);
     // The Add button, which the action menu floats against.
-    let mut add_at = use_signal(|| None::<ds::MountedRef>);
+    let mut add_at = use_signal(|| None::<MountedRef>);
     let mut refused = use_signal(|| None::<String>);
     let Some(draft) = editing() else {
         return rsx! {};
@@ -138,32 +140,18 @@ pub(super) fn RuleEditor(
         .map(|d| d.path)
         .collect();
     // Read as it is typed: the refusal in words, or how much it matches now.
-    let (look_class, look, readable) =
+    let (validity, look, readable) =
         match work::read_condition(&draft.query, &index, &chrono::Local) {
-            Err(why) => ("rules-look refused", why, false),
+            Err(why) => (refusal(&why), String::new(), false),
             Ok(filter) => match work::matching(&store, account, filter, Utc::now()) {
-                Ok(count) => ("rules-look found", work::matching_words(count), true),
-                Err(why) => ("rules-look refused", why, true),
+                Ok(count) => (Validity::Valid, work::matching_words(count), true),
+                Err(why) => (refusal(&why), String::new(), true),
             },
         };
     let title = if draft.id.is_some() {
         "Edit rule"
     } else {
         "New rule"
-    };
-    let stops = draft.after == AfterMatch::Stop;
-    let menu = match adding() {
-        Adding::Closed => None,
-        Adding::Kinds => Some(("Add an action", kinds(!folders.is_empty()), false)),
-        Adding::Labels => Some(("Label", label_items(&names, &typed()), true)),
-        Adding::Folders => Some((
-            "Move to",
-            folders
-                .iter()
-                .map(|path| item(&format!("file:{path}"), Icon::FolderInput, path, None))
-                .collect(),
-            folders.len() > 7,
-        )),
     };
     let mut add = move |action: RuleAction| {
         if let Some(draft) = editing.write().as_mut()
@@ -172,138 +160,151 @@ pub(super) fn RuleEditor(
             draft.actions.push(action);
         }
         adding.set(Adding::Closed);
-        typed.set(String::new());
     };
+    let kinds_open = adding() == Adding::Kinds;
     rsx! {
         div { class: "rules-edit", role: "group", aria_label: "{title}",
-            h4 { "{title}" }
-            span { class: "files-k", "Name" }
-            Field {
-                kind: FieldKind::Boxed,
-                value: draft.name.clone(),
-                placeholder: "Bills".to_owned(),
-                extra: Some("rules-in".to_owned()),
-                on_input: move |value: String| {
-                    if let Some(draft) = editing.write().as_mut() {
-                        draft.name = value;
+            SectionHeader { title: title.to_owned() }
+            FieldGroup {
+                FieldRow {
+                    label: "Name",
+                    layout: RowLayout::Form,
+                    TextField {
+                        label: "Name".to_owned(),
+                        value: draft.name.clone(),
+                        placeholder: "Bills".to_owned(),
+                        oninput: move |value: String| {
+                            if let Some(draft) = editing.write().as_mut() {
+                                draft.name = value;
+                            }
+                        },
                     }
-                },
-                on_focus: |_| {},
-                on_blur: |_| {},
-            }
-            span { class: "files-k", "When a message matches" }
-            Field {
-                kind: FieldKind::Boxed,
-                value: draft.query.clone(),
-                placeholder: "from:bank.example subject:statement".to_owned(),
-                extra: Some("rules-in".to_owned()),
-                on_input: move |value: String| {
-                    if let Some(draft) = editing.write().as_mut() {
-                        draft.query = value;
+                }
+                FieldRow {
+                    label: "When a message matches",
+                    help: Some(look.into()),
+                    layout: RowLayout::Form,
+                    TextField {
+                        label: "Condition".to_owned(),
+                        value: draft.query.clone(),
+                        placeholder: "from:bank.example subject:statement".to_owned(),
+                        validity,
+                        oninput: move |value: String| {
+                            if let Some(draft) = editing.write().as_mut() {
+                                draft.query = value;
+                            }
+                        },
                     }
-                },
-                on_focus: |_| {},
-                on_blur: |_| {},
-            }
-            p { class: "{look_class}", aria_live: "polite", "{look}" }
-            span { class: "files-k", "Do" }
-            ul { class: "rules-actions",
-                for (at, action) in draft.actions.iter().enumerate() {
-                    li { key: "{at}", class: "rules-action",
-                        Glyph { icon: icon_of(action), size: ds::IconSize::Small }
-                        span { "{work::action_words(action)}" }
-                        ds::IconButton {
-                            variant: ds::IconButtonVariant::Strip,
-                            icon: Icon::X,
-                            label: format!("Remove {}", work::action_words(action)),
+                }
+                FieldRow {
+                    label: "Do",
+                    layout: RowLayout::Form,
+                    div { class: "rules-actions",
+                        for (at, action) in draft.actions.iter().enumerate() {
+                            div { key: "{at}", class: "rules-action",
+                                Glyph { icon: icon_of(action), size: IconSize::Small }
+                                Label { text: work::action_words(action) }
+                                Button {
+                                    bezel: Bezel::Toolbar,
+                                    image: ImagePosition::Only,
+                                    icon: Icon::X,
+                                    label: format!("Remove {}", work::action_words(action)),
+                                    onclick: on_primary(move || {
+                                        if let Some(draft) = editing.write().as_mut()
+                                            && at < draft.actions.len()
+                                        {
+                                            draft.actions.remove(at);
+                                        }
+                                    }),
+                                }
+                            }
+                        }
+                        Button {
+                            label: "Add an action",
+                            icon: Icon::Plus,
+                            shown: Some(if kinds_open { Shown::Visible } else { Shown::Hidden }),
                             onclick: on_primary(move || {
-                                if let Some(draft) = editing.write().as_mut()
-                                    && at < draft.actions.len()
-                                {
-                                    draft.actions.remove(at);
-                                }
+                                let next = if adding() == Adding::Closed { Adding::Kinds } else { Adding::Closed };
+                                adding.set(next);
                             }),
+                            common: Common {
+                                mounted: Some(EventHandler::new(move |event: MountedEvent| add_at.set(Some(MountedRef(event.data()))))),
+                                ..Common::default()
+                            },
+                        }
+                        // What kind of action opens a menu; a label or a folder is then chosen by
+                        // typing, in a picker, so the menu closes on the kind it hands over.
+                        if kinds_open {
+                            Floating {
+                                placement: MenuPlacement::Popup,
+                                anchor: add_at(),
+                                title: "Add an action".to_owned(),
+                                items: kinds(!folders.is_empty()),
+                                on_pick: move |key: String| {
+                                    if key == "label" {
+                                        adding.set(Adding::Labels);
+                                    } else if key == "file" {
+                                        adding.set(Adding::Folders);
+                                    } else if let Some(action) = plain(&key) {
+                                        add(action);
+                                    }
+                                },
+                                on_close: move |_| {
+                                    if adding() == Adding::Kinds {
+                                        adding.set(Adding::Closed);
+                                    }
+                                },
+                            }
+                        }
+                        if matches!(adding(), Adding::Labels | Adding::Folders) {
+                            ActionPicker {
+                                anchor: add_at(),
+                                adding: adding(),
+                                names: names.clone(),
+                                folders: folders.clone(),
+                                on_pick: move |key: String| {
+                                    if let Some(name) = key.strip_prefix("label:") {
+                                        add(RuleAction::Label(name.to_owned()));
+                                    } else if let Some(path) = key.strip_prefix("file:") {
+                                        add(RuleAction::File(path.to_owned()));
+                                    }
+                                },
+                                on_close: move |()| adding.set(Adding::Closed),
+                            }
                         }
                     }
                 }
-                li { class: "rules-add",
-                    ds::Button {
-                        variant: ds::ButtonVariant::Mini,
-                        label: "Add an action",
-                        icon: Icon::Plus,
-                        mounted: move |event: MountedEvent| add_at.set(Some(ds::MountedRef(event.data()))),
-                        expanded: if adding() == Adding::Closed { ds::Expanded::Closed } else { ds::Expanded::Open },
-                        onclick: on_primary(move || {
-                            let next = if adding() == Adding::Closed { Adding::Kinds } else { Adding::Closed };
-                            adding.set(next);
-                        }),
-                    }
-                    if let Some((menu_title, items, filterable)) = menu {
-                        // Keyed by what it lists: picking "Label" or "Move to" opens a fresh
-                        // menu of labels or folders where the kinds were.
-                        Floating {
-                            key: "{menu_title}",
-                            kind: ds::MenuKind::Slim,
-                            anchor: add_at(),
-                            title: menu_title.to_owned(),
-                            items,
-                            // What is typed shows in a line at the top, as the labels or folders narrow.
-                            filter: match (filterable, menu_title) {
-                                (false, _) => ds::Filter::None,
-                                (true, "Label") => ds::Filter::Field { placeholder: "Filter labels…".to_owned() },
-                                (true, _) => ds::Filter::Field { placeholder: "Filter folders…".to_owned() },
-                            },
-                            // A pick either adds an action, which closes the menu, or opens the
-                            // next one: the menu never closes on a pick by itself.
-                            dismiss: ds::PickDismiss::Stay,
-                            on_query: move |value: String| typed.set(value),
-                            on_pick: move |key: String| {
-                                if let Some(name) = key.strip_prefix("label:") {
-                                    add(RuleAction::Label(name.to_owned()));
-                                } else if let Some(path) = key.strip_prefix("file:") {
-                                    add(RuleAction::File(path.to_owned()));
-                                } else if key == "label" {
-                                    adding.set(Adding::Labels);
-                                } else if key == "file" {
-                                    adding.set(Adding::Folders);
-                                } else if let Some(action) = plain(&key) {
-                                    add(action);
-                                }
-                            },
-                            on_close: move |_| adding.set(Adding::Closed),
-                        }
+                FieldRow {
+                    label: "After it matches",
+                    layout: RowLayout::Form,
+                    SegmentedControl::<AfterMatch> {
+                        label: "After it matches".to_owned(),
+                        choices: vec![
+                            Choice::new(AfterMatch::Continue, "Later rules run too"),
+                            Choice::new(AfterMatch::Stop, "No later rule runs"),
+                        ],
+                        tracking: Tracking::SelectOne(draft.after),
+                        onchange: move |after: AfterMatch| {
+                            if let Some(draft) = editing.write().as_mut() {
+                                draft.after = after;
+                            }
+                        },
                     }
                 }
-            }
-            span { class: "files-k", "After it matches" }
-            Seg {
-                label: "After it matches".to_owned(),
-                options: vec![
-                    ("Later rules run too".to_owned(), !stops),
-                    ("No later rule runs".to_owned(), stops),
-                ],
-                on_pick: move |index: usize| {
-                    if let Some(draft) = editing.write().as_mut() {
-                        draft.after = if index == 1 { AfterMatch::Stop } else { AfterMatch::Continue };
-                    }
-                },
             }
             div { class: "rules-acts",
                 if let Some(why) = refused() {
-                    p { class: "capnote files-bad", role: "alert", "{why}" }
+                    div { role: "alert", Label { text: why, role: LabelRole::Primary, style: LabelStyle::Headline } }
                 }
-                ds::Button {
-                    variant: ds::ButtonVariant::Mini,
+                Button {
                     label: "Cancel".to_owned(),
                     onclick: on_primary(move || {
                         editing.set(None);
                         refused.set(None);
                     }),
                 }
-                ds::Button {
-                    variant: ds::ButtonVariant::Primary,
+                Button {
                     label: "Save".to_owned(),
-                    aria_label: format!("Save {title}"),
                     availability: available(readable),
                     onclick: on_primary(move || {
                         let Some(draft) = editing.peek().clone() else { return };
@@ -318,8 +319,60 @@ pub(super) fn RuleEditor(
                             Err(why) => refused.set(Some(why)),
                         }
                     }),
+                    common: Common { aria_label: Some(format!("Save {title}")), ..Common::default() },
                 }
             }
         }
     }
+}
+
+/// Which label or folder an action names: quire's `PickList` under the Add button, the rows
+/// narrowed as the person types. A label typed that the account lacks is offered as "Create".
+#[component]
+fn ActionPicker(
+    anchor: Option<MountedRef>,
+    adding: Adding,
+    names: Vec<String>,
+    folders: Vec<String>,
+    on_pick: EventHandler<String>,
+    on_close: EventHandler<()>,
+) -> Element {
+    let mut query = use_signal(String::new);
+    let (label, placeholder, items) = match adding {
+        Adding::Labels => (
+            "Label",
+            "Find or create a label",
+            label_items(&names, &query()),
+        ),
+        _ => (
+            "Move to",
+            "Find a folder",
+            folders
+                .iter()
+                .map(|path| item(&format!("file:{path}"), Icon::FolderInput, path, None))
+                .collect(),
+        ),
+    };
+    let shown = narrowed(&items, &query());
+    rsx! {
+        PickList::<String> {
+            anchor: anchor_at(anchor),
+            label,
+            placeholder,
+            query: query(),
+            groups: palette_groups(&shown, AvatarSize::Size22, None),
+            empty: "Nothing matches.".to_owned(),
+            oninput: move |text: String| query.set(text),
+            onpick: on_pick,
+            onclose: on_close,
+        }
+    }
+}
+
+/// A refusal quire's field draws under itself: the words, and one stamp for each phrasing.
+fn refusal(why: &str) -> Validity {
+    Validity::Invalid(Invalid {
+        message: why.to_owned().into(),
+        stamp: EventStamp(u32::try_from(why.len()).unwrap_or(0)),
+    })
 }

@@ -1,16 +1,29 @@
 //! The property rows under the title: From, To, Cc, Sends, Protection and Attached. Every choice
-//! is a [`Menu`] and every input a [`Field`].
+//! is a quire `Menu` and every input a quire `TextField`.
 
 use super::super::press::on_primary;
+use ds::components::content::avatar::{
+    AvatarFace, AvatarShape, AvatarSize, AvatarTone, person_hue,
+};
+use ds::components::controls::button_marks::{Leading, Trailing};
+use ds::components::controls::button_model::Bezel;
+use ds::components::controls::chip::{Chip, ChipVariant};
+use ds::components::fields::field_row::{FieldRow, RowLayout};
+use ds::components::fields::text_field_model::Invalid;
+use ds::host::measure::MountedRef;
+use ds::motion::detail::stamp::EventStamp;
+use ds::prelude::*;
+use ds::root::common::Common;
+use ds::root::pass_through::ExtraClass;
+use ds::root::pass_through::{DataAttr, DataName};
 use std::sync::Arc;
 
 use dioxus::prelude::*;
 use mail_store::SqliteStore;
 
 use super::super::data::account_rows;
-use super::super::field::{Field, FieldKind};
 use super::super::menu::{
-    Floating, MenuItem, MenuKey, Right, Tile, anchor_at, menu_key, quire_entries,
+    Floating, MenuItem, MenuKey, Right, Tile, anchor_at, menu_items, menu_key,
 };
 use super::super::menus::{snooze_help, when_words};
 use super::later::{PICK_KEY, PICK_LABEL, PickTime};
@@ -22,52 +35,43 @@ use super::remind::RemindRow;
 use crate::provider::icon::{ChipPlace, ProvChip};
 use crate::provider::provider;
 use crate::view::Shell;
-use ds::{
-    Anim, AvatarFace, AvatarShape, AvatarSize, AvatarTone, Button, ButtonVariant, Chip,
-    ChipVariant, Glyph, Icon, MenuKind, MountedRef, PulseKey,
-};
 
 #[component]
 pub(in crate::ui) fn Props(page: Signal<Page>, shell: Signal<Shell>) -> Element {
-    use_flash_clock(page);
     let read = page.read();
     let compact = read.kind == PageKind::Reply;
     let cc_shown = read.cc_row == CcRow::Shown;
-    let shaking = match read.guard {
-        Guard::Shake(count) => Some(count),
-        _ => None,
-    };
+    let guard = read.guard;
     let attached = read.attached.clone();
     drop(read);
+    let refused = match guard {
+        Guard::NoRecipient(count) => Some(count),
+        _ => None,
+    };
     rsx! {
         div { class: "c-props",
             if !compact {
                 FromRow { page, shell }
             }
-            div {
-                // Two names for one animation, so a second press starts it again.
-                class: match shaking {
-                    None => "prop-row",
-                    Some(count) if count % 2 == 1 => "prop-row shake",
-                    Some(_) => "prop-row shake again",
-                },
-                "data-row": "to",
-                div { class: "k", Glyph { icon: Icon::Send, size: ds::IconSize::Compact }, "To" }
-                div { class: "v",
-                    Recipients { page, list: List::To }
-                    if !cc_shown {
-                        Button {
-                            variant: ButtonVariant::Quiet,
-                            label: "Cc".to_owned(),
-                            onclick: move |_| page.write().cc_row = CcRow::Shown,
-                        }
+            FieldRow {
+                label: "To",
+                layout: RowLayout::Form,
+                common: row("to"),
+                Recipients { page, list: List::To, refused }
+                if !cc_shown {
+                    Button {
+                        bezel: Bezel::Inline,
+                        label: "Cc".to_owned(),
+                        onclick: move |_| page.write().cc_row = CcRow::Shown,
                     }
                 }
             }
             if cc_shown {
-                div { class: "prop-row", "data-row": "cc",
-                    div { class: "k", Glyph { icon: Icon::Corner, size: ds::IconSize::Compact }, "Cc" }
-                    div { class: "v", Recipients { page, list: List::Cc } }
+                FieldRow {
+                    label: "Cc",
+                    layout: RowLayout::Form,
+                    common: row("cc"),
+                    Recipients { page, list: List::Cc, refused: None }
                 }
             }
             if !compact {
@@ -77,20 +81,32 @@ pub(in crate::ui) fn Props(page: Signal<Page>, shell: Signal<Shell>) -> Element 
             ReceiptRow { page }
             RemindRow { page }
             if !attached.is_empty() {
-                div { class: "prop-row",
-                    div { class: "k", Glyph { icon: Icon::Paperclip, size: ds::IconSize::Compact }, "Attached" }
-                    div { class: "v",
-                        for (index, (name, size)) in attached.into_iter().enumerate() {
-                            Chip {
-                                key: "{index}",
-                                variant: ChipVariant::Neutral,
-                                text: format!("{} · {name} · {size}", kind_of(&name)),
-                            }
+                FieldRow {
+                    label: "Attached",
+                    layout: RowLayout::Form,
+                    common: row("attached"),
+                    for (index, (name, size)) in attached.into_iter().enumerate() {
+                        Chip {
+                            key: "{index}",
+                            variant: ChipVariant::Neutral,
+                            text: format!("{} · {name} · {size}", kind_of(&name)),
                         }
                     }
                 }
             }
         }
+    }
+}
+
+/// The `data-row` a property row carries, which the page's tests and its layout find it by.
+pub(super) fn row(name: &str) -> Common {
+    Common {
+        data: DataName::parse("row")
+            .ok()
+            .map(|attribute| DataAttr::new(attribute, name))
+            .into_iter()
+            .collect(),
+        ..Common::default()
     }
 }
 
@@ -137,34 +153,37 @@ fn FromRow(page: Signal<Page>, shell: Signal<Shell>) -> Element {
         .collect();
     let mut value = use_signal(|| None::<MountedRef>);
     rsx! {
-        div { class: "prop-row",
-            div { class: "k", Glyph { icon: Icon::Mail, size: ds::IconSize::Compact }, "From" }
-            div { class: "v",
-                ds::Button {
-                    variant: ds::ButtonVariant::Quiet,
-                    label: address,
-                    // The provider's mark leads the value, inside it: quire's `ProviderMark`
-                    // at its inline size, drawn from the cached icon or the letter.
-                    leading: via.map(|via| ds::Leading::Mark(rsx! {
-                        ProvChip { provider: via, marks, place: ChipPlace::Inline }
-                    })),
-                    trailing: Some(ds::Trailing::Caret),
-                    expanded: if open { ds::Expanded::Open } else { ds::Expanded::Closed },
-                    mounted: move |event: MountedEvent| value.set(Some(MountedRef(event.data()))),
-                    onclick: on_primary(move || {
-                        let next = if open { Float::Closed } else { Float::From };
-                        page.write().float = next;
-                    }),
-                }
-                if open {
-                    Floating {
-                        kind: MenuKind::Dropdown,
-                        anchor: value(),
-                        title: "Send from".to_owned(),
-                        items,
-                        on_pick: move |key: String| move_to(page, &key),
-                        on_close: move |_| close(page, &Float::From),
-                    }
+        FieldRow {
+            label: "From",
+            layout: RowLayout::Form,
+            common: row("from"),
+            Button {
+                bezel: Bezel::Inline,
+                label: address,
+                // The provider's mark leads the value, inside it: quire's `ProviderMark` at its
+                // inline size, drawn from the cached icon or the letter.
+                leading: via.map(|via| Leading::Mark(rsx! {
+                    ProvChip { provider: via, marks, place: ChipPlace::Inline }
+                })),
+                trailing: Some(Trailing::Glyph(Icon::ChevronDown)),
+                shown: Some(if open { Shown::Visible } else { Shown::Hidden }),
+                onclick: on_primary(move || {
+                    let next = if open { Float::Closed } else { Float::From };
+                    page.write().float = next;
+                }),
+                common: Common {
+                    mounted: Some(EventHandler::new(move |event: MountedEvent| value.set(Some(MountedRef(event.data()))))),
+                    ..Common::default()
+                },
+            }
+            if open {
+                Floating {
+                    placement: MenuPlacement::Popup,
+                    anchor: value(),
+                    title: "Send from".to_owned(),
+                    items,
+                    on_pick: move |key: String| move_to(page, &key),
+                    on_close: move |_| close(page, &Float::From),
                 }
             }
         }
@@ -262,43 +281,44 @@ fn SendsRow(page: Signal<Page>) -> Element {
     let shown = when.shown(now, &chrono::Local);
     let mut value = use_signal(|| None::<MountedRef>);
     rsx! {
-        div { class: "prop-row",
-            div { class: "k", Glyph { icon: Icon::Clock, size: ds::IconSize::Compact }, "Sends" }
-            div { class: "v",
-                ds::Button {
-                    variant: ds::ButtonVariant::Quiet,
-                    label: shown,
-                    trailing: Some(ds::Trailing::Caret),
-                    expanded: if open { ds::Expanded::Open } else { ds::Expanded::Closed },
-                    mounted: move |event: MountedEvent| value.set(Some(MountedRef(event.data()))),
-                    onclick: on_primary(move || {
-                        let next = if open || picking { Float::Closed } else { Float::Sends };
-                        page.write().float = next;
-                    }),
+        FieldRow {
+            label: "Sends",
+            help: (when != When::Now).then(|| "scheduled".into()),
+            layout: RowLayout::Form,
+            common: row("sends"),
+            Button {
+                bezel: Bezel::Inline,
+                label: shown,
+                trailing: Some(Trailing::Glyph(Icon::ChevronDown)),
+                shown: Some(if open { Shown::Visible } else { Shown::Hidden }),
+                onclick: on_primary(move || {
+                    let next = if open || picking { Float::Closed } else { Float::Sends };
+                    page.write().float = next;
+                }),
+                common: Common {
+                    mounted: Some(EventHandler::new(move |event: MountedEvent| value.set(Some(MountedRef(event.data()))))),
+                    ..Common::default()
+                },
+            }
+            if open {
+                Floating {
+                    placement: MenuPlacement::Popup,
+                    anchor: value(),
+                    title: "Send".to_owned(),
+                    items,
+                    on_pick: move |key: String| {
+                        pick_sends(&mut page.write(), &key);
+                        if matches!(page.peek().float, Float::PickTime(_)) {
+                            crate::ui::host::Host::focus_after_task(".pick-field input");
+                        }
+                    },
+                    // "Pick a time…" opens the field where the menu was: closing the menu
+                    // after that pick must not close the field.
+                    on_close: move |_| close(page, &Float::Sends),
                 }
-                if when != When::Now {
-                    span { class: "mono", "scheduled" }
-                }
-                if open {
-                    Floating {
-                        kind: MenuKind::Dropdown,
-                        anchor: value(),
-                        title: "Send".to_owned(),
-                        items,
-                        on_pick: move |key: String| {
-                            pick_sends(&mut page.write(), &key);
-                            if matches!(page.peek().float, Float::PickTime(_)) {
-                                crate::ui::host::Host::focus_after_task(".pick-field input");
-                            }
-                        },
-                        // "Pick a time…" opens the field where the menu was: closing the menu
-                        // after that pick must not close the field.
-                        on_close: move |_| close(page, &Float::Sends),
-                    }
-                }
-                if picking {
-                    div { class: "p-menu", PickTime { page } }
-                }
+            }
+            if picking {
+                PickTime { page, anchor: value() }
             }
         }
     }
@@ -319,29 +339,11 @@ pub(in crate::ui) fn pick_sends(page: &mut Page, key: &str) {
     page.float = Float::Closed;
 }
 
-/// A person who joins a list flashes their chip: `Page::flash` names them, and quire's timer
-/// for `chip-flash` clears it once the flash has settled. The flash is set by whatever added
-/// the person, so the timer starts when the name appears, not from a press here.
-fn use_flash_clock(mut page: Signal<Page>) {
-    let timer = ds::use_motion_timer(Anim::ChipFlash);
-    let done = use_callback(move |()| page.write().flash = None);
-    let mut started = use_signal(|| None::<String>);
-    use_effect(move || {
-        let flash = page.read().flash.clone();
-        if flash.is_some() && flash != *started.peek() {
-            timer.start(done);
-        }
-        if flash != *started.peek() {
-            started.set(flash);
-        }
-    });
-}
-
 /// The chips of one list, the field beside them, and the people menu under it.
 #[component]
-fn Recipients(page: Signal<Page>, list: List) -> Element {
+fn Recipients(page: Signal<Page>, list: List, refused: Option<u32>) -> Element {
     // The field's box, which the people menu floats under.
-    let mut field_at = use_signal(|| None::<ds::MountedRef>);
+    let mut field_at = use_signal(|| None::<MountedRef>);
     let read = page.read();
     let people = match list {
         List::To => read.to.clone(),
@@ -351,7 +353,6 @@ fn Recipients(page: Signal<Page>, list: List) -> Element {
         List::To => read.typed_to.clone(),
         List::Cc => read.typed_cc.clone(),
     };
-    let flash = read.flash.clone();
     let menu = match read.float {
         Float::People { list: open, active } if open == list => Some(active),
         _ => None,
@@ -367,15 +368,12 @@ fn Recipients(page: Signal<Page>, list: List) -> Element {
         for person in people {
             {
                 let address = person.address.clone();
-                let flashing = flash.as_deref() == Some(address.as_str());
                 let avatar = AvatarFace {
                     initial: person.name.chars().next().and_then(|ch| ch.to_uppercase().next()).unwrap_or('?'),
                     size: AvatarSize::Size18,
-                    tone: AvatarTone::Person(ds::person_hue(&address)),
+                    tone: AvatarTone::Person(person_hue(&address)),
                     shape: AvatarShape::Round,
                 };
-                // The flash is the chip's own pulse, for as long as the page's flash timer runs.
-                let pulse = flashing.then(|| PulseKey::rest(Anim::ChipFlash).fired());
                 rsx! {
                     span {
                         key: "{address}",
@@ -383,7 +381,6 @@ fn Recipients(page: Signal<Page>, list: List) -> Element {
                             variant: ChipVariant::Person(avatar),
                             text: person.name.clone(),
                             onremove: move |()| remove(&mut page.write(), list, &address),
-                            pulse,
                         }
                     }
                 }
@@ -391,7 +388,7 @@ fn Recipients(page: Signal<Page>, list: List) -> Element {
         }
         div {
             class: "c-pin",
-            onmounted: move |event| field_at.set(Some(ds::MountedRef(event.data()))),
+            onmounted: move |event| field_at.set(Some(MountedRef(event.data()))),
             onkeydown: move |event: KeyboardEvent| {
                 let key = event.key().to_string();
                 let mut write = page.write();
@@ -423,39 +420,49 @@ fn Recipients(page: Signal<Page>, list: List) -> Element {
                     _ => {}
                 }
             },
-            Field {
-                kind: FieldKind::Inline,
-                value,
+            TextField {
+                label: match list {
+                    List::To => "To".to_owned(),
+                    List::Cc => "Cc".to_owned(),
+                },
+                bezel: FieldBezel::Plain,
                 placeholder: placeholder.to_owned(),
-                extra: Some("pinput".to_owned()),
-                on_input: move |value: String| {
+                validity: match refused {
+                    None => Validity::Valid,
+                    Some(count) => Validity::Invalid(Invalid {
+                        message: "Add at least one person to send to.".into(),
+                        stamp: EventStamp(count),
+                    }),
+                },
+                value,
+                oninput: move |value: String| {
                     let store = consume_context::<Arc<SqliteStore>>();
                     typed(&mut page.write(), list, value, store.as_ref());
                 },
-                on_focus: |_| {},
-                on_blur: move |_| {
+                onblur: move |_| {
                     let mut write = page.write();
                     if write.float == (Float::People { list, active: menu.unwrap_or(0) }) {
                         return;
                     }
                     commit_typed(&mut write, list);
                 },
+                common: Common { extra_class: ExtraClass::parse("pinput").ok(), ..Common::default() },
             }
             if let Some(active) = menu {
                 if !items.is_empty() {
                     // quire's menu under the field, its cursor the field's: the field keeps the
                     // keyboard and picks with the row it knows.
-                    ds::Menu::<String> {
-                        kind: ds::MenuKind::Slim,
+                    Menu::<String> {
+                        placement: MenuPlacement::Popup,
                         anchor: anchor_at(field_at()),
-                        entries: quire_entries("From your contacts", &items, ds::AvatarSize::Size20, None),
+                        items: menu_items("From your contacts", &items, false),
                         onpick: move |key: String| pick_person(&mut page.write(), list, &key),
                         onclose: move |()| {
                             if matches!(page.peek().float, Float::People { list: open, .. } if open == list) {
                                 page.write().float = Float::Closed;
                             }
                         },
-                        active: ds::Cursor::Controlled(Some(active.min(items.len().saturating_sub(1)))),
+                        active: MenuCursor::Controlled(Some(active.min(items.len().saturating_sub(1)))),
                         on_active: move |to: Option<usize>| {
                             if let Some(to) = to {
                                 page.write().float = Float::People { list, active: to };

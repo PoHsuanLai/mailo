@@ -1,4 +1,4 @@
-//! The Ctrl T menu's People, from the contact book.
+//! The ⌘K menu's People, from the contact book.
 //!
 //! The ranker still decides whether a person is the top hit; who that person is, and who follows
 //! them, is the book's answer to the query's free words — the answer the composer's To field
@@ -17,7 +17,7 @@ use crate::search::{PersonHit, Results, Top};
 /// People rows under the top hit.
 const PEOPLE_CAP: usize = 3;
 
-/// The words of a Ctrl T query a person could be found by: its free words and phrases, without
+/// The words of a ⌘K query a person could be found by: its free words and phrases, without
 /// the operators. `from:dana spec` is `spec`.
 pub(in crate::ui) fn free_words(query: &str) -> String {
     let parsed = crate::search::parse(query, &Utc, &|_| Vec::new());

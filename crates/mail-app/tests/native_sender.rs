@@ -1,4 +1,4 @@
-//! Sender trust on the real window (Blitz, through `ds_native::Harness`): the reader shows what
+//! Sender trust on the real window (Blitz, through `ds_harness::Harness`): the reader shows what
 //! the receiving server checked about the sender, and the sender card blocks them.
 //!
 //! The window is opened over a store seeded in a `TempDir` and handed no directories, so it
@@ -7,9 +7,14 @@
 //! it can sync and reaches no server; with no server name to go on, the topmost
 //! `Authentication-Results` is the one read (`mail_app::auth::receiver`).
 
-use ds::Point;
-use ds_native::harness::settle_until;
-use ds_native::{FocusFallback, Harness, HarnessConfig, NetPolicy, PrintOutcome, Viewport};
+use ds::prelude::Point;
+use ds_blitz::{FocusFallback, NetPolicy, PrintOutcome};
+use ds_harness::harness::settle_until;
+use ds_harness::{Driver, Harness, HarnessConfig, Query, Viewport};
+
+#[path = "support/drive.rs"]
+mod drive;
+use drive::Drive;
 use mail_domain::*;
 use mail_runtime::{Arrival, absorb};
 use mail_store::{SqliteStore, Store};
@@ -111,13 +116,13 @@ fn open() -> (Harness, tempfile::TempDir, Arc<SqliteStore>) {
         .with_net(NetPolicy::Local)
         .with_focus_fallback(FocusFallback::Ancestor)
         .with_contexts(contexts);
-    let mut harness = Harness::with_config(mail_app::ui::native::root, config);
+    let mut harness = Harness::new(mail_app::ui::native::root, config);
     harness.advance(ms(300));
     (harness, dir, store)
 }
 
 fn row(n: usize) -> String {
-    format!(".ds-list > .row:nth-child({n}) .ds-row")
+    format!(".list .ds-list > .ds-list-item:nth-child({n}) .ds-row")
 }
 
 fn centre(harness: &Harness, selector: &str) -> Point {
@@ -128,13 +133,13 @@ fn centre(harness: &Harness, selector: &str) -> Point {
 
 /// Click the `n`th row at the start of its subject line, clear of its hover strip.
 fn open_row(harness: &mut Harness, n: usize) {
-    let subject = format!("{} .ds-row-sub", row(n));
+    let subject = format!("{} .ds-thread-sub", row(n));
     let rect = harness
         .rect(&subject)
         .unwrap_or_else(|| panic!("{subject} is not drawn:\n{}", harness.html()));
     harness.click(Point {
-        x: ds::Px(rect.origin.x.0 + 24.0),
-        y: ds::Px(rect.origin.y.0 + rect.size.height.0 / 2.0),
+        x: ds::prelude::Px(rect.origin.x.0 + 24.0),
+        y: ds::prelude::Px(rect.origin.y.0 + rect.size.height.0 / 2.0),
     });
     harness.advance(ms(300));
 }
@@ -189,7 +194,7 @@ fn a_forged_pass_under_the_servers_fail_shows_as_a_fail() {
 
 /// The sender card of row `n`, opened by resting the pointer on the sender's name.
 fn open_sender_card(harness: &mut Harness, n: usize) {
-    let sender = format!("{} .ds-row-name", row(n));
+    let sender = format!("{} .ds-thread-name", row(n));
     harness.pointer_move(centre(harness, &sender));
     settle_until(harness, |harness| harness.count(".ds-hovercard") == 1);
 }
@@ -226,13 +231,13 @@ fn the_sender_cards_actions_can_be_reached_across_the_rows_under_it() {
     settle_until(&mut harness, |harness| {
         harness.count(".ds-hovercard .sender-checks") == 1
     });
-    let from = centre(&harness, &format!("{} .ds-row-name", row(1)));
+    let from = centre(&harness, &format!("{} .ds-thread-name", row(1)));
     let to = centre(&harness, BLOCK);
     for step in 1..=10 {
         let t = step as f32 / 10.0;
         harness.pointer_move(Point {
-            x: ds::Px(from.x.0 + (to.x.0 - from.x.0) * t),
-            y: ds::Px(from.y.0 + (to.y.0 - from.y.0) * t),
+            x: ds::prelude::Px(from.x.0 + (to.x.0 - from.x.0) * t),
+            y: ds::prelude::Px(from.y.0 + (to.y.0 - from.y.0) * t),
         });
         harness.advance(ms(40));
         assert_eq!(

@@ -123,8 +123,6 @@ pub(in crate::ui) enum Float {
         anchor: Pos,
         active: usize,
     },
-    /// Turn into, from the selection bubble.
-    Turn,
     /// The bubble's link field, with what has been typed.
     Link(String),
     /// The ⋮⋮ menu of the object at this node.
@@ -158,8 +156,9 @@ pub(in crate::ui) enum Float {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::ui) enum Guard {
     Clear,
-    /// No recipients: the To row shakes. The count restarts the animation on a second press.
-    Shake(u32),
+    /// No recipients: the To field is marked invalid. The count says which refusal this is, so a
+    /// second press is a new one.
+    NoRecipient(u32),
     /// An attachment is mentioned and none is attached.
     Warn,
 }
@@ -247,8 +246,6 @@ pub(in crate::ui) struct Page {
     pub phase: Phase,
     pub focus: Focus,
     pub quoted: Fold,
-    /// The address of a chip that just joined, which flashes once.
-    pub flash: Option<String>,
     /// The contact book's suggestions for what is being typed now — in To, in Cc, or after an
     /// `@` — best first. Asked again on each keystroke; the fields and `@` never type at once.
     pub people: Vec<Person>,
@@ -305,7 +302,6 @@ impl Page {
             phase: Phase::Writing,
             focus: Focus::Off,
             quoted: Fold::Folded,
-            flash: None,
             people,
             groups: Vec::new(),
             notice: None,

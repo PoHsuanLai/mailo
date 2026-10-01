@@ -2,6 +2,8 @@
 //! still be taken back. One context, provided by the app, so the keyboard, the sidebar and the
 //! outbox pill all reach the same drafts.
 
+use ds::components::lists::list::model::ListStyle;
+use ds::prelude::*;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
@@ -10,7 +12,6 @@ use mail_domain::DraftId;
 use mail_store::{SqliteStore, Store};
 
 use super::super::motion::{Follow, tell};
-use super::super::sidebar::{initial, today_face};
 use super::life;
 use super::page::{Page, Phase, When};
 use crate::appearance::WindowDirs;
@@ -223,40 +224,36 @@ pub(in crate::ui) fn reopen(desk: Desk, mut shell: Signal<Shell>, draft: DraftId
     }
 }
 
-/// The pencil entries in Today: drafts put aside in this Space.
+/// The pencil entries in Today: drafts put aside in this Space, as rows of a source list.
 #[component]
 pub(in crate::ui) fn ParkedDrafts(shell: Signal<Shell>, space_index: usize) -> Element {
     let Some(desk) = try_use_context::<Desk>() else {
         return rsx! {};
     };
-    let entries: Vec<(DraftId, String)> = desk
+    let items: Vec<ListItem<DraftId>> = desk
         .today
         .read()
         .parked(space_index)
         .into_iter()
-        .map(|parked| (parked.draft, parked.title.clone()))
+        .map(|parked| {
+            let draft = parked.draft;
+            let row = rsx! {
+                Row {
+                    leading: RowLeading::Icon(Icon::Pen),
+                    title: parked.title.clone(),
+                    detail: None,
+                    onclick: move |_| reopen(desk, shell, draft),
+                }
+            };
+            ListItem::row(draft, parked.title.clone(), row)
+        })
         .collect();
     rsx! {
-        for (draft, title) in entries {
-            // quire's Today item; the hint and the draft's slant are mailo's box around it.
-            div {
-                key: "{draft}",
-                class: "today-at draft",
-                title: "A draft you put aside",
-                ds::SidebarItem {
-                    kind: ds::ItemKind::Today {
-                        avatar: today_face(initial(&title), ds::AvatarTone::Ink),
-                    },
-                    label: title,
-                    here: ds::Here::Elsewhere,
-                    count: None,
-                    presence: ds::Presence::Present,
-                    preview: None,
-                    pulse: ds::PulseKey::rest(ds::Anim::Gulp),
-                    onclick: move |()| reopen(desk, shell, draft),
-                    onclose: None,
-                }
-            }
+        List::<DraftId> {
+            label: "Drafts put aside".to_owned(),
+            items,
+            style: ListStyle::SourceList,
+            onpick: move |draft: DraftId| reopen(desk, shell, draft),
         }
     }
 }

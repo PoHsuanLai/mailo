@@ -10,10 +10,14 @@ use std::sync::Arc;
 use dioxus::prelude::*;
 use mail_store::{Edit, Group, GroupHome, GroupId, SqliteStore};
 
-use super::super::field::{Field, FieldKind};
 use super::super::press::on_primary;
 use super::groups;
-use ds::{Glyph, Icon};
+use ds::components::controls::button_model::{Answers, ButtonRole};
+use ds::prelude::*;
+use ds::root::common::Common;
+use ds::root::pass_through::ExtraClass;
+use ds::style::icon::render::Glyph;
+use ds::style::tokens::control_size::ControlSize;
 
 /// The group open for editing, and what is typed in its two fields.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -56,11 +60,14 @@ pub(super) fn GroupRows(
         li { class: "book-groups",
             div { class: "book-sub",
                 h4 { "Groups" }
-                ds::Button {
-                    variant: ds::ButtonVariant::Mini,
+                Button {
+                    size: ControlSize::Small,
                     label: "New group".to_owned(),
-                    aria_label: "New group".to_owned(),
                     icon: Icon::Plus,
+                    common: Common {
+                        aria_label: Some("New group".to_owned()),
+                        ..Common::default()
+                    },
                     onclick: on_primary(move || making.set(Some(String::new()))),
                 }
             }
@@ -78,19 +85,24 @@ pub(super) fn GroupRows(
                         }
                         _ => {}
                     },
-                    Field {
-                        kind: FieldKind::Boxed,
+                    TextField {
+                        label: "The group's name".to_owned(),
                         value: typed,
                         placeholder: "The group's name".to_owned(),
-                        extra: Some("book-name".to_owned()),
-                        on_input: move |value: String| making.set(Some(value)),
-                        on_focus: |_| {},
-                        on_blur: |_| {},
+                        common: Common {
+                            extra_class: ExtraClass::parse("book-name").ok(),
+                            ..Common::default()
+                        },
+                        oninput: move |value: String| making.set(Some(value)),
                     }
-                    ds::Button {
-                        variant: ds::ButtonVariant::Primary,
+                    Button {
+                        size: ControlSize::Small,
+                        answers: Answers::Return,
                         label: "Make".to_owned(),
-                        aria_label: "Make the group".to_owned(),
+                        common: Common {
+                            aria_label: Some("Make the group".to_owned()),
+                            ..Common::default()
+                        },
                         onclick: on_primary(make),
                     }
                 }
@@ -143,16 +155,19 @@ fn GroupRow(
     };
     rsx! {
         li { class: "book-row group-row",
-            span { class: "av group-av", Glyph { icon: Icon::Group } }
+            span { class: "group-av", Glyph { icon: Icon::Group } }
             div { class: "who",
                 b { "{group.name}" }
                 span { class: "origin", "{count} · {standing(&group)}" }
             }
             div { class: "acts",
-                ds::Button {
-                    variant: ds::ButtonVariant::Secondary,
+                Button {
+                    size: ControlSize::Small,
                     label: if editing.is_some() { "Done".to_owned() } else { "Edit".to_owned() },
-                    aria_label: format!("Edit the group {name}"),
+                    common: Common {
+                        aria_label: Some(format!("Edit the group {name}")),
+                        ..Common::default()
+                    },
                     onclick: {
                         let id = id.clone();
                         let name = name.clone();
@@ -167,10 +182,14 @@ fn GroupRow(
                     },
                 }
                 if local {
-                    ds::Button {
-                        variant: ds::ButtonVariant::Danger,
+                    Button {
+                        size: ControlSize::Small,
+                        role: ButtonRole::Destructive,
                         label: "Delete".to_owned(),
-                        aria_label: format!("Delete the group {name}"),
+                        common: Common {
+                            aria_label: Some(format!("Delete the group {name}")),
+                            ..Common::default()
+                        },
                         onclick: {
                             let id = id.clone();
                             on_primary(move || {
@@ -250,23 +269,27 @@ fn GroupEditor(
                         rename_on_enter();
                     }
                 },
-                Field {
-                    kind: FieldKind::Boxed,
+                TextField {
+                    label: "The group's name".to_owned(),
                     value: editing.name.clone(),
                     placeholder: "The group's name".to_owned(),
-                    extra: Some("book-name group-name".to_owned()),
-                    on_input: move |value: String| {
+                    common: Common {
+                        extra_class: ExtraClass::parse("book-name").ok(),
+                        ..Common::default()
+                    },
+                    oninput: move |value: String| {
                         if let Some(o) = open.write().as_mut() {
                             o.name = value;
                         }
                     },
-                    on_focus: |_| {},
-                    on_blur: |_| {},
                 }
-                ds::Button {
-                    variant: ds::ButtonVariant::Secondary,
+                Button {
+                    size: ControlSize::Small,
                     label: "Rename".to_owned(),
-                    aria_label: "Rename the group".to_owned(),
+                    common: Common {
+                        aria_label: Some("Rename the group".to_owned()),
+                        ..Common::default()
+                    },
                     onclick: on_primary(rename),
                 }
             }
@@ -274,10 +297,13 @@ fn GroupEditor(
                 for (uri, label) in labels {
                     li { key: "{uri}", class: "group-member",
                         span { class: "addr", "{label}" }
-                        ds::Button {
-                            variant: ds::ButtonVariant::Mini,
+                        Button {
+                            size: ControlSize::Small,
                             label: "Remove".to_owned(),
-                            aria_label: format!("Remove {label}"),
+                            common: Common {
+                                aria_label: Some(format!("Remove {label}")),
+                                ..Common::default()
+                            },
                             onclick: {
                                 let id = id.clone();
                                 on_primary(move || {
@@ -300,23 +326,28 @@ fn GroupEditor(
                         add_on_enter();
                     }
                 },
-                Field {
-                    kind: FieldKind::Boxed,
+                TextField {
+                    label: "Add an address".to_owned(),
                     value: editing.adding.clone(),
                     placeholder: "Add an address".to_owned(),
-                    extra: Some("book-name group-add".to_owned()),
-                    on_input: move |value: String| {
+                    common: Common {
+                        extra_class: ExtraClass::parse("book-name").ok(),
+                        ..Common::default()
+                    },
+                    oninput: move |value: String| {
                         if let Some(o) = open.write().as_mut() {
                             o.adding = value;
                         }
                     },
-                    on_focus: |_| {},
-                    on_blur: |_| {},
                 }
-                ds::Button {
-                    variant: ds::ButtonVariant::Primary,
+                Button {
+                    size: ControlSize::Small,
+                    answers: Answers::Return,
                     label: "Add".to_owned(),
-                    aria_label: "Add to the group".to_owned(),
+                    common: Common {
+                        aria_label: Some("Add to the group".to_owned()),
+                        ..Common::default()
+                    },
                     onclick: on_primary(add),
                 }
             }

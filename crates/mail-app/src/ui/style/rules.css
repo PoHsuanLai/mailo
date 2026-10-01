@@ -1,105 +1,38 @@
-/* The Rules sheet: the Import sheet's scrim, rise and paper, taller; each part a titled band
-   (rules, vacation, the server), the rules as rows in the book's shape with a switch in front
-   and the condition in the data face, the editor in the flow under them. */
+/* The Rules sheet: each part is a titled band (the rules, the vacation reply, the server), the
+   rules are quire's `Row`s in an inset `List`, and the editor is a form in the flow under them.
+   The keyboard sheet, the saved-view sheet and delete-forever still hang their own panel in
+   `.rules-wrap`; that chrome is only for a panel inside the wrap, so the Rules sheet's own
+   `.rules` stays the form grid from files.css. */
+.rules-main { display: grid; gap: var(--s-14); max-height: 68vh; overflow-y: auto; scrollbar-width: none; }
+.rules-part, .rules-edit { display: grid; gap: var(--s-8); min-width: 0; }
+.rules-acts { display: flex; align-items: center; justify-content: flex-end; gap: var(--s-8); flex-wrap: wrap; }
+.rules-part > .rules-acts:first-of-type { justify-content: flex-start; }
+.rules-actions { display: flex; flex-wrap: wrap; gap: var(--s-6); align-items: center; }
+.rules-action { display: inline-flex; align-items: center; gap: var(--s-4); }
+.rules-said { flex: 1; min-width: 0; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+
 .rules-wrap {
   position: absolute; inset: 0; z-index: var(--z-menu); display: grid; place-items: start center; padding-top: 5%;
   background: var(--scrim);
 }
-.rules {
+.rules-wrap > .rules {
   position: relative; width: min(640px, 92%); max-height: 88%; display: flex; flex-direction: column;
+  min-width: 0; min-height: 0;
   background: var(--raise); color: var(--ink); border: var(--hair) solid var(--line);
   border-radius: var(--r-panel); box-shadow: var(--shadow-2); overflow: hidden;
-  animation: cmdk-rise var(--t-big) var(--e-spring);
 }
-.rules-head { display: flex; align-items: center; gap: var(--s-10); padding: var(--s-14) var(--s-14) var(--s-6); }
-.rules-head h3 { margin: 0; font-family: var(--font-display); font-size: var(--fs-heading-3); font-weight: 800; }
-.rules-head .mini { margin-left: auto; }
-.rules-head .k { font-family: var(--font-data); font-size: var(--fs-caption); font-weight: 400; color: var(--ink-faint); }
-.rules-accounts { padding: 0 var(--s-14) var(--s-8); }
-.rules-accounts > [*|role="group"] { flex-wrap: wrap; }
-.rules-main {
-  flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; border-top: var(--hair) solid var(--line-soft);
-}
-.rules-part { display: grid; gap: var(--s-7); padding: var(--s-12) var(--s-14) var(--s-14); border-bottom: var(--hair) solid var(--line-soft); }
-.rules-part:last-child { border-bottom: 0; background: var(--surface); }
-.rules-part h4 {
-  margin: 0; font-family: var(--font-data); font-size: var(--fs-caption); font-weight: 400; letter-spacing: .08em;
-  text-transform: uppercase; color: var(--ink-faint);
-}
-.rules-none { margin: 0; padding: var(--s-14) var(--s-10); text-align: center; font-size: var(--fs-meta); color: var(--ink-faint); }
+.rules-head { display: flex; align-items: center; gap: var(--s-10); }
+.rules-head h3 { margin: 0; }
+.rules-list, .kb-list { margin: 0; padding: 0; display: grid; gap: var(--s-2); }
+.rules-row, .kb-row { display: grid; grid-template-columns: 1fr auto auto; gap: var(--s-8); align-items: center; }
+.rules-text { min-width: 0; }
 .rules-faint { color: var(--ink-faint); }
-.rules-part > [*|role="group"], .rules-edit > [*|role="group"] { justify-self: start; }
-
-/* One rule: the switch, what it is, and its actions, which brighten on hover like the book's. */
-.rules-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s-2); }
-.rules-row {
-  display: grid; grid-template-columns: 30px 1fr auto; gap: var(--s-10); align-items: center;
-  padding: var(--s-7) var(--s-8); border-radius: var(--r-menu-item);
-}
-.rules-row:hover { background: var(--surface-2); }
-.rules-row.off .rules-text { opacity: .55; }
-.rules-text { display: grid; gap: var(--s-1); min-width: 0; }
-.rules-text b { font-size: var(--fs-control); font-weight: 600; white-space: nowrap; overflow: hidden; }
-.rules-when {
-  font-family: var(--font-data); font-size: var(--fs-eyebrow); color: var(--ink-soft);
-  white-space: nowrap; overflow: hidden;
-}
-.rules-does { font-size: var(--fs-help); color: var(--ink-faint); }
-.rules-row-acts { display: flex; gap: var(--s-4); opacity: .55; transition: opacity var(--t-quick) var(--e-out); }
-.rules-row:hover .rules-row-acts { opacity: 1; }
-.rules-row-acts .ghost:disabled { opacity: .35; cursor: default; }
-/* quire's Toggle, in a box that carries its hint. */
-.rules-switch { display: inline-flex; align-items: center; }
-
-/* The editor: labelled fields, the live answer under the condition, the actions as chips. */
-.rules-edit {
-  display: grid; gap: var(--s-6); margin-top: var(--s-4); padding: var(--s-10) var(--s-12) var(--s-12);
-  border: var(--hair) solid var(--line); border-radius: var(--r-card); background: var(--surface);
-}
-.rules-edit h4 { margin-bottom: var(--s-2); }
-.rules-edit .files-k, .rules-form .files-k { margin-top: var(--s-4); }
-.rules-in { display: flex; width: 100%; }
-.rules-look { margin: 0; font-size: var(--fs-small); line-height: 1.4; color: var(--ink-faint); }
-.rules-look.found { color: var(--ink-soft); }
-.rules-look.refused { color: var(--danger); font-weight: 600; }
-.rules-actions { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--s-6); align-items: center; }
-.rules-action {
-  display: inline-flex; align-items: center; gap: var(--s-6); padding: var(--s-3) var(--s-4) var(--s-3) var(--s-9);
-  border: var(--hair) solid var(--line); border-radius: var(--r-pill); background: var(--raise);
-  font-size: var(--fs-meta); color: var(--ink);
-}
-.rules-action .ds-ic { color: var(--ink-soft); }
-.rules-action .rm {
-  display: grid; place-items: center; width: 18px; height: 18px; padding: 0; border: 0;
-  border-radius: var(--r-pill); background: none; color: var(--ink-faint); cursor: pointer;
-}
-.rules-action .rm:hover { background: var(--surface-2); color: var(--ink); }
-.rules-add { position: relative; }
-.rules-acts { display: flex; align-items: center; justify-content: flex-end; gap: var(--s-8); flex-wrap: wrap; margin-top: var(--s-4); }
-.rules-acts .capnote { flex: 1; min-width: 0; }
-/* Delete forever / Empty Trash: a short question over the window, answered by its one button. */
+.rules-row-acts, .kb-acts { display: flex; gap: var(--s-4); align-items: center; }
+.kb-keys, .kb-key { display: inline-flex; align-items: center; gap: var(--s-6); }
+.kb-wait { color: var(--ink-soft); }
 .destroy-sheet { width: min(440px, 92%); }
-.destroy-body { margin: 0; line-height: 1.5; color: var(--ink); }
-.destroy-sheet .rules-part > .rules-acts { justify-content: flex-end; }
-.rules-part > .rules-acts:first-of-type { justify-content: flex-start; }
-
-/* The keyboard shortcuts sheet: the rules' rows, each an action, its key caps and Change. */
-.kb-row { grid-template-columns: 1fr auto auto; }
-.kb-keys { display: inline-flex; align-items: center; gap: var(--s-6); }
-.kb-key { display: inline-flex; align-items: center; gap: var(--s-2); font-family: var(--font-data); font-size: var(--fs-eyebrow); }
-.kb-wait { font-size: var(--fs-meta); color: var(--ink-soft); font-weight: 600; }
-.kb-acts { opacity: 1; }
-
-/* The vacation reply and the server's part. */
-.rules-form { display: grid; gap: var(--s-6); }
-.field.rules-body { width: 100%; font-size: var(--fs-control); }
-.rules-dates { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-10); }
-.rules-dates > div { display: grid; gap: var(--s-4); min-width: 0; }
-.rules-said {
-  flex: 1; min-width: 0; margin: 0; padding: var(--s-7) var(--s-9); border: var(--hair) solid var(--line-soft);
-  border-radius: var(--r-btn); background: var(--raise); font-family: var(--font-data); font-size: var(--fs-eyebrow);
-  line-height: 1.5; color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere;
-}
-
-/* "Move to…": in the row it hangs from the strip like the label menu; in the reader's head it
-   hangs from its tool. */
+.destroy-body { margin: 0; }
+.capnote { margin: 0; color: var(--ink-faint); }
+.files-k { color: var(--ink-soft); }
+.rules-in { min-width: 0; }
+.files-bad { color: var(--danger); }

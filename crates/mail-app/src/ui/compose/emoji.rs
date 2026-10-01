@@ -9,10 +9,17 @@
 //! ([`super::float::insert_emoji`]) and the body takes the keyboard back.
 
 use dioxus::prelude::*;
-use ds::{
-    Align, EmojiCell, EmojiGrid, GridMove, GridStep, Icon, IconButton, IconButtonVariant,
-    Placement, Popover, Px, SearchField, Side, Switch, Tabs, grid_step,
+use ds::base::geometry::placement::{Align, Side};
+use ds::components::controls::button_model::{Bezel, ImagePosition};
+use ds::components::controls::segmented::Tracking;
+use ds::components::lists::emoji_grid::grid::EmojiCell;
+use ds::components::lists::emoji_grid::nav::{GridMove, GridStep, grid_step};
+use ds::host::measure::MountedRef;
+use ds::prelude::{
+    Button, Choice, EmojiGrid, FieldFocus, FieldKind, Icon, Placement, Popover, Px,
+    SegmentedControl, Shown as Layer, TextField,
 };
+use ds::root::common::Common;
 
 use super::super::menu::anchor_at;
 use super::desk::Desk;
@@ -83,20 +90,26 @@ pub(super) fn pick_typed(mut page: Signal<Page>, glyph: &str) {
 #[component]
 pub(super) fn EmojiButton(page: Signal<Page>) -> Element {
     let mut shown = use_signal(|| Shown::Closed);
-    let mut at = use_signal(|| None::<ds::MountedRef>);
+    let mut at = use_signal(|| None::<MountedRef>);
     let open = shown() == Shown::Open;
     let close = move |()| {
         shown.set(Shown::Closed);
         Host::focus_next_frame(".c-body");
     };
     rsx! {
-        IconButton {
-            variant: IconButtonVariant::Tool,
+        Button {
+            bezel: Bezel::Toolbar,
+            image: ImagePosition::Only,
             icon: Icon::Smile,
             label: "Emoji".to_owned(),
-            tooltip: "Emoji (or type : and a name)".to_owned(),
-            expanded: Some(if open { Switch::On } else { Switch::Off }),
-            mounted: move |event: MountedEvent| at.set(Some(ds::MountedRef(event.data()))),
+            title: Some("Emoji (or type : and a name)".to_owned()),
+            shown: Some(if open { Layer::Visible } else { Layer::Hidden }),
+            common: Common {
+                mounted: Some(EventHandler::new(move |event: MountedEvent| {
+                    at.set(Some(MountedRef(event.data())));
+                })),
+                ..Common::default()
+            },
             onclick: move |_| shown.set(if open { Shown::Closed } else { Shown::Open }),
         }
         if open {
@@ -186,23 +199,27 @@ fn Picker(page: Signal<Page>, on_done: EventHandler<()>) -> Element {
     };
     rsx! {
         div { class: "em-picker",
-            SearchField {
+            TextField {
                 label: "Search emoji".to_owned(),
                 value: typed.clone(),
                 placeholder: "Search emoji".to_owned(),
+                kind: FieldKind::Search,
                 tokens: Vec::new(),
                 oninput: move |value: String| {
                     query.set(value);
                     selected.set(Some(0));
                 },
                 onkey: keys,
-                focus: ds::Focus::OnMount,
+                focus: FieldFocus::OnMount,
             }
             div { class: "em-tabs",
-                Tabs {
+                SegmentedControl {
                     label: "Emoji groups".to_owned(),
-                    tabs: Tab::all(),
-                    value: tab(),
+                    choices: Tab::all()
+                        .into_iter()
+                        .map(|(tab, face)| Choice::new(tab, face))
+                        .collect::<Vec<_>>(),
+                    tracking: Tracking::SelectOne(tab()),
                     onchange: move |to: Tab| {
                         tab.set(to);
                         query.set(String::new());

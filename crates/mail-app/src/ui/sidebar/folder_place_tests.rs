@@ -12,6 +12,7 @@ use crate::view::{Shell, folder_of, places_with};
 use chrono::Utc;
 use dioxus::prelude::*;
 use dioxus_core::{NoOpMutations, VirtualDom};
+use ds::prelude::*;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
@@ -184,27 +185,28 @@ async fn settle(dom: &mut VirtualDom) {
     }
 }
 
-/// The folder row whose path is `path`: from quire's tree item row that names it to its ⋯.
-fn row<'a>(page: &'a str, path: &str, name: &str) -> &'a str {
+/// The folder row whose path is `path`: from the row that names it to the next row.
+fn row<'a>(page: &'a str, path: &str, _name: &str) -> &'a str {
     let start = page
         .find(&format!("data-place=\"{path}\""))
         .unwrap_or_else(|| panic!("no row for {path}: {page}"));
-    let end = page[start..].find(&format!("Actions for {name}")).unwrap() + start;
+    let tail = &page[start + 1..];
+    let end = tail
+        .find("data-place=\"")
+        .map_or(page.len(), |at| start + 1 + at);
     &page[start..end]
 }
 
-/// The count a row's badge shows: quire's item count, `data-place="item"`.
+/// The count a row's badge shows: quire's badge label.
 fn count(row: &str) -> Option<&str> {
-    let at = row.find("data-place=\"item\"")?;
-    let text = &row[at..];
-    let open = text.find('>')? + 1;
-    let close = text[open..].find('<')? + open;
-    Some(&text[open..close])
+    const LABEL: &str = "class=\"ds-badge-label\">";
+    let text = &row[row.find(LABEL)? + LABEL.len()..];
+    Some(&text[..text.find('<')?])
 }
 
 /// The list pane: from the list bar to the end.
 fn list(page: &str) -> &str {
-    &page[page.find("class=\"list-bar\"").unwrap()..]
+    &page[page.find("class=\"list-head\"").unwrap()..]
 }
 
 #[tokio::test]
@@ -234,7 +236,7 @@ async fn choosing_a_folder_lists_what_the_server_holds_there_and_its_badge_count
     let page = dioxus_ssr::render(&dom);
     let listed = list(&page);
     assert!(
-        listed.contains("<h2>2026"),
+        listed.contains("data-style=\"title\">2026<"),
         "the title is not the leaf: {listed}"
     );
     for subject in ["Q3 plan draft", "Budget for the Q3 plan"] {
@@ -248,9 +250,9 @@ async fn choosing_a_folder_lists_what_the_server_holds_there_and_its_badge_count
     }
     // The row's own element carries it, beside the place it names.
     let name = page.find("data-place=\"Projects/2026\"").unwrap();
-    let current = page[..name].rfind("aria-current=").unwrap();
+    let current = page[..name].rfind("aria-selected=").unwrap();
     assert!(
-        page[current..].starts_with("aria-current=\"true\""),
+        page[current..].starts_with("aria-selected=\"true\""),
         "the row is not marked as chosen: {}",
         &page[current..name]
     );
@@ -301,7 +303,7 @@ async fn opening_fetches_once_per_choice_and_not_again_within_the_minute() {
     // An unfollowed folder, drawn by "Show all", opens and fetches too.
     let shown = click(
         &mut dom,
-        seen.one("title", "Show the folders you do not follow"),
+        seen.one("data-hint", "Show the folders you do not follow"),
     );
     click(&mut dom, shown.folder(OLD));
     settle(&mut dom).await;
@@ -324,7 +326,9 @@ async fn a_fetch_that_fails_says_why_in_the_status_line() {
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     let page = dioxus_ssr::render(&dom);
     let bar = list(&page);
-    let status = &bar[bar.find("class=\"status bad\"").expect("no failure line")..];
+    let status = &bar[bar
+        .find("class=\"ds-label status bad\"")
+        .expect("no failure line")..];
     assert!(
         status.contains("收據 was not fetched: the server has no such folder any more"),
         "{status}"
@@ -437,7 +441,7 @@ async fn render_a_folder_place_to_a_file() {
     click(&mut dom, seen.folder(PROJECTS));
     settle(&mut dom).await;
     let body = dioxus_ssr::render(&dom);
-    for (suffix, scheme) in [("", ds::Scheme::Light), ("-dark", ds::Scheme::Dark)] {
+    for (suffix, scheme) in [("", Scheme::Light), ("-dark", Scheme::Dark)] {
         let framed = crate::ui::fixtures::framed(&body, scheme, &space.look);
         crate::ui::fixtures::write_page(
             &format!("folder-place{suffix}"),

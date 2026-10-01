@@ -10,6 +10,8 @@ use crate::ui::app::App;
 use crate::ui::fixtures::{FakePointer, dispatching, pointer, rebuild_into, thread_like, work};
 use dioxus::prelude::*;
 use dioxus_core::{NoOpMutations, VirtualDom};
+use ds::prelude::*;
+use ds::style::tokens::delay::DelayToken;
 
 async fn wait(dom: &mut VirtualDom, span: std::time::Duration) {
     let until = tokio::time::Instant::now() + span;
@@ -35,8 +37,8 @@ const RESTING: FakePointer = FakePointer {
 /// quire's `ListRow` parts inside the row's box.
 fn placing(hook: &str, kind: &str) -> String {
     let query = match hook.split_once(':') {
-        Some(("sender", id)) => format!("[data-hc=\"thread:{id}\"] .ds-row-name"),
-        Some(("time", id)) => format!("[data-hc=\"thread:{id}\"] .ds-row-time"),
+        Some(("sender", id)) => format!("[data-hc=\"thread:{id}\"] .ds-thread-name"),
+        Some(("time", id)) => format!("[data-hc=\"thread:{id}\"] .ds-thread-time"),
         _ => format!("[data-hc=\"{hook}\"]"),
     };
     format!(
@@ -51,7 +53,7 @@ fn placing(hook: &str, kind: &str) -> String {
 
 fn write(name: &str, body: &str, extra_script: &str) {
     let look = crate::space::Space::default().look;
-    for (suffix, scheme) in [("", ds::Scheme::Light), ("-dark", ds::Scheme::Dark)] {
+    for (suffix, scheme) in [("", Scheme::Light), ("-dark", Scheme::Dark)] {
         let framed = crate::ui::fixtures::framed(body, scheme, &look);
         let head = format!("<script>{extra_script}</script>");
         crate::ui::fixtures::write_page(
@@ -117,7 +119,7 @@ async fn render_the_hover_cards_to_a_file() {
         }
         wait(
             &mut dom,
-            ds::delays::HOVER_OPEN + std::time::Duration::from_millis(250),
+            DelayToken::CardOpen.delay() + std::time::Duration::from_millis(250),
         )
         .await;
         let body = dioxus_ssr::render(&dom);

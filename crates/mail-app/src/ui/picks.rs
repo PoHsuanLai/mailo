@@ -10,7 +10,10 @@ use super::motion::{act_all, act_kind_all, motion};
 use super::press::on_primary;
 use crate::view::{Shell, Shortcut, mute_for_all, mute_label, op_for_selection};
 use dioxus::prelude::*;
-use ds::Icon;
+use ds::components::controls::button_model::{Bezel, ImagePosition};
+use ds::prelude::*;
+use ds::root::common::Common;
+use ds::style::tokens::control_size::ControlSize;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
@@ -167,37 +170,52 @@ pub(super) fn PickBar(
         // The actions wrap within the list column when it is too narrow for one line.
         div { class: "pick-tools",
             for (action, icon, name) in buttons {
-                ds::Button {
+                Button {
                     key: "{name}",
-                    variant: ds::ButtonVariant::Mini,
-                    label: String::new(),
+                    bezel: Bezel::Toolbar,
+                    image: ImagePosition::Only,
+                    size: ControlSize::Small,
+                    label: name.to_owned(),
                     icon,
-                    aria_label: format!("{name} the {count} selected"),
-                    title: name.to_owned(),
+                    title: Some(name.to_owned()),
+                    common: Common {
+                        aria_label: Some(format!("{name} the {count} selected")),
+                        ..Common::default()
+                    },
                     onclick: on_primary(move || {
                         let store = consume_context::<Arc<SqliteStore>>();
                         act_on_picked(&store, shell, revision, action, &threads.peek());
                     }),
                 }
             }
-            ds::Button {
-                variant: ds::ButtonVariant::Mini,
-                label: String::new(),
+            Button {
+                bezel: Bezel::Toolbar,
+                image: ImagePosition::Only,
+                size: ControlSize::Small,
+                label: mute.to_owned(),
                 icon: Icon::BellOff,
-                aria_label: format!("{mute} the {count} selected"),
-                title: format!("{mute} (m)"),
+                title: Some(format!("{mute} (m)")),
+                common: Common {
+                    aria_label: Some(format!("{mute} the {count} selected")),
+                    ..Common::default()
+                },
                 onclick: on_primary(move || {
                     let store = consume_context::<Arc<SqliteStore>>();
                     mute_picked(&store, shell, revision, &threads.peek());
                 }),
             }
             if destroyable {
-                ds::Button {
-                    variant: ds::ButtonVariant::Mini,
-                    label: String::new(),
+                Button {
+                    bezel: Bezel::Toolbar,
+                    image: ImagePosition::Only,
+                    size: ControlSize::Small,
+                    label: "Delete forever".to_owned(),
                     icon: Icon::Trash,
-                    aria_label: format!("Delete the {count} selected forever"),
-                    title: "Delete forever…".to_owned(),
+                    title: Some("Delete forever…".to_owned()),
+                    common: Common {
+                        aria_label: Some(format!("Delete the {count} selected forever")),
+                        ..Common::default()
+                    },
                     onclick: on_primary(move || {
                         let store = consume_context::<Arc<SqliteStore>>();
                         let ids: Vec<ThreadId> = threads.peek().iter().map(|summary| summary.id).collect();
@@ -206,12 +224,17 @@ pub(super) fn PickBar(
                     }),
                 }
             }
-            ds::Button {
-                variant: ds::ButtonVariant::Mini,
-                label: String::new(),
+            Button {
+                bezel: Bezel::Toolbar,
+                image: ImagePosition::Only,
+                size: ControlSize::Small,
+                label: "Clear the selection".to_owned(),
                 icon: Icon::X,
-                aria_label: "Clear the selection".to_owned(),
-                title: "Clear the selection (Esc)".to_owned(),
+                title: Some("Clear the selection (Esc)".to_owned()),
+                common: Common {
+                    aria_label: Some("Clear the selection".to_owned()),
+                    ..Common::default()
+                },
                 onclick: on_primary(move || {
                     let ids: Vec<ThreadId> = threads.peek().iter().map(|summary| summary.id).collect();
                     shell.write().unpick(&ids);

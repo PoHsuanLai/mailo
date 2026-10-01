@@ -79,9 +79,16 @@ impl Window {
 
 /// Each row's subject cell, markup and all, in list order.
 fn subjects(page: &str) -> Vec<String> {
-    page.split(r#"<div class="ds-row-sub ds-truncate">"#)
+    // A row that has left is still drawn until its exit settles: not one the list is showing.
+    page.split(r#"class="ds-list-item""#)
         .skip(1)
-        .filter_map(|rest| rest.split_once("</div>"))
+        .filter(|item| {
+            !item
+                .trim_start()
+                .starts_with(r#"role="none" data-presence="leaving""#)
+        })
+        .filter_map(|item| item.split_once(r#"<div class="ds-thread-sub ds-truncate">"#))
+        .filter_map(|(_, rest)| rest.split_once("</div>"))
         .map(|(subject, _)| subject.to_owned())
         .collect()
 }
@@ -89,11 +96,11 @@ fn subjects(page: &str) -> Vec<String> {
 /// The list bar's notes: sync state and search scope alike.
 fn notes(page: &str) -> Vec<String> {
     let bar = page
-        .split_once(r#"class="list-bar""#)
+        .split_once(r#"class="list-head""#)
         .and_then(|(_, rest)| rest.split_once(r#"class="bar-tools""#))
         .map(|(bar, _)| bar)
         .unwrap_or_default();
-    bar.split("class=\"status")
+    bar.split("class=\"ds-label status")
         .skip(1)
         .filter_map(|rest| rest.split_once('>'))
         .filter_map(|(_, rest)| rest.split_once('<'))
@@ -102,8 +109,8 @@ fn notes(page: &str) -> Vec<String> {
 }
 
 /// The strip's heading, as markup: the words alone are also in the stylesheet's comments.
-const TOP_RESULTS: &str = r#"<li class="list-top-h">Top results</li>"#;
-const NEWEST_FIRST: &str = r#"<li class="list-top-h">Newest first</li>"#;
+const TOP_RESULTS: &str = r#"class="ds-section-header-title">Top results<"#;
+const NEWEST_FIRST: &str = r#"class="ds-section-header-title">Newest first<"#;
 
 const UIDVAL: &str =
     r#"Re: UIDL stability across a <mark class="ds-mark">UIDVAL</mark>IDITY change"#;
@@ -224,14 +231,16 @@ async fn a_bare_pattern_runs_over_this_page_and_says_so() {
 async fn a_broken_pattern_is_the_regex_message_in_the_bar_and_no_rows() {
     let mut window = window();
     let page = window
-        .typed("re:/(/", |page| page.contains(r#"class="status bad""#))
+        .typed("re:/(/", |page| {
+            page.contains(r#"class="ds-label status bad""#)
+        })
         .await;
     let own = regex::Regex::new(&String::from("("))
         .expect_err("an unclosed group")
         .to_string();
     assert!(subjects(&page).is_empty(), "{:?}", subjects(&page));
     assert!(
-        page.contains(r#"class="status bad""#) && notes(&page).contains(&own),
+        page.contains(r#"class="ds-label status bad""#) && notes(&page).contains(&own),
         "the bar did not carry {own:?}: {:?}",
         notes(&page)
     );
