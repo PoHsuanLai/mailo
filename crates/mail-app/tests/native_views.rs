@@ -236,8 +236,9 @@ fn make_the_view(harness: &mut Harness) {
         1,
         "the grouping menu did not open"
     );
-    harness.key(Key::Down);
-    harness.key(Key::Enter);
+    // Chosen with a press on its row: the menu takes the focus a frame after it opens, and a key
+    // sent before it has it goes to the field instead, which the hosted macOS runner shows.
+    press(harness, ".ds-menu .ds-menu-item:nth-child(3)");
     harness.advance(ms(300));
     assert_eq!(
         harness.count(&labelled("Group by: Unread, then read")),
