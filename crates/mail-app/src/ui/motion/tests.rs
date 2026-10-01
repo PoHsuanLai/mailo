@@ -78,6 +78,40 @@ async fn run_for(dom: &mut VirtualDom, span: std::time::Duration) {
     settle(dom).await;
 }
 
+/// Draw until `done`, or until `bound` has passed. A loaded runner fires the roster's wall-clock
+/// sleep after the nominal settle, so a test that stops at that instant still sees the previous
+/// state. Healing is brief: this returns on the render where `done` first holds, and yields
+/// between renders so a document that always has work cannot spin the timer out of the slice.
+async fn until(
+    dom: &mut VirtualDom,
+    bound: std::time::Duration,
+    done: impl Fn(&str) -> bool,
+) -> bool {
+    let deadline = tokio::time::Instant::now() + bound;
+    let frame = std::time::Duration::from_millis(16);
+    loop {
+        if done(&dioxus_ssr::render(dom)) {
+            return true;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return false;
+        }
+        let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+        let slice = left.min(std::time::Duration::from_millis(50));
+        let started = tokio::time::Instant::now();
+        if tokio::time::timeout(slice, dom.wait_for_work())
+            .await
+            .is_ok()
+        {
+            dom.render_immediate(&mut NoOpMutations);
+        }
+        let spent = started.elapsed();
+        if spent < frame {
+            tokio::time::sleep(frame - spent).await;
+        }
+    }
+}
+
 /// How long a row's exit takes to settle at the window's motion level.
 fn exit_settles() -> std::time::Duration {
     anim_settle(Anim::RowOut, MotionLevel::Standard)
@@ -144,13 +178,18 @@ async fn archiving_moves_the_store_at_once_and_the_row_leaves_once_its_exit_sett
         "the leaving row is not leaving[data-exit=row]:\n{going}"
     );
 
-    // Nothing the webview says ends it: the roster times the exit on quire's clock.
-    run_for(&mut dom, exit_settles()).await;
-    let page = dioxus_ssr::render(&dom);
+    // Nothing the webview says ends it: the roster times the exit on quire's clock. Stop on the
+    // render where the row goes, which is the render that starts the heal under it. Waiting the
+    // heal out as well would find that row already present.
+    let slack = std::time::Duration::from_millis(1000);
     assert!(
-        row_markup(&page, DANA).is_none(),
+        until(&mut dom, exit_settles() + slack, |page| {
+            row_markup(page, DANA).is_none()
+        })
+        .await,
         "the row was still drawn after its exit ended"
     );
+    let page = dioxus_ssr::render(&dom);
     let next = row_markup(&page, RELEASE).expect("the next row is there");
     assert!(
         next.contains("data-presence=\"healing\""),
@@ -326,12 +365,14 @@ async fn a_today_entry_opens_and_closes_on_quires_clock() {
         "the entry did not open:\n{entry}"
     );
     let span = |anim| anim_settle(anim, MotionLevel::Standard);
-    run_for(&mut dom, span(Anim::RowIn)).await;
-    let page = dioxus_ssr::render(&dom);
-    let entry = today_entry(&page, opened).expect("the entry is drawn");
+    let slack = std::time::Duration::from_millis(1000);
     assert!(
-        entry.contains("data-presence=\"present\""),
-        "the entry was still opening once its entrance had settled:\n{entry}"
+        until(&mut dom, span(Anim::RowIn) + slack, |page| {
+            today_entry(page, opened)
+                .is_some_and(|entry| entry.contains("data-presence=\"present\""))
+        })
+        .await,
+        "the entry was still opening once its entrance had settled"
     );
 
     let close = seen
@@ -345,10 +386,11 @@ async fn a_today_entry_opens_and_closes_on_quires_clock() {
         entry.contains("data-presence=\"leaving\""),
         "the entry did not close:\n{entry}"
     );
-    run_for(&mut dom, span(Anim::RowOut)).await;
-    let page = dioxus_ssr::render(&dom);
     assert!(
-        today_entry(&page, opened).is_none(),
+        until(&mut dom, span(Anim::RowOut) + slack, |page| {
+            today_entry(page, opened).is_none()
+        })
+        .await,
         "the entry was still drawn once its exit had settled"
     );
 }

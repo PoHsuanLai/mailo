@@ -317,8 +317,10 @@ async fn session(
                 // waiting for a completion that never comes, which is what this fixture did on
                 // its first run.
                 idle_tag = Some(tag.clone());
-                let _ = sock.write_all(b"+ idling\r\n").await;
-                let _ = sock.write_all(b"* 3 EXISTS\r\n").await;
+                // One write. Two writes often arrive as two reads on Linux and as one on
+                // Windows, and a client that handles only the split form parks on the
+                // coalesced one: the server is waiting for DONE and sends nothing more.
+                let _ = sock.write_all(b"+ idling\r\n* 3 EXISTS\r\n").await;
                 continue;
             } else if tag.eq_ignore_ascii_case("DONE") {
                 match idle_tag.take() {
