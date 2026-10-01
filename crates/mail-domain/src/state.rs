@@ -180,6 +180,59 @@ pub enum Snooze {
     Until(chrono::DateTime<chrono::Utc>),
 }
 
+/// Whether new mail in a conversation is kept out of the way.
+///
+/// A muted conversation's replies arrive read and archived rather than in the inbox. It is this
+/// client's own state, like [`Snooze`] and [`Pin`]: no server has a word for it, so nothing is
+/// sent when it changes, and what reaches the server is only what it does to each arriving
+/// message.
+///
+/// `Default` is meaningful here, and it is `Unmuted`: every conversation starts unmuted, a
+/// conversation stored before muting existed was unmuted, and a thread row or summary written
+/// without the field therefore reads back as exactly what it was.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Mute {
+    #[default]
+    Unmuted,
+    Muted,
+}
+
+/// Whether the user asked to be reminded if nobody answers a conversation, and where that stands.
+///
+/// This client's own state, like [`Snooze`]: no server has a word for it, so nothing is sent when
+/// it changes. A reminder carries two instants. `at` is when it comes due; `set` is when it was
+/// asked for, which is what "a reply arrived" is measured from — a message from someone else
+/// dated after `set` is an answer, one dated before it is what the user was answering.
+///
+/// It has three states rather than two because coming due is a decision, not a clock reading.
+/// Whether anyone replied depends on the conversation's messages and the user's own addresses,
+/// neither of which a query over the summary can see, so the runtime decides once, at `at`: a
+/// reply clears the reminder, no reply moves it to [`FollowUp::Returned`]. That transition is
+/// also what makes the notification fire once — at the moment it happens, whether mailo was
+/// running at `at` or catches up at the next launch — and what the list reads to show the
+/// conversation back on top, marked "No reply yet".
+///
+/// `Default` is meaningful, and it is `Inactive`: every conversation starts with no reminder, and
+/// one stored before reminders existed had none.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "v", rename_all = "snake_case")]
+pub enum FollowUp {
+    #[default]
+    Inactive,
+    /// Waiting: if nobody else has written by `at`, the conversation comes back.
+    Until {
+        at: chrono::DateTime<chrono::Utc>,
+        set: chrono::DateTime<chrono::Utc>,
+    },
+    /// Came due at `at` with no reply since `set`: back on top of the inbox until someone answers
+    /// or the user lets it go.
+    Returned {
+        at: chrono::DateTime<chrono::Utc>,
+        set: chrono::DateTime<chrono::Utc>,
+    },
+}
+
 /// Where a label came from, which decides whether the user may rename or delete it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

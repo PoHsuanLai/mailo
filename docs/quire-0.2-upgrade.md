@@ -43,7 +43,7 @@ frame and over every sheet and card (`style::tests::markup_offences`).
 
 ### The v0.2.2 pass (branch `design-quire-0.2`)
 
-The stand-ins F160 listed are quire's now, and gone from mailo:
+The stand-ins F198 listed are quire's now, and gone from mailo:
 
 - **Pick lists.** `ui/menu`'s `Picker` and `Checklist` are deleted. Move to, the Import
   destination, the rule editor's label and folder pickers and the Labels picker are quire's
@@ -93,7 +93,7 @@ both (`Shell::place_selected`, `Shell::selected_tab`).
 **Empty groups have no heading.** No pins, no "Pinned"; nothing in Today, no "Today".
 
 **Copy.** A pass over every user-visible string: empty states, hints, sheet help, banners and errors
-say less (FINDINGS F160 lists the notable changes).
+say less (FINDINGS F198 lists the notable changes).
 
 ### Keys: the standard Mac map
 
@@ -172,7 +172,7 @@ Add Account and Space editor sheets.
 
 ## Open: what mailo still needs from quire
 
-The v0.2.1 list is done (F160 has each line closed). What is left, from this pass:
+The v0.2.1 list is done (F198 has each line closed). What is left, from this pass:
 
 - **`Sidebar` with several sections and a foot.** It takes one `List`; mailo's sidebar is account
   tiles, three lists, Today tabs and a foot, on the frame's colour rather than paper.

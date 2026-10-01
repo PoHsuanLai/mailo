@@ -93,6 +93,18 @@ impl Unplaced {
     }
 }
 
+/// How the server answered a deletion forever, queued as one outbox entry: what becomes of the
+/// addresses the store kept for it (migration 0025).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Answered {
+    /// Deleted, or deleted here only (POP3): the addresses stay counted as held until a sync no
+    /// longer finds them, so the message is not fetched again meanwhile.
+    Done,
+    /// Refused: the addresses go, so the next sync finds the message where the server still has
+    /// it and it comes back here as it is there.
+    Refused,
+}
+
 /// Whether two paths name one folder: exactly, or `INBOX` in any case (RFC 9051 §5.1).
 pub(crate) fn same_folder(a: &str, b: &str) -> bool {
     a == b || (a.eq_ignore_ascii_case("INBOX") && b.eq_ignore_ascii_case("INBOX"))
@@ -105,7 +117,8 @@ fn messages_of(intent: &RemoteIntent) -> &[MessageId] {
         | RemoteIntent::SetMailbox { messages, .. }
         | RemoteIntent::SetLabels { messages, .. }
         | RemoteIntent::File { messages, .. }
-        | RemoteIntent::AddKeyword { messages, .. } => messages,
+        | RemoteIntent::AddKeyword { messages, .. }
+        | RemoteIntent::Destroy { messages } => messages,
         RemoteIntent::Send { .. } | RemoteIntent::Folder(_) | RemoteIntent::Append { .. } => &[],
     }
 }
@@ -143,6 +156,7 @@ pub(crate) fn readdress(op: ProtoOp, remotes: Vec<RemoteRef>) -> ProtoOp {
         },
         ProtoOp::File { folder, .. } => ProtoOp::File { remotes, folder },
         ProtoOp::AddKeyword { keyword, .. } => ProtoOp::AddKeyword { remotes, keyword },
+        ProtoOp::Destroy { .. } => ProtoOp::Destroy { remotes },
         other => other,
     }
 }

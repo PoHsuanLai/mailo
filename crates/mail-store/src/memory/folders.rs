@@ -75,6 +75,7 @@ impl Inner {
                 row.mailbox = path;
             }
         }
+        self.rename_destroyed(account, &rename);
 
         let cursors: Vec<(AccountId, String)> = self
             .sync
@@ -145,6 +146,7 @@ impl Inner {
         self.remotes
             .retain(|r| !(r.account == account && r.mailbox == path));
         self.sync.remove(&(account, path.to_owned()));
+        self.forget_destroyed_in(account, path);
         for message in held.mapped {
             if !self.remotes.iter().any(|r| r.message == message) {
                 self.delete_message(message);

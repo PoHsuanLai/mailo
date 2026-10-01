@@ -12,8 +12,8 @@ mod templates;
 pub(in crate::ui) use items::avatar_color;
 
 use super::debounce::{Settled, use_debounced};
-use super::menu::palette_groups;
-use super::ops::start_new;
+use super::menu::{Right, palette_groups};
+use super::ops::{Composes, start_composing, start_new};
 use crate::search::Results;
 use crate::view::{PageMenu, Shell};
 use chrono::Utc;
@@ -60,8 +60,15 @@ pub(super) fn CommandMenu(
         }
     });
     let shown = drawn.read();
-    let items = rows_of(&shown.results, &shown.names, &shown.settled.text);
+    let mut items = rows_of(&shown.results, &shown.names, &shown.settled.text);
     drop(shown);
+    // Compose's key is the user's to change: the row says the one it has now.
+    let compose = shell.read().keymap.keys(crate::view::Shortcut::Compose);
+    for item in items.iter_mut().filter(|item| item.key == "action:Compose") {
+        item.right = compose.first().map_or(Right::None, |key| {
+            Right::Shortcut(crate::keymap::spoken(key))
+        });
+    }
     let chips = tokens(&query);
     let placeholder = "Search mail, people, actions · try from:dana or has:attachment".to_owned();
     // "New from template" lists the templates in this same overlay rather than running anything.
@@ -208,6 +215,22 @@ fn run_action(
         close(shell);
         return;
     }
+    // Emptying goes to the bin first, so what is being emptied is what the window shows behind
+    // the sheet that asks.
+    if let Some(bin) = label
+        .strip_prefix("Empty ")
+        .and_then(|rest| rest.strip_suffix('…'))
+    {
+        let index = shell.read().places.iter().position(|one| one.name == bin);
+        close(shell);
+        if let Some(index) = index {
+            shell.write().select(index);
+            pages.set(1);
+            let store = consume_context::<Arc<SqliteStore>>();
+            super::destroy::ask_everything(&store, shell);
+        }
+        return;
+    }
     match label {
         "Compose" => {
             let store = consume_context::<Arc<SqliteStore>>();
@@ -240,6 +263,30 @@ fn run_action(
                 });
             }
             close(shell);
+        }
+        "Forward as attachment" => {
+            close(shell);
+            // The conversation open behind the menu, as Forward's `f` takes it. A refusal (no
+            // body yet, or a message rebuilt from its parts) is said where every other outcome
+            // of a command is.
+            let Some(open) = shell.peek().open else {
+                super::motion::tell(
+                    "Open a conversation to forward it as an attachment.".to_owned(),
+                    super::motion::Follow::Nothing,
+                );
+                return;
+            };
+            let store = consume_context::<Arc<SqliteStore>>();
+            match start_composing(&store, open, Composes::ForwardAttached) {
+                Ok(draft) => {
+                    shell.write().compose(&draft);
+                    *revision += 1;
+                }
+                Err(why) => super::motion::tell(
+                    format!("Not forwarded as an attachment: {why}."),
+                    super::motion::Follow::Nothing,
+                ),
+            }
         }
         "Print conversation" => {
             close(shell);
@@ -274,9 +321,19 @@ fn run_action(
             close(shell);
             super::rules::open(shell);
         }
+        "New view…" => {
+            // Closed first, like Export: the view starts from the search the window shows.
+            close(shell);
+            let search = shell.peek().search.clone();
+            super::views::open_new(shell, &search);
+        }
         "Keys and certificates…" => {
             close(shell);
             super::pgp::keys::open(shell);
+        }
+        "Keyboard shortcuts…" => {
+            close(shell);
+            super::keyboard::open(shell);
         }
         "Theme light" | "Theme dark" | "Theme system" => {
             let theme: ds::prelude::Theme = match label {

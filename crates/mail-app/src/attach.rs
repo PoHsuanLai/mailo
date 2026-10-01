@@ -103,15 +103,18 @@ pub fn list(store: &SqliteStore, message: MessageId) -> Result<String, String> {
 
 /// Where the window puts a file it has been asked to save.
 ///
-/// `XDG_DOWNLOAD_DIR` when the desktop names one, `~/Downloads` when it does not, and the
-/// working directory as a last resort. Deliberately not a file chooser: a dialog is a
+/// The folder the desktop names (`XDG_DOWNLOAD_DIR` on Linux, the system's Downloads folder on
+/// macOS and Windows), `~/Downloads` when it names none, and the working directory as a last
+/// resort. Deliberately not a file chooser: a dialog is a
 /// dependency that pulls a toolkit in behind it, and every client that offers one also has a
 /// default that most saves actually use. The path is reported afterwards, which is the part
 /// that matters — a file saved somewhere the user cannot name is a file they have lost.
 pub fn downloads_dir() -> PathBuf {
     downloads_from(
-        std::env::var_os("XDG_DOWNLOAD_DIR").as_deref(),
-        std::env::var_os("HOME").as_deref(),
+        mail_runtime::places::downloads_named().as_deref(),
+        mail_runtime::places::home()
+            .as_deref()
+            .map(std::path::Path::as_os_str),
     )
 }
 

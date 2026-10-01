@@ -59,8 +59,45 @@ Run `./target/release/mailo` with an unknown command to print the full list.
 
 Clicking a new-mail notification from `mailo watch` opens that conversation in a new window (a
 second one if a window is already open — a known gap). For the desktop to name and group the
-notifications, put `mailo` on your `PATH` and install the entry:
-`install -Dm644 packaging/mailo.desktop ~/.local/share/applications/mailo.desktop`.
+notifications, install the desktop entry (below).
+
+`mailo mailto:someone@example.org?subject=Hello` opens the window on a composer holding what the
+link asks for (RFC 6068: `to`, `cc`, `bcc`, `subject` and `body`; every other field is ignored).
+Nothing is sent until you send it. With the desktop entry installed, mailo can be chosen as the
+system's mail handler, and a `mailto:` link clicked anywhere opens it this way.
+
+## Installing
+
+**From a package.** `./scripts/package.sh` builds a `.deb`, an `.rpm` and a Flatpak, each with
+its own external tool (`cargo install cargo-deb`, `cargo install cargo-generate-rpm`,
+`flatpak-builder`); a format whose tool is missing is skipped with a note saying which one.
+`./scripts/package.sh deb` builds one. Then:
+
+```sh
+sudo apt install ./target/debian/mailo_*.deb                    # Debian, Ubuntu
+sudo dnf install ./target/generate-rpm/mailo-*.rpm              # Fedora
+flatpak install --user ./target/flatpak/mailo.flatpak           # anywhere
+```
+
+The Flatpak (`packaging/flatpak/`) has the network, the display, the GPU, the keyring and
+notifications, and no files outside its own: attachments, import and export go through the
+desktop's file chooser.
+
+**By hand**, into your home directory:
+
+```sh
+cargo build --release -p mail-app
+install -Dm755 target/release/mailo ~/.local/bin/mailo
+install -Dm644 packaging/mailo.desktop ~/.local/share/applications/mailo.desktop
+install -Dm644 packaging/icons/hicolor/scalable/apps/mailo.svg \
+    ~/.local/share/icons/hicolor/scalable/apps/mailo.svg
+update-desktop-database ~/.local/share/applications    # so the mailto: handler is found
+xdg-mime default mailo.desktop x-scheme-handler/mailto  # optional: make mailo the mail handler
+```
+
+`~/.local/bin` has to be on your `PATH`, since the entry runs `mailo`. Passwords and tokens are
+kept in the desktop's keyring (the Secret Service: GNOME Keyring, KWallet, KeePassXC), so one has
+to be running.
 
 ### The daemon is a prototype
 
@@ -87,8 +124,34 @@ cargo build --release -p mail-app
 
 Print hands a PDF, made by quire, to the system's print dialog (the desktop portal).
 
+`cargo test` needs Noto's CJK faces too (`fonts-noto-cjk` on Debian/Ubuntu, which is what CI
+installs): the print tests check which regional face Chinese, Japanese and Korean mail is set in.
+
 The window draws with [quire](https://github.com/PoHsuanLai/quire), the shared design system,
-at tag v0.2.1; `docs/quire-0.2-upgrade.md` says everything about the move.
+at tag v0.2.2. `crates/mail-app` depends on that tagged release from GitHub, so a plain clone of
+mailo builds on its own. `docs/quire-0.2-upgrade.md` says everything about the move.
+
+## macOS and Windows
+
+mailo builds and is tested on both (`portable` in `.github/workflows/ci.yml`) with a plain
+`cargo build --release -p mail-app`, needing only the C compiler Rust already needs there (Xcode's
+command line tools, Visual Studio's build tools). Passwords and tokens go to the login keychain on
+macOS and to the Credential Manager on Windows. Mail and settings go to
+`~/Library/Application Support/mailo` on macOS; on Windows mail goes to `%LOCALAPPDATA%\mailo` and
+settings to `%APPDATA%\mailo`.
+
+**Installing.** Every push to master builds packages for all three platforms (the `package` job;
+download them from the run's artifacts): a `.deb` and an `.rpm`, `mailo-<version>.dmg` holding
+`mailo.app`, and `mailo-x86_64.msi`. **The macOS and Windows packages are unsigned.** macOS says the
+developer cannot be verified: open it once from Finder with Control-click, Open. Windows SmartScreen
+warns about an unrecognised app: More info, Run anyway. Both register mailo for `mailto:` links, to
+be chosen as the mail handler in Mail's settings or in Windows' Default apps. To build them
+yourself: `packaging/macos/bundle.sh`, or `cargo wix` with `packaging/windows/main.wxs` as the CI
+job does.
+
+What is not the same yet: on macOS a click on a notification opens nothing, and a `mailto:` link
+starts mailo without handing it the link; on Windows the window is started with a console beside
+it, and notifications are shown under Windows PowerShell's name.
 
 ## The gates
 

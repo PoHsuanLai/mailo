@@ -408,14 +408,10 @@ fn method(
             "hasMoreChanges": false, "created": [], "updated": [], "destroyed": []
         })),
         "Email/query" => {
-            let excluded: Vec<String> = args["filter"]["inMailboxOtherThan"]
-                .as_array()
-                .map(|a| a.iter().map(|v| v.as_str().unwrap().to_owned()).collect())
-                .unwrap_or_default();
             let mut matching: Vec<&Email> = state
                 .emails
                 .iter()
-                .filter(|e| e.mailboxes.iter().any(|m| !excluded.contains(m)))
+                .filter(|e| matches(state, e, &args["filter"]))
                 .collect();
             matching.sort_by(|a, b| b.received.cmp(&a.received));
             let position = args["position"].as_u64().unwrap_or(0) as usize;
@@ -609,6 +605,58 @@ fn apply_patch(email: &mut Email, patch: &Value) {
             list.push(key.to_owned());
         }
     }
+}
+
+/// Whether `email` meets a `FilterOperator` or `FilterCondition` (RFC 8621 §4.4.1). Strings
+/// are found as substrings of the raw header or text, without regard to case: RFC 8621 leaves
+/// matching to the server, and this is the simplest reading.
+fn matches(state: &State, email: &Email, filter: &Value) -> bool {
+    let Some(filter) = filter.as_object() else {
+        return true;
+    };
+    if let Some(operator) = filter.get("operator").and_then(Value::as_str) {
+        let conditions = filter["conditions"].as_array().cloned().unwrap_or_default();
+        let mut each = conditions.iter().map(|c| matches(state, email, c));
+        return match operator {
+            "AND" => each.all(|b| b),
+            "OR" => each.any(|b| b),
+            _ => !each.any(|b| b),
+        };
+    }
+    let raw = String::from_utf8_lossy(state.raw(&email.blob).unwrap_or(b"")).to_lowercase();
+    let header = |name: &str| {
+        headers(raw.as_bytes())
+            .into_iter()
+            .filter(|(n, _)| n.eq_ignore_ascii_case(name))
+            .map(|(_, v)| v)
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    filter.iter().all(|(key, value)| {
+        let text = value.as_str().unwrap_or_default().to_lowercase();
+        match key.as_str() {
+            "inMailboxOtherThan" => {
+                let excluded: Vec<&str> = value
+                    .as_array()
+                    .map(|a| a.iter().filter_map(Value::as_str).collect())
+                    .unwrap_or_default();
+                email
+                    .mailboxes
+                    .iter()
+                    .any(|m| !excluded.contains(&m.as_str()))
+            }
+            "inMailbox" => email
+                .mailboxes
+                .iter()
+                .any(|m| *m == text || m.to_lowercase() == text),
+            "hasKeyword" => email.keywords.iter().any(|k| k.to_lowercase() == text),
+            "notKeyword" => !email.keywords.iter().any(|k| k.to_lowercase() == text),
+            "text" => raw.contains(&text),
+            "from" | "to" | "cc" | "subject" => header(key).contains(&text),
+            // Anything else is not something this fake can answer.
+            _ => false,
+        }
+    })
 }
 
 /// An email with the properties asked for.

@@ -98,8 +98,12 @@ pub(in crate::ui) enum Sent {
         when: When,
     },
     /// Saved and cleared to go, and to be signed or encrypted first. That reads the keyring and
-    /// may ask for a passphrase, so the caller does it off the thread that draws, with [`queue`].
-    Sealing { leaves: Leaves },
+    /// may ask for a passphrase, so the caller does it off the thread that draws, with
+    /// [`queue_reminding`]. `remind` is the reminder's time, if one was asked for.
+    Sealing {
+        leaves: Leaves,
+        remind: Option<DateTime<Utc>>,
+    },
 }
 
 /// Send, if the guards allow it: no recipients shakes the To row, a mentioned attachment with
@@ -135,6 +139,12 @@ where
     page.guard = Guard::Clear;
     // A time that has gone is refused before anything is written, in the page's words.
     let leaves = super::later::leaves(page.when, now, zone)?;
+    // And a reminder that would come before the message leaves, the same way.
+    let leaving = match leaves {
+        Leaves::Now => now + GRACE,
+        Leaves::At(at) => at,
+    };
+    let remind = page.remind.due(leaving, zone)?;
     let saved = save(store, page, now)?;
     if page.protection != Protection::None {
         page.seal_bar = super::seal::sealable(store, &saved, now)?;
@@ -142,25 +152,24 @@ where
             return Ok(Sent::Stopped);
         }
         page.seal_bar = SealBar::Sealing;
-        return Ok(Sent::Sealing { leaves });
+        return Ok(Sent::Sealing { leaves, remind });
     }
     page.seal_bar = SealBar::Clear;
-    let due = queue(
+    let due = queue_reminding(
         store,
         secrets,
         &crate::pgp::no_passphrase,
         page.draft,
         leaves,
+        remind,
         now,
     )
     .map_err(|refused| refused.to_string())?;
     Ok(folded(page, due))
 }
 
-/// Queue the saved draft to leave as `leaves` says, signed and encrypted as it asks, with `ask`
-/// for its OpenPGP key's passphrase. Returns when it may leave, or why not, typed: a key that
-/// stayed locked is [`crate::compose::SendError::locked`]. For a draft to be sealed this reads
-/// the keyring, and the window calls it on a blocking thread.
+/// [`queue_reminding`] with no reminder, as the sealing tests queue.
+#[cfg(test)]
 pub(in crate::ui) fn queue(
     store: &SqliteStore,
     secrets: &dyn Secrets,
@@ -169,18 +178,46 @@ pub(in crate::ui) fn queue(
     leaves: Leaves,
     now: DateTime<Utc>,
 ) -> Result<DateTime<Utc>, crate::compose::SendError> {
-    match leaves {
+    queue_reminding(store, secrets, ask, draft, leaves, None, now)
+}
+
+/// Queue the saved draft to leave as `leaves` says, signed and encrypted as it asks, with `ask`
+/// for its OpenPGP key's passphrase. Returns when it may leave, or why not, typed: a key that
+/// stayed locked is [`crate::compose::SendError::locked`]. For a draft to be sealed this reads
+/// the keyring, and the window calls it on a blocking thread.
+///
+/// `remind` is held as the message's follow-up reminder until it has left (`crate::follow_up`);
+/// with none, a reminder an earlier send of the draft held goes.
+pub(in crate::ui) fn queue_reminding(
+    store: &SqliteStore,
+    secrets: &dyn Secrets,
+    ask: crate::pgp::Ask<'_>,
+    draft: DraftId,
+    leaves: Leaves,
+    remind: Option<DateTime<Utc>>,
+    now: DateTime<Utc>,
+) -> Result<DateTime<Utc>, crate::compose::SendError> {
+    let (queued, post, due) = match leaves {
         // Right away is the grace period and Undo, as it always was.
         Leaves::Now => {
             let due = now + GRACE;
-            crate::compose::queue_with(store, secrets, ask, draft, Leaves::Now, due)?;
-            Ok(due)
+            let (queued, post) =
+                crate::compose::queue_with(store, secrets, ask, draft, Leaves::Now, due)?;
+            (queued, post, due)
         }
         Leaves::At(at) => {
-            crate::compose::queue_with(store, secrets, ask, draft, Leaves::At(at), now)?;
-            Ok(at)
+            let (queued, post) =
+                crate::compose::queue_with(store, secrets, ask, draft, Leaves::At(at), now)?;
+            (queued, post, at)
         }
+    };
+    // The send is queued whatever becomes of the reminder: one that could not be kept is said
+    // where the window says what it could not do, and is no reason to take back mail the outbox
+    // already holds.
+    if let Err(why) = crate::follow_up::after_queue(store, &queued, &post.message, remind, due) {
+        eprintln!("the reminder for {draft} was not kept: {why}");
     }
+    Ok(due)
 }
 
 /// The page once its draft is queued to leave at `due`: folding away.

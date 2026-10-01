@@ -51,8 +51,8 @@ impl Request {
             return Self::Place(place.listing(limit));
         }
         let page = match place.listing(limit) {
-            Listing::Threads(query) => Some(query),
-            Listing::Drafts => None,
+            Listing::Threads(query) | Listing::Inbox { query, .. } => Some(query),
+            Listing::Drafts | Listing::Waiting { .. } => None,
         };
         Self::Search(Search {
             input: text.to_owned(),
@@ -83,6 +83,9 @@ pub(super) enum Scope {
 pub(super) struct Marking {
     pub highlight: Highlight,
     pub scope: Scope,
+    /// The line the store was asked, under [`Scope::Searched`]: what "Search … on the server"
+    /// asks the server. Empty otherwise.
+    pub line: String,
 }
 
 impl Marking {
@@ -110,7 +113,7 @@ pub(super) struct Listed {
 pub(super) fn listed(store: &SqliteStore, request: Request, now: DateTime<Utc>) -> Listed {
     match request {
         Request::Place(listing) => Listed {
-            threads: list_for(store, listing),
+            threads: list_for(store, listing, now),
             top: Vec::new(),
             marking: Marking::default(),
         },
@@ -152,6 +155,7 @@ fn searched(store: &SqliteStore, search: &Search, now: DateTime<Utc>) -> Listed 
         marking: Marking {
             highlight,
             scope: Scope::Searched,
+            line: search.input.clone(),
         },
     }
 }
@@ -179,6 +183,7 @@ fn over_page(
         marking: Marking {
             highlight,
             scope: Scope::OverPage,
+            line: String::new(),
         },
     }
 }
@@ -190,6 +195,7 @@ fn invalid(why: String) -> Listed {
         marking: Marking {
             highlight: Highlight::default(),
             scope: Scope::Invalid(why),
+            line: String::new(),
         },
     }
 }

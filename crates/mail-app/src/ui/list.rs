@@ -9,9 +9,12 @@ use super::data::{AccountRow, account_rows, syncs_nothing};
 use super::list_search::{Marking, RowHit, Scope, row_hit};
 use super::motion::{Ghost, Toast};
 use super::ops::start_new;
-use super::page::{PageMenus, group_page};
+use super::page::PageMenus;
+use super::picks::PickBar;
 use super::press::{available, on_primary};
 use super::row::{DraftRow, MailRow};
+use super::server_search::{Asked, ServerSearch, found_threads};
+use super::view_groups::group_list;
 use crate::provider::provider;
 use crate::view::{Nothing, Shell, SyncState, synced};
 use dioxus::prelude::*;
@@ -23,7 +26,7 @@ use ds::components::overlays::empty_state::EmptyForm;
 use ds::prelude::*;
 use ds::style::tokens::control_size::ControlSize;
 use mail_domain::*;
-use mail_store::SqliteStore;
+use mail_store::{SqliteStore, Store};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -42,6 +45,10 @@ enum Slot {
     /// A search's two headings.
     TopHeading,
     NewestHeading,
+    /// The heading over what a search of the server found.
+    ServerHeading,
+    /// A conversation a search of the server found that the list does not already hold.
+    Server(ThreadId),
 }
 
 /// The conversations and drafts for wherever the shell is looking.
@@ -64,6 +71,36 @@ pub(super) fn ThreadList(
         let _ = revision();
         let store = consume_context::<Arc<SqliteStore>>();
         account_rows(&store)
+    });
+    // Each account's server asked for a searched line, and what it answered.
+    let asked = use_signal(Vec::<Asked>::new);
+    // What the servers found for the line shown that the list does not already hold, newest
+    // first, as the store has each conversation now.
+    let found = use_memo(move || {
+        let _ = revision();
+        let line = marking.read().line.clone();
+        if line.is_empty() {
+            return Vec::new();
+        }
+        let listed: Vec<ThreadId> = threads.read().iter().map(|t| t.id).collect();
+        let store = consume_context::<Arc<SqliteStore>>();
+        found_threads(&asked.read(), &line, &listed)
+            .into_iter()
+            .filter_map(|thread| store.thread(thread).ok())
+            .map(|thread| thread.summary)
+            .collect::<Vec<ThreadSummary>>()
+    });
+    // Which of the conversations drawn came here because a search of the server found them.
+    let from_server = use_memo(move || {
+        let _ = revision();
+        let ids: Vec<ThreadId> = threads
+            .read()
+            .iter()
+            .chain(found.read().iter())
+            .map(|t| t.id)
+            .collect();
+        let store = consume_context::<Arc<SqliteStore>>();
+        store.found_in(&ids).unwrap_or_default()
     });
     let place = shell
         .read()
@@ -110,14 +147,43 @@ pub(super) fn ThreadList(
     let bad = sync_state.read().is_failure();
     let accounts = rows();
     let highlight = marking.read().highlight.clone();
-    let dress_row = |summary: &ThreadSummary| dress(summary, &accounts, &names, &highlight);
+    let brought = from_server();
+    let dress_row =
+        |summary: &ThreadSummary| dress(summary, &accounts, &names, &highlight, &brought);
+    // Where a search's list ends, each account in view with a server offers to search it.
+    let line = marking.read().line.clone();
+    let servers: Vec<(AccountId, String)> = if line.is_empty() || more() {
+        Vec::new()
+    } else {
+        accounts
+            .iter()
+            .filter(|row| match shell.read().account {
+                Some(id) => row.id == id,
+                None => shell.read().scope.is_empty() || shell.read().scope.contains(&row.id),
+            })
+            .filter(|row| crate::server_search::searchable(&row.plan))
+            .map(|row| (row.id, row.shown()))
+            .collect()
+    };
+    let server_rows = found();
     let state = use_hook(super::motion::motion);
     let shown = threads();
+    let keys: Vec<ThreadId> = shown.iter().map(|summary| summary.id).collect();
+    let picking = !shell.read().picked.chosen(&keys).is_empty();
+    // Picked, or open with nothing picked: asked of the shell against what is listed.
+    let selection_of = |id: ThreadId| {
+        if shell.read().is_selected(id, &keys) {
+            Selection::Selected
+        } else {
+            Selection::Unselected
+        }
+    };
     if let Some(state) = state {
         let mut order = state.order;
-        order.set(shown.iter().map(|summary| summary.id).collect());
+        order.set(keys.clone());
     }
-    // The list's items, top to bottom: drafts, a search's top results, then the bands.
+    // The list's items, top to bottom: drafts, a search's top results, then the bands, then
+    // what a search of the server found that the list does not hold.
     let mut items: Vec<ListItem<Slot>> = Vec::new();
     for draft in drafts() {
         let id = draft.id.to_string();
@@ -142,10 +208,11 @@ pub(super) fn ThreadList(
             let Dress { via, chips, hit } = dress_row(&summary);
             let id = summary.id;
             let label = summary.subject.clone();
+            let selection = selection_of(id);
             items.push(ListItem::row(
                 Slot::Top(id),
                 label,
-                rsx! { MailRow { summary, shell, revision, chips, via, hit } },
+                rsx! { MailRow { summary, shell, revision, chips, via, hit, selection } },
             ));
         }
         items.push(ListItem::heading(
@@ -153,9 +220,9 @@ pub(super) fn ThreadList(
             rsx! { SectionHeader { title: "Newest first".to_owned() } },
         ));
     }
-    for band in group_page(
+    for band in group_list(
         shown,
-        shell.read().group,
+        &shell.read().grouping(),
         &names,
         chrono::Utc::now(),
         &chrono::Local,
@@ -170,15 +237,33 @@ pub(super) fn ThreadList(
             let Dress { via, chips, hit } = dress_row(&summary);
             let id = summary.id;
             let label = summary.subject.clone();
+            let selection = selection_of(id);
             items.push(ListItem::row(
                 Slot::Thread(id),
                 label,
-                rsx! { MailRow { summary, shell, revision, chips, via, hit } },
+                rsx! { MailRow { summary, shell, revision, chips, via, hit, selection } },
+            ));
+        }
+    }
+    if !server_rows.is_empty() {
+        items.push(ListItem::heading(
+            Slot::ServerHeading,
+            rsx! { SectionHeader { title: "From the server".to_owned() } },
+        ));
+        for summary in server_rows {
+            let Dress { via, chips, hit } = dress_row(&summary);
+            let id = summary.id;
+            let label = summary.subject.clone();
+            let selection = selection_of(id);
+            items.push(ListItem::row(
+                Slot::Server(id),
+                label,
+                rsx! { MailRow { summary, shell, revision, chips, via, hit, selection } },
             ));
         }
     }
     let cursor = shell.read().open.map(Slot::Thread);
-    let nothing_here = threads().is_empty() && drafts().is_empty();
+    let nothing_here = threads().is_empty() && drafts().is_empty() && found().is_empty();
     let empty_form = match nothing() {
         Nothing::NoMatch(_) => EmptyForm::NoResults,
         Nothing::NoAccount | Nothing::EmptyFolder => EmptyForm::Empty,
@@ -191,87 +276,116 @@ pub(super) fn ThreadList(
     });
     rsx! {
         div { class: "list-col",
-            // The list's header is quire's 52 px `Toolbar`; what it holds (the place, its status
-            // and the buttons that open menus from themselves) is the band's centre.
+            // The list's header is quire's 52 px `Toolbar`. While anything listed is picked, the
+            // bar is the selection's: its count and its actions, and nothing else.
             Toolbar::<()> {
                 onpick: move |()| {},
                 center: rsx! {
-                  div { class: "list-head",
-                div { class: "list-title",
-                    Label { text: place.clone(), style: LabelStyle::Title }
-                    if let Some(address) = address {
-                        Label { text: address, role: LabelRole::Tertiary, style: LabelStyle::Caption }
-                    }
-                }
-                if let Some(note) = note {
-                    // One line, cut short when it must be; the whole of it on hover.
-                    Label {
-                        text: note.clone(),
-                        role: LabelRole::Tertiary,
-                        style: LabelStyle::Footnote,
-                        common: classed(if bad { "status bad" } else { "status" }),
-                    }
-                }
-                if let Some(said) = search_note {
-                    Label {
-                        text: said,
-                        role: LabelRole::Tertiary,
-                        style: LabelStyle::Footnote,
-                        common: classed(if invalid { "status bad" } else { "status" }),
-                    }
-                }
-                div { class: "bar-tools",
-                    PageMenus { shell }
-                    if !quiet {
-                        Button {
-                            bezel: Bezel::Toolbar,
-                            image: ImagePosition::Only,
-                            label: "Sync now",
-                            icon: Some(IconSource::Glyph(Icon::Refresh)),
-                            availability: available(sync_state.read().may_start()),
-                            onclick: on_primary(move || {
-                                if !sync_state.read().may_start() {
-                                    return;
+                    div { class: if picking { "list-head picking" } else { "list-head" },
+                        if picking {
+                            PickBar { shell, revision, threads }
+                        } else {
+                            div { class: "list-title",
+                                Label { text: place.clone(), style: LabelStyle::Title }
+                                if let Some(address) = address {
+                                    Label { text: address, role: LabelRole::Tertiary, style: LabelStyle::Caption }
                                 }
-                                sync_state.set(SyncState::Running);
-                                super::folder_open::forget();
-                                let store = consume_context::<Arc<SqliteStore>>();
-                                spawn(async move {
-                                    // `spawn_blocking`, not this task: sync::run opens sockets and
-                                    // builds its own runtime, and `Runtime::block_on` inside an async
-                                    // context panics.
-                                    let done = tokio::task::spawn_blocking(move || {
-                                        crate::sync::run(store, chrono::Utc::now())
-                                    })
-                                    .await;
-                                    sync_state.set(match done {
-                                        Ok(result) => synced(result.map(|ran| ran.text)),
-                                        Err(e) => synced(Err(format!("the sync pass stopped: {e}"))),
-                                    });
-                                    revision += 1;
-                                });
-                            }),
+                            }
+                            if let Some(note) = note {
+                                // One line, cut short when it must be; the whole of it on hover.
+                                Label {
+                                    text: note.clone(),
+                                    role: LabelRole::Tertiary,
+                                    style: LabelStyle::Footnote,
+                                    common: classed(if bad { "status bad" } else { "status" }),
+                                }
+                            }
+                            if let Some(said) = search_note {
+                                Label {
+                                    text: said,
+                                    role: LabelRole::Tertiary,
+                                    style: LabelStyle::Footnote,
+                                    common: classed(if invalid { "status bad" } else { "status" }),
+                                }
+                            }
+                            div { class: "bar-tools",
+                                PageMenus { shell }
+                                // Trash and Spam alone: everything in them, deleted forever, once asked.
+                                super::destroy::EmptyButton { shell }
+                                // A search can be kept as a view, and a view shown can be changed.
+                                if !shell.read().search.trim().is_empty() {
+                                    Button {
+                                        bezel: Bezel::Toolbar,
+                                        image: ImagePosition::Only,
+                                        label: "Save as view",
+                                        icon: Some(IconSource::Glyph(Icon::Plus)),
+                                        title: Some("Keep this search in the sidebar".to_owned()),
+                                        onclick: on_primary(move || {
+                                            let search = shell.peek().search.clone();
+                                            super::views::open_new(shell, &search);
+                                        }),
+                                    }
+                                } else if let Some(view) = shell.read().saved_view().cloned() {
+                                    Button {
+                                        bezel: Bezel::Toolbar,
+                                        image: ImagePosition::Only,
+                                        label: "Edit view",
+                                        icon: Some(IconSource::Glyph(Icon::Settings)),
+                                        title: Some("Change or delete this view".to_owned()),
+                                        onclick: on_primary(move || super::views::open_edit(shell, &view)),
+                                    }
+                                }
+                                if !quiet {
+                                    Button {
+                                        bezel: Bezel::Toolbar,
+                                        image: ImagePosition::Only,
+                                        label: "Sync now",
+                                        icon: Some(IconSource::Glyph(Icon::Refresh)),
+                                        availability: available(sync_state.read().may_start()),
+                                        onclick: on_primary(move || {
+                                            if !sync_state.read().may_start() {
+                                                return;
+                                            }
+                                            sync_state.set(SyncState::Running);
+                                            super::folder_open::forget();
+                                            let store = consume_context::<Arc<SqliteStore>>();
+                                            spawn(async move {
+                                                // `spawn_blocking`, not this task: sync::run opens sockets and
+                                                // builds its own runtime, and `Runtime::block_on` inside an async
+                                                // context panics.
+                                                let done = tokio::task::spawn_blocking(move || {
+                                                    crate::sync::run(store, chrono::Utc::now())
+                                                })
+                                                .await;
+                                                sync_state.set(match done {
+                                                    Ok(result) => synced(result.map(|ran| ran.text)),
+                                                    Err(e) => synced(Err(format!("the sync pass stopped: {e}"))),
+                                                });
+                                                revision += 1;
+                                            });
+                                        }),
+                                    }
+                                }
+                                Button {
+                                    bezel: Bezel::Toolbar,
+                                    label: "Compose",
+                                    icon: Some(IconSource::Glyph(Icon::Pen)),
+                                    title: Some("New message (\u{2318}N)".to_owned()),
+                                    onclick: on_primary(move || {
+                                        let store = consume_context::<Arc<SqliteStore>>();
+                                        let known = shell.peek().accounts.clone();
+                                        match start_new(&store, &known) {
+                                            Ok(draft) => {
+                                                shell.write().compose(&draft);
+                                                revision += 1;
+                                            }
+                                            Err(why) => eprintln!("compose: {why}"),
+                                        }
+                                    }),
+                                }
+                            }
                         }
                     }
-                    Button {
-                        bezel: Bezel::Toolbar,
-                        label: "Compose",
-                        icon: Some(IconSource::Glyph(Icon::Pen)),
-                        title: Some("New message (\u{2318}N)".to_owned()),
-                        onclick: on_primary(move || {
-                            let store = consume_context::<Arc<SqliteStore>>();
-                            let known = shell.peek().accounts.clone();
-                            match start_new(&store, &known) {
-                                Ok(draft) => {
-                                    shell.write().compose(&draft);
-                                    revision += 1;
-                                }
-                                Err(why) => eprintln!("compose: {why}"),
-                            }
-                        }),
-                    }
-                }
-            }
                 },
             }
             TextField {
@@ -295,7 +409,7 @@ pub(super) fn ThreadList(
                     items,
                     cursor,
                     onselect: move |slot: Slot| {
-                        if let Slot::Thread(id) | Slot::Top(id) = slot {
+                        if let Slot::Thread(id) | Slot::Top(id) | Slot::Server(id) = slot {
                             shell.write().open(id);
                         }
                     },
@@ -307,6 +421,9 @@ pub(super) fn ThreadList(
                         description: empty_description,
                     }
                 }
+            }
+            if !servers.is_empty() {
+                ServerSearch { input: line.clone(), accounts: servers, asked, revision }
             }
             if more() {
                 div { class: "more",
@@ -330,22 +447,30 @@ struct Dress {
     hit: Option<RowHit>,
 }
 
+/// The chip on a conversation a search of the server brought here.
+pub(super) const FROM_SERVER: &str = "from the server";
+
 fn dress(
     summary: &ThreadSummary,
     accounts: &[AccountRow],
     names: &BTreeMap<LabelId, String>,
     highlight: &crate::search::Highlight,
+    from_server: &[ThreadId],
 ) -> Dress {
+    let mut chips: Vec<String> = summary
+        .labels
+        .iter()
+        .filter_map(|id| names.get(id).cloned())
+        .collect();
+    if from_server.contains(&summary.id) {
+        chips.push(FROM_SERVER.to_owned());
+    }
     Dress {
         via: accounts
             .iter()
             .find(|row| row.id == summary.account)
             .map(|row| provider(&row.plan)),
-        chips: summary
-            .labels
-            .iter()
-            .filter_map(|id| names.get(id).cloned())
-            .collect(),
+        chips,
         hit: row_hit(summary, highlight),
     }
 }

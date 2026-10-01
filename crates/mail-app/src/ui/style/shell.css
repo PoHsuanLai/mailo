@@ -42,6 +42,13 @@
   min-width: 0; min-height: 0; background: var(--surface); color: var(--ink);
   border-radius: var(--r-card); overflow: hidden; box-shadow: var(--shadow-card);
 }
+.app[*|data-peek="center"] .card, .app[*|data-peek="full"] .card { overflow: visible; }
+.app.message-window { grid-template-columns: minmax(0, 1fr); padding: var(--s-8); }
+.message-window .card { grid-template-columns: minmax(0, 1fr); }
+.message-window .left-note {
+  padding: var(--s-8) var(--s-18); border-bottom: var(--hair) solid var(--line-soft);
+  color: var(--ink-soft); background: var(--surface);
+}
 .list-col { display: flex; flex-direction: column; height: 100%; min-width: 0; min-height: 0; background: var(--surface); }
 /* The list's header: quire's `Toolbar` holds it as its centre. */
 .list-head { display: flex; align-items: center; gap: var(--s-8); width: 100%; min-width: 0; }
@@ -51,6 +58,10 @@
   white-space: nowrap; overflow: hidden;
 }
 .list-head .status.bad { color: var(--danger); font-weight: 600; }
+.pick-tools {
+  display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center;
+  gap: var(--s-8); flex: 1 1 0; min-width: 0;
+}
 .bar-tools { display: flex; gap: var(--s-6); align-items: center; margin-left: auto; position: relative; }
 
 /* A sheet hangs from the card's top edge, not the window's: the frame insets the card by

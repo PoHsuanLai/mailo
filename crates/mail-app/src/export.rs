@@ -12,8 +12,8 @@
 
 use chrono::{DateTime, Utc};
 use mail_domain::{
-    Body, Filter, LabelId, MailboxRole, MatchCtx, Message, MessageId, PageReq, PartContent, Pin,
-    Property, Query, Snooze, Sort, SortDir, SystemFlag, ThreadSummary,
+    Body, Filter, LabelId, MailboxRole, MatchCtx, Message, MessageId, Mute, PageReq, Pin, Property,
+    Query, Snooze, Sort, SortDir, SystemFlag, ThreadSummary,
 };
 use mail_mime::archive::{maildir, mbox};
 use mail_store::{SqliteStore, Store};
@@ -37,7 +37,8 @@ pub struct Exported {
     pub written: usize,
     /// Only headers are here yet: the body was never downloaded.
     pub absent: usize,
-    /// The body is here, but some attachment was left on the server.
+    /// The body is here, but it was rebuilt from its parts with some attachment left on the
+    /// server, so the stored bytes are not the message as sent.
     pub partial: usize,
 }
 
@@ -158,6 +159,8 @@ fn fits_alone(store: &SqliteStore, filter: &Filter, message: &Message, now: Date
         std::slice::from_ref(message),
         Snooze::Inactive,
         Pin::Unpinned,
+        Mute::Unmuted,
+        mail_domain::FollowUp::Inactive,
     );
     let corpus = match &message.body {
         Body::Present { text, .. } => text.as_deref(),
@@ -187,18 +190,16 @@ pub fn export(
             done.absent += 1;
             continue;
         };
-        if message
-            .attachments
-            .iter()
-            .any(|a| matches!(a.content, PartContent::Remote { .. }))
-        {
-            done.partial += 1;
-            continue;
-        }
         let bytes = store
             .blobs()
             .get(&store.connection(), *raw)
             .map_err(|e| e.to_string())?;
+        // Read from the bytes as well as the attachments: a part fetched since leaves the
+        // attachment held and the stored message as rebuilt, its part still empty in it.
+        if crate::compose::rebuilt(&message, &bytes) {
+            done.partial += 1;
+            continue;
+        }
         sink.write(&message, &bytes)?;
         done.written += 1;
         if done.written % 100 == 0 {
@@ -373,6 +374,8 @@ fn make_maildir(dir: &Path) -> Result<(), String> {
 fn host() -> String {
     std::env::var("HOSTNAME")
         .ok()
+        // What Windows calls it; it has no `/etc/hostname` either.
+        .or_else(|| std::env::var("COMPUTERNAME").ok())
         .or_else(|| {
             std::fs::read_to_string("/etc/hostname")
                 .ok()

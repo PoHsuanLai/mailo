@@ -7,7 +7,7 @@
 set -uo pipefail
 
 PURE=(mail-domain mail-mime mail-proto mail-pim)
-FORBIDDEN=(tokio rusqlite dioxus reqwest keyring)
+FORBIDDEN=(tokio rusqlite dioxus reqwest keyring-core)
 fail=0
 
 for crate in "${PURE[@]}"; do

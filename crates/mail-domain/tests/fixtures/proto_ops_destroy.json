@@ -1,0 +1,36 @@
+[
+  {
+    "kind": "destroy",
+    "v": {
+      "remotes": [
+        {
+          "kind": "imap",
+          "v": {
+            "mailbox": "[Gmail]/All Mail",
+            "uidvalidity": 12,
+            "uid": 4294967295
+          }
+        },
+        {
+          "kind": "pop",
+          "v": {
+            "uidl": "UID-1"
+          }
+        },
+        {
+          "kind": "graph",
+          "v": {
+            "mailbox": "Deleted Items",
+            "id": "AAMk-1"
+          }
+        },
+        {
+          "kind": "jmap",
+          "v": {
+            "email_id": "Mf40b5f831"
+          }
+        }
+      ]
+    }
+  }
+]

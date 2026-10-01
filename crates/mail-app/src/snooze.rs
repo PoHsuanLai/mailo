@@ -71,7 +71,12 @@ fn set(
 
 /// Apply a thread-level op through `Op::apply` and `Store::apply`, like every other operation,
 /// so the change is recorded with its inverse and can be undone.
-fn apply(store: &SqliteStore, thread: ThreadId, op: Op, now: DateTime<Utc>) -> Result<(), String> {
+pub(crate) fn apply(
+    store: &SqliteStore,
+    thread: ThreadId,
+    op: Op,
+    now: DateTime<Utc>,
+) -> Result<(), String> {
     let loaded = store.thread(thread).map_err(|e| e.to_string())?;
     let messages: Vec<Message> = loaded
         .messages
@@ -102,7 +107,7 @@ fn apply(store: &SqliteStore, thread: ThreadId, op: Op, now: DateTime<Utc>) -> R
 /// Snooze is local by construction: no protocol represents it, so what a server supports cannot
 /// change the answer. Spelled out rather than read from the account because reading them would
 /// suggest they matter.
-fn local_only(now: DateTime<Utc>) -> AccountCaps {
+pub(crate) fn local_only(now: DateTime<Utc>) -> AccountCaps {
     AccountCaps {
         labels: ServerLabels::LocalOnly,
         threads: ServerThreads::Jwz,

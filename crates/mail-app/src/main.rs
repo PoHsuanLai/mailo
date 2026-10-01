@@ -6,7 +6,11 @@ fn main() {
     // No arguments opens the window, and `open <thread>` opens it on a conversation; anything
     // else is the CLI. One binary because they are one application over one store, and a
     // separate CLI would drift from what the UI does.
+    // `mailo mailto:…`, as the desktop runs the scheme's handler: the window, on a composer
+    // holding what the link asks for. The draft is made once the store is open, below.
+    let mailto = mail_app::ui::mailto_of(&args);
     let start = match mail_app::ui::start_of(&args) {
+        _ if mailto.is_some() => Some(mail_app::ui::Start::Inbox),
         Some(Ok(start)) => Some(start),
         Some(Err(message)) => {
             eprintln!("{message}");
@@ -153,13 +157,19 @@ fn main() {
             message,
             to,
             body: _,
+            carry,
         }) => {
             let mut body = String::new();
             if let Err(e) = std::io::Read::read_to_string(&mut std::io::stdin(), &mut body) {
                 eprintln!("cannot read the covering note: {e}");
                 std::process::exit(1);
             }
-            Some(mail_app::cli::Command::Forward { message, to, body })
+            Some(mail_app::cli::Command::Forward {
+                message,
+                to,
+                body,
+                carry,
+            })
         }
         // `signature` takes its text from stdin too, unless it is being cleared.
         Some(mail_app::cli::Command::Signature {
@@ -200,7 +210,9 @@ fn main() {
     };
 
     let Some(dirs) = paths() else {
-        eprintln!("cannot determine a data directory; set HOME or XDG_DATA_HOME");
+        eprintln!(
+            "cannot determine a data directory for this user (on Linux, set HOME or XDG_DATA_HOME)"
+        );
         std::process::exit(1);
     };
     if let Err(e) = std::fs::create_dir_all(&dirs.blobs) {
@@ -228,6 +240,16 @@ fn main() {
     }
 
     let store = std::sync::Arc::new(store);
+    let start = match &mailto {
+        Some(link) => match mail_app::ui::start_mailto(&store, link, chrono::Utc::now()) {
+            Ok(compose) => Some(compose),
+            Err(message) => {
+                eprintln!("{message}");
+                std::process::exit(1);
+            }
+        },
+        None => start,
+    };
     // Sync needs an async runtime and the store by Arc, so it is dispatched here rather than
     // inside mail_app::cli::run, which is deliberately synchronous and testable.
     if matches!(command, Some(mail_app::cli::Command::Sync)) {
@@ -398,6 +420,23 @@ fn main() {
         }
         return;
     }
+    if let Some(mail_app::cli::Command::Offline { address, set }) = &command {
+        let accounts = mail_app::sync::addresses(&store);
+        match mail_app::offline::command(
+            mail_app::appearance::config_dir().as_deref(),
+            store.as_ref(),
+            &accounts,
+            address.as_deref(),
+            *set,
+        ) {
+            Ok(said) => print!("{said}"),
+            Err(message) => {
+                eprintln!("{message}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
     if let Some(mail_app::cli::Command::Watch { notify }) = &command {
         let notifications = match notify {
             mail_app::cli::WatchNotify::Never => mail_app::notify::Setting::Off,
@@ -445,8 +484,9 @@ fn main() {
             // quire's `appearance.toml`, imported from `appearance.json` on the first run after
             // the move. The window's `use_environment` reads and watches it from then on, and
             // does not import by itself.
-            if let Some(dir) = config.as_deref() {
-                mail_app::appearance::quire(dir);
+            // quire keeps it by its own rule, which is `config` only on Linux.
+            if let Some(dir) = mail_app::appearance::quire_dir() {
+                mail_app::appearance::quire(&dir);
             }
             let ids = account_ids(&store);
             let spaces = match &config {
@@ -540,14 +580,10 @@ struct Paths {
     blobs: std::path::PathBuf,
 }
 
-/// Where the database and blobs live, following the XDG base directory spec.
+/// Where the database and blobs live: mailo's data directory (`$XDG_DATA_HOME/mailo` on Linux,
+/// the local application data folder on macOS and Windows; `mail_runtime::places`).
 fn paths() -> Option<Paths> {
-    let base = std::env::var_os("XDG_DATA_HOME")
-        .map(std::path::PathBuf::from)
-        .or_else(|| {
-            std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".local/share"))
-        })?
-        .join("mailo");
+    let base = mail_runtime::places::dir(mail_runtime::places::Place::Data)?;
     Some(Paths {
         db: base.join("mail.db"),
         blobs: base.join("blobs"),

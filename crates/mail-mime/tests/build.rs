@@ -461,3 +461,138 @@ fn a_draft_that_asks_for_a_receipt_says_so_and_one_that_does_not_does_not() {
     assert!(!String::from_utf8_lossy(&plain.message).contains("Disposition-Notification-To"));
     assert_eq!(receipt_asked(&plain.message), None);
 }
+
+/// A message carried whole, as forwarding one as an attachment does. RFC 2046 §5.2.1 allows a
+/// `message/rfc822` part only `7bit`, `8bit` or `binary`; mail-builder gives every part that is
+/// not text base64, which a reader that honours the RFC shows as an opaque file.
+mod enclosed_message {
+    use super::*;
+
+    struct Case {
+        name: &'static str,
+        carried: &'static str,
+        /// What the part's body must be: the carried bytes, lines ending in CRLF.
+        expect: &'static str,
+        encoding: &'static str,
+    }
+
+    const CASES: &[Case] = &[
+        Case {
+            name: "short ASCII lines",
+            carried: "From: ada@example.test\r\nSubject: Lunch\r\n\r\nThursday?\r\n",
+            expect: "From: ada@example.test\r\nSubject: Lunch\r\n\r\nThursday?\r\n",
+            encoding: "7bit",
+        },
+        Case {
+            name: "8-bit bytes",
+            carried: "From: ada@example.test\r\nSubject: Lunch\r\nContent-Type: text/plain; \
+                      charset=utf-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\nUn café ?\r\n",
+            expect: "From: ada@example.test\r\nSubject: Lunch\r\nContent-Type: text/plain; \
+                     charset=utf-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\nUn café ?\r\n",
+            encoding: "8bit",
+        },
+        Case {
+            name: "bare line feeds, as an mbox import stores them",
+            carried: "From: ada@example.test\nSubject: Lunch\n\nThursday?\n",
+            expect: "From: ada@example.test\r\nSubject: Lunch\r\n\r\nThursday?\r\n",
+            encoding: "7bit",
+        },
+    ];
+
+    fn carrying(bytes: &[u8]) -> Vec<u8> {
+        let blob = BlobId::generate();
+        let mut draft = draft(None, Some(blob));
+        draft.html = None;
+        draft.attachments[0].name = "Lunch.eml".to_owned();
+        draft.attachments[0].mime = "message/rfc822".to_owned();
+        build(
+            &draft,
+            &identity(),
+            None,
+            &[(blob, bytes.to_vec())],
+            Disclosure::HideBlind,
+        )
+        .unwrap()
+    }
+
+    /// The enclosed part's own header block and body, found by its content type.
+    fn part(built: &[u8]) -> (String, Vec<u8>) {
+        let parsed = mail_parser::MessageParser::default().parse(built).unwrap();
+        let part = parsed
+            .parts
+            .iter()
+            .find(|part| {
+                mail_parser::MimeHeaders::content_type(*part)
+                    .is_some_and(|ct| ct.ctype() == "message" && ct.subtype() == Some("rfc822"))
+            })
+            .expect("a message/rfc822 part");
+        let header = built[part.offset_header as usize..part.offset_body as usize].to_vec();
+        let body = built[part.offset_body as usize..part.offset_end as usize].to_vec();
+        (String::from_utf8_lossy(&header).into_owned(), body)
+    }
+
+    #[test]
+    fn it_goes_as_the_bytes_it_is_under_an_encoding_rfc_2046_allows() {
+        for case in CASES {
+            let built = carrying(case.carried.as_bytes());
+            let (header, body) = part(&built);
+            assert!(
+                header.contains(&format!("Content-Transfer-Encoding: {}\r\n", case.encoding)),
+                "{}: {header}",
+                case.name
+            );
+            assert!(
+                !header.to_ascii_lowercase().contains("base64"),
+                "{}: {header}",
+                case.name
+            );
+            assert!(
+                header.contains("attachment") && header.contains("Lunch.eml"),
+                "{}: {header}",
+                case.name
+            );
+            assert!(
+                body.starts_with(case.expect.as_bytes()),
+                "{}: {:?}",
+                case.name,
+                String::from_utf8_lossy(&body)
+            );
+            let rest = &body[case.expect.len()..];
+            assert!(
+                rest.iter().all(|byte| matches!(byte, b'\r' | b'\n')),
+                "{}: more than the message in the part: {:?}",
+                case.name,
+                String::from_utf8_lossy(rest)
+            );
+        }
+    }
+
+    #[test]
+    fn it_parses_back_to_the_message_it_carried() {
+        for case in CASES {
+            let built = carrying(case.carried.as_bytes());
+            let outer = parse(&built).unwrap();
+            assert_eq!(outer.attachments.len(), 1, "{}", case.name);
+            assert_eq!(outer.attachments[0].mime, "message/rfc822", "{}", case.name);
+            let inner = parse(&outer.attachments[0].bytes).unwrap();
+            // What was carried, in its canonical CRLF form (the case's `expect`).
+            let original = parse(case.expect.as_bytes()).unwrap();
+            assert_eq!(inner.subject, original.subject, "{}", case.name);
+            assert_eq!(inner.from, original.from, "{}", case.name);
+            assert_eq!(inner.text, original.text, "{}", case.name);
+        }
+    }
+
+    #[test]
+    fn a_line_smtp_cannot_carry_is_labelled_binary_rather_than_claimed_to_be_7bit() {
+        let long = format!(
+            "From: ada@example.test\r\nSubject: Long\r\n\r\n{}\r\n",
+            "x".repeat(1200)
+        );
+        let (header, _) = part(&carrying(long.as_bytes()));
+        assert!(
+            header.contains("Content-Transfer-Encoding: binary\r\n"),
+            "{header}"
+        );
+    }
+}

@@ -35,12 +35,19 @@ fn the_avatar_is_the_first_character_not_the_first_byte() {
 
 fn text_of(markup: &str, class: &str) -> String {
     // The avatar is quire's `span.ds-avatar`, the sender's name its first headline `Label`.
-    let needle = match class {
-        "reader-av" => r#"class="ds-avatar""#.to_owned(),
-        "reader-from" => r#"data-style="headline""#.to_owned(),
-        other => format!(r#"class="{other}""#),
+    let needles: Vec<String> = match class {
+        // Quire's avatar, or the letter the brand logo falls back to.
+        "reader-av" => vec![
+            r#"class="ds-avatar""#.to_owned(),
+            r#"class="reader-av""#.to_owned(),
+        ],
+        "reader-from" => vec![
+            r#"data-style="headline""#.to_owned(),
+            r#"class="reader-from""#.to_owned(),
+        ],
+        other => vec![format!(r#"class="{other}""#)],
     };
-    let Some((_, rest)) = markup.split_once(&needle) else {
+    let Some((_, rest)) = needles.iter().find_map(|needle| markup.split_once(needle)) else {
         panic!("no {class} in:\n{markup}");
     };
     let rest = rest.split_once('>').map_or(rest, |(_, after)| after);
@@ -607,6 +614,27 @@ fn every_block_renders_to_the_same_sketch() {
         ));
     }
     assert!(failures.is_empty(), "{}", failures.join("\n---\n"));
+}
+
+/// A link in the Reader view is drawn, and hovered, without the parameters that only tell the
+/// sender who clicked: an inline link and a button alike. An unknown parameter stays.
+#[test]
+fn reader_links_are_drawn_without_tracking_parameters() {
+    let raw = "<p>Read <a href=\"https://news.example/issue?n=14&amp;utm_source=letter&amp;fbclid=x\">\
+               the issue</a> or the archive.</p>\
+               <p><a href=\"https://news.example/archive?utm_medium=email&amp;mc_eid=f00d\">Archive</a></p>";
+    let markup = rendered_blocks(blocks_of(raw, RemoteImages::Blocked));
+    assert!(
+        markup.contains(r#"href="https://news.example/issue?n=14""#),
+        "the inline link kept its tracking, or lost its own parameter:\n{markup}"
+    );
+    assert!(
+        markup.contains(r#"href="https://news.example/archive""#),
+        "the button kept its tracking:\n{markup}"
+    );
+    for name in ["utm_", "fbclid", "mc_eid"] {
+        assert!(!markup.contains(name), "{name} survived:\n{markup}");
+    }
 }
 
 #[tokio::test]

@@ -1,6 +1,7 @@
 //! The composer page, without a window: recorded editor events replayed through the page's own
 //! handler, the guards, the draft's life against a real store, and the pill's faces.
 
+mod emoji;
 mod faces;
 mod later;
 mod later_render;
@@ -8,6 +9,7 @@ mod life;
 mod local_from;
 mod openpgp;
 mod people;
+mod people_groups;
 mod receipt;
 mod render;
 mod smime;

@@ -340,7 +340,7 @@ async fn a_fetch_that_fails_says_why_in_the_status_line() {
 #[test]
 fn an_op_in_a_folder_place_keeps_the_row_while_its_mail_is_still_there() {
     let (store, _dir, threads) = store();
-    let places = places_with(&[], &super::folder_places(&store));
+    let places = places_with(&[], &super::folder_places(&store), &[]);
     let index = places
         .iter()
         .position(|place| folder_of(place).is_some_and(|m| m.path == PROJECTS))

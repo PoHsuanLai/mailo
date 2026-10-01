@@ -1,6 +1,6 @@
 //! Reading cards, of any version a phone or a webmail export is likely to produce.
 
-use super::{Card, Email, Name, Phone, Version};
+use super::{Card, CardKind, Email, Name, Phone, Version};
 use crate::line::{self, ContentLine, split_escaped, unescape};
 
 /// Every card in `text`, in order.
@@ -27,7 +27,7 @@ pub fn parse(text: &str) -> Vec<Card> {
                 if depth == 0
                     && let Some(card) = current.take()
                 {
-                    cards.push(card);
+                    cards.push(finish(card));
                 }
             }
             _ if depth == 1 => {
@@ -38,8 +38,28 @@ pub fn parse(text: &str) -> Vec<Card> {
             _ => {}
         }
     }
-    cards.extend(current);
+    cards.extend(current.map(finish));
     cards
+}
+
+/// A card read to its end. `MEMBER` belongs to a group alone (RFC 6350 §6.6.5), and `KIND` may
+/// come after it, so each was carried unread until now: a group's become its members, and any
+/// other card's stay where they were, to be written back as they came.
+fn finish(mut card: Card) -> Card {
+    if card.is_group() {
+        let (members, other): (Vec<ContentLine>, Vec<ContentLine>) =
+            std::mem::take(&mut card.other)
+                .into_iter()
+                .partition(|line| line.name == "MEMBER");
+        card.other = other;
+        card.members = members
+            .iter()
+            .map(|line| line.value.trim())
+            .filter(|uri| !uri.is_empty())
+            .map(str::to_owned)
+            .collect();
+    }
+    card
 }
 
 /// [`parse`], for bytes of unknown encoding: UTF-8 when they are, otherwise Windows-1252, which
@@ -62,6 +82,9 @@ fn read_property(card: &mut Card, line: ContentLine) {
             }
         }
         "UID" => card.uid = non_empty(unescape(&line.value)),
+        "KIND" => {
+            card.kind = Some(CardKind::parse(&line.value)).filter(|kind| !kind.as_str().is_empty());
+        }
         "FN" => card.formatted_name = non_empty(unescape(&line.value)),
         "N" => card.name = Some(name(&line.value)),
         "EMAIL" => {

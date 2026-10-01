@@ -7,6 +7,7 @@
 //! what a mail scanner does by accident, and exactly what a sender can use to confirm that an
 //! address is read.
 
+use crate::mailto::MailtoUri;
 use mail_domain::Address;
 use mail_parser::{HeaderName, MessageParser};
 
@@ -216,89 +217,18 @@ fn uris_of(value: &str) -> Vec<String> {
     out
 }
 
-/// The part of a `mailto:` URI after the scheme, as a message (RFC 6068 §2).
+/// The part of a `mailto:` URI after the scheme, as a message (RFC 6068 §2), when it names
+/// somebody to send it to. Its `cc` and `bcc` are dropped (see [`Mailto`]).
 fn mailto(rest: &str) -> Option<Mailto> {
-    let (path, query) = match rest.split_once('?') {
-        Some((path, query)) => (path, query),
-        None => (rest, ""),
-    };
-    let mut to = recipients(path);
-    let (mut subject, mut body) = (None, None);
-    for field in query.split('&') {
-        let Some((name, value)) = field.split_once('=') else {
-            continue;
-        };
-        match percent_decode(name).to_ascii_lowercase().as_str() {
-            "to" => to.extend(recipients(value)),
-            "subject" if subject.is_none() => subject = Some(percent_decode(value)),
-            "body" if body.is_none() => body = Some(percent_decode(value)),
-            _ => {}
-        }
-    }
-    if to.is_empty() {
+    let read = MailtoUri::after_scheme(rest);
+    if read.to.is_empty() {
         return None;
     }
     Some(Mailto {
-        to,
-        subject: subject.unwrap_or_default(),
-        body: body.unwrap_or_default().replace("\r\n", "\n"),
+        to: read.to,
+        subject: read.subject,
+        body: read.body,
     })
-}
-
-/// A comma-separated, percent-encoded list of addr-specs, keeping only the plausible ones.
-fn recipients(encoded: &str) -> Vec<Address> {
-    encoded
-        .split(',')
-        .map(percent_decode)
-        .filter_map(|email| {
-            let email = email.trim();
-            plausible(email).then(|| Address {
-                name: None,
-                email: email.to_owned(),
-            })
-        })
-        .collect()
-}
-
-/// `local@domain`, both halves non-empty, nothing that would let it become a second header or
-/// a second recipient once it is written into a message.
-fn plausible(email: &str) -> bool {
-    let Some((local, domain)) = email.rsplit_once('@') else {
-        return false;
-    };
-    !local.is_empty()
-        && !domain.is_empty()
-        && !email
-            .chars()
-            .any(|c| c.is_whitespace() || c.is_control() || matches!(c, '<' | '>' | ',' | ';'))
-}
-
-/// `%XX` decoded as UTF-8, with anything undecodable replaced rather than refused.
-///
-/// Not `application/x-www-form-urlencoded`: RFC 6068 gives `+` no meaning, so it stays a `+`,
-/// which matters in the local part of an address.
-fn percent_decode(text: &str) -> String {
-    let bytes = text.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        let escaped = (bytes[i] == b'%')
-            .then(|| bytes.get(i + 1..i + 3))
-            .flatten()
-            .and_then(|hex| std::str::from_utf8(hex).ok())
-            .and_then(|hex| u8::from_str_radix(hex, 16).ok());
-        match escaped {
-            Some(byte) => {
-                out.push(byte);
-                i += 3;
-            }
-            None => {
-                out.push(bytes[i]);
-                i += 1;
-            }
-        }
-    }
-    String::from_utf8_lossy(&out).into_owned()
 }
 
 /// `Description <id>` (RFC 2919 §2). The id is required; the description is not.
@@ -317,24 +247,4 @@ fn list_id(value: &str) -> Option<ListId> {
         description: (!description.is_empty()).then_some(description),
         id,
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn percent_decoding_leaves_plus_and_broken_escapes_alone() {
-        const CASES: &[(&str, &str)] = &[
-            ("a%20b", "a b"),
-            ("a+b", "a+b"),
-            ("100%", "100%"),
-            ("%zz", "%zz"),
-            ("caf%C3%A9", "café"),
-            ("%0D%0A", "\r\n"),
-        ];
-        for (input, expected) in CASES {
-            assert_eq!(percent_decode(input), *expected, "case {input:?}");
-        }
-    }
 }

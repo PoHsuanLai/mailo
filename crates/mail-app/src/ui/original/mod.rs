@@ -17,6 +17,7 @@ mod links;
 mod net;
 
 pub use consent::Consent;
+pub(crate) use consent::Holder;
 pub use links::{Browse, FramePill};
 pub(crate) use net::data_uri;
 pub use net::{Fetch, FetchImage, Got};

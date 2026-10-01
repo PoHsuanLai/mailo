@@ -31,6 +31,7 @@ use super::page::{CcRow, Float, Guard, List, Page, PageKind, When};
 use super::protection::ProtectionRow;
 use super::receipt::{KEY as RECEIPT_KEY, ReceiptRow, item as receipt_item};
 use super::recipients::{commit_typed, people_items, pick_person, pop_last, remove, typed};
+use super::remind::RemindRow;
 use crate::provider::icon::{ChipPlace, ProvChip};
 use crate::provider::provider;
 use crate::view::Shell;
@@ -78,6 +79,7 @@ pub(in crate::ui) fn Props(page: Signal<Page>, shell: Signal<Shell>) -> Element 
                 ProtectionRow { page }
             }
             ReceiptRow { page }
+            RemindRow { page }
             if !attached.is_empty() {
                 FieldRow {
                     label: "Attached",

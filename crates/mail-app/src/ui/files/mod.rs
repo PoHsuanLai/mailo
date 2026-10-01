@@ -172,14 +172,20 @@ pub(in crate::ui) fn tilde(path: &std::path::Path, home: Option<&std::ffi::OsStr
         .and_then(|home| path.strip_prefix(home).ok())
     {
         Some(rest) if rest.as_os_str().is_empty() => "~".to_owned(),
-        Some(rest) => format!("~/{}", rest.display()),
+        // Joined, so the separator is this platform's: `~/Mail` here, `~\Mail` on Windows.
+        Some(rest) => std::path::Path::new("~").join(rest).display().to_string(),
         None => path.display().to_string(),
     }
 }
 
 /// [`tilde`] against this user's home directory.
 pub(in crate::ui) fn tilde_here(path: &std::path::Path) -> String {
-    tilde(path, std::env::var_os("HOME").as_deref())
+    tilde(
+        path,
+        mail_runtime::places::home()
+            .as_deref()
+            .map(std::path::Path::as_os_str),
+    )
 }
 
 #[cfg(test)]

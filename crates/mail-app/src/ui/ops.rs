@@ -17,6 +17,8 @@ use mail_store::{SqliteStore, Store};
 pub(super) enum Composes {
     Reply(ReplyScope),
     Forward,
+    /// A forward that carries the message itself as a `message/rfc822` attachment.
+    ForwardAttached,
 }
 
 pub(super) fn composes(kind: OpKind) -> Option<Composes> {
@@ -58,7 +60,7 @@ pub(super) fn start_composing(
 ) -> Result<Draft, String> {
     match what {
         Composes::Reply(scope) => start_reply(store, thread, scope),
-        Composes::Forward => {
+        Composes::Forward | Composes::ForwardAttached => {
             let loaded = store.thread(thread).map_err(|e| e.to_string())?;
             let messages: Vec<Message> = loaded
                 .messages
@@ -69,7 +71,16 @@ pub(super) fn start_composing(
                 .ok_or_else(|| "that conversation has no message to forward".to_owned())?;
             // No recipients: a forward has none of its own and the composer is where the user
             // names them. The draft is saved regardless, so closing the window does not lose it.
-            crate::compose::draft_forward(store, target.id, &[], "", chrono::Utc::now())
+            match what {
+                Composes::ForwardAttached => crate::compose::draft_forward_attached(
+                    store,
+                    target.id,
+                    &[],
+                    "",
+                    chrono::Utc::now(),
+                ),
+                _ => crate::compose::draft_forward(store, target.id, &[], "", chrono::Utc::now()),
+            }
         }
     }
 }
@@ -112,12 +123,17 @@ pub(super) fn apply_op(store: &SqliteStore, thread: ThreadId, kind: OpKind) -> b
 ///
 /// `Pin` needs a payload `op_for` cannot supply — the direction comes from the conversation's
 /// current state and the rank from the clock — so it is resolved here, where both are in
-/// reach. Label and snooze open a menu rather than acting, and resolve to nothing.
+/// reach, and `Mute` likewise takes its direction from the conversation. Label and snooze open
+/// a menu rather than acting, and resolve to nothing.
 pub(super) fn resolve(store: &SqliteStore, thread: ThreadId, kind: OpKind) -> Option<Op> {
     match kind {
         OpKind::Pin => {
             let loaded = store.thread(thread).ok()?;
             Some(crate::view::pin_op(&loaded.summary, chrono::Utc::now()))
+        }
+        OpKind::Mute => {
+            let loaded = store.thread(thread).ok()?;
+            Some(crate::view::mute_op(&loaded.summary))
         }
         other => op_for(other),
     }
@@ -245,7 +261,8 @@ fn touches(later: &mail_store::OutboxEntry, messages: &[MessageId], filing: &Pro
         | ProtoOp::SetLabels { remotes, .. }
         | ProtoOp::File { remotes, .. }
         | ProtoOp::AddKeyword { remotes, .. }
-        | ProtoOp::Expunge { remotes } => remotes.iter().any(|r| ours.contains(r)),
+        | ProtoOp::Expunge { remotes }
+        | ProtoOp::Destroy { remotes } => remotes.iter().any(|r| ours.contains(r)),
         // A new message, a sent one, or a mailbox: none of them is a message already held.
         ProtoOp::Append { .. } | ProtoOp::Submit { .. } | ProtoOp::Folder(_) => false,
         _ => true,
@@ -333,6 +350,53 @@ pub(super) fn perform(store: &SqliteStore, thread: ThreadId, op: Op) -> Option<U
         inverse: applied.inverse,
         remote: applied.remote,
     })
+}
+
+/// Delete forever what `thread` holds in Trash or Spam, here and on the server. Returns the
+/// messages it removed; `None` when there were none.
+///
+/// Not [`perform`]: that applies the patch first and queues after, and removing a message takes
+/// its server addresses with it. The deletion is queued first, while the store still knows where
+/// each message is (`Store::enqueue`), and nothing is returned to undo it.
+pub(super) fn destroy(store: &SqliteStore, thread: ThreadId) -> Option<Vec<MessageId>> {
+    let loaded = store.thread(thread).ok()?;
+    let messages: Vec<Message> = loaded
+        .messages
+        .iter()
+        .filter_map(|id| store.message(*id).ok())
+        .collect();
+    let account = messages.first().map(|m| m.account)?;
+    let now = chrono::Utc::now();
+    let applied = Op::Destroy.apply(
+        &Target::Threads(vec![thread]),
+        &loaded,
+        &messages,
+        &caps_here(store, account, now),
+        now,
+    );
+    let gone: Vec<MessageId> = applied
+        .forward
+        .changes
+        .iter()
+        .filter_map(|change| match change {
+            Change::MessageDelete(m) => Some(*m),
+            _ => None,
+        })
+        .collect();
+    if gone.is_empty() {
+        return None;
+    }
+    if let Some(intent) = applied.remote.filter(|_| has_server(store, account))
+        && store
+            .enqueue(account, intent, &applied.inverse, now)
+            .is_err()
+    {
+        // Not removed here either: a message gone here and left there comes back with the next
+        // sync, and meanwhile says it was deleted.
+        return None;
+    }
+    store.apply(account, &applied.forward).ok()?;
+    Some(gone)
 }
 
 #[cfg(test)]

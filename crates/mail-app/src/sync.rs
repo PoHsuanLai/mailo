@@ -8,6 +8,8 @@ pub use crate::notify::Announce;
 pub mod due;
 
 mod jmap;
+mod search;
+
 use mail_domain::*;
 use mail_proto::backend::{Authenticate, ImapBackend, Pop3Backend};
 use mail_proto::{ImapAuth, ImapCommand, ImapSession, Pop3Command, Pop3Session};
@@ -17,6 +19,7 @@ use mail_runtime::{
     AccountEngine, Held, KeyringSecrets, OAuthRegistry, Renewal, Secrets, SyncReport, signin,
 };
 use mail_store::SqliteStore;
+pub use search::{search_server, search_server_with};
 use std::fmt::Write as _;
 use std::sync::Arc;
 use tokio::sync::watch;
@@ -28,6 +31,11 @@ pub struct Configured {
     pub address: String,
     pub plan: AccountPlan,
     pub caps: AccountCaps,
+    /// Whether a pass fetches the attachments a sync leaves on the server too. The window's
+    /// setting, not the store's ([`crate::offline`]): [`Keep::Bodies`] until something reads it.
+    ///
+    /// [`Keep::Bodies`]: crate::offline::Keep::Bodies
+    pub keep: crate::offline::Keep,
 }
 
 /// What the server was last observed to support, for one account.
@@ -90,6 +98,7 @@ pub(crate) fn configured(store: &SqliteStore) -> Result<Vec<Configured>, String>
             address,
             plan,
             caps,
+            keep: crate::offline::Keep::default(),
         });
     }
     Ok(out)
@@ -122,6 +131,15 @@ pub fn auth_by_account(
         .into_iter()
         .map(|account| (account.address, account.plan.auth))
         .collect())
+}
+
+/// Every configured account's id and address, in the order they were added.
+pub fn addresses(store: &SqliteStore) -> Vec<(AccountId, String)> {
+    configured(store)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|account| (account.id, account.address))
+        .collect()
 }
 
 /// The accounts that keep their mail on this computer ([`Incoming::Local`]).
@@ -184,7 +202,10 @@ pub fn watch(
         now,
         Mode::Watch,
         announce,
-        &|_| true,
+        &Scope {
+            due: &|_| true,
+            kept: &crate::offline::load_default(),
+        },
     )
 }
 
@@ -193,7 +214,18 @@ pub fn run(store: Arc<SqliteStore>, now: chrono::DateTime<chrono::Utc>) -> Resul
     // configuration, and an edit halfway through a run producing two different client ids is
     // not a behaviour worth having.
     let registry = OAuthRegistry::load_default().map_err(|e| e.to_string())?;
-    run_with(store, Arc::new(KeyringSecrets), &registry, now)
+    run_all(
+        store,
+        Arc::new(KeyringSecrets),
+        &registry,
+        now,
+        Mode::Once,
+        Announce::Quietly,
+        &Scope {
+            due: &|_| true,
+            kept: &crate::offline::load_default(),
+        },
+    )
 }
 
 /// The same, with the secret store named.
@@ -219,11 +251,22 @@ pub fn run_with(
         now,
         Mode::Once,
         Announce::Quietly,
-        &|_| true,
+        &Scope {
+            due: &|_| true,
+            kept: &crate::offline::Kept::default(),
+        },
     )
 }
 
-/// The same, told whether to stop after one pass, and which accounts are due one ([`due`]).
+/// Which accounts a run syncs, and how much of each it keeps.
+struct Scope<'a> {
+    /// Whether an account is due a pass ([`due`]).
+    due: &'a dyn Fn(AccountId) -> bool,
+    /// Which accounts keep everything offline ([`crate::offline`]).
+    kept: &'a crate::offline::Kept,
+}
+
+/// The same, told whether to stop after one pass, and which accounts to sync and keep how.
 fn run_all(
     store: Arc<SqliteStore>,
     secrets: Arc<dyn Secrets>,
@@ -231,7 +274,7 @@ fn run_all(
     now: chrono::DateTime<chrono::Utc>,
     mode: Mode,
     announce: Announce<'_>,
-    due: &dyn Fn(AccountId) -> bool,
+    scope: &Scope<'_>,
 ) -> Result<Ran, String> {
     // An account that keeps its mail here has no server: nothing to fetch, nothing to drain,
     // and no credential to ask the keyring for. Left out rather than reported, because a line
@@ -256,7 +299,14 @@ fn run_all(
             hold: None,
         });
     }
-    let accounts: Vec<Configured> = accounts.into_iter().filter(|a| due(a.id)).collect();
+    let accounts: Vec<Configured> = accounts
+        .into_iter()
+        .filter(|a| (scope.due)(a.id))
+        .map(|a| Configured {
+            keep: scope.kept.of(a.id),
+            ..a
+        })
+        .collect();
 
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -777,6 +827,9 @@ fn one_line(address: &str, report: &SyncReport, now: chrono::DateTime<chrono::Ut
         "{address}: {} headers, {} bodies, {} queued operations settled, {} sent",
         report.headers_fetched, report.bodies_fetched, report.outbox_settled, report.submitted
     );
+    if report.parts_fetched > 0 {
+        let _ = writeln!(out, "  {} attachment(s) kept offline", report.parts_fetched);
+    }
     if !report.ruled.is_empty() {
         let _ = writeln!(
             out,
@@ -838,7 +891,7 @@ pub async fn drive<B: mail_proto::Backend>(
     announce: Announce<'_>,
 ) -> Result<SyncReport, String> {
     if mode == Mode::Once {
-        return pass(engine, mailboxes, cancel, now).await;
+        return pass(engine, mailboxes, account.keep, cancel, now).await;
     }
 
     let poll_every = match account.caps.watch {
@@ -857,7 +910,7 @@ pub async fn drive<B: mail_proto::Backend>(
 
     loop {
         let at = chrono::Utc::now();
-        let report = pass(engine, mailboxes, cancel, at).await;
+        let report = pass(engine, mailboxes, account.keep, cancel, at).await;
         match after_pass(account, &report, at, announce) {
             AfterPass::Stop => return report,
             AfterPass::Hold(wait) => {
@@ -918,6 +971,15 @@ fn after_pass(
     {
         println!("{}: {why}", account.address);
     }
+    // Then the follow-up reminders (`crate::follow_up`): what this pass fetched may be the reply
+    // one was waiting for, or the Sent copy a composer's reminder was waiting to join, and one
+    // may simply have come due. Only a watch that announces sweeps, so that a reminder coming
+    // back is said by whoever brings it back: a quiet watch leaves it to the window.
+    if let Announce::To { store, notifier } = announce
+        && let Err(why) = crate::follow_up::sweep_and_announce(store, Some(notifier), at)
+    {
+        println!("reminders: {why}");
+    }
     use std::io::Write as _;
     let _ = std::io::stdout().flush();
     // The rule F128 built its loop on, and the reason this one is not a bare sleep: a credential
@@ -945,6 +1007,7 @@ fn after_pass(
 async fn pass<B: mail_proto::Backend>(
     engine: &mut AccountEngine<B>,
     mailboxes: &[MailboxRef],
+    keep: crate::offline::Keep,
     cancel: &mut mail_runtime::Cancel,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<SyncReport, String> {
@@ -983,7 +1046,7 @@ async fn pass<B: mail_proto::Backend>(
     // sync, each pass brings the inbox up to date before it moves on.
     let mut report = SyncReport::default();
     for mailbox in mailboxes {
-        one_mailbox(engine, mailbox, cancel, now, &mut report).await;
+        one_mailbox(engine, mailbox, keep, cancel, now, &mut report).await;
     }
 
     // Rules, over what arrived in any folder this pass, before the drain so that what they
@@ -1036,6 +1099,15 @@ const HEADERS_PER_PASS: usize = 200;
 /// Most bodies one mailbox takes in one pass.
 const BODIES_PER_PASS: usize = 100;
 
+/// Most of what a sync left on the server one mailbox fetches in one pass, for an account kept
+/// offline in full: twenty attachments or 64 MiB, whichever comes first, and always at least
+/// one. A pass is what stands between the user and their next new mail, so a mailbox of large
+/// attachments is brought here over many passes rather than in one that does not end.
+const PARTS_PER_PASS: mail_runtime::PartBudget = mail_runtime::PartBudget {
+    parts: 20,
+    bytes: 64 * 1024 * 1024,
+};
+
 /// One mailbox's share of a pass: headers, then the server's view of what is held, then bodies.
 ///
 /// Failures are folded into `report` rather than returned: a folder the server will not select
@@ -1043,6 +1115,7 @@ const BODIES_PER_PASS: usize = 100;
 async fn one_mailbox<B: mail_proto::Backend>(
     engine: &mut AccountEngine<B>,
     mailbox: &MailboxRef,
+    keep: crate::offline::Keep,
     cancel: &mut mail_runtime::Cancel,
     now: chrono::DateTime<chrono::Utc>,
     report: &mut SyncReport,
@@ -1093,6 +1166,40 @@ async fn one_mailbox<B: mail_proto::Backend>(
         Ok(bodies) => {
             report.bodies_fetched += bodies.bodies_fetched;
             report.needs_attention.extend(bodies.needs_attention);
+            // Then, for an account kept offline in full, what the bodies left on the server,
+            // largest last. Only once this pass had room to spare for bodies: while a first
+            // sync still has messages to fetch, reading them comes before their attachments.
+            if keep == crate::offline::Keep::Everything && bodies.bodies_fetched < BODIES_PER_PASS {
+                remote_parts(engine, mailbox, cancel, report).await;
+            }
+        }
+        Err(e) => {
+            report.saw(&e.retry());
+            report
+                .needs_attention
+                .push(format!("{}: {e}", mailbox.path));
+        }
+    }
+}
+
+/// Fetch a pass's share of the attachments earlier passes left on the server in `mailbox`.
+async fn remote_parts<B: mail_proto::Backend>(
+    engine: &mut AccountEngine<B>,
+    mailbox: &MailboxRef,
+    cancel: &mut mail_runtime::Cancel,
+    report: &mut SyncReport,
+) {
+    match engine
+        .fetch_remote_parts(mailbox, cancel, PARTS_PER_PASS)
+        .await
+    {
+        Ok(parts) => {
+            report.parts_fetched += parts.parts_fetched;
+            if let Some(wait) = parts.hold {
+                report.saw(&Retry::After(wait));
+            }
+            report.needs_reauth |= parts.needs_reauth;
+            report.needs_attention.extend(parts.needs_attention);
         }
         Err(e) => {
             report.saw(&e.retry());
@@ -1202,7 +1309,15 @@ pub fn folder_now_with(
             if let Some(renewal) = renewal {
                 engine = engine.with_renewal(renewal);
             }
-            one_mailbox(&mut engine, &mailbox, &mut cancel, now, &mut report).await;
+            one_mailbox(
+                &mut engine,
+                &mailbox,
+                account.keep,
+                &mut cancel,
+                now,
+                &mut report,
+            )
+            .await;
             return Ok::<_, String>(report);
         }
         let mut engine = imap_engine(&store, &account, held, secrets.clone());
@@ -1210,7 +1325,15 @@ pub fn folder_now_with(
             engine = engine.with_renewal(renewal);
         }
         engine.reachable().await.map_err(|e| e.to_string())?;
-        one_mailbox(&mut engine, &mailbox, &mut cancel, now, &mut report).await;
+        one_mailbox(
+            &mut engine,
+            &mailbox,
+            account.keep,
+            &mut cancel,
+            now,
+            &mut report,
+        )
+        .await;
         Ok::<_, String>(report)
     })?;
     Ok(Ran {

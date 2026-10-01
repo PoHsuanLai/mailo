@@ -1,0 +1,53 @@
+{
+  "summary": {
+    "id": "06060606-0606-0606-0606-060606060606",
+    "account": "01010101-0101-0101-0101-010101010101",
+    "subject": "Lunch",
+    "snippet": "hello",
+    "from": {
+      "name": "A Name",
+      "email": "sender@example.test"
+    },
+    "participants": [
+      {
+        "name": "A Name",
+        "email": "sender@example.test"
+      },
+      {
+        "name": "A Name",
+        "email": "me@example.test"
+      }
+    ],
+    "recipients": [],
+    "last_date": "2026-01-04T04:05:06Z",
+    "message_count": 2,
+    "read": "unread",
+    "star": "starred",
+    "mailboxes": [
+      "inbox",
+      "sent"
+    ],
+    "labels": [
+      "03030303-0303-0303-0303-030303030303"
+    ],
+    "attachments": {
+      "kind": "present",
+      "v": {
+        "count": 1
+      }
+    },
+    "snooze": {
+      "kind": "until",
+      "v": "2026-01-09T04:05:06Z"
+    },
+    "pin": {
+      "kind": "rank",
+      "v": 1000
+    },
+    "mute": "muted"
+  },
+  "messages": [
+    "05050505-0505-0505-0505-050505050505",
+    "08080808-0808-0808-0808-080808080808"
+  ]
+}

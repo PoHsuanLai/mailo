@@ -14,9 +14,13 @@
 //! - **Sequence numbers renumber under you.** An untagged `EXPUNGE` shifts every later
 //!   sequence number, which is how a client deletes the wrong message. Nothing here hands a
 //!   sequence number to a caller; UIDs are the only identity that leaves this module.
-//! - **`\Deleted` and `EXPUNGE` are absent on purpose.** Gmail routes `EXPUNGE` through a
-//!   per-account setting that may be `deleteForever` and cannot be read over IMAP, so the
-//!   commands simply do not exist here rather than being gated on something unobservable.
+//! - **`\Deleted` and `EXPUNGE` serve one purpose only.** Gmail routes `EXPUNGE` through a
+//!   per-account setting that may be `deleteForever` and cannot be read over IMAP, so nothing
+//!   here moves or cleans up by expunging. The one use is the user's own "Delete forever" of mail
+//!   in the Trash or Spam folder (`ProtoOp::Destroy`), where deleting for good is the point:
+//!   `UID STORE +FLAGS.SILENT (\Deleted)` then `UID EXPUNGE` of the same UIDs (RFC 4315), behind
+//!   a [`ImapCommand::RequireCapability`] guard for `UIDPLUS`. A bare `EXPUNGE` does not exist
+//!   here, because it removes every `\Deleted` message in the mailbox, other clients' included.
 
 use crate::machine::{IoNeed, IoReady, Machine, Progress, ProtoError, Refusal};
 use crate::mutf7;
@@ -60,6 +64,13 @@ pub enum ImapCommand {
     UidSearch {
         criteria: String,
     },
+    /// `UID SEARCH` for a search typed here ([`crate::search::imap`]): with `RETURN (COUNT ALL)`
+    /// where the server has `ESEARCH` (RFC 4731), `CHARSET UTF-8` where a string is not ASCII,
+    /// and each such string a literal. Rendered when it is issued, from the capabilities the
+    /// session has seen by then, so a walk that wants either asks for `CAPABILITY` first.
+    Search {
+        keys: Vec<crate::search::imap::SearchKey>,
+    },
     /// `UID COPY <set> <mailbox>`. Copy, never move-by-delete: see the module note.
     UidCopy {
         set: String,
@@ -68,7 +79,7 @@ pub enum ImapCommand {
     /// `UID MOVE <set> <mailbox>` (RFC 6851), where the server advertises `MOVE`.
     ///
     /// The only safe way to actually move a message. The alternative is `COPY`, then `\Deleted`,
-    /// then `EXPUNGE` — and `EXPUNGE` is refused outright here, because Gmail may be configured
+    /// then `EXPUNGE` — and expunging is never used to move, because Gmail may be configured
     /// to delete permanently and that setting cannot be read over IMAP. `MOVE` is atomic and
     /// names no flag, so it is not that dance in disguise; it is the primitive the dance was
     /// always a poor imitation of.
@@ -95,6 +106,29 @@ pub enum ImapCommand {
         date: Option<chrono::DateTime<chrono::Utc>>,
         raw: Vec<u8>,
     },
+    /// `UID EXPUNGE <set>` (RFC 4315 §2.1): expunge exactly these UIDs, and no other message
+    /// marked `\Deleted` in the mailbox. Only after `\Deleted` was set on the same set for a
+    /// "Delete forever" in Trash or Spam, and only behind [`ImapCommand::RequireCapability`] for
+    /// `UIDPLUS`; see the module note.
+    UidExpunge {
+        set: String,
+    },
+    /// Sends nothing: the walk stops with [`ProtoError::Unsupported`] unless the capabilities this
+    /// session has seen include one of these atoms.
+    ///
+    /// A guard, like [`ImapCommand::RequireEmpty`], for a walk whose later commands are only safe
+    /// on a server that has the extension, and whose earlier ones must not be sent without it:
+    /// `\Deleted` set on a server without `UIDPLUS` could only be cleared by a bare `EXPUNGE`,
+    /// which would take other clients' deleted mail with it. Put [`ImapCommand::Capability`]
+    /// before it, since the list a server gives before sign-in is often short.
+    RequireCapability(Vec<String>),
+    /// Sends nothing: the walk stops unless the `SELECT` before it reported this `UIDVALIDITY`.
+    ///
+    /// A UID means the message it was given to only while the mailbox keeps its `UIDVALIDITY`
+    /// (RFC 9051 §2.3.1.1). A flag set on a renumbered mailbox lands on the wrong message and can
+    /// be set right; an expunge cannot, so a walk that destroys checks first. A server that
+    /// reported none is taken as renumbered.
+    RequireUidValidity(u32),
     /// `LSUB "" "*"`: the mailboxes the user follows (RFC 3501 §6.3.9).
     Lsub,
     /// `CREATE <mailbox>`.
@@ -108,8 +142,8 @@ pub enum ImapCommand {
     },
     /// `DELETE <mailbox>`.
     ///
-    /// Not `\Deleted` and `EXPUNGE`, which stay absent (see the module note): this removes a
-    /// mailbox, and on Gmail, where a mailbox is a label, it removes the label and no message.
+    /// Not `\Deleted` and `EXPUNGE`, which are only for "Delete forever" (see the module note):
+    /// this removes a mailbox, and on Gmail, where a mailbox is a label, it removes the label and no message.
     Delete {
         mailbox: String,
     },
@@ -279,6 +313,13 @@ enum Phase {
         /// Held until the `+` arrives, then written in one go.
         body: Vec<u8>,
     },
+    /// A command with literals in it was sent up to its first literal the server must ask for;
+    /// each `+` sends the next of `rest` (RFC 3501 §7.5).
+    LiteralPending {
+        index: usize,
+        tag: String,
+        rest: Vec<Vec<u8>>,
+    },
     Finished,
 }
 
@@ -335,7 +376,50 @@ impl ImapSession {
             self.phase = Phase::Finished;
             return Progress::Done(std::mem::take(&mut self.transcript));
         }
+        if let ImapCommand::RequireUidValidity(expected) = command {
+            return match reported_uidvalidity(&self.transcript.untagged) {
+                Some(now) if now == expected => self.issue(index + 1),
+                now => self.fail(ProtoError::Refused {
+                    kind: Refusal::Permanent,
+                    text: format!(
+                        "the mailbox's UIDVALIDITY is {} where {expected} was expected: its \
+                         UIDs may name other messages now, so nothing was deleted",
+                        now.map_or_else(|| "unreported".to_owned(), |n| n.to_string())
+                    ),
+                }),
+            };
+        }
+        if let ImapCommand::RequireCapability(any) = &command {
+            if any
+                .iter()
+                .any(|atom| has_capability(&self.transcript.capabilities, atom))
+            {
+                return self.issue(index + 1);
+            }
+            return self.fail(ProtoError::Unsupported(format!(
+                "the server does not offer {}, so nothing was sent",
+                any.join(" or ")
+            )));
+        }
         let tag = self.next_tag();
+        if let ImapCommand::Search { keys } = &command {
+            let mut parts =
+                match crate::search::imap::command(&tag, keys, &self.transcript.capabilities) {
+                    Ok(parts) => parts,
+                    Err(e) => return self.fail(e),
+                };
+            let first = parts.remove(0);
+            self.phase = if parts.is_empty() {
+                Phase::Running { index, tag }
+            } else {
+                Phase::LiteralPending {
+                    index,
+                    tag,
+                    rest: parts,
+                }
+            };
+            return Progress::Need(vec![IoNeed::Write(first), IoNeed::Read]);
+        }
         let line = match self.render(&command, &tag) {
             Ok(line) => line,
             Err(e) => return self.fail(e),
@@ -460,6 +544,20 @@ impl ImapSession {
                 format!("UID STORE {set} {what}")
             }
             ImapCommand::UidSearch { criteria } => format!("UID SEARCH {criteria}"),
+            // Never rendered here: `issue` writes it in parts, around its literals.
+            ImapCommand::Search { .. } => {
+                return Err(ProtoError::Malformed(
+                    "a search is written by search::imap".to_owned(),
+                ));
+            }
+            ImapCommand::UidExpunge { set } => {
+                check_set(set)?;
+                format!("UID EXPUNGE {set}")
+            }
+            // Never rendered: `issue` either passes over it or stops the walk.
+            ImapCommand::RequireCapability(_) | ImapCommand::RequireUidValidity(_) => {
+                return Err(ProtoError::Malformed("a guard is not a command".to_owned()));
+            }
             ImapCommand::UidCopy { set, mailbox } => {
                 check_set(set)?;
                 format!("UID COPY {set} {}", quoted(&mutf7::encode(mailbox)))
@@ -534,6 +632,20 @@ impl ImapSession {
                         bytes.extend_from_slice(b"\r\n");
                         return Progress::Need(vec![IoNeed::Write(bytes), IoNeed::Read]);
                     }
+                    // The server asked for a search string's literal: the next part goes.
+                    Phase::LiteralPending {
+                        index,
+                        tag,
+                        mut rest,
+                    } => {
+                        let part = rest.remove(0);
+                        self.phase = if rest.is_empty() {
+                            Phase::Running { index, tag }
+                        } else {
+                            Phase::LiteralPending { index, tag, rest }
+                        };
+                        return Progress::Need(vec![IoNeed::Write(part), IoNeed::Read]);
+                    }
                     // A continuation anywhere else means the server wants data we did not
                     // plan to send. Saying so beats hanging.
                     _ => {
@@ -542,6 +654,30 @@ impl ImapSession {
                         ));
                     }
                 }
+            }
+
+            // `imap-proto` has no grammar for ESEARCH (RFC 4731 §3.1). The response is one line
+            // with no literal in it, so it is kept as text, as every untagged response is.
+            if self.buf.len() < b"* ESEARCH".len()
+                && b"* ESEARCH"[..self.buf.len()].eq_ignore_ascii_case(&self.buf)
+            {
+                return Progress::Need(vec![IoNeed::Read]);
+            }
+            if starts_with_ignore_case(&self.buf, b"* ESEARCH") {
+                let Some(end) = find_line(&self.buf) else {
+                    return Progress::Need(vec![IoNeed::Read]);
+                };
+                let raw: Vec<u8> = self.buf.drain(..end).collect();
+                let during = match &self.phase {
+                    Phase::Running { index, .. } => *index,
+                    _ => 0,
+                };
+                self.transcript.untagged.push(Untagged {
+                    during,
+                    text: String::from_utf8_lossy(&raw).trim_end().to_owned(),
+                    raw,
+                });
+                continue;
             }
 
             let snapshot = self.buf.clone();
@@ -593,7 +729,9 @@ impl ImapSession {
                     // refusing the APPEND — no such mailbox, over quota — which is an ordinary
                     // command failure and must read as one rather than as a desynchronised
                     // connection.
-                    | Phase::AppendPending { tag, .. } => tag.clone(),
+                    | Phase::AppendPending { tag, .. }
+                    // The same for a search refused before its literal: a bad charset, say.
+                    | Phase::LiteralPending { tag, .. } => tag.clone(),
                     _ => String::new(),
                 };
                 if tag != expected {
@@ -606,7 +744,8 @@ impl ImapSession {
                     | Phase::IdlePending { index, .. }
                     | Phase::Idling { index, .. }
                     | Phase::IdleEnding { index, .. }
-                    | Phase::AppendPending { index, .. } => *index,
+                    | Phase::AppendPending { index, .. }
+                    | Phase::LiteralPending { index, .. } => *index,
                     _ => 0,
                 };
                 match status {
@@ -832,6 +971,18 @@ fn reported_uidnext(untagged: &[Untagged]) -> Option<u32> {
         .next_back()
 }
 
+/// The `UIDVALIDITY` the last `SELECT` or `EXAMINE` reported, if any did.
+fn reported_uidvalidity(untagged: &[Untagged]) -> Option<u32> {
+    untagged
+        .iter()
+        .filter_map(|u| {
+            let at = u.text.find("[UIDVALIDITY ")? + "[UIDVALIDITY ".len();
+            let rest = &u.text[at..];
+            rest[..rest.find(']')?].trim().parse().ok()
+        })
+        .next_back()
+}
+
 /// Why a [`ImapCommand::RequireEmpty`] guard stops the walk, if it does.
 ///
 /// Read from the typed `STATUS` response that arrived during the guard, not from its text:
@@ -928,6 +1079,10 @@ fn credential_forbidden(credential: &Credential) -> bool {
         // Not a sign-in credential at all: refused the same way as one that would break a line.
         Credential::OpenPgp(_) | Credential::SmimeKey(_) => true,
     }
+}
+
+fn starts_with_ignore_case(buf: &[u8], prefix: &[u8]) -> bool {
+    buf.len() >= prefix.len() && buf[..prefix.len()].eq_ignore_ascii_case(prefix)
 }
 
 fn find_line(buf: &[u8]) -> Option<usize> {

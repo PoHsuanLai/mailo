@@ -267,6 +267,8 @@ fn summary(subject: &str, snippet: &str) -> ThreadSummary {
         attachments: Attachments::None,
         snooze: Snooze::Inactive,
         pin: Pin::Unpinned,
+        mute: Mute::Unmuted,
+        follow_up: mail_domain::FollowUp::Inactive,
     }
 }
 

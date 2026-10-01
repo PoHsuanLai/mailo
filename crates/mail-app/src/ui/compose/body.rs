@@ -1,5 +1,5 @@
-//! The message body: quire's `EditSurface` (`surface.rs`), the `/` and `@` menus at the caret,
-//! and the selection bubble.
+//! The message body: quire's `EditSurface` (`surface.rs`), the `/`, `@` and `:` menus at the
+//! caret, and the selection bubble.
 //!
 //! Every handler here calls `editor::` through [`super::wire`] and [`super::float`]. The only
 //! thing this file decides is which key goes where.
@@ -16,7 +16,8 @@ use super::super::common::classed;
 use super::super::menu::{MenuKey, anchor_at, menu_items, menu_key};
 use super::super::press::on_primary;
 use super::float::{
-    Picked, commit, current_kind, mention_items, pick_mention, pick_slash, pick_turn, turn_items,
+    Picked, commit, current_kind, emoji_items, mention_items, pick_mention, pick_slash, pick_turn,
+    turn_items,
 };
 use super::page::{Float, Page};
 use super::templates::{self, TemplateFloat, page_slash_items};
@@ -112,6 +113,27 @@ pub(in crate::ui) fn Body(
                         },
                     }
                 },
+                Float::Emoji { active, .. } => rsx! {
+                    div {
+                        class: "c-float",
+                        "data-anchor": "below",
+                        style: below.clone(),
+                        onmounted: move |event| at_caret.set(Some(MountedRef(event.data()))),
+                    }
+                    Menu::<String> {
+                        placement: MenuPlacement::Popup,
+                        anchor: at(),
+                        items: menu_items("Emoji", &emoji_items(&page.read()), false),
+                        onpick: move |key: String| super::emoji::pick_typed(page, &key),
+                        onclose: move |()| close_float(page),
+                        active: MenuCursor::Controlled(Some(active)),
+                        on_active: move |to: Option<usize>| {
+                            if let Some(to) = to {
+                                set_active(page, to);
+                            }
+                        },
+                    }
+                },
                 Float::SaveTemplate(_) | Float::Templates { .. } => rsx! {
                     div {
                         class: "c-float",
@@ -157,9 +179,13 @@ pub(super) fn key_taken(
     if templates::key(page, shell, key) {
         return true;
     }
-    if let Float::Slash { active, .. } | Float::Mention { active, .. } = float {
+    if let Float::Slash { active, .. }
+    | Float::Mention { active, .. }
+    | Float::Emoji { active, .. } = float
+    {
         let items = match float {
             Float::Slash { .. } => page_slash_items(&page.read()),
+            Float::Emoji { .. } => emoji_items(&page.read()),
             _ => mention_items(&page.read()),
         };
         let taken = match menu_key(key) {
@@ -175,6 +201,7 @@ pub(super) fn key_taken(
                 if let Some(item) = items.get(active) {
                     match float {
                         Float::Slash { .. } => pick(page, on_attach, &item.key),
+                        Float::Emoji { .. } => super::emoji::pick_typed(page, &item.key),
                         _ => pick_mention(&mut page.write(), &item.key),
                     }
                 }
@@ -213,19 +240,22 @@ pub(super) fn key_taken(
     }
 }
 
-/// quire's menu closed (Esc, a press outside, or after a pick): the `/` or `@` menu goes, and
-/// whatever a pick opened in its place stays.
+/// quire's menu closed (Esc, a press outside, or after a pick): the `/`, `@` or `:` menu goes,
+/// and whatever a pick opened in its place stays.
 fn close_float(mut page: Signal<Page>) {
     if matches!(
         page.peek().float,
-        Float::Slash { .. } | Float::Mention { .. }
+        Float::Slash { .. } | Float::Mention { .. } | Float::Emoji { .. }
     ) {
         page.write().float = Float::Closed;
     }
 }
 
 fn set_active(mut page: Signal<Page>, to: usize) {
-    if let Float::Slash { active, .. } | Float::Mention { active, .. } = &mut page.write().float {
+    if let Float::Slash { active, .. }
+    | Float::Mention { active, .. }
+    | Float::Emoji { active, .. } = &mut page.write().float
+    {
         *active = to;
     }
 }

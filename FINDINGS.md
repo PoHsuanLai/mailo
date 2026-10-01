@@ -3970,7 +3970,562 @@ where the messages are now (F156). An operation refused in every part is undone 
 before. No schema change: the undo is still one patch per entry, and it is split by message when
 it is applied.
 
-### F160 — The move to quire v0.2, and what mailo still asks of quire
+### F160 — Links in the reader carried a receipt for whoever sent them
+
+A newsletter link carries its destination and, beside it, a campaign name (`utm_*`), an ad
+network's click id (`gclid`, `fbclid`, `msclkid`) or the recipient's own mailing-list id
+(`mc_eid`, `_hsenc`, `mkt_tok`). The page opens the same without them. The reader showed them and
+opened them as sent, so a click told the sender who clicked.
+
+An HTML part's links are now built through `SafeUrl::link`: `parse`, then the parameters named in
+`block/tracking.rs` come off. The Original frame's clicks and its hover pill go through the same
+function. A key comes off only if it is in the table, compared whole, case-sensitively and
+percent-decoded; `utm_foo` and `UTM_SOURCE` stay, because removing a parameter nobody named could
+change what the page shows. Kept pieces stay as written (re-serializing turns `%20` into `+`), the
+query is split on `&` only, and a query left empty goes with its `?`. The fragment and a `mailto:`
+query are never touched. A click tracker's own URL is not unwrapped: that would change where the
+link goes.
+
+`SafeUrl::parse` is unchanged, because two callers must not be cleaned: an image's address is a
+fetch, not a link, and a link the user types into a draft is theirs. Plain-text parts make no
+links, so there is nothing there to clean. `mkt_tok` also lets one vendor's unsubscribe page
+recognise the recipient; without it that page may ask for the address. `List-Unsubscribe` is not
+affected.
+
+### F161 — Authentication-Results is believed from one server only
+
+The reader and the sender card now say what the receiving server checked: SPF, DKIM and DMARC.
+The field is plain text, and anyone can write one into a message before sending it. So
+`mail_mime::auth` believes exactly one field: the topmost whose authserv-id lies under the
+account's provider, compared by whole labels. The provider is the registered domain of the
+account's server; Gmail's servers sign as `google.com`. RFC 8601 §5 has the receiving server
+remove fields that claim its name from outside its boundary, and everything a sender wrote sits
+below the receiver's prepended field, so a sender's `dmarc=pass` counts for nothing. The field is
+read raw, so an encoded word cannot become a result, and comments and quoted strings never are.
+
+With no server name to go on (Local, Graph, an IP literal), only the topmost field is read. There,
+a message whose receiver wrote no field would show the sender's own; that is the one remaining way
+a forged pass can show. Providers whose authserv-id is not under the domain their mail is read from
+get no line at all, including Exchange Online, which writes fields with no authserv-id. Nothing is
+stored per message: the field is read from the blob on a blocking thread and cached per message and
+body.
+
+### F162 — Block sender is a rule, and its undo is the toast's
+
+"Block sender" on the sender card writes one ordinary `Rule`: From is exactly the address, Spam,
+then stop. It runs before the rules already there, so an earlier rule cannot file the mail
+elsewhere first. Blocking an address already blocked writes nothing. Like every rule, a block runs
+at arrival; mail already here stays where it is.
+
+The undo stack holds patches to messages, and a rule is not one, so the block's undo is the toast's
+own button, which forgets the rule (`Follow::Unblock`). Ctrl Z does not take a block back. That is a
+known limit, not a bug.
+
+In the Harness, pointing from a sender's name to its card over later rows swapped the card for a
+row's card, so no card action could be clicked. The cause is mailo's: the name's pointerleave
+re-entered the row's hook. The fix needs quire v0.1.16's `onpointerback` and comes with that bump.
+Until then the block is tested through `rules::block`, the function the card calls.
+
+### F163 — Several conversations picked at once, and one undo for all of them
+
+A decision rather than a defect. The list selected one conversation, the one open, and every
+action and undo was about one thread. `Target::Threads` was plural from the start (plan.md), but
+`Op::apply` takes one `Thread`, so a gesture on five conversations is five applications.
+
+What makes them one gesture is the undo stack: an entry is now everything one gesture did
+(`UndoStack::push_all`), and Ctrl Z or the toast's tab takes every part back, newest first. A part
+that is refused goes back on the stack as its own entry, and the rest stays taken back. Each part
+keeps its own patch, its own queued intent and its own server reverse, so a filing taken back
+before it was sent is still withdrawn from the outbox per conversation. Merging the parts into one
+patch would have broken that.
+
+What is picked (`selection::Picked`) is always read through the ids the list shows, so a pick that
+an archive or a search has taken out of view is never acted on. Another place or Space drops the
+selection, and a plain click replaces it. A batch applies one operation to all, not a toggle each
+(star on a half-starred selection stars the rest), and reaches each conversation only where it
+allows it (`view::offers`), so its undo never restores what the gesture did not move. `!` now sends
+to Spam, which had no key before.
+
+### F164 — A message/rfc822 part would have gone out as base64
+
+Found while building forward as attachment. `mail_mime::build` gave every attachment that is not
+text to mail-builder, and mail-builder base64s any such part. RFC 2046 §5.2.1 allows a
+`message/rfc822` body only `7bit`, `8bit` or `binary`, and a reader that follows the RFC shows an
+encoded one as an opaque file rather than as the message. No path produced one until now: a
+hand-attached `.eml` went as `application/octet-stream`. Such a part is now written as the
+message's own bytes with CRLF line ends, labelled `7bit`, `8bit` (the submission then asks for
+`BODY=8BITMIME`, or is refused where the server cannot carry it) or `binary` for a NUL or a line
+over 998 octets. `binary` is honest even though SMTP cannot carry it.
+
+### F165 — A rebuilt message whose attachments had all been fetched was exported as the message
+
+Found while building forward as attachment. Export told a large IMAP message rebuilt from its parts
+(plan 9.6) by an attachment still `PartContent::Remote`. Fetching a part (`Store::hold_part`) marks
+the attachment held and leaves the stored raw message as it was rebuilt, with the part empty and
+the rebuild's markers still in it. So once every attachment had been opened, `mailo export` wrote
+the stand-in out under the original's name, with an empty PDF inside. `compose::rebuilt` now reads
+the markers from the bytes as well (`mail_mime::left_on_server`), and export, forward as attachment
+and the source view all ask it. A sender can write the marker headers into an ordinary message;
+then a whole message is skipped, refused or labelled rebuilt, which errs the safe way. A rebuild
+that left nothing on the server has no markers and is not caught; its bytes are every header and
+part as sent, less any preamble and epilogue.
+
+### F166 — The source view is a text node, and says what it cannot show as itself
+
+A decision. Source is a third view beside Reader and Original, drawn by mailo as one `pre` text
+node, so nothing in it is markup. Every character that would act rather than show is replaced with
+something visible: C0 controls and DEL as control pictures (U+2400–U+2421), so a bare CR or an
+escape is seen and not obeyed; C1 controls, bidi overrides and isolates, and zero-width characters
+as `<U+XXXX>`, so a right-to-left override cannot reorder the headers being checked; bytes that are
+not UTF-8 as U+FFFD, with a count. The view draws at most 256 KiB, cut at a line end, and says so.
+A headers-only message has no source, because its headers are stored as fields, not bytes. The blob
+is read on a blocking thread started by the press (F140), and the frame stays mounted and hidden,
+so returning to Original does not reload it (F157).
+
+### F167 — quire v0.1.16, and the sender card's actions can be reached
+
+mailo takes quire v0.1.16 (from v0.1.11): PDF thumbnails, colour emoji behind `.ds-emoji-text`,
+file drops (`ds::use_file_drop`), second windows (`ds_native::open_window`), spelling on
+`EditSurface`, and `ListRow::onpointerback`. v0.1.12 is skipped on purpose: it put the emoji face
+in the text stacks, and digits and spaces rendered wide under Blitz. From v0.1.14
+`ds_native::launch` runs its own event loop; its signature is unchanged.
+
+The sender card's actions could not be pressed wherever the card sat over rows (F162). Blitz hit
+the card where it painted it; the cause was mailo's. Leaving the sender's name called the row's
+own hook, as if the pointer had gone back to the row, and with a card open the hover hub swapped
+the sender card for the thread card at once. A part's leave now lets its card go like any other
+leave, and being back on the row is `onpointerback`'s to say: it fires after the card's close
+grace, only if the pointer stayed on the row. `native_sender.rs` walks the pointer from the name to
+Block sender over the rows below in ten steps and presses it; on the old hook the card went at the
+first step.
+
+### F168 — A muted conversation's new mail arrives read and out of the inbox
+
+A decision, with a new piece of domain state the user approved (item 3). `Mute { Unmuted, Muted }`
+sits beside snooze and pin: thread-level, set by the user, never sent to a server as itself, and
+undone like them (`Op::SetMute`, `Change::ThreadMute`). A summary or row written before it reads
+back unmuted, which is what it was (`#[serde(default)]`, migration 0022 with that default).
+
+What a mute does happens at arrival, after the user's rules: a new message on a muted thread is
+marked read and, if it would have landed in the inbox, archived. Those are ordinary operations on
+the arriving message, queued to the server the way the user's own archive and read would be, so a
+later sync does not bring the mail back. A reply a rule sent to Spam stays in Spam, read. Mail
+already in the conversation when it is muted stays where it is. On a half-muted selection, Mute
+mutes the rest; it unmutes only when every picked conversation is muted.
+
+`reparse.rs` fakes an old database by undoing later migrations; it now undoes 0022 as well. Every
+migration added after this one has to be undone there too.
+
+### F169 — mailo could not be a desktop's mail handler: a mailto: link had nowhere to go
+
+The desktop entry had no `%u` or `MimeType`, and `mailo mailto:…` fell through to the CLI parser
+and was refused. A lone `mailto:` argument is now read by `mail_mime::MailtoUri` (RFC 6068: to,
+cc, bcc, subject, body; every other field dropped, as §7 allows), saved as a draft from the first
+sending account, and the window opens on it (`Start::Compose(DraftId)`). It is a draft and never
+queued, so a link can open a composer but cannot send. An address that could smuggle a second
+recipient is dropped. The unsubscribe reader shares the parser and still keeps only `to`.
+
+A click on a mailto: link while a window is open starts a second window: there is no
+single-instance hand-off yet, the same gap notification clicks have.
+
+### F170 — Packaging is metadata and a script, not dependencies
+
+cargo-deb and cargo-generate-rpm metadata live in `crates/mail-app/Cargo.toml`, the Flatpak
+manifest in `packaging/flatpak/`, and `scripts/package.sh` builds whatever has its tool installed.
+The Flatpak talks to the Secret Service by name rather than through the Secret portal, because the
+keyring crate speaks the Secret Service itself; files go through portals only. Its app id is
+`io.github.PoHsuanLai.mailo`, while the window keeps `APP_ID = "mailo"`, matched by
+`StartupWMClass`; taking the id from `FLATPAK_ID` at launch would be cleaner. Flathub would also
+need an AppStream metainfo file, not written. The packages were checked here only around a
+stand-in binary, since a release build did not fit the disk.
+
+### F171 — Contact groups are vCard KIND:group, and who a member is gets decided when it is used
+
+Groups sync over CardDAV as `KIND:group` cards with `MEMBER` (RFC 6350 §6.1.4, §6.6.5). Members
+are stored as the URIs written, and resolved only when a group is offered or shown: `mailto:` to
+its address; any other URI by UID against synced cards and other groups, nested groups opened
+once. A member that names nobody is counted ("1 not found"), never dropped, and goes back to the
+server. A group of nobody is valid and kept, but not offered in To. Groups are mail-store types,
+keyed by the card URL or `local:<UID>`, so mail-domain was not touched; the table is migration
+0023, after mute's 0022, and the reparse test's rewind undoes both.
+
+CardDAV is no longer read-only. Only groups edited here are written, with `PUT` and `If-Match` on
+the etag last read (RFC 6352 §6.3.2), and the body is the last-synced card with only FN, KIND and
+MEMBER replaced and REV dropped, so properties mailo does not read survive. On 412 or a refusal the
+edit stays and is reported; the next sync takes the newer card and keeps the edit's name and
+members. A card deleted on the server takes its group with it. The window does not sync;
+`mailo contacts sync` does the write-back. Importing a group from a file rewrites a `urn:uuid`
+member that names a card in the same file as that card's `mailto:`, since hand-imported contacts
+carry no UID to find later.
+
+Not built: groups in the older `X-ADDRESSBOOKSERVER-KIND` form, new groups inside a synced book,
+deleting a synced group from the window, and groups in the `@` menu and the command palette.
+
+### F172 — The hover card test failed on a loaded machine because `advance` overran, and the strip test's failure is real
+
+`a_hover_card_opens_after_its_delay_and_not_before` asserted the card absent after
+`advance(HOVER_OPEN / 2)`. `advance` lets wall-clock time pass, and on a loaded machine it can
+overrun past the whole delay, when a card that has opened is on time. "Not yet" is now asserted
+only while the wall clock says it is still early; the order check after it is unchanged. Five of
+five runs failed with three builds running beside it, and four of four pass.
+
+`a_press_on_a_row_s_strip_leaves_the_keyboard_working` is not a slow test. Waiting up to quire's
+settle bound for the list, rather than a fixed 1.5 s, still fails: under load, after the strip's
+Archive removes its row, `e` reaches nothing at all. The keyboard is really lost there, sometimes;
+it is filed as its own package rather than hidden behind a longer wait.
+
+### F173 — Saved views are a row of their own serde, and the sidebar's last places
+
+A decision (item 19). 0001 made a `views` table with a column per field of `View`; nothing ever
+wrote it, and it had already drifted (`group_by` was still `Option<Property>` after F35). 0024
+replaces it with one column holding the whole `View`, so a field added later with
+`#[serde(default)]` needs no migration, and a fixture pins the row. A view is `Source::Saved`,
+placed after the folders so adding or deleting one moves no other place's index or badge; its badge
+counts unread by its filter. Its grouping applies unless the Group menu is set. Its hover buttons
+are kinds, drawn in the direction each conversation needs and only where it can take them; the
+keyboard is not narrowed by a view. When a view is edited, its filter is shown as search words
+only if they parse back to the same filter; otherwise the saved filter is kept.
+
+With several rows picked, the list bar's tools ran past the list column at 1200 px, over the
+reader, where they cannot be pressed. That predates views (the selection bar alone crowds them);
+Save and Edit view are icon-only for now, and the bar itself is its own fix.
+
+### F174 — An account can keep all its mail offline; its attachments arrive a few each pass
+
+A decision (item 10). A large IMAP message is stored rebuilt from its parts, its attachments left
+on the server until opened (plan 9.6). An account set to keep everything offline — `mailo offline
+<account> on`, or its switch in the Space editor — has them fetched by the sync as well. It is off
+by default. The setting is the window's, in `offline.json` beside `notify.json`, keyed by account
+id, because `AccountPlan` is frozen and the choice is a preference, not a fact about the server.
+
+Each mailbox's pass fetches, after its bodies and only when they had room to spare, what earlier
+passes left behind, smallest first (`Store::remote_parts_in`): at most twenty parts or 64 MiB,
+always at least one, so a folder of scans comes down over many passes rather than one that holds
+back the next new mail. Each part is held as opening it would hold it (`fetch_part` →
+`hold_part`), so the rebuilt raw stays as it was and F165's markers still tell export what it is.
+A part refused for good is passed over and named on every pass; a refused sign-in, rate limit or
+dropped connection ends the step. `Store::offline` counts messages held in full and what still
+waits, in both stores. "Open this folder now" never fetches parts. `PartContent::Remote`'s doc
+comment, which said a sync never fetches a part, now says when one does.
+
+### F175 — mailo is no longer Linux-only: the keyring, notifications, dialogs and directories are each the platform's own
+
+A decision, reversed on 2026-09-27 at the user's request. `ci.yml` kept only `latchkey` portable,
+on purpose; the whole workspace now builds and is tested on macOS and Windows, and a `package` job
+builds unsigned installers for all three (a `.deb` and `.rpm`, a `.dmg`, an MSI). Credentials go
+to keyring-core with one store per target: the Secret Service, the Keychain, the Credential
+Manager. Notifications go through notify-rust behind the same `Notifier` seam. rfd uses the portal
+only on Linux. Directories come from `mail_runtime::places`, which keeps Linux's XDG rule byte for
+byte and uses the platform's own elsewhere; on Windows mail goes in the local app-data folder, not
+the roaming one, so a mail store is not copied to a domain server at every sign-out.
+
+Lost on Linux: the notification's activation token, so a compositor strict about focus may open
+the window behind. Open on Windows: the Start menu starts `mailo.exe` as a console program, so a
+console window opens beside it; the fix is a separate GUI launcher, since attaching a console needs
+`unsafe`. Open in quire: `ds_settings`' directories use XDG or `$HOME` everywhere (on Windows,
+appearance is not persisted), macOS delivers `mailto:` as an Apple Event that `launch` does not yet
+pass on, and a macOS notification click needs a delegate on quire's run loop. None of the macOS or
+Windows steps could be run where this was written; CI is their first run.
+
+### F176 — A Windows credential entry holds 1280 characters, and a Microsoft token does not fit
+
+The Credential Manager limits an entry to 2560 bytes of UTF-16. The stored OAuth JSON (a JWT access
+token, a refresh token and the expiry) is longer, so on Windows `put` would have failed and a
+Microsoft account could never be signed in; an S/MIME key likewise. A value over the limit is kept
+in parts, `<name>#1..N` under a head entry `mailo-parts:N`, tested against a size-limited map. Other
+platforms are unchanged: one value, one entry. A write that fails part-way can leave a mix of two
+values, which reads as unreadable and means signing in again.
+
+### F177 — Maildir's `:` cannot be written on Windows
+
+File names there cannot hold a colon, so an export would have failed at the first flagged message.
+Maildir is written with `;` there (`maildir::INFO`), which the parser has always read on every
+platform. `.gitattributes` now sets `* -text`, so a Windows checkout leaves the byte-for-byte
+fixtures alone.
+
+### F178 — A press on a row's strip could lose the keyboard: the focus and the row's removal shared a frame
+
+The strip's Archive gave its button the keyboard (quire's click-focus restore, a task a frame after
+the click), inside a row that was leaving. quire's focus keeper hands the keyboard on when its
+element is removed, but only if it had seen that element focused, and it looks only between
+flushes. On a loaded machine the restore and the exit timer's render ran in one flush; the keeper
+still held `.app`, which was still there, so it did nothing, and every key went nowhere (F172). A
+strip press that applies an op now gives `.app` the keyboard before it acts; menus that need their
+opener still get the button. The test waits for states with `settle_until` and asserts the
+keyboard lands on `.app`. On the old code it failed 5/5 idle (focus on the button) and 3/3 under
+load (focus nowhere). The keeper's blind spot is quire's and is relayed.
+
+### F179 — With rows picked, the list bar ran under the reader
+
+At 1200 px the selection's seven buttons and the page's Group, Properties, Save view, Sync and
+Compose needed about 720 px in a 461 px column; the tools reached x≈954, over the reader, where a
+press could not reach them, and the heading and the count were squeezed to nothing. While anything
+is picked the bar is now the selection's: its count, never squeezed, and its actions, which wrap
+within the column. The page's tools act on no selection and come back when it clears. Hiding only
+the tools still squeezed the count out, and wrapping the whole bar would have made the rows jump on
+every Ctrl-click.
+
+### F180 — Spelling is quire's; mailo holds the switch, the caret and the undo step
+
+A decision (item 1). ds-native's `spellcheck` is on: the body is checked against the system's
+Hunspell dictionaries in the locale's language, and nothing is bundled. The body hands the surface
+the page's caret, so the word being typed is not marked until the caret leaves it. A picked
+suggestion comes back as one `insertReplacementText` over the word's graphemes, recorded as one
+structural step, so one Ctrl Z restores the misspelling. The switch is `spelling.json`, on by
+default, held by the desk so an open draft follows it; when no dictionary answers for the locale,
+which is always so on macOS and Windows, the switch says so. A draft carries no language, so the
+locale's is used. The spelling menu takes the keyboard; Escape there closes only the menu, and
+autosave, which follows edits and not focus, does not fire. Tests hand the window a checker over a
+TempDir dictionary and run each case in a child process whose HOME and XDG_DATA_HOME are a TempDir,
+because the workspace forbids the `unsafe` `set_var`.
+
+### F181 — The keyboard is a table, and a key has one meaning
+
+A decision (item 22). `keymap::DEFAULTS` is what `view::shortcut`'s match was, held to a verbatim
+copy of that match for every key by a table test. A user's change gives an action exactly one key,
+replacing all its shipped keys (rebinding Next drops ArrowDown too; Reset brings both back).
+Changes go only through `bind` and `reset`, which refuse a key another action holds and name that
+action, so a reset can be refused while another moved action sits on a shipped key. Esc is Close
+and cannot move; Enter, Tab, Space and chords are the window's own. `keyboard.json` is read whole:
+an unknown action, a duplicate or a clash drops the file for the defaults rather than keeping part
+of it. Composer keys are out of scope.
+
+In a 1200×800 window the settings' scroller stops several hundred pixels short of its end, so the
+last cards (Keys, Keyboard) cannot be reached by the wheel. The Harness tests use tall windows and
+say why; the scroll height is its own fix.
+
+### F182 — A Japanese printout on a Chinese locale set its "Printed" line in the Traditional Chinese face
+
+The "Printed" line, the pictures note and the thread's title sit outside every `<article>`, so
+the per-message `data-script` of efc9fef did not reach them, and they led with the locale's CJK
+face. The stacks name Latin "Noto Sans" first, but where it is not installed (only
+`fonts-noto-cjk`), Latin text is set in the first CJK face that is, so a Japanese printout embedded
+NotoSansCJKtc. mail-mime now marks `<body>` with the first message's script (the title is its
+subject), and the paper's CSS leads those lines with it. The two pdf_tests that caught it also
+needed `fonts-noto-cjk` in CI, which the Linux check job had never installed: CI had been red on
+every push since efc9fef.
+
+### F183 — The print stacks named only Noto, which only Linux has
+
+On Windows the pdf_tests found Yu Gothic UI: fallback had picked a face by the characters and the
+system language, which for ideographs need not be the message's region. Each region now names
+Noto's face, then Windows's and macOS's own, then its own sans where its serif is missing, before
+any other region. The tests check the region on every platform (`region_of` on the PostScript
+name) and Noto's names on Linux only. The macOS names are assumed from the platform's font list and
+are first checked by CI.
+
+### F184 — Five UI tests read once what lands on another thread
+
+The keys sheet's `settle` stopped at the first quiet 100 ms, but a `spawn_blocking` job wakes
+nothing while it runs, so an S/MIME import was often still going. Ctrl 2's list is a
+`spawn_blocking` query, read after one render. The composer's chip flash and the sent page's fold
+end on quire's motion timer, which sleeps on the `futures-timer` thread; waiting exactly the settle
+time on tokio's clock and looking once lost to that thread on a loaded machine or with Windows'
+timers. Each was shown failing deterministically (a starved timer thread, one blocking thread held)
+and now waits for its named state within quire's settle bound, with the timers checked to end no
+earlier than their settle time. A quiet spell is not a finished job. No product code changed.
+
+### F185 — The settings' scroller was never short; Blitz's rect of a scroll container moves with its own scroll
+
+F181 said the settings stop short at 800 px. They do not: `.ed-scroll` scrolls its whole content,
+and the Keyboard card ends above the foot. Blitz's client rect subtracts an element's own scroll
+offset (a browser's does not), so a scrolled scroller reads as moved up by as far as it scrolled,
+and a card compared against it looks out of reach. Tests measure the settings' view from the sheet
+and its foot, which do not scroll, and wheel to what they press; native_keyboard and
+native_spelling run at 800 px again. The rect is Blitz's and is relayed.
+
+### F186 — A stored attachment is previewed from its bytes only, and a picture that claims too much is refused before it is decoded
+
+A decision (item 7). The reader's strip draws a thumbnail for a stored part whose first bytes are
+PNG, JPEG, GIF (first frame), WebP or PDF; the declared type and name are the sender's and decide
+nothing. SVG is never drawn. A part still on the server keeps its paperclip and nothing is fetched
+to draw it, because a thumbnail fetched on sight would be a read receipt for every message scrolled
+past. An image's header is read before a pixel is decoded, and anything over 12000 px a side or 40
+megapixels is refused with a note; the decoder then runs under the image crate's limits, so a
+header that lies still cannot allocate past 256 MiB. PDF thumbnails are quire's `pdf_thumb_bytes`
+(small blobs live in SQLite and have no path for `PdfFileThumb`); the larger viewer renders pages
+with pdfrum. The viewer is `Shell::viewing`: Esc and the arrows reach it first, and opening or
+closing a conversation closes it. The thumbnail cannot yet be opened from the keyboard.
+
+### F187 — quire v0.1.17, and Blitz from the fork that stops painting a lost animation
+
+mailo takes quire v0.1.17, and with it Blitz from `PoHsuanLai/blitz` at `bf588142`: upstream
+`e99fbdbd` plus one fix. An element that lost its animation part-way kept painting and hit-testing
+its last animated value, which can leave a panel frozen partway in. Both Blitz lines in the
+workspace moved together, and the lock holds exactly one `blitz-dom` and no upstream Blitz, or
+quire's types would not unify with mailo's.
+
+quire's lint now refuses infinite animations (`Rule::InfiniteLoop`). The add-account sheet's
+waiting line breathes while a sign-in is out in the browser; it is drawn only for that wait, so it
+is an exception with that reason rather than a pending token. The lint also warns, without
+failing, on eleven pointer cursors on controls: the HIG gives the hand only to links. `ds::sleep`
+now takes its deadline when called; mailo awaits every call at once, so nothing changed.
+
+### F188 — Files dropped on the composer are attached as picked ones are, and only a regular file is read
+
+A decision (item 21). The composer's page is quire's drop target (`ds::use_file_drop`): it reads
+`data-drop="accepts"` while files are over the window and `"target"` while over the page. A drop
+hands its paths to the Attach dialog's own `attach`, so both refuse by the same rules, read off
+the UI thread and attach in order. A symbolic link is followed and read only when it names a
+regular file; a folder is refused with a note rather than walked; a pipe or a device is never
+opened, because opening a FIFO waits for a writer and the dialog could have handed one too. Every
+refusal from one drop or pick is named in one note, where before each overwrote the last. The list
+and the reader take no drops. In the Harness, `file_drag(Dropped)` reports Refuse even on an
+accepting target, so the tests read the decision from the `Moved` step before release; relayed.
+
+### F189 — Delete forever is the one expunge, and only for Trash and Spam
+
+A decision, with domain additions the user approved (item 4). Deleting stays a move to Trash
+everywhere except the Trash and Spam places, where Delete forever and Empty Trash/Spam open a sheet
+naming how many messages go and that it cannot be undone. `Op::Destroy` removes only messages whose
+role is Trash or Spam and has no inverse; the window neither pushes an undo nor offers one, and no
+key reaches it without the sheet. `ExpungeMeans::Forbidden` still refuses `ProtoOp::Expunge`;
+`ProtoOp::Destroy` is checked by each backend against the folder's role. IMAP sends
+`UID STORE +FLAGS.SILENT (\Deleted)` then `UID EXPUNGE` of the same UIDs, behind a UIDVALIDITY
+check, and needs UIDPLUS or IMAP4rev2: without them nothing is sent and the user is told, because a
+bare EXPUNGE would take other clients' `\Deleted` mail too. JMAP destroys only emails in Trash/Junk
+alone on the server, all or none. Graph posts `permanentDelete` for each message, since `DELETE` is
+a soft delete into Deleted Items or Recoverable Items; the endpoint was written from its
+description and could not be checked against Microsoft's live documentation or a tenant from the
+build container, so the first live run should confirm it. POP3 deletes locally only: a DELE would
+use a message number from an earlier session (RFC 1939 §7).
+
+### F190 — A message deleted here was fetched back until the server heard
+
+Found while building F189. Removing a message cascades its `remote_map` rows, and a sync fetches
+any UID it does not hold, so a destroyed message came back into Trash on the next pass and the
+queued deletion found nothing to send. Migration 0025 keeps the addresses in `destroyed` from the
+moment the deletion is queued, which must happen before the patch is applied. They count as held
+for syncs and address the queued entry; they go when a sync no longer finds them, on a UIDVALIDITY
+reset or folder delete, or when the server refuses, so the message comes back as the server has
+it. A Trash then Delete forever before the Trash move reaches a server without COPYUID is refused
+and the message reappears in Trash: nothing is lost.
+
+### F191 — Brand logos (BIMI) are opt-in, need a mark certificate, and are drawn, never shown as SVG
+
+A decision (item 12). "Show brand logos (BIMI)" is off by default (`bimi.json`); off, nothing is
+looked up, fetched or read from the cache. On, a message asks only when the believed
+Authentication-Results (F161) say DMARC passed for its From domain; the policy is read from
+`_dmarc`, since Gmail writes `p=` in a comment and nobody writes pct, and anything short of
+quarantine at 100% or reject shows no logo. A record without `a=` shows nothing and its SVG is never
+fetched. The mark certificate must chain to a mark verifying authority's root, name the domain,
+carry the BIMI purpose and hash the logo it carries, and the `l=` SVG must be that logo; revocation
+is not checked. The SVG is refused unless it is Tiny PS in shape and drawn with resvg (no fonts, no
+images) to a 96 px PNG, cached a week (no logo: a day); the page only ever gets the PNG. No roots
+are shipped: the authorities' hosts were unreachable from the build container, so until
+`bimi/roots.pem` is filled or a user adds `bimi-roots.pem`, no logo shows, and the switch's card
+says so. The certificate's logo extension is read against RFC 3709 and tested only against a
+certificate built by the tests.
+
+### F192 — quire v0.1.18: the accent is a pastel fill, and text in it reads --accent-text
+
+mailo takes quire v0.1.18 and its accent band (quire design/03 §20). `--accent` is a light fill
+that stands 1.5:1 off white with only `--accent-ink` on it, so every caret, link, 1–3 px border,
+inset bar and ring mailo drew in `--accent` reads `--accent-text`, the composer's drop ring
+included. Fills keep `--accent`. The done todo box and the current find match gain an
+`--accent-text` edge, because on the pastel fill colour alone no longer shows the state; the files
+progress bar is still shown by its fill alone and may be faint in light mode. `--accent-soft` and
+`--accent-ring` are `rgba`, and the style tests measure them composited over each card ground
+against `ds::accent_of(Postmark)`. The old 3:1 gate on the fill is replaced by 4.5:1 on
+`--accent-text` over all four grounds.
+
+### F193 — Emoji are offered by a button and by `:name`, from Unicode's own table, and ride on quire's colour-emoji face
+
+A decision (item 2). The composer's foot has an emoji button opening quire's `EmojiGrid` in a
+`Popover`, with a search field and a tab per Unicode group, recent emoji first. Typing `:` and at
+least two letters at the start of a word offers matching emoji in a menu like `/` and `@`. Either
+pick goes in as one structural undo step, and the plain text carries the character. The table is
+Unicode's (emoji-test.txt for names, groups and order; CLDR's English annotations for keywords), up
+to Emoji 15.0 with no skin-tone sequences, checked in with the Unicode licence notice and written by
+`scripts/emoji-table.py`. Matching is by word start only, and a whole word or keyword ranks before a
+name that merely starts with the query. `:)`, `10:30`, `Note:` and `https://` offer nothing. Recent
+emoji are `emoji.json` in the state directory: a record of use, not a preference.
+
+Where Noto Color Emoji is the CBDT bitmap build (Debian and Ubuntu's `fonts-noto-color-emoji`),
+Blitz paints nothing in `.ds-emoji-text`, so the picker's cells are blank; the `:` menu and the body
+fall back and draw monochrome. That is quire's to fix and is relayed.
+
+### F194 — A conversation in a window of its own, and one revision for every window
+
+A decision (item 23). "Open in new window" (the reader's menu, a row's context menu, Shift+Enter on
+the focused row) opens the conversation through `ds_native::open_window_with`; asking again raises
+the window already open for it. The window is the reader alone, with its own `Shell`, undo stack,
+toast and composer, and says when the conversation has left the inbox rather than drawing it as if
+nothing happened. A `Signal` belongs to one VirtualDom, so each window's revision follows one shared
+counter (`ui::revisions`) that quire hands every window; a window publishes its own moves, follows
+everyone else's, and never re-publishes what it followed. The reader redraws on its window's
+revision. The second window writes no Today or settings file.
+
+Consent to remote images was per message, so a second window on the same thread would have loaded
+the first window's consented images, and a reader showing none revoked another's grant. An Original
+frame's tag now names its reader as well as its message, and the network admits a frame only under
+its own reader's grant. A printout from the second window can still include images the first
+consented to for that thread (`Consent::thread` is not per reader). Opening a real window is not
+covered by the Harness, which cannot see `open_window`; mailo routes it through its own seam.
+
+### F195 — The unread count is on the launcher; the tray waits on quire
+
+A decision (item 20). The launcher shows the inbox's unread, unsnoozed conversations in the current
+Space's accounts: the Space is what the inbox lists, and a pressed account tile is only a glance,
+so the count does not follow it. The sidebar's Inbox badge still counts every account, so in a
+Space that names accounts the two differ. The window recounts on a blocking thread when its
+revision or Space moves and tells the launcher only when the number changes. On Linux the count
+goes out as `com.canonical.Unity.LauncherEntry` `Update` for `application://mailo.desktop` (the
+Flatpak's id inside one), zero as `count-visible` false, from one thread holding one session-bus
+connection for the process's life, because a dock forgets a count when its sender leaves the bus.
+GNOME's own Dash draws no count; Dash to Dock, Ubuntu Dock, KDE and Plank do. On macOS the Dock
+tile's badge is set through objc2-app-kit's safe calls, on the main thread only. Windows shows
+nothing: the taskbar overlay is an unsafe COM call on quire's window.
+
+The tray icon is not built. Closing the main window ends quire's event loop, and there is no call to
+hide the window instead, raise it again, or end the loop cleanly; tray-icon's events would also
+need quire's private `EventLoopProxy`. On Linux its default backend needs GTK 3, and the pure D-Bus
+one (ksni) is Unlicense, which deny.toml does not allow. Relayed to quire. Not yet seen on a real
+dock: the Flatpak sandbox's handling of the signal and the macOS badge; and a sync run by the
+daemon in another process moves the count only at the window's next write or sync.
+
+### F196 — A search can ask the server, and says what it could not ask rather than widening
+
+A decision (item 11). A search's list ends, for each account in view with an IMAP, JMAP or Graph
+server, with "Search <address> on the server"; it runs by itself only when "Search the server
+automatically" is on (`server-search.json`, off by default), once per line and account.
+`mail_proto::search` translates the line's `Filter` clause for clause, and any clause a protocol
+cannot ask faithfully makes the whole query `Unsaid`: nothing is sent and the list names that
+clause (pinned and snoozed everywhere, `has:attachment` on IMAP, labels off Gmail and on Graph,
+read or flag state with words on Graph, a place under OR or NOT on IMAP and Graph, `re:/…/`). A
+clause is never dropped and a field never widened, though how a server matches inside a field is
+its own: IMAP matches substrings where the store matches words (RFC 3501 §6.4.4). Date bounds go to
+the nearest UTC midnight. IMAP searches All Mail (`\All`) where there is one, else INBOX and
+Archive, asks `RETURN (COUNT ALL)` under ESEARCH (RFC 4731; kept as text, since imap-proto cannot
+parse it), and sends non-ASCII strings as literals after `CHARSET UTF-8`. JMAP uses an Email/query
+FilterOperator tree (RFC 8621 §4.4.1). Graph uses `$filter` or `$search`, never both and never
+`$orderby`, written from its description and unverified against a tenant. The newest 50 hits not
+already held are fetched as headers by the sync's header path, never as bodies; those new to this
+computer are recorded in `found_on_server` (migration 0026) and chipped "from the server". A
+repeated search fetches nothing.
+
+### F197 — Remind me if no reply is a state that comes back once, decided at its time
+
+A decision, with domain additions the user approved (item 8). `FollowUp { Inactive, Until { at,
+set }, Returned { at, set } }` is thread-level state beside snooze and mute: set by the user, never
+sent to a server, undone like them (`Op::SetFollowUp`, `Change::ThreadFollowUp`). A reply is any
+message from an address that is not one of the user's, dated after `set`, wherever it was filed;
+no filter can see that, so `crate::follow_up::sweep` decides it once, at `at`: a reply clears it
+quietly, no reply moves it to `Returned`. That move is made once, so the "No reply yet" notification
+is raised once, by whichever sweep made it (the window's at launch, at the next due time and on
+every revision, or `mailo watch`'s after an announced pass). The inbox lists returned conversations
+on top, even when they are only in Sent, until archived, trashed, snoozed or answered; the Waiting
+place lists every reminder.
+
+A reminder chosen in the composer is counted from when the message leaves and held in
+`follow_up_held` (migration 0027, after server search's 0026) until it has: a reply joins its
+conversation when the outbox has sent it, and a new message joins the conversation its Sent copy
+lands in, found by Message-ID. Undo send lets it go. A new message on an account with no Sent
+folder (POP3) is never found again, and its reminder is dropped a week after it was due. Not
+built: returned conversations on top in `mailo list`, a `mailo remind` command, and a sweep by a
+quiet `mailo watch`.
+
+### F198 — The move to quire v0.2, and what mailo still asks of quire
 
 quire v0.2.0 is the settled desktop design (one Look, the Mac's values; Arc's ideas as features)
 and it renamed, merged or deleted most of the names `mail-app` imported. The port is one commit

@@ -25,6 +25,7 @@ use mail_store::SqliteStore;
 use super::super::pick::{Ask, choose, file_name};
 use super::super::press::{SheetClose, on_primary};
 use super::book::{self, Row, SYNC_COMMAND};
+use super::group_rows::GroupRows;
 use crate::view::Shell;
 
 /// Rows drawn at once. A book of thousands is filtered, not scrolled through.
@@ -103,6 +104,7 @@ pub(in crate::ui) fn ContactsSheet(shell: Signal<Shell>) -> Element {
                     }
                 }
                 div { class: "book-rows",
+                    GroupRows { filter: filter.clone(), changed, said }
                     List::<String> {
                         label: "Contacts".to_owned(),
                         items,

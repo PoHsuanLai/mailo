@@ -1,0 +1,5 @@
+# No line-end conversion, on any checkout. Protocol transcripts, mail fixtures and the frozen serde
+# fixtures are compared byte for byte, and mail's own line ends are CRLF where the RFCs say so and
+# LF where a test says otherwise; a Windows checkout with `core.autocrlf` (the default on GitHub's
+# Windows runners) would rewrite them and fail tests for a reason that is not in the code.
+* -text

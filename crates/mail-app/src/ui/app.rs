@@ -10,6 +10,7 @@ use super::reading::Reader;
 use super::sidebar::Places;
 use super::space_editor::SpaceEditor;
 use super::style::STYLE;
+use crate::selection::Toward;
 use crate::space::Spaces;
 use crate::view::{
     Appearance, Listing, PageMenu, Peek, Shell, Shortcut, Source, SyncState, badge_filter,
@@ -32,20 +33,39 @@ pub(super) fn App() -> Element {
     // handle held here is a handle that invites a query back onto the thread that draws.
     // The launched look, when `main` provided one. A test that builds `App` with only the
     // store keeps the first-run appearance.
-    // Opened on a conversation when the window was started to show one (`mailo open`).
+    // Opened on a conversation when the window was started to show one (`mailo open`), or on
+    // the composer when it was started from a `mailto:` link.
     let mut shell = use_signal(|| {
         let mut shell = Shell {
             appearance: try_consume_context::<Appearance>().unwrap_or_default(),
+            // The user's keys, read once. A window handed no directories reads no file.
+            keymap: try_consume_context::<crate::appearance::WindowDirs>()
+                .map(|dirs| crate::keymap::load(&dirs.config))
+                .unwrap_or_default(),
             ..Shell::default()
         };
-        if let Some(super::Start::Thread(thread)) = try_consume_context::<super::Start>() {
-            super::open_thread(&mut shell, thread);
+        match try_consume_context::<super::Start>() {
+            Some(super::Start::Thread(thread)) => super::open_thread(&mut shell, thread),
+            // Started from a `mailto:` link: its draft was saved before the window opened, and
+            // one read here, once, puts it in the composer.
+            Some(super::Start::Compose(id)) => {
+                let store = consume_context::<Arc<SqliteStore>>();
+                match store.draft(id) {
+                    Ok(draft) => shell.compose(&draft),
+                    Err(why) => eprintln!("compose: {why}"),
+                }
+            }
+            Some(super::Start::Inbox) | None => {}
         }
         shell
     });
     // Bumped after any write, to re-run the queries. Explicit rather than implicit so it is
     // obvious what causes a refresh.
     let mut revision = use_signal(|| 0u64);
+    // Every other window's moves move it too, and its own reach them (`ui/revisions`).
+    super::revisions::use_shared_revision(revision);
+    // The conversations opened in windows of their own, to raise one asked for again.
+    super::window::use_opened();
     let boot = use_hook(frame::load_boot);
     let spaces = use_signal(|| boot.spaces.clone());
     let mut today_list = use_signal(|| boot.today.clone());
@@ -54,11 +74,14 @@ pub(super) fn App() -> Element {
     // The Space editor's draft, while the sheet is open.
     let editing = use_signal(|| None::<crate::space::edit::Draft>);
     let desk = compose::use_desk(today_list, spaces, dirs.clone(), side_hidden);
+    compose::use_test_dictionaries();
     let mut seen_open = use_signal(|| None::<mail_domain::ThreadId>);
     let mut scoped = use_signal(|| false);
     let mut label_ids = use_signal(Vec::<mail_domain::LabelId>::new);
     // The server folders that are places, after the labels, as `view::places_with` orders them.
     let mut folder_refs = use_signal(Vec::<(String, MailboxRef)>::new);
+    // The saved views, after the folders, as `view::places_with` orders them.
+    let mut saved_views = use_signal(Vec::<View>::new);
     // Hover previews and the motion keyed to ops: shared state, provided once for the window.
     super::hover::use_hover();
     super::motion::use_motion();
@@ -70,8 +93,10 @@ pub(super) fn App() -> Element {
         let ids: Vec<mail_domain::LabelId> = known.iter().map(|(_, id)| *id).collect();
         label_ids.set(ids);
         let folders = super::sidebar::folder_places(&store);
-        let places = places_with(&known, &folders);
+        let views = store.views().unwrap_or_default();
+        let places = places_with(&known, &folders, &views);
         folder_refs.set(folders);
+        saved_views.set(views);
         let mut write = shell.write();
         write.labels = known;
         write.places = places;
@@ -84,6 +109,8 @@ pub(super) fn App() -> Element {
     let mut sync_state = use_signal(|| SyncState::Idle);
     // Opening a folder fetches it, and says so where a sync does.
     super::folder_open::use_fetching(sync_state);
+    // The unread count on the dock or the Dash, when the window was launched with one.
+    super::launcher_count::use_launcher_count(revision, shell);
 
     // One count per place, recomputed after any write. `Store::count` answers each in a single
     // indexed query, which is why the sidebar can afford to ask on every revision.
@@ -123,6 +150,9 @@ pub(super) fn App() -> Element {
         }
         for (_, mailbox) in folder_refs.read().iter() {
             filters.push(badge_filter(&Source::Mail(folder_filter(mailbox))));
+        }
+        for view in saved_views.read().iter() {
+            filters.push(badge_filter(&Source::Saved(Box::new(view.clone()))));
         }
         filters
     });
@@ -182,7 +212,13 @@ pub(super) fn App() -> Element {
         if *folder_refs.peek() != folders {
             folder_refs.set(folders.clone());
         }
-        let next = places_with(&known, &folders);
+        // And saved views: one kept from the editor is already drawn (`saved::show_kept`), so
+        // this finds nothing to change unless a view came from elsewhere.
+        let views = store.views().unwrap_or_default();
+        if *saved_views.peek() != views {
+            saved_views.set(views.clone());
+        }
+        let next = places_with(&known, &folders, &views);
         if shell.peek().places != next {
             // The same place stays chosen when one is added before it: a new label moves every
             // folder down by one, and the list must not jump to the folder above.
@@ -295,6 +331,12 @@ pub(super) fn App() -> Element {
         // `Key`'s Display is the DOM key name — "e", "ArrowDown", "Escape" — which is the
         // vocabulary `view::shortcut` is written against.
         let key = event.key().to_string();
+        // The attachment viewer owns it while it is open: Esc closes it, the arrows turn a
+        // PDF's pages, and nothing reaches the conversation behind it.
+        if shell.read().viewing.is_some() {
+            super::reading::viewer_key(shell, &key);
+            return;
+        }
         // The Contacts sheet owns it while it is open, over the Space editor when it was opened
         // from there: its filter takes letters, and Esc closes it and nothing else.
         if shell.read().contacts.is_some() {
@@ -322,6 +364,34 @@ pub(super) fn App() -> Element {
             if key == "Escape" {
                 super::rules::close(shell);
             }
+            return;
+        }
+        // The view editor likewise: its fields take letters, Esc closes it.
+        if shell.read().view_editor.is_some() {
+            if key == "Escape" {
+                super::views::close(shell);
+            }
+            return;
+        }
+        // The Delete forever sheet: Esc cancels it, and no other key does anything, least of all
+        // what it would have done to the rows behind it. Only its button deletes.
+        if shell.read().destroying.is_some() {
+            if key == "Escape" {
+                super::destroy::close(shell);
+            }
+            return;
+        }
+        // The keyboard shortcuts sheet takes every key: the one pressed to be bound must not
+        // also do what it did before, and Esc stops a wait before it closes the sheet.
+        if shell.read().keyboard.is_some() {
+            let held = event.modifiers();
+            let key = if held.shift() {
+                crate::view::shifted(&key).to_owned()
+            } else {
+                key
+            };
+            let chord = held.ctrl() || held.alt() || held.meta();
+            super::keyboard::pressed(shell, &key, chord);
             return;
         }
         // And the keys and certificates sheet: its fields take letters, Esc closes it.
@@ -412,6 +482,19 @@ pub(super) fn App() -> Element {
             return;
         }
         let typing = in_a_field() || shell.read().composing.is_some();
+        let listed = || -> Vec<ThreadId> { threads().iter().map(|t| t.id).collect() };
+        // ⌘A picks every listed conversation. In a field it is the field's select-all.
+        if (key == "a" || key == "A") && super::chord::command(modifiers) {
+            if !typing {
+                shell.write().pick_all(&listed());
+            }
+            return;
+        }
+        // Esc lets go of a selection before it closes anything behind it.
+        if key == "Escape" && !typing && shell.read().picked.any(&listed()) {
+            shell.write().unpick(&listed());
+            return;
+        }
         // Esc closes a centre or full peek and revokes image consent. Side peek still falls
         // through to Shortcut::Back, and a composer still takes Esc.
         if key == "Escape" {
@@ -424,9 +507,33 @@ pub(super) fn App() -> Element {
                 return;
             }
         }
-        let Some(action) = crate::view::shortcut(&key, typing, super::chord::command(modifiers))
-        else {
+        // Shift+Enter opens the open conversation in a window of its own (a focused row's own
+        // handler takes it first, for that row).
+        if key == "Enter" && event.modifiers().shift() {
+            let open = shell.read().open;
+            if !typing && let Some(open) = open {
+                super::window::open_in_window(open);
+            }
             return;
+        }
+        // ⌘ held is the Mac's: ⌘N writes a message wherever the caret is, ⌘⌫ trashes while
+        // reading. No bare letter is a shortcut with ⌘ held — ⌘C is copy, and ⌘A was select-all
+        // above — because the keymap does not own chords. Esc still closes.
+        let action = if super::chord::command(modifiers) && key != "Escape" {
+            let Some(action) = crate::view::command_shortcut(&key, typing) else {
+                return;
+            };
+            action
+        } else {
+            let key = if event.modifiers().shift() {
+                crate::view::shifted(&key).to_owned()
+            } else {
+                key
+            };
+            let Some(action) = shell.read().keymap.action(&key, typing) else {
+                return;
+            };
+            action
         };
         let store = consume_context::<Arc<SqliteStore>>();
         let open = shell.read().open;
@@ -436,6 +543,14 @@ pub(super) fn App() -> Element {
                 if let Some(id) = crate::view::step(open, &ids, action == Shortcut::Next) {
                     shell.write().open(id);
                 }
+            }
+            Shortcut::ExtendNext | Shortcut::ExtendPrevious => {
+                let toward = if action == Shortcut::ExtendNext {
+                    Toward::Next
+                } else {
+                    Toward::Previous
+                };
+                shell.write().extend(toward, &listed());
             }
             Shortcut::Back => {
                 if shell.read().composing.is_some() {
@@ -452,6 +567,9 @@ pub(super) fn App() -> Element {
                 {
                     revision += 1;
                 }
+            }
+            Shortcut::ToggleMute => {
+                super::picks::mute_picked(&store, shell, revision, &threads());
             }
             Shortcut::Compose => {
                 // The only shortcut that does not consult the conversation under the cursor, and
@@ -484,18 +602,17 @@ pub(super) fn App() -> Element {
                 }
             }
             _ => {
-                // Resolved against the open thread's own summary, so the keyboard reaches
-                // exactly what that row's buttons offer and nothing else.
-                let Some(id) = open else { return };
-                let Some(summary) = threads().iter().find(|t| t.id == id).cloned() else {
-                    return;
-                };
-                if let Some(kind) = crate::view::op_for_shortcut(action, &summary) {
-                    super::motion::act_kind(&store, shell, revision, id, kind);
-                }
+                // The picked conversations, or with none picked the open one. Resolved against
+                // their own summaries, so the keyboard reaches exactly what their rows offer and
+                // nothing else, and all of it is one gesture with one undo.
+                super::picks::act_on_picked(&store, shell, revision, action, &threads());
             }
         }
     };
+
+    // Follow-up reminders: swept at launch, when the next comes due, and on every revision, so
+    // a conversation nobody answered comes back to the top of the inbox (`crate::follow_up`).
+    super::follow_up::use_reminders(revision);
 
     // Mail that only arrives when you press a button is mail you miss. `AccountEngine::watch`
     // has existed since phase 3 and nothing called it; this is the poll half of it, which is
@@ -700,6 +817,18 @@ pub(super) fn App() -> Element {
             if shell.read().keys.is_some() {
                 super::pgp::keys::KeysSheet { shell }
             }
+            if shell.read().view_editor.is_some() {
+                super::views::ViewSheet { shell, revision, pages }
+            }
+            if shell.read().keyboard.is_some() {
+                super::keyboard::KeyboardSheet { shell }
+            }
+            if shell.read().viewing.is_some() {
+                super::reading::AttachmentViewer { shell }
+            }
+            if shell.read().destroying.is_some() {
+                super::destroy::DestroySheet { shell, revision }
+            }
         }
         }
     }
@@ -750,7 +879,7 @@ fn user_style() -> ReadSignal<UserStyle> {
 /// included, is `appearance.toml`'s. A switch or an edit only writes the Spaces, and `Ds`
 /// cross-fades the frame's layers itself.
 #[component]
-fn Frame(spaces: Signal<Spaces>, children: Element) -> Element {
+pub(super) fn Frame(spaces: Signal<Spaces>, children: Element) -> Element {
     let environment = environment();
     let space = spaces.read().current_space();
     let appearance = window_appearance(&environment);

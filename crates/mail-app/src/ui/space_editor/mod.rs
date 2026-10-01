@@ -6,7 +6,8 @@
 //! exactly as the sheet found it. The Space's own look is quire's `SpaceEditor`: its name, the
 //! colour field and its stops, theme, the card's accent, the presets and the measured contrast.
 //! What quire's editor does not draw stays mailo's, in form rows under it: provider marks,
-//! notifications, the accounts, contacts, rules and keys, and Cancel and Save.
+//! notifications, which accounts are kept offline, spelling, brand logos, searching the server,
+//! the accounts, contacts, rules, keys and the keyboard, and Cancel and Save.
 //!
 //! The drag preview, decided (quire's migration brief §5.1, which left it open): a drag in the
 //! colour field repaints the frame through `Ds`'s own cross-fade, each step like any other
@@ -15,11 +16,21 @@
 //! behaviour, and the frame a drag shows is the frame Save keeps. Nothing here depends on the
 //! renderer, so the decision stands on Blitz as it does on the webview.
 
+mod brand;
 mod notify;
+mod offline;
 mod parts;
+mod server;
+mod spelling;
 
+pub(in crate::ui) use parts::Seg;
+
+use self::brand::BrandLogos;
 use self::notify::Notifications;
+use self::offline::OfflineCopy;
 use self::parts::Marks as MarksChoice;
+use self::server::ServerSearch;
+use self::spelling::Spelling;
 use super::common::{classed, in_card};
 use super::frame::keep;
 use super::press::on_primary;
@@ -32,6 +43,7 @@ use ds::components::controls::button_model::Answers;
 use ds::components::fields::field_row::{FieldGroup, FieldRow};
 use ds::components::overlays::sheet_attach::Attach;
 use ds::prelude::*;
+use ds::root::common::Common;
 
 /// Apply `edit` to the draft and put the result in the window's Spaces, which the frame's
 /// root reads.
@@ -141,6 +153,18 @@ pub(super) fn SpaceEditor(
                             onclick: on_primary(move || super::pgp::keys::open(shell)),
                         }
                     }
+                    OfflineCopy {}
+                    Spelling {}
+                    BrandLogos {}
+                    ServerSearch {}
+                    FieldRow {
+                        label: "Keyboard",
+                        Button {
+                            label: "Keyboard Shortcuts\u{2026}",
+                            common: Common { aria_label: Some("Keyboard shortcuts".to_owned()), ..Common::default() },
+                            onclick: on_primary(move || super::keyboard::open(shell)),
+                        }
+                    }
                 }
             }
             // The sheet's own foot, outside the scroller, so Save stays in reach wherever the
@@ -163,6 +187,14 @@ pub(super) fn SpaceEditor(
 }
 
 #[cfg(test)]
+mod brand_tests;
+#[cfg(test)]
 mod notify_tests;
+#[cfg(test)]
+mod offline_tests;
+#[cfg(test)]
+mod server_tests;
+#[cfg(test)]
+mod spelling_tests;
 #[cfg(test)]
 pub(in crate::ui) mod tests;

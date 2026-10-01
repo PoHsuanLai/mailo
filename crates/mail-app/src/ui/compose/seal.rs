@@ -253,6 +253,7 @@ pub(in crate::ui) async fn seal_and_queue(
     store: Arc<SqliteStore>,
     draft: mail_domain::DraftId,
     leaves: crate::compose::Leaves,
+    remind: Option<DateTime<Utc>>,
     passphrase: Option<Password>,
 ) -> Result<DateTime<Utc>, Sealed> {
     let secrets = seams().secrets;
@@ -267,7 +268,15 @@ pub(in crate::ui) async fn seal_and_queue(
             }
             typed
         };
-        let queued = super::life::queue(&store, secrets.as_ref(), &ask, draft, leaves, Utc::now());
+        let queued = super::life::queue_reminding(
+            &store,
+            secrets.as_ref(),
+            &ask,
+            draft,
+            leaves,
+            remind,
+            Utc::now(),
+        );
         drop(passphrase);
         match queued {
             Ok(due) => Ok(due),

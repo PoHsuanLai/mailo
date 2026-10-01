@@ -4,6 +4,7 @@
 //! satisfies those, which is what makes cancellation expressible at all — see [`drive`].
 
 pub mod assemble;
+pub mod bimi;
 pub mod carddav;
 pub mod discover;
 pub mod drive;
@@ -15,8 +16,10 @@ pub mod jmap;
 pub mod loopback;
 pub mod oauth;
 pub mod pgp;
+pub mod places;
 pub mod renewal;
 pub mod reparse;
+pub mod search;
 pub mod secrets;
 pub mod sieve;
 pub mod signin;
@@ -27,12 +30,13 @@ pub mod wkd;
 
 pub use assemble::{Arrival, Destination, absorb, absorb_into, assemble};
 pub use drive::{Cancel, drive};
-pub use engine::{AccountEngine, SyncReport, Woke};
+pub use engine::{AccountEngine, PartBudget, SyncReport, Woke};
 pub use error::RuntimeError;
 pub use jmap::JmapEngine;
 pub use loopback::Loopback;
 pub use renewal::{AfterRefusal, Held, Renewal, Token};
 pub use reparse::reparse_queued;
+pub use search::{SERVER_HITS, Searched, ServerHits, Unsaid};
 pub use secrets::{KeyringSecrets, MapSecrets, Secrets};
 pub use signin::{OAuthRegistry, Registration};
 pub use transport::Transport;

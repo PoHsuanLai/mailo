@@ -29,7 +29,7 @@ use crate::id::{BlobId, ChangeId, DraftId, LabelId, MessageId, ThreadId};
 use crate::message::{Message, Thread};
 use crate::receipt::Keyword;
 use crate::remote::MailboxRef;
-use crate::state::{MailboxRole, Membership, Pin, ReadState, Snooze, Star};
+use crate::state::{FollowUp, MailboxRole, Membership, Mute, Pin, ReadState, Snooze, Star};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -60,6 +60,15 @@ pub enum Op {
     Label(LabelId, Membership),
     SetSnooze(Snooze),
     SetPin(Pin),
+    /// Keep a conversation's new mail out of the inbox, or stop. Local like snooze and pin: the
+    /// conversation's state changes here and nothing is sent. What a mute does to mail arriving
+    /// later is the store's to carry out at arrival, as ordinary operations on those messages.
+    SetMute(Mute),
+    /// Ask to be reminded if nobody answers a conversation, move a reminder on, or let it go.
+    /// Local like snooze: the conversation's state changes here and nothing is sent. Whether a
+    /// reply arrived is decided when the reminder comes due, by the caller that can see the
+    /// user's addresses, and applied as another `SetFollowUp`.
+    SetFollowUp(FollowUp),
     /// Out of the inbox into the folder this label names: a label and an archive in one, which
     /// is what moving to a folder is where mailboxes are labels, and what a `MOVE` into that
     /// folder leaves behind locally everywhere else.
@@ -68,6 +77,14 @@ pub enum Op {
     /// label and an archive queued apart would move the message into Archive and then find
     /// nothing left in the inbox to file.
     File(LabelId),
+    /// Delete for good: out of this client and off the server, with no way back.
+    ///
+    /// Only for mail already in Trash or Spam, which is where a user has said a message is
+    /// finished with; anywhere else deleting stays a move to Trash ([`Op::Trash`]). [`Op::apply`]
+    /// leaves every other message untouched, so no gesture can destroy mail in the inbox or an
+    /// archive. It has no undo: the server's copy is gone once it is sent, and its inverse is
+    /// empty.
+    Destroy,
 }
 
 /// An operation with its payload stripped: "which action", without "that action's arguments".
@@ -89,6 +106,11 @@ pub enum OpKind {
     RemoveLabel,
     Snooze,
     Pin,
+    Mute,
+    /// Remind me if no reply. See [`Op::SetFollowUp`].
+    FollowUp,
+    /// Delete forever, from Trash or Spam. See [`Op::Destroy`].
+    Destroy,
     Reply,
     ReplyAll,
     Forward,
@@ -111,6 +133,8 @@ pub enum Change {
     MessageLabel(MessageId, LabelId, Membership),
     ThreadSnooze(ThreadId, Snooze),
     ThreadPin(ThreadId, Pin),
+    ThreadMute(ThreadId, Mute),
+    ThreadFollowUp(ThreadId, FollowUp),
     MessageUpsert(Box<Message>),
     MessageDelete(MessageId),
     LabelUpsert(Label),
@@ -212,6 +236,10 @@ pub enum RemoteIntent {
         messages: Vec<MessageId>,
         label: LabelId,
     },
+    /// Delete messages for good, where they are in Trash or Spam. Resolved by the store to
+    /// [`crate::ProtoOp::Destroy`], with the addresses they are held at when it is queued: the
+    /// local copies are removed at once, and with them what `remote_map` knew.
+    Destroy { messages: Vec<MessageId> },
     /// Upload a message into a mailbox, e.g. imported mail.
     ///
     /// Addresses no existing message either: the bytes are the new one. Resolves to the
@@ -237,8 +265,9 @@ pub struct Applied {
     pub inverse: Patch,
     /// Remote work to queue, or `None` when this op is purely local — archiving under
     /// [`crate::ArchiveMeans::LocalOnly`], labelling under
-    /// [`crate::ServerLabels::LocalOnly`], and snooze and pin always, which have no server
-    /// representation at all.
+    /// [`crate::ServerLabels::LocalOnly`], and snooze, pin, mute and follow-up always, which have no server
+    /// representation at all. [`Op::Destroy`] always has one, whatever the capabilities: a
+    /// message removed here and left on the server would come back with the next sync.
     pub remote: Option<RemoteIntent>,
 }
 
@@ -255,8 +284,8 @@ impl Op {
     /// id would make "which patch is this row" ambiguous the moment an undo is applied, and
     /// would collide with the already-recorded forward patch.
     ///
-    /// `now` is unused. No op currently needs a timestamp: [`Snooze::Until`] carries the
-    /// instant the caller chose, and "has this snooze expired" is resolved against `now` at
+    /// `now` is unused. No op currently needs a timestamp: [`Snooze::Until`] and
+    /// [`FollowUp::Until`] carry the instants the caller chose, and "has this snooze expired" is resolved against `now` at
     /// query time by [`crate::Filter::SnoozeDue`] rather than frozen in at apply time. The
     /// parameter stays because it is the crate-wide convention (`CONVENTIONS.md` section 6)
     /// and because an op that does need one -- a send-later, a reminder -- is a plausible
@@ -272,7 +301,7 @@ impl Op {
         let selected = select(target, messages);
         let id = thread.summary.id;
 
-        // Snooze and pin are thread-level, so they need "is this thread in scope" rather than
+        // Snooze, pin, mute and follow-up are thread-level, so they need "is this thread in scope" rather than
         // a message list. Naming the thread targets it; naming any of its messages does too,
         // because there is no such thing as snoozing half a conversation.
         let thread_targeted = match target {
@@ -291,6 +320,7 @@ impl Op {
             Op::SetStar(star) => set_star(&selected, *star),
             Op::Label(label, membership) => set_label(&selected, *label, *membership),
             Op::File(label) => file_into(&selected, *label),
+            Op::Destroy => destroy(&selected),
             Op::SetSnooze(snooze) => {
                 let prior = thread.summary.snooze;
                 if thread_targeted && prior != *snooze {
@@ -313,6 +343,28 @@ impl Op {
                     (Vec::new(), Vec::new())
                 }
             }
+            Op::SetMute(mute) => {
+                let prior = thread.summary.mute;
+                if thread_targeted && prior != *mute {
+                    (
+                        vec![Change::ThreadMute(id, *mute)],
+                        vec![Change::ThreadMute(id, prior)],
+                    )
+                } else {
+                    (Vec::new(), Vec::new())
+                }
+            }
+            Op::SetFollowUp(follow_up) => {
+                let prior = thread.summary.follow_up;
+                if thread_targeted && prior != *follow_up {
+                    (
+                        vec![Change::ThreadFollowUp(id, *follow_up)],
+                        vec![Change::ThreadFollowUp(id, prior)],
+                    )
+                } else {
+                    (Vec::new(), Vec::new())
+                }
+            }
         };
 
         // Only changed messages need syncing: a no-op locally is a no-op remotely, and
@@ -325,7 +377,8 @@ impl Op {
             if let Change::MessageRead(m, _)
             | Change::MessageStar(m, _)
             | Change::MessageMailbox(m, _)
-            | Change::MessageLabel(m, _, _) = change
+            | Change::MessageLabel(m, _, _)
+            | Change::MessageDelete(m) = change
                 && !touched.contains(m)
             {
                 touched.push(*m);
@@ -406,8 +459,11 @@ impl Op {
                     })
                 }
             },
-            // Neither has any server representation: they are this app's own state.
-            Op::SetSnooze(_) | Op::SetPin(_) => None,
+            // Whatever the account files locally, the server holds the message until it is told:
+            // left there, the next sync would bring it back into Trash.
+            Op::Destroy => Some(RemoteIntent::Destroy { messages }),
+            // None has any server representation: they are this app's own state.
+            Op::SetSnooze(_) | Op::SetPin(_) | Op::SetMute(_) | Op::SetFollowUp(_) => None,
         }
     }
 
@@ -426,6 +482,9 @@ impl Op {
             Op::Label(_, Membership::Out) => OpKind::RemoveLabel,
             Op::SetSnooze(_) => OpKind::Snooze,
             Op::SetPin(_) => OpKind::Pin,
+            Op::SetMute(_) => OpKind::Mute,
+            Op::SetFollowUp(_) => OpKind::FollowUp,
+            Op::Destroy => OpKind::Destroy,
             // Filing is archiving into a named place: the row leaves the inbox the same way.
             Op::File(_) => OpKind::Archive,
         }
@@ -476,6 +535,21 @@ fn file_into(selected: &[&Message], label: LabelId) -> (Vec<Change>, Vec<Change>
     forward.extend(labelled);
     inverse.extend(unlabelled);
     (forward, inverse)
+}
+
+/// Remove every selected message that is in Trash or Spam, and nothing else.
+///
+/// Per message, like every other op: a conversation in Trash may hold the user's own reply in
+/// Sent, and that reply is not the user's to lose by emptying Trash. A message anywhere but Trash
+/// and Spam is refused by being left out, so an op that selects none of them changes nothing and
+/// queues nothing. The inverse is always empty: nothing puts a destroyed message back.
+fn destroy(selected: &[&Message]) -> (Vec<Change>, Vec<Change>) {
+    let forward = selected
+        .iter()
+        .filter(|m| matches!(m.mailbox, MailboxRole::Trash | MailboxRole::Spam))
+        .map(|m| Change::MessageDelete(m.id))
+        .collect();
+    (forward, Vec::new())
 }
 
 /// Bring filed-away messages back to the inbox.

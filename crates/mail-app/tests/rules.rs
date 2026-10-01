@@ -480,6 +480,7 @@ async fn one_pass(port: u16, store: &Arc<SqliteStore>) -> mail_runtime::SyncRepo
         address: ME.to_owned(),
         plan: plan(port),
         caps: caps(),
+        keep: mail_app::offline::Keep::Bodies,
     };
     let inbox = vec![MailboxRef {
         account: ACCOUNT,

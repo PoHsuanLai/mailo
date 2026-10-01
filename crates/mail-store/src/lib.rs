@@ -7,9 +7,11 @@ pub mod contact;
 mod dispatch;
 pub mod error;
 mod filing;
+mod follow_up;
 pub mod memory;
 mod memory_search;
 pub mod migrate;
+mod offline;
 mod pgp;
 mod prefix;
 mod remote_row;
@@ -19,9 +21,12 @@ pub mod sql;
 pub mod sqlite;
 mod term;
 
-pub use contact::{AddressBook, BookCard, Contact, Kind, Origin, Tally};
+pub use contact::{
+    AddressBook, BookCard, Contact, Edit, Group, GroupHome, GroupId, Kind, Origin, Tally,
+};
 pub use dispatch::{PASSES_TO_FIND, SYNCS_TO_FIND};
 pub use memory::MemoryStore;
+pub use offline::{Offline, RemotePart};
 pub use sql::{SqlFilter, SqlValue, compile};
 pub use sqlite::SqliteStore;
 pub use term::Term;
@@ -34,7 +39,7 @@ use mail_domain::{
     Folder, FolderContents, Import, Ingest, InviteAnswer, KeyId, KeyTrust, Label, MailboxRef,
     MailboxRole, Message, MessageId, MessageKey, OutboxId, Page, Patch, PgpKey, ProtoOp, Query,
     ReceiptAnswer, RemoteIntent, RemoteRef, Retry, Rule, RuleId, SendState, SmimeCert, SyncCursor,
-    Template, TemplateId, Thread, ThreadId, ThreadSummary, Vacation,
+    Template, TemplateId, Thread, ThreadId, ThreadSummary, Vacation, View, ViewId,
 };
 
 /// One queued unit of remote work, with everything needed to retry or abandon it.
@@ -106,6 +111,8 @@ pub fn message_of(change: &Change) -> Option<MessageId> {
         Change::MessageUpsert(message) => Some(message.id),
         Change::ThreadSnooze(..)
         | Change::ThreadPin(..)
+        | Change::ThreadMute(..)
+        | Change::ThreadFollowUp(..)
         | Change::LabelUpsert(_)
         | Change::DraftUpsert(_)
         | Change::DraftDelete(_)
@@ -238,6 +245,10 @@ pub trait Store {
     ///
     /// Returns `Ok(None)` when the intent resolves to nothing to say — every named message is
     /// unknown to the server, which is normal for a message composed locally and not yet sent.
+    ///
+    /// [`RemoteIntent::Destroy`] is queued **before** its forward patch is applied: removing a
+    /// message takes its server addresses with it, and this is where they are kept, counted as
+    /// held by [`Store::remote_refs`] until a sync no longer finds them (migration 0025).
     fn enqueue(
         &self,
         account: AccountId,
@@ -410,6 +421,48 @@ pub trait Store {
         size: u64,
     ) -> Result<(), StoreError>;
 
+    /// Attachments a sync left on the server, of messages with an address in `mailbox`,
+    /// smallest first and at most `limit` of them.
+    ///
+    /// What an account kept offline in full fetches after its bodies. Per mailbox for the reason
+    /// [`Store::unfetched_in`] is. Smallest first so the largest wait for last and a pass is
+    /// spent on many parts rather than one; ties newest message first, then by message id
+    /// descending, then by section, so both stores cut the list in the same place.
+    fn remote_parts_in(
+        &self,
+        mailbox: &MailboxRef,
+        limit: u32,
+    ) -> Result<Vec<RemotePart>, StoreError>;
+
+    /// How many of `account`'s messages are held here in full, and what is still on the server.
+    fn offline(&self, account: AccountId) -> Result<Offline, StoreError>;
+
+    /// The messages held here at these server addresses, each with its address; an address
+    /// that names nothing held is left out. What a search of the server asks before fetching
+    /// anything: what it found and already has needs no header fetched again.
+    fn held_at(
+        &self,
+        account: AccountId,
+        remotes: &[RemoteRef],
+    ) -> Result<Vec<(RemoteRef, MessageId)>, StoreError>;
+
+    /// Record that `messages` came to this computer because a search of the server found them.
+    ///
+    /// Only messages that were not held before the search: the list says "from the server" of
+    /// these, and of nothing a sync brought. Marking one twice keeps the first time.
+    /// [`StoreError::NoMessage`] for a message this account does not hold, and then nothing is
+    /// marked. The mark goes with the message.
+    fn mark_found(
+        &self,
+        account: AccountId,
+        messages: &[MessageId],
+        now: DateTime<Utc>,
+    ) -> Result<(), StoreError>;
+
+    /// Which of `threads` hold a message a search of the server brought here, in their order
+    /// and each once.
+    fn found_in(&self, threads: &[ThreadId]) -> Result<Vec<ThreadId>, StoreError>;
+
     /// One draft by id.
     fn draft(&self, id: DraftId) -> Result<Draft, StoreError>;
 
@@ -446,6 +499,22 @@ pub trait Store {
     /// Delete a template. [`StoreError::NoTemplate`] when there is none by that id, so a typo
     /// in an id is not reported as done.
     fn delete_template(&self, id: TemplateId) -> Result<(), StoreError>;
+
+    /// Every saved view, in the sidebar's order: the order they were first kept, then by id.
+    ///
+    /// Views are the user's, not an account's: one view can list mail from every account.
+    fn views(&self) -> Result<Vec<View>, StoreError>;
+
+    /// Keep a view, replacing any with the same id. A new view goes last; a view kept again
+    /// keeps its place in the sidebar.
+    ///
+    /// Not through [`Store::apply`], like a template: a view is a way of looking at mail, not
+    /// an edit of any.
+    fn put_view(&self, view: &View) -> Result<(), StoreError>;
+
+    /// Forget a view. [`StoreError::NoView`] when there is none by that id. The mail it listed
+    /// is untouched.
+    fn delete_view(&self, id: ViewId) -> Result<(), StoreError>;
 
     /// Every label on an account, by name.
     ///
@@ -646,4 +715,23 @@ pub trait Store {
 
     /// Every address book synced so far, by URL: what `mailo contacts sync` with no URL syncs.
     fn address_books(&self) -> Result<Vec<AddressBook>, StoreError>;
+
+    /// Every contact group, by name without regard to ASCII case, then by id.
+    fn groups(&self) -> Result<Vec<Group>, StoreError>;
+
+    /// One contact group; `None` when there is none.
+    fn group(&self, id: &GroupId) -> Result<Option<Group>, StoreError>;
+
+    /// Add a contact group, or replace the one with its id.
+    fn put_group(&self, group: &Group) -> Result<(), StoreError>;
+
+    /// Forget a contact group. `true` when there was one. Its members stay in the book.
+    fn delete_group(&self, id: &GroupId) -> Result<bool, StoreError>;
+
+    /// Every conversation with a follow-up reminder, waiting or returned, soonest due first and
+    /// ties by thread id, on every account.
+    ///
+    /// Not a [`Filter`]: a reminder is decided on messages and the user's own addresses, which a
+    /// filter over the summary cannot see, so the caller reads this list and decides.
+    fn follow_ups(&self) -> Result<Vec<ThreadSummary>, StoreError>;
 }

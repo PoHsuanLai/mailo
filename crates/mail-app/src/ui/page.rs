@@ -69,7 +69,10 @@ where
     }
 }
 
-fn by_key(threads: Vec<ThreadSummary>, key: impl Fn(&ThreadSummary) -> String) -> Vec<Band> {
+pub(super) fn by_key(
+    threads: Vec<ThreadSummary>,
+    key: impl Fn(&ThreadSummary) -> String,
+) -> Vec<Band> {
     let mut order: Vec<String> = Vec::new();
     let mut bands: BTreeMap<String, Vec<ThreadSummary>> = BTreeMap::new();
     for thread in threads {
@@ -88,7 +91,11 @@ fn by_key(threads: Vec<ThreadSummary>, key: impl Fn(&ThreadSummary) -> String) -
         .collect()
 }
 
-fn date_bands<Tz: TimeZone>(threads: Vec<ThreadSummary>, now: DateTime<Utc>, zone: &Tz) -> Vec<Band>
+pub(super) fn date_bands<Tz: TimeZone>(
+    threads: Vec<ThreadSummary>,
+    now: DateTime<Utc>,
+    zone: &Tz,
+) -> Vec<Band>
 where
     Tz::Offset: std::fmt::Display,
 {
@@ -119,7 +126,7 @@ where
     ])
 }
 
-fn titled<const N: usize>(bands: [(&str, Vec<ThreadSummary>); N]) -> Vec<Band> {
+pub(super) fn titled<const N: usize>(bands: [(&str, Vec<ThreadSummary>); N]) -> Vec<Band> {
     bands
         .into_iter()
         .filter(|(_, threads)| !threads.is_empty())
@@ -329,6 +336,8 @@ mod tests {
             attachments: Attachments::None,
             snooze: Snooze::Inactive,
             pin: Pin::Unpinned,
+            mute: Mute::Unmuted,
+            follow_up: mail_domain::FollowUp::Inactive,
         }
     }
 

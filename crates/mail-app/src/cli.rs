@@ -114,6 +114,8 @@ pub enum Command {
         message: MessageId,
         to: Vec<Address>,
         body: String,
+        /// `--attached` carries the message itself as an attachment, not its text.
+        carry: crate::compose::Carry,
     },
     /// Put a file on a draft.
     Attach {
@@ -128,6 +130,11 @@ pub enum Command {
     Watch { notify: WatchNotify },
     /// Turn new-mail notifications on or off, or say which they are.
     Notify { set: Option<crate::notify::Setting> },
+    /// Keep an account's mail offline in full, or not, or say where each account stands.
+    Offline {
+        address: Option<String>,
+        set: Option<crate::offline::Keep>,
+    },
     /// Run the daemon, or stop the one that is running.
     Daemon { stop: bool },
     /// Reach the daemon, starting one if none is listening.
@@ -402,11 +409,19 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
             if to.is_empty() {
                 return Err("--to had no addresses in it".to_owned());
             }
+            let carry = match args.get(4).map(String::as_str) {
+                None => crate::compose::Carry::Inline,
+                Some("--attached") if args.len() == 5 => crate::compose::Carry::Attached,
+                Some(other) => {
+                    return Err(format!("unknown option {other:?}\n\n{}", usage()));
+                }
+            };
             Ok(Command::Forward {
                 message: MessageId::from_uuid(uuid),
                 to,
                 // Filled in by the caller, which owns stdin. Parsing stays pure.
                 body: String::new(),
+                carry,
             })
         }
         "unsubscribe" => {
@@ -453,6 +468,29 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                 usage()
             )),
         },
+        "offline" => {
+            let set = match args.get(2).map(String::as_str) {
+                None => None,
+                Some("on") => Some(crate::offline::Keep::Everything),
+                Some("off") => Some(crate::offline::Keep::Bodies),
+                Some(other) => {
+                    return Err(format!(
+                        "offline takes on or off, not {other:?}\n\n{}",
+                        usage()
+                    ));
+                }
+            };
+            if args.len() > 3 {
+                return Err(format!(
+                    "offline takes an account and on or off\n\n{}",
+                    usage()
+                ));
+            }
+            Ok(Command::Offline {
+                address: args.get(1).cloned(),
+                set,
+            })
+        }
         "daemon" => match args.get(1).map(String::as_str) {
             None => Ok(Command::Daemon { stop: false }),
             Some("--stop") => Ok(Command::Daemon { stop: true }),
@@ -1196,8 +1234,9 @@ usage: mailo <command>
                              after:2025-12-25 -from:newsletter, or a quoted phrase;
                              the best few first, marked top, then newest first
   reply <message-id> [--all]  compose a reply; the body is read from stdin
-  forward <message-id> --to a@b[,c@d]
-                             forward it; the covering note is read from stdin
+  forward <message-id> --to a@b[,c@d] [--attached]
+                             forward it; the covering note is read from stdin.
+                             --attached carries the message itself as an attachment
   compose --to a@b[,c@d] [--cc …] [--bcc …] [--subject S] [--from address]
           [--request-receipt] [--sign] [--encrypt] [--smime]
                              a new message; the body is read from stdin. --sign and
@@ -1331,6 +1370,10 @@ usage: mailo <command>
                              New unread inbox mail raises a desktop notification
                              unless --no-notify or `notify off`
   notify [on|off]            turn new-mail notifications on or off (default on)
+  offline [<account> [on|off]]
+                             keep every attachment of an account here too, fetched
+                             a few each sync, largest last (default off); alone,
+                             how much of each account is here
   daemon [--stop]            run the background daemon, or stop it
   ping                       reach the daemon, starting one if none is running
 "
@@ -1485,6 +1528,7 @@ pub fn run_with_clients(
         }
         // Dispatched in main, which owns the environment the config directory comes from.
         Command::Notify { .. } => Err("notify is dispatched before this point".to_owned()),
+        Command::Offline { .. } => Err("offline is dispatched before this point".to_owned()),
         Command::Daemon { .. } | Command::Ping => {
             Err("the daemon commands are dispatched before this point".to_owned())
         }
@@ -1554,9 +1598,12 @@ pub fn run_with_clients(
             dir,
         } => crate::attach::save(store, *message, *index, dir)
             .map(|path| format!("wrote {}\n", path.display())),
-        Command::Forward { message, to, body } => {
-            crate::compose::forward(store, *message, to, body, now)
-        }
+        Command::Forward {
+            message,
+            to,
+            body,
+            carry,
+        } => crate::compose::forward(store, *message, to, body, *carry, now),
         Command::Attach { draft, path } => crate::compose::attach_file(store, *draft, path, now)
             .map(|draft| {
                 format!(

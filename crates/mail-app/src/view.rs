@@ -4,6 +4,7 @@
 //! open and what the reader should do with a body are all decisions that can be wrong, and none
 //! of them needs a window to be wrong in. The rendering layer reads this and draws it.
 
+use crate::selection::{Click, Picked, Toward};
 use chrono::{DateTime, Datelike, TimeDelta, TimeZone, Timelike, Utc, Weekday};
 use ds::prelude::*;
 use ds::style::appearance::peek::PeekMode;
@@ -39,6 +40,17 @@ pub enum Source {
     Mail(Filter),
     /// The drafts table.
     Drafts,
+    /// A view the user saved: its filter, and how its list is grouped and what its rows offer.
+    ///
+    /// The whole [`View`] rather than its filter, because the rest of it is what makes it a
+    /// view: [`Shell::grouping`] and [`hover_in`] read it while it is the place shown.
+    Saved(Box<View>),
+    /// The conversations with a follow-up reminder, soonest due first ([`crate::follow_up`]).
+    ///
+    /// Not a `Filter`, for the reason drafts are not: whether a reminder still stands is decided
+    /// on the conversation's messages and the user's own addresses, and the domain's filters see
+    /// only the summary. The store lists them ([`mail_store::Store::follow_ups`]).
+    Waiting,
 }
 
 /// The filter a mailbox place lists.
@@ -83,6 +95,36 @@ pub fn pin_op(summary: &ThreadSummary, now: DateTime<Utc>) -> Op {
     }
 }
 
+/// What Mute does to a conversation, given what it is now: mute it, or unmute it if it is muted.
+///
+/// `Op::SetMute` carries the state it sets, so `op_for` cannot produce it; the conversation's own
+/// state decides the direction.
+pub fn mute_op(summary: &ThreadSummary) -> Op {
+    Op::SetMute(match summary.mute {
+        Mute::Muted => Mute::Unmuted,
+        Mute::Unmuted => Mute::Muted,
+    })
+}
+
+/// The one mute a gesture applies to several conversations: unmute when every one of them is
+/// muted, mute otherwise. One operation for all, never a toggle each, as star and read on a
+/// selection are.
+pub fn mute_for_all(summaries: &[ThreadSummary]) -> Mute {
+    if !summaries.is_empty() && summaries.iter().all(|s| s.mute == Mute::Muted) {
+        Mute::Unmuted
+    } else {
+        Mute::Muted
+    }
+}
+
+/// What a Mute button or menu item says for these conversations: what pressing it would do.
+pub fn mute_label(summaries: &[ThreadSummary]) -> &'static str {
+    match mute_for_all(summaries) {
+        Mute::Muted => "Mute",
+        Mute::Unmuted => "Unmute",
+    }
+}
+
 /// Snoozed, and not yet due.
 ///
 /// `SnoozeDue` implies `Snoozed`, so "away" is the difference between them rather than a state
@@ -115,6 +157,9 @@ pub fn default_places() -> Vec<Place> {
         ("Spam", source_for(MailboxRole::Spam)),
         ("Trash", source_for(MailboxRole::Trash)),
         ("Pinned", Source::Mail(Filter::Pinned)),
+        // Last, so every place before it keeps the index it had: conversations the user is
+        // waiting on an answer to, which come back to the inbox if none arrives.
+        ("Waiting", Source::Waiting),
     ]
     .into_iter()
     .map(|(name, source)| Place {
@@ -157,11 +202,17 @@ pub fn folder_of(place: &Place) -> Option<&MailboxRef> {
     }
 }
 
-/// The sidebar: the default places, then one per label, then one per server folder, in that
-/// order — which is also the order the badges are counted in, index for index.
+/// The sidebar: the default places, then one per label, then one per server folder, then one
+/// per saved view, in that order — which is also the order the badges are counted in, index for
+/// index.
 ///
 /// A folder's place is named by its last level, which is what its row and the list's title say.
-pub fn places_with(labels: &[(String, LabelId)], folders: &[(String, MailboxRef)]) -> Vec<Place> {
+/// Saved views come last so that keeping or forgetting one moves no other place's index.
+pub fn places_with(
+    labels: &[(String, LabelId)],
+    folders: &[(String, MailboxRef)],
+    views: &[View],
+) -> Vec<Place> {
     let labelled = labels.iter().map(|(name, id)| Place {
         name: name.clone(),
         source: Source::Mail(Filter::HasLabel(*id)),
@@ -176,7 +227,25 @@ pub fn places_with(labels: &[(String, LabelId)], folders: &[(String, MailboxRef)
         .into_iter()
         .chain(labelled)
         .chain(foldered)
+        .chain(views.iter().map(saved_place))
         .collect()
+}
+
+/// The sidebar place a saved view is.
+pub fn saved_place(view: &View) -> Place {
+    Place {
+        name: view.name.clone(),
+        source: Source::Saved(Box::new(view.clone())),
+        unread: None,
+    }
+}
+
+/// The saved view a place is, when it is one.
+pub fn saved_of(place: &Place) -> Option<&View> {
+    match &place.source {
+        Source::Saved(view) => Some(view),
+        Source::Mail(_) | Source::Drafts | Source::Waiting => None,
+    }
 }
 
 /// What a place's badge counts, or `None` when it has no badge.
@@ -193,7 +262,12 @@ pub fn badge_filter(source: &Source) -> Option<Filter> {
             filter.clone(),
             Filter::Read(ReadState::Unread),
         ])),
-        Source::Drafts => None,
+        Source::Saved(view) => Some(Filter::And(vec![
+            view.filter.clone(),
+            Filter::Read(ReadState::Unread),
+        ])),
+        // Nothing in it is news: the user wrote the last word and is waiting for someone else's.
+        Source::Drafts | Source::Waiting => None,
     }
 }
 
@@ -375,6 +449,17 @@ impl RowPart {
     }
 }
 
+/// How the list is grouped: by the page's Group menu, or by the saved view being shown.
+///
+/// Two vocabularies because they are two features. The menu's [`PageGroup`] is a quick look at
+/// the loaded page; a view's [`GroupKey`] is part of what the view was saved as, and says things
+/// the menu cannot, such as "tagged Travel, and not".
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Grouping {
+    Page(PageGroup),
+    Saved(GroupKey),
+}
+
 /// Which list-bar menu is open.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PageMenu {
@@ -408,6 +493,51 @@ pub struct RulesSheet {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct KeysSheet;
 
+/// The keyboard shortcuts sheet while it is open.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct KeyboardSheet {
+    /// The action waiting for its new key: the next press is offered to it. `None` is waiting
+    /// for nothing, and the keyboard is the sheet's own.
+    pub listening: Option<Shortcut>,
+    /// Why the last key was not taken, or the keymap not kept, in words.
+    pub said: Option<String>,
+}
+
+/// The attachment viewer while it is open: which stored part of which message, and for a PDF
+/// which page, from 0.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Viewing {
+    pub message: MessageId,
+    pub index: usize,
+    pub page: u32,
+    /// How many pages the part has, once one has been drawn; `None` before, and for a picture.
+    pub pages: Option<u32>,
+}
+
+impl Viewing {
+    /// The first page of attachment `index` of `message`.
+    pub fn of(message: MessageId, index: usize) -> Self {
+        Self {
+            message,
+            index,
+            page: 0,
+            pages: None,
+        }
+    }
+
+    /// `by` pages on, held to the pages there are. Until a page has been drawn the count is not
+    /// known and nothing turns forward, so a held key cannot run ahead into pages that do not
+    /// exist; a picture never has pages.
+    pub fn turned(self, by: i32) -> Self {
+        let last = match self.pages {
+            Some(pages) => pages.saturating_sub(1),
+            None => self.page,
+        };
+        let page = self.page.saturating_add_signed(by).min(last);
+        Self { page, ..self }
+    }
+}
+
 /// Everything the shell is currently showing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Shell {
@@ -419,6 +549,12 @@ pub struct Shell {
     /// Whether the open thread was opened from its Today tab. The sidebar has one selected row:
     /// that tab while this holds, the place otherwise.
     pub from_today: bool,
+    /// The conversations picked for an action on several at once. Empty: actions mean `open`.
+    ///
+    /// Dropped with the place ([`Self::select`]), and replaced by a plain click
+    /// ([`Self::open`]). Always read through the list's ids, so a pick that has left the list
+    /// is never acted on.
+    pub picked: Picked,
     /// Whether the reader may fetch remote images for the thread currently open.
     ///
     /// Per thread and not persisted: consenting to load one sender's images is not consent for
@@ -486,6 +622,15 @@ pub struct Shell {
     pub rules: Option<RulesSheet>,
     /// The keys and certificates sheet while it is open. `None` is closed.
     pub keys: Option<KeysSheet>,
+    /// The saved-view editor while it is open, with what its fields hold. `None` is closed.
+    pub view_editor: Option<crate::saved::ViewDraft>,
+    /// Which key does what: the shipped keys with the user's own over them, read from
+    /// `keyboard.json` when the window opens.
+    pub keymap: crate::keymap::Keymap,
+    /// The keyboard shortcuts sheet while it is open. `None` is closed.
+    pub keyboard: Option<KeyboardSheet>,
+    /// The Delete forever / Empty Trash confirmation while it is open. `None` is closed.
+    pub destroying: Option<crate::destroy::Destroying>,
     /// ⌘F in the open thread. `None` is closed, and marks nothing.
     ///
     /// Belongs to the thread it was opened on: [`Self::open`] and [`Self::close`] drop it, so a
@@ -493,6 +638,9 @@ pub struct Shell {
     pub find: Option<crate::search::Find>,
     /// What the undo toast and ⌘Z can take back, newest last.
     pub undo: crate::undo::UndoStack,
+    /// The attachment viewer, over the window. `None` is closed. Belongs to the open thread:
+    /// [`Self::open`], [`Self::close`] and [`Self::select`] drop it.
+    pub viewing: Option<Viewing>,
 }
 
 /// A message being edited, as the widgets hold it.
@@ -684,6 +832,7 @@ impl Default for Shell {
             search: String::new(),
             open: None,
             from_today: false,
+            picked: Picked::none(),
             show_remote_images: false,
             peek: Peek::Side,
             composing: None,
@@ -704,8 +853,13 @@ impl Default for Shell {
             adding: None,
             rules: None,
             keys: None,
+            view_editor: None,
+            keymap: crate::keymap::Keymap::default(),
+            keyboard: None,
+            destroying: None,
             find: None,
             undo: crate::undo::UndoStack::default(),
+            viewing: None,
         }
     }
 }
@@ -718,13 +872,21 @@ impl Shell {
     /// results that live in the Inbox.
     pub fn query(&self, limit: u32) -> Query {
         let needle = self.search.trim();
+        let mut sort = Sort {
+            property: Property::Date,
+            dir: SortDir::Desc,
+        };
         let filter = if needle.is_empty() {
             match self.places.get(self.selected).map(|place| &place.source) {
                 Some(Source::Mail(filter)) => filter.clone(),
+                Some(Source::Saved(view)) => {
+                    sort = view.sort;
+                    view.filter.clone()
+                }
                 // Reachable only if a caller asks for a query while Drafts is selected.
                 // `listing` is the method that knows the difference; this stays total rather
                 // than panicking, and `All` is the least surprising thing to show.
-                Some(Source::Drafts) | None => Filter::All,
+                Some(Source::Drafts) | Some(Source::Waiting) | None => Filter::All,
             }
         } else {
             crate::query::parse_with(needle, &chrono::Local, &crate::query::named(&self.labels))
@@ -732,11 +894,31 @@ impl Shell {
         let filter = self.with_account(filter);
         Query {
             filter,
-            sort: Sort {
-                property: Property::Date,
-                dir: SortDir::Desc,
-            },
+            sort,
             page: PageReq { after: None, limit },
+        }
+    }
+
+    /// The saved view the list is showing, if it is showing one.
+    ///
+    /// Not while a search is typed: a search replaces the place (see [`Self::query`]), so the
+    /// rows are the search's and the view's grouping and hover strip are not theirs.
+    pub fn saved_view(&self) -> Option<&View> {
+        if !self.search.trim().is_empty() {
+            return None;
+        }
+        self.places.get(self.selected).and_then(saved_of)
+    }
+
+    /// How the list is grouped now. The Group menu wins when it has been set to something; left
+    /// at None, a saved view's own grouping applies.
+    pub fn grouping(&self) -> Grouping {
+        match (
+            self.group,
+            self.saved_view().and_then(|v| v.group_by.clone()),
+        ) {
+            (PageGroup::None, Some(key)) => Grouping::Saved(key),
+            (page, _) => Grouping::Page(page),
         }
     }
 
@@ -746,15 +928,22 @@ impl Shell {
     /// searching is global here, and a user who types into it is looking for a message, not
     /// filtering the drafts they can already see.
     pub fn listing(&self, limit: u32) -> Listing {
-        if self.search.trim().is_empty()
-            && matches!(
-                self.places.get(self.selected).map(|p| &p.source),
-                Some(Source::Drafts)
-            )
-        {
-            return Listing::Drafts;
+        if !self.search.trim().is_empty() {
+            return Listing::Threads(self.query(limit));
         }
-        Listing::Threads(self.query(limit))
+        match self.places.get(self.selected).map(|p| &p.source) {
+            Some(Source::Drafts) => Listing::Drafts,
+            Some(Source::Waiting) => Listing::Waiting {
+                scope: self.account_filter(),
+            },
+            Some(Source::Mail(filter)) if *filter == place_filter(MailboxRole::Inbox) => {
+                Listing::Inbox {
+                    query: self.query(limit),
+                    scope: self.account_filter(),
+                }
+            }
+            _ => Listing::Threads(self.query(limit)),
+        }
     }
 
     /// Narrow `filter` to the pressed account tile, or to the Space when it names accounts.
@@ -792,17 +981,23 @@ impl Shell {
             self.selected = index;
             self.open = None;
             self.from_today = false;
+            // What was picked was picked in the old list.
+            self.picked = Picked::none();
             // Consent is per thread, so changing what is shown revokes it.
             self.show_remote_images = false;
+            self.viewing = None;
         }
     }
 
-    /// Open a thread.
+    /// Open a thread. What was picked is replaced by it, as a plain click on a row replaces a
+    /// selection in any list, and a Shift range measures from it next.
     pub fn open(&mut self, thread: ThreadId) {
         self.open = Some(thread);
         self.from_today = false;
+        self.picked = Picked::clicked(thread);
         self.show_remote_images = false;
         self.find = None;
+        self.viewing = None;
     }
 
     /// Open a thread from its Today tab: the tab is then the sidebar's selected row.
@@ -831,6 +1026,69 @@ impl Shell {
         self.from_today = false;
         self.show_remote_images = false;
         self.find = None;
+        self.viewing = None;
+    }
+
+    /// A click on a conversation's row, among the listed `ids`: a plain one opens it, Ctrl
+    /// picks it or puts it back, Shift picks the range from the anchor to it.
+    pub fn click(&mut self, thread: ThreadId, click: Click, ids: &[ThreadId]) {
+        match click {
+            Click::Plain => self.open(thread),
+            Click::Toggle => self.picked = self.picked.toggle(thread, self.open, ids),
+            Click::Range => self.picked = self.picked.range(thread, self.open, ids),
+        }
+    }
+
+    /// Shift+j or Shift+k among the listed `ids`.
+    pub fn extend(&mut self, toward: Toward, ids: &[ThreadId]) {
+        self.picked = self.picked.extend(toward, self.open, ids);
+    }
+
+    /// Select all: every listed conversation.
+    pub fn pick_all(&mut self, ids: &[ThreadId]) {
+        self.picked = Picked::all(ids);
+    }
+
+    /// Drop the selection, leaving the reader as it is. Returns whether anything listed was
+    /// picked, so Esc can mean this before it means closing the reader.
+    pub fn unpick(&mut self, ids: &[ThreadId]) -> bool {
+        let had = self.picked.any(ids);
+        self.picked = Picked::none();
+        had
+    }
+
+    /// Whether `thread`'s row is drawn selected: picked, or, with nothing picked, open.
+    pub fn is_selected(&self, thread: ThreadId, ids: &[ThreadId]) -> bool {
+        if self.picked.any(ids) {
+            self.picked.holds(thread, ids)
+        } else {
+            self.open == Some(thread)
+        }
+    }
+
+    /// The conversations an action from the keyboard means, in list order: the picked ones,
+    /// or, with nothing picked, the open one if it is still listed.
+    pub fn acted_on(&self, ids: &[ThreadId]) -> Vec<ThreadId> {
+        let chosen = self.picked.chosen(ids);
+        if chosen.is_empty() {
+            self.open
+                .filter(|id| ids.contains(id))
+                .into_iter()
+                .collect()
+        } else {
+            chosen
+        }
+    }
+
+    /// The conversations an action on `thread`'s own row means: the whole selection when the
+    /// row is part of it, and the row alone when it is not. A press on a row outside the
+    /// selection is about that row, as a right-click outside a selection is anywhere else.
+    pub fn with_selection(&self, thread: ThreadId, ids: &[ThreadId]) -> Vec<ThreadId> {
+        if self.picked.holds(thread, ids) {
+            self.picked.chosen(ids)
+        } else {
+            vec![thread]
+        }
     }
 
     /// Open the composer on `draft`.
@@ -888,13 +1146,51 @@ pub fn hover_actions(summary: &ThreadSummary) -> Vec<OpKind> {
         Star::Unstarred => OpKind::Star,
         Star::Starred => OpKind::Unstar,
     });
-    // All three always offered. None depends on where the conversation is or what state it is
-    // in: a forward is the message being passed on, a pin is a note to yourself about it, and a
-    // label is a name you are giving it.
+    // Always offered. None depends on where the conversation is or what state it is in: a
+    // forward is the message being passed on, a pin is a note to yourself about it, a mute is
+    // about the replies still to come, and a label is a name you are giving it.
     out.push(OpKind::Pin);
+    out.push(OpKind::Mute);
     out.push(OpKind::Snooze);
     out.push(OpKind::AddLabel);
     out.push(OpKind::Forward);
+    out
+}
+
+/// What the hover strip offers for a thread in `view`: the view's own buttons where it names
+/// any, else [`hover_actions`].
+///
+/// A view names kinds, not directions, so its Star or Mark read is drawn as whichever of the
+/// pair the conversation needs, and a button the conversation cannot take (Archive on one not in
+/// the inbox) is left out, as [`hover_actions`] leaves it out. The keyboard is not narrowed by a
+/// view: [`offers`] still asks [`hover_actions`].
+pub fn hover_in(view: Option<&View>, summary: &ThreadSummary) -> Vec<OpKind> {
+    let offered = hover_actions(summary);
+    let Some(view) = view.filter(|view| !view.hover.is_empty()) else {
+        return offered;
+    };
+    let mut out: Vec<OpKind> = Vec::new();
+    for kind in &view.hover {
+        let kind = match kind {
+            OpKind::Star | OpKind::Unstar => match summary.star {
+                Star::Unstarred => OpKind::Star,
+                Star::Starred => OpKind::Unstar,
+            },
+            OpKind::MarkRead | OpKind::MarkUnread => match summary.read {
+                ReadState::Unread => OpKind::MarkRead,
+                ReadState::Read => OpKind::MarkUnread,
+            },
+            other => *other,
+        };
+        let allowed = match kind {
+            // Neither needs a place to be allowed from; a reply is a draft.
+            OpKind::Reply | OpKind::ReplyAll => true,
+            other => offers(summary, other),
+        };
+        if allowed && !out.contains(&kind) {
+            out.push(kind);
+        }
+    }
     out
 }
 
@@ -904,18 +1200,28 @@ pub fn hover_actions(summary: &ThreadSummary) -> Vec<OpKind> {
 /// conversations, opening one, archiving, starring, replying and closing a half-written reply
 /// were each a mouse click and nothing else. A mail client is a thing people spend hours a day
 /// in, and this is the part of "daily driver" that does not depend on anyone's taste.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// Which key means which is [`crate::keymap`]'s: a table, with the user's own keys over it. The
+/// serde form names an action in `keyboard.json`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Shortcut {
     /// Move to the next conversation and open it.
     Next,
     /// Move to the previous one.
     Previous,
+    /// Shift+j: pick down the list from the anchor, one more row each press, opening nothing.
+    ExtendNext,
+    /// Shift+k: the same, up the list.
+    ExtendPrevious,
     /// Close the composer if one is open, otherwise close the reader.
     Back,
     /// Archive the open conversation.
     Archive,
     /// Move it to the trash.
     Trash,
+    /// Mark it as spam.
+    Spam,
     /// Star it, or unstar it if it is already starred.
     ToggleStar,
     /// Mark it read, or unread if it is already read.
@@ -928,6 +1234,8 @@ pub enum Shortcut {
     Forward,
     /// Pin it, or unpin it if it is already pinned.
     TogglePin,
+    /// Mute it, or unmute it if it is muted: every picked conversation, or the open one.
+    ToggleMute,
     /// Start a message that answers nothing.
     ///
     /// The one shortcut here that does not act on the conversation under the cursor, which is
@@ -935,45 +1243,38 @@ pub enum Shortcut {
     Compose,
 }
 
-/// The shortcut a key press means, or `None` for a key that is not one.
-///
-/// `typing` is the whole of the safety here. A letter is a shortcut when the user is reading and
-/// a letter when they are writing, and a client that gets that wrong archives a conversation
-/// because someone typed "e" into a reply. Only `Escape` survives it — closing what you are
-/// typing in is the one thing you must be able to do from inside it.
+/// The shortcut a key press means with the keys the window ships with, or `None` for a key that
+/// is not one. The window asks its [`crate::keymap::Keymap`] instead, which may hold the user's
+/// own keys.
 ///
 /// Keys are named as the DOM names them, so the caller does not have to invent a second
-/// vocabulary for the same events. `command` is whether ⌘ is held (`ui::chord::command`).
-pub fn shortcut(key: &str, typing: bool, command: bool) -> Option<Shortcut> {
-    if key == "Escape" {
-        return Some(Shortcut::Back);
+/// vocabulary for the same events.
+pub fn shortcut(key: &str, typing: bool) -> Option<Shortcut> {
+    crate::keymap::Keymap::default().action(key, typing)
+}
+
+/// What ⌘ does on its own, when it is held (`ui::chord::command`).
+///
+/// ⌘N writes a message wherever the caret is and ⌘⌫ trashes while reading. Every other key is
+/// the Mac's or the field's — ⌘C is copy, ⌘A is select all — so the caller does not also ask
+/// the keymap, which does not own chords. Esc is not here: the caller leaves it to close.
+pub fn command_shortcut(key: &str, typing: bool) -> Option<Shortcut> {
+    match key {
+        "n" | "N" => Some(Shortcut::Compose),
+        "Delete" | "Backspace" if !typing => Some(Shortcut::Trash),
+        _ => None,
     }
-    // ⌘ held, the Mac's own: ⌘N writes a message wherever the caret is, ⌘⌫ trashes. No bare letter
-    // is a shortcut with ⌘ held, because ⌘C is copy and ⌘A is select all.
-    if command {
-        return match key {
-            "n" | "N" => Some(Shortcut::Compose),
-            "Delete" | "Backspace" if !typing => Some(Shortcut::Trash),
-            _ => None,
-        };
+}
+
+/// The key a press means with Shift held: "J" and "K" whether the keyboard reported the
+/// shifted letter or, as a synthesised press may, the plain one beside a Shift; and Shift with
+/// an arrow is the same as Shift with its letter. Every other key is itself.
+pub fn shifted(key: &str) -> &str {
+    match key {
+        "j" | "ArrowDown" => "J",
+        "k" | "ArrowUp" => "K",
+        other => other,
     }
-    if typing {
-        return None;
-    }
-    Some(match key {
-        "j" | "ArrowDown" => Shortcut::Next,
-        "k" | "ArrowUp" => Shortcut::Previous,
-        "e" => Shortcut::Archive,
-        "#" | "Delete" => Shortcut::Trash,
-        "s" => Shortcut::ToggleStar,
-        "u" => Shortcut::ToggleRead,
-        "r" => Shortcut::Reply,
-        "a" => Shortcut::ReplyAll,
-        "f" => Shortcut::Forward,
-        "p" => Shortcut::TogglePin,
-        "c" => Shortcut::Compose,
-        _ => return None,
-    })
 }
 
 /// What the snooze menu offers, as `(what the button says, the phrase it means)`.
@@ -1047,23 +1348,52 @@ pub fn label_menu(known: &[(String, LabelId)], summary: &ThreadSummary) -> Vec<L
 /// `None` for [`Shortcut::Reply`] and [`Shortcut::ReplyAll`], which open a composer rather than
 /// performing an operation, and for the movement keys.
 pub fn op_for_shortcut(shortcut: Shortcut, summary: &ThreadSummary) -> Option<OpKind> {
-    let offered = hover_actions(summary);
+    op_for_selection(shortcut, std::slice::from_ref(summary))
+}
+
+/// The operation a shortcut performs on several picked conversations at once, if any of them
+/// allows it. [`op_for_shortcut`] is this for one.
+///
+/// One operation for all of them, never a toggle each: star with a selection that is half
+/// starred stars the rest, as unread-first and unstarred-first is what every mail list does, and
+/// a second press then unstars them all. Which conversations it then reaches is [`offers`]' to
+/// say, per conversation.
+pub fn op_for_selection(shortcut: Shortcut, summaries: &[ThreadSummary]) -> Option<OpKind> {
     let wanted: &[OpKind] = match shortcut {
         Shortcut::Archive => &[OpKind::Archive],
         Shortcut::Trash => &[OpKind::Trash],
+        Shortcut::Spam => &[OpKind::Spam],
         Shortcut::ToggleStar => &[OpKind::Star, OpKind::Unstar],
         Shortcut::ToggleRead => &[OpKind::MarkRead, OpKind::MarkUnread],
-        Shortcut::Next | Shortcut::Previous | Shortcut::Back => &[],
+        Shortcut::Next
+        | Shortcut::Previous
+        | Shortcut::ExtendNext
+        | Shortcut::ExtendPrevious
+        | Shortcut::Back => &[],
         // Both open or carry rather than performing a payload-free operation. `TogglePin` needs
-        // the clock as well as the state, so it goes through `pin_op` instead. `Compose` is not
+        // the clock as well as the state, so it goes through `pin_op` instead, and `ToggleMute`
+        // the state of every picked conversation at once (`mute_for_all`). `Compose` is not
         // about this conversation at all — it is the one shortcut with no `summary` to consult.
         Shortcut::Reply
         | Shortcut::ReplyAll
         | Shortcut::Forward
         | Shortcut::TogglePin
+        | Shortcut::ToggleMute
         | Shortcut::Compose => &[],
     };
-    wanted.iter().copied().find(|op| offered.contains(op))
+    wanted
+        .iter()
+        .copied()
+        .find(|kind| summaries.iter().any(|summary| offers(summary, *kind)))
+}
+
+/// Whether `kind` is something this conversation can have done to it now: what its row offers
+/// ([`hover_actions`]), and Spam, which the row has no room for, for anything not already there.
+pub fn offers(summary: &ThreadSummary, kind: OpKind) -> bool {
+    match kind {
+        OpKind::Spam => !summary.mailboxes.contains(MailboxRole::Spam),
+        other => hover_actions(summary).contains(&other),
+    }
 }
 
 /// The conversation `Next` or `Previous` moves to.
@@ -1101,11 +1431,16 @@ pub fn op_for(kind: OpKind) -> Option<Op> {
         OpKind::MarkUnread => Some(Op::SetRead(ReadState::Unread)),
         OpKind::Star => Some(Op::SetStar(Star::Starred)),
         OpKind::Unstar => Some(Op::SetStar(Star::Unstarred)),
-        // These need a label picked, a draft created, or a date chosen.
-        OpKind::AddLabel
+        // These need a label picked, a draft created, a date chosen, or the conversation's own
+        // state to say which way they go. Delete forever needs the confirmation sheet, which
+        // applies it itself: no row, key or bar performs it on a press (`crate::destroy`).
+        OpKind::Destroy
+        | OpKind::AddLabel
         | OpKind::RemoveLabel
         | OpKind::Snooze
         | OpKind::Pin
+        | OpKind::Mute
+        | OpKind::FollowUp
         | OpKind::Reply
         | OpKind::ReplyAll
         | OpKind::Forward => None,
@@ -1184,8 +1519,18 @@ pub fn synced(result: Result<String, String>) -> SyncState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Listing {
     Threads(Query),
+    /// The inbox: its query, under the conversations whose follow-up reminder came back with no
+    /// reply, on the accounts `scope` narrows to ([`crate::follow_up::returned`]).
+    Inbox {
+        query: Query,
+        scope: Option<Filter>,
+    },
     /// The drafts table, which no `Query` can express.
     Drafts,
+    /// The conversations waiting on a reply, on the accounts `scope` narrows to.
+    Waiting {
+        scope: Option<Filter>,
+    },
 }
 
 /// What the reader should display for one message.
@@ -1413,6 +1758,8 @@ mod tests {
             attachments: Attachments::None,
             snooze: Snooze::Inactive,
             pin: Pin::Unpinned,
+            mute: Mute::Unmuted,
+            follow_up: mail_domain::FollowUp::Inactive,
         };
         tweak(&mut s);
         s
@@ -2005,7 +2352,7 @@ mod listing_tests {
             let mut shell = Shell::default();
             shell.select(index);
             assert!(
-                matches!(shell.listing(50), Listing::Threads(_)),
+                !matches!(shell.listing(50), Listing::Drafts),
                 "{} stopped listing threads",
                 place.name
             );
@@ -2025,8 +2372,26 @@ mod listing_tests {
                 query.filter,
                 Filter::Text(TextMatch::Contains("invoice".to_owned()))
             ),
-            Listing::Drafts => panic!("a search in Drafts must still search mail"),
+            other => panic!("a search in Drafts must still search mail: {other:?}"),
         }
+    }
+
+    #[test]
+    fn the_inbox_and_the_waiting_place_list_follow_ups_and_a_search_does_not() {
+        let mut shell = Shell::default();
+        assert!(
+            matches!(shell.listing(50), Listing::Inbox { .. }),
+            "the inbox lists returned reminders on top"
+        );
+        let waiting = shell
+            .places
+            .iter()
+            .position(|p| p.source == Source::Waiting)
+            .expect("there is a Waiting place");
+        shell.select(waiting);
+        assert_eq!(shell.listing(50), Listing::Waiting { scope: None });
+        shell.search = "invoice".to_owned();
+        assert!(matches!(shell.listing(50), Listing::Threads(_)));
     }
 
     #[test]
@@ -2044,8 +2409,8 @@ mod listing_tests {
         // make the button do nothing at all.
         let shell = Shell::default();
         match shell.listing(250) {
-            Listing::Threads(query) => assert_eq!(query.page.limit, 250),
-            Listing::Drafts => panic!("the Inbox is not the drafts list"),
+            Listing::Inbox { query, .. } => assert_eq!(query.page.limit, 250),
+            other => panic!("the Inbox lists its own query: {other:?}"),
         }
     }
 }
@@ -2413,12 +2778,15 @@ mod badge_tests {
         // then a message the user never finds out about.
         for place in default_places() {
             match &place.source {
-                Source::Mail(_) => assert!(
+                Source::Mail(_) | Source::Saved(_) => assert!(
                     badge_filter(&place.source).is_some(),
                     "{} has no badge",
                     place.name
                 ),
-                Source::Drafts => assert!(badge_filter(&place.source).is_none()),
+                // The user wrote the last word in each of them: nothing there is unread news.
+                Source::Drafts | Source::Waiting => {
+                    assert!(badge_filter(&place.source).is_none())
+                }
             }
         }
     }
@@ -2450,6 +2818,8 @@ mod keyboard {
             attachments: Attachments::None,
             snooze: Snooze::Inactive,
             pin: Pin::Unpinned,
+            mute: Mute::Unmuted,
+            follow_up: mail_domain::FollowUp::Inactive,
         }
     }
 
@@ -2457,11 +2827,11 @@ mod keyboard {
     fn a_letter_is_a_shortcut_while_reading_and_a_letter_while_writing() {
         // The bug this exists to prevent: typing "e" into a reply archiving the conversation
         // behind it.
-        assert_eq!(shortcut("e", false, false), Some(Shortcut::Archive));
-        assert_eq!(shortcut("e", true, false), None);
+        assert_eq!(shortcut("e", false), Some(Shortcut::Archive));
+        assert_eq!(shortcut("e", true), None);
         for key in ["j", "k", "s", "u", "r", "a", "#", "ArrowDown", "ArrowUp"] {
-            assert!(shortcut(key, false, false).is_some(), "{key} does nothing");
-            assert_eq!(shortcut(key, true, false), None, "{key} fired while typing");
+            assert!(shortcut(key, false).is_some(), "{key} does nothing");
+            assert_eq!(shortcut(key, true), None, "{key} fired while typing");
         }
     }
 
@@ -2469,28 +2839,29 @@ mod keyboard {
     fn command_held_is_the_macs_and_never_a_bare_letter() {
         // ⌘N writes a message from anywhere, ⌘⌫ trashes while reading, and ⌘C, ⌘A and the
         // rest are the field's and the Mac's: none of them archives, replies or forwards.
-        assert_eq!(shortcut("n", false, true), Some(Shortcut::Compose));
-        assert_eq!(shortcut("N", true, true), Some(Shortcut::Compose));
-        assert_eq!(shortcut("Backspace", false, true), Some(Shortcut::Trash));
-        assert_eq!(shortcut("Backspace", true, true), None);
+        assert_eq!(command_shortcut("n", false), Some(Shortcut::Compose));
+        assert_eq!(command_shortcut("N", true), Some(Shortcut::Compose));
+        assert_eq!(command_shortcut("Backspace", false), Some(Shortcut::Trash));
+        assert_eq!(command_shortcut("Backspace", true), None);
         for key in ["c", "a", "e", "r", "f", "p", "s", "u", "j", "k"] {
-            assert_eq!(shortcut(key, false, true), None, "⌘{key} is not ours");
+            assert_eq!(command_shortcut(key, false), None, "⌘{key} is not ours");
         }
-        assert_eq!(shortcut("Escape", true, true), Some(Shortcut::Back));
+        assert_eq!(shortcut("Escape", true), Some(Shortcut::Back));
+        assert_eq!(command_shortcut("Escape", true), None);
     }
 
     #[test]
     fn escape_works_from_inside_the_thing_it_closes() {
         // The one exception, and it has to be: closing what you are typing in is not something
         // you can be asked to reach for the mouse to do.
-        assert_eq!(shortcut("Escape", true, false), Some(Shortcut::Back));
-        assert_eq!(shortcut("Escape", false, false), Some(Shortcut::Back));
+        assert_eq!(shortcut("Escape", true), Some(Shortcut::Back));
+        assert_eq!(shortcut("Escape", false), Some(Shortcut::Back));
     }
 
     #[test]
     fn a_key_that_is_not_a_shortcut_is_left_alone() {
         for key in ["z", "F5", "Tab", "Shift", " ", "1"] {
-            assert_eq!(shortcut(key, false, false), None, "{key} was swallowed");
+            assert_eq!(shortcut(key, false), None, "{key} was swallowed");
         }
     }
 
@@ -2538,8 +2909,8 @@ mod keyboard {
 
     #[test]
     fn f_forwards_and_is_not_an_operation() {
-        assert_eq!(shortcut("f", false, false), Some(Shortcut::Forward));
-        assert_eq!(shortcut("f", true, false), None, "fired while typing");
+        assert_eq!(shortcut("f", false), Some(Shortcut::Forward));
+        assert_eq!(shortcut("f", true), None, "fired while typing");
         let inbox = summary(ReadState::Read, Star::Unstarred, MailboxRole::Inbox);
         assert_eq!(
             op_for_shortcut(Shortcut::Forward, &inbox),
@@ -2551,8 +2922,8 @@ mod keyboard {
     #[test]
     fn p_pins_and_unpins_and_the_rank_is_the_clock() {
         let now = Utc.with_ymd_and_hms(2026, 9, 22, 6, 0, 0).unwrap();
-        assert_eq!(shortcut("p", false, false), Some(Shortcut::TogglePin));
-        assert_eq!(shortcut("p", true, false), None, "fired while typing");
+        assert_eq!(shortcut("p", false), Some(Shortcut::TogglePin));
+        assert_eq!(shortcut("p", true), None, "fired while typing");
 
         let unpinned = summary(ReadState::Read, Star::Unstarred, MailboxRole::Inbox);
         assert_eq!(
@@ -2565,6 +2936,57 @@ mod keyboard {
         // Not an operation `op_for` can produce: the payload comes from the state and the clock.
         assert_eq!(op_for(OpKind::Pin), None);
         assert_eq!(op_for_shortcut(Shortcut::TogglePin, &unpinned), None);
+    }
+
+    #[test]
+    fn m_mutes_and_unmutes_by_what_the_conversations_are() {
+        assert_eq!(shortcut("m", false), Some(Shortcut::ToggleMute));
+        assert_eq!(shortcut("m", true), None, "fired while typing");
+
+        let unmuted = summary(ReadState::Read, Star::Unstarred, MailboxRole::Inbox);
+        let mut muted = unmuted.clone();
+        muted.mute = Mute::Muted;
+        assert_eq!(mute_op(&unmuted), Op::SetMute(Mute::Muted));
+        assert_eq!(mute_op(&muted), Op::SetMute(Mute::Unmuted));
+        // Not an operation `op_for` can produce: the direction comes from the state.
+        assert_eq!(op_for(OpKind::Mute), None);
+        assert_eq!(op_for_shortcut(Shortcut::ToggleMute, &unmuted), None);
+
+        // A selection: one mute for all, unmute only when every one is muted.
+        const CASES: &[(&[Mute], Mute, &str)] = &[
+            (&[Mute::Unmuted], Mute::Muted, "Mute"),
+            (&[Mute::Muted], Mute::Unmuted, "Unmute"),
+            (&[Mute::Muted, Mute::Unmuted], Mute::Muted, "Mute"),
+            (&[Mute::Muted, Mute::Muted], Mute::Unmuted, "Unmute"),
+            (&[], Mute::Muted, "Mute"),
+        ];
+        for (states, wanted, said) in CASES {
+            let picked: Vec<ThreadSummary> = states
+                .iter()
+                .map(|mute| ThreadSummary {
+                    mute: *mute,
+                    ..unmuted.clone()
+                })
+                .collect();
+            assert_eq!(mute_for_all(&picked), *wanted, "{states:?}");
+            assert_eq!(mute_label(&picked), *said, "{states:?}");
+        }
+    }
+
+    #[test]
+    fn mute_is_offered_on_every_conversation() {
+        for mailbox in [
+            MailboxRole::Inbox,
+            MailboxRole::Archive,
+            MailboxRole::Trash,
+            MailboxRole::Sent,
+        ] {
+            let summary = summary(ReadState::Read, Star::Unstarred, mailbox);
+            assert!(
+                offers(&summary, OpKind::Mute),
+                "{mailbox:?}: a mute is about replies still to come"
+            );
+        }
     }
 
     #[test]
@@ -2639,6 +3061,91 @@ mod keyboard {
         let gone = ThreadId::generate();
         assert_eq!(step(Some(gone), &ids, true), Some(ids[0]));
         assert_eq!(step(Some(gone), &ids, false), Some(ids[1]));
+    }
+
+    #[test]
+    fn shift_with_j_k_or_an_arrow_extends_and_other_keys_are_themselves() {
+        const CASES: &[(&str, Option<Shortcut>)] = &[
+            ("j", Some(Shortcut::ExtendNext)),
+            ("J", Some(Shortcut::ExtendNext)),
+            ("ArrowDown", Some(Shortcut::ExtendNext)),
+            ("k", Some(Shortcut::ExtendPrevious)),
+            ("ArrowUp", Some(Shortcut::ExtendPrevious)),
+            ("#", Some(Shortcut::Trash)),
+            ("!", Some(Shortcut::Spam)),
+        ];
+        for (key, want) in CASES {
+            assert_eq!(shortcut(shifted(key), false), *want, "Shift+{key}");
+        }
+        // Unshifted, j still moves and opens.
+        assert_eq!(shortcut("j", false), Some(Shortcut::Next));
+    }
+
+    #[test]
+    fn one_operation_for_a_whole_selection_not_a_toggle_each() {
+        use MailboxRole::*;
+        let starred = summary(ReadState::Read, Star::Starred, Inbox);
+        let plain = summary(ReadState::Unread, Star::Unstarred, Inbox);
+        let archived = summary(ReadState::Read, Star::Unstarred, Archive);
+        let spam = summary(ReadState::Read, Star::Unstarred, Spam);
+        type Case = (Shortcut, &'static [usize], Option<OpKind>);
+        const CASES: &[Case] = &[
+            // Half starred: star the rest; all starred: unstar.
+            (Shortcut::ToggleStar, &[0, 1], Some(OpKind::Star)),
+            (Shortcut::ToggleStar, &[0], Some(OpKind::Unstar)),
+            // Any unread: mark read; none: mark unread.
+            (Shortcut::ToggleRead, &[0, 1], Some(OpKind::MarkRead)),
+            (Shortcut::ToggleRead, &[0, 2], Some(OpKind::MarkUnread)),
+            // Archive when anything is still in the inbox; nothing when nothing is.
+            (Shortcut::Archive, &[1, 2], Some(OpKind::Archive)),
+            (Shortcut::Archive, &[2], None),
+            (Shortcut::Spam, &[1, 3], Some(OpKind::Spam)),
+            (Shortcut::Spam, &[3], None),
+            (Shortcut::Trash, &[], None),
+        ];
+        let all = [starred, plain, archived, spam];
+        for (action, which, want) in CASES {
+            let picked: Vec<ThreadSummary> = which.iter().map(|n| all[*n].clone()).collect();
+            assert_eq!(
+                op_for_selection(*action, &picked),
+                *want,
+                "{action:?} on {which:?}"
+            );
+        }
+        // And each conversation is reached only where it allows it.
+        assert!(offers(&all[1], OpKind::Archive));
+        assert!(!offers(&all[2], OpKind::Archive));
+        assert!(!offers(&all[3], OpKind::Spam));
+    }
+
+    #[test]
+    fn a_selection_is_the_place_s_and_a_plain_click_replaces_it() {
+        let ids: Vec<ThreadId> = (0..4).map(|_| ThreadId::generate()).collect();
+        let mut shell = Shell::default();
+        shell.click(ids[1], Click::Plain, &ids);
+        assert_eq!(shell.acted_on(&ids), vec![ids[1]], "the open one alone");
+        shell.click(ids[3], Click::Range, &ids);
+        assert_eq!(shell.acted_on(&ids), ids[1..].to_vec());
+        assert!(shell.is_selected(ids[2], &ids));
+        assert!(!shell.is_selected(ids[0], &ids));
+        // A press on a picked row means the selection; on another row, that row.
+        assert_eq!(shell.with_selection(ids[2], &ids), ids[1..].to_vec());
+        assert_eq!(shell.with_selection(ids[0], &ids), vec![ids[0]]);
+        // Another place: nothing picked, whatever the new list holds.
+        shell.select(1);
+        assert!(!shell.picked.any(&ids));
+        assert_eq!(shell.acted_on(&ids), Vec::<ThreadId>::new());
+        // Picked again, then a plain click: that row, open, and nothing picked.
+        shell.pick_all(&ids);
+        assert_eq!(shell.acted_on(&ids), ids);
+        shell.click(ids[0], Click::Plain, &ids);
+        assert_eq!(shell.acted_on(&ids), vec![ids[0]]);
+        assert!(!shell.picked.any(&ids));
+        // Esc: the picks go, the reader stays.
+        shell.extend(Toward::Next, &ids);
+        assert!(shell.unpick(&ids));
+        assert!(!shell.unpick(&ids), "nothing left to let go");
+        assert_eq!(shell.open, Some(ids[0]));
     }
 }
 
@@ -3263,5 +3770,50 @@ mod appearance {
         for &(word, expect) in CASES {
             assert_eq!(Theme::parse(word), expect, "{word:?}");
         }
+    }
+}
+
+#[cfg(test)]
+mod viewing_tests {
+    use super::{Shell, Viewing};
+    use mail_domain::{MessageId, ThreadId};
+
+    #[test]
+    fn a_viewer_turns_only_within_the_pages_it_knows() {
+        let message = MessageId::generate();
+        let at = |page: u32, pages: Option<u32>| Viewing {
+            page,
+            pages,
+            ..Viewing::of(message, 1)
+        };
+        let cases = [
+            ("forward, count known", at(0, Some(3)), 1, 1),
+            ("forward from the last", at(2, Some(3)), 1, 2),
+            ("back from the first", at(0, Some(3)), -1, 0),
+            ("back", at(2, Some(3)), -1, 1),
+            ("forward before the count is known", at(0, None), 1, 0),
+            ("back before the count is known", at(1, None), -1, 0),
+            ("a count of none", at(0, Some(0)), 1, 0),
+        ];
+        for (case, viewing, by, page) in cases {
+            assert_eq!(viewing.turned(by).page, page, "{case}");
+        }
+    }
+
+    #[test]
+    fn opening_or_closing_a_conversation_closes_the_viewer() {
+        let viewing = Some(Viewing::of(MessageId::generate(), 0));
+        let mut shell = Shell {
+            viewing,
+            ..Shell::default()
+        };
+        shell.open(ThreadId::generate());
+        assert_eq!(shell.viewing, None, "open");
+        shell.viewing = viewing;
+        shell.close();
+        assert_eq!(shell.viewing, None, "close");
+        shell.viewing = viewing;
+        shell.select(1);
+        assert_eq!(shell.viewing, None, "select");
     }
 }

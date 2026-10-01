@@ -286,7 +286,20 @@ pub enum ProtoOp {
         #[serde(default)]
         since: Option<Resync>,
     },
+    /// Expunge in general. Refused by every backend: see [`crate::ExpungeMeans`]. What deletes
+    /// mail is [`ProtoOp::Destroy`], which is narrower.
     Expunge {
+        remotes: Vec<RemoteRef>,
+    },
+    /// Delete these messages for good, from the Trash or Spam folder they are in.
+    ///
+    /// Queued only by the user's own "Delete forever" or "Empty Trash" ([`crate::Op::Destroy`]).
+    /// A backend refuses an address in any folder but the account's Trash or Spam, whatever
+    /// [`crate::ExpungeMeans`] says, so this never destroys mail anywhere else. On IMAP that is
+    /// `UID STORE +FLAGS.SILENT (\Deleted)` and `UID EXPUNGE` of exactly those UIDs (RFC 4315),
+    /// and never a bare `EXPUNGE`, which would take other clients' `\Deleted` mail with it; on
+    /// JMAP `Email/set` `destroy`; on Graph `DELETE` of the message.
+    Destroy {
         remotes: Vec<RemoteRef>,
     },
     /// The MIME structure of each message, and none of its content: IMAP `BODYSTRUCTURE`.

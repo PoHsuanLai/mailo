@@ -165,7 +165,16 @@ pub(crate) fn ask_tty(prompt: &str) -> Option<String> {
     Some(line.trim_end_matches(['\r', '\n']).to_owned())
 }
 
-#[cfg(not(unix))]
+/// A line read from the console with echo off. `None` without a console.
+///
+/// Windows has no `/dev/tty` and no `stty`; `rpassword` opens the console (`CONIN$`) and turns
+/// its echo off for the line, which is the same promise the Unix branch keeps.
+#[cfg(windows)]
+pub(crate) fn ask_tty(prompt: &str) -> Option<String> {
+    rpassword::prompt_password(prompt).ok()
+}
+
+#[cfg(not(any(unix, windows)))]
 pub(crate) fn ask_tty(_: &str) -> Option<String> {
     None
 }

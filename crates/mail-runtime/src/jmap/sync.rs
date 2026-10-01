@@ -7,7 +7,7 @@
 //! takes the difference, which is the one answer that is always right. Headers come first, the
 //! bodies behind them, as on every protocol.
 
-use super::{Client, JmapEngine, email_ids};
+use super::{Client, JmapEngine, Whole, email_ids};
 use crate::assemble::{Arrival, Destination, absorb_into};
 use crate::{RuntimeError, SyncReport};
 use chrono::{DateTime, Utc};
@@ -148,7 +148,7 @@ impl JmapEngine {
         let mut seen = HashSet::new();
         wanted.retain(|id| !held.contains(id) && seen.insert(id.clone()));
         wanted.truncate(budget);
-        self.fetch_headers(&client, &mailboxes, wanted, now, report)
+        self.fetch_headers(&client, &mailboxes, wanted, now, report, Whole::Download)
             .await?;
 
         if let Some(email_state) = state {
@@ -284,13 +284,14 @@ impl JmapEngine {
     }
 
     /// Fetch and store the headers of `ids`, with their flags, labels and filing.
-    async fn fetch_headers(
+    pub(super) async fn fetch_headers(
         &mut self,
         client: &Client,
         mailboxes: &Mailboxes,
         ids: Vec<String>,
         now: DateTime<Utc>,
         report: &mut SyncReport,
+        whole: Whole,
     ) -> Result<(), RuntimeError> {
         let account = client.session.account.as_str();
         for chunk in ids.chunks(client.session.limits.max_objects_in_get) {
@@ -309,6 +310,9 @@ impl JmapEngine {
             let mut truth = Truth::default();
             let mut by_role: Vec<(MailboxRole, Vec<Arrival>, bool)> = Vec::new();
             for email in &emails {
+                if email.headers.is_empty() && whole == Whole::Never {
+                    continue;
+                }
                 let Some(role) = truth.saw(email, mailboxes) else {
                     continue;
                 };

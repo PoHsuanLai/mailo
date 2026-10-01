@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="windows-1252"?>
+<!--
+  mailo's Windows installer, for WiX Toolset v3 through cargo-wix, which the `package` job in
+  .github/workflows/ci.yml runs on this file after a release build. cargo-wix defines Version, CargoTargetDir and CargoTargetBinDir. The icon is drawn from the SVG
+  every package uses into $(var.CargoTargetDir)\wix\mailo.ico before this is built (the `package`
+  job in .github/workflows/ci.yml, with packaging/windows/make-ico.py).
+
+  Per machine, into Program Files\mailo, with a Start menu entry. mailo is registered as a handler
+  for mailto: links (Settings, Apps, Default apps), which starts `mailo.exe "mailto:…"`, the
+  command line's own way of opening a composer on a link. Unsigned: signing would be `signtool`
+  on the MSI with a code-signing certificate from CI secrets, after `cargo wix`.
+
+  The UpgradeCode is mailo's for good: every later installer must carry the same one, or it
+  installs beside the old version instead of over it.
+-->
+<?if $(sys.BUILDARCH) = x64 or $(sys.BUILDARCH) = arm64 ?>
+    <?define PlatformProgramFilesFolder = "ProgramFiles64Folder" ?>
+<?else ?>
+    <?define PlatformProgramFilesFolder = "ProgramFilesFolder" ?>
+<?endif ?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+    <Product
+        Id="*"
+        Name="mailo"
+        UpgradeCode="C636F0D2-23B7-4D40-925A-62ADDF0A8D8A"
+        Manufacturer="Po Hsuan Lai"
+        Language="1033"
+        Codepage="1252"
+        Version="$(var.Version)">
+
+        <Package
+            Id="*"
+            Keywords="Installer"
+            Description="mailo, a desktop mail client"
+            Manufacturer="Po Hsuan Lai"
+            InstallerVersion="450"
+            Languages="1033"
+            Compressed="yes"
+            InstallScope="perMachine"
+            SummaryCodepage="1252" />
+
+        <MajorUpgrade
+            Schedule="afterInstallInitialize"
+            DowngradeErrorMessage="A newer version of [ProductName] is already installed. Setup will now exit." />
+
+        <Media Id="1" Cabinet="media1.cab" EmbedCab="yes" DiskPrompt="CD-ROM #1" />
+        <Property Id="DiskPrompt" Value="mailo Installation" />
+
+        <Icon Id="mailo.ico" SourceFile="$(var.CargoTargetDir)\wix\mailo.ico" />
+        <Property Id="ARPPRODUCTICON" Value="mailo.ico" />
+        <Property Id="ARPHELPLINK" Value="https://github.com/PoHsuanLai/mailo" />
+
+        <Directory Id="TARGETDIR" Name="SourceDir">
+            <Directory Id="$(var.PlatformProgramFilesFolder)" Name="PFiles">
+                <Directory Id="APPLICATIONFOLDER" Name="mailo" />
+            </Directory>
+            <Directory Id="ProgramMenuFolder" />
+        </Directory>
+
+        <DirectoryRef Id="APPLICATIONFOLDER">
+            <Component Id="Binary" Guid="*">
+                <File
+                    Id="MailoExe"
+                    Name="mailo.exe"
+                    DiskId="1"
+                    Source="$(var.CargoTargetBinDir)\mailo.exe"
+                    KeyPath="yes" />
+            </Component>
+
+            <!--
+              mailto: through the Default apps settings: a ProgID that opens the link, and the
+              capabilities that offer it. Windows asks the user before it becomes the default;
+              an installer may offer, not choose.
+            -->
+            <Component Id="MailtoHandler" Guid="*">
+                <RegistryKey Root="HKLM" Key="SOFTWARE\Classes\mailo.mailto">
+                    <RegistryValue Type="string" Value="URL:MailTo Protocol (mailo)" KeyPath="yes" />
+                    <RegistryValue Type="string" Name="URL Protocol" Value="" />
+                    <RegistryValue Type="string" Key="DefaultIcon" Value="[APPLICATIONFOLDER]mailo.exe,0" />
+                    <RegistryValue Type="string" Key="shell\open\command" Value="&quot;[APPLICATIONFOLDER]mailo.exe&quot; &quot;%1&quot;" />
+                </RegistryKey>
+                <RegistryKey Root="HKLM" Key="SOFTWARE\mailo\Capabilities">
+                    <RegistryValue Type="string" Name="ApplicationName" Value="mailo" />
+                    <RegistryValue Type="string" Name="ApplicationDescription" Value="Read and send mail" />
+                    <RegistryValue Type="string" Name="ApplicationIcon" Value="[APPLICATIONFOLDER]mailo.exe,0" />
+                    <RegistryValue Type="string" Key="URLAssociations" Name="mailto" Value="mailo.mailto" />
+                </RegistryKey>
+                <RegistryValue Root="HKLM" Key="SOFTWARE\RegisteredApplications" Type="string" Name="mailo" Value="SOFTWARE\mailo\Capabilities" />
+            </Component>
+        </DirectoryRef>
+
+        <DirectoryRef Id="ProgramMenuFolder">
+            <Component Id="StartMenuEntry" Guid="*">
+                <Shortcut
+                    Id="MailoShortcut"
+                    Name="mailo"
+                    Description="Read and send mail"
+                    Target="[APPLICATIONFOLDER]mailo.exe"
+                    WorkingDirectory="APPLICATIONFOLDER"
+                    Icon="mailo.ico">
+                    <!-- Registers an id a toast can name mailo by; `notify/desktop.rs` says why it does not yet. -->
+                    <ShortcutProperty Key="System.AppUserModel.ID" Value="io.github.PoHsuanLai.mailo" />
+                </Shortcut>
+                <RegistryValue Root="HKCU" Key="Software\mailo" Name="StartMenuEntry" Type="integer" Value="1" KeyPath="yes" />
+            </Component>
+        </DirectoryRef>
+
+        <Feature Id="Main" Title="mailo" Level="1" ConfigurableDirectory="APPLICATIONFOLDER">
+            <ComponentRef Id="Binary" />
+            <ComponentRef Id="MailtoHandler" />
+            <ComponentRef Id="StartMenuEntry" />
+        </Feature>
+    </Product>
+</Wix>

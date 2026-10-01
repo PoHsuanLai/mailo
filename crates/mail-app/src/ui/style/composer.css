@@ -27,7 +27,7 @@
 .c-edit { position: relative; }
 .c-body {
   display: block; position: relative; outline: none; font-size: var(--fs-compose); line-height: 1.65; color: var(--ink);
-  max-width: 66ch; min-height: 180px; padding-left: var(--s-22); margin-left: calc(-1 * var(--s-22)); caret-color: var(--accent);
+  max-width: 66ch; min-height: 180px; padding-left: var(--s-22); margin-left: calc(-1 * var(--s-22)); caret-color: var(--accent-text);
 }
 .c-body > * { margin: 0 0 .55em; }
 .c-body p, .c-body li, .c-body blockquote, .c-body h2, .c-body h3, .c-body h4 { white-space: pre-wrap; word-break: break-word; }
@@ -50,7 +50,7 @@
   border-radius: var(--r-tiny); background: var(--surface);
 }
 .c-body ul.todo > li.done { color: var(--ink-faint); text-decoration: line-through; }
-.c-body ul.todo > li.done .box { background: var(--accent); border-color: var(--accent); box-shadow: inset 0 0 0 2px var(--surface); }
+.c-body ul.todo > li.done .box { background: var(--accent); border-color: var(--accent-text); box-shadow: inset 0 0 0 2px var(--surface); }
 .c-body .m-b { font-weight: 700; }
 .c-body .m-i { font-style: italic; }
 .c-body .m-u { text-decoration: underline; }
@@ -60,7 +60,7 @@
   font-family: var(--font-code); font-size: smaller; background: var(--surface); border: var(--hair) solid var(--line-soft);
   padding: 0 var(--s-4); border-radius: var(--r-tiny);
 }
-.c-body .m-a { color: var(--accent); text-underline-offset: 2px; text-decoration: underline; }
+.c-body .m-a { color: var(--accent-text); text-underline-offset: 2px; text-decoration: underline; }
 /* the signature: the marker, and every paragraph after it, quieter */
 .c-body .o-sig { margin: 1.2em 0 .2em; border-top: var(--hair) solid var(--line-soft); height: 0; }
 .c-body .o-sig ~ p { color: var(--ink-faint); font-size: var(--fs-control); }
@@ -69,7 +69,7 @@
    positioned, and neither sets a z-index) and the caret's after it, `--caret-w` wide */
 .c-marks { position: absolute; left: 0; top: 0; width: 0; height: 0; pointer-events: none; }
 .c-sel { position: absolute; background: var(--accent-soft); border-radius: var(--r-micro); }
-.c-caret { position: absolute; width: var(--caret-w); background: var(--accent); }
+.c-caret { position: absolute; width: var(--caret-w); background: var(--accent-text); }
 .c-preedit {
   position: absolute; white-space: pre; font-size: var(--fs-compose); color: var(--ink); background: var(--paper);
   text-decoration: underline;
@@ -140,6 +140,10 @@
 .inline-reply .c-body { min-height: 90px; padding-left: var(--s-36); }
 .inline-reply .c-foot { border-radius: 0 0 var(--r-panel) var(--r-panel); background: transparent; }
 
+/* files dragged in from a file manager: the page says it takes them, and lights under them */
+.cpage[*|data-drop="accepts"], .inline-reply[*|data-drop="accepts"] { box-shadow: inset 0 0 0 2px var(--accent-soft); }
+.cpage[*|data-drop="target"], .inline-reply[*|data-drop="target"] { box-shadow: inset 0 0 0 2px var(--accent-text); background: var(--accent-soft); }
+
 /* a parked draft in Today */
 .today-at.draft { font-style: italic; }
 
@@ -150,4 +154,20 @@
 
 /* send later: the popover that reads a time, and the one that names a template */
 .pick-time, .tpl-save { display: grid; gap: var(--s-6); width: 260px; }
-.pick-field, .tpl-name { min-width: 0; }
+.pick-field, .tpl-name, .remind-field { min-width: 0; }
+.prop-row { display: flex; align-items: flex-start; gap: var(--s-8); min-width: 0; }
+.prop-row .k { display: flex; align-items: center; gap: var(--s-4); flex: none; color: var(--ink-soft); }
+.prop-row .v { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: var(--s-4); }
+.p-menu { position: relative; }
+.pick-time .g { color: var(--ink-soft); }
+.pick-in { display: flex; align-items: center; gap: var(--s-6); min-width: 0; }
+.pick-says { margin: 0; color: var(--ink-soft); }
+.pick-says.refused { color: var(--danger); }
+
+.today-at.later { font-variant-numeric: tabular-nums; }
+.today-hint.refused { color: var(--danger); }
+
+.em-picker { display: flex; flex-direction: column; width: 516px; padding: var(--s-8); box-sizing: border-box; }
+.em-tabs { margin: var(--s-4) 0; }
+.em-cells { max-height: 254px; overflow-y: auto; }
+.em-none, .em-name { margin: 0; padding: var(--s-6) var(--s-4) 0; min-height: 20px; color: var(--ink-faint); }

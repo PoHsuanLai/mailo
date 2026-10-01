@@ -22,6 +22,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 mod partial;
+mod search;
 mod split;
 pub(crate) mod wait;
 pub use wait::Woke;
@@ -64,6 +65,33 @@ fn keep_now(node: &PartTree) -> bool {
     }
 }
 
+/// How much of what a sync left on the server one pass fetches for an account kept offline.
+///
+/// Two bounds, because either alone lets a pass run long: a count, for a folder of many
+/// middling attachments, and bytes, for a few enormous ones. The first part is always taken
+/// whatever its size, or a part larger than the byte bound would never be fetched.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PartBudget {
+    pub parts: u32,
+    pub bytes: u64,
+}
+
+impl PartBudget {
+    /// The prefix of `wanted`, in its order, that fits.
+    pub fn take(self, wanted: Vec<mail_store::RemotePart>) -> Vec<mail_store::RemotePart> {
+        let mut spent: u64 = 0;
+        let mut out = Vec::new();
+        for part in wanted.into_iter().take(self.parts as usize) {
+            if !out.is_empty() && spent.saturating_add(part.size) > self.bytes {
+                break;
+            }
+            spent = spent.saturating_add(part.size);
+            out.push(part);
+        }
+        out
+    }
+}
+
 /// Bodies fetched per operation from Microsoft Graph, which asks for each one separately.
 const GRAPH_BODIES: usize = 10;
 
@@ -76,6 +104,9 @@ fn by_band(wanted: &mut [(RemoteRef, u64)]) {
 pub struct SyncReport {
     pub headers_fetched: usize,
     pub bodies_fetched: usize,
+    /// Attachments a sync had left on the server, fetched by this pass because the account is
+    /// kept offline in full ([`AccountEngine::fetch_remote_parts`]).
+    pub parts_fetched: usize,
     pub outbox_settled: usize,
     /// Messages handed to the submission server and accepted.
     pub submitted: usize,
@@ -1194,49 +1225,9 @@ impl<B: Backend> AccountEngine<B> {
                 .await
             {
                 Ok(ProtoOutcome::Fetched { items, flags }) => {
-                    let arrivals = items
-                        .into_iter()
-                        .map(|(remote, raw)| crate::assemble::Arrival { remote, raw })
-                        .collect::<Vec<_>>();
-                    report.headers_fetched += arrivals.len();
-                    // Headers only: Body::Absent says the body has not arrived, rather than
-                    // storing an empty message that looks complete.
-                    let stored = crate::assemble::absorb_into(
-                        &self.store,
-                        self.account,
-                        crate::assemble::Destination {
-                            mailbox: mailbox.clone(),
-                            role: self.role_of(mailbox),
-                        },
-                        // No cursor: this batch fetched a list it was handed and never asked
-                        // the server what exists.
-                        None,
-                        arrivals,
-                        true,
-                        now,
-                    )?;
+                    report.headers_fetched += items.len();
+                    let stored = self.absorb_headers(mailbox, items, flags, now)?;
                     report.arrived.extend(first_stored(&stored));
-                    // The server's own view of these messages, which arrived on the same FETCH.
-                    // Applied after absorbing, because a flag needs a message to sit on, and
-                    // through `Ingest` because that is the path the sweep already uses. Without
-                    // it every message is built unread and only a later sweep can correct it —
-                    // which on a CONDSTORE server never revisits old mail, so anything found by
-                    // backfill stayed unread for ever.
-                    if !flags.is_empty() {
-                        self.store.ingest(
-                            self.account,
-                            mail_domain::Ingest {
-                                mailbox: mailbox.clone(),
-                                validity: mail_domain::UidValidity::Same,
-                                cursor: None,
-                                messages: Vec::new(),
-                                flags,
-                                labels: Vec::new(),
-                                label_names: Vec::new(),
-                                gone: Vec::new(),
-                            },
-                        )?;
-                    }
                 }
                 Ok(_) => {}
                 Err(RuntimeError::Cancelled) => return Ok(report),
@@ -1255,6 +1246,60 @@ impl<B: Backend> AccountEngine<B> {
             self.synced.push(mailbox.path.clone());
         }
         Ok(report)
+    }
+
+    /// Keep the headers a `FetchHeaders` brought from `mailbox`, and the flags the server sent
+    /// with them. The patch's upserts are the messages new to the account ([`first_stored`]).
+    ///
+    /// The one way headers are kept, whether a sync or a search of the server fetched them.
+    pub(crate) fn absorb_headers(
+        &self,
+        mailbox: &MailboxRef,
+        items: Vec<(RemoteRef, Vec<u8>)>,
+        flags: Vec<(RemoteRef, mail_domain::ReadState, mail_domain::Star)>,
+        now: DateTime<Utc>,
+    ) -> Result<mail_domain::Patch, RuntimeError> {
+        let arrivals = items
+            .into_iter()
+            .map(|(remote, raw)| crate::assemble::Arrival { remote, raw })
+            .collect::<Vec<_>>();
+        // Headers only: Body::Absent says the body has not arrived, rather than storing an empty
+        // message that looks complete.
+        let stored = crate::assemble::absorb_into(
+            &self.store,
+            self.account,
+            crate::assemble::Destination {
+                mailbox: mailbox.clone(),
+                role: self.role_of(mailbox),
+            },
+            // No cursor: this batch fetched a list it was handed and never asked the server what
+            // exists.
+            None,
+            arrivals,
+            true,
+            now,
+        )?;
+        // The server's own view of these messages, which arrived on the same FETCH. Applied
+        // after absorbing, because a flag needs a message to sit on, and through `Ingest`
+        // because that is the path the sweep already uses. Without it every message is built
+        // unread and only a later sweep can correct it — which on a CONDSTORE server never
+        // revisits old mail, so anything found by backfill stayed unread for ever.
+        if !flags.is_empty() {
+            self.store.ingest(
+                self.account,
+                mail_domain::Ingest {
+                    mailbox: mailbox.clone(),
+                    validity: mail_domain::UidValidity::Same,
+                    cursor: None,
+                    messages: Vec::new(),
+                    flags,
+                    labels: Vec::new(),
+                    label_names: Vec::new(),
+                    gone: Vec::new(),
+                },
+            )?;
+        }
+        Ok(stored)
     }
 
     /// [`Self::sync`] for an account read through Microsoft Graph: one folder's delta.
@@ -1517,6 +1562,42 @@ impl<B: Backend> AccountEngine<B> {
             report.bodies_fetched += 1;
         }
         Ok(whole)
+    }
+
+    /// Fetch attachments that earlier passes left on the server, for an account kept offline in
+    /// full: smallest first, so the largest come last, within `budget`.
+    ///
+    /// The rebuilt message stays as it was stored (F165): each part is fetched and held exactly
+    /// as opening it would ([`AccountEngine::fetch_part`]). A part the server will not give is
+    /// named and passed over, so one bad part cannot hold the rest back pass after pass; a
+    /// refused sign-in, a rate limit or a dropped connection ends the step, since every part
+    /// after it would meet the same.
+    pub async fn fetch_remote_parts(
+        &mut self,
+        mailbox: &MailboxRef,
+        cancel: &mut Cancel,
+        budget: PartBudget,
+    ) -> Result<SyncReport, RuntimeError> {
+        let mut report = SyncReport::default();
+        let wanted = self.store.remote_parts_in(mailbox, budget.parts)?;
+        for part in budget.take(wanted) {
+            match self.fetch_part(part.message, &part.section, cancel).await {
+                Ok(_) => report.parts_fetched += 1,
+                Err(RuntimeError::Cancelled) => break,
+                Err(e) => {
+                    let retry = e.retry();
+                    report.saw(&retry);
+                    report.needs_attention.push(format!(
+                        "{}: part {} of a message: {e}",
+                        mailbox.path, part.section
+                    ));
+                    if !matches!(retry, Retry::Fatal(_)) {
+                        break;
+                    }
+                }
+            }
+        }
+        Ok(report)
     }
 
     /// Download one attachment a sync left on the server, and record it as held.
@@ -1949,5 +2030,33 @@ mod tests {
             s.expunges > s.watch,
             "the full address list is the most expensive sweep and the least urgent"
         );
+    }
+
+    #[test]
+    fn a_part_budget_stops_at_its_count_or_its_bytes_and_always_takes_one() {
+        let part = |n: u128, size: u64| mail_store::RemotePart {
+            message: MessageId::from_uuid(uuid::Uuid::from_u128(n)),
+            section: "2".to_owned(),
+            size,
+        };
+        let sizes = |parts: Vec<mail_store::RemotePart>| -> Vec<u64> {
+            parts.into_iter().map(|p| p.size).collect()
+        };
+        let wanted = vec![part(1, 10), part(2, 20), part(3, 30), part(4, 40)];
+        const CASES: &[(u32, u64, &[u64])] = &[
+            (10, 1_000, &[10, 20, 30, 40]),
+            (2, 1_000, &[10, 20]),
+            (10, 60, &[10, 20, 30]),
+            (10, 59, &[10, 20]),
+            // A part larger than the whole byte bound is still fetched, alone.
+            (10, 5, &[10]),
+        ];
+        for (parts, bytes, want) in CASES {
+            let budget = PartBudget {
+                parts: *parts,
+                bytes: *bytes,
+            };
+            assert_eq!(sizes(budget.take(wanted.clone())), *want, "{budget:?}");
+        }
     }
 }

@@ -8,7 +8,7 @@ use crate::provider::icon::{mark_of, mark_style};
 use crate::provider::{Provider, provider};
 use crate::query::{self};
 use crate::space::{self, Pinned, Scope, Space};
-use crate::view::{Shell, Source, folder_of, is_label_place};
+use crate::view::{Shell, Source, folder_of, is_label_place, saved_of};
 use dioxus::prelude::*;
 use ds::base::vocab::RowState;
 use ds::components::app::pin_tile::PinFace;
@@ -128,6 +128,7 @@ fn place_icon(name: &str) -> Icon {
         "Sent" => Icon::Send,
         "Spam" => Icon::OctagonAlert,
         "Pinned" => Icon::Pin,
+        "Waiting" => Icon::Bell,
         _ => Icon::Tag,
     }
 }
@@ -214,11 +215,20 @@ pub(super) fn PlaceList(
     folded: Vec<LabelId>,
 ) -> Element {
     let places = shell.read().places.clone();
-    // Labels and then folders follow the default places; folders are drawn under Folders.
+    // Labels, folders and then saved views follow the default places; folders are drawn under
+    // Folders.
     let split = places
         .iter()
-        .position(|place| is_label_place(place) || folder_of(place).is_some())
+        .position(|place| {
+            is_label_place(place) || folder_of(place).is_some() || saved_of(place).is_some()
+        })
         .unwrap_or(places.len());
+    let views: Vec<(usize, String)> = places
+        .iter()
+        .enumerate()
+        .filter(|(_, place)| saved_of(place).is_some())
+        .map(|(index, place)| (index, place.name.clone()))
+        .collect();
     // A label that is also a mailbox is drawn once, under Folders. See `folder_tree::arrange`.
     let labels: Vec<(usize, String)> = places
         .iter()
@@ -231,7 +241,11 @@ pub(super) fn PlaceList(
         .map(|(index, place)| (index, place.name.clone()))
         .collect();
     let selected = shell.read().selected;
-    let listed = |index: usize| index < split || labels.iter().any(|(at, _)| *at == index);
+    let listed = |index: usize| {
+        index < split
+            || labels.iter().any(|(at, _)| *at == index)
+            || views.iter().any(|(at, _)| *at == index)
+    };
     let mut items = vec![ListItem::heading(
         PlaceKey::Head("Places"),
         rsx! { SectionHeader { title: "Places" } },
@@ -253,6 +267,15 @@ pub(super) fn PlaceList(
         ));
         for (index, name) in &labels {
             items.push(place_item(*index, name, Icon::Tag, shell, pages, badges));
+        }
+    }
+    if !views.is_empty() {
+        items.push(ListItem::heading(
+            PlaceKey::Head("Views"),
+            rsx! { SectionHeader { title: "Views" } },
+        ));
+        for (index, name) in &views {
+            items.push(place_item(*index, name, Icon::Search, shell, pages, badges));
         }
     }
     rsx! {

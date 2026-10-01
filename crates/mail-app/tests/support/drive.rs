@@ -12,6 +12,7 @@
 
 use dioxus::html::Modifiers;
 use ds::base::press::PointerButton;
+use ds::file_drop::drag::{DropAcceptance, FileDragInput};
 use ds::prelude::*;
 use ds_harness::{Driver, FocusState, Harness, Input, PointerAction, PointerInput, Query};
 use std::time::Duration;
@@ -31,6 +32,12 @@ pub trait Drive {
     fn key(&mut self, key: Key);
     /// Press and release `key` with `held` modifiers down.
     fn chord(&mut self, held: &[Key], key: Key);
+    /// Scroll by `dx`, `dy` with the pointer at `at`.
+    fn wheel(&mut self, at: Point, dx: Px, dy: Px);
+    /// Click `button` at `at`.
+    fn press(&mut self, at: Point, button: PointerButton);
+    /// One step of a file drag from outside the window. What the window told the platform.
+    fn file_drag(&mut self, input: FileDragInput) -> DropAcceptance;
     /// Drag the primary button from `from` to `to` in `steps` moves.
     fn drag(&mut self, from: Point, to: Point, steps: u16);
     /// Paste `html` with its plain `text`.
@@ -75,6 +82,16 @@ impl Drive for Harness {
     }
     fn chord(&mut self, held: &[Key], key: Key) {
         self.send(Input::chord(held, key));
+    }
+    fn wheel(&mut self, at: Point, dx: Px, dy: Px) {
+        self.send(Input::wheel(at, dx, dy));
+    }
+    fn press(&mut self, at: Point, button: PointerButton) {
+        self.send(Input::press(at, button));
+    }
+    fn file_drag(&mut self, input: FileDragInput) -> DropAcceptance {
+        self.send(Input::FileDrag(input));
+        self.drop_answer()
     }
     fn drag(&mut self, from: Point, to: Point, steps: u16) {
         self.send(Input::drag(from, to, steps));

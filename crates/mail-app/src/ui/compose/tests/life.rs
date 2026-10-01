@@ -8,6 +8,7 @@ use super::super::page::{Guard, Phase};
 use super::*;
 use crate::editor::{to_flowed, to_html};
 use crate::ui::fixtures::{ACCOUNT, click, press, seeded};
+use ds_harness::harness::SETTLE_BOUND;
 
 fn far() -> DateTime<Utc> {
     Utc::now() + chrono::TimeDelta::days(365)
@@ -281,6 +282,24 @@ async fn run_for(window: &mut Window, span: std::time::Duration) -> String {
     window.render()
 }
 
+/// Draw what lands until `done` holds of the markup, for at most `bound` of quire's clock. The
+/// markup `done` last saw, and when it first held (or when the bound ran out).
+async fn run_until(
+    window: &mut Window,
+    bound: std::time::Duration,
+    done: impl Fn(&str) -> bool,
+) -> (String, tokio::time::Instant) {
+    let until = tokio::time::Instant::now() + bound;
+    loop {
+        let markup = window.render();
+        let now = tokio::time::Instant::now();
+        if done(&markup) || now >= until {
+            return (markup, now);
+        }
+        let _ = tokio::time::timeout(until - now, window.dom.wait_for_work()).await;
+    }
+}
+
 /// Coherence rule 2 on the composer: no raw control, raw vector or literal colour beyond the
 /// exceptions mailo names (`style::exceptions::MARKUP`).
 #[tokio::test]
@@ -314,6 +333,7 @@ async fn a_sent_page_folds_away_on_quires_clock() {
     });
     window.render();
 
+    let sent = tokio::time::Instant::now();
     click(&mut window.dom, seen.one("aria-label", "Send"));
     let markup = window.render();
     assert!(
@@ -322,12 +342,20 @@ async fn a_sent_page_folds_away_on_quires_clock() {
     );
 
     // Nothing the window says takes it away: the fold's timer does, once the fade has
-    // settled.
+    // settled. Waited for, not timed: the timer's thread can wake late.
     let fold = settle(Anim::Fade, MotionLevel::Standard);
-    let markup = run_for(&mut window, fold).await;
+    let (markup, gone) = run_until(&mut window, fold + SETTLE_BOUND, |markup| {
+        !markup.contains("cpage")
+    })
+    .await;
+    let took = gone - sent;
     assert!(
         !markup.contains("cpage"),
-        "the page was still drawn once its fold had settled:\n{markup}"
+        "the page was still drawn {took:?} after Send, past its fold of {fold:?}:\n{markup}"
+    );
+    assert!(
+        took >= fold,
+        "the page went after {took:?}, before its fold of {fold:?} had settled"
     );
     assert!(
         markup.contains("Sending in"),

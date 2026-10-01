@@ -70,8 +70,8 @@ pub use smime::{
     SmimeVerification,
 };
 pub use state::{
-    Attachments, IsDefault, LabelOrigin, MailboxRole, MailboxSet, Membership, Pin, ReadState,
-    Snooze, Star, Threading,
+    Attachments, FollowUp, IsDefault, LabelOrigin, MailboxRole, MailboxSet, Membership, Mute, Pin,
+    ReadState, Snooze, Star, Threading,
 };
 pub use template::Template;
 pub use threading::{ThreadInput, normalize_id, thread};

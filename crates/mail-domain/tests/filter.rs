@@ -6,8 +6,8 @@
 
 use chrono::{DateTime, Utc};
 use mail_domain::{
-    AccountId, Address, Attachments, DateRange, Filter, LabelId, MailboxRole, MailboxSet, MatchCtx,
-    Pin, ReadState, Snooze, Star, TextMatch, ThreadId, ThreadSummary,
+    AccountId, Address, Attachments, DateRange, Filter, FollowUp, LabelId, MailboxRole, MailboxSet,
+    MatchCtx, Mute, Pin, ReadState, Snooze, Star, TextMatch, ThreadId, ThreadSummary,
 };
 use uuid::Uuid;
 
@@ -58,6 +58,8 @@ fn summary(tweak: impl FnOnce(&mut ThreadSummary)) -> ThreadSummary {
         attachments: Attachments::None,
         snooze: Snooze::Inactive,
         pin: Pin::Unpinned,
+        mute: Mute::Unmuted,
+        follow_up: FollowUp::Inactive,
     };
     tweak(&mut s);
     s

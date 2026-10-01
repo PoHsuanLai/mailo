@@ -20,11 +20,10 @@ use super::ops::{perform, resolve, take_back};
 use crate::undo::{Undo, UndoHandle};
 use crate::view::Shell;
 use dioxus::prelude::*;
+use ds::prelude::Icon;
 use ds::stack::toast_hub::{ToastAction, ToastHub, UndoToken};
 use mail_domain::*;
-use mail_store::SqliteStore;
-#[cfg(test)]
-use mail_store::Store;
+use mail_store::{SqliteStore, Store};
 
 /// What the toast says, and which op it belongs to.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41,11 +40,14 @@ pub(in crate::ui) enum Follow {
     Undo(UndoHandle),
     /// After leaving a list: archive what it already sent, by its sender's address.
     ArchiveFrom { sender: String, list: String },
+    /// After blocking a sender: take the block back, which forgets the rule it made. Not an
+    /// entry on the undo stack, whose entries are patches to messages; a rule is not one.
+    Unblock { rule: RuleId, sender: String },
     /// Nothing to take back: an unsubscribe, once made, is the list's.
     Nothing,
 }
 
-/// quire's toast host, and what its undo does: made by a component that lives as long as the
+/// quire's toast host, and what its buttons do: made by a component that lives as long as the
 /// window, because the handler belongs to the scope that made it and must outlive the toast.
 #[derive(Clone, Copy)]
 pub(super) struct Toasts {
@@ -54,16 +56,19 @@ pub(super) struct Toasts {
     /// What the "Archive All" button of a leave-a-list toast does: it reads the list it offered
     /// from [`Motion::toast`] when pressed.
     pub on_archive: EventHandler<()>,
+    /// What the "Undo" button of a block toast does: it reads the rule it offered from
+    /// [`Motion::toast`] when pressed.
+    pub on_unblock: EventHandler<()>,
 }
 
 /// The motion state the window shares.
 #[derive(Clone, Copy)]
 pub(super) struct Motion {
     /// The follow-up a toast on screen offers that is not an undo (archive what a list already
-    /// sent), kept here for its button's handler to read. The toast itself is quire's, through
-    /// [`Motion::toasts`].
+    /// sent, or take a block back), kept here for its button's handler to read. The toast
+    /// itself is quire's, through [`Motion::toasts`].
     pub toast: Signal<Option<Said>>,
-    /// The window root's toast host and the handler its undo calls, once the list has mounted
+    /// The window root's toast host and the handlers its buttons call, once the list has mounted
     /// under the root. Not reactive: only a toast being said reads it.
     pub toasts: CopyValue<Option<Toasts>>,
     /// The place a hovered Archive or Snooze button would send the row to.
@@ -103,22 +108,108 @@ pub(super) fn act_kind(
 /// Apply `op` to `thread` now, keep its undo, and start whatever motion it means.
 pub(super) fn act(
     store: &SqliteStore,
-    mut shell: Signal<Shell>,
-    mut revision: Signal<u64>,
+    shell: Signal<Shell>,
+    revision: Signal<u64>,
     thread: ThreadId,
     op: Op,
 ) -> bool {
-    let Some(undo) = perform(store, thread, op.clone()) else {
-        return false;
+    act_all(store, shell, revision, vec![(thread, op)]) > 0
+}
+
+/// Apply each op to its conversation now, as one gesture: one undo entry that takes every one
+/// of them back, and one toast that counts them. Returns how many were applied.
+///
+/// `Op::apply` is about one thread, so the ops are applied one by one; what makes them one
+/// gesture is that their undos are kept together (`UndoStack::push_all`). A row that no longer
+/// belongs to the list leaves with it: quire's `List` plays that exit.
+pub(super) fn act_all(
+    store: &SqliteStore,
+    mut shell: Signal<Shell>,
+    mut revision: Signal<u64>,
+    ops: Vec<(ThreadId, Op)>,
+) -> usize {
+    let mut undos = Vec::new();
+    let mut done = Vec::new();
+    for (thread, op) in ops {
+        if let Some(undo) = perform(store, thread, op.clone()) {
+            undos.push(undo);
+            done.push(op);
+        }
+    }
+    let count = undos.len();
+    let said = match done.as_slice() {
+        [] => return 0,
+        [op, ..] if count > 1 => crate::undo::said_of(op, count, &chrono::Local),
+        _ => undos[0].said.clone(),
     };
-    let said = undo.said.clone();
-    let handle = shell.write().undo.push(undo);
+    let Some(handle) = shell.write().undo.push_all(undos) else {
+        return 0;
+    };
     revision += 1;
     if let Some(mut motion) = motion() {
         motion.dest.set(None);
         motion.say(said, Follow::Undo(handle));
     }
-    true
+    count
+}
+
+/// Apply what a button means to each of `threads`, as one gesture ([`act_all`]).
+///
+/// Resolved per conversation, and only where that conversation allows it (`view::offers`):
+/// archiving a selection that holds something already archived archives the rest and leaves
+/// that one be, and its undo does not "restore" what the gesture never moved.
+pub(super) fn act_kind_all(
+    store: &SqliteStore,
+    shell: Signal<Shell>,
+    revision: Signal<u64>,
+    threads: &[ThreadId],
+    kind: OpKind,
+) -> usize {
+    let ops = threads
+        .iter()
+        .filter_map(|thread| {
+            let loaded = store.thread(*thread).ok()?;
+            crate::view::offers(&loaded.summary, kind)
+                .then(|| resolve(store, *thread, kind))
+                .flatten()
+                .map(|op| (*thread, op))
+        })
+        .collect();
+    act_all(store, shell, revision, ops)
+}
+
+/// Delete forever what each of `threads` holds in `bin`, as one gesture the user has already
+/// confirmed. Nothing goes on the undo stack, and what is there about those messages is
+/// forgotten, so ⌘Z cannot claim to bring any of them back. Returns how many messages were
+/// deleted. The rows leave with the list: quire's `List` plays the exit, and the toast has no
+/// Undo.
+pub(in crate::ui) fn destroy_all(
+    store: &SqliteStore,
+    mut shell: Signal<Shell>,
+    mut revision: Signal<u64>,
+    threads: &[ThreadId],
+) -> usize {
+    let mut gone = Vec::new();
+    for thread in threads {
+        if let Some(messages) = super::ops::destroy(store, *thread) {
+            gone.extend(messages);
+        }
+    }
+    if gone.is_empty() {
+        return 0;
+    }
+    {
+        let mut shell = shell.write();
+        shell.undo.forget_messages(&gone);
+        if shell.open.is_some_and(|open| store.thread(open).is_err()) {
+            shell.close();
+        }
+    }
+    revision += 1;
+    if let Some(motion) = motion() {
+        motion.say(crate::destroy::said(gone.len()), Follow::Nothing);
+    }
+    gone.len()
 }
 
 /// Put up the toast for something that is not an op on one row.
@@ -162,17 +253,25 @@ pub(super) fn undo_by(
     restore(store, shell, revision, motion, entry)
 }
 
-/// Put `entry` back, and take down the toast that offered it. Refused, it goes back on the
-/// stack.
+/// Put `entry` back, every part of it, and take down the toast that offered it. A part that
+/// is refused goes back on the stack, as an entry of its own gesture's parts.
 fn restore(
     store: &SqliteStore,
     mut shell: Signal<Shell>,
     mut revision: Signal<u64>,
     motion: Option<Motion>,
-    entry: Undo,
+    entry: Vec<Undo>,
 ) -> bool {
-    if !take_back(store, &entry) {
-        shell.write().undo.push(entry);
+    // Newest first, as the parts were done oldest first.
+    let (back, refused): (Vec<Undo>, Vec<Undo>) = entry
+        .into_iter()
+        .rev()
+        .partition(|part| take_back(store, part));
+    let _ = shell
+        .write()
+        .undo
+        .push_all(refused.into_iter().rev().collect());
+    if back.is_empty() {
         return false;
     }
     revision += 1;
@@ -187,8 +286,10 @@ fn restore(
     true
 }
 
-/// The keys motion owns: Esc drops a drag, ⌘Z (`undo`) undoes, and the hover card takes Space and
-/// Esc. Returns whether the key was handled. Never while typing: ⌘Z in a field is the field's own.
+/// The keys motion owns: Esc drops a drag, ⌘Z undoes, and the hover card takes Space and
+/// Esc. `undo` is the undo chord from the main window, or Ctrl from a conversation window;
+/// the key is z either way. Returns whether the key was handled. Never while typing: ⌘Z in a
+/// field is the field's own.
 pub(super) fn key(
     name: &str,
     undo: bool,
@@ -202,7 +303,7 @@ pub(super) fn key(
     if typing {
         return false;
     }
-    if undo {
+    if undo && name.eq_ignore_ascii_case("z") {
         let store = consume_context::<std::sync::Arc<SqliteStore>>();
         undo_last(&store, shell, revision);
         return true;
@@ -212,7 +313,8 @@ pub(super) fn key(
 
 impl Motion {
     /// Put up the toast. The next op replaces it; otherwise it leaves on its own. All of them are
-    /// quire's: an undo, plain words, or a button of the follow-up's own ("Archive All").
+    /// quire's: an undo, plain words, or one button of the follow-up's own ("Archive All", or
+    /// "Undo" for a block).
     fn say(mut self, text: String, follow: Follow) {
         let toasts = *self.toasts.peek();
         match (follow, toasts) {
@@ -226,23 +328,32 @@ impl Motion {
                 self.toast.set(None);
                 toasts.hub.push(text, None);
             }
-            (Follow::ArchiveFrom { sender, list }, toasts) => {
+            (follow @ Follow::ArchiveFrom { .. }, Some(toasts)) => {
                 let serial = self.toast.peek().as_ref().map_or(0, |said| said.serial) + 1;
                 self.toast.set(Some(Said {
                     text: text.clone(),
                     serial,
-                    follow: Follow::ArchiveFrom { sender, list },
+                    follow,
                 }));
-                if let Some(toasts) = toasts {
-                    toasts.hub.push_action(
-                        text,
-                        ToastAction::new("Archive All"),
-                        toasts.on_archive,
-                    );
-                }
+                toasts
+                    .hub
+                    .push_action(text, ToastAction::new("Archive All"), toasts.on_archive);
+            }
+            (follow @ Follow::Unblock { .. }, Some(toasts)) => {
+                let serial = self.toast.peek().as_ref().map_or(0, |said| said.serial) + 1;
+                self.toast.set(Some(Said {
+                    text: text.clone(),
+                    serial,
+                    follow,
+                }));
+                toasts.hub.push_action(
+                    text,
+                    ToastAction::new("Undo").with_icon(Icon::Undo),
+                    toasts.on_unblock,
+                );
             }
             // No host yet (a window still mounting): the words are kept, as before.
-            (follow @ (Follow::Undo(_) | Follow::Nothing), None) => {
+            (follow, None) => {
                 let serial = self.toast.peek().as_ref().map_or(0, |said| said.serial) + 1;
                 self.toast.set(Some(Said {
                     text,

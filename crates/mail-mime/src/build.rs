@@ -3,6 +3,7 @@
 use crate::MimeError;
 use mail_builder::MessageBuilder;
 use mail_builder::headers::address::Address as MailAddress;
+use mail_builder::mime::{BodyPart, MimePart};
 use mail_domain::{Address, BlobId, Draft, Identity, Message, ReceiptRequest, normalize_id};
 use std::collections::HashSet;
 
@@ -147,11 +148,15 @@ pub fn build(
         }
     }
     for (attachment, bytes) in resolved {
-        builder = builder.attachment(
-            media_type(&attachment.mime),
-            filename(&attachment.name),
-            bytes,
-        );
+        let mime = media_type(&attachment.mime);
+        if is_enclosed_message(mime) {
+            builder
+                .attachments
+                .get_or_insert_with(Vec::new)
+                .push(enclosed_message(mime, filename(&attachment.name), bytes));
+        } else {
+            builder = builder.attachment(mime, filename(&attachment.name), bytes);
+        }
     }
 
     builder
@@ -242,6 +247,69 @@ fn filename(name: &str) -> String {
     name.chars()
         .take_while(|c| *c != '\r' && *c != '\n' && *c != '\0')
         .collect()
+}
+
+/// Whether `mime` is `message/rfc822`, parameters aside.
+fn is_enclosed_message(mime: &str) -> bool {
+    let head = mime.split_once(';').map_or(mime, |(head, _)| head).trim();
+    head.eq_ignore_ascii_case("message/rfc822")
+}
+
+/// A whole message carried as a `message/rfc822` part.
+///
+/// Never base64 or quoted-printable, which is what mail-builder gives any part that is not
+/// text: RFC 2046 §5.2.1 allows a `message/rfc822` body only `7bit`, `8bit` or `binary`, and a
+/// reader that honours that shows an encoded one as an opaque file, not as a message. The bytes
+/// go in as they are, with every line ending made CRLF (RFC 5322 §2.1: a message's lines end in
+/// CRLF, and a bare LF from an mbox import would otherwise be a line break the wire does not
+/// have). The label is the least the content needs: `7bit` for short ASCII lines, `8bit` when
+/// there are 8-bit bytes (the submission then asks for `BODY=8BITMIME`, or is refused where the
+/// server cannot carry it), and `binary` for a NUL or a line over 998 octets, which SMTP cannot
+/// carry at all and which says so rather than claiming to be something it is not.
+fn enclosed_message<'x>(mime: &'x str, name: String, bytes: &[u8]) -> MimePart<'x> {
+    let body = crlf_lines(bytes);
+    let encoding = enclosed_encoding(&body);
+    MimePart::new(mime, BodyPart::Binary(body.into()))
+        .attachment(name)
+        .transfer_encoding(encoding)
+}
+
+/// `bytes` with every bare LF and bare CR made CRLF.
+fn crlf_lines(bytes: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(bytes.len() + bytes.len() / 64);
+    let mut at = 0;
+    while at < bytes.len() {
+        match (bytes[at], bytes.get(at + 1)) {
+            (b'\r', Some(b'\n')) => {
+                out.extend_from_slice(b"\r\n");
+                at += 2;
+            }
+            (b'\r' | b'\n', _) => {
+                out.extend_from_slice(b"\r\n");
+                at += 1;
+            }
+            (byte, _) => {
+                out.push(byte);
+                at += 1;
+            }
+        }
+    }
+    out
+}
+
+/// The `Content-Transfer-Encoding` CRLF-lined `body` can honestly be sent under (RFC 2045 §2.7–2.9).
+fn enclosed_encoding(body: &[u8]) -> &'static str {
+    const MAX_LINE: usize = 998;
+    let long = body
+        .split(|byte| *byte == b'\n')
+        .any(|line| line.strip_suffix(b"\r").unwrap_or(line).len() > MAX_LINE);
+    if long || body.contains(&0) {
+        "binary"
+    } else if body.is_ascii() {
+        "7bit"
+    } else {
+        "8bit"
+    }
 }
 
 /// Parameters (`text/plain; charset=utf-8`) are kept. A type that is not `token/token`,

@@ -4,7 +4,8 @@
 //! Each operation is one request. Flags, filing, labels and keywords are `Email/set` patches;
 //! an upload is `Email/import`; a send is an import and an `EmailSubmission/set` together;
 //! folder work is `Mailbox/set`. Destroying an email is done for one reason only — the user
-//! emptied the Trash — and is checked against the server's own view before it is asked for.
+//! deleted it forever from Trash or Junk — and is checked against the server's own view before
+//! it is asked for.
 
 use super::{Client, JmapEngine, email_ids};
 use crate::{RuntimeError, SyncReport};
@@ -219,6 +220,10 @@ impl JmapEngine {
                 let doomed = self.in_trash_only(&client, &mailboxes, &remotes).await?;
                 self.set(&client, Vec::new(), doomed).await
             }
+            ProtoOp::Destroy { remotes } => {
+                let doomed = self.destroyable(&client, &mailboxes, &remotes).await?;
+                self.set(&client, Vec::new(), doomed).await
+            }
             ProtoOp::Append {
                 mailbox,
                 flags,
@@ -326,6 +331,43 @@ impl JmapEngine {
                 .map(|e| e.id)
                 .collect(),
         )
+    }
+
+    /// The ids of `remotes`, when the server holds every one of them in Trash or Junk and
+    /// nowhere else: what "Delete forever" may destroy with `Email/set` (RFC 8621 §4.6).
+    ///
+    /// All or none. An email another client has since filed anywhere else is not rubbish any
+    /// more, and destroying the rest while refusing it would leave that one gone here and kept
+    /// there; refused whole, the deletion is undone and the next sync shows each where it is.
+    /// An id the server no longer has is already what was asked for, and is left out.
+    async fn destroyable(
+        &self,
+        client: &Client,
+        mailboxes: &jmap::Mailboxes,
+        remotes: &[RemoteRef],
+    ) -> Result<Vec<String>, RuntimeError> {
+        let bins: Vec<&str> = [MailboxRole::Trash, MailboxRole::Spam]
+            .into_iter()
+            .filter_map(|role| mailboxes.id_for_role(role))
+            .collect();
+        let ids = email_ids(remotes);
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let account = client.session.account.as_str();
+        let call = jmap::email_get(account, Ids::Listed(ids), &["id", "mailboxIds"], "t");
+        let responses = client.call(&[CORE, MAIL], &[call]).await?;
+        let found = EmailSummary::parse_list(responses.answer("t", "Email/get")?)?;
+        if let Some(kept) = found.iter().find(|e| {
+            e.mailbox_ids.is_empty() || !e.mailbox_ids.iter().all(|m| bins.contains(&m.as_str()))
+        }) {
+            return Err(permanent(format!(
+                "email {} is no longer only in Trash or Junk on the server, so nothing was \
+                 deleted",
+                kept.id
+            )));
+        }
+        Ok(found.into_iter().map(|e| e.id).collect())
     }
 
     /// Send one frozen message: upload it, import it into Drafts, submit it.

@@ -1,5 +1,8 @@
 //! What a message has attached, and saving it.
 //!
+//! A stored picture or PDF leads its row with a thumbnail that opens the viewer (`thumb.rs`,
+//! `viewer.rs`); every other row leads with a paperclip.
+//!
 //! Save writes a part that is already here; Download fetches one still on the server and then
 //! writes it. The name is the one the file will be written under. There is no file chooser: it
 //! lands in the downloads directory, and the notice says where.
@@ -18,6 +21,8 @@ use mail_domain::{BlobId, MessageId};
 use mail_store::SqliteStore;
 
 use super::super::text::{AttachmentRow, Kept};
+use super::thumb::Thumb;
+use crate::view::Shell;
 
 /// The rows for one message. `saved` says where the last one went; `downloading` is the part
 /// being fetched, whose button stays disabled until the fetch ends.
@@ -28,6 +33,7 @@ pub(super) fn Attachments(
     rows: Vec<AttachmentRow>,
     saved: Signal<Option<String>>,
     downloading: Signal<Option<(MessageId, usize)>>,
+    shell: Signal<Shell>,
 ) -> Element {
     let items: Vec<ListItem<usize>> = rows
         .iter()
@@ -47,6 +53,7 @@ pub(super) fn Attachments(
             let index = row.index;
             let name = row.name.clone();
             let kept = row.kept;
+            let here = kept == Kept::Here;
             let button = rsx! {
                 Button {
                     size: ControlSize::Small,
@@ -59,12 +66,16 @@ pub(super) fn Attachments(
                     }),
                 }
             };
+            let thumb_name = row.name.clone();
             ListItem::row(
                 row.index,
                 row.name.clone(),
                 rsx! {
+                    if here {
+                        Thumb { message, index, name: thumb_name, shell }
+                    }
                     Row {
-                        leading: RowLeading::Icon(Icon::Paperclip),
+                        leading: if here { RowLeading::None } else { RowLeading::Icon(Icon::Paperclip) },
                         title: row.name.clone(),
                         detail: Some(TextLine::from(row.size.clone())),
                         accessory: Accessory::Slot(button),

@@ -11,7 +11,8 @@
 
 use super::menu::{MenuItem, Right, Tile, anchor_for, narrowed, palette_groups};
 use super::motion::drag::Drag;
-use super::motion::{act, motion};
+use super::motion::{act_all, motion};
+use super::picks::with_selection;
 use crate::view::Shell;
 use dioxus::prelude::*;
 use ds::components::content::avatar::AvatarSize;
@@ -87,23 +88,35 @@ pub(in crate::ui) fn account_of(store: &SqliteStore, thread: ThreadId) -> Option
     store.message(*first).ok().map(|m| m.account)
 }
 
-/// File `thread` into the folder at `path` on its own account, with the undo and the toast.
-/// Nothing happens for a folder on another account: a folder is one server's.
-pub(in crate::ui) fn file_into(
+/// File each of `threads` on the folder's account into it, with the undo and the toast, as one
+/// gesture: one undo puts them all back. Nothing happens to one on another account: a folder is
+/// one server's. Returns how many were filed.
+pub(in crate::ui) fn file_all_into(
     store: &SqliteStore,
     shell: Signal<Shell>,
     revision: Signal<u64>,
-    thread: ThreadId,
+    threads: &[ThreadId],
     folder: &MailboxRef,
-) -> bool {
-    if account_of(store, thread) != Some(folder.account) {
-        return false;
+) -> usize {
+    let ours: Vec<ThreadId> = threads
+        .iter()
+        .copied()
+        .filter(|thread| account_of(store, *thread) == Some(folder.account))
+        .collect();
+    if ours.is_empty() {
+        return 0;
     }
     match folder_label(store, folder.account, &folder.path) {
-        Ok(label) => act(store, shell, revision, thread, Op::File(label)),
+        Ok(label) => {
+            let ops = ours
+                .into_iter()
+                .map(|thread| (thread, Op::File(label)))
+                .collect();
+            act_all(store, shell, revision, ops)
+        }
         Err(why) => {
             eprintln!("move to {}: {why}", folder.path);
-            false
+            0
         }
     }
 }
@@ -128,7 +141,13 @@ pub(in crate::ui) fn drop_on(
     };
     state.drag.set(Drag::Idle);
     let store = consume_context::<Arc<SqliteStore>>();
-    file_into(&store, shell, revision, thread, folder);
+    file_all_into(
+        &store,
+        shell,
+        revision,
+        &with_selection(shell, thread),
+        folder,
+    );
     true
 }
 
@@ -185,7 +204,15 @@ pub(in crate::ui) fn MoveMenu(
                 let Some(account) = account else { return };
                 let store = consume_context::<Arc<SqliteStore>>();
                 let folder = MailboxRef { account, path };
-                file_into(&store, shell, revision, thread, &folder);
+                on_close.call(());
+                // The whole selection when this row is picked, as one gesture.
+                file_all_into(
+                    &store,
+                    shell,
+                    revision,
+                    &with_selection(shell, thread),
+                    &folder,
+                );
             },
             onclose: move |()| on_close.call(()),
         }

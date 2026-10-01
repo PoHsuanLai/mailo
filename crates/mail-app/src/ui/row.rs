@@ -11,16 +11,19 @@ use super::hover::{Hook, element, line_at, out, over, use_driver};
 use super::list_search::RowHit;
 use super::marked::{Piece, pieces};
 use super::menus::{LabelMenu, SnoozeMenu};
-use super::motion::{act_kind, drag, motion};
+use super::motion::{act_kind, act_kind_all, drag, motion};
 use super::move_to::MoveMenu;
 use super::ops::{composes, start_composing};
+use super::picks::{drawn_order, mute_all, with_selection};
 use super::text::{draft_state, label, sender};
 use crate::provider::Provider;
 use crate::provider::icon::{ChipPlace, ProvChip};
+use crate::selection::Click;
 use crate::view::Marks;
-use crate::view::{Shell, hover_actions};
+use crate::view::{Shell, hover_in};
 use chrono::Local;
 use dioxus::prelude::*;
+use ds::base::press::Press;
 use ds::base::vocab::RowState;
 use ds::components::app::hover_strip::{ActionId, HoverStrip, StripAction, Titles};
 use ds::components::app::thread_row::ThreadRow;
@@ -110,10 +113,16 @@ pub(super) fn MailRow(
     chips: Vec<String>,
     via: Option<Provider>,
     hit: Option<RowHit>,
+    /// Picked, or open with nothing picked (`Shell::is_selected`, asked by the list, which
+    /// knows what is listed).
+    selection: Selection,
 ) -> Element {
     let id = summary.id;
     let unread = summary.read == ReadState::Unread;
     let starred = summary.star == Star::Starred;
+    let muted = summary.mute == Mute::Muted;
+    let follow_up = summary.follow_up;
+    let no_reply = crate::follow_up::row_words(&follow_up);
     let who = sender(&summary);
     let when = crate::view::listed(summary.last_date, chrono::Utc::now(), &Local);
     let subject = summary.subject.clone();
@@ -126,11 +135,15 @@ pub(super) fn MailRow(
         Attachments::Present { count } => Some(count),
         Attachments::None => None,
     };
-    let actions: Vec<OpKind> = hover_actions(&summary)
+    // The saved view being shown names its own strip; anywhere else it is the usual one.
+    let mut actions: Vec<OpKind> = hover_in(shell.read().saved_view(), &summary)
         .into_iter()
         .filter(|kind| !matches!(kind, OpKind::Star | OpKind::Unstar))
         .collect();
-    let selected = shell.read().open == Some(id);
+    // In Trash or Spam, and only there, a row can be deleted forever: once the sheet has asked.
+    if crate::destroy::offered(crate::destroy::bin_shown(&shell.read()), &summary) {
+        actions.push(OpKind::Destroy);
+    }
     let move_label = "Move to…".to_owned();
     let filing = shell.read().filing == Some(id);
     // The strip buttons whose menus float beside them: each hands over its rect once measured,
@@ -141,10 +154,15 @@ pub(super) fn MailRow(
     let mut row_box = use_signal(|| None::<MountedRef>);
     // The focus inside the row shows its strip, as the pointer over it does.
     let mut focused = use_signal(|| false);
+    // The context menu, open at the point the row was right-clicked.
+    let mut row_menu = use_signal(|| None::<Rect>);
+    // "Remind me if no reply", opened from the context menu at the same point.
+    let mut reminding = use_signal(|| None::<Rect>);
     // quire's hover hub, which the row, its name and its time report the pointer to.
     let driver = use_driver();
     let enter = move |hook: Hook, anchor: HoverAnchor| over(driver, hook, anchor);
-    // The name and the time open their own cards; leaving either is being back on the row.
+    // The name and the time open their own cards. Leaving either is not being back on the row:
+    // the pointer may be on its way to the card. Being back is `onpointerback`.
     // The innermost hook wins: an entry that bubbles (a harness's does) stops at the part.
     let part = move |hook: Hook| PartHooks {
         onpointerenter: EventHandler::new(move |event: PointerEvent| {
@@ -153,7 +171,7 @@ pub(super) fn MailRow(
         }),
         onpointerleave: EventHandler::new(move |event: PointerEvent| {
             event.stop_propagation();
-            enter(Hook::Thread(id), element(row_box()));
+            out(driver);
         }),
     };
     let parts = shell.read().parts;
@@ -184,7 +202,20 @@ pub(super) fn MailRow(
     let tags = rsx! {
         if parts.chips.shown() {
             for name in chips {
-                Chip { key: "{name}", variant: ChipVariant::Accent, text: name.clone() }
+                span { key: "{name}", "data-chip": "{name}",
+                    Chip { variant: ChipVariant::Accent, text: name.clone() }
+                }
+            }
+        }
+        if muted {
+            span { class: "mute-mark", title: "Muted", "data-muted": "true",
+                Glyph { icon: Icon::BellOff, size: IconSize::Micro }
+            }
+        }
+        if let Some(words) = no_reply {
+            span { class: "no-reply", "data-follow-up": "returned",
+                Glyph { icon: Icon::Bell, size: IconSize::Micro }
+                "{words}"
             }
         }
         if let Some(count) = files {
@@ -203,8 +234,8 @@ pub(super) fn MailRow(
         .map(|kind| StripAction {
             id: ActionId(kebab(kind).to_owned()),
             icon: op_icon(kind),
-            label: label(kind).to_owned(),
-            fly: fly(kind),
+            label: strip_label(kind, muted).to_owned(),
+            fly: fly(kind, muted),
             onhover: preview(kind).map(|place| {
                 EventHandler::new(move |here: Selection| {
                     if let Some(mut state) = motion() {
@@ -270,11 +301,7 @@ pub(super) fn MailRow(
         |state| matches!(*state.drag.read(), drag::Drag::Live { thread, .. } if thread == id),
     );
     let state = RowState {
-        selection: if selected {
-            Selection::Selected
-        } else {
-            Selection::Unselected
-        },
+        selection,
         emphasis: if unread {
             Emphasis::Strong
         } else {
@@ -292,6 +319,18 @@ pub(super) fn MailRow(
             onmounted: move |event: MountedEvent| row_box.set(Some(MountedRef(event.data()))),
             onfocusin: move |_| focused.set(true),
             onfocusout: move |_| focused.set(false),
+            oncontextmenu: move |event: MouseEvent| {
+                event.prevent_default();
+                row_menu.set(Some(point_rect(event.client_coordinates())));
+            },
+            // Shift+Enter on the focused row opens it in a window of its own. Stopped here, so
+            // the window's own Shift+Enter does not open the open conversation as well.
+            onkeydown: move |event: KeyboardEvent| {
+                if event.key().to_string() == "Enter" && event.modifiers().shift() {
+                    event.stop_propagation();
+                    super::window::open_in_window(id);
+                }
+            },
             ThreadRow {
                 state,
                 name: who,
@@ -302,7 +341,14 @@ pub(super) fn MailRow(
                 tags,
                 star: Some(star),
                 strip,
-                onclick: move |_| shell.write().open(id),
+                // The pointer came back from the name or the time and rested on the row.
+                onpointerback: EventHandler::new(move |_: PointerEvent| {
+                    enter(Hook::Thread(id), element(row_box()));
+                }),
+                onclick: move |press: Press| {
+                    let click = click_of(press.modifiers);
+                    shell.write().click(id, click, &drawn_order());
+                },
                 on_sender: part(Hook::Sender(id)),
                 on_time: part(Hook::Time(id)),
                 onpointerenter: EventHandler::new(move |_: PointerEvent| {
@@ -319,6 +365,36 @@ pub(super) fn MailRow(
                     aria_label: Some(format!("Open {subject}")),
                     ..super::sidebar::tagged("hc", format!("thread:{id}"))
                 },
+            }
+            if let Some(at) = row_menu() {
+                super::menu::Floating {
+                    anchor: row_box(),
+                    placed: Some(at),
+                    title: String::new(),
+                    items: vec![super::window::menu_item(), remind_item()],
+                    on_pick: move |key: String| {
+                        let at = row_menu();
+                        row_menu.set(None);
+                        if key == super::window::OPEN_KEY {
+                            super::window::open_in_window(id);
+                        }
+                        if key == REMIND_KEY {
+                            reminding.set(at);
+                        }
+                    },
+                    on_close: move |_| row_menu.set(None),
+                }
+            }
+            if let Some(at) = reminding() {
+                super::follow_up::FollowUpMenu {
+                    id,
+                    current: follow_up,
+                    shell,
+                    revision,
+                    anchor: row_box(),
+                    placed: Some(at),
+                    on_close: move |_| reminding.set(None),
+                }
             }
             if shell.read().snoozing == Some(id) {
                 SnoozeMenu { id, shell, revision, anchor: row_box(), placed: snooze_at() }
@@ -337,6 +413,38 @@ pub(super) fn MailRow(
                 }
             }
         }
+    }
+}
+
+/// The context menu's key for "Remind me if no reply…".
+const REMIND_KEY: &str = "remind-me";
+
+/// The context menu's row that opens the follow-up menu.
+fn remind_item() -> super::menu::MenuItem {
+    super::menu::MenuItem {
+        key: REMIND_KEY.to_owned(),
+        tile: super::menu::Tile::Icon(Icon::Bell),
+        name: "Remind me if no reply…".to_owned(),
+        help: None,
+        right: super::menu::Right::None,
+        group: None,
+        marks: Vec::new(),
+        title: Vec::new(),
+        detail: Vec::new(),
+    }
+}
+
+/// A point in the window as the rect a context menu is placed against.
+fn point_rect(at: dioxus::html::geometry::ClientPoint) -> Rect {
+    Rect {
+        origin: Point {
+            x: Px(at.x as f32),
+            y: Px(at.y as f32),
+        },
+        size: Size {
+            width: Px(0.0),
+            height: Px(0.0),
+        },
     }
 }
 
@@ -382,6 +490,22 @@ fn press(mut shell: Signal<Shell>, mut revision: Signal<u64>, id: ThreadId, pres
         shell.write().snoozing = if already { None } else { Some(id) };
         return;
     }
+    // Never at once: the sheet names how much and asks, over this row and every one picked.
+    if kind == OpKind::Destroy {
+        super::destroy::ask_chosen(&store, shell, &with_selection(shell, id));
+        return;
+    }
+    // An op may take the row out of the list. Take the keyboard back before it can leave
+    // with the row (FINDINGS F172).
+    if composes(kind).is_none() {
+        super::host::Host::focus_app();
+    }
+    // Mute takes its direction from the conversations it reaches, so a picked row mutes or
+    // unmutes the whole selection as one gesture.
+    if kind == OpKind::Mute {
+        mute_all(&store, shell, revision, &with_selection(shell, id));
+        return;
+    }
     match composes(kind) {
         Some(what) => match start_composing(&store, id, what) {
             Ok(draft) => {
@@ -390,9 +514,26 @@ fn press(mut shell: Signal<Shell>, mut revision: Signal<u64>, id: ThreadId, pres
             }
             Err(why) => eprintln!("reply: {why}"),
         },
+        // A press on a picked row acts on everything picked, as one gesture. An op that needs
+        // more than the button (a pin's rank) stays with its own row.
+        None if crate::view::op_for(kind).is_some() => {
+            act_kind_all(&store, shell, revision, &with_selection(shell, id), kind);
+        }
         None => {
             act_kind(&store, shell, revision, id, kind);
         }
+    }
+}
+
+/// What a click on a row asks for, from the keys held with it. Shift wins over Ctrl, as a
+/// range is the larger thing to have asked for; Cmd is a Mac's Ctrl.
+fn click_of(held: Modifiers) -> Click {
+    if held.shift() {
+        Click::Range
+    } else if held.ctrl() || held.meta() {
+        Click::Toggle
+    } else {
+        Click::Plain
     }
 }
 
@@ -410,11 +551,22 @@ fn ViaChip(via: Provider, marks: Marks) -> Element {
 
 /// `tomorrow` in [`crate::view::snooze_until`] is 09:00 local, which is what this says.
 /// The mockup's card says 08:00; the menu and the command line both mean 09:00.
-fn fly(kind: OpKind) -> String {
+fn fly(kind: OpKind, muted: bool) -> String {
     match kind {
         OpKind::Snooze => "Tomorrow 09:00".to_owned(),
         OpKind::Archive => "Archive → out of Inbox".to_owned(),
-        other => label(other).to_owned(),
+        OpKind::Mute if muted => "Unmute → replies to the inbox".to_owned(),
+        OpKind::Mute => "Mute → replies skip the inbox".to_owned(),
+        other => strip_label(other, muted).to_owned(),
+    }
+}
+
+/// A strip button's name. Mute says what pressing it does to this row, as Read and Star do by
+/// being two kinds.
+fn strip_label(kind: OpKind, muted: bool) -> &'static str {
+    match kind {
+        OpKind::Mute if muted => "Unmute",
+        other => label(other),
     }
 }
 
@@ -432,6 +584,9 @@ fn kebab(kind: OpKind) -> &'static str {
         OpKind::RemoveLabel => "remove-label",
         OpKind::Snooze => "snooze",
         OpKind::Pin => "pin",
+        OpKind::Mute => "mute",
+        OpKind::FollowUp => "remind-me",
+        OpKind::Destroy => "delete-forever",
         OpKind::Reply => "reply",
         OpKind::ReplyAll => "reply-all",
         OpKind::Forward => "forward",
@@ -450,6 +605,9 @@ fn op_icon(kind: OpKind) -> Icon {
         OpKind::AddLabel | OpKind::RemoveLabel => Icon::Tag,
         OpKind::Snooze => Icon::Clock,
         OpKind::Pin => Icon::Pin,
+        OpKind::Mute => Icon::BellOff,
+        OpKind::FollowUp => Icon::Bell,
+        OpKind::Destroy => Icon::Trash,
         OpKind::Reply => Icon::Reply,
         OpKind::ReplyAll => Icon::ReplyAll,
         OpKind::Forward => Icon::Forward,

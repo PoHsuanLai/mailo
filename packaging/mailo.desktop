@@ -1,7 +1,13 @@
 [Desktop Entry]
 Type=Application
 Name=mailo
+GenericName=Mail Client
 Comment=Read and send mail
-Exec=mailo
+Exec=mailo %u
+Icon=mailo
+Terminal=false
 Categories=Network;Email;
+MimeType=x-scheme-handler/mailto;
+Keywords=mail;email;imap;pop3;smtp;
 StartupNotify=true
+StartupWMClass=mailo

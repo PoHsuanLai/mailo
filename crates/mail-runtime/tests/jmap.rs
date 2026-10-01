@@ -10,7 +10,7 @@ mod jmap_fake;
 use chrono::{DateTime, TimeZone, Utc};
 use jmap_fake::{Fake, PASSWORD, USER};
 use mail_domain::*;
-use mail_runtime::{JmapEngine, MapSecrets, Secrets, SyncReport, Woke};
+use mail_runtime::{JmapEngine, MapSecrets, Searched, Secrets, SyncReport, Woke};
 use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
 use std::time::Duration;
@@ -426,4 +426,188 @@ async fn a_refused_password_stops_the_pass_and_says_so() {
     let (_tx, mut cancel) = watch::channel(false);
     let report = s.engine.pass(&mut cancel, now()).await.unwrap();
     assert!(report.needs_reauth, "{report:?}");
+}
+
+/// "Delete forever" as the window does it: the deletion queued while the store still knows the
+/// email's id, then the message removed here.
+fn delete_forever(store: &SqliteStore, message: &Message) {
+    let thread = store.thread(message.thread).unwrap();
+    let messages: Vec<Message> = thread
+        .messages
+        .iter()
+        .map(|id| store.message(*id).unwrap())
+        .collect();
+    // Destroying is queued whatever the capabilities say.
+    let caps = presets::jmap(USER, "https://jmap.example.test/", HttpAuth::Basic).expected_caps;
+    let applied = Op::Destroy.apply(
+        &Target::Threads(vec![message.thread]),
+        &thread,
+        &messages,
+        &caps,
+        now(),
+    );
+    store
+        .enqueue(
+            ACCOUNT,
+            applied.remote.expect("in Trash"),
+            &applied.inverse,
+            now(),
+        )
+        .unwrap()
+        .expect("queued");
+    store.apply(ACCOUNT, &applied.forward).unwrap();
+}
+
+fn all() -> MailboxRef {
+    MailboxRef {
+        account: ACCOUNT,
+        path: JMAP_ALL.to_owned(),
+    }
+}
+
+#[tokio::test]
+async fn deleting_forever_from_trash_destroys_the_email_on_the_server() {
+    let mut s = setup().await;
+    let trashed = s.fake.state.lock().unwrap().deliver(
+        &raw(5, "Old news", "nobody wants this"),
+        &["mbT"],
+        &["$seen"],
+        "2026-09-01T09:05:00Z",
+    );
+    pass(&mut s).await;
+    let message = held(&s.store, 5).expect("synced into Trash");
+    assert_eq!(message.mailbox, MailboxRole::Trash);
+
+    delete_forever(&s.store, &message);
+    assert!(held(&s.store, 5).is_none(), "gone here at once");
+    let report = pass(&mut s).await;
+    assert_eq!(report.outbox_settled, 1);
+
+    // RFC 8621 §4.6: one Email/set whose destroy names exactly that email.
+    let sets = s.fake.calls("Email/set");
+    assert_eq!(
+        sets.last().unwrap()["destroy"],
+        serde_json::json!([trashed.clone()])
+    );
+    assert!(s.fake.state.lock().unwrap().email(&trashed).is_none());
+    // And it stays gone: the next pass neither fetches it back nor keeps its id.
+    pass(&mut s).await;
+    assert!(held(&s.store, 5).is_none());
+    assert!(
+        !s.store
+            .remote_refs(&all())
+            .unwrap()
+            .contains(&RemoteRef::Jmap { email_id: trashed })
+    );
+}
+
+#[tokio::test]
+async fn an_email_filed_elsewhere_meanwhile_is_not_destroyed_and_comes_back() {
+    let mut s = setup().await;
+    let trashed = s.fake.state.lock().unwrap().deliver(
+        &raw(6, "Changed my mind", "keep me"),
+        &["mbT"],
+        &[],
+        "2026-09-01T09:06:00Z",
+    );
+    pass(&mut s).await;
+    let message = held(&s.store, 6).expect("synced into Trash");
+    delete_forever(&s.store, &message);
+    // Another client restores it to the inbox before this one's deletion is sent.
+    s.fake
+        .state
+        .lock()
+        .unwrap()
+        .touch(&trashed, |email| email.mailboxes = vec!["mbI".to_owned()]);
+
+    let (_tx, mut cancel) = watch::channel(false);
+    let report = s.engine.pass(&mut cancel, now()).await.unwrap();
+    assert!(
+        report
+            .needs_attention
+            .iter()
+            .any(|why| why.contains("only in Trash")),
+        "{report:?}"
+    );
+    assert!(
+        !s.fake
+            .calls("Email/set")
+            .iter()
+            .any(|set| set["destroy"].as_array().is_some_and(|d| !d.is_empty())),
+        "nothing was destroyed"
+    );
+    assert!(s.fake.state.lock().unwrap().email(&trashed).is_some());
+    // Refused, the kept id goes, and a sync shows the email where the server has it.
+    pass(&mut s).await;
+    assert_eq!(
+        held(&s.store, 6).map(|m| m.mailbox),
+        Some(MailboxRole::Inbox)
+    );
+}
+
+#[tokio::test]
+async fn a_search_of_the_server_is_an_email_query_and_keeps_headers_once() {
+    let mut s = setup().await;
+    seed(&s.fake);
+    s.fake.state.lock().unwrap().deliver(
+        &raw(5, "Lunch again", "more sandwiches"),
+        &["mbA"],
+        &[],
+        "2026-09-01T09:05:00Z",
+    );
+    // Nothing synced yet: only the server can find these.
+    let sandwiches = Filter::Text(TextMatch::Contains("sandwiches".to_owned()));
+    let Searched::Found(hits) = s.engine.search_jmap(&sandwiches, &[], now()).await.unwrap() else {
+        panic!("the search was not asked");
+    };
+    assert_eq!((hits.messages.len(), hits.fetched, hits.more), (2, 2, 0));
+    let query = s.fake.calls("Email/query").pop().unwrap();
+    assert_eq!(
+        query["filter"],
+        serde_json::json!({ "operator": "AND", "conditions": [
+            { "inMailboxOtherThan": ["mbD", "mbJ"] },
+            { "operator": "AND", "conditions": [{ "text": "sandwiches" }] },
+        ] }),
+        "kept to what a sync follows"
+    );
+    assert_eq!(query["sort"][0]["property"], "receivedAt");
+    let lunch = held(&s.store, 2).unwrap();
+    assert_eq!(lunch.body, Body::Absent, "a search fetches no body");
+    assert_eq!((lunch.read, lunch.star), (ReadState::Read, Star::Starred));
+    assert!(held(&s.store, 5).is_some());
+    assert!(
+        held(&s.store, 1).is_none(),
+        "what did not match is not fetched"
+    );
+    let threads: Vec<ThreadId> = [2, 5]
+        .iter()
+        .map(|n| held(&s.store, *n).unwrap().thread)
+        .collect();
+    assert_eq!(s.store.found_in(&threads).unwrap(), threads);
+
+    // Again: both are held, so nothing is fetched and nothing is kept twice.
+    let gets = s.fake.calls("Email/get").len();
+    let Searched::Found(again) = s.engine.search_jmap(&sandwiches, &[], now()).await.unwrap()
+    else {
+        panic!("the search was not asked");
+    };
+    assert_eq!((again.messages.clone(), again.fetched), (hits.messages, 0));
+    assert_eq!(
+        s.fake.calls("Email/get").len(),
+        gets,
+        "no header fetched again"
+    );
+    assert_eq!(s.store.count(&Filter::All, now()).unwrap(), 2);
+}
+
+#[tokio::test]
+async fn a_search_the_server_cannot_answer_faithfully_is_not_sent() {
+    let mut s = setup().await;
+    let pinned = Filter::And(vec![
+        Filter::Pinned,
+        Filter::Text(TextMatch::Contains("sandwiches".to_owned())),
+    ]);
+    let said = s.engine.search_jmap(&pinned, &[], now()).await.unwrap();
+    assert!(matches!(said, Searched::Unsaid(_)), "{said:?}");
+    assert!(s.fake.calls("Email/query").is_empty());
 }

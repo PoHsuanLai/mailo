@@ -80,6 +80,20 @@ impl SqliteStore {
                 )?;
                 Some(*id)
             }
+            Change::ThreadMute(id, mute) => {
+                self.connection().execute(
+                    "UPDATE threads SET mute = ?2 WHERE id = ?1",
+                    params![id.to_string(), to_json("Mute", mute)?],
+                )?;
+                Some(*id)
+            }
+            Change::ThreadFollowUp(id, follow_up) => {
+                self.connection().execute(
+                    "UPDATE threads SET follow_up = ?2 WHERE id = ?1",
+                    params![id.to_string(), to_json("FollowUp", follow_up)?],
+                )?;
+                Some(*id)
+            }
             Change::MessageUpsert(msg) => {
                 self.upsert_message(msg)?;
                 Some(msg.thread)
@@ -263,29 +277,33 @@ impl SqliteStore {
             )?;
             return Ok(());
         }
-        let (snooze, pin): (String, String) = self.connection().query_row(
-            "SELECT snooze, pin FROM threads WHERE id = ?1",
-            params![thread.to_string()],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )?;
+        let (snooze, pin, mute, follow_up): (String, String, String, String) =
+            self.connection().query_row(
+                "SELECT snooze, pin, mute, follow_up FROM threads WHERE id = ?1",
+                params![thread.to_string()],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )?;
         let s = ThreadSummary::derive(
             thread,
             &messages,
             json("Snooze", &snooze)?,
             json("Pin", &pin)?,
+            json("Mute", &mute)?,
+            json("FollowUp", &follow_up)?,
         );
         self.connection().execute(
             "INSERT INTO thread_summary (thread, account, subject, snippet, from_name, from_email,
                  participants, recipients, last_date, message_count, read, star, mailboxes,
-                 labels, attachments, snooze, pin)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)
+                 labels, attachments, snooze, pin, mute, follow_up)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19)
              ON CONFLICT(thread) DO UPDATE SET
                  subject=excluded.subject, snippet=excluded.snippet, from_name=excluded.from_name,
                  from_email=excluded.from_email, participants=excluded.participants,
                  recipients=excluded.recipients, last_date=excluded.last_date,
                  message_count=excluded.message_count, read=excluded.read, star=excluded.star,
                  mailboxes=excluded.mailboxes, labels=excluded.labels,
-                 attachments=excluded.attachments, snooze=excluded.snooze, pin=excluded.pin",
+                 attachments=excluded.attachments, snooze=excluded.snooze, pin=excluded.pin,
+                 mute=excluded.mute, follow_up=excluded.follow_up",
             params![
                 s.id.to_string(),
                 s.account.to_string(),
@@ -304,6 +322,8 @@ impl SqliteStore {
                 to_json("Attachments", &s.attachments)?,
                 to_json("Snooze", &s.snooze)?,
                 to_json("Pin", &s.pin)?,
+                to_json("Mute", &s.mute)?,
+                to_json("FollowUp", &s.follow_up)?,
             ],
         )?;
         Ok(())
@@ -349,6 +369,7 @@ impl SqliteStore {
                 "DELETE FROM remote_map WHERE account = ?1 AND mailbox = ?2",
                 params![account.to_string(), ingest.mailbox.path],
             )?;
+            self.forget_destroyed_in(account, &ingest.mailbox.path)?;
         }
 
         for label in &ingest.labels {
@@ -452,6 +473,8 @@ impl SqliteStore {
         // 4. Expunged elsewhere. Drop the mapping; drop the message only when no mailbox still
         //    holds it, because vanishing from INBOX is what archiving looks like on Gmail.
         for remote in &ingest.gone {
+            // Deleted forever here, and now there too.
+            self.forget_destroyed(account, remote)?;
             if let Some(id) = self.message_by_remote(account, remote)? {
                 let (acct, mailbox, uidvalidity, uid, uidl) = remote_key(account, remote);
                 self.connection().execute(
@@ -782,6 +805,7 @@ impl SqliteStore {
         from: &RemoteRef,
         to: &RemoteRef,
     ) -> Result<(), StoreError> {
+        self.remap_destroyed(account, from, to)?;
         let Some(message) = self.message_by_remote(account, from)? else {
             return Ok(());
         };
@@ -807,6 +831,9 @@ impl SqliteStore {
         remote: &RemoteRef,
         into: Option<&str>,
     ) -> Result<(), StoreError> {
+        // Moved before its deletion was sent, to where nobody said: the deletion has nowhere to
+        // go, and the sync that finds the message shows it again.
+        self.forget_destroyed(account, remote)?;
         let Some(message) = self.message_by_remote(account, remote)? else {
             return Ok(());
         };

@@ -1,5 +1,8 @@
 /* The Rules sheet: each part is a titled band (the rules, the vacation reply, the server), the
-   rules are quire's `Row`s in an inset `List`, and the editor is a form in the flow under them. */
+   rules are quire's `Row`s in an inset `List`, and the editor is a form in the flow under them.
+   The keyboard sheet, the saved-view sheet and delete-forever still hang their own panel in
+   `.rules-wrap`; that chrome is only for a panel inside the wrap, so the Rules sheet's own
+   `.rules` stays the form grid from files.css. */
 .rules-main { display: grid; gap: var(--s-14); max-height: 68vh; overflow-y: auto; scrollbar-width: none; }
 .rules-part, .rules-edit { display: grid; gap: var(--s-8); min-width: 0; }
 .rules-acts { display: flex; align-items: center; justify-content: flex-end; gap: var(--s-8); flex-wrap: wrap; }
@@ -7,3 +10,29 @@
 .rules-actions { display: flex; flex-wrap: wrap; gap: var(--s-6); align-items: center; }
 .rules-action { display: inline-flex; align-items: center; gap: var(--s-4); }
 .rules-said { flex: 1; min-width: 0; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.rules-wrap {
+  position: absolute; inset: 0; z-index: var(--z-menu); display: grid; place-items: start center; padding-top: 5%;
+  background: var(--scrim);
+}
+.rules-wrap > .rules {
+  position: relative; width: min(640px, 92%); max-height: 88%; display: flex; flex-direction: column;
+  min-width: 0; min-height: 0;
+  background: var(--raise); color: var(--ink); border: var(--hair) solid var(--line);
+  border-radius: var(--r-panel); box-shadow: var(--shadow-2); overflow: hidden;
+}
+.rules-head { display: flex; align-items: center; gap: var(--s-10); }
+.rules-head h3 { margin: 0; }
+.rules-list, .kb-list { margin: 0; padding: 0; display: grid; gap: var(--s-2); }
+.rules-row, .kb-row { display: grid; grid-template-columns: 1fr auto auto; gap: var(--s-8); align-items: center; }
+.rules-text { min-width: 0; }
+.rules-faint { color: var(--ink-faint); }
+.rules-row-acts, .kb-acts { display: flex; gap: var(--s-4); align-items: center; }
+.kb-keys, .kb-key { display: inline-flex; align-items: center; gap: var(--s-6); }
+.kb-wait { color: var(--ink-soft); }
+.destroy-sheet { width: min(440px, 92%); }
+.destroy-body { margin: 0; }
+.capnote { margin: 0; color: var(--ink-faint); }
+.files-k { color: var(--ink-soft); }
+.rules-in { min-width: 0; }
+.files-bad { color: var(--danger); }

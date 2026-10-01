@@ -93,6 +93,11 @@ pub(in crate::ui) fn menu_items(
             last = Some(group);
         }
         let mut line = Line::new(item.key.clone(), plain(item));
+        // The row's second line. A trailing hint, when the item has one, replaces it: quire's
+        // menu has one faint word at the end, and that word is the hint.
+        if let Some(help) = &item.help {
+            line = line.with_hint(help.clone());
+        }
         // A choice among several is marked by its check and carries no picture: a menu of
         // states draws one mark per row, not a mark and an icon.
         line = match (&item.right, &item.tile) {

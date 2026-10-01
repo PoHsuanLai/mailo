@@ -1,6 +1,6 @@
 //! The window: quire's `ds-blitz`, Blitz drawn with wgpu. The only frontend.
 //!
-//! The six values the window reads reach it as root contexts through
+//! The seven values the window reads reach it as root contexts through
 //! `AppConfig::with_context`, the same call a test makes through `HarnessConfig`
 //! ([`contexts`]). Nothing is passed through a global.
 //!
@@ -37,7 +37,16 @@ pub(super) fn run(opening: Opening) {
         dirs,
         start,
         icons,
+        brand,
     } = opening;
+    let notices = dirs
+        .as_ref()
+        .filter(|dirs| crate::notify::load(&dirs.config) == crate::notify::Setting::On)
+        .map(|_| {
+            crate::ui::follow_up::Notices(std::sync::Arc::new(
+                crate::notify::desktop::Desktop::connect(),
+            ))
+        });
     let original = Original::window();
     let config = AppConfig::new("mailo", 1200, 800)
         .with_app_id(AppId(APP_ID.to_owned()))
@@ -47,7 +56,26 @@ pub(super) fn run(opening: Opening) {
         .with_context(original.consent())
         .with_context(original.pill())
         .with_context(original.images())
-        .with_context(icons);
+        .with_context(icons)
+        // One revision for every window, so a conversation open in a window of its own follows
+        // what the main window does to it, and the other way round (`ui/revisions`).
+        .with_context(crate::ui::revisions::Revisions::new());
+    let config = match brand {
+        Some(brand) => config.with_context(brand),
+        None => config,
+    };
+    // The unread count on the dock or the Dash. Only the launched window has one; a test hands
+    // its own recorder or none.
+    let config = match crate::launcher::platform() {
+        Some(launcher) => config.with_context(launcher),
+        None => config,
+    };
+    // A reminder that comes back is said on the desktop too, while notifications are on: the
+    // setting `mailo watch` reads. A test's window has none (`contexts`), so no test raises one.
+    let config = match notices {
+        Some(notices) => config.with_context(notices),
+        None => config,
+    };
     ds_blitz::launch(ShellRoot, config);
 }
 
@@ -55,8 +83,9 @@ pub(super) fn run(opening: Opening) {
 /// store, the look, the Spaces, where the window opens, and the directories it writes, when there
 /// are any. Without directories the window keeps its choices in memory and writes no file.
 ///
-/// The provider icons are the one value left out: a test has no cache to read them from, and
-/// the window then draws each provider's letter.
+/// The provider icons and the brand logo cache are left out: a test has no cache to read them
+/// from, and the window then draws each provider's letter and each sender's initial. A test that
+/// wants logos adds a `BrandCache` of its own.
 pub fn contexts(
     store: Arc<SqliteStore>,
     look: Appearance,

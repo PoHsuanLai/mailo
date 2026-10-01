@@ -148,9 +148,20 @@ fn launch(
     seed: fn(&SqliteStore),
     fallback: FocusFallback,
 ) -> (Harness, tempfile::TempDir, Arc<SqliteStore>, Printed) {
+    launch_at(answer, seed, fallback, |_| mail_app::ui::Start::Inbox)
+}
+
+/// [`launch`], opened where `start` says once the store is seeded, as `main` decides it.
+fn launch_at(
+    answer: fn() -> Result<PrintOutcome, PrintError>,
+    seed: fn(&SqliteStore),
+    fallback: FocusFallback,
+    start: impl FnOnce(&SqliteStore) -> mail_app::ui::Start,
+) -> (Harness, tempfile::TempDir, Arc<SqliteStore>, Printed) {
     let dir = tempfile::tempdir().unwrap();
     let store = seeded(dir.path());
     seed(&store);
+    let start = start(&store);
     let printed = Printed::default();
     let printer = mail_app::ui::native::Printer::with_dialog({
         let printed = Arc::clone(&printed);
@@ -164,7 +175,7 @@ fn launch(
         mail_app::view::Appearance::default(),
         mail_app::space::Spaces::default(),
         None,
-        mail_app::ui::Start::Inbox,
+        start,
     )
     .with(printer);
     let config = HarnessConfig::new(VIEW)
@@ -259,6 +270,49 @@ fn the_window_opens_on_the_seeded_inbox() {
     );
 }
 
+/// `mailo mailto:…`, as the desktop runs the scheme's handler: the window opens on a composer,
+/// laid out, holding what the link asked for, and nothing is sent.
+#[test]
+fn a_window_started_from_a_mailto_link_opens_on_the_composer() {
+    let uri = "mailto:ada@example.test?subject=About%20the%20flight&body=Which%20gate%3F";
+    let link = mail_app::ui::mailto_of(&[uri.to_owned()]).expect("read as a mailto link");
+    let (harness, _dir, store, _printed) = launch_at(
+        || Ok(PrintOutcome::Cancelled),
+        |_| {},
+        FocusFallback::Ancestor,
+        |store| {
+            mail_app::ui::start_mailto(store, &link, chrono::Utc::now())
+                .expect("the link's draft is saved")
+        },
+    );
+
+    let subject = ".c-title input";
+    let rect = harness
+        .rect(subject)
+        .unwrap_or_else(|| panic!("no subject field is drawn:\n{}", harness.html()));
+    assert!(
+        rect.size.width.0 > 100.0,
+        "the subject field is not laid out: {rect:?}"
+    );
+    let html = harness.html();
+    assert!(
+        html.contains(r#"value="About the flight""#),
+        "not the link's subject:\n{html}"
+    );
+    assert!(html.contains("Which gate?"), "not the link's body:\n{html}");
+    assert!(
+        html.contains(r#"aria-label="Remove ada""#),
+        "not the link's recipient:\n{html}"
+    );
+
+    // A draft, held and not queued: a link can open a composer, never send.
+    let drafts = store.drafts(ACCOUNT).unwrap();
+    assert_eq!(drafts.len(), 1, "{drafts:?}");
+    assert_eq!(drafts[0].state, SendState::Editing);
+    let a_year_on = chrono::Utc::now() + chrono::Duration::days(365);
+    assert!(store.outbox_due(ACCOUNT, a_year_on).unwrap().is_empty());
+}
+
 #[test]
 fn clicking_a_row_opens_it_in_the_reader() {
     let (mut harness, _dir) = open();
@@ -324,7 +378,12 @@ fn a_hover_card_opens_after_its_delay_and_not_before() {
     // CONVENTIONS §11). Assert the order instead: absent at half the delay, then present within
     // the settle bound, and never before the whole delay since the pointer arrived.
     harness.advance(open_after / 2);
-    assert_eq!(harness.count(".ds-hovercard"), 0, "the card opened early");
+    // `advance` can itself overrun on a loaded machine; a card seen once the whole delay has
+    // passed on the wall clock is on time, so "not yet" is only asserted while it is still early.
+    let present = harness.count(".ds-hovercard");
+    if asked.elapsed() < open_after {
+        assert_eq!(present, 0, "the card opened early");
+    }
     let opened = settle_until(&mut harness, |harness| harness.count(".ds-hovercard") == 1);
     assert!(
         opened.duration_since(asked) >= open_after,
@@ -651,9 +710,10 @@ fn without_quire_s_fallback_a_removal_leaves_the_keyboard_nowhere() {
     );
 }
 
-/// The third row's own Archive button pressed: quire's `HoverStrip` keeps the click to itself
-/// and gives the pressed button the keyboard (quire v0.1.11), and the row it removes hands it
-/// on. Then `e` still archives the open conversation.
+/// The third row's own Archive button pressed: quire's `HoverStrip` would give the pressed
+/// button the keyboard (quire v0.1.11), but the row is leaving, so the window takes it back.
+/// Then `e` still archives the open conversation. Every wait is for a state, not a time: this
+/// is the test that failed on a loaded machine (F172).
 #[test]
 fn a_press_on_a_row_s_strip_leaves_the_keyboard_working() {
     let (mut harness, _dir) = open();
@@ -663,18 +723,28 @@ fn a_press_on_a_row_s_strip_leaves_the_keyboard_working() {
     harness.advance(ms(300));
     let archive = format!("{} .ds-strip [*|data-op=archive]", row(3));
     harness.click(centre(&harness, &archive));
-    harness.advance(ms(1500));
-    assert_eq!(
-        subjects(&harness),
-        [INBOX[0].1, INBOX[1].1, INBOX[3].1],
-        "the strip's Archive did not archive its row"
+    // The keyboard must land on the window, never on the pressed button in the leaving row: from
+    // there it is lost whenever the button's focus and the row's removal share a frame, which a
+    // loaded machine makes likely (F172). The old code landed on the button, or, under load,
+    // nowhere at all, and this waited out its bound.
+    settle_until(&mut harness, |harness| {
+        harness.count(":focus") > 0 && !harness.is_focused("html")
+    });
+    assert!(
+        harness.is_focused(".app"),
+        "the strip's Archive left the keyboard in its own row, not on the window:\n{}",
+        harness.html()
     );
+    settle_until(&mut harness, |harness| {
+        subjects(harness) == [INBOX[0].1, INBOX[1].1, INBOX[3].1]
+    });
     harness.key(Key::Char('e'));
-    harness.advance(ms(1500));
-    assert_eq!(
-        subjects(&harness),
-        [INBOX[1].1, INBOX[3].1],
-        "`e` after the strip's Archive archived nothing: the keyboard went nowhere"
+    settle_until(&mut harness, |harness| {
+        subjects(harness) == [INBOX[1].1, INBOX[3].1]
+    });
+    assert!(
+        harness.is_focused(".app"),
+        "`e` left the window without the keyboard"
     );
 }
 

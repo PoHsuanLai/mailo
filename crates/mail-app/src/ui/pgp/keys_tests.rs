@@ -4,6 +4,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::{Duration, Instant};
 
 use dioxus::prelude::*;
 use dioxus_core::{NoOpMutations, VirtualDom};
@@ -37,17 +38,41 @@ pub(super) fn sheet(store: &Arc<SqliteStore>, seams: super::Seams) -> (VirtualDo
     (dom, seen)
 }
 
-/// Let work on its blocking thread land and redraw.
+/// The most a job on the sheet's blocking thread may take before a test gives up. Importing an
+/// S/MIME identity file derives its key from the password, which on an unoptimized build under a
+/// loaded machine takes seconds: generous against that, and a job that never ends still fails.
+const SETTLE_BOUND: Duration = Duration::from_secs(60);
+
+/// Whether the sheet is running a job: its import button, always drawn, is disabled while one
+/// runs (`KeysSheet`'s `busy`).
+fn working(dom: &VirtualDom) -> bool {
+    let markup = dioxus_ssr::render(dom);
+    let label = markup
+        .find("aria-label=\"Import from a file…\"")
+        .expect("the sheet's import button is drawn");
+    let start = markup[..label].rfind('<').unwrap_or(0);
+    let end = label + markup[label..].find('>').unwrap_or(markup.len() - label);
+    markup[start..end].contains("aria-disabled=\"true\"")
+}
+
+/// Let the sheet's job on its blocking thread land and redraw: until the sheet is no longer
+/// working and nothing more is pending, for at most [`SETTLE_BOUND`] (quire's `settle_until`,
+/// for a `VirtualDom`). A job's thread wakes nothing while it runs, so a quiet spell alone does
+/// not mean it is done. Panics with the markup if it is still working at the bound.
 pub(super) async fn settle(dom: &mut VirtualDom, seen: &mut Seen) {
-    for _ in 0..30 {
-        let quiet = std::time::Duration::from_millis(100);
-        if tokio::time::timeout(quiet, dom.wait_for_work())
-            .await
-            .is_err()
-        {
-            break;
+    let started = Instant::now();
+    loop {
+        let quiet = Duration::from_millis(100);
+        match tokio::time::timeout(quiet, dom.wait_for_work()).await {
+            Ok(()) => dom.render_immediate(seen),
+            Err(_) if !working(dom) => return,
+            Err(_) => {}
         }
-        dom.render_immediate(seen);
+        assert!(
+            started.elapsed() < SETTLE_BOUND,
+            "the sheet was still working after {SETTLE_BOUND:?}:\n{}",
+            dioxus_ssr::render(dom)
+        );
     }
 }
 

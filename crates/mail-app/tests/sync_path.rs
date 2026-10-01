@@ -1232,6 +1232,7 @@ mod watching {
                 identities: Vec::new(),
             },
             caps,
+            keep: mail_app::offline::Keep::Bodies,
         }
     }
 

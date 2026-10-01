@@ -5,6 +5,7 @@
 use chrono::{DateTime, TimeZone, Utc};
 use mail_app::{cli, compose, export, import, sync};
 use mail_domain::*;
+use mail_mime::archive::maildir::INFO;
 use mail_mime::archive::mbox;
 use mail_runtime::{OAuthRegistry, RuntimeError, Secrets};
 use mail_store::{SqliteStore, Store};
@@ -173,17 +174,17 @@ fn a_maildir_keeps_its_flags_and_its_folders() {
     );
     write(
         &root.join("cur"),
-        "1699363252.M1P1Q2.host:2,FS",
+        &format!("1699363252.M1P1Q2.host{INFO}2,FS"),
         message("starred", "starred").as_bytes(),
     );
     write(
         &root.join(".Receipts/cur"),
-        "1699363253.M1P1Q3.host:2,S",
+        &format!("1699363253.M1P1Q3.host{INFO}2,S"),
         message("receipt", "a receipt").as_bytes(),
     );
     write(
         &root.join(".Sent/cur"),
-        "1699363254.M1P1Q4.host:2,S",
+        &format!("1699363254.M1P1Q4.host{INFO}2,S"),
         message("sent", "sent one").as_bytes(),
     );
 
@@ -288,7 +289,10 @@ fn everything_exports_to_a_maildir_that_imports_back_as_the_same_mail() {
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
         .collect();
     assert_eq!(receipts.len(), 1);
-    assert!(receipts[0].ends_with(":2,FS"), "{receipts:?}");
+    assert!(
+        receipts[0].ends_with(&format!("{INFO}2,FS")),
+        "{receipts:?}"
+    );
 
     // Importing the export into a fresh store gives the same messages back.
     let (fresh, _fresh_dir) = fresh_store();
@@ -372,6 +376,86 @@ fn a_message_with_no_body_yet_is_skipped_and_counted() {
     let done = export::export(&store, &chosen, &target, now(), &mut |_| {}).unwrap();
     assert_eq!((done.written, done.absent), (0, 1));
     assert!(export::said(&done, &target).contains("mailo sync"));
+}
+
+/// A large IMAP message is stored rebuilt from its parts, with each attachment left on the
+/// server an empty part marked so. Fetching the attachment later marks it held and leaves the
+/// stored message as it was, so the attachments alone no longer say the bytes are a stand-in.
+/// Exported, it would be an `.eml` with an empty PDF under the original's name.
+#[test]
+fn a_message_rebuilt_from_its_parts_is_not_exported_as_the_message_even_once_its_parts_are_here() {
+    let (store, _dir) = fresh_store();
+    let account = AccountId::generate();
+    store
+        .connection()
+        .execute(
+            "INSERT INTO accounts (id, address, plan, created_at)
+             VALUES (?1, 'ada@example.test', '{}', datetime('now'))",
+            [account.to_string()],
+        )
+        .unwrap();
+    let rebuilt =
+        b"From: a@example.test\r\nSubject: The report\r\nMessage-ID: <r@example.test>\r\n\
+        MIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=\"mix\"\r\n\r\n\
+        --mix\r\nContent-Type: text/plain\r\n\r\nAttached.\r\n\
+        --mix\r\nContent-Type: application/pdf\r\n\
+        Content-Disposition: attachment; filename=\"report.pdf\"\r\n\
+        X-Mailo-Remote-Section: 2\r\nX-Mailo-Remote-Octets: 2000000\r\n\r\n\r\n--mix--\r\n";
+    let raw = store.blobs().put(&store.connection(), rebuilt).unwrap();
+    let pdf = store.blobs().put(&store.connection(), b"%PDF-1.4").unwrap();
+    let message = Message {
+        id: MessageId::generate(),
+        thread: ThreadId::generate(),
+        account,
+        key: MessageKey::Rfc("r@example.test".into()),
+        date: now(),
+        from: Address {
+            name: None,
+            email: "a@example.test".into(),
+        },
+        reply_to: vec![],
+        to: vec![],
+        cc: vec![],
+        bcc: vec![],
+        subject: "The report".into(),
+        in_reply_to: None,
+        references: vec![],
+        rfc_message_id: Some("r@example.test".into()),
+        read: ReadState::Unread,
+        star: Star::Unstarred,
+        mailbox: MailboxRole::Inbox,
+        labels: vec![],
+        body: Body::Present {
+            text: Some("Attached.".into()),
+            raw,
+        },
+        // Fetched since: held, as `Store::hold_part` leaves it.
+        attachments: vec![Attachment {
+            name: "report.pdf".into(),
+            mime: "application/pdf".into(),
+            size: 8,
+            content: PartContent::Held(pdf),
+            inline: Inline::Attached,
+        }],
+    };
+    store
+        .import(
+            account,
+            Import {
+                messages: vec![Kept {
+                    key: message.key.clone(),
+                    raw,
+                    message,
+                    labels: vec![],
+                }],
+            },
+        )
+        .unwrap();
+    let chosen = export::select(&store, "inbox", now()).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let target = export::Target::Eml(dir.path().join("out"));
+    let done = export::export(&store, &chosen, &target, now(), &mut |_| {}).unwrap();
+    assert_eq!((done.written, done.partial), (0, 1));
 }
 
 /// Secrets that count how often anything asked.

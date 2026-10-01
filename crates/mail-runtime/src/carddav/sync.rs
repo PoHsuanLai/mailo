@@ -14,11 +14,15 @@
 //! A card's addresses become contacts under [`Origin::Book`] with the card's name. An address
 //! the user added by hand keeps their entry; an address a card no longer lists is handed back to
 //! the mail history that knew it, or forgotten if that history is empty.
+//!
+//! A `KIND:group` card also becomes a [`Group`], known by the card's URL, and goes when the card
+//! does. Last, every group of the book edited here is written back (`group::write_back`).
 
+use super::group::{Unwritten, put_group, write_back};
 use super::{CardDavFailure, Dav, resolve, same};
 use crate::RuntimeError;
 use mail_pim::dav::{self, Prop};
-use mail_store::{AddressBook, BookCard, Origin, Store};
+use mail_store::{AddressBook, BookCard, GroupId, Origin, Store};
 use url::Url;
 
 /// How many cards one `addressbook-multiget` asks for.
@@ -32,6 +36,11 @@ pub struct Synced {
     /// Cards that went.
     pub removed: usize,
     pub how: How,
+    /// Groups edited here that the server now has.
+    pub written: usize,
+    /// Groups edited here that were not written, and why. Each stays edited, and the next sync
+    /// tries again.
+    pub unwritten: Vec<Unwritten>,
 }
 
 /// Which way the changes were learned.
@@ -102,6 +111,7 @@ pub async fn sync<S: Store + ?Sized>(
             for address in &card.addresses {
                 release(store, &book, &source, address)?;
             }
+            store.delete_group(&GroupId(href.clone()))?;
             gone += 1;
         }
     }
@@ -120,6 +130,7 @@ pub async fn sync<S: Store + ?Sized>(
                         for address in &card.addresses {
                             release(store, &book, &source, address)?;
                         }
+                        store.delete_group(&GroupId(href.as_str().to_owned()))?;
                         gone += 1;
                     }
                 }
@@ -129,10 +140,14 @@ pub async fn sync<S: Store + ?Sized>(
 
     book.token = listing.token;
     store.put_address_book(&book)?;
+    let (written, unwritten) = write_back(dav, store, &mut book).await?;
+    store.put_address_book(&book)?;
     Ok(Synced {
         changed: fetched,
         removed: gone,
         how: listing.how,
+        written,
+        unwritten,
     })
 }
 
@@ -274,6 +289,7 @@ fn put_card<S: Store + ?Sized>(
 ) -> Result<(), RuntimeError> {
     let card = mail_pim::vcard::parse(&data).into_iter().next();
     let name = card.as_ref().and_then(|c| c.display_name());
+    put_group(store, &book.url, href, card.as_ref(), name.as_deref())?;
     let mut addresses: Vec<String> = Vec::new();
     for address in card
         .iter()
@@ -301,6 +317,7 @@ fn put_card<S: Store + ?Sized>(
     book.cards.insert(
         href.to_owned(),
         BookCard {
+            uid: card.and_then(|c| c.uid),
             etag,
             addresses,
             vcard: data,

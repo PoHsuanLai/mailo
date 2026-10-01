@@ -13,7 +13,7 @@ use mail_domain::{
     ServerLabels, ServerThreads, Snooze, Star, Supported, Target, Thread, ThreadId, ThreadSummary,
     WatchMode,
 };
-use mail_domain::{Address, Attachment, Inline, PartContent};
+use mail_domain::{Address, Attachment, FollowUp, Inline, Mute, PartContent};
 use proptest::prelude::*;
 use std::time::Duration;
 use uuid::Uuid;
@@ -96,9 +96,19 @@ fn attachment(name: &str) -> Attachment {
     }
 }
 
-fn thread_of(messages: &[Message], snooze: Snooze, pin: Pin) -> Thread {
+fn thread_of(messages: &[Message], snooze: Snooze, pin: Pin, mute: Mute) -> Thread {
+    following(messages, snooze, pin, mute, FollowUp::Inactive)
+}
+
+fn following(
+    messages: &[Message],
+    snooze: Snooze,
+    pin: Pin,
+    mute: Mute,
+    follow_up: FollowUp,
+) -> Thread {
     Thread {
-        summary: ThreadSummary::derive(THREAD, messages, snooze, pin),
+        summary: ThreadSummary::derive(THREAD, messages, snooze, pin, mute, follow_up),
         messages: messages.iter().map(|m| m.id).collect(),
     }
 }
@@ -171,10 +181,19 @@ fn kind_strips_the_payload() {
         (Op::SetSnooze(Snooze::Inactive), OpKind::Snooze),
         (Op::SetPin(Pin::Unpinned), OpKind::Pin),
         (Op::SetPin(Pin::Rank(7)), OpKind::Pin),
+        (Op::SetMute(Mute::Muted), OpKind::Mute),
+        (Op::SetMute(Mute::Unmuted), OpKind::Mute),
+        (Op::SetFollowUp(FollowUp::Inactive), OpKind::FollowUp),
         // Filing leaves the inbox the way archiving does.
         (Op::File(LABEL_B), OpKind::Archive),
+        (Op::Destroy, OpKind::Destroy),
     ];
 
+    let waiting = Op::SetFollowUp(FollowUp::Until {
+        at: at(900),
+        set: at(100),
+    });
+    assert_eq!(waiting.kind(), OpKind::FollowUp);
     for (op, expected) in CASES {
         assert_eq!(op.kind(), *expected, "kind of {op:?}");
     }
@@ -220,7 +239,17 @@ fn derive_rolls_up_the_thread() {
         raw: m3.body.raw().expect("fixture has a body"),
     };
 
-    let s = ThreadSummary::derive(THREAD, &[m1, m2, m3], Snooze::Until(at(900)), Pin::Rank(4));
+    let s = ThreadSummary::derive(
+        THREAD,
+        &[m1, m2, m3],
+        Snooze::Until(at(900)),
+        Pin::Rank(4),
+        Mute::Unmuted,
+        FollowUp::Until {
+            at: at(950),
+            set: at(10),
+        },
+    );
 
     assert_eq!(s.id, THREAD);
     assert_eq!(s.account, ACCOUNT);
@@ -260,6 +289,14 @@ fn derive_rolls_up_the_thread() {
         "thread state, carried through"
     );
     assert_eq!(s.pin, Pin::Rank(4), "thread state, carried through");
+    assert_eq!(
+        s.follow_up,
+        FollowUp::Until {
+            at: at(950),
+            set: at(10)
+        },
+        "thread state, carried through"
+    );
 }
 
 #[test]
@@ -318,7 +355,14 @@ fn derive_rolls_read_and_star_over_every_message() {
                 m
             })
             .collect();
-        let s = ThreadSummary::derive(THREAD, &messages, Snooze::Inactive, Pin::Unpinned);
+        let s = ThreadSummary::derive(
+            THREAD,
+            &messages,
+            Snooze::Inactive,
+            Pin::Unpinned,
+            Mute::Unmuted,
+            FollowUp::Inactive,
+        );
         assert_eq!(s.read, case.read, "{}: read", case.name);
         assert_eq!(s.star, case.star, "{}: star", case.name);
     }
@@ -365,7 +409,14 @@ fn derive_builds_the_snippet_from_the_newest_body() {
             raw: newest.body.raw().expect("fixture has a body"),
         };
         let older = message(1, 100); // has no text part; must not be consulted
-        let s = ThreadSummary::derive(THREAD, &[older, newest], Snooze::Inactive, Pin::Unpinned);
+        let s = ThreadSummary::derive(
+            THREAD,
+            &[older, newest],
+            Snooze::Inactive,
+            Pin::Unpinned,
+            Mute::Unmuted,
+            FollowUp::Inactive,
+        );
         assert_eq!(s.snippet, expected, "{name}");
         assert!(s.snippet.chars().count() <= 140, "{name}: length bound");
     }
@@ -380,7 +431,14 @@ fn derive_breaks_date_ties_by_position() {
     second.subject = "second".to_owned();
     second.from = addr(None, "second@example.test");
 
-    let s = ThreadSummary::derive(THREAD, &[first, second], Snooze::Inactive, Pin::Unpinned);
+    let s = ThreadSummary::derive(
+        THREAD,
+        &[first, second],
+        Snooze::Inactive,
+        Pin::Unpinned,
+        Mute::Unmuted,
+        FollowUp::Inactive,
+    );
     assert_eq!(
         s.subject, "first",
         "the earlier position is the older message"
@@ -393,7 +451,14 @@ fn derive_breaks_date_ties_by_position() {
 fn derive_rejects_an_empty_thread() {
     // Documented caller invariant: a thread with no messages is programmer error, and there is
     // no honest summary to return for it.
-    let _ = ThreadSummary::derive(THREAD, &[], Snooze::Inactive, Pin::Unpinned);
+    let _ = ThreadSummary::derive(
+        THREAD,
+        &[],
+        Snooze::Inactive,
+        Pin::Unpinned,
+        Mute::Unmuted,
+        FollowUp::Inactive,
+    );
 }
 
 // ---------------------------------------------------------------------------------------
@@ -410,7 +475,7 @@ struct ApplyCase {
 #[test]
 fn apply_over_a_whole_thread() {
     let messages = mixed_thread();
-    let thread = thread_of(&messages, Snooze::Inactive, Pin::Unpinned);
+    let thread = thread_of(&messages, Snooze::Inactive, Pin::Unpinned, Mute::Unmuted);
     let target = Target::Threads(vec![THREAD]);
     let snoozed = Snooze::Until(at(900));
 
@@ -587,6 +652,18 @@ fn apply_over_a_whole_thread() {
             forward: Vec::new(),
             inverse: Vec::new(),
         },
+        ApplyCase {
+            name: "mute the thread",
+            op: Op::SetMute(Mute::Muted),
+            forward: vec![Change::ThreadMute(THREAD, Mute::Muted)],
+            inverse: vec![Change::ThreadMute(THREAD, Mute::Unmuted)],
+        },
+        ApplyCase {
+            name: "unmute a thread that is not muted",
+            op: Op::SetMute(Mute::Unmuted),
+            forward: Vec::new(),
+            inverse: Vec::new(),
+        },
     ];
 
     for case in cases {
@@ -614,7 +691,7 @@ fn apply_over_a_whole_thread() {
 #[test]
 fn target_messages_acts_on_a_subset_of_the_thread() {
     let messages = mixed_thread();
-    let thread = thread_of(&messages, Snooze::Inactive, Pin::Unpinned);
+    let thread = thread_of(&messages, Snooze::Inactive, Pin::Unpinned, Mute::Unmuted);
 
     let target = Target::Messages(vec![mid(1)]);
     let applied =
@@ -644,10 +721,131 @@ fn target_messages_acts_on_a_subset_of_the_thread() {
     assert!(applied.inverse.changes.is_empty());
 }
 
+/// A follow-up from each state to each, over the whole thread and through one of its messages:
+/// the change is the thread's, its inverse is the state it had, a set to what it already is
+/// changes nothing, and none of it is ever sent to a server.
+#[test]
+fn a_follow_up_applies_and_inverts_from_every_state() {
+    let messages = mixed_thread();
+    let off = FollowUp::Inactive;
+    let waiting = FollowUp::Until {
+        at: at(900),
+        set: at(100),
+    };
+    let later = FollowUp::Until {
+        at: at(990),
+        set: at(100),
+    };
+    let returned = FollowUp::Returned {
+        at: at(900),
+        set: at(100),
+    };
+    // (name, prior, wanted)
+    let cases = [
+        ("remind me", off, waiting),
+        ("move the reminder", waiting, later),
+        ("it comes due with no reply", waiting, returned),
+        ("a reply clears a waiting reminder", waiting, off),
+        ("a reply clears a returned one", returned, off),
+        ("remind me again after it came back", returned, later),
+        ("the same reminder again", waiting, waiting),
+        ("clear what is not set", off, off),
+    ];
+    for (name, prior, wanted) in cases {
+        let thread = following(
+            &messages,
+            Snooze::Inactive,
+            Pin::Unpinned,
+            Mute::Unmuted,
+            prior,
+        );
+        for target in [
+            Target::Threads(vec![THREAD]),
+            Target::Messages(vec![mid(2)]),
+        ] {
+            let applied =
+                Op::SetFollowUp(wanted).apply(&target, &thread, &messages, &server_caps(), now());
+            let (forward, inverse) = if prior == wanted {
+                (Vec::new(), Vec::new())
+            } else {
+                (
+                    vec![Change::ThreadFollowUp(THREAD, wanted)],
+                    vec![Change::ThreadFollowUp(THREAD, prior)],
+                )
+            };
+            assert_eq!(
+                applied.forward.changes, forward,
+                "{name} via {target:?}: forward"
+            );
+            assert_eq!(
+                applied.inverse.changes, inverse,
+                "{name} via {target:?}: inverse"
+            );
+            assert!(
+                applied.remote.is_none(),
+                "{name}: a follow-up is never sent"
+            );
+        }
+        // Another thread's reminder does not reach this one.
+        let applied = Op::SetFollowUp(wanted).apply(
+            &Target::Threads(vec![OTHER_THREAD]),
+            &thread,
+            &messages,
+            &server_caps(),
+            now(),
+        );
+        assert!(applied.forward.changes.is_empty(), "{name}: other thread");
+    }
+}
+
+/// Mute from each state to each, over the whole thread and through one of its messages: the
+/// change is the thread's, its inverse is the state it had, and a mute to what it already is
+/// changes nothing.
+#[test]
+fn mute_applies_and_inverts_from_either_state() {
+    let messages = mixed_thread();
+    const CASES: &[(Mute, Mute, Option<Mute>)] = &[
+        (Mute::Unmuted, Mute::Muted, Some(Mute::Unmuted)),
+        (Mute::Muted, Mute::Unmuted, Some(Mute::Muted)),
+        (Mute::Muted, Mute::Muted, None),
+        (Mute::Unmuted, Mute::Unmuted, None),
+    ];
+    for (prior, wanted, undo) in CASES {
+        let thread = thread_of(&messages, Snooze::Inactive, Pin::Unpinned, *prior);
+        for target in [
+            Target::Threads(vec![THREAD]),
+            Target::Messages(vec![mid(2)]),
+        ] {
+            let applied =
+                Op::SetMute(*wanted).apply(&target, &thread, &messages, &server_caps(), now());
+            let (forward, inverse) = match undo {
+                Some(undo) => (
+                    vec![Change::ThreadMute(THREAD, *wanted)],
+                    vec![Change::ThreadMute(THREAD, *undo)],
+                ),
+                None => (Vec::new(), Vec::new()),
+            };
+            let name = format!("{prior:?} -> {wanted:?} via {target:?}");
+            assert_eq!(applied.forward.changes, forward, "{name}: forward");
+            assert_eq!(applied.inverse.changes, inverse, "{name}: inverse");
+            assert!(applied.remote.is_none(), "{name}: mute is never sent");
+        }
+        // Another thread's mute does not reach this one.
+        let applied = Op::SetMute(*wanted).apply(
+            &Target::Threads(vec![OTHER_THREAD]),
+            &thread,
+            &messages,
+            &server_caps(),
+            now(),
+        );
+        assert!(applied.forward.changes.is_empty());
+    }
+}
+
 #[test]
 fn a_thread_target_that_names_another_thread_changes_nothing() {
     let messages = mixed_thread();
-    let thread = thread_of(&messages, Snooze::Inactive, Pin::Unpinned);
+    let thread = thread_of(&messages, Snooze::Inactive, Pin::Unpinned, Mute::Unmuted);
     let target = Target::Threads(vec![OTHER_THREAD]);
 
     for op in [
@@ -655,6 +853,11 @@ fn a_thread_target_that_names_another_thread_changes_nothing() {
         Op::SetRead(ReadState::Read),
         Op::SetSnooze(Snooze::Until(at(900))),
         Op::SetPin(Pin::Rank(1)),
+        Op::SetMute(Mute::Muted),
+        Op::SetFollowUp(FollowUp::Until {
+            at: at(900),
+            set: at(100),
+        }),
     ] {
         let applied = op.apply(&target, &thread, &messages, &server_caps(), now());
         assert!(applied.forward.changes.is_empty(), "{op:?}: forward");
@@ -667,7 +870,7 @@ fn a_message_target_snoozes_and_pins_the_whole_thread() {
     // There is no such thing as snoozing half a conversation: naming one of its messages
     // targets the thread.
     let messages = mixed_thread();
-    let thread = thread_of(&messages, Snooze::Inactive, Pin::Unpinned);
+    let thread = thread_of(&messages, Snooze::Inactive, Pin::Unpinned, Mute::Unmuted);
     let target = Target::Messages(vec![mid(2)]);
 
     let applied =
@@ -689,7 +892,7 @@ fn local_only_capabilities_queue_no_remote_work() {
     // than that the domain could not address the server. The positive half of the contract is
     // `server_capabilities_queue_remote_intent` below.
     let messages = mixed_thread();
-    let thread = thread_of(&messages, Snooze::Inactive, Pin::Unpinned);
+    let thread = thread_of(&messages, Snooze::Inactive, Pin::Unpinned, Mute::Unmuted);
     let target = Target::Threads(vec![THREAD]);
 
     let cases: Vec<(&str, Op, AccountCaps)> = vec![
@@ -734,12 +937,13 @@ fn local_only_capabilities_queue_no_remote_work() {
 fn snooze_and_pin_never_reach_a_server() {
     // These two have no server representation at all, under any capabilities.
     let messages = mixed_thread();
-    let thread = thread_of(&messages, Snooze::Inactive, Pin::Unpinned);
+    let thread = thread_of(&messages, Snooze::Inactive, Pin::Unpinned, Mute::Unmuted);
     let target = Target::Threads(vec![THREAD]);
 
     for op in [
         Op::SetSnooze(Snooze::Until(at(900))),
         Op::SetPin(Pin::Rank(2)),
+        Op::SetMute(Mute::Muted),
     ] {
         let applied = op.apply(&target, &thread, &messages, &server_caps(), now());
         assert!(applied.remote.is_none(), "{op:?}");
@@ -757,6 +961,8 @@ struct State {
     messages: Vec<Message>,
     snooze: Snooze,
     pin: Pin,
+    mute: Mute,
+    follow_up: FollowUp,
 }
 
 fn find(messages: &mut [Message], id: MessageId) -> &mut Message {
@@ -784,6 +990,8 @@ fn replay(mut state: State, patch: &Patch) -> State {
             }
             Change::ThreadSnooze(_, snooze) => state.snooze = *snooze,
             Change::ThreadPin(_, pin) => state.pin = *pin,
+            Change::ThreadMute(_, mute) => state.mute = *mute,
+            Change::ThreadFollowUp(_, follow_up) => state.follow_up = *follow_up,
             other => panic!("an Op never produces {other:?}"),
         }
     }
@@ -841,6 +1049,24 @@ fn arb_pin() -> impl Strategy<Value = Pin> {
     prop_oneof![Just(Pin::Unpinned), (-4i64..4).prop_map(Pin::Rank)]
 }
 
+fn arb_mute() -> impl Strategy<Value = Mute> {
+    prop_oneof![Just(Mute::Unmuted), Just(Mute::Muted)]
+}
+
+fn arb_follow_up() -> impl Strategy<Value = FollowUp> {
+    prop_oneof![
+        Just(FollowUp::Inactive),
+        (1i64..1_000, 1i64..1_000).prop_map(|(a, s)| FollowUp::Until {
+            at: at(a),
+            set: at(s)
+        }),
+        (1i64..1_000, 1i64..1_000).prop_map(|(a, s)| FollowUp::Returned {
+            at: at(a),
+            set: at(s)
+        }),
+    ]
+}
+
 fn arb_message(index: u128) -> impl Strategy<Value = Message> {
     (
         1i64..1_000,
@@ -878,6 +1104,8 @@ fn arb_op() -> impl Strategy<Value = Op> {
             .prop_map(|(l, m)| Op::Label(l, m)),
         arb_snooze().prop_map(Op::SetSnooze),
         arb_pin().prop_map(Op::SetPin),
+        arb_mute().prop_map(Op::SetMute),
+        arb_follow_up().prop_map(Op::SetFollowUp),
         arb_label().prop_map(Op::File),
     ]
 }
@@ -909,11 +1137,19 @@ proptest! {
         (messages, target) in arb_state_and_target(),
         snooze in arb_snooze(),
         pin in arb_pin(),
+        mute in arb_mute(),
+        follow_up in arb_follow_up(),
         op in arb_op(),
         server in any::<bool>(),
     ) {
-        let state = State { messages, snooze, pin };
-        let thread = thread_of(&state.messages, state.snooze, state.pin);
+        let state = State { messages, snooze, pin, mute, follow_up };
+        let thread = following(
+            &state.messages,
+            state.snooze,
+            state.pin,
+            state.mute,
+            state.follow_up,
+        );
         let caps = if server {
             server_caps()
         } else {
@@ -943,7 +1179,7 @@ proptest! {
 #[test]
 fn filing_queues_one_intent_naming_each_message_once() {
     let messages = mixed_thread();
-    let thread = thread_of(&messages, Snooze::Inactive, Pin::Unpinned);
+    let thread = thread_of(&messages, Snooze::Inactive, Pin::Unpinned, Mute::Unmuted);
     let target = Target::Threads(vec![THREAD]);
     for caps in [
         account_caps(ArchiveMeans::DropInbox, ServerLabels::Supported),
@@ -972,7 +1208,7 @@ fn filing_queues_one_intent_naming_each_message_once() {
 #[test]
 fn server_capabilities_queue_remote_intent() {
     let messages = mixed_thread();
-    let thread = thread_of(&messages, Snooze::Inactive, Pin::Unpinned);
+    let thread = thread_of(&messages, Snooze::Inactive, Pin::Unpinned, Mute::Unmuted);
     let target = Target::Threads(vec![THREAD]);
     let caps = account_caps(ArchiveMeans::DropInbox, ServerLabels::Supported);
 
@@ -1024,7 +1260,7 @@ fn server_capabilities_queue_remote_intent() {
 #[test]
 fn an_op_that_changes_nothing_queues_nothing() {
     let messages = mixed_thread();
-    let thread = thread_of(&messages, Snooze::Inactive, Pin::Unpinned);
+    let thread = thread_of(&messages, Snooze::Inactive, Pin::Unpinned, Mute::Unmuted);
     let caps = account_caps(ArchiveMeans::DropInbox, ServerLabels::Supported);
     // A target naming no message of this thread selects nothing, so nothing changes.
     let applied = Op::SetStar(Star::Starred).apply(
@@ -1055,7 +1291,14 @@ fn derive_rolls_up_recipients_without_bcc() {
     b.cc = vec![];
     b.bcc = vec![];
 
-    let summary = ThreadSummary::derive(THREAD, &[a, b], Snooze::Inactive, Pin::Unpinned);
+    let summary = ThreadSummary::derive(
+        THREAD,
+        &[a, b],
+        Snooze::Inactive,
+        Pin::Unpinned,
+        Mute::Unmuted,
+        FollowUp::Inactive,
+    );
     let emails: Vec<&str> = summary
         .recipients
         .iter()
@@ -1102,6 +1345,8 @@ fn embedded_images_are_not_counted_as_attachments() {
         &[newsletter.clone()],
         Snooze::Inactive,
         Pin::Unpinned,
+        Mute::Unmuted,
+        FollowUp::Inactive,
     );
     assert_eq!(only_images.attachments, Attachments::None);
     let both = ThreadSummary::derive(
@@ -1109,6 +1354,134 @@ fn embedded_images_are_not_counted_as_attachments() {
         &[newsletter, report],
         Snooze::Inactive,
         Pin::Unpinned,
+        Mute::Unmuted,
+        FollowUp::Inactive,
     );
     assert_eq!(both.attachments, Attachments::Present { count: 1 });
+}
+
+// ---------------------------------------------------------------------------------------
+// Op::Destroy -- delete forever, from Trash or Spam only, and never undone.
+// ---------------------------------------------------------------------------------------
+
+/// One message per role, each in its own place in the thread: which of them `Destroy` removes.
+#[test]
+fn destroy_removes_only_what_is_in_trash_or_spam() {
+    // (the role a message is in, whether Delete forever may remove it)
+    const CASES: &[(MailboxRole, bool)] = &[
+        (MailboxRole::Inbox, false),
+        (MailboxRole::Archive, false),
+        (MailboxRole::Sent, false),
+        (MailboxRole::Drafts, false),
+        (MailboxRole::Trash, true),
+        (MailboxRole::Spam, true),
+    ];
+    for (role, removed) in CASES {
+        let mut only = message(1, 100);
+        only.mailbox = *role;
+        let messages = vec![only];
+        let thread = thread_of(&messages, Snooze::Inactive, Pin::Unpinned, Mute::Unmuted);
+        for target in [
+            Target::Threads(vec![THREAD]),
+            Target::Messages(vec![mid(1)]),
+        ] {
+            let applied = Op::Destroy.apply(&target, &thread, &messages, &server_caps(), now());
+            if *removed {
+                assert_eq!(
+                    applied.forward.changes,
+                    vec![Change::MessageDelete(mid(1))],
+                    "{role:?} via {target:?}"
+                );
+                assert_eq!(
+                    applied.remote,
+                    Some(RemoteIntent::Destroy {
+                        messages: vec![mid(1)]
+                    }),
+                    "{role:?} via {target:?}"
+                );
+            } else {
+                assert!(
+                    applied.forward.changes.is_empty(),
+                    "{role:?} via {target:?}: refused, so nothing changes here"
+                );
+                assert_eq!(
+                    applied.remote, None,
+                    "{role:?} via {target:?}: refused, so nothing is queued"
+                );
+            }
+            assert!(
+                applied.inverse.changes.is_empty(),
+                "{role:?}: a destroyed message has no way back"
+            );
+        }
+    }
+}
+
+#[test]
+fn destroying_a_thread_leaves_its_messages_outside_trash_alone() {
+    // m1 is in the inbox, m2 archived, m3 in Trash: only m3 goes, and the server hears of m3 only.
+    let messages = mixed_thread();
+    let thread = thread_of(&messages, Snooze::Inactive, Pin::Unpinned, Mute::Unmuted);
+    let applied = Op::Destroy.apply(
+        &Target::Threads(vec![THREAD]),
+        &thread,
+        &messages,
+        &server_caps(),
+        now(),
+    );
+    assert_eq!(applied.forward.changes, vec![Change::MessageDelete(mid(3))]);
+    assert!(applied.inverse.changes.is_empty());
+    assert_eq!(
+        applied.remote,
+        Some(RemoteIntent::Destroy {
+            messages: vec![mid(3)]
+        })
+    );
+}
+
+#[test]
+fn destroy_reaches_the_server_even_where_filing_is_local() {
+    // Left on a POP3 server or a local-archive account, the message would be fetched again.
+    let mut trashed = message(1, 100);
+    trashed.mailbox = MailboxRole::Spam;
+    let messages = vec![trashed];
+    let thread = thread_of(&messages, Snooze::Inactive, Pin::Unpinned, Mute::Unmuted);
+    let local = account_caps(ArchiveMeans::LocalOnly, ServerLabels::LocalOnly);
+    let applied = Op::Destroy.apply(
+        &Target::Threads(vec![THREAD]),
+        &thread,
+        &messages,
+        &local,
+        now(),
+    );
+    assert_eq!(
+        applied.remote,
+        Some(RemoteIntent::Destroy {
+            messages: vec![mid(1)]
+        })
+    );
+}
+
+proptest! {
+    /// Whatever the thread and target, Destroy removes exactly the targeted messages in Trash or
+    /// Spam, leaves the rest as they were, and has nothing to undo.
+    #[test]
+    fn destroy_never_reaches_past_trash_and_spam(
+        (messages, target) in arb_state_and_target(),
+    ) {
+        let thread = thread_of(&messages, Snooze::Inactive, Pin::Unpinned, Mute::Unmuted);
+        let applied = Op::Destroy.apply(&target, &thread, &messages, &server_caps(), now());
+        let named = |m: &Message| match &target {
+            Target::Threads(ids) => ids.contains(&m.thread),
+            Target::Messages(ids) => ids.contains(&m.id),
+        };
+        let expected: Vec<Change> = messages
+            .iter()
+            .filter(|m| named(m) && matches!(m.mailbox, MailboxRole::Trash | MailboxRole::Spam))
+            .map(|m| Change::MessageDelete(m.id))
+            .collect();
+        prop_assert_eq!(&applied.forward.changes, &expected);
+        prop_assert!(applied.inverse.changes.is_empty());
+        prop_assert_eq!(applied.remote.is_some(), !expected.is_empty());
+    }
 }

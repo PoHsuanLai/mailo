@@ -11,8 +11,10 @@
 
 // The adapter from quire's `EditSurface` to the editor core, and the surface: the body.
 mod adapt;
+mod attach;
 mod body;
 mod desk;
+mod emoji;
 mod float;
 mod items;
 mod later;
@@ -24,8 +26,10 @@ mod props;
 mod protection;
 mod receipt;
 mod recipients;
+mod remind;
 mod render;
 mod seal;
+mod spell;
 mod surface;
 mod templates;
 mod wire;
@@ -46,6 +50,7 @@ use dioxus::prelude::*;
 use mail_domain::DraftId;
 use mail_store::{SqliteStore, Store};
 
+use attach::Attach;
 use body::Body;
 use life::{Anyway, Sent};
 use page::{Focus, Fold, Guard, Page, Phase, Saved, When};
@@ -56,6 +61,8 @@ pub(in crate::ui) use desk::{Desk, ParkedDrafts, park_current, show_queued, use_
 pub(in crate::ui) use later::{ScheduledDrafts, waiting};
 pub(in crate::ui) use page::PageKind;
 pub(in crate::ui) use pill::SendPill;
+pub use spell::Dictionaries;
+pub(in crate::ui) use spell::{dictionaries, use_test_dictionaries};
 pub(in crate::ui) use templates::{
     every as every_template, forget as forget_template, template_rows,
 };
@@ -159,6 +166,8 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
             last = edits;
         }
     });
+    // Files dropped on the page from a file manager are attached as picked ones are.
+    let target = attach::use_drop_target(page);
     // Opening another conversation would redraw the reader: park first.
     if shell.read().open != opened_on && page.peek().phase == Phase::Writing {
         desk::park(desk, page, shell);
@@ -199,6 +208,8 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
     rsx! {
         div {
             class: "{root}",
+            "data-drop": target.drop_attr(),
+            onmounted: move |event| target.mounted(event),
             onkeydown: move |event: KeyboardEvent| {
                 let key = event.key().to_string();
                 let modifiers = event.modifiers();
@@ -306,6 +317,7 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                     onclick: on_primary(move || plain.set(if plain() == Fold::Open { Fold::Folded } else { Fold::Open })),
                 }
                 Attach { page, label: "Attach" }
+                emoji::EmojiButton { page }
                 span { class: "grow" }
                 Button {
                     answers: Answers::Return,
@@ -337,15 +349,16 @@ fn send_page(
         secrets.as_ref(),
         &mut page.write(),
         anyway,
-        chrono::Utc::now(),
+        // The window's clock, which a reminder asked for here is later measured against.
+        super::clock::now(),
         &chrono::Local,
     );
     match sent {
-        Ok(Sent::Sealing { leaves }) => {
+        Ok(Sent::Sealing { leaves, remind }) => {
             let draft = page.peek().draft;
             // Spawned from a press, which is where a task is polled (F140).
             spawn(async move {
-                match seal_and_queue(store, draft, leaves, passphrase).await {
+                match seal_and_queue(store, draft, leaves, remind, passphrase).await {
                     Ok(due) => {
                         let sent = life::folded(&mut page.write(), due);
                         queued(page, desk, revision, folding, sent);
@@ -504,78 +517,4 @@ fn discard(mut page: Signal<Page>, mut shell: Signal<Shell>, desk: Desk) {
         }
         Err(why) => page.write().notice = Some(why),
     }
-}
-
-/// A file picker, as a button: the native dialog (`ui::pick`). Each file chosen lands on the
-/// draft and in the Attached row.
-#[component]
-fn Attach(page: Signal<Page>, label: &'static str) -> Element {
-    rsx! {
-        Button {
-            size: ControlSize::Small,
-            label,
-            icon: Icon::Paperclip,
-            onclick: on_primary(move || {
-                super::pick::choose(super::pick::Ask::Attachments, None, move |paths| {
-                    attach(page, paths);
-                });
-            }),
-            common: Common {
-                aria_label: Some(label.to_owned()),
-                ..Common::default()
-            },
-        }
-    }
-}
-
-/// A picked file, read when it is within the budget.
-enum Picked {
-    Read(Vec<u8>),
-    TooLarge,
-    Unreadable,
-}
-
-/// Read `path`, its size checked first, so a 4 GB file is refused rather than read.
-fn read_picked(path: &std::path::Path) -> Picked {
-    match std::fs::metadata(path) {
-        Ok(meta) if meta.len() > crate::compose::ATTACHMENT_BUDGET => Picked::TooLarge,
-        Ok(_) => std::fs::read(path).map_or(Picked::Unreadable, Picked::Read),
-        Err(_) => Picked::Unreadable,
-    }
-}
-
-/// Attach each of `paths` to the draft, in order, each read on a blocking thread.
-fn attach(mut page: Signal<Page>, paths: Vec<std::path::PathBuf>) {
-    spawn(async move {
-        for path in paths {
-            let name = super::pick::file_name(&path);
-            let picked = tokio::task::spawn_blocking(move || read_picked(&path))
-                .await
-                .unwrap_or(Picked::Unreadable);
-            let bytes = match picked {
-                Picked::Read(bytes) => bytes,
-                Picked::TooLarge => {
-                    page.write().notice = Some(format!("{name} is too large to send"));
-                    continue;
-                }
-                Picked::Unreadable => {
-                    page.write().notice = Some(format!("cannot read {name}"));
-                    continue;
-                }
-            };
-            let store = consume_context::<Arc<SqliteStore>>();
-            let draft = page.peek().draft;
-            let now = chrono::Utc::now();
-            let saved = life::save(&store, &mut page.write(), now)
-                .and_then(|_| crate::compose::attach_bytes(&store, draft, &name, &bytes, now));
-            let mut write = page.write();
-            match saved {
-                Ok(stored) => {
-                    write.attached = crate::compose::attached_to(&store, &stored);
-                    write.guard = Guard::Clear;
-                }
-                Err(why) => write.notice = Some(why),
-            }
-        }
-    });
 }

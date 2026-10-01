@@ -1,9 +1,13 @@
 //! The real [`Store`]: SQLite in WAL mode, with FTS5.
 
 mod contacts;
+mod destroyed;
 mod draft;
 mod folders;
+mod found;
+mod groups;
 mod invite;
+mod offline;
 mod outbox;
 mod pgp;
 mod placed;
@@ -15,6 +19,7 @@ mod rules;
 mod search;
 mod smime;
 mod template;
+mod views;
 mod write;
 
 use crate::blob::BlobStore;
@@ -653,6 +658,39 @@ impl Store for SqliteStore {
         Ok(())
     }
 
+    fn remote_parts_in(
+        &self,
+        mailbox: &MailboxRef,
+        limit: u32,
+    ) -> Result<Vec<crate::RemotePart>, StoreError> {
+        self.read_remote_parts(mailbox, limit)
+    }
+
+    fn offline(&self, account: AccountId) -> Result<crate::Offline, StoreError> {
+        self.read_offline(account)
+    }
+
+    fn held_at(
+        &self,
+        account: AccountId,
+        remotes: &[RemoteRef],
+    ) -> Result<Vec<(RemoteRef, MessageId)>, StoreError> {
+        self.read_held_at(account, remotes)
+    }
+
+    fn mark_found(
+        &self,
+        account: AccountId,
+        messages: &[MessageId],
+        now: DateTime<Utc>,
+    ) -> Result<(), StoreError> {
+        self.write_found(account, messages, now)
+    }
+
+    fn found_in(&self, threads: &[ThreadId]) -> Result<Vec<ThreadId>, StoreError> {
+        self.read_found_in(threads)
+    }
+
     fn remote_refs(&self, mailbox: &MailboxRef) -> Result<Vec<RemoteRef>, StoreError> {
         let db = self.connection();
         let mut stmt = db.prepare_cached(
@@ -663,7 +701,13 @@ impl Store for SqliteStore {
             rusqlite::params![mailbox.account.to_string(), mailbox.path],
             remote_columns,
         )?;
-        rows.map(|row| remote_from_columns(row?)).collect()
+        let mut held: Vec<RemoteRef> = rows
+            .map(|row| remote_from_columns(row?))
+            .collect::<Result<_, _>>()?;
+        drop(stmt);
+        // A message deleted forever here is still held there until the server says otherwise.
+        held.extend(self.destroyed_in(mailbox)?);
+        Ok(held)
     }
 
     fn remap(
@@ -719,6 +763,22 @@ impl Store for SqliteStore {
 
     fn delete_template(&self, id: TemplateId) -> Result<(), StoreError> {
         self.remove_template(id)
+    }
+
+    fn views(&self) -> Result<Vec<mail_domain::View>, StoreError> {
+        self.load_views()
+    }
+
+    fn follow_ups(&self) -> Result<Vec<ThreadSummary>, StoreError> {
+        self.load_follow_ups()
+    }
+
+    fn put_view(&self, view: &mail_domain::View) -> Result<(), StoreError> {
+        self.write_view(view)
+    }
+
+    fn delete_view(&self, id: mail_domain::ViewId) -> Result<(), StoreError> {
+        self.remove_view(id)
     }
 
     fn labels(&self, account: AccountId) -> Result<Vec<mail_domain::Label>, StoreError> {
@@ -927,6 +987,22 @@ impl Store for SqliteStore {
 
     fn address_books(&self) -> Result<Vec<AddressBook>, StoreError> {
         self.every_book()
+    }
+
+    fn groups(&self) -> Result<Vec<crate::Group>, StoreError> {
+        self.every_group()
+    }
+
+    fn group(&self, id: &crate::GroupId) -> Result<Option<crate::Group>, StoreError> {
+        self.one_group(id)
+    }
+
+    fn put_group(&self, group: &crate::Group) -> Result<(), StoreError> {
+        self.write_group(group)
+    }
+
+    fn delete_group(&self, id: &crate::GroupId) -> Result<bool, StoreError> {
+        self.drop_group(id)
     }
 }
 

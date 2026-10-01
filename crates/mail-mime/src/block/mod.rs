@@ -13,6 +13,7 @@ mod machine;
 mod parse;
 mod quote;
 mod text;
+mod tracking;
 mod url;
 
 pub use html::{is_mapped, mapped_tags};

@@ -10,22 +10,27 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use chrono::{DateTime, SecondsFormat, TimeDelta, Utc};
 use mail_domain::{
-    AccountCaps, AccountId, Change, ChangeId, Cursor, Draft, DraftId, Filter, Ingest, Label,
-    LabelId, MailboxRef, MatchCtx, Membership, Message, MessageId, MessageKey, OutboxId, Page,
-    Patch, Pin, Property, ProtoOp, Query, ReceiptAnswer, RemoteIntent, RemoteRef, Retry, SendState,
-    Snooze, SortDir, SyncCursor, Template, TemplateId, Thread, ThreadId, ThreadSummary,
-    UidValidity,
+    AccountCaps, AccountId, Change, ChangeId, Cursor, Draft, DraftId, Filter, FollowUp, Ingest,
+    Label, LabelId, MailboxRef, MatchCtx, Membership, Message, MessageId, MessageKey, Mute,
+    OutboxId, Page, Patch, Pin, Property, ProtoOp, Query, ReceiptAnswer, RemoteIntent, RemoteRef,
+    Retry, SendState, Snooze, SortDir, SyncCursor, Template, TemplateId, Thread, ThreadId,
+    ThreadSummary, UidValidity,
 };
 use serde::Serialize;
 
 use crate::{Dispatch, OutboxEntry, Settle, Store, StoreError, Term};
 
 mod contacts;
+mod destroyed;
 mod folders;
+mod found;
+mod groups;
+mod offline;
 mod pgp;
 mod rules;
 mod smime;
 mod templates;
+mod views;
 
 /// Everything held in memory. Cheap to construct, and never touches the disk.
 #[derive(Debug, Default)]
@@ -43,12 +48,18 @@ struct Inner {
     /// Message identity. Many [`RemoteRef`]s may point at one entry; the key is not the ref.
     by_key: HashMap<AccountId, HashMap<MessageKey, MessageId>>,
     remotes: Vec<RemoteRow>,
+    /// Addresses of messages deleted forever, until the server no longer lists them.
+    destroyed: Vec<destroyed::DestroyedRow>,
+    /// Messages a search of the server brought here, with when. Dropped with the message.
+    found: BTreeMap<MessageId, (AccountId, DateTime<Utc>)>,
     /// Messages the server moved to where it did not say, until a sync finds them: the
     /// `unplaced` table, with how long each has been looked for.
     unplaced: BTreeMap<(AccountId, MessageId), crate::dispatch::Unplaced>,
     labels: BTreeMap<LabelId, Label>,
     drafts: BTreeMap<DraftId, Draft>,
     templates: BTreeMap<TemplateId, Template>,
+    /// Saved views, by id, each with its place in the sidebar.
+    views: BTreeMap<mail_domain::ViewId, (i64, mail_domain::View)>,
     rules: BTreeMap<mail_domain::RuleId, mail_domain::Rule>,
     vacations: BTreeMap<AccountId, mail_domain::Vacation>,
     /// What each account's server turned out to support.
@@ -72,6 +83,8 @@ struct Inner {
     sent_prints: Vec<String>,
     /// Synced address books, by collection URL.
     books: BTreeMap<String, crate::contact::AddressBook>,
+    /// Contact groups, by id.
+    groups: BTreeMap<crate::GroupId, crate::Group>,
     /// OpenPGP public keys, by fingerprint.
     pgp_keys: BTreeMap<mail_domain::Fingerprint, mail_domain::PgpKey>,
     /// Autocrypt peer state, by lower-cased address.
@@ -84,6 +97,8 @@ struct Inner {
 struct ThreadState {
     snooze: Snooze,
     pin: Pin,
+    mute: Mute,
+    follow_up: FollowUp,
 }
 
 #[derive(Debug, Clone)]
@@ -122,10 +137,13 @@ impl Default for Inner {
             messages: BTreeMap::new(),
             by_key: HashMap::new(),
             remotes: Vec::new(),
+            destroyed: Vec::new(),
+            found: BTreeMap::new(),
             unplaced: BTreeMap::new(),
             labels: BTreeMap::new(),
             drafts: BTreeMap::new(),
             templates: BTreeMap::new(),
+            views: BTreeMap::new(),
             rules: BTreeMap::new(),
             vacations: BTreeMap::new(),
             caps: BTreeMap::new(),
@@ -141,6 +159,7 @@ impl Default for Inner {
             counted: BTreeSet::new(),
             sent_prints: Vec::new(),
             books: BTreeMap::new(),
+            groups: BTreeMap::new(),
             pgp_keys: BTreeMap::new(),
             autocrypt: BTreeMap::new(),
             smime_certs: BTreeMap::new(),
@@ -251,6 +270,7 @@ impl Store for MemoryStore {
             .iter()
             .filter(|row| row.account == mailbox.account && row.mailbox == mailbox.path)
             .map(row_to_remote)
+            .chain(inner.destroyed_in(mailbox)?.into_iter().map(Ok))
             .collect()
     }
 
@@ -261,6 +281,7 @@ impl Store for MemoryStore {
         to: &RemoteRef,
     ) -> Result<(), StoreError> {
         let mut inner = self.inner.borrow_mut();
+        inner.remap_destroyed(account, from, to);
         let Some(message) = inner.message_by_remote(account, from) else {
             return Ok(());
         };
@@ -276,6 +297,7 @@ impl Store for MemoryStore {
         into: Option<&str>,
     ) -> Result<(), StoreError> {
         let mut inner = self.inner.borrow_mut();
+        inner.forget_destroyed(account, remote);
         let Some(message) = inner.message_by_remote(account, remote) else {
             return Ok(());
         };
@@ -357,6 +379,39 @@ impl Store for MemoryStore {
         crate::sqlite::held(&mut stored.attachments, message, section, blob, size)
     }
 
+    fn remote_parts_in(
+        &self,
+        mailbox: &MailboxRef,
+        limit: u32,
+    ) -> Result<Vec<crate::RemotePart>, StoreError> {
+        Ok(self.inner.borrow().remote_parts_in(mailbox, limit))
+    }
+
+    fn offline(&self, account: AccountId) -> Result<crate::Offline, StoreError> {
+        Ok(self.inner.borrow().offline(account))
+    }
+
+    fn held_at(
+        &self,
+        account: AccountId,
+        remotes: &[RemoteRef],
+    ) -> Result<Vec<(RemoteRef, MessageId)>, StoreError> {
+        Ok(self.inner.borrow().held_at(account, remotes))
+    }
+
+    fn mark_found(
+        &self,
+        account: AccountId,
+        messages: &[MessageId],
+        now: DateTime<Utc>,
+    ) -> Result<(), StoreError> {
+        self.inner.borrow_mut().mark_found(account, messages, now)
+    }
+
+    fn found_in(&self, threads: &[ThreadId]) -> Result<Vec<ThreadId>, StoreError> {
+        Ok(self.inner.borrow().found_in(threads))
+    }
+
     fn draft(&self, id: DraftId) -> Result<Draft, StoreError> {
         self.inner
             .borrow()
@@ -409,6 +464,27 @@ impl Store for MemoryStore {
 
     fn delete_template(&self, id: TemplateId) -> Result<(), StoreError> {
         self.inner.borrow_mut().delete_template(id)
+    }
+
+    fn views(&self) -> Result<Vec<mail_domain::View>, StoreError> {
+        Ok(self.inner.borrow().views_in_order())
+    }
+
+    fn follow_ups(&self) -> Result<Vec<ThreadSummary>, StoreError> {
+        let inner = self.inner.borrow();
+        let ids: Vec<ThreadId> = inner.threads.keys().copied().collect();
+        Ok(crate::follow_up::in_due_order(ids.into_iter().filter_map(
+            |id| inner.view(id).map(|(summary, _)| summary),
+        )))
+    }
+
+    fn put_view(&self, view: &mail_domain::View) -> Result<(), StoreError> {
+        self.inner.borrow_mut().put_view(view);
+        Ok(())
+    }
+
+    fn delete_view(&self, id: mail_domain::ViewId) -> Result<(), StoreError> {
+        self.inner.borrow_mut().delete_view(id)
     }
 
     fn labels(&self, account: AccountId) -> Result<Vec<Label>, StoreError> {
@@ -749,6 +825,23 @@ impl Store for MemoryStore {
     fn address_books(&self) -> Result<Vec<crate::AddressBook>, StoreError> {
         Ok(self.inner.borrow().books.values().cloned().collect())
     }
+
+    fn groups(&self) -> Result<Vec<crate::Group>, StoreError> {
+        Ok(self.inner.borrow().every_group())
+    }
+
+    fn group(&self, id: &crate::GroupId) -> Result<Option<crate::Group>, StoreError> {
+        Ok(self.inner.borrow().one_group(id))
+    }
+
+    fn put_group(&self, group: &crate::Group) -> Result<(), StoreError> {
+        self.inner.borrow_mut().write_group(group);
+        Ok(())
+    }
+
+    fn delete_group(&self, id: &crate::GroupId) -> Result<bool, StoreError> {
+        Ok(self.inner.borrow_mut().drop_group(id))
+    }
 }
 
 impl Inner {
@@ -823,16 +916,16 @@ impl Inner {
     }
 
     fn view(&self, id: ThreadId) -> Option<(ThreadSummary, Option<String>)> {
-        let (snooze, pin) = {
+        let (snooze, pin, mute, follow_up) = {
             let state = self.threads.get(&id)?;
-            (state.snooze, state.pin)
+            (state.snooze, state.pin, state.mute, state.follow_up)
         };
         let messages = self.messages_of(id);
         if messages.is_empty() {
             return None;
         }
         let body = thread_corpus(&messages);
-        let summary = ThreadSummary::derive(id, &messages, snooze, pin);
+        let summary = ThreadSummary::derive(id, &messages, snooze, pin, mute, follow_up);
         Some((summary, body))
     }
 
@@ -935,6 +1028,16 @@ impl Inner {
                     thread.pin = *pin;
                 }
             }
+            Change::ThreadMute(id, mute) => {
+                if let Some(thread) = self.threads.get_mut(id) {
+                    thread.mute = *mute;
+                }
+            }
+            Change::ThreadFollowUp(id, follow_up) => {
+                if let Some(thread) = self.threads.get_mut(id) {
+                    thread.follow_up = *follow_up;
+                }
+            }
             Change::MessageUpsert(message) => self.upsert_message(message)?,
             Change::MessageDelete(id) => {
                 self.delete_message(*id);
@@ -986,6 +1089,8 @@ impl Inner {
         self.threads.entry(message.thread).or_insert(ThreadState {
             snooze: Snooze::Inactive,
             pin: Pin::Unpinned,
+            mute: Mute::Unmuted,
+            follow_up: FollowUp::Inactive,
         });
         self.by_key
             .entry(message.account)
@@ -1013,6 +1118,7 @@ impl Inner {
         self.pending.retain(|row| row.message != id);
         self.receipts.remove(&id);
         self.invites.remove(&id);
+        self.found.remove(&id);
         if !self.has_messages(prev.thread) {
             self.threads.remove(&prev.thread);
         }
@@ -1036,6 +1142,7 @@ impl Inner {
         if ingest.validity == UidValidity::Reset {
             self.remotes
                 .retain(|row| !(row.account == account && row.mailbox == ingest.mailbox.path));
+            self.forget_destroyed_in(account, &ingest.mailbox.path);
         }
 
         for label in &ingest.labels {
@@ -1083,6 +1190,7 @@ impl Inner {
         }
 
         for remote in &ingest.gone {
+            self.forget_destroyed(account, remote);
             if let Some(id) = self.message_by_remote(account, remote) {
                 self.remove_remote(account, remote);
                 if !self.remotes.iter().any(|row| row.message == id) {
@@ -1316,6 +1424,14 @@ impl Inner {
         })?;
         let id = OutboxId::from_i64(self.next_outbox);
         self.next_outbox += 1;
+        // As `SqliteStore::queue`: kept before the caller removes the messages.
+        if let RemoteIntent::Destroy { messages } = intent {
+            for message in messages {
+                for remote in self.refs_for(account, &[*message])? {
+                    self.keep_destroyed(account, *message, &remote, id);
+                }
+            }
+        }
         self.outbox.insert(
             id,
             OutboxRow {
@@ -1382,7 +1498,8 @@ impl Inner {
             | RemoteIntent::SetMailbox { messages, .. }
             | RemoteIntent::SetLabels { messages, .. }
             | RemoteIntent::File { messages, .. }
-            | RemoteIntent::AddKeyword { messages, .. } => messages,
+            | RemoteIntent::AddKeyword { messages, .. }
+            | RemoteIntent::Destroy { messages } => messages,
             RemoteIntent::Send { .. } | RemoteIntent::Folder(_) | RemoteIntent::Append { .. } => {
                 unreachable!("handled above")
             }
@@ -1422,6 +1539,7 @@ impl Inner {
                     None => return Ok(None),
                 }
             }
+            RemoteIntent::Destroy { .. } => ProtoOp::Destroy { remotes },
             RemoteIntent::Send { .. } | RemoteIntent::Folder(_) | RemoteIntent::Append { .. } => {
                 unreachable!("handled above")
             }
@@ -1459,7 +1577,13 @@ impl Inner {
     ) -> Result<crate::dispatch::Place, StoreError> {
         use crate::dispatch::Place;
         if !self.messages.contains_key(&message) {
-            return Ok(Place::Gone);
+            // As `SqliteStore::addresses_now`: destroyed here, and still there until answered.
+            let kept = self.destroyed_of(account, message)?;
+            return Ok(if kept.is_empty() {
+                Place::Gone
+            } else {
+                Place::At(kept)
+            });
         }
         let found = self.refs_for(account, &[message])?;
         if found.is_empty()
@@ -1524,6 +1648,7 @@ impl Inner {
         }
         match settle {
             Settle::Ok => {
+                self.settle_destroyed(id, crate::dispatch::Answered::Done);
                 // As the SQLite store does: a deleted mailbox is let go of once confirmed.
                 let account = self.outbox[&id].account;
                 match self.outbox[&id].op.clone() {
@@ -1571,6 +1696,7 @@ impl Inner {
                         .next_attempt = when;
                 }
                 Retry::Fatal(_) => {
+                    self.settle_destroyed(id, crate::dispatch::Answered::Refused);
                     let undo = self.outbox[&id].undo.clone();
                     self.drop_entry(id);
                     for change in &undo.changes {
@@ -1579,6 +1705,7 @@ impl Inner {
                 }
             },
             Settle::InPart { done } => {
+                self.settle_destroyed(id, crate::dispatch::Answered::Refused);
                 let undo = self.outbox[&id].undo.clone();
                 self.drop_entry(id);
                 for change in crate::undo_rest(&undo, &done) {
@@ -1753,6 +1880,8 @@ fn pending_of(intent: &RemoteIntent) -> Vec<(MessageId, Vec<Change>)> {
         // A keyword has no local mirror on the message to re-layer: the answer it records is
         // kept by the store beside the message, written when the user answered.
         RemoteIntent::AddKeyword { .. } => Vec::new(),
+        // As SqliteStore: a destroyed message has nothing to re-layer.
+        RemoteIntent::Destroy { .. } => Vec::new(),
         RemoteIntent::Send { .. } | RemoteIntent::Folder(_) | RemoteIntent::Append { .. } => {
             Vec::new()
         }

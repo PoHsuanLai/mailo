@@ -4,8 +4,11 @@ mod find_bar;
 mod found;
 mod image;
 mod remote;
+mod source;
 mod spans;
 mod table;
+mod thumb;
+mod viewer;
 
 use super::press::on_primary;
 use super::text::{address, attachment_rows, from_name, stamp};
@@ -22,13 +25,15 @@ use ds::components::controls::segmented::Tracking;
 use ds::components::overlays::inline_banner::InlineBanner;
 use ds::prelude::*;
 use ds::root::common::Common;
+use ds::style::icon::render::Glyph;
 use ds::style::tokens::control_size::ControlSize;
 pub(super) use find_bar::open_find;
 use find_bar::{FindBar, marking};
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
-use std::collections::HashMap;
+use source::{Showing, Shown, SourceView, Sources};
 use std::sync::Arc;
+pub(super) use viewer::{AttachmentViewer, viewer_key};
 
 /// The first character of `name`, uppercased.
 ///
@@ -40,21 +45,36 @@ fn initial(name: &str) -> char {
         .unwrap_or('?')
 }
 
-/// Reader / Original: quire's segmented control, in a span so it can sit in the header without
-/// becoming the iframe's parent.
+/// Reader, Original and Source: quire's segmented control, in a span so it can sit in the
+/// header without becoming the iframe's parent. Original is offered only where there is a
+/// frame; Source for every message, downloaded or not.
 #[component]
-fn ViewSwitch(message_id: MessageId, mut original: Signal<HashMap<MessageId, bool>>) -> Element {
-    let showing = original.read().get(&message_id) == Some(&true);
-    let choices = vec![Choice::new(false, "Reader"), Choice::new(true, "Original")];
+fn ViewSwitch(
+    message_id: MessageId,
+    body: Option<BlobId>,
+    frame: bool,
+    mut showing: Signal<Showing>,
+    sources: Signal<Sources>,
+) -> Element {
+    let now = source::shown(&showing.read(), message_id);
+    let mut choices = vec![Choice::new(Shown::Reader, "Reader")];
+    if frame {
+        choices.push(Choice::new(Shown::Original, "Original"));
+    }
+    choices.push(Choice::new(Shown::Source, "Source"));
     rsx! {
         span { class: "view-switch",
-            SegmentedControl::<bool> {
+            SegmentedControl::<Shown> {
                 label: "How to show this message",
                 choices,
-                tracking: Tracking::SelectOne(showing),
+                tracking: Tracking::SelectOne(now),
                 size: ControlSize::Small,
-                onchange: move |original_view: bool| {
-                    original.write().insert(message_id, original_view);
+                onchange: move |which: Shown| {
+                    if which == Shown::Source {
+                        source::open(message_id, body, showing, sources);
+                    } else {
+                        showing.write().insert(message_id, which);
+                    }
                 },
             }
         }
@@ -104,6 +124,28 @@ fn peek_tool(peek: Peek, current: Peek, icon: Icon, mut shell: Signal<Shell>) ->
         }
 }
 
+/// Mute, in the head's tools: pressed while the conversation is muted, and a press mutes or
+/// unmutes it through the same gesture as the row's button, so Ctrl Z and the toast take it back.
+fn mute_tool(thread: ThreadId, mute: Mute, shell: Signal<Shell>, revision: Signal<u64>) -> Element {
+    let (label, pressed) = match mute {
+        Mute::Muted => ("Unmute this conversation", Check::On),
+        Mute::Unmuted => ("Mute this conversation", Check::Off),
+    };
+    rsx! {
+        Button {
+            bezel: Bezel::Toolbar,
+            image: ImagePosition::Only,
+            icon: Some(IconSource::Glyph(Icon::BellOff)),
+            label: label.to_owned(),
+            value: Some(pressed),
+            onclick: move |_| {
+                let store = consume_context::<Arc<SqliteStore>>();
+                super::picks::mute_all(&store, shell, revision, &[thread]);
+            },
+        }
+    }
+}
+
 /// The key [`super::unsubscribe::Leave`] is mounted under: the thread and what each of its
 /// messages holds, so a body arriving asks again and another thread never shows this one's answer.
 fn leave_key(thread: ThreadId, bodies: &super::unsubscribe::Bodies) -> String {
@@ -113,26 +155,86 @@ fn leave_key(thread: ThreadId, bodies: &super::unsubscribe::Bodies) -> String {
     format!("{thread}-{:x}", hasher.finish())
 }
 
-/// `revision` is the window's, moved when leaving a list queues a message; a reader drawn on its
+/// Where a reader is drawn: beside the list, or alone in a conversation's own window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(in crate::ui) enum ReaderIn {
+    /// The main window's reader pane, with its peek modes and its menu.
+    #[default]
+    Pane,
+    /// A window of its own (`ui/window`): the window is the page, so no peek and no "Open in new
+    /// window".
+    Window,
+}
+
+/// The reader's menu: what it does beyond its tools. "Open in new window" for now.
+#[component]
+fn ReaderMenu(thread: ThreadId) -> Element {
+    let mut open = use_signal(|| false);
+    let mut tool = use_signal(|| None::<ds::host::measure::MountedRef>);
+    rsx! {
+        Button {
+            bezel: Bezel::Toolbar,
+            image: ImagePosition::Only,
+            icon: Some(IconSource::Glyph(Icon::Ellipsis)),
+            label: "More".to_owned(),
+            shown: Some(if open() {
+                ds::prelude::Shown::Visible
+            } else {
+                ds::prelude::Shown::Hidden
+            }),
+            common: Common {
+                mounted: Some(EventHandler::new(move |event: MountedEvent| {
+                    tool.set(Some(ds::host::measure::MountedRef(event.data())));
+                })),
+                ..Common::default()
+            },
+            onclick: move |_| open.toggle(),
+        }
+        if open() {
+            super::menu::Floating {
+                anchor: tool(),
+                title: String::new(),
+                items: vec![super::window::menu_item()],
+                on_pick: move |key: String| {
+                    open.set(false);
+                    if key == super::window::OPEN_KEY {
+                        super::window::open_in_window(thread);
+                    }
+                },
+                on_close: move |_| open.set(false),
+            }
+        }
+    }
+}
+
+/// `revision` is the window's, moved when leaving a list queues a message, and whenever any
+/// window moves the store (`ui/revisions`), which draws the reader again; a reader drawn on its
 /// own has none.
 #[component]
 pub(super) fn Reader(
     thread: ThreadId,
     shell: Signal<Shell>,
     revision: Option<Signal<u64>>,
+    #[props(default)] place: ReaderIn,
     children: Element,
 ) -> Element {
     let store = use_context::<Arc<SqliteStore>>();
+    // The store may have moved under this conversation, here or in another window.
+    if let Some(revision) = revision {
+        let _ = revision();
+    }
     // Where the last attachment went, or why it did not. Cleared by opening another
     // conversation, because this component is rebuilt for each one.
     let mut saved = use_signal(|| None::<String>);
     // Which attachment is being fetched, if one is. That part's button stays disabled until
     // the fetch ends, so a second click cannot start a second download of it.
     let downloading = use_signal(|| None::<(MessageId, usize)>);
-    // Which HTML message is showing its Original frame. Keyed by message, so
-    // opening another one does not carry the choice over. The frame itself is
-    // not created and destroyed with this flag.
-    let original = use_signal(HashMap::<MessageId, bool>::new);
+    // Which messages are showing their Original frame or their source. Keyed by message, so
+    // opening another one does not carry the choice over. The frame itself is not created and
+    // destroyed with this choice.
+    let original = use_signal(Showing::new);
+    // The sources read so far, by blob, so switching back and forth reads each once.
+    let sources = use_signal(Sources::new);
     // Quotes the reader has unfolded, keyed by message and path.
     let quotes = use_signal(blocks::OpenQuotes::new);
     // Moved when an OpenPGP or S/MIME message has been opened and has a body of its own to show,
@@ -236,6 +338,10 @@ pub(super) fn Reader(
             stamp(message),
         )
     });
+    // Whose word the sender's checks are on: the message the head names.
+    let checked = shown
+        .last()
+        .map(|(message, _, _)| (message.id, message.body.raw()));
     let from_host = shown
         .iter()
         .rev()
@@ -281,23 +387,47 @@ pub(super) fn Reader(
                 div { class: "bar-tools",
                     if let Some(revision) = revision {
                         super::move_to::MoveTool { thread, shell, revision }
+                        {mute_tool(thread, loaded.summary.mute, shell, revision)}
+                        super::follow_up::FollowUpTool {
+                            thread,
+                            current: loaded.summary.follow_up,
+                            shell,
+                            revision,
+                        }
                     }
                     super::print::PrintTool { thread }
-                    {peek_tool(Peek::Side, peek, Icon::Panel, shell)}
-                    {peek_tool(Peek::CENTER, peek, Icon::Square, shell)}
-                    {peek_tool(Peek::FULL, peek, Icon::Maximize, shell)}
+                    if place == ReaderIn::Pane {
+                        {peek_tool(Peek::Side, peek, Icon::Panel, shell)}
+                        {peek_tool(Peek::CENTER, peek, Icon::Square, shell)}
+                        {peek_tool(Peek::FULL, peek, Icon::Maximize, shell)}
+                        ReaderMenu { thread }
+                    }
                 }
             }
             if let Some(why) = problem {
                 pre { class: "find-err mono", "{why}" }
             }
             h2 { Label { text: subject, style: LabelStyle::Title } }
+            if loaded.summary.mute == Mute::Muted {
+                div { class: "muted-note", role: "status",
+                    Glyph { icon: Icon::BellOff, size: IconSize::Micro }
+                    span { "Muted — new replies arrive read and skip the inbox" }
+                }
+            }
+            super::follow_up::FollowUpNote { follow_up: loaded.summary.follow_up }
             if let Some((face, from, addr, when)) = meta {
                 div { class: "reader-meta",
-                    Avatar { initial: face.initial, size: face.size, tone: face.tone }
+                    if let Some((id, raw)) = checked {
+                        {rsx! { super::brand::ReaderAvatar { key: "{id}-{raw:?}", message: id, body: raw, from: addr.clone(), initial: face.initial.to_string() } }}
+                    } else {
+                        Avatar { initial: face.initial, size: face.size, tone: face.tone }
+                    }
                     div { class: "reader-who",
                         Label { text: from, style: LabelStyle::Headline }
                         Label { text: addr, role: LabelRole::Secondary, style: LabelStyle::Footnote }
+                        if let Some((id, raw)) = checked {
+                            {rsx! { super::checks::SenderChecks { key: "{id}-{raw:?}", message: id, body: raw } }}
+                        }
                         Label { text: when, role: LabelRole::Tertiary, style: LabelStyle::Footnote }
                     }
                     // Its own template, so the key is that template's root key and a new one
@@ -352,16 +482,15 @@ pub(super) fn Reader(
                         Label { text: from_name(&message), style: LabelStyle::Headline }
                         Label { text: address(&message), role: LabelRole::Secondary, style: LabelStyle::Footnote }
                         time { Label { text: stamp(&message), role: LabelRole::Tertiary, style: LabelStyle::Footnote } }
-                        if reading.frame_html().is_some() {
-                            // Offered wherever there is a frame, not only for
-                            // `Reading::Layout`: the frame is mounted for every HTML body,
-                            // and Original is the escape hatch when the blocks got a
-                            // message wrong. The mockup offers it on the receipt too.
-                            // A span, not a div: a div between the article and its iframe
-                            // is a new parent, and a new parent reloads the frame.
-                            // The labels are computed so a test can find the control: a
-                            // literal attribute never appears in the render mutations.
-                            ViewSwitch { message_id: message.id, original }
+                        // Original wherever there is a frame; Source for every message. A span,
+                        // not a div: a div between the article and its iframe is a new parent,
+                        // and a new parent reloads the frame.
+                        ViewSwitch {
+                            message_id: message.id,
+                            body: message.body.raw(),
+                            frame: reading.frame_html().is_some(),
+                            showing: original,
+                            sources,
                         }
                     }
                     // What the message's OpenPGP or S/MIME says, and its passphrase field. A
@@ -392,6 +521,7 @@ pub(super) fn Reader(
                             rows: attached,
                             saved,
                             downloading,
+                            shell,
                         }
                     }
                     // The iframe, when this message has one, is the first element MessageView
@@ -403,6 +533,7 @@ pub(super) fn Reader(
                         p { class: "pending", "Not downloaded" }
                     } else {
                         MessageView {
+                            holder: consent.as_ref().map(|(_, holder)| *holder),
                             message_id: message.id,
                             reading: reading.clone(),
                             original,
@@ -410,6 +541,17 @@ pub(super) fn Reader(
                             shell,
                             found,
                         }
+                    }
+                    // The source, when it is how this message is shown: after the body, so the
+                    // frame keeps its parent.
+                    SourceView {
+                        message: message.id,
+                        body: message.body.raw(),
+                        showing: original,
+                        sources,
+                        shell,
+                        revision,
+                        said: saved,
                     }
                 }
             }

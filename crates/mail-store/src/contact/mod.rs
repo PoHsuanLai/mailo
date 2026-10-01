@@ -19,8 +19,10 @@
 //! without the query needing a clock. Writing to someone weighs [`learn::WRITTEN_WEIGHT`] times
 //! receiving from them.
 
+pub mod group;
 pub(crate) mod learn;
 
+pub use group::{Edit, Group, GroupHome, GroupId};
 pub use learn::normalise;
 
 use chrono::{DateTime, Utc};
@@ -115,6 +117,10 @@ pub struct AddressBook {
 /// One card as last synced.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct BookCard {
+    /// The card's `UID`, which a group's `MEMBER` may name it by. `None` for a card that has
+    /// none, and for one stored before this was kept, whose `vcard` still says.
+    #[serde(default)]
+    pub uid: Option<String>,
     /// Compared with the server's to tell whether the card changed; sent as `If-Match` to write.
     pub etag: String,
     /// The addresses this card put in the book, normalised.

@@ -29,12 +29,25 @@ base64 = "0.22"
 serde = { workspace = true }
 serde_json = "1"
 uuid = { workspace = true }
-keyring = "4"
+# The keyring's common API, with no store of its own; each platform's store is named below, under
+# its target. `keyring` itself bundles the same three behind one `Entry` and a store chosen in a
+# static, which is what it tells applications not to link to (its crate docs): here the choice is
+# in this file, where a reader can see it, and in `secrets.rs`.
+keyring-core = "1"
 # Account discovery's SRV and MX lookups (RFC 6186). MIT OR Apache-2.0; the system resolver's
 # configuration, over tokio. Its DNS-over-TLS/HTTPS features stay off.
 hickory-resolver = "0.26"
 # The registered domain of an MX host, for account discovery. Already here through mail-app.
 psl = "2"
+# Brand logos (`bimi/`): an SVG drawn to pixels off the thread that draws the window. resvg
+# (Apache-2.0 OR MIT) over the usvg and tiny-skia already in the tree through Blitz. Default
+# features off: no system fonts, no raster images, so a logo can load nothing but itself.
+resvg = { version = "0.48", default-features = false }
+# The logo's cache key. Already here through S/MIME.
+sha2 = "0.10"
+# A logo read as XML before it is drawn, to refuse what SVG Tiny PS leaves out. The parser usvg
+# already uses, at its version; it expands no entities and reads no DTD.
+roxmltree = "0.21"
 # The operating system's certificate authorities, as S/MIME trust anchors (`smime.rs`). Apache-2.0
 # OR ISC OR MIT; reads the platform's bundle (on Linux the files OpenSSL would, found by
 # `openssl-probe`, also permissive).
@@ -42,15 +55,40 @@ rustls-native-certs = "0.8"
 # An S/MIME private key on its way to and from the keyring is wiped after. Already in the tree.
 zeroize = "1"
 
+# Where passwords and tokens are kept, per platform (`secrets.rs`). All MIT OR Apache-2.0, all
+# already what `keyring` 4 chose on each, at the features it chose them with.
+#
+# Linux and the BSDs: the Secret Service (GNOME Keyring, KWallet, KeePassXC) over zbus.
+[target.'cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))'.dependencies]
+zbus-secret-service-keyring-store = { version = "1", features = ["crypto-rust"] }
+
+# macOS: the login keychain.
+[target.'cfg(target_os = "macos")'.dependencies]
+apple-native-keyring-store = { version = "1", features = ["keychain"] }
+# The per-user directories macOS and Windows name (`places.rs`). Linux keeps the XDG rule it has
+# always followed, spelled out there, so the directories it already uses cannot move.
+dirs = "6"
+
+# Windows: the Credential Manager. Its entries hold at most 2560 bytes, which a Microsoft token
+# outgrows; `secrets/chunks.rs` is why that does not matter.
+[target.'cfg(windows)'.dependencies]
+windows-native-keyring-store = "1"
+dirs = "6"
+
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
-# The fake CardDAV server in `tests/carddav.rs` reads the hrefs a multiget asks for.
-roxmltree = "0.21"
 tempfile = "3"
 # Seeded key generation for the OpenPGP tests, and the WKD hash they check a request path by.
 # Both already in the tree through rPGP.
 rand = "0.8"
 sha1 = "0.10"
+# The throwaway mark verifying authority `tests/bimi.rs` builds its certificates with
+# (`mail-mime/tests/bimi_support`). All already in the tree through `mail-mime`.
+x509-cert = { version = "0.2", features = ["builder"] }
+der = "0.7"
+spki = "0.7"
+const-oid = "0.9"
+p256 = { version = "0.13", features = ["ecdsa"] }
 
 [lints]
 workspace = true

@@ -112,6 +112,21 @@ fn garbled_messages_held_whole_are_re_read_and_the_rest_are_left_alone() {
              DROP TRIGGER unplaced_found_ins;
              DROP TRIGGER unplaced_found_upd;
              DROP TABLE unplaced;
+             ALTER TABLE threads DROP COLUMN mute;
+             ALTER TABLE thread_summary DROP COLUMN mute;
+             DROP TABLE contact_groups;
+             DROP TABLE views;
+             DROP TABLE destroyed;
+             DROP INDEX thread_summary_follow_up;
+             ALTER TABLE threads DROP COLUMN follow_up;
+             ALTER TABLE thread_summary DROP COLUMN follow_up;
+             DROP TABLE follow_up_held;
+             DROP TABLE found_on_server;
+             CREATE TABLE views (id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL,
+                 filter TEXT NOT NULL, sort TEXT NOT NULL, group_by TEXT,
+                 threading TEXT NOT NULL, shown TEXT NOT NULL, hover TEXT NOT NULL,
+                 position INTEGER NOT NULL);
+             CREATE INDEX views_position ON views(position);
              DELETE FROM schema_version WHERE version >= 12;",
         )
         .unwrap();

@@ -1,10 +1,13 @@
-//! The `/` menu, the `@` menu, Turn into and the ⋮⋮ object menu: when they open, what they
-//! list, and what a choice does. Every choice is an `editor::` op; nothing here edits text.
+//! The `/` menu, the `@` menu, the `:` emoji menu, Turn into and the ⋮⋮ object menu: when they
+//! open, what they list, and what a choice does. Every choice is an `editor::` op; nothing here
+//! edits text.
 
 use unicode_segmentation::UnicodeSegmentation;
 
+use crate::emoji::Emoji;
+
 pub(in crate::ui) use super::items::{
-    mention_items, object_items, people_rows, slash_items, turn_items,
+    emoji_items, mention_items, object_items, people_rows, slash_items, turn_items,
 };
 use super::page::{CcRow, Float, Page};
 use crate::editor::{
@@ -15,17 +18,17 @@ use crate::editor::{
 /// The longest query a `/` or `@` menu follows before it gives up and closes.
 const LONGEST_QUERY: usize = 24;
 
-/// Open, follow or close the `/` and `@` menus after an edit.
+/// Open, follow or close the `/`, `@` and `:` menus after an edit.
 pub(in crate::ui) fn after_input(page: &mut Page, event: &InputEvent) {
+    let typed = event.input_type == "insertText";
     match page.float {
         Float::Slash { .. } | Float::Mention { .. } => follow(page),
-        _ => {
-            let opens = event.input_type == "insertText"
-                && matches!(event.data.as_deref(), Some("/") | Some("@"));
-            if opens {
-                open(page, event.data.as_deref() == Some("/"));
-            }
+        Float::Emoji { .. } => follow_emoji(page),
+        _ if typed && matches!(event.data.as_deref(), Some("/") | Some("@")) => {
+            open(page, event.data.as_deref() == Some("/"));
         }
+        Float::Closed if typed => follow_emoji(page),
+        _ => {}
     }
 }
 
@@ -33,6 +36,11 @@ pub(in crate::ui) fn after_input(page: &mut Page, event: &InputEvent) {
 pub(in crate::ui) fn after_move(page: &mut Page) {
     if matches!(page.float, Float::Slash { .. } | Float::Mention { .. }) {
         follow(page);
+    }
+    if let Float::Emoji { anchor, .. } = page.float
+        && emoji_typed(page).map(|(at, _)| at) != Some(anchor)
+    {
+        page.float = Float::Closed;
     }
     if page.selection.is_none() && matches!(page.float, Float::Link(_)) {
         page.float = Float::Closed;
@@ -68,6 +76,27 @@ fn follow(page: &mut Page) {
     } else if let Float::Slash { active, .. } | Float::Mention { active, .. } = &mut page.float {
         *active = 0;
     }
+}
+
+/// The `:name` being typed before the caret, as [`crate::emoji::trigger`] reads it: where its
+/// `:` is, and the name.
+pub(in crate::ui) fn emoji_typed(page: &Page) -> Option<(Pos, String)> {
+    let caret = page.session.caret.pos;
+    let text = paragraph_text(page, caret.node);
+    let before: String = text.graphemes(true).take(caret.offset).collect();
+    let found = crate::emoji::trigger(&before)?;
+    Some((Pos::new(caret.node, found.at), found.query.to_owned()))
+}
+
+/// Open the `:` menu on a name that finds something, keep it on the name as it grows, and close
+/// it once the name finds nothing or has ended.
+fn follow_emoji(page: &mut Page) {
+    let found = emoji_typed(page).filter(|(_, query)| !crate::emoji::search(query).is_empty());
+    page.float = match found {
+        Some((anchor, _)) => Float::Emoji { anchor, active: 0 },
+        None if matches!(page.float, Float::Emoji { .. }) => Float::Closed,
+        None => return,
+    };
 }
 
 fn paragraph_text(page: &Page, node: usize) -> String {
@@ -136,7 +165,9 @@ pub(in crate::ui) fn commit(page: &mut Page, ops: Vec<Op>, caret: Caret) -> bool
 
 fn typed_span(page: &Page) -> Option<Range> {
     let anchor = match page.float {
-        Float::Slash { anchor, .. } | Float::Mention { anchor, .. } => anchor,
+        Float::Slash { anchor, .. }
+        | Float::Mention { anchor, .. }
+        | Float::Emoji { anchor, .. } => anchor,
         _ => return None,
     };
     Some(Range {
@@ -272,6 +303,50 @@ pub(in crate::ui) fn pick_mention(page: &mut Page, address: &str) {
         page.cc.push(joining);
         page.cc_row = CcRow::Shown;
     }
+}
+
+/// `:name` becomes the emoji `glyph`, as one undo step: one Ctrl Z brings the name back.
+pub(in crate::ui) fn pick_emoji(page: &mut Page, glyph: &str) -> Option<&'static Emoji> {
+    let emoji = crate::emoji::find(glyph)?;
+    let typed = typed_span(page)?;
+    page.float = Float::Closed;
+    let caret = Caret::at(
+        typed.start.node,
+        typed.start.offset + crate::editor::grapheme_len(emoji.glyph),
+    );
+    let ops = vec![
+        Op::Delete { range: typed },
+        Op::Insert {
+            at: typed.start,
+            text: emoji.glyph.to_owned(),
+            marks: crate::editor::Marks::new(),
+        },
+    ];
+    commit(page, ops, caret).then_some(emoji)
+}
+
+/// `emoji` at the caret, in place of the selection when there is one, as one undo step.
+pub(in crate::ui) fn insert_emoji(page: &mut Page, emoji: &Emoji) -> bool {
+    let caret = page.session.caret.pos;
+    let range = page.selection.map(Range::ordered).unwrap_or(Range {
+        start: caret,
+        end: caret,
+    });
+    let mut ops = Vec::new();
+    if !range.is_collapsed() {
+        ops.push(Op::Delete { range });
+    }
+    ops.push(Op::Insert {
+        at: range.start,
+        text: emoji.glyph.to_owned(),
+        marks: crate::editor::Marks::new(),
+    });
+    let after = Caret::at(
+        range.start.node,
+        range.start.offset + crate::editor::grapheme_len(emoji.glyph),
+    );
+    page.float = Float::Closed;
+    commit(page, ops, after)
 }
 
 /// Turn every paragraph the selection touches, or the caret's, into `key`'s kind.

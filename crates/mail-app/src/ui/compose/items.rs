@@ -1,4 +1,4 @@
-//! The rows of the page's menus: `/`, Turn into, `@`, people, and the object menu. Each is a
+//! The rows of the page's menus: `/`, Turn into, `@`, `:`, people, and the object menu. Each is a
 //! [`MenuItem`] for the one shared [`super::super::menu::Menu`].
 
 use super::super::menu::{MenuItem, Right, Tile};
@@ -69,6 +69,31 @@ pub(in crate::ui) fn turn_items(current: Option<ParaKind>) -> Vec<MenuItem> {
 /// The book's suggestions for the `@` query, as [`super::float::suggest_mention`] left them.
 pub(in crate::ui) fn mention_items(page: &Page) -> Vec<MenuItem> {
     people_rows(page.people.iter().collect())
+}
+
+/// The most rows the `:` menu shows.
+pub(in crate::ui) const EMOJI_ROWS: usize = 8;
+
+/// The `:` menu: the emoji the name typed after the `:` finds, best first, each keyed by itself.
+pub(in crate::ui) fn emoji_items(page: &Page) -> Vec<MenuItem> {
+    let Some((_, query)) = super::float::emoji_typed(page) else {
+        return Vec::new();
+    };
+    crate::emoji::search(&query)
+        .into_iter()
+        .take(EMOJI_ROWS)
+        .map(|emoji| MenuItem {
+            key: emoji.glyph.to_owned(),
+            tile: Tile::Text(emoji.glyph),
+            name: emoji.name.to_owned(),
+            help: None,
+            right: Right::None,
+            group: None,
+            marks: Vec::new(),
+            title: Vec::new(),
+            detail: Vec::new(),
+        })
+        .collect()
 }
 
 /// Menu rows for people: an avatar, the name, the address.
