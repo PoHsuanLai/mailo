@@ -333,7 +333,16 @@ fn a_search_that_finds_mail_here_still_ends_with_the_offer() {
         h.count(OFFER) == 1
     });
     assert_eq!(calls.load(Ordering::SeqCst), 0, "not asked by itself");
-    // Emptying the box is the place again, with nothing offered.
+    // Emptying the box is the place again, with nothing offered. The offer's arrival redraws the
+    // list, and on a slow runner the box can have lost its focus by then: take it again, caret at
+    // the end, and wait for the field to hold the whole word before deleting it.
+    press(&mut harness, ".search input");
+    harness.key(Key::End);
+    until(
+        &mut harness,
+        "the box holding the search with the caret at its end",
+        |h| h.attr(".search input", "value").as_deref() == Some("flight"),
+    );
     for _ in 0.."flight".len() {
         harness.key(Key::Backspace);
     }
