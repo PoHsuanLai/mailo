@@ -4,7 +4,7 @@
 use super::super::float::{emoji_items, insert_emoji, pick_emoji};
 use super::super::page::Float;
 use super::*;
-use crate::editor::to_flowed;
+use crate::ui::editor::to_flowed;
 
 fn undo(page: &mut Page) {
     let event = InputEvent::new("historyUndo", None, Vec::new(), false);
@@ -72,17 +72,17 @@ fn the_colon_menu_closes_when_the_name_ends_or_finds_nothing() {
     let mut page = page_of("");
     type_text(&mut page, ":cat");
     assert!(matches!(page.float, Float::Emoji { .. }));
-    page.session.caret = crate::editor::Caret::at(0, 1);
+    page.session.caret = crate::ui::editor::Caret::at(0, 1);
     super::super::float::after_move(&mut page);
     assert_eq!(page.float, Float::Closed, "the caret left the name");
 }
 
 #[test]
 fn the_picker_puts_an_emoji_at_the_caret_or_over_the_selection_as_one_step() {
-    let cat = crate::emoji::find("🐱").unwrap_or_else(|| panic!("🐱 is in the table"));
+    let cat = crate::ui::emoji::find("🐱").unwrap_or_else(|| panic!("🐱 is in the table"));
     let mut page = page_of("");
     type_text(&mut page, "a cat");
-    page.session.caret = crate::editor::Caret::at(0, 1);
+    page.session.caret = crate::ui::editor::Caret::at(0, 1);
     assert!(insert_emoji(&mut page, cat));
     assert_eq!(body(&page), "a🐱 cat");
     assert_eq!(page.session.caret.pos, Pos::new(0, 2));

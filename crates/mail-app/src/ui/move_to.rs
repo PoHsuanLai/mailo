@@ -13,7 +13,7 @@ use super::menu::{MenuItem, Right, Tile, anchor_for, narrowed, palette_groups};
 use super::motion::drag::Drag;
 use super::motion::{act_all, motion};
 use super::picks::with_selection;
-use crate::view::Shell;
+use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::components::content::avatar::AvatarSize;
 use ds::components::controls::button_model::{Bezel, ImagePosition};

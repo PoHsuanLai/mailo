@@ -1,7 +1,7 @@
 //! Where each account's link begins, and how the set of links follows the set of accounts.
 
-use crate::fetch::{Link, Live};
 use chrono::{DateTime, NaiveDateTime, Utc};
+use mail_core::fetch::{Link, Live};
 use mail_domain::{AccountId, Filter, JMAP_ALL, MailboxRef};
 use mail_store::{SqliteStore, Store};
 use std::collections::{BTreeMap, BTreeSet};

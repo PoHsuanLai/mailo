@@ -5,8 +5,8 @@
 //! period ended. This is the decision of when one is wanted; the pill asks it on its tick.
 
 use super::Fetching;
-use crate::fetch::{Event, Link, Trigger};
 use chrono::{DateTime, Utc};
+use mail_core::fetch::{Event, Link, Trigger};
 use mail_domain::{DraftId, SendState};
 use mail_store::{SqliteStore, Store};
 

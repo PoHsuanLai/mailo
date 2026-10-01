@@ -1,0 +1,1451 @@
+//! `sync::run`, which is the function the binary calls and the one nothing could run.
+//!
+//! Every layer below this has tests — the session, the backend, the engine, the store — and the
+//! assembly had none, because it reached for `KeyringSecrets` directly and a test cannot have a
+//! keyring. What is worth checking here *is* the assembly: that a stored plan becomes a working
+//! connection, that an account without a credential is skipped with a reason rather than
+//! stopping the run, and that what the user is told matches what happened.
+//!
+//! The IMAP half is `#[ignore]`d because it needs `scripts/live-imapd.py`; everything that does
+//! not need a server runs normally.
+
+use chrono::{DateTime, TimeZone, Utc};
+use mail_core::fetch::{self, Effect, First, Link, Step};
+use mail_core::sync::report::PassEnd;
+use mail_core::{account, sync};
+use mail_domain::*;
+use mail_runtime::{MapSecrets, OAuthRegistry, Secrets};
+use mail_store::SqliteStore;
+use std::sync::Arc;
+
+/// What the link does with the way a pass ended: the pass's own classification handed to the
+/// machine that decides when to try again, as the window's runner does it.
+///
+/// `from` is where the link was when the pass began, and so how many passes had failed before.
+fn linked(end: PassEnd, from: Link) -> (Link, Vec<Effect>) {
+    let syncing = Link::Syncing {
+        first: First::No,
+        step: Step::Connecting,
+        count: None,
+        after: Box::new(from),
+    };
+    fetch::step(
+        &syncing,
+        end.event(),
+        now(),
+        std::time::Duration::from_secs(300),
+    )
+}
+
+/// A link that has failed `failures` times in a row and is due.
+fn waiting(failures: u32) -> Link {
+    Link::Waiting {
+        until: now(),
+        why: fetch::Pause::Unreachable,
+        failures,
+        first: First::No,
+    }
+}
+
+const ACCOUNT: AccountId =
+    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+
+fn now() -> DateTime<Utc> {
+    Utc.timestamp_opt(1_700_000_000, 0).unwrap()
+}
+
+/// A store with one IMAP account pointed at `port`, in plaintext.
+///
+/// The plan is written directly rather than through `account add`, which only produces
+/// `Tls::Implicit` — deliberately, since there is no configuration that sends a password in
+/// clear. A loopback test server has no certificate a public root would sign, so this is the one
+/// place that shape is constructed by hand.
+fn configured(port: u16, caps: AccountCaps) -> (Arc<SqliteStore>, tempfile::TempDir) {
+    configured_with(
+        port,
+        caps,
+        AuthPlan::Password {
+            username: Username::SameAsAddress,
+            sasl: vec![SaslMech::Plain],
+        },
+    )
+}
+
+/// The same, with the account's authentication spelled out.
+fn configured_with(
+    port: u16,
+    caps: AccountCaps,
+    auth: AuthPlan,
+) -> (Arc<SqliteStore>, tempfile::TempDir) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
+    let plan = AccountPlan {
+        address: "ada@example.test".to_owned(),
+        incoming: Incoming::Imap {
+            host: "127.0.0.1".to_owned(),
+            port,
+            tls: Tls::Plaintext,
+        },
+        outgoing: Outgoing::Smtp {
+            host: "127.0.0.1".to_owned(),
+            port: 1,
+            tls: Tls::Plaintext,
+        },
+        auth,
+        identities: Vec::new(),
+    };
+    {
+        let db = store.connection();
+        db.execute(
+            "INSERT INTO accounts (id, address, plan, created_at)
+             VALUES (?1, 'ada@example.test', ?2, datetime('now'))",
+            rusqlite::params![ACCOUNT.to_string(), serde_json::to_string(&plan).unwrap()],
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO account_caps (account, caps, observed_at) VALUES (?1, ?2, ?3)",
+            rusqlite::params![
+                ACCOUNT.to_string(),
+                serde_json::to_string(&caps).unwrap(),
+                now().to_rfc3339()
+            ],
+        )
+        .unwrap();
+    }
+    (store, dir)
+}
+
+fn caps() -> AccountCaps {
+    AccountCaps {
+        labels: ServerLabels::LocalOnly,
+        threads: ServerThreads::Jwz,
+        watch: WatchMode::Poll {
+            every: std::time::Duration::from_secs(300),
+        },
+        archive: ArchiveMeans::LocalOnly,
+        folders: FolderRoles(Vec::new()),
+        condstore: Condstore::Absent,
+        move_ext: MoveExt::Absent,
+        expunge: ExpungeMeans::Forbidden,
+        top: Supported::Absent,
+        pipelining: Supported::Absent,
+        connections: ConnectionBudget { max: 1 },
+        // Fresh, so the pass does not try to re-read capabilities from a server that may not be
+        // there. Staleness is covered in `imap_end_to_end.rs`.
+        observed_at: now(),
+    }
+}
+
+fn with_password(store_secrets: &MapSecrets, password: &str) {
+    store_secrets
+        .put(
+            &SecretKey {
+                account: ACCOUNT,
+                purpose: SecretPurpose::IncomingPassword,
+            },
+            &Credential::Password(password.to_owned()),
+        )
+        .unwrap();
+}
+
+#[test]
+fn an_account_with_no_credential_is_skipped_with_a_reason() {
+    // One account needing attention must not stop the others fetching mail, and the reason has
+    // to name the command that fixes it — this is the first thing a new user sees.
+    let (store, _dir) = configured(1, caps());
+    let out = sync::run_with(
+        store,
+        Arc::new(MapSecrets::default()),
+        &OAuthRegistry::default(),
+        now(),
+    )
+    .map(|ran| ran.text)
+    .expect("a missing credential is not a failure of the run");
+
+    assert!(out.contains("ada@example.test"), "{out}");
+    assert!(out.contains("no credential stored"), "{out}");
+    assert!(
+        out.contains("mailo account add"),
+        "the way out is named: {out}"
+    );
+}
+
+#[test]
+fn an_unreachable_server_is_reported_per_account_not_thrown() {
+    // Port 1 refuses. The pass should say so against that account and return.
+    let (store, _dir) = configured(1, caps());
+    let secrets = MapSecrets::default();
+    with_password(&secrets, "s3cr3t-pass");
+
+    let out = sync::run_with(store, Arc::new(secrets), &OAuthRegistry::default(), now())
+        .map(|ran| ran.text)
+        .expect("an unreachable server is reported, not returned as an error");
+    assert!(out.contains("ada@example.test"), "{out}");
+    assert!(
+        out.to_lowercase().contains("connect") || out.to_lowercase().contains("refused"),
+        "the reason should reach the user: {out}"
+    );
+}
+
+#[test]
+fn no_accounts_explains_how_to_add_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
+    let out = sync::run_with(
+        store,
+        Arc::new(MapSecrets::default()),
+        &OAuthRegistry::default(),
+        now(),
+    )
+    .unwrap()
+    .text;
+    assert!(out.contains("mailo account add"), "{out}");
+}
+
+#[tokio::test]
+#[ignore = "needs a local Twisted IMAP4 server; run deliberately with --ignored"]
+async fn a_whole_pass_against_a_real_server_lands_mail_and_says_what_it_did() {
+    // The assembly, end to end: stored plan, stored capabilities, a credential, a real server,
+    // and a line of output a person reads.
+    let (store, _dir) = configured(11143, caps());
+    let secrets = MapSecrets::default();
+    with_password(&secrets, "s3cr3t-pass");
+
+    let store_for_pass = store.clone();
+    let out = tokio::task::spawn_blocking(move || {
+        sync::run_with(
+            store_for_pass,
+            Arc::new(secrets),
+            &OAuthRegistry::default(),
+            now(),
+        )
+    })
+    .await
+    .expect("the pass did not panic")
+    .map(|ran| ran.text)
+    .expect("a reachable server with a good credential syncs");
+
+    eprintln!("{out}");
+    assert!(out.contains("ada@example.test"), "{out}");
+    assert!(
+        !out.contains("needs attention") && !out.contains("protocol:"),
+        "a clean pass should report neither trouble nor a protocol error: {out}"
+    );
+    assert!(
+        out.contains("headers") && out.contains("bodies"),
+        "the line a user reads should say what was fetched: {out}"
+    );
+    // The fixture serves two messages; they must be in the store afterwards.
+    let count: i64 = store
+        .connection()
+        .query_row("SELECT count(*) FROM messages", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(count, 2, "the pass reported success and stored nothing");
+
+    // And the server's flags reached the store.
+    //
+    // The fixture serves both messages as `\Seen`. They arrived as unread, because a header
+    // fetch does not carry flags — the flag sweep does, and `AccountEngine::sweep` was called
+    // from nowhere but its own tests. Every message in the application therefore stayed unread
+    // for ever: mail read on a phone stayed bold here, the unread counts were the mailbox size,
+    // and on Gmail the labels never appeared either, because they ride the same survey. Found
+    // against a real account, where 138 messages the user had *sent* were all marked unread.
+    let unread: i64 = store
+        .connection()
+        .query_row(
+            "SELECT count(*) FROM messages WHERE read = '\"unread\"'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        unread, 0,
+        "the server reports both messages \\Seen; the pass never swept for flags"
+    );
+}
+
+/// Renewing a sign-in that has expired, which nothing did.
+///
+/// `mail_runtime::oauth` could refresh a token from the day it was written and no caller ever
+/// asked it to: the sync path read the credential out of the keyring and handed it to the
+/// backend verbatim. An OAuth account therefore fetched mail for about an hour and then failed
+/// on every pass afterwards, permanently, with an authentication error — while the refresh token
+/// that would have fixed it sat in the same keyring entry, unused. The client id needed to spend
+/// it was not persisted anywhere either, so even a caller would have had nothing to call with.
+///
+/// No network: the token endpoint is a socket in this process, which is what substitutable
+/// `Endpoints` are for.
+mod renewing_an_expired_sign_in {
+    use super::*;
+    use mail_runtime::Registration;
+    use mail_runtime::oauth::Endpoints;
+    use std::io::{Read as _, Write as _};
+    use std::sync::Mutex;
+
+    /// What the token endpoint was asked, so the request shape can be asserted.
+    type Seen = Arc<Mutex<Vec<String>>>;
+
+    const RENEWED: &str =
+        r#"{"access_token":"ya29.renewed","token_type":"Bearer","expires_in":3599}"#;
+
+    /// A token endpoint on loopback that answers `body` to anything.
+    fn token_endpoint(body: &'static str) -> (Endpoints, Seen) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let seen: Seen = Arc::new(Mutex::new(Vec::new()));
+        let recording = seen.clone();
+        std::thread::spawn(move || {
+            for sock in listener.incoming() {
+                let Ok(mut sock) = sock else { continue };
+                let mut buf = vec![0u8; 8192];
+                let read = match sock.read(&mut buf) {
+                    Ok(0) | Err(_) => continue,
+                    Ok(n) => n,
+                };
+                recording
+                    .lock()
+                    .unwrap()
+                    .push(String::from_utf8_lossy(&buf[..read]).to_string());
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\
+                     Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = sock.write_all(response.as_bytes());
+            }
+        });
+        (
+            Endpoints {
+                // Never fetched — the browser goes there — but it has to parse.
+                auth: format!("http://127.0.0.1:{port}/authorize"),
+                token: format!("http://127.0.0.1:{port}/token"),
+            },
+            seen,
+        )
+    }
+
+    /// The same store as above, but an account that signs in with Google rather than a password.
+    fn oauth_account() -> (Arc<SqliteStore>, tempfile::TempDir) {
+        // Port 1: the connection after the renewal is not the subject here and is expected to
+        // fail. What is being tested is what happens before it.
+        let (store, dir) = configured(1, caps());
+        let plan = AccountPlan {
+            address: "ada@example.test".to_owned(),
+            incoming: Incoming::Imap {
+                host: "127.0.0.1".to_owned(),
+                port: 1,
+                tls: Tls::Plaintext,
+            },
+            outgoing: Outgoing::Smtp {
+                host: "127.0.0.1".to_owned(),
+                port: 1,
+                tls: Tls::Plaintext,
+            },
+            auth: AuthPlan::OAuth {
+                issuer: OAuthIssuer::Google,
+                scopes: vec!["https://mail.google.com/".to_owned()],
+            },
+            identities: Vec::new(),
+        };
+        store
+            .connection()
+            .execute(
+                "UPDATE accounts SET plan = ?1 WHERE id = ?2",
+                rusqlite::params![serde_json::to_string(&plan).unwrap(), ACCOUNT.to_string()],
+            )
+            .unwrap();
+        (store, dir)
+    }
+
+    fn key() -> SecretKey {
+        SecretKey {
+            account: ACCOUNT,
+            purpose: SecretPurpose::IncomingPassword,
+        }
+    }
+
+    /// An OAuth credential expiring `minutes` from `now()`.
+    fn token(minutes: i64) -> Credential {
+        Credential::OAuth {
+            access: "ya29.stale".to_owned(),
+            refresh: "the-refresh-token".to_owned(),
+            expires_at: now() + chrono::TimeDelta::try_minutes(minutes).unwrap(),
+        }
+    }
+
+    fn registry(ends: Endpoints) -> OAuthRegistry {
+        let mut registry = OAuthRegistry::default();
+        registry.set(Registration::new(OAuthIssuer::Google, "client-id").at(ends));
+        registry
+    }
+
+    #[test]
+    fn an_expired_access_token_is_renewed_and_the_new_one_stored() {
+        let (store, _dir) = oauth_account();
+        let secrets: Arc<dyn Secrets> = Arc::new(MapSecrets::default());
+        // Two hours past expiry, which is where every OAuth account ended up an hour after it
+        // was added and stayed forever.
+        secrets.put(&key(), &token(-120)).unwrap();
+        let (ends, seen) = token_endpoint(RENEWED);
+
+        let _ = sync::run_with(store, secrets.clone(), &registry(ends), now());
+
+        let asked = seen.lock().unwrap().join("\n");
+        assert!(
+            asked.contains("grant_type=refresh_token"),
+            "the issuer was never asked to renew: {asked:?}"
+        );
+        assert!(
+            asked.contains("refresh_token=the-refresh-token"),
+            "the stored refresh token was not the one spent: {asked:?}"
+        );
+
+        match secrets.get(&key()).unwrap() {
+            Credential::OAuth {
+                access,
+                refresh,
+                expires_at,
+            } => {
+                assert_eq!(access, "ya29.renewed", "the new token was not written back");
+                // This issuer returned no new refresh token, which is the usual case. Dropping
+                // the old one logs the user out at the next expiry with nothing to recover from.
+                assert_eq!(refresh, "the-refresh-token");
+                assert!(expires_at > now(), "{expires_at} is not in the future");
+            }
+            other => panic!("the stored credential became {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_renewed_token_is_written_under_both_keys() {
+        // `account add` writes the credential twice, under `IncomingPassword` and under
+        // `OAuthRefresh`. Renewing only one leaves the other stale, which is the same account
+        // failing an hour later by a different route.
+        let (store, _dir) = oauth_account();
+        let secrets: Arc<dyn Secrets> = Arc::new(MapSecrets::default());
+        secrets.put(&key(), &token(-120)).unwrap();
+        let (ends, _seen) = token_endpoint(RENEWED);
+
+        let _ = sync::run_with(store, secrets.clone(), &registry(ends), now());
+
+        let stored = secrets
+            .get(&SecretKey {
+                account: ACCOUNT,
+                purpose: SecretPurpose::OAuthRefresh,
+            })
+            .expect("the refresh entry should have been rewritten");
+        match stored {
+            Credential::OAuth { access, .. } => assert_eq!(access, "ya29.renewed"),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_token_that_is_still_good_is_not_sent_to_the_issuer() {
+        // Renewing on every pass would turn a five-minute poll into a five-minute round trip to
+        // the issuer, and issuers rate-limit that.
+        let (store, _dir) = oauth_account();
+        let secrets: Arc<dyn Secrets> = Arc::new(MapSecrets::default());
+        secrets.put(&key(), &token(45)).unwrap();
+        let (ends, seen) = token_endpoint(RENEWED);
+
+        let _ = sync::run_with(store, secrets.clone(), &registry(ends), now());
+
+        assert!(
+            seen.lock().unwrap().is_empty(),
+            "a valid token was sent to the issuer anyway: {:?}",
+            seen.lock().unwrap()
+        );
+        assert_eq!(secrets.get(&key()).unwrap(), token(45), "and left alone");
+    }
+
+    /// A Microsoft sign-in that also consented to Graph renews its IMAP token by name.
+    ///
+    /// Microsoft issues each access token for one resource and refuses a request that spans two
+    /// (`AADSTS28003`). The renewal named nothing, which asks for what the sign-in was for — and
+    /// this sign-in was for two.
+    #[test]
+    fn a_sign_in_for_two_resources_renews_each_by_its_own_scopes() {
+        let (store, _dir) = oauth_account();
+        let plan = mail_domain::presets::send_through_graph(
+            mail_domain::presets::microsoft_preset("ada@example.test", now()),
+        )
+        .plan;
+        store
+            .connection()
+            .execute(
+                "UPDATE accounts SET plan = ?1 WHERE id = ?2",
+                rusqlite::params![serde_json::to_string(&plan).unwrap(), ACCOUNT.to_string()],
+            )
+            .unwrap();
+        let secrets: Arc<dyn Secrets> = Arc::new(MapSecrets::default());
+        secrets.put(&key(), &token(-120)).unwrap();
+        secrets
+            .put(
+                &SecretKey {
+                    account: ACCOUNT,
+                    purpose: SecretPurpose::OAuthRefresh,
+                },
+                &token(-120),
+            )
+            .unwrap();
+        let (ends, seen) = token_endpoint(RENEWED);
+        let mut registry = OAuthRegistry::default();
+        registry.set(Registration::new(OAuthIssuer::Microsoft, "client-id").at(ends));
+
+        let _ = sync::run_with(store, secrets, &registry, now());
+
+        let asked = seen.lock().unwrap().clone();
+        let imap = "IMAP.AccessAsUser.All";
+        let graph = "Mail.Send";
+        assert!(
+            asked.iter().any(|r| r.contains(imap) && !r.contains(graph)),
+            "the IMAP token was not renewed by its own scope: {asked:?}"
+        );
+        assert!(
+            asked.iter().any(|r| r.contains(graph) && !r.contains(imap)),
+            "the Graph token was not minted by its own scope: {asked:?}"
+        );
+        assert!(
+            !asked.iter().any(|r| r.contains(imap) && r.contains(graph)),
+            "one request named two resources: {asked:?}"
+        );
+    }
+
+    #[test]
+    fn a_password_account_never_reaches_the_issuer() {
+        // The plan is what decides, not the credential: a password has no expiry and there is
+        // nothing to renew it with.
+        let (store, _dir) = configured(1, caps());
+        let secrets: Arc<dyn Secrets> = Arc::new(MapSecrets::default());
+        secrets
+            .put(&key(), &Credential::Password("hunter2".to_owned()))
+            .unwrap();
+        let (ends, seen) = token_endpoint(RENEWED);
+
+        let _ = sync::run_with(store, secrets, &registry(ends), now());
+
+        assert!(seen.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn an_expired_sign_in_with_no_client_id_says_so_instead_of_failing_to_authenticate() {
+        // "authentication failed" points at the password the user does not have. The actual
+        // problem is that this installation cannot renew, and the message has to say that.
+        let (store, _dir) = oauth_account();
+        let secrets: Arc<dyn Secrets> = Arc::new(MapSecrets::default());
+        secrets.put(&key(), &token(-120)).unwrap();
+
+        let out = sync::run_with(store, secrets, &OAuthRegistry::default(), now())
+            .unwrap()
+            .text;
+
+        assert!(out.contains("no OAuth client id is configured"), "{out}");
+        // Read by a person, and `cargo fmt` collapses a `\`-continuation in a literal into a
+        // run of spaces in the middle of the sentence.
+        assert!(!out.contains("  "), "a run of spaces in a message: {out:?}");
+        assert!(out.contains("MAILO_OAUTH_CLIENT_ID"), "{out}");
+        assert!(out.contains("ada@example.test"), "{out}");
+    }
+}
+
+/// Which mailboxes a pass fetches.
+mod folders {
+    use super::*;
+
+    fn caps_with(folders: Vec<(String, MailboxRole)>) -> AccountCaps {
+        let mut caps = caps();
+        caps.folders = FolderRoles(folders);
+        caps
+    }
+
+    fn paths(store: &Arc<SqliteStore>, caps: AccountCaps) -> Vec<String> {
+        store
+            .connection()
+            .execute(
+                "UPDATE account_caps SET caps = ?1 WHERE account = ?2",
+                rusqlite::params![serde_json::to_string(&caps).unwrap(), ACCOUNT.to_string()],
+            )
+            .unwrap();
+        // Through the same function the pass uses, rather than a copy of its rules — the
+        // mistake F116 was about.
+        sync::mailboxes_by_account(store)
+            .unwrap()
+            .into_iter()
+            .next()
+            .expect("one account")
+            .1
+    }
+
+    #[test]
+    fn a_server_with_no_folder_roles_gets_the_inbox_alone() {
+        // POP3, and any IMAP server that answered no `LIST (SPECIAL-USE)` flags. This is what
+        // happened before more than one mailbox was ever fetched, and it must keep happening.
+        let (store, _dir) = configured(1, caps());
+        assert_eq!(paths(&store, caps_with(vec![])), vec!["INBOX".to_owned()]);
+    }
+
+    #[test]
+    fn sent_is_fetched_where_the_server_names_one() {
+        let (store, _dir) = configured(1, caps());
+        let found = paths(
+            &store,
+            caps_with(vec![
+                ("[Gmail]/Sent Mail".to_owned(), MailboxRole::Sent),
+                ("[Gmail]/All Mail".to_owned(), MailboxRole::Archive),
+                ("[Gmail]/Spam".to_owned(), MailboxRole::Spam),
+                ("[Gmail]/Drafts".to_owned(), MailboxRole::Drafts),
+            ]),
+        );
+        assert_eq!(
+            found,
+            vec!["INBOX".to_owned(), "[Gmail]/Sent Mail".to_owned()],
+            "Archive, Spam and Drafts are deliberately not fetched — see `to_sync`"
+        );
+        assert_eq!(found[0], "INBOX", "the inbox is fetched first and always");
+    }
+
+    #[test]
+    fn a_server_that_calls_its_inbox_sent_does_not_get_it_twice() {
+        // Defensive: a server is free to flag INBOX with a special use, and fetching the same
+        // mailbox twice in one pass would double every count in the report.
+        let (store, _dir) = configured(1, caps());
+        assert_eq!(
+            paths(
+                &store,
+                caps_with(vec![("INBOX".to_owned(), MailboxRole::Sent)])
+            ),
+            vec!["INBOX".to_owned()]
+        );
+    }
+}
+
+/// How often the background loop runs.
+mod polling {
+    use super::*;
+
+    fn with_watch(store: &Arc<SqliteStore>, watch: WatchMode) {
+        let mut caps = caps();
+        caps.watch = watch;
+        store
+            .connection()
+            .execute(
+                "UPDATE account_caps SET caps = ?1 WHERE account = ?2",
+                rusqlite::params![serde_json::to_string(&caps).unwrap(), ACCOUNT.to_string()],
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn the_interval_comes_from_the_account_rather_than_a_constant() {
+        let (store, _dir) = configured(1, caps());
+        with_watch(
+            &store,
+            WatchMode::Poll {
+                every: std::time::Duration::from_secs(90),
+            },
+        );
+        assert_eq!(
+            sync::poll_interval(&store),
+            std::time::Duration::from_secs(90)
+        );
+    }
+
+    #[test]
+    fn an_idle_capable_account_is_polled_like_any_other_until_idle_is_held() {
+        // `WatchMode::Idle` means the server offers a long-lived connection this loop does not
+        // hold. Treating it as "no polling needed" would mean an IMAP account never syncing.
+        let (store, _dir) = configured(1, caps());
+        with_watch(&store, WatchMode::Idle);
+        assert_eq!(
+            sync::poll_interval(&store),
+            std::time::Duration::from_secs(300),
+            "an IDLE account fell through to no polling at all"
+        );
+    }
+
+    #[test]
+    fn a_database_with_no_accounts_still_answers() {
+        // The loop starts before anything is configured, and asking an empty store must not be
+        // an error it has to handle.
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
+        assert_eq!(
+            sync::poll_interval(&store),
+            std::time::Duration::from_secs(300)
+        );
+    }
+}
+
+/// What a pass reports when the server refuses the credential.
+///
+/// The poll loop stops on this rather than backing off, because five minutes is 288 attempts a
+/// day and 288 failed logins a day against the user's own mail server is how an account gets
+/// locked. That rule is only worth anything if the classification actually fires — so this drives
+/// a real pass against a server that says no, rather than trusting the chain by reading it.
+mod a_refused_sign_in {
+    use super::*;
+    use std::io::{Read, Write};
+
+    /// An IMAP server that greets, then refuses whatever it is asked to log in with.
+    ///
+    /// It words the refusal the way Exchange, Courier and UW-imapd do — a bare `NO LOGIN
+    /// failed.`, with none of the response codes Dovecot and Gmail send. Picking the wording
+    /// that already worked would have made this test agree with itself.
+    fn serve_refusing() -> u16 {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for sock in listener.incoming() {
+                let Ok(mut sock) = sock else { continue };
+                let _ = sock.write_all(b"* OK [CAPABILITY IMAP4rev1] ready\r\n");
+                let mut buf = [0u8; 4096];
+                while let Ok(n) = sock.read(&mut buf) {
+                    if n == 0 {
+                        break;
+                    }
+                    let text = String::from_utf8_lossy(&buf[..n]).to_string();
+                    for line in text.lines() {
+                        let Some(tag) = line.split_whitespace().next() else {
+                            continue;
+                        };
+                        let upper = line.to_uppercase();
+                        let reply = if upper.contains("CAPABILITY") {
+                            format!("* CAPABILITY IMAP4rev1\r\n{tag} OK done\r\n")
+                        } else if upper.contains("LOGOUT") {
+                            format!("* BYE\r\n{tag} OK done\r\n")
+                        } else {
+                            format!("{tag} NO LOGIN failed.\r\n")
+                        };
+                        let _ = sock.write_all(reply.as_bytes());
+                    }
+                }
+            }
+        });
+        port
+    }
+
+    #[test]
+    fn the_pass_says_the_credential_was_rejected() {
+        let (store, _dir) = configured(serve_refusing(), caps());
+        let secrets = MapSecrets::default();
+        with_password(&secrets, "definitely-not-the-password");
+
+        let ran =
+            sync::run_with(store, Arc::new(secrets), &OAuthRegistry::default(), now()).unwrap();
+
+        assert!(
+            ran.rejected,
+            "a refused sign-in was not reported as one: {}",
+            ran.text
+        );
+        // And the user is told, in the text as well as in the flag.
+        assert!(
+            ran.text.to_lowercase().contains("login failed"),
+            "the server's own words should reach the user: {}",
+            ran.text
+        );
+    }
+
+    /// The control, and the half that matters more: a server that is merely *down* must not be
+    /// classified as a refusal. If it were, one flaky minute of network would stop the loop until
+    /// the user next noticed, and the stored credential was never the problem.
+    #[test]
+    fn a_server_that_is_simply_down_is_not_a_refusal() {
+        let (store, _dir) = configured(1, caps()); // port 1 refuses the connection
+        let secrets = MapSecrets::default();
+        with_password(&secrets, "the-right-password");
+
+        let ends = sync::run_typed_with(
+            store,
+            Arc::new(secrets),
+            &OAuthRegistry::default(),
+            now(),
+            sync::report::Hooks::default(),
+        )
+        .unwrap();
+        let ran = sync::report::summarise(&ends, now());
+
+        assert!(
+            !ran.rejected,
+            "an unreachable server was blamed on the credential: {}",
+            ran.text
+        );
+        let [end] = <[PassEnd; 1]>::try_from(ends).expect("one account");
+        match linked(end, waiting(2)) {
+            (Link::Waiting { why, failures, .. }, effects) => {
+                assert_eq!(
+                    why,
+                    fetch::Pause::Unreachable,
+                    "it is a server that is not there"
+                );
+                assert_eq!(failures, 3, "and the failures are counted, so it backs off");
+                assert!(
+                    matches!(effects.as_slice(), [Effect::WakeAt(_)]),
+                    "{effects:?}"
+                );
+            }
+            other => panic!("it would have given up on a server being down: {other:?}"),
+        }
+        // And it must not look like a rate limit either. `Throttled` resets the consecutive
+        // failure count, so a down server that set `hold` would be polled at the flat interval
+        // for ever instead of backing off — the loop would never reach the ceiling.
+        assert!(
+            ran.hold.is_none(),
+            "a refused connection asked us to wait {:?}",
+            ran.hold
+        );
+    }
+
+    #[test]
+    fn and_the_loop_stops_rather_than_backing_off() {
+        // The two halves joined: the classification the pass produces, fed to the decision the
+        // loop makes. Either alone proves nothing about what the client does to a mail server.
+        let (store, _dir) = configured(serve_refusing(), caps());
+        let secrets = MapSecrets::default();
+        with_password(&secrets, "wrong");
+
+        let ends = sync::run_typed_with(
+            store,
+            Arc::new(secrets),
+            &OAuthRegistry::default(),
+            now(),
+            sync::report::Hooks::default(),
+        )
+        .unwrap();
+        let [end] = <[PassEnd; 1]>::try_from(ends).expect("one account");
+
+        let (link, effects) = linked(end, waiting(0));
+        assert!(
+            matches!(link, Link::NeedsSignIn { .. }),
+            "it would have tried again: {link:?}"
+        );
+        assert!(
+            effects.is_empty(),
+            "a refused credential sets no timer: {effects:?}"
+        );
+    }
+}
+
+/// A server that asks to be left alone, and whether anyone listens.
+///
+/// `ProtoError::Throttled` carries a wait — the server's own `Retry-After` where it gives one,
+/// and an hour where it does not, because Gmail's lockouts are measured in hours and hammering
+/// lengthens them. The domain layer has computed that number since the beginning. The question
+/// here is whether it reaches the loop that decides when to knock again.
+mod a_server_asking_to_be_left_alone {
+    use super::*;
+    use std::io::{Read, Write};
+
+    /// Refuses the sign-in for rate limiting, which is what Gmail does to a client that
+    /// reconnects too often — not a wrong password, and not something a new password fixes.
+    fn serve_throttling() -> u16 {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for sock in listener.incoming() {
+                let Ok(mut sock) = sock else { continue };
+                let _ = sock.write_all(b"* OK [CAPABILITY IMAP4rev1] ready\r\n");
+                let mut buf = [0u8; 4096];
+                while let Ok(n) = sock.read(&mut buf) {
+                    if n == 0 {
+                        break;
+                    }
+                    let text = String::from_utf8_lossy(&buf[..n]).to_string();
+                    for line in text.lines() {
+                        let Some(tag) = line.split_whitespace().next() else {
+                            continue;
+                        };
+                        let _ = sock.write_all(
+                            format!("{tag} NO [LIMIT] Too many simultaneous connections\r\n")
+                                .as_bytes(),
+                        );
+                    }
+                }
+            }
+        });
+        port
+    }
+
+    #[test]
+    fn the_wait_the_server_asked_for_survives_as_far_as_the_loop() {
+        let (store, _dir) = configured(serve_throttling(), caps());
+        let secrets = MapSecrets::default();
+        with_password(&secrets, "the-right-password");
+
+        let ran =
+            sync::run_with(store, Arc::new(secrets), &OAuthRegistry::default(), now()).unwrap();
+
+        assert!(
+            !ran.rejected,
+            "being asked to slow down is not a bad password: {}",
+            ran.text
+        );
+        let hold = ran.hold.expect("the server named a wait; nothing kept it");
+        assert!(
+            hold >= std::time::Duration::from_secs(3600),
+            "an hour is the floor when the server gives no hint, got {hold:?}"
+        );
+    }
+
+    #[test]
+    fn and_the_loop_waits_that_long_rather_than_the_usual_five_minutes() {
+        let (store, _dir) = configured(serve_throttling(), caps());
+        let secrets = MapSecrets::default();
+        with_password(&secrets, "the-right-password");
+
+        let ends = sync::run_typed_with(
+            store,
+            Arc::new(secrets),
+            &OAuthRegistry::default(),
+            now(),
+            sync::report::Hooks::default(),
+        )
+        .unwrap();
+        let [end] = <[PassEnd; 1]>::try_from(ends).expect("one account");
+
+        let hold = std::time::Duration::from_secs(3600);
+        match linked(end, waiting(0)) {
+            (Link::Waiting { until, why, .. }, _) => {
+                assert_eq!(
+                    why,
+                    fetch::Pause::Throttled,
+                    "a rate limit is its own kind of wait"
+                );
+                assert!(
+                    until >= now() + chrono::TimeDelta::from_std(hold).unwrap(),
+                    "the client would knock again at {until}, after being asked for {hold:?}"
+                );
+            }
+            other => panic!("a rate limit is not something to give up over: {other:?}"),
+        }
+    }
+}
+
+/// What an account with no credential is told to do about it.
+///
+/// This is the first thing a new user reads, and it was one sentence for every account: "Run:
+/// MAILO_PASSWORD=… mailo account add <address>". For a password account that is exactly right. For
+/// a Gmail account it is advice that cannot work — Google turned off password authentication for
+/// IMAP in May 2022 — and following it means a failed sign-in against Google with a password
+/// that was never going to be accepted. `mailo account add` prints the right thing for that
+/// account; `mailo sync` contradicted it, and sync is the command someone runs second.
+mod an_account_with_nothing_stored {
+    use super::*;
+
+    fn told(auth: AuthPlan) -> String {
+        let (store, _dir) = configured_with(1, caps(), auth);
+        sync::run_with(
+            store,
+            Arc::new(MapSecrets::default()),
+            &OAuthRegistry::default(),
+            now(),
+        )
+        .unwrap()
+        .text
+    }
+
+    #[test]
+    fn a_password_account_is_told_about_the_password() {
+        let out = told(AuthPlan::Password {
+            username: Username::SameAsAddress,
+            sasl: vec![SaslMech::Plain],
+        });
+        assert!(out.contains("MAILO_PASSWORD"), "{out}");
+        // The address, not the word "<address>": advice that has to be edited before it can be
+        // run is advice someone gets wrong at the point they are least able to tell.
+        assert!(out.contains("mailo account add ada@example.test"), "{out}");
+        assert!(!out.contains("<address>"), "{out}");
+    }
+
+    #[test]
+    fn an_oauth_account_is_not_sent_to_find_a_password() {
+        let out = told(AuthPlan::OAuth {
+            issuer: OAuthIssuer::Google,
+            scopes: vec!["https://mail.google.com/".to_owned()],
+        });
+        assert!(
+            !out.contains("MAILO_PASSWORD"),
+            "a Google account was told to set a password, which Google has not accepted since \
+             2022: {out}"
+        );
+        assert!(out.contains("MAILO_OAUTH_CLIENT_ID"), "{out}");
+        assert!(out.contains("mailo account add ada@example.test"), "{out}");
+    }
+
+    /// `mailo account list` is the third surface, and it has to agree with the other two.
+    ///
+    /// It reads the real keyring for the stored credential, which is safe here and only here:
+    /// the account ids are generated per test and nothing of theirs exists, so this is a read of
+    /// a key that is not present. It writes nothing, so there is nothing to clear afterwards.
+    #[test]
+    fn the_account_listing_says_the_same_thing_in_fewer_words() {
+        let (oauth, _a) = configured_with(
+            1,
+            caps(),
+            AuthPlan::OAuth {
+                issuer: OAuthIssuer::Google,
+                scopes: vec!["https://mail.google.com/".to_owned()],
+            },
+        );
+        let listed = account::list(&oauth).unwrap();
+        assert!(
+            listed.contains("not signed in"),
+            "an OAuth account was told a credential was missing, which reads as \"find a \
+             password\": {listed}"
+        );
+
+        let (password, _b) = configured_with(
+            1,
+            caps(),
+            AuthPlan::Password {
+                username: Username::SameAsAddress,
+                sasl: vec![SaslMech::Plain],
+            },
+        );
+        let listed = account::list(&password).unwrap();
+        assert!(listed.contains("no credential stored"), "{listed}");
+    }
+
+    /// Microsoft needs `--microsoft` to reproduce the account, and an instruction that does not
+    /// work when followed is worse than none.
+    #[test]
+    fn a_microsoft_account_keeps_the_flag_that_makes_the_command_work() {
+        let out = told(AuthPlan::OAuth {
+            issuer: OAuthIssuer::Microsoft,
+            scopes: vec!["https://outlook.office.com/IMAP.AccessAsUser.All".to_owned()],
+        });
+        assert!(
+            out.contains("mailo account add ada@example.test --microsoft"),
+            "{out}"
+        );
+    }
+}
+
+/// What the window is told about the server — the loader behind F139.
+///
+/// `apply_op` built an `AccountCaps` out of safe defaults rather than reading the account's own,
+/// and `Op::remote_intent` is the only consumer of `caps`: under `ArchiveMeans::LocalOnly` it
+/// returns `None` for Archive and Trash. So every conversation archived in the window was
+/// archived on this machine and nowhere else.
+mod capabilities_the_window_reads {
+    use super::*;
+
+    #[test]
+    fn what_was_observed_is_what_comes_back() {
+        let (store, _dir) = configured_with(
+            1,
+            AccountCaps {
+                archive: ArchiveMeans::DropInbox,
+                labels: ServerLabels::Supported,
+                ..caps()
+            },
+            AuthPlan::Password {
+                username: Username::SameAsAddress,
+                sasl: vec![SaslMech::Plain],
+            },
+        );
+
+        let read = sync::caps_of(&store, ACCOUNT).expect("the account has capabilities");
+        assert_eq!(read.archive, ArchiveMeans::DropInbox);
+        assert_eq!(read.labels, ServerLabels::Supported);
+    }
+
+    #[test]
+    fn an_account_nothing_has_connected_to_yet_has_none() {
+        // Not an error: the window can be opened before the first sync, and the caller's answer
+        // is to assume nothing rather than to refuse to act.
+        let (store, _dir) = configured(1, caps());
+        assert!(sync::caps_of(&store, AccountId::generate()).is_none());
+    }
+}
+
+/// Two accounts, one pass, at the same time — `plan.md` phase 8f.
+///
+/// Accounts are independent by construction: `AccountId` partitions every table, and two accounts
+/// are two conversations with two servers that have never heard of each other. Run one after
+/// another, a pass spends the *sum* of their waiting, and almost all of a pass is waiting — so a
+/// slow Gmail backfill held up another account's poll that had nothing to do with it.
+mod both_accounts_at_once {
+    use super::*;
+    use std::sync::{Arc as StdArc, Mutex as StdMutex};
+    use std::time::Instant;
+
+    /// When a server was being talked to: the moment it accepted, and the moment it gave up.
+    type Window = StdArc<StdMutex<Vec<(Instant, Instant)>>>;
+
+    /// A server that accepts, says nothing for `holds`, and closes.
+    ///
+    /// Saying nothing is the point. The client waits for a greeting, so the connection stays open
+    /// for the whole of `holds` and the account's pass fails afterwards — which is fine, because
+    /// what is being measured is *when* each conversation happened, not whether it succeeded.
+    fn slow_server(holds: std::time::Duration) -> (u16, Window) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let window: Window = StdArc::new(StdMutex::new(Vec::new()));
+        let recording = window.clone();
+        std::thread::spawn(move || {
+            for sock in listener.incoming() {
+                let Ok(sock) = sock else { continue };
+                let opened = Instant::now();
+                std::thread::sleep(holds);
+                drop(sock);
+                recording.lock().unwrap().push((opened, Instant::now()));
+            }
+        });
+        (port, window)
+    }
+
+    /// A store with two password accounts, each pointed at its own port.
+    fn other_account() -> AccountId {
+        AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a2"))
+    }
+
+    fn two_accounts(first: u16, second: u16) -> (Arc<SqliteStore>, tempfile::TempDir) {
+        let (store, dir) = configured(first, caps());
+        let other = other_account();
+        let plan = AccountPlan {
+            address: "bee@example.test".to_owned(),
+            incoming: Incoming::Imap {
+                host: "127.0.0.1".to_owned(),
+                port: second,
+                tls: Tls::Plaintext,
+            },
+            outgoing: Outgoing::Smtp {
+                host: "127.0.0.1".to_owned(),
+                port: 1,
+                tls: Tls::Plaintext,
+            },
+            auth: AuthPlan::Password {
+                username: Username::SameAsAddress,
+                sasl: vec![SaslMech::Plain],
+            },
+            identities: Vec::new(),
+        };
+        let db = store.connection();
+        db.execute(
+            "INSERT INTO accounts (id, address, plan, created_at)
+             VALUES (?1, 'bee@example.test', ?2, datetime('now', '+1 second'))",
+            rusqlite::params![other.to_string(), serde_json::to_string(&plan).unwrap()],
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO account_caps (account, caps, observed_at) VALUES (?1, ?2, ?3)",
+            rusqlite::params![
+                other.to_string(),
+                serde_json::to_string(&caps()).unwrap(),
+                now().to_rfc3339()
+            ],
+        )
+        .unwrap();
+        drop(db);
+        (store, dir)
+    }
+
+    /// Two intervals that share any instant at all.
+    fn overlap(a: (Instant, Instant), b: (Instant, Instant)) -> bool {
+        a.0 < b.1 && b.0 < a.1
+    }
+
+    #[test]
+    fn the_two_conversations_happen_at_the_same_time() {
+        // Asserted as an overlap rather than as a duration. A threshold in milliseconds is a
+        // test that fails on a loaded machine and then gets deleted; two connections being open
+        // at the same instant is the property itself, and it is either true or it is not.
+        let hold = std::time::Duration::from_millis(400);
+        let (first, one) = slow_server(hold);
+        let (second, two) = slow_server(hold);
+        let (store, _dir) = two_accounts(first, second);
+
+        // Both accounts need a credential, or the one without it is skipped before it ever
+        // opens a socket — and a test of concurrency with one participant proves nothing.
+        let secrets = MapSecrets::default();
+        with_password(&secrets, "s3cr3t-pass");
+        secrets
+            .put(
+                &SecretKey {
+                    account: other_account(),
+                    purpose: SecretPurpose::IncomingPassword,
+                },
+                &Credential::Password("s3cr3t-pass".to_owned()),
+            )
+            .unwrap();
+        let _ = sync::run_with(store, Arc::new(secrets), &OAuthRegistry::default(), now());
+
+        let one = one.lock().unwrap().clone();
+        let two = two.lock().unwrap().clone();
+        // At least one each: a pass may open more than one connection to the same server, and
+        // how many is not what this is about. The first of each is the one that matters.
+        assert!(!one.is_empty(), "the first account was never contacted");
+        assert!(!two.is_empty(), "the second account was never contacted");
+        assert!(
+            overlap(one[0], two[0]),
+            "the accounts were synced one after the other: \
+             the first was open for {:?} and the second started {:?} after it finished",
+            one[0].1.duration_since(one[0].0),
+            two[0].0.duration_since(one[0].1),
+        );
+    }
+}
+
+/// `mailo watch`, and the first caller `AccountEngine::watch` has ever had — `plan.md` 8g.
+///
+/// IDLE has worked at the engine level since phase 3 and is covered against a real server in
+/// `mail-runtime/tests/imap_end_to_end.rs`: it parks, it wakes, it cancels. What it never had was
+/// somebody to call it. F128 found that and answered it with the window's poll loop; F140 then
+/// established that the poll loop never runs, so a long-lived *command* is where IDLE first
+/// becomes something a user can actually have.
+///
+/// The backend here is a stub rather than a server. What is being asserted is not that IDLE works
+/// — that is tested where the protocol is — but that the loop asks for it, which is the part that
+/// was missing.
+mod watching {
+    use super::*;
+    use mail_core::sync::Configured;
+    use mail_proto::{Backend, IoReady, Progress, ProtoOutcome};
+    use std::sync::{Arc as StdArc, Mutex as StdMutex};
+
+    /// Every op the loop asked for.
+    type Asked = StdArc<StdMutex<Vec<String>>>;
+
+    struct Stub {
+        caps: AccountCaps,
+        asked: Asked,
+    }
+
+    impl Backend for Stub {
+        fn begin(&mut self, op: ProtoOp) -> Progress<ProtoOutcome> {
+            let name = match &op {
+                ProtoOp::Watch { .. } => "watch",
+                ProtoOp::FetchCaps => "caps",
+                ProtoOp::ListFolders => "folders",
+                ProtoOp::FetchEnvelopes { .. } => "envelopes",
+                ProtoOp::FetchHeaders { .. } => "headers",
+                ProtoOp::FetchBody { .. } => "body",
+                _ => "other",
+            };
+            self.asked.lock().unwrap().push(name.to_owned());
+            Progress::Done(match op {
+                // What a server says when IDLE reports something. Returning `Woken` rather than
+                // parking keeps the test a test: the parking is covered against a real server.
+                ProtoOp::Watch { .. } => ProtoOutcome::Woken,
+                ProtoOp::FetchCaps => ProtoOutcome::Caps(Box::new(self.caps.clone())),
+                ProtoOp::FetchEnvelopes { mailbox, .. } => {
+                    ProtoOutcome::Ingested(Box::new(Ingest {
+                        mailbox,
+                        validity: UidValidity::Same,
+                        cursor: None,
+                        messages: Vec::new(),
+                        flags: Vec::new(),
+                        labels: Vec::new(),
+                        label_names: Vec::new(),
+                        gone: Vec::new(),
+                    }))
+                }
+                ProtoOp::FetchHeaders { .. } | ProtoOp::FetchBody { .. } => ProtoOutcome::Fetched {
+                    items: Vec::new(),
+                    flags: Vec::new(),
+                },
+                _ => ProtoOutcome::Applied,
+            })
+        }
+
+        fn feed(&mut self, _: IoReady) -> Progress<ProtoOutcome> {
+            // Never reached: every `begin` above is already `Done`, so the runtime asks for no
+            // I/O at all and this backend never touches a socket.
+            Progress::Done(ProtoOutcome::Applied)
+        }
+
+        fn caps(&self) -> &AccountCaps {
+            &self.caps
+        }
+    }
+
+    /// A port that accepts and then says nothing.
+    ///
+    /// `pass` opens a connection before it asks the backend anything — deliberately, so an
+    /// unreachable server is reported once rather than three times — so even a backend that
+    /// needs no I/O needs somewhere to connect. Nothing is ever read from or written to it: the
+    /// stub answers every op as `Done`.
+    fn somewhere_to_connect() -> u16 {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            let mut held = Vec::new();
+            for sock in listener.incoming() {
+                match sock {
+                    Ok(sock) => held.push(sock),
+                    Err(_) => return,
+                }
+            }
+        });
+        port
+    }
+
+    fn account(caps: AccountCaps, port: u16) -> Configured {
+        Configured {
+            id: ACCOUNT,
+            address: "ada@example.test".to_owned(),
+            plan: AccountPlan {
+                address: "ada@example.test".to_owned(),
+                incoming: Incoming::Imap {
+                    host: "127.0.0.1".to_owned(),
+                    port,
+                    tls: Tls::Plaintext,
+                },
+                outgoing: Outgoing::Smtp {
+                    host: "127.0.0.1".to_owned(),
+                    port,
+                    tls: Tls::Plaintext,
+                },
+                auth: AuthPlan::Password {
+                    username: Username::SameAsAddress,
+                    sasl: vec![SaslMech::Plain],
+                },
+                identities: Vec::new(),
+            },
+            caps,
+            keep: mail_core::offline::Keep::Bodies,
+        }
+    }
+
+    /// Run the watch loop until it has asked for enough, or give up.
+    ///
+    /// It never returns of its own accord — that is what watching is — so the test stops it.
+    async fn until_it_watches(caps: AccountCaps) -> Vec<String> {
+        let port = somewhere_to_connect();
+        let (store, _dir) = configured(port, caps.clone());
+        let asked: Asked = StdArc::new(StdMutex::new(Vec::new()));
+        let backend = Stub {
+            caps: caps.clone(),
+            asked: asked.clone(),
+        };
+        let mut engine = mail_runtime::AccountEngine::new(
+            ACCOUNT,
+            account(caps.clone(), port).plan.clone(),
+            backend,
+            store.clone(),
+            StdArc::new(MapSecrets::default()),
+        );
+        let (_tx, mut cancel) = tokio::sync::watch::channel(false);
+        let inboxes = vec![MailboxRef {
+            account: ACCOUNT,
+            path: "INBOX".to_owned(),
+        }];
+        let account = account(caps, port);
+        let _ = tokio::time::timeout(
+            std::time::Duration::from_millis(500),
+            sync::drive(
+                &mut engine,
+                &account,
+                &inboxes,
+                &mut cancel,
+                now(),
+                sync::Mode::Watch,
+                sync::Announce::Quietly,
+            ),
+        )
+        .await;
+        asked.lock().unwrap().clone()
+    }
+
+    #[tokio::test]
+    async fn a_server_that_offers_idle_is_asked_to_hold_the_line() {
+        let seen = until_it_watches(AccountCaps {
+            watch: WatchMode::Idle,
+            ..caps()
+        })
+        .await;
+        assert!(
+            seen.iter().any(|op| op == "watch"),
+            "the loop synced and then slept instead of watching: {seen:?}"
+        );
+        // And it passed first: watching a mailbox before fetching what is already in it would
+        // leave the first run of `mailo watch` showing nothing until new mail arrived.
+        let first_watch = seen.iter().position(|op| op == "watch").unwrap();
+        assert!(
+            seen[..first_watch].iter().any(|op| op == "envelopes"),
+            "it watched before it ever synced: {seen:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_server_with_no_push_is_not_asked_to_hold_the_line() {
+        // POP3, and every IMAP server without IDLE. `AccountEngine::watch` answers `false`
+        // immediately for these, and the loop's sleep is the whole of the waiting — but asking
+        // at all would be a round trip per interval for an answer that is a constant.
+        let seen = until_it_watches(AccountCaps {
+            watch: WatchMode::Poll {
+                every: std::time::Duration::from_secs(300),
+            },
+            ..caps()
+        })
+        .await;
+        assert!(
+            seen.iter().any(|op| op == "envelopes"),
+            "it never even synced: {seen:?}"
+        );
+        assert!(
+            !seen.iter().any(|op| op == "watch"),
+            "a server with no push was asked to hold a connection open: {seen:?}"
+        );
+    }
+}
+
+/// Downloading a part is IMAP's, and a message with no such account says so rather than trying.
+#[test]
+fn fetching_a_part_of_a_pop3_message_is_refused_before_anything_is_sent() {
+    let (store, _dir) = configured(1, caps());
+    // Repoint the account at POP3: the one fact under test.
+    let plan: String = store
+        .connection()
+        .query_row("SELECT plan FROM accounts", [], |r| r.get(0))
+        .unwrap();
+    let mut plan: AccountPlan = serde_json::from_str(&plan).unwrap();
+    plan.incoming = Incoming::Pop3 {
+        host: "127.0.0.1".to_owned(),
+        port: 1,
+        tls: Tls::Plaintext,
+        leave: LeaveOnServer::Keep,
+    };
+    store
+        .connection()
+        .execute(
+            "UPDATE accounts SET plan = ?1",
+            [serde_json::to_string(&plan).unwrap()],
+        )
+        .unwrap();
+    mail_runtime::absorb(
+        &store,
+        ACCOUNT,
+        MailboxRef {
+            account: ACCOUNT,
+            path: "INBOX".to_owned(),
+        },
+        None,
+        vec![mail_runtime::Arrival {
+            remote: RemoteRef::Pop {
+                uidl: "u1".to_owned(),
+            },
+            raw: b"From: a@example.test\r\nSubject: s\r\n\r\nbody\r\n".to_vec(),
+        }],
+        false,
+        now(),
+    )
+    .unwrap();
+    let id: String = store
+        .connection()
+        .query_row("SELECT id FROM messages", [], |r| r.get(0))
+        .unwrap();
+
+    let err = sync::fetch_part_with(
+        &store,
+        Arc::new(MapSecrets::default()),
+        &OAuthRegistry::default(),
+        MessageId::from_uuid(id.parse().unwrap()),
+        "2",
+        now(),
+    )
+    .unwrap_err();
+    assert!(err.contains("only IMAP"), "{err}");
+}

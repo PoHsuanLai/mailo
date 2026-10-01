@@ -1,8 +1,8 @@
 //! What the reader says about a message's protection, a line a fact, for OpenPGP and S/MIME
 //! alike. Pure, so every wording is a table test.
 //!
-//! The facts are the ones `mailo show` prints ([`crate::pgp::describe`],
-//! [`crate::smime::describe`]); the words are the window's.
+//! The facts are the ones `mailo show` prints ([`mail_core::pgp::describe`],
+//! [`mail_core::smime::describe`]); the words are the window's.
 
 use mail_domain::*;
 
@@ -49,7 +49,7 @@ fn partly(coverage: Option<Coverage>, out: &mut Vec<Said>) {
 }
 
 /// What the reader says about an OpenPGP message.
-pub(in crate::ui) fn said(protected: &crate::pgp::Protected) -> Vec<Said> {
+pub(in crate::ui) fn said(protected: &mail_core::pgp::Protected) -> Vec<Said> {
     let mut out = Vec::new();
     out.push(match &protected.encryption {
         Encryption::NotEncrypted => line(Tone::Plain, "Not encrypted"),
@@ -129,7 +129,7 @@ pub(in crate::ui) fn whose(cert: &SmimeCert) -> String {
 }
 
 /// What the reader says about an S/MIME message.
-pub(in crate::ui) fn said_smime(protected: &crate::smime::Protected) -> Vec<Said> {
+pub(in crate::ui) fn said_smime(protected: &mail_core::smime::Protected) -> Vec<Said> {
     let mut out = Vec::new();
     out.push(match &protected.encryption {
         SmimeEncryption::NotEncrypted => line(Tone::Plain, "Not encrypted"),

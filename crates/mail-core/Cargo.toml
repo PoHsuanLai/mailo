@@ -1,0 +1,92 @@
+[package]
+name = "mail-core"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "The logic of mailo: sync, fetch state machines, accounts, compose, rules, search and the rest, with no window and no terminal in it"
+repository = "https://github.com/PoHsuanLai/mailo"
+authors = ["Po Hsuan Lai <pohsuanlai0208@gmail.com>"]
+
+# The I/O-capable core between the pure crates (mail-domain, mail-mime, mail-proto, mail-pim) and
+# the two front-ends in `mail-app` (the window and the command line). It may use tokio, rusqlite
+# and the network; it must never depend on dioxus, ds, ds-settings or ds-blitz, or on anything
+# else that draws. `scripts/check-boundary.sh` enforces that.
+
+[dependencies]
+latchkey.workspace = true
+mail-domain.workspace = true
+mail-store.workspace = true
+mail-mime.workspace = true
+mail-proto.workspace = true
+mail-pim.workspace = true
+mail-runtime.workspace = true
+rusqlite = { version = "0.40", features = ["bundled"] }
+serde.workspace = true
+serde_json = "1"
+tokio = { version = "1", features = ["rt", "macros", "time", "net", "io-util", "sync"] }
+# For `join_all` only: one pass over several accounts is several independent conversations with
+# several servers, and running them one after another spends the sum of their waiting.
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "charset", "http2"] }
+chrono.workspace = true
+# ASCII-case-insensitive multi-pattern search for highlights. Already in the tree via `regex`.
+aho-corasick = "1.1"
+# `re:/pattern/`. Already in the tree; depended on directly so the size caps are ours.
+regex = "1"
+# fzf-style fuzzy match for the menu's small sets. See `search/fuzzy.rs` for why this one.
+nucleo-matcher = "0.3"
+# Provider icons, and the reader's attachment previews (`preview.rs`): PNG, JPEG, GIF and WebP,
+# decoded under size limits. Already in the lock through blitz-dom and quire, with these codecs;
+# no other format is decoded, and SVG is never drawn.
+image = { version = "0.25", default-features = false, features = ["ico", "png", "jpeg", "gif", "webp"] }
+base64 = "0.22"
+thiserror.workspace = true
+# The registered domain of a host, for the sender card's brand check and the link pill. Chosen
+# over `publicsuffix`, which needs the list shipped and parsed at run time; this one compiles the
+# list in, so a check needs no file and no I/O. MIT/Apache-2.0, with one dependency, `psl-types`.
+psl = "2"
+# Already a dependency of every id type. Named here because `mailo unsubscribe` takes an id that
+# may be a message or a thread, and only the store can say which.
+uuid = { workspace = true }
+# Desktop notifications for new mail (`notify/desktop.rs`), one API over each platform's own: the
+# freedesktop interface on the session bus (through zbus, already in the lock through the
+# keyring's Secret Service store), `NSUserNotificationCenter` on macOS (mac-notification-sys) and
+# toasts on Windows (tauri-winrt-notification). MIT OR Apache-2.0, and so are both backends.
+notify-rust = "4.18"
+# `mailo contacts sync` takes a URL and hands it to the CardDAV client, which speaks `url`.
+url = "2"
+# A typed password is overwritten when it is dropped (`password.rs`). Already in the lock through
+# rustls and the keyring.
+zeroize = "1"
+# The OS random number generator for OpenPGP key generation and sealing (`pgp/`) and S/MIME
+# sealing (`smime/`). rPGP's own `rand` generation; already in the tree. For every target: it had
+# been listed under Linux alone, where `pgp/` would not have built anywhere else.
+rand = "0.8"
+# A PDF attachment's pages (`preview.rs`): quire rasterises only a first page. The same pin quire
+# names (`docs/workspace-deps.toml` at v0.2.2), so the tree holds one pdfrum.
+pdfrum = { git = "https://github.com/PoHsuanLai/pdfrum", rev = "613710405bcd239684e23fb8ad2bcb9aab329549", default-features = false, features = ["vello-cpu"] }
+
+# A passphrase asked on the Windows console with echo off (`pgp/mod.rs`, `ask_tty`), where there is
+# no `/dev/tty` and no `stty` to do it with. Apache-2.0.
+[target.'cfg(windows)'.dependencies]
+rpassword = "7"
+
+[dev-dependencies]
+tempfile = "3"
+# The throwaway certificate authority `tests/smime.rs` builds its fixtures with
+# (`mail-mime/tests/smime_support`). All already in the tree through `mail-mime`.
+x509-cert = { version = "0.2", features = ["builder"] }
+der = "0.7"
+spki = "0.7"
+const-oid = "0.9"
+cms = "0.2"
+rsa = "0.9"
+p256 = { version = "0.13", features = ["ecdsa"] }
+# A paused clock, so a test drives a debounce instead of sleeping through it.
+tokio = { version = "1", features = ["test-util"] }
+uuid = { workspace = true }
+proptest = "1"
+
+[lints]
+workspace = true

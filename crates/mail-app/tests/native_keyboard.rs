@@ -14,8 +14,8 @@ use ds_harness::{Driver, Harness, HarnessConfig, Query as Read, Viewport};
 #[path = "support/drive.rs"]
 mod drive;
 use drive::Drive;
-use mail_app::appearance::WindowDirs;
-use mail_app::view::Shortcut;
+use mail_app::ui::appearance::WindowDirs;
+use mail_app::ui::view::Shortcut;
 use mail_domain::*;
 use mail_runtime::{Arrival, absorb};
 use mail_store::{SqliteStore, Store};
@@ -123,8 +123,8 @@ fn open() -> (Harness, tempfile::TempDir, Arc<SqliteStore>, WindowDirs) {
     let printer = mail_app::ui::native::Printer::with_dialog(|_, _| Ok(PrintOutcome::Cancelled));
     let contexts = mail_app::ui::native::contexts(
         Arc::clone(&store),
-        mail_app::view::Appearance::default(),
-        mail_app::space::Spaces::default(),
+        mail_app::ui::view::Appearance::default(),
+        mail_app::ui::space::Spaces::default(),
         Some(dirs.clone()),
         mail_app::ui::Start::Inbox,
     )
@@ -250,7 +250,7 @@ fn archive_rebound_in_the_settings_archives_on_its_new_key_and_not_its_old_one()
     let said = harness.text_of(".rules [*|role=alert]").unwrap_or_default();
     assert!(said.contains("Star or unstar"), "{said:?}");
     assert!(
-        !dirs.config.join(mail_app::keymap::FILE_NAME).exists(),
+        !dirs.config.join(mail_app::ui::keymap::FILE_NAME).exists(),
         "a refused key wrote the keymap"
     );
 
@@ -264,7 +264,7 @@ fn archive_rebound_in_the_settings_archives_on_its_new_key_and_not_its_old_one()
         "{}",
         harness.html()
     );
-    let kept = mail_app::keymap::load(&dirs.config);
+    let kept = mail_app::ui::keymap::load(&dirs.config);
     assert_eq!(kept.keys(Shortcut::Archive), ["x"]);
     assert_eq!(kept.action("e", false), None);
 
@@ -304,15 +304,15 @@ fn archive_rebound_in_the_settings_archives_on_its_new_key_and_not_its_old_one()
 #[test]
 fn a_keymap_kept_earlier_is_the_one_a_new_window_answers_to_and_reset_puts_it_back() {
     let (mut harness, _dir, store, dirs) = open();
-    let moved = mail_app::keymap::bind(&Default::default(), Shortcut::Archive, "x").unwrap();
-    mail_app::keymap::save(&dirs.config, &moved).unwrap();
+    let moved = mail_app::ui::keymap::bind(&Default::default(), Shortcut::Archive, "x").unwrap();
+    mail_app::ui::keymap::save(&dirs.config, &moved).unwrap();
     // A second window over the same directories reads it.
     drop(harness);
     let printer = mail_app::ui::native::Printer::with_dialog(|_, _| Ok(PrintOutcome::Cancelled));
     let contexts = mail_app::ui::native::contexts(
         Arc::clone(&store),
-        mail_app::view::Appearance::default(),
-        mail_app::space::Spaces::default(),
+        mail_app::ui::view::Appearance::default(),
+        mail_app::ui::space::Spaces::default(),
         Some(dirs.clone()),
         mail_app::ui::Start::Inbox,
     )
@@ -340,8 +340,8 @@ fn a_keymap_kept_earlier_is_the_one_a_new_window_answers_to_and_reset_puts_it_ba
         Some("E")
     );
     assert_eq!(
-        mail_app::keymap::load(&dirs.config),
-        mail_app::keymap::Keymap::default(),
+        mail_app::ui::keymap::load(&dirs.config),
+        mail_app::ui::keymap::Keymap::default(),
         "the reset was kept"
     );
     assert_eq!(harness.count("[*|aria-label=\"Reset Archive\"]"), 0);

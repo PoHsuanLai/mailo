@@ -1,0 +1,27 @@
+# mail-core files that still return `Result<String, String>`: the Ok is the words to print and the
+# Err is the words to fail with.
+#
+# These modules still return terminal prose. Each is to be converted to a typed outcome and a typed
+# error (`discover::Failed` and `fetch::Link`'s events are the shape), and its line removed from
+# this file when it is. The list only shrinks: scripts/check-boundary.sh fails on a mail-core file
+# with the signature that is not listed, and on a listed file that no longer has it.
+#
+# One repository-relative path per line.
+crates/mail-core/src/account.rs
+crates/mail-core/src/attach.rs
+crates/mail-core/src/compose.rs
+crates/mail-core/src/contacts.rs
+crates/mail-core/src/discover/jmap.rs
+crates/mail-core/src/folder.rs
+crates/mail-core/src/invite.rs
+crates/mail-core/src/ipc/daemon.rs
+crates/mail-core/src/ipc/wire.rs
+crates/mail-core/src/notify.rs
+crates/mail-core/src/offline.rs
+crates/mail-core/src/pgp/mod.rs
+crates/mail-core/src/receipt.rs
+crates/mail-core/src/rules/mod.rs
+crates/mail-core/src/rules/server.rs
+crates/mail-core/src/smime/mod.rs
+crates/mail-core/src/snooze.rs
+crates/mail-core/src/template.rs

@@ -10,7 +10,7 @@
 //! it, and nothing here can mark it.
 
 use super::super::marked::Numbering;
-use crate::search::{Find, Highlight};
+use mail_core::search::{Find, Highlight};
 use mail_mime::{Block, Document, Shape, Span};
 use std::collections::BTreeMap;
 use std::ops::Range;

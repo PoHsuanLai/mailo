@@ -12,7 +12,7 @@ mod viewer;
 
 use super::press::on_primary;
 use super::text::{address, attachment_rows, from_name, stamp};
-use crate::view::{Peek, Reading, Shell};
+use crate::ui::view::{Peek, Shell};
 use attachments::Attachments;
 use blocks::MessageView;
 use dioxus::prelude::*;
@@ -29,6 +29,7 @@ use ds::style::icon::render::Glyph;
 use ds::style::tokens::control_size::ControlSize;
 pub(super) use find_bar::open_find;
 use find_bar::{FindBar, marking};
+use mail_core::reader::Reading;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 use source::{Showing, Shown, SourceView, Sources};
@@ -287,7 +288,7 @@ pub(super) fn Reader(
             // and one not opened yet, shows what is stored.
             let render = |policy| {
                 super::pgp::reading(&message, policy)
-                    .unwrap_or_else(|| crate::reader::render(&store, &message, policy))
+                    .unwrap_or_else(|| mail_core::reader::render(&store, &message, policy))
             };
             let reading = render(policy);
             // Once the reader is allowed to fetch, the display pass blocks nothing, so it can

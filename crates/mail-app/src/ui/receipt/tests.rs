@@ -1,12 +1,12 @@
 //! Read receipts in the window. Opening never answers; only the bar's buttons do.
 
 use super::{Line, Standing, line, looked_at};
-use crate::receipt::ReceiptState;
 use crate::ui::fixtures::{ACCOUNT, Seen, click, dispatching, rebuild_into, seeded};
 use crate::ui::reading::Reader;
-use crate::view::Shell;
+use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use dioxus_core::VirtualDom;
+use mail_core::receipt::ReceiptState;
 use mail_domain::*;
 use mail_mime::{ReceiptAsk, ReturnPath};
 use mail_store::{SqliteStore, Store};
@@ -243,8 +243,8 @@ async fn an_answered_request_is_a_note_and_nothing_to_press() {
     let (sent, sent_id) = put(&store, ASKS, Held::Body);
     let (declined, declined_id) = put(&store, ASKS, Held::Body);
     let now = chrono::Utc::now();
-    crate::receipt::answer(&store, sent_id, ReceiptAnswer::Sent, now).unwrap();
-    crate::receipt::answer(&store, declined_id, ReceiptAnswer::Declined, now).unwrap();
+    mail_core::receipt::answer(&store, sent_id, ReceiptAnswer::Sent, now).unwrap();
+    mail_core::receipt::answer(&store, declined_id, ReceiptAnswer::Declined, now).unwrap();
     for (thread, note) in [(sent, "Receipt sent"), (declined, "Receipt declined")] {
         let (_, _, markup) = reader_on(store.clone(), thread).await;
         assert!(
@@ -341,7 +341,8 @@ async fn render_the_receipt_bar_to_a_file() {
     let (asking, _) = put(&store, ASKS, Held::Body);
     let (elsewhere, _) = put(&store, ASKS_ELSEWHERE, Held::Body);
     let (answered, answered_id) = put(&store, ASKS, Held::Body);
-    crate::receipt::answer(&store, answered_id, ReceiptAnswer::Sent, chrono::Utc::now()).unwrap();
+    mail_core::receipt::answer(&store, answered_id, ReceiptAnswer::Sent, chrono::Utc::now())
+        .unwrap();
     for thread in [asking, elsewhere, answered] {
         let (_, _, reader) = reader_on(store.clone(), thread).await;
         body.push_str(&format!(

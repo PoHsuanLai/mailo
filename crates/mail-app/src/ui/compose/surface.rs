@@ -43,9 +43,9 @@ use super::float::{self, suggest_mention};
 use super::page::Page;
 use super::render;
 use super::wire::{self, Heard};
-use crate::editor::{Caret, Doc, InputEvent, Pos, Range};
+use crate::ui::editor::{Caret, Doc, InputEvent, Pos, Range};
 use crate::ui::host::Host;
-use crate::view::Shell;
+use crate::ui::view::Shell;
 
 /// Frames a measure waits for the document to be laid out and free.
 const TRIES: usize = 12;

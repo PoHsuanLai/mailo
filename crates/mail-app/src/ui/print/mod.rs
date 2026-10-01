@@ -1,6 +1,6 @@
 //! Printing the open conversation from the window: Print, and Save for printing.
 //!
-//! The document is [`crate::print`]'s, the one `mailo print` writes, so the window and the command
+//! The document is [`mail_core::print`]'s, the one `mailo print` writes, so the window and the command
 //! cannot disagree about what a printout holds. Building it reads every message's stored bytes,
 //! so it is done on a blocking thread started by the click or the key that asked for it, and never
 //! from a component body (F140).
@@ -21,10 +21,10 @@ mod paper;
 pub(super) use tool::PrintTool;
 
 use super::motion::{motion, tell_through};
-#[cfg(test)]
-use crate::print::Printed;
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
+#[cfg(test)]
+use mail_core::print::Printed;
 use mail_domain::ThreadId;
 use mail_mime::Pages;
 use mail_store::SqliteStore;
@@ -66,7 +66,7 @@ where
     Tz: TimeZone,
     Tz::Offset: std::fmt::Display,
 {
-    crate::print::document(store, *job.thread.as_uuid(), zone, now, job.pages)
+    mail_core::print::document(store, *job.thread.as_uuid(), zone, now, job.pages)
 }
 
 /// The file Save for printing writes ends in this.
@@ -87,7 +87,7 @@ where
     Tz::Offset: std::fmt::Display,
 {
     let saved = saved_bytes(store, job, sources, zone, now).and_then(|(subject, bytes)| {
-        crate::print::write_file_into(dir, &subject, SAVED_AS, &bytes)
+        mail_core::print::write_file_into(dir, &subject, SAVED_AS, &bytes)
     });
     match saved {
         Ok(path) => format!("Saved for printing to {}", path.display()),
@@ -124,7 +124,7 @@ pub(in crate::ui) fn print(job: Job) {
 pub(in crate::ui) fn save(job: Job) {
     let said = motion();
     let store = consume_context::<Arc<SqliteStore>>();
-    let dir = crate::attach::downloads_dir();
+    let dir = mail_core::attach::downloads_dir();
     let sources = Sources::window();
     dioxus::core::spawn_forever(async move {
         let done = tokio::task::spawn_blocking(move || {
@@ -144,10 +144,10 @@ mod native_print {
     use super::super::original::{Consent, FetchImage, ReaderNet, data_uri};
     use super::Job;
     use super::paper::{self, Paper};
-    use crate::print::{Pictures, Printed};
     use chrono::{DateTime, TimeZone, Utc};
     use dioxus::prelude::*;
     use ds_blitz::{PrintError, PrintOutcome};
+    use mail_core::print::{Pictures, Printed};
     use mail_domain::MessageId;
     use mail_store::SqliteStore;
     use std::collections::BTreeMap;

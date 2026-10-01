@@ -4366,7 +4366,6 @@ dependencies = [
 name = "mail-app"
 version = "0.1.0"
 dependencies = [
- "aho-corasick",
  "base64 0.22.1",
  "blitz-dom",
  "chrono",
@@ -4383,34 +4382,29 @@ dependencies = [
  "ds-settings",
  "futures-util",
  "image",
- "latchkey",
+ "mail-core",
  "mail-domain",
  "mail-mime",
  "mail-pim",
  "mail-proto",
  "mail-runtime",
  "mail-store",
- "notify-rust",
- "nucleo-matcher",
  "objc2 0.6.4",
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
  "p256",
  "pdfrum",
  "proptest",
- "psl",
  "rand 0.8.8",
  "regex",
  "reqwest",
  "rfd",
- "rpassword",
  "rsa",
  "rusqlite",
  "serde",
  "serde_json",
  "spki",
  "tempfile",
- "thiserror 2.0.20",
  "tokio",
  "toml",
  "unicode-segmentation",
@@ -4419,7 +4413,6 @@ dependencies = [
  "webbrowser",
  "x509-cert",
  "zbus",
- "zeroize",
 ]
 
 [[package]]
@@ -4429,6 +4422,49 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ccbc27cb02a58a311a404769a22f5abf63fe3173b290d80be7c534f9c7023151"
 dependencies = [
  "gethostname",
+]
+
+[[package]]
+name = "mail-core"
+version = "0.1.0"
+dependencies = [
+ "aho-corasick",
+ "base64 0.22.1",
+ "chrono",
+ "cms",
+ "const-oid 0.9.6",
+ "der",
+ "futures-util",
+ "image",
+ "latchkey",
+ "mail-domain",
+ "mail-mime",
+ "mail-pim",
+ "mail-proto",
+ "mail-runtime",
+ "mail-store",
+ "notify-rust",
+ "nucleo-matcher",
+ "p256",
+ "pdfrum",
+ "proptest",
+ "psl",
+ "rand 0.8.8",
+ "regex",
+ "reqwest",
+ "rpassword",
+ "rsa",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "spki",
+ "tempfile",
+ "thiserror 2.0.20",
+ "tokio",
+ "url",
+ "uuid",
+ "x509-cert",
+ "zeroize",
 ]
 
 [[package]]

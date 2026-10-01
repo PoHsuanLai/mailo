@@ -11,9 +11,9 @@ use mail_runtime::{MapSecrets, OAuthRegistry, Secrets};
 use mail_store::SqliteStore;
 
 use super::flow::{self, Client, Miss, Offer, Refusal, Seams, SignIn, Stage, What};
-use crate::discover::{Failed, Gap};
-use crate::password::Password;
-use crate::space::{Scope, Space};
+use crate::ui::space::{Scope, Space};
+use mail_core::discover::{Failed, Gap};
+use mail_core::password::Password;
 
 pub(super) fn now() -> chrono::DateTime<chrono::Utc> {
     chrono::DateTime::parse_from_rfc3339("2026-09-24T12:00:00Z")
@@ -53,7 +53,7 @@ pub(super) struct Fake {
     /// Every URL the JMAP search was handed.
     pub searched: Mutex<Vec<String>>,
     /// Every setup the add was handed.
-    pub setups: Mutex<Vec<crate::cli::Setup>>,
+    pub setups: Mutex<Vec<mail_core::account::Setup>>,
 }
 
 impl Fake {
@@ -126,14 +126,14 @@ pub(super) fn with_jmap(
                     .push(password.expose().to_owned());
             }
             adding.setups.lock().unwrap().push(request.setup.clone());
-            crate::account::add_with_password(
+            mail_core::account::add_with_password(
                 store,
                 &request.address,
                 Some(&request.setup),
                 false,
                 false,
                 now(),
-                crate::account::Credentials {
+                mail_core::account::Credentials {
                     password: request.password.as_ref(),
                     saved: &OAuthRegistry::default(),
                     secrets: &adding.secrets,
@@ -301,7 +301,10 @@ fn a_domain_with_both_offers_what_its_autoconfig_named_and_jmap_beside_it() {
         "IMAP and SMTP",
         "the autoconfig's way is first"
     );
-    assert!(matches!(offer.setup, crate::cli::Setup::Discovered(_)));
+    assert!(matches!(
+        offer.setup,
+        mail_core::account::Setup::Discovered(_)
+    ));
     assert_eq!(
         flow::ways(&offer),
         [
@@ -354,7 +357,7 @@ fn jmap_found_alone_is_offered_and_added_with_its_session() {
     };
     assert_eq!(
         *fake.setups.lock().unwrap(),
-        [crate::cli::Setup::Jmap {
+        [mail_core::account::Setup::Jmap {
             session: Some(SESSION.to_owned()),
             login: None,
             auth: mail_domain::HttpAuth::Basic,
@@ -403,7 +406,7 @@ fn a_session_typed_by_hand_with_a_token_adds_with_bearer() {
     };
     assert_eq!(
         *fake.setups.lock().unwrap(),
-        [crate::cli::Setup::Jmap {
+        [mail_core::account::Setup::Jmap {
             session: Some(SESSION.to_owned()),
             login: None,
             auth: mail_domain::HttpAuth::Bearer,

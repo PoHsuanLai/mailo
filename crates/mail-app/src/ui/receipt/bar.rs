@@ -3,7 +3,6 @@
 use super::super::motion::{Follow, tell};
 use super::super::press::{available, on_primary};
 use super::{Bodies, Line, Standing, answer, cached, line, lookup};
-use crate::receipt::ReceiptState;
 use dioxus::prelude::*;
 use ds::components::content::label::{LabelRole, LabelStyle};
 use ds::components::controls::button_model::Answers;
@@ -11,6 +10,7 @@ use ds::components::overlays::inline_banner::InlineBanner;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
+use mail_core::receipt::ReceiptState;
 use mail_domain::{MessageId, ReceiptAnswer};
 use mail_store::SqliteStore;
 use std::sync::Arc;

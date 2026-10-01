@@ -14,7 +14,7 @@ pub(in crate::ui) use sheet::AddAccountSheet;
 
 use dioxus::prelude::*;
 
-use crate::view::Shell;
+use crate::ui::view::Shell;
 
 /// The seams the window was handed, or the real ones.
 pub(in crate::ui) fn seams() -> flow::Seams {

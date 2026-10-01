@@ -14,8 +14,8 @@ use ds::style::tokens::control_size::ControlSize;
 use mail_domain::MessageId;
 use mail_store::{SqliteStore, Store};
 
-use crate::preview::{self, Kind, Page, Picture, Unshown};
-use crate::view::{Shell, Viewing};
+use crate::ui::view::{Shell, Viewing};
+use mail_core::preview::{self, Kind, Page, Picture, Unshown};
 
 /// What the viewer draws.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -120,7 +120,7 @@ pub(in crate::ui) fn AttachmentViewer(shell: Signal<Shell>) -> Element {
             message
                 .attachments
                 .get(viewing.index)
-                .map(|a| crate::attach::safe_name(&a.name))
+                .map(|a| mail_core::attach::safe_name(&a.name))
         })
         .unwrap_or_default();
     let drawn = drawn.read().clone().flatten();
@@ -131,7 +131,7 @@ pub(in crate::ui) fn AttachmentViewer(shell: Signal<Shell>) -> Element {
         let store = consume_context::<Arc<SqliteStore>>();
         let dir = super::super::files::save_dir();
         said.set(Some(
-            match crate::attach::save(&store, viewing.message, viewing.index, &dir) {
+            match mail_core::attach::save(&store, viewing.message, viewing.index, &dir) {
                 Ok(path) => format!("Saved to {}", path.display()),
                 Err(why) => why,
             },

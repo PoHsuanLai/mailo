@@ -1,7 +1,7 @@
 //! The S/MIME half of the keys and certificates sheet: the user's own certificates first, then
 //! their correspondents' and the authorities', and what can be done to each.
 //!
-//! Every change goes through [`crate::smime::certs`], the functions `mailo smime` uses, on the
+//! Every change goes through [`mail_core::smime::certs`], the functions `mailo smime` uses, on the
 //! sheet's blocking thread. A PKCS#12 identity file's password is asked for in the sheet only
 //! when the file turns out to need one: typed into a [`Password`], moved into the one import
 //! that uses it, and dropped with it — never drawn, never in a signal.
@@ -24,9 +24,9 @@ use super::super::press::{available, on_primary};
 use super::key_row::{Confirm, ConfirmBar};
 use super::keys::{Done, Job, write};
 use super::{Busy, Seams, Tried, Unlock, cert_short, whose};
-use crate::password::Password;
-use crate::pgp::WithSecret;
-use crate::smime::SmimeError;
+use mail_core::password::Password;
+use mail_core::pgp::WithSecret;
+use mail_core::smime::SmimeError;
 
 /// The certificates in the order the sheet lists them: the user's own — those whose private
 /// key the keyring holds — first, then everyone else's, each group as the store orders it.
@@ -72,7 +72,7 @@ pub(in crate::ui) fn work(
             let Some(path) = (seams.save)(&name) else {
                 return Ok(Done::Said("Nothing was saved.".to_owned()));
             };
-            let pem = crate::smime::certs::export(&cert).map_err(|e| e.to_string())?;
+            let pem = mail_core::smime::certs::export(&cert).map_err(|e| e.to_string())?;
             write(&path, &pem)?;
             format!(
                 "Saved the certificate of {} to {}",
@@ -81,7 +81,7 @@ pub(in crate::ui) fn work(
             )
         }
         CertJob::Trust(fingerprint, trust) => {
-            crate::smime::certs::trust(store, fingerprint, trust).map_err(|e| e.to_string())?;
+            mail_core::smime::certs::trust(store, fingerprint, trust).map_err(|e| e.to_string())?;
             match trust {
                 KeyTrust::Verified => format!("Trusted {}", cert_short(fingerprint)),
                 KeyTrust::Unverified => {
@@ -90,7 +90,7 @@ pub(in crate::ui) fn work(
             }
         }
         CertJob::Delete(cert, with_secret) => {
-            crate::smime::certs::delete(store, secrets, &cert, with_secret)
+            mail_core::smime::certs::delete(store, secrets, &cert, with_secret)
                 .map_err(|e| e.to_string())?;
             format!("Deleted the certificate of {}", whose(&cert))
         }
@@ -109,7 +109,8 @@ fn import(
 ) -> Result<Done, String> {
     let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let given = || password.as_ref().map(|typed| typed.expose().to_owned());
-    let imported = match crate::smime::certs::import(store, secrets, &bytes, &given, Utc::now()) {
+    let imported = match mail_core::smime::certs::import(store, secrets, &bytes, &given, Utc::now())
+    {
         Err(SmimeError::NoPassword) => return Ok(Done::Password(path.to_owned())),
         other => other.map_err(|e| e.to_string())?,
     };
@@ -266,7 +267,7 @@ fn CertRow(cert: SmimeCert, confirm: Signal<Confirm>, run: Callback<Job>, busy: 
                     label: "Copy",
                     bezel: Bezel::Inline,
                     onclick: on_primary(move || {
-                        if let Ok(pem) = crate::smime::certs::export(&copied) {
+                        if let Ok(pem) = mail_core::smime::certs::export(&copied) {
                             super::super::hover::copy(&pem);
                             super::super::motion::tell(
                                 "Certificate copied".to_owned(),

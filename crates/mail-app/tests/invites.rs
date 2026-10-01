@@ -6,7 +6,7 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_app::cli;
-use mail_app::invite::{InviteAction, InviteCommand};
+use mail_core::invite::{InviteAction, InviteCommand};
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 
@@ -451,7 +451,7 @@ fn the_ics_export_is_the_invitation_and_reads_back_as_the_same_one() {
         &mail_pim::ical::parse(std::str::from_utf8(&exported).unwrap()).unwrap(),
         &me,
     );
-    let from_message = mail_app::invite::invite_of(&request("me@example.test"), &me);
+    let from_message = mail_core::invite::invite_of(&request("me@example.test"), &me);
     assert!(from_file.is_some());
     assert_eq!(from_file, from_message);
 }

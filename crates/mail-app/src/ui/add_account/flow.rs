@@ -17,10 +17,10 @@ use mail_domain::{AccountId, AuthPlan, HttpAuth, Incoming, OAuthIssuer, Retry};
 use mail_proto::discover::Found;
 use mail_store::SqliteStore;
 
-use crate::cli::Setup;
-use crate::discover::{Failed, Gap};
-use crate::password::Password;
-use crate::space::{Scope, Space};
+use crate::ui::space::{Scope, Space};
+use mail_core::account::Setup;
+use mail_core::discover::{Failed, Gap};
+use mail_core::password::Password;
 
 /// Where the sheet stands.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -132,7 +132,7 @@ pub(in crate::ui) struct Offer {
 impl Offer {
     /// Servers discovery or the built-in table found, as `describe` says them.
     fn discovered(address: &str, source: String, preset: Preset, seams: &Seams) -> Offer {
-        let shown = crate::discover::describe(address, &source, &preset);
+        let shown = mail_core::discover::describe(address, &source, &preset);
         let sign_in = match &preset.plan.auth {
             AuthPlan::Password { .. } => SignIn::Password,
             AuthPlan::OAuth { issuer, .. } => SignIn::OAuth {
@@ -327,24 +327,24 @@ impl Seams {
             };
         }
         Seams {
-            lookup: Arc::new(|address| crate::discover::search(address, chrono::Utc::now())),
-            jmap: Arc::new(crate::discover::find_jmap),
+            lookup: Arc::new(|address| mail_core::discover::search(address, chrono::Utc::now())),
+            jmap: Arc::new(mail_core::discover::find_jmap),
             add: Arc::new(|store, request, on_url| {
                 let Request {
                     address,
                     setup,
                     password,
                 } = request;
-                crate::account::add_with_password(
+                mail_core::account::add_with_password(
                     store,
                     &address,
                     Some(&setup),
                     false,
                     false,
                     chrono::Utc::now(),
-                    crate::account::Credentials {
+                    mail_core::account::Credentials {
                         password: password.as_ref(),
-                        saved: &crate::account::saved_clients(),
+                        saved: &mail_core::account::saved_clients(),
                         secrets: &mail_runtime::KeyringSecrets,
                         on_url,
                     },
@@ -352,7 +352,7 @@ impl Seams {
             }),
             client: Arc::new(|issuer| {
                 std::env::var("MAILO_OAUTH_CLIENT_ID").is_ok_and(|id| !id.is_empty())
-                    || crate::account::saved_clients().get(issuer).is_some()
+                    || mail_core::account::saved_clients().get(issuer).is_some()
             }),
             browse: Arc::new(|url| webbrowser::open(url).map_err(|e| e.to_string())),
         }

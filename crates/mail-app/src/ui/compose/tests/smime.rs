@@ -29,11 +29,11 @@ fn asking(store: &SqliteStore, openpgp: OpenPgp, smime: Smime) -> Draft {
         email: "dana@example.test".to_owned(),
     }];
     let mut draft =
-        crate::compose::draft_new(store, ACCOUNT, &to, "Plans", "see you there", Utc::now())
+        mail_core::compose::draft_new(store, ACCOUNT, &to, "Plans", "see you there", Utc::now())
             .unwrap();
     draft.openpgp = openpgp;
     draft.smime = smime;
-    crate::compose::save(store, &draft).unwrap();
+    mail_core::compose::save(store, &draft).unwrap();
     draft
 }
 
@@ -183,7 +183,7 @@ async fn what_smime_check_says_stands_in_the_way_is_said_in_the_bar() {
     // encryption is offered, and how her certificate would come is said.
     let me = identity(pki(), &Person::new("Me", &["me@example.test"], 20, 2001));
     let file = mail_mime::smime::write_pkcs12(&me, PASSWORD, &mut rng(1)).unwrap();
-    crate::smime::certs::import(
+    mail_core::smime::certs::import(
         &store,
         secrets.as_ref(),
         &file,
@@ -226,7 +226,7 @@ fn a_locked_openpgp_key_is_known_by_the_sends_typed_error() {
     .unwrap()
     .with_passphrase("owl at dusk", &mut rand::rngs::StdRng::seed_from_u64(84))
     .unwrap();
-    crate::pgp::keys::import(
+    mail_core::pgp::keys::import(
         &store,
         secrets.as_ref(),
         key.armored().unwrap().as_bytes(),
@@ -239,9 +239,9 @@ fn a_locked_openpgp_key_is_known_by_the_sends_typed_error() {
     let refused = super::super::life::queue(
         &store,
         secrets.as_ref(),
-        &crate::pgp::no_passphrase,
+        &mail_core::pgp::no_passphrase,
         draft.id,
-        crate::compose::Leaves::Now,
+        mail_core::compose::Leaves::Now,
         Utc::now(),
     )
     .unwrap_err();
@@ -254,7 +254,7 @@ fn a_locked_openpgp_key_is_known_by_the_sends_typed_error() {
         secrets.as_ref(),
         &wrong,
         draft.id,
-        crate::compose::Leaves::Now,
+        mail_core::compose::Leaves::Now,
         Utc::now(),
     )
     .unwrap_err();

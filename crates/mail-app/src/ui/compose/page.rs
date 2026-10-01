@@ -7,7 +7,7 @@ use chrono::{DateTime, Datelike, Duration, TimeZone, Utc};
 use mail_domain::{AccountId, Address, Draft, DraftId, ReceiptRequest};
 
 use super::opening::doc_of;
-use crate::editor::{Person, Pos, Range, Session};
+use crate::ui::editor::{Person, Pos, Range, Session};
 
 /// Whether the page stands alone in the reader column or sits under a thread.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -322,8 +322,8 @@ impl Page {
             to: self.to.iter().map(address).collect(),
             cc: self.cc.iter().map(address).collect(),
             subject: self.subject.clone(),
-            text: crate::editor::to_flowed(doc),
-            html: Some(crate::editor::to_html(doc)),
+            text: crate::ui::editor::to_flowed(doc),
+            html: Some(crate::ui::editor::to_html(doc)),
             receipt: self.receipt,
             openpgp: self.protection.openpgp(),
             smime: self.protection.smime(),

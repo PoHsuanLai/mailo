@@ -6,7 +6,7 @@
 //!
 //! What a grant admits is narrow on purpose:
 //! - only `http` and `https`, and only a URL the sanitizer kept in a fetch attribute of one of
-//!   the consented thread's messages ([`crate::view::Reading::frame_fetches`]);
+//!   the consented thread's messages ([`mail_core::reader::Reading::frame_fetches`]);
 //! - per message: a frame may fetch only what its own message's markup asks for. Each Original
 //!   frame carries its message's id as its `data-frame-tag`, and the network reads the tag of the
 //!   frame that asked (`net.rs`), so one message's frame cannot fetch another message's image.

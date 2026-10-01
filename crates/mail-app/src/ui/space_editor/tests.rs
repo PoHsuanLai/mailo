@@ -1,10 +1,10 @@
-use crate::space::{self, PRESET_NAMES, PRESETS, Space};
 use crate::ui::app::App;
 use crate::ui::fixtures::{
     INSIDE_THE_SHELL, Scripts, Seen, Work, dispatching, drain_seen, press, rebuild_into, root_attr,
     work,
 };
 use crate::ui::sidebar::tests::{Button, buttons_in};
+use crate::ui::space::{self, PRESET_NAMES, PRESETS, Space};
 use dioxus::prelude::*;
 use dioxus_core::VirtualDom;
 use ds::prelude::{Scheme, SpaceLook, Theme, Typeface};

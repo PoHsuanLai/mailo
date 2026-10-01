@@ -5,7 +5,7 @@ use mail_domain::{OAuthIssuer, Retry};
 
 use super::copy::{self, Action, Notice};
 use super::flow::{Miss, Refusal, What};
-use crate::discover::Gap;
+use mail_core::discover::Gap;
 
 fn no_servers(gap: Gap) -> Miss {
     Miss::NoServers {
@@ -108,7 +108,7 @@ fn cli_texts() -> Vec<String> {
     ];
     for gap in [Gap::Nothing, Gap::StartTlsOnly, Gap::PersonalMicrosoft] {
         all.push(
-            crate::discover::Failed::NoServers {
+            mail_core::discover::Failed::NoServers {
                 address: "a@b.test".to_owned(),
                 gap,
                 tried: "nothing".to_owned(),

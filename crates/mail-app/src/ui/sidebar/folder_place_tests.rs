@@ -6,14 +6,14 @@ use super::super::app::App;
 use super::super::folder_open::Fetcher;
 use super::super::motion::belongs;
 use super::folder_tests::{IMAP, folder};
-use crate::fetch::FolderFetch;
-use crate::sync::Ran;
 use crate::ui::fixtures::{Seen, click, dispatching, empty, rebuild_into};
-use crate::view::{Shell, folder_of, places_with};
+use crate::ui::view::{Shell, folder_of, places_with};
 use chrono::Utc;
 use dioxus::prelude::*;
 use dioxus_core::{NoOpMutations, VirtualDom};
 use ds::prelude::*;
+use mail_core::fetch::FolderFetch;
+use mail_core::sync::Ran;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
@@ -451,7 +451,7 @@ async fn render_a_folder_place_to_a_file() {
         44,
         "Your receipt for September",
     );
-    let space = crate::space::load(&built.dirs.config).current_space();
+    let space = crate::ui::space::load(&built.dirs.config).current_space();
     let (fetcher, _) = counting(Ok("Up to date:"));
     let mut dom = VirtualDom::new(App)
         .with_root_context(built.store.clone())

@@ -17,7 +17,7 @@ use mail_store::{SqliteStore, Store};
 use super::super::menus::when_in_sentence;
 use super::desk::{Desk, Outgoing, take_back_said};
 use super::page::When;
-use crate::view::Shell;
+use crate::ui::view::Shell;
 
 /// How long "Sent" stays before the pill leaves.
 const SENT_STAYS: chrono::TimeDelta = chrono::TimeDelta::seconds(2);

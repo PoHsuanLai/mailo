@@ -6,7 +6,8 @@
 //! loopback server in `mail-runtime/tests/sieve.rs`.
 
 use chrono::{DateTime, TimeZone, Utc};
-use mail_app::{cli, sync};
+use mail_app::cli;
+use mail_core::sync;
 use mail_domain::*;
 use mail_proto::backend::{Authenticate, ImapBackend};
 use mail_proto::{ImapAuth, ImapCommand, ImapSession};
@@ -480,7 +481,7 @@ async fn one_pass(port: u16, store: &Arc<SqliteStore>) -> mail_runtime::SyncRepo
         address: ME.to_owned(),
         plan: plan(port),
         caps: caps(),
-        keep: mail_app::offline::Keep::Bodies,
+        keep: mail_core::offline::Keep::Bodies,
     };
     let inbox = vec![MailboxRef {
         account: ACCOUNT,

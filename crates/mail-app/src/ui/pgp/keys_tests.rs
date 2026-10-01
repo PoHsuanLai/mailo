@@ -16,12 +16,12 @@ use super::keys::{KeysSheet, ordered};
 use super::short;
 use super::tests::{own_key, seams_with, someone_elses};
 use crate::ui::fixtures::{Seen, click, dispatching, rebuild_into, seeded};
-use crate::view::Shell;
+use crate::ui::view::Shell;
 
 #[component]
 fn Sheet() -> Element {
     let shell = use_signal(|| Shell {
-        keys: Some(crate::view::KeysSheet),
+        keys: Some(crate::ui::view::KeysSheet),
         ..Shell::default()
     });
     rsx! { ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window, KeysSheet { shell } } }
@@ -105,7 +105,7 @@ fn two_keys() -> (
     let secrets = Arc::new(MapSecrets::default());
     let bea = someone_elses("bea@example.test", 71);
     let armored = bea.public().armored().unwrap();
-    let theirs = crate::pgp::keys::import(
+    let theirs = mail_core::pgp::keys::import(
         &store,
         secrets.as_ref(),
         armored.as_bytes(),
@@ -273,7 +273,7 @@ async fn generate_verify_and_import_go_through_the_keyring_handed_in() {
         seen.one("aria-label", "Make a key for me@example.test"),
     );
     settle(&mut dom, &mut made).await;
-    let mine = crate::pgp::own_key(&store, "me@example.test")
+    let mine = mail_core::pgp::own_key(&store, "me@example.test")
         .unwrap()
         .unwrap();
     assert!(held(&secrets, &mine));

@@ -10,7 +10,7 @@
 //! page is still: one `use_future` that sleeps and then looks, with the edit counter compared
 //! when it wakes.
 
-use crate::view::Shell;
+use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use std::time::Duration;
 

@@ -1,10 +1,10 @@
 //! The spelling switch in the Space editor, against a temporary config directory and a
 //! temporary, empty dictionary directory only.
 
-use crate::spelling::{self, Setting};
 use crate::ui::app::App;
 use crate::ui::compose::Dictionaries;
 use crate::ui::fixtures::{Seen, Work, click, dispatching, drain_seen, rebuild_into, work};
+use crate::ui::spelling::{self, Setting};
 use dioxus::dioxus_core::VirtualDom;
 use ds_blitz::spell::SpellConfig;
 

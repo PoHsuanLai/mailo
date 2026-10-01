@@ -11,7 +11,7 @@ use dioxus::prelude::*;
 use ds::spell::lang::{Lang, Spell};
 use ds_blitz::spell::{SpellConfig, locale_lang};
 
-use crate::spelling::{self, Setting};
+use crate::ui::spelling::{self, Setting};
 
 /// Dictionaries to check against in place of the system's, and the languages a draft is
 /// checked in: a root context, for a test.

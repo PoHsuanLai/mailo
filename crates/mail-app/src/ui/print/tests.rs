@@ -320,9 +320,9 @@ async fn render_printing_to_files() {
 
     #[component]
     fn Opened(thread: ThreadId) -> Element {
-        let shell = use_signal(|| crate::view::Shell {
+        let shell = use_signal(|| crate::ui::view::Shell {
             open: Some(thread),
-            ..crate::view::Shell::default()
+            ..crate::ui::view::Shell::default()
         });
         rsx! { ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window, crate::ui::reading::Reader { thread, shell } } }
     }

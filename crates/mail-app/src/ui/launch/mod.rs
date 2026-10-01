@@ -6,13 +6,13 @@
 //! window.
 
 use super::app::App;
-use crate::appearance::WindowDirs;
-use crate::provider::icon::Loaded;
-use crate::space::Spaces;
-use crate::view::Appearance;
+use crate::ui::appearance::WindowDirs;
+use crate::ui::space::Spaces;
+use crate::ui::view::Appearance;
 use dioxus::prelude::*;
 use ds::base::spawner::Spawner;
 use ds_settings::{AppName, ConfigRoot, Store, SystemPrefsSource, UserStyle, use_environment};
+use mail_core::provider::icon::Loaded;
 use mail_store::SqliteStore;
 use std::sync::Arc;
 
@@ -38,7 +38,7 @@ pub fn run(
     dirs: Option<WindowDirs>,
     start: super::Start,
 ) {
-    let cache = crate::appearance::cache_dir();
+    let cache = mail_core::config::cache_dir();
     let icons = cache
         .as_ref()
         .map(|dir| Loaded::read(&dir.join("providers")))

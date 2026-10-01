@@ -5,9 +5,9 @@
 //! that asks its server; on, the servers are asked as the search is shown.
 
 use super::parts::Seg;
-use crate::appearance::WindowDirs;
-use crate::server_search::{self, Automatic};
+use crate::ui::appearance::WindowDirs;
 use dioxus::prelude::*;
+use mail_core::server_search::{self, Automatic};
 
 const CHOICES: [(Automatic, &str); 2] = [(Automatic::On, "On"), (Automatic::Off, "Off")];
 

@@ -84,8 +84,8 @@ jobs:
   # met a real implementation and disagreed with it.
   live:
     runs-on: ubuntu-latest
-    # `sync_path` is a mail-app test, so a cold run here builds the window stack too (~8-10
-    # minutes on a four-core runner) before any socket opens.
+    # `sync_path` is a mail-core test (it was a mail-app one, which built the window stack first),
+    # so a cold run here no longer builds Blitz and wgpu before any socket opens.
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4

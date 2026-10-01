@@ -16,7 +16,7 @@ use crate::ui::fixtures::{
     FakePointer, INSIDE_THE_SHELL, Seen, chord, click, dispatching, empty, pointer, rebuild_into,
 };
 use crate::ui::folder_open::Fetcher;
-use crate::view::folder_filter;
+use crate::ui::view::folder_filter;
 
 const IMAP: AccountId = AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000d1"));
 const FROM: &str = "Projects/2026";
@@ -202,7 +202,7 @@ fn the_menu_offers_the_accounts_own_folders_and_nothing_else() {
 fn window(store: Arc<SqliteStore>) -> (VirtualDom, Seen) {
     dispatching();
     let fetcher = Fetcher(Arc::new(|_, _, path: &str, _| {
-        Ok(crate::sync::Ran {
+        Ok(mail_core::sync::Ran {
             text: format!("fetched {path}"),
             rejected: false,
             hold: None,
@@ -357,7 +357,7 @@ fn queued_folders(store: &SqliteStore) -> Vec<String> {
 }
 
 /// Filed into `path`, as a pick in the menu does it, with the undo it hands the toast.
-fn file(store: &SqliteStore, thread: ThreadId, path: &str) -> crate::undo::Undo {
+fn file(store: &SqliteStore, thread: ThreadId, path: &str) -> mail_core::undo::Undo {
     let label = folder_label(store, IMAP, path).unwrap();
     crate::ui::ops::perform(store, thread, Op::File(label)).expect("the move was not made")
 }

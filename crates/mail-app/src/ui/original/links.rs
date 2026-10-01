@@ -10,7 +10,7 @@
 //!
 //! The pointer coming onto a link in a frame, or leaving it, is reported once per crossing with
 //! the anchor's own text and where it goes. mailo reads the two as it reads a Reader view link
-//! ([`crate::trust::destination`]: the pill is loud when the text names somewhere else), so the
+//! ([`mail_core::trust::destination`]: the pill is loud when the text names somewhere else), so the
 //! reader's link pill shows for a frame's links too ([`FramePill`]).
 
 use ds_blitz::{FrameLink, FrameLinkHover, FrameLinks, HoverPhase};

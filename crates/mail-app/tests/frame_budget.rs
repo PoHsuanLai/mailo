@@ -22,7 +22,9 @@
 //! `MAILO_BENCH_DB` points it at a real database instead of a generated one, read-only.
 
 use chrono::{DateTime, TimeZone, Utc};
-use mail_app::{query, reader, view};
+use mail_app::ui::view;
+use mail_core::query;
+use mail_core::reader;
 use mail_domain::*;
 use mail_mime::{RemoteImages, SanitizePolicy};
 use mail_store::{SqliteStore, Store};
@@ -226,7 +228,10 @@ fn what_one_frame_of_the_window_costs() {
 
     // 1. The list. One query for the whole visible list, deliberately — see `ui::App`.
     let list = timed(7, || {
-        let _ = store.threads(&page(50, view::place_filter(MailboxRole::Inbox)), now);
+        let _ = store.threads(
+            &page(50, mail_core::place::place_filter(MailboxRole::Inbox)),
+            now,
+        );
     });
 
     // 2. The badges: one count per place, every revision.

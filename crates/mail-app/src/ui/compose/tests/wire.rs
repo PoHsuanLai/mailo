@@ -4,7 +4,7 @@ use super::super::float::{pick_mention, pick_slash};
 use super::super::page::{CcRow, Float};
 use super::super::render::{para_renders, reset_para_renders};
 use super::*;
-use crate::editor::{Level, Mark, ParaKind, to_html};
+use crate::ui::editor::{Level, Mark, ParaKind, to_html};
 
 #[test]
 fn typed_markdown_becomes_a_bold_run_and_the_markup_shows_it() {
@@ -129,7 +129,7 @@ fn enter_backspace_and_a_cross_paragraph_delete() {
 #[test]
 fn a_composition_leaves_its_paragraph_alone_until_it_ends() {
     let (mut dom, mut page) = body_dom(page_of("ab\n\nsecond"));
-    dom.in_runtime(|| page.write().session.caret = crate::editor::Caret::at(0, 2));
+    dom.in_runtime(|| page.write().session.caret = crate::ui::editor::Caret::at(0, 2));
     dom.render_immediate(&mut NoOpMutations);
     reset_para_renders();
     let key_before = dom.in_runtime(|| page.peek().node_key(0));

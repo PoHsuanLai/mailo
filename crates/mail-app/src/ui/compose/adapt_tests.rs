@@ -13,7 +13,7 @@ use super::{
     Asked, Reach, Step, asked, para_at, pointer_selection, pos_of, selected_text, step,
     text_position, word_at,
 };
-use crate::editor::{Doc, InputEvent, Node, Object, ParaKind, Pos, Range};
+use crate::ui::editor::{Doc, InputEvent, Node, Object, ParaKind, Pos, Range};
 
 fn key(key: Key, modifiers: Modifiers) -> EditInput {
     EditInput::Key(KeyInput { key, modifiers })

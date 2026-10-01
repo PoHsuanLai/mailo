@@ -1,6 +1,6 @@
 use super::*;
-use crate::fetch::{First, Live};
 use chrono::TimeZone;
+use mail_core::fetch::{First, Live};
 use mail_domain::SyncCursor;
 
 const NEW: AccountId = AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));

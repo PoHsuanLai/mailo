@@ -13,7 +13,6 @@
 
 mod state;
 
-use crate::search::match_list;
 use dioxus::prelude::*;
 use ds::components::content::avatar::{AvatarFace, AvatarShape, AvatarSize, AvatarTone};
 use ds::components::content::text_runs::{RunTone, TextRun};
@@ -21,6 +20,7 @@ use ds::components::menus::item::item::MenuImage;
 use ds::components::menus::palette::palette_group::{PaletteGroup, PaletteGroups, PaletteRow};
 use ds::host::measure::{Anchor, MountedRef};
 use ds::prelude::*;
+use mail_core::search::match_list;
 pub(super) use state::{MenuItem, MenuKey, Piece, Right, Run, Tile, Tone, menu_key, pieces};
 
 /// A list of commands drawn by quire's `Menu`: floating over the window, anchored to the element

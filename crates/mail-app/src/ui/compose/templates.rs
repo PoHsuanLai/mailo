@@ -1,7 +1,7 @@
 //! Templates in the window: "Save as template…" and "Start from a template" in the `/` menu, and
 //! the rows every list of templates draws, here and in ⌘K.
 //!
-//! Every write goes through `crate::template`, the module `mailo template` uses. Templates are
+//! Every write goes through `mail_core::template`, the module `mailo template` uses. Templates are
 //! local only; see `mail_domain::template`.
 
 use ds::base::geometry::placement::{Align, Side};
@@ -25,8 +25,8 @@ use super::desk::{self, Desk};
 use super::float::{commit, query, slash_items};
 use super::life;
 use super::page::{Float, Page, PageKind, Phase, address};
-use crate::editor::{Caret, Node, Op, Range, runs_text};
-use crate::view::Shell;
+use crate::ui::editor::{Caret, Node, Op, Range, runs_text};
+use crate::ui::view::Shell;
 
 /// The `/` row that keeps the message as a template.
 pub(in crate::ui) const SAVE_KEY: &str = "template:save";
@@ -120,7 +120,7 @@ pub(in crate::ui) fn template_rows(all: &[(String, Template)], typed: &str) -> V
             let marks = if typed.is_empty() {
                 Vec::new()
             } else {
-                crate::search::match_list(typed, &[template.name.as_str()])
+                mail_core::search::match_list(typed, &[template.name.as_str()])
                     .into_iter()
                     .next()?
                     .indices
@@ -165,13 +165,13 @@ pub(in crate::ui) fn named(all: &[(String, Template)], key: &str) -> Option<Temp
 
 /// Every template, or none when the store cannot say.
 pub(in crate::ui) fn every(store: &SqliteStore) -> Vec<(String, Template)> {
-    crate::template::all(store).unwrap_or_default()
+    mail_core::template::all(store).unwrap_or_default()
 }
 
 /// Delete the template `key` names, returning what the toast says.
 pub(in crate::ui) fn forget(store: &SqliteStore, key: &str) -> Result<String, String> {
     let id = named(&every(store), key).ok_or_else(|| "that template is gone".to_owned())?;
-    let name = crate::template::delete(store, id)?;
+    let name = mail_core::template::delete(store, id)?;
     Ok(format!("Deleted template “{name}”"))
 }
 
@@ -186,7 +186,7 @@ pub(in crate::ui) fn save_named(
         return Err("there is no name to save it under".to_owned());
     };
     let draft = life::save(store, page, now)?;
-    let kept = crate::template::save(store, draft.id, &name, now)?;
+    let kept = mail_core::template::save(store, draft.id, &name, now)?;
     page.float = Float::Closed;
     Ok(format!("Saved as template “{}”", kept.name))
 }
@@ -201,8 +201,8 @@ pub(in crate::ui) fn start_from(
     now: DateTime<Utc>,
 ) -> Result<Draft, String> {
     let to: Vec<_> = page.to.iter().map(address).collect();
-    let started = crate::template::start(store, template, &to, now)?;
-    crate::compose::discard(store, page.draft)?;
+    let started = mail_core::template::start(store, template, &to, now)?;
+    mail_core::compose::discard(store, page.draft)?;
     Ok(started)
 }
 

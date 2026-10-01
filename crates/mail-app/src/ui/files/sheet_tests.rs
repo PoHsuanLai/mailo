@@ -13,7 +13,7 @@ use mail_store::{SqliteStore, Store};
 use super::work::{Dest, Looked, import_now, look};
 use super::{FilesSheet, Phase, Report};
 use crate::ui::fixtures::{Seen, click, dispatching, drain_seen, rebuild_into};
-use crate::view::{FileSheet, Shell};
+use crate::ui::view::{FileSheet, Shell};
 
 /// The first render, then the ones after it, keeping every attribute they set: a quire sheet is
 /// drawn a frame after the one that asked for it, on quire's clock.
@@ -108,7 +108,7 @@ fn import_locally(store: &SqliteStore, root: &Path) -> AccountId {
         &mut |_| {},
     )
     .unwrap();
-    crate::account::local(store, chrono::Utc::now()).unwrap()
+    mail_core::account::local(store, chrono::Utc::now()).unwrap()
 }
 
 #[tokio::test]
@@ -218,8 +218,8 @@ async fn local_folders_are_named_so_and_have_nothing_to_sync() {
     let (store, dir) = crate::ui::fixtures::seeded();
     import_locally(&store, &a_maildir(dir.path()));
     // One Space over every account, so both tiles are drawn side by side.
-    let everything = crate::space::Spaces {
-        spaces: vec![crate::space::Space::default()],
+    let everything = crate::ui::space::Spaces {
+        spaces: vec![crate::ui::space::Space::default()],
         current: 0,
         recall: std::collections::BTreeMap::new(),
     };
@@ -255,11 +255,11 @@ async fn local_folders_are_named_so_and_have_nothing_to_sync() {
 #[test]
 fn local_folders_send_nothing_and_tell_no_server() {
     let (store, dir) = crate::ui::fixtures::seeded();
-    let sending_before = crate::compose::sending_accounts(&store);
+    let sending_before = mail_core::compose::sending_accounts(&store);
     let local = import_locally(&store, &a_maildir(dir.path()));
-    assert_eq!(crate::compose::sending_accounts(&store), sending_before);
+    assert_eq!(mail_core::compose::sending_accounts(&store), sending_before);
     assert!(
-        crate::compose::account_for(&store, Some(presets::LOCAL_FOLDERS)).is_err(),
+        mail_core::compose::account_for(&store, Some(presets::LOCAL_FOLDERS)).is_err(),
         "local folders were offered as a From"
     );
 

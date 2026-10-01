@@ -3,14 +3,14 @@
 //! are the test's own, held shut until it lets them go, so that "running" can be looked at.
 
 use super::{Fetching, Passer};
-use crate::fetch::{Count, Event, First, Link, Step, Trigger};
-use crate::sync::report::{AccountReport, Counts, PassEnd, Progress};
 use crate::ui::app::App;
 use crate::ui::fixtures::{Seen, click, dispatching, empty, rebuild_into};
 use chrono::Utc;
 use dioxus::prelude::*;
 use dioxus_core::{NoOpMutations, VirtualDom};
 use ds::motion::detail::operation::Operation;
+use mail_core::fetch::{Count, Event, First, Link, Step, Trigger};
+use mail_core::sync::report::{AccountReport, Counts, PassEnd, Progress};
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -86,7 +86,7 @@ fn refused() -> PassEnd {
         address: "me@nowhere.example".to_owned(),
         retry: Retry::NeedsReauth,
         why: "the server refused the password".to_owned(),
-        pause: crate::fetch::Pause::ServerBusy,
+        pause: mail_core::fetch::Pause::ServerBusy,
     }
 }
 
@@ -96,7 +96,7 @@ fn unreachable() -> PassEnd {
         address: "me@nowhere.example".to_owned(),
         retry: Retry::After(Duration::from_secs(5)),
         why: "cannot connect".to_owned(),
-        pause: crate::fetch::Pause::Unreachable,
+        pause: mail_core::fetch::Pause::Unreachable,
     }
 }
 

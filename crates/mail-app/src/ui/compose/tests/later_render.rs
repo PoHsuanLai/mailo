@@ -49,7 +49,7 @@ fn window(dress: impl FnOnce(&mut Page), before: Before) -> (String, Work) {
             super::super::templates::save_named(&built.store, &mut write, Utc::now())
         });
         kept.unwrap_or_else(|why| panic!("a template: {why}"));
-        let other = crate::compose::draft_new(
+        let other = mail_core::compose::draft_new(
             &built.store,
             dom.in_runtime(|| page.peek().from),
             &[],
@@ -58,16 +58,16 @@ fn window(dress: impl FnOnce(&mut Page), before: Before) -> (String, Work) {
             Utc::now(),
         )
         .unwrap_or_else(|why| panic!("{why}"));
-        crate::template::save(&built.store, other.id, "Interview thanks", Utc::now())
+        mail_core::template::save(&built.store, other.id, "Interview thanks", Utc::now())
             .unwrap_or_else(|why| panic!("{why}"));
         // The page's own words were the template's; it starts empty again.
         dom.in_runtime(|| {
             let mut write = page.write();
             write.subject.clear();
-            write.session.doc = crate::editor::Doc {
-                nodes: vec![Node::plain(crate::editor::ParaKind::Paragraph, "")],
+            write.session.doc = crate::ui::editor::Doc {
+                nodes: vec![Node::plain(crate::ui::editor::ParaKind::Paragraph, "")],
             };
-            write.session.caret = crate::editor::Caret::at(0, 0);
+            write.session.caret = crate::ui::editor::Caret::at(0, 0);
             write.float = Float::Closed;
         });
     }

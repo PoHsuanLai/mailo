@@ -2,7 +2,7 @@
 //! list's title names. The window around it is in `sidebar/folder_place_tests.rs`.
 
 use super::title_address;
-use crate::view::{Shell, folder_of, places_with};
+use crate::ui::view::{Shell, folder_of, places_with};
 use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::*;
 
@@ -120,9 +120,9 @@ fn folder_places_come_after_the_labels_so_the_badges_line_up() {
         &[("2026".to_owned(), mailbox(ONE, "Projects/2026"))],
         &[],
     );
-    let defaults = crate::view::default_places().len();
+    let defaults = crate::ui::view::default_places().len();
     assert_eq!(places.len(), defaults + 2);
-    assert!(crate::view::is_label_place(&places[defaults]));
+    assert!(crate::ui::view::is_label_place(&places[defaults]));
     assert_eq!(places[defaults + 1].name, "2026");
     assert_eq!(
         folder_of(&places[defaults + 1]),
