@@ -15,6 +15,8 @@ pub enum Mark {
     Busy,
     /// Something is wrong: a warning glyph, and why, as its hover text and its label.
     Warn(String),
+    /// The server cannot be reached: Mail's offline glyph, and why, as the warning has it.
+    Offline(String),
 }
 
 /// The sync button's availability: busy while any account in view is fetching.
@@ -39,15 +41,17 @@ where
         Link::Broken { why, .. } => Mark::Warn(why.clone()),
         Link::Waiting { until, why, .. } => {
             let at = clock(*until, zone);
-            Mark::Warn(match why {
-                Pause::Unreachable => {
-                    format!("Can\u{2019}t reach the server. Trying again at {at}.")
+            match why {
+                Pause::Unreachable => Mark::Offline(format!(
+                    "Can\u{2019}t reach the server. Trying again at {at}."
+                )),
+                Pause::Throttled => Mark::Warn(format!(
+                    "The server asked to slow down. Trying again at {at}."
+                )),
+                Pause::ServerBusy => {
+                    Mark::Warn(format!("The server is busy. Trying again at {at}."))
                 }
-                Pause::Throttled => {
-                    format!("The server asked mailo to slow down. Trying again at {at}.")
-                }
-                Pause::ServerBusy => format!("The server is busy. Trying again at {at}."),
-            })
+            }
         }
         Link::Current { trouble, .. } => match trouble.as_slice() {
             [] => Mark::Quiet,
@@ -142,7 +146,7 @@ mod tests {
         };
         assert_eq!(
             said(&waiting),
-            Mark::Warn("Can\u{2019}t reach the server. Trying again at 12:30.".into())
+            Mark::Offline("Can\u{2019}t reach the server. Trying again at 12:30.".into())
         );
     }
 

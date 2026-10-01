@@ -13,9 +13,9 @@
 
 // The screen's derived words, built and tested ahead of the surfaces that draw them: no surface
 // does yet. They were public in `mail_app::fetch` until the split, so nothing called them dead.
-mod banner;
 mod face;
 mod folder;
+mod line;
 mod live;
 mod marks;
 mod outbox;
@@ -39,9 +39,9 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
-pub(in crate::ui) use banner::{AccountName, Banner, BannerAction, Sev, banner};
 pub(in crate::ui) use face::{CANNOT_LOAD, FIRST_SYNC, HasRows, ListFace, list_face};
 pub(in crate::ui) use folder::opened;
+pub(in crate::ui) use line::{AccountLine, Remedy, Standing, account_line};
 pub(in crate::ui) use marks::{Mark, account_mark_local, folder_mark, sync_availability};
 pub(in crate::ui) use pass::Passer;
 pub(in crate::ui) use status::{StatusLine, Tone, status_line, thousandths};
@@ -79,7 +79,6 @@ impl Fetching {
     }
 
     /// Ask every account for a pass.
-    #[allow(dead_code)] // The banners and the sidebar of the next wave are its readers.
     pub(in crate::ui) fn sync_all(&self, trigger: Trigger) {
         let all: Vec<AccountId> = self.links.peek().keys().copied().collect();
         self.sync(&all, trigger);
@@ -113,9 +112,18 @@ impl Fetching {
 
     /// What to say about the accounts `shell` is showing, at `now`.
     /// One account's operation: running while its pass is.
-    #[cfg(test)]
     pub(in crate::ui) fn op(&self, account: AccountId) -> Operation {
         self.ops.read().get(&account).copied().unwrap_or_default()
+    }
+
+    /// Every account's link, in no order a person would know. Read in a component, it redraws
+    /// when any of them moves.
+    pub(in crate::ui) fn all_links(&self) -> Vec<(AccountId, Link)> {
+        self.links
+            .read()
+            .iter()
+            .map(|(id, link)| (*id, link.clone()))
+            .collect()
     }
 
     /// The links of the accounts in view, with whom they belong to.

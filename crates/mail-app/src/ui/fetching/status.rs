@@ -172,7 +172,7 @@ where
     }
 }
 
-fn ago<Tz: TimeZone>(at: DateTime<Utc>, now: DateTime<Utc>, zone: &Tz) -> String
+pub(super) fn ago<Tz: TimeZone>(at: DateTime<Utc>, now: DateTime<Utc>, zone: &Tz) -> String
 where
     Tz::Offset: std::fmt::Display,
 {

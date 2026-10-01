@@ -303,6 +303,10 @@ fn run_action(
             close(shell);
             super::pgp::keys::open(shell);
         }
+        "Connection Doctor" => {
+            close(shell);
+            super::doctor::open(shell);
+        }
         "Keyboard shortcuts…" => {
             close(shell);
             super::keyboard::open(shell);

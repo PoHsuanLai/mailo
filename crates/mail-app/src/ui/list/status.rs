@@ -6,9 +6,11 @@
 
 use crate::ui::common::classed;
 use crate::ui::fetching::{Fetching, Tone, thousandths};
+use crate::ui::press::on_primary;
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::components::content::label::{Label, LabelRole, LabelStyle};
+use ds::components::controls::button_model::Bezel;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
@@ -39,14 +41,30 @@ pub(super) fn ListStatus(shell: Signal<Shell>) -> Element {
         Tone::Warn => "status warn",
         Tone::Danger => "status bad",
     };
+    // A warning is a way in to the Connection Doctor, as Mail's mark is; a quiet line is words.
+    let words = match line.tone {
+        Tone::Plain => rsx! {
+            // One line, cut short when it must be; the whole of it on hover.
+            Label {
+                text: line.text.clone(),
+                role: LabelRole::Tertiary,
+                style: LabelStyle::Footnote,
+                common: classed(class),
+            }
+        },
+        Tone::Warn | Tone::Danger => rsx! {
+            Button {
+                label: line.text.clone(),
+                bezel: Bezel::Inline,
+                size: ControlSize::Small,
+                title: Some("Open Connection Doctor".to_owned()),
+                onclick: on_primary(move || crate::ui::doctor::open(shell)),
+                common: classed(class),
+            }
+        },
+    };
     rsx! {
-        // One line, cut short when it must be; the whole of it on hover.
-        Label {
-            text: line.text.clone(),
-            role: LabelRole::Tertiary,
-            style: LabelStyle::Footnote,
-            common: classed(class),
-        }
+        {words}
         if let Some((done, of)) = line.progress {
             div { class: "list-progress",
                 ProgressIndicator {

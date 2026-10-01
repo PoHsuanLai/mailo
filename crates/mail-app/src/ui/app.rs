@@ -360,6 +360,14 @@ pub(super) fn App() -> Element {
             }
             return;
         }
+        // The Connection Doctor, behind the Add account sheet when that is open on top of it:
+        // Esc closes it, and no other key does what it would to the rows behind it.
+        if shell.read().doctor.is_some() {
+            if key == "Escape" {
+                super::doctor::close(shell);
+            }
+            return;
+        }
         // The Rules sheet likewise: its fields take letters, Esc closes it.
         if shell.read().rules.is_some() {
             if key == "Escape" {
@@ -735,6 +743,9 @@ pub(super) fn App() -> Element {
             }
             if shell.read().keys.is_some() {
                 super::pgp::keys::KeysSheet { shell }
+            }
+            if shell.read().doctor.is_some() {
+                super::doctor::DoctorView { shell, revision }
             }
             if shell.read().view_editor.is_some() {
                 super::views::ViewSheet { shell, revision, pages }
