@@ -240,7 +240,7 @@ pub(super) fn FolderRow(
     let overflow_name = name.clone();
     let mark_path = node.path.clone();
     let accessory = rsx! {
-        super::marks::FolderMark { account, path: mark_path }
+        super::marks::FolderMark { shell: wires.shell, account, path: mark_path }
         if let Some(count) = count {
             Badge {
                 content: BadgeContent::Number(u32::try_from(count).unwrap_or(u32::MAX)),

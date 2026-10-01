@@ -30,6 +30,7 @@ mod contacts;
 mod data;
 mod debounce;
 mod destroy;
+mod doctor;
 mod fetching;
 mod files;
 mod folder_open;

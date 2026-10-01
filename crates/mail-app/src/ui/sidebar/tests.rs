@@ -197,3 +197,33 @@ fn attributes(raw: &str) -> Vec<(String, String)> {
     }
     out
 }
+
+mod tile_status {
+    use super::super::panes::all_status;
+    use ds::components::app::pin_tile::PinStatus;
+    use ds::motion::detail::operation::Operation;
+
+    fn attention(why: &str) -> PinStatus {
+        PinStatus::Attention { why: why.into() }
+    }
+
+    #[test]
+    fn the_all_tile_speaks_for_the_accounts_in_scope() {
+        let busy = PinStatus::Busy(Operation::default());
+        assert_eq!(all_status(&[]), PinStatus::Quiet);
+        assert_eq!(
+            all_status(&[PinStatus::Quiet, PinStatus::Quiet]),
+            PinStatus::Quiet
+        );
+        assert_eq!(
+            all_status(&[PinStatus::Quiet, busy.clone()]),
+            busy,
+            "work shows when nothing needs the person"
+        );
+        assert_eq!(all_status(&[busy.clone(), attention("a")]), attention("a"));
+        assert_eq!(
+            all_status(&[attention("a"), attention("b"), busy]),
+            attention("2 accounts need attention.")
+        );
+    }
+}

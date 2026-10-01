@@ -151,7 +151,7 @@ pub(super) fn FolderList(
                 rsx! {
                     div { class: "account-head",
                         SectionHeader { title: tree.address.clone() }
-                        super::marks::LinkMark { account: tree.account }
+                        super::marks::LinkMark { shell, account: tree.account }
                     }
                 },
             ));

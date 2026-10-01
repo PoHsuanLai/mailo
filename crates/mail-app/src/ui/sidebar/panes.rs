@@ -4,12 +4,13 @@ use super::super::data::account_rows;
 use super::super::hover::{Hook, element, out, over, use_driver};
 use super::super::motion::{drag, motion};
 use super::tagged;
+use crate::ui::fetching::{Fetching, Mark, account_mark_local};
 use crate::ui::provider_chip::{mark_of, mark_style};
 use crate::ui::space::{self, Pinned, Scope, Space};
 use crate::ui::view::{Shell, Source, folder_of, is_label_place, saved_of};
 use dioxus::prelude::*;
 use ds::base::vocab::RowState;
-use ds::components::app::pin_tile::PinFace;
+use ds::components::app::pin_tile::{PinFace, PinStatus};
 use ds::components::app::pin_tiles::{PinAdd, PinItem, PinTiles};
 use ds::components::content::avatar::{AvatarFace, AvatarShape, AvatarSize, AvatarTone};
 use ds::components::content::provider_mark::{MarkProvider, MarkStyle};
@@ -145,12 +146,16 @@ pub(super) fn AccountTiles(
     // One tile per account (and "All" before them when there are several), each with its own
     // provider's mark: quire's `PinTiles`, keyed by the account, `None` being all of them.
     let mut items: Vec<PinItem<Option<AccountId>>> = Vec::new();
+    // Each tile carries its account's mark, as Mail's sidebar carries it beside the account:
+    // the spinner while it syncs, the warning when it needs the person.
+    let statuses: Vec<PinStatus> = counted.rows.iter().map(|row| status_of(row.0)).collect();
     if several {
         items.push(PinItem {
             key: None,
             face: PinFace::All,
             unread: count_of(counted.all),
             mark: MarkStyle::Letter,
+            status: all_status(&statuses),
         });
     }
     for (index, row) in counted.rows.iter().enumerate() {
@@ -170,6 +175,7 @@ pub(super) fn AccountTiles(
             },
             unread: count_of(unread),
             mark,
+            status: statuses.get(index).cloned().unwrap_or_default(),
         });
     }
     let selected = if several {
@@ -191,7 +197,45 @@ pub(super) fn AccountTiles(
                 shell.write().account = account;
                 pages.set(1);
             },
+            // The mark is a button: it opens the Connection Doctor, which lists every account.
+            onstatus: move |_: Option<AccountId>| super::super::doctor::open(shell),
         }
+    }
+}
+
+/// What an account's tile says of its fetching.
+fn status_of(account: AccountId) -> PinStatus {
+    let Some(fetching) = try_consume_context::<Fetching>() else {
+        return PinStatus::Quiet;
+    };
+    match fetching.link(account).map(|link| account_mark_local(&link)) {
+        None | Some(Mark::Quiet) => PinStatus::Quiet,
+        Some(Mark::Busy) => PinStatus::Busy(fetching.op(account)),
+        Some(Mark::Warn(why) | Mark::Offline(why)) => PinStatus::Attention { why },
+    }
+}
+
+/// What the "All" tile says: an account that needs the person first, else any that is working.
+pub(super) fn all_status(statuses: &[PinStatus]) -> PinStatus {
+    let troubled: Vec<&String> = statuses
+        .iter()
+        .filter_map(|status| match status {
+            PinStatus::Attention { why } => Some(why),
+            PinStatus::Quiet | PinStatus::Busy(_) => None,
+        })
+        .collect();
+    match troubled.as_slice() {
+        [] => statuses
+            .iter()
+            .find(|status| matches!(status, PinStatus::Busy(_)))
+            .cloned()
+            .unwrap_or_default(),
+        [one] => PinStatus::Attention {
+            why: (*one).clone(),
+        },
+        many => PinStatus::Attention {
+            why: format!("{} accounts need attention.", many.len()),
+        },
     }
 }
 

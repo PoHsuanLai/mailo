@@ -446,6 +446,11 @@ pub struct RulesSheet {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct KeysSheet;
 
+/// The Connection Doctor sheet while it is open. It keeps nothing: it reads every account's
+/// link, and a sign-in it starts is the Add account sheet's.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DoctorSheet;
+
 /// The keyboard shortcuts sheet while it is open.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct KeyboardSheet {
@@ -575,6 +580,8 @@ pub struct Shell {
     pub rules: Option<RulesSheet>,
     /// The keys and certificates sheet while it is open. `None` is closed.
     pub keys: Option<KeysSheet>,
+    /// The Connection Doctor sheet while it is open. `None` is closed.
+    pub doctor: Option<DoctorSheet>,
     /// The saved-view editor while it is open, with what its fields hold. `None` is closed.
     pub view_editor: Option<crate::ui::saved::ViewDraft>,
     /// Which key does what: the shipped keys with the user's own over them, read from
@@ -708,6 +715,7 @@ impl Default for Shell {
             view_editor: None,
             keymap: crate::ui::keymap::Keymap::default(),
             keyboard: None,
+            doctor: None,
             destroying: None,
             find: None,
             undo: mail_core::undo::UndoStack::default(),

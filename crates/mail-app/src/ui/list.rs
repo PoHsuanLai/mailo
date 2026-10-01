@@ -31,11 +31,9 @@ use mail_store::{SqliteStore, Store};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-mod banner;
 mod first_sync;
 mod status;
 
-use self::banner::FetchBanner;
 use self::first_sync::FirstSyncRows;
 use self::status::ListStatus;
 
@@ -293,13 +291,13 @@ pub(super) fn ThreadList(
                 .map(|fetching| fetching.op_in_view(&shell.read()))
                 .unwrap_or_default(),
         ),
-        ListFace::CannotLoad(problem) => Phase::Failed {
-            title: CANNOT_LOAD.to_owned(),
-            description: Some(problem.description().into()),
-        },
-        ListFace::Rows | ListFace::Empty | ListFace::NoMatch(_) | ListFace::NoAccount => {
-            Phase::Ready
-        }
+        // Ready: the failure is drawn below, with a way into the Connection Doctor beside Retry,
+        // which `Loadable`'s own failure has no place for.
+        ListFace::CannotLoad(_)
+        | ListFace::Rows
+        | ListFace::Empty
+        | ListFace::NoMatch(_)
+        | ListFace::NoAccount => Phase::Ready,
     };
     let empty_form = match nothing() {
         Nothing::NoMatch(_) => EmptyForm::NoResults,
@@ -413,7 +411,6 @@ pub(super) fn ThreadList(
                 onblur: move |()| in_a_field.set(false),
                 common: classed("search"),
             }
-            FetchBanner { shell, revision }
             // quire's list in mailo's scroller: it keeps each row by its key, so a row that
             // leaves plays its exit and the rows below close the gap. A `Loadable` decides what
             // the pane holds: outline rows while the first mail comes, the failure when no
@@ -433,7 +430,20 @@ pub(super) fn ThreadList(
                             }
                         },
                     }
-                    if nothing_here {
+                    if let ListFace::CannotLoad(problem) = &face {
+                        EmptyState {
+                            form: EmptyForm::Failure,
+                            title: CANNOT_LOAD,
+                            description: Some(problem.description().into()),
+                            action: rsx! {
+                                Button {
+                                    label: "Connection Doctor\u{2026}",
+                                    onclick: on_primary(move || super::doctor::open(shell)),
+                                }
+                            },
+                            onretry: retry,
+                        }
+                    } else if nothing_here {
                         EmptyState {
                             form: empty_form,
                             title: nothing().message(),
