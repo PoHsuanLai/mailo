@@ -79,6 +79,28 @@ pub fn run_due(
     )
 }
 
+/// [`run_due`], with how each account ended kept as data, as [`super::run_typed`] does for
+/// [`super::run`].
+pub fn run_due_typed(
+    store: Arc<SqliteStore>,
+    now: chrono::DateTime<chrono::Utc>,
+    due: &[AccountId],
+    hooks: super::report::Hooks<'_>,
+) -> Result<Vec<super::report::PassEnd>, String> {
+    let registry = OAuthRegistry::load_default().map_err(|e| e.to_string())?;
+    super::run_typed_all(
+        store,
+        Arc::new(KeyringSecrets),
+        &registry,
+        now,
+        &super::Scope {
+            due: &|account| due.contains(&account),
+            kept: &crate::offline::load_default(),
+        },
+        hooks,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
