@@ -147,12 +147,19 @@ pub struct Place<'a>(&'a Waiting);
 impl Waiting {
     /// A place to wait in, or `None` when [`REMEMBERED`] are already waiting.
     pub fn enter(&self) -> Option<Place<'_>> {
-        self.0
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |held| {
-                (held < REMEMBERED).then_some(held + 1)
-            })
-            .ok()
-            .map(|_| Place(self))
+        let mut held = self.0.load(Ordering::Acquire);
+        loop {
+            if held >= REMEMBERED {
+                return None;
+            }
+            match self
+                .0
+                .compare_exchange_weak(held, held + 1, Ordering::AcqRel, Ordering::Acquire)
+            {
+                Ok(_) => return Some(Place(self)),
+                Err(now) => held = now,
+            }
+        }
     }
 
     pub fn len(&self) -> usize {
