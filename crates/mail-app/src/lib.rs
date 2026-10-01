@@ -13,6 +13,7 @@ pub mod discover;
 pub mod editor;
 pub mod emoji;
 pub mod export;
+pub mod fetch;
 pub mod folder;
 pub mod follow_up;
 pub mod import;
