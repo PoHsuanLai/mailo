@@ -333,18 +333,13 @@ fn a_search_that_finds_mail_here_still_ends_with_the_offer() {
         h.count(OFFER) == 1
     });
     assert_eq!(calls.load(Ordering::SeqCst), 0, "not asked by itself");
-    // Emptying the box is the place again, with nothing offered. The offer's arrival redraws the
-    // list, and on a slow runner the box can have lost its focus by then: take it again, caret at
-    // the end, and wait for the field to hold the whole word before deleting it.
+    // Emptying the box is the place again, with nothing offered. The box is emptied from its
+    // start with Delete: on macOS Blitz leaves Backspace in a field to the system's key bindings,
+    // which a headless window never gets, so Backspace deletes nothing there.
     press(&mut harness, ".search input");
-    harness.key(Key::End);
-    until(
-        &mut harness,
-        "the box holding the search with the caret at its end",
-        |h| h.attr(".search input", "value").as_deref() == Some("flight"),
-    );
+    harness.key(Key::Home);
     for _ in 0.."flight".len() {
-        harness.key(Key::Backspace);
+        harness.key(Key::Delete);
     }
     until(&mut harness, "the place coming back", |h| {
         h.count(OFFER) == 0
