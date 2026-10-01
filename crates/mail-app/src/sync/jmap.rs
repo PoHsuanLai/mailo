@@ -5,8 +5,9 @@
 //! report each pass, stop on a refused credential, honour a rate limit, then wait the way the
 //! server prefers.
 
-use super::{AfterPass, Announce, Configured, Mode, after_pass};
-use mail_runtime::{JmapEngine, SyncReport};
+use super::report::{Done, Emit, Failure, Progress};
+use super::{AfterPass, Announce, Configured, Mode, after_pass, say};
+use mail_runtime::JmapEngine;
 use std::time::Duration;
 
 /// How long a watch sleeps after a push stream ended without news, or on a server with no push.
@@ -24,14 +25,21 @@ pub(super) async fn drive(
     now: chrono::DateTime<chrono::Utc>,
     mode: Mode,
     announce: Announce<'_>,
-) -> Result<SyncReport, String> {
+    emit: Emit<'_>,
+) -> Result<Done, Failure> {
+    // One request round covers the account, so there is nothing finer to say than that it began.
+    say(emit, Progress::Connecting);
     if mode == Mode::Once {
-        return engine.pass(cancel, now).await.map_err(|e| e.to_string());
+        return typed(engine.pass(cancel, now).await);
     }
     loop {
         let at = chrono::Utc::now();
-        let report = engine.pass(cancel, at).await.map_err(|e| e.to_string());
-        match after_pass(account, &report, at, announce) {
+        let report = typed(engine.pass(cancel, at).await);
+        let said = report
+            .as_ref()
+            .map(Done::to_report)
+            .map_err(|failure| failure.why.clone());
+        match after_pass(account, &said, at, announce) {
             AfterPass::Stop => return report,
             AfterPass::Hold(wait) => {
                 tokio::time::sleep(wait).await;
@@ -49,4 +57,13 @@ pub(super) async fn drive(
             tokio::time::sleep(super::AFTER_A_FAILURE).await;
         }
     }
+}
+
+/// An engine's answer as data, its failure keeping the decision it carries.
+fn typed(
+    result: Result<mail_runtime::SyncReport, mail_runtime::RuntimeError>,
+) -> Result<Done, Failure> {
+    result
+        .map(Done::from_report)
+        .map_err(|e| Failure::of("", &e))
 }
