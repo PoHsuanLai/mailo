@@ -22,6 +22,8 @@ pub(super) struct ListView {
     /// A search's "Top results" strip.
     pub top: Memo<Vec<ThreadSummary>>,
     pub marking: Memo<super::list_search::Marking>,
+    /// Whether a deeper page has been asked for and has not been drawn yet.
+    pub paging: Memo<bool>,
 }
 
 /// Run the list for `shell`, `pages` pages deep, again whenever `revision` moves.
@@ -51,9 +53,11 @@ pub(super) fn use_list(
         let store = consume_context::<Arc<SqliteStore>>();
         listed(&store, request.peek().1.clone(), chrono::Utc::now())
     });
+    let mut reached = use_signal(|| *pages.peek());
     let _fetch = use_resource(move || {
         let _ = revision();
         let (generation, request) = request();
+        let depth = *pages.peek();
         let store = consume_context::<Arc<SqliteStore>>();
         async move {
             let done: Listed =
@@ -64,6 +68,7 @@ pub(super) fn use_list(
             // would flash an answer to a question nobody is asking.
             if debounced.is_latest(generation) {
                 drawn.set(done);
+                reached.set(depth);
             }
         }
     });
@@ -71,5 +76,6 @@ pub(super) fn use_list(
         threads: use_memo(move || drawn.read().threads.clone()),
         top: use_memo(move || drawn.read().top.clone()),
         marking: use_memo(move || drawn.read().marking.clone()),
+        paging: use_memo(move || pages() > reached()),
     }
 }

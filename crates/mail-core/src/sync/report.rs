@@ -314,6 +314,18 @@ impl PassEnd {
         }
     }
 
+    /// Whether the pass may have written to the store, so that a reader of it should look again.
+    ///
+    /// A pass that ran may have stored mail, flags or settled sends, and the counts do not say
+    /// all of that (a flag sweep is not counted), so any pass that ran says yes. One that could
+    /// not run at all stored nothing. A cancelled one may have stored part of what it began.
+    pub fn may_have_stored(&self) -> bool {
+        match self {
+            PassEnd::Finished(_) | PassEnd::Cancelled { .. } => true,
+            PassEnd::Failed { .. } => false,
+        }
+    }
+
     /// Whether this account's credential was refused. A poll loop must stop on it.
     pub fn needs_reauth(&self) -> bool {
         match self {

@@ -66,6 +66,19 @@ fn imap_store() -> (Arc<SqliteStore>, tempfile::TempDir) {
             ],
         )
         .unwrap();
+    // Its folders were listed by a pass, so it has been fetched: the list is not waiting for a
+    // first mail, which would draw its placeholder rows beside the menus these tests open.
+    store
+        .connection()
+        .execute(
+            "INSERT INTO sync_state (account, mailbox, cursor, synced_at)
+             VALUES (?1, 'INBOX', ?2, datetime('now'))",
+            rusqlite::params![
+                IMAP.to_string(),
+                serde_json::to_string(&SyncCursor::Pop).unwrap()
+            ],
+        )
+        .unwrap();
     (store, dir)
 }
 

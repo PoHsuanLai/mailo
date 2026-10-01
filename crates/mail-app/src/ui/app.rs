@@ -272,6 +272,7 @@ pub(super) fn App() -> Element {
         threads,
         top,
         marking,
+        paging,
     } = use_list(shell, pages, revision);
 
     let drafts = use_memo(move || {
@@ -660,7 +661,7 @@ pub(super) fn App() -> Element {
                 panes: vec![SplitPane::new(LIST, rsx! {
                     ThreadList {
                         shell, pages, revision, in_a_field, threads, drafts, nothing, more,
-                        marking, top,
+                        marking, top, paging,
                     }
                 })],
                 section { class: "reader",
@@ -846,30 +847,31 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_first_run_names_the_command_that_gets_you_out_of_it() {
+    async fn the_first_run_offers_a_way_to_add_an_account() {
         // A database with no account looked exactly like an empty mailbox: six folders, a Sync
-        // button and "Nothing here." The shell cannot add an account, so that was the end of the
-        // road rather than a state with a way out.
+        // button and "Nothing here." A new person needs a way out, and it is a button in the
+        // window, not a command to type in a terminal.
         let (store, _dir) = empty();
         let markup = markup(store);
 
         assert!(markup.contains("No account"), "{markup}");
-        // The angle brackets come back escaped, which is the renderer doing its job; asserting
-        // on one spelling of the escape would be asserting on dioxus rather than on the shell.
         assert!(
-            markup.contains("mailo account add"),
-            "the command is not on the page:\n{markup}"
+            markup.contains("Add Account\u{2026}"),
+            "no way to add an account:\n{markup}"
         );
-        // Set apart from the prose: it is the empty state's own body line, under its title.
         assert!(
-            markup.contains("ds-empty-state-body"),
-            "it is not set apart from the prose, so it reads as italic advice:\n{markup}"
+            !markup.contains("mailo account add"),
+            "a command line is not the way out of the window:\n{markup}"
         );
-        // The words on the page, not in the stylesheets it carries (quire's CSS has comments).
         let shown = without_styles(&markup);
         assert!(
             !shown.contains("Nothing here"),
             "it still says the thing that told a new user nothing:\n{shown}"
+        );
+        // No command text anywhere in the frame, whatever it is named in.
+        assert!(
+            !shown.to_lowercase().contains("mailo "),
+            "the first run tells of a command line:\n{shown}"
         );
     }
 

@@ -6,6 +6,7 @@
 
 pub use crate::notify::Announce;
 pub mod due;
+pub mod live;
 pub mod report;
 
 mod body;
@@ -1093,12 +1094,7 @@ async fn drive_typed<B: mail_proto::Backend>(
         return pass(engine, mailboxes, account.keep, cancel, now, emit).await;
     }
 
-    let poll_every = match account.caps.watch {
-        WatchMode::Poll { every } => every,
-        // An IDLE account still needs a floor: `watch` returns as soon as the server says
-        // anything, and a mailbox that is busy would otherwise pass in a tight loop.
-        WatchMode::Idle => std::time::Duration::from_secs(30),
-    };
+    let poll_every = poll_floor(&account.caps.watch);
     // The inbox only. `IDLE` holds one selected mailbox per connection, and new mail in a
     // followed folder — usually filed there by a server-side rule — waits for the next pass,
     // which every wake-up and every interval runs over all of them.
@@ -1134,6 +1130,17 @@ async fn drive_typed<B: mail_proto::Backend>(
                 tokio::time::sleep(AFTER_A_FAILURE).await;
             }
         }
+    }
+}
+
+/// How long a watch sleeps between waits on a server that cannot be waited on, and the floor
+/// under one that can: shared by `mailo watch` and the window's live watch ([`live`]).
+fn poll_floor(watch: &WatchMode) -> std::time::Duration {
+    match watch {
+        WatchMode::Poll { every } => *every,
+        // An IDLE account still needs a floor: `watch` returns as soon as the server says
+        // anything, and a mailbox that is busy would otherwise pass in a tight loop.
+        WatchMode::Idle => std::time::Duration::from_secs(30),
     }
 }
 

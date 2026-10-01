@@ -3,6 +3,7 @@ mod folder_parts;
 mod folder_row;
 mod folder_tree;
 mod folders;
+mod marks;
 mod panes;
 mod today;
 
