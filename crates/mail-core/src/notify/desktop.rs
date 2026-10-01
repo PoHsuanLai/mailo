@@ -295,13 +295,12 @@ fn escape(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mail_domain::ThreadId;
 
-    // macOS answers clicks elsewhere (no action to read), so only the click test is skipped
-    // there. The launch-args test below runs everywhere and needs the same id.
+    // macOS answers clicks elsewhere (no action to read), so the click test, the one user of
+    // this id, is skipped there.
     #[cfg(not(target_os = "macos"))]
     fn thread(n: u128) -> Opens {
-        Opens::Thread(ThreadId::from_uuid(uuid::Uuid::from_u128(n)))
+        Opens::Thread(mail_domain::ThreadId::from_uuid(uuid::Uuid::from_u128(n)))
     }
 
     #[test]
