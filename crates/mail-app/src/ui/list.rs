@@ -291,14 +291,23 @@ pub(super) fn ThreadList(
                 .map(|fetching| fetching.op_in_view(&shell.read()))
                 .unwrap_or_default(),
         ),
-        // Ready: the failure is drawn below, with a way into the Connection Doctor beside Retry,
-        // which `Loadable`'s own failure has no place for.
-        ListFace::CannotLoad(_)
-        | ListFace::Rows
-        | ListFace::Empty
-        | ListFace::NoMatch(_)
-        | ListFace::NoAccount => Phase::Ready,
+        ListFace::CannotLoad(problem) => Phase::Failed {
+            title: CANNOT_LOAD.to_owned(),
+            description: Some(problem.description().into()),
+        },
+        ListFace::Rows | ListFace::Empty | ListFace::NoMatch(_) | ListFace::NoAccount => {
+            Phase::Ready
+        }
     };
+    // Beside Retry in the failure `Loadable` draws: a way into the Connection Doctor.
+    let doctor_action: Option<Element> = matches!(face, ListFace::CannotLoad(_)).then(|| {
+        rsx! {
+            Button {
+                label: "Connection Doctor\u{2026}",
+                onclick: on_primary(move || super::doctor::open(shell)),
+            }
+        }
+    });
     let empty_form = match nothing() {
         Nothing::NoMatch(_) => EmptyForm::NoResults,
         Nothing::NoAccount | Nothing::EmptyFolder => EmptyForm::Empty,
@@ -420,6 +429,7 @@ pub(super) fn ThreadList(
                     phase,
                     placeholder: rsx! { FirstSyncRows {} },
                     onretry: retry,
+                    action: doctor_action,
                     List::<Slot> {
                         label: place.clone(),
                         items,
@@ -430,20 +440,7 @@ pub(super) fn ThreadList(
                             }
                         },
                     }
-                    if let ListFace::CannotLoad(problem) = &face {
-                        EmptyState {
-                            form: EmptyForm::Failure,
-                            title: CANNOT_LOAD,
-                            description: Some(problem.description().into()),
-                            action: rsx! {
-                                Button {
-                                    label: "Connection Doctor\u{2026}",
-                                    onclick: on_primary(move || super::doctor::open(shell)),
-                                }
-                            },
-                            onretry: retry,
-                        }
-                    } else if nothing_here {
+                    if nothing_here {
                         EmptyState {
                             form: empty_form,
                             title: nothing().message(),

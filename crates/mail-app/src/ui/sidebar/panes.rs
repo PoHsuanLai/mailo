@@ -150,13 +150,12 @@ pub(super) fn AccountTiles(
     // the spinner while it syncs, the warning when it needs the person.
     let statuses: Vec<PinStatus> = counted.rows.iter().map(|row| status_of(row.0)).collect();
     if several {
-        items.push(PinItem {
-            key: None,
-            face: PinFace::All,
-            unread: count_of(counted.all),
-            mark: MarkStyle::Letter,
-            status: all_status(&statuses),
-        });
+        items.push(
+            PinItem::new(None, PinFace::All)
+                .unread(count_of(counted.all))
+                .mark(MarkStyle::Letter)
+                .status(all_status(&statuses)),
+        );
     }
     for (index, row) in counted.rows.iter().enumerate() {
         let (id, address, unread, via) = (row.0, row.1.clone(), row.2, row.3);
@@ -165,18 +164,18 @@ pub(super) fn AccountTiles(
             Some(via) => (mark_of(via), mark_style(via, marks)),
             None => (MarkProvider::Local, MarkStyle::Letter),
         };
-        items.push(PinItem {
-            key: Some(id),
-            face: PinFace::Account {
-                initial: initial(&address),
-                colour: hex_colour(&space::avatar_color(&space, id, index)),
-                provider,
-                address: Some(address),
-            },
-            unread: count_of(unread),
-            mark,
-            status: statuses.get(index).cloned().unwrap_or_default(),
-        });
+        let face = PinFace::Account {
+            initial: initial(&address),
+            colour: hex_colour(&space::avatar_color(&space, id, index)),
+            provider,
+            address: Some(address),
+        };
+        items.push(
+            PinItem::new(Some(id), face)
+                .unread(count_of(unread))
+                .mark(mark)
+                .status(statuses.get(index).cloned().unwrap_or_default()),
+        );
     }
     let selected = if several {
         shell.read().account
