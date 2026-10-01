@@ -246,7 +246,9 @@ fn press_open_in_window(harness: &mut Harness) {
         harness.text_of(item)
     );
     harness.click(centre(harness, item));
-    harness.advance(ms(300));
+    // The menu blinks the picked row and acts on it as it closes, which takes real time on a
+    // slow runner: a fixed advance can end before the ask is made.
+    settle_until(harness, |h| h.count(".ds-menu") == 0);
 }
 
 fn asked_for(store: &SqliteStore, subject: &str) -> Vec<Ask> {
