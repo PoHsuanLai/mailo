@@ -314,19 +314,11 @@ pub(in crate::ui) fn domain_of(typed: &str) -> Option<String> {
 pub(in crate::ui) fn before_looking(typed: &str, now: chrono::DateTime<chrono::Utc>) -> String {
     let address = typed.trim().to_lowercase();
     match domain_of(&address) {
-        Some(domain) if mail_domain::presets::preset_for(&address, now).is_some() => format!(
-            "mailo knows {domain}: nothing is looked up, and nothing is sent until you use \
-             the settings."
-        ),
-        Some(domain) => format!(
-            "Looking up sends only the domain, {domain}, to DNS, and over HTTPS to its \
-             autoconfig servers and to https://{domain}/.well-known/jmap. Your address and \
-             password stay here until you use what is found."
-        ),
-        None => "Looking up sends only the domain, to DNS, and over HTTPS to its autoconfig \
-                 servers and its /.well-known/jmap. Your address and password stay here until \
-                 you use what is found."
-            .to_owned(),
+        Some(domain) if mail_domain::presets::preset_for(&address, now).is_some() => {
+            format!("{domain} is known. Nothing is looked up.")
+        }
+        Some(domain) => format!("Only {domain} is looked up."),
+        None => "Only the domain is looked up.".to_owned(),
     }
 }
 
@@ -339,7 +331,7 @@ pub(in crate::ui) fn look(typed: &str, seams: &Seams, now: chrono::DateTime<chro
         domain_of(&address),
         mail_domain::presets::well_known(&address),
     ) else {
-        return Stage::Missed("Type the whole address, like ada@example.com.".to_owned());
+        return Stage::Missed("Enter a full address, like ada@example.com.".to_owned());
     };
     if let Some(preset) = mail_domain::presets::preset_for(&address, now) {
         let known = "from the built-in table".to_owned();
@@ -469,7 +461,7 @@ pub(in crate::ui) fn alternate(stage: &Stage) -> Stage {
 pub(in crate::ui) fn by_hand(typed: &str, hand: &Hand) -> Result<Offer, String> {
     let address = typed.trim().to_lowercase();
     if domain_of(&address).is_none() {
-        return Err("Type the whole address, like ada@example.com.".to_owned());
+        return Err("Enter a full address, like ada@example.com.".to_owned());
     }
     let session = hand.session.trim();
     let usable = url::Url::parse(session)
@@ -479,15 +471,9 @@ pub(in crate::ui) fn by_hand(typed: &str, hand: &Hand) -> Result<Offer, String> 
         return Ok(Offer::jmap(&address, session.to_owned(), hand.auth, source));
     }
     if session.is_empty() {
-        return Err("Type the JMAP session URL.".to_owned());
+        return Err("Enter the JMAP session URL.".to_owned());
     }
-    let secret = match hand.auth {
-        HttpAuth::Basic => "password",
-        HttpAuth::Bearer => "token",
-    };
-    Err(format!(
-        "mailo takes a session URL that starts with https://, since the {secret} goes to it."
-    ))
+    Err("The session URL must start with https://.".to_owned())
 }
 
 /// `describe`'s lines as `(what, how)`: "  incoming  IMAP …" is `("incoming", "IMAP …")`.
@@ -610,19 +596,13 @@ pub(in crate::ui) fn in_words(said: &str) -> Vec<String> {
             } else if let Some(login) =
                 line.strip_prefix("password stored in the keyring for login ")
             {
-                format!(
-                    "The password is in the system keyring, for the login {}.",
-                    login.trim_matches('"')
-                )
+                format!("Password saved for {}.", login.trim_matches('"'))
             } else if line == "token stored in the keyring" {
-                "The token is in the system keyring.".to_owned()
+                "Token saved.".to_owned()
             } else if let Some(rest) = line.strip_prefix("signed in; token stored in the keyring") {
                 match rest.strip_prefix(", client id in ") {
-                    Some(path) => format!(
-                        "Signed in. The sign-in is in the system keyring, and the client id is \
-                         remembered in {path}."
-                    ),
-                    None => "Signed in. The sign-in is in the system keyring.".to_owned(),
+                    Some(path) => format!("Signed in. The client id is kept in {path}."),
+                    None => "Signed in.".to_owned(),
                 }
             } else if let Some(rest) = line.strip_prefix("warning: ") {
                 format!("Warning: {rest}")

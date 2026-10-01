@@ -5,8 +5,8 @@
 //! so it is done on a blocking thread started by the click or the key that asked for it, and never
 //! from a component body (F140).
 //!
-//! There is no webview anywhere. The document becomes a PDF through quire (`ds_native::pdf`,
-//! [`paper`]), and Print hands that PDF to the system's print dialog (`ds_native::print_dialog`,
+//! There is no webview anywhere. The document becomes a PDF through quire (`ds_blitz::pdf`,
+//! [`paper`]), and Print hands that PDF to the system's print dialog (`ds_blitz::print_dialog`,
 //! through a [`Printer`], which a test replaces). Save for printing writes the same PDF into the
 //! downloads directory, beside where an attachment goes, and says where. A remote image prints
 //! only when the reader's consent covers its message as the PDF is made; it is then fetched
@@ -42,7 +42,7 @@ pub(in crate::ui) struct Job {
     pub pages: Pages,
 }
 
-/// What Ctrl P, or the menu's Print, prints: the open conversation as one flow. With nothing
+/// What ⌘P, or the menu's Print, prints: the open conversation as one flow. With nothing
 /// open there is nothing to print, and nothing is said.
 pub(in crate::ui) fn job_for(open: Option<ThreadId>) -> Option<Job> {
     open.map(|thread| Job {
@@ -133,7 +133,7 @@ pub(in crate::ui) fn save(job: Job) {
         .await;
         tell_through(
             said,
-            done.unwrap_or_else(|error| format!("The save stopped before it finished: {error}")),
+            done.unwrap_or_else(|error| format!("Couldn\u{2019}t save: {error}")),
         );
     });
 }
@@ -147,7 +147,7 @@ mod native_print {
     use crate::print::{Pictures, Printed};
     use chrono::{DateTime, TimeZone, Utc};
     use dioxus::prelude::*;
-    use ds_native::{PrintError, PrintOutcome};
+    use ds_blitz::{PrintError, PrintOutcome};
     use mail_domain::MessageId;
     use mail_store::SqliteStore;
     use std::collections::BTreeMap;
@@ -283,7 +283,7 @@ mod native_print {
     /// The call that puts a PDF in front of the person: `(pdf, title)`.
     type Dialog = dyn Fn(&[u8], &str) -> Result<PrintOutcome, PrintError> + Send + Sync;
 
-    /// How a printout reaches paper: the system's print dialog (`ds_native::print_dialog`), or,
+    /// How a printout reaches paper: the system's print dialog (`ds_blitz::print_dialog`), or,
     /// in a test, whatever the test puts in its place. A root context: the window without one
     /// uses the system's.
     ///
@@ -305,7 +305,7 @@ mod native_print {
 
     impl Printer {
         /// A printer whose dialog is `dialog`, called with the PDF and its title off the UI
-        /// thread, and answering as `ds_native::print_dialog` would. For tests: no real dialog.
+        /// thread, and answering as `ds_blitz::print_dialog` would. For tests: no real dialog.
         pub fn with_dialog(
             dialog: impl Fn(&[u8], &str) -> Result<PrintOutcome, PrintError> + Send + Sync + 'static,
         ) -> Printer {
@@ -328,7 +328,7 @@ mod native_print {
                 });
             }
             Printer {
-                dialog: Arc::new(ds_native::print_dialog),
+                dialog: Arc::new(ds_blitz::print_dialog),
                 busy: Arc::clone(&BUSY),
             }
         }
@@ -350,8 +350,7 @@ mod native_print {
     }
 
     /// What a second Print says while the first is under way.
-    pub(in crate::ui) const BUSY: &str =
-        "A printout is already being made; finish with its print dialog first.";
+    pub(in crate::ui) const BUSY: &str = "Finish the open print dialog first.";
 
     /// [`super::print`]: the PDF built and handed to the dialog on a blocking thread
     /// (the layout is slow next to a click, and the dialog blocks until it is answered), and
@@ -382,7 +381,7 @@ mod native_print {
             .await;
             let words = done.unwrap_or_else(|error| {
                 eprintln!("print: {error}");
-                format!("The printout stopped before it was made: {error}")
+                format!("Couldn\u{2019}t print: {error}")
             });
             tell_through(said, words);
         });
@@ -412,7 +411,7 @@ mod native_print {
             Ok((title, pdf)) => said((printer.dialog)(&pdf, &title)),
             Err(why) => {
                 eprintln!("print: {why}");
-                format!("Could not print: {why}")
+                format!("Couldn\u{2019}t print: {why}")
             }
         }
     }
@@ -421,15 +420,13 @@ mod native_print {
     pub(in crate::ui) fn said(outcome: Result<PrintOutcome, PrintError>) -> String {
         match outcome {
             Ok(PrintOutcome::Printed) => "Sent to the printer.".to_owned(),
-            Ok(PrintOutcome::Cancelled) => "Printing cancelled; nothing was printed.".to_owned(),
-            Ok(PrintOutcome::Opened(path)) => format!(
-                "There is no print dialog here, so the printout opened in your PDF viewer \
-                 to print from there: {}",
-                path.display()
-            ),
+            Ok(PrintOutcome::Cancelled) => "Printing cancelled".to_owned(),
+            Ok(PrintOutcome::Opened(path)) => {
+                format!("Opened in your PDF viewer to print: {}", path.display())
+            }
             Err(why) => {
                 eprintln!("print: {why}");
-                format!("Could not print: {why}")
+                format!("Couldn\u{2019}t print: {why}")
             }
         }
     }

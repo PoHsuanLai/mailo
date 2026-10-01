@@ -1,6 +1,6 @@
 use super::caps;
 use crate::keymap::DEFAULTS;
-use ds::Key;
+use ds::prelude::ShortcutKey as Key;
 
 #[test]
 fn a_key_is_drawn_as_the_caps_that_press_it() {

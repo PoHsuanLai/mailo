@@ -7,6 +7,9 @@
 
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
+use ds::components::content::label::{LabelRole, LabelStyle};
+use ds::prelude::*;
+use ds::root::common::Common;
 use mail_domain::AccountPlan;
 use mail_runtime::sieve::Pushed;
 use mail_store::SqliteStore;
@@ -15,7 +18,6 @@ use std::sync::Arc;
 use super::super::data::AccountRow;
 use super::super::press::{available, on_primary};
 use crate::sync::Configured;
-use ds::Icon;
 
 /// Install an account's script: the signature of [`crate::rules::server::pushed`], with the
 /// takeover and the saved sign-in clients decided.
@@ -140,24 +142,31 @@ pub(super) fn ServerPart(row: AccountRow) -> Element {
     };
     rsx! {
         section { class: "rules-part",
-            h4 { "On the server" }
-            p { class: "capnote",
-                "Rules run here as mail arrives. On the server they run while this computer is off, and the vacation reply only runs there."
+            SectionHeader { title: "On the server".to_owned() }
+            Label {
+                text: "Runs on the server while this computer is off.".to_owned(),
+                role: LabelRole::Secondary,
+                style: LabelStyle::Footnote,
             }
             div { class: "rules-acts",
                 match pushing() {
-                    Pushing::Said(said) => rsx! { pre { class: "rules-said", role: "status", "{said}" } },
-                    Pushing::Failed(why) => rsx! { p { class: "capnote files-bad", role: "alert", "{why}" } },
-                    Pushing::Running => rsx! { p { class: "capnote", role: "status", "Putting them on the server…" } },
+                    Pushing::Said(said) => rsx! {
+                        pre { class: "rules-said", role: "status", "{said}" }
+                    },
+                    Pushing::Failed(why) => rsx! {
+                        div { role: "alert", Label { text: why, role: LabelRole::Primary, style: LabelStyle::Headline } }
+                    },
+                    Pushing::Running => rsx! {
+                        div { role: "status", Label { text: "Putting them on the server…".to_owned(), role: LabelRole::Secondary } }
+                    },
                     Pushing::Ready => rsx! {},
                 }
-                ds::Button {
-                    variant: ds::ButtonVariant::Primary,
+                Button {
                     label: "Put on server",
                     icon: Icon::Send,
-                    aria_label: label.to_string(),
                     availability: available(!busy),
                     onclick: on_primary(move || start(())),
+                    common: Common { aria_label: Some(label.to_string()), ..Common::default() },
                 }
             }
         }

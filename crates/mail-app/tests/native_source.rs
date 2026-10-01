@@ -5,8 +5,12 @@
 //! The window is `mail_app::ui::native::root` over a store seeded in a `TempDir`: nothing here
 //! touches the network, the real mail store or the real config.
 
-use ds_native::harness::settle_until;
-use ds_native::{Harness, HarnessConfig, Viewport};
+use ds_harness::harness::settle_until;
+use ds_harness::{ClassPresence, Driver, Harness, HarnessConfig, Query, Viewport};
+
+#[path = "support/drive.rs"]
+mod drive;
+use drive::Drive;
 use mail_domain::*;
 use mail_runtime::assemble::absorb_rebuilt_into;
 use mail_runtime::{Arrival, Destination, absorb};
@@ -140,7 +144,7 @@ fn open() -> Window {
         mail_app::ui::Start::Inbox,
     );
     let config = HarnessConfig::new(VIEW).with_contexts(contexts);
-    let mut harness = Harness::with_config(mail_app::ui::native::root, config);
+    let mut harness = Harness::new(mail_app::ui::native::root, config);
     harness.advance(ms(300));
     Window {
         harness,
@@ -151,13 +155,13 @@ fn open() -> Window {
 }
 
 fn open_row(harness: &mut Harness, n: usize) {
-    let subject = format!(".ds-list > .row:nth-child({n}) .ds-row .ds-row-sub");
+    let subject = format!(".list .ds-list > .ds-list-item:nth-child({n}) .ds-row .ds-thread-sub");
     let rect = harness
         .rect(&subject)
         .unwrap_or_else(|| panic!("{subject} is not drawn:\n{}", harness.html()));
-    harness.click(ds::Point {
-        x: ds::Px(rect.origin.x.0 + 24.0),
-        y: ds::Px(rect.origin.y.0 + rect.size.height.0 / 2.0),
+    harness.click(ds::prelude::Point {
+        x: ds::prelude::Px(rect.origin.x.0 + 24.0),
+        y: ds::prelude::Px(rect.origin.y.0 + rect.size.height.0 / 2.0),
     });
     harness.advance(ms(300));
 }
@@ -170,11 +174,16 @@ fn click(harness: &mut Harness, selector: &str) {
     harness.advance(ms(300));
 }
 
-/// The switch's button that says `label`.
+/// The switch's segment that says `label`. Quire's segmented control names the group, and each
+/// segment's words are its label.
 fn switch_button(harness: &Harness, label: &str) -> String {
     (1..=3)
-        .map(|n| format!("article.frame header .view-switch .ds-button:nth-child({n})"))
-        .find(|selector| harness.attr(selector, "aria-label").as_deref() == Some(label))
+        .map(|n| format!("article.frame header .view-switch .ds-segmented-segment:nth-child({n})"))
+        .find(|selector| {
+            harness
+                .text_of(selector)
+                .is_some_and(|text| text.trim() == label)
+        })
         .unwrap_or_else(|| panic!("no {label} in the view switch:\n{}", harness.html()))
 }
 
@@ -197,7 +206,10 @@ fn the_source_is_the_stored_bytes_as_plain_text() {
     let mut window = open();
     let harness = &mut window.harness;
     open_row(harness, 1);
-    assert!(!harness.has_class(BLOCKS, "is-hidden"));
+    assert_eq!(
+        harness.has_class(BLOCKS, "is-hidden"),
+        ClassPresence::Absent
+    );
 
     show_source(harness);
     let shown = harness.text_of(TEXT).expect("the source text");
@@ -213,8 +225,9 @@ fn the_source_is_the_stored_bytes_as_plain_text() {
         0,
         "the body's markup was parsed"
     );
-    assert!(
+    assert_eq!(
         harness.has_class(BLOCKS, "is-hidden"),
+        ClassPresence::Present,
         "the Reader view is still drawn under the source"
     );
     assert_eq!(
@@ -226,7 +239,10 @@ fn the_source_is_the_stored_bytes_as_plain_text() {
     let reader = switch_button(harness, "Reader");
     click(harness, &reader);
     assert_eq!(harness.count(".source"), 0, "Reader left the source up");
-    assert!(!harness.has_class(BLOCKS, "is-hidden"));
+    assert_eq!(
+        harness.has_class(BLOCKS, "is-hidden"),
+        ClassPresence::Absent
+    );
 }
 
 /// On an HTML message the switch has all three, and Source hides the frame as well as the blocks.
@@ -236,12 +252,18 @@ fn source_is_the_third_way_beside_reader_and_original() {
     let harness = &mut window.harness;
     open_row(harness, 2);
     assert_eq!(
-        harness.count("article.frame header .view-switch .ds-button"),
+        harness.count("article.frame header .view-switch .ds-segmented-segment"),
         3
     );
     show_source(harness);
-    assert!(harness.has_class("article.frame iframe.html", "is-hidden"));
-    assert!(harness.has_class(BLOCKS, "is-hidden"));
+    assert_eq!(
+        harness.has_class("article.frame iframe.html", "is-hidden"),
+        ClassPresence::Present
+    );
+    assert_eq!(
+        harness.has_class(BLOCKS, "is-hidden"),
+        ClassPresence::Present
+    );
     let shown = harness.text_of(TEXT).unwrap();
     assert!(
         shown.contains("<table><tr><td><h1>Autumn</h1>"),
@@ -270,8 +292,13 @@ fn a_rebuilt_message_says_so_and_is_not_forwarded_as_the_original() {
     );
 
     click(harness, FORWARD);
-    settle_until(harness, |h| h.count(".reader-body > .notice") == 1);
-    let said = harness.text_of(".reader-body > .notice").unwrap();
+    // The refusal is the reader's banner (quire's `InlineBanner`), under the body.
+    let said_at = ".reader-body .ds-inline-banner-body";
+    settle_until(harness, |h| {
+        h.text_of(said_at)
+            .is_some_and(|text| text.contains("Not forwarded"))
+    });
+    let said = harness.text_of(said_at).unwrap();
     assert!(said.contains("Not forwarded as an attachment"), "{said}");
     assert!(said.contains("rebuilt"), "{said}");
     assert_eq!(

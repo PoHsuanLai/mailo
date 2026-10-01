@@ -1,6 +1,6 @@
 //! The To field's people menu, against a real contact book: its order is the book's, it leaves
 //! out whoever is already on the message, and it never offers the user their own address or a
-//! no-reply sender — and the Ctrl T menu names the same people for the same text.
+//! no-reply sender — and the ⌘K menu names the same people for the same text.
 
 use super::super::page::{Float, List};
 use super::super::recipients::{people_items, pick_person, typed};
@@ -100,9 +100,8 @@ async fn the_people_menu_in_the_window_is_styled_and_titled() {
         markup.contains("From your contacts"),
         "no people menu:\n{markup}"
     );
-    let missing =
-        crate::ui::style::tests::unstyled_classes(&markup, &crate::ui::style::tests::full_css());
-    assert!(missing.is_empty(), "unstyled classes: {missing:?}");
+    let offences = crate::ui::style::tests::markup_offences(&markup);
+    assert!(offences.is_empty(), "markup offences: {offences:#?}");
 }
 
 #[tokio::test]
@@ -121,7 +120,7 @@ fn ctrl_t_names_the_same_people_as_the_to_field_for_the_same_text() {
         let composer = keys(&page, List::To);
         let menu = crate::ui::command::tests::people_for(&store, text);
         assert!(!composer.is_empty(), "{text}: nobody in the composer");
-        // Ctrl T draws three people, four when one is the top hit; the composer up to eight.
+        // ⌘K draws three people, four when one is the top hit; the composer up to eight.
         // Up to three, the lists are the same list.
         if composer.len() <= 3 {
             assert_eq!(menu, composer, "{text}");

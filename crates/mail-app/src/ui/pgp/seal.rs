@@ -2,10 +2,14 @@
 //! OpenPGP key is locked.
 
 use dioxus::prelude::*;
+use ds::components::content::label::{LabelRole, LabelStyle};
+use ds::components::overlays::inline_banner::InlineBanner;
+use ds::prelude::*;
 use mail_domain::{BlobId, MessageId};
 use mail_store::SqliteStore;
 use std::sync::Arc;
 
+use super::said::{Said, Tone};
 use super::{Busy, Look, Unlock, cached, lookup, seams, short, unlock};
 use crate::password::Password;
 
@@ -53,21 +57,18 @@ pub(in crate::ui) fn Seal(
         None | Some(Look::Plain) => rsx! {},
         Some(Look::Failed(why)) => rsx! {
             div { class: "seal", role: "status", aria_label: "Signature and encryption",
-                p { class: "seal-line bad", "{why}" }
+                InlineBanner { severity: Severity::Danger, text: why.clone() }
             }
         },
         Some(Look::Opened(opened)) => rsx! {
             div { class: "seal", role: "status", aria_label: opened.scheme.name(),
                 for (at, said) in opened.said.into_iter().enumerate() {
-                    p { key: "{at}", class: said.tone.class(), "{said.text}" }
+                    {said_line(at, said)}
                 }
             }
         },
         Some(Look::Locked { key, tried }) => {
-            let prompt = format!(
-                "This message is encrypted to a key with a passphrase: your key {}.",
-                short(key)
-            );
+            let prompt = format!("Passphrase for key {}", short(key));
             rsx! {
                 div { class: "seal", role: "status", aria_label: "OpenPGP",
                     Unlock {
@@ -112,4 +113,26 @@ fn open_with(
             landed += 1;
         }
     });
+}
+
+/// One thing the reader says about a message's protection: a signature that does not check is a
+/// banner nobody can miss, one that is believed only in part a warning; the rest are a line in the
+/// status colour that fits.
+pub(super) fn said_line(at: usize, said: Said) -> Element {
+    match said.tone {
+        Tone::Bad => {
+            rsx! { InlineBanner { key: "{at}", severity: Severity::Danger, text: said.text } }
+        }
+        Tone::Warn => {
+            rsx! { InlineBanner { key: "{at}", severity: Severity::Warn, text: said.text } }
+        }
+        Tone::Good => rsx! { Label { key: "{at}", text: said.text, severity: Some(Severity::Ok) } },
+        Tone::Unknown => {
+            rsx! { Label { key: "{at}", text: said.text, severity: Some(Severity::Warn) } }
+        }
+        Tone::Plain => rsx! { Label { key: "{at}", text: said.text, role: LabelRole::Secondary } },
+        Tone::Detail => rsx! {
+            Label { key: "{at}", text: said.text, role: LabelRole::Tertiary, style: LabelStyle::Footnote }
+        },
+    }
 }

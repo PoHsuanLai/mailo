@@ -34,7 +34,7 @@ fn Sheet() -> Element {
         ..Shell::default()
     });
     SHELL.with(|slot| slot.set(Some(shell)));
-    rsx! { KeysSheet { shell } }
+    rsx! { ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window, KeysSheet { shell } } }
 }
 
 fn sheet(store: &Arc<SqliteStore>, seams: Seams) -> (VirtualDom, Seen) {
@@ -43,6 +43,8 @@ fn sheet(store: &Arc<SqliteStore>, seams: Seams) -> (VirtualDom, Seen) {
         .with_root_context(store.clone())
         .with_root_context(seams);
     let seen = rebuild_into(&mut dom);
+    // The sheet is quire's and floats in the root's overlay, drawn the render after it asks.
+    let seen = seen.merge(crate::ui::fixtures::drain_seen(&mut dom));
     (dom, seen)
 }
 
@@ -156,7 +158,7 @@ async fn an_identity_files_password_is_asked_in_the_sheet_and_never_drawn() {
     settle(&mut dom, &mut done).await;
     let page = markup(&dom);
     assert!(
-        page.contains("Imported your identity for me@example.test."),
+        page.contains("Imported your identity for me@example.test"),
         "{page}"
     );
     assert!(!page.contains(PASSWORD), "the password is in the markup");
@@ -330,10 +332,9 @@ async fn every_class_of_the_certificates_half_is_styled() {
     );
     page += &markup(&dom);
     assert!(
-        page.contains("keys-confirm") && page.contains("keys-sub"),
+        page.contains("keys-confirm") && page.contains("ds-section-header-title"),
         "{page}"
     );
-    let missing =
-        crate::ui::style::tests::unstyled_classes(&page, &crate::ui::style::tests::full_css());
-    assert!(missing.is_empty(), "unstyled classes: {missing:?}");
+    let offences = crate::ui::style::tests::markup_offences(&page);
+    assert!(offences.is_empty(), "the markup lint: {offences:#?}");
 }

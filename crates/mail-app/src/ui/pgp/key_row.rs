@@ -1,6 +1,11 @@
 //! One OpenPGP key in the sheet, its actions, and the question asked again before an act that
 //! cannot be undone — the bar the certificates' rows ask theirs in too.
 
+use ds::components::content::label::LabelRole;
+use ds::components::content::text_runs::RunTone;
+use ds::components::controls::button_model::{Answers, Bezel, ButtonRole};
+use ds::prelude::*;
+use ds::root::common::Common;
 use std::path::PathBuf;
 
 use chrono::{DateTime, Utc};
@@ -89,7 +94,6 @@ pub(in crate::ui) fn KeyRow(
         .collect::<Vec<_>>()
         .join(" · ");
     let asking = confirm();
-    let row_class = if mine { "keys-row mine" } else { "keys-row" };
     let (copy_key, save_key, secret_key, delete_key, gone) = (
         pgp.clone(),
         pgp.clone(),
@@ -98,21 +102,11 @@ pub(in crate::ui) fn KeyRow(
         pgp.clone(),
     );
     let mut confirm = confirm;
-    rsx! {
-        li { class: "{row_class}",
-            div { class: "keys-text",
-                b { "{name}" }
-                span { class: "keys-fpr", "{id}" }
-                span { class: "keys-meta", "{meta}" }
-            }
+    let actions = rsx! {
             div { class: "keys-row-acts",
-                if mine {
-                    span { class: "keys-tag", "yours" }
-                }
-                ds::Button {
-                    variant: ds::ButtonVariant::Secondary,
-                    label: "Copy public".to_owned(),
-                    aria_label: format!("Copy the public key {id}"),
+                Button {
+                    label: "Copy public",
+                    bezel: Bezel::Inline,
                     onclick: on_primary(move || {
                         if let Ok(armored) = crate::pgp::keys::export_public(&copy_key) {
                             super::super::hover::copy(&armored);
@@ -122,37 +116,38 @@ pub(in crate::ui) fn KeyRow(
                             );
                         }
                     }),
+                    common: Common { aria_label: Some(format!("Copy the public key {id}")), ..Common::default() },
                 }
-                ds::Button {
-                    variant: ds::ButtonVariant::Secondary,
-                    label: "Save public…".to_owned(),
-                    aria_label: format!("Save the public key {id}"),
+                Button {
+                    label: "Save public…",
+                    bezel: Bezel::Inline,
                     availability: available(!working),
                     onclick: on_primary(move || run.call(Job::SavePublic(save_key.clone()))),
-                }
+        common: Common { aria_label: Some(format!("Save the public key {id}")), ..Common::default() },
+    }
                 if mine {
-                    ds::Button {
-                        variant: ds::ButtonVariant::Secondary,
-                        label: "Export secret…".to_owned(),
-                        aria_label: format!("Export the secret key {id}"),
+                    Button {
+                        label: "Export secret…",
+                        bezel: Bezel::Inline,
                         availability: available(!working),
                         onclick: on_primary(move || confirm.set(Confirm::ExportSecret(fingerprint))),
-                    }
+        common: Common { aria_label: Some(format!("Export the secret key {id}")), ..Common::default() },
+    }
                 }
                 if !verified {
-                    ds::Button {
-                        variant: ds::ButtonVariant::Secondary,
-                        label: "Verify".to_owned(),
-                        aria_label: format!("Mark {id} verified"),
-                        title: "Only after comparing the fingerprint with its owner".to_owned(),
+                    Button {
+                        label: "Verify",
+                        bezel: Bezel::Inline,
+                        title: "Check the fingerprint first".to_owned(),
                         availability: available(!working),
                         onclick: on_primary(move || run.call(Job::Verify(fingerprint))),
-                    }
+        common: Common { aria_label: Some(format!("Mark {id} verified")), ..Common::default() },
+    }
                 }
-                ds::Button {
-                    variant: ds::ButtonVariant::Danger,
-                    label: "Delete".to_owned(),
-                    aria_label: format!("Delete {id}"),
+                Button {
+                    label: "Delete",
+                    bezel: Bezel::Inline,
+                    role: ButtonRole::Destructive,
                     availability: available(!working),
                     onclick: on_primary(move || {
                         if delete_key.secret == SecretHeld::Held {
@@ -161,14 +156,26 @@ pub(in crate::ui) fn KeyRow(
                             run.call(Job::Delete(delete_key.clone(), WithSecret::Refuse));
                         }
                     }),
+                    common: Common { aria_label: Some(format!("Delete {id}")), ..Common::default() },
                 }
+            }
+        };
+    let title = TextLine::Runs(vec![
+        TextRun::new(name, RunTone::Strong),
+        TextRun::new(format!("  {id}"), RunTone::Faint),
+    ]);
+    rsx! {
+        div { class: if mine { "keys-row mine" } else { "keys-row" },
+            Row {
+                leading: RowLeading::Icon(if mine { Icon::Key } else { Icon::Mail }),
+                title,
+                detail: Some(TextLine::from(meta)),
+                accessory: Accessory::Slot(actions),
             }
             match asking {
                 Confirm::ExportSecret(asked) if asked == fingerprint => rsx! {
                     ConfirmBar {
-                        sentence: format!(
-                            "This writes the secret half of {id} to a file. Anyone who has that file can read your encrypted mail and sign as you: keep it offline, and never mail it."
-                        ),
+                        sentence: "Anyone with this file can read your mail and sign as you. Keep it offline.".to_owned(),
                         act: "Save the secret key…".to_owned(),
                         confirm,
                         on_yes: move |_| {
@@ -180,7 +187,7 @@ pub(in crate::ui) fn KeyRow(
                 Confirm::Delete(asked) if asked == fingerprint => rsx! {
                     ConfirmBar {
                         sentence: format!(
-                            "Deleting {id} also deletes its secret key from your keyring. It cannot be recovered, and mail encrypted to it can never be read again. Export it first if you may need it."
+                            "Deleting {id} also deletes its secret key. This cannot be undone."
                         ),
                         act: "Delete the key and its secret".to_owned(),
                         confirm,
@@ -206,22 +213,22 @@ pub(in crate::ui) fn ConfirmBar(
 ) -> Element {
     let mut confirm = confirm;
     rsx! {
-        div { class: "keys-confirm", role: "alert",
-            p { class: "say", "{sentence}" }
-            div { class: "acts",
-                ds::Button {
-                    variant: ds::ButtonVariant::Mini,
-                    label: "Cancel".to_owned(),
-                    aria_label: format!("Cancel: {act}"),
-                    onclick: on_primary(move || confirm.set(Confirm::Nothing)),
-                }
-                ds::Button {
-                    variant: ds::ButtonVariant::Danger,
-                    label: act.to_string(),
-                    aria_label: act.to_string(),
-                    onclick: on_primary(move || on_yes.call(())),
+            div { class: "keys-confirm", role: "alert",
+                span { class: "say", Label { text: sentence, role: LabelRole::Secondary } }
+                div { class: "acts",
+                    Button {
+                        label: "Cancel",
+                        answers: Answers::Escape,
+                        onclick: on_primary(move || confirm.set(Confirm::Nothing)),
+        common: Common { aria_label: Some(format!("Cancel: {act}")), ..Common::default() },
+    }
+                    Button {
+                        label: act.clone(),
+                        role: ButtonRole::Destructive,
+                        onclick: on_primary(move || on_yes.call(())),
+        common: Common { aria_label: Some(act.to_string()), ..Common::default() },
+    }
                 }
             }
         }
-    }
 }

@@ -1,6 +1,7 @@
-use super::{PRESETS, Pinned, Recall, Scope, Space, Spaces, load, new_space, save};
-use crate::view::{Motion, Theme};
-use ds::{CardAccent, Dot, Grain, SpaceLook};
+use super::{PRESETS, Pinned, Recall, Scope, Space, Spaces, load, new_space, preset_grain, save};
+use ds::prelude::{Grain, SpaceLook, Theme};
+use ds::style::space::look::CardAccent;
+use ds::style::space::palette::Dot;
 use mail_domain::{AccountId, ThreadId};
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -32,6 +33,13 @@ fn plain(name: &str) -> Space {
     }
 }
 
+/// The Space `plain(name)` reads back as at `index` in a file that stored no grain: the preset's.
+fn plain_at(name: &str, index: usize) -> Space {
+    let mut space = plain(name);
+    space.look.grain = Grain(preset_grain(index));
+    space
+}
+
 /// The first-run look, edited.
 fn look(edit: impl FnOnce(&mut SpaceLook)) -> SpaceLook {
     let mut look = Space::default().look;
@@ -61,6 +69,7 @@ fn spaces_round_trip() {
                     Space {
                         name: "Work".to_owned(),
                         look: SpaceLook {
+                            grain: ds::prelude::Grain(35),
                             dots: vec![
                                 Dot {
                                     hue: 268.0,
@@ -71,11 +80,9 @@ fn spaces_round_trip() {
                                     chroma: 0.25,
                                 },
                             ],
-                            grain: Grain(35),
                             theme: Theme::Dark,
-                            card_accent: CardAccent::Postmark,
+                            card_accent: CardAccent::Chosen,
                         },
-                        motion: Motion::Calm,
                         scope: Scope::Accounts(vec![work]),
                         pins: vec![
                             Pinned::Person {
@@ -92,12 +99,11 @@ fn spaces_round_trip() {
                     Space {
                         name: "Home".to_owned(),
                         look: SpaceLook {
+                            grain: ds::prelude::Grain(35),
                             dots: PRESETS[1].to_vec(),
-                            grain: Grain(55),
                             theme: Theme::Light,
                             card_accent: CardAccent::SpaceHue,
                         },
-                        motion: Motion::Standard,
                         scope: Scope::Accounts(vec![home]),
                         pins: Vec::new(),
                         colors: BTreeMap::new(),
@@ -152,13 +158,13 @@ fn a_partial_file_keeps_the_fields_it_has() {
             },
         ),
         (
-            "unknown theme keeps the grain",
-            r#"{"spaces":[{"name":"Work","theme":"sepia","grain":40}]}"#,
+            "unknown theme keeps the card accent",
+            r#"{"spaces":[{"name":"Work","theme":"sepia","card_accent":"space_hue"}]}"#,
             Spaces {
                 spaces: vec![Space {
                     name: "Work".to_owned(),
                     look: look(|l| {
-                        l.grain = Grain(40);
+                        l.card_accent = CardAccent::SpaceHue;
                         l.theme = Theme::System;
                     }),
                     ..Space::default()
@@ -168,14 +174,14 @@ fn a_partial_file_keeps_the_fields_it_has() {
             },
         ),
         (
-            "unknown card accent keeps the theme",
+            "unknown card accent is the chosen one and keeps the theme",
             r#"{"spaces":[{"name":"Work","card_accent":"rose","theme":"dark"}]}"#,
             Spaces {
                 spaces: vec![Space {
                     name: "Work".to_owned(),
                     look: look(|l| {
                         l.theme = Theme::Dark;
-                        l.card_accent = CardAccent::SpaceHue;
+                        l.card_accent = CardAccent::Chosen;
                     }),
                     ..Space::default()
                 }],
@@ -258,38 +264,12 @@ fn out_of_range_values_are_clamped() {
             },
         ),
         (
-            "grain 250 clamps to 100",
-            r#"{"spaces":[{"name":"Grainy","grain":250}]}"#,
-            Spaces {
-                spaces: vec![Space {
-                    name: "Grainy".to_owned(),
-                    look: look(|l| l.grain = Grain(100)),
-                    ..Space::default()
-                }],
-                current: 0,
-                recall: BTreeMap::new(),
-            },
-        ),
-        (
-            "a negative grain clamps to 0",
-            r#"{"spaces":[{"name":"Quiet","grain":-5}]}"#,
-            Spaces {
-                spaces: vec![Space {
-                    name: "Quiet".to_owned(),
-                    look: look(|l| l.grain = Grain(0)),
-                    ..Space::default()
-                }],
-                current: 0,
-                recall: BTreeMap::new(),
-            },
-        ),
-        (
             "current past the last space",
             r#"{"current":9,"spaces":[{"name":"A"},{"name":"B"}]}"#,
             Spaces {
                 current: 1,
                 recall: BTreeMap::new(),
-                spaces: vec![plain("A"), plain("B")],
+                spaces: vec![plain_at("A", 0), plain_at("B", 1)],
             },
         ),
     ];
@@ -310,11 +290,10 @@ fn first_run_follows_the_accounts() {
     assert_eq!(none.spaces[0].look.dots, PRESETS[0], "zero accounts");
     assert_eq!(none.spaces[0].scope, Scope::All, "zero accounts");
     assert!(none.spaces[0].pins.is_empty(), "zero accounts");
-    assert_eq!(none.spaces[0].look.grain, Grain(35), "zero accounts");
     assert_eq!(none.spaces[0].look.theme, Theme::System, "zero accounts");
     assert_eq!(
         none.spaces[0].look.card_accent,
-        CardAccent::SpaceHue,
+        CardAccent::Chosen,
         "zero accounts"
     );
 
@@ -341,7 +320,7 @@ fn first_run_follows_the_accounts() {
         assert_eq!(space.look.dots, PRESETS[index], "{name}");
         assert_eq!(space.scope, Scope::Accounts(vec![*id]), "{name}");
         assert!(space.pins.is_empty(), "{name}");
-        assert_eq!(space.look.grain, Grain(35), "{name}");
+        assert_eq!(space.look.card_accent, CardAccent::Chosen, "{name}");
     }
 }
 
@@ -355,7 +334,6 @@ fn a_new_space_takes_the_next_preset_and_keeps_the_look() {
         spaces: vec![
             Space {
                 look: look(|l| l.theme = Theme::Dark),
-                motion: Motion::Extra,
                 ..plain("Work")
             },
             plain("Home"),
@@ -366,7 +344,7 @@ fn a_new_space_takes_the_next_preset_and_keeps_the_look() {
     let made = new_space(&spaces);
     assert_eq!(made.name, "Space 3");
     assert_eq!(made.look.dots, PRESETS[2]);
-    assert_eq!((made.look.theme, made.motion), (Theme::Dark, Motion::Extra));
+    assert_eq!(made.look.theme, Theme::Dark);
     assert_eq!(made.scope, Scope::All);
 }
 
@@ -388,6 +366,7 @@ fn a_spaces_file_from_before_quire_still_loads_and_round_trips() {
             Space {
                 name: "Work".to_owned(),
                 look: SpaceLook {
+                    grain: ds::prelude::Grain(35),
                     dots: vec![
                         Dot {
                             hue: 268.0,
@@ -398,11 +377,9 @@ fn a_spaces_file_from_before_quire_still_loads_and_round_trips() {
                             chroma: 0.55,
                         },
                     ],
-                    grain: Grain(35),
                     theme: Theme::Dark,
                     card_accent: CardAccent::SpaceHue,
                 },
-                motion: Motion::Calm,
                 scope: Scope::All,
                 pins: vec![Pinned::Person {
                     name: "Dana".to_owned(),
@@ -413,15 +390,14 @@ fn a_spaces_file_from_before_quire_still_loads_and_round_trips() {
             Space {
                 name: "Home".to_owned(),
                 look: SpaceLook {
+                    grain: ds::prelude::Grain(55),
                     dots: vec![Dot {
                         hue: 152.0,
                         chroma: 0.62,
                     }],
-                    grain: Grain(55),
                     theme: Theme::System,
-                    card_accent: CardAccent::Postmark,
+                    card_accent: CardAccent::Chosen,
                 },
-                motion: Motion::Standard,
                 scope: Scope::All,
                 pins: Vec::new(),
                 colors: BTreeMap::new(),
@@ -438,10 +414,22 @@ fn a_spaces_file_from_before_quire_still_loads_and_round_trips() {
     let work = &written["spaces"][0];
     // Flat, as before: the look is not nested under a key of its own.
     assert!(work.get("look").is_none(), "{work}");
+    // The grain is read and written again; what no build reads (`motion`) is not.
     assert_eq!(work["grain"], 35, "{work}");
+    assert!(work.get("motion").is_none(), "{work}");
     assert_eq!(work["theme"], "dark", "{work}");
-    assert_eq!(work["motion"], "calm", "{work}");
     assert_eq!(work["card_accent"], "space_hue", "{work}");
     assert_eq!(work["dots"][0]["hue"], 268.0, "{work}");
     assert_eq!(load(dir.path()), want, "after saving");
+}
+
+#[test]
+fn a_space_without_a_grain_key_takes_its_presets_grain() {
+    let read: Spaces = serde_json::from_str(
+        r#"{"spaces":[{"name":"A"},{"name":"B","grain":7},{"name":"C","grain":"loud"}]}"#,
+    )
+    .unwrap_or_else(|e| panic!("{e}"));
+    let grains: Vec<u8> = read.spaces.iter().map(|space| space.look.grain.0).collect();
+    // Dusk's 35, what was stored, and Harbour's (the default's 35) for a value that is not a number.
+    assert_eq!(grains, [35, 7, 35]);
 }

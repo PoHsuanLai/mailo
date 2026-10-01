@@ -80,7 +80,7 @@ fn a_reply_kept_from_the_sheet_reads_back_as_it_was_typed() {
 
     let said = away::save(&store, &row, &filled("2026-10-12 09:00"), now(), &Utc).unwrap();
     assert!(
-        said.starts_with("Kept: “Away until October”, from "),
+        said.starts_with("Saved: “Away until October”, from "),
         "{said}"
     );
     let kept = store.vacation(OWN).unwrap().expect("nothing was kept");

@@ -13,7 +13,11 @@ fn plain(name: &str) -> Space {
 fn a_damaged_recall_is_dropped_on_its_own() {
     let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
     let path = dir.path().join("spaces.json");
-    let two = vec![plain("A"), plain("B")];
+    let two = vec![plain("A"), {
+        let mut second = plain("B");
+        second.look.grain = ds::prelude::Grain(55);
+        second
+    }];
     let cases: &[(&str, &str, BTreeMap<usize, Recall>)] = &[
         (
             "not a map",

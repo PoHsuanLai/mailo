@@ -37,23 +37,28 @@ mod wire;
 #[cfg(test)]
 mod tests;
 
+use ds::components::content::label::LabelRole;
+use ds::components::controls::button_model::{Answers, Bezel, ImagePosition};
+use ds::components::overlays::inline_banner::InlineBanner;
+use ds::prelude::*;
+use ds::root::common::Common;
+use ds::root::pass_through::ExtraClass;
+use ds::style::tokens::control_size::ControlSize;
 use std::sync::Arc;
 
 use dioxus::prelude::*;
 use mail_domain::DraftId;
 use mail_store::{SqliteStore, Store};
 
-use super::field::{Field, FieldKind};
 use attach::Attach;
 use body::Body;
-use ds::{Anim, Glyph, Icon, IconButton, IconButtonVariant, MotionTimer};
 use life::{Anyway, Sent};
 use page::{Focus, Fold, Guard, Page, Phase, Saved, When};
 use props::Props;
 use seal::{BarAct, SealBar, SealWarn, Sealed, seal_and_queue};
 
 pub(in crate::ui) use desk::{Desk, ParkedDrafts, park_current, show_queued, use_desk};
-pub(in crate::ui) use later::ScheduledDrafts;
+pub(in crate::ui) use later::{ScheduledDrafts, waiting};
 pub(in crate::ui) use page::PageKind;
 pub(in crate::ui) use pill::SendPill;
 pub use spell::Dictionaries;
@@ -66,11 +71,11 @@ use super::press::on_primary;
 use crate::password::Password;
 use crate::view::Shell;
 
-/// The fold after Send: quire's timer for `compose-send`, and what happens once it has
+/// The fold after Send: quire's timer for the fade, and what happens once it has
 /// settled, which is that the page is taken away. Made by the page, so it belongs to it.
 #[derive(Clone, Copy)]
 struct Folding {
-    timer: MotionTimer,
+    timer: ds::motion::timer::MotionTimer,
     then: EventHandler<()>,
 }
 
@@ -122,7 +127,7 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
     let mut page = use_signal(|| initial.clone());
     let mut plain = use_signal(|| Fold::Folded);
     let folding = Folding {
-        timer: ds::use_motion_timer(Anim::ComposeSend),
+        timer: use_motion_timer(Anim::Fade),
         then: use_callback(move |()| close(page, shell, desk)),
     };
     let opened_on = use_hook(|| shell.peek().open);
@@ -227,100 +232,99 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                 div { class: "c-top",
                     span { class: if dirty { "state dirty" } else { "state" },
                         span { class: "pip" }
-                        span { "{status}" }
+                        Label { text: status, role: LabelRole::Tertiary }
                     }
                     span { class: "grow" }
-                    IconButton {
-                        variant: IconButtonVariant::Tool,
+                    Button {
+                        bezel: Bezel::Toolbar,
                         icon: Icon::Maximize,
                         label: "Focus".to_owned(),
-                        tooltip: "Focus (Ctrl Shift F)".to_owned(),
+                        title: "Focus (\u{21e7}\u{2318}F)".to_owned(),
                         onclick: move |_| toggle_focus(page, desk),
+                        image: ImagePosition::Only,
                     }
-                    IconButton {
-                        variant: IconButtonVariant::Tool,
+                    Button {
+                        bezel: Bezel::Toolbar,
                         icon: Icon::Archive,
                         label: "Keep for later".to_owned(),
-                        tooltip: "Keep for later: it waits in Today (Esc)".to_owned(),
+                        title: "Keep for later (Esc)".to_owned(),
                         onclick: move |_| desk::park(desk, page, shell),
+                        image: ImagePosition::Only,
                     }
-                    IconButton {
-                        variant: IconButtonVariant::Tool,
+                    Button {
+                        bezel: Bezel::Toolbar,
                         icon: Icon::Trash,
                         label: "Discard".to_owned(),
-                        tooltip: "Discard".to_owned(),
+                        title: "Discard".to_owned(),
                         onclick: move |_| discard(page, shell, desk),
+                        image: ImagePosition::Only,
                     }
                 }
             }
             div { class: "c-scroll",
                 if !reply {
-                    Field {
-                        kind: FieldKind::Inline,
-                        value: subject,
+                    TextField {
+                        label: "Subject".to_owned(),
+                        bezel: FieldBezel::Plain,
                         placeholder: "Subject".to_owned(),
-                        extra: Some("c-title".to_owned()),
-                        on_input: move |value: String| {
+                        value: subject,
+                        oninput: move |value: String| {
                             let mut write = page.write();
                             write.subject = value;
                             write.touch();
                         },
-                        on_focus: |_| {},
-                        on_blur: |_| {},
+                        common: Common { extra_class: ExtraClass::parse("c-title").ok(), ..Common::default() },
                     }
                 }
                 if let Some(notice) = notice {
-                    p { class: "notice", "{notice}" }
-                }
-                Props { page, shell }
-                Body { page, shell, on_attach: move |_| page.write().notice = Some("Pick the file with Attach, below, or drop it on the page.".to_owned()) }
-                if !reply {
-                    div { class: "c-hint",
-                        span { kbd { "/" } " headings, lists, images…" }
-                        span { "select text to style it" }
-                        span { kbd { "@" } " mention" }
-                        span { kbd { ":" } " emoji" }
-                        span { kbd { "Ctrl" } kbd { "Enter" } " send" }
-                        span { kbd { "Esc" } " keep for later" }
+                    InlineBanner {
+                        severity: Severity::Info,
+                        text: notice,
+                        onclose: move |()| page.write().notice = None,
                     }
                 }
+                Props { page, shell }
+                Body { page, shell, on_attach: move |_| page.write().notice = Some("Use Attach below.".to_owned()) }
                 if plain() == Fold::Open {
                     div { class: "plain",
-                        span { class: "cap", "text/plain, format=flowed — sent alongside the HTML, from the same document" }
+                        span { class: "cap", "Plain text" }
                         "{flowed}"
                     }
                 }
             }
             div { class: "c-foot",
                 if warn {
-                    div { class: "c-warn",
-                        Glyph { icon: Icon::Paperclip, size: ds::IconSize::Compact }
-                        span { "You wrote about an attachment, and nothing is attached." }
-                        Attach { page, label: "Attach a file" }
-                        ds::Button {
-                            variant: ds::ButtonVariant::Mini,
-                            label: "Send anyway",
-                            aria_label: anyway_label.to_owned(),
-                            onclick: on_primary(move || send(Anyway::Yes)),
-                        }
+                    InlineBanner {
+                        severity: Severity::Warn,
+                        icon: Some(Icon::Paperclip),
+                        text: "No file attached",
+                        actions: rsx! {
+                            Attach { page, label: "Attach a file" }
+                            Button {
+                                size: ControlSize::Small,
+                                label: "Send anyway",
+                                onclick: on_primary(move || send(Anyway::Yes)),
+                                common: Common { aria_label: Some(anyway_label.to_owned()), ..Common::default() },
+                            }
+                        },
                     }
                 }
                 SealWarn { bar: seal_bar, on_act: on_seal }
-                ds::Button {
-                    variant: ds::ButtonVariant::Mini,
+                Button {
+                    size: ControlSize::Small,
                     label: "Plain text",
-                    pressed: if plain() == Fold::Open { ds::Switch::On } else { ds::Switch::Off },
+                    value: Some(if plain() == Fold::Open { Check::On } else { Check::Off }),
                     onclick: on_primary(move || plain.set(if plain() == Fold::Open { Fold::Folded } else { Fold::Open })),
                 }
                 Attach { page, label: "Attach" }
                 emoji::EmojiButton { page }
                 span { class: "grow" }
-                ds::Button {
-                    variant: ds::ButtonVariant::Primary,
+                Button {
+                    answers: Answers::Return,
                     label: if scheduled { "Schedule" } else { "Send" },
                     icon: if scheduled { Icon::Clock } else { Icon::Send },
-                    aria_label: send_label.to_owned(),
                     onclick: on_primary(move || send(Anyway::No)),
+                    common: Common { aria_label: Some(send_label.to_owned()), ..Common::default() },
                 }
             }
         }

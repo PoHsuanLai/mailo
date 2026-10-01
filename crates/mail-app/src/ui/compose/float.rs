@@ -42,7 +42,7 @@ pub(in crate::ui) fn after_move(page: &mut Page) {
     {
         page.float = Float::Closed;
     }
-    if page.selection.is_none() && matches!(page.float, Float::Turn | Float::Link(_)) {
+    if page.selection.is_none() && matches!(page.float, Float::Link(_)) {
         page.float = Float::Closed;
     }
 }
@@ -300,7 +300,6 @@ pub(in crate::ui) fn pick_mention(page: &mut Page, address: &str) {
         return;
     }
     if let Some(joining) = joins_cc(&person, &page.to, &page.cc).cloned() {
-        page.flash = Some(joining.address.clone());
         page.cc.push(joining);
         page.cc_row = CcRow::Shown;
     }

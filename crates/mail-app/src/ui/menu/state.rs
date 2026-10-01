@@ -1,7 +1,7 @@
 //! mailo's menu rows as data, before they become quire's entries: the items, the keys a field
 //! beside a menu hears, and the marks a query leaves in a name.
 
-use ds::Icon;
+use ds::prelude::Icon;
 
 /// What the tile on the left is.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -20,6 +20,10 @@ pub(in crate::ui) enum Tile {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::ui) enum Right {
     Shortcut(String),
+    /// A short faint word at the end, before any key: the time a snooze lands on, what a
+    /// markdown trigger types.
+    Hint(String),
+    /// A state mark. In a menu of toggles the pick keeps the menu open.
     Check(bool),
     /// A trailing ×, labelled with these words, that hands the item's key to `on_remove`.
     Remove(String),

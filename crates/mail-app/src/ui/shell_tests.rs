@@ -3,6 +3,7 @@
 use super::app::App;
 use super::fixtures::{dispatching, rebuild_into, seeded, work};
 use dioxus::prelude::*;
+use ds::prelude::*;
 use mail_store::SqliteStore;
 use std::sync::Arc;
 
@@ -18,7 +19,7 @@ fn page_of(store: Arc<SqliteStore>, dirs: Option<crate::appearance::WindowDirs>)
 /// Each account tile on `page`, as the markup after its class: quire's `AccountTile`s (not the
 /// Add tile after them), local folders' among them, on quire's folder mark.
 fn account_tiles(page: &str) -> Vec<&str> {
-    page.split("class=\"ds-icon-button ds-account-tile\" data-variant=\"pin\"")
+    page.split("class=\"ds-pin-tile\"")
         .skip(1)
         .filter(|rest| !rest.starts_with(" data-face=\"add\""))
         .collect()
@@ -32,18 +33,20 @@ fn row_containing(page: &str, subject: &str) -> String {
         };
         let at = from + rel;
         let window = &page[at.saturating_sub(80)..at];
-        if window.contains("row-sub") {
+        if window.contains("ds-thread-sub") {
             break at;
         }
         from = at + subject.len();
     };
-    let start = page[..at].rfind("<li").unwrap_or_else(|| {
-        let from = at.saturating_sub(180);
-        panic!("{subject:?} is not in a row. around: {}", &page[from..at])
-    });
+    let start = page[..at]
+        .rfind("<div class=\"ds-list-item\"")
+        .unwrap_or_else(|| {
+            let from = at.saturating_sub(180);
+            panic!("{subject:?} is not in a row. around: {}", &page[from..at])
+        });
     let end = page[at..]
-        .find("</li>")
-        .map(|offset| at + offset + "</li>".len())
+        .find("<div class=\"ds-list-item\"")
+        .map(|offset| at + offset)
         .unwrap_or(page.len());
     page[start..end].to_owned()
 }
@@ -71,7 +74,7 @@ async fn three_accounts_show_an_all_tile_and_the_microsoft_tile_filters() {
     assert_eq!(tile_pressed, 1, "more than one tile is pressed:\n{page}");
     assert!(page.contains("aria-label=\"All accounts\""), "{page}");
     let marks: Vec<&str> = page
-        .split("class=\"ds-provider\" data-size=\"tile\"")
+        .split("class=\"ds-provider\" data-size=\"regular\"")
         .skip(1)
         .filter_map(|rest| {
             rest.split_once('>')?
@@ -261,7 +264,7 @@ async fn render_the_frame_to_a_file() {
     // Rendered once per scheme, from `appearance.toml`'s theme, so the frame's Space tint is
     // the one each scheme derives, not a relabelled copy of the light one.
     dispatching();
-    for (suffix, scheme) in [("", ds::Scheme::Light), ("-dark", ds::Scheme::Dark)] {
+    for (suffix, scheme) in [("", Scheme::Light), ("-dark", Scheme::Dark)] {
         let built = work();
         let mut dom = VirtualDom::new(App)
             .with_root_context(built.store.clone())

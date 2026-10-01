@@ -229,7 +229,7 @@ async fn ctrl_p_with_nothing_open_does_nothing_and_with_a_thread_starts_printing
     assert_eq!(
         dioxus_ssr::render(&dom),
         before,
-        "Ctrl P with nothing open changed the window"
+        "⌘P with nothing open changed the window"
     );
 
     let row = seen.one(
@@ -249,7 +249,7 @@ async fn ctrl_p_with_nothing_open_does_nothing_and_with_a_thread_starts_printing
 
 #[component]
 fn Head(thread: ThreadId) -> Element {
-    rsx! { div { class: "bar-tools", PrintTool { thread } } }
+    rsx! { ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window, div { class: "bar-tools", PrintTool { thread } } } }
 }
 
 #[tokio::test]
@@ -261,25 +261,27 @@ async fn the_menu_prints_the_pages_chosen_and_everything_it_draws_is_styled() {
     assert!(!dioxus_ssr::render(&dom).contains("print-menu"));
 
     let seen_open = click(&mut dom, seen.one("aria-label", "Print this conversation"));
+    // The popover is quire's and floats in the root's overlay, drawn the render after it asks.
+    let seen_open = seen_open.merge(crate::ui::fixtures::drain_seen(&mut dom));
     let page = dioxus_ssr::render(&dom);
     assert!(
         page.contains("print-menu"),
         "the menu did not open:\n{page}"
     );
-    let missing =
-        crate::ui::style::tests::unstyled_classes(&page, &crate::ui::style::tests::full_css());
-    assert!(missing.is_empty(), "unstyled classes: {missing:?}");
+    let offences = crate::ui::style::tests::markup_offences(&page);
+    assert!(offences.is_empty(), "the markup lint: {offences:#?}");
     assert!(
-        page.contains("aria-pressed=\"true\">Whole conversation<"),
+        page.contains("aria-checked=\"true\"") && page.contains(">Whole conversation<"),
         "the flow is not the default:\n{page}"
     );
 
     // The Pages segments, in order: the flow, then a page each.
-    click(
+    let picked = click(
         &mut dom,
-        seen_open.after("aria-label", "Pages", "aria-pressed")[1],
-    );
-    click(&mut dom, seen_open.one("aria-label", "Print"));
+        seen_open.after("aria-label", "Pages", "aria-checked")[1],
+    )
+    .merge(crate::ui::fixtures::drain_seen(&mut dom));
+    click(&mut dom, seen_open.merge(picked).one("aria-label", "Print"));
     assert_eq!(
         started(),
         vec![Job {
@@ -287,6 +289,7 @@ async fn the_menu_prints_the_pages_chosen_and_everything_it_draws_is_styled() {
             pages: Pages::PerMessage
         }]
     );
+    crate::ui::fixtures::drain(&mut dom);
     assert!(
         !dioxus_ssr::render(&dom).contains("print-menu"),
         "the menu stayed open after Print"
@@ -321,7 +324,7 @@ async fn render_printing_to_files() {
             open: Some(thread),
             ..crate::view::Shell::default()
         });
-        rsx! { crate::ui::reading::Reader { thread, shell } }
+        rsx! { ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window, crate::ui::reading::Reader { thread, shell } } }
     }
     let mut dom =
         VirtualDom::new_with_props(Opened, OpenedProps { thread }).with_root_context(store);

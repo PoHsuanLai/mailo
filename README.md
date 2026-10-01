@@ -113,7 +113,7 @@ without a race in either direction. `latchkey`'s README has the two of them writ
 
 ## Building on Linux
 
-The window is drawn with Blitz and wgpu through quire's `ds-native`; there is no webview and no
+The window is drawn with Blitz and wgpu through quire's `ds-blitz`; there is no webview and no
 script engine in it. The one system library it links at build time is fontconfig
 (`fontconfig-devel` on Fedora, `libfontconfig1-dev` on Debian/Ubuntu). Wayland, X11, xkbcommon
 and the GPU drivers are opened at run time.
@@ -127,9 +127,9 @@ Print hands a PDF, made by quire, to the system's print dialog (the desktop port
 `cargo test` needs Noto's CJK faces too (`fonts-noto-cjk` on Debian/Ubuntu, which is what CI
 installs): the print tests check which regional face Chinese, Japanese and Korean mail is set in.
 
-The window draws with [quire](https://github.com/PoHsuanLai/quire), the shared design system.
-`crates/mail-app` depends on a tagged quire release from GitHub, so a plain clone of mailo builds
-on its own.
+The window draws with [quire](https://github.com/PoHsuanLai/quire), the shared design system,
+at tag v0.2.2. `crates/mail-app` depends on that tagged release from GitHub, so a plain clone of
+mailo builds on its own. `docs/quire-0.2-upgrade.md` says everything about the move.
 
 ## macOS and Windows
 
@@ -156,7 +156,7 @@ it, and notifications are shown under Windows PowerShell's name.
 ## The gates
 
 ```sh
-cargo test --workspace            # ~1400 tests, no network
+cargo test --workspace            # ~2200 tests, no network
 cargo clippy --all-targets
 cargo fmt --all --check
 ./scripts/check-boundary.sh       # the sans-I/O boundary

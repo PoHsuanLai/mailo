@@ -13,7 +13,7 @@
 //! ([`crate::trust::destination`]: the pill is loud when the text names somewhere else), so the
 //! reader's link pill shows for a frame's links too ([`FramePill`]).
 
-use ds_native::{FrameLink, FrameLinkHover, FrameLinks, HoverPhase};
+use ds_blitz::{FrameLink, FrameLinkHover, FrameLinks, HoverPhase};
 use mail_mime::SafeUrl;
 use std::sync::Arc;
 use tokio::sync::watch;

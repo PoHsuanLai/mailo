@@ -12,9 +12,11 @@
 //!   the laid-out lines and are the surface's (`surface.rs`).
 
 use dioxus::prelude::{Key, Modifiers};
-use ds::{
-    Composition, EditInput, EditPointer, Extend, KeyInput, Pasted, PointerPhase, TextPosition,
-};
+use ds::edit::input::{Composition, EditInput, KeyInput};
+use ds::edit::pointer::{EditPointer, Extend};
+use ds::host::captured::PointerPhase;
+use ds::host::pasted::Pasted;
+use ds::host::position::TextPosition;
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::editor::{Doc, InputEvent, Node, Pos, Range, node_len, runs_text};

@@ -128,7 +128,7 @@ thread_local! {
 fn Open(thread: ThreadId) -> Element {
     let shell = use_signal(Shell::default);
     SHELL.with(|slot| slot.set(Some(shell)));
-    rsx! { Reader { thread, shell } }
+    rsx! { ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window, Reader { thread, shell } } }
 }
 
 /// The reader on `thread`, with `secrets` as the keyring.
@@ -170,19 +170,140 @@ pub(super) async fn until(
 }
 
 /// The seal's lines, in order, as `(class, words)`.
+/// `page` without the list rows that are leaving: a quire `List` keeps a removed row drawn while
+/// it fades out, so what a list holds now is what is not `data-presence="leaving"`.
+pub(super) fn without_leaving(page: &str) -> String {
+    let mut out = String::new();
+    let mut rest = page;
+    while let Some(at) = rest.find("data-presence=\"leaving\"") {
+        let start = rest[..at].rfind("<div").unwrap_or(at);
+        out.push_str(&rest[..start]);
+        let mut depth = 0usize;
+        let mut end = start;
+        for (offset, piece) in rest[start..].match_indices(['<']) {
+            let tail = &rest[start + offset..];
+            if tail.starts_with("<div") {
+                depth += 1;
+            } else if tail.starts_with("</div") {
+                depth -= 1;
+                if depth == 0 {
+                    end = start + offset + "</div>".len();
+                    break;
+                }
+            }
+            let _ = piece;
+        }
+        rest = &rest[end..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// What the reader says about a message's protection, in the order it says it: each line's
+/// look (`seal-line`, then `good`, `unknown`, `warn`, `bad` or `detail` after a space) and its
+/// words. The lines are quire's: a `Label` in a status colour (good, unknown), a plain or quiet
+/// one, or an `InlineBanner` (warn, bad), directly under the `.seal` box; the passphrase field
+/// under it is not a line.
 pub(super) fn lines(page: &str) -> Vec<(String, String)> {
     let mut out = Vec::new();
     let mut rest = page;
-    while let Some(at) = rest.find("class=\"seal-line") {
-        rest = &rest[at + "class=\"".len()..];
-        let class_end = rest.find('"').unwrap();
-        let class = rest[..class_end].to_owned();
-        let text_start = rest.find('>').unwrap() + 1;
-        let text_end = rest[text_start..].find('<').unwrap() + text_start;
-        out.push((class, rest[text_start..text_end].to_owned()));
-        rest = &rest[text_end..];
+    while let Some(at) = rest.find("class=\"seal\"") {
+        let open = rest[..at].rfind("<div").unwrap_or(at);
+        let end = close_of(&rest[open..]);
+        out.extend(seal_lines(&rest[open..open + end]));
+        rest = &rest[open + end..];
     }
     out
+}
+
+/// Where the element that opens `html` ends: after its matching `</div>`.
+fn close_of(html: &str) -> usize {
+    let (mut depth, mut at) = (0_usize, 0_usize);
+    while let Some(next) = html[at..].find(['<']) {
+        at += next;
+        if html[at..].starts_with("</div") {
+            depth -= 1;
+            at += html[at..].find('>').map_or(html.len() - at, |end| end + 1);
+            if depth == 0 {
+                return at;
+            }
+        } else {
+            if html[at..].starts_with("<div") {
+                depth += 1;
+            }
+            at += 1;
+        }
+    }
+    html.len()
+}
+
+/// The text inside `html`, without its tags.
+fn words_of(html: &str) -> String {
+    let (mut words, mut in_tag) = (String::new(), false);
+    for c in html.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            c if !in_tag => words.push(c),
+            _ => {}
+        }
+    }
+    words
+}
+
+fn seal_lines(seal: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    // Past the box's own opening tag.
+    let mut rest = &seal[seal.find('>').map_or(0, |end| end + 1)..];
+    while let Some(at) = rest.find('<') {
+        rest = &rest[at..];
+        let tag_end = rest.find('>').unwrap_or(rest.len() - 1);
+        let tag = &rest[..=tag_end];
+        if rest.starts_with("<span") && tag.contains("class=\"ds-label\"") {
+            let end = rest.find("</span>").unwrap_or(rest.len());
+            let look = match (severity_of(tag), tag.contains("data-role=\"tertiary\"")) {
+                (Some("ok"), _) => "seal-line good",
+                (Some("warn"), _) => "seal-line unknown",
+                (None, true) => "seal-line detail",
+                _ => "seal-line",
+            };
+            out.push((look.to_owned(), words_of(&rest[tag_end + 1..end])));
+            rest = &rest[end..];
+        } else if rest.starts_with("<div") {
+            let end = close_of(rest);
+            if tag.contains("ds-inline-banner\"") {
+                let body = rest.find("ds-inline-banner-body").unwrap_or(0);
+                let inner = &rest[body..end];
+                let words = inner.find("</span>").map_or(inner, |close| &inner[..close]);
+                let look = match severity_of(tag) {
+                    Some("danger") => "seal-line bad",
+                    Some("warn") => "seal-line warn",
+                    _ => "seal-line",
+                };
+                out.push((
+                    look.to_owned(),
+                    words_of(&words[words.find('>').map_or(0, |at| at + 1)..]),
+                ));
+            }
+            rest = &rest[end..];
+        } else {
+            rest = &rest[1..];
+        }
+    }
+    out
+}
+
+/// The `data-severity` a tag carries.
+fn severity_of(tag: &str) -> Option<&str> {
+    let at = tag.find("data-severity=\"")? + "data-severity=\"".len();
+    tag[at..].split('"').next()
+}
+
+/// Whether the reader draws a line that looks like `class` (`seal-line` alone: any line).
+pub(super) fn shows(page: &str, class: &str) -> bool {
+    lines(page)
+        .iter()
+        .any(|(look, _)| class == "seal-line" || look == class)
 }
 
 #[test]
@@ -276,13 +397,9 @@ fn every_verdict_is_said_in_words_and_a_bad_one_is_unmissable() {
                 line(Tone::Plain, "Not encrypted"),
                 line(
                     Tone::Unknown,
-                    "Signed by key 1212 1212 1212 1212, which you do not have, so the \
-                     signature cannot be checked",
+                    "Signed by key 1212 1212 1212 1212, which you don’t have",
                 ),
-                line(
-                    Tone::Unknown,
-                    "Only part of this message is signed; the rest could say anything",
-                ),
+                line(Tone::Unknown, "Only part of this message is signed"),
             ],
         ),
         (
@@ -296,8 +413,7 @@ fn every_verdict_is_said_in_words_and_a_bad_one_is_unmissable() {
             vec![
                 line(
                     Tone::Unknown,
-                    "Encrypted to keys you do not hold (3434 3434 3434 3434), so it cannot be \
-                     read here",
+                    "Encrypted to keys you don’t have (3434 3434 3434 3434)",
                 ),
                 line(Tone::Plain, "Not signed"),
             ],
@@ -319,11 +435,45 @@ fn every_verdict_is_said_in_words_and_a_bad_one_is_unmissable() {
     for (case, given, want) in cases {
         assert_eq!(said(&given), want, "{case}");
     }
-    // Three looks, three classes: good, unknown and bad never share one.
-    let classes = [Tone::Good, Tone::Unknown, Tone::Bad].map(Tone::class);
+}
+
+/// Each tone has its own look, and no two share one: a signature that is believed, one nobody
+/// can check, one believed only in part, and one that does not check are four different things.
+#[test]
+fn every_tone_draws_its_own_look() {
+    let tones = [
+        Tone::Plain,
+        Tone::Good,
+        Tone::Unknown,
+        Tone::Warn,
+        Tone::Bad,
+        Tone::Detail,
+    ];
+    let mut dom = VirtualDom::new_with_props(
+        |tones: [Tone; 6]| {
+            rsx! {
+                div { class: "seal",
+                    for (at, tone) in tones.into_iter().enumerate() {
+                        {super::seal::said_line(at, super::said::Said { tone, text: format!("line {at}") })}
+                    }
+                }
+            }
+        },
+        tones,
+    );
+    dom.rebuild_in_place();
+    let page = dioxus_ssr::render(&dom);
+    let looks: Vec<String> = lines(&page).into_iter().map(|(look, _)| look).collect();
     assert_eq!(
-        classes,
-        ["seal-line good", "seal-line unknown", "seal-line bad"]
+        looks,
+        [
+            "seal-line",
+            "seal-line good",
+            "seal-line unknown",
+            "seal-line warn",
+            "seal-line bad",
+            "seal-line detail"
+        ]
     );
 }
 
@@ -338,7 +488,7 @@ async fn a_signed_message_says_who_signed_it_over_its_body() {
         sealed(&raw, OpenPgp::Sign, Some(&mine(&secrets, &key)), &[], 21),
     );
     let (mut dom, mut seen) = reader(store, secrets, message.thread);
-    let page = until(&mut dom, &mut seen, |page| page.contains("seal-line")).await;
+    let page = until(&mut dom, &mut seen, |page| shows(page, "seal-line")).await;
     assert!(looked_at(message.id));
     let said = lines(&page);
     assert_eq!(
@@ -370,7 +520,7 @@ async fn a_bad_signature_is_said_on_the_danger_ground() {
     let tampered = text.replace("pay the heron invoice", "pay the forged invoice");
     let message = arrive(&store, tampered.into_bytes());
     let (mut dom, mut seen) = reader(store, secrets, message.thread);
-    let page = until(&mut dom, &mut seen, |page| page.contains("seal-line")).await;
+    let page = until(&mut dom, &mut seen, |page| shows(page, "seal-line")).await;
     let said = lines(&page);
     assert_eq!(said[1].0, "seal-line bad", "{said:?}");
     assert!(said[1].1.starts_with("Bad signature"), "{said:?}");
@@ -385,19 +535,17 @@ async fn a_signature_by_a_key_not_held_cannot_be_checked_and_does_not_look_good(
     let raw = letter("lynx", "the lynx is signed by bea");
     let message = arrive(&store, sealed(&raw, OpenPgp::Sign, Some(&bea), &[], 24));
     let (mut dom, mut seen) = reader(store, secrets, message.thread);
-    let page = until(&mut dom, &mut seen, |page| page.contains("seal-line")).await;
+    let page = until(&mut dom, &mut seen, |page| shows(page, "seal-line")).await;
     let said = lines(&page);
     let issuer = super::grouped(&bea.fingerprint().key_id().to_string());
     assert_eq!(
         said[1],
         (
             "seal-line unknown".to_owned(),
-            format!(
-                "Signed by key {issuer}, which you do not have, so the signature cannot be checked"
-            )
+            format!("Signed by key {issuer}, which you don’t have")
         )
     );
-    assert!(!page.contains("seal-line good"), "{page}");
+    assert!(!shows(&page, "seal-line good"), "{page}");
     assert!(page.contains("the lynx is signed by bea"), "{page}");
 }
 
@@ -465,16 +613,13 @@ fn locked(
     (message, passphrase, key.fingerprint())
 }
 
-const ASKED: &str = "This message is encrypted to a key with a passphrase";
+const ASKED: &str = "Passphrase for key";
 
 /// The passphrase field for `key`, found by its label.
 fn field(seen: &Seen, key: Fingerprint) -> dioxus_core::ElementId {
     seen.one(
         "aria-label",
-        &format!(
-            "Passphrase: This message is encrypted to a key with a passphrase: your key {}.",
-            super::short(key)
-        ),
+        &format!("Passphrase: Passphrase for key {}", super::short(key)),
     )
 }
 
@@ -487,7 +632,7 @@ async fn a_locked_key_is_asked_for_inline_and_opens_with_its_passphrase() {
     let page = until(&mut dom, &mut seen, |page| page.contains(ASKED)).await;
     assert!(page.contains(ASKED), "{page}");
     assert!(!page.contains("the otter sleeps at noon"), "{page}");
-    assert!(!page.contains("did not unlock"), "{page}");
+    assert!(!page.contains("Wrong passphrase"), "{page}");
 
     let mut typed = type_into(&mut dom, field(&seen, key), &passphrase);
     let page = markup(&dom);
@@ -537,11 +682,11 @@ async fn a_wrong_passphrase_says_so_and_can_be_tried_again() {
 
     type_into(&mut dom, field(&seen, key), "not the words");
     let mut after = click(&mut dom, seen.one("aria-label", "Unlock"));
-    let page = until(&mut dom, &mut after, |page| page.contains("did not unlock")).await;
-    assert!(
-        page.contains("That passphrase did not unlock the key. Try again."),
-        "{page}"
-    );
+    let page = until(&mut dom, &mut after, |page| {
+        page.contains("Wrong passphrase")
+    })
+    .await;
+    assert!(page.contains("Wrong passphrase."), "{page}");
     assert!(!page.contains("the badger sleeps at noon"), "{page}");
 
     // The field and its button are drawn again, and the right words open it.
@@ -553,7 +698,7 @@ async fn a_wrong_passphrase_says_so_and_can_be_tried_again() {
     })
     .await;
     assert!(page.contains("the badger sleeps at noon"), "{page}");
-    assert!(!page.contains("did not unlock"), "{page}");
+    assert!(!page.contains("Wrong passphrase"), "{page}");
 }
 
 #[tokio::test]
@@ -590,14 +735,14 @@ async fn a_signature_on_only_part_of_a_message_says_so() {
     );
     let message = arrive(&store, raw.into_bytes());
     let (mut dom, mut seen) = reader(store, secrets, message.thread);
-    let page = until(&mut dom, &mut seen, |page| page.contains("seal-line")).await;
+    let page = until(&mut dom, &mut seen, |page| shows(page, "seal-line")).await;
     let said = lines(&page);
     assert_eq!(said[1].0, "seal-line good", "{said:?}");
     assert_eq!(
         said.last().unwrap(),
         &(
             "seal-line unknown".to_owned(),
-            "Only part of this message is signed; the rest could say anything".to_owned()
+            "Only part of this message is signed".to_owned()
         )
     );
     assert!(page.contains("the crane part is signed"), "{page}");
@@ -628,16 +773,15 @@ async fn a_plain_message_says_nothing_and_every_seal_class_is_styled() {
     .replace("\r\nwren\r\n", "\r\nwrong\r\n");
     let bad = arrive(&store, bad.into_bytes());
     let (mut dom, mut seen) = reader(store, secrets, bad.thread);
-    page += &until(&mut dom, &mut seen, |page| page.contains("seal-line bad")).await;
-    assert!(page.contains("seal-line bad"), "{page}");
+    page += &until(&mut dom, &mut seen, |page| shows(page, "seal-line bad")).await;
+    assert!(shows(&page, "seal-line bad"), "{page}");
     let drawn = seals(&page);
     assert!(
-        drawn.contains("unlock-field") && drawn.contains("seal-line bad"),
+        drawn.contains("unlock-field") && shows(&drawn, "seal-line bad"),
         "{drawn}"
     );
-    let missing =
-        crate::ui::style::tests::unstyled_classes(&drawn, &crate::ui::style::tests::full_css());
-    assert!(missing.is_empty(), "unstyled classes: {missing:?}");
+    let offences = crate::ui::style::tests::markup_offences(&drawn);
+    assert!(offences.is_empty(), "the markup lint: {offences:#?}");
 }
 
 /// Every `div.seal` in `page`, whole: what this module draws, and nothing of the reader around it.
@@ -716,7 +860,10 @@ async fn render_the_reader_badges_and_the_keys_sheet_to_a_file() {
         if done == ASKED {
             type_into(&mut dom, field(&seen, locked_key), "wrong");
             let mut after = click(&mut dom, seen.one("aria-label", "Unlock"));
-            until(&mut dom, &mut after, |page| page.contains("did not unlock")).await;
+            until(&mut dom, &mut after, |page| {
+                page.contains("Wrong passphrase")
+            })
+            .await;
         }
         body.push_str(&format!(
             "<section class=\"reader\" style=\"width:640px;height:340px;margin:16px\">{}</section>",

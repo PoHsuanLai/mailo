@@ -39,7 +39,7 @@ pub(super) fn use_list(
 ) -> ListView {
     let debounced = use_debounced(shell, |shell| shell.search.clone());
     let settled = debounced.settled;
-    // A memo, so a shell change the list does not depend on — a letter typed into Ctrl F, a
+    // A memo, so a shell change the list does not depend on — a letter typed into ⌘F, a
     // peek mode — does not run the search again. The generation is part of it, so typing back
     // to the text last searched for is still a query of its own and cannot be dropped as stale.
     let request = use_memo(move || {

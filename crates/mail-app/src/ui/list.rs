@@ -4,25 +4,52 @@
 //! ask for another page. Split from [`super::app`] (`CONVENTIONS.md` §8). The queries stay in
 //! `App`; this reads the memos it is handed rather than cloning their answers in the parent.
 
+use super::common::classed;
 use super::data::{AccountRow, account_rows, syncs_nothing};
-use super::field::{Field, FieldKind};
 use super::list_search::{Marking, RowHit, Scope, row_hit};
-use super::motion::{Clock, Ghost, Leaving, Motion, Toast, motion};
+use super::motion::{Ghost, Toast};
 use super::ops::start_new;
 use super::page::PageMenus;
 use super::picks::PickBar;
 use super::press::{available, on_primary};
-use super::row::{DraftRow, Moving, Row, gap};
+use super::row::{DraftRow, MailRow};
 use super::server_search::{Asked, ServerSearch, found_threads};
 use super::view_groups::group_list;
 use crate::provider::provider;
 use crate::view::{Nothing, Shell, SyncState, synced};
 use dioxus::prelude::*;
-use ds::{Anim, Glyph, Icon, Presence, Roster, RowPitch, Selection};
+use ds::components::chrome::toolbar::view::Toolbar;
+use ds::components::content::label::{Label, LabelRole, LabelStyle};
+use ds::components::content::text_runs::RunTone;
+use ds::components::controls::button_model::{Bezel, ImagePosition};
+use ds::components::overlays::empty_state::EmptyForm;
+use ds::prelude::*;
+use ds::style::tokens::control_size::ControlSize;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 use std::collections::BTreeMap;
 use std::sync::Arc;
+
+/// What a list item is, by identity: the same key on every render, so quire's `List` keeps a
+/// row where it is, plays an exit for one that stops being listed and an entrance for a new one.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum Slot {
+    /// A draft, by its id.
+    Draft(String),
+    /// A conversation in a search's top results.
+    Top(ThreadId),
+    /// A conversation in the date-ordered rows.
+    Thread(ThreadId),
+    /// A band's title.
+    Band(String),
+    /// A search's two headings.
+    TopHeading,
+    NewestHeading,
+    /// The heading over what a search of the server found.
+    ServerHeading,
+    /// A conversation a search of the server found that the list does not already hold.
+    Server(ThreadId),
+}
 
 /// The conversations and drafts for wherever the shell is looking.
 #[component]
@@ -36,7 +63,6 @@ pub(super) fn ThreadList(
     nothing: Memo<Nothing>,
     more: Memo<bool>,
     sync_state: Signal<SyncState>,
-    entering: Signal<bool>,
     marking: Memo<Marking>,
     /// A search's top results, drawn above the date-ordered rows.
     top: Memo<Vec<ThreadSummary>>,
@@ -109,7 +135,6 @@ pub(super) fn ThreadList(
         .iter()
         .map(|(name, id)| (*id, name.clone()))
         .collect();
-    let inbox = place == "Inbox" && shell.read().search.trim().is_empty();
     // Local folders are never synced: with only them in view there is no Sync, and no word of one.
     let quiet = syncs_nothing(&rows(), shell.read().account, &shell.read().scope);
     let note = if quiet {
@@ -120,19 +145,6 @@ pub(super) fn ThreadList(
     let search_note = marking.read().note();
     let invalid = matches!(marking.read().scope, Scope::Invalid(_));
     let bad = sync_state.read().is_failure();
-    enum Line {
-        Head(String),
-        Mail {
-            index: usize,
-            summary: Box<ThreadSummary>,
-            via: Option<crate::provider::Provider>,
-            chips: Vec<String>,
-            hit: Option<RowHit>,
-            moving: Moving,
-            landing: Option<String>,
-            selection: Selection,
-        },
-    }
     let accounts = rows();
     let highlight = marking.read().highlight.clone();
     let brought = from_server();
@@ -153,25 +165,10 @@ pub(super) fn ThreadList(
             .map(|row| (row.id, row.shown()))
             .collect()
     };
-    let server_rows: Vec<(ThreadSummary, Dress)> = found()
-        .into_iter()
-        .map(|summary| {
-            let dressed = dress_row(&summary);
-            (summary, dressed)
-        })
-        .collect();
-    // The strip is the same row, marked the same way, under its own header. A top result is
-    // also in the list below, where its date puts it, as Gmail shows it.
-    let strip: Vec<(ThreadSummary, Dress)> = top()
-        .into_iter()
-        .map(|summary| {
-            let dressed = dress_row(&summary);
-            (summary, dressed)
-        })
-        .collect();
-    let state = use_hook(motion);
-    let listed = threads();
-    let keys: Vec<ThreadId> = listed.iter().map(|summary| summary.id).collect();
+    let server_rows = found();
+    let state = use_hook(super::motion::motion);
+    let shown = threads();
+    let keys: Vec<ThreadId> = shown.iter().map(|summary| summary.id).collect();
     let picking = !shell.read().picked.chosen(&keys).is_empty();
     // Picked, or open with nothing picked: asked of the shell against what is listed.
     let selection_of = |id: ThreadId| {
@@ -181,42 +178,48 @@ pub(super) fn ThreadList(
             Selection::Unselected
         }
     };
-    let pitch = RowPitch(ds::Px(gap(&shell.peek()) as f32));
-    let roster = use_roster_clock(keys.clone(), pitch, state);
-    let leaving = state
-        .map(|state| state.leaving.read().clone())
-        .unwrap_or_default();
-    let drawn = drawn(&roster, &keys, listed, &leaving);
-    // The list is being shown while `entering` holds and its rows are still arriving; it rests
-    // once they have, and a row that arrives after that is not an entrance.
-    use_list_rest(entering, roster);
-    let list_presence = if entering() {
-        ds::ListPresence::Entering
-    } else {
-        ds::ListPresence::Present
-    };
-    let returning = state
-        .map(|state| state.returning.read().clone())
-        .unwrap_or_default();
-    let moving: BTreeMap<ThreadId, Moving> = drawn
-        .iter()
-        .map(|(summary, moving)| {
-            let moving = match moving {
-                Moving::Entering(_) if returning.contains(&summary.id) && !entering() => {
-                    Moving::Returning
-                }
-                other => *other,
-            };
-            (summary.id, moving)
-        })
-        .collect();
-    let shown: Vec<ThreadSummary> = drawn.into_iter().map(|(summary, _)| summary).collect();
     if let Some(state) = state {
         let mut order = state.order;
-        order.set(shown.iter().map(|summary| summary.id).collect());
+        order.set(keys.clone());
     }
-    let mut lines = Vec::new();
-    let mut row_index = 0usize;
+    // The list's items, top to bottom: drafts, a search's top results, then the bands, then
+    // what a search of the server found that the list does not hold.
+    let mut items: Vec<ListItem<Slot>> = Vec::new();
+    for draft in drafts() {
+        let id = draft.id.to_string();
+        let label = if draft.subject.is_empty() {
+            "(no subject)".to_owned()
+        } else {
+            draft.subject.clone()
+        };
+        items.push(ListItem::row(
+            Slot::Draft(id),
+            label,
+            rsx! { DraftRow { draft, shell } },
+        ));
+    }
+    let strip = top();
+    if !strip.is_empty() {
+        items.push(ListItem::heading(
+            Slot::TopHeading,
+            rsx! { SectionHeader { title: "Top results".to_owned() } },
+        ));
+        for summary in strip {
+            let Dress { via, chips, hit } = dress_row(&summary);
+            let id = summary.id;
+            let label = summary.subject.clone();
+            let selection = selection_of(id);
+            items.push(ListItem::row(
+                Slot::Top(id),
+                label,
+                rsx! { MailRow { summary, shell, revision, chips, via, hit, selection } },
+            ));
+        }
+        items.push(ListItem::heading(
+            Slot::NewestHeading,
+            rsx! { SectionHeader { title: "Newest first".to_owned() } },
+        ));
+    }
     for band in group_list(
         shown,
         &shell.read().grouping(),
@@ -225,249 +228,208 @@ pub(super) fn ThreadList(
         &chrono::Local,
     ) {
         if let Some(title) = band.title {
-            lines.push(Line::Head(title));
+            items.push(ListItem::heading(
+                Slot::Band(title.clone()),
+                rsx! { SectionHeader { title } },
+            ));
         }
         for summary in band.threads {
             let Dress { via, chips, hit } = dress_row(&summary);
-            let moving = moving.get(&summary.id).copied().unwrap_or_default();
-            let landing = state
-                .and_then(|state| *state.landing.read())
-                .filter(|(thread, _)| *thread == summary.id)
-                .and_then(|(_, label)| names.get(&label).cloned());
-            let selection = selection_of(summary.id);
-            lines.push(Line::Mail {
-                index: row_index,
-                summary: Box::new(summary),
-                via,
-                chips,
-                hit,
-                moving,
-                landing,
-                selection,
-            });
-            row_index += 1;
+            let id = summary.id;
+            let label = summary.subject.clone();
+            let selection = selection_of(id);
+            items.push(ListItem::row(
+                Slot::Thread(id),
+                label,
+                rsx! { MailRow { summary, shell, revision, chips, via, hit, selection } },
+            ));
         }
     }
+    if !server_rows.is_empty() {
+        items.push(ListItem::heading(
+            Slot::ServerHeading,
+            rsx! { SectionHeader { title: "From the server".to_owned() } },
+        ));
+        for summary in server_rows {
+            let Dress { via, chips, hit } = dress_row(&summary);
+            let id = summary.id;
+            let label = summary.subject.clone();
+            let selection = selection_of(id);
+            items.push(ListItem::row(
+                Slot::Server(id),
+                label,
+                rsx! { MailRow { summary, shell, revision, chips, via, hit, selection } },
+            ));
+        }
+    }
+    let cursor = shell.read().open.map(Slot::Thread);
+    let nothing_here = threads().is_empty() && drafts().is_empty() && found().is_empty();
+    let empty_form = match nothing() {
+        Nothing::NoMatch(_) => EmptyForm::NoResults,
+        Nothing::NoAccount | Nothing::EmptyFolder => EmptyForm::Empty,
+    };
+    let empty_description: Option<TextLine> = nothing().command().map(|command| {
+        TextLine::Runs(vec![
+            TextRun::new("Run ", RunTone::Plain),
+            TextRun::new(command, RunTone::Code),
+        ])
+    });
     rsx! {
         div { class: "list-col",
-            // While anything listed is picked, the bar is the selection's: its count and its
-            // actions, and nothing else. The page's own tools (Group, Properties, Sync, Compose)
-            // act on no selection, and beside the selection's they ran past the list column
-            // and under the reader, where they could not be pressed.
-            if picking {
-                div { class: "list-bar picking",
-                    PickBar { shell, revision, threads }
-                }
-            } else {
-                div { class: "list-bar",
-                    h2 {
-                        "{place}"
-                        if let Some(address) = address {
-                            span { class: "mono", "{address}" }
-                        }
-                    }
-                    if let Some(note) = note {
-                        // One line, cut short when it must be; the whole of it on hover.
-                        span { class: if bad { "status bad" } else { "status" }, title: "{note}", "{note}" }
-                    }
-                    if let Some(said) = search_note {
-                        span { class: if invalid { "status bad" } else { "status" }, "{said}" }
-                    }
-                    div { class: "bar-tools",
-                        PageMenus { shell }
-                        // Trash and Spam alone: everything in them, deleted forever, once asked.
-                        super::destroy::EmptyButton { shell }
-                        // A search can be kept as a view, and a view shown can be changed. Icons only,
-                        // like Sync, to keep the bar narrow.
-                        if !shell.read().search.trim().is_empty() {
-                            ds::Button {
-                                variant: ds::ButtonVariant::Mini,
-                                label: String::new(),
-                                icon: Icon::Plus,
-                                aria_label: "Save as view".to_owned(),
-                                title: "Keep this search in the sidebar".to_owned(),
-                                onclick: on_primary(move || {
-                                    let search = shell.peek().search.clone();
-                                    super::views::open_new(shell, &search);
-                                }),
-                            }
-                        } else if let Some(view) = shell.read().saved_view().cloned() {
-                            ds::Button {
-                                variant: ds::ButtonVariant::Mini,
-                                label: String::new(),
-                                icon: Icon::Settings,
-                                aria_label: "Edit view".to_owned(),
-                                title: "Change or delete this view".to_owned(),
-                                onclick: on_primary(move || super::views::open_edit(shell, &view)),
-                            }
-                        }
-                        if !quiet {
-                            ds::Button {
-                                variant: ds::ButtonVariant::Mini,
-                                label: String::new(),
-                                icon: Icon::Refresh,
-                                aria_label: "Sync now".to_owned(),
-                                availability: available(sync_state.read().may_start()),
-                                onclick: on_primary(move || {
-                                    if !sync_state.read().may_start() {
-                                        return;
-                                    }
-                                    sync_state.set(SyncState::Running);
-                                    super::folder_open::forget();
-                                    let store = consume_context::<Arc<SqliteStore>>();
-                                    spawn(async move {
-                                        // `spawn_blocking`, not this task: sync::run opens sockets and
-                                        // builds its own runtime, and `Runtime::block_on` inside an async
-                                        // context panics.
-                                        let done = tokio::task::spawn_blocking(move || {
-                                            crate::sync::run(store, chrono::Utc::now())
-                                        })
-                                        .await;
-                                        sync_state.set(match done {
-                                            Ok(result) => synced(result.map(|ran| ran.text)),
-                                            Err(e) => synced(Err(format!("the sync pass stopped: {e}"))),
-                                        });
-                                        revision += 1;
-                                    });
-                                }),
-                            }
-                        }
-                        ds::Button {
-                            variant: ds::ButtonVariant::Mini,
-                            label: "Compose".to_owned(),
-                            icon: Icon::Pen,
-                            title: "Write a new message (c)".to_owned(),
-                            onclick: on_primary(move || {
-                                let store = consume_context::<Arc<SqliteStore>>();
-                                let known = shell.peek().accounts.clone();
-                                match start_new(&store, &known) {
-                                    Ok(draft) => {
-                                        shell.write().compose(&draft);
-                                        revision += 1;
-                                    }
-                                    Err(why) => eprintln!("compose: {why}"),
+            // The list's header is quire's 52 px `Toolbar`. While anything listed is picked, the
+            // bar is the selection's: its count and its actions, and nothing else.
+            Toolbar::<()> {
+                onpick: move |()| {},
+                center: rsx! {
+                    div { class: if picking { "list-head picking" } else { "list-head" },
+                        if picking {
+                            PickBar { shell, revision, threads }
+                        } else {
+                            div { class: "list-title",
+                                Label { text: place.clone(), style: LabelStyle::Title }
+                                if let Some(address) = address {
+                                    Label { text: address, role: LabelRole::Tertiary, style: LabelStyle::Caption }
                                 }
-                            }),
+                            }
+                            if let Some(note) = note {
+                                // One line, cut short when it must be; the whole of it on hover.
+                                Label {
+                                    text: note.clone(),
+                                    role: LabelRole::Tertiary,
+                                    style: LabelStyle::Footnote,
+                                    common: classed(if bad { "status bad" } else { "status" }),
+                                }
+                            }
+                            if let Some(said) = search_note {
+                                Label {
+                                    text: said,
+                                    role: LabelRole::Tertiary,
+                                    style: LabelStyle::Footnote,
+                                    common: classed(if invalid { "status bad" } else { "status" }),
+                                }
+                            }
+                            div { class: "bar-tools",
+                                PageMenus { shell }
+                                // Trash and Spam alone: everything in them, deleted forever, once asked.
+                                super::destroy::EmptyButton { shell }
+                                // A search can be kept as a view, and a view shown can be changed.
+                                if !shell.read().search.trim().is_empty() {
+                                    Button {
+                                        bezel: Bezel::Toolbar,
+                                        image: ImagePosition::Only,
+                                        label: "Save as view",
+                                        icon: Some(IconSource::Glyph(Icon::Plus)),
+                                        title: Some("Keep this search in the sidebar".to_owned()),
+                                        onclick: on_primary(move || {
+                                            let search = shell.peek().search.clone();
+                                            super::views::open_new(shell, &search);
+                                        }),
+                                    }
+                                } else if let Some(view) = shell.read().saved_view().cloned() {
+                                    Button {
+                                        bezel: Bezel::Toolbar,
+                                        image: ImagePosition::Only,
+                                        label: "Edit view",
+                                        icon: Some(IconSource::Glyph(Icon::Settings)),
+                                        title: Some("Change or delete this view".to_owned()),
+                                        onclick: on_primary(move || super::views::open_edit(shell, &view)),
+                                    }
+                                }
+                                if !quiet {
+                                    Button {
+                                        bezel: Bezel::Toolbar,
+                                        image: ImagePosition::Only,
+                                        label: "Sync now",
+                                        icon: Some(IconSource::Glyph(Icon::Refresh)),
+                                        availability: available(sync_state.read().may_start()),
+                                        onclick: on_primary(move || {
+                                            if !sync_state.read().may_start() {
+                                                return;
+                                            }
+                                            sync_state.set(SyncState::Running);
+                                            super::folder_open::forget();
+                                            let store = consume_context::<Arc<SqliteStore>>();
+                                            spawn(async move {
+                                                // `spawn_blocking`, not this task: sync::run opens sockets and
+                                                // builds its own runtime, and `Runtime::block_on` inside an async
+                                                // context panics.
+                                                let done = tokio::task::spawn_blocking(move || {
+                                                    crate::sync::run(store, chrono::Utc::now())
+                                                })
+                                                .await;
+                                                sync_state.set(match done {
+                                                    Ok(result) => synced(result.map(|ran| ran.text)),
+                                                    Err(e) => synced(Err(format!("the sync pass stopped: {e}"))),
+                                                });
+                                                revision += 1;
+                                            });
+                                        }),
+                                    }
+                                }
+                                Button {
+                                    bezel: Bezel::Toolbar,
+                                    label: "Compose",
+                                    icon: Some(IconSource::Glyph(Icon::Pen)),
+                                    title: Some("New message (\u{2318}N)".to_owned()),
+                                    onclick: on_primary(move || {
+                                        let store = consume_context::<Arc<SqliteStore>>();
+                                        let known = shell.peek().accounts.clone();
+                                        match start_new(&store, &known) {
+                                            Ok(draft) => {
+                                                shell.write().compose(&draft);
+                                                revision += 1;
+                                            }
+                                            Err(why) => eprintln!("compose: {why}"),
+                                        }
+                                    }),
+                                }
+                            }
                         }
                     }
-                }
+                },
             }
-            label { class: "search",
-                Glyph { icon: Icon::Search, size: ds::IconSize::Nav }
-                Field {
-                    kind: FieldKind::Boxed,
-                    value: shell.read().search.clone(),
-                    placeholder: "Search all mail".to_owned(),
-                    extra: Some("search".to_owned()),
-                    on_input: move |value| {
-                        shell.write().search = value;
-                        pages.set(1);
-                    },
-                    on_focus: move |_| in_a_field.set(true),
-                    on_blur: move |_| in_a_field.set(false),
-                }
+            TextField {
+                kind: FieldKind::Search,
+                label: "Search all mail".to_owned(),
+                placeholder: "Search all mail".to_owned(),
+                value: shell.read().search.clone(),
+                oninput: move |value: String| {
+                    shell.write().search = value;
+                    pages.set(1);
+                },
+                onfocus: move |()| in_a_field.set(true),
+                onblur: move |()| in_a_field.set(false),
+                common: classed("search"),
             }
-            // quire's list in mailo's scroller: its presence picks the entrance a row plays.
+            // quire's list in mailo's scroller: it keeps each row by its key, so a row that
+            // leaves plays its exit and the rows below close the gap.
             div { class: "list",
-            ds::AnimatedList {
-                label: "{place}",
-                presence: list_presence,
-                if threads().is_empty() && drafts().is_empty() {
-                    li { class: "empty",
-                        p { "{nothing().message()}" }
-                        if nothing().command().is_none() && matches!(nothing(), Nothing::EmptyFolder) {
-                            p { class: "mono", if inbox { "inbox zero" } else { "empty" } }
+                List::<Slot> {
+                    label: place.clone(),
+                    items,
+                    cursor,
+                    onselect: move |slot: Slot| {
+                        if let Slot::Thread(id) | Slot::Top(id) | Slot::Server(id) = slot {
+                            shell.write().open(id);
                         }
-                        if let Some(command) = nothing().command() {
-                            pre { class: "command", "{command}" }
-                        }
-                    }
+                    },
                 }
-                for (index, draft) in drafts().into_iter().enumerate() {
-                    {
-                        let id = draft.id;
-                        rsx! { DraftRow { key: "{id}", draft, shell, index } }
-                    }
-                }
-                if !strip.is_empty() {
-                    li { class: "list-top-h", "Top results" }
-                    for (index, (summary, Dress { via, chips, hit })) in strip.into_iter().enumerate() {
-                        {
-                            let id = summary.id;
-                            let selection = selection_of(id);
-                            rsx! {
-                                Row {
-                                    key: "top-{id}",
-                                    summary,
-                                    shell,
-                                    revision,
-                                    index,
-                                    chips,
-                                    via,
-                                    hit,
-                                    moving: Moving::Still,
-                                    landing: None,
-                                    selection,
-                                }
-                            }
-                        }
-                    }
-                    li { class: "list-top-h", "Newest first" }
-                }
-                for entry in lines {
-                    match entry {
-                        Line::Head(title) => rsx! { li { key: "band-{title}", class: "list-g", "{title}" } },
-                        Line::Mail {
-                            index,
-                            summary,
-                            via,
-                            chips,
-                            hit,
-                            moving,
-                            landing,
-                            selection,
-                        } => {
-                            let summary = *summary;
-                            let id = summary.id;
-                            rsx! { Row { key: "{id}", summary, shell, revision, index, chips, via, hit, moving, landing, selection } }
-                        }
-                    }
-                }
-                // What a search of the server found that the list above does not hold.
-                if !server_rows.is_empty() {
-                    li { class: "list-top-h", "From the server" }
-                    for (index, (summary, Dress { via, chips, hit })) in server_rows.into_iter().enumerate() {
-                        {
-                            let id = summary.id;
-                            let selection = selection_of(id);
-                            rsx! {
-                                Row {
-                                    key: "server-{id}",
-                                    summary,
-                                    shell,
-                                    revision,
-                                    index,
-                                    chips,
-                                    via,
-                                    hit,
-                                    moving: Moving::Still,
-                                    landing: None,
-                                    selection,
-                                }
-                            }
-                        }
+                if nothing_here {
+                    EmptyState {
+                        form: empty_form,
+                        title: nothing().message(),
+                        description: empty_description,
                     }
                 }
             }
             if !servers.is_empty() {
                 ServerSearch { input: line.clone(), accounts: servers, asked, revision }
             }
-            }
             if more() {
                 div { class: "more",
-                    ds::Button {
-                        variant: ds::ButtonVariant::Mini,
-                        label: "Show more".to_owned(),
+                    Button {
+                        size: ControlSize::Small,
+                        label: "Show more",
                         onclick: on_primary(move || pages += 1),
                     }
                 }
@@ -511,99 +473,6 @@ fn dress(
         chips,
         hit: row_hit(summary, highlight),
     }
-}
-
-/// The list's roster over `keys`, and the timers an op starts, handed to the window's motion
-/// state so an op anywhere can start them.
-fn use_roster_clock(
-    keys: Vec<ThreadId>,
-    pitch: RowPitch,
-    state: Option<Motion>,
-) -> Roster<ThreadId> {
-    let roster = ds::use_roster(keys, pitch);
-    let gulp = ds::use_motion_timer(Anim::Gulp);
-    let landing = ds::use_motion_timer(Anim::ChipLand);
-    let gulped = use_callback(move |()| {
-        if let Some(mut state) = state {
-            state.gulp.set(None);
-        }
-    });
-    let landed = use_callback(move |()| {
-        if let Some(mut state) = state {
-            state.landing.set(None);
-        }
-    });
-    use_hook(move || {
-        if let Some(state) = state {
-            let mut clock = state.clock;
-            clock.set(Some(Clock {
-                roster,
-                gulp,
-                landing,
-                gulped,
-                landed,
-            }));
-        }
-    });
-    roster
-}
-
-/// Once the list being shown has no row still arriving, it is at rest. Marked from an effect,
-/// after the render that saw it, and only once a row has been seen arriving: a place's rows
-/// come from a query that may land a frame after the place was chosen.
-fn use_list_rest(mut entering: Signal<bool>, roster: Roster<ThreadId>) {
-    let mut seen = use_signal(|| false);
-    use_effect(move || {
-        let arriving = roster
-            .entries()
-            .iter()
-            .any(|entry| entry.presence == Presence::Entering);
-        if !entering() {
-            seen.set(false);
-        } else if arriving {
-            seen.set(true);
-        } else if *seen.peek() {
-            seen.set(false);
-            entering.set(false);
-        }
-    });
-}
-
-/// What the list draws, in order: every row the roster holds, with the summary to draw it by
-/// and what it is doing. A listed row is drawn as the store has it; a row that has left is
-/// drawn as it was, until its exit settles. A row an undo brought back mid-exit stays under its
-/// own key (`Roster::stay`), drawn once.
-fn drawn(
-    roster: &Roster<ThreadId>,
-    keys: &[ThreadId],
-    listed: Vec<ThreadSummary>,
-    leaving: &[Leaving],
-) -> Vec<(ThreadSummary, Moving)> {
-    roster
-        .entries()
-        .into_iter()
-        .filter_map(|entry| {
-            let summary = if keys.contains(&entry.key) {
-                listed
-                    .iter()
-                    .find(|summary| summary.id == entry.key)?
-                    .clone()
-            } else {
-                leaving
-                    .iter()
-                    .find(|row| row.key == entry.key)?
-                    .summary
-                    .clone()
-            };
-            let moving = match entry.presence {
-                Presence::Present => Moving::Still,
-                Presence::Entering => Moving::Entering(entry.index.get()),
-                Presence::Leaving(exit) => Moving::Going(exit),
-                Presence::Healing { d, .. } => Moving::Healing(d.get()),
-            };
-            Some((summary, moving))
-        })
-        .collect()
 }
 
 #[cfg(test)]

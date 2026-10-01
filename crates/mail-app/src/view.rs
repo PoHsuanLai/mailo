@@ -6,6 +6,8 @@
 
 use crate::selection::{Click, Picked, Toward};
 use chrono::{DateTime, Datelike, TimeDelta, TimeZone, Timelike, Utc, Weekday};
+use ds::prelude::*;
+use ds::style::appearance::peek::PeekMode;
 use mail_domain::*;
 use mail_mime::{Block, Document, Flowed, ImgSrc, RemoteImages, SanitizePolicy, Shape};
 use serde::de::Deserializer;
@@ -269,83 +271,8 @@ pub fn badge_filter(source: &Source) -> Option<Filter> {
     }
 }
 
-/// Which palette a Space resolves to: quire's, moved from here with its three states.
-pub use ds::Theme;
-
-/// How much the window moves while a Space is on screen.
-///
-/// mailo's own, and per Space: quire's [`ds::SpaceLook`] has no motion of its own, so this
-/// stays in [`crate::space::Space`] and becomes the root's `appearance.motion` through
-/// [`Motion::with_desktop`]. Three levels and no "follow the desktop": `Standard` is mailo's
-/// explicit default, never [`ds::Motion::System`]. `Calm` keeps every state change visible but
-/// removes the overshoot; the desktop's reduced-motion setting goes further and is honoured
-/// whatever this says.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Copy, Hash, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum Motion {
-    /// No overshoot, no stagger, no tilt.
-    Calm,
-    /// The design as drawn.
-    #[default]
-    Standard,
-    /// More spring, more stagger, more tilt.
-    Extra,
-}
-
-impl Motion {
-    /// Every level, in the order a picker offers them.
-    pub const ALL: [Motion; 3] = [Motion::Calm, Motion::Standard, Motion::Extra];
-
-    /// The stored word.
-    pub fn slug(self) -> &'static str {
-        match self {
-            Motion::Calm => "calm",
-            Motion::Standard => "standard",
-            Motion::Extra => "extra",
-        }
-    }
-
-    /// What a picker calls it.
-    pub fn label(self) -> &'static str {
-        match self {
-            Motion::Calm => "Calm",
-            Motion::Standard => "Standard",
-            Motion::Extra => "Extra",
-        }
-    }
-
-    /// The level a stored word names, or [`None`] for a word that is not one.
-    pub fn parse(word: &str) -> Option<Motion> {
-        Self::ALL.into_iter().find(|level| level.slug() == word)
-    }
-
-    /// The Space's level quire's `level` is, when it is one of the three a Space sets.
-    pub fn of(level: ds::Motion) -> Option<Motion> {
-        Self::ALL
-            .into_iter()
-            .find(|motion| ds::Motion::from(*motion) == level)
-    }
-
-    /// What the window's root is drawn at: this level, unless the desktop asks for reduced
-    /// motion, which wins whatever a Space says.
-    pub fn with_desktop(self, system: ds::SystemPrefs) -> ds::Motion {
-        match system.motion {
-            ds::ReducedMotion::Reduce => ds::Motion::Reduced,
-            ds::ReducedMotion::NoPreference => self.into(),
-        }
-    }
-}
-
-impl From<Motion> for ds::Motion {
-    /// One for one. `Standard` is an explicit choice, so it is quire's `Standard`, not `System`.
-    fn from(motion: Motion) -> Self {
-        match motion {
-            Motion::Calm => ds::Motion::Calm,
-            Motion::Standard => ds::Motion::Standard,
-            Motion::Extra => ds::Motion::Extra,
-        }
-    }
-}
+/// Which palette a Space resolves to: quire's, with its three states.
+pub use ds::prelude::Theme;
 
 /// Whether a provider chip draws the cached icon or the letter.
 ///
@@ -410,7 +337,7 @@ where
 
 /// Where the open reader sits. Per session, and not persisted.
 ///
-/// Side is the grid's third column, and mailo's own: quire's [`ds::PeekMode`] is only the two
+/// Side is the grid's third column, and mailo's own: quire's [`PeekMode`] is only the two
 /// that float. Floating is a stylesheet change on `div.app` — the reader component stays where
 /// it is in the tree, because moving it would reload the sandboxed frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -419,14 +346,14 @@ pub enum Peek {
     #[default]
     Side,
     /// Over the window: a centred panel, or the whole of it.
-    Float(ds::PeekMode),
+    Float(PeekMode),
 }
 
 impl Peek {
     /// A panel over the middle of the window.
-    pub const CENTER: Peek = Peek::Float(ds::PeekMode::Center);
+    pub const CENTER: Peek = Peek::Float(PeekMode::Center);
     /// The whole window.
-    pub const FULL: Peek = Peek::Float(ds::PeekMode::Full);
+    pub const FULL: Peek = Peek::Float(PeekMode::Full);
 
     /// `side`, `center` or `full`, written as `data-peek`.
     pub fn slug(self) -> &'static str {
@@ -619,6 +546,9 @@ pub struct Shell {
     /// What the user typed in the search box.
     pub search: String,
     pub open: Option<ThreadId>,
+    /// Whether the open thread was opened from its Today tab. The sidebar has one selected row:
+    /// that tab while this holds, the place otherwise.
+    pub from_today: bool,
     /// The conversations picked for an action on several at once. Empty: actions mean `open`.
     ///
     /// Dropped with the place ([`Self::select`]), and replaced by a plain click
@@ -701,12 +631,12 @@ pub struct Shell {
     pub keyboard: Option<KeyboardSheet>,
     /// The Delete forever / Empty Trash confirmation while it is open. `None` is closed.
     pub destroying: Option<crate::destroy::Destroying>,
-    /// Ctrl F in the open thread. `None` is closed, and marks nothing.
+    /// ⌘F in the open thread. `None` is closed, and marks nothing.
     ///
     /// Belongs to the thread it was opened on: [`Self::open`] and [`Self::close`] drop it, so a
     /// find never carries its count into a conversation it was not typed for.
     pub find: Option<crate::search::Find>,
-    /// What the undo toast and Ctrl Z can take back, newest last.
+    /// What the undo toast and ⌘Z can take back, newest last.
     pub undo: crate::undo::UndoStack,
     /// The attachment viewer, over the window. `None` is closed. Belongs to the open thread:
     /// [`Self::open`], [`Self::close`] and [`Self::select`] drop it.
@@ -901,6 +831,7 @@ impl Default for Shell {
             selected: 0,
             search: String::new(),
             open: None,
+            from_today: false,
             picked: Picked::none(),
             show_remote_images: false,
             peek: Peek::Side,
@@ -1049,6 +980,7 @@ impl Shell {
         if index < self.places.len() {
             self.selected = index;
             self.open = None;
+            self.from_today = false;
             // What was picked was picked in the old list.
             self.picked = Picked::none();
             // Consent is per thread, so changing what is shown revokes it.
@@ -1061,10 +993,28 @@ impl Shell {
     /// selection in any list, and a Shift range measures from it next.
     pub fn open(&mut self, thread: ThreadId) {
         self.open = Some(thread);
+        self.from_today = false;
         self.picked = Picked::clicked(thread);
         self.show_remote_images = false;
         self.find = None;
         self.viewing = None;
+    }
+
+    /// Open a thread from its Today tab: the tab is then the sidebar's selected row.
+    pub fn open_from_today(&mut self, thread: ThreadId) {
+        self.open(thread);
+        self.from_today = true;
+    }
+
+    /// Whether place `index` is the sidebar's selected row: the list's place, unless a Today tab
+    /// took the selection by opening its thread.
+    pub fn place_selected(&self, index: usize) -> bool {
+        self.selected == index && !self.from_today
+    }
+
+    /// The Today tab that is the sidebar's selected row, if one took it.
+    pub fn selected_tab(&self) -> Option<ThreadId> {
+        self.open.filter(|_| self.from_today)
     }
 
     /// Close the reader.
@@ -1073,6 +1023,7 @@ impl Shell {
     /// [`Self::select`] do. A remote image is a read receipt.
     pub fn close(&mut self) {
         self.open = None;
+        self.from_today = false;
         self.show_remote_images = false;
         self.find = None;
         self.viewing = None;
@@ -1300,6 +1251,19 @@ pub enum Shortcut {
 /// vocabulary for the same events.
 pub fn shortcut(key: &str, typing: bool) -> Option<Shortcut> {
     crate::keymap::Keymap::default().action(key, typing)
+}
+
+/// What ⌘ does on its own, when it is held (`ui::chord::command`).
+///
+/// ⌘N writes a message wherever the caret is and ⌘⌫ trashes while reading. Every other key is
+/// the Mac's or the field's — ⌘C is copy, ⌘A is select all — so the caller does not also ask
+/// the keymap, which does not own chords. Esc is not here: the caller leaves it to close.
+pub fn command_shortcut(key: &str, typing: bool) -> Option<Shortcut> {
+    match key {
+        "n" | "N" => Some(Shortcut::Compose),
+        "Delete" | "Backspace" if !typing => Some(Shortcut::Trash),
+        _ => None,
+    }
 }
 
 /// The key a press means with Shift held: "J" and "K" whether the keyboard reported the
@@ -1904,6 +1868,38 @@ mod tests {
         shell.select(sent);
         shell.search = "   ".to_owned();
         assert_eq!(shell.query(20).filter, Filter::InMailbox(MailboxRole::Sent));
+    }
+
+    #[test]
+    fn the_sidebar_has_one_selected_row() {
+        // The place the list shows, or the Today tab the open thread came from: never both.
+        let mut shell = Shell::default();
+        let thread = ThreadId::generate();
+        assert!(shell.place_selected(0));
+        assert_eq!(shell.selected_tab(), None);
+
+        shell.open(thread);
+        assert!(
+            shell.place_selected(0),
+            "a thread from the list keeps the place"
+        );
+        assert_eq!(shell.selected_tab(), None);
+
+        shell.open_from_today(thread);
+        assert!(
+            !shell.place_selected(0),
+            "a tab and a place are both selected"
+        );
+        assert_eq!(shell.selected_tab(), Some(thread));
+
+        shell.select(1);
+        assert!(shell.place_selected(1), "choosing a place takes it back");
+        assert_eq!(shell.selected_tab(), None);
+
+        shell.open_from_today(thread);
+        shell.close();
+        assert!(shell.place_selected(1));
+        assert_eq!(shell.selected_tab(), None);
     }
 
     #[test]
@@ -2532,9 +2528,9 @@ impl Nothing {
     /// What to say.
     pub fn message(&self) -> String {
         match self {
-            Nothing::NoAccount => "No account yet. Add one from a terminal:".to_owned(),
-            Nothing::NoMatch(needle) => format!("Nothing matches {needle:?}."),
-            Nothing::EmptyFolder => "Nothing here.".to_owned(),
+            Nothing::NoAccount => "No account".to_owned(),
+            Nothing::NoMatch(needle) => format!("No results for \u{201c}{needle}\u{201d}"),
+            Nothing::EmptyFolder => "Empty".to_owned(),
         }
     }
 
@@ -2837,6 +2833,21 @@ mod keyboard {
             assert!(shortcut(key, false).is_some(), "{key} does nothing");
             assert_eq!(shortcut(key, true), None, "{key} fired while typing");
         }
+    }
+
+    #[test]
+    fn command_held_is_the_macs_and_never_a_bare_letter() {
+        // ⌘N writes a message from anywhere, ⌘⌫ trashes while reading, and ⌘C, ⌘A and the
+        // rest are the field's and the Mac's: none of them archives, replies or forwards.
+        assert_eq!(command_shortcut("n", false), Some(Shortcut::Compose));
+        assert_eq!(command_shortcut("N", true), Some(Shortcut::Compose));
+        assert_eq!(command_shortcut("Backspace", false), Some(Shortcut::Trash));
+        assert_eq!(command_shortcut("Backspace", true), None);
+        for key in ["c", "a", "e", "r", "f", "p", "s", "u", "j", "k"] {
+            assert_eq!(command_shortcut(key, false), None, "⌘{key} is not ours");
+        }
+        assert_eq!(shortcut("Escape", true), Some(Shortcut::Back));
+        assert_eq!(command_shortcut("Escape", true), None);
     }
 
     #[test]
@@ -3543,7 +3554,7 @@ mod nothing_tests {
     fn an_empty_folder_is_ordinary_and_says_so_briefly() {
         assert_eq!(nothing_to_show(2, ""), Nothing::EmptyFolder);
         assert_eq!(nothing_to_show(2, "   "), Nothing::EmptyFolder);
-        assert_eq!(nothing_to_show(2, "").message(), "Nothing here.");
+        assert_eq!(nothing_to_show(2, "").message(), "Empty");
         assert_eq!(nothing_to_show(2, "").command(), None);
     }
 }
@@ -3727,7 +3738,6 @@ mod appearance {
         // mailo used to leave `data-theme` off for System so a media query could decide.
         // quire resolves the scheme in Rust and always writes one, so the guarantee is now
         // about the resolution: System is the desktop's, Light and Dark are themselves.
-        use ds::{Appearance, Scheme, SystemPrefs, resolve};
         const CASES: &[(Theme, Scheme, Scheme)] = &[
             (Theme::System, Scheme::Dark, Scheme::Dark),
             (Theme::System, Scheme::Light, Scheme::Light),
@@ -3739,7 +3749,7 @@ mod appearance {
                 scheme: desktop,
                 ..SystemPrefs::default()
             };
-            let resolved = resolve(Appearance::default(), theme, system);
+            let resolved = resolve(ds::prelude::Appearance::default(), theme, system);
             assert_eq!(
                 resolved.scheme, expect,
                 "{theme:?} on a {desktop:?} desktop"
@@ -3760,27 +3770,6 @@ mod appearance {
         for &(word, expect) in CASES {
             assert_eq!(Theme::parse(word), expect, "{word:?}");
         }
-    }
-
-    #[test]
-    fn a_spaces_motion_is_quires_one_for_one_unless_the_desktop_reduces() {
-        use ds::{ReducedMotion, SystemPrefs};
-        let still = SystemPrefs::default();
-        let reduce = SystemPrefs {
-            motion: ReducedMotion::Reduce,
-            ..SystemPrefs::default()
-        };
-        const CASES: &[(Motion, ds::Motion)] = &[
-            (Motion::Calm, ds::Motion::Calm),
-            (Motion::Standard, ds::Motion::Standard),
-            (Motion::Extra, ds::Motion::Extra),
-        ];
-        for &(mine, theirs) in CASES {
-            assert_eq!(ds::Motion::from(mine), theirs, "{mine:?}");
-            assert_eq!(mine.with_desktop(still), theirs, "{mine:?}");
-            assert_eq!(mine.with_desktop(reduce), ds::Motion::Reduced, "{mine:?}");
-        }
-        assert_ne!(ds::Motion::from(Motion::default()), ds::Motion::System);
     }
 }
 

@@ -18,7 +18,7 @@ use super::source::Source;
 /// Top results the list and `mailo search` show above the date-ordered rows.
 pub const STRIP: usize = 5;
 
-/// Mail Ctrl T asks for: the top hit, and six rows under it.
+/// Mail ⌘K asks for: the top hit, and six rows under it.
 pub const MENU: usize = 7;
 
 /// How many of the newest matches top results are chosen from. A strong match older than this

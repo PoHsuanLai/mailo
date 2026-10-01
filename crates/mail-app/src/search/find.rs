@@ -1,7 +1,7 @@
-//! What to mark on screen, and Ctrl F's place in a thread.
+//! What to mark on screen, and ⌘F's place in a thread.
 //!
 //! A [`Highlight`] is the typed words and phrases, plus at most one `re:/pattern/`. The list
-//! box and Ctrl F both build one, and both mark text with [`Highlight::ranges`], so a row, a
+//! box and ⌘F both build one, and both mark text with [`Highlight::ranges`], so a row, a
 //! parsed body and a find in a thread cannot disagree about what matched.
 //!
 //! The words are what was typed, not the vocabulary they expanded to: typing `uidval` marks
@@ -81,7 +81,7 @@ pub fn list_highlight<Tz: TimeZone>(
     })
 }
 
-/// What Ctrl F looks for in a thread: whitespace-separated words, or one `re:/…/`.
+/// What ⌘F looks for in a thread: whitespace-separated words, or one `re:/…/`.
 ///
 /// No operators here, because a thread is already one conversation: `from:` in a find box is
 /// the text `from:`. A pattern takes the whole box; words beside it are ignored rather than
@@ -100,7 +100,7 @@ pub fn find_highlight(input: &str) -> Result<Highlight, String> {
     })
 }
 
-/// Ctrl F, while it is open: what was typed, and which match is the current one.
+/// ⌘F, while it is open: what was typed, and which match is the current one.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Find {
     pub query: String,

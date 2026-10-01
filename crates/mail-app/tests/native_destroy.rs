@@ -1,13 +1,18 @@
 //! Delete forever and Empty Trash, driven the way their user drives them in the real window on
-//! Blitz (`ds_native::Harness`): offered only in Trash and Spam, always asked first by a sheet
+//! Blitz (`ds_harness::Harness`): offered only in Trash and Spam, always asked first by a sheet
 //! that names how much goes and says it cannot be undone, and never offered an Undo after.
 //!
 //! Every case opens the real window over a store seeded in a `TempDir`. The window is handed no
 //! directories, so it writes no file anywhere; nothing here touches the real store or config, and
 //! nothing is sent anywhere: the deletions wait in the store's outbox, where they are counted.
 
-use ds::{Key, Point};
-use ds_native::{Harness, HarnessConfig, NetPolicy, PrintOutcome, Viewport};
+use ds::prelude::{Point, ShortcutKey as Key};
+use ds_harness::{Driver, Harness, HarnessConfig, Query as Read, Viewport};
+
+#[path = "support/drive.rs"]
+mod drive;
+use drive::Drive;
+use ds_blitz::{NetPolicy, PrintOutcome};
 use mail_domain::*;
 use mail_runtime::{Arrival, absorb};
 use mail_store::{SqliteStore, Store};
@@ -169,7 +174,7 @@ fn open() -> (Harness, tempfile::TempDir, Arc<SqliteStore>) {
     let config = HarnessConfig::new(VIEW)
         .with_net(NetPolicy::Local)
         .with_contexts(contexts);
-    let mut harness = Harness::with_config(mail_app::ui::native::root, config);
+    let mut harness = Harness::new(mail_app::ui::native::root, config);
     harness.advance(ms(300));
     (harness, dir, store)
 }
@@ -195,11 +200,11 @@ fn place(name: &str) -> String {
 }
 
 fn row(n: usize) -> String {
-    format!(".ds-list > .row:nth-child({n})")
+    format!(".list .ds-list > .ds-list-item:nth-child({n})")
 }
 
 fn rows(harness: &Harness) -> usize {
-    harness.count(".ds-list > .row")
+    harness.count(".list .ds-thread")
 }
 
 const SHEET: &str = ".destroy-sheet";
@@ -210,7 +215,7 @@ fn sheet_text(harness: &Harness) -> String {
 
 /// The strip's buttons on row `n`, by name, with the pointer over the row.
 fn strip(harness: &mut Harness, n: usize) -> Vec<String> {
-    harness.pointer_move(centre(harness, &format!("{} .ds-row-sub", row(n))));
+    harness.pointer_move(centre(harness, &format!("{} .ds-thread-sub", row(n))));
     harness.advance(ms(300));
     let buttons = format!("{} .ds-strip [*|data-op]", row(n));
     (1..=harness.count(&buttons))
@@ -250,7 +255,7 @@ fn empty_trash_asks_naming_the_count_and_then_the_list_empties_with_no_undo() {
     // Asking deletes nothing.
     press(
         &mut harness,
-        &format!(".list-bar {}", labelled("Empty Trash")),
+        &format!(".list-col {}", labelled("Empty Trash")),
     );
     assert_eq!(harness.count(SHEET), 1, "Empty Trash put up no sheet");
     let said = sheet_text(&harness);
@@ -270,7 +275,7 @@ fn empty_trash_asks_naming_the_count_and_then_the_list_empties_with_no_undo() {
     // Asked again, and answered yes.
     press(
         &mut harness,
-        &format!(".list-bar {}", labelled("Empty Trash")),
+        &format!(".list-col {}", labelled("Empty Trash")),
     );
     press(
         &mut harness,

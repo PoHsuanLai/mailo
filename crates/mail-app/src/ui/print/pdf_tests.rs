@@ -9,7 +9,7 @@ use crate::print::Printed;
 use crate::ui::fixtures::{ACCOUNT, seeded};
 use crate::ui::original::{Consent, FetchImage, Got, ReaderNet};
 use chrono::TimeZone;
-use ds_native::{PageSize, PrintError, PrintOutcome};
+use ds_blitz::{PageSize, PrintError, PrintOutcome};
 use mail_domain::*;
 use mail_mime::{Pages, Script};
 use mail_store::{SqliteStore, Store};
@@ -504,8 +504,8 @@ fn a_header_or_an_attachment_list_is_never_cut_by_a_page_end() {
             .map(|(filler, html)| {
                 scope.spawn(move || {
                     let spec = Paper::plain().spec;
-                    let kept = ds_native::pdf(html, spec).unwrap();
-                    let loose = ds_native::pdf(&unmarked(html), spec).unwrap();
+                    let kept = ds_blitz::pdf(html, spec).unwrap();
+                    let loose = ds_blitz::pdf(&unmarked(html), spec).unwrap();
                     (*filler, cut(&open(&kept)), cut(&open(&loose)))
                 })
             })
@@ -632,7 +632,7 @@ fn the_locale_chooses_the_paper_and_the_cjk_face() {
                 paper.spec.size, paper.cjk
             ));
         }
-        assert_eq!(paper.spec.margins, ds_native::Margins::default());
+        assert_eq!(paper.spec.margins, ds_blitz::Margins::default());
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
@@ -1089,17 +1089,15 @@ fn print_hands_the_pdf_to_the_dialog_and_says_what_became_of_it() {
         ),
         (
             || Ok(PrintOutcome::Cancelled),
-            "Printing cancelled; nothing was printed.".to_owned(),
+            "Printing cancelled".to_owned(),
         ),
         (
             || Ok(PrintOutcome::Opened(PathBuf::from("/tmp/Quarterly-1.pdf"))),
-            "There is no print dialog here, so the printout opened in your PDF viewer to \
-             print from there: /tmp/Quarterly-1.pdf"
-                .to_owned(),
+            "Opened in your PDF viewer to print: /tmp/Quarterly-1.pdf".to_owned(),
         ),
         (
             || Err(PrintError::NoViewer("xdg-open is missing".to_owned())),
-            "Could not print: no viewer opened the PDF: xdg-open is missing".to_owned(),
+            "Couldn’t print: no viewer opened the PDF: xdg-open is missing".to_owned(),
         ),
     ];
     for (answer, words) in cases {
@@ -1135,7 +1133,7 @@ fn a_thread_that_is_gone_is_said_and_no_dialog_opens() {
         &chrono::Utc,
         now(),
     );
-    assert!(got.starts_with("Could not print:"), "{got}");
+    assert!(got.starts_with("Couldn’t print:"), "{got}");
     assert!(seen.lock().unwrap().is_empty());
 }
 
@@ -1148,10 +1146,7 @@ fn one_print_at_a_time() {
     assert!(printer.claim().is_some(), "the printer stayed taken");
     // What the second Print says is a sentence, not a code.
     assert!(BUSY.ends_with('.'));
-    assert_eq!(
-        said(Ok(PrintOutcome::Cancelled)),
-        "Printing cancelled; nothing was printed."
-    );
+    assert_eq!(said(Ok(PrintOutcome::Cancelled)), "Printing cancelled");
 }
 
 /// A sample printout, for looking at: a CJK-and-English thread with an inline image.

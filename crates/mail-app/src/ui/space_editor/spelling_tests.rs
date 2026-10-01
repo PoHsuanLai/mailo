@@ -4,9 +4,9 @@
 use crate::spelling::{self, Setting};
 use crate::ui::app::App;
 use crate::ui::compose::Dictionaries;
-use crate::ui::fixtures::{Seen, Work, click, dispatching, rebuild_into, work};
+use crate::ui::fixtures::{Seen, Work, click, dispatching, drain_seen, rebuild_into, work};
 use dioxus::dioxus_core::VirtualDom;
-use ds_native::spell::SpellConfig;
+use ds_blitz::spell::SpellConfig;
 
 /// The window on the Work Space, with the editor open, checking against `books`.
 fn opened(built: &Work, books: &std::path::Path) -> (VirtualDom, Seen) {
@@ -16,14 +16,18 @@ fn opened(built: &Work, books: &std::path::Path) -> (VirtualDom, Seen) {
             dictionaries: vec![books.to_path_buf()],
             user: books.join("learned"),
         },
-        languages: vec![ds::Lang::parse("en_US").unwrap_or_else(|why| panic!("{why}"))],
+        languages: vec![
+            ds::spell::lang::Lang::parse("en_US").unwrap_or_else(|why| panic!("{why}")),
+        ],
     };
     let mut dom = VirtualDom::new(App)
         .with_root_context(built.store.clone())
         .with_root_context(built.dirs.clone())
         .with_root_context(dictionaries);
     let seen = rebuild_into(&mut dom);
-    let seen = click(&mut dom, seen.one("aria-label", "Edit the Work Space"));
+    // The sheet is drawn by the render after the click that asked for it.
+    let seen =
+        click(&mut dom, seen.one("aria-label", "Edit the Work Space")).merge(drain_seen(&mut dom));
     (dom, seen)
 }
 
@@ -40,7 +44,7 @@ async fn the_switch_keeps_the_setting_and_says_when_there_is_no_dictionary() {
         "nothing says why nothing is marked:\n{page}"
     );
 
-    let segments = seen.after("aria-label", "Check spelling", "aria-pressed");
+    let segments = seen.after("aria-label", "Check spelling", "aria-checked");
     click(&mut dom, segments[1]);
     assert_eq!(spelling::load(config), Setting::Off, "Off was not kept");
     let page = dioxus_ssr::render(&dom);

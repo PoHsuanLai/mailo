@@ -2,6 +2,7 @@
 //! server, the reason where there is no server to put rules on, every class styled, and files of
 //! it to look at.
 
+use ds::prelude::*;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -18,8 +19,25 @@ use super::server::{Pusher, reach};
 use super::work::{self, Draft};
 use crate::ui::data::account_rows;
 use crate::ui::files::Phase;
-use crate::ui::fixtures::{ACCOUNT, click, dispatching, rebuild_into, type_into};
+use crate::ui::fixtures::{ACCOUNT, Seen, click, dispatching, drain_seen, rebuild_into, type_into};
 use crate::view::Shell;
+
+/// The first render, then the ones after it, keeping every attribute they set: a quire sheet is
+/// drawn a frame after the one that asked for it, on quire's clock.
+async fn landed(dom: &mut VirtualDom) -> Seen {
+    let mut seen = rebuild_into(dom);
+    for _ in 0..40 {
+        let quiet = std::time::Duration::from_millis(150);
+        if tokio::time::timeout(quiet, dom.wait_for_work())
+            .await
+            .is_err()
+        {
+            break;
+        }
+        dom.render_immediate(&mut seen);
+    }
+    seen.merge(drain_seen(dom))
+}
 
 /// The sheet on `account`, alone.
 #[component]
@@ -31,10 +49,10 @@ fn Sheet(account: Option<AccountId>) -> Element {
     let revision = use_signal(|| 0u64);
     // Inside a quire root, as the window has it: the action menu floats in its overlay.
     rsx! {
-        ds::Ds {
-            appearance: ds::Appearance::default(),
-            material: ds::Material::Window,
-            stylesheet: ds::Inject::Host,
+        Ds {
+            appearance: Appearance::default(),
+            material: Material::Window,
+            stylesheet: ds::assembly::ds::Inject::Host,
             RulesSheet { shell, revision }
         }
     }
@@ -113,7 +131,7 @@ async fn a_condition_the_rules_cannot_read_says_why_and_save_is_refused() {
     let (store, _dir) = crate::ui::fixtures::seeded();
     let (push, _) = counting();
     let mut dom = sheet(&store, ACCOUNT, push);
-    let seen = rebuild_into(&mut dom);
+    let seen = landed(&mut dom).await;
     let opened = click(&mut dom, seen.one("aria-label", "New rule"));
     let query = opened.one("aria-placeholder", "from:bank.example subject:statement");
 
@@ -132,10 +150,7 @@ async fn a_condition_the_rules_cannot_read_says_why_and_save_is_refused() {
     // Read, it says how much it matches here now, and Save is back.
     type_into(&mut dom, query, "from:ada");
     let page = dioxus_ssr::render(&dom);
-    assert!(
-        page.contains("1 conversation here matches it now."),
-        "{page}"
-    );
+    assert!(page.contains("1 conversation matches"), "{page}");
     assert!(
         !tag(&page, "aria-label=\"Save New rule\"").contains("disabled"),
         "{page}"
@@ -153,7 +168,7 @@ async fn the_list_says_each_rule_its_condition_and_what_it_does() {
     two_rules(&store);
     let (push, _) = counting();
     let mut dom = sheet(&store, ACCOUNT, push);
-    let seen = rebuild_into(&mut dom);
+    let seen = landed(&mut dom).await;
     let page = dioxus_ssr::render(&dom);
     let bills = page
         .find("from:bank.example subject:statement")
@@ -187,7 +202,7 @@ async fn put_on_server_shows_what_the_server_said() {
     let row = own_server(&store);
     let (push, calls) = counting();
     let mut dom = sheet(&store, row.id, push);
-    let seen = rebuild_into(&mut dom);
+    let seen = landed(&mut dom).await;
     let button = seen.one("aria-label", "Put me@nowhere.example's rules on the server");
     assert_eq!(
         calls.load(Ordering::SeqCst),
@@ -216,7 +231,7 @@ async fn a_provider_without_sieve_shows_the_reason_and_no_button() {
         .expect("the Work Space has a Google account");
     let (push, calls) = counting();
     let mut dom = sheet(&built.store, row.id, push);
-    rebuild_into(&mut dom);
+    landed(&mut dom).await;
     let page = dioxus_ssr::render(&dom);
     assert!(page.contains("offers no ManageSieve"), "{page}");
     assert!(page.contains("No vacation reply here"), "{page}");
@@ -257,7 +272,7 @@ async fn every_state(store: &Arc<SqliteStore>) -> String {
 
     let (push, _) = counting();
     let mut rules = sheet(store, ACCOUNT, push.clone());
-    let seen = rebuild_into(&mut rules);
+    let seen = landed(&mut rules).await;
     let editing = click(&mut rules, seen.one("aria-label", "Edit Bills"));
     type_into(
         &mut rules,
@@ -269,7 +284,7 @@ async fn every_state(store: &Arc<SqliteStore>) -> String {
     crate::ui::fixtures::drain(&mut rules);
 
     let mut away = sheet(store, row.id, push);
-    let seen = rebuild_into(&mut away);
+    let seen = landed(&mut away).await;
     click(
         &mut away,
         seen.one("aria-label", "Put me@nowhere.example's rules on the server"),
@@ -287,20 +302,17 @@ async fn every_class_the_rules_sheet_draws_is_styled() {
     let (store, _dir) = crate::ui::fixtures::seeded();
     let markup = every_state(&store).await;
     for class in [
-        "rules-row off",
-        "rules-switch",
-        "rules-look refused",
+        "ds-toggle",
+        "data-validity=\"invalid\"",
         "rules-action",
         "role=\"listbox\"",
-        "rules-body",
         "rules-said",
-        "files-bar",
+        "ds-progress",
     ] {
         assert!(markup.contains(class), "{class} was not drawn: {markup}");
     }
-    let missing =
-        crate::ui::style::tests::unstyled_classes(&markup, &crate::ui::style::tests::full_css());
-    assert!(missing.is_empty(), "unstyled classes: {missing:?}");
+    let offences = crate::ui::style::tests::markup_offences(&markup);
+    assert!(offences.is_empty(), "markup offences: {offences:#?}");
 }
 
 /// `extra` as the first child of `.app`, where the window mounts its overlays.
@@ -375,7 +387,7 @@ async fn render_the_rules_sheet_to_files() {
     // The list, the vacation reply and what the server said.
     let (push, _) = counting();
     let mut dom = sheet(&built.store, own.id, push.clone());
-    let seen = rebuild_into(&mut dom);
+    let seen = landed(&mut dom).await;
     click(
         &mut dom,
         seen.one(
@@ -388,7 +400,7 @@ async fn render_the_rules_sheet_to_files() {
 
     // Editing a rule, with a condition it cannot read and the action menu open.
     let mut dom = sheet(&built.store, own.id, push.clone());
-    let seen = rebuild_into(&mut dom);
+    let seen = landed(&mut dom).await;
     let editing = click(&mut dom, seen.one("aria-label", "Edit Rust newsletter"));
     type_into(
         &mut dom,
@@ -401,7 +413,7 @@ async fn render_the_rules_sheet_to_files() {
     // A provider with no ManageSieve: the reasons, no button.
     let google = rows.iter().find(|row| reach(&row.plan).is_err()).unwrap();
     let mut dom = sheet(&built.store, google.id, push);
-    rebuild_into(&mut dom);
+    landed(&mut dom).await;
     crate::ui::fixtures::dump(
         "rules-provider",
         &inject(&backdrop, &dioxus_ssr::render(&dom)),

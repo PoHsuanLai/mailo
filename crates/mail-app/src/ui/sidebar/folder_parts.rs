@@ -1,16 +1,19 @@
 //! The small pieces the rows share: the name fields, a refusal in words, and the menu's items.
 
-use super::super::field::{Field, FieldKind};
 use super::super::menu::{MenuItem, Right, Tile};
 use super::folder_act::child_path;
 use super::folder_row::run;
 use super::folder_tree::{Kind, Node};
 use super::folders::{Note, Open, Spot, Wires};
 use dioxus::prelude::*;
-use ds::{FieldFace, Focus, Icon, TextInput, use_focus_request};
+use ds::components::content::label::LabelRole;
+use ds::components::lists::row::row::Outline;
+use ds::focus::request::use_focus_request;
+use ds::prelude::*;
 use mail_domain::{AccountId, FolderWork, Subscription};
 
-/// The field for a new folder's name, under the folder it goes in (or the header).
+/// The row for a new folder's name, under the folder it goes in (or at the top of the list):
+/// quire's `Row`, its words the name field.
 #[component]
 pub(super) fn Naming(
     wires: Wires,
@@ -36,44 +39,49 @@ pub(super) fn Naming(
     }
     let delimiter = delimiter_of.call(account);
     rsx! {
-        div { class: "item fold-row fold-new",
-            span { class: "chev none" }
-            NameField {
-                value: text,
-                placeholder: "New folder".to_owned(),
-                on_input: move |text: String| {
-                    let now = open.peek().clone();
-                    if let Open::Naming { account, parent, .. } = now {
-                        open.set(Open::Naming { account, parent, text });
-                    }
-                },
-                on_commit: move |_| {
-                    let Open::Naming { account, parent, text } = open.peek().clone() else { return };
-                    match child_path(parent.as_deref(), &text, delimiter) {
-                        Ok(path) => run(wires, account, parent, FolderWork::Create { path }, delimiter),
-                        Err(text) => note.set(Some(Note { account, path: parent, text })),
-                    }
-                },
-                on_cancel: move |_| open.set(Open::Closed),
-            }
+        Row {
+            title: "New folder",
+            outline: Outline::Leaf,
+            edit: rsx! {
+                NameField {
+                    value: text,
+                    placeholder: "New folder".to_owned(),
+                    on_input: move |text: String| {
+                        let now = open.peek().clone();
+                        if let Open::Naming { account, parent, .. } = now {
+                            open.set(Open::Naming { account, parent, text });
+                        }
+                    },
+                    on_commit: move |_| {
+                        let Open::Naming { account, parent, text } = open.peek().clone() else { return };
+                        match child_path(parent.as_deref(), &text, delimiter) {
+                            Ok(path) => run(wires, account, parent, FolderWork::Create { path }, delimiter),
+                            Err(text) => note.set(Some(Note { account, path: parent, text })),
+                        }
+                    },
+                    on_cancel: move |_| open.set(Open::Closed),
+                }
+            },
         }
     }
 }
 
-/// A refusal, when it belongs here.
+/// A refusal, when it belongs here: the row's secondary line, said as an alert to a screen
+/// reader.
 #[component]
 pub(super) fn Said(wires: Wires, account: Option<AccountId>, path: Option<String>) -> Element {
     let note = wires.note.read().clone();
     match note {
         Some(note) if note.path == path && account.is_none_or(|a| a == note.account) => rsx! {
-            div { class: "fold-note refused", role: "alert", "{note.text}" }
+            Label { text: note.text.clone(), role: LabelRole::Secondary }
         },
         _ => rsx! {},
     }
 }
 
-/// A new folder's field, inline under the row it goes in, with Enter to make it so and Esc to
-/// leave it.
+/// A folder's name, written where the row says it: quire's `TextField` without its bezel, with
+/// the keyboard as it mounts and the old name selected. Enter makes it so and Esc leaves it;
+/// the row takes the field away to end it.
 #[component]
 pub(super) fn NameField(
     value: String,
@@ -82,64 +90,19 @@ pub(super) fn NameField(
     on_commit: EventHandler<()>,
     on_cancel: EventHandler<()>,
 ) -> Element {
+    let focus = FieldFocus::Controlled(use_focus_request().with_select_all());
     rsx! {
-        span {
-            class: "fold-edit",
-            // Inside a `<summary>`, a click would open or close the parent.
-            onclick: move |event| {
-                event.prevent_default();
-                event.stop_propagation();
-            },
-            onkeydown: move |event: Event<KeyboardData>| {
-                let key = event.key().to_string();
-                // Ctrl chords are still the window's. Every other key is the field's: a letter
-                // typed into a name is not a shortcut.
-                if event.modifiers().ctrl() {
-                    return;
-                }
-                event.stop_propagation();
-                match key.as_str() {
-                    "Enter" => on_commit.call(()),
-                    "Escape" => on_cancel.call(()),
-                    _ => {}
-                }
-            },
-            Field {
-                kind: FieldKind::Inline,
-                value,
-                placeholder,
-                extra: None,
-                on_input: move |text: String| on_input.call(text),
-                on_focus: |_| {},
-                on_blur: |_| {},
-            }
-        }
-    }
-}
-
-/// A folder's new name, written where its name is: quire's `TreeItem { editing }` slot. It takes
-/// the row's face, has the keyboard with the old name selected as it mounts, Enter makes it so
-/// and Esc leaves it; the row takes the slot away to end it.
-#[component]
-pub(super) fn RenameField(
-    value: String,
-    on_input: EventHandler<String>,
-    on_commit: EventHandler<()>,
-    on_cancel: EventHandler<()>,
-) -> Element {
-    let focus = Focus::Controlled(use_focus_request().with_select_all());
-    rsx! {
-        TextInput {
-            variant: FieldFace::Bare,
+        TextField {
             label: "Folder name".to_owned(),
-            placeholder: "Folder name".to_owned(),
             value,
+            placeholder,
+            bezel: FieldBezel::Plain,
             focus,
             oninput: move |text: String| on_input.call(text),
             onkey: move |event: KeyboardEvent| {
                 // Ctrl chords are still the window's. Every other key is the field's: a letter
                 // typed into a name is not a shortcut.
-                if event.modifiers().ctrl() {
+                if event.modifiers().ctrl() || event.modifiers().meta() {
                     return;
                 }
                 event.stop_propagation();

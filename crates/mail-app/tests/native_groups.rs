@@ -1,12 +1,17 @@
-//! Contact groups on the real window (Blitz, through `ds_native::Harness`): typing a group's name
+//! Contact groups on the real window (Blitz, through `ds_harness::Harness`): typing a group's name
 //! in To offers the group, and choosing it puts its members on the message.
 //!
 //! The window is opened over a store seeded in a `TempDir` and handed no directories, so it
 //! writes no file anywhere; nothing here reads or touches the real mail store or config. The
 //! account's plan is empty, so the window's poll reaches no server.
 
-use ds::{Key, Point};
-use ds_native::{FocusFallback, Harness, HarnessConfig, NetPolicy, PrintOutcome, Viewport};
+use ds::prelude::{Point, ShortcutKey as Key};
+use ds_harness::{Driver, Harness, HarnessConfig, Query, Viewport};
+
+#[path = "support/drive.rs"]
+mod drive;
+use drive::Drive;
+use ds_blitz::{FocusFallback, NetPolicy, PrintOutcome};
 use mail_domain::*;
 use mail_store::{Group, GroupHome, GroupId, Origin, SqliteStore, Store};
 use std::sync::Arc;
@@ -90,7 +95,7 @@ fn open() -> (Harness, tempfile::TempDir) {
         .with_net(NetPolicy::Local)
         .with_focus_fallback(FocusFallback::Ancestor)
         .with_contexts(contexts);
-    let mut harness = Harness::with_config(mail_app::ui::native::root, config);
+    let mut harness = Harness::new(mail_app::ui::native::root, config);
     harness.advance(ms(300));
     (harness, dir)
 }

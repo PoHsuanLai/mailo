@@ -3,7 +3,7 @@
 //!
 //! The deciding is [`crate::follow_up`]'s; this is when it runs and how it is shown.
 
-use super::menu::{Floating, MenuItem, Right, Tile};
+use super::menu::{MenuItem, Right, Tile, anchor_for, palette_groups};
 use super::menus::{snooze_help, when_words};
 use super::motion::act_all;
 use super::picks::with_selection;
@@ -11,7 +11,12 @@ use crate::notify::Notifier;
 use crate::view::Shell;
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
-use ds::{Filter, Glyph, Icon, IconButton, IconButtonVariant, MenuKind, MountedRef, Switch};
+use ds::components::content::avatar::AvatarSize;
+use ds::components::controls::button_model::{Bezel, ImagePosition};
+use ds::host::measure::MountedRef;
+use ds::prelude::*;
+use ds::root::common::Common;
+use ds::style::icon::render::Glyph;
 use mail_domain::{FollowUp, Op, ThreadId};
 use mail_store::SqliteStore;
 use std::sync::Arc;
@@ -71,7 +76,7 @@ pub(in crate::ui) fn use_reminders(mut revision: Signal<u64>) {
                     Ok(_) => {}
                     Err(why) => eprintln!("reminders: {why}"),
                 }
-                ds::sleep(wait(crate::follow_up::next_due(&store), now)).await;
+                ds::base::time::clock::sleep(wait(crate::follow_up::next_due(&store), now)).await;
             }
         }
     });
@@ -168,22 +173,22 @@ pub(in crate::ui) fn FollowUpMenu(
     shell: Signal<Shell>,
     revision: Signal<u64>,
     anchor: Option<MountedRef>,
-    #[props(default)] placed: Option<ds::Rect>,
+    #[props(default)] placed: Option<Rect>,
     on_close: EventHandler<()>,
 ) -> Element {
     let mut typed = use_signal(String::new);
     let now = super::clock::now();
     let items = follow_up_items(current, &typed(), now, &chrono::Local);
     rsx! {
-        Floating {
-            kind: MenuKind::Rich,
-            anchor,
-            placed,
-            title: "Remind me if no reply".to_owned(),
-            items,
-            filter: Filter::Field { placeholder: "Or type a time: fri 17:00, +3d".to_owned() },
-            on_query: move |value| typed.set(value),
-            on_pick: move |key: String| {
+        PickList::<String> {
+            anchor: anchor_for(anchor, placed),
+            label: "Remind me if no reply".to_owned(),
+            placeholder: "Or type a time: fri 17:00, +3d".to_owned(),
+            query: typed(),
+            groups: palette_groups(&items, AvatarSize::Size22, None),
+            empty: "No time matches.".to_owned(),
+            oninput: move |value: String| typed.set(value),
+            onpick: move |key: String| {
                 let now = super::clock::now();
                 let Some(wanted) = picked(&key, &typed(), now, &chrono::Local) else {
                     return;
@@ -196,7 +201,7 @@ pub(in crate::ui) fn FollowUpMenu(
                 act_all(&store, shell, revision, ops);
                 on_close.call(());
             },
-            on_close: move |_| on_close.call(()),
+            onclose: move |()| on_close.call(()),
         }
     }
 }
@@ -212,14 +217,20 @@ pub(in crate::ui) fn FollowUpTool(
     let mut open = use_signal(|| false);
     let mut tool = use_signal(|| None::<MountedRef>);
     rsx! {
-        IconButton {
-            variant: IconButtonVariant::Tool,
+        Button {
+            bezel: Bezel::Toolbar,
+            image: ImagePosition::Only,
             icon: Icon::Bell,
             label: "Remind me if no reply".to_owned(),
-            tooltip: "Remind me…".to_owned(),
-            pressed: if current == FollowUp::Inactive { Switch::Off } else { Switch::On },
-            expanded: if open() { Switch::On } else { Switch::Off },
-            mounted: move |event: MountedEvent| tool.set(Some(MountedRef(event.data()))),
+            title: Some("Remind me…".to_owned()),
+            value: Some(if current == FollowUp::Inactive { Check::Off } else { Check::On }),
+            shown: Some(if open() { Shown::Visible } else { Shown::Hidden }),
+            common: Common {
+                mounted: Some(EventHandler::new(move |event: MountedEvent| {
+                    tool.set(Some(MountedRef(event.data())));
+                })),
+                ..Common::default()
+            },
             onclick: move |_| open.toggle(),
         }
         if open() {
@@ -258,7 +269,7 @@ pub(in crate::ui) fn FollowUpNote(follow_up: FollowUp) -> Element {
     };
     rsx! {
         div { class: "follow-up-note", role: "status",
-            Glyph { icon: Icon::Bell, size: ds::IconSize::Micro }
+            Glyph { icon: Icon::Bell, size: IconSize::Micro }
             span { "{words}" }
         }
     }

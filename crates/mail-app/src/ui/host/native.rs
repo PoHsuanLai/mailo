@@ -2,25 +2,28 @@
 //!
 //! - The window itself, `.app`: its mounted handle is kept as it mounts, focused then so the
 //!   keyboard has somewhere to land from the first key, and given the keyboard back through
-//!   `ds::focus_soon`, which waits out a busy document. The rest is quire's, under
-//!   `ds_native::launch`'s `FocusFallback::Ancestor`: after a click on nothing focusable the
+//!   `focus_soon`, which waits out a busy document. The rest is quire's, under
+//!   `ds_blitz::launch`'s `FocusFallback::Ancestor`: after a click on nothing focusable the
 //!   keyboard stays on `.app`, and when what had it is removed (a menu closed on Escape, a sheet,
 //!   a folder's rename field) its opener or nearest focusable ancestor takes it, and a quire
 //!   control that keeps its click to itself (a strip button, a tree row's name) takes the
-//!   keyboard as a browser's button would (quire v0.1.11).
-//! - A field or element named by selector: `ds::focus_by_selector`, which waits up to twenty
+//!   keyboard as a browser's button would (quire).
+//! - A field or element named by selector: `focus_by_selector`, which waits up to twenty
 //!   frames for the element to be drawn, as the webview's scripts did, and tells a `TextInput`
 //!   it found its `onfocus` once.
 //! - A scroll into view: the element is found in the Blitz document reached through `.app`'s
 //!   handle and scrolled, retried a frame later while the document is busy or the element is
 //!   not drawn yet.
-//! - The clipboard: `ds_native::clipboard::write_text`.
+//! - The clipboard: `ds_blitz::clipboard::write_text`.
 
 use super::Ask;
 use blitz_dom::{ScrollBehavior, ScrollLogicalPosition};
 use dioxus::prelude::*;
 use dioxus_native_dom::NodeHandle;
-use ds::Select;
+use ds::base::time::{FRAME_SLACK, clock::sleep};
+use ds::focus::select::Select;
+use ds::focus::selector::focus_by_selector;
+use ds::focus::soon::focus_soon;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -64,7 +67,7 @@ impl Blitz {
     /// `.app` has mounted: keep its handle and give it the keyboard.
     pub(in crate::ui) fn mounted(&self, app: Rc<MountedData>) {
         self.app.replace(Some(Rc::clone(&app)));
-        self.as_shell(|| ds::focus_soon(app));
+        self.as_shell(|| focus_soon(app));
     }
 
     /// Answer `ask`, from a handler; the work is a task of the shell's.
@@ -72,7 +75,7 @@ impl Blitz {
         match ask {
             Ask::FocusApp => {
                 if let Some(app) = self.app.borrow().clone() {
-                    self.as_shell(|| ds::focus_soon(app));
+                    self.as_shell(|| focus_soon(app));
                 }
             }
             Ask::Focus { selector, .. } => self.focus(selector, Select::None),
@@ -81,7 +84,7 @@ impl Blitz {
             Ask::Copy(text) => {
                 // Best-effort, as the webview's `navigator.clipboard` was: a desktop with no
                 // clipboard leaves the address where it was, and nothing else depends on it.
-                let _ = ds_native::clipboard::write_text(&text);
+                let _ = ds_blitz::clipboard::write_text(&text);
             }
         }
     }
@@ -91,7 +94,7 @@ impl Blitz {
     fn focus(&self, selector: &'static str, select: Select) {
         self.as_shell(|| {
             spawn(async move {
-                let _ = ds::focus_by_selector(selector, select).await;
+                let _ = focus_by_selector(selector, select).await;
             });
         });
     }
@@ -106,11 +109,11 @@ impl Blitz {
             spawn(async move {
                 // A scroll is asked for the render that moved the hit, which has not been laid
                 // out yet: a frame first, as the webview's two `requestAnimationFrame`s waited.
-                ds::sleep(ds::FRAME_SLACK).await;
+                sleep(FRAME_SLACK).await;
                 for _ in 0..TRIES {
                     match scroll_into_view(&app, selector) {
                         Tried::Done | Tried::Never => return,
-                        Tried::Later => ds::sleep(ds::FRAME_SLACK).await,
+                        Tried::Later => sleep(FRAME_SLACK).await,
                     }
                 }
             });

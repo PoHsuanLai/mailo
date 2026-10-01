@@ -6,14 +6,18 @@
 //! know. What it writes is [`crate::saved`]'s to decide; this only draws the draft and hands it
 //! to the store.
 
-use super::field::{Field, FieldKind};
 use super::menu::{Floating, MenuItem, Right, Tile};
 use super::press::{SheetClose, on_primary};
 use super::space_editor::Seg;
 use crate::saved::{self, HOVER_CHOICES, ViewDraft, group_choices, group_name, hover_name};
 use crate::view::Shell;
 use dioxus::prelude::*;
-use ds::{Icon, Switch};
+use ds::components::controls::button_model::Answers;
+use ds::host::measure::MountedRef;
+use ds::prelude::*;
+use ds::root::common::Common;
+use ds::root::pass_through::ExtraClass;
+use ds::style::tokens::control_size::ControlSize;
 use mail_domain::{OpKind, SortDir, View};
 use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
@@ -112,7 +116,7 @@ pub(in crate::ui) fn ViewSheet(
     pages: Signal<u32>,
 ) -> Element {
     let mut grouping = use_signal(|| false);
-    let mut group_at = use_signal(|| None::<ds::MountedRef>);
+    let mut group_at = use_signal(|| None::<MountedRef>);
     let Some(draft) = shell.read().view_editor.clone() else {
         return rsx! {};
     };
@@ -138,24 +142,26 @@ pub(in crate::ui) fn ViewSheet(
                 div { class: "rules-main",
                     div { class: "rules-part",
                         span { class: "files-k", "Name" }
-                        Field {
-                            kind: FieldKind::Boxed,
+                        TextField {
+                            label: "Name".to_owned(),
                             value: draft.name.clone(),
                             placeholder: "Receipts".to_owned(),
-                            extra: Some("rules-in".to_owned()),
-                            on_input: move |value: String| edit(shell, |draft| draft.name = value),
-                            on_focus: |_| {},
-                            on_blur: |_| {},
+                            common: Common {
+                                extra_class: ExtraClass::parse("rules-in").ok(),
+                                ..Common::default()
+                            },
+                            oninput: move |value: String| edit(shell, |draft| draft.name = value),
                         }
                         span { class: "files-k", "Lists" }
-                        Field {
-                            kind: FieldKind::Boxed,
+                        TextField {
+                            label: "Lists".to_owned(),
                             value: draft.query.clone(),
                             placeholder: "from:shop.example has:attachment".to_owned(),
-                            extra: Some("rules-in".to_owned()),
-                            on_input: move |value: String| edit(shell, |draft| draft.query = value),
-                            on_focus: |_| {},
-                            on_blur: |_| {},
+                            common: Common {
+                                extra_class: ExtraClass::parse("rules-in").ok(),
+                                ..Common::default()
+                            },
+                            oninput: move |value: String| edit(shell, |draft| draft.query = value),
                         }
                         if draft.kept.is_some() && draft.query.trim().is_empty() {
                             p { class: "rules-faint",
@@ -164,18 +170,22 @@ pub(in crate::ui) fn ViewSheet(
                         }
                         span { class: "files-k", "Group by" }
                         div {
-                            ds::Button {
-                                variant: ds::ButtonVariant::Mini,
+                            Button {
+                                size: ControlSize::Small,
                                 label: group_label.clone(),
                                 icon: Icon::Group,
-                                aria_label: format!("Group by: {group_label}"),
-                                mounted: move |event: MountedEvent| group_at.set(Some(ds::MountedRef(event.data()))),
-                                expanded: if grouping() { ds::Expanded::Open } else { ds::Expanded::Closed },
+                                shown: Some(if grouping() { Shown::Visible } else { Shown::Hidden }),
+                                common: Common {
+                                    aria_label: Some(format!("Group by: {group_label}")),
+                                    mounted: Some(EventHandler::new(move |event: MountedEvent| {
+                                        group_at.set(Some(MountedRef(event.data())));
+                                    })),
+                                    ..Common::default()
+                                },
                                 onclick: on_primary(move || grouping.set(!grouping())),
                             }
                             if grouping() {
                                 Floating {
-                                    kind: ds::MenuKind::Slim,
                                     anchor: group_at(),
                                     title: "Group by".to_owned(),
                                     items,
@@ -224,23 +234,30 @@ pub(in crate::ui) fn ViewSheet(
                             p { class: "capnote files-bad", role: "alert", "{why}" }
                         }
                         if editing {
-                            ds::Button {
-                                variant: ds::ButtonVariant::Mini,
+                            Button {
+                                size: ControlSize::Small,
                                 label: "Delete view".to_owned(),
                                 icon: Icon::Trash,
-                                aria_label: "Delete view".to_owned(),
+                                common: Common {
+                                    aria_label: Some("Delete view".to_owned()),
+                                    ..Common::default()
+                                },
                                 onclick: on_primary(move || delete(shell, revision, pages)),
                             }
                         }
-                        ds::Button {
-                            variant: ds::ButtonVariant::Mini,
+                        Button {
+                            size: ControlSize::Small,
                             label: "Cancel".to_owned(),
                             onclick: on_primary(move || close(shell)),
                         }
-                        ds::Button {
-                            variant: ds::ButtonVariant::Primary,
+                        Button {
+                            size: ControlSize::Small,
+                            answers: Answers::Return,
                             label: "Save".to_owned(),
-                            aria_label: format!("Save {}", title.to_lowercase()),
+                            common: Common {
+                                aria_label: Some(format!("Save {}", title.to_lowercase())),
+                                ..Common::default()
+                            },
                             onclick: on_primary(move || save(shell, revision, pages)),
                         }
                     }
@@ -256,11 +273,14 @@ fn HoverChoice(kind: OpKind, on: bool, shell: Signal<Shell>) -> Element {
     let name = hover_name(kind);
     rsx! {
         li {
-            ds::Button {
-                variant: ds::ButtonVariant::Mini,
+            Button {
+                size: ControlSize::Small,
                 label: name,
-                pressed: Some(if on { Switch::On } else { Switch::Off }),
-                aria_label: format!("Offer {name} on hover"),
+                value: Some(if on { Check::On } else { Check::Off }),
+                common: Common {
+                    aria_label: Some(format!("Offer {name} on hover")),
+                    ..Common::default()
+                },
                 onclick: on_primary(move || edit(shell, |draft| draft.toggle_hover(kind))),
             }
         }

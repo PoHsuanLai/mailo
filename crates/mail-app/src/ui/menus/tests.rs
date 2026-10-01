@@ -174,7 +174,7 @@ fn snooze_help_is_the_time_snooze_until_resolves() {
     let items = super::snooze_items(now, &zone);
     let expect = [
         ("later", "Later today"),
-        ("tomorrow", "Tomorrow 09:00"),
+        ("tomorrow", "Tomorrow"),
         ("weekend", "This weekend"),
         ("monday", "Next week"),
     ];
@@ -187,8 +187,8 @@ fn snooze_help_is_the_time_snooze_until_resolves() {
         assert_eq!(item.name, name, "{phrase}");
         let at = crate::view::snooze_until(phrase, now, &zone).expect(phrase);
         assert_eq!(
-            item.help.as_deref(),
-            Some(super::snooze_help(at, &zone).as_str()),
+            item.right,
+            Right::Hint(super::snooze_hint(at, now, &zone)),
             "{phrase}"
         );
     }

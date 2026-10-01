@@ -1,15 +1,17 @@
-//! The toast: quire's, through the window root's host, with an undo that takes back the op it
-//! named; and mailo's own for the one toast whose follow-up is not an undo.
+//! The window's toast host: what its buttons do.
 //!
-//! quire's host draws the pull tab and follows the pointer itself. What it needs from here is a
-//! handler that outlives the toast, which is why this component, mounted as long as the list,
-//! makes it.
+//! Every toast is quire's, through the window root's host: an undo, plain words, and the one
+//! action that is not an undo (leaving a mailing list offers to archive what it already sent;
+//! blocking a sender offers to take the block back). The handlers belong to the scope that made
+//! them and must outlive the toast, which is why this component, mounted as long as the list,
+//! makes them.
 
 use super::{Follow, Toasts, motion, undo_by};
 use crate::undo::UndoHandle;
 use crate::view::Shell;
 use dioxus::prelude::*;
-use ds::{Button, ButtonVariant, Icon, UndoToken, use_toasts};
+use ds::prelude::*;
+use ds::stack::toast_hub::UndoToken;
 use mail_domain::RuleId;
 use mail_store::SqliteStore;
 use std::sync::Arc;
@@ -25,40 +27,32 @@ pub(in crate::ui) fn Toast(shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
         let on_undo = EventHandler::new(move |token: UndoToken| {
             undo_by(&store, shell, revision, Some(state), UndoHandle(token.0));
         });
+        let on_archive = EventHandler::new(move |()| {
+            let mut said = state.toast;
+            let offered = said.peek().clone();
+            said.set(None);
+            if let Some(Follow::ArchiveFrom { sender, list }) = offered.map(|said| said.follow) {
+                let store = consume_context::<Arc<SqliteStore>>();
+                crate::ui::unsubscribe::archive_list(&store, shell, revision, &sender, &list);
+            }
+        });
+        let on_unblock = EventHandler::new(move |()| {
+            let mut said = state.toast;
+            let offered = said.peek().clone();
+            said.set(None);
+            if let Some(Follow::Unblock { rule, sender }) = offered.map(|said| said.follow) {
+                unblock(revision, rule, &sender);
+            }
+        });
         let mut toasts = state.toasts;
-        toasts.set(Some(Toasts { hub, on_undo }));
+        toasts.set(Some(Toasts {
+            hub,
+            on_undo,
+            on_archive,
+            on_unblock,
+        }));
     });
-    let Some(said) = state.toast.read().clone() else {
-        return rsx! {};
-    };
-    match said.follow {
-        Follow::ArchiveFrom { sender, list } => rsx! {
-            div { class: "toast", role: "status",
-                span { "{said.text}" }
-                Button {
-                    variant: ButtonVariant::Mini,
-                    label: "Archive all from this list".to_owned(),
-                    icon: Some(Icon::Archive),
-                    onclick: move |_| {
-                        let store = consume_context::<Arc<SqliteStore>>();
-                        crate::ui::unsubscribe::archive_list(&store, shell, revision, &sender, &list);
-                    },
-                }
-            }
-        },
-        Follow::Unblock { rule, sender } => rsx! {
-            div { class: "toast", role: "status",
-                span { "{said.text}" }
-                Button {
-                    variant: ButtonVariant::Mini,
-                    label: "Undo".to_owned(),
-                    icon: Some(Icon::Undo),
-                    onclick: move |_| unblock(revision, rule, &sender),
-                }
-            }
-        },
-        Follow::Undo(_) | Follow::Nothing => rsx! {},
-    }
+    rsx! {}
 }
 
 /// Take a block back: the rule it made is forgotten, and the toast says so.

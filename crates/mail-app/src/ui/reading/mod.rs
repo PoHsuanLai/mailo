@@ -16,7 +16,17 @@ use crate::view::{Peek, Reading, Shell};
 use attachments::Attachments;
 use blocks::MessageView;
 use dioxus::prelude::*;
-use ds::{Glyph, Icon, IconButton, IconButtonVariant, Switch};
+use ds::components::content::avatar::{
+    AvatarFace, AvatarShape, AvatarSize, AvatarTone, person_hue,
+};
+use ds::components::content::label::{LabelRole, LabelStyle};
+use ds::components::controls::button_model::{Bezel, ImagePosition};
+use ds::components::controls::segmented::Tracking;
+use ds::components::overlays::inline_banner::InlineBanner;
+use ds::prelude::*;
+use ds::root::common::Common;
+use ds::style::icon::render::Glyph;
+use ds::style::tokens::control_size::ControlSize;
 pub(super) use find_bar::open_find;
 use find_bar::{FindBar, marking};
 use mail_domain::*;
@@ -25,38 +35,19 @@ use source::{Showing, Shown, SourceView, Sources};
 use std::sync::Arc;
 pub(super) use viewer::{AttachmentViewer, viewer_key};
 
-#[cfg(test)]
-thread_local! {
-    static READER_MOUNTS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
-}
-
-/// How many times [`Reader`] has mounted on this thread.
-///
-/// A re-render leaves it alone. A component that was thrown away and built again increments
-/// it, which is the difference a peek-mode change must not make.
-#[cfg(test)]
-pub(super) fn reader_mounts() -> u32 {
-    READER_MOUNTS.with(std::cell::Cell::get)
-}
-
-#[cfg(test)]
-pub(super) fn reset_reader_mounts() {
-    READER_MOUNTS.with(|mounts| mounts.set(0));
-}
-
 /// The first character of `name`, uppercased.
 ///
 /// `chars`, not bytes: a CJK name's first byte is not a letter.
-fn initial(name: &str) -> String {
-    match name.chars().next() {
-        Some(c) => c.to_uppercase().collect(),
-        None => String::new(),
-    }
+fn initial(name: &str) -> char {
+    name.chars()
+        .next()
+        .and_then(|c| c.to_uppercase().next())
+        .unwrap_or('?')
 }
 
-/// Reader / Original / Source. A span, so it can sit in the header without becoming the
-/// iframe's parent. Original is offered only where there is a frame; Source for every message,
-/// its body downloaded or not, since saying which is part of what it shows.
+/// Reader, Original and Source: quire's segmented control, in a span so it can sit in the
+/// header without becoming the iframe's parent. Original is offered only where there is a
+/// frame; Source for every message, downloaded or not.
 #[component]
 fn ViewSwitch(
     message_id: MessageId,
@@ -66,52 +57,40 @@ fn ViewSwitch(
     sources: Signal<Sources>,
 ) -> Element {
     let now = source::shown(&showing.read(), message_id);
-    let pressed = |which| {
-        if now == which {
-            ds::Switch::On
-        } else {
-            ds::Switch::Off
-        }
-    };
-    let reader = "Reader";
-    let original_label = "Original";
-    let source_label = "Source";
+    let mut choices = vec![Choice::new(Shown::Reader, "Reader")];
+    if frame {
+        choices.push(Choice::new(Shown::Original, "Original"));
+    }
+    choices.push(Choice::new(Shown::Source, "Source"));
     rsx! {
-        span { class: "view-switch", role: "group", aria_label: "How to show this message",
-            ds::Button {
-                variant: ds::ButtonVariant::Mini,
-                label: reader,
-                aria_label: reader.to_owned(),
-                pressed: pressed(Shown::Reader),
-                onclick: on_primary(move || {
-                    showing.write().insert(message_id, Shown::Reader);
-                }),
-            }
-            if frame {
-                ds::Button {
-                    variant: ds::ButtonVariant::Mini,
-                    label: original_label,
-                    aria_label: original_label.to_owned(),
-                    pressed: pressed(Shown::Original),
-                    onclick: on_primary(move || {
-                        showing.write().insert(message_id, Shown::Original);
-                    }),
-                }
-            }
-            ds::Button {
-                variant: ds::ButtonVariant::Mini,
-                label: source_label,
-                aria_label: source_label.to_owned(),
-                pressed: pressed(Shown::Source),
-                onclick: on_primary(move || source::open(message_id, body, showing, sources)),
+        span { class: "view-switch",
+            SegmentedControl::<Shown> {
+                label: "How to show this message",
+                choices,
+                tracking: Tracking::SelectOne(now),
+                size: ControlSize::Small,
+                onchange: move |which: Shown| {
+                    if which == Shown::Source {
+                        source::open(message_id, body, showing, sources);
+                    } else {
+                        showing.write().insert(message_id, which);
+                    }
+                },
             }
         }
     }
 }
 
-fn sender_initial(message: &Message) -> String {
+/// The sender's avatar: their first letter on the hue their address hashes to, as everywhere
+/// else a person is drawn.
+fn sender_face(message: &Message) -> AvatarFace {
     let named = message.from.name.as_deref().filter(|name| !name.is_empty());
-    initial(named.unwrap_or(message.from.email.as_str()))
+    AvatarFace {
+        initial: initial(named.unwrap_or(message.from.email.as_str())),
+        size: AvatarSize::Size28,
+        tone: AvatarTone::Person(person_hue(&message.from.email)),
+        shape: AvatarShape::Round,
+    }
 }
 
 /// The host a remote image would report the open to.
@@ -129,34 +108,36 @@ fn show_images() -> &'static str {
 fn peek_tool(peek: Peek, current: Peek, icon: Icon, mut shell: Signal<Shell>) -> Element {
     let label = peek.label();
     let pressed = if current == peek {
-        Switch::On
+        Check::On
     } else {
-        Switch::Off
+        Check::Off
     };
     rsx! {
-        IconButton {
-            variant: IconButtonVariant::Tool,
-            icon,
-            label: label.to_owned(),
-            pressed,
-            onclick: move |_| shell.write().peek = peek,
-        }
+            Button {
+        bezel: Bezel::Toolbar,
+        image: ImagePosition::Only,
+        label: label.to_owned(),
+        icon: Some(IconSource::Glyph(icon)),
+        value: Some(pressed),
+        onclick: move |_| shell.write().peek = peek,
     }
+        }
 }
 
 /// Mute, in the head's tools: pressed while the conversation is muted, and a press mutes or
 /// unmutes it through the same gesture as the row's button, so Ctrl Z and the toast take it back.
 fn mute_tool(thread: ThreadId, mute: Mute, shell: Signal<Shell>, revision: Signal<u64>) -> Element {
     let (label, pressed) = match mute {
-        Mute::Muted => ("Unmute this conversation", Switch::On),
-        Mute::Unmuted => ("Mute this conversation", Switch::Off),
+        Mute::Muted => ("Unmute this conversation", Check::On),
+        Mute::Unmuted => ("Mute this conversation", Check::Off),
     };
     rsx! {
-        IconButton {
-            variant: IconButtonVariant::Tool,
-            icon: Icon::BellOff,
+        Button {
+            bezel: Bezel::Toolbar,
+            image: ImagePosition::Only,
+            icon: Some(IconSource::Glyph(Icon::BellOff)),
             label: label.to_owned(),
-            pressed,
+            value: Some(pressed),
             onclick: move |_| {
                 let store = consume_context::<Arc<SqliteStore>>();
                 super::picks::mute_all(&store, shell, revision, &[thread]);
@@ -189,19 +170,28 @@ pub(in crate::ui) enum ReaderIn {
 #[component]
 fn ReaderMenu(thread: ThreadId) -> Element {
     let mut open = use_signal(|| false);
-    let mut tool = use_signal(|| None::<ds::MountedRef>);
+    let mut tool = use_signal(|| None::<ds::host::measure::MountedRef>);
     rsx! {
-        IconButton {
-            variant: IconButtonVariant::Tool,
-            icon: Icon::Ellipsis,
+        Button {
+            bezel: Bezel::Toolbar,
+            image: ImagePosition::Only,
+            icon: Some(IconSource::Glyph(Icon::Ellipsis)),
             label: "More".to_owned(),
-            expanded: if open() { Switch::On } else { Switch::Off },
-            mounted: move |event: MountedEvent| tool.set(Some(ds::MountedRef(event.data()))),
+            shown: Some(if open() {
+                ds::prelude::Shown::Visible
+            } else {
+                ds::prelude::Shown::Hidden
+            }),
+            common: Common {
+                mounted: Some(EventHandler::new(move |event: MountedEvent| {
+                    tool.set(Some(ds::host::measure::MountedRef(event.data())));
+                })),
+                ..Common::default()
+            },
             onclick: move |_| open.toggle(),
         }
         if open() {
             super::menu::Floating {
-                kind: ds::MenuKind::Dropdown,
                 anchor: tool(),
                 title: String::new(),
                 items: vec![super::window::menu_item()],
@@ -235,7 +225,7 @@ pub(super) fn Reader(
     }
     // Where the last attachment went, or why it did not. Cleared by opening another
     // conversation, because this component is rebuilt for each one.
-    let saved = use_signal(|| None::<String>);
+    let mut saved = use_signal(|| None::<String>);
     // Which attachment is being fetched, if one is. That part's button stays disabled until
     // the fetch ends, so a second click cannot start a second download of it.
     let downloading = use_signal(|| None::<(MessageId, usize)>);
@@ -274,14 +264,10 @@ pub(super) fn Reader(
         let pictures = use_context_provider(remote::Pictures::new);
         pictures.hold(thread, shell.read().show_remote_images);
     }
-    #[cfg(test)]
-    use_hook(|| {
-        READER_MOUNTS.with(|mounts| mounts.set(mounts.get().saturating_add(1)));
-    });
     let Ok(loaded) = store.thread(thread) else {
         return rsx! {
             div { class: "reader-empty",
-                p { "That conversation is gone." }
+                EmptyState { title: "Conversation gone" }
             }
         };
     };
@@ -346,7 +332,7 @@ pub(super) fn Reader(
         .unwrap_or_else(|| loaded.summary.subject.clone());
     let meta = shown.last().map(|(message, _, _)| {
         (
-            sender_initial(message),
+            sender_face(message),
             from_name(message),
             address(message),
             stamp(message),
@@ -361,10 +347,7 @@ pub(super) fn Reader(
         .rev()
         .find(|(_, _, remote)| *remote)
         .map(|(message, _, _)| host_of(&message.from.email).to_owned());
-    let any_frame = shown
-        .iter()
-        .any(|(_, reading, _)| reading.frame_html().is_some());
-    // Ctrl F's marks, or the list search's while no find is open. Blocks only: the frame is
+    // ⌘F's marks, or the list search's while no find is open. Blocks only: the frame is
     // never read and never marked.
     let (highlight, problem) = marking(&shell.read());
     let finding = shell.read().find.clone();
@@ -424,29 +407,28 @@ pub(super) fn Reader(
             if let Some(why) = problem {
                 pre { class: "find-err mono", "{why}" }
             }
-            h2 { "{subject}" }
+            h2 { Label { text: subject, style: LabelStyle::Title } }
             if loaded.summary.mute == Mute::Muted {
                 div { class: "muted-note", role: "status",
-                    Glyph { icon: Icon::BellOff, size: ds::IconSize::Micro }
+                    Glyph { icon: Icon::BellOff, size: IconSize::Micro }
                     span { "Muted — new replies arrive read and skip the inbox" }
                 }
             }
             super::follow_up::FollowUpNote { follow_up: loaded.summary.follow_up }
-            if let Some((initial, from, addr, when)) = meta {
+            if let Some((face, from, addr, when)) = meta {
                 div { class: "reader-meta",
-                    // The sender's logo when they have a certified one, else their initial.
-                    // Keyed like the checks line, so a new message or body asks again.
                     if let Some((id, raw)) = checked {
-                        {rsx! { super::brand::ReaderAvatar { key: "{id}-{raw:?}", message: id, body: raw, from: addr.clone(), initial: initial.clone() } }}
+                        {rsx! { super::brand::ReaderAvatar { key: "{id}-{raw:?}", message: id, body: raw, from: addr.clone(), initial: face.initial.to_string() } }}
+                    } else {
+                        Avatar { initial: face.initial, size: face.size, tone: face.tone }
                     }
-                    div {
-                        div { class: "reader-from", "{from}" }
-                        div { class: "mono reader-addr", "{addr}" }
-                        // SPF, DKIM and DMARC, as the receiving server said. Keyed like Leave.
+                    div { class: "reader-who",
+                        Label { text: from, style: LabelStyle::Headline }
+                        Label { text: addr, role: LabelRole::Secondary, style: LabelStyle::Footnote }
                         if let Some((id, raw)) = checked {
                             {rsx! { super::checks::SenderChecks { key: "{id}-{raw:?}", message: id, body: raw } }}
                         }
-                        div { class: "mono when", "{when}" }
+                        Label { text: when, role: LabelRole::Tertiary, style: LabelStyle::Footnote }
                     }
                     // Its own template, so the key is that template's root key and a new one
                     // remounts it: rsx reads a key only on a template's root node, and one on a
@@ -458,50 +440,51 @@ pub(super) fn Reader(
             {rsx! { super::receipt::Receipts { key: "{leave_key}", bodies } }}
         }
         div { class: "reader-body",
+            div { class: "banners",
             if let Some(where_it_went) = saved() {
                 // Where it went, named. A file saved somewhere the user cannot point at is a file
                 // they have lost, and this pane's previous answer was to print a command to run.
-                p { class: "notice", "{where_it_went}" }
+                InlineBanner { severity: Severity::Ok, text: where_it_went, onclose: move |()| saved.set(None) }
             }
             if let Some(host) = from_host {
-                div { class: "consent",
-                    Glyph { icon: Icon::X }
-                    span {
-                        if showing {
-                            "Showing remote images from {host}"
-                        } else {
-                            "Remote images blocked — loading them tells the sender you opened this"
-                        }
+                if showing {
+                    InlineBanner {
+                        severity: Severity::Info,
+                        icon: Some(Icon::Image),
+                        text: format!("Showing remote images from {host}"),
                     }
-                    if !showing {
-                        ds::Button {
-                            variant: ds::ButtonVariant::Mini,
-                            label: show_images(),
-                            aria_label: show_images(),
-                            // The press takes the button away, and on Blitz the keyboard with
-                            // it (quire focuses the pressed button a frame later, gone or not):
-                            // it is handed back to the window, as a closing panel hands it back.
-                            onclick: on_primary(move || {
-                                shell.write().show_remote_images = true;
-                                super::host::Host::focus_app();
-                            }),
-                        }
+                } else {
+                    InlineBanner {
+                        severity: Severity::Warn,
+                        icon: Some(Icon::Image),
+                        text: "Remote images blocked",
+                        actions: rsx! {
+                            Button {
+                                size: ControlSize::Small,
+                                label: show_images(),
+                                common: Common { aria_label: Some(show_images().to_owned()), ..Common::default() },
+                                // The press takes the button away, and on Blitz the keyboard with it
+                                // (quire focuses the pressed button a frame later, gone or not): it is
+                                // handed back to the window, as a closing panel hands it back.
+                                onclick: on_primary(move || {
+                                    shell.write().show_remote_images = true;
+                                    super::host::Host::focus_app();
+                                }),
+                            }
+                        },
                     }
                 }
+            }
             }
             for (((message, reading, _), found), attached) in shown.into_iter().zip(founds).zip(attached) {
                 article { key: "{message.id}", class: "frame",
                     header {
-                        strong { "{from_name(&message)}" }
-                        span { class: "mono", "{address(&message)}" }
-                        time { class: "mono", "{stamp(&message)}" }
-                        // Original is offered wherever there is a frame, not only for
-                        // `Reading::Layout`: the frame is mounted for every HTML body, and
-                        // Original is the escape hatch when the blocks got a message wrong.
-                        // A span, not a div: a div between the article and its iframe is a new
-                        // parent, and a new parent reloads the frame. The labels are computed so
-                        // a test can find the control: a literal attribute never appears in the
-                        // render mutations.
+                        Label { text: from_name(&message), style: LabelStyle::Headline }
+                        Label { text: address(&message), role: LabelRole::Secondary, style: LabelStyle::Footnote }
+                        time { Label { text: stamp(&message), role: LabelRole::Tertiary, style: LabelStyle::Footnote } }
+                        // Original wherever there is a frame; Source for every message. A span,
+                        // not a div: a div between the article and its iframe is a new parent,
+                        // and a new parent reloads the frame.
                         ViewSwitch {
                             message_id: message.id,
                             body: message.body.raw(),
@@ -547,7 +530,7 @@ pub(super) fn Reader(
                     // or a frame that was not in the tree, re-runs the document, loses scroll,
                     // and re-fetches anything just consented to.
                     if matches!(reading, Reading::NotFetched) {
-                        p { class: "pending", "Body not downloaded yet." }
+                        p { class: "pending", "Not downloaded" }
                     } else {
                         MessageView {
                             holder: consent.as_ref().map(|(_, holder)| *holder),
@@ -570,12 +553,6 @@ pub(super) fn Reader(
                         revision,
                         said: saved,
                     }
-                }
-            }
-            if any_frame {
-                div { class: "frame-note",
-                    Glyph { icon: Icon::Key, size: ds::IconSize::Small }
-                    span { "sandboxed frame · no scripts, no same-origin" }
                 }
             }
             // An inline reply, after every frame so no iframe gains a new parent.

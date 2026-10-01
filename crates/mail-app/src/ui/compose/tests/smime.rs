@@ -167,13 +167,10 @@ async fn what_smime_check_says_stands_in_the_way_is_said_in_the_bar() {
     let after = click(&mut window.dom, seen.one("aria-label", "Send"));
     let markup = window.render();
     assert!(
-        markup.contains(
-            "me@example.test has no current S/MIME certificate of its own to sign or encrypt \
-             with. Nothing was sent."
-        ),
+        markup.contains("No S/MIME certificate for me@example.test"),
         "{markup}"
     );
-    assert!(markup.contains("class=\"c-warn seal-warn\""), "{markup}");
+    assert!(markup.contains("class=\"ds-inline-banner\""), "{markup}");
     assert!(markup.contains("Send without S/MIME"), "{markup}");
     click(
         &mut window.dom,
@@ -197,13 +194,7 @@ async fn what_smime_check_says_stands_in_the_way_is_said_in_the_bar() {
     let after = click(&mut window.dom, seen.one("aria-label", "Send"));
     let markup = window.render();
     assert!(
-        markup.contains(
-            "No S/MIME certificate for dana@example.test, so this cannot be encrypted to them."
-        ),
-        "{markup}"
-    );
-    assert!(
-        markup.contains("A signed message from them brings their certificate"),
+        markup.contains("No S/MIME certificate for dana@example.test"),
         "{markup}"
     );
     assert!(!markup.contains("Look up keys"), "{markup}");

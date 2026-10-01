@@ -11,6 +11,11 @@ mod events;
 mod reference;
 mod store;
 
+/// The words the tests drive quire's `Harness` with (`Drive`, `Key`): the one file
+/// `tests/support/drive.rs`, which the integration tests include too.
+#[path = "../../../tests/support/drive.rs"]
+pub(in crate::ui) mod drive;
+
 /// The throwaway certificate authority S/MIME tests make their certificates with: the one
 /// `mail-mime`'s tests and `tests/smime.rs` use, so all three build fixtures the same way.
 #[path = "../../../../mail-mime/tests/smime_support/mod.rs"]
@@ -18,8 +23,8 @@ pub(in crate::ui) mod smime_support;
 
 pub(in crate::ui) use dom::{
     FakeKey, INSIDE_THE_SHELL, Seen, Typed, click, dispatching, drain, drain_seen, dump, framed,
-    harness, in_scheme, key, markup, page, press, reader_markup, rebuild_into, root_attr,
-    thread_like, write_page,
+    harness, in_scheme, key, markup, page, press, reader_markup, rebuild_into, right_click,
+    root_attr, thread_like, write_page,
 };
 pub(in crate::ui) use events::{FakePointer, Scripts, chord, pointer, type_into};
 pub(in crate::ui) use reference::{Work, work};

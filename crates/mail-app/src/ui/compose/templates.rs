@@ -1,9 +1,17 @@
 //! Templates in the window: "Save as template…" and "Start from a template" in the `/` menu, and
-//! the rows every list of templates draws, here and in Ctrl T.
+//! the rows every list of templates draws, here and in ⌘K.
 //!
 //! Every write goes through `crate::template`, the module `mailo template` uses. Templates are
 //! local only; see `mail_domain::template`.
 
+use ds::base::geometry::placement::{Align, Side};
+use ds::components::content::avatar::AvatarSize;
+use ds::components::content::label::LabelRole;
+use ds::components::overlays::popover::Arrow;
+use ds::host::measure::MountedRef;
+use ds::prelude::*;
+use ds::root::common::Common;
+use ds::root::pass_through::ExtraClass;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
@@ -11,8 +19,7 @@ use dioxus::prelude::*;
 use mail_domain::{Draft, Template, TemplateId};
 use mail_store::SqliteStore;
 
-use super::super::field::{Field, FieldKind};
-use super::super::menu::{MenuItem, MenuKey, Right, Tile, anchor_at, menu_key, quire_entries};
+use super::super::menu::{MenuItem, MenuKey, Right, Tile, anchor_at, menu_key, palette_groups};
 use super::super::motion::{Follow, tell};
 use super::desk::{self, Desk};
 use super::float::{commit, query, slash_items};
@@ -20,7 +27,6 @@ use super::life;
 use super::page::{Float, Page, PageKind, Phase, address};
 use crate::editor::{Caret, Node, Op, Range, runs_text};
 use crate::view::Shell;
-use ds::{Glyph, Icon};
 
 /// The `/` row that keeps the message as a template.
 pub(in crate::ui) const SAVE_KEY: &str = "template:save";
@@ -57,7 +63,7 @@ pub(in crate::ui) fn page_slash_items(page: &Page) -> Vec<MenuItem> {
         offer(
             START_KEY,
             "Start from a template",
-            "A message you kept, in place of this empty one",
+            "A saved message",
             &["template", "start"],
         );
     }
@@ -281,7 +287,7 @@ pub(in crate::ui) fn key(page: Signal<Page>, shell: Signal<Shell>, name: &str) -
 pub(in crate::ui) fn TemplateFloat(
     page: Signal<Page>,
     shell: Signal<Shell>,
-    at: Option<ds::MountedRef>,
+    at: Option<MountedRef>,
 ) -> Element {
     let float = page.read().float.clone();
     match float {
@@ -291,10 +297,14 @@ pub(in crate::ui) fn TemplateFloat(
                 subject => subject.to_owned(),
             };
             rsx! {
-                div { class: "fmenu slim tpl-save",
-                    div { class: "g", "Save as template" }
+                Popover {
+                    anchor: anchor_at(at),
+                    placement: Placement::new(Side::Bottom, Align::Start),
+                    gap: Px(4.0),
+                    arrow: Arrow::None,
+                    onclose: move |()| page.write().float = Float::Closed,
                     div {
-                        class: "pick-in",
+                        class: "tpl-save",
                         onkeydown: move |event: KeyboardEvent| match menu_key(&event.key().to_string()) {
                             Some(MenuKey::Enter) => {
                                 event.prevent_default();
@@ -306,55 +316,50 @@ pub(in crate::ui) fn TemplateFloat(
                             }
                             _ => {}
                         },
-                        Glyph { icon: Icon::FilePen, size: ds::IconSize::Nav }
-                        Field {
-                            kind: FieldKind::Inline,
+                        Label { text: "Save as template".to_owned(), role: LabelRole::Secondary }
+                        TextField {
+                            label: placeholder.clone(),
+                            placeholder: placeholder,
                             value: name,
-                            placeholder,
-                            extra: Some("tpl-name".to_owned()),
-                            on_input: move |value: String| page.write().float = Float::SaveTemplate(value),
-                            on_focus: |_| {},
-                            on_blur: |_| {},
+                            help: None,
+                            focus: FieldFocus::OnMount,
+                            oninput: move |value: String| page.write().float = Float::SaveTemplate(value),
+                            common: Common { extra_class: ExtraClass::parse("tpl-name").ok(), ..Common::default() },
                         }
                     }
-                    p { class: "pick-says", "Enter keeps it. The message stays as it is." }
                 }
             }
         }
-        Float::Templates { active } => {
-            let store = consume_context::<Arc<SqliteStore>>();
-            let rows = template_rows(&every(&store), "");
-            if rows.is_empty() {
-                return rsx! {
-                    div { class: "fmenu slim tpl-list",
-                        div { class: "g", "Start from a template" }
-                        div { class: "none", "No templates yet. Write one, then type / and choose Save as template…" }
-                    }
-                };
-            }
-            let active = active.min(rows.len() - 1);
-            let remove = EventHandler::new(move |key: String| forget_here(page, &key));
-            // quire's menu, its cursor the page's keys': each row's × deletes, picking nothing.
-            rsx! {
-                ds::Menu::<String> {
-                    kind: ds::MenuKind::Rich,
-                    anchor: anchor_at(at),
-                    entries: quire_entries("Start from a template", &rows, ds::AvatarSize::Size34, Some(remove)),
-                    onpick: move |key: String| start_here(page, shell, &key),
-                    onclose: move |()| {
-                        if matches!(page.peek().float, Float::Templates { .. }) {
-                            page.write().float = Float::Closed;
-                        }
-                    },
-                    active: ds::Cursor::Controlled(Some(active)),
-                    on_active: move |to: Option<usize>| {
-                        if let Some(to) = to {
-                            page.write().float = Float::Templates { active: to };
-                        }
-                    },
-                }
-            }
-        }
+        Float::Templates { active } => rsx! { TemplateList { page, shell, active } },
         _ => rsx! {},
+    }
+}
+
+/// The templates to start from: quire's palette over the window, narrowed as the person types,
+/// each row's x deleting it and picking nothing.
+#[component]
+fn TemplateList(page: Signal<Page>, shell: Signal<Shell>, active: usize) -> Element {
+    let mut query = use_signal(String::new);
+    let store = consume_context::<Arc<SqliteStore>>();
+    let rows = template_rows(&every(&store), &query());
+    let remove = EventHandler::new(move |key: String| forget_here(page, &key));
+    rsx! {
+        CommandPalette::<String> {
+            label: "Start from a template".to_owned(),
+            placeholder: "Find a template".to_owned(),
+            query: query(),
+            tokens: Vec::new(),
+            groups: palette_groups(&rows, AvatarSize::Size22, Some(remove)),
+            empty: "No templates".to_owned(),
+            selected: Some(active.min(rows.len().saturating_sub(1))),
+            on_select: move |to: usize| page.write().float = Float::Templates { active: to },
+            oninput: move |text: String| query.set(text),
+            onpick: move |key: String| start_here(page, shell, &key),
+            onclose: move |()| {
+                if matches!(page.peek().float, Float::Templates { .. }) {
+                    page.write().float = Float::Closed;
+                }
+            },
+        }
     }
 }

@@ -1,9 +1,9 @@
 //! The Folders section: an account's own mailboxes, nested, and what can be done to them.
 //!
-//! Each folder is quire's `TreeItem`: a parent opens and closes as the row asks (the row keeps
-//! whether it is open), its name chooses it, and its ⋯ opens quire's menu beside it. A new
-//! folder is named in a [`Field`] under the row it goes in; a rename is written in the name's
-//! own place, quire's `TreeItem { editing }`.
+//! Each folder is quire's `Row` in a source list: a parent is an outline branch that opens and
+//! closes as its triangle asks, its name chooses it, and its ⋯ or a right-click opens quire's
+//! menu. A new folder is named in a row of its own under the folder it goes in; a rename is
+//! written in the name's own place.
 
 use super::super::menu::{Floating, MenuItem};
 use super::folder_parts::{Naming, Said, item};
@@ -11,7 +11,11 @@ use super::folder_row::FolderRow;
 use super::folder_tree::{Section, Show};
 use crate::view::Shell;
 use dioxus::prelude::*;
-use ds::{Icon, MenuKind, MountedRef};
+use ds::components::lists::list::model::{ListItem, ListStyle};
+use ds::components::lists::row::row::Outline;
+use ds::components::lists::section_header::HeaderAction;
+use ds::host::measure::MountedRef;
+use ds::prelude::*;
 use mail_domain::AccountId;
 
 /// One folder, by account and path.
@@ -54,11 +58,6 @@ pub(super) struct Note {
     pub text: String,
 }
 
-/// Focus the name field once it is drawn, and select what is in it.
-pub(super) fn focus_name() {
-    crate::ui::host::Host::focus_and_select(crate::ui::host::Drawn::FolderName);
-}
-
 /// The props every row passes down, because a row draws its children.
 #[derive(Clone, Copy, PartialEq)]
 pub(super) struct Wires {
@@ -68,6 +67,17 @@ pub(super) struct Wires {
     pub revision: Signal<u64>,
     pub open: Signal<Open>,
     pub note: Signal<Option<Note>>,
+}
+
+/// What a folder list's items are keyed by: an account's heading, the field that names a new
+/// top-level folder, a folder by its account and path, or the toggle at the foot.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum FolderKey {
+    Account(AccountId),
+    New,
+    Folder(AccountId, String),
+    Toggle,
+    Empty,
 }
 
 #[component]
@@ -97,11 +107,6 @@ pub(super) fn FolderList(
         .map(|tree| (tree.account, tree.address.clone(), tree.delimiter))
         .collect();
     let first = accounts.first().map(|(id, _, _)| *id);
-    let toggle = if show() == Show::All {
-        "Followed only"
-    } else {
-        "Show all"
-    };
     let delimiter_of = move |account: AccountId| {
         accounts
             .iter()
@@ -113,44 +118,94 @@ pub(super) fn FolderList(
         .map(|tree| item(&tree.account.to_string(), Icon::Plus, &tree.address, None))
         .collect();
     let mut new_button = use_signal(|| None::<MountedRef>);
-    let hint = if show() == Show::All {
-        "Hide the folders you do not follow"
-    } else {
-        "Show the folders you do not follow"
-    };
-    rsx! {
-        div { class: "s-h",
-            "Folders"
-            if section.hidden > 0 || show() == Show::All {
-                ds::Button {
-                    variant: ds::ButtonVariant::Frame,
-                    label: toggle,
-                    title: hint.to_owned(),
-                    onclick: move |_: ds::Press| {
+    let toggling = section.hidden > 0 || show() == Show::All;
+    let mut items = Vec::new();
+    if matches!(&*open.read(), Open::Naming { parent: None, .. }) {
+        items.push(ListItem::row(
+            FolderKey::New,
+            "New folder",
+            rsx! {
+                Naming { wires, at: None, delimiter_of: Callback::new(delimiter_of) }
+            },
+        ));
+    }
+    if empty {
+        items.push(
+            ListItem::row(
+                FolderKey::Empty,
+                "No folders",
+                rsx! {
+                    Label {
+                        text: "No folders of your own yet.",
+                        role: ds::components::content::label::LabelRole::Tertiary,
+                    }
+                },
+            )
+            .with(Availability::Disabled),
+        );
+    }
+    for tree in trees {
+        if several {
+            items.push(ListItem::heading(
+                FolderKey::Account(tree.account),
+                rsx! { SectionHeader { title: tree.address.clone() } },
+            ));
+        }
+        for node in tree.nodes {
+            let key = FolderKey::Folder(tree.account, node.path.clone());
+            let label = node.name.clone();
+            let account = tree.account;
+            let delimiter = tree.delimiter;
+            items.push(ListItem::row(
+                key,
+                label,
+                rsx! {
+                    FolderRow { node, account, delimiter, wires }
+                },
+            ));
+        }
+    }
+    if toggling {
+        let all = show() == Show::All;
+        items.push(ListItem::row(
+            FolderKey::Toggle,
+            "Show all folders",
+            rsx! {
+                Row {
+                    leading: RowLeading::Icon(Icon::Folder),
+                    title: if all { "Followed only" } else { "Show all" },
+                    outline: Outline::None,
+                    common: super::tagged("hint", if all {
+                        "Hide the folders you do not follow"
+                    } else {
+                        "Show the folders you do not follow"
+                    }),
+                    onclick: move |_| {
                         let mut show = show;
                         show.set(if show() == Show::All { Show::Followed } else { Show::All });
                     },
                 }
-            }
-            ds::Button {
-                variant: ds::ButtonVariant::Frame,
-                label: "+ New",
-                aria_label: "New folder".to_owned(),
-                title: "New folder".to_owned(),
-                mounted: move |event: MountedEvent| new_button.set(Some(MountedRef(event.data()))),
-                onclick: move |_: ds::Press| {
+            },
+        ));
+    }
+    rsx! {
+        SectionHeader {
+            title: "Folders",
+            actions: vec![HeaderAction {
+                onmounted: Some(EventHandler::new(move |event: MountedEvent| {
+                    new_button.set(Some(MountedRef(event.data())));
+                })),
+                ..HeaderAction::new("New", EventHandler::new(move |()| {
                     if several {
                         open.set(Open::Accounts);
                     } else if let Some(account) = first {
                         open.set(Open::Naming { account, parent: None, text: String::new() });
-                        focus_name();
                     }
-                },
-            }
+                }))
+            }],
         }
         if *open.read() == Open::Accounts {
             Floating {
-                kind: MenuKind::Slim,
                 anchor: new_button(),
                 title: "New folder on".to_owned(),
                 items: pick_items,
@@ -158,7 +213,6 @@ pub(super) fn FolderList(
                     if let Ok(uuid) = key.parse() {
                         let account = AccountId::from_uuid(uuid);
                         open.set(Open::Naming { account, parent: None, text: String::new() });
-                        focus_name();
                     }
                 },
                 // The pick opened the name field: closing the menu must leave it open.
@@ -169,24 +223,11 @@ pub(super) fn FolderList(
                 },
             }
         }
-        Naming { wires, at: None, delimiter_of: Callback::new(delimiter_of) }
         Said { wires, account: None, path: None }
-        if empty {
-            div { class: "fold-note", "No folders of your own yet." }
-        }
-        for tree in trees {
-            if several {
-                div { key: "a-{tree.account}", class: "fold-acct", "{tree.address}" }
-            }
-            for node in tree.nodes {
-                FolderRow {
-                    key: "{tree.account}-{node.path}",
-                    node,
-                    account: tree.account,
-                    delimiter: tree.delimiter,
-                    wires,
-                }
-            }
+        List::<FolderKey> {
+            label: "Folders",
+            items,
+            style: ListStyle::SourceList,
         }
     }
 }

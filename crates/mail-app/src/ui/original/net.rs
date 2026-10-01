@@ -1,6 +1,6 @@
 //! The Original frame's network on Blitz: quire's `NetPolicy::Custom`, answered by mailo.
 //!
-//! ds-native puts every request a frame makes (anything but inline `data:`) to [`MailNet`], and
+//! ds-blitz puts every request a frame makes (anything but inline `data:`) to [`MailNet`], and
 //! every request the window's own document makes beyond its `file:` and `data:`. The answer:
 //! - **The window's own document: refused.** mailo's markup names no remote resource, and a
 //!   request from the app document cannot be told apart by who drew it: a hover card and the
@@ -18,7 +18,7 @@
 //! raster image of a kind `mail-mime` embeds, by its declared type and by its first bytes.
 
 use super::consent::{Consent, Holder};
-use ds_native::{AppNet, NetDecision, NetReply, NetRequest};
+use ds_blitz::{AppNet, NetDecision, NetReply, NetRequest};
 use mail_domain::MessageId;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;

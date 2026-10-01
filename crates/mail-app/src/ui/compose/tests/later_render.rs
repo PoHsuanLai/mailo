@@ -107,16 +107,15 @@ fn window(dress: impl FnOnce(&mut Page), before: Before) -> (String, Work) {
 }
 
 fn styled(markup: &str) {
-    let missing =
-        crate::ui::style::tests::unstyled_classes(markup, &crate::ui::style::tests::full_css());
-    assert!(missing.is_empty(), "unstyled classes: {missing:?}");
+    let offences = crate::ui::style::tests::markup_offences(markup);
+    assert!(offences.is_empty(), "markup offences: {offences:#?}");
 }
 
 #[tokio::test]
 async fn every_class_send_later_and_templates_draw_is_styled() {
     let (markup, _built) = window(|_| {}, Before::Schedule);
     assert!(markup.contains("Scheduled for tomorrow 08:00"), "{markup}");
-    assert!(markup.contains(r#"class="today-at later""#), "{markup}");
+    assert!(markup.contains("Waiting to be sent"), "{markup}");
     styled(&markup);
 
     let (markup, _built) = window(

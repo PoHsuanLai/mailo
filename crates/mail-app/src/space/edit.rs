@@ -5,7 +5,7 @@
 //! draft live and keeps [`Draft::saved`] for Esc.
 
 use super::{PRESETS, Space};
-use ds::Dot;
+use ds::style::space::palette::Dot;
 
 /// The most dots a Space holds. The gradient reads as a gradient up to three.
 pub const MOST_DOTS: usize = 3;

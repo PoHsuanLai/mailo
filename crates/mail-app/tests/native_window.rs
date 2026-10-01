@@ -1,5 +1,5 @@
 //! A conversation in a window of its own, driven in the real window on Blitz
-//! (`ds_native::Harness`): the reader's menu, a row's context menu and Shift+Enter ask for the
+//! (`ds_harness::Harness`): the reader's menu, a row's context menu and Shift+Enter ask for the
 //! window, and the window's root draws the reader alone and follows what the main window does to
 //! the conversation, and the other way round.
 //!
@@ -11,10 +11,15 @@
 //! Every store is seeded in a `TempDir`, and no window is handed directories, so nothing here
 //! writes a file anywhere else.
 
-use dioxus::prelude::Modifiers;
-use ds::{Key, Point, PointerButton};
-use ds_native::harness::settle_until;
-use ds_native::{Harness, HarnessConfig, NetPolicy, PrintOutcome, RootContexts, Viewport};
+use ds::base::press::PointerButton;
+use ds::prelude::{Point, ShortcutKey as Key};
+use ds_blitz::{NetPolicy, PrintOutcome, RootContexts};
+use ds_harness::harness::settle_until;
+use ds_harness::{Driver, Harness, HarnessConfig, Query as Read, Viewport};
+
+#[path = "support/drive.rs"]
+mod drive;
+use drive::Drive;
 use mail_app::ui::native::{Ask, MessageOpen, OpenWindow, Revisions, Windows};
 use mail_domain::*;
 use mail_runtime::{Arrival, absorb};
@@ -178,9 +183,9 @@ fn main_window(store: &Arc<SqliteStore>, revisions: &Revisions) -> (Harness, Arc
     let config = HarnessConfig::new(VIEW)
         .with_net(NetPolicy::Local)
         .with_contexts(window_contexts(store, revisions).with(Windows(windows)));
-    let mut harness = Harness::with_config(mail_app::ui::native::root, config);
+    let mut harness = Harness::new(mail_app::ui::native::root, config);
     harness.advance(ms(300));
-    settle_until(&mut harness, |h| h.count(".ds-list > .row") == INBOX.len());
+    settle_until(&mut harness, |h| h.count(".list .ds-thread") == INBOX.len());
     (harness, recorder)
 }
 
@@ -189,7 +194,7 @@ fn message_window(store: &Arc<SqliteStore>, revisions: &Revisions, thread: Threa
     let config = HarnessConfig::new(WINDOW)
         .with_net(NetPolicy::Local)
         .with_contexts(window_contexts(store, revisions).with(MessageOpen(thread)));
-    let mut harness = Harness::with_config(mail_app::ui::native::message_root, config);
+    let mut harness = Harness::new(mail_app::ui::native::message_root, config);
     harness.advance(ms(300));
     settle_until(&mut harness, |h| h.count(".reader-head h2") == 1);
     harness
@@ -197,7 +202,7 @@ fn message_window(store: &Arc<SqliteStore>, revisions: &Revisions, thread: Threa
 
 /// The `n`th row of the list (1-based).
 fn row(n: usize) -> String {
-    format!(".ds-list > .row:nth-child({n})")
+    format!(".list .ds-list > .ds-list-item:nth-child({n})")
 }
 
 fn centre(harness: &Harness, selector: &str) -> Point {
@@ -208,19 +213,19 @@ fn centre(harness: &Harness, selector: &str) -> Point {
 
 /// Where a person reads the `n`th row: the start of its subject line, clear of the hover strip.
 fn on_row(harness: &Harness, n: usize) -> Point {
-    let subject = format!("{} .ds-row-sub", row(n));
+    let subject = format!("{} .ds-thread-sub", row(n));
     let rect = harness
         .rect(&subject)
         .unwrap_or_else(|| panic!("{subject} is not drawn:\n{}", harness.html()));
     Point {
-        x: ds::Px(rect.origin.x.0 + 24.0),
-        y: ds::Px(rect.origin.y.0 + rect.size.height.0 / 2.0),
+        x: ds::prelude::Px(rect.origin.x.0 + 24.0),
+        y: ds::prelude::Px(rect.origin.y.0 + rect.size.height.0 / 2.0),
     }
 }
 
 fn click_row(harness: &mut Harness, n: usize) {
     let at = on_row(harness, n);
-    harness.click_with(at, Modifiers::empty());
+    harness.click(at);
     harness.advance(ms(300));
 }
 
@@ -241,7 +246,9 @@ fn press_open_in_window(harness: &mut Harness) {
         harness.text_of(item)
     );
     harness.click(centre(harness, item));
-    harness.advance(ms(300));
+    // The menu blinks the picked row and acts on it as it closes, which takes real time on a
+    // slow runner: a fixed advance can end before the ask is made.
+    settle_until(harness, |h| h.count(".ds-menu") == 0);
 }
 
 fn asked_for(store: &SqliteStore, subject: &str) -> Vec<Ask> {
@@ -400,7 +407,9 @@ fn an_archive_in_the_window_reaches_the_main_list_and_its_own_ctrl_z_takes_it_ba
         window.text_of(".ds-toast")
     );
     // And the main window's inbox lets the row go.
-    settle_until(&mut main, |h| h.count(".ds-list > .row") == INBOX.len() - 1);
+    settle_until(&mut main, |h| {
+        h.count(".list .ds-thread") == INBOX.len() - 1
+    });
 
     window.chord(&[Key::Ctrl], Key::Char('z'));
     window.advance(ms(300));
@@ -410,5 +419,5 @@ fn an_archive_in_the_window_reaches_the_main_list_and_its_own_ctrl_z_takes_it_ba
             .contains(MailboxRole::Inbox)
     );
     settle_until(&mut window, |h| h.count(".left-note") == 0);
-    settle_until(&mut main, |h| h.count(".ds-list > .row") == INBOX.len());
+    settle_until(&mut main, |h| h.count(".list .ds-thread") == INBOX.len());
 }

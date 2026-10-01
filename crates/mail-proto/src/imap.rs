@@ -623,7 +623,14 @@ impl ImapSession {
                 match self.phase.clone() {
                     Phase::IdlePending { index, tag } => {
                         self.phase = Phase::Idling { index, tag };
-                        return Progress::Need(vec![IoNeed::Read]);
+                        // The continuation and the news that ends the idle can arrive in one
+                        // read. Returning here would leave that news in the buffer until the
+                        // socket speaks again, and the server is waiting for DONE, so it never
+                        // does. The session then parks until the watch times out.
+                        if self.buf.is_empty() {
+                            return Progress::Need(vec![IoNeed::Read]);
+                        }
+                        continue;
                     }
                     // The server asked for the literal. Now, and not before.
                     Phase::AppendPending { index, tag, body } => {
@@ -797,6 +804,10 @@ impl ImapSession {
                 // Ending it in protocol, with `DONE`, rather than dropping the socket: the
                 // connection stays reusable and the server is not left wondering.
                 if news && let Phase::Idling { index, tag } = self.phase.clone() {
+                    // `drain` returns as soon as this does, and does not consume the line
+                    // itself. Left in the buffer, the next read parses this EXISTS again
+                    // before the tagged OK that answers DONE.
+                    self.buf.drain(..raw.len());
                     self.phase = Phase::IdleEnding { index, tag };
                     return Some(Progress::Need(vec![
                         IoNeed::Write(b"DONE\r\n".to_vec()),

@@ -8,12 +8,17 @@
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
 
-use super::super::field::{Field, FieldKind};
 use super::super::menu::{Floating, MenuItem, MenuKey, Right, Tile, menu_key};
 use super::super::menus::{snooze_help, when_in_sentence, when_words};
 use super::super::press::on_primary;
 use super::page::{Float, Page};
-use ds::{Glyph, Icon, MenuKind, MountedRef};
+use ds::components::controls::button_marks::Trailing;
+use ds::components::controls::button_model::Bezel;
+use ds::host::measure::MountedRef;
+use ds::prelude::*;
+use ds::root::common::Common;
+use ds::root::pass_through::ExtraClass;
+use ds::style::icon::render::Glyph;
 
 /// The Remind menu's key for "Don't remind me".
 pub(in crate::ui) const OFF_KEY: &str = "off";
@@ -165,15 +170,20 @@ pub(in crate::ui) fn RemindRow(page: Signal<Page>) -> Element {
     let mut value = use_signal(|| None::<MountedRef>);
     rsx! {
         div { class: "prop-row", "data-row": "remind",
-            div { class: "k", Glyph { icon: Icon::Bell, size: ds::IconSize::Compact }, "Remind me" }
+            div { class: "k", Glyph { icon: Icon::Bell, size: IconSize::Compact }, "Remind me" }
             div { class: "v",
-                ds::Button {
-                    variant: ds::ButtonVariant::Quiet,
+                Button {
+                    bezel: Bezel::Inline,
                     label: shown,
-                    aria_label: "Remind me if no reply".to_owned(),
-                    trailing: Some(ds::Trailing::Caret),
-                    expanded: if open { ds::Expanded::Open } else { ds::Expanded::Closed },
-                    mounted: move |event: MountedEvent| value.set(Some(MountedRef(event.data()))),
+                    trailing: Some(Trailing::Glyph(Icon::ChevronDown)),
+                    shown: Some(if open { Shown::Visible } else { Shown::Hidden }),
+                    common: Common {
+                        aria_label: Some("Remind me if no reply".to_owned()),
+                        mounted: Some(EventHandler::new(move |event: MountedEvent| {
+                            value.set(Some(MountedRef(event.data())));
+                        })),
+                        ..Common::default()
+                    },
                     onclick: on_primary(move || {
                         let next = if open || picking { Float::Closed } else { Float::Remind };
                         page.write().float = next;
@@ -181,7 +191,6 @@ pub(in crate::ui) fn RemindRow(page: Signal<Page>) -> Element {
                 }
                 if open {
                     Floating {
-                        kind: MenuKind::Dropdown,
                         anchor: value(),
                         title: "Remind me if no reply".to_owned(),
                         items,
@@ -226,7 +235,7 @@ fn PickRemind(page: Signal<Page>) -> Element {
         Err(why) => ("pick-says refused", why.clone()),
     };
     rsx! {
-        div { class: "fmenu slim pick-time",
+        div { class: "pick-time",
             div { class: "g", "Remind me at" }
             div {
                 class: "pick-in",
@@ -244,15 +253,17 @@ fn PickRemind(page: Signal<Page>) -> Element {
                         _ => {}
                     }
                 },
-                Glyph { icon: Icon::Bell, size: ds::IconSize::Nav }
-                Field {
-                    kind: FieldKind::Inline,
+                Glyph { icon: Icon::Bell, size: IconSize::Nav }
+                TextField {
+                    label: "Remind me at".to_owned(),
                     value: typed.clone(),
                     placeholder: "tomorrow 9, fri 17:00, +3d".to_owned(),
-                    extra: Some("remind-field".to_owned()),
-                    on_input: move |value: String| page.write().float = Float::PickRemind(value),
-                    on_focus: |_| {},
-                    on_blur: |_| {},
+                    bezel: FieldBezel::Plain,
+                    common: Common {
+                        extra_class: ExtraClass::parse("remind-field").ok(),
+                        ..Common::default()
+                    },
+                    oninput: move |value: String| page.write().float = Float::PickRemind(value),
                 }
             }
             p { class: "{class}", role: "status", "{says}" }

@@ -1,5 +1,5 @@
 //! Remind me if no reply, driven the way its user drives it in the real window on Blitz
-//! (`ds_native::Harness`): the composer's Remind row sets it, the message's copy comes back from
+//! (`ds_harness::Harness`): the composer's Remind row sets it, the message's copy comes back from
 //! the Sent folder as a sync brings it, the Waiting place lists the conversation, and when its
 //! time comes with nobody answering the conversation is back on top of the inbox saying
 //! "No reply yet", and a notification says so once.
@@ -9,8 +9,13 @@
 //! is handed no directories and a recorder for notifications: nothing here touches the real
 //! store, config or desktop.
 
-use ds::{Key, Point};
-use ds_native::{Clock, FocusFallback, Harness, HarnessConfig, NetPolicy, PrintOutcome, Viewport};
+use ds::prelude::{Point, ShortcutKey as Key};
+use ds_blitz::{FocusFallback, NetPolicy, PrintOutcome};
+use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query as Read, Viewport};
+
+#[path = "support/drive.rs"]
+mod drive;
+use drive::Drive;
 use mail_app::notify::{Notification, Notifier, Opens};
 use mail_app::ui::native::WallClock;
 use mail_domain::*;
@@ -134,10 +139,10 @@ fn open() -> (
     let store = seeded(dir.path());
     let recorder = Arc::new(Recorder::default());
     let base = chrono::Utc::now();
-    // Read first on the harness's thread, where `ds::time::now` is the virtual clock.
+    // Read first on the harness's thread, where `ds::base::time::clock::now` is the virtual clock.
     let origin: Arc<OnceLock<Instant>> = Arc::new(OnceLock::new());
     let clock = mail_app::ui::native::WallClock::new(move || {
-        let since = ds::time::since(*origin.get_or_init(ds::time::now));
+        let since = ds::base::time::clock::since(*origin.get_or_init(ds::base::time::clock::now));
         base + chrono::TimeDelta::from_std(since).unwrap()
     });
     // No test may open the system's print dialog.
@@ -157,7 +162,7 @@ fn open() -> (
         .with_focus_fallback(FocusFallback::Ancestor)
         .with_clock(Clock::Virtual)
         .with_contexts(contexts);
-    let mut harness = Harness::with_config(mail_app::ui::native::root, config);
+    let mut harness = Harness::new(mail_app::ui::native::root, config);
     harness.advance(ms(300));
     (harness, dir, store, recorder, clock)
 }
@@ -189,17 +194,33 @@ fn type_text(harness: &mut Harness, text: &str) {
     }
 }
 
-/// The open menu's row that says `name`.
+/// The open menu's row that says `name`. The composer's reminder is a menu; the reader's bell
+/// opens a pick list. Each row is a direct child of its list.
 fn menu_row(harness: &Harness, name: &str) -> String {
-    (1..=24)
-        .map(|n| format!(".ds-menu .ds-menu-item:nth-child({n})"))
+    let mut candidates = Vec::new();
+    for n in 1..=24 {
+        candidates.push(format!(".ds-menu > .ds-menu-item:nth-child({n})"));
+        candidates.push(format!(".ds-pick-list-rows > .ds-row:nth-child({n})"));
+    }
+    candidates
+        .into_iter()
         .find(|row| harness.text_of(row).is_some_and(|text| text.contains(name)))
         .unwrap_or_else(|| panic!("no menu row says {name:?}:\n{}", harness.html()))
 }
 
+/// Press `name` once its centre is the row itself: a menu just opened can still be on its way
+/// to where it is drawn, and a press there lands on whatever is underneath.
+fn press_menu_row(harness: &mut Harness, name: &str) {
+    let row = menu_row(harness, name);
+    until(harness, "the row can be pressed", |h| {
+        h.centre(&row).is_some_and(|at| h.hits(at, &row))
+    });
+    harness.click(centre(harness, &row));
+}
+
 /// The `n`th row of the list (1-based).
 fn row(n: usize) -> String {
-    format!(".ds-list > .row:nth-child({n})")
+    format!(".list .ds-list > .ds-list-item:nth-child({n})")
 }
 
 /// The reminder on the conversation that holds the message sent from `draft`, if it is here.
@@ -235,7 +256,7 @@ fn a_reminder_set_in_the_composer_brings_the_conversation_back_with_no_reply_yet
     // The window's now, which the test reads on the same thread and so on the same clock.
     let (mut harness, _dir, store, recorder, clock) = open();
     let base = clock.now();
-    let inbox_before = harness.count(".ds-list > .row");
+    let inbox_before = harness.count(".list .ds-thread");
     assert_eq!(inbox_before, INBOX.len());
 
     // A new message: to, subject, and the Remind row's "Tomorrow morning".
@@ -263,8 +284,7 @@ fn a_reminder_set_in_the_composer_brings_the_conversation_back_with_no_reply_yet
     until(&mut harness, "the Remind menu opens", |h| {
         h.count(".ds-menu .ds-menu-item") > 0
     });
-    let tomorrow = menu_row(&harness, "Tomorrow morning");
-    harness.click(centre(&harness, &tomorrow));
+    press_menu_row(&mut harness, "Tomorrow morning");
     until(&mut harness, "the row says the reminder", |h| {
         h.count(".ds-menu") == 0
             && h.text_of(".c-props [*|data-row=remind]")
@@ -324,13 +344,13 @@ fn a_reminder_set_in_the_composer_brings_the_conversation_back_with_no_reply_yet
     let waiting_place = "[*|data-place=\"Waiting\"]";
     harness.click(centre(&harness, waiting_place));
     until(&mut harness, "the Waiting place lists it", |h| {
-        h.count(".ds-list > .row") == 1
-            && h.text_of(&format!("{} .ds-row-sub", row(1)))
+        h.count(".list .ds-thread") == 1
+            && h.text_of(&format!("{} .ds-thread-sub", row(1)))
                 .is_some_and(|subject| subject.contains(SUBJECT))
     });
     harness.click(centre(&harness, "[*|data-place=\"Inbox\"]"));
     until(&mut harness, "the inbox is as it was", |h| {
-        h.count(".ds-list > .row") == inbox_before
+        h.count(".list .ds-thread") == inbox_before
     });
     assert_eq!(harness.count(".no-reply"), 0);
     assert!(recorder.0.lock().unwrap().is_empty());
@@ -354,8 +374,8 @@ fn a_reminder_set_in_the_composer_brings_the_conversation_back_with_no_reply_yet
         Some((_, FollowUp::Returned { .. }))
     ));
     until(&mut harness, "the conversation is back on top", |h| {
-        h.count(".ds-list > .row") == inbox_before + 1
-            && h.text_of(&format!("{} .ds-row-sub", row(1)))
+        h.count(".list .ds-thread") == inbox_before + 1
+            && h.text_of(&format!("{} .ds-thread-sub", row(1)))
                 .is_some_and(|subject| subject.contains(SUBJECT))
     });
     let words = harness
@@ -379,13 +399,13 @@ fn a_reminder_set_in_the_composer_brings_the_conversation_back_with_no_reply_yet
 #[test]
 fn the_reader_s_bell_sets_a_reminder_and_ctrl_z_takes_it_back() {
     let (mut harness, _dir, store, _recorder, clock) = open();
-    let subject = format!("{} .ds-row-sub", row(2));
+    let subject = format!("{} .ds-thread-sub", row(2));
     let rect = harness
         .rect(&subject)
         .unwrap_or_else(|| panic!("{subject} is not drawn:\n{}", harness.html()));
     harness.click(Point {
-        x: ds::Px(rect.origin.x.0 + 24.0),
-        y: ds::Px(rect.origin.y.0 + rect.size.height.0 / 2.0),
+        x: ds::prelude::Px(rect.origin.x.0 + 24.0),
+        y: ds::prelude::Px(rect.origin.y.0 + rect.size.height.0 / 2.0),
     });
     until(&mut harness, "the reader opens", |h| {
         h.count(".reader-head h2") == 1
@@ -410,10 +430,9 @@ fn the_reader_s_bell_sets_a_reminder_and_ctrl_z_takes_it_back() {
     let bell = ".reader-head [*|aria-label=\"Remind me if no reply\"]";
     harness.click(centre(&harness, bell));
     until(&mut harness, "the menu opens", |h| {
-        h.count(".ds-menu .ds-menu-item") > 0
+        h.count(".ds-pick-list-rows > .ds-row") > 0
     });
-    let three = menu_row(&harness, "In 3 days");
-    harness.click(centre(&harness, &three));
+    press_menu_row(&mut harness, "In 3 days");
     until(&mut harness, "the reader says it", |h| {
         h.text_of(".reader-head .follow-up-note")
             .is_some_and(|note| note.contains("if nobody replies"))

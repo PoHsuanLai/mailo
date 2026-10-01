@@ -1,14 +1,19 @@
 //! Custom keyboard shortcuts, driven the way their user drives them in the real window on Blitz
-//! (`ds_native::Harness`): the settings' Keyboard section, Change on Archive, a key that another
+//! (`ds_harness::Harness`): the settings' Keyboard section, Change on Archive, a key that another
 //! action holds refused by that action's name, a free key taken, and then the new key archiving
 //! and the old one doing nothing.
 //!
 //! The window is handed a pair of `TempDir` directories, so the keymap it keeps lands there and
 //! nowhere else; the store is seeded in a `TempDir` too.
 
-use ds::{Key, Point};
-use ds_native::harness::settle_until;
-use ds_native::{Harness, HarnessConfig, NetPolicy, PrintOutcome, Viewport};
+use ds::prelude::{Point, ShortcutKey as Key};
+use ds_blitz::{NetPolicy, PrintOutcome};
+use ds_harness::harness::settle_until;
+use ds_harness::{Driver, Harness, HarnessConfig, Query as Read, Viewport};
+
+#[path = "support/drive.rs"]
+mod drive;
+use drive::Drive;
 use mail_app::appearance::WindowDirs;
 use mail_app::view::Shortcut;
 use mail_domain::*;
@@ -127,9 +132,9 @@ fn open() -> (Harness, tempfile::TempDir, Arc<SqliteStore>, WindowDirs) {
     let config = HarnessConfig::new(VIEW)
         .with_net(NetPolicy::Local)
         .with_contexts(contexts);
-    let mut harness = Harness::with_config(mail_app::ui::native::root, config);
+    let mut harness = Harness::new(mail_app::ui::native::root, config);
     settle_until(&mut harness, |harness| {
-        harness.count(".ds-list > .row") == INBOX.len()
+        harness.count(".list .ds-thread") == INBOX.len()
     });
     (harness, dir, store, dirs)
 }
@@ -169,12 +174,13 @@ fn in_inbox(store: &SqliteStore) -> usize {
 const SHEET: &str = "[*|aria-label=\"Keyboard shortcuts\"][*|role=dialog]";
 const CHANGE_ARCHIVE: &str = "[*|aria-label=\"Change the key for Archive\"]";
 
-const SCROLLER: &str = ".editor .ed-scroll";
-const LAST_CARD: &str = ".editor .ed-more > div:last-child";
+const EDITOR: &str = "[*|aria-label=\"Edit this Space\"]";
+const SCROLLER: &str = ".ed-scroll";
+const LAST_CARD: &str = "[*|aria-label=\"Keyboard shortcuts\"]";
 const KEYBOARD: &str = "button[*|aria-label=\"Keyboard shortcuts\"]";
 
 /// Where `selector` is drawn, or a failure that shows the document.
-fn rect(harness: &Harness, selector: &str) -> ds::Rect {
+fn rect(harness: &Harness, selector: &str) -> ds::prelude::Rect {
     harness
         .rect(selector)
         .unwrap_or_else(|| panic!("{selector} is not drawn:\n{}", harness.html()))
@@ -186,8 +192,8 @@ fn rect(harness: &Harness, selector: &str) -> ds::Rect {
 /// has scrolled, although it is drawn where it was.
 fn settings_view(harness: &Harness) -> (f32, f32) {
     (
-        rect(harness, ".editor").origin.y.0,
-        rect(harness, ".editor .ed-foot").origin.y.0,
+        rect(harness, EDITOR).origin.y.0,
+        rect(harness, ".ed-foot").origin.y.0,
     )
 }
 
@@ -207,7 +213,7 @@ fn wheel_to(harness: &mut Harness, selector: &str) {
         if in_view(harness, selector) {
             return;
         }
-        harness.wheel(at, ds::Px(0.0), ds::Px(-120.0));
+        harness.wheel(at, ds::prelude::Px(0.0), ds::prelude::Px(-120.0));
         harness.advance(ms(20));
         let now = rect(harness, selector).origin.y.0;
         if (now - last).abs() < 0.5 {
@@ -270,13 +276,13 @@ fn archive_rebound_in_the_settings_archives_on_its_new_key_and_not_its_old_one()
     harness.advance(ms(300));
 
     // Open the newest conversation, then press the old key: nothing moves.
-    let first = ".ds-list > .row:nth-child(1) .ds-row-sub";
+    let first = ".list .ds-list > .ds-list-item:nth-child(1) .ds-thread-sub";
     let rect = harness
         .rect(first)
         .unwrap_or_else(|| panic!("{first} is not drawn:\n{}", harness.html()));
     harness.click(Point {
-        x: ds::Px(rect.origin.x.0 + 24.0),
-        y: ds::Px(rect.origin.y.0 + rect.size.height.0 / 2.0),
+        x: ds::prelude::Px(rect.origin.x.0 + 24.0),
+        y: ds::prelude::Px(rect.origin.y.0 + rect.size.height.0 / 2.0),
     });
     harness.advance(ms(300));
     let before = in_inbox(&store);
@@ -284,15 +290,15 @@ fn archive_rebound_in_the_settings_archives_on_its_new_key_and_not_its_old_one()
     harness.key(Key::Char('e'));
     harness.advance(ms(600));
     assert_eq!(in_inbox(&store), before, "the old key still archived");
-    assert_eq!(harness.count(".ds-list > .row"), INBOX.len());
+    assert_eq!(harness.count(".list .ds-thread"), INBOX.len());
 
     // The new key archives it.
     harness.key(Key::Char('x'));
     settle_until(&mut harness, |harness| {
-        harness.count(".ds-list > .row") == INBOX.len() - 1
+        harness.count(".list .ds-thread") == INBOX.len() - 1
     });
     assert_eq!(in_inbox(&store), before - 1, "the new key did not archive");
-    assert_eq!(harness.count(".ds-list > .row"), INBOX.len() - 1);
+    assert_eq!(harness.count(".list .ds-thread"), INBOX.len() - 1);
 }
 
 #[test]
@@ -311,14 +317,14 @@ fn a_keymap_kept_earlier_is_the_one_a_new_window_answers_to_and_reset_puts_it_ba
         mail_app::ui::Start::Inbox,
     )
     .with(printer);
-    harness = Harness::with_config(
+    harness = Harness::new(
         mail_app::ui::native::root,
         HarnessConfig::new(VIEW)
             .with_net(NetPolicy::Local)
             .with_contexts(contexts),
     );
     settle_until(&mut harness, |harness| {
-        harness.count(".ds-list > .row") == INBOX.len()
+        harness.count(".list .ds-thread") == INBOX.len()
     });
 
     open_sheet(&mut harness);

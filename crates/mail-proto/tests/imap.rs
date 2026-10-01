@@ -103,6 +103,45 @@ fn an_unsolicited_expunge_mid_command_is_absorbed() {
     );
 }
 
+/// A socket often delivers `+ idling` and the untagged news in one read. The session has to
+/// send DONE from that read: asking for more bytes parks it, and the server is waiting for DONE.
+#[test]
+fn idle_news_in_the_same_read_as_the_continuation_sends_done() {
+    use mail_proto::machine::{IoNeed, IoReady, Machine, Progress};
+
+    let mut session = session(vec![ImapCommand::Idle]);
+    let Progress::Need(_) = session.start() else {
+        panic!("IDLE starts by reading the greeting");
+    };
+    let Progress::Need(needs) = session.feed(IoReady::Bytes(b"* OK ready\r\n".to_vec())) else {
+        panic!("the greeting should be followed by the IDLE command");
+    };
+    assert!(
+        needs
+            .iter()
+            .any(|need| matches!(need, IoNeed::Write(bytes) if bytes.ends_with(b"IDLE\r\n"))),
+        "IDLE was not sent: {needs:?}"
+    );
+
+    let progress = session.feed(IoReady::Bytes(b"+ idling\r\n* 3 EXISTS\r\n".to_vec()));
+    let Progress::Need(needs) = progress else {
+        panic!("news in the continuation's read did not end the idle: {progress:?}");
+    };
+    assert!(
+        needs
+            .iter()
+            .any(|need| matches!(need, IoNeed::Write(bytes) if bytes == b"DONE\r\n")),
+        "DONE was not sent: {needs:?}"
+    );
+
+    // The EXISTS line was consumed, so the tagged completion is the next response.
+    let progress = session.feed(IoReady::Bytes(b"a001 OK idle done\r\n".to_vec()));
+    assert!(
+        matches!(progress, Progress::Done(_)),
+        "the completion after DONE did not finish the idle: {progress:?}"
+    );
+}
+
 /// The cancellation path the Progress design exists for.
 #[test]
 fn idle_is_interrupted_in_protocol_rather_than_dropped() {

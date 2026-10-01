@@ -7,7 +7,7 @@
 //! config directory (`spelling.json`), and saying plainly when no dictionary was found, which is
 //! the usual case on macOS and Windows, where there are no system Hunspell directories.
 
-use ds::Lang;
+use ds::spell::lang::Lang;
 use std::path::Path;
 
 /// Whether the composer marks misspelt words. On unless someone turned it off.
@@ -61,7 +61,7 @@ pub fn dictionaries(language: Option<&Lang>, installed: &[Lang]) -> Dictionaries
     let Some(language) = language else {
         return Dictionaries::NoLanguage;
     };
-    match ds_native::spell::pick(language, installed) {
+    match ds_blitz::spell::pick(language, installed) {
         Some(found) => Dictionaries::Ready(found.name().to_owned()),
         None => Dictionaries::NoneFor {
             language: language.name().to_owned(),
@@ -105,7 +105,7 @@ impl Dictionaries {
 #[cfg(test)]
 mod tests {
     use super::{Dictionaries, Setting, dictionaries, load, save};
-    use ds::Lang;
+    use ds::spell::lang::Lang;
 
     fn langs(names: &[&str]) -> Vec<Lang> {
         names

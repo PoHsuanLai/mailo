@@ -15,7 +15,7 @@ pub(super) enum Piece<'a> {
     Marked(&'a str),
 }
 
-/// How the marks in one run of text are numbered across the thread, for Ctrl F.
+/// How the marks in one run of text are numbered across the thread, for ⌘F.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(super) struct Numbering {
     /// The number of this text's first mark.

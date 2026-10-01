@@ -7,11 +7,14 @@
 //! request its documents make beyond inline `data:` goes to a recorder that refuses it.
 
 use base64::Engine as _;
-use ds::Key;
-use ds_native::harness::settle_until;
-use ds_native::{
-    AppNet, Harness, HarnessConfig, NetDecision, NetPolicy, NetReply, NetRequest, Viewport,
-};
+use ds::prelude::ShortcutKey as Key;
+use ds_blitz::{AppNet, NetDecision, NetPolicy, NetReply, NetRequest};
+use ds_harness::harness::settle_until;
+use ds_harness::{Driver, Harness, HarnessConfig, Query, Viewport};
+
+#[path = "support/drive.rs"]
+mod drive;
+use drive::Drive;
 use mail_domain::*;
 use mail_runtime::assemble::absorb_rebuilt_into;
 use mail_runtime::{Arrival, Destination, absorb};
@@ -226,7 +229,7 @@ fn open() -> Window {
     let config = HarnessConfig::new(VIEW)
         .with_net(NetPolicy::Custom(asked.clone()))
         .with_contexts(contexts);
-    let mut harness = Harness::with_config(mail_app::ui::native::root, config);
+    let mut harness = Harness::new(mail_app::ui::native::root, config);
     harness.advance(ms(300));
     Window {
         harness,
@@ -237,13 +240,13 @@ fn open() -> Window {
 }
 
 fn open_row(harness: &mut Harness, n: usize) {
-    let subject = format!(".ds-list > .row:nth-child({n}) .ds-row .ds-row-sub");
+    let subject = format!(".list .ds-list > .ds-list-item:nth-child({n}) .ds-row .ds-thread-sub");
     let rect = harness
         .rect(&subject)
         .unwrap_or_else(|| panic!("{subject} is not drawn:\n{}", harness.html()));
-    harness.click(ds::Point {
-        x: ds::Px(rect.origin.x.0 + 24.0),
-        y: ds::Px(rect.origin.y.0 + rect.size.height.0 / 2.0),
+    harness.click(ds::prelude::Point {
+        x: ds::prelude::Px(rect.origin.x.0 + 24.0),
+        y: ds::prelude::Px(rect.origin.y.0 + rect.size.height.0 / 2.0),
     });
     harness.advance(ms(300));
 }
@@ -256,9 +259,9 @@ fn click(harness: &mut Harness, selector: &str) {
     harness.advance(ms(100));
 }
 
-/// The strip's `n`th row (1-based).
+/// The strip's `n`th row (1-based). The strip is quire's list.
 fn item(n: usize) -> String {
-    format!(".attachments li:nth-child({n})")
+    format!(".attachments .ds-list > .ds-list-item:nth-child({n})")
 }
 
 const VIEWER: &str = ".viewer-wrap .viewer";
@@ -403,7 +406,7 @@ fn a_part_still_on_the_server_shows_no_preview_and_fetches_nothing() {
     assert_eq!(remote, 1, "the fixture's photo is not on the server");
     let harness = &mut window.harness;
     open_row(harness, 3);
-    settle_until(harness, |h| h.count(".attachments li") == 1);
+    settle_until(harness, |h| h.count(".attachments .ds-list-item") == 1);
     harness.advance(ms(600));
     assert_eq!(harness.count(".attachments .att-thumb"), 0);
     assert_eq!(harness.count(".attachments .att-note"), 0);

@@ -157,11 +157,10 @@ async fn no_key_for_a_recipient_names_them_and_holds_the_send_until_a_choice() {
     let mut after = click(&mut window.dom, seen.one("aria-label", "Send"));
     let markup = window.render();
     assert!(
-        markup
-            .contains("No OpenPGP key for dana@example.test, so this cannot be encrypted to them."),
+        markup.contains("No OpenPGP key for dana@example.test"),
         "{markup}"
     );
-    assert!(markup.contains("class=\"c-warn seal-warn\""), "{markup}");
+    assert!(markup.contains("class=\"ds-inline-banner\""), "{markup}");
     assert!(markup.contains("Look up keys"), "{markup}");
     assert!(queued(&store).is_empty(), "sent without a key");
 
@@ -234,7 +233,10 @@ async fn a_key_found_by_looking_up_clears_the_bar_and_the_send_goes_encrypted() 
     let mut looked = click(&mut window.dom, last(&after, "aria-label", "Look up keys"));
     let markup = until(&mut window, &mut looked, |page| page.contains("Found dana")).await;
     assert_eq!(*asked.lock().unwrap(), ["dana@example.test"]);
-    assert!(!markup.contains("seal-warn"), "{markup}");
+    assert!(
+        !markup.contains("Look up keys"),
+        "the bar is still up: {markup}"
+    );
     assert!(queued(&store).is_empty(), "a lookup sent it");
 
     let mut sent = click(&mut window.dom, seen.one("aria-label", "Send"));
@@ -260,7 +262,7 @@ async fn no_key_of_ones_own_offers_to_make_one() {
     let after = click(&mut window.dom, seen.one("aria-label", "Send"));
     let markup = window.render();
     assert!(
-        markup.contains("me@example.test has no OpenPGP key of its own"),
+        markup.contains("No OpenPGP key for me@example.test"),
         "{markup}"
     );
     assert!(queued(&store).is_empty());
@@ -294,7 +296,7 @@ async fn a_locked_key_is_asked_for_in_the_bar_and_a_wrong_passphrase_said() {
 
     let mut after = click(&mut window.dom, seen.one("aria-label", "Send"));
     let prompt = format!(
-        "Your OpenPGP key {} needs its passphrase to sign or encrypt this message.",
+        "Passphrase for key {}",
         crate::ui::pgp::short(key.fingerprint())
     );
     let markup = until(&mut window, &mut after, |page| page.contains(&prompt)).await;
@@ -310,13 +312,10 @@ async fn a_locked_key_is_asked_for_in_the_bar_and_a_wrong_passphrase_said() {
     type_into(&mut window.dom, field, "not it");
     let mut wrong = click(&mut window.dom, after.one("aria-label", "Unlock and send"));
     let markup = until(&mut window, &mut wrong, |page| {
-        page.contains("did not unlock")
+        page.contains("Wrong passphrase")
     })
     .await;
-    assert!(
-        markup.contains("That passphrase did not unlock the key."),
-        "{markup}"
-    );
+    assert!(markup.contains("Wrong passphrase."), "{markup}");
     assert!(queued(&store).is_empty());
 
     let all = after.merge(wrong);
@@ -362,7 +361,7 @@ async fn every_class_of_the_bar_and_row_is_styled() {
     let (mut window, seen) = window(store, draft, secrets);
     click(&mut window.dom, seen.one("aria-label", "Send"));
     let mut markup = window.render();
-    assert!(markup.contains("seal-warn"), "{markup}");
+    assert!(markup.contains("ds-inline-banner"), "{markup}");
     let mut page = window.page();
     window.dom.in_runtime(|| {
         page.write().seal_bar = SealBar::Locked {
@@ -372,9 +371,8 @@ async fn every_class_of_the_bar_and_row_is_styled() {
     });
     markup += &window.render();
     assert!(markup.contains("unlock-field"), "{markup}");
-    let missing =
-        crate::ui::style::tests::unstyled_classes(&markup, &crate::ui::style::tests::full_css());
-    assert!(missing.is_empty(), "unstyled classes: {missing:?}");
+    let offences = crate::ui::style::tests::markup_offences(&markup);
+    assert!(offences.is_empty(), "markup offences: {offences:#?}");
 }
 
 #[tokio::test]

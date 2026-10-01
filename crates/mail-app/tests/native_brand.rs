@@ -1,4 +1,4 @@
-//! Brand logos on the real window (Blitz, through `ds_native::Harness`): a sender whose logo is
+//! Brand logos on the real window (Blitz, through `ds_harness::Harness`): a sender whose logo is
 //! already drawn and cached shows it in place of their initial, in the reader's head and on the
 //! sender card; a sender DMARC did not pass for keeps their initial.
 //!
@@ -7,9 +7,14 @@
 //! cache. The logo is in the cache before the window opens, so nothing is looked up: the account's
 //! plan is empty (no server name), and the topmost `Authentication-Results` is the one read.
 
-use ds::Point;
-use ds_native::harness::settle_until;
-use ds_native::{FocusFallback, Harness, HarnessConfig, NetPolicy, PrintOutcome, Viewport};
+use ds::prelude::Point;
+use ds_blitz::{FocusFallback, NetPolicy, PrintOutcome};
+use ds_harness::harness::settle_until;
+use ds_harness::{Driver, Harness, HarnessConfig, Query, Viewport};
+
+#[path = "support/drive.rs"]
+mod drive;
+use drive::Drive;
 use mail_domain::*;
 use mail_runtime::{Arrival, absorb};
 use mail_store::SqliteStore;
@@ -133,7 +138,7 @@ fn open(on: mail_app::bimi::Setting) -> Opened {
         .with_net(NetPolicy::Local)
         .with_focus_fallback(FocusFallback::Ancestor)
         .with_contexts(contexts);
-    let mut harness = Harness::with_config(mail_app::ui::native::root, config_h);
+    let mut harness = Harness::new(mail_app::ui::native::root, config_h);
     harness.advance(ms(300));
     Opened {
         harness,
@@ -142,18 +147,18 @@ fn open(on: mail_app::bimi::Setting) -> Opened {
 }
 
 fn row(n: usize) -> String {
-    format!(".ds-list > .row:nth-child({n}) .ds-row")
+    format!(".list .ds-list > .ds-list-item:nth-child({n}) .ds-row")
 }
 
 /// Click the `n`th row at the start of its subject line, clear of its hover strip.
 fn open_row(harness: &mut Harness, n: usize) {
-    let subject = format!("{} .ds-row-sub", row(n));
+    let subject = format!("{} .ds-thread-sub", row(n));
     let rect = harness
         .rect(&subject)
         .unwrap_or_else(|| panic!("{subject} is not drawn:\n{}", harness.html()));
     harness.click(Point {
-        x: ds::Px(rect.origin.x.0 + 24.0),
-        y: ds::Px(rect.origin.y.0 + rect.size.height.0 / 2.0),
+        x: ds::prelude::Px(rect.origin.x.0 + 24.0),
+        y: ds::prelude::Px(rect.origin.y.0 + rect.size.height.0 / 2.0),
     });
     harness.advance(ms(300));
 }
@@ -223,7 +228,7 @@ fn with_the_switch_off_the_cached_logo_is_not_shown() {
 #[test]
 fn the_sender_card_shows_the_logo() {
     let Opened { mut harness, _dirs } = open(mail_app::bimi::Setting::On);
-    let sender = format!("{} .ds-row-name", row(1));
+    let sender = format!("{} .ds-thread-name", row(1));
     let at = harness
         .centre(&sender)
         .unwrap_or_else(|| panic!("{sender} is not drawn:\n{}", harness.html()));

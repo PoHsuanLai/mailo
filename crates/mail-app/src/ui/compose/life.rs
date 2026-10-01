@@ -126,10 +126,10 @@ where
     }
     if page.to.is_empty() && page.cc.is_empty() {
         let count = match page.guard {
-            Guard::Shake(count) => count + 1,
+            Guard::NoRecipient(count) => count + 1,
             _ => 1,
         };
-        page.guard = Guard::Shake(count);
+        page.guard = Guard::NoRecipient(count);
         return Ok(Sent::Stopped);
     }
     if anyway == Anyway::No && page.attached.is_empty() && missing_attachment(&page.session.doc) {

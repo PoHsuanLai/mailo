@@ -57,10 +57,10 @@ impl Ask {
     pub(in crate::ui) fn sentence(&self) -> String {
         match self {
             Ask::OneClick { list } => {
-                format!("Leave {list}? mailo sends the list's server a one-click request.")
+                format!("Leave {list}?")
             }
             Ask::Mailto { list, to, from } => {
-                format!("Leave {list}? mailo sends a message to {to} from {from}.")
+                format!("Leave {list}? A message goes to {to} from {from}.")
             }
             Ask::Web { .. } => "This list can only be left on its web page.".to_owned(),
         }
@@ -194,7 +194,7 @@ pub(in crate::ui) fn leave(
     http: impl FnOnce() -> Result<reqwest::Client, String>,
 ) -> Result<Outcome, String> {
     match found.list.preferred() {
-        None => return Err("This message offers no way to unsubscribe.".to_owned()),
+        None => return Err("No way to unsubscribe.".to_owned()),
         Some(Unsubscribe::Web { url }) => return Ok(Outcome::Page { url: url.clone() }),
         Some(Unsubscribe::OneClick { .. } | Unsubscribe::Mailto(_)) => {}
     }
@@ -242,7 +242,7 @@ pub(in crate::ui) fn archive_from(store: &SqliteStore, sender: &str) -> Vec<Undo
         .collect()
 }
 
-/// The toast's "Archive all from this list": [`archive_from`], kept for Ctrl Z one at a time,
+/// The toast's "Archive all from this list": [`archive_from`], kept for ⌘Z one at a time,
 /// and said.
 pub(in crate::ui) fn archive_list(
     store: &SqliteStore,
@@ -258,7 +258,7 @@ pub(in crate::ui) fn archive_list(
     }
     revision += 1;
     let text = match count {
-        0 => format!("Nothing from {list} is left in the inbox"),
+        0 => format!("Nothing left from {list}"),
         1 => format!("Archived 1 conversation from {list}"),
         n => format!("Archived {n} conversations from {list}"),
     };

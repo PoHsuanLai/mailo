@@ -432,7 +432,7 @@ pub(in crate::ui) fn export_now(
 ) -> Result<(Exported, String), String> {
     let chosen = export::select(store, query, now).map_err(|why| sentence(&why))?;
     if chosen.is_empty() {
-        return Err("Nothing matches, so nothing was written.".to_owned());
+        return Err("Nothing to export.".to_owned());
     }
     let done = export::export(store, &chosen, target, now, progress)?;
     let said = export::said(&done, target)

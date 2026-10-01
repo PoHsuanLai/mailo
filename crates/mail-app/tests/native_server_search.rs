@@ -1,5 +1,5 @@
 //! "Search … on the server", driven the way its user drives it in the real window on Blitz
-//! (`ds_native::Harness`): a search that finds nothing here ends its list with the offer, and
+//! (`ds_harness::Harness`): a search that finds nothing here ends its list with the offer, and
 //! pressing it lists what the server found, marked as found there.
 //!
 //! The server is a `ServerSearcher` that answers as the runtime's search would: it keeps a
@@ -8,8 +8,13 @@
 //! this is the window. It is handed no directories, so it writes no file anywhere, and the
 //! automatic search is off, as it is until someone turns it on.
 
-use ds::{Key, Point};
-use ds_native::{Harness, HarnessConfig, NetPolicy, PrintOutcome, Viewport};
+use ds::prelude::{Point, ShortcutKey as Key};
+use ds_harness::{Driver, Harness, HarnessConfig, Query, Viewport};
+
+#[path = "support/drive.rs"]
+mod drive;
+use drive::Drive;
+use ds_blitz::{NetPolicy, PrintOutcome};
 use mail_app::ui::native::ServerSearcher;
 use mail_domain::*;
 use mail_runtime::{Arrival, Searched, ServerHits, absorb};
@@ -188,7 +193,7 @@ fn open_with(dirs: Option<mail_app::appearance::WindowDirs>) -> Open {
     let config = HarnessConfig::new(VIEW)
         .with_net(NetPolicy::Local)
         .with_contexts(contexts);
-    let mut harness = Harness::with_config(mail_app::ui::native::root, config);
+    let mut harness = Harness::new(mail_app::ui::native::root, config);
     harness.advance(ms(300));
     Open {
         harness,
@@ -218,10 +223,17 @@ fn type_text(harness: &mut Harness, text: &str) {
     harness.advance(ms(100));
 }
 
-/// The rows' subjects, top to bottom.
+/// The rows' subjects, top to bottom. A row quire's list is still sliding out is the previous
+/// answer, so it is not one of these.
 fn subjects(harness: &Harness) -> Vec<String> {
-    (1..=harness.count(".ds-list > *"))
-        .filter_map(|n| harness.text_of(&format!(".ds-list > :nth-child({n}).row .ds-row-sub")))
+    (1..=harness.count(".list .ds-list > *"))
+        .filter_map(|n| {
+            let item = format!(".list .ds-list > .ds-list-item:nth-child({n})");
+            if harness.attr(&item, "data-exit").is_some() {
+                return None;
+            }
+            harness.text_of(&format!("{item} .ds-thread-sub"))
+        })
         .collect()
 }
 
@@ -321,9 +333,13 @@ fn a_search_that_finds_mail_here_still_ends_with_the_offer() {
         h.count(OFFER) == 1
     });
     assert_eq!(calls.load(Ordering::SeqCst), 0, "not asked by itself");
-    // Emptying the box is the place again, with nothing offered.
+    // Emptying the box is the place again, with nothing offered. The box is emptied from its
+    // start with Delete: on macOS Blitz leaves Backspace in a field to the system's key bindings,
+    // which a headless window never gets, so Backspace deletes nothing there.
+    press(&mut harness, ".search input");
+    harness.key(Key::Home);
     for _ in 0.."flight".len() {
-        harness.key(Key::Backspace);
+        harness.key(Key::Delete);
     }
     until(&mut harness, "the place coming back", |h| {
         h.count(OFFER) == 0

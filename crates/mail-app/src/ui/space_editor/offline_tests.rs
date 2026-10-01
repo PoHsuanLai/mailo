@@ -4,8 +4,8 @@
 use crate::offline::{self, Keep};
 use crate::ui::app::App;
 use crate::ui::data::account_rows;
-use crate::ui::fixtures::{Seen, Work, click, dispatching, rebuild_into, work};
-use crate::ui::sidebar::tests::{buttons_in, pressed};
+use crate::ui::fixtures::{Seen, Work, click, dispatching, drain_seen, rebuild_into, work};
+use crate::ui::sidebar::tests::buttons_in;
 use dioxus::dioxus_core::VirtualDom;
 use mail_domain::*;
 use mail_store::Store as _;
@@ -18,7 +18,9 @@ fn opened(built: &Work) -> (VirtualDom, Seen) {
         .with_root_context(built.store.clone())
         .with_root_context(built.dirs.clone());
     let seen = rebuild_into(&mut dom);
-    let seen = click(&mut dom, seen.one("aria-label", "Edit the Work Space"));
+    // The sheet is drawn by the render after the click that asked for it.
+    let seen =
+        click(&mut dom, seen.one("aria-label", "Edit the Work Space")).merge(drain_seen(&mut dom));
     (dom, seen)
 }
 
@@ -26,10 +28,10 @@ fn label() -> String {
     format!("Keep all mail offline for {ADDRESS}")
 }
 
-/// The account's switch's pressed button, as the page draws it.
+/// The account's switch's selected segment, as the page draws it.
 fn shown(page: &str) -> Vec<String> {
     let open = format!(
-        "class=\"ds-segmented\" data-size=\"regular\" role=\"group\" aria-label=\"{}\"",
+        "class=\"ds-segmented\" role=\"radiogroup\" aria-label=\"{}\"",
         label()
     );
     let at = page
@@ -38,9 +40,10 @@ fn shown(page: &str) -> Vec<String> {
     let tail = &page[at + open.len()..];
     let body = &tail[..tail.find("</div>").unwrap_or(tail.len())];
     let buttons = buttons_in(&format!("<div class=\"seg\"{body}</div>"), "seg");
-    pressed(&buttons, |button| button.text.as_str())
-        .into_iter()
-        .map(str::to_owned)
+    buttons
+        .iter()
+        .filter(|button| button.attr("aria-checked") == "true")
+        .map(|button| button.text.clone())
         .collect()
 }
 
@@ -155,7 +158,7 @@ async fn each_account_says_how_much_is_here_and_the_switch_keeps_the_setting() {
     assert!(page.contains(&said), "no {said:?} in:\n{page}");
 
     // The switch's segments, On then Off, found after its group.
-    let segments = seen.after("aria-label", &label(), "aria-pressed");
+    let segments = seen.after("aria-label", &label(), "aria-checked");
     click(&mut dom, segments[0]);
     assert_eq!(
         offline::load(config).of(id),

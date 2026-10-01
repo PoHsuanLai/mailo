@@ -1,13 +1,17 @@
 //! Several conversations picked at once, driven the way their user drives them: Shift-click,
-//! Ctrl-click, Shift+j/k and Ctrl A in the real window on Blitz (`ds_native::Harness`), and an
+//! Ctrl-click, Shift+j/k and Ctrl A in the real window on Blitz (`ds_harness::Harness`), and an
 //! action on the selection taken back by one Ctrl Z.
 //!
 //! Every case opens the real window over a store seeded in a `TempDir`. The window is handed no
 //! directories, so it writes no file anywhere; nothing here touches the real store or config.
 
-use dioxus::prelude::Modifiers;
-use ds::{Key, Point};
-use ds_native::{Harness, HarnessConfig, NetPolicy, PrintOutcome, Viewport};
+use ds::prelude::{Point, ShortcutKey as Key};
+use ds_blitz::{NetPolicy, PrintOutcome};
+use ds_harness::{Driver, Harness, HarnessConfig, Query as Read, Viewport};
+
+#[path = "support/drive.rs"]
+mod drive;
+use drive::Drive;
 use mail_domain::*;
 use mail_runtime::{Arrival, absorb};
 use mail_store::{SqliteStore, Store};
@@ -123,29 +127,29 @@ fn open() -> (Harness, tempfile::TempDir, Arc<SqliteStore>) {
     let config = HarnessConfig::new(VIEW)
         .with_net(NetPolicy::Local)
         .with_contexts(contexts);
-    let mut harness = Harness::with_config(mail_app::ui::native::root, config);
+    let mut harness = Harness::new(mail_app::ui::native::root, config);
     harness.advance(ms(300));
     (harness, dir, store)
 }
 
 /// The `n`th row of the list (1-based).
 fn row(n: usize) -> String {
-    format!(".ds-list > .row:nth-child({n}) .ds-row")
+    format!(".list .ds-list > .ds-list-item:nth-child({n}) .ds-row")
 }
 
 /// Where a person clicks the `n`th row: the start of its subject line, clear of the hover strip.
 fn subject_of(harness: &Harness, n: usize) -> Point {
-    let subject = format!("{} .ds-row-sub", row(n));
+    let subject = format!("{} .ds-thread-sub", row(n));
     let rect = harness
         .rect(&subject)
         .unwrap_or_else(|| panic!("{subject} is not drawn:\n{}", harness.html()));
     Point {
-        x: ds::Px(rect.origin.x.0 + 24.0),
-        y: ds::Px(rect.origin.y.0 + rect.size.height.0 / 2.0),
+        x: ds::prelude::Px(rect.origin.x.0 + 24.0),
+        y: ds::prelude::Px(rect.origin.y.0 + rect.size.height.0 / 2.0),
     }
 }
 
-fn click_row(harness: &mut Harness, n: usize, held: Modifiers) {
+fn click_row(harness: &mut Harness, n: usize, held: &[Key]) {
     let at = subject_of(harness, n);
     harness.click_with(at, held);
     harness.advance(ms(300));
@@ -153,15 +157,15 @@ fn click_row(harness: &mut Harness, n: usize, held: Modifiers) {
 
 /// Which rows (1-based) are drawn selected, top to bottom.
 fn selected(harness: &Harness) -> Vec<usize> {
-    (1..=harness.count(".ds-list > .row"))
+    (1..=harness.count(".list .ds-thread"))
         .filter(|n| harness.attr(&row(*n), "aria-selected").as_deref() == Some("true"))
         .collect()
 }
 
 /// The subjects of the list's rows, top to bottom.
 fn subjects(harness: &Harness) -> Vec<String> {
-    (1..=harness.count(".ds-list > .row"))
-        .filter_map(|n| harness.text_of(&format!("{} .ds-row-sub", row(n))))
+    (1..=harness.count(".list .ds-thread"))
+        .filter_map(|n| harness.text_of(&format!("{} .ds-thread-sub", row(n))))
         .collect()
 }
 
@@ -202,17 +206,17 @@ fn inbox_count(store: &SqliteStore) -> usize {
 #[test]
 fn shift_click_picks_the_range_from_the_open_row() {
     let (mut harness, _dir, _store) = open();
-    click_row(&mut harness, 2, Modifiers::empty());
+    click_row(&mut harness, 2, &[]);
     assert_eq!(selected(&harness), vec![2], "a plain click selects its row");
     assert_eq!(said(&harness), None, "one open row is not a selection");
-    click_row(&mut harness, 4, Modifiers::SHIFT);
+    click_row(&mut harness, 4, &[Key::Shift]);
     assert_eq!(selected(&harness), vec![2, 3, 4]);
     assert_eq!(said(&harness).as_deref(), Some("3 selected"));
     // Measured again from the same anchor, upward this time.
-    click_row(&mut harness, 1, Modifiers::SHIFT);
+    click_row(&mut harness, 1, &[Key::Shift]);
     assert_eq!(selected(&harness), vec![1, 2]);
     // A plain click lets the selection go.
-    click_row(&mut harness, 5, Modifiers::empty());
+    click_row(&mut harness, 5, &[]);
     assert_eq!(selected(&harness), vec![5]);
     assert_eq!(said(&harness), None);
 }
@@ -220,16 +224,16 @@ fn shift_click_picks_the_range_from_the_open_row() {
 #[test]
 fn ctrl_click_adds_and_takes_away_one_row_at_a_time() {
     let (mut harness, _dir, _store) = open();
-    click_row(&mut harness, 1, Modifiers::empty());
-    click_row(&mut harness, 3, Modifiers::CONTROL);
+    click_row(&mut harness, 1, &[]);
+    click_row(&mut harness, 3, &[Key::Ctrl]);
     assert_eq!(
         selected(&harness),
         vec![1, 3],
         "the open row and the added one"
     );
-    click_row(&mut harness, 5, Modifiers::CONTROL);
+    click_row(&mut harness, 5, &[Key::Ctrl]);
     assert_eq!(selected(&harness), vec![1, 3, 5]);
-    click_row(&mut harness, 1, Modifiers::CONTROL);
+    click_row(&mut harness, 1, &[Key::Ctrl]);
     assert_eq!(
         selected(&harness),
         vec![3, 5],
@@ -261,7 +265,7 @@ fn ctrl_a_picks_every_row_and_escape_lets_them_go() {
 #[test]
 fn shift_j_and_shift_k_move_the_end_of_the_range() {
     let (mut harness, _dir, _store) = open();
-    click_row(&mut harness, 2, Modifiers::empty());
+    click_row(&mut harness, 2, &[]);
     harness.chord(&[Key::Shift], Key::Char('j'));
     harness.chord(&[Key::Shift], Key::Char('j'));
     harness.advance(ms(300));
@@ -282,8 +286,8 @@ fn archiving_a_selection_is_one_gesture_and_one_undo_puts_it_all_back() {
     let (mut harness, _dir, store) = open();
     let before = inbox_count(&store);
     assert_eq!(before, INBOX.len());
-    click_row(&mut harness, 2, Modifiers::empty());
-    click_row(&mut harness, 4, Modifiers::SHIFT);
+    click_row(&mut harness, 2, &[]);
+    click_row(&mut harness, 4, &[Key::Shift]);
     harness.key(Key::Char('e'));
     harness.advance(ms(1500));
     assert_eq!(
@@ -315,8 +319,8 @@ fn archiving_a_selection_is_one_gesture_and_one_undo_puts_it_all_back() {
 #[test]
 fn a_button_on_the_selection_bar_acts_on_every_picked_row() {
     let (mut harness, _dir, store) = open();
-    click_row(&mut harness, 1, Modifiers::empty());
-    click_row(&mut harness, 3, Modifiers::CONTROL);
+    click_row(&mut harness, 1, &[]);
+    click_row(&mut harness, 3, &[Key::Ctrl]);
     let star = "[*|aria-label=\"Star the 2 selected\"]";
     let at = harness
         .centre(star)
@@ -379,20 +383,17 @@ fn the_selection_does_not_follow_to_another_place() {
     assert_eq!(said(&harness), None);
 }
 
-/// Every button in the list bar, as a selector for it alone: the bar's own, and those one box
-/// down (a tool group), whatever the bar is drawn with.
+/// Every button of the selection's tools, as a selector for it alone. While rows are picked the
+/// list head is that bar, and its buttons are the tools' own children.
 fn bar_buttons(harness: &Harness) -> Vec<String> {
-    let found: Vec<String> = [".list-bar > button", ".list-bar > * > button"]
-        .into_iter()
-        .flat_map(|under| {
-            (1..=harness.count(".list-bar button"))
-                .map(move |k| format!("{under}:nth-of-type({k})"))
-        })
+    let n = harness.count(".pick-tools > button");
+    let found: Vec<String> = (1..=n)
+        .map(|k| format!(".pick-tools > button:nth-child({k})"))
         .filter(|selector| harness.count(selector) == 1)
         .collect();
     assert_eq!(
         found.len(),
-        harness.count(".list-bar button"),
+        n,
         "a bar button was not enumerated one by one:\n{}",
         harness.html()
     );
@@ -406,8 +407,8 @@ fn bar_buttons(harness: &Harness) -> Vec<String> {
 #[test]
 fn with_rows_picked_every_bar_button_is_inside_the_list_column() {
     let (mut harness, _dir, _store) = open();
-    click_row(&mut harness, 1, Modifiers::empty());
-    click_row(&mut harness, 3, Modifiers::CONTROL);
+    click_row(&mut harness, 1, &[]);
+    click_row(&mut harness, 3, &[Key::Ctrl]);
     assert_eq!(said(&harness).as_deref(), Some("2 selected"));
     let column = harness.rect(".list-col").expect("the list column");
     let (left, right) = (column.origin.x.0, column.origin.x.0 + column.size.width.0);

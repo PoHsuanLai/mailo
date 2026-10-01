@@ -1,7 +1,7 @@
 //! A conversation in a window of its own: "Open in new window" in the reader's menu and on a
 //! row's context menu, and Shift+Enter.
 //!
-//! The window is quire's (`ds_native::open_window_with`): a VirtualDom of its own with the same
+//! The window is quire's (`ds_blitz::open_window_with`): a VirtualDom of its own with the same
 //! root contexts `launch` gave the first window, so it reads the same store and the same
 //! [`super::revisions::Revisions`], which is how either window sees what the other did. It shows
 //! the reader and nothing else (`root.rs`). Its consent to remote images starts empty: it is its
@@ -17,7 +17,8 @@ mod root;
 pub use root::{MessageOpen, message_root};
 
 use dioxus::prelude::*;
-use ds_native::{WindowHandle, WindowLife, WindowSpec};
+use ds::prelude::Icon;
+use ds_blitz::{WindowHandle, WindowLife, WindowSpec};
 use mail_domain::ThreadId;
 use mail_store::{SqliteStore, Store};
 use std::cell::RefCell;
@@ -103,7 +104,7 @@ fn quire(ask: Ask) {
         return;
     }
     let spec = WindowSpec::new(ask.title, SIZE.0, SIZE.1);
-    match ds_native::open_window_with(
+    match ds_blitz::open_window_with(
         spec,
         root::MessageWindow,
         root::MessageWindowProps { thread: ask.thread },
@@ -122,7 +123,7 @@ fn quire(ask: Ask) {
 pub(in crate::ui) fn menu_item() -> super::menu::MenuItem {
     super::menu::MenuItem {
         key: OPEN_KEY.to_owned(),
-        tile: super::menu::Tile::Icon(ds::Icon::Window),
+        tile: super::menu::Tile::Icon(Icon::Window),
         name: "Open in new window".to_owned(),
         help: None,
         right: super::menu::Right::Shortcut(SHORTCUT.to_owned()),

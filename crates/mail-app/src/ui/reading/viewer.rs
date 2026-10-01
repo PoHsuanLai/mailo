@@ -9,6 +9,8 @@
 use std::sync::Arc;
 
 use dioxus::prelude::*;
+use ds::prelude::*;
+use ds::style::tokens::control_size::ControlSize;
 use mail_domain::MessageId;
 use mail_store::{SqliteStore, Store};
 
@@ -142,26 +144,26 @@ pub(in crate::ui) fn AttachmentViewer(shell: Signal<Shell>) -> Element {
                     h3 { class: "viewer-name", "{name}" }
                     if let Some(count) = pages {
                         span { class: "viewer-page mono", "Page {viewing.page + 1} of {count}" }
-                        ds::Button {
-                            variant: ds::ButtonVariant::Mini,
+                        Button {
+                            size: ControlSize::Small,
                             label: "Previous page".to_owned(),
                             availability: super::super::press::available(viewing.page > 0),
                             onclick: super::super::press::on_primary(move || turn(shell, -1)),
                         }
-                        ds::Button {
-                            variant: ds::ButtonVariant::Mini,
+                        Button {
+                            size: ControlSize::Small,
                             label: "Next page".to_owned(),
                             availability: super::super::press::available(viewing.page + 1 < count),
                             onclick: super::super::press::on_primary(move || turn(shell, 1)),
                         }
                     }
-                    ds::Button {
-                        variant: ds::ButtonVariant::Mini,
+                    Button {
+                        size: ControlSize::Small,
                         label: "Save".to_owned(),
                         onclick: super::super::press::on_primary(save),
                     }
-                    ds::Button {
-                        variant: ds::ButtonVariant::Mini,
+                    Button {
+                        size: ControlSize::Small,
                         label: "Close".to_owned(),
                         onclick: super::super::press::on_primary(move || close(shell)),
                     }

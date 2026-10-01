@@ -1,124 +1,69 @@
-/* The frame. Two gradient layers, a grain, the sidebar on the colour, the card on paper.
+/* The frame. Two gradient layers, the sidebar on the colour, the card on paper.
    Focusable for the keyboard, without a ring around the entire window. */
 .app:focus { outline: none; }
 .app {
   position: relative;
   isolation: isolate;
-  display: grid;
-  grid-template-columns: 232px minmax(0, 1fr);
+  box-sizing: border-box;
   height: 100vh;
   min-height: 0;
   padding: var(--s-8) var(--s-8) var(--s-8) 0;
   color: var(--f-ink);
   background: transparent;
-  transition: grid-template-columns var(--t-move) var(--e-out), padding var(--t-move) var(--e-out);
+  transition: padding var(--t-move) var(--e-out);
 }
-.app.no-side { grid-template-columns: 0 minmax(0, 1fr); padding-left: var(--s-8); }
-/* The frame's two gradient layers and its grain are the `Ds` root's (`.ds-layer`, `.ds-grain`):
-   it cross-fades them itself when the Space changes. */
-/* Hidden sidebar: quire's edge strip brings it back as a floating panel while you are on it,
-   the sidebar saying which through its `data-side`. */
+.app.no-side { padding-left: var(--s-8); }
+/* The window is quire's `SplitView`: the sidebar pane, then the card. Hidden, the sidebar's edge
+   and its peek live in a zero-width host at the window's left edge, which the peek floats from. */
+.edge-host { position: absolute; left: 0; top: 0; bottom: 0; width: 0; }
+/* The frame's two gradient layers are the `Ds` root's (`.ds-layer`): it cross-fades them itself
+   when the Space changes. */
 .side, .card { min-height: 0; min-width: 0; }
+/* Pinned, the sidebar fills its pane; peeking it is placed by its own rule. */
+.side[*|data-side="shown"] { height: 100%; box-sizing: border-box; }
+/* The sidebar is quire's `EdgePeek` (`nav.ds-side`): pinned it is this column; hidden and peeking
+   quire floats it over the card, so nothing here may set its `position`. */
 .side {
-  position: relative;
   display: flex; flex-direction: column; gap: var(--s-8);
   padding: var(--s-10) var(--s-10) var(--s-8); min-height: 0; color: var(--f-ink); overflow: hidden;
 }
-.slide { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--s-2); }
-/* A switch slides the sidebar's contents in from the side the new Space's dot is on. */
-.slide.in-r { animation: slide-r var(--t-big) var(--e-spring); }
-.slide.in-l { animation: slide-l var(--t-big) var(--e-spring); }
-.pins { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--s-6); padding: var(--s-2) 0 var(--s-8); }
-.av {
-  width: 26px; height: 26px; border-radius: var(--r-pill); display: grid; place-items: center;
-  color: var(--mark-ground); font-family: var(--font-display); font-weight: 700; font-size: var(--fs-small);
-}
-/* Refresh icons: quire's quiet button, under the marks. */
-.marks-refresh { margin-top: var(--s-6); align-self: flex-start; }
-.s-h {
-  display: flex; align-items: center; gap: var(--s-8); margin: var(--s-10) var(--s-4) var(--s-4);
-  font-family: var(--font-data); font-size: var(--fs-caption); letter-spacing: 0.14em; text-transform: uppercase;
-  color: var(--f-ink-faint);
-}
-.s-h::after { content: ""; flex: 1; height: var(--hair); background: var(--f-line); }
-.item {
-  display: flex; align-items: center; gap: var(--s-8); width: 100%; text-align: left;
-  padding: var(--s-5) var(--s-8); border: 0; border-radius: var(--r-menu-item); background: none; color: var(--f-ink-soft);
-  font: inherit; font-size: var(--fs-body); cursor: pointer; position: relative;
-}
-.item:hover { background: var(--f-pill-hover); color: var(--f-ink); }
-.item[*|aria-current="true"] {
-  background: var(--f-pill); color: var(--f-ink); font-weight: 650;
-  box-shadow: var(--shadow-current);
-}
-.item[*|aria-current="true"]::before {
-  content: ""; position: absolute; left: 0; top: 50%; height: calc(100% - 16px); width: 3px; border-radius: var(--r-micro);
-  background: var(--f-ink); transform: translateY(-50%);
-  /* The seal pops when the current place changes: the attribute moving is the trigger. */
-  animation: seal-pop var(--t-big) var(--e-spring);
-}
-.item .count { margin-left: auto; font-family: var(--font-data); font-size: var(--fs-eyebrow); color: var(--f-ink-faint); }
-.fav {
-  width: 18px; height: 18px; border-radius: var(--r-small); display: grid; place-items: center; flex: none;
-  color: var(--mark-ground); font-family: var(--font-display); font-weight: 700; font-size: var(--fs-caption);
-}
-.today-hint { font-size: var(--fs-small); color: var(--f-ink-faint); padding: var(--s-2) var(--s-8); }
-/* A Today entry is quire's SidebarItem; this is mailo's box around it, which carries the hover
-   card's hook and the entry's hint. */
-.today-at { display: block; min-width: 0; }
+.slide { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: none; display: flex; flex-direction: column; gap: var(--s-4); }
+/* The accounts: quire's `PinTile`s, four to a row. */
+/* A folder the person does not follow is drawn quieter. */
+.dim { opacity: .62; }
 .side-foot {
   display: flex; align-items: center; gap: var(--s-6); padding-top: var(--s-6); min-width: 0;
 }
-/* The Space's name: quire's frame word, given the foot's free width. */
+/* The Space's name: quire's inline button, given the foot's free width. */
 .space-name { overflow: hidden; min-width: 0; margin-right: auto; }
 .space-dots { display: flex; gap: var(--s-5); align-items: center; flex: none; }
 .card {
-  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.08fr);
+  height: 100%; box-sizing: border-box;
   min-width: 0; min-height: 0; background: var(--surface); color: var(--ink);
   border-radius: var(--r-card); overflow: hidden; box-shadow: var(--shadow-card);
 }
 .app[*|data-peek="center"] .card, .app[*|data-peek="full"] .card { overflow: visible; }
-/* A conversation in a window of its own (`ui/window`): the reader alone on the card. */
 .app.message-window { grid-template-columns: minmax(0, 1fr); padding: var(--s-8); }
 .message-window .card { grid-template-columns: minmax(0, 1fr); }
 .message-window .left-note {
   padding: var(--s-8) var(--s-18); border-bottom: var(--hair) solid var(--line-soft);
-  font-family: var(--font-data); font-size: var(--fs-small); color: var(--ink-soft); background: var(--surface);
+  color: var(--ink-soft); background: var(--surface);
 }
-.list-col { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--surface); }
-.list-bar {
-  display: flex; align-items: center; gap: var(--s-8); padding: var(--s-10) var(--s-12) var(--s-6);
-}
-.list-bar h2 { font-size: var(--fs-heading-3); min-width: 0; flex: 0 1 auto; white-space: nowrap; overflow: hidden; }
-.list-bar h2 .mono { font-weight: 400; color: var(--ink-faint); font-size: var(--fs-eyebrow); margin-left: var(--s-8); }
-.list-bar .status {
+.list-col { display: flex; flex-direction: column; height: 100%; min-width: 0; min-height: 0; background: var(--surface); }
+/* The list's header: quire's `Toolbar` holds it as its centre. */
+.list-head { display: flex; align-items: center; gap: var(--s-8); width: 100%; min-width: 0; }
+.list-head h2 { font-size: var(--fs-heading-3); min-width: 0; flex: 0 1 auto; white-space: nowrap; overflow: hidden; }
+.list-head .status {
   font-size: var(--fs-small); color: var(--ink-faint); min-width: 0; flex: 1 1 0;
   white-space: nowrap; overflow: hidden;
 }
-.list-bar .status.bad { color: var(--danger); font-weight: 600; }
-/* A selection's bar: the count, never squeezed out, and its actions in the rest of the column,
-   wrapping there when one line is too narrow rather than running under the reader. */
-.list-bar.picking .status { flex: none; color: var(--ink-soft); }
+.list-head .status.bad { color: var(--danger); font-weight: 600; }
 .pick-tools {
   display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center;
   gap: var(--s-8); flex: 1 1 0; min-width: 0;
 }
 .bar-tools { display: flex; gap: var(--s-6); align-items: center; margin-left: auto; position: relative; }
-/* Folders: quire's `TreeItem` per folder, its chevron, drop states and ⋯ quire's. `.fold` holds
-   the item and what shows under it (a new folder's name field, a refusal); the menu floats beside
-   the ⋯, and a rename is written in the name's place (`TreeItem { editing }`). The new folder's
-   field sits in the flow under the row: the sidebar is narrower than a menu and clips what
-   hangs out of it. */
-.fold { display: flex; flex-direction: column; min-width: 0; }
-.fold.dim { opacity: 0.62; }
-.fold-row { min-width: 0; }
-.fold-row .chev { width: 6px; height: 6px; flex: none; margin: 0 var(--s-4) 0 var(--s-3); }
-.fold-edit { display: flex; flex: 1; min-width: 0; }
-.fold-edit .field.bare { flex: 1; min-width: 0; font-size: var(--fs-body); color: var(--f-ink); }
-.fold-new { background: var(--f-pill); cursor: text; }
-.fold-acct {
-  padding: var(--s-6) var(--s-8) var(--s-2); font-family: var(--font-data); font-size: var(--fs-note); color: var(--f-ink-faint);
-  overflow: hidden; white-space: nowrap;
-}
-.fold-note { padding: var(--s-2) var(--s-8) var(--s-4) var(--s-22); font-size: var(--fs-small); line-height: 1.35; color: var(--f-ink-faint); }
-.fold-note.refused { color: var(--f-ink); font-weight: 550; }
+
+/* A sheet hangs from the card's top edge, not the window's: the frame insets the card by
+   `--s-8`. */
+.in-card { top: var(--s-8); }

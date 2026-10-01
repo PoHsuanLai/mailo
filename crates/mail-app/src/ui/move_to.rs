@@ -9,19 +9,21 @@
 //! and elsewhere the label a move into it files under, named by its path — the same one a rule
 //! finds or makes (`mail_store::rules`), so a folder is one label whichever way mail got there.
 
-use super::menu::{Floating, MenuItem, Right, Tile};
+use super::menu::{MenuItem, Right, Tile, anchor_for, narrowed, palette_groups};
 use super::motion::drag::Drag;
 use super::motion::{act_all, motion};
 use super::picks::with_selection;
 use crate::view::Shell;
 use dioxus::prelude::*;
-use ds::{Filter, IconButton, IconButtonVariant, MenuKind, MountedRef, Switch};
+use ds::components::content::avatar::AvatarSize;
+use ds::components::controls::button_model::{Bezel, ImagePosition};
+use ds::host::measure::MountedRef;
+use ds::prelude::*;
+use ds::root::common::Common;
+use mail_domain::Label;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
-
-/// Menus with more folders than this filter as you type.
-const FILTER_OVER: usize = 7;
 
 /// One folder a conversation can be moved to.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -155,7 +157,7 @@ pub(in crate::ui) fn items(destinations: &[Destination]) -> Vec<MenuItem> {
         .iter()
         .map(|d| MenuItem {
             key: d.path.clone(),
-            tile: Tile::Icon(ds::Icon::FolderInput),
+            tile: Tile::Icon(Icon::FolderInput),
             name: d.path.clone(),
             help: None,
             right: Right::None,
@@ -167,7 +169,8 @@ pub(in crate::ui) fn items(destinations: &[Destination]) -> Vec<MenuItem> {
         .collect()
 }
 
-/// The folders `thread` can be moved to, and the move, anchored to the button that opened it.
+/// The folders `thread` can be moved to, and the move: quire's `PickList` under the control
+/// that opened it, its field narrowing the account's folders as it is typed into.
 #[component]
 pub(in crate::ui) fn MoveMenu(
     thread: ThreadId,
@@ -176,38 +179,42 @@ pub(in crate::ui) fn MoveMenu(
     anchor: Option<MountedRef>,
     /// The opener's rect once measured, which wins over `anchor`.
     #[props(default)]
-    placed: Option<ds::Rect>,
+    placed: Option<Rect>,
     on_close: EventHandler<()>,
 ) -> Element {
     let store = consume_context::<Arc<SqliteStore>>();
     let account = account_of(&store, thread);
     let found = account.map_or_else(Vec::new, |a| destinations(&store, a));
-    let note = found
-        .is_empty()
-        .then(|| "This account has no folders of its own to move to.".to_owned());
-    let filter = if found.len() > FILTER_OVER {
-        Filter::Typing
-    } else {
-        Filter::None
-    };
+    let mut query = use_signal(String::new);
+    let shown = narrowed(&items(&found), &query());
     rsx! {
-        Floating {
-            kind: MenuKind::Rich,
-            anchor,
-            placed,
-            title: "Move to".to_owned(),
-            items: items(&found),
-            filter,
-            note,
-            on_pick: move |path: String| {
+        PickList::<String> {
+            anchor: anchor_for(anchor, placed),
+            label: "Move to",
+            placeholder: "Move to…",
+            query: query(),
+            groups: palette_groups(&shown, AvatarSize::Size22, None),
+            empty: if found.is_empty() {
+                "No folders".to_owned()
+            } else {
+                "No folder matches.".to_owned()
+            },
+            oninput: move |text: String| query.set(text),
+            onpick: move |path: String| {
                 let Some(account) = account else { return };
                 let store = consume_context::<Arc<SqliteStore>>();
                 let folder = MailboxRef { account, path };
                 on_close.call(());
                 // The whole selection when this row is picked, as one gesture.
-                file_all_into(&store, shell, revision, &with_selection(shell, thread), &folder);
+                file_all_into(
+                    &store,
+                    shell,
+                    revision,
+                    &with_selection(shell, thread),
+                    &folder,
+                );
             },
-            on_close: move |_| on_close.call(()),
+            onclose: move |()| on_close.call(()),
         }
     }
 }
@@ -219,21 +226,32 @@ pub(in crate::ui) fn MoveTool(
     shell: Signal<Shell>,
     revision: Signal<u64>,
 ) -> Element {
-    let mut open = use_signal(|| false);
-    let mut tool = use_signal(|| None::<MountedRef>);
-    let label = "Move to a folder";
+    let mut open = use_signal(|| Shown::Hidden);
+    let mut button = use_signal(|| None::<MountedRef>);
     rsx! {
-        IconButton {
-            variant: IconButtonVariant::Tool,
-            icon: ds::Icon::FolderInput,
-            label: label.to_owned(),
-            tooltip: "Move to…".to_owned(),
-            expanded: if open() { Switch::On } else { Switch::Off },
-            mounted: move |event: MountedEvent| tool.set(Some(MountedRef(event.data()))),
-            onclick: move |_| open.toggle(),
+        Button {
+            bezel: Bezel::Toolbar,
+            image: ImagePosition::Only,
+            icon: Some(IconSource::Glyph(Icon::FolderInput)),
+            label: "Move to a folder",
+            title: Some("Move to…".to_owned()),
+            shown: open(),
+            common: Common {
+                mounted: Some(EventHandler::new(move |event: MountedEvent| {
+                    button.set(Some(MountedRef(event.data())));
+                })),
+                ..Common::default()
+            },
+            onclick: move |_| open.set(if open() == Shown::Visible { Shown::Hidden } else { Shown::Visible }),
         }
-        if open() {
-            MoveMenu { thread, shell, revision, anchor: tool(), on_close: move |_| open.set(false) }
+        if open() == Shown::Visible {
+            MoveMenu {
+                thread,
+                shell,
+                revision,
+                anchor: button(),
+                on_close: move |_| open.set(Shown::Hidden),
+            }
         }
     }
 }

@@ -236,7 +236,7 @@ fn slash_divider_puts_an_object_in_place_of_the_empty_line() {
 }
 
 #[test]
-fn a_mention_adds_the_person_to_cc_and_the_chip_flashes() {
+fn a_mention_adds_the_person_to_cc() {
     let mut page = page_of("");
     type_text(&mut page, "ask @da");
     assert!(
@@ -249,7 +249,6 @@ fn a_mention_adds_the_person_to_cc_and_the_chip_flashes() {
     assert_eq!(body(&page), "ask @Dana Whitfield ");
     assert_eq!(page.cc.len(), before + 1);
     assert_eq!(page.cc_row, CcRow::Shown, "the Cc row appears");
-    assert_eq!(page.flash.as_deref(), Some("dana@example.test"));
 
     // Someone already on the message is not added twice.
     type_text(&mut page, "and @da");

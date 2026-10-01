@@ -4524,3 +4524,82 @@ lands in, found by Message-ID. Undo send lets it go. A new message on an account
 folder (POP3) is never found again, and its reminder is dropped a week after it was due. Not
 built: returned conversations on top in `mailo list`, a `mailo remind` command, and a sweep by a
 quiet `mailo watch`.
+
+### F198 — The move to quire v0.2, and what mailo still asks of quire
+
+quire v0.2.0 is the settled desktop design (one Look, the Mac's values; Arc's ideas as features)
+and it renamed, merged or deleted most of the names `mail-app` imported. The port is one commit
+because nothing smaller compiles; `docs/quire-0.2-upgrade.md` has the per-surface table, every
+user-visible change and how to continue. What is worth remembering here:
+
+**The tag could not be fetched (closed, v0.2.1).** quire's manifest named `blitz-kit` by a relative
+path, so a git checkout of quire in cargo's cache could not resolve it. v0.2.1 names it by git and
+rev, and mailo builds from a plain clone with no `[patch]`.
+
+**The global accent is not mailo's.** A swatch picker in the Space editor that wrote
+`appearance.toml` (and `appearance::set_accent`) was tried and removed: the file is quire's, set in
+the desktop's Settings app and the control centre, and a program never renders its own UI for keys
+the schema covers (design/22-SETTINGS.md section 9.5). mailo only reads it. The per-Space choice
+(`CardAccent`, card keeps the accent or borrows the Space's hue) stays, drawn by quire's
+`SpaceEditor`; its labels there differ from what was asked for, a quire request.
+
+**The lint is the review.** With mailo's CSS in the `app` layer and quire's Strict lint and
+markup lint over every rendered surface, a selector that reaches into a `ds-` part, a literal
+size, a raw control or a class nothing styles fails a test. The port took the stylesheet from
+1128 lines to 547 with that lint as its guide. The one exception left (`FieldRow`'s control
+cell) names its reason and goes when quire has the component.
+
+**Two things the old tests asserted were about the old shape, not the behaviour.** The reader's
+"does not remount on a peek change" was a fact about a CSS-only peek; with quire's `Peek` the
+reader is built again in the panel, and the test now asserts what matters (the same thread and
+the same sanitized document). "A toast is shown" was a `data-shown` attribute; it is now the
+toast's presence and that it is not leaving.
+
+**Quire requests, closed in v0.2.2 (branch `design-quire-0.2`).** Filterable pick list that can
+stay open (`PickList`, `AfterPick`); menu hint and staying open on a pick; per-tile mark on
+`PinItem`; `Common` and hooks on `TodayTab`, `RowAction` and `ThreadRow`; an inline edit slot on
+`Row`; more than one `SectionHeader` action; a tooltip keyed by a hook; a toast action other than
+Undo; `InlineBanner`; a status tone for `Label`; `FactList`; a row's overflow and row-scoped
+confirmation; a wrapping `FieldRow`; a multi-line `TextField`; code runs in `EmptyState`; format
+glyphs; a public `EditPointer` constructor; `SpaceEditor` and `SpaceDot` in `ds`; `SpaceLook`'s
+grain. Each is used (`docs/quire-0.2-upgrade.md`, "The v0.2.2 pass"); the stand-ins are deleted
+(`Picker`, `Checklist`, the toast `Alert`, the `.consent`, `.notice`, `.receipt`, `.c-warn`,
+`.inv-facts`, `.seal-line` and `.pins` styles, the one lint exception).
+
+**New quire requests.** `Sidebar` with body sections and a foot on the frame's ground (it takes one
+`List`, so mailo keeps its own sidebar inside the `SplitView` pane); a `SplitView` pane that can host
+an `EdgePeek` (a folded pane clips what floats out of it, so the peek lives outside the pane while
+hidden); a `ToolbarItem` that hands over its element or rect when picked (menus from toolbar buttons;
+the list header's buttons sit in the toolbar's centre instead); `Sheet` attached to a pane
+(`Attach::Within`; mailo sets the sheet's top by a class of its own, still centred across the window);
+`SpaceEditor` without its own card (mailo flattens it by a class); an accessible name for an
+image-only `SegmentedControl` segment; `InlineBanner`, `FactList`, `Fact`, `HeaderAction`, `RunTone`
+and `Common` in `ds::prelude`; a way to open a `PopUpButton` in a renderer-less test document;
+U+2303 in the faces (it draws as a caret).
+
+**Keys.** The prototype's Ctrl chords are the Mac's standard map now (`ui/chord.rs`, and the table in
+`docs/quire-0.2-upgrade.md`): ⌘K, ⌃⌘S, ⌘1 to ⌘9, ⌘F, ⌘P, ⌘Z, ⌘N. Command is Ctrl or Meta alone and
+⌃⌘ both, which reads the same under Toshy and on a Mac. With ⌘ held no bare letter is a shortcut;
+before, ⌘C composed.
+
+**Shorter copy.** The prose is cut, Mac style. Notable, before then after: Today empty, "Threads you
+open land here, like tabs. They drop off after 12 idle hours..." then nothing (and no heading while
+it is empty, like Pinned); the empty reader, "Nothing open / Pick a thread to read it." then "No
+message selected"; "Nothing here." / "Inbox zero." then "Empty"; "No account yet. Add one from a
+terminal:" then "No account" over "Run mailo account add <address>"; the composer's key hints row
+and "Pick the file with Attach, below." then nothing and "Use Attach below."; "You wrote about an
+attachment, and nothing is attached." then "No file attached"; "Remote images blocked: loading them
+tells the sender you opened this" then "Remote images blocked"; "...asked to be told when you've read
+this." then "...asked for a read receipt."; the sign and encrypt banners, "No OpenPGP key for x, so
+this cannot be encrypted to them. Nothing was sent." then "No OpenPGP key for x" (and the same for
+S/MIME, Bcc, and "Passphrase for key X"); the Space editor's four row helps, the provider marks help,
+the receipt item's help and the parked draft's detail, gone; the Import and Export sheets' helps
+("Kept on this computer: searchable, never synced, never sent anywhere." then "Stays on this
+computer"); the add-account sheet's privacy paragraph then "Only example.com is looked up." and the
+keyring sentences then "Password saved for x" and "Signed in."; the rules' and server's headings
+lines ("They sort new mail as it arrives, first to last..." then "Applied to new mail, in order.");
+folder refusals ("A POP3 account has one mailbox, and no folders to make." then "POP3 has no
+folders."); "The X stopped before it finished: e" then "X failed: e" or "Couldn't X: e"; the
+reader's "sandboxed frame" footnote, gone; the leave-a-list question, "Leave X? mailo sends the
+list's server a one-click request." then "Leave X?"; the snooze items, "Tomorrow 09:00  2026-10-02
+09:00" then "Tomorrow" with the hint "9:00 AM".

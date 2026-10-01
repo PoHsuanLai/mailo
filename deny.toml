@@ -28,11 +28,11 @@ confidence-threshold = 0.9
 # versions churn:
 #
 #   cssparser 0.38, cssparser-macros, dtoa-short   ← ammonia ← mail-mime (the sanitizer)
-#   cssparser 0.37                                 ← ds (quire's stylesheet lint)
+#   cssparser 0.37                                 ← ds-lint (quire's stylesheet lint, a dev-dependency)
 #   nucleo-matcher                                 ← mail-app (the menus' fuzzy match)
 #   option-ext                                     ← dirs
 #   stylo and its crates, selectors 0.40, app_units, to_shmem, uluru
-#                                                  ← blitz-dom ← ds-native (the CSS engine Blitz
+#                                                  ← blitz-dom ← ds-blitz (the CSS engine Blitz
 #                                                    draws the window with, Servo's)
 #
 # Depending on them obliges us to make *those files'* source available, which crates.io already
@@ -52,7 +52,7 @@ name = "webpki-roots"
 allow = ["CDLA-Permissive-2.0"]
 
 # The Windows clipboard, for the window: clipboard-win and its error type
-# ← arboard ← blitz-shell ← ds-native (copy and paste in every field, `ds_native::clipboard`).
+# ← arboard ← blitz-shell ← ds-blitz (copy and paste in every field, `ds_blitz::clipboard`).
 # Boost's licence, permissive with no obligation on a binary; scoped to the two crates rather than
 # allowed wholesale because it arrives by this one route, and on Linux is not even compiled.
 [[licenses.exceptions]]
@@ -67,7 +67,7 @@ allow = ["BSL-1.0"]
 # reading ammonia's 0.40 output is where mutation-XSS lives.
 #
 # The ban is on this crate, not on html5ever 0.39, which the window does carry:
-# blitz-html (← dioxus-native ← ds-native) parses an `<iframe srcdoc>` into a sub-document with
+# blitz-html (← dioxus-native ← ds-blitz) parses an `<iframe srcdoc>` into a sub-document with
 # it. That copy is renderer-side and reads only what mail-mime's ammonia pass already wrote
 # (the reader's Original view), into a separate document with no scripts, no shared DOM and no
 # shared cascade. A parser differential there can at worst change markup inside the frame; it

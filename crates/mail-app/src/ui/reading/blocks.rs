@@ -15,7 +15,9 @@ use super::spans::spans;
 use super::table::table;
 use crate::view::{Reading, Shell};
 use dioxus::prelude::*;
-use ds::{Glyph, Icon};
+use ds::components::controls::button_model::Bezel;
+use ds::prelude::*;
+use ds::style::icon::render::Glyph;
 use mail_domain::MessageId;
 use mail_mime::{Block, Dir, Document, LINK_REL, LINK_TARGET, Reached, SafeUrl, Shape, Span};
 use std::collections::HashMap;
@@ -260,32 +262,32 @@ fn quote_block(
         format!("{count} earlier messages")
     };
     rsx! {
-        div { key: "{path}", class: "b b-quote",
-            if let Some(who) = attribution {
-                div { class: "who",
-                    Glyph { icon: Icon::Corner }
-                    {spans(who, &format!("{path}/who"), found)}
-                }
-            }
-            if folded {
-                // quire's button, in mailo's box that keeps it to its words in the quote's grid.
-                div { class: "quote-more",
-                    ds::Button {
-                        variant: ds::ButtonVariant::Quiet,
-                        label,
-                        expanded: ds::Expanded::Closed,
-                        onclick: move |_: ds::Press| {
-                            quotes.write().insert(key.clone(), true);
-                        },
+            div { key: "{path}", class: "b b-quote",
+                if let Some(who) = attribution {
+                    div { class: "who",
+                        Glyph { icon: Icon::Corner }
+                        {spans(who, &format!("{path}/who"), found)}
                     }
                 }
-            } else {
-                div { class: "inner",
-                    {render_blocks(blocks, &inner, true, cx)}
+                if folded {
+                    // quire's button, in mailo's box that keeps it to its words in the quote's grid.
+                    div { class: "quote-more",
+                        Button {
+        bezel: Bezel::Inline,
+        label,
+        shown: Some(Shown::Hidden),
+        onclick: move |_: ds::base::press::Press| {
+                                    quotes.write().insert(key.clone(), true);
+                                },
+    }
+                    }
+                } else {
+                    div { class: "inner",
+                        {render_blocks(blocks, &inner, true, cx)}
+                    }
                 }
             }
         }
-    }
 }
 
 fn quote_nodes(blocks: &[Block]) -> usize {

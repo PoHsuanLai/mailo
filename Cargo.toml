@@ -37,8 +37,8 @@ thiserror   = "2"
 # copied verbatim: only the lines mailo names itself. The window reaches the Blitz
 # document through these to focus, select or scroll an element found by selector
 # (`ui/host/native.rs`).
-blitz-dom = { git = "https://github.com/PoHsuanLai/blitz", rev = "bf58814298b829bb42673424e86926cbd2af8f07", default-features = false, features = ["svg", "system-fonts", "custom-widget", "accessibility"] }
-dioxus-native-dom = { git = "https://github.com/PoHsuanLai/blitz", rev = "bf58814298b829bb42673424e86926cbd2af8f07", default-features = false, features = ["svg", "system-fonts", "accessibility"] }
+blitz-dom = { git = "https://github.com/PoHsuanLai/blitz", rev = "1b23fbd9d6465b7ee8acfe8e7deb36a2d5be6fad", default-features = false, features = ["svg", "system-fonts", "custom-widget", "accessibility"] }
+dioxus-native-dom = { git = "https://github.com/PoHsuanLai/blitz", rev = "1b23fbd9d6465b7ee8acfe8e7deb36a2d5be6fad", default-features = false, features = ["svg", "system-fonts", "accessibility"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
@@ -117,3 +117,18 @@ opt-level = 2
 
 [profile.dev.package.pbkdf2]
 opt-level = 2
+
+# vello and anyrender come from quire's forks (github.com/PoHsuanLai/vello and /anyrender, branch
+# quire-filters), copied verbatim from quire's root manifest: a `[patch]` applies only at a
+# workspace root, and mailo builds the renderer (`ds-blitz`). See quire's CONSUMING.md section 1.
+[patch.crates-io]
+vello_common = { git = "https://github.com/PoHsuanLai/vello", rev = "1722f6234e10b95d574d2252698a6cc7cdcadb82" }
+vello_cpu = { git = "https://github.com/PoHsuanLai/vello", rev = "1722f6234e10b95d574d2252698a6cc7cdcadb82" }
+vello_hybrid = { git = "https://github.com/PoHsuanLai/vello", rev = "1722f6234e10b95d574d2252698a6cc7cdcadb82" }
+vello_sparse_shaders = { git = "https://github.com/PoHsuanLai/vello", rev = "1722f6234e10b95d574d2252698a6cc7cdcadb82" }
+glifo = { git = "https://github.com/PoHsuanLai/vello", rev = "1722f6234e10b95d574d2252698a6cc7cdcadb82" }
+anyrender = { git = "https://github.com/PoHsuanLai/anyrender", rev = "a0825ebfc0443f3ef0830c0e09f2d85df3da632b" }
+anyrender_vello_cpu = { git = "https://github.com/PoHsuanLai/anyrender", rev = "a0825ebfc0443f3ef0830c0e09f2d85df3da632b" }
+anyrender_vello_hybrid = { git = "https://github.com/PoHsuanLai/anyrender", rev = "a0825ebfc0443f3ef0830c0e09f2d85df3da632b" }
+wgpu_context = { git = "https://github.com/PoHsuanLai/anyrender", rev = "a0825ebfc0443f3ef0830c0e09f2d85df3da632b" }
+pixels_window_renderer = { git = "https://github.com/PoHsuanLai/anyrender", rev = "a0825ebfc0443f3ef0830c0e09f2d85df3da632b" }

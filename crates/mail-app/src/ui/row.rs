@@ -3,7 +3,7 @@
 //! A draft and a conversation are different rows: a draft opens the composer, a conversation
 //! opens the reader and carries the hover strip. Split from [`super::app`] (`CONVENTIONS.md` §8).
 //!
-//! Each row is quire's `ListRow` inside mailo's `.row`, the box the row's own menus and the
+//! Each row is quire's `ThreadRow` inside mailo's `.row`, the box the row's own menus and the
 //! snooze float are placed against. Its strip is quire's `HoverStrip`, whose `on_press` hears a
 //! press before anything is measured, so a row's archive never waits on a layout read.
 
@@ -23,10 +23,20 @@ use crate::view::Marks;
 use crate::view::{Shell, hover_in};
 use chrono::Local;
 use dioxus::prelude::*;
-use ds::{
-    ActionId, Anim, Emphasis, Exit, Expanded, Glyph, Here, Icon, MountedRef, PartHooks, Presence,
-    PulseKey, Run, RunTone, Selection, Shown, StaggerIndex, StripAction, Switch, Text, Titles,
-};
+use ds::base::press::Press;
+use ds::base::vocab::RowState;
+use ds::components::app::hover_strip::{ActionId, HoverStrip, StripAction, Titles};
+use ds::components::app::thread_row::ThreadRow;
+use ds::components::app::thread_row_hooks::PartHooks;
+use ds::components::content::text_runs::{RunTone, TextRun};
+use ds::components::controls::badge::{Badge, BadgeContent, BadgeTone};
+use ds::components::controls::chip::{Chip, ChipVariant};
+use ds::components::overlays::hover_card::intent::HoverAnchor;
+use ds::host::measure::MountedRef;
+use ds::prelude::*;
+use ds::root::common::Common;
+use ds::style::icon::render::Glyph;
+use ds::style::tokens::control_size::ControlSize;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 use std::ops::Range;
@@ -34,7 +44,7 @@ use std::sync::Arc;
 
 /// A draft, as a row. Clicking it opens the composer on that draft.
 #[component]
-pub(super) fn DraftRow(draft: Draft, shell: Signal<Shell>, index: usize) -> Element {
+pub(super) fn DraftRow(draft: Draft, shell: Signal<Shell>) -> Element {
     let id = draft.id;
     let subject = if draft.subject.is_empty() {
         "(no subject)".to_owned()
@@ -50,7 +60,7 @@ pub(super) fn DraftRow(draft: Draft, shell: Signal<Shell>, index: usize) -> Elem
     let state = draft_state(&draft.state);
     let when = crate::view::listed(draft.updated, chrono::Utc::now(), &Local);
     let parts = shell.read().parts;
-    let snippet = parts.snippet.shown().then(|| Text::from(state));
+    let snippet = parts.snippet.shown().then(|| TextLine::from(state));
     let time = if parts.time.shown() {
         when
     } else {
@@ -58,20 +68,14 @@ pub(super) fn DraftRow(draft: Draft, shell: Signal<Shell>, index: usize) -> Elem
     };
     rsx! {
         div { key: "{id}", class: "row", role: "none",
-            // A draft is not on the roster: it rises with the list whenever the list is shown.
-            ds::ListRow {
-                selection: Selection::Unselected,
-                emphasis: Emphasis::Plain,
-                index: StaggerIndex::new(index.min(8)),
-                presence: Presence::Entering,
+            ThreadRow {
                 name: who,
                 via: None,
-                subject,
+                subject: TextLine::from(subject),
                 snippet,
                 time,
                 tags: rsx! {},
                 star: None,
-                star_pulse: PulseKey::rest(Anim::StarPop),
                 strip: None,
                 onclick: move |_| {
                     let store = consume_context::<Arc<SqliteStore>>();
@@ -84,54 +88,17 @@ pub(super) fn DraftRow(draft: Draft, shell: Signal<Shell>, index: usize) -> Elem
     }
 }
 
-/// What a row is doing besides being there, as the list's roster has it. Each is a fact the
-/// window already has: the list was just shown, an op took it out of the list, a row above it
-/// has gone, an undo brought it back.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub(super) enum Moving {
-    #[default]
-    Still,
-    /// Arrived, with its entrance stagger. It rises only while the list is being shown.
-    Entering(u8),
-    /// Drawn after the store dropped it, until its exit settles.
-    Going(Exit),
-    /// Closing the gap a row above left, with its heal step.
-    Healing(u8),
-    /// Back from an undo once its exit had settled: it arrives again, as quire's row does.
-    Returning,
-}
-
-impl Moving {
-    /// quire's presence for it, and the stagger it rises by. `delay` is its place in the list,
-    /// `dy` how far a healing row travels.
-    fn presence(self, delay: usize, dy: u32) -> (Presence, StaggerIndex) {
-        match self {
-            Moving::Still => (Presence::Present, StaggerIndex::new(delay)),
-            Moving::Entering(stagger) => (Presence::Entering, StaggerIndex::new(stagger.into())),
-            Moving::Returning => (Presence::Entering, StaggerIndex::new(delay)),
-            Moving::Going(exit) => (Presence::Leaving(exit), StaggerIndex::new(delay)),
-            Moving::Healing(step) => (
-                Presence::Healing {
-                    dy: ds::Px(dy as f32),
-                    d: StaggerIndex::new(step.into()),
-                },
-                StaggerIndex::new(delay),
-            ),
-        }
-    }
-}
-
-/// `text` as quire's runs, with a search's `marks` as `Mark` runs; plain when nothing is marked.
-fn runs(text: &str, marks: &[Range<usize>]) -> Text {
+/// `text` as quire's line, with a search's `marks` as `Mark` runs; plain when nothing is marked.
+fn runs(text: &str, marks: &[Range<usize>]) -> TextLine {
     if marks.is_empty() {
-        return Text::Plain(text.to_owned());
+        return TextLine::Plain(text.to_owned());
     }
-    Text::Runs(
+    TextLine::Runs(
         pieces(text, marks)
             .into_iter()
             .map(|piece| match piece {
-                Piece::Plain(plain) => Run::new(plain, RunTone::Plain),
-                Piece::Marked(inside) => Run::new(inside, RunTone::Mark),
+                Piece::Plain(plain) => TextRun::new(plain, RunTone::Plain),
+                Piece::Marked(inside) => TextRun::new(inside, RunTone::Mark),
             })
             .collect(),
     )
@@ -139,19 +106,15 @@ fn runs(text: &str, marks: &[Range<usize>]) -> Text {
 
 /// A conversation, as a row, including the hover strip and whichever menu it has open.
 #[component]
-pub(super) fn Row(
+pub(super) fn MailRow(
     summary: ThreadSummary,
     shell: Signal<Shell>,
     revision: Signal<u64>,
-    index: usize,
     chips: Vec<String>,
     via: Option<Provider>,
     hit: Option<RowHit>,
-    moving: Moving,
-    /// The chip that has just been added, which lands.
-    landing: Option<String>,
-    /// Whether the row is drawn selected: picked, or open with nothing picked
-    /// (`Shell::is_selected`, asked by the list, which knows what is listed).
+    /// Picked, or open with nothing picked (`Shell::is_selected`, asked by the list, which
+    /// knows what is listed).
     selection: Selection,
 ) -> Element {
     let id = summary.id;
@@ -181,36 +144,25 @@ pub(super) fn Row(
     if crate::destroy::offered(crate::destroy::bin_shown(&shell.read()), &summary) {
         actions.push(OpKind::Destroy);
     }
-    let delay = index.min(8);
     let move_label = "Move to…".to_owned();
     let filing = shell.read().filing == Some(id);
-    // A press on the star replays its pop, and its sparks when it stars: quire's pulse.
-    let pop = ds::use_pulse(Anim::StarPop);
     // The strip buttons whose menus float beside them: each hands over its rect once measured,
     // and until then the menu is placed against the row's own box.
-    let mut snooze_at = use_signal(|| None::<ds::Rect>);
-    let mut move_at_button = use_signal(|| None::<ds::Rect>);
-    let mut label_at = use_signal(|| None::<ds::Rect>);
+    let mut snooze_at = use_signal(|| None::<Rect>);
+    let mut label_at = use_signal(|| None::<Rect>);
+    let mut move_at = use_signal(|| None::<Rect>);
     let mut row_box = use_signal(|| None::<MountedRef>);
     // The focus inside the row shows its strip, as the pointer over it does.
     let mut focused = use_signal(|| false);
     // The context menu, open at the point the row was right-clicked.
-    let mut row_menu = use_signal(|| None::<ds::Rect>);
+    let mut row_menu = use_signal(|| None::<Rect>);
     // "Remind me if no reply", opened from the context menu at the same point.
-    let mut reminding = use_signal(|| None::<ds::Rect>);
+    let mut reminding = use_signal(|| None::<Rect>);
     // quire's hover hub, which the row, its name and its time report the pointer to.
     let driver = use_driver();
-    let going = matches!(moving, Moving::Going(_));
-    let (presence, stagger) = moving.presence(delay, gap(&shell.read()));
-    let snoozing = moving == Moving::Going(Exit::Curl);
-    let enter = move |hook: Hook, anchor: ds::HoverAnchor| {
-        if !going {
-            over(driver, hook, anchor);
-        }
-    };
-    // The name and the time open their own cards. Leaving either lets its card go like any
-    // other target's leave: the pointer may be on its way to the card, which sits over the rows
-    // below. Being back on the row is quire's to say (`onpointerback`, below).
+    let enter = move |hook: Hook, anchor: HoverAnchor| over(driver, hook, anchor);
+    // The name and the time open their own cards. Leaving either is not being back on the row:
+    // the pointer may be on its way to the card. Being back is `onpointerback`.
     // The innermost hook wins: an entry that bubbles (a harness's does) stops at the part.
     let part = move |hook: Hook| PartHooks {
         onpointerenter: EventHandler::new(move |event: PointerEvent| {
@@ -236,9 +188,8 @@ pub(super) fn Row(
         None
     };
     let star = (
-        if starred { Switch::On } else { Switch::Off },
-        EventHandler::new(move |_: Switch| {
-            pop.fire();
+        if starred { Check::On } else { Check::Off },
+        EventHandler::new(move |_: Check| {
             let store = consume_context::<Arc<SqliteStore>>();
             let kind = if starred {
                 OpKind::Unstar
@@ -251,29 +202,26 @@ pub(super) fn Row(
     let tags = rsx! {
         if parts.chips.shown() {
             for name in chips {
-                span {
-                    key: "{name}",
-                    class: if landing.as_deref() == Some(name.as_str()) { "chip is-landing" } else { "chip" },
-                    "data-chip": "{name}",
-                    "{name}"
+                span { key: "{name}", "data-chip": "{name}",
+                    Chip { variant: ChipVariant::Accent, text: name.clone() }
                 }
             }
         }
         if muted {
             span { class: "mute-mark", title: "Muted", "data-muted": "true",
-                Glyph { icon: Icon::BellOff, size: ds::IconSize::Micro }
+                Glyph { icon: Icon::BellOff, size: IconSize::Micro }
             }
         }
         if let Some(words) = no_reply {
             span { class: "no-reply", "data-follow-up": "returned",
-                Glyph { icon: Icon::Bell, size: ds::IconSize::Micro }
+                Glyph { icon: Icon::Bell, size: IconSize::Micro }
                 "{words}"
             }
         }
         if let Some(count) = files {
             span { class: "clip",
-                Glyph { icon: Icon::Paperclip, size: ds::IconSize::Micro }
-                "{count}"
+                Glyph { icon: Icon::Paperclip, size: IconSize::Micro }
+                Badge { content: BadgeContent::Number(count), tone: BadgeTone::Quiet, size: ControlSize::Mini }
             }
         }
     };
@@ -289,13 +237,15 @@ pub(super) fn Row(
             label: strip_label(kind, muted).to_owned(),
             fly: fly(kind, muted),
             onhover: preview(kind).map(|place| {
-                EventHandler::new(move |here: Here| {
+                EventHandler::new(move |here: Selection| {
                     if let Some(mut state) = motion() {
-                        state.dest.set((here == Here::Current).then_some(place));
+                        state
+                            .dest
+                            .set((here == Selection::Selected).then_some(place));
                     }
                 })
             }),
-            onclick: EventHandler::new(move |rect: ds::Rect| {
+            onclick: EventHandler::new(move |rect: Rect| {
                 if kind == OpKind::Snooze {
                     snooze_at.set(Some(rect));
                 }
@@ -311,17 +261,11 @@ pub(super) fn Row(
         label: move_label.clone(),
         fly: move_label.clone(),
         onhover: None,
-        onclick: EventHandler::new(move |rect: ds::Rect| move_at_button.set(Some(rect))),
+        onclick: EventHandler::new(move |rect: Rect| move_at.set(Some(rect))),
     });
     let open_menus = {
         let read = shell.read();
-        let state = |open: bool| {
-            if open {
-                Expanded::Open
-            } else {
-                Expanded::Closed
-            }
-        };
+        let state = |open: bool| if open { Shown::Visible } else { Shown::Hidden };
         vec![
             (
                 ActionId(kebab(OpKind::Snooze).to_owned()),
@@ -336,7 +280,7 @@ pub(super) fn Row(
     };
     let kinds = actions.clone();
     let strip = rsx! {
-        ds::HoverStrip {
+        HoverStrip {
             actions: strip_actions,
             shown: focused().then_some(Shown::Visible),
             titles: Titles::FromLabel,
@@ -353,9 +297,25 @@ pub(super) fn Row(
             },
         }
     };
+    let dragged = motion().is_some_and(
+        |state| matches!(*state.drag.read(), drag::Drag::Live { thread, .. } if thread == id),
+    );
+    let state = RowState {
+        selection,
+        emphasis: if unread {
+            Emphasis::Strong
+        } else {
+            Emphasis::Plain
+        },
+        drop: if dragged {
+            DropState::Source
+        } else {
+            DropState::Idle
+        },
+        ..RowState::default()
+    };
     rsx! {
-        // The box names the hover hook its row is, as every other hook's element does.
-        div { key: "{id}", class: "row", role: "none", "data-hc": "thread:{id}",
+        div { key: "{id}", class: "row", role: "none",
             onmounted: move |event: MountedEvent| row_box.set(Some(MountedRef(event.data()))),
             onfocusin: move |_| focused.set(true),
             onfocusout: move |_| focused.set(false),
@@ -371,11 +331,8 @@ pub(super) fn Row(
                     super::window::open_in_window(id);
                 }
             },
-            ds::ListRow {
-                selection,
-                emphasis: if unread { Emphasis::Strong } else { Emphasis::Plain },
-                index: stagger,
-                presence,
+            ThreadRow {
+                state,
                 name: who,
                 via,
                 subject: runs(&subject, &subject_marks),
@@ -383,14 +340,13 @@ pub(super) fn Row(
                 time,
                 tags,
                 star: Some(star),
-                star_pulse: pop.key(),
                 strip,
                 // The pointer came back from the name or the time and rested on the row.
                 onpointerback: EventHandler::new(move |_: PointerEvent| {
                     enter(Hook::Thread(id), element(row_box()));
                 }),
-                onclick: move |click: MouseData| {
-                    let click = click_of(click.modifiers());
+                onclick: move |press: Press| {
+                    let click = click_of(press.modifiers);
                     shell.write().click(id, click, &drawn_order());
                 },
                 on_sender: part(Hook::Sender(id)),
@@ -401,19 +357,17 @@ pub(super) fn Row(
                 onpointerleave: EventHandler::new(move |_| out(driver)),
                 onpointerdown: EventHandler::new(move |event: PointerEvent| {
                     super::hover::press(driver);
-                    if !going {
-                        let point = event.client_coordinates();
-                        drag::press(id, (point.x, point.y));
-                    }
+                    let point = event.client_coordinates();
+                    drag::press(id, (point.x, point.y));
                 }),
-                aria_label: "Open {subject}",
-            }
-            if snoozing {
-                span { class: "floater", aria_hidden: "true", "zZ" }
+                // The row names the hover hook it is, as every other hook's element does.
+                common: Common {
+                    aria_label: Some(format!("Open {subject}")),
+                    ..super::sidebar::tagged("hc", format!("thread:{id}"))
+                },
             }
             if let Some(at) = row_menu() {
                 super::menu::Floating {
-                    kind: ds::MenuKind::Context,
                     anchor: row_box(),
                     placed: Some(at),
                     title: String::new(),
@@ -454,7 +408,7 @@ pub(super) fn Row(
                     shell,
                     revision,
                     anchor: row_box(),
-                    placed: move_at_button(),
+                    placed: move_at(),
                     on_close: move |_| shell.write().filing = None,
                 }
             }
@@ -481,15 +435,15 @@ fn remind_item() -> super::menu::MenuItem {
 }
 
 /// A point in the window as the rect a context menu is placed against.
-fn point_rect(at: dioxus::html::geometry::ClientPoint) -> ds::Rect {
-    ds::Rect {
-        origin: ds::Point {
-            x: ds::Px(at.x as f32),
-            y: ds::Px(at.y as f32),
+fn point_rect(at: dioxus::html::geometry::ClientPoint) -> Rect {
+    Rect {
+        origin: Point {
+            x: Px(at.x as f32),
+            y: Px(at.y as f32),
         },
-        size: ds::Size {
-            width: ds::Px(0.0),
-            height: ds::Px(0.0),
+        size: Size {
+            width: Px(0.0),
+            height: Px(0.0),
         },
     }
 }
@@ -541,11 +495,8 @@ fn press(mut shell: Signal<Shell>, mut revision: Signal<u64>, id: ThreadId, pres
         super::destroy::ask_chosen(&store, shell, &with_selection(shell, id));
         return;
     }
-    // An op may take the row out of the list, and a pressed strip button would otherwise have
-    // the keyboard inside the leaving row. quire hands the keyboard on when its element is
-    // removed, but only if it saw the element focused first: under load the press's own focus
-    // and the row's removal land in one frame, and the keyboard went nowhere. So the window
-    // takes it back now, before the row can leave (FINDINGS F172).
+    // An op may take the row out of the list. Take the keyboard back before it can leave
+    // with the row (FINDINGS F172).
     if composes(kind).is_none() {
         super::host::Host::focus_app();
     }
@@ -584,11 +535,6 @@ fn click_of(held: Modifiers) -> Click {
     } else {
         Click::Plain
     }
-}
-
-/// How far the rows under a gap travel as they heal: one row, with its margin.
-pub(super) fn gap(shell: &Shell) -> u32 {
-    if shell.parts.snippet.shown() { 72 } else { 54 }
 }
 
 #[component]

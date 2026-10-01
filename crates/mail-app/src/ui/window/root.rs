@@ -15,6 +15,10 @@ use crate::ui::reading::{Reader, ReaderIn};
 use crate::ui::style::STYLE;
 use crate::view::{Shell, Shortcut};
 use dioxus::prelude::*;
+use ds::base::spawner::Spawner;
+use ds_settings::{
+    AppName, ConfigRoot, Store as SettingsStore, SystemPrefsSource, use_environment,
+};
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
@@ -28,7 +32,9 @@ pub struct MessageOpen(pub ThreadId);
 /// then [`MessageShell`].
 #[component]
 pub(super) fn MessageWindow(thread: ThreadId) -> Element {
-    let environment = ds_settings::use_environment(ds_settings::AppName::MAILO);
+    let settings = SettingsStore::new(ConfigRoot::Xdg, AppName::MAILO);
+    let spawner: Arc<dyn Spawner> = Arc::new(ds_blitz::TokioSpawner::current());
+    let environment = use_environment(settings, SystemPrefsSource::Portal, spawner);
     use_context_provider(|| environment);
     rsx! { MessageShell { thread } }
 }

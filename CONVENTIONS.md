@@ -380,7 +380,7 @@ command would look like if a user typed it, and type that.
 **And "I could not look at it" is usually a claim about your eyes, not about the program.** The
 window was launched once with the screen locked, and the round ended saying the shell had not
 been seen. Seeing it was never what verification needed. The window is Blitz, and
-`ds_native::Harness` drives the real window headlessly — pointer, keys and time against a real
+`ds_harness::Harness` drives the real window headlessly — pointer, keys and time against a real
 Blitz document, no display, no GPU, no screen (`crates/mail-app/tests/native_harness.rs`), and it
 can paint what it drew to a PNG. (The webview this replaced needed a script injected into its
 page for the same; FINDINGS F106/F107 and F158 say why that is gone.)

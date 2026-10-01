@@ -2,16 +2,14 @@
 //! what the settings say about the dictionaries.
 //!
 //! quire does the checking, the marks and the menu (`EditSurface`'s `spell`, `caret` and
-//! `on_replace`); `surface.rs` hands it those. The checker is the one `ds_native::launch`
+//! `on_replace`); `surface.rs` hands it those. The checker is the `SpellService` `ds_blitz`
 //! provides, over the system's Hunspell dictionaries in the locale's language. A test hands the
 //! window [`Dictionaries`] instead, and the window checks against those, so no test reads the
 //! system's dictionaries or writes the user's learned words.
 
-use std::rc::Rc;
-
 use dioxus::prelude::*;
-use ds::{HostSpell, Lang, Spell};
-use ds_native::spell::{NativeSpell, SpellConfig, locale_lang};
+use ds::spell::lang::{Lang, Spell};
+use ds_blitz::spell::{SpellConfig, locale_lang};
 
 use crate::spelling::{self, Setting};
 
@@ -24,15 +22,11 @@ pub struct Dictionaries {
 }
 
 /// Provide the checker over [`Dictionaries`] when the window was handed them. Called once, at
-/// the top of the app; without them the checker `launch` provided stands.
+/// the top of the app; without them the checker `ds_blitz` provides at launch stands.
 pub(in crate::ui) fn use_test_dictionaries() {
-    use_hook(|| {
-        if let Some(Dictionaries { config, languages }) = try_consume_context::<Dictionaries>() {
-            provide_context(HostSpell(Rc::new(NativeSpell::with_config(
-                config, languages,
-            ))));
-        }
-    });
+    if let Some(Dictionaries { config, languages }) = try_consume_context::<Dictionaries>() {
+        ds_blitz::spell::provide_with(config, languages);
+    }
 }
 
 /// The surface's `spell` for the user's setting: in the checker's own language (the locale's),

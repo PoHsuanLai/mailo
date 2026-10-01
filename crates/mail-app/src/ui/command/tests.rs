@@ -1,4 +1,4 @@
-//! The Ctrl T menu over the reference fixture, and the pages its screenshots are taken from.
+//! The ⌘K menu over the reference fixture, and the pages its screenshots are taken from.
 
 use super::super::app::App;
 use super::items::{Pick, interpret, rows_of, search_now, tokens};
@@ -24,10 +24,10 @@ pub(in crate::ui) fn MenuPicture() -> Element {
     let spaces = use_signal(crate::space::Spaces::default);
     // Inside a quire root, as the window has it: the palette floats in its overlay.
     rsx! {
-        ds::Ds {
-            appearance: ds::Appearance::default(),
-            material: ds::Material::Window,
-            stylesheet: ds::Inject::Host,
+        Ds {
+            appearance: Appearance::default(),
+            material: Material::Window,
+            stylesheet: ds::assembly::ds::Inject::Host,
             CommandMenu { shell, pages, revision, side_hidden, sync_state, spaces }
         }
     }
@@ -57,10 +57,10 @@ pub(in crate::ui) fn OpenMenus() -> Element {
     .into_iter()
     .next();
     rsx! {
-        ds::Ds {
-            appearance: ds::Appearance::default(),
-            material: ds::Material::Window,
-            stylesheet: ds::Inject::Host,
+        Ds {
+            appearance: Appearance::default(),
+            material: Material::Window,
+            stylesheet: ds::assembly::ds::Inject::Host,
             CommandMenu { shell, pages, revision, side_hidden, sync_state, spaces }
             // quire's menu, floating in the same root's overlay.
             if let Some(summary) = summary {
@@ -70,7 +70,6 @@ pub(in crate::ui) fn OpenMenus() -> Element {
                 }
             }
         }
-        li { class: "list-g", "Today" }
     }
 }
 
@@ -78,7 +77,7 @@ fn at_dana(store: &SqliteStore) -> (Results, HashMap<String, String>) {
     search_now(store, "dana", Utc::now())
 }
 
-/// The addresses the Ctrl T menu's person rows name for `query`, top hit first, as drawn.
+/// The addresses the ⌘K menu's person rows name for `query`, top hit first, as drawn.
 pub(in crate::ui) fn people_for(store: &SqliteStore, query: &str) -> Vec<String> {
     let (results, names) = search_now(store, query, Utc::now());
     rows_of(&results, &names, query)
@@ -188,7 +187,7 @@ async fn dana_is_marked_in_the_persons_name() {
     let people = page.find(">People<").expect("no People group on dana");
     let after = &page[people..];
     let name = &after[after
-        .find("<b class=\"ds-menu-title\">")
+        .find("<b class=\"ds-row-title")
         .expect("a person item has a name")..];
     let name = &name[..name.find("</b>").expect("the name closes")];
     assert!(
@@ -209,7 +208,7 @@ async fn render_the_menus_to_a_file() {
 
     dispatching();
     // Rendered once per scheme, so the Space's tint and hue are the ones each scheme derives.
-    for (suffix, scheme) in [("", ds::Scheme::Light), ("-dark", ds::Scheme::Dark)] {
+    for (suffix, scheme) in [("", Scheme::Light), ("-dark", Scheme::Dark)] {
         let built = work();
         let mut dom = VirtualDom::new(App)
             .with_root_context(built.store.clone())
@@ -217,7 +216,7 @@ async fn render_the_menus_to_a_file() {
             .with_root_context(in_scheme(scheme));
         dom.rebuild_in_place();
         settle(&mut dom).await;
-        // Ctrl T in the window, then "dana" in quire's palette, which floats in the root's
+        // ⌘K in the window, then "dana" in quire's palette, which floats in the root's
         // overlay and answers once the field has been still.
         crate::ui::fixtures::chord(
             &mut dom,
