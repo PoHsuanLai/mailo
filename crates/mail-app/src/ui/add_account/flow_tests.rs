@@ -4,14 +4,18 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use mail_domain::presets::{Manual, manual};
+use mail_domain::presets::{Manual, ManualPop3, manual};
 use mail_domain::{AccountId, OAuthIssuer, Retry, SecretKey, SecretPurpose};
 use mail_proto::discover::{Found, Source};
 use mail_runtime::{MapSecrets, OAuthRegistry, Secrets};
 use mail_store::SqliteStore;
 
-use super::flow::{self, Client, Miss, Offer, Refusal, Seams, SignIn, Stage, What};
+use super::flow::{
+    self, Client, Endpoint, Field, Hand, Hint, JmapHand, Kind, Miss, Offer, Refusal, Role, Seams,
+    ServerHand, SignIn, Stage, What, Why,
+};
 use crate::ui::space::{Scope, Space};
+use mail_core::account::Setup;
 use mail_core::discover::{Failed, Gap};
 use mail_core::password::Password;
 
@@ -273,7 +277,7 @@ fn no_servers_leads_to_typing_a_server_in() {
         domain: "nowhere.test".to_owned(),
         gap: Gap::Nothing,
     });
-    assert_eq!(flow::alternate(&missed), Stage::ByHand(flow::Hand::blank()));
+    assert_eq!(flow::alternate(&missed), Stage::ByHand(Hand::blank()));
 }
 
 const SESSION: &str = "https://jmap.example.test/session";
@@ -375,11 +379,11 @@ fn a_session_typed_by_hand_with_a_token_adds_with_bearer() {
     let (store, _dir) = store();
     let fake = Arc::new(Fake::default());
     let seams = seams(&fake, Err(missing()), false);
-    let hand = flow::Hand {
+    let hand = flow::Hand::Jmap(JmapHand {
         session: format!("  {SESSION} "),
         auth: mail_domain::HttpAuth::Bearer,
-    };
-    let offer = flow::by_hand("Ada@Example.test", &hand).unwrap();
+    });
+    let offer = flow::by_hand("Ada@Example.test", &hand, now()).unwrap();
     assert!(offer.token());
     assert_eq!(offer.source, "by hand");
     assert_eq!(offer.rows[2].1, "an API token, sent as a bearer token");
@@ -419,26 +423,34 @@ fn a_session_typed_by_hand_with_a_token_adds_with_bearer() {
     assert!(fake.searched.lock().unwrap().is_empty());
 }
 
-#[test]
-fn a_session_url_by_hand_must_be_https_and_says_why() {
-    let hand = |session: &str| flow::Hand {
+/// A JMAP form with `session` typed in.
+fn jmap_hand(session: &str) -> Hand {
+    Hand::Jmap(JmapHand {
         session: session.to_owned(),
         auth: mail_domain::HttpAuth::Basic,
+    })
+}
+
+#[test]
+fn a_session_url_by_hand_must_be_https_and_says_why() {
+    let said = |hand: &Hand| {
+        flow::by_hand("ada@example.test", hand, now())
+            .unwrap_err()
+            .into_iter()
+            .map(|hint| hint.said)
+            .collect::<Vec<_>>()
     };
-    assert_eq!(
-        flow::by_hand("ada@example.test", &hand("")).unwrap_err(),
-        "Enter the JMAP session URL."
-    );
+    assert_eq!(said(&jmap_hand("")), ["Enter the JMAP session URL."]);
     for bad in [
         "http://jmap.example.test/session",
         "jmap.example.test",
         "https://",
     ] {
-        let why = flow::by_hand("ada@example.test", &hand(bad)).unwrap_err();
-        assert!(why.contains("https://"), "{bad}: {why}");
+        let why = said(&jmap_hand(bad));
+        assert!(why[0].contains("https://"), "{bad}: {why:?}");
     }
-    assert!(flow::by_hand("ada", &hand(SESSION)).is_err());
-    assert!(flow::by_hand("ada@example.test", &hand(SESSION)).is_ok());
+    assert!(flow::by_hand("ada", &jmap_hand(SESSION), now()).is_err());
+    assert!(flow::by_hand("ada@example.test", &jmap_hand(SESSION), now()).is_ok());
 }
 
 #[test]
@@ -451,29 +463,328 @@ fn typing_a_server_in_starts_from_what_was_found_and_goes_back_to_looking() {
         false,
     );
     let found = flow::look("ada@example.test", &seams, now());
+    // The domain said JMAP is there, so JMAP is what the form starts as.
     let Stage::ByHand(hand) = flow::alternate(&found) else {
         panic!("not typing a server in");
     };
-    assert_eq!(hand.session, SESSION);
+    assert_eq!(hand, jmap_hand(SESSION));
     let bearer = flow::pick_auth(&Stage::ByHand(hand.clone()), mail_domain::HttpAuth::Bearer);
     assert_eq!(
         bearer,
-        Some(Stage::ByHand(flow::Hand {
+        Some(Stage::ByHand(Hand::Jmap(JmapHand {
+            session: SESSION.to_owned(),
             auth: mail_domain::HttpAuth::Bearer,
-            ..hand.clone()
-        }))
+        })))
     );
     assert_eq!(
         flow::pick_auth(&Stage::ByHand(hand.clone()), mail_domain::HttpAuth::Basic),
         None
     );
     assert_eq!(flow::alternate(&Stage::ByHand(hand)), Stage::Blank);
-    assert_eq!(
-        flow::alternate(&Stage::Blank),
-        Stage::ByHand(flow::Hand::blank())
-    );
+    assert_eq!(flow::alternate(&Stage::Blank), Stage::ByHand(Hand::blank()));
     // An IMAP offer has no JMAP sign-in to change.
     assert_eq!(flow::pick_auth(&found, mail_domain::HttpAuth::Bearer), None);
+}
+
+#[test]
+fn an_imap_offer_alone_leads_to_a_blank_imap_form() {
+    let fake = Arc::new(Fake::default());
+    let seams = seams(&fake, Ok(found("ada@example.test")), false);
+    let found = flow::look("ada@example.test", &seams, now());
+    assert_eq!(flow::alternate(&found), Stage::ByHand(Hand::blank()));
+    assert_eq!(Hand::blank().kind(), Kind::Imap);
+}
+
+/// An IMAP or POP form with the servers named, the ports and the user name as typed.
+fn server(incoming: (&str, &str), outgoing: (&str, &str), login: &str) -> ServerHand {
+    let endpoint = |(host, port): (&str, &str)| Endpoint {
+        host: host.to_owned(),
+        port: port.to_owned(),
+    };
+    ServerHand {
+        incoming: endpoint(incoming),
+        outgoing: endpoint(outgoing),
+        login: login.to_owned(),
+    }
+}
+
+#[test]
+fn an_imap_form_makes_what_imap_and_smtp_flags_make() {
+    // `account add ada@example.test --imap imap.example.test --smtp smtp.example.test`
+    let hand = Hand::Imap(server(
+        (" imap.example.test ", ""),
+        ("smtp.example.test", ""),
+        "",
+    ));
+    let offer = flow::by_hand("Ada@Example.test", &hand, now()).unwrap();
+    assert_eq!(
+        offer.setup,
+        Setup::Imap(Manual {
+            imap_host: "imap.example.test".to_owned(),
+            imap_port: 993,
+            smtp_host: "smtp.example.test".to_owned(),
+            smtp_port: 465,
+            login: None,
+        })
+    );
+    assert_eq!(offer.address, "ada@example.test");
+    assert_eq!(offer.sign_in, SignIn::Password);
+    assert_eq!(offer.way(), "IMAP and SMTP");
+    assert!(
+        offer.rows[0].1.contains("imap.example.test:993"),
+        "{:?}",
+        offer.rows
+    );
+    assert!(
+        offer.rows[1].1.contains("smtp.example.test:465"),
+        "{:?}",
+        offer.rows
+    );
+
+    // `--imap imap.example.test:143 --smtp smtp.example.test:587 --login ada`
+    let hand = Hand::Imap(server(
+        ("imap.example.test", "1993"),
+        ("smtp.example.test", "2465"),
+        " ada ",
+    ));
+    let offer = flow::by_hand("ada@example.test", &hand, now()).unwrap();
+    assert_eq!(
+        offer.setup,
+        Setup::Imap(Manual {
+            imap_host: "imap.example.test".to_owned(),
+            imap_port: 1993,
+            smtp_host: "smtp.example.test".to_owned(),
+            smtp_port: 2465,
+            login: Some("ada".to_owned()),
+        })
+    );
+}
+
+#[test]
+fn a_pop_form_makes_what_pop3_and_smtp_flags_make() {
+    let hand = Hand::Pop3(server(
+        ("pop.example.test", ""),
+        ("smtp.example.test", ""),
+        "",
+    ));
+    let offer = flow::by_hand("ada@example.test", &hand, now()).unwrap();
+    assert_eq!(
+        offer.setup,
+        Setup::Pop3(ManualPop3 {
+            pop3_host: "pop.example.test".to_owned(),
+            pop3_port: 995,
+            smtp_host: "smtp.example.test".to_owned(),
+            smtp_port: 465,
+            login: None,
+        })
+    );
+    assert_eq!(offer.way(), "POP3 and SMTP");
+    assert!(
+        offer.rows[0].1.contains("pop.example.test:995"),
+        "{:?}",
+        offer.rows
+    );
+}
+
+#[test]
+fn a_jmap_form_makes_what_the_jmap_flag_makes() {
+    let offer = flow::by_hand("ada@example.test", &jmap_hand(SESSION), now()).unwrap();
+    assert_eq!(
+        offer.setup,
+        Setup::Jmap {
+            session: Some(SESSION.to_owned()),
+            login: None,
+            auth: mail_domain::HttpAuth::Basic,
+        }
+    );
+}
+
+#[test]
+fn a_user_name_that_is_the_address_is_no_login_at_all() {
+    let hand = Hand::Imap(server(
+        ("imap.example.test", ""),
+        ("smtp.example.test", ""),
+        "ADA@example.test",
+    ));
+    let offer = flow::by_hand("ada@example.test", &hand, now()).unwrap();
+    assert!(matches!(
+        offer.setup,
+        Setup::Imap(Manual { login: None, .. })
+    ));
+}
+
+#[test]
+fn defaults_are_the_tls_ports() {
+    assert_eq!(Role::Imap.default_port().get(), 993);
+    assert_eq!(Role::Pop3.default_port().get(), 995);
+    assert_eq!(Role::Smtp.default_port().get(), 465);
+    // Hosts are guessed for the domain, as placeholders, never as values.
+    assert_eq!(
+        Role::Imap.placeholder("ada@example.test"),
+        "imap.example.test"
+    );
+    assert_eq!(
+        Role::Pop3.placeholder("ada@example.test"),
+        "pop.example.test"
+    );
+    assert_eq!(
+        Role::Smtp.placeholder("ada@example.test"),
+        "smtp.example.test"
+    );
+    assert_eq!(Role::Smtp.placeholder(""), "smtp.example.com");
+    let blank = Hand::blank();
+    let Hand::Imap(form) = &blank else { panic!() };
+    assert_eq!(form, &ServerHand::default());
+}
+
+fn fields(hints: &[Hint]) -> Vec<(Option<Field>, Why)> {
+    hints.iter().map(|hint| (hint.field, hint.why)).collect()
+}
+
+#[test]
+fn a_form_is_checked_field_by_field() {
+    let address = "ada@example.test";
+    // Nothing typed: not an offer, and nothing is said yet.
+    let blank = Hand::blank();
+    let missing = flow::by_hand(address, &blank, now()).unwrap_err();
+    assert_eq!(
+        fields(&missing),
+        [
+            (Some(Field::IncomingHost), Why::Missing),
+            (Some(Field::OutgoingHost), Why::Missing)
+        ]
+    );
+    assert!(flow::hints(address, &blank).is_empty());
+
+    // Something typed: what is missing is said, and what is wrong.
+    let typed = Hand::Imap(server(("imap.example.test", "99999"), ("", ""), ""));
+    let said = flow::hints(address, &typed);
+    assert_eq!(
+        fields(&said),
+        [
+            (Some(Field::IncomingPort), Why::Wrong),
+            (Some(Field::OutgoingHost), Why::Missing)
+        ]
+    );
+    assert_eq!(said[1].said, "Enter the outgoing mail server.");
+    for port in ["0", "-1", "https", "65536", "99 3"] {
+        let hand = Hand::Imap(server(
+            ("imap.example.test", port),
+            ("smtp.example.test", ""),
+            "",
+        ));
+        let said = flow::hints(address, &hand);
+        assert_eq!(
+            fields(&said),
+            [(Some(Field::IncomingPort), Why::Wrong)],
+            "{port}"
+        );
+    }
+    // A host is a name: a scheme, a path or a port in it belongs elsewhere.
+    for host in [
+        "imap.example.test:993",
+        "https://imap.example.test",
+        "imap example",
+    ] {
+        let hand = Hand::Imap(server((host, ""), ("smtp.example.test", ""), ""));
+        let said = flow::hints(address, &hand);
+        assert_eq!(
+            fields(&said),
+            [(Some(Field::IncomingHost), Why::Wrong)],
+            "{host}"
+        );
+        assert!(said[0].said.contains("imap.example.com"), "{said:?}");
+    }
+    // The address is checked too.
+    let hand = Hand::Imap(server(
+        ("imap.example.test", ""),
+        ("smtp.example.test", ""),
+        "",
+    ));
+    assert_eq!(
+        fields(&flow::by_hand("ada", &hand, now()).unwrap_err()),
+        [(None, Why::Wrong)]
+    );
+    assert!(flow::by_hand(address, &hand, now()).is_ok());
+}
+
+#[test]
+fn picking_a_kind_keeps_what_imap_and_pop_share() {
+    let form = server(
+        ("mail.example.test", "1993"),
+        ("smtp.example.test", ""),
+        "ada",
+    );
+    let imap = Stage::ByHand(Hand::Imap(form.clone()));
+    assert_eq!(flow::pick_kind(&imap, Kind::Imap), None);
+    assert_eq!(
+        flow::pick_kind(&imap, Kind::Pop3),
+        Some(Stage::ByHand(Hand::Pop3(form.clone())))
+    );
+    assert_eq!(
+        flow::pick_kind(&imap, Kind::Jmap),
+        Some(Stage::ByHand(Hand::blank_of(Kind::Jmap)))
+    );
+    assert_eq!(flow::pick_kind(&Stage::Blank, Kind::Pop3), None);
+    let typed = Hand::blank().with(Field::IncomingHost, "imap.example.test".to_owned());
+    let Hand::Imap(form) = typed else { panic!() };
+    assert_eq!(form.incoming.host, "imap.example.test");
+}
+
+#[test]
+fn servers_that_were_typed_come_back_to_edit_after_a_refusal() {
+    let (store, _dir) = store();
+    let fake = Arc::new(Fake::default());
+    let seams = seams(&fake, Err(missing()), false);
+    let hand = Hand::Pop3(server(
+        ("pop.example.test", "1995"),
+        ("smtp.example.test", "465"),
+        "ada",
+    ));
+    let offer = flow::by_hand("ada@example.test", &hand, now()).unwrap();
+    // No password: refused, and the offer stays.
+    let refused = flow::confirm(
+        &store,
+        offer,
+        Password::default(),
+        seams.add.as_ref(),
+        &no_browser,
+    );
+    assert_eq!(flow::alternate(&refused), Stage::ByHand(hand));
+}
+
+#[test]
+fn an_imap_form_adds_with_the_same_setup_and_the_password_goes_to_the_keyring() {
+    let (store, _dir) = store();
+    let fake = Arc::new(Fake::default());
+    let seams = seams(&fake, Err(missing()), false);
+    let hand = Hand::Imap(server(
+        ("imap.example.test", ""),
+        ("smtp.example.test", ""),
+        "",
+    ));
+    let offer = flow::by_hand("ada@example.test", &hand, now()).unwrap();
+    let stage = flow::confirm(
+        &store,
+        offer,
+        Password::new("s3cret-pass".to_owned()),
+        seams.add.as_ref(),
+        &no_browser,
+    );
+    let Stage::Added { account, .. } = &stage else {
+        panic!("not added: {stage:?}");
+    };
+    assert_eq!(fake.setups.lock().unwrap().len(), 1);
+    assert!(matches!(
+        fake.setups.lock().unwrap()[0],
+        Setup::Imap(Manual {
+            imap_port: 993,
+            smtp_port: 465,
+            ..
+        })
+    ));
+    assert_eq!(fake.kept(account.unwrap()).as_deref(), Some("s3cret-pass"));
+    assert_eq!((fake.looked(), fake.added()), (0, 1));
 }
 
 #[test]

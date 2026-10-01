@@ -259,12 +259,113 @@ async fn a_lookup_that_finds_no_servers_offers_to_enter_them() {
     assert!(shown.contains("Enter Server Settings"), "{shown}");
     assert!(!shown.contains("mailo account add"), "{shown}");
     assert!(!shown.contains("erminal"), "{shown}");
-    // The one action leads to the form for a server typed in.
-    click(&mut open.dom, seen.one("id", "acct-server-settings"));
+    // The one action leads to the form for a server typed in: IMAP, with the address carried
+    // over as the user name.
+    let settings = seen.one("id", "acct-server-settings");
+    let seen = seen.merge(click(&mut open.dom, settings));
     settle(&mut open.dom).await;
     let shown = page(&open);
-    assert!(shown.contains("JMAP session URL"), "{shown}");
+    for label in [
+        "Incoming Mail Server",
+        "Incoming Port",
+        "Outgoing Mail Server",
+        "Outgoing Port",
+        "User Name",
+    ] {
+        assert!(shown.contains(label), "{label}: {shown}");
+    }
+    assert!(!shown.contains("JMAP session URL"), "{shown}");
+    assert!(!shown.contains("data-note=\"refusal\""), "{shown}");
+    assert!(shown.contains("STARTTLS"), "{shown}");
+    assert!(!shown.contains("Enter a JMAP server by hand"), "{shown}");
     assert_eq!(fake.added(), 0);
+
+    // Hosts are guessed from the domain, as placeholders; the user name is the address.
+    let incoming = seen.one("aria-placeholder", "imap.nowhere.test");
+    let outgoing = seen.one("aria-placeholder", "smtp.nowhere.test");
+    seen.one("aria-placeholder", "ada@nowhere.test");
+    seen.one("aria-placeholder", "993");
+    seen.one("aria-placeholder", "465");
+    let sign_in = seen.one("aria-label", "Sign In");
+
+    // Nothing is valid yet, and a press adds nothing.
+    type_into(&mut open.dom, incoming, "imap.nowhere.test");
+    let seen = seen.merge(type_into(&mut open.dom, outgoing, "smtp.nowhere.test"));
+    type_into(
+        &mut open.dom,
+        seen.one("aria-placeholder", "Password for ada@nowhere.test"),
+        PASSWORD,
+    );
+    // A bad port is said under its field, and Sign In waits.
+    let port = seen.one("aria-placeholder", "993");
+    type_into(&mut open.dom, port, "imap");
+    let shown = page(&open);
+    assert!(
+        shown.contains("A port is a number from 1 to 65535."),
+        "{shown}"
+    );
+    click(&mut open.dom, sign_in);
+    settle(&mut open.dom).await;
+    assert_eq!(fake.added(), 0);
+
+    type_into(&mut open.dom, port, "");
+    assert!(!page(&open).contains("A port is a number"));
+    click(&mut open.dom, sign_in);
+    settle(&mut open.dom).await;
+    assert_eq!(
+        *fake.setups.lock().unwrap(),
+        [mail_core::account::Setup::Imap(
+            mail_domain::presets::Manual {
+                imap_host: "imap.nowhere.test".to_owned(),
+                imap_port: 993,
+                smtp_host: "smtp.nowhere.test".to_owned(),
+                smtp_port: 465,
+                login: None,
+            }
+        )]
+    );
+    let rows = crate::ui::data::account_rows(&store);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(fake.kept(rows[0].id).as_deref(), Some(PASSWORD));
+    let shown = page(&open);
+    assert!(shown.contains("Added ada@nowhere.test."), "{shown}");
+    assert!(!shown.contains(PASSWORD), "{shown}");
+    assert!(!open.snapshot.get().contains(PASSWORD));
+}
+
+#[tokio::test]
+async fn pop_and_jmap_are_one_press_away_in_the_form() {
+    dispatching();
+    let (store, _dir) = store();
+    let fake = Arc::new(Fake::default());
+    let mut open = open(&store, seams(&fake, Err(missing()), false), Vec::new());
+    type_into(
+        &mut open.dom,
+        open.seen.one("aria-placeholder", "you@example.com"),
+        "ada@example.test",
+    );
+    let seen = click(&mut open.dom, open.seen.one("id", "acct-by-hand"));
+    let kinds = kinds(&seen);
+    // POP asks for its own server and port.
+    let seen = seen.merge(click(&mut open.dom, kinds[1]));
+    seen.one("aria-placeholder", "pop.example.test");
+    seen.one("aria-placeholder", "995");
+    type_into(
+        &mut open.dom,
+        seen.one("aria-placeholder", "pop.example.test"),
+        "mail.example.test",
+    );
+    let smtp = seen.one("aria-placeholder", "smtp.example.test");
+    let seen = seen.merge(type_into(&mut open.dom, smtp, "mail.example.test"));
+    // Back to IMAP keeps what was typed.
+    click(&mut open.dom, kinds[0]);
+    assert!(page(&open).contains("mail.example.test"));
+    // JMAP asks for a session URL instead.
+    click(&mut open.dom, kinds[2]);
+    let shown = page(&open);
+    assert!(shown.contains("JMAP session URL"), "{shown}");
+    assert!(!shown.contains("Incoming Mail Server"), "{shown}");
+    let _ = seen;
 }
 
 const SESSION: &str = "https://jmap.example.test/session";
@@ -276,6 +377,13 @@ const TOKEN: &str = "fmu1-tok3n-0f-4417";
 fn segments(seen: &Seen, group: &str) -> Vec<dioxus_core::ElementId> {
     let mut all = seen.after("aria-label", group, "aria-pressed");
     all.truncate(2);
+    all
+}
+
+/// The three segments of the account type control, IMAP, POP and JMAP.
+fn kinds(seen: &Seen) -> Vec<dioxus_core::ElementId> {
+    let mut all = seen.after("aria-label", "Account type", "aria-pressed");
+    all.truncate(3);
     all
 }
 
@@ -427,6 +535,8 @@ async fn a_session_typed_by_hand_with_a_token_adds_with_bearer_and_keeps_the_tok
         "ada@example.test",
     );
     let seen = click(&mut open.dom, open.seen.one("id", "acct-by-hand"));
+    let jmap = kinds(&seen)[2];
+    let seen = seen.merge(click(&mut open.dom, jmap));
     let url = seen.one("aria-label", "Session URL");
     let seen = seen.merge(type_into(
         &mut open.dom,
@@ -448,7 +558,7 @@ async fn a_session_typed_by_hand_with_a_token_adds_with_bearer_and_keeps_the_tok
     assert!(!shown.contains(TOKEN), "the page holds the token: {shown}");
     assert_eq!((fake.looked(), fake.added()), (0, 0));
 
-    click(&mut open.dom, seen.one("aria-label", "Use these settings"));
+    click(&mut open.dom, seen.one("aria-label", "Sign In"));
     settle(&mut open.dom).await;
     assert_eq!(
         *fake.setups.lock().unwrap(),
@@ -677,6 +787,11 @@ async fn every_state() -> Vec<(&'static str, String)> {
         "ada@example.test",
     );
     let seen = click(&mut typing.dom, typing.seen.one("id", "acct-by-hand"));
+    all.push(("by-hand-imap", page(&typing)));
+    type_into(&mut typing.dom, seen.one("aria-placeholder", "993"), "imap");
+    all.push(("by-hand-bad-port", page(&typing)));
+    let jmap = kinds(&seen)[2];
+    let seen = seen.merge(click(&mut typing.dom, jmap));
     type_into(
         &mut typing.dom,
         seen.one("aria-label", "Session URL"),
