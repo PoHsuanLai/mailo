@@ -116,11 +116,17 @@ mod tests {
     }
 
     fn signin() -> Link {
-        Link::NeedsSignIn { why: "x".into() }
+        Link::NeedsSignIn {
+            why: "x".into(),
+            first: First::No,
+        }
     }
 
     fn broken() -> Link {
-        Link::Broken { why: "x".into() }
+        Link::Broken {
+            why: "x".into(),
+            first: First::No,
+        }
     }
 
     fn offline() -> Link {
@@ -128,6 +134,7 @@ mod tests {
             until: t(),
             why: Pause::Unreachable,
             failures: 1,
+            first: First::No,
         }
     }
 
@@ -193,6 +200,7 @@ mod tests {
             until: t(),
             why: Pause::Throttled,
             failures: 1,
+            first: First::No,
         };
         assert_eq!(face(&[throttled]), ListFace::Empty);
     }

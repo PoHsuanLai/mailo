@@ -5,12 +5,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use mail_domain::presets::{Manual, manual};
-use mail_domain::{AccountId, OAuthIssuer, SecretKey, SecretPurpose};
+use mail_domain::{AccountId, OAuthIssuer, Retry, SecretKey, SecretPurpose};
 use mail_proto::discover::{Found, Source};
 use mail_runtime::{MapSecrets, OAuthRegistry, Secrets};
 use mail_store::SqliteStore;
 
-use super::flow::{self, Client, Offer, Seams, SignIn, Stage};
+use super::flow::{self, Client, Miss, Offer, Refusal, Seams, SignIn, Stage, What};
+use crate::discover::{Failed, Gap};
 use crate::password::Password;
 use crate::space::{Scope, Space};
 
@@ -79,17 +80,26 @@ impl Fake {
 /// What a domain with no JMAP server answers at its well-known URL.
 pub(super) const NO_JMAP: &str = "https://example.test/.well-known/jmap answered 404 Not Found";
 
+/// A lookup that found no servers for a domain that answered.
+pub(super) fn missing() -> Failed {
+    Failed::NoServers {
+        address: "ada@nowhere.test".to_owned(),
+        gap: Gap::Nothing,
+        tried: "no autoconfig, no SRV, no MX".to_owned(),
+    }
+}
+
 /// Seams over `fake`: lookups answer `answer`, the domain has no JMAP server, adds run the real
 /// add into the fake keyring, an OAuth client is at hand when `client` says so, and the browser
 /// only writes down its address.
-pub(super) fn seams(fake: &Arc<Fake>, answer: Result<Found, String>, client: bool) -> Seams {
+pub(super) fn seams(fake: &Arc<Fake>, answer: Result<Found, Failed>, client: bool) -> Seams {
     with_jmap(fake, answer, Err(NO_JMAP.to_owned()), client)
 }
 
 /// [`seams`], with the JMAP search answering `jmap`.
 pub(super) fn with_jmap(
     fake: &Arc<Fake>,
-    answer: Result<Found, String>,
+    answer: Result<Found, Failed>,
     jmap: Result<String, String>,
     client: bool,
 ) -> Seams {
@@ -183,7 +193,7 @@ fn an_unknown_domain_is_looked_up_once_and_shown_row_by_row() {
 #[test]
 fn a_known_domain_is_not_looked_up_but_is_still_shown() {
     let fake = Arc::new(Fake::default());
-    let seams = seams(&fake, Err("unreachable".to_owned()), false);
+    let seams = seams(&fake, Err(missing()), false);
     let offer = offered(flow::look("ada@gmail.com", &seams, now()));
     assert_eq!(fake.looked(), 0, "the built-in table needs no lookup");
     assert!(
@@ -202,21 +212,68 @@ fn a_known_domain_is_not_looked_up_but_is_still_shown() {
 }
 
 #[test]
-fn a_lookup_error_is_said_as_it_came() {
+fn a_lookup_that_finds_nothing_is_a_typed_miss_with_the_jmap_answer_dropped() {
     let fake = Arc::new(Fake::default());
-    let why = "could not find servers for ada@nowhere.test: no autoconfig, no SRV, no MX";
-    let seams = seams(&fake, Err(why.to_owned()), false);
-    let Stage::Missed(said) = flow::look("ada@nowhere.test", &seams, now()) else {
-        panic!("something was found");
-    };
-    assert!(said.starts_with(why), "{said}");
-    assert!(
-        said.contains(&format!(
-            "No JMAP server answered at https://nowhere.test/.well-known/jmap either: {NO_JMAP}"
-        )),
-        "{said}"
+    let seams = seams(&fake, Err(missing()), false);
+    let stage = flow::look("Ada@Nowhere.test", &seams, now());
+    assert_eq!(
+        stage,
+        Stage::Missed(Miss::NoServers {
+            domain: "nowhere.test".to_owned(),
+            gap: Gap::Nothing
+        })
     );
-    assert!(said.contains("enter it by hand"), "{said}");
+    assert_eq!(
+        *fake.searched.lock().unwrap(),
+        ["https://nowhere.test/.well-known/jmap"]
+    );
+}
+
+#[test]
+fn each_way_a_lookup_fails_is_its_own_miss() {
+    let fake = Arc::new(Fake::default());
+    let look = |failed: Failed| {
+        let seams = seams(&fake, Err(failed), false);
+        flow::look("ada@nowhere.test", &seams, now())
+    };
+    let starttls = Failed::NoServers {
+        address: "ada@nowhere.test".to_owned(),
+        gap: Gap::StartTlsOnly,
+        tried: String::new(),
+    };
+    assert_eq!(
+        look(starttls),
+        Stage::Missed(Miss::NoServers {
+            domain: "nowhere.test".to_owned(),
+            gap: Gap::StartTlsOnly
+        })
+    );
+    let offline = Failed::Unreachable {
+        address: "ada@nowhere.test".to_owned(),
+        retry: Retry::Now,
+        why: "no route".to_owned(),
+    };
+    assert_eq!(
+        look(offline),
+        Stage::Missed(Miss::Unreachable {
+            domain: "nowhere.test".to_owned(),
+            retry: Retry::Now,
+            why: "no route".to_owned()
+        })
+    );
+    assert_eq!(
+        look(Failed::Broken("no runtime".to_owned())),
+        Stage::Missed(Miss::Broken("no runtime".to_owned()))
+    );
+}
+
+#[test]
+fn no_servers_leads_to_typing_a_server_in() {
+    let missed = Stage::Missed(Miss::NoServers {
+        domain: "nowhere.test".to_owned(),
+        gap: Gap::Nothing,
+    });
+    assert_eq!(flow::alternate(&missed), Stage::ByHand(flow::Hand::blank()));
 }
 
 const SESSION: &str = "https://jmap.example.test/session";
@@ -280,12 +337,7 @@ fn a_domain_with_both_offers_what_its_autoconfig_named_and_jmap_beside_it() {
 fn jmap_found_alone_is_offered_and_added_with_its_session() {
     let (store, _dir) = store();
     let fake = Arc::new(Fake::default());
-    let seams = with_jmap(
-        &fake,
-        Err("no autoconfig".to_owned()),
-        Ok(SESSION.to_owned()),
-        false,
-    );
+    let seams = with_jmap(&fake, Err(missing()), Ok(SESSION.to_owned()), false);
     let offer = offered(flow::look("ada@example.test", &seams, now()));
     assert!(offer.other.is_none());
     assert_eq!(flow::both(&offer), None);
@@ -319,7 +371,7 @@ fn jmap_found_alone_is_offered_and_added_with_its_session() {
 fn a_session_typed_by_hand_with_a_token_adds_with_bearer() {
     let (store, _dir) = store();
     let fake = Arc::new(Fake::default());
-    let seams = seams(&fake, Err("unused".to_owned()), false);
+    let seams = seams(&fake, Err(missing()), false);
     let hand = flow::Hand {
         session: format!("  {SESSION} "),
         auth: mail_domain::HttpAuth::Bearer,
@@ -337,7 +389,7 @@ fn a_session_typed_by_hand_with_a_token_adds_with_bearer() {
     );
     assert_eq!(
         empty,
-        Stage::Refused(offer.clone(), "Type the token first.".to_owned())
+        Stage::Refused(offer.clone(), Refusal::Blank(What::Token))
     );
     let stage = flow::confirm(
         &store,
@@ -427,7 +479,7 @@ fn what_is_not_an_address_is_never_looked_up() {
     let seams = seams(&fake, Ok(found("x@example.test")), false);
     for typed in ["", "ada", "ada@", "@example.test", "ada@localhost"] {
         assert!(
-            matches!(flow::look(typed, &seams, now()), Stage::Missed(_)),
+            flow::look(typed, &seams, now()) == Stage::Missed(Miss::NotAnAddress),
             "{typed:?}"
         );
     }
@@ -495,7 +547,7 @@ fn nothing_is_added_without_a_password_or_a_client_id() {
     let Stage::Refused(_, why) = stage else {
         panic!("added without a client id");
     };
-    assert!(why.contains("MAILO_OAUTH_CLIENT_ID"), "{why}");
+    assert_eq!(why, Refusal::NeedsClientId(OAuthIssuer::Google));
     assert_eq!(fake.added(), 0);
     assert!(crate::ui::data::account_rows(&store).is_empty());
 }
@@ -519,7 +571,7 @@ fn a_refused_add_says_so_and_keeps_the_offer() {
         stage,
         Stage::Refused(
             offer,
-            "Not added: cannot save the password: the keyring is locked".to_owned()
+            Refusal::Other("cannot save the password: the keyring is locked".to_owned())
         )
     );
 }
@@ -574,7 +626,7 @@ const SIGN_IN: &str = "https://accounts.example.test/o/oauth2/auth?client_id=abc
 fn the_sign_in_address_goes_from_the_add_to_whoever_is_waiting() {
     let (store, _dir) = store();
     let fake = Arc::new(Fake::default());
-    let seams = seams(&fake, Err("unused".to_owned()), true);
+    let seams = seams(&fake, Err(missing()), true);
     let gmail = offered(flow::look("ada@gmail.com", &seams, now()));
     let signs_in: &flow::Add = &|_, _, on_url| {
         on_url(SIGN_IN);

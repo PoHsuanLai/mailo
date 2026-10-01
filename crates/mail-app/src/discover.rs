@@ -13,7 +13,7 @@ use crate::cli::{Command, Consent, Setup};
 
 mod jmap;
 pub use jmap::{before_add_jmap, find as find_jmap};
-use mail_domain::{AuthPlan, Incoming, OAuthIssuer, Outgoing, Tls, Username};
+use mail_domain::{AuthPlan, Incoming, OAuthIssuer, Outgoing, Retry, Tls, Username};
 use mail_proto::discover::{Found, Unusable};
 use mail_runtime::discover::NotFound;
 use std::fmt::Write as _;
@@ -143,47 +143,124 @@ fn tls_said(tls: Tls) -> &'static str {
     }
 }
 
-/// What to say when nothing usable was found, with the way to configure the account by hand.
-pub fn not_found(address: &str, why: &NotFound) -> String {
-    let mut out = format!("could not find servers for {address}: {why}\n");
-    let starttls = why
-        .unusable()
-        .any(|u| matches!(u, Unusable::NoImplicitTls { .. }));
-    if why
+/// What a domain's servers were missing, as far as the search could tell.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Gap {
+    /// Nothing usable, and no more to say.
+    Nothing,
+    /// Servers were published, but only ones that upgrade with STARTTLS, which this client
+    /// does not use.
+    StartTlsOnly,
+    /// A personal Microsoft mailbox, which no longer takes a password.
+    PersonalMicrosoft,
+}
+
+/// Why a lookup found no servers: what a caller can act on, before any wording.
+///
+/// [`Failed::said`] is the command line's prose; a window matches on the variants instead.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Failed {
+    /// The sources answered, and none named servers this client can use.
+    NoServers {
+        address: String,
+        gap: Gap,
+        /// Every step tried and what came of it, as `NotFound` prints them.
+        tried: String,
+    },
+    /// Nothing answered at all: most likely this computer is offline.
+    Unreachable {
+        address: String,
+        /// Whether trying again can help.
+        retry: Retry,
+        why: String,
+    },
+    /// The lookup could not be set up: no async runtime, no HTTP client, no resolver.
+    Broken(String),
+}
+
+impl Failed {
+    /// What to say at a terminal: why, and the way to configure the account by hand.
+    pub fn said(&self) -> String {
+        let (address, why, gap) = match self {
+            Failed::Broken(why) => return why.clone(),
+            Failed::NoServers {
+                address,
+                gap,
+                tried,
+            } => (address, tried, *gap),
+            Failed::Unreachable { address, why, .. } => (address, why, Gap::Nothing),
+        };
+        let mut out = format!("could not find servers for {address}: {why}\n");
+        match gap {
+            Gap::PersonalMicrosoft => return out,
+            Gap::StartTlsOnly => out.push_str(
+                "\nThis domain publishes servers that use STARTTLS, which this client does not \
+                 use: the upgrade can be stripped by anyone on the path, and the password then \
+                 crosses in the clear. Ask the provider whether it also offers IMAP on port 993 \
+                 (or POP3 on 995) and submission on port 465; if it does, name them:\n",
+            ),
+            Gap::Nothing => out.push_str("\nName the servers yourself:\n"),
+        }
+        let _ = write!(
+            out,
+            "\n  mailo account add {address} --imap HOST[:993] --smtp HOST[:465] [--login NAME]\n\
+             \nor --pop3 HOST[:995] in place of --imap for a POP3-only server."
+        );
+        out
+    }
+}
+
+/// What a search that found nothing means for `address`.
+pub fn classify(address: &str, why: &NotFound) -> Failed {
+    if why.offline() {
+        return Failed::Unreachable {
+            address: address.to_owned(),
+            retry: Retry::Now,
+            why: why.to_string(),
+        };
+    }
+    let gap = if why
         .unusable()
         .any(|u| matches!(u, Unusable::PersonalMicrosoft))
     {
-        return out;
-    }
-    if starttls {
-        out.push_str(
-            "\nThis domain publishes servers that use STARTTLS, which this client does not use: \
-             the upgrade can be stripped by anyone on the path, and the password then crosses \
-             in the clear. Ask the provider whether it also offers IMAP on port 993 (or POP3 on \
-             995) and submission on port 465; if it does, name them:\n",
-        );
+        Gap::PersonalMicrosoft
+    } else if why
+        .unusable()
+        .any(|u| matches!(u, Unusable::NoImplicitTls { .. }))
+    {
+        Gap::StartTlsOnly
     } else {
-        out.push_str("\nName the servers yourself:\n");
+        Gap::Nothing
+    };
+    Failed::NoServers {
+        address: address.to_owned(),
+        gap,
+        tried: why.to_string(),
     }
-    let _ = write!(
-        out,
-        "\n  mailo account add {address} --imap HOST[:993] --smtp HOST[:465] [--login NAME]\n\
-         \nor --pop3 HOST[:995] in place of --imap for a POP3-only server."
-    );
-    out
+}
+
+/// What to say when nothing usable was found, with the way to configure the account by hand.
+pub fn not_found(address: &str, why: &NotFound) -> String {
+    classify(address, why).said()
 }
 
 /// Look the address up, over the network.
 pub fn lookup(address: &str, now: chrono::DateTime<chrono::Utc>) -> Result<Found, String> {
+    search(address, now).map_err(|why| why.said())
+}
+
+/// [`lookup`], with the reason a miss was left typed.
+pub fn search(address: &str, now: chrono::DateTime<chrono::Utc>) -> Result<Found, Failed> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .map_err(|e| format!("cannot start the async runtime: {e}"))?;
+        .map_err(|e| Failed::Broken(format!("cannot start the async runtime: {e}")))?;
     runtime.block_on(async {
         let http = mail_runtime::discover::client_builder()
             .build()
-            .map_err(|e| format!("cannot build an HTTP client: {e}"))?;
-        let dns = mail_runtime::discover::SystemDns::new().map_err(|e| e.to_string())?;
+            .map_err(|e| Failed::Broken(format!("cannot build an HTTP client: {e}")))?;
+        let dns =
+            mail_runtime::discover::SystemDns::new().map_err(|e| Failed::Broken(e.to_string()))?;
         mail_runtime::discover::discover(
             address,
             &http,
@@ -192,7 +269,7 @@ pub fn lookup(address: &str, now: chrono::DateTime<chrono::Utc>) -> Result<Found
             now,
         )
         .await
-        .map_err(|why| not_found(address, &why))
+        .map_err(|why| classify(address, &why))
     })
 }
 
@@ -502,6 +579,59 @@ mod tests {
         assert!(said.contains("STARTTLS"), "{said}");
         assert!(said.contains("imap.example.test:143"), "{said}");
         assert!(said.contains("--imap HOST[:993]"), "{said}");
+    }
+
+    #[test]
+    fn a_miss_is_typed_for_the_window_and_unchanged_at_the_terminal() {
+        let tried = |miss| Tried {
+            what: "https://example.test/".to_owned(),
+            miss,
+        };
+        let offline = NotFound {
+            tried: vec![tried(Miss::Unreachable("no route".to_owned()))],
+            timed_out: false,
+        };
+        assert!(matches!(
+            classify("me@example.test", &offline),
+            Failed::Unreachable {
+                retry: Retry::Now,
+                ..
+            }
+        ));
+        let nothing = NotFound {
+            tried: vec![tried(Miss::Absent)],
+            timed_out: false,
+        };
+        let failed = classify("me@example.test", &nothing);
+        assert!(matches!(
+            failed,
+            Failed::NoServers {
+                gap: Gap::Nothing,
+                ..
+            }
+        ));
+        assert_eq!(
+            failed.said(),
+            format!(
+                "could not find servers for me@example.test: {nothing}\n\nName the servers \
+                 yourself:\n\n  mailo account add me@example.test --imap HOST[:993] --smtp \
+                 HOST[:465] [--login NAME]\n\nor --pop3 HOST[:995] in place of --imap for a \
+                 POP3-only server."
+            )
+        );
+        let microsoft = NotFound {
+            tried: vec![tried(Miss::Unusable(Unusable::PersonalMicrosoft))],
+            timed_out: false,
+        };
+        let failed = classify("me@outlook.test", &microsoft);
+        assert!(matches!(
+            failed,
+            Failed::NoServers {
+                gap: Gap::PersonalMicrosoft,
+                ..
+            }
+        ));
+        assert!(!failed.said().contains("mailo account add"));
     }
 
     #[test]

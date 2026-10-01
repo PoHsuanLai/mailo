@@ -1464,57 +1464,6 @@ pub fn reply_target(messages: &[Message]) -> Option<&Message> {
     })
 }
 
-/// Where a sync pass has got to, as the window shows it.
-///
-/// A signal the UI reads, not a channel it polls. The pass itself runs on a blocking thread
-/// because it opens sockets and a SQLite connection; what crosses back is this, and only this.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SyncState {
-    Idle,
-    Running,
-    /// Finished, with what the pass reported.
-    Done(String),
-    Failed(String),
-}
-
-impl SyncState {
-    /// Whether a new pass may start.
-    ///
-    /// Two concurrent passes on one account would fetch the same messages twice and race each
-    /// other's writes for the same rows. The button is disabled rather than queueing, because a
-    /// second sync a user asked for while the first was running is the same request, not
-    /// another one.
-    pub fn may_start(&self) -> bool {
-        !matches!(self, SyncState::Running)
-    }
-
-    /// What the status line should say, or `None` when there is nothing to report.
-    pub fn message(&self) -> Option<&str> {
-        match self {
-            SyncState::Idle => None,
-            SyncState::Running => Some("Syncing…"),
-            SyncState::Done(text) | SyncState::Failed(text) => Some(text.trim_end()),
-        }
-    }
-
-    /// Whether the message describes a failure, so the window can style it as one.
-    pub fn is_failure(&self) -> bool {
-        matches!(self, SyncState::Failed(_))
-    }
-}
-
-/// Turn a finished pass into the state to display.
-///
-/// `Ok("")` becomes `Done("Up to date.")` rather than an empty status line: a sync that
-/// reported nothing still happened, and a blank line reads as "the button did nothing".
-pub fn synced(result: Result<String, String>) -> SyncState {
-    match result {
-        Ok(text) if text.trim().is_empty() => SyncState::Done("Up to date.".to_owned()),
-        Ok(text) => SyncState::Done(text),
-        Err(why) => SyncState::Failed(why),
-    }
-}
-
 /// What the list pane should render.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Listing {
@@ -2415,55 +2364,6 @@ mod listing_tests {
     }
 }
 
-#[cfg(test)]
-mod sync_state_tests {
-    use super::*;
-
-    #[test]
-    fn a_second_sync_cannot_start_while_one_is_running() {
-        // Two passes on one account fetch the same messages twice and race each other's writes.
-        assert!(SyncState::Idle.may_start());
-        assert!(!SyncState::Running.may_start());
-        assert!(SyncState::Done("done".to_owned()).may_start());
-        assert!(SyncState::Failed("nope".to_owned()).may_start());
-    }
-
-    #[test]
-    fn a_pass_that_reported_nothing_still_says_something() {
-        // An empty status line reads as "the button did nothing".
-        assert_eq!(
-            synced(Ok(String::new())).message(),
-            Some("Up to date."),
-            "a silent success must not look like a no-op"
-        );
-        assert_eq!(
-            synced(Ok("   \n".to_owned())).message(),
-            Some("Up to date.")
-        );
-    }
-
-    #[test]
-    fn what_the_pass_reported_is_what_is_shown() {
-        let state = synced(Ok("me@x.test: 3 headers, 3 bodies\n".to_owned()));
-        assert_eq!(state.message(), Some("me@x.test: 3 headers, 3 bodies"));
-        assert!(!state.is_failure());
-    }
-
-    #[test]
-    fn a_failure_is_shown_as_one_rather_than_swallowed() {
-        // The failure most likely here is "no credential", which is fixable — but only by
-        // someone who is told about it.
-        let state = synced(Err("no credential stored".to_owned()));
-        assert!(state.is_failure());
-        assert_eq!(state.message(), Some("no credential stored"));
-    }
-
-    #[test]
-    fn idle_says_nothing_at_all() {
-        assert_eq!(SyncState::Idle.message(), None);
-    }
-}
-
 /// Where an instant appears, and therefore how much of it is written.
 ///
 /// An enum rather than a format string at each call site, because the call sites disagreed
@@ -2547,24 +2447,6 @@ impl Nothing {
     }
 }
 
-/// How a pass ended, as far as deciding when to try again is concerned.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Passed {
-    /// It worked.
-    Fine,
-    /// It failed in a way that trying again might fix: a refused connection, a timeout, a
-    /// server that was restarting.
-    Transient,
-    /// The server rejected the credential. Trying again cannot help and *costs* something.
-    Rejected,
-    /// The server asked to be left alone for a while, and named how long.
-    ///
-    /// Distinct from `Transient` because the wait is not ours to choose: doubling our own
-    /// interval could still knock long before the server said to, and a rate limit is the one
-    /// refusal where knocking early lengthens the lockout.
-    Throttled { wait: std::time::Duration },
-}
-
 /// What to tell someone whose account has no credential stored yet.
 ///
 /// Per account, because the answer differs and getting it wrong is not a matter of tone. Every
@@ -2603,65 +2485,6 @@ pub fn no_credential(address: &str, auth: &AuthPlan) -> String {
         }
         AuthPlan::Password { .. } => {
             format!("no credential stored. Run:\n    MAILO_PASSWORD=… mailo account add {address}")
-        }
-    }
-}
-
-/// When a background sync should run again.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum NextSync {
-    /// Wait this long, then go.
-    After(std::time::Duration),
-    /// Do not go. The user has to act, and the reason is worth saying.
-    Wait(String),
-}
-
-/// The longest a failing loop is allowed to sleep.
-///
-/// Half an hour. Long enough that a server which is down for the afternoon is not being asked
-/// every five minutes, short enough that mail is not an hour stale once it comes back.
-const BACKOFF_CEILING: std::time::Duration = std::time::Duration::from_secs(30 * 60);
-
-/// When to sync next, given how the last pass went and how many have failed in a row.
-///
-/// The rule that matters is `Rejected`. A poll every five minutes is two hundred and eighty-eight
-/// attempts a day; with a password the server has already refused, that is two hundred and
-/// eighty-eight *failed logins* a day against the user's own mail server — which is how an
-/// account gets locked, and the reason every experiment in this project has been run against a
-/// fixture rather than against a real server. A loop must stop and say so, not back off and continue.
-///
-/// `Throttled` is the other rule with a cost. The server named a wait, so that wait is honoured in
-/// full — [`BACKOFF_CEILING`] deliberately does not apply, since Gmail's limits are measured in
-/// hours and capping at half an hour would turn "wait an hour" into knocking twice inside it.
-///
-/// Everything else doubles from the interval and stops at [`BACKOFF_CEILING`], so a server that
-/// is down is asked less and less rather than steadily.
-pub fn next_sync(
-    passed: Passed,
-    consecutive_failures: u32,
-    interval: std::time::Duration,
-) -> NextSync {
-    match passed {
-        Passed::Fine => NextSync::After(interval),
-        // At least the interval: a sixty-second ordinary backoff must not poll faster than the
-        // loop normally would.
-        Passed::Throttled { wait } => NextSync::After(wait.max(interval)),
-        Passed::Rejected => NextSync::Wait(
-            "the server rejected the sign-in. Nothing will be fetched until it is fixed: \
-             re-run `mailo account add` for this address."
-                .to_owned(),
-        ),
-        Passed::Transient => {
-            // Saturating on purpose: a machine left asleep for a week comes back to a shift
-            // count that would otherwise wrap and produce a *short* wait.
-            let doubling = 1u32
-                .checked_shl(consecutive_failures.saturating_sub(1).min(16))
-                .unwrap_or(u32::MAX);
-            let wait = interval
-                .saturating_mul(doubling)
-                .min(BACKOFF_CEILING)
-                .max(interval);
-            NextSync::After(wait)
         }
     }
 }
@@ -3434,86 +3257,6 @@ mod snoozing {
             "nor is backwards"
         );
         assert!(snooze_until("", now(), &taipei()).is_err());
-    }
-}
-
-/// When a background sync tries again.
-#[cfg(test)]
-mod polling {
-    use super::*;
-    use std::time::Duration;
-
-    const EVERY: Duration = Duration::from_secs(300);
-
-    #[test]
-    fn a_rejected_sign_in_stops_the_loop_rather_than_slowing_it() {
-        // The rule this function exists for. Five minutes is 288 attempts a day; with a
-        // credential the server has already refused, that is 288 failed logins a day against the
-        // user's own mail server. Backing off is not enough — even half-hourly is 48 a day, and
-        // a locked account is a worse outcome than stale mail.
-        for failures in [1, 2, 5, 100] {
-            match next_sync(Passed::Rejected, failures, EVERY) {
-                NextSync::Wait(why) => {
-                    assert!(why.contains("rejected"), "{why}");
-                    assert!(
-                        why.contains("mailo account add"),
-                        "it says how to fix it: {why}"
-                    );
-                }
-                other => panic!("a rejected sign-in scheduled {other:?}"),
-            }
-        }
-    }
-
-    #[test]
-    fn a_good_pass_goes_again_at_the_interval() {
-        assert_eq!(next_sync(Passed::Fine, 0, EVERY), NextSync::After(EVERY));
-        // And a run of failures is forgotten once one succeeds.
-        assert_eq!(next_sync(Passed::Fine, 9, EVERY), NextSync::After(EVERY));
-    }
-
-    #[test]
-    fn a_transient_failure_backs_off_and_stops_at_the_ceiling() {
-        let after = |n| match next_sync(Passed::Transient, n, EVERY) {
-            NextSync::After(d) => d,
-            other => panic!("{other:?}"),
-        };
-        assert_eq!(
-            after(1),
-            EVERY,
-            "the first failure waits the ordinary interval"
-        );
-        assert_eq!(after(2), EVERY * 2);
-        assert_eq!(after(3), EVERY * 4);
-        // Doubling from five minutes reaches half an hour at the fourth failure and stays.
-        assert_eq!(after(4), BACKOFF_CEILING);
-        assert_eq!(after(20), BACKOFF_CEILING, "it grows without bound");
-    }
-
-    #[test]
-    fn a_machine_asleep_for_a_week_does_not_come_back_to_a_short_wait() {
-        // `1 << n` wraps, and a wrapped shift produces a *smaller* number — which would turn a
-        // long outage into the fastest polling the client ever does.
-        for failures in [31, 32, 33, 64, 1000, u32::MAX] {
-            assert_eq!(
-                next_sync(Passed::Transient, failures, EVERY),
-                NextSync::After(BACKOFF_CEILING),
-                "{failures} failures scheduled something short"
-            );
-        }
-    }
-
-    #[test]
-    fn a_long_configured_interval_is_never_shortened_by_the_ceiling() {
-        // A POP3 account may be told to poll hourly. The ceiling is a cap on *backoff*, not a
-        // new interval — clamping to it would make a failing account poll more often than a
-        // working one.
-        let hourly = Duration::from_secs(3600);
-        assert_eq!(next_sync(Passed::Fine, 0, hourly), NextSync::After(hourly));
-        assert_eq!(
-            next_sync(Passed::Transient, 3, hourly),
-            NextSync::After(hourly)
-        );
     }
 }
 

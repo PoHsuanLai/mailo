@@ -1,9 +1,9 @@
 //! Opening a folder, as data: the filter its place lists, when opening it fetches, and what the
 //! list's title names. The window around it is in `sidebar/folder_place_tests.rs`.
 
-use super::{Recent, again, title_address};
+use super::title_address;
 use crate::view::{Shell, folder_of, places_with};
-use chrono::{DateTime, TimeDelta, TimeZone, Utc};
+use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::*;
 
 const ONE: AccountId = AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000c1"));
@@ -129,32 +129,6 @@ fn folder_places_come_after_the_labels_so_the_badges_line_up() {
         Some(&mailbox(ONE, "Projects/2026"))
     );
     assert!(places[..=defaults].iter().all(|p| folder_of(p).is_none()));
-}
-
-#[test]
-fn opening_fetches_once_a_minute_per_folder_and_sync_resets_it() {
-    let receipts = mailbox(ONE, "收據");
-    let projects = mailbox(ONE, "Projects/2026");
-    let mut recent = Recent::default();
-    assert!(recent.due(&receipts, at(0)), "never fetched");
-    recent.mark(receipts.clone(), at(0));
-    let window = again().num_seconds();
-    const CASES: &[(i64, bool)] = &[(0, false), (1, false), (59, false), (60, true), (600, true)];
-    for (later, due) in CASES {
-        assert_eq!(recent.due(&receipts, at(*later)), *due, "{later} s later");
-    }
-    assert_eq!(window, 60);
-    assert!(recent.due(&projects, at(1)), "another folder is its own");
-    assert!(
-        recent.due(&mailbox(TWO, "收據"), at(1)),
-        "the same path on another account is another folder"
-    );
-    // A clock that went backwards is not "within the minute".
-    assert!(recent.due(&receipts, at(0) - TimeDelta::seconds(5)));
-    recent.mark(receipts.clone(), at(100));
-    assert!(!recent.due(&receipts, at(130)), "marking again restarts it");
-    recent.forget();
-    assert!(recent.due(&receipts, at(130)), "Sync was pressed");
 }
 
 #[test]

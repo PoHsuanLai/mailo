@@ -1,16 +1,14 @@
-//! Opening a server folder's place: what the list's title says of it, and fetching it.
+//! Opening a server folder's place: what the list's title says of it, and what fetches it.
 //!
 //! A pass fetches the folders the user follows; one opened from "Show all" is fetched by nobody
-//! until it is opened. So choosing a folder fetches it now, off the thread that draws, with
-//! the list's own busy line while it runs — once per choice, and not again for the same folder
-//! within [`again`] unless Sync is pressed. What fetches is a context, [`Fetcher`], so a test
-//! can count what the window asks for without a server.
+//! until it is opened. So choosing a folder fetches it now (`fetching::Fetching::open_folder`
+//! decides when, and keeps where each folder stands). What does the fetching is a context,
+//! [`Fetcher`], so a test can count what the window asks for without a server.
 
 use crate::sync::Ran;
-use crate::view::{Shell, SyncState, folder_of, synced};
-use chrono::{DateTime, TimeDelta, Utc};
-use dioxus::prelude::*;
-use mail_domain::{AccountId, MailboxRef};
+use crate::view::{Shell, folder_of};
+use chrono::{DateTime, Utc};
+use mail_domain::AccountId;
 use mail_store::SqliteStore;
 use std::sync::Arc;
 
@@ -41,95 +39,6 @@ impl Fetcher {
                 "a test opened {path} without providing a Fetcher; the real one reaches the server"
             ))
         }))
-    }
-}
-
-/// How long an opened folder is left alone before opening it fetches again.
-pub(in crate::ui) fn again() -> TimeDelta {
-    TimeDelta::seconds(60)
-}
-
-/// When each folder was last fetched on being opened.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(in crate::ui) struct Recent(Vec<(MailboxRef, DateTime<Utc>)>);
-
-impl Recent {
-    /// Whether opening `mailbox` at `now` fetches it: not if it was fetched within [`again`].
-    pub(in crate::ui) fn due(&self, mailbox: &MailboxRef, now: DateTime<Utc>) -> bool {
-        !self
-            .0
-            .iter()
-            .any(|(one, at)| one == mailbox && *at <= now && now - *at < again())
-    }
-
-    /// `mailbox` was fetched at `now`.
-    pub(in crate::ui) fn mark(&mut self, mailbox: MailboxRef, now: DateTime<Utc>) {
-        self.0.retain(|(one, _)| *one != mailbox);
-        self.0.push((mailbox, now));
-    }
-
-    /// Sync was pressed: every folder fetches again on its next opening.
-    pub(in crate::ui) fn forget(&mut self) {
-        self.0.clear();
-    }
-}
-
-/// What the window shares for fetching on opening: the list's busy line and what was fetched.
-#[derive(Clone, Copy)]
-pub(in crate::ui) struct Fetching {
-    pub state: Signal<SyncState>,
-    pub recent: Signal<Recent>,
-}
-
-/// Provide [`Fetching`] for the window, over the sync state the list bar shows. Once, from `App`.
-pub(in crate::ui) fn use_fetching(state: Signal<SyncState>) -> Fetching {
-    use_context_provider(|| Fetching {
-        state,
-        recent: Signal::new(Recent::default()),
-    })
-}
-
-/// A folder's place was chosen: fetch it, unless that was done a moment ago or a pass is
-/// already running, then read the list and the badges again.
-///
-/// Called from the click that chose it, which is where a spawned task is polled (F140).
-pub(in crate::ui) fn opened(mailbox: MailboxRef, mut revision: Signal<u64>) {
-    let Some(Fetching {
-        mut state,
-        mut recent,
-    }) = try_consume_context::<Fetching>()
-    else {
-        return;
-    };
-    let now = Utc::now();
-    if !recent.peek().due(&mailbox, now) || !state.peek().may_start() {
-        return;
-    }
-    recent.write().mark(mailbox.clone(), now);
-    state.set(SyncState::Running);
-    let fetch = try_consume_context::<Fetcher>().unwrap_or_else(Fetcher::server);
-    let store = consume_context::<Arc<SqliteStore>>();
-    spawn(async move {
-        let MailboxRef { account, path } = mailbox;
-        let named = path.clone();
-        // `spawn_blocking`: the fetch opens a socket on a runtime of its own.
-        let done = tokio::task::spawn_blocking(move || (fetch.0)(store, account, &path, now)).await;
-        state.set(match done {
-            Ok(result) => synced(
-                result
-                    .map(|ran| ran.text)
-                    .map_err(|why| format!("{named} was not fetched: {why}")),
-            ),
-            Err(e) => synced(Err(format!("fetching {named} stopped: {e}"))),
-        });
-        revision += 1;
-    });
-}
-
-/// Sync was pressed: the next opening of any folder fetches it again.
-pub(in crate::ui) fn forget() {
-    if let Some(Fetching { mut recent, .. }) = try_consume_context::<Fetching>() {
-        recent.write().forget();
     }
 }
 

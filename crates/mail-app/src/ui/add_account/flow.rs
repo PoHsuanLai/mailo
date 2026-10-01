@@ -13,11 +13,12 @@
 use std::sync::Arc;
 
 use mail_domain::presets::Preset;
-use mail_domain::{AccountId, AuthPlan, HttpAuth, Incoming, OAuthIssuer};
+use mail_domain::{AccountId, AuthPlan, HttpAuth, Incoming, OAuthIssuer, Retry};
 use mail_proto::discover::Found;
 use mail_store::SqliteStore;
 
 use crate::cli::Setup;
+use crate::discover::{Failed, Gap};
 use crate::password::Password;
 use crate::space::{Scope, Space};
 
@@ -30,8 +31,8 @@ pub(in crate::ui) enum Stage {
     Looking,
     /// What was found, shown, and not used yet.
     Found(Offer),
-    /// Nothing usable, or not an address; in words.
-    Missed(String),
+    /// Nothing usable, or not an address; and what to do about it.
+    Missed(Miss),
     /// Using the settings: saving the account, or waiting on a browser sign-in.
     Adding(Offer),
     /// Added: what that did, a sentence a line, and the account now in the store.
@@ -40,9 +41,68 @@ pub(in crate::ui) enum Stage {
         account: Option<AccountId>,
     },
     /// The add refused, and why. The offer stays, so it can be tried again on purpose.
-    Refused(Offer, String),
+    Refused(Offer, Refusal),
     /// A JMAP server typed in by hand: nothing is looked up.
     ByHand(Hand),
+}
+
+/// Why a lookup found nothing to offer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(in crate::ui) enum Miss {
+    /// What was typed is not an address.
+    NotAnAddress,
+    /// The domain answered, and named no servers this client can use.
+    NoServers { domain: String, gap: Gap },
+    /// Nothing could be reached to ask.
+    Unreachable {
+        domain: String,
+        retry: Retry,
+        why: String,
+    },
+    /// The lookup could not even start.
+    Broken(String),
+}
+
+impl Miss {
+    /// What a failed search for `address` means.
+    fn of(failed: Failed) -> Miss {
+        let domain = |address: &str| domain_of(address).unwrap_or_else(|| address.to_owned());
+        match failed {
+            Failed::NoServers { address, gap, .. } => Miss::NoServers {
+                domain: domain(&address),
+                gap,
+            },
+            Failed::Unreachable {
+                address,
+                retry,
+                why,
+            } => Miss::Unreachable {
+                domain: domain(&address),
+                retry,
+                why,
+            },
+            Failed::Broken(why) => Miss::Broken(why),
+        }
+    }
+}
+
+/// Which secret was left empty.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::ui) enum What {
+    Password,
+    Token,
+}
+
+/// Why an add did not go ahead.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(in crate::ui) enum Refusal {
+    /// The password or token was not typed yet.
+    Blank(What),
+    /// An OAuth sign-in with no client id to make it with.
+    NeedsClientId(OAuthIssuer),
+    /// The add said no, in its own words. Those are written for a terminal; see
+    /// [`super::copy::refused`] for what the sheet makes of them.
+    Other(String),
 }
 
 impl Stage {
@@ -230,7 +290,7 @@ pub(in crate::ui) struct Request {
 }
 
 /// Look an address up. Blocks: run it off the thread that draws.
-pub(in crate::ui) type Lookup = dyn Fn(&str) -> Result<Found, String> + Send + Sync;
+pub(in crate::ui) type Lookup = dyn Fn(&str) -> Result<Found, Failed> + Send + Sync;
 /// Follow a domain's `/.well-known/jmap` to its session URL, sending nothing but the request.
 /// Blocks.
 pub(in crate::ui) type FindJmap = dyn Fn(&str) -> Result<String, String> + Send + Sync;
@@ -259,7 +319,7 @@ impl Seams {
     pub(in crate::ui) fn real() -> Seams {
         if cfg!(test) {
             return Seams {
-                lookup: Arc::new(|_| Err("no lookups in tests".to_owned())),
+                lookup: Arc::new(|_| Err(Failed::Broken("no lookups in tests".to_owned()))),
                 jmap: Arc::new(|_| Err("no lookups in tests".to_owned())),
                 add: Arc::new(|_, _, _| Err("no accounts are added in tests".to_owned())),
                 client: Arc::new(|_| false),
@@ -267,7 +327,7 @@ impl Seams {
             };
         }
         Seams {
-            lookup: Arc::new(|address| crate::discover::lookup(address, chrono::Utc::now())),
+            lookup: Arc::new(|address| crate::discover::search(address, chrono::Utc::now())),
             jmap: Arc::new(crate::discover::find_jmap),
             add: Arc::new(|store, request, on_url| {
                 let Request {
@@ -331,7 +391,7 @@ pub(in crate::ui) fn look(typed: &str, seams: &Seams, now: chrono::DateTime<chro
         domain_of(&address),
         mail_domain::presets::well_known(&address),
     ) else {
-        return Stage::Missed("Enter a full address, like ada@example.com.".to_owned());
+        return Stage::Missed(Miss::NotAnAddress);
     };
     if let Some(preset) = mail_domain::presets::preset_for(&address, now) {
         let known = "from the built-in table".to_owned();
@@ -358,10 +418,8 @@ pub(in crate::ui) fn look(typed: &str, seams: &Seams, now: chrono::DateTime<chro
         }),
         (Ok(found), Err(_)) => Stage::Found(discovered(found)),
         (Err(_), Ok(session)) => Stage::Found(jmap_offer(session)),
-        (Err(why), Err(no_jmap)) => Stage::Missed(format!(
-            "{why}\n\nNo JMAP server answered at {well_known} either: {no_jmap}\n\nIf the \
-             provider gives a JMAP session URL, enter it by hand."
-        )),
+        // What JMAP said is no help to the person: the domain has no JMAP server to name.
+        (Err(why), Err(_)) => Stage::Missed(Miss::of(why)),
     }
 }
 
@@ -535,16 +593,19 @@ pub(in crate::ui) fn confirm(
 ) -> Stage {
     let password = match offer.sign_in {
         SignIn::Password if password.is_empty() => {
-            let what = if offer.token() { "token" } else { "password" };
-            return Stage::Refused(offer, format!("Type the {what} first."));
+            let what = if offer.token() {
+                What::Token
+            } else {
+                What::Password
+            };
+            return Stage::Refused(offer, Refusal::Blank(what));
         }
         SignIn::Password => Some(password),
         SignIn::OAuth {
             issuer,
             client: Client::Missing,
         } => {
-            let why = missing_client(issuer);
-            return Stage::Refused(offer, why);
+            return Stage::Refused(offer, Refusal::NeedsClientId(issuer));
         }
         // Nothing to hand over; dropped here, empty.
         SignIn::OAuth { .. } => None,
@@ -562,22 +623,8 @@ pub(in crate::ui) fn confirm(
                 .find(|row| row.address == offer.address)
                 .map(|row| row.id),
         },
-        Err(why) => Stage::Refused(offer, format!("Not added: {why}")),
+        Err(why) => Stage::Refused(offer, Refusal::Other(why)),
     }
-}
-
-/// Why an OAuth account cannot be signed in from here yet.
-pub(in crate::ui) fn missing_client(issuer: OAuthIssuer) -> String {
-    let secret = match issuer {
-        OAuthIssuer::Google => " and MAILO_OAUTH_CLIENT_SECRET",
-        OAuthIssuer::Microsoft => "",
-    };
-    format!(
-        "Signing in with {} needs an OAuth client id, which mailo cannot ship. Start mailo with \
-         MAILO_OAUTH_CLIENT_ID{secret} set, or run mailo account add in a terminal, which says \
-         where to get one. Nothing has been added.",
-        provider(issuer)
-    )
 }
 
 /// What `account::add` printed, a sentence a line, in the sheet's words.

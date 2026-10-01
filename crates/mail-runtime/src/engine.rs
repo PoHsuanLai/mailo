@@ -1462,23 +1462,7 @@ impl<B: Backend> AccountEngine<B> {
             // Bodies carry flags too, but the header fetch has already recorded them and a
             // body batch is a subset; ignored rather than applied twice.
             Ok(ProtoOutcome::Fetched { items, .. }) => {
-                let arrivals = items
-                    .into_iter()
-                    .map(|(remote, raw)| crate::assemble::Arrival { remote, raw })
-                    .collect::<Vec<_>>();
-                report.bodies_fetched += arrivals.len();
-                crate::assemble::absorb_into(
-                    &self.store,
-                    self.account,
-                    crate::assemble::Destination {
-                        mailbox: mailbox.clone(),
-                        role: self.role_of(mailbox),
-                    },
-                    None,
-                    arrivals,
-                    false,
-                    now,
-                )?;
+                report.bodies_fetched += self.store_bodies(items, mailbox, now)?;
             }
             Ok(_) => {}
             Err(RuntimeError::Cancelled) => return Ok(false),
@@ -1489,6 +1473,91 @@ impl<B: Backend> AccountEngine<B> {
             }
         }
         Ok(true)
+    }
+
+    /// Store whole messages fetched from `mailbox`. How many.
+    fn store_bodies(
+        &self,
+        items: Vec<(RemoteRef, Vec<u8>)>,
+        mailbox: &MailboxRef,
+        now: DateTime<Utc>,
+    ) -> Result<usize, RuntimeError> {
+        let arrivals = items
+            .into_iter()
+            .map(|(remote, raw)| crate::assemble::Arrival { remote, raw })
+            .collect::<Vec<_>>();
+        let count = arrivals.len();
+        crate::assemble::absorb_into(
+            &self.store,
+            self.account,
+            crate::assemble::Destination {
+                mailbox: mailbox.clone(),
+                role: self.role_of(mailbox),
+            },
+            None,
+            arrivals,
+            false,
+            now,
+        )?;
+        Ok(count)
+    }
+
+    /// Fetch one message's body now, whole, and store it.
+    ///
+    /// What the reader asks for when it opens a message a sync has not yet reached. Unlike
+    /// [`AccountEngine::fetch_bodies`] a failure is returned, not folded into a report: someone
+    /// is waiting on this one message and has to be told why it did not come. Over IMAP and
+    /// Graph, which address a message by its own reference; POP3 numbers messages within a
+    /// survey that a single fetch has not taken.
+    pub async fn fetch_body(
+        &mut self,
+        message: MessageId,
+        cancel: &mut Cancel,
+        now: DateTime<Utc>,
+    ) -> Result<(), RuntimeError> {
+        let graph = self.graph.is_some();
+        let (remote, path) = self
+            .store
+            .remotes_of(message)?
+            .into_iter()
+            .find_map(|remote| match &remote {
+                RemoteRef::Graph { mailbox, .. } if graph => {
+                    Some((remote.clone(), mailbox.clone()))
+                }
+                RemoteRef::Imap { mailbox, .. } if !graph => {
+                    Some((remote.clone(), mailbox.clone()))
+                }
+                _ => None,
+            })
+            .ok_or_else(|| {
+                RuntimeError::Proto(mail_proto::ProtoError::Unsupported(
+                    "fetching a message that has no address this account can read".to_owned(),
+                ))
+            })?;
+        let mailbox = MailboxRef {
+            account: self.account,
+            path,
+        };
+        let outcome = self
+            .run(
+                ProtoOp::FetchBody {
+                    remotes: vec![remote],
+                },
+                cancel,
+            )
+            .await?;
+        let ProtoOutcome::Fetched { items, .. } = outcome else {
+            return Err(RuntimeError::Proto(mail_proto::ProtoError::Malformed(
+                "a body fetch answered with something else".to_owned(),
+            )));
+        };
+        if self.store_bodies(items, &mailbox, now)? == 0 {
+            return Err(RuntimeError::Proto(mail_proto::ProtoError::Refused {
+                kind: mail_proto::machine::Refusal::Permanent,
+                text: "the server no longer has that message".to_owned(),
+            }));
+        }
+        Ok(())
     }
 
     /// Fetch large messages as their text and structure, leaving attachments on the server.

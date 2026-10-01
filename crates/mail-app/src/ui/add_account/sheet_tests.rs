@@ -12,7 +12,7 @@ use mail_store::SqliteStore;
 
 use super::AddAccountSheet;
 use super::flow::Seams;
-use super::flow_tests::{Fake, found, seams, with_jmap};
+use super::flow_tests::{Fake, found, missing, seams, with_jmap};
 use crate::space::{Scope, Space, Spaces};
 use crate::ui::fixtures::{Seen, dispatching, drain_seen, rebuild_into};
 use crate::ui::host::{Ask, Recorder};
@@ -160,7 +160,7 @@ fn store() -> (Arc<SqliteStore>, tempfile::TempDir) {
     (Arc::new(SqliteStore::in_memory(dir.path()).unwrap()), dir)
 }
 
-fn ok(address: &str) -> Result<Found, String> {
+fn ok(address: &str) -> Result<Found, crate::discover::Failed> {
     Ok(found(address))
 }
 
@@ -241,24 +241,29 @@ async fn cancel_adds_nothing() {
 }
 
 #[tokio::test]
-async fn a_lookup_error_is_shown_in_the_sheet() {
+async fn a_lookup_that_finds_no_servers_offers_to_enter_them() {
     dispatching();
     let (store, _dir) = store();
     let fake = Arc::new(Fake::default());
-    let why = "could not find servers for ada@nowhere.test: nothing answered";
-    let mut open = open(&store, seams(&fake, Err(why.to_owned()), false), Vec::new());
-    look_up(&mut open, "ada@nowhere.test").await;
+    let mut open = open(&store, seams(&fake, Err(missing()), false), Vec::new());
+    let seen = look_up(&mut open, "ada@nowhere.test").await;
     let shown = page(&open);
-    assert!(shown.contains(why), "{shown}");
     assert!(
-        shown.contains("No JMAP server answered at https://nowhere.test/.well-known/jmap either"),
+        shown.contains("find the mail servers for nowhere.test."),
         "{shown}"
     );
     assert!(
         shown.contains("data-note=\"refusal\""),
         "a refusal is not marked as one: {shown}"
     );
-    assert!(shown.contains("Enter a JMAP server by hand"), "{shown}");
+    assert!(shown.contains("Enter Server Settings"), "{shown}");
+    assert!(!shown.contains("mailo account add"), "{shown}");
+    assert!(!shown.contains("erminal"), "{shown}");
+    // The one action leads to the form for a server typed in.
+    click(&mut open.dom, seen.one("id", "acct-server-settings"));
+    settle(&mut open.dom).await;
+    let shown = page(&open);
+    assert!(shown.contains("JMAP session URL"), "{shown}");
     assert_eq!(fake.added(), 0);
 }
 
@@ -279,12 +284,7 @@ async fn jmap_found_by_discovery_is_shown_in_words_and_added_with_its_session() 
     dispatching();
     let (store, _dir) = store();
     let fake = Arc::new(Fake::default());
-    let seams = with_jmap(
-        &fake,
-        Err("no autoconfig".to_owned()),
-        Ok(SESSION.to_owned()),
-        false,
-    );
+    let seams = with_jmap(&fake, Err(missing()), Ok(SESSION.to_owned()), false);
     let mut open = open(&store, seams, Vec::new());
     let seen = look_up(&mut open, "ada@example.test").await;
     let shown = page(&open);
@@ -420,11 +420,7 @@ async fn a_session_typed_by_hand_with_a_token_adds_with_bearer_and_keeps_the_tok
     dispatching();
     let (store, dir) = store();
     let fake = Arc::new(Fake::default());
-    let mut open = open(
-        &store,
-        seams(&fake, Err("unused".to_owned()), false),
-        Vec::new(),
-    );
+    let mut open = open(&store, seams(&fake, Err(missing()), false), Vec::new());
     type_into(
         &mut open.dom,
         open.seen.one("aria-placeholder", "you@example.com"),
@@ -488,11 +484,7 @@ async fn an_oauth_account_offers_the_browser_sign_in_and_no_password_field() {
     dispatching();
     let (store, _dir) = store();
     let fake = Arc::new(Fake::default());
-    let mut open = open(
-        &store,
-        seams(&fake, Err("unused".to_owned()), true),
-        Vec::new(),
-    );
+    let mut open = open(&store, seams(&fake, Err(missing()), true), Vec::new());
     let seen = look_up(&mut open, "ada@gmail.com").await;
     let shown = page(&open);
     assert!(
@@ -544,7 +536,7 @@ const SIGN_IN: &str = "https://accounts.example.test/o/oauth2/auth?client_id=abc
 fn signing_in(fake: &Arc<Fake>) -> (Seams, std::sync::mpsc::Sender<()>) {
     let (give_up, given_up) = std::sync::mpsc::channel::<()>();
     let given_up = Mutex::new(given_up);
-    let mut seams = seams(fake, Err("unused".to_owned()), true);
+    let mut seams = seams(fake, Err(missing()), true);
     seams.add = Arc::new(move |_, _, on_url| {
         on_url(SIGN_IN);
         let _ = given_up.lock().unwrap().recv();
@@ -595,7 +587,8 @@ async fn a_browser_sign_in_shows_its_address_to_copy_and_opens_it_through_the_se
     settle(&mut open.dom).await;
     let shown = page(&open);
     assert!(
-        shown.contains("Not added: the sign-in was abandoned"),
+        shown.contains("Couldn\u{2019}t add the account.")
+            && shown.contains("the sign-in was abandoned"),
         "{shown}"
     );
     assert!(
@@ -662,14 +655,11 @@ async fn every_state() -> Vec<(&'static str, String)> {
     give_up.send(()).unwrap();
     settle(&mut waiting.dom).await;
 
-    let mut missing = open(&store, seams(&fake, ok("unused@x.test"), false), Vec::new());
-    look_up(&mut missing, "ada@gmail.com").await;
-    all.push(("oauth-missing", page(&missing)));
+    let mut no_client = open(&store, seams(&fake, ok("unused@x.test"), false), Vec::new());
+    look_up(&mut no_client, "ada@gmail.com").await;
+    all.push(("oauth-missing", page(&no_client)));
 
-    let why = "could not find servers for ada@nowhere.test: no autoconfig, no SRV record and \
-               no MX this client knows\n\nName the servers yourself:\n\n  mailo account add \
-               ada@nowhere.test --imap HOST[:993] --smtp HOST[:465] [--login NAME]";
-    let mut error = open(&store, seams(&fake, Err(why.to_owned()), false), Vec::new());
+    let mut error = open(&store, seams(&fake, Err(missing()), false), Vec::new());
     look_up(&mut error, "ada@nowhere.test").await;
     all.push(("error", page(&error)));
 
@@ -722,6 +712,11 @@ async fn every_class_the_add_account_sheet_draws_is_styled() {
     let offences = crate::ui::style::tests::markup_offences(&markup);
     assert!(offences.is_empty(), "the markup lint: {offences:#?}");
     assert!(!markup.contains(PASSWORD), "a state drew the password");
+    assert!(
+        !markup.contains("mailo account add"),
+        "a state told of the CLI"
+    );
+    assert!(!markup.contains("terminal"), "a state told of a terminal");
 }
 
 /// `extra` as the first child of `.app`, where the window mounts its overlays.

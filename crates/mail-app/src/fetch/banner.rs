@@ -80,7 +80,7 @@ where
             format!("Sign in to {addr} again to keep receiving mail."),
             BannerAction::SignIn(name.clone()),
         ),
-        Link::Broken { why } => (
+        Link::Broken { why, .. } => (
             Sev::Danger,
             why.clone(),
             BannerAction::Settings(name.clone()),
@@ -118,7 +118,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fetch::link::Live;
+    use crate::fetch::link::{First, Live};
 
     fn at() -> DateTime<Utc> {
         Utc.with_ymd_and_hms(2026, 10, 1, 12, 30, 0).unwrap()
@@ -138,6 +138,7 @@ mod tests {
             until: at(),
             why,
             failures: 1,
+            first: First::No,
         }
     }
 
@@ -146,7 +147,10 @@ mod tests {
         let a = name("a@x.com");
         let cases = [
             (
-                Link::NeedsSignIn { why: "x".into() },
+                Link::NeedsSignIn {
+                    why: "x".into(),
+                    first: First::No,
+                },
                 Sev::Warn,
                 "Sign in to a@x.com again to keep receiving mail.",
                 BannerAction::SignIn(a.clone()),
@@ -154,6 +158,7 @@ mod tests {
             (
                 Link::Broken {
                     why: "The server is gone.".into(),
+                    first: First::No,
                 },
                 Sev::Danger,
                 "The server is gone.",
@@ -208,7 +213,13 @@ mod tests {
     fn several_accounts_in_trouble_share_one_banner_at_the_worst_severity() {
         let links = [
             (name("a"), waiting(Pause::Unreachable)),
-            (name("b"), Link::Broken { why: "x".into() }),
+            (
+                name("b"),
+                Link::Broken {
+                    why: "x".into(),
+                    first: First::No,
+                },
+            ),
             (
                 name("c"),
                 Link::Current {
@@ -238,7 +249,13 @@ mod tests {
         };
         let links = [
             (name("a"), ok),
-            (name("b"), Link::NeedsSignIn { why: "x".into() }),
+            (
+                name("b"),
+                Link::NeedsSignIn {
+                    why: "x".into(),
+                    first: First::No,
+                },
+            ),
         ];
         assert_eq!(
             show(&links).map(|b| b.action),

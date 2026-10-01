@@ -93,7 +93,7 @@ fn subjects(page: &str) -> Vec<String> {
         .collect()
 }
 
-/// The list bar's notes: sync state and search scope alike.
+/// The list bar's notes: what fetching says and the search's scope, alike.
 fn notes(page: &str) -> Vec<String> {
     let bar = page
         .split_once(r#"class="list-head""#)
@@ -224,7 +224,8 @@ async fn a_bare_pattern_runs_over_this_page_and_says_so() {
         .typed("re:/^Re: / keyset", |page| !over_page(page))
         .await;
     assert_eq!(subjects(&page).len(), 1, "{:?}", subjects(&page));
-    assert!(notes(&page).is_empty(), "{:?}", notes(&page));
+    // The bar still says how fresh the mail is (the fetching's line), which is not the search's.
+    assert!(!over_page(&page), "{:?}", notes(&page));
 }
 
 #[tokio::test(start_paused = true)]

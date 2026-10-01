@@ -145,6 +145,7 @@ fn a_failed_account_reads_as_address_and_reason() {
         address: "ada@example.test".to_owned(),
         retry: Retry::NeedsReauth,
         why: "not signed in".to_owned(),
+        pause: Pause::ServerBusy,
     };
     assert_eq!(prose(&end, now()), "ada@example.test: not signed in\n");
 }
@@ -172,6 +173,7 @@ fn what_a_loop_acts_on_comes_from_the_typed_results() {
             address: "b".to_owned(),
             retry: Retry::NeedsReauth,
             why: "x".to_owned(),
+            pause: Pause::ServerBusy,
         },
     ];
     let ran = summarise(&ends, now());
@@ -210,10 +212,15 @@ fn an_unreachable_server_fails_the_account_with_a_wait() {
         Hooks::default(),
     )
     .unwrap();
-    let [PassEnd::Failed { retry, .. }] = ends.as_slice() else {
+    let [PassEnd::Failed { retry, pause, .. }] = ends.as_slice() else {
         panic!("one failed account expected: {ends:?}");
     };
     assert!(matches!(retry, Retry::After(_)), "{retry:?}");
+    assert_eq!(
+        *pause,
+        Pause::Unreachable,
+        "a refused connection is a server that cannot be reached"
+    );
 }
 
 #[test]
@@ -297,4 +304,68 @@ fn the_trouble_a_pass_gathers_keeps_its_mailbox_and_decision() {
     );
     assert!(old.needs_reauth);
     assert_eq!(old.hold, Some(std::time::Duration::from_secs(9)));
+}
+
+#[test]
+fn each_failure_says_what_kind_of_wait_it_asks_for() {
+    use mail_proto::Refusal;
+    use std::time::Duration;
+    let proto = |e: ProtoError| RuntimeError::Proto(e);
+    let cases: Vec<(&str, RuntimeError, Pause)> = vec![
+        (
+            "refused connection",
+            RuntimeError::Connect("refused".into()),
+            Pause::Unreachable,
+        ),
+        (
+            "dropped socket",
+            RuntimeError::Io("reset".into()),
+            Pause::Unreachable,
+        ),
+        (
+            "hang-up mid-command",
+            proto(ProtoError::UnexpectedEof),
+            Pause::Unreachable,
+        ),
+        (
+            "rate limit, with a named wait",
+            proto(ProtoError::Throttled {
+                reason: "slow down".into(),
+                retry_after: Some(Duration::from_secs(90)),
+            }),
+            Pause::Throttled,
+        ),
+        (
+            "rate limit, with none",
+            proto(ProtoError::Throttled {
+                reason: "slow down".into(),
+                retry_after: None,
+            }),
+            Pause::Throttled,
+        ),
+        (
+            "greylisting",
+            proto(ProtoError::Refused {
+                kind: Refusal::Transient,
+                text: "try later".into(),
+            }),
+            Pause::ServerBusy,
+        ),
+        (
+            "unreadable answer",
+            proto(ProtoError::Malformed("x".into())),
+            Pause::ServerBusy,
+        ),
+    ];
+    for (name, error, expected) in cases {
+        assert_eq!(error.pause(), expected, "{name}");
+        // And it travels with the decision, through the constructor a pass uses.
+        let failure = Failure::of("", &error);
+        assert_eq!(failure.pause, expected, "{name}: Failure::of");
+        assert_eq!(
+            failure.retry,
+            error.retry(),
+            "{name}: the decision is unchanged"
+        );
+    }
 }

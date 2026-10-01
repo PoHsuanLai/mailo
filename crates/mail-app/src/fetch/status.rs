@@ -228,6 +228,7 @@ mod tests {
             until,
             why,
             failures: 1,
+            first: First::No,
         }
     }
 
@@ -278,7 +279,10 @@ mod tests {
         let a = Some(Count { done: 1, of: 10 });
         let b = Some(Count { done: 2, of: 5 });
         let links = [
-            Link::Broken { why: "x".into() },
+            Link::Broken {
+                why: "x".into(),
+                first: First::No,
+            },
             syncing(Step::Bodies, a),
             syncing(Step::Bodies, b),
         ];
@@ -354,12 +358,18 @@ mod tests {
                 Tone::Warn,
             ),
             (
-                Link::NeedsSignIn { why: "x".into() },
+                Link::NeedsSignIn {
+                    why: "x".into(),
+                    first: First::No,
+                },
                 "Sign-in needed",
                 Tone::Warn,
             ),
             (
-                Link::Broken { why: "x".into() },
+                Link::Broken {
+                    why: "x".into(),
+                    first: First::No,
+                },
                 "Can\u{2019}t fetch mail",
                 Tone::Danger,
             ),
@@ -374,7 +384,10 @@ mod tests {
     fn the_worst_problem_is_the_one_said() {
         let links = [
             waiting(Pause::Unreachable, t(5, 0)),
-            Link::Broken { why: "x".into() },
+            Link::Broken {
+                why: "x".into(),
+                first: First::No,
+            },
         ];
         assert_eq!(say(&links, t(0, 0)).tone, Tone::Danger);
     }

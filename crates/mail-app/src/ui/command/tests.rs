@@ -20,7 +20,6 @@ pub(in crate::ui) fn MenuPicture() -> Element {
     let pages = use_signal(|| 1u32);
     let revision = use_signal(|| 0u64);
     let side_hidden = use_signal(|| false);
-    let sync_state = use_signal(|| crate::view::SyncState::Idle);
     let spaces = use_signal(crate::space::Spaces::default);
     // Inside a quire root, as the window has it: the palette floats in its overlay.
     rsx! {
@@ -28,7 +27,7 @@ pub(in crate::ui) fn MenuPicture() -> Element {
             appearance: Appearance::default(),
             material: Material::Window,
             stylesheet: ds::assembly::ds::Inject::Host,
-            CommandMenu { shell, pages, revision, side_hidden, sync_state, spaces }
+            CommandMenu { shell, pages, revision, side_hidden, spaces }
         }
     }
 }
@@ -46,7 +45,6 @@ pub(in crate::ui) fn OpenMenus() -> Element {
     let pages = use_signal(|| 1u32);
     let revision = use_signal(|| 0u64);
     let side_hidden = use_signal(|| false);
-    let sync_state = use_signal(|| crate::view::SyncState::Idle);
     let spaces = use_signal(crate::space::Spaces::default);
     let summary = crate::search::Source::listed(
         store.as_ref(),
@@ -61,7 +59,7 @@ pub(in crate::ui) fn OpenMenus() -> Element {
             appearance: Appearance::default(),
             material: Material::Window,
             stylesheet: ds::assembly::ds::Inject::Host,
-            CommandMenu { shell, pages, revision, side_hidden, sync_state, spaces }
+            CommandMenu { shell, pages, revision, side_hidden, spaces }
             // quire's menu, floating in the same root's overlay.
             if let Some(summary) = summary {
                 {

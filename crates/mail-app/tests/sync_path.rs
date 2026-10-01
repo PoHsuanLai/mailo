@@ -10,11 +10,42 @@
 //! not need a server runs normally.
 
 use chrono::{DateTime, TimeZone, Utc};
-use mail_app::{account, cli, sync, view};
+use mail_app::fetch::{self, Effect, First, Link, Step};
+use mail_app::sync::report::PassEnd;
+use mail_app::{account, cli, sync};
 use mail_domain::*;
 use mail_runtime::{MapSecrets, OAuthRegistry, Secrets};
 use mail_store::SqliteStore;
 use std::sync::Arc;
+
+/// What the link does with the way a pass ended: the pass's own classification handed to the
+/// machine that decides when to try again, as the window's runner does it.
+///
+/// `from` is where the link was when the pass began, and so how many passes had failed before.
+fn linked(end: PassEnd, from: Link) -> (Link, Vec<Effect>) {
+    let syncing = Link::Syncing {
+        first: First::No,
+        step: Step::Connecting,
+        count: None,
+        after: Box::new(from),
+    };
+    fetch::step(
+        &syncing,
+        end.event(),
+        now(),
+        std::time::Duration::from_secs(300),
+    )
+}
+
+/// A link that has failed `failures` times in a row and is due.
+fn waiting(failures: u32) -> Link {
+    Link::Waiting {
+        until: now(),
+        why: fetch::Pause::Unreachable,
+        failures,
+        first: First::No,
+    }
+}
 
 const ACCOUNT: AccountId =
     AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
@@ -725,20 +756,35 @@ mod a_refused_sign_in {
         let secrets = MapSecrets::default();
         with_password(&secrets, "the-right-password");
 
-        let ran =
-            sync::run_with(store, Arc::new(secrets), &OAuthRegistry::default(), now()).unwrap();
+        let ends = sync::run_typed_with(
+            store,
+            Arc::new(secrets),
+            &OAuthRegistry::default(),
+            now(),
+            sync::report::Hooks::default(),
+        )
+        .unwrap();
+        let ran = sync::report::summarise(&ends, now());
 
         assert!(
             !ran.rejected,
             "an unreachable server was blamed on the credential: {}",
             ran.text
         );
-        match view::next_sync(
-            view::Passed::Transient,
-            3,
-            std::time::Duration::from_secs(300),
-        ) {
-            view::NextSync::After(_) => {}
+        let [end] = <[PassEnd; 1]>::try_from(ends).expect("one account");
+        match linked(end, waiting(2)) {
+            (Link::Waiting { why, failures, .. }, effects) => {
+                assert_eq!(
+                    why,
+                    fetch::Pause::Unreachable,
+                    "it is a server that is not there"
+                );
+                assert_eq!(failures, 3, "and the failures are counted, so it backs off");
+                assert!(
+                    matches!(effects.as_slice(), [Effect::WakeAt(_)]),
+                    "{effects:?}"
+                );
+            }
             other => panic!("it would have given up on a server being down: {other:?}"),
         }
         // And it must not look like a rate limit either. `Throttled` resets the consecutive
@@ -759,18 +805,25 @@ mod a_refused_sign_in {
         let secrets = MapSecrets::default();
         with_password(&secrets, "wrong");
 
-        let ran =
-            sync::run_with(store, Arc::new(secrets), &OAuthRegistry::default(), now()).unwrap();
-        let passed = if ran.rejected {
-            view::Passed::Rejected
-        } else {
-            view::Passed::Fine
-        };
+        let ends = sync::run_typed_with(
+            store,
+            Arc::new(secrets),
+            &OAuthRegistry::default(),
+            now(),
+            sync::report::Hooks::default(),
+        )
+        .unwrap();
+        let [end] = <[PassEnd; 1]>::try_from(ends).expect("one account");
 
-        match view::next_sync(passed, 1, std::time::Duration::from_secs(300)) {
-            view::NextSync::Wait(why) => assert!(why.contains("rejected"), "{why}"),
-            other => panic!("it would have tried again: {other:?}"),
-        }
+        let (link, effects) = linked(end, waiting(0));
+        assert!(
+            matches!(link, Link::NeedsSignIn { .. }),
+            "it would have tried again: {link:?}"
+        );
+        assert!(
+            effects.is_empty(),
+            "a refused credential sets no timer: {effects:?}"
+        );
     }
 }
 
@@ -837,13 +890,33 @@ mod a_server_asking_to_be_left_alone {
 
     #[test]
     fn and_the_loop_waits_that_long_rather_than_the_usual_five_minutes() {
-        let interval = std::time::Duration::from_secs(300);
+        let (store, _dir) = configured(serve_throttling(), caps());
+        let secrets = MapSecrets::default();
+        with_password(&secrets, "the-right-password");
+
+        let ends = sync::run_typed_with(
+            store,
+            Arc::new(secrets),
+            &OAuthRegistry::default(),
+            now(),
+            sync::report::Hooks::default(),
+        )
+        .unwrap();
+        let [end] = <[PassEnd; 1]>::try_from(ends).expect("one account");
+
         let hold = std::time::Duration::from_secs(3600);
-        match view::next_sync(view::Passed::Throttled { wait: hold }, 1, interval) {
-            view::NextSync::After(next) => assert!(
-                next >= hold,
-                "the client would knock again in {next:?}, after being asked for {hold:?}"
-            ),
+        match linked(end, waiting(0)) {
+            (Link::Waiting { until, why, .. }, _) => {
+                assert_eq!(
+                    why,
+                    fetch::Pause::Throttled,
+                    "a rate limit is its own kind of wait"
+                );
+                assert!(
+                    until >= now() + chrono::TimeDelta::from_std(hold).unwrap(),
+                    "the client would knock again at {until}, after being asked for {hold:?}"
+                );
+            }
             other => panic!("a rate limit is not something to give up over: {other:?}"),
         }
     }
