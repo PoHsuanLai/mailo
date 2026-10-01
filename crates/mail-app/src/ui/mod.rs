@@ -1,8 +1,21 @@
 //! The Dioxus shell.
 //!
-//! Thin on purpose: every decision lives in [`crate::view`], which is tested without a window.
+//! Thin on purpose: every decision lives in [`crate::ui::view`], which is tested without a window.
 //! What is here is layout, event wiring, and the one thing a UI can get dangerously wrong —
 //! rendering a stranger's HTML.
+
+pub mod appearance;
+pub mod bin;
+pub mod editor;
+pub mod emoji;
+pub mod keymap;
+pub mod launcher;
+pub mod saved;
+pub mod selection;
+pub mod space;
+pub mod spelling;
+pub mod today;
+pub mod view;
 
 mod add_account;
 mod app;
@@ -45,6 +58,7 @@ mod pick;
 mod picks;
 mod press;
 mod print;
+mod provider_chip;
 mod reading;
 mod receipt;
 mod revisions;

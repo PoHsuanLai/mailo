@@ -7,7 +7,7 @@
 use mail_domain::{OAuthIssuer, Retry};
 
 use super::flow::{self, Miss, Refusal, What};
-use crate::discover::Gap;
+use mail_core::discover::Gap;
 
 /// What the sheet offers to do about a [`Notice`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

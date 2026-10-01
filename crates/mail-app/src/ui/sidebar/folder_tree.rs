@@ -4,7 +4,7 @@
 //! Pure. What the store holds is gathered by `folder_act::load`; everything decided about it is
 //! decided here, where a table can check it.
 
-use crate::view::Shell;
+use crate::ui::view::Shell;
 use mail_domain::folder::delimiter_of;
 use mail_domain::{
     AccountId, Folder, Holds, Label, LabelId, LabelOrigin, MailboxRef, ServerLabels, Subscription,

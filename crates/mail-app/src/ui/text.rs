@@ -1,5 +1,5 @@
-use crate::view::Stamp;
 use chrono::Local;
+use mail_core::when::Stamp;
 use mail_domain::*;
 
 pub(super) fn draft_state(state: &SendState) -> &'static str {
@@ -56,12 +56,12 @@ pub(super) fn attachment_rows(message: &Message) -> Vec<AttachmentRow> {
                 None => Kept::OnServer,
             };
             let size = match kept {
-                Kept::Here | Kept::Opened => crate::attach::human_size(a.size),
-                Kept::OnServer => format!("up to {}", crate::attach::human_size(a.size)),
+                Kept::Here | Kept::Opened => mail_core::attach::human_size(a.size),
+                Kept::OnServer => format!("up to {}", mail_core::attach::human_size(a.size)),
             };
             AttachmentRow {
                 index,
-                name: crate::attach::safe_name(&a.name),
+                name: mail_core::attach::safe_name(&a.name),
                 size,
                 kept,
             }
@@ -74,7 +74,7 @@ pub(super) fn address(message: &Message) -> String {
 }
 
 pub(super) fn stamp(message: &Message) -> String {
-    crate::view::stamp(message.date, &Local, Stamp::Full)
+    mail_core::when::stamp(message.date, &Local, Stamp::Full)
 }
 
 pub(super) fn sender(summary: &ThreadSummary) -> String {

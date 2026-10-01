@@ -1,12 +1,12 @@
-use crate::undo::Undo;
-use crate::view::op_for;
+use crate::ui::view::op_for;
+use mail_core::undo::Undo;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 
 /// The composer pane.
 ///
 /// Every field writes straight back into `Shell.composing`, and every button goes through
-/// `crate::compose`, which is the same module the CLI calls. Two code paths for "send this
+/// `mail_core::compose`, which is the same module the CLI calls. Two code paths for "send this
 /// draft" is how a window and a command start disagreeing about what a draft is.
 /// What opening a composer on this action means.
 ///
@@ -32,7 +32,7 @@ pub(super) fn composes(kind: OpKind) -> Option<Composes> {
 
 /// Create the draft a reply button opens.
 ///
-/// Which message that answers is [`crate::view::reply_target`]'s decision, not this function's.
+/// Which message that answers is [`crate::ui::view::reply_target`]'s decision, not this function's.
 /// Open a composer on the newest message of `thread`, replying or forwarding.
 /// Begin a message that answers nothing.
 ///
@@ -46,11 +46,11 @@ pub(super) fn start_new(
 ) -> Result<Draft, String> {
     let account = match known.first() {
         Some((_, id)) => *id,
-        None => crate::compose::account_for(store, None)?,
+        None => mail_core::compose::account_for(store, None)?,
     };
     // No recipients and no subject: there is no original to take either from, and a guess is
     // something the sender has to notice and undo. Saved anyway, so closing the window keeps it.
-    crate::compose::draft_new(store, account, &[], "", "", chrono::Utc::now())
+    mail_core::compose::draft_new(store, account, &[], "", "", chrono::Utc::now())
 }
 
 pub(super) fn start_composing(
@@ -67,19 +67,21 @@ pub(super) fn start_composing(
                 .iter()
                 .filter_map(|id| store.message(*id).ok())
                 .collect();
-            let target = crate::view::reply_target(&messages)
+            let target = crate::ui::view::reply_target(&messages)
                 .ok_or_else(|| "that conversation has no message to forward".to_owned())?;
             // No recipients: a forward has none of its own and the composer is where the user
             // names them. The draft is saved regardless, so closing the window does not lose it.
             match what {
-                Composes::ForwardAttached => crate::compose::draft_forward_attached(
+                Composes::ForwardAttached => mail_core::compose::draft_forward_attached(
                     store,
                     target.id,
                     &[],
                     "",
                     chrono::Utc::now(),
                 ),
-                _ => crate::compose::draft_forward(store, target.id, &[], "", chrono::Utc::now()),
+                _ => {
+                    mail_core::compose::draft_forward(store, target.id, &[], "", chrono::Utc::now())
+                }
             }
         }
     }
@@ -92,9 +94,9 @@ fn start_reply(store: &SqliteStore, thread: ThreadId, scope: ReplyScope) -> Resu
         .iter()
         .filter_map(|id| store.message(*id).ok())
         .collect();
-    let target = crate::view::reply_target(&messages)
+    let target = crate::ui::view::reply_target(&messages)
         .ok_or_else(|| "that conversation has no messages".to_owned())?;
-    crate::compose::draft_reply(store, target.id, scope, "", chrono::Utc::now())
+    mail_core::compose::draft_reply(store, target.id, scope, "", chrono::Utc::now())
 }
 
 /// Apply a hover action, returning whether anything changed.
@@ -129,11 +131,14 @@ pub(super) fn resolve(store: &SqliteStore, thread: ThreadId, kind: OpKind) -> Op
     match kind {
         OpKind::Pin => {
             let loaded = store.thread(thread).ok()?;
-            Some(crate::view::pin_op(&loaded.summary, chrono::Utc::now()))
+            Some(mail_core::place::pin_op(
+                &loaded.summary,
+                chrono::Utc::now(),
+            ))
         }
         OpKind::Mute => {
             let loaded = store.thread(thread).ok()?;
-            Some(crate::view::mute_op(&loaded.summary))
+            Some(crate::ui::view::mute_op(&loaded.summary))
         }
         other => op_for(other),
     }
@@ -154,7 +159,7 @@ pub(super) fn take_back(store: &SqliteStore, entry: &Undo) -> bool {
         .remote
         .as_ref()
         .filter(|_| has_server(store, entry.account))
-        .and_then(|remote| crate::undo::reverse_intent(remote, &entry.inverse))
+        .and_then(|remote| mail_core::undo::reverse_intent(remote, &entry.inverse))
     {
         let _ = store.enqueue(entry.account, reverse, &entry.forward, chrono::Utc::now());
     }
@@ -283,7 +288,7 @@ pub(super) fn caps_here(
     account: AccountId,
     now: chrono::DateTime<chrono::Utc>,
 ) -> AccountCaps {
-    crate::sync::caps_of(store, account).unwrap_or(AccountCaps {
+    mail_core::sync::caps_of(store, account).unwrap_or(AccountCaps {
         labels: ServerLabels::LocalOnly,
         threads: ServerThreads::Jwz,
         watch: WatchMode::Poll {
@@ -343,7 +348,7 @@ pub(super) fn perform(store: &SqliteStore, thread: ThreadId, op: Op) -> Option<U
         let _ = store.enqueue(account, intent, &applied.inverse, chrono::Utc::now());
     }
     Some(Undo {
-        said: crate::undo::said(&op, &chrono::Local),
+        said: mail_core::undo::said(&op, &chrono::Local),
         thread: Some(thread),
         account,
         forward: applied.forward,

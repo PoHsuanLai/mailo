@@ -1,10 +1,10 @@
 use super::{Moved, space_key, switch};
-use crate::space::{self, PRESETS, Scope, Space, Spaces};
 use crate::ui::app::App;
 use crate::ui::fixtures::{
     INSIDE_THE_SHELL, Scripts, Work, chord, dispatching, rebuild_into, root_attr, work,
 };
-use crate::view::Shell;
+use crate::ui::space::{self, PRESETS, Scope, Space, Spaces};
+use crate::ui::view::Shell;
 use dioxus::html::input_data::keyboard_types::Modifiers;
 use dioxus::prelude::*;
 use dioxus_core::{ElementId, VirtualDom};

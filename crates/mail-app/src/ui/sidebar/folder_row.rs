@@ -8,8 +8,7 @@ use super::folder_parts::{NameField, Naming, Said, actions};
 use super::folder_tree::{Kind, Node};
 use super::folders::{Note, Open, Spot, Wires};
 use super::tagged;
-use crate::folder::Refusal;
-use crate::view::{Source, folder_of};
+use crate::ui::view::{Source, folder_of};
 use dioxus::prelude::*;
 use ds::base::press::Press;
 use ds::base::vocab::RowState;
@@ -21,6 +20,7 @@ use ds::components::menus::pop_up_button::{PopUpButton, PopUpKind};
 use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::style::tokens::control_size::ControlSize;
+use mail_core::folder::Refusal;
 use mail_domain::{
     AccountId, Filter, FolderError, FolderWork, Holds, MailboxRef, NonEmpty, Subscription,
 };

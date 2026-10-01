@@ -35,8 +35,8 @@ fn main() {
     // tested without either. Nothing is stored and nothing is sent to a found server before
     // the yes.
     if let Some(mail_app::cli::Command::AccountDiscover { address }) = &command {
-        match mail_app::discover::show(address, |address| {
-            mail_app::discover::lookup(address, chrono::Utc::now())
+        match mail_app::cli::discover::show(address, |address| {
+            mail_core::discover::lookup(address, chrono::Utc::now())
         }) {
             Ok(said) => print!("{said}"),
             Err(message) => {
@@ -47,10 +47,10 @@ fn main() {
         return;
     }
     let command = match command {
-        Some(command) => match mail_app::discover::before_add(
+        Some(command) => match mail_app::cli::discover::before_add(
             command,
-            |address| mail_app::discover::lookup(address, chrono::Utc::now()),
-            mail_app::discover::Terminal::of_stdin(),
+            |address| mail_core::discover::lookup(address, chrono::Utc::now()),
+            mail_app::cli::discover::Terminal::of_stdin(),
             |text| {
                 use std::io::Write as _;
                 print!("{text}");
@@ -77,10 +77,10 @@ fn main() {
     };
     // `--jmap` with no URL: the domain's well-known session, found and confirmed the same way.
     let command = match command {
-        Some(command) => match mail_app::discover::before_add_jmap(
+        Some(command) => match mail_app::cli::discover::before_add_jmap(
             command,
-            mail_app::discover::find_jmap,
-            mail_app::discover::Terminal::of_stdin(),
+            mail_core::discover::find_jmap,
+            mail_app::cli::discover::Terminal::of_stdin(),
             |text| {
                 use std::io::Write as _;
                 print!("{text}");
@@ -253,7 +253,7 @@ fn main() {
     // Sync needs an async runtime and the store by Arc, so it is dispatched here rather than
     // inside mail_app::cli::run, which is deliberately synchronous and testable.
     if matches!(command, Some(mail_app::cli::Command::Sync)) {
-        match mail_app::sync::run(store, chrono::Utc::now()) {
+        match mail_core::sync::run(store, chrono::Utc::now()) {
             Ok(ran) => print!("{}", ran.text),
             Err(message) => {
                 eprintln!("{message}");
@@ -281,9 +281,9 @@ fn main() {
     }) = &command
     {
         let download = |section: &str| {
-            mail_app::sync::fetch_part(&store, *message, section, chrono::Utc::now())
+            mail_core::sync::fetch_part(&store, *message, section, chrono::Utc::now())
         };
-        match mail_app::attach::fetch_and_save(&store, *message, *index, dir, download) {
+        match mail_core::attach::fetch_and_save(&store, *message, *index, dir, download) {
             Ok(said) => println!("{said}"),
             Err(message) => {
                 eprintln!("{message}");
@@ -295,32 +295,34 @@ fn main() {
     // The daemon and the clients that reach it. Dispatched here with `sync` and `watch` because
     // they need the store by `Arc` and an exit code, neither of which `mail_app::cli::run` has.
     match &command {
-        Some(mail_app::cli::Command::Daemon { stop: false }) => match mail_app::ipc::daemon::serve(
-            store,
-            std::sync::Arc::new(
-                |store| match mail_app::sync::run(store, chrono::Utc::now()) {
-                    Ok(ran) => print!("{}", ran.text),
-                    Err(why) => eprintln!("{why}"),
-                },
-            ),
-        ) {
-            Ok(out) => {
-                print!("{out}");
-                return;
+        Some(mail_app::cli::Command::Daemon { stop: false }) => {
+            match mail_core::ipc::daemon::serve(
+                store,
+                std::sync::Arc::new(|store| {
+                    match mail_core::sync::run(store, chrono::Utc::now()) {
+                        Ok(ran) => print!("{}", ran.text),
+                        Err(why) => eprintln!("{why}"),
+                    }
+                }),
+            ) {
+                Ok(out) => {
+                    print!("{out}");
+                    return;
+                }
+                Err(message) => {
+                    eprintln!("{message}");
+                    std::process::exit(1);
+                }
             }
-            Err(message) => {
-                eprintln!("{message}");
-                std::process::exit(1);
-            }
-        },
+        }
         Some(mail_app::cli::Command::Daemon { stop: true }) => {
             // Never starts one in order to stop it, which is why this is `connect` and not
             // `reach`: "there was nothing to stop" is a success, not a reason to spawn a daemon
             // and immediately ask it to leave.
-            match mail_app::ipc::client::connect() {
+            match mail_core::ipc::client::connect() {
                 Ok(None) => println!("no daemon is running"),
-                Ok(Some(mut daemon)) => match daemon.ask(mail_app::ipc::wire::Request::Shutdown) {
-                    Ok(mail_app::ipc::wire::Response::Stopping) => println!("stopped"),
+                Ok(Some(mut daemon)) => match daemon.ask(mail_core::ipc::wire::Request::Shutdown) {
+                    Ok(mail_core::ipc::wire::Response::Stopping) => println!("stopped"),
                     Ok(other) => println!("{other:?}"),
                     Err(why) => {
                         eprintln!("{why}");
@@ -335,10 +337,10 @@ fn main() {
             return;
         }
         Some(mail_app::cli::Command::Ping) => {
-            match mail_app::ipc::client::reach()
-                .and_then(|mut d| d.ask(mail_app::ipc::wire::Request::Ping))
+            match mail_core::ipc::client::reach()
+                .and_then(|mut d| d.ask(mail_core::ipc::wire::Request::Ping))
             {
-                Ok(mail_app::ipc::wire::Response::Pong { pid, version }) => {
+                Ok(mail_core::ipc::wire::Response::Pong { pid, version }) => {
                     println!("daemon {version} answering, pid {pid}");
                 }
                 Ok(other) => println!("{other:?}"),
@@ -354,10 +356,10 @@ fn main() {
 
     // A Web Key Directory lookup needs the network: dispatched here with the other commands that
     // do, so `mail_app::cli::run` stays something a test can call without one.
-    if let Some(mail_app::cli::Command::Pgp(mail_app::pgp::PgpCommand::Lookup { address })) =
+    if let Some(mail_app::cli::Command::Pgp(mail_core::pgp::PgpCommand::Lookup { address })) =
         &command
     {
-        match mail_app::pgp::lookup(&store, address, chrono::Utc::now()) {
+        match mail_core::pgp::lookup(&store, address, chrono::Utc::now()) {
             Ok(said) => print!("{said}"),
             Err(message) => {
                 eprintln!("{message}");
@@ -374,7 +376,7 @@ fn main() {
         && openpgp.encrypts()
     {
         let addresses: Vec<String> = to.iter().chain(cc).map(|a| a.email.clone()).collect();
-        let said = mail_app::pgp::discover(&store, &addresses, chrono::Utc::now());
+        let said = mail_core::pgp::discover(&store, &addresses, chrono::Utc::now());
         eprint!("{said}");
     }
 
@@ -392,14 +394,14 @@ fn main() {
     }
     if let Some(mail_app::cli::Command::Export { query, target }) = &command {
         let now = chrono::Utc::now();
-        let exported = mail_app::export::select(&store, query, now).and_then(|chosen| {
+        let exported = mail_core::export::select(&store, query, now).and_then(|chosen| {
             eprintln!("{} message(s) match", chosen.len());
-            mail_app::export::export(&store, &chosen, target, now, &mut |done| {
+            mail_core::export::export(&store, &chosen, target, now, &mut |done| {
                 eprintln!("  {} written", done.written);
             })
         });
         match exported {
-            Ok(done) => print!("{}", mail_app::export::said(&done, target)),
+            Ok(done) => print!("{}", mail_core::export::said(&done, target)),
             Err(message) => {
                 eprintln!("{message}");
                 std::process::exit(1);
@@ -411,7 +413,7 @@ fn main() {
     // `watch` is `sync` that does not stop. It prints as it goes rather than at the end, because
     // "at the end" is when the user presses Ctrl-C.
     if let Some(mail_app::cli::Command::Notify { set }) = &command {
-        match mail_app::notify::command(mail_app::appearance::config_dir().as_deref(), *set) {
+        match mail_core::notify::command(mail_core::config::config_dir().as_deref(), *set) {
             Ok(said) => print!("{said}"),
             Err(message) => {
                 eprintln!("{message}");
@@ -421,9 +423,9 @@ fn main() {
         return;
     }
     if let Some(mail_app::cli::Command::Offline { address, set }) = &command {
-        let accounts = mail_app::sync::addresses(&store);
-        match mail_app::offline::command(
-            mail_app::appearance::config_dir().as_deref(),
+        let accounts = mail_core::sync::addresses(&store);
+        match mail_core::offline::command(
+            mail_core::config::config_dir().as_deref(),
             store.as_ref(),
             &accounts,
             address.as_deref(),
@@ -439,14 +441,14 @@ fn main() {
     }
     if let Some(mail_app::cli::Command::Watch { notify }) = &command {
         let notifications = match notify {
-            mail_app::cli::WatchNotify::Never => mail_app::notify::Setting::Off,
-            mail_app::cli::WatchNotify::AsSet => mail_app::appearance::config_dir()
+            mail_app::cli::WatchNotify::Never => mail_core::notify::Setting::Off,
+            mail_app::cli::WatchNotify::AsSet => mail_core::config::config_dir()
                 .as_deref()
-                .map(mail_app::notify::load)
+                .map(mail_core::notify::load)
                 .unwrap_or_default(),
         };
         println!("watching. Ctrl-C to stop.");
-        match mail_app::sync::watch(store, chrono::Utc::now(), notifications) {
+        match mail_core::sync::watch(store, chrono::Utc::now(), notifications) {
             // Only reached when every account has stopped for a reason worth stopping for — a
             // credential the server refused, which no amount of retrying fixes.
             Ok(ran) => {
@@ -470,46 +472,46 @@ fn main() {
             }
         },
         None => {
-            let config = mail_app::appearance::config_dir();
+            let config = mail_core::config::config_dir();
             let look = config
                 .as_deref()
-                .map(mail_app::appearance::load)
+                .map(mail_app::ui::appearance::load)
                 .unwrap_or_default();
             // What mailo wrote before quire: read only, for Spaces made before theme and motion
             // were theirs.
             let legacy = config
                 .as_deref()
-                .map(mail_app::appearance::legacy)
+                .map(mail_app::ui::appearance::legacy)
                 .unwrap_or_default();
             // quire's `appearance.toml`, imported from `appearance.json` on the first run after
             // the move. The window's `use_environment` reads and watches it from then on, and
             // does not import by itself.
             // quire keeps it by its own rule, which is `config` only on Linux.
-            if let Some(dir) = mail_app::appearance::quire_dir() {
-                mail_app::appearance::quire(&dir);
+            if let Some(dir) = mail_app::ui::appearance::quire_dir() {
+                mail_app::ui::appearance::quire(&dir);
             }
             let ids = account_ids(&store);
             let spaces = match &config {
                 Some(dir) => {
-                    let loaded = mail_app::space::load(dir);
+                    let loaded = mail_app::ui::space::load(dir);
                     if loaded.spaces.is_empty() {
-                        let mut made = mail_app::space::first_run(&ids);
-                        mail_app::space::inherit(&mut made, &legacy);
-                        let _ = mail_app::space::save(dir, &made);
+                        let mut made = mail_app::ui::space::first_run(&ids);
+                        mail_app::ui::space::inherit(&mut made, &legacy);
+                        let _ = mail_app::ui::space::save(dir, &made);
                         made
                     } else {
                         loaded
                     }
                 }
                 None => {
-                    let mut made = mail_app::space::first_run(&ids);
-                    mail_app::space::inherit(&mut made, &legacy);
+                    let mut made = mail_app::ui::space::first_run(&ids);
+                    mail_app::ui::space::inherit(&mut made, &legacy);
                     made
                 }
             };
             let dirs = config.and_then(|config| {
-                mail_app::appearance::state_dir()
-                    .map(|state| mail_app::appearance::WindowDirs { config, state })
+                mail_core::config::state_dir()
+                    .map(|state| mail_app::ui::appearance::WindowDirs { config, state })
             });
             mail_app::ui::run(
                 store,
@@ -526,9 +528,9 @@ fn main() {
 fn import(
     store: &std::sync::Arc<SqliteStore>,
     path: &std::path::Path,
-    into: &mail_app::import::Destination,
+    into: &mail_core::import::Destination,
 ) -> Result<String, String> {
-    use mail_app::import::{self, Destination};
+    use mail_core::import::{self, Destination};
     let now = chrono::Utc::now();
     let source = import::detect(path)?;
     let mut progress = |so_far: &import::Imported| {
@@ -544,7 +546,7 @@ fn import(
                 import::queue_uploads(store, account, folder, &source, now, &mut progress)?;
             let mut out = import::said(&total, into);
             // Sent now, so the user sees it go; whatever fails stays queued for the next sync.
-            let report = mail_app::sync::drain(store, id, now)?;
+            let report = mail_core::sync::drain(store, id, now)?;
             out.push_str(&format!("{} uploaded\n", report.appended));
             if report.still_queued > 0 {
                 out.push_str(&format!(

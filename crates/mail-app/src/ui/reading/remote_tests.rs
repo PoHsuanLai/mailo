@@ -8,7 +8,7 @@ use super::super::Reader;
 use super::super::tests::{add_thread, add_to, html_message, thread_of};
 use crate::ui::fixtures::{click, dispatching, rebuild_into};
 use crate::ui::original::{FetchImage, Got, ReaderNet, data_uri};
-use crate::view::Shell;
+use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use dioxus_core::VirtualDom;
 use mail_domain::ThreadId;

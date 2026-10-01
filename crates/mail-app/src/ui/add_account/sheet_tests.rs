@@ -13,10 +13,10 @@ use mail_store::SqliteStore;
 use super::AddAccountSheet;
 use super::flow::Seams;
 use super::flow_tests::{Fake, found, missing, seams, with_jmap};
-use crate::space::{Scope, Space, Spaces};
 use crate::ui::fixtures::{Seen, dispatching, drain_seen, rebuild_into};
 use crate::ui::host::{Ask, Recorder};
-use crate::view::Shell;
+use crate::ui::space::{Scope, Space, Spaces};
+use crate::ui::view::Shell;
 
 /// A click, and the render after it: the sheet is quire's, drawn in its overlay, which follows
 /// the window by one render, so a button's state is the one before until then.
@@ -160,7 +160,7 @@ fn store() -> (Arc<SqliteStore>, tempfile::TempDir) {
     (Arc::new(SqliteStore::in_memory(dir.path()).unwrap()), dir)
 }
 
-fn ok(address: &str) -> Result<Found, crate::discover::Failed> {
+fn ok(address: &str) -> Result<Found, mail_core::discover::Failed> {
     Ok(found(address))
 }
 
@@ -305,7 +305,7 @@ async fn jmap_found_by_discovery_is_shown_in_words_and_added_with_its_session() 
     settle(&mut open.dom).await;
     assert_eq!(
         *fake.setups.lock().unwrap(),
-        [crate::cli::Setup::Jmap {
+        [mail_core::account::Setup::Jmap {
             session: Some(SESSION.to_owned()),
             login: None,
             auth: mail_domain::HttpAuth::Basic,
@@ -360,7 +360,7 @@ async fn a_domain_with_imap_and_jmap_offers_imap_first_and_jmap_one_press_away()
     settle(&mut open.dom).await;
     assert_eq!(
         *fake.setups.lock().unwrap(),
-        [crate::cli::Setup::Jmap {
+        [mail_core::account::Setup::Jmap {
             session: Some(SESSION.to_owned()),
             login: None,
             auth: mail_domain::HttpAuth::Bearer,
@@ -452,7 +452,7 @@ async fn a_session_typed_by_hand_with_a_token_adds_with_bearer_and_keeps_the_tok
     settle(&mut open.dom).await;
     assert_eq!(
         *fake.setups.lock().unwrap(),
-        [crate::cli::Setup::Jmap {
+        [mail_core::account::Setup::Jmap {
             session: Some(SESSION.to_owned()),
             login: None,
             auth: mail_domain::HttpAuth::Bearer,

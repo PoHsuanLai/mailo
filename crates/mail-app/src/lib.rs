@@ -1,50 +1,9 @@
-//! `mailo` — the command line. The Dioxus shell will call the same store methods.
+//! `mailo`, the application: a window and a command line over one store.
+//!
+//! The two front-ends sit side by side. [`ui`] is the window, drawn with quire; [`cli`] is the
+//! terminal. Neither names the other: what they share is `mail_core`, which has no window and no
+//! terminal in it (`scripts/check-boundary.sh` holds both lines). The `mailo` binary
+//! (`main.rs`) is the router between them.
 
-pub mod account;
-pub mod appearance;
-pub mod attach;
-pub mod auth;
-pub mod bimi;
 pub mod cli;
-pub mod compose;
-pub mod contacts;
-pub mod destroy;
-pub mod discover;
-pub mod editor;
-pub mod emoji;
-pub mod export;
-pub mod fetch;
-pub mod folder;
-pub mod follow_up;
-pub mod import;
-pub mod invite;
-pub mod ipc;
-pub mod keymap;
-pub mod launcher;
-pub mod notify;
-pub mod offline;
-pub mod password;
-pub mod pgp;
-pub mod preview;
-pub mod print;
-mod provider;
-pub mod query;
-pub mod reader;
-pub mod receipt;
-pub mod rules;
-pub mod saved;
-pub mod search;
-pub mod selection;
-pub mod server_search;
-pub mod smime;
-pub mod snooze;
-pub mod space;
-pub mod spelling;
-pub mod sync;
-pub mod template;
-mod today;
-pub mod trust;
 pub mod ui;
-pub mod undo;
-pub mod unsubscribe;
-pub mod view;

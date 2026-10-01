@@ -74,7 +74,7 @@ run() {  # run <crate> <test-target>
 run mail-runtime live_smtp
 run mail-runtime live_imap
 run mail-runtime live_pop3
-run mail-app     sync_path
+run mail-core    sync_path
 if [ "$WITH_NETWORK" -eq 1 ]; then
   run mail-runtime live_probe
 else

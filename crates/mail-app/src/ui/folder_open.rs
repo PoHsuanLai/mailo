@@ -5,14 +5,14 @@
 //! decides when, and keeps where each folder stands). What does the fetching is a context,
 //! [`Fetcher`], so a test can count what the window asks for without a server.
 
-use crate::sync::Ran;
-use crate::view::{Shell, folder_of};
+use crate::ui::view::{Shell, folder_of};
 use chrono::{DateTime, Utc};
+use mail_core::sync::Ran;
 use mail_domain::AccountId;
 use mail_store::SqliteStore;
 use std::sync::Arc;
 
-/// Fetch one folder now: the signature of [`crate::sync::folder_now`].
+/// Fetch one folder now: the signature of [`mail_core::sync::folder_now`].
 pub(in crate::ui) type Fetch = Arc<
     dyn Fn(Arc<SqliteStore>, AccountId, &str, DateTime<Utc>) -> Result<Ran, String> + Send + Sync,
 >;
@@ -22,11 +22,11 @@ pub(in crate::ui) type Fetch = Arc<
 pub(in crate::ui) struct Fetcher(pub Fetch);
 
 impl Fetcher {
-    /// The server, through [`crate::sync::folder_now`].
+    /// The server, through [`mail_core::sync::folder_now`].
     #[cfg(not(test))]
     pub(in crate::ui) fn server() -> Self {
         Self(Arc::new(|store, account, path, now| {
-            crate::sync::folder_now(store, account, path, now)
+            mail_core::sync::folder_now(store, account, path, now)
         }))
     }
 

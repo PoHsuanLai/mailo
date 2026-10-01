@@ -6,8 +6,10 @@
 #[path = "../../mail-mime/tests/smime_support/mod.rs"]
 mod smime_support;
 
-use mail_app::pgp::WithSecret;
-use mail_app::{cli, compose, smime};
+use mail_app::cli;
+use mail_core::compose;
+use mail_core::pgp::WithSecret;
+use mail_core::smime;
 use mail_domain::*;
 use mail_mime::smime::{self as cms_smime, Cert, Sealing};
 use mail_runtime::{Arrival, MapSecrets, Secrets};
@@ -150,7 +152,7 @@ fn frozen(store: &SqliteStore) -> Vec<u8> {
 }
 
 fn send(store: &SqliteStore, secrets: &MapSecrets, draft: DraftId) -> Result<String, String> {
-    compose::send_with(store, secrets, &mail_app::pgp::no_passphrase, draft, now())
+    compose::send_with(store, secrets, &mail_core::pgp::no_passphrase, draft, now())
         .map_err(|e| e.to_string())
 }
 
@@ -330,7 +332,11 @@ mod identities {
         assert!(imported > before, "an import is a change");
         smime::certs::trust(&store, bea().cert.fingerprint(), KeyTrust::Verified).unwrap();
         assert!(smime::epoch() > imported, "so is trusting one");
-        assert_eq!(mail_app::pgp::epoch(), smime::epoch(), "one count for both");
+        assert_eq!(
+            mail_core::pgp::epoch(),
+            smime::epoch(),
+            "one count for both"
+        );
     }
 }
 
@@ -447,7 +453,7 @@ mod sending {
     fn a_draft_asking_both_openpgp_and_smime_is_refused_at_check_and_at_send() {
         let _serial = serial();
         let (store, _dir, secrets) = with_identity();
-        mail_app::pgp::keys::generate(&store, &secrets, ME, now()).unwrap();
+        mail_core::pgp::keys::generate(&store, &secrets, ME, now()).unwrap();
         let mut d = draft(&store, Smime::Sign, &[BEA], &[]);
         d.openpgp = OpenPgp::Sign;
         compose::save(&store, &d).unwrap();
@@ -457,12 +463,17 @@ mod sending {
             Err(smime::SmimeError::BothProtections)
         ));
         assert!(matches!(
-            mail_app::pgp::check(&store, &d, &identity, now()),
-            Err(mail_app::pgp::PgpError::BothProtections)
+            mail_core::pgp::check(&store, &d, &identity, now()),
+            Err(mail_core::pgp::PgpError::BothProtections)
         ));
-        let refused =
-            compose::send_with(&store, &secrets, &mail_app::pgp::no_passphrase, d.id, now())
-                .unwrap_err();
+        let refused = compose::send_with(
+            &store,
+            &secrets,
+            &mail_core::pgp::no_passphrase,
+            d.id,
+            now(),
+        )
+        .unwrap_err();
         assert!(
             matches!(
                 refused,
@@ -623,7 +634,7 @@ mod reading {
         assert_eq!(map.name, "map.bin");
         assert_eq!(map.bytes, vec![0, 1, 2, 3, 4, 5, 6, 7]);
         assert!(opened.attachment(1).is_err());
-        let saved = mail_app::attach::save_opened(&map, dir.path()).unwrap();
+        let saved = mail_core::attach::save_opened(&map, dir.path()).unwrap();
         assert_eq!(std::fs::read(saved).unwrap(), map.bytes);
         // Nothing decrypted reached the index: the subject, outside, is found; the body is not.
         assert_eq!(text_search(&store, "Plans"), 1);

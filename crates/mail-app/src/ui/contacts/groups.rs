@@ -14,7 +14,7 @@ use mail_pim::vcard::{self, Member};
 use mail_store::{Edit, Group, GroupHome, GroupId, Store};
 
 use super::book::person_of;
-use crate::editor::Person;
+use crate::ui::editor::Person;
 
 /// How many groups the To and Cc menus offer above the people.
 pub(in crate::ui) const OFFERED: usize = 3;
@@ -255,7 +255,7 @@ pub(in crate::ui) fn rename(store: &dyn Store, id: &GroupId, name: &str) -> Resu
 /// Add `typed`, one address or several, to the group `id`, each as a `mailto:` member. An
 /// address already in it is not added twice.
 pub(in crate::ui) fn add(store: &dyn Store, id: &GroupId, typed: &str) -> Result<Group, String> {
-    let addresses = crate::view::parse_addresses(typed)?;
+    let addresses = mail_core::compose::addresses::parse_addresses(typed)?;
     let mut group = load(store, id)?;
     for address in addresses {
         let Some(address) = mail_store::contact::normalise(&address.email) else {

@@ -25,7 +25,7 @@ fn Open(typed: String) -> Element {
     let pages = use_signal(|| 1u32);
     let revision = use_signal(|| 0u64);
     let side_hidden = use_signal(|| false);
-    let spaces = use_signal(crate::space::Spaces::default);
+    let spaces = use_signal(crate::ui::space::Spaces::default);
     // Inside a quire root, as the window has it: the palette floats in its overlay.
     rsx! {
         Ds {
@@ -38,9 +38,9 @@ fn Open(typed: String) -> Element {
 }
 
 fn kept(store: &SqliteStore, name: &str, subject: &str, body: &str) -> mail_domain::Template {
-    let draft = crate::compose::draft_new(store, ACCOUNT, &[], subject, body, Utc::now())
+    let draft = mail_core::compose::draft_new(store, ACCOUNT, &[], subject, body, Utc::now())
         .unwrap_or_else(|why| panic!("a draft: {why}"));
-    crate::template::save(store, draft.id, name, Utc::now())
+    mail_core::template::save(store, draft.id, name, Utc::now())
         .unwrap_or_else(|why| panic!("a template: {why}"))
 }
 
@@ -119,7 +119,7 @@ async fn new_from_template_lists_starts_and_deletes() {
     crate::ui::fixtures::drain(&mut dom);
     let markup = dioxus_ssr::render(&dom);
     assert!(
-        crate::template::all(&store).is_ok_and(|all| all.is_empty()),
+        mail_core::template::all(&store).is_ok_and(|all| all.is_empty()),
         "the template is still kept"
     );
     assert!(markup.contains("No templates"), "{markup}");
@@ -133,7 +133,7 @@ async fn new_from_template_lists_starts_and_deletes() {
 async fn render_new_from_template_to_a_file() {
     dispatching();
     let built = crate::ui::fixtures::work();
-    let account = crate::compose::sending_accounts(&built.store)
+    let account = mail_core::compose::sending_accounts(&built.store)
         .first()
         .map(|(_, id)| *id)
         .unwrap_or_else(|| panic!("the Work Space has an account"));
@@ -167,9 +167,9 @@ async fn render_new_from_template_to_a_file() {
         ),
     ] {
         let draft =
-            crate::compose::draft_new(&built.store, account, &[], subject, body, Utc::now())
+            mail_core::compose::draft_new(&built.store, account, &[], subject, body, Utc::now())
                 .unwrap_or_else(|why| panic!("{why}"));
-        crate::template::save(&built.store, draft.id, name, Utc::now())
+        mail_core::template::save(&built.store, draft.id, name, Utc::now())
             .unwrap_or_else(|why| panic!("{why}"));
     }
     let mut app = VirtualDom::new(crate::ui::app::App)

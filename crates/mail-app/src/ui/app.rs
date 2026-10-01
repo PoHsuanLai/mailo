@@ -10,9 +10,9 @@ use super::reading::Reader;
 use super::sidebar::Places;
 use super::space_editor::SpaceEditor;
 use super::style::STYLE;
-use crate::selection::Toward;
-use crate::space::Spaces;
-use crate::view::{
+use crate::ui::selection::Toward;
+use crate::ui::space::Spaces;
+use crate::ui::view::{
     Appearance, Listing, PageMenu, Peek, Shell, Shortcut, Source, badge_filter, folder_filter,
     nothing_to_show, places_with,
 };
@@ -39,8 +39,8 @@ pub(super) fn App() -> Element {
         let mut shell = Shell {
             appearance: try_consume_context::<Appearance>().unwrap_or_default(),
             // The user's keys, read once. A window handed no directories reads no file.
-            keymap: try_consume_context::<crate::appearance::WindowDirs>()
-                .map(|dirs| crate::keymap::load(&dirs.config))
+            keymap: try_consume_context::<crate::ui::appearance::WindowDirs>()
+                .map(|dirs| crate::ui::keymap::load(&dirs.config))
                 .unwrap_or_default(),
             ..Shell::default()
         };
@@ -72,7 +72,7 @@ pub(super) fn App() -> Element {
     let dirs = boot.dirs.clone();
     let mut side_hidden = use_signal(|| false);
     // The Space editor's draft, while the sheet is open.
-    let editing = use_signal(|| None::<crate::space::edit::Draft>);
+    let editing = use_signal(|| None::<crate::ui::space::edit::Draft>);
     let desk = compose::use_desk(today_list, spaces, dirs.clone(), side_hidden);
     compose::use_test_dictionaries();
     let mut seen_open = use_signal(|| None::<mail_domain::ThreadId>);
@@ -89,7 +89,7 @@ pub(super) fn App() -> Element {
     // lookup against an empty list draws an empty chip.
     use_hook(|| {
         let store = consume_context::<Arc<SqliteStore>>();
-        let known = crate::query::known_labels(&store);
+        let known = mail_core::query::known_labels(&store);
         let ids: Vec<mail_domain::LabelId> = known.iter().map(|(_, id)| *id).collect();
         label_ids.set(ids);
         let folders = super::sidebar::folder_places(&store);
@@ -100,7 +100,7 @@ pub(super) fn App() -> Element {
         let mut write = shell.write();
         write.labels = known;
         write.places = places;
-        write.accounts = crate::compose::sending_accounts(&store);
+        write.accounts = mail_core::compose::sending_accounts(&store);
     });
 
     // How many pages of the list have been asked for. Reset whenever the list itself changes,
@@ -138,7 +138,7 @@ pub(super) fn App() -> Element {
     // Mailbox badges are fixed. Label badges join them when the label list changes, which is
     // a signal of its own so a keystroke — a shell change — does not recount.
     let badge_filters = use_memo(move || {
-        let mut filters: Vec<Option<Filter>> = crate::view::default_places()
+        let mut filters: Vec<Option<Filter>> = crate::ui::view::default_places()
             .iter()
             .map(|place| badge_filter(&place.source))
             .collect();
@@ -192,7 +192,7 @@ pub(super) fn App() -> Element {
     use_effect(move || {
         let _ = revision();
         let store = consume_context::<Arc<SqliteStore>>();
-        let known = crate::query::known_labels(&store);
+        let known = mail_core::query::known_labels(&store);
         let ids: Vec<mail_domain::LabelId> = known.iter().map(|(_, id)| *id).collect();
         if label_ids.peek().as_slice() != ids.as_slice() {
             label_ids.set(ids);
@@ -202,7 +202,7 @@ pub(super) fn App() -> Element {
         }
         // The same shape for the same reason: the From row needs the list, and an account added
         // in a terminal should reach the open window without a restart.
-        let sending = crate::compose::sending_accounts(&store);
+        let sending = mail_core::compose::sending_accounts(&store);
         if shell.peek().accounts != sending {
             shell.write().accounts = sending;
         }
@@ -262,7 +262,7 @@ pub(super) fn App() -> Element {
         let index = spaces.peek().current;
         today_list.write().opened(index, id, chrono::Utc::now());
         if let Some(dirs) = today_dirs.clone() {
-            let _ = crate::today::save(&dirs.state, &today_list.read());
+            let _ = crate::ui::today::save(&dirs.state, &today_list.read());
         }
     });
 
@@ -386,7 +386,7 @@ pub(super) fn App() -> Element {
         if shell.read().keyboard.is_some() {
             let held = event.modifiers();
             let key = if held.shift() {
-                crate::view::shifted(&key).to_owned()
+                crate::ui::view::shifted(&key).to_owned()
             } else {
                 key
             };
@@ -520,13 +520,13 @@ pub(super) fn App() -> Element {
         // reading. No bare letter is a shortcut with ⌘ held — ⌘C is copy, and ⌘A was select-all
         // above — because the keymap does not own chords. Esc still closes.
         let action = if super::chord::command(modifiers) && key != "Escape" {
-            let Some(action) = crate::view::command_shortcut(&key, typing) else {
+            let Some(action) = crate::ui::view::command_shortcut(&key, typing) else {
                 return;
             };
             action
         } else {
             let key = if event.modifiers().shift() {
-                crate::view::shifted(&key).to_owned()
+                crate::ui::view::shifted(&key).to_owned()
             } else {
                 key
             };
@@ -540,7 +540,7 @@ pub(super) fn App() -> Element {
         match action {
             Shortcut::Next | Shortcut::Previous => {
                 let ids: Vec<ThreadId> = threads().iter().map(|t| t.id).collect();
-                if let Some(id) = crate::view::step(open, &ids, action == Shortcut::Next) {
+                if let Some(id) = crate::ui::view::step(open, &ids, action == Shortcut::Next) {
                     shell.write().open(id);
                 }
             }
@@ -611,7 +611,7 @@ pub(super) fn App() -> Element {
     };
 
     // Follow-up reminders: swept at launch, when the next comes due, and on every revision, so
-    // a conversation nobody answered comes back to the top of the inbox (`crate::follow_up`).
+    // a conversation nobody answered comes back to the top of the inbox (`mail_core::follow_up`).
     super::follow_up::use_reminders(revision);
 
     let peek = shell.read().peek;
@@ -1397,7 +1397,7 @@ mod reactivity_tests {
         let revision = use_signal(|| 0u64);
 
         let filters: Vec<Option<Filter>> = use_hook(|| {
-            crate::view::default_places()
+            crate::ui::view::default_places()
                 .iter()
                 .map(|place| badge_filter(&place.source))
                 .collect()

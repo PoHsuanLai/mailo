@@ -7,7 +7,7 @@
 //! test counts its calls to keep it that way. A thread whose body has not been fetched offers
 //! nothing here — fetching it to find out would be a POP3 `RETR`, which marks it read.
 //!
-//! What each way out does is [`crate::unsubscribe`]'s, the module `mailo unsubscribe` uses, so
+//! What each way out does is [`mail_core::unsubscribe`]'s, the module `mailo unsubscribe` uses, so
 //! the window and the command cannot disagree about it. A web page is shown and never opened.
 
 mod head;
@@ -16,11 +16,11 @@ pub(super) use head::Leave;
 
 use super::motion::Follow;
 use super::ops;
-use crate::undo::Undo;
-use crate::unsubscribe::{Found, Outcome};
-use crate::view::Shell;
+use crate::ui::view::Shell;
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
+use mail_core::undo::Undo;
+use mail_core::unsubscribe::{Found, Outcome};
 use mail_domain::*;
 use mail_mime::Unsubscribe;
 use mail_store::{SqliteStore, Store};
@@ -140,9 +140,10 @@ pub(in crate::ui) fn look(store: &SqliteStore, thread: ThreadId) -> Option<Offer
         .unwrap_or_else(|held| held.into_inner())
         .push(thread);
     // Only stored bytes are read: a message whose body is not here is skipped, never fetched.
-    let found = crate::unsubscribe::find(store, *thread.as_uuid()).ok()?;
+    let found = mail_core::unsubscribe::find(store, *thread.as_uuid()).ok()?;
     let sender = store.message(found.message).ok()?.from;
-    let from = crate::compose::address_addressed(store, found.account, &found.addressed).ok()?;
+    let from =
+        mail_core::compose::address_addressed(store, found.account, &found.addressed).ok()?;
     offer_of(found, sender, from)
 }
 
@@ -182,7 +183,7 @@ pub(in crate::ui) fn lookup(store: &SqliteStore, thread: ThreadId, key: &Bodies)
     offer
 }
 
-/// Take the preferred way out, through [`crate::unsubscribe::perform`]. Blocking: the window
+/// Take the preferred way out, through [`mail_core::unsubscribe::perform`]. Blocking: the window
 /// calls it on a blocking thread.
 ///
 /// `http` is asked for a client only when one could be used. A web page returns before it is
@@ -205,7 +206,7 @@ pub(in crate::ui) fn leave(
         .enable_all()
         .build()
         .map_err(|e| format!("Could not start the request: {e}"))?;
-    runtime.block_on(crate::unsubscribe::perform(store, found, &http, now))
+    runtime.block_on(mail_core::unsubscribe::perform(store, found, &http, now))
 }
 
 /// The client a one-click `POST` is made with.

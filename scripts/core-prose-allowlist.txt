@@ -1,0 +1,35 @@
+# mail-core files that still name a terminal command in a string: `mailo account add …`,
+# `mailo sync`, and so on.
+#
+# These modules still return terminal prose. A front-end should word a result for itself, so each
+# is to be converted to a typed outcome (a value the window and the command line each render in
+# their own words), and its line removed from this file when it is. The list only shrinks:
+# scripts/check-boundary.sh fails on a mail-core file with such a string that is not listed, and
+# on a listed file that no longer has one.
+#
+# One repository-relative path per line.
+crates/mail-core/src/account.rs
+crates/mail-core/src/attach.rs
+crates/mail-core/src/compose.rs
+crates/mail-core/src/compose/enclosed.rs
+crates/mail-core/src/contacts.rs
+crates/mail-core/src/discover.rs
+crates/mail-core/src/export.rs
+crates/mail-core/src/folder.rs
+crates/mail-core/src/import.rs
+crates/mail-core/src/invite.rs
+crates/mail-core/src/ipc/daemon.rs
+crates/mail-core/src/ipc/wire.rs
+crates/mail-core/src/notify.rs
+crates/mail-core/src/offline.rs
+crates/mail-core/src/pgp/mod.rs
+crates/mail-core/src/pgp/read.rs
+crates/mail-core/src/receipt.rs
+crates/mail-core/src/rules/mod.rs
+crates/mail-core/src/rules/server.rs
+crates/mail-core/src/smime/mod.rs
+crates/mail-core/src/smime/read.rs
+crates/mail-core/src/sync.rs
+crates/mail-core/src/sync/report/tests.rs
+crates/mail-core/src/template.rs
+crates/mail-core/src/unsubscribe.rs

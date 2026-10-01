@@ -4,7 +4,7 @@
 use super::folder_act::{child_path, refused, renamed_path, told};
 use super::folder_parts::actions;
 use super::folder_tree::{Kind, Mailboxes, Node, Section, Show, arrange, tree};
-use crate::folder::Refusal;
+use mail_core::folder::Refusal;
 use mail_domain::*;
 
 pub(super) const IMAP: AccountId =

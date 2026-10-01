@@ -1,7 +1,7 @@
 //! Signing and encrypting from the composer: the warning bar that says, in words, what stands
 //! between the protection chosen and Send, and the send that seals.
 //!
-//! What stands between them is [`crate::pgp::check`]'s or [`crate::smime::check`]'s answer, the
+//! What stands between them is [`mail_core::pgp::check`]'s or [`mail_core::smime::check`]'s answer, the
 //! same one `mailo compose` gives, asked of the store as Send is pressed and never of the
 //! keyring. Signing and encrypting themselves happen in [`super::life::queue`], off the thread
 //! that draws, with an OpenPGP key's passphrase asked for in the bar when it has one. S/MIME's
@@ -20,9 +20,9 @@ use mail_store::SqliteStore;
 
 use super::super::pgp::{Busy, Passphrase, Scheme, Tried, WRONG, seams, short};
 use super::super::press::on_primary;
-use crate::password::Password;
-use crate::pgp::PgpError;
-use crate::smime::SmimeError;
+use mail_core::password::Password;
+use mail_core::pgp::PgpError;
+use mail_core::smime::SmimeError;
 
 /// What the warning bar says about signing and encrypting.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -59,8 +59,8 @@ pub(in crate::ui) fn sealable(
     draft: &Draft,
     now: DateTime<Utc>,
 ) -> Result<SealBar, String> {
-    let identity = crate::compose::identity_of(store, draft.account, Some(draft.identity))?;
-    match crate::pgp::check(store, draft, &identity, now) {
+    let identity = mail_core::compose::identity_of(store, draft.account, Some(draft.identity))?;
+    match mail_core::pgp::check(store, draft, &identity, now) {
         Ok(()) => {}
         Err(PgpError::NoKeyFor(addresses)) => return Ok(SealBar::NoKeyFor(addresses)),
         Err(PgpError::NoOwnKey(address)) => return Ok(SealBar::NoOwnKey(address)),
@@ -69,14 +69,18 @@ pub(in crate::ui) fn sealable(
         }
         Err(other) => return Err(other.to_string()),
     }
-    Ok(match crate::smime::check(store, draft, &identity, now) {
-        Ok(()) => SealBar::Clear,
-        Err(SmimeError::NoCertFor(addresses)) => SealBar::NoCertFor(addresses),
-        Err(SmimeError::NoOwnCert(address)) => SealBar::NoOwnCert(address),
-        Err(SmimeError::OwnCertCannotEncrypt(address)) => SealBar::OwnCertCannotEncrypt(address),
-        Err(SmimeError::BlindRecipients(addresses)) => SealBar::Blind(Scheme::Smime, addresses),
-        Err(other) => return Err(other.to_string()),
-    })
+    Ok(
+        match mail_core::smime::check(store, draft, &identity, now) {
+            Ok(()) => SealBar::Clear,
+            Err(SmimeError::NoCertFor(addresses)) => SealBar::NoCertFor(addresses),
+            Err(SmimeError::NoOwnCert(address)) => SealBar::NoOwnCert(address),
+            Err(SmimeError::OwnCertCannotEncrypt(address)) => {
+                SealBar::OwnCertCannotEncrypt(address)
+            }
+            Err(SmimeError::BlindRecipients(addresses)) => SealBar::Blind(Scheme::Smime, addresses),
+            Err(other) => return Err(other.to_string()),
+        },
+    )
 }
 
 /// Ask each address's domain for its OpenPGP key, then ask again what stands in the way.
@@ -252,7 +256,7 @@ pub(in crate::ui) fn SealWarn(bar: SealBar, on_act: EventHandler<BarAct>) -> Ele
 pub(in crate::ui) async fn seal_and_queue(
     store: Arc<SqliteStore>,
     draft: mail_domain::DraftId,
-    leaves: crate::compose::Leaves,
+    leaves: mail_core::compose::Leaves,
     remind: Option<DateTime<Utc>>,
     passphrase: Option<Password>,
 ) -> Result<DateTime<Utc>, Sealed> {

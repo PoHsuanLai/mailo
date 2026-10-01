@@ -1,10 +1,10 @@
 //! Fetching a folder because it was opened.
 
 use super::Fetching;
-use crate::fetch::{FolderEffect, FolderEvent, FolderFetch};
 use crate::ui::folder_open::Fetcher;
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
+use mail_core::fetch::{FolderEffect, FolderEvent, FolderFetch};
 use mail_domain::{AccountId, MailboxRef};
 use mail_store::SqliteStore;
 use std::sync::Arc;
@@ -12,7 +12,7 @@ use std::sync::Arc;
 /// What a finished on-demand fetch says to its folder.
 ///
 /// A refused sign-in is a refusal: the folder was not fetched, and what it said is the reason.
-pub(super) fn ended(done: Result<crate::sync::Ran, String>, named: &str) -> FolderEvent {
+pub(super) fn ended(done: Result<mail_core::sync::Ran, String>, named: &str) -> FolderEvent {
     match done {
         Ok(ran) if ran.rejected => FolderEvent::Refused(ran.text.trim_end().to_owned()),
         Ok(_) => FolderEvent::Done,

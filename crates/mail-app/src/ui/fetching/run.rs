@@ -8,10 +8,10 @@
 
 use super::pass::{Generations, Running, run as run_pass};
 use super::{Note, start};
-use crate::fetch::{self, Effect, Event, FolderFetch, Link, Trigger};
 use chrono::{DateTime, TimeDelta, Utc};
 use dioxus::prelude::*;
 use ds::motion::detail::operation::{Operation, PendingToken};
+use mail_core::fetch::{self, Effect, Event, FolderFetch, Link, Trigger};
 use mail_domain::AccountId;
 use mail_store::SqliteStore;
 use std::collections::BTreeMap;

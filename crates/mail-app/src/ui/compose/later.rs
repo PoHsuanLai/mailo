@@ -1,7 +1,7 @@
 //! Send later, in the window: what the Sends row's choice means to the outbox, the "Pick a
 //! time…" field, and the list of messages waiting for their time.
 //!
-//! The times are the snooze menu's: a typed phrase goes through [`crate::view::snooze_until`],
+//! The times are the snooze menu's: a typed phrase goes through [`mail_core::snooze::snooze_until`],
 //! and every time is written by [`when_words`], so "Tomorrow 08:00" reads the same everywhere.
 
 use ds::base::geometry::placement::{Align, Side};
@@ -25,8 +25,8 @@ use super::super::menu::{MenuKey, menu_key};
 use super::super::menus::{when_in_sentence, when_words};
 use super::desk::{Desk, refusal, take_back};
 use super::page::{Float, Page, When};
-use crate::compose::Leaves;
-use crate::view::Shell;
+use crate::ui::view::Shell;
+use mail_core::compose::Leaves;
 
 /// The Sends menu's key for "Pick a time…".
 pub(in crate::ui) const PICK_KEY: &str = "at";
@@ -65,7 +65,7 @@ where
     if typed.trim().is_empty() {
         return Err(TRY.to_owned());
     }
-    let at = crate::view::snooze_until(typed, now, zone)?;
+    let at = mail_core::snooze::snooze_until(typed, now, zone)?;
     if at <= now {
         return Err(passed(at, now, zone));
     }
@@ -177,7 +177,7 @@ pub(in crate::ui) struct Waiting {
 
 /// Every draft held for later, on every account that sends, soonest first.
 pub(in crate::ui) fn waiting(store: &SqliteStore) -> Vec<Waiting> {
-    let mut out: Vec<Waiting> = crate::compose::sending_accounts(store)
+    let mut out: Vec<Waiting> = mail_core::compose::sending_accounts(store)
         .into_iter()
         .flat_map(|(_, account)| store.drafts(account).unwrap_or_default())
         .filter_map(|draft| match draft.state {

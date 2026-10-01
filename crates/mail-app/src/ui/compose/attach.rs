@@ -16,8 +16,8 @@ use mail_store::SqliteStore;
 
 use super::life;
 use super::page::{Guard, Page};
-use crate::compose::ATTACHMENT_BUDGET;
 use crate::ui::press::on_primary;
+use mail_core::compose::ATTACHMENT_BUDGET;
 
 /// A file picker, as a button: the native dialog (`ui::pick`). Each file chosen lands on the
 /// draft and in the Attached row.
@@ -114,11 +114,11 @@ fn attach(mut page: Signal<Page>, paths: Vec<PathBuf>) {
             let draft = page.peek().draft;
             let now = chrono::Utc::now();
             let saved = life::save(&store, &mut page.write(), now)
-                .and_then(|_| crate::compose::attach_bytes(&store, draft, &name, &bytes, now));
+                .and_then(|_| mail_core::compose::attach_bytes(&store, draft, &name, &bytes, now));
             match saved {
                 Ok(stored) => {
                     let mut write = page.write();
-                    write.attached = crate::compose::attached_to(&store, &stored);
+                    write.attached = mail_core::compose::attached_to(&store, &stored);
                     write.guard = Guard::Clear;
                 }
                 Err(why) => refused.push(why),
@@ -133,7 +133,7 @@ fn attach(mut page: Signal<Page>, paths: Vec<PathBuf>) {
 #[cfg(test)]
 mod tests {
     use super::{Picked, read_picked};
-    use crate::compose::ATTACHMENT_BUDGET;
+    use mail_core::compose::ATTACHMENT_BUDGET;
 
     fn kind(picked: &Picked) -> &'static str {
         match picked {

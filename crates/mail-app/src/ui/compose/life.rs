@@ -1,10 +1,10 @@
 //! A draft's life on the page, against the store: load, save, park, send, and take a send back.
 //!
-//! Every write goes through `crate::compose`, the module the command line uses, so the window and
+//! Every write goes through `mail_core::compose`, the module the command line uses, so the window and
 //! `mailo send` cannot disagree about what a draft is.
 
-use crate::compose::Leaves;
 use chrono::{DateTime, TimeZone, Utc};
+use mail_core::compose::Leaves;
 use mail_domain::*;
 use mail_runtime::Secrets;
 use mail_store::{SqliteStore, Store};
@@ -14,8 +14,8 @@ use super::page::{Guard, Page, Phase, Saved, When, Wire};
 use super::protection::Protection;
 use super::recipients::commit_typed;
 use super::seal::SealBar;
-use crate::editor::missing_attachment;
-use crate::today::Today;
+use crate::ui::editor::missing_attachment;
+use crate::ui::today::Today;
 
 /// How long a send waits in the outbox before it may leave, which is how long Undo has.
 pub(in crate::ui) const GRACE: chrono::TimeDelta = chrono::TimeDelta::seconds(5);
@@ -38,7 +38,7 @@ pub(in crate::ui) fn load(
         return Some(page);
     }
     let stored = store.draft(draft).ok()?;
-    let attached = crate::compose::attached_to(store, &stored);
+    let attached = mail_core::compose::attached_to(store, &stored);
     // Nobody is suggested until something is typed: the book is asked then, for that text.
     Some(Page::of(&stored, Vec::new(), attached))
 }
@@ -51,7 +51,7 @@ pub(in crate::ui) fn save(
 ) -> Result<Draft, String> {
     let base = store.draft(page.draft).map_err(|e| e.to_string())?;
     let edited = page.apply_to(&base, now);
-    crate::compose::save(store, &edited)?;
+    mail_core::compose::save(store, &edited)?;
     page.saved = Saved::Clean;
     Ok(edited)
 }
@@ -158,7 +158,7 @@ where
     let due = queue_reminding(
         store,
         secrets,
-        &crate::pgp::no_passphrase,
+        &mail_core::pgp::no_passphrase,
         page.draft,
         leaves,
         remind,
@@ -173,48 +173,49 @@ where
 pub(in crate::ui) fn queue(
     store: &SqliteStore,
     secrets: &dyn Secrets,
-    ask: crate::pgp::Ask<'_>,
+    ask: mail_core::pgp::Ask<'_>,
     draft: DraftId,
     leaves: Leaves,
     now: DateTime<Utc>,
-) -> Result<DateTime<Utc>, crate::compose::SendError> {
+) -> Result<DateTime<Utc>, mail_core::compose::SendError> {
     queue_reminding(store, secrets, ask, draft, leaves, None, now)
 }
 
 /// Queue the saved draft to leave as `leaves` says, signed and encrypted as it asks, with `ask`
 /// for its OpenPGP key's passphrase. Returns when it may leave, or why not, typed: a key that
-/// stayed locked is [`crate::compose::SendError::locked`]. For a draft to be sealed this reads
+/// stayed locked is [`mail_core::compose::SendError::locked`]. For a draft to be sealed this reads
 /// the keyring, and the window calls it on a blocking thread.
 ///
-/// `remind` is held as the message's follow-up reminder until it has left (`crate::follow_up`);
+/// `remind` is held as the message's follow-up reminder until it has left (`mail_core::follow_up`);
 /// with none, a reminder an earlier send of the draft held goes.
 pub(in crate::ui) fn queue_reminding(
     store: &SqliteStore,
     secrets: &dyn Secrets,
-    ask: crate::pgp::Ask<'_>,
+    ask: mail_core::pgp::Ask<'_>,
     draft: DraftId,
     leaves: Leaves,
     remind: Option<DateTime<Utc>>,
     now: DateTime<Utc>,
-) -> Result<DateTime<Utc>, crate::compose::SendError> {
+) -> Result<DateTime<Utc>, mail_core::compose::SendError> {
     let (queued, post, due) = match leaves {
         // Right away is the grace period and Undo, as it always was.
         Leaves::Now => {
             let due = now + GRACE;
             let (queued, post) =
-                crate::compose::queue_with(store, secrets, ask, draft, Leaves::Now, due)?;
+                mail_core::compose::queue_with(store, secrets, ask, draft, Leaves::Now, due)?;
             (queued, post, due)
         }
         Leaves::At(at) => {
             let (queued, post) =
-                crate::compose::queue_with(store, secrets, ask, draft, Leaves::At(at), now)?;
+                mail_core::compose::queue_with(store, secrets, ask, draft, Leaves::At(at), now)?;
             (queued, post, at)
         }
     };
     // The send is queued whatever becomes of the reminder: one that could not be kept is said
     // where the window says what it could not do, and is no reason to take back mail the outbox
     // already holds.
-    if let Err(why) = crate::follow_up::after_queue(store, &queued, &post.message, remind, due) {
+    if let Err(why) = mail_core::follow_up::after_queue(store, &queued, &post.message, remind, due)
+    {
         eprintln!("the reminder for {draft} was not kept: {why}");
     }
     Ok(due)
@@ -238,5 +239,5 @@ pub(in crate::ui) fn unsend(
     draft: DraftId,
     now: DateTime<Utc>,
 ) -> Result<Draft, String> {
-    crate::compose::unsend(store, draft, now)
+    mail_core::compose::unsend(store, draft, now)
 }

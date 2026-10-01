@@ -74,7 +74,7 @@ fn a_key_arriving_by_any_road_opens_a_message_again_without_the_sheet() {
 
     // Imported straight through the data side, as `mailo pgp import` would: nothing tells the
     // window, and nothing has to.
-    crate::pgp::keys::import(
+    mail_core::pgp::keys::import(
         &store,
         &secrets,
         key.armored().unwrap().as_bytes(),

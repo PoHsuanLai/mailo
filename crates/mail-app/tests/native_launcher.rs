@@ -13,7 +13,7 @@ use ds_harness::{Driver, Harness, HarnessConfig, Query, Viewport};
 mod drive;
 use drive::Drive;
 use ds_blitz::{NetPolicy, PrintOutcome};
-use mail_app::launcher::{Badge, Launcher, Unread};
+use mail_app::ui::launcher::{Badge, Launcher, Unread};
 use mail_domain::*;
 use mail_runtime::{Arrival, absorb};
 use mail_store::SqliteStore;
@@ -132,8 +132,8 @@ fn open() -> (Harness, tempfile::TempDir, Arc<Recorder>) {
     let printer = mail_app::ui::native::Printer::with_dialog(|_, _| Ok(PrintOutcome::Cancelled));
     let contexts = mail_app::ui::native::contexts(
         store,
-        mail_app::view::Appearance::default(),
-        mail_app::space::Spaces::default(),
+        mail_app::ui::view::Appearance::default(),
+        mail_app::ui::space::Spaces::default(),
         None,
         mail_app::ui::Start::Inbox,
     )

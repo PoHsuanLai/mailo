@@ -24,7 +24,7 @@ use std::sync::Arc;
 
 use super::data::account_rows;
 use super::press::SheetClose;
-use crate::view::{RulesSheet as Showing, Shell};
+use crate::ui::view::{RulesSheet as Showing, Shell};
 use away::AwayPart;
 use list::RulesPart;
 use server::ServerPart;

@@ -1,10 +1,10 @@
 //! The "Search the server automatically" switch in the Space editor, against a temporary config
 //! directory only.
 
-use crate::server_search::{self, Automatic};
 use crate::ui::app::App;
 use crate::ui::fixtures::{Seen, Work, click, dispatching, drain_seen, rebuild_into, work};
 use dioxus::dioxus_core::VirtualDom;
+use mail_core::server_search::{self, Automatic};
 
 fn opened(built: &Work) -> (VirtualDom, Seen) {
     dispatching();

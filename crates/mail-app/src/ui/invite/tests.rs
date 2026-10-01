@@ -6,7 +6,7 @@ use crate::ui::fixtures::{
     ACCOUNT, Seen, chord, click, dispatching, rebuild_into, seeded, type_into,
 };
 use crate::ui::reading::Reader;
-use crate::view::Shell;
+use crate::ui::view::Shell;
 use dioxus::html::input_data::keyboard_types::Modifiers;
 use dioxus::prelude::*;
 use dioxus_core::VirtualDom;
@@ -445,7 +445,7 @@ async fn render_the_invitation_card_to_a_file() {
     let (updated, _) = put(&store, &update, "REQUEST");
     let (gone, _) = put(&store, &cancelled, "CANCEL");
     let (answered, answered_id) = put(&store, &request(0), "REQUEST");
-    crate::invite::answer(
+    mail_core::invite::answer(
         &store,
         answered_id,
         Attendance::Accepted,

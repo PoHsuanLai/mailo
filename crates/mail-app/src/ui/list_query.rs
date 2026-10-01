@@ -8,7 +8,7 @@
 use super::data::PAGE;
 use super::debounce::use_debounced;
 use super::list_search::{Listed, Request, listed};
-use crate::view::Shell;
+use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use mail_domain::ThreadSummary;
 use mail_store::SqliteStore;

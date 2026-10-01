@@ -7,7 +7,7 @@ use super::render::window_with;
 async fn the_from_menu_does_not_offer_local_folders() {
     let mut offered = Vec::new();
     let (markup, _root) = window_with(|page, store| {
-        crate::account::local(store, chrono::Utc::now())
+        mail_core::account::local(store, chrono::Utc::now())
             .unwrap_or_else(|why| panic!("local folders: {why}"));
         offered = crate::ui::data::account_rows(store)
             .into_iter()

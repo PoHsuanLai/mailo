@@ -18,13 +18,13 @@ pub(super) use cards::HoverLayer;
 pub(super) use link::{LinkPill, link_out, link_over, url_spans};
 pub(super) use sender::copy;
 
-use crate::trust::Destination;
 use dioxus::prelude::*;
 use ds::components::overlays::hover_card::intent::{HoverAnchor, HoverDriver, use_hover_intent};
 use ds::host::measure::MountedRef;
 use ds::motion::hover_intent::{HoverEvent, HoverProfile};
 use ds::prelude::*;
 use ds::stack::hover_hub::{HoverHub, HoverKey, HoverKind};
+use mail_core::trust::Destination;
 use mail_domain::ThreadId;
 
 /// Where a card can be asked for.
@@ -128,7 +128,7 @@ fn use_frame_pill(mut hover: Hover) {
             while let Some(pointed) = pill.next().await {
                 hover
                     .link
-                    .set(pointed.map(|link| crate::trust::destination(&link.text, &link.href)));
+                    .set(pointed.map(|link| mail_core::trust::destination(&link.text, &link.href)));
             }
         }
     });
@@ -217,7 +217,7 @@ fn keep_driver(driver: Option<HoverDriver>) {
 
 /// Space opens the thread whose card is showing in a centred peek; Esc closes the card.
 /// Returns whether the key was the hover's.
-pub(super) fn key(name: &str, mut shell: Signal<crate::view::Shell>) -> bool {
+pub(super) fn key(name: &str, mut shell: Signal<crate::ui::view::Shell>) -> bool {
     let Some(driver) = hover().and_then(|state| *state.driver.peek()) else {
         return false;
     };
@@ -234,7 +234,7 @@ pub(super) fn key(name: &str, mut shell: Signal<crate::view::Shell>) -> bool {
                 driver.press();
             }
             let mut write = shell.write();
-            write.peek = crate::view::Peek::CENTER;
+            write.peek = crate::ui::view::Peek::CENTER;
             write.open(id);
             true
         }

@@ -4,25 +4,32 @@
 //! account that has a server, the [`Operation`] a spinner reads while its pass runs, and where
 //! each folder opened on demand stands. Everything that happens to them is an [`Event`] sent
 //! with [`Fetching::send`]; [`run`] is the only thing that receives them, steps the link with
-//! [`crate::fetch::step`] and does what it asks (a pass, a cancel, a timer). What the screen
+//! [`mail_core::fetch::step`] and does what it asks (a pass, a cancel, a timer). What the screen
 //! says is derived from the links and not stored: see [`Fetching::status`].
 //!
 //! This replaces the one `SyncState` that the poll loop, both Sync buttons and folder opening
 //! used to share, whose single "running" was every account's and whose single failure ended
 //! the poll for all of them.
 
+// The screen's derived words, built and tested ahead of the surfaces that draw them: no surface
+// does yet. They were public in `mail_app::fetch` until the split, so nothing called them dead.
+#[allow(dead_code)]
+mod banner;
+#[allow(dead_code)]
+mod face;
 mod folder;
 mod outbox;
 mod pass;
 mod run;
 mod scope;
 mod start;
+mod status;
 
-use crate::fetch::{Event, FolderFetch, Link, StatusLine, Trigger, status_line};
-use crate::view::Shell;
+use crate::ui::view::Shell;
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
 use ds::motion::detail::operation::Operation;
+use mail_core::fetch::{Event, FolderFetch, Link, Trigger};
 use mail_domain::AccountId;
 use mail_store::SqliteStore;
 use std::cell::RefCell;
@@ -34,6 +41,7 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 pub(in crate::ui) use folder::opened;
 pub(in crate::ui) use pass::Passer;
+pub(in crate::ui) use status::{StatusLine, Tone, status_line};
 
 /// What reaches the runner.
 pub(super) enum Note {
@@ -147,7 +155,7 @@ pub(in crate::ui) fn use_fetching(revision: Signal<u64>) -> Fetching {
     let accounts = use_memo(move || {
         let _ = revision();
         let store = consume_context::<Arc<SqliteStore>>();
-        crate::sync::due::intervals(&store)
+        mail_core::sync::due::intervals(&store)
     });
     let links = use_signal({
         let store = store.clone();

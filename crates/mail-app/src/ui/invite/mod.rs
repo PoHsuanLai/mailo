@@ -8,10 +8,10 @@
 //! been fetched shows no card: fetching it to find out would be a POP3 `RETR`, which marks it
 //! read.
 //!
-//! What an invitation says and what answering does are [`crate::invite`]'s, the module
+//! What an invitation says and what answering does are [`mail_core::invite`]'s, the module
 //! `mailo invite` uses, so the window and the command cannot disagree. Opening a message answers
 //! nothing: an automatic "accepted" would tell every sender that this mailbox reads its mail, so
-//! the only path to [`crate::invite::answer`] here is a press of Send.
+//! the only path to [`mail_core::invite::answer`] here is a press of Send.
 
 mod card;
 mod draw;
@@ -19,8 +19,8 @@ mod draw;
 use card::{CHIPS, Card, Stand, card_of};
 pub(in crate::ui) use draw::Invitation;
 
-use crate::invite::InviteState;
 use chrono::{DateTime, Utc};
+use mail_core::invite::InviteState;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 use std::path::Path;
@@ -47,7 +47,7 @@ pub(in crate::ui) fn look(store: &SqliteStore, message: MessageId) -> Option<Car
         .unwrap_or_else(|held| held.into_inner())
         .push(message);
     let stored = store.message(message).ok()?;
-    match crate::invite::state(store, &stored).ok()? {
+    match mail_core::invite::state(store, &stored).ok()? {
         InviteState::Shown { invite, answered } => {
             Some(card_of(message, &invite, answered.as_ref(), &chrono::Local))
         }
@@ -95,7 +95,7 @@ pub(in crate::ui) fn lookup(
     card
 }
 
-/// Answer `message`'s invitation through [`crate::invite::answer`], and read its card back so
+/// Answer `message`'s invitation through [`mail_core::invite::answer`], and read its card back so
 /// the reader shows what the store now holds. Blocking: the window calls it on a blocking
 /// thread, and only from Send.
 ///
@@ -109,7 +109,7 @@ pub(in crate::ui) fn answer(
     note: Option<&str>,
     now: DateTime<Utc>,
 ) -> Result<(String, Option<Card>), String> {
-    let said = crate::invite::answer(store, message, attendance, note, now)?;
+    let said = mail_core::invite::answer(store, message, attendance, note, now)?;
     let card = look(store, message);
     if let Ok(stored) = store.message(message) {
         keep(message, stored.body.raw(), card.clone());
@@ -125,12 +125,12 @@ pub(in crate::ui) fn save_ics(
     title: &str,
     dir: &Path,
 ) -> Result<String, String> {
-    let bytes = crate::invite::export(store, message)?;
+    let bytes = mail_core::invite::export(store, message)?;
     let stem = match title.trim() {
         "" | "(no title)" => "invitation",
         named => named,
     };
-    let path = crate::attach::write_new(dir, &format!("{stem}.ics"), &bytes)?;
+    let path = mail_core::attach::write_new(dir, &format!("{stem}.ics"), &bytes)?;
     Ok(format!("Saved to {}", path.display()))
 }
 

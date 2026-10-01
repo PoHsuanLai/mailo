@@ -1,6 +1,6 @@
 use super::*;
-use crate::fetch::{First, Live, Step};
 use chrono::TimeZone;
+use mail_core::fetch::{First, Live, Step};
 
 fn at(second: i64) -> DateTime<Utc> {
     Utc.with_ymd_and_hms(2026, 10, 1, 12, 0, 0).unwrap() + TimeDelta::seconds(second)
@@ -28,7 +28,7 @@ fn the_spinner_runs_only_while_a_pass_does() {
         Link::Fresh,
         Link::Waiting {
             until: at(5),
-            why: crate::fetch::Pause::Unreachable,
+            why: mail_core::fetch::Pause::Unreachable,
             failures: 1,
             first: First::No,
         },

@@ -3,7 +3,7 @@
 use super::{Start, mailto_of, open_thread, start_mailto, start_of};
 use crate::ui::app::App;
 use crate::ui::fixtures::{realistic, thread_like};
-use crate::view::Shell;
+use crate::ui::view::Shell;
 use dioxus::dioxus_core::VirtualDom;
 use mail_domain::ThreadId;
 use mail_store::Store as _;
@@ -109,7 +109,7 @@ fn a_lone_mailto_link_is_the_windows_and_anything_else_is_not() {
 #[test]
 fn a_window_started_from_a_mailto_link_opens_the_composer_on_its_draft() {
     let (store, _dir) = realistic();
-    let accounts = crate::compose::sending_accounts(&store);
+    let accounts = mail_core::compose::sending_accounts(&store);
     let Some(account) = accounts.first().map(|(_, id)| *id) else {
         panic!("the fixture has no sending account");
     };
@@ -165,4 +165,23 @@ fn a_window_started_from_a_mailto_link_opens_the_composer_on_its_draft() {
         composing.contains(subject) && composing.contains(chip),
         "the composer is not on the link's draft:\n{composing}"
     );
+}
+
+/// What a desktop notification's click launches, and what the window makes of those arguments.
+#[test]
+fn a_click_starts_the_window_on_the_conversation_or_the_inbox() {
+    let one = ThreadId::from_uuid(uuid::Uuid::from_u128(0x7001));
+    let args = mail_core::notify::desktop::Launch {
+        opens: mail_core::notify::Opens::Thread(one),
+    }
+    .args();
+    assert_eq!(args, ["open".to_owned(), one.to_string()]);
+    // What the window's own reading of the command line makes of them.
+    assert_eq!(super::start_of(&args), Some(Ok(super::Start::Thread(one))));
+    let inbox = mail_core::notify::desktop::Launch {
+        opens: mail_core::notify::Opens::Inbox,
+    }
+    .args();
+    assert!(inbox.is_empty());
+    assert_eq!(super::start_of(&inbox), Some(Ok(super::Start::Inbox)));
 }

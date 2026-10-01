@@ -7,13 +7,13 @@
 //! fast the blocking thread is, and under a loaded `cargo test --workspace` the guess was wrong.
 
 use super::row_hit;
-use crate::search::list_highlight;
 use crate::ui::app::App;
 use crate::ui::debounce::QUIET;
 use crate::ui::fixtures::{Work, dispatching, dump, rebuild_into, type_into, work};
 use chrono::Utc;
 use dioxus::prelude::*;
 use dioxus_core::{ElementId, NoOpMutations, VirtualDom};
+use mail_core::search::list_highlight;
 use mail_domain::*;
 
 /// The window over the Work Space, and its search box.

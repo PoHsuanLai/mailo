@@ -15,9 +15,9 @@ use mail_store::SqliteStore;
 
 use super::tests::{ME, arrive, lines, reader, seals, shows, until};
 use super::{Said, Tone, doubt, said_smime};
-use crate::smime::Protected;
 use crate::ui::fixtures::seeded;
 use crate::ui::fixtures::smime_support::{Person, identity, pki, rng, stranger_pki};
+use mail_core::smime::Protected;
 
 const BEA: &str = "bea@example.test";
 pub(super) const PASSWORD: &str = "p12 password";
@@ -38,7 +38,7 @@ pub(super) fn identity_file() -> Vec<u8> {
 /// The user's identity imported, its private key in `secrets`.
 pub(super) fn with_identity(store: &SqliteStore, secrets: &MapSecrets) -> SmimeCert {
     let given = || Some(PASSWORD.to_owned());
-    crate::smime::certs::import(store, secrets, &identity_file(), &given, Utc::now())
+    mail_core::smime::certs::import(store, secrets, &identity_file(), &given, Utc::now())
         .unwrap()
         .remove(0)
         .cert
@@ -46,7 +46,7 @@ pub(super) fn with_identity(store: &SqliteStore, secrets: &MapSecrets) -> SmimeC
 
 /// The test authority's root, imported and trusted, as a user of it would have it.
 pub(super) fn trust_root(store: &SqliteStore, secrets: &MapSecrets) {
-    crate::smime::certs::import(
+    mail_core::smime::certs::import(
         store,
         secrets,
         pki().root.cert.pem().as_bytes(),
@@ -54,7 +54,8 @@ pub(super) fn trust_root(store: &SqliteStore, secrets: &MapSecrets) {
         Utc::now(),
     )
     .unwrap();
-    crate::smime::certs::trust(store, pki().root.cert.fingerprint(), KeyTrust::Verified).unwrap();
+    mail_core::smime::certs::trust(store, pki().root.cert.fingerprint(), KeyTrust::Verified)
+        .unwrap();
 }
 
 /// A message from bea saying `text`, with `map.bin` attached, unique by `word`.

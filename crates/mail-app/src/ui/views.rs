@@ -3,14 +3,14 @@
 //! Opened by "Save as view" beside a search, by "Edit view" while a view is shown, and by
 //! "New view…" in the command menu. Drawn in the Rules sheet's shape and with its parts: a view
 //! is a search that stays, and the editor that keeps a rule's search is the one people already
-//! know. What it writes is [`crate::saved`]'s to decide; this only draws the draft and hands it
+//! know. What it writes is [`crate::ui::saved`]'s to decide; this only draws the draft and hands it
 //! to the store.
 
 use super::menu::{Floating, MenuItem, Right, Tile};
 use super::press::{SheetClose, on_primary};
 use super::space_editor::Seg;
-use crate::saved::{self, HOVER_CHOICES, ViewDraft, group_choices, group_name, hover_name};
-use crate::view::Shell;
+use crate::ui::saved::{self, HOVER_CHOICES, ViewDraft, group_choices, group_name, hover_name};
+use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::components::controls::button_model::Answers;
 use ds::host::measure::MountedRef;

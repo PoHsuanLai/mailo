@@ -6,10 +6,10 @@
 //! it should. The counts are read once, when the sheet opens.
 
 use super::parts::Seg;
-use crate::appearance::WindowDirs;
-use crate::offline::{self, Keep, Kept};
+use crate::ui::appearance::WindowDirs;
 use crate::ui::data::{AccountRow, account_rows};
 use dioxus::prelude::*;
+use mail_core::offline::{self, Keep, Kept};
 use mail_domain::Incoming;
 use mail_store::{SqliteStore, Store as _};
 use std::sync::Arc;

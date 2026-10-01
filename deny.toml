@@ -29,7 +29,7 @@ confidence-threshold = 0.9
 #
 #   cssparser 0.38, cssparser-macros, dtoa-short   ← ammonia ← mail-mime (the sanitizer)
 #   cssparser 0.37                                 ← ds-lint (quire's stylesheet lint, a dev-dependency)
-#   nucleo-matcher                                 ← mail-app (the menus' fuzzy match)
+#   nucleo-matcher                                 ← mail-core (the menus' fuzzy match)
 #   option-ext                                     ← dirs
 #   stylo and its crates, selectors 0.40, app_units, to_shmem, uluru
 #                                                  ← blitz-dom ← ds-blitz (the CSS engine Blitz

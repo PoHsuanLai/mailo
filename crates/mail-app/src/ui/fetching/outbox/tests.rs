@@ -1,6 +1,6 @@
 use super::*;
-use crate::fetch::{First, Live, Step};
 use chrono::TimeZone;
+use mail_core::fetch::{First, Live, Step};
 use mail_domain::Retry;
 
 const DRAFT: DraftId = DraftId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b1"));

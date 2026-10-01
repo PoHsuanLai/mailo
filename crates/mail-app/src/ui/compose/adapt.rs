@@ -19,7 +19,7 @@ use ds::host::pasted::Pasted;
 use ds::host::position::TextPosition;
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::editor::{Doc, InputEvent, Node, Pos, Range, node_len, runs_text};
+use crate::ui::editor::{Doc, InputEvent, Node, Pos, Range, node_len, runs_text};
 
 /// What one input asks of the page.
 #[derive(Debug, Clone, PartialEq, Eq)]

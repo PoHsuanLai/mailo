@@ -2,7 +2,7 @@
 //!
 //! The ranker's sender affinity comes from the one grouped sender history the hover cards read
 //! (`ui::history`): how many conversations, and whether you have written to them.
-//! [`crate::search::Affinity::default`] is an empty map, and an empty map has no people, so
+//! [`mail_core::search::Affinity::default`] is an empty map, and an empty map has no people, so
 //! "dana" would never be a person. Who the People rows are is the contact book's answer
 //! (`people.rs`), the one the composer's To field gets.
 
@@ -10,8 +10,8 @@ use ds::prelude::*;
 use std::collections::HashMap;
 
 use super::super::menu::{MenuItem, Right, Run, Tile, Tone};
-use crate::search::{self, ActionHit, Command, MailHit, PersonHit, Results, Top};
 use chrono::{DateTime, Utc};
+use mail_core::search::{self, ActionHit, Command, MailHit, PersonHit, Results, Top};
 use mail_domain::ThreadId;
 use mail_store::SqliteStore;
 

@@ -15,7 +15,7 @@ use mail_domain::{CertFingerprint, Fingerprint, KeySource, KeyTrust, PgpKey, Sec
 use super::super::press::{available, on_primary};
 use super::keys::Job;
 use super::{Busy, short, who};
-use crate::pgp::WithSecret;
+use mail_core::pgp::WithSecret;
 
 /// A question the sheet is asking before it acts.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -108,7 +108,7 @@ pub(in crate::ui) fn KeyRow(
                     label: "Copy public",
                     bezel: Bezel::Inline,
                     onclick: on_primary(move || {
-                        if let Ok(armored) = crate::pgp::keys::export_public(&copy_key) {
+                        if let Ok(armored) = mail_core::pgp::keys::export_public(&copy_key) {
                             super::super::hover::copy(&armored);
                             super::super::motion::tell(
                                 "Public key copied".to_owned(),

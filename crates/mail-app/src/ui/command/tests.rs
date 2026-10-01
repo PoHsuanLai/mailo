@@ -3,10 +3,10 @@
 use super::super::app::App;
 use super::items::{Pick, interpret, rows_of, search_now, tokens};
 use super::*;
-use crate::search::{Results, Top};
 use crate::ui::fixtures::work;
-use crate::view::Shell;
+use crate::ui::view::Shell;
 use dioxus_core::VirtualDom;
+use mail_core::search::{Results, Top};
 use mail_domain::Filter;
 use std::collections::HashMap;
 
@@ -20,7 +20,7 @@ pub(in crate::ui) fn MenuPicture() -> Element {
     let pages = use_signal(|| 1u32);
     let revision = use_signal(|| 0u64);
     let side_hidden = use_signal(|| false);
-    let spaces = use_signal(crate::space::Spaces::default);
+    let spaces = use_signal(crate::ui::space::Spaces::default);
     // Inside a quire root, as the window has it: the palette floats in its overlay.
     rsx! {
         Ds {
@@ -36,7 +36,7 @@ pub(in crate::ui) fn MenuPicture() -> Element {
 #[component]
 pub(in crate::ui) fn OpenMenus() -> Element {
     let store = use_hook(consume_context::<Arc<SqliteStore>>);
-    let known = crate::query::known_labels(&store);
+    let known = mail_core::query::known_labels(&store);
     let shell = use_signal(|| Shell {
         command: Some("dana".to_owned()),
         labels: known,
@@ -45,11 +45,11 @@ pub(in crate::ui) fn OpenMenus() -> Element {
     let pages = use_signal(|| 1u32);
     let revision = use_signal(|| 0u64);
     let side_hidden = use_signal(|| false);
-    let spaces = use_signal(crate::space::Spaces::default);
-    let summary = crate::search::Source::listed(
+    let spaces = use_signal(crate::ui::space::Spaces::default);
+    let summary = mail_core::search::Source::listed(
         store.as_ref(),
         &Filter::All,
-        crate::search::first(1),
+        mail_core::search::first(1),
         Utc::now(),
     )
     .into_iter()

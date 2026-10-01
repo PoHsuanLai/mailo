@@ -13,7 +13,7 @@ use ds_harness::{Driver, Harness, HarnessConfig, Query, Viewport};
 mod drive;
 use drive::Drive;
 use ds_blitz::{FocusFallback, NetPolicy, PrintOutcome};
-use mail_app::appearance::WindowDirs;
+use mail_app::ui::appearance::WindowDirs;
 use mail_domain::*;
 use mail_store::SqliteStore;
 use std::path::Path;
@@ -68,8 +68,8 @@ fn composing_over(store: &Arc<SqliteStore>, dirs: &WindowDirs) -> Harness {
     let printer = mail_app::ui::native::Printer::with_dialog(|_, _| Ok(PrintOutcome::Cancelled));
     let contexts = mail_app::ui::native::contexts(
         Arc::clone(store),
-        mail_app::view::Appearance::default(),
-        mail_app::space::Spaces::default(),
+        mail_app::ui::view::Appearance::default(),
+        mail_app::ui::space::Spaces::default(),
         Some(dirs.clone()),
         mail_app::ui::Start::Inbox,
     )
@@ -178,7 +178,9 @@ fn the_button_opens_the_picker_a_click_picks_and_a_new_window_has_it_first() {
     type_text(&mut harness, "!");
     settle_until(&mut harness, |h| body(h) == "Hi 😀!");
     assert!(
-        dirs.state.join(mail_app::emoji::recent::FILE_NAME).exists(),
+        dirs.state
+            .join(mail_app::ui::emoji::recent::FILE_NAME)
+            .exists(),
         "the pick was kept"
     );
 
@@ -203,7 +205,7 @@ fn the_picker_is_walked_with_the_arrows_enter_picks_and_escape_closes_it() {
     let (mut harness, _dir, _store, _dirs) = composing();
     open_picker(&mut harness);
     type_text(&mut harness, "cat");
-    let found: Vec<&str> = mail_app::emoji::search("cat")
+    let found: Vec<&str> = mail_app::ui::emoji::search("cat")
         .iter()
         .map(|emoji| emoji.name)
         .collect();
@@ -216,7 +218,7 @@ fn the_picker_is_walked_with_the_arrows_enter_picks_and_escape_closes_it() {
     });
     harness.key(Key::Enter);
     settle_until(&mut harness, |h| h.count(".em-picker") == 0);
-    let second = mail_app::emoji::search("cat")[1].glyph;
+    let second = mail_app::ui::emoji::search("cat")[1].glyph;
     settle_until(&mut harness, |h| body(h) == second);
 
     // Escape closes the picker and nothing else: the draft stays open, the body unchanged.

@@ -106,12 +106,12 @@ struct Opened {
 }
 
 /// The window with the switch `on` and `brand.example`'s logo drawn and cached.
-fn open(on: mail_app::bimi::Setting) -> Opened {
+fn open(on: mail_core::bimi::Setting) -> Opened {
     let mail = tempfile::tempdir().unwrap();
     let config = tempfile::tempdir().unwrap();
     let cache = tempfile::tempdir().unwrap();
     let store = seeded(mail.path());
-    mail_app::bimi::save(config.path(), on).unwrap();
+    mail_core::bimi::save(config.path(), on).unwrap();
     let png = mail_runtime::bimi::draw(LOGO.as_bytes()).unwrap();
     mail_runtime::bimi::remember(
         cache.path(),
@@ -120,15 +120,15 @@ fn open(on: mail_app::bimi::Setting) -> Opened {
         chrono::Utc::now(),
     )
     .unwrap();
-    let dirs = mail_app::appearance::WindowDirs {
+    let dirs = mail_app::ui::appearance::WindowDirs {
         config: config.path().to_owned(),
         state: config.path().join("state"),
     };
     let printer = mail_app::ui::native::Printer::with_dialog(|_, _| Ok(PrintOutcome::Cancelled));
     let contexts = mail_app::ui::native::contexts(
         Arc::clone(&store),
-        mail_app::view::Appearance::default(),
-        mail_app::space::Spaces::default(),
+        mail_app::ui::view::Appearance::default(),
+        mail_app::ui::space::Spaces::default(),
         Some(dirs),
         mail_app::ui::Start::Inbox,
     )
@@ -168,7 +168,7 @@ const HEAD_CHECKS: &str = ".reader-meta .sender-checks";
 
 #[test]
 fn a_cached_logo_takes_the_initials_place_in_the_reader_head() {
-    let Opened { mut harness, _dirs } = open(mail_app::bimi::Setting::On);
+    let Opened { mut harness, _dirs } = open(mail_core::bimi::Setting::On);
     open_row(&mut harness, 1);
     settle_until(&mut harness, |harness| harness.count(HEAD_LOGO) == 1);
     let src = harness.attr(HEAD_LOGO, "src").unwrap_or_default();
@@ -194,7 +194,7 @@ fn a_cached_logo_takes_the_initials_place_in_the_reader_head() {
 
 #[test]
 fn a_sender_dmarc_did_not_pass_for_keeps_the_initial() {
-    let Opened { mut harness, _dirs } = open(mail_app::bimi::Setting::On);
+    let Opened { mut harness, _dirs } = open(mail_core::bimi::Setting::On);
     open_row(&mut harness, 2);
     // The checks line lands once the blob has been read, and so has the logo's answer.
     settle_until(&mut harness, |harness| harness.count(HEAD_CHECKS) == 1);
@@ -211,7 +211,7 @@ fn a_sender_dmarc_did_not_pass_for_keeps_the_initial() {
 
 #[test]
 fn with_the_switch_off_the_cached_logo_is_not_shown() {
-    let Opened { mut harness, _dirs } = open(mail_app::bimi::Setting::Off);
+    let Opened { mut harness, _dirs } = open(mail_core::bimi::Setting::Off);
     open_row(&mut harness, 1);
     settle_until(&mut harness, |harness| harness.count(HEAD_CHECKS) == 1);
     harness.advance(ms(300));
@@ -227,7 +227,7 @@ fn with_the_switch_off_the_cached_logo_is_not_shown() {
 
 #[test]
 fn the_sender_card_shows_the_logo() {
-    let Opened { mut harness, _dirs } = open(mail_app::bimi::Setting::On);
+    let Opened { mut harness, _dirs } = open(mail_core::bimi::Setting::On);
     let sender = format!("{} .ds-thread-name", row(1));
     let at = harness
         .centre(&sender)

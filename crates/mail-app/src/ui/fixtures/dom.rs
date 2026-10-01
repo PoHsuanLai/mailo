@@ -3,7 +3,7 @@ use super::super::compose::{ComposerPage, use_desk};
 use super::super::reading::Reader;
 use super::super::style::STYLE;
 use super::store::{ACCOUNT, seeded};
-use crate::view::Shell;
+use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use dioxus_core::{NoOpMutations, VirtualDom};
 use ds::prelude::*;
@@ -135,7 +135,7 @@ pub(in crate::ui) fn write_page(name: &str, page: &str) {
 /// is the `.ds` root's `data-theme`, which quire always writes; a component rendered on its
 /// own is placed in a root of each ([`framed`]).
 pub(in crate::ui) fn dump(name: &str, body: &str) {
-    let look = crate::space::Space::default().look;
+    let look = crate::ui::space::Space::default().look;
     for (suffix, scheme) in [("", Scheme::Light), ("-dark", Scheme::Dark)] {
         write_page(
             &format!("{name}{suffix}"),
@@ -727,8 +727,8 @@ fn ComposerHarness() -> Element {
     let toggle = use_context::<Toggle>();
     let mut shell = use_signal(Shell::default);
     let revision = use_signal(|| 0u64);
-    let today = use_signal(crate::today::Today::default);
-    let spaces = use_signal(crate::space::Spaces::default);
+    let today = use_signal(crate::ui::today::Today::default);
+    let spaces = use_signal(crate::ui::space::Spaces::default);
     let side = use_signal(|| false);
     use_desk(today, spaces, None, side);
 
@@ -846,7 +846,7 @@ mod tests {
                 )
                 .unwrap();
         }
-        let loaded = crate::provider::icon::Loaded::read(&icons);
+        let loaded = mail_core::provider::icon::Loaded::read(&icons);
         if !icons.join("google.png").is_file() {
             println!(
                 "no cached icons in {}; tiles will show letters",
@@ -855,21 +855,21 @@ mod tests {
         }
         // One Space over every account. The first-run layout is one Space per
         // account, which would hide four of the five tiles.
-        let spaces = crate::space::Spaces {
+        let spaces = crate::ui::space::Spaces {
             current: 0,
             recall: std::collections::BTreeMap::new(),
-            spaces: vec![crate::space::Space {
+            spaces: vec![crate::ui::space::Space {
                 name: "Mail".to_owned(),
-                scope: crate::space::Scope::All,
-                ..crate::space::Space::default()
+                scope: crate::ui::space::Scope::All,
+                ..crate::ui::space::Space::default()
             }],
         };
         let mut dom = dioxus::prelude::VirtualDom::new(crate::ui::app::App)
             .with_root_context(store)
             .with_root_context(loaded)
             .with_root_context(spaces)
-            .with_root_context(crate::view::Appearance {
-                marks: crate::view::Marks::Icons,
+            .with_root_context(crate::ui::view::Appearance {
+                marks: crate::ui::view::Marks::Icons,
             });
         dom.rebuild_in_place();
         dump("shell-icons", &dioxus_ssr::render(&dom));

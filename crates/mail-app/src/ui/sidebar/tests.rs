@@ -1,6 +1,6 @@
 use super::super::app::App;
-use crate::space::{Space, Spaces};
 use crate::ui::fixtures::empty;
+use crate::ui::space::{Space, Spaces};
 use dioxus::prelude::*;
 use std::collections::BTreeMap;
 

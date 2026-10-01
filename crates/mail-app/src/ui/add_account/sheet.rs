@@ -24,9 +24,9 @@ use super::super::hover::copy;
 use super::super::press::{available, on_primary};
 use super::copy::{self, Action, Notice};
 use super::flow::{self, Client, Hand, Miss, Offer, Opened, Refusal, SignIn, SigningIn, Stage};
-use crate::password::Password;
-use crate::space::Spaces;
-use crate::view::Shell;
+use crate::ui::space::Spaces;
+use crate::ui::view::Shell;
+use mail_core::password::Password;
 
 /// Look up what is typed, off the thread that draws. Call it from an event handler (F140).
 fn look_up(shell: Signal<Shell>, mut stage: Signal<Stage>) {

@@ -3,7 +3,7 @@
 //! Moved out of `blocks.rs` unchanged when that file grew the marks (`CONVENTIONS.md` §8).
 
 use super::super::press::on_primary;
-use crate::view::Shell;
+use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::prelude::*;
 use ds::root::common::Common;

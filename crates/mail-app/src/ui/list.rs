@@ -15,9 +15,8 @@ use super::press::{available, on_primary};
 use super::row::{DraftRow, MailRow};
 use super::server_search::{Asked, ServerSearch, found_threads};
 use super::view_groups::group_list;
-use crate::fetch::Tone;
-use crate::provider::provider;
-use crate::view::{Nothing, Shell};
+use crate::ui::fetching::Tone;
+use crate::ui::view::{Nothing, Shell};
 use dioxus::prelude::*;
 use ds::components::chrome::toolbar::view::Toolbar;
 use ds::components::content::label::{Label, LabelRole, LabelStyle};
@@ -26,6 +25,7 @@ use ds::components::controls::button_model::{Bezel, ImagePosition};
 use ds::components::overlays::empty_state::EmptyForm;
 use ds::prelude::*;
 use ds::style::tokens::control_size::ControlSize;
+use mail_core::provider::provider;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 use std::collections::BTreeMap;
@@ -163,7 +163,7 @@ pub(super) fn ThreadList(
                 Some(id) => row.id == id,
                 None => shell.read().scope.is_empty() || shell.read().scope.contains(&row.id),
             })
-            .filter(|row| crate::server_search::searchable(&row.plan))
+            .filter(|row| mail_core::server_search::searchable(&row.plan))
             .map(|row| (row.id, row.shown()))
             .collect()
     };
@@ -423,7 +423,7 @@ pub(super) fn ThreadList(
 
 /// What a row shows beside its summary: the provider mark, the label chips, the search marks.
 struct Dress {
-    via: Option<crate::provider::Provider>,
+    via: Option<mail_core::provider::Provider>,
     chips: Vec<String>,
     hit: Option<RowHit>,
 }
@@ -435,7 +435,7 @@ fn dress(
     summary: &ThreadSummary,
     accounts: &[AccountRow],
     names: &BTreeMap<LabelId, String>,
-    highlight: &crate::search::Highlight,
+    highlight: &mail_core::search::Highlight,
     from_server: &[ThreadId],
 ) -> Dress {
     let mut chips: Vec<String> = summary

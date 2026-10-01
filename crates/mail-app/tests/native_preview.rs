@@ -33,7 +33,7 @@ const VIEW: Viewport = Viewport {
 };
 
 /// Two pages: 200 × 100 points, then 200 × 300.
-const TWO_PAGES: &[u8] = include_bytes!("fixtures/two-pages.pdf");
+const TWO_PAGES: &[u8] = include_bytes!("../../mail-core/tests/fixtures/two-pages.pdf");
 
 /// Every request a document made that was not inline, refused.
 #[derive(Default)]
@@ -220,8 +220,8 @@ fn open() -> Window {
     let store = seeded(dir.path());
     let contexts = mail_app::ui::native::contexts(
         store.clone(),
-        mail_app::view::Appearance::default(),
-        mail_app::space::Spaces::default(),
+        mail_app::ui::view::Appearance::default(),
+        mail_app::ui::space::Spaces::default(),
         None,
         mail_app::ui::Start::Inbox,
     );

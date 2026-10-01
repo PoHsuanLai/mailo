@@ -1,5 +1,5 @@
 use super::caps;
-use crate::keymap::DEFAULTS;
+use crate::ui::keymap::DEFAULTS;
 use ds::prelude::ShortcutKey as Key;
 
 #[test]

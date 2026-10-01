@@ -1,10 +1,10 @@
 //! One account's pass, run off the thread that draws, and what it sends back.
 
 use super::Note;
-use crate::fetch::{Event, FolderFetch};
-use crate::sync::report::{Hooks, PassEnd, Progress, outcome};
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
+use mail_core::fetch::{Event, FolderFetch};
+use mail_core::sync::report::{Hooks, PassEnd, Progress, outcome};
 use mail_domain::AccountId;
 use mail_store::SqliteStore;
 use std::cell::RefCell;
@@ -14,7 +14,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc::UnboundedSender, watch};
 
-/// Run a pass over one account: the signature of [`crate::sync::due::run_due_typed`].
+/// Run a pass over one account: the signature of [`mail_core::sync::due::run_due_typed`].
 pub(in crate::ui) type Pass = Arc<
     dyn Fn(Arc<SqliteStore>, DateTime<Utc>, AccountId, Hooks<'_>) -> Result<Vec<PassEnd>, String>
         + Send
@@ -26,11 +26,11 @@ pub(in crate::ui) type Pass = Arc<
 pub(in crate::ui) struct Passer(pub Pass);
 
 impl Passer {
-    /// The servers, through [`crate::sync::due::run_due_typed`].
+    /// The servers, through [`mail_core::sync::due::run_due_typed`].
     #[cfg(not(test))]
     pub(in crate::ui) fn server() -> Self {
         Self(Arc::new(|store, now, account, hooks| {
-            crate::sync::due::run_due_typed(store, now, &[account], hooks)
+            mail_core::sync::due::run_due_typed(store, now, &[account], hooks)
         }))
     }
 

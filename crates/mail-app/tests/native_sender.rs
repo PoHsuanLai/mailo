@@ -5,7 +5,7 @@
 //! writes no file anywhere; nothing here reads or touches the real mail store or config. The
 //! account's plan is empty, as `native_harness.rs`'s is, so the window's poll finds no account
 //! it can sync and reaches no server; with no server name to go on, the topmost
-//! `Authentication-Results` is the one read (`mail_app::auth::receiver`).
+//! `Authentication-Results` is the one read (`mail_core::auth::receiver`).
 
 use ds::prelude::Point;
 use ds_blitz::{FocusFallback, NetPolicy, PrintOutcome};
@@ -106,8 +106,8 @@ fn open() -> (Harness, tempfile::TempDir, Arc<SqliteStore>) {
     let printer = mail_app::ui::native::Printer::with_dialog(|_, _| Ok(PrintOutcome::Cancelled));
     let contexts = mail_app::ui::native::contexts(
         Arc::clone(&store),
-        mail_app::view::Appearance::default(),
-        mail_app::space::Spaces::default(),
+        mail_app::ui::view::Appearance::default(),
+        mail_app::ui::space::Spaces::default(),
         None,
         mail_app::ui::Start::Inbox,
     )

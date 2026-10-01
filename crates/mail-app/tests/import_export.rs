@@ -3,7 +3,11 @@
 //! account's absence from everything that talks to a server.
 
 use chrono::{DateTime, TimeZone, Utc};
-use mail_app::{cli, compose, export, import, sync};
+use mail_app::cli;
+use mail_core::compose;
+use mail_core::export;
+use mail_core::import;
+use mail_core::sync;
 use mail_domain::*;
 use mail_mime::archive::maildir::INFO;
 use mail_mime::archive::mbox;

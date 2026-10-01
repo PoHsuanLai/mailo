@@ -1,6 +1,6 @@
 //! Which accounts a press of Sync, and the line under the list's title, are about.
 
-use crate::view::Shell;
+use crate::ui::view::Shell;
 use mail_domain::AccountId;
 use std::collections::BTreeSet;
 

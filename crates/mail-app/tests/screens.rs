@@ -160,8 +160,8 @@ fn open(dark: bool) -> (Harness, tempfile::TempDir) {
     let store = seeded(dir.path());
     let contexts = mail_app::ui::native::contexts(
         store,
-        mail_app::view::Appearance::default(),
-        mail_app::space::Spaces::default(),
+        mail_app::ui::view::Appearance::default(),
+        mail_app::ui::space::Spaces::default(),
         None,
         mail_app::ui::Start::Inbox,
     );

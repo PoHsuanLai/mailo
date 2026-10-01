@@ -2,7 +2,7 @@
 //!
 //! A message is asked of OpenPGP first and of S/MIME when OpenPGP finds none. What was found is
 //! kept per message and body, with the count of key changes it was found under
-//! ([`crate::pgp::epoch`], which S/MIME's moves too): once the keys or certificates change —
+//! ([`mail_core::pgp::epoch`], which S/MIME's moves too): once the keys or certificates change —
 //! from the sheet, the command line, or a certificate learnt from arriving mail — the next
 //! opening asks again, and nothing has to remember to clear it.
 
@@ -16,9 +16,9 @@ use mail_store::{SqliteStore, Store};
 
 use super::super::text::{AttachmentRow, Kept as Where};
 use super::{Said, Scheme, Tried, said, said_smime};
-use crate::password::Password;
-use crate::pgp::Ask;
-use crate::view::Reading;
+use mail_core::password::Password;
+use mail_core::pgp::Ask;
+use mail_core::reader::Reading;
 
 /// A message opened: what to say about it, and the body to show in place of the stored one.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -86,7 +86,7 @@ fn look(
     let Ok(stored) = store.message(message) else {
         return Look::Plain;
     };
-    match crate::pgp::open_message(store, secrets, &stored, ask, Utc::now()) {
+    match mail_core::pgp::open_message(store, secrets, &stored, ask, Utc::now()) {
         Ok(None) => {}
         Ok(Some(protected)) => {
             return match protected.encryption {
@@ -101,7 +101,7 @@ fn look(
         }
         Err(e) => return Look::Failed(format!("Can\u{2019}t open OpenPGP: {e}")),
     }
-    match crate::smime::open_message(store, secrets, &stored, Utc::now()) {
+    match mail_core::smime::open_message(store, secrets, &stored, Utc::now()) {
         Ok(None) => Look::Plain,
         Ok(Some(protected)) => Look::Opened(Box::new(opened(
             &stored,
@@ -122,7 +122,7 @@ fn opened(message: &Message, scheme: Scheme, said: Vec<Said>, shown: Option<Pars
         .map(|parsed| {
             vec![(
                 policy,
-                crate::view::reading(&message.body, Some(parsed), policy),
+                mail_core::reader::reading(&message.body, Some(parsed), policy),
             )]
         })
         .unwrap_or_default();
@@ -153,7 +153,7 @@ fn held() -> std::sync::MutexGuard<'static, Vec<Kept>> {
 
 /// What was found for `message` holding `body`, if it was opened under the keys held now.
 pub(in crate::ui) fn cached(message: MessageId, body: Option<BlobId>) -> Option<Look> {
-    let now = crate::pgp::epoch();
+    let now = mail_core::pgp::epoch();
     held()
         .iter()
         .find(|kept| kept.message == message && kept.body == body && kept.epoch == now)
@@ -172,7 +172,7 @@ fn last(message: MessageId, body: Option<BlobId>) -> Option<Look> {
 /// Keep `look`, under the count as it stands once the look is done: opening a signed message
 /// may itself teach a certificate, and what it found already knows it.
 fn keep(message: MessageId, body: Option<BlobId>, look: &Look) {
-    let epoch = crate::pgp::epoch();
+    let epoch = mail_core::pgp::epoch();
     let mut cache = held();
     cache.retain(|kept| kept.message != message);
     cache.push(Kept {
@@ -200,7 +200,7 @@ pub(in crate::ui) fn lookup(
         store,
         secrets,
         message,
-        &crate::pgp::no_passphrase,
+        &mail_core::pgp::no_passphrase,
         Tried::Nothing,
     );
     keep(message, body, &found);
@@ -241,7 +241,7 @@ pub(in crate::ui) fn reading(message: &Message, policy: SanitizePolicy) -> Optio
         }
         opened.shown.clone()?
     };
-    let drawn = crate::view::reading(&message.body, Some(&parsed), policy);
+    let drawn = mail_core::reader::reading(&message.body, Some(&parsed), policy);
     let mut cache = held();
     if let Some(Kept {
         look: Look::Opened(opened),
@@ -283,8 +283,8 @@ pub(in crate::ui) fn attachments(message: &Message) -> Option<Vec<AttachmentRow>
             .enumerate()
             .map(|(index, part)| AttachmentRow {
                 index,
-                name: crate::attach::safe_name(&part.name),
-                size: crate::attach::human_size(part.bytes.len() as u64),
+                name: mail_core::attach::safe_name(&part.name),
+                size: mail_core::attach::human_size(part.bytes.len() as u64),
                 kept: Where::Opened,
             })
             .collect(),
@@ -303,6 +303,6 @@ pub(in crate::ui) fn save_attachment(
         return Err("The message is closed. Open it again.".to_owned());
     };
     let shown = opened.shown.ok_or("Can\u{2019}t read the attachments.")?;
-    let attachment = crate::attach::opened_attachment(&shown, index)?;
-    crate::attach::save_opened(&attachment, dir)
+    let attachment = mail_core::attach::opened_attachment(&shown, index)?;
+    mail_core::attach::save_opened(&attachment, dir)
 }

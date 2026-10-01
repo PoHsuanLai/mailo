@@ -11,7 +11,7 @@ use super::super::contacts::groups::{self, Offer};
 use super::super::menu::{MenuItem, Right, Tile};
 use super::float::people_rows;
 use super::page::{CcRow, Float, List, Page, person};
-use crate::editor::Person;
+use crate::ui::editor::Person;
 
 /// Someone typed into `list`'s field. A comma commits what came before it.
 ///
@@ -128,7 +128,7 @@ pub(in crate::ui) fn commit_typed(page: &mut Page, list: List) -> bool {
     if typed.trim().is_empty() {
         return true;
     }
-    match crate::view::parse_addresses(&typed) {
+    match mail_core::compose::addresses::parse_addresses(&typed) {
         Ok(addresses) => {
             for address in &addresses {
                 add(page, list, person(address));

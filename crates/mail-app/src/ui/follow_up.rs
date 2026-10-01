@@ -1,14 +1,13 @@
 //! Remind me if no reply, in the window: the sweep that brings a conversation back, the menu that
 //! sets a reminder on one, the reader's tool and the line that says where a reminder stands.
 //!
-//! The deciding is [`crate::follow_up`]'s; this is when it runs and how it is shown.
+//! The deciding is [`mail_core::follow_up`]'s; this is when it runs and how it is shown.
 
 use super::menu::{MenuItem, Right, Tile, anchor_for, palette_groups};
 use super::menus::{snooze_help, when_words};
 use super::motion::act_all;
 use super::picks::with_selection;
-use crate::notify::Notifier;
-use crate::view::Shell;
+use crate::ui::view::Shell;
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
 use ds::components::content::avatar::AvatarSize;
@@ -17,6 +16,7 @@ use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::icon::render::Glyph;
+use mail_core::notify::Notifier;
 use mail_domain::{FollowUp, Op, ThreadId};
 use mail_store::SqliteStore;
 use std::sync::Arc;
@@ -67,7 +67,7 @@ pub(in crate::ui) fn use_reminders(mut revision: Signal<u64>) {
                 let store = consume_context::<Arc<SqliteStore>>();
                 let notices = try_consume_context::<Notices>();
                 let notifier = notices.as_ref().map(|notices| notices.0.as_ref());
-                match crate::follow_up::sweep_and_announce(&store, notifier, now) {
+                match mail_core::follow_up::sweep_and_announce(&store, notifier, now) {
                     // Moving the revision starts this again, with the next due time.
                     Ok(swept) if swept.changed() => {
                         revision += 1;
@@ -76,7 +76,8 @@ pub(in crate::ui) fn use_reminders(mut revision: Signal<u64>) {
                     Ok(_) => {}
                     Err(why) => eprintln!("reminders: {why}"),
                 }
-                ds::base::time::clock::sleep(wait(crate::follow_up::next_due(&store), now)).await;
+                ds::base::time::clock::sleep(wait(mail_core::follow_up::next_due(&store), now))
+                    .await;
             }
         }
     });
@@ -109,10 +110,10 @@ where
         title: Vec::new(),
         detail: Vec::new(),
     };
-    let mut items: Vec<MenuItem> = crate::follow_up::CHOICES
+    let mut items: Vec<MenuItem> = mail_core::follow_up::CHOICES
         .iter()
         .filter_map(|(key, says)| {
-            let at = crate::follow_up::due(key, now, zone).ok()?;
+            let at = mail_core::follow_up::due(key, now, zone).ok()?;
             Some(row(
                 (*key).to_owned(),
                 Icon::Bell,
@@ -122,7 +123,7 @@ where
         })
         .collect();
     if !typed.trim().is_empty() {
-        let help = match crate::follow_up::due(typed, now, zone) {
+        let help = match mail_core::follow_up::due(typed, now, zone) {
             Ok(at) => snooze_help(at, zone),
             Err(why) => why,
         };
@@ -160,7 +161,7 @@ where
         TYPED => typed,
         named => named,
     };
-    let at = crate::follow_up::due(choice, now, zone).ok()?;
+    let at = mail_core::follow_up::due(choice, now, zone).ok()?;
     Some(FollowUp::Until { at, set: now })
 }
 

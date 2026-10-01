@@ -3,16 +3,16 @@
 use super::Reader;
 use super::blocks::{iframe_mounts, reset_iframe_mounts};
 use super::tests::{dump_page, html_message, iframe_srcdoc, text_message, thread_of};
-use crate::search::Find;
 use crate::ui::app::App;
 use crate::ui::fixtures::{
     INSIDE_THE_SHELL, Seen, chord, click, dispatching, rebuild_into, type_into, work,
 };
 use crate::ui::host::{Ask, Drawn, Recorder, When};
-use crate::view::Shell;
+use crate::ui::view::Shell;
 use dioxus::html::input_data::keyboard_types::Modifiers;
 use dioxus::prelude::*;
 use dioxus_core::{ElementId, VirtualDom};
+use mail_core::search::Find;
 use mail_domain::ThreadId;
 
 /// The reader on `thread`, with ⌘F already open.

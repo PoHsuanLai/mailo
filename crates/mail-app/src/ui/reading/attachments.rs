@@ -22,7 +22,7 @@ use mail_store::SqliteStore;
 
 use super::super::text::{AttachmentRow, Kept};
 use super::thumb::Thumb;
-use crate::view::Shell;
+use crate::ui::view::Shell;
 
 /// The rows for one message. `saved` says where the last one went; `downloading` is the part
 /// being fetched, whose button stays disabled until the fetch ends.
@@ -94,9 +94,9 @@ pub(super) fn Attachments(
 /// Write a stored part to the downloads directory.
 fn save_here(message: MessageId, index: usize, mut saved: Signal<Option<String>>) {
     let store = consume_context::<Arc<SqliteStore>>();
-    let where_to = crate::attach::downloads_dir();
+    let where_to = mail_core::attach::downloads_dir();
     saved.set(Some(
-        match crate::attach::save(&store, message, index, &where_to) {
+        match mail_core::attach::save(&store, message, index, &where_to) {
             Ok(path) => format!("Saved to {}", path.display()),
             Err(why) => why,
         },
@@ -115,7 +115,7 @@ fn save_opened(
         return;
     }
     downloading.set(Some((message, index)));
-    let dir = crate::attach::downloads_dir();
+    let dir = mail_core::attach::downloads_dir();
     // Spawned from a press, which is where a task is polled (F140).
     spawn(async move {
         let done = tokio::task::spawn_blocking(move || {
@@ -147,13 +147,13 @@ fn download(
     // Cloned out of the context into the blocking thread: the fetch outlives this click, and
     // `fetch_part` holds the store for the whole download.
     let store = consume_context::<Arc<SqliteStore>>();
-    let dir = crate::attach::downloads_dir();
+    let dir = mail_core::attach::downloads_dir();
     spawn(async move {
         // `spawn_blocking`, not this task: `fetch_part` opens sockets and builds its own
         // runtime, and `Runtime::block_on` inside an async context panics.
         let done = tokio::task::spawn_blocking(move || {
-            crate::attach::fetch_and_save(&store, message, index, &dir, |section| {
-                crate::sync::fetch_part(&store, message, section, chrono::Utc::now())
+            mail_core::attach::fetch_and_save(&store, message, index, &dir, |section| {
+                mail_core::sync::fetch_part(&store, message, section, chrono::Utc::now())
             })
         })
         .await;

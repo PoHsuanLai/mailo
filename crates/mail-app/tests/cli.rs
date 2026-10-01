@@ -272,7 +272,7 @@ mod manual_setup {
         match parsed {
             cli::Command::AccountAdd {
                 address,
-                manual: Some(cli::Setup::Imap(manual)),
+                manual: Some(mail_core::account::Setup::Imap(manual)),
                 ..
             } => {
                 assert_eq!(address, "me@example.test");
@@ -295,7 +295,7 @@ mod manual_setup {
         .unwrap();
         match parsed {
             cli::Command::AccountAdd {
-                manual: Some(cli::Setup::Imap(manual)),
+                manual: Some(mail_core::account::Setup::Imap(manual)),
                 ..
             } => {
                 assert_eq!(manual.imap_port, 1993);
@@ -313,7 +313,7 @@ mod manual_setup {
         .unwrap();
         match parsed {
             cli::Command::AccountAdd {
-                manual: Some(cli::Setup::Imap(manual)),
+                manual: Some(mail_core::account::Setup::Imap(manual)),
                 ..
             } => assert_eq!(manual.login.as_deref(), Some("mylogin")),
             other => panic!("{other:?}"),
@@ -376,7 +376,7 @@ mod manual_setup {
         .unwrap();
         match parsed {
             cli::Command::AccountAdd {
-                manual: Some(cli::Setup::Pop3(manual)),
+                manual: Some(mail_core::account::Setup::Pop3(manual)),
                 ..
             } => {
                 assert_eq!(manual.pop3_host, "pop.example.edu");
@@ -546,7 +546,7 @@ mod microsoft {
             cli::Command::AccountAdd {
                 microsoft: true,
                 graph: true,
-                receive: cli::Receive::Graph,
+                receive: mail_core::account::Receive::Graph,
                 ..
             }
         ));
@@ -554,7 +554,7 @@ mod microsoft {
         assert!(matches!(
             plain,
             cli::Command::AccountAdd {
-                receive: cli::Receive::Imap,
+                receive: mail_core::account::Receive::Imap,
                 ..
             }
         ));
@@ -780,7 +780,7 @@ mod forwarding {
                 assert_eq!(message, MessageId::from_uuid(id));
                 assert_eq!(
                     carry,
-                    mail_app::compose::Carry::Inline,
+                    mail_core::compose::Carry::Inline,
                     "inline unless asked"
                 );
                 assert_eq!(
@@ -799,7 +799,7 @@ mod forwarding {
         let id = uuid::Uuid::new_v4().to_string();
         match parse(&["forward", &id, "--to", "bea@example.test", "--attached"]).unwrap() {
             cli::Command::Forward { carry, .. } => {
-                assert_eq!(carry, mail_app::compose::Carry::Attached);
+                assert_eq!(carry, mail_core::compose::Carry::Attached);
             }
             other => panic!("{other:?}"),
         }
@@ -951,7 +951,7 @@ mod jmap_setup {
         assert!(matches!(
             named,
             cli::Command::AccountAdd {
-                manual: Some(cli::Setup::Jmap { session: Some(ref s), login: Some(ref l), auth: HttpAuth::Basic }),
+                manual: Some(mail_core::account::Setup::Jmap { session: Some(ref s), login: Some(ref l), auth: HttpAuth::Basic }),
                 ..
             } if s == "https://jmap.example.test/.well-known/jmap" && l == "me"
         ));
@@ -959,7 +959,7 @@ mod jmap_setup {
         assert!(matches!(
             bare,
             cli::Command::AccountAdd {
-                manual: Some(cli::Setup::Jmap { session: None, .. }),
+                manual: Some(mail_core::account::Setup::Jmap { session: None, .. }),
                 ..
             }
         ));
