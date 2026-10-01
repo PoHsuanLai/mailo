@@ -269,6 +269,9 @@ fn seal_lines(seal: &str) -> Vec<(String, String)> {
             };
             out.push((look.to_owned(), words_of(&rest[tag_end + 1..end])));
             rest = &rest[end..];
+        } else if tag.contains("ds-inline-banner-frame") {
+            // quire's wrapper around the banner: look inside it, the banner is what says.
+            rest = &rest[tag.len()..];
         } else if rest.starts_with("<div") {
             let end = close_of(rest);
             if tag.contains("ds-inline-banner\"") {
@@ -451,10 +454,13 @@ fn every_tone_draws_its_own_look() {
     ];
     let mut dom = VirtualDom::new_with_props(
         |tones: [Tone; 6]| {
+            // The banners are quire's, which read the `Ds` root's scope.
             rsx! {
-                div { class: "seal",
-                    for (at, tone) in tones.into_iter().enumerate() {
-                        {super::seal::said_line(at, super::said::Said { tone, text: format!("line {at}") })}
+                ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window,
+                    div { class: "seal",
+                        for (at, tone) in tones.into_iter().enumerate() {
+                            {super::seal::said_line(at, super::said::Said { tone, text: format!("line {at}") })}
+                        }
                     }
                 }
             }

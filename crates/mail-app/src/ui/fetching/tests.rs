@@ -17,11 +17,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Duration;
 
-const ACCOUNT: AccountId =
+pub(super) const ACCOUNT: AccountId =
     AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000c9"));
 
 /// A store with one IMAP account. With `fetched`, an earlier pass is on record for it.
-fn account(fetched: bool) -> (Arc<SqliteStore>, tempfile::TempDir) {
+pub(super) fn account(fetched: bool) -> (Arc<SqliteStore>, tempfile::TempDir) {
     let (store, dir) = empty();
     let manual = presets::Manual {
         imap_host: "imap.nowhere.example".to_owned(),
@@ -61,17 +61,17 @@ fn account(fetched: bool) -> (Arc<SqliteStore>, tempfile::TempDir) {
 }
 
 /// How a held pass ends once it is let go.
-type Ending = fn() -> PassEnd;
+pub(super) type Ending = fn() -> PassEnd;
 
 /// What a test's pass does when it is run: say where it is, wait to be let go, then end as told.
 #[derive(Clone)]
-struct Script {
-    runs: Arc<AtomicUsize>,
+pub(super) struct Script {
+    pub(super) runs: Arc<AtomicUsize>,
     /// Lets the next waiting pass finish with this end.
-    release: Arc<Mutex<mpsc::Sender<Ending>>>,
+    pub(super) release: Arc<Mutex<mpsc::Sender<Ending>>>,
 }
 
-fn finished() -> PassEnd {
+pub(super) fn finished() -> PassEnd {
     PassEnd::Finished(AccountReport {
         account: ACCOUNT,
         address: "me@nowhere.example".to_owned(),
@@ -80,7 +80,7 @@ fn finished() -> PassEnd {
     })
 }
 
-fn refused() -> PassEnd {
+pub(super) fn refused() -> PassEnd {
     PassEnd::Failed {
         account: ACCOUNT,
         address: "me@nowhere.example".to_owned(),
@@ -90,7 +90,7 @@ fn refused() -> PassEnd {
     }
 }
 
-fn unreachable() -> PassEnd {
+pub(super) fn unreachable() -> PassEnd {
     PassEnd::Failed {
         account: ACCOUNT,
         address: "me@nowhere.example".to_owned(),
@@ -100,7 +100,7 @@ fn unreachable() -> PassEnd {
     }
 }
 
-fn passer() -> (Passer, Script) {
+pub(super) fn passer() -> (Passer, Script) {
     let runs = Arc::new(AtomicUsize::new(0));
     let (release, waiting) = mpsc::channel::<Ending>();
     let waiting = Arc::new(Mutex::new(waiting));
@@ -132,7 +132,7 @@ fn passer() -> (Passer, Script) {
     (passer, script)
 }
 
-fn window(store: Arc<SqliteStore>, passer: Passer) -> (VirtualDom, Seen) {
+pub(super) fn window(store: Arc<SqliteStore>, passer: Passer) -> (VirtualDom, Seen) {
     dispatching();
     let mut dom = VirtualDom::new(App)
         .with_root_context(store)
@@ -142,7 +142,7 @@ fn window(store: Arc<SqliteStore>, passer: Passer) -> (VirtualDom, Seen) {
 }
 
 /// Let what is waiting land and redraw, as the window would between frames.
-async fn settle(dom: &mut VirtualDom) {
+pub(super) async fn settle(dom: &mut VirtualDom) {
     for _ in 0..12 {
         if tokio::time::timeout(Duration::from_millis(80), dom.wait_for_work())
             .await
@@ -154,11 +154,11 @@ async fn settle(dom: &mut VirtualDom) {
     }
 }
 
-fn fetching(dom: &VirtualDom) -> Fetching {
+pub(super) fn fetching(dom: &VirtualDom) -> Fetching {
     dom.in_scope(ScopeId::APP, consume_context::<Fetching>)
 }
 
-fn link(dom: &VirtualDom) -> Link {
+pub(super) fn link(dom: &VirtualDom) -> Link {
     dom.in_scope(ScopeId::APP, || fetching(dom).link(ACCOUNT))
         .expect("the account has a link")
 }

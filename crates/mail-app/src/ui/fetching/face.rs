@@ -38,6 +38,26 @@ pub enum Problem {
     SignIn,
 }
 
+impl Problem {
+    /// What the pane says under the title when nothing can be loaded: what is wrong and what,
+    /// if anything, to do about it.
+    pub fn description(self) -> &'static str {
+        match self {
+            Problem::Unreachable => {
+                "Mailo can\u{2019}t reach the server right now. It will keep trying."
+            }
+            Problem::Broken => "Something is wrong with this account. Check its settings.",
+            Problem::SignIn => "Sign in again to load your mail.",
+        }
+    }
+}
+
+/// The title of the pane when nothing can be loaded.
+pub const CANNOT_LOAD: &str = "Couldn\u{2019}t load this mailbox";
+
+/// The caption under the placeholder rows while the first mail is on its way.
+pub const FIRST_SYNC: &str = "Downloading your mail\u{2026}";
+
 /// What the list pane shows, given its rows, the links of the accounts in scope and why it is
 /// empty if it is.
 pub fn list_face(has_rows: HasRows, links: &[&Link], nothing: &Nothing) -> ListFace {

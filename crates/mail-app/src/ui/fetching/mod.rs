@@ -13,11 +13,11 @@
 
 // The screen's derived words, built and tested ahead of the surfaces that draw them: no surface
 // does yet. They were public in `mail_app::fetch` until the split, so nothing called them dead.
-#[allow(dead_code)]
 mod banner;
-#[allow(dead_code)]
 mod face;
 mod folder;
+mod live;
+mod marks;
 mod outbox;
 mod pass;
 mod run;
@@ -39,9 +39,12 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
+pub(in crate::ui) use banner::{AccountName, Banner, BannerAction, Sev, banner};
+pub(in crate::ui) use face::{CANNOT_LOAD, FIRST_SYNC, HasRows, ListFace, list_face};
 pub(in crate::ui) use folder::opened;
+pub(in crate::ui) use marks::{Mark, account_mark_local, folder_mark, sync_availability};
 pub(in crate::ui) use pass::Passer;
-pub(in crate::ui) use status::{StatusLine, Tone, status_line};
+pub(in crate::ui) use status::{StatusLine, Tone, status_line, thousandths};
 
 /// What reaches the runner.
 pub(super) enum Note {
@@ -56,7 +59,6 @@ pub(super) enum Note {
 pub(in crate::ui) struct Fetching {
     links: Signal<BTreeMap<AccountId, Link>>,
     /// What each account's pass is doing, for a spinner: read by the surfaces of the next wave.
-    #[allow(dead_code)]
     ops: Signal<BTreeMap<AccountId, Operation>>,
     folders: Signal<BTreeMap<(AccountId, String), FolderFetch>>,
     tx: Signal<UnboundedSender<Note>>,
@@ -84,28 +86,17 @@ impl Fetching {
     }
 
     /// The credential of `account` was replaced.
-    #[allow(dead_code)] // The banners and the sidebar of the next wave are its readers.
     pub(in crate::ui) fn signed_in(&self, account: AccountId) {
         self.send(account, Event::SignedIn);
     }
 
     /// Every link. Read in a component, it redraws when any of them moves.
-    #[allow(dead_code)] // The banners and the sidebar of the next wave are its readers.
-    pub(in crate::ui) fn links(&self) -> BTreeMap<AccountId, Link> {
-        self.links.read().clone()
-    }
-
     /// One account's link, or `None` for one with nothing to fetch.
     pub(in crate::ui) fn link(&self, account: AccountId) -> Option<Link> {
         self.links.read().get(&account).cloned()
     }
 
     /// What `account`'s pass is doing, for a spinner: running from the moment it starts.
-    #[allow(dead_code)] // The banners and the sidebar of the next wave are its readers.
-    pub(in crate::ui) fn op(&self, account: AccountId) -> Operation {
-        self.ops.read().get(&account).copied().unwrap_or_default()
-    }
-
     /// The accounts `shell` is showing that have something to fetch.
     pub(in crate::ui) fn in_view(&self, shell: &Shell) -> Vec<AccountId> {
         let with_links: BTreeSet<AccountId> = self.links.read().keys().copied().collect();
@@ -121,6 +112,31 @@ impl Fetching {
     }
 
     /// What to say about the accounts `shell` is showing, at `now`.
+    /// One account's operation: running while its pass is.
+    #[cfg(test)]
+    pub(in crate::ui) fn op(&self, account: AccountId) -> Operation {
+        self.ops.read().get(&account).copied().unwrap_or_default()
+    }
+
+    /// The links of the accounts in view, with whom they belong to.
+    pub(in crate::ui) fn links_in_view(&self, shell: &Shell) -> Vec<(AccountId, Link)> {
+        let links = self.links.read();
+        self.in_view(shell)
+            .into_iter()
+            .filter_map(|id| links.get(&id).map(|link| (id, link.clone())))
+            .collect()
+    }
+
+    /// The operation to draw for the accounts in view: running while any of them is.
+    pub(in crate::ui) fn op_in_view(&self, shell: &Shell) -> Operation {
+        let ops = self.ops.read();
+        self.in_view(shell)
+            .iter()
+            .filter_map(|id| ops.get(id).copied())
+            .find(|op| matches!(op, Operation::Running(_)))
+            .unwrap_or_default()
+    }
+
     pub(in crate::ui) fn status(&self, shell: &Shell, now: DateTime<Utc>) -> StatusLine {
         let links = self.links.read();
         let shown: Vec<&Link> = self
@@ -202,3 +218,5 @@ pub(in crate::ui) fn use_fetching(revision: Signal<u64>) -> Fetching {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod ui_tests;

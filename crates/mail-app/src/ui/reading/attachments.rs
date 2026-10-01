@@ -5,7 +5,10 @@
 //!
 //! Save writes a part that is already here; Download fetches one still on the server and then
 //! writes it. The name is the one the file will be written under. There is no file chooser: it
-//! lands in the downloads directory, and the notice says where.
+//! lands in the downloads directory, and a toast says which folder.
+//!
+//! Each row's progress is a `mail_core::fetch::Download`: Running turns its button Busy, Saved
+//! says so in a toast, Failed says why under the row until it is dismissed or tried again.
 //!
 //! A message OpenPGP or S/MIME opened to a body of its own lists what is attached inside it —
 //! what is stored is only its wrapping, the signature or the ciphertext. Those parts are in
@@ -13,44 +16,50 @@
 
 use ds::components::lists::list::model::ListStyle;
 use ds::prelude::*;
+use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use dioxus::prelude::*;
-use mail_domain::{BlobId, MessageId};
-use mail_store::SqliteStore;
+use mail_core::fetch::{Download, DownloadEffect, DownloadEvent};
+use mail_domain::{BlobId, MessageId, Retry};
+use mail_store::{SqliteStore, Store as _};
 
 use super::super::text::{AttachmentRow, Kept};
+use super::fetch::{self, Again};
 use super::thumb::Thumb;
 use crate::ui::view::Shell;
 
-/// The rows for one message. `saved` says where the last one went; `downloading` is the part
-/// being fetched, whose button stays disabled until the fetch ends.
+type Downloads = Signal<HashMap<usize, Download>>;
+
+/// The rows for one message. Each row's download is its own state, kept here by index.
 #[component]
 pub(super) fn Attachments(
     message: MessageId,
     body: Option<BlobId>,
     rows: Vec<AttachmentRow>,
-    saved: Signal<Option<String>>,
-    downloading: Signal<Option<(MessageId, usize)>>,
     shell: Signal<Shell>,
 ) -> Element {
+    let downloads: Downloads = use_signal(HashMap::new);
+    let toasts = use_hook(try_consume_context::<ds::stack::toast_hub::ToastHub>);
+    let store = use_context::<Arc<SqliteStore>>();
+    let account = use_hook(|| {
+        store
+            .message(message)
+            .map(|m| fetch::account_address(&store, m.account))
+            .unwrap_or_default()
+    });
     let items: Vec<ListItem<usize>> = rows
         .iter()
         .map(|row| {
-            let busy = downloading() == Some((message, row.index));
-            let label = if busy {
-                match row.kept {
-                    Kept::OnServer => "Downloading…",
-                    Kept::Here | Kept::Opened => "Saving…",
-                }
-            } else {
-                match row.kept {
-                    Kept::Here | Kept::Opened => "Save",
-                    Kept::OnServer => "Download",
-                }
-            };
             let index = row.index;
+            let state = downloads.read().get(&index).cloned().unwrap_or(Download::Idle);
+            let busy = matches!(state, Download::Running { .. });
+            let label = match row.kept {
+                Kept::Here | Kept::Opened => "Save",
+                Kept::OnServer => "Download",
+            };
             let name = row.name.clone();
             let kept = row.kept;
             let here = kept == Kept::Here;
@@ -58,13 +67,18 @@ pub(super) fn Attachments(
                 Button {
                     size: ControlSize::Small,
                     label,
-                    availability: if busy { Availability::Disabled } else { Availability::Enabled },
-                    onclick: super::super::press::on_primary(move || match kept {
-                        Kept::Here => save_here(message, index, saved),
-                        Kept::Opened => save_opened(message, body, index, saved, downloading),
-                        Kept::OnServer => download(message, index, &name, saved, downloading),
+                    common: Common { aria_label: Some(format!("{label} {name}")), ..Common::default() },
+                    availability: if busy { Availability::Busy } else { Availability::Enabled },
+                    onclick: super::super::press::on_primary(move || {
+                        start(message, body, index, kept, downloads, toasts);
                     }),
                 }
+            };
+            let failure = match &state {
+                Download::Failed { retry, why } => {
+                    Some(fetch::download_failure(&name, retry, why, &account))
+                }
+                _ => None,
             };
             let thumb_name = row.name.clone();
             ListItem::row(
@@ -80,6 +94,29 @@ pub(super) fn Attachments(
                         detail: Some(TextLine::from(row.size.clone())),
                         accessory: Accessory::Slot(button),
                     }
+                    if let Some(failure) = failure {
+                        InlineBanner {
+                            severity: Severity::Danger,
+                            text: failure.text,
+                            detail: Some(failure.detail).filter(|d| !d.is_empty()).map(TextLine::from),
+                            actions: match failure.again {
+                                Again::Offer => Some(rsx! {
+                                    Button {
+                                        size: ControlSize::Small,
+                                        label: "Try Again",
+                                        common: Common { aria_label: Some(format!("Try again to download {name}")), ..Common::default() },
+                                        onclick: super::super::press::on_primary(move || {
+                                            start(message, body, index, kept, downloads, toasts);
+                                        }),
+                                    }
+                                }),
+                                Again::Withhold => None,
+                            },
+                            onclose: move |()| {
+                                send(downloads, index, DownloadEvent::Dismiss);
+                            },
+                        }
+                    }
                 },
             )
         })
@@ -91,77 +128,66 @@ pub(super) fn Attachments(
     }
 }
 
-/// Write a stored part to the downloads directory.
-fn save_here(message: MessageId, index: usize, mut saved: Signal<Option<String>>) {
-    let store = consume_context::<Arc<SqliteStore>>();
-    let where_to = mail_core::attach::downloads_dir();
-    saved.set(Some(
-        match mail_core::attach::save(&store, message, index, &where_to) {
-            Ok(path) => format!("Saved to {}", path.display()),
-            Err(why) => why,
-        },
-    ));
+/// Move one row's download by `event`; what the machine asks for is returned.
+fn send(mut downloads: Downloads, index: usize, event: DownloadEvent) -> Option<DownloadEffect> {
+    let from = downloads
+        .peek()
+        .get(&index)
+        .cloned()
+        .unwrap_or(Download::Idle);
+    let (to, effect) = from.step(event);
+    downloads.write().insert(index, to);
+    effect
 }
 
-/// Write a part of what a protected message was opened to, on a blocking thread.
-fn save_opened(
+type Toasts = Option<ds::stack::toast_hub::ToastHub>;
+
+/// Begin saving one row: from a press, which is where a task is polled (F140).
+fn start(
     message: MessageId,
     body: Option<BlobId>,
     index: usize,
-    mut saved: Signal<Option<String>>,
-    mut downloading: Signal<Option<(MessageId, usize)>>,
+    kept: Kept,
+    downloads: Downloads,
+    toasts: Toasts,
 ) {
-    if downloading() == Some((message, index)) {
+    if send(downloads, index, DownloadEvent::Start) != Some(DownloadEffect::Begin) {
         return;
     }
-    downloading.set(Some((message, index)));
-    let dir = mail_core::attach::downloads_dir();
-    // Spawned from a press, which is where a task is polled (F140).
-    spawn(async move {
-        let done = tokio::task::spawn_blocking(move || {
-            super::super::pgp::save_attachment(message, body, index, &dir)
-        })
-        .await;
-        saved.set(Some(match done {
-            Ok(Ok(path)) => format!("Saved to {}", path.display()),
-            Ok(Err(why)) => why,
-            Err(error) => format!("Saving stopped before it finished: {error}"),
-        }));
-        downloading.set(None);
-    });
-}
-
-/// Fetch a part still on the server, then write it.
-fn download(
-    message: MessageId,
-    index: usize,
-    name: &str,
-    mut saved: Signal<Option<String>>,
-    mut downloading: Signal<Option<(MessageId, usize)>>,
-) {
-    if downloading() == Some((message, index)) {
-        return;
-    }
-    saved.set(Some(format!("Downloading {name}…")));
-    downloading.set(Some((message, index)));
-    // Cloned out of the context into the blocking thread: the fetch outlives this click, and
-    // `fetch_part` holds the store for the whole download.
     let store = consume_context::<Arc<SqliteStore>>();
+    let fetchers = fetch::fetchers();
     let dir = mail_core::attach::downloads_dir();
     spawn(async move {
-        // `spawn_blocking`, not this task: `fetch_part` opens sockets and builds its own
-        // runtime, and `Runtime::block_on` inside an async context panics.
-        let done = tokio::task::spawn_blocking(move || {
-            mail_core::attach::fetch_and_save(&store, message, index, &dir, |section| {
-                mail_core::sync::fetch_part(&store, message, section, chrono::Utc::now())
-            })
+        // `spawn_blocking`, not this task: a fetch opens sockets and builds its own runtime,
+        // and `Runtime::block_on` inside an async context panics.
+        let done = tokio::task::spawn_blocking(move || match kept {
+            Kept::Here => mail_core::attach::save(&store, message, index, &dir),
+            Kept::Opened => super::super::pgp::save_attachment(message, body, index, &dir),
+            Kept::OnServer => fetch::fetch_then_save(&store, &fetchers, message, index, &dir),
         })
         .await;
-        let sentence = match done {
-            Ok(Ok(sentence) | Err(sentence)) => sentence,
-            Err(error) => format!("Download failed: {error}"),
+        let event = match done {
+            Ok(Ok(path)) => DownloadEvent::Saved(path),
+            Ok(Err(why)) => DownloadEvent::Failed {
+                retry: Retry::Now,
+                why,
+            },
+            Err(error) => DownloadEvent::Failed {
+                retry: Retry::Now,
+                why: format!("it stopped before it finished: {error}"),
+            },
         };
-        saved.set(Some(sentence));
-        downloading.set(None);
+        let saved = match &event {
+            DownloadEvent::Saved(path) => Some(fetch::saved_toast(path)),
+            _ => None,
+        };
+        send(downloads, index, event);
+        if let Some(text) = saved {
+            // The notice is the outcome; the row has nothing more to say.
+            send(downloads, index, DownloadEvent::Dismiss);
+            if let Some(toasts) = toasts {
+                toasts.push(text, None);
+            }
+        }
     });
 }

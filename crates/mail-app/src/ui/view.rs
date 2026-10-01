@@ -1868,18 +1868,6 @@ impl Nothing {
             Nothing::EmptyFolder => "Empty".to_owned(),
         }
     }
-
-    /// The command that gets the user out of this state, when there is one.
-    ///
-    /// Separate from the message so the shell can set it in a monospace face rather than in the
-    /// italic the rest of the pane uses. A command shown in italic prose is a command someone
-    /// retypes wrongly.
-    pub fn command(&self) -> Option<&'static str> {
-        match self {
-            Nothing::NoAccount => Some("mailo account add <address>"),
-            Nothing::NoMatch(_) | Nothing::EmptyFolder => None,
-        }
-    }
 }
 
 /// What a click on Discard means, given what the composer is currently showing.
@@ -2323,11 +2311,6 @@ mod nothing_tests {
         // matches" would send a new user hunting for a typo instead of doing the setup step.
         assert_eq!(nothing_to_show(0, ""), Nothing::NoAccount);
         assert_eq!(nothing_to_show(0, "invoice"), Nothing::NoAccount);
-        assert_eq!(
-            nothing_to_show(0, "").command(),
-            Some("mailo account add <address>"),
-            "the shell cannot add an account, so it has to name what can"
-        );
     }
 
     #[test]
@@ -2350,7 +2333,6 @@ mod nothing_tests {
         assert_eq!(nothing_to_show(2, ""), Nothing::EmptyFolder);
         assert_eq!(nothing_to_show(2, "   "), Nothing::EmptyFolder);
         assert_eq!(nothing_to_show(2, "").message(), "Empty");
-        assert_eq!(nothing_to_show(2, "").command(), None);
     }
 }
 

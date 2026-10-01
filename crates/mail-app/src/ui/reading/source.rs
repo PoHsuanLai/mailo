@@ -214,7 +214,8 @@ fn hides_or_reorders(c: char) -> bool {
 ///
 /// A sibling after the message's body, never its parent, for the reason the reader gives: a new
 /// parent reloads the Original frame. Forward as attachment is offered here, beside the bytes it
-/// would send; a refusal is said in the reader's notice, `said`.
+/// would send; a refusal is said in the reader's notice, `said`, which carries refusals only (a save is
+/// said by a toast), so the notice is drawn as an error.
 #[component]
 pub(super) fn SourceView(
     message: MessageId,

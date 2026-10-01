@@ -140,10 +140,26 @@ pub(super) async fn run(mut running: Running) {
         }
     };
     let (done, ()) = futures_util::future::join(blocking, forward).await;
+    let stored = may_have_stored(&done);
     let event: Event = outcome(done, account);
     if generations.current(account, generation) {
         let _ = tx.send(Note::Event(account, event));
     }
-    // What a pass stored is what the list reads, cancelled or not.
-    running.revision += 1;
+    // What a pass stored is what the list reads, cancelled or not. A pass that stored nothing
+    // leaves nothing to read again: a refused or unreachable account must not redraw the window.
+    if stored {
+        running.revision += 1;
+    }
 }
+
+/// Whether a pass that ended like this may have written something the window shows.
+///
+/// A pass that ran, or was cancelled part-way, may have: counts do not say everything it
+/// writes (flags are not counted). One that never got to run, or whose whole run failed, has not.
+fn may_have_stored(done: &Result<Vec<PassEnd>, String>) -> bool {
+    done.as_ref()
+        .is_ok_and(|ends| ends.iter().any(PassEnd::may_have_stored))
+}
+
+#[cfg(test)]
+mod tests;

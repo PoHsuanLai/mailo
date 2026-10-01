@@ -148,7 +148,12 @@ pub(super) fn FolderList(
         if several {
             items.push(ListItem::heading(
                 FolderKey::Account(tree.account),
-                rsx! { SectionHeader { title: tree.address.clone() } },
+                rsx! {
+                    div { class: "account-head",
+                        SectionHeader { title: tree.address.clone() }
+                        super::marks::LinkMark { account: tree.account }
+                    }
+                },
             ));
         }
         for node in tree.nodes {

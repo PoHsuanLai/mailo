@@ -20,6 +20,16 @@ pub struct StatusLine {
     pub tone: Tone,
 }
 
+/// How far `done` of `of` is, in thousandths: what a determinate progress bar is drawn from.
+/// An unknown total (zero) is nothing done, and more done than there is is all of it.
+pub fn thousandths(done: u32, of: u32) -> u16 {
+    if of == 0 {
+        return 0;
+    }
+    let share = u64::from(done.min(of)) * 1000 / u64::from(of);
+    u16::try_from(share).unwrap_or(1000)
+}
+
 fn line(text: impl Into<String>, tone: Tone) -> StatusLine {
     StatusLine {
         text: text.into(),
@@ -230,6 +240,15 @@ mod tests {
             failures: 1,
             first: First::No,
         }
+    }
+
+    #[test]
+    fn a_share_is_in_thousandths_and_never_leaves_the_bar() {
+        assert_eq!(thousandths(0, 0), 0);
+        assert_eq!(thousandths(3, 40), 75);
+        assert_eq!(thousandths(1, 3), 333);
+        assert_eq!(thousandths(40, 40), 1000);
+        assert_eq!(thousandths(50, 40), 1000);
     }
 
     #[test]

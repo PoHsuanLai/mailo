@@ -369,3 +369,28 @@ fn each_failure_says_what_kind_of_wait_it_asks_for() {
         );
     }
 }
+
+#[test]
+fn only_a_pass_that_ran_may_have_stored_something() {
+    let finished = PassEnd::Finished(AccountReport {
+        account: ACCOUNT,
+        address: "ada@example.test".to_owned(),
+        counts: Counts::default(),
+        trouble: vec![],
+    });
+    let failed = PassEnd::Failed {
+        account: ACCOUNT,
+        address: "ada@example.test".to_owned(),
+        retry: Retry::After(std::time::Duration::from_secs(5)),
+        why: "cannot connect".to_owned(),
+        pause: crate::fetch::Pause::Unreachable,
+    };
+    let cancelled = PassEnd::Cancelled {
+        account: ACCOUNT,
+        address: "ada@example.test".to_owned(),
+    };
+    // A flag sweep stores without counting, so even an all-zero pass that ran says yes.
+    assert!(finished.may_have_stored());
+    assert!(cancelled.may_have_stored());
+    assert!(!failed.may_have_stored());
+}
