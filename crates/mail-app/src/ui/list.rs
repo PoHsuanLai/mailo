@@ -327,7 +327,7 @@ pub(super) fn ThreadList(
             // The list's header is quire's 52 px `Toolbar`. While anything listed is picked, the
             // bar is the selection's: its count and its actions, and nothing else.
             Toolbar::<()> {
-                onpick: move |()| {},
+                onpick: move |_| {},
                 center: rsx! {
                     div { class: if picking { "list-head picking" } else { "list-head" },
                         if picking {

@@ -65,7 +65,7 @@ zeroize = "1"
 rand = "0.8"
 # A PDF attachment's pages (`preview.rs`): quire rasterises only a first page. The same pin quire
 # names (`docs/workspace-deps.toml` at v0.2.2), so the tree holds one pdfrum.
-pdfrum = { git = "https://github.com/PoHsuanLai/pdfrum", rev = "613710405bcd239684e23fb8ad2bcb9aab329549", default-features = false, features = ["vello-cpu"] }
+pdfrum = { git = "https://github.com/PoHsuanLai/pdfrum", rev = "8c7faadc3f858a005bbd03f564cdeb49fca63aeb", default-features = false, features = ["vello-cpu"] }
 
 # A passphrase asked on the Windows console with echo off (`pgp/mod.rs`, `ask_tty`), where there is
 # no `/dev/tty` and no `stty` to do it with. Apache-2.0.
