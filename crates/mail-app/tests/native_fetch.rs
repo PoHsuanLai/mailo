@@ -5,9 +5,13 @@
 //! outside the `TempDir`.
 
 use ds_blitz::{FocusFallback, NetPolicy};
-use ds_harness::{Driver, Harness, HarnessConfig, Query, Viewport};
+use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query, Viewport};
+
+#[path = "support/settle.rs"]
+mod settle;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
+use settle::settle_until;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -71,9 +75,11 @@ fn an_account_never_fetched_shows_placeholder_rows_and_a_caption() {
     let config = HarnessConfig::new(VIEW)
         .with_net(NetPolicy::Local)
         .with_focus_fallback(FocusFallback::Ancestor)
+        .with_clock(Clock::Virtual)
         .with_contexts(contexts);
     let mut harness = Harness::new(mail_app::ui::native::root, config);
     harness.advance(Duration::from_millis(300));
+    settle_until(&mut harness, |h| h.count(".ds-skeleton-row") > 0);
 
     let rows = harness.count(".ds-skeleton-row");
     assert!(rows >= 8, "{rows} placeholder rows");

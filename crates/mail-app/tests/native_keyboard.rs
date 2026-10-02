@@ -8,8 +8,11 @@
 
 use ds::prelude::{Point, ShortcutKey as Key};
 use ds_blitz::{NetPolicy, PrintOutcome};
-use ds_harness::harness::settle_until;
-use ds_harness::{Driver, Harness, HarnessConfig, Query as Read, Viewport};
+use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query as Read, Viewport};
+
+#[path = "support/settle.rs"]
+mod settle;
+use settle::settle_until;
 
 #[path = "support/drive.rs"]
 mod drive;
@@ -131,6 +134,7 @@ fn open() -> (Harness, tempfile::TempDir, Arc<SqliteStore>, WindowDirs) {
     .with(printer);
     let config = HarnessConfig::new(VIEW)
         .with_net(NetPolicy::Local)
+        .with_clock(Clock::Virtual)
         .with_contexts(contexts);
     let mut harness = Harness::new(mail_app::ui::native::root, config);
     settle_until(&mut harness, |harness| {
@@ -321,6 +325,7 @@ fn a_keymap_kept_earlier_is_the_one_a_new_window_answers_to_and_reset_puts_it_ba
         mail_app::ui::native::root,
         HarnessConfig::new(VIEW)
             .with_net(NetPolicy::Local)
+            .with_clock(Clock::Virtual)
             .with_contexts(contexts),
     );
     settle_until(&mut harness, |harness| {

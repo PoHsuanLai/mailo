@@ -9,8 +9,11 @@
 
 use ds::prelude::Point;
 use ds_blitz::{FocusFallback, NetPolicy, PrintOutcome};
-use ds_harness::harness::settle_until;
-use ds_harness::{Driver, Harness, HarnessConfig, Query, Viewport};
+use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query, Viewport};
+
+#[path = "support/settle.rs"]
+mod settle;
+use settle::settle_until;
 
 #[path = "support/drive.rs"]
 mod drive;
@@ -115,9 +118,11 @@ fn open() -> (Harness, tempfile::TempDir, Arc<SqliteStore>) {
     let config = HarnessConfig::new(VIEW)
         .with_net(NetPolicy::Local)
         .with_focus_fallback(FocusFallback::Ancestor)
+        .with_clock(Clock::Virtual)
         .with_contexts(contexts);
     let mut harness = Harness::new(mail_app::ui::native::root, config);
     harness.advance(ms(300));
+    settle_until(&mut harness, |h| h.count(".list .ds-thread") > 0);
     (harness, dir, store)
 }
 

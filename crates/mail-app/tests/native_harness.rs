@@ -8,13 +8,16 @@
 
 use ds::prelude::*;
 use ds_blitz::{FocusFallback, NetPolicy, PrintError, PrintOutcome};
-use ds_harness::harness::settle_until;
-use ds_harness::{Driver, Harness, HarnessConfig, Query, Viewport};
+use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query, Viewport};
+
+#[path = "support/settle.rs"]
+mod settle;
 use mail_domain::*;
 use mail_runtime::{Arrival, absorb};
 use mail_store::{SqliteStore, Store};
+use settle::settle_until;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 #[path = "support/drive.rs"]
 mod drive;
@@ -181,10 +184,12 @@ fn launch_at(
     let config = HarnessConfig::new(VIEW)
         .with_net(NetPolicy::Local)
         .with_focus_fallback(fallback)
+        .with_clock(Clock::Virtual)
         .with_contexts(contexts);
     let mut harness = Harness::new(mail_app::ui::native::root, config);
     // quire's entrances run on a frame's wait after mount.
     harness.advance(ms(300));
+    settle_until(&mut harness, |h| h.count(".list .ds-thread") > 0);
     (harness, dir, store, printed)
 }
 
@@ -371,19 +376,12 @@ fn a_hover_card_opens_after_its_delay_and_not_before() {
     let (mut harness, _dir) = open();
     let sender = format!("{} .ds-thread-name", row(1));
     let open_after = delay(ds::style::tokens::delay::DelayToken::CardOpen);
-    let asked = Instant::now();
+    let asked = harness.now();
     harness.pointer_move(centre(&harness, &sender));
-    // `advance` lets wall-clock time pass, and hover intent sleeps on real timers, so under a
-    // loaded machine a state asserted at one instant near the boundary flakes (quire's
-    // CONVENTIONS §11). Assert the order instead: absent at half the delay, then present within
-    // the settle bound, and never before the whole delay since the pointer arrived.
+    // The harness runs on the virtual clock, so `advance` moves hover intent's timer exactly:
+    // absent at half the delay, present once the whole delay has passed.
     harness.advance(open_after / 2);
-    // `advance` can itself overrun on a loaded machine; a card seen once the whole delay has
-    // passed on the wall clock is on time, so "not yet" is only asserted while it is still early.
-    let present = harness.count(".ds-hovercard");
-    if asked.elapsed() < open_after {
-        assert_eq!(present, 0, "the card opened early");
-    }
+    assert_eq!(harness.count(".ds-hovercard"), 0, "the card opened early");
     let opened = settle_until(&mut harness, |harness| harness.count(".ds-hovercard") == 1);
     assert!(
         opened.duration_since(asked) >= open_after,
@@ -432,7 +430,7 @@ fn the_toast_hides_after_its_hold() {
     open_row(&mut harness, 1);
     assert_eq!(harness.count(".ds-toast"), 0);
     let hold = delay(ds::style::tokens::delay::DelayToken::ToastHold);
-    let asked = Instant::now();
+    let asked = harness.now();
     harness.key(Key::Char('e'));
     harness.advance(ms(300));
     assert_eq!(harness.count(".ds-toast"), 1, "archiving put up no toast");
@@ -500,15 +498,14 @@ fn typing_in_the_search_box_filters_the_rows() {
     for key in "invoice".chars() {
         harness.key(Key::Char(key));
     }
-    // The search waits for the box to be still (150 ms), then asks off the thread.
-    harness.advance(ms(800));
+    // The search waits for the box to be still (150 ms), then asks off the thread: wait for the
+    // rows it brings back.
+    settle_until(&mut harness, |h| {
+        subjects(h) == vec!["The invoice for September".to_owned()]
+    });
     assert_eq!(
         harness.attr(".search input", "value").as_deref(),
         Some("invoice")
-    );
-    assert_eq!(
-        subjects(&harness),
-        vec!["The invoice for September".to_owned()]
     );
 }
 
@@ -754,14 +751,8 @@ fn a_press_on_a_row_s_strip_leaves_the_keyboard_working() {
 fn print_first_row(harness: &mut Harness) -> String {
     open_row(harness, 1);
     harness.chord(&[Key::Ctrl], Key::Char('p'));
-    let started = Instant::now();
-    while started.elapsed() < Duration::from_secs(120) {
-        harness.advance(ms(50));
-        if let Some(said) = harness.text_of(".ds-toast-body") {
-            return said;
-        }
-    }
-    panic!("⌘P put up no toast:\n{}", harness.html());
+    settle_until(harness, |h| h.text_of(".ds-toast-body").is_some());
+    harness.text_of(".ds-toast-body").unwrap_or_default()
 }
 
 #[test]

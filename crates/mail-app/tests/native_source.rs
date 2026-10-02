@@ -5,8 +5,11 @@
 //! The window is `mail_app::ui::native::root` over a store seeded in a `TempDir`: nothing here
 //! touches the network, the real mail store or the real config.
 
-use ds_harness::harness::settle_until;
-use ds_harness::{ClassPresence, Driver, Harness, HarnessConfig, Query, Viewport};
+use ds_harness::{ClassPresence, Clock, Driver, Harness, HarnessConfig, Query, Viewport};
+
+#[path = "support/settle.rs"]
+mod settle;
+use settle::settle_until;
 
 #[path = "support/drive.rs"]
 mod drive;
@@ -143,9 +146,12 @@ fn open() -> Window {
         None,
         mail_app::ui::Start::Inbox,
     );
-    let config = HarnessConfig::new(VIEW).with_contexts(contexts);
+    let config = HarnessConfig::new(VIEW)
+        .with_clock(Clock::Virtual)
+        .with_contexts(contexts);
     let mut harness = Harness::new(mail_app::ui::native::root, config);
     harness.advance(ms(300));
+    settle_until(&mut harness, |h| h.count(".list .ds-thread") > 0);
     Window {
         harness,
         store,

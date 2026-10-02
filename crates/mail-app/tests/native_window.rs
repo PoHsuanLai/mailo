@@ -14,8 +14,11 @@
 use ds::base::press::PointerButton;
 use ds::prelude::{Point, ShortcutKey as Key};
 use ds_blitz::{NetPolicy, PrintOutcome, RootContexts};
-use ds_harness::harness::settle_until;
-use ds_harness::{Driver, Harness, HarnessConfig, Query as Read, Viewport};
+use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query as Read, Viewport};
+
+#[path = "support/settle.rs"]
+mod settle;
+use settle::settle_until;
 
 #[path = "support/drive.rs"]
 mod drive;
@@ -178,10 +181,21 @@ fn window_contexts(store: &Arc<SqliteStore>, revisions: &Revisions) -> RootConte
 /// The main window over `store`, first frame drawn, its "Open in new window" going to the
 /// recorder it returns.
 fn main_window(store: &Arc<SqliteStore>, revisions: &Revisions) -> (Harness, Arc<Recorder>) {
+    main_window_on(Clock::Virtual, store, revisions)
+}
+
+/// [`main_window`] on `clock`. Two windows in one test share the thread's one installed clock, so
+/// a test that drives both runs them on the wall clock; a test with one window runs it virtually.
+fn main_window_on(
+    clock: Clock,
+    store: &Arc<SqliteStore>,
+    revisions: &Revisions,
+) -> (Harness, Arc<Recorder>) {
     let recorder = Arc::new(Recorder::default());
     let windows: Arc<dyn OpenWindow> = recorder.clone();
     let config = HarnessConfig::new(VIEW)
         .with_net(NetPolicy::Local)
+        .with_clock(clock)
         .with_contexts(window_contexts(store, revisions).with(Windows(windows)));
     let mut harness = Harness::new(mail_app::ui::native::root, config);
     harness.advance(ms(300));
@@ -191,8 +205,19 @@ fn main_window(store: &Arc<SqliteStore>, revisions: &Revisions) -> (Harness, Arc
 
 /// `thread`'s own window over `store`, as quire opens it, first frame drawn.
 fn message_window(store: &Arc<SqliteStore>, revisions: &Revisions, thread: ThreadId) -> Harness {
+    message_window_on(Clock::Virtual, store, revisions, thread)
+}
+
+/// [`message_window`] on `clock`; see [`main_window_on`].
+fn message_window_on(
+    clock: Clock,
+    store: &Arc<SqliteStore>,
+    revisions: &Revisions,
+    thread: ThreadId,
+) -> Harness {
     let config = HarnessConfig::new(WINDOW)
         .with_net(NetPolicy::Local)
+        .with_clock(clock)
         .with_contexts(window_contexts(store, revisions).with(MessageOpen(thread)));
     let mut harness = Harness::new(mail_app::ui::native::message_root, config);
     harness.advance(ms(300));
@@ -295,8 +320,9 @@ fn shift_enter_asks_for_the_focused_conversation_in_a_window_of_its_own() {
     harness.advance(ms(100));
     assert_eq!(recorder.asked(), Vec::<Ask>::new());
     harness.chord(&[Key::Shift], Key::Enter);
-    harness.advance(ms(100));
-    assert_eq!(recorder.asked(), asked_for(&store, INBOX[0].1));
+    settle_until(&mut harness, |_| {
+        recorder.asked() == asked_for(&store, INBOX[0].1)
+    });
 }
 
 #[test]
@@ -343,24 +369,24 @@ fn the_window_follows_what_the_main_window_does_to_its_conversation() {
     let store = seeded(dir.path());
     let revisions = Revisions::new();
     let invoice = thread(&store, INBOX[1].1).id;
-    let (mut main, _) = main_window(&store, &revisions);
-    let mut window = message_window(&store, &revisions, invoice);
+    let (mut main, _) = main_window_on(Clock::Wall, &store, &revisions);
+    let mut window = message_window_on(Clock::Wall, &store, &revisions, invoice);
 
     // Muted in the main window: the second window's reader says so.
     click_row(&mut main, 2);
     main.key(Key::Char('m'));
-    main.advance(ms(300));
-    assert_eq!(thread(&store, INBOX[1].1).mute, Mute::Muted);
+    settle_until(&mut main, |_| {
+        thread(&store, INBOX[1].1).mute == Mute::Muted
+    });
     settle_until(&mut window, |h| h.count(".reader-head .muted-note") == 1);
 
     // Archived in the main window: the second window says where it went.
     main.key(Key::Char('e'));
-    main.advance(ms(300));
-    assert!(
+    settle_until(&mut main, |_| {
         !thread(&store, INBOX[1].1)
             .mailboxes
             .contains(MailboxRole::Inbox)
-    );
+    });
     settle_until(&mut window, |h| {
         h.text_of(".left-note")
             .is_some_and(|note| note.contains("Archived"))
@@ -368,12 +394,11 @@ fn the_window_follows_what_the_main_window_does_to_its_conversation() {
 
     // Taken back in the main window: the note goes.
     main.chord(&[Key::Ctrl], Key::Char('z'));
-    main.advance(ms(300));
-    assert!(
+    settle_until(&mut main, |_| {
         thread(&store, INBOX[1].1)
             .mailboxes
             .contains(MailboxRole::Inbox)
-    );
+    });
     settle_until(&mut window, |h| h.count(".left-note") == 0);
 }
 
@@ -383,16 +408,15 @@ fn an_archive_in_the_window_reaches_the_main_list_and_its_own_ctrl_z_takes_it_ba
     let store = seeded(dir.path());
     let revisions = Revisions::new();
     let lunch = thread(&store, INBOX[2].1).id;
-    let (mut main, _) = main_window(&store, &revisions);
-    let mut window = message_window(&store, &revisions, lunch);
+    let (mut main, _) = main_window_on(Clock::Wall, &store, &revisions);
+    let mut window = message_window_on(Clock::Wall, &store, &revisions, lunch);
 
     window.key(Key::Char('e'));
-    window.advance(ms(300));
-    assert!(
+    settle_until(&mut window, |_| {
         !thread(&store, INBOX[2].1)
             .mailboxes
             .contains(MailboxRole::Inbox)
-    );
+    });
     // The window says so, with the toast whose undo is this window's.
     settle_until(&mut window, |h| {
         h.text_of(".left-note")
@@ -412,12 +436,11 @@ fn an_archive_in_the_window_reaches_the_main_list_and_its_own_ctrl_z_takes_it_ba
     });
 
     window.chord(&[Key::Ctrl], Key::Char('z'));
-    window.advance(ms(300));
-    assert!(
+    settle_until(&mut window, |_| {
         thread(&store, INBOX[2].1)
             .mailboxes
             .contains(MailboxRole::Inbox)
-    );
+    });
     settle_until(&mut window, |h| h.count(".left-note") == 0);
     settle_until(&mut main, |h| h.count(".list .ds-thread") == INBOX.len());
 }

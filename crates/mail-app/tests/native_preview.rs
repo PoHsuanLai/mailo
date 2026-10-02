@@ -9,8 +9,11 @@
 use base64::Engine as _;
 use ds::prelude::ShortcutKey as Key;
 use ds_blitz::{AppNet, NetDecision, NetPolicy, NetReply, NetRequest};
-use ds_harness::harness::settle_until;
-use ds_harness::{Driver, Harness, HarnessConfig, Query, Viewport};
+use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query, Viewport};
+
+#[path = "support/settle.rs"]
+mod settle;
+use settle::settle_until;
 
 #[path = "support/drive.rs"]
 mod drive;
@@ -228,9 +231,11 @@ fn open() -> Window {
     let asked = Arc::new(Recorder::default());
     let config = HarnessConfig::new(VIEW)
         .with_net(NetPolicy::Custom(asked.clone()))
+        .with_clock(Clock::Virtual)
         .with_contexts(contexts);
     let mut harness = Harness::new(mail_app::ui::native::root, config);
     harness.advance(ms(300));
+    settle_until(&mut harness, |h| h.count(".list .ds-thread") > 0);
     Window {
         harness,
         store,
