@@ -230,15 +230,15 @@ fn no_accounts_is_a_run_with_no_account_in_it() {
 
 #[tokio::test]
 #[ignore = "needs a local Twisted IMAP4 server; run deliberately with --ignored"]
-async fn a_whole_pass_against_a_real_server_lands_mail_and_says_what_it_did() {
+async fn a_whole_pass_against_a_real_server_lands_mail_and_reports_what_it_fetched() {
     // The assembly, end to end: stored plan, stored capabilities, a credential, a real server,
-    // and a line of output a person reads.
+    // and a report of what the pass fetched. How it is worded is the command line's.
     let (store, _dir) = configured(11143, caps());
     let secrets = MapSecrets::default();
     with_password(&secrets, "s3cr3t-pass");
 
     let store_for_pass = store.clone();
-    let out = tokio::task::spawn_blocking(move || {
+    let ends = tokio::task::spawn_blocking(move || {
         sync::run_with(
             store_for_pass,
             Arc::new(secrets),
@@ -249,18 +249,21 @@ async fn a_whole_pass_against_a_real_server_lands_mail_and_says_what_it_did() {
     })
     .await
     .expect("the pass did not panic")
-    .map(|ends| words(&ends))
     .expect("a reachable server with a good credential syncs");
 
-    eprintln!("{out}");
-    assert!(out.contains("ada@example.test"), "{out}");
+    let [PassEnd::Finished(report)] = ends.as_slice() else {
+        panic!("one account, one finished pass: {ends:?}");
+    };
+    assert_eq!(report.address, "ada@example.test");
     assert!(
-        !out.contains("needs attention") && !out.contains("protocol:"),
-        "a clean pass should report neither trouble nor a protocol error: {out}"
+        report.trouble.is_empty(),
+        "a clean pass should report no trouble: {:?}",
+        report.trouble
     );
     assert!(
-        out.contains("headers") && out.contains("bodies"),
-        "the line a user reads should say what was fetched: {out}"
+        report.counts.headers_fetched > 0 && report.counts.bodies_fetched > 0,
+        "the pass should report what it fetched: {:?}",
+        report.counts
     );
     // The fixture serves two messages; they must be in the store afterwards.
     let count: i64 = store
