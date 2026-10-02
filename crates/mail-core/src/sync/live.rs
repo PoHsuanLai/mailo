@@ -1,11 +1,11 @@
 //! Waiting for the server to say something, as data.
 //!
-//! `mailo watch` waits inside [`super::drive`], between passes it runs itself, and says what it
-//! hears by printing. The window runs its passes elsewhere and wants only the waiting: one
-//! connection kept open, and a typed [`Heard`] each time the server, the outbox or the interval
-//! has something to say. [`listen`] is that, built from the same engine calls `drive` makes
-//! (`AccountEngine::wait`, `JmapEngine::wait`) and the same floor under them
-//! ([`super::poll_floor`]), so the two cannot disagree about how a server is waited on.
+//! `mailo watch` waits inside [`super::drive`], between passes it runs itself. The window runs
+//! its passes elsewhere and wants only the waiting: one connection kept open, and a typed
+//! [`Heard`] each time the server, the outbox or the interval has something to say. [`listen`] is
+//! that, built from the same engine calls `drive` makes (`AccountEngine::wait`,
+//! `JmapEngine::wait`) and the same floor under them ([`super::poll_floor`]), so the two cannot
+//! disagree about how a server is waited on.
 //!
 //! It runs no pass and holds no lock on the store: [`mail_runtime::AccountEngine::wait`] looks
 //! at the outbox with one short query every few seconds and otherwise only sleeps on a socket.

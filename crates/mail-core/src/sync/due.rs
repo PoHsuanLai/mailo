@@ -1,9 +1,8 @@
 //! Which accounts a timed pass in the window syncs.
 //!
-//! The window wakes at the shortest interval any account asks for, [`super::poll_interval`].
-//! Every wake used to sync every account, so one Graph account, which polls every minute, had
-//! every IMAP account beside it polled every minute too, five times what its server asked for.
-//! A wake now syncs only the accounts whose own interval has passed. A pass the user asks for is
+//! The window wakes at the shortest interval any account asks for, [`super::poll_interval`]. A
+//! wake syncs only the accounts whose own interval has passed: one Graph account polls every
+//! minute, and the IMAP accounts beside it want a pass every five. A pass the user asks for is
 //! not a wake and still syncs them all, through [`super::run`].
 
 use std::collections::HashMap;
@@ -63,7 +62,8 @@ pub fn run_due(
     store: Arc<SqliteStore>,
     now: chrono::DateTime<chrono::Utc>,
     due: &[AccountId],
-) -> Result<super::Ran, String> {
+    hooks: super::report::Hooks<'_>,
+) -> Result<Vec<super::report::PassEnd>, String> {
     let registry = OAuthRegistry::load_default().map_err(|e| e.to_string())?;
     super::run_all(
         store,
@@ -72,27 +72,6 @@ pub fn run_due(
         now,
         super::Mode::Once,
         super::Announce::Quietly,
-        &super::Scope {
-            due: &|account| due.contains(&account),
-            kept: &crate::offline::load_default(),
-        },
-    )
-}
-
-/// [`run_due`], with how each account ended kept as data, as [`super::run_typed`] does for
-/// [`super::run`].
-pub fn run_due_typed(
-    store: Arc<SqliteStore>,
-    now: chrono::DateTime<chrono::Utc>,
-    due: &[AccountId],
-    hooks: super::report::Hooks<'_>,
-) -> Result<Vec<super::report::PassEnd>, String> {
-    let registry = OAuthRegistry::load_default().map_err(|e| e.to_string())?;
-    super::run_typed_all(
-        store,
-        Arc::new(KeyringSecrets),
-        &registry,
-        now,
         &super::Scope {
             due: &|account| due.contains(&account),
             kept: &crate::offline::load_default(),

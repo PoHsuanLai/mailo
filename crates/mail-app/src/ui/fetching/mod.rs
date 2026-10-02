@@ -6,13 +6,7 @@
 //! with [`Fetching::send`]; [`run`] is the only thing that receives them, steps the link with
 //! [`mail_core::fetch::step`] and does what it asks (a pass, a cancel, a timer). What the screen
 //! says is derived from the links and not stored: see [`Fetching::status`].
-//!
-//! This replaces the one `SyncState` that the poll loop, both Sync buttons and folder opening
-//! used to share, whose single "running" was every account's and whose single failure ended
-//! the poll for all of them.
 
-// The screen's derived words, built and tested ahead of the surfaces that draw them: no surface
-// does yet. They were public in `mail_app::fetch` until the split, so nothing called them dead.
 mod face;
 mod folder;
 mod line;

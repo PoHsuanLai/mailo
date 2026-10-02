@@ -2,8 +2,7 @@
 //!
 //! [`step`] is the whole of it: a state, an event and the time go in, the next state and the
 //! effects the caller must perform come out. Nothing here reads a clock or opens a socket, so the
-//! backoff rule that used to live in `view::next_sync` is a table in the tests rather than
-//! something to wait for.
+//! backoff rule is a table in the tests rather than something to wait for.
 
 use chrono::{DateTime, TimeDelta, Utc};
 use mail_domain::Retry;

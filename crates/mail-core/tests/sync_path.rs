@@ -10,13 +10,31 @@
 //! not need a server runs normally.
 
 use chrono::{DateTime, TimeZone, Utc};
-use mail_core::fetch::{self, Effect, First, Link, Step};
+use mail_core::fetch::{self, Effect, Event, First, Link, Step};
 use mail_core::sync::report::PassEnd;
 use mail_core::{account, sync};
 use mail_domain::*;
 use mail_runtime::{MapSecrets, OAuthRegistry, Secrets};
 use mail_store::SqliteStore;
 use std::sync::Arc;
+
+/// What a run says, as one string to search: each address with its reason or its trouble.
+fn words(ends: &[PassEnd]) -> String {
+    ends.iter()
+        .map(|end| match end {
+            PassEnd::Finished(report) => {
+                let said: Vec<&str> = report
+                    .trouble
+                    .iter()
+                    .filter_map(|t| t.why.as_deref())
+                    .collect();
+                format!("{}: {}\n", report.address, said.join("\n"))
+            }
+            PassEnd::Failed { address, why, .. } => format!("{address}: {why}\n"),
+            PassEnd::Cancelled { address, .. } => format!("{address}: cancelled\n"),
+        })
+        .collect()
+}
 
 /// What the link does with the way a pass ended: the pass's own classification handed to the
 /// machine that decides when to try again, as the window's runner does it.
@@ -158,8 +176,9 @@ fn an_account_with_no_credential_is_skipped_with_a_reason() {
         Arc::new(MapSecrets::default()),
         &OAuthRegistry::default(),
         now(),
+        sync::report::Hooks::default(),
     )
-    .map(|ran| ran.text)
+    .map(|ends| words(&ends))
     .expect("a missing credential is not a failure of the run");
 
     assert!(out.contains("ada@example.test"), "{out}");
@@ -177,9 +196,15 @@ fn an_unreachable_server_is_reported_per_account_not_thrown() {
     let secrets = MapSecrets::default();
     with_password(&secrets, "s3cr3t-pass");
 
-    let out = sync::run_with(store, Arc::new(secrets), &OAuthRegistry::default(), now())
-        .map(|ran| ran.text)
-        .expect("an unreachable server is reported, not returned as an error");
+    let out = sync::run_with(
+        store,
+        Arc::new(secrets),
+        &OAuthRegistry::default(),
+        now(),
+        sync::report::Hooks::default(),
+    )
+    .map(|ends| words(&ends))
+    .expect("an unreachable server is reported, not returned as an error");
     assert!(out.contains("ada@example.test"), "{out}");
     assert!(
         out.to_lowercase().contains("connect") || out.to_lowercase().contains("refused"),
@@ -188,18 +213,19 @@ fn an_unreachable_server_is_reported_per_account_not_thrown() {
 }
 
 #[test]
-fn no_accounts_explains_how_to_add_one() {
+fn no_accounts_is_a_run_with_no_account_in_it() {
+    // What to say about that is the command line's: see `mail_app::cli::sync`.
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
-    let out = sync::run_with(
+    let ends = sync::run_with(
         store,
         Arc::new(MapSecrets::default()),
         &OAuthRegistry::default(),
         now(),
+        sync::report::Hooks::default(),
     )
-    .unwrap()
-    .text;
-    assert!(out.contains("mailo account add"), "{out}");
+    .unwrap();
+    assert_eq!(ends, Vec::new());
 }
 
 #[tokio::test]
@@ -218,11 +244,12 @@ async fn a_whole_pass_against_a_real_server_lands_mail_and_says_what_it_did() {
             Arc::new(secrets),
             &OAuthRegistry::default(),
             now(),
+            sync::report::Hooks::default(),
         )
     })
     .await
     .expect("the pass did not panic")
-    .map(|ran| ran.text)
+    .map(|ends| words(&ends))
     .expect("a reachable server with a good credential syncs");
 
     eprintln!("{out}");
@@ -388,7 +415,13 @@ mod renewing_an_expired_sign_in {
         secrets.put(&key(), &token(-120)).unwrap();
         let (ends, seen) = token_endpoint(RENEWED);
 
-        let _ = sync::run_with(store, secrets.clone(), &registry(ends), now());
+        let _ = sync::run_with(
+            store,
+            secrets.clone(),
+            &registry(ends),
+            now(),
+            sync::report::Hooks::default(),
+        );
 
         let asked = seen.lock().unwrap().join("\n");
         assert!(
@@ -426,7 +459,13 @@ mod renewing_an_expired_sign_in {
         secrets.put(&key(), &token(-120)).unwrap();
         let (ends, _seen) = token_endpoint(RENEWED);
 
-        let _ = sync::run_with(store, secrets.clone(), &registry(ends), now());
+        let _ = sync::run_with(
+            store,
+            secrets.clone(),
+            &registry(ends),
+            now(),
+            sync::report::Hooks::default(),
+        );
 
         let stored = secrets
             .get(&SecretKey {
@@ -449,7 +488,13 @@ mod renewing_an_expired_sign_in {
         secrets.put(&key(), &token(45)).unwrap();
         let (ends, seen) = token_endpoint(RENEWED);
 
-        let _ = sync::run_with(store, secrets.clone(), &registry(ends), now());
+        let _ = sync::run_with(
+            store,
+            secrets.clone(),
+            &registry(ends),
+            now(),
+            sync::report::Hooks::default(),
+        );
 
         assert!(
             seen.lock().unwrap().is_empty(),
@@ -493,7 +538,13 @@ mod renewing_an_expired_sign_in {
         let mut registry = OAuthRegistry::default();
         registry.set(Registration::new(OAuthIssuer::Microsoft, "client-id").at(ends));
 
-        let _ = sync::run_with(store, secrets, &registry, now());
+        let _ = sync::run_with(
+            store,
+            secrets,
+            &registry,
+            now(),
+            sync::report::Hooks::default(),
+        );
 
         let asked = seen.lock().unwrap().clone();
         let imap = "IMAP.AccessAsUser.All";
@@ -523,7 +574,13 @@ mod renewing_an_expired_sign_in {
             .unwrap();
         let (ends, seen) = token_endpoint(RENEWED);
 
-        let _ = sync::run_with(store, secrets, &registry(ends), now());
+        let _ = sync::run_with(
+            store,
+            secrets,
+            &registry(ends),
+            now(),
+            sync::report::Hooks::default(),
+        );
 
         assert!(seen.lock().unwrap().is_empty());
     }
@@ -536,9 +593,15 @@ mod renewing_an_expired_sign_in {
         let secrets: Arc<dyn Secrets> = Arc::new(MapSecrets::default());
         secrets.put(&key(), &token(-120)).unwrap();
 
-        let out = sync::run_with(store, secrets, &OAuthRegistry::default(), now())
-            .unwrap()
-            .text;
+        let out = sync::run_with(
+            store,
+            secrets,
+            &OAuthRegistry::default(),
+            now(),
+            sync::report::Hooks::default(),
+        )
+        .map(|ends| words(&ends))
+        .unwrap();
 
         assert!(out.contains("no OAuth client id is configured"), "{out}");
         // Read by a person, and `cargo fmt` collapses a `\`-continuation in a literal into a
@@ -731,19 +794,31 @@ mod a_refused_sign_in {
         let secrets = MapSecrets::default();
         with_password(&secrets, "definitely-not-the-password");
 
-        let ran =
-            sync::run_with(store, Arc::new(secrets), &OAuthRegistry::default(), now()).unwrap();
+        let ends = sync::run_with(
+            store,
+            Arc::new(secrets),
+            &OAuthRegistry::default(),
+            now(),
+            sync::report::Hooks::default(),
+        )
+        .unwrap();
+        let said = words(&ends);
+        let [end] = <[PassEnd; 1]>::try_from(ends).expect("one account");
 
         assert!(
-            ran.rejected,
-            "a refused sign-in was not reported as one: {}",
-            ran.text
+            matches!(
+                end.event(),
+                Event::Failed {
+                    retry: Retry::NeedsReauth,
+                    ..
+                }
+            ),
+            "a refused sign-in was not reported as one: {said}"
         );
-        // And the user is told, in the text as well as in the flag.
+        // And the user is told, in the reason as well as in the decision.
         assert!(
-            ran.text.to_lowercase().contains("login failed"),
-            "the server's own words should reach the user: {}",
-            ran.text
+            said.to_lowercase().contains("login failed"),
+            "the server's own words should reach the user: {said}"
         );
     }
 
@@ -756,7 +831,7 @@ mod a_refused_sign_in {
         let secrets = MapSecrets::default();
         with_password(&secrets, "the-right-password");
 
-        let ends = sync::run_typed_with(
+        let ends = sync::run_with(
             store,
             Arc::new(secrets),
             &OAuthRegistry::default(),
@@ -764,16 +839,23 @@ mod a_refused_sign_in {
             sync::report::Hooks::default(),
         )
         .unwrap();
-        let ran = sync::report::summarise(&ends, now());
-
-        assert!(
-            !ran.rejected,
-            "an unreachable server was blamed on the credential: {}",
-            ran.text
-        );
+        let said = words(&ends);
         let [end] = <[PassEnd; 1]>::try_from(ends).expect("one account");
+        assert!(
+            !matches!(
+                end.clone().event(),
+                Event::Failed {
+                    retry: Retry::NeedsReauth,
+                    ..
+                }
+            ),
+            "an unreachable server was blamed on the credential: {said}"
+        );
         match linked(end, waiting(2)) {
             (Link::Waiting { why, failures, .. }, effects) => {
+                // Not a rate limit either: `Throttled` resets the consecutive failure count, so a
+                // down server read as one would be polled at the flat interval for ever instead of
+                // backing off, and the loop would never reach the ceiling.
                 assert_eq!(
                     why,
                     fetch::Pause::Unreachable,
@@ -787,14 +869,6 @@ mod a_refused_sign_in {
             }
             other => panic!("it would have given up on a server being down: {other:?}"),
         }
-        // And it must not look like a rate limit either. `Throttled` resets the consecutive
-        // failure count, so a down server that set `hold` would be polled at the flat interval
-        // for ever instead of backing off — the loop would never reach the ceiling.
-        assert!(
-            ran.hold.is_none(),
-            "a refused connection asked us to wait {:?}",
-            ran.hold
-        );
     }
 
     #[test]
@@ -805,7 +879,7 @@ mod a_refused_sign_in {
         let secrets = MapSecrets::default();
         with_password(&secrets, "wrong");
 
-        let ends = sync::run_typed_with(
+        let ends = sync::run_with(
             store,
             Arc::new(secrets),
             &OAuthRegistry::default(),
@@ -873,15 +947,23 @@ mod a_server_asking_to_be_left_alone {
         let secrets = MapSecrets::default();
         with_password(&secrets, "the-right-password");
 
-        let ran =
-            sync::run_with(store, Arc::new(secrets), &OAuthRegistry::default(), now()).unwrap();
+        let ends = sync::run_with(
+            store,
+            Arc::new(secrets),
+            &OAuthRegistry::default(),
+            now(),
+            sync::report::Hooks::default(),
+        )
+        .unwrap();
+        let [end] = <[PassEnd; 1]>::try_from(ends).expect("one account");
 
-        assert!(
-            !ran.rejected,
-            "being asked to slow down is not a bad password: {}",
-            ran.text
-        );
-        let hold = ran.hold.expect("the server named a wait; nothing kept it");
+        // A wait, and not a refusal: being asked to slow down is not a bad password.
+        let Event::Failed { retry, .. } = end.event() else {
+            panic!("the server named a wait; nothing kept it");
+        };
+        let Retry::After(hold) = retry else {
+            panic!("being asked to slow down was read as {retry:?}");
+        };
         assert!(
             hold >= std::time::Duration::from_secs(3600),
             "an hour is the floor when the server gives no hint, got {hold:?}"
@@ -894,7 +976,7 @@ mod a_server_asking_to_be_left_alone {
         let secrets = MapSecrets::default();
         with_password(&secrets, "the-right-password");
 
-        let ends = sync::run_typed_with(
+        let ends = sync::run_with(
             store,
             Arc::new(secrets),
             &OAuthRegistry::default(),
@@ -940,9 +1022,10 @@ mod an_account_with_nothing_stored {
             Arc::new(MapSecrets::default()),
             &OAuthRegistry::default(),
             now(),
+            sync::report::Hooks::default(),
         )
+        .map(|ends| words(&ends))
         .unwrap()
-        .text
     }
 
     #[test]
@@ -1170,7 +1253,13 @@ mod both_accounts_at_once {
                 &Credential::Password("s3cr3t-pass".to_owned()),
             )
             .unwrap();
-        let _ = sync::run_with(store, Arc::new(secrets), &OAuthRegistry::default(), now());
+        let _ = sync::run_with(
+            store,
+            Arc::new(secrets),
+            &OAuthRegistry::default(),
+            now(),
+            sync::report::Hooks::default(),
+        );
 
         let one = one.lock().unwrap().clone();
         let two = two.lock().unwrap().clone();
@@ -1343,6 +1432,7 @@ mod watching {
                 now(),
                 sync::Mode::Watch,
                 sync::Announce::Quietly,
+                None,
             ),
         )
         .await;

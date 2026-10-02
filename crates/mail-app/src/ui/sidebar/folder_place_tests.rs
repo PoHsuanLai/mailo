@@ -13,7 +13,7 @@ use dioxus::prelude::*;
 use dioxus_core::{NoOpMutations, VirtualDom};
 use ds::prelude::*;
 use mail_core::fetch::FolderFetch;
-use mail_core::sync::Ran;
+use mail_core::sync::report::{AccountReport, Counts, PassEnd};
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
@@ -147,17 +147,20 @@ fn deliver(
 }
 
 /// A fetcher that counts what it is asked for and answers `answer`.
-fn counting(answer: Result<&'static str, &'static str>) -> (Fetcher, Arc<AtomicUsize>) {
+fn counting(answer: Result<(), &'static str>) -> (Fetcher, Arc<AtomicUsize>) {
     let calls = Arc::new(AtomicUsize::new(0));
     let seen = calls.clone();
-    let fetcher = Fetcher(Arc::new(move |_store, _account, path: &str, _now| {
+    let fetcher = Fetcher(Arc::new(move |_store, account, path: &str, _now| {
         assert!([PROJECTS, RECEIPTS, OLD].contains(&path), "{path}");
         seen.fetch_add(1, Ordering::SeqCst);
         answer
-            .map(|text| Ran {
-                text: format!("{text} {path}"),
-                rejected: false,
-                hold: None,
+            .map(|()| {
+                PassEnd::Finished(AccountReport {
+                    account,
+                    address: "me@nowhere.example".to_owned(),
+                    counts: Counts::default(),
+                    trouble: Vec::new(),
+                })
             })
             .map_err(str::to_owned)
     }));
@@ -220,7 +223,7 @@ fn list(page: &str) -> &str {
 #[tokio::test]
 async fn choosing_a_folder_lists_what_the_server_holds_there_and_its_badge_counts_it() {
     let (store, _dir, _) = store();
-    let (fetcher, _) = counting(Ok("fetched"));
+    let (fetcher, _) = counting(Ok(()));
     let (mut dom, seen) = window(store, fetcher);
     let before = dioxus_ssr::render(&dom);
     assert!(
@@ -271,7 +274,7 @@ async fn choosing_a_folder_lists_what_the_server_holds_there_and_its_badge_count
 #[tokio::test]
 async fn opening_fetches_once_per_choice_and_not_again_within_the_minute() {
     let (store, _dir, _) = store();
-    let (fetcher, calls) = counting(Ok("fetched"));
+    let (fetcher, calls) = counting(Ok(()));
     let (mut dom, seen) = window(store, fetcher);
     settle(&mut dom).await;
     assert_eq!(
@@ -452,7 +455,7 @@ async fn render_a_folder_place_to_a_file() {
         "Your receipt for September",
     );
     let space = crate::ui::space::load(&built.dirs.config).current_space();
-    let (fetcher, _) = counting(Ok("Up to date:"));
+    let (fetcher, _) = counting(Ok(()));
     let mut dom = VirtualDom::new(App)
         .with_root_context(built.store.clone())
         .with_root_context(built.dirs)

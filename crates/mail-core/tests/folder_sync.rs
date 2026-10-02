@@ -7,6 +7,7 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_core::sync;
+use mail_core::sync::report::{AccountReport, Hooks, PassEnd};
 use mail_domain::*;
 use mail_runtime::{MapSecrets, OAuthRegistry, Secrets};
 use mail_store::{SqliteStore, Store};
@@ -305,15 +306,24 @@ fn listing() -> Vec<Folder> {
     ]
 }
 
-fn pass(store: &Arc<SqliteStore>, secrets: &Arc<MapSecrets>) -> String {
-    sync::run_with(
+fn pass(store: &Arc<SqliteStore>, secrets: &Arc<MapSecrets>) -> AccountReport {
+    let ends = sync::run_with(
         store.clone(),
         secrets.clone(),
         &OAuthRegistry::default(),
         now(),
+        Hooks::default(),
     )
-    .expect("a pass against a reachable server runs")
-    .text
+    .expect("a pass against a reachable server runs");
+    finished(ends)
+}
+
+/// The one account's report, for a pass that ran to its end.
+fn finished(ends: Vec<PassEnd>) -> AccountReport {
+    let [PassEnd::Finished(report)] = <[PassEnd; 1]>::try_from(ends).expect("one account") else {
+        panic!("the account's pass did not run to its end");
+    };
+    report
 }
 
 fn at(path: &str) -> MailboxRef {
@@ -370,11 +380,11 @@ fn a_pass_fetches_every_followed_folder_and_lists_each_by_its_path() {
     let (store, secrets, _dir) = configured(port, caps(ServerLabels::LocalOnly), listing());
 
     let out = pass(&store, &secrets);
-    assert!(!out.contains("needs attention"), "{out}");
+    assert!(out.trouble.is_empty(), "{out:?}");
 
     // Five messages: two only in the inbox, one in the inbox and a folder, one in each folder.
     // Not the one in the folder nobody follows.
-    assert_eq!(count(&store, "SELECT count(*) FROM messages"), 5, "{out}");
+    assert_eq!(count(&store, "SELECT count(*) FROM messages"), 5, "{out:?}");
     let paths = selected(&seen);
     assert!(paths.iter().any(|p| p == PROJECTS), "{paths:?}");
     assert!(paths.iter().any(|p| p == REPORTS), "{paths:?}");
@@ -422,7 +432,7 @@ fn a_pass_fetches_every_followed_folder_and_lists_each_by_its_path() {
             "SELECT count(*) FROM messages WHERE body_raw IS NULL"
         ),
         0,
-        "{out}"
+        "{out:?}"
     );
 }
 
@@ -465,7 +475,11 @@ fn a_message_held_in_two_folders_is_one_message_with_two_addresses() {
 
     // A second pass fetches nothing again, in any folder.
     let again = pass(&store, &secrets);
-    assert!(again.contains(": 0 headers, 0 bodies"), "{again}");
+    assert_eq!(
+        (again.counts.headers_fetched, again.counts.bodies_fetched),
+        (0, 0),
+        "{again:?}"
+    );
 }
 
 #[test]
@@ -555,7 +569,7 @@ fn a_folder_nobody_follows_is_fetched_when_asked_for() {
     let (store, secrets, _dir) = configured(port, caps(ServerLabels::LocalOnly), listing());
     assert!(listed(&store, Filter::InFolder(at(OLD))).is_empty());
 
-    let ran = sync::folder_now_with(
+    let end = sync::folder_now_with(
         store.clone(),
         secrets.clone(),
         &OAuthRegistry::default(),
@@ -564,7 +578,12 @@ fn a_folder_nobody_follows_is_fetched_when_asked_for() {
         now(),
     )
     .expect("a folder the server holds can be fetched");
-    assert!(ran.text.contains("1 headers, 1 bodies"), "{}", ran.text);
+    let ran = finished(vec![end]);
+    assert_eq!(
+        (ran.counts.headers_fetched, ran.counts.bodies_fetched),
+        (1, 1),
+        "{ran:?}"
+    );
     assert_eq!(
         listed(&store, Filter::InFolder(at(OLD))),
         vec!["from before"]
@@ -587,7 +606,7 @@ fn first_message(store: &SqliteStore) -> MessageId {
 fn a_folder_the_server_does_not_have_is_said_not_thrown() {
     let (port, _seen) = serve(mailboxes(1));
     let (store, secrets, _dir) = configured(port, caps(ServerLabels::LocalOnly), listing());
-    let ran = sync::folder_now_with(
+    let end = sync::folder_now_with(
         store,
         secrets,
         &OAuthRegistry::default(),
@@ -596,7 +615,8 @@ fn a_folder_the_server_does_not_have_is_said_not_thrown() {
         now(),
     )
     .expect("reported, not returned as an error");
-    assert!(ran.text.contains("needs attention"), "{}", ran.text);
+    let ran = finished(vec![end]);
+    assert!(!ran.trouble.is_empty(), "{ran:?}");
 }
 
 #[test]

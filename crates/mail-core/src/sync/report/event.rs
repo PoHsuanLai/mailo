@@ -23,8 +23,8 @@ impl PassEnd {
     /// A pass that ran can still have been refused, or told to slow down, by the folder it was
     /// in the middle of; those are the two outcomes that must not read as "up to date". The
     /// first is a credential the server has already rejected, which polling again would try on
-    /// it every interval, and the second is a wait the server named. They become failures, in
-    /// that order, as the old poll loop ranked them.
+    /// it every interval, and the second is a wait the server named. They become failures, the
+    /// refusal ranking first.
     pub fn event(self) -> Event {
         ended(self)
     }

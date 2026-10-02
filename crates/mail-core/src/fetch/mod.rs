@@ -8,7 +8,7 @@
 //! Nothing in this module reads the clock, opens a socket or touches the UI. Time arrives as an
 //! argument, effects leave as values, and the window and the runtime do the rest. What the
 //! screen says about a set of links is derived, not stored: that is the window's
-//! (`mail_app::ui::fetching`: `list_face`, `status_line` and `banner`).
+//! (`mail_app::ui::fetching`: `list_face` and `status_line`).
 
 mod body;
 mod download;

@@ -15,6 +15,7 @@ pub mod discover;
 mod invite;
 mod rules;
 mod search;
+pub mod sync;
 
 /// What the user asked for.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1798,7 +1799,8 @@ pub fn sync_folder(
     now: DateTime<Utc>,
 ) -> Result<String, String> {
     let id = account_named(&store, account)?;
-    mail_core::sync::folder_now(store, id, path, now).map(|ran| ran.text)
+    let end = mail_core::sync::folder_now(store, id, path, now)?;
+    sync::folder_text(&end, path)
 }
 
 fn account_named(store: &SqliteStore, address: &str) -> Result<AccountId, String> {

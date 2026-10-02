@@ -201,12 +201,15 @@ fn the_menu_offers_the_accounts_own_folders_and_nothing_else() {
 
 fn window(store: Arc<SqliteStore>) -> (VirtualDom, Seen) {
     dispatching();
-    let fetcher = Fetcher(Arc::new(|_, _, path: &str, _| {
-        Ok(mail_core::sync::Ran {
-            text: format!("fetched {path}"),
-            rejected: false,
-            hold: None,
-        })
+    let fetcher = Fetcher(Arc::new(|_, account, _, _| {
+        Ok(mail_core::sync::report::PassEnd::Finished(
+            mail_core::sync::report::AccountReport {
+                account,
+                address: "me@nowhere.example".to_owned(),
+                counts: mail_core::sync::report::Counts::default(),
+                trouble: Vec::new(),
+            },
+        ))
     }));
     let mut dom = VirtualDom::new(crate::ui::app::App)
         .with_root_context(store)
