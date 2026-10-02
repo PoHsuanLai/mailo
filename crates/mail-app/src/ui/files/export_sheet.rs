@@ -18,7 +18,7 @@ use super::super::pick::{Ask, choose};
 use super::super::press::{SheetClose, available, on_primary};
 use super::work::{self, Counted, Format};
 use super::{Phase, Report, run};
-use crate::view::{FileSheet, Shell};
+use crate::ui::view::{FileSheet, Shell};
 
 /// The query the sheet's field holds.
 fn typed(shell: &Shell) -> String {

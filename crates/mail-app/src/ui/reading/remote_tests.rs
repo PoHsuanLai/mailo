@@ -8,7 +8,7 @@ use super::super::Reader;
 use super::super::tests::{add_thread, add_to, html_message, thread_of};
 use crate::ui::fixtures::{click, dispatching, rebuild_into};
 use crate::ui::original::{FetchImage, Got, ReaderNet, data_uri};
-use crate::view::Shell;
+use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use dioxus_core::VirtualDom;
 use mail_domain::ThreadId;
@@ -95,15 +95,18 @@ fn Pane(first: ThreadId, second: ThreadId, consented: bool) -> Element {
     let other = "Open the other".to_owned();
     let again = "Draw again".to_owned();
     let thread = shell.read().open.unwrap_or(first);
+    // The reader's banners are quire's, which read the `Ds` root's scope.
     rsx! {
-        button { aria_label: "{other}", onclick: move |_| shell.write().open(second) }
-        button {
-            aria_label: "{again}",
-            onclick: move |_| {
-                shell.write();
-            },
+        ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window,
+            button { aria_label: "{other}", onclick: move |_| shell.write().open(second) }
+            button {
+                aria_label: "{again}",
+                onclick: move |_| {
+                    shell.write();
+                },
+            }
+            Reader { thread, shell }
         }
-        Reader { thread, shell }
     }
 }
 

@@ -34,10 +34,10 @@ fn asking(store: &SqliteStore, openpgp: OpenPgp) -> Draft {
         email: "dana@example.test".to_owned(),
     }];
     let mut draft =
-        crate::compose::draft_new(store, ACCOUNT, &to, "Plans", "see you there", Utc::now())
+        mail_core::compose::draft_new(store, ACCOUNT, &to, "Plans", "see you there", Utc::now())
             .unwrap();
     draft.openpgp = openpgp;
-    crate::compose::save(store, &draft).unwrap();
+    mail_core::compose::save(store, &draft).unwrap();
     draft
 }
 
@@ -150,7 +150,8 @@ async fn the_row_is_drawn_and_its_choice_saved() {
 async fn no_key_for_a_recipient_names_them_and_holds_the_send_until_a_choice() {
     let (store, _dir) = seeded();
     let secrets = Arc::new(MapSecrets::default());
-    crate::pgp::keys::generate(&store, secrets.as_ref(), "me@example.test", Utc::now()).unwrap();
+    mail_core::pgp::keys::generate(&store, secrets.as_ref(), "me@example.test", Utc::now())
+        .unwrap();
     let draft = asking(&store, OpenPgp::Encrypt);
     let (mut window, seen) = window(store.clone(), draft.clone(), secrets);
 
@@ -207,7 +208,8 @@ async fn no_key_for_a_recipient_names_them_and_holds_the_send_until_a_choice() {
 async fn a_key_found_by_looking_up_clears_the_bar_and_the_send_goes_encrypted() {
     let (store, _dir) = seeded();
     let secrets = Arc::new(MapSecrets::default());
-    crate::pgp::keys::generate(&store, secrets.as_ref(), "me@example.test", Utc::now()).unwrap();
+    mail_core::pgp::keys::generate(&store, secrets.as_ref(), "me@example.test", Utc::now())
+        .unwrap();
     let dana = crate::ui::pgp::tests::someone_elses("dana@example.test", 91);
     let armored = dana.public().armored().unwrap();
     let asked = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
@@ -217,7 +219,7 @@ async fn a_key_found_by_looking_up_clears_the_bar_and_the_send_goes_encrypted() 
         // What a domain's Web Key Directory answering would leave in the store.
         Arc::new(move |store, address| {
             asked.lock().unwrap().push(address.to_owned());
-            let found = crate::pgp::keys::import(
+            let found = mail_core::pgp::keys::import(
                 store,
                 &MapSecrets::default(),
                 armored.as_bytes(),
@@ -284,7 +286,7 @@ async fn a_locked_key_is_asked_for_in_the_bar_and_a_wrong_passphrase_said() {
     .unwrap()
     .with_passphrase(passphrase, &mut rand::rngs::StdRng::seed_from_u64(82))
     .unwrap();
-    crate::pgp::keys::import(
+    mail_core::pgp::keys::import(
         &store,
         secrets.as_ref(),
         key.armored().unwrap().as_bytes(),
@@ -357,7 +359,8 @@ async fn every_class_of_the_bar_and_row_is_styled() {
     let (store, _dir) = seeded();
     let draft = asking(&store, OpenPgp::Encrypt);
     let secrets = Arc::new(MapSecrets::default());
-    crate::pgp::keys::generate(&store, secrets.as_ref(), "me@example.test", Utc::now()).unwrap();
+    mail_core::pgp::keys::generate(&store, secrets.as_ref(), "me@example.test", Utc::now())
+        .unwrap();
     let (mut window, seen) = window(store, draft, secrets);
     click(&mut window.dom, seen.one("aria-label", "Send"));
     let mut markup = window.render();
@@ -380,7 +383,8 @@ async fn every_class_of_the_bar_and_row_is_styled() {
 async fn render_the_composer_bar_to_a_file() {
     let (store, _dir) = seeded();
     let secrets = Arc::new(MapSecrets::default());
-    crate::pgp::keys::generate(&store, secrets.as_ref(), "me@example.test", Utc::now()).unwrap();
+    mail_core::pgp::keys::generate(&store, secrets.as_ref(), "me@example.test", Utc::now())
+        .unwrap();
     let mut body = String::new();
     let bars = [
         None,

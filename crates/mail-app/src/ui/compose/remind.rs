@@ -1,9 +1,9 @@
 //! The Remind row: "remind me if no reply", chosen as the message is written.
 //!
-//! The times are the thread menu's ([`crate::follow_up::CHOICES`]), counted from when the message
+//! The times are the thread menu's ([`mail_core::follow_up::CHOICES`]), counted from when the message
 //! leaves rather than from when the row was set, so a message scheduled for Monday and "In 3 days"
-//! comes back on Thursday. A typed time goes through [`crate::follow_up::due`], which reads it as
-//! snooze does. The reminder is held until the message has left (`crate::follow_up`).
+//! comes back on Thursday. A typed time goes through [`mail_core::follow_up::due`], which reads it as
+//! snooze does. The reminder is held until the message has left (`mail_core::follow_up`).
 
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
@@ -29,7 +29,7 @@ pub(in crate::ui) const PICK_KEY: &str = "at";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::ui) enum Remind {
     Off,
-    /// One of [`crate::follow_up::CHOICES`], by its key, counted from when the message leaves.
+    /// One of [`mail_core::follow_up::CHOICES`], by its key, counted from when the message leaves.
     After(&'static str),
     /// A time typed into "Pick a time…".
     At(DateTime<Utc>),
@@ -48,7 +48,7 @@ impl Remind {
     {
         match self {
             Remind::Off => Ok(None),
-            Remind::After(key) => crate::follow_up::due(key, leaves, zone).map(Some),
+            Remind::After(key) => mail_core::follow_up::due(key, leaves, zone).map(Some),
             Remind::At(at) if at <= leaves => Err(format!(
                 "The reminder, {}, comes before the message leaves. Pick a later time.",
                 when_words(at, leaves, zone)
@@ -64,7 +64,7 @@ impl Remind {
     {
         match self {
             Remind::Off => "Don't remind me".to_owned(),
-            Remind::After(key) => crate::follow_up::CHOICES
+            Remind::After(key) => mail_core::follow_up::CHOICES
                 .iter()
                 .find(|(choice, _)| *choice == key)
                 .map(|(_, says)| format!("{says}, if no reply"))
@@ -102,16 +102,20 @@ where
         "whether or not anyone answers".to_owned(),
         remind == Remind::Off,
     )];
-    items.extend(crate::follow_up::CHOICES.iter().filter_map(|(key, says)| {
-        let at = crate::follow_up::due(key, now, zone).ok()?;
-        Some(row(
-            key,
-            Icon::Bell,
-            says,
-            snooze_help(at, zone),
-            remind == Remind::After(key),
-        ))
-    }));
+    items.extend(
+        mail_core::follow_up::CHOICES
+            .iter()
+            .filter_map(|(key, says)| {
+                let at = mail_core::follow_up::due(key, now, zone).ok()?;
+                Some(row(
+                    key,
+                    Icon::Bell,
+                    says,
+                    snooze_help(at, zone),
+                    remind == Remind::After(key),
+                ))
+            }),
+    );
     let (help, on) = match remind {
         Remind::At(at) => (when_words(at, now, zone), true),
         _ => ("tomorrow 9, fri 17:00, +3d".to_owned(), false),
@@ -128,7 +132,7 @@ pub(in crate::ui) fn pick_remind(page: &mut Page, key: &str) {
     }
     if key == OFF_KEY {
         page.remind = Remind::Off;
-    } else if let Some((choice, _)) = crate::follow_up::CHOICES
+    } else if let Some((choice, _)) = mail_core::follow_up::CHOICES
         .iter()
         .find(|(choice, _)| *choice == key)
     {
@@ -151,7 +155,7 @@ where
     let Float::PickRemind(typed) = &page.float else {
         return Err("Type a time".to_owned());
     };
-    let at = crate::follow_up::due(typed, now, zone)?;
+    let at = mail_core::follow_up::due(typed, now, zone)?;
     page.remind = Remind::At(at);
     page.float = Float::Closed;
     page.touch();
@@ -222,7 +226,7 @@ fn PickRemind(page: Signal<Page>) -> Element {
         return rsx! {};
     };
     let now = super::super::clock::now();
-    let reading = crate::follow_up::due(&typed, now, &chrono::Local);
+    let reading = mail_core::follow_up::due(&typed, now, &chrono::Local);
     let (class, says) = match &reading {
         Ok(at) => (
             "pick-says",

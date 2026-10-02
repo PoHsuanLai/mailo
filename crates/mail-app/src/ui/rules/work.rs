@@ -1,7 +1,7 @@
 //! Every question the Rules sheet asks and every rule it writes, as functions of a store.
 //!
 //! What `mailo rules` does, reached from the window: the same `Rule` rows, the condition in the
-//! same search language (`crate::query`), and the same `mail_store::rules::run_now`. The sheet
+//! same search language (`mail_core::query`), and the same `mail_store::rules::run_now`. The sheet
 //! only draws what these answer, so the tests drive these and not the markup.
 
 use chrono::{DateTime, TimeZone, Utc};
@@ -110,7 +110,7 @@ pub(in crate::ui) fn listed(
     Ok(rules
         .into_iter()
         .map(|rule| Listed {
-            when: crate::rules::condition(&rule.filter, &name),
+            when: mail_core::rules::condition(&rule.filter, &name),
             does: does(&rule),
             rule,
         })
@@ -158,7 +158,7 @@ pub(in crate::ui) fn read_condition<Tz: TimeZone>(
     if text.trim().is_empty() {
         return Err("Add a condition, like from:news@example.com".to_owned());
     }
-    let named = crate::query::named(labels);
+    let named = mail_core::query::named(labels);
     for word in text.split_whitespace() {
         let bare = word.strip_prefix('-').unwrap_or(word);
         if bare.starts_with('"') {
@@ -167,13 +167,13 @@ pub(in crate::ui) fn read_condition<Tz: TimeZone>(
         let Some((field, value)) = bare.split_once(':') else {
             continue;
         };
-        let alone = crate::query::parse_with(bare, zone, &named);
+        let alone = mail_core::query::parse_with(bare, zone, &named);
         if !matches!(alone, Filter::Text(_)) {
             continue;
         }
         return Err(refusal(bare, &field.to_ascii_lowercase(), value));
     }
-    Ok(crate::query::parse_with(text, zone, &named))
+    Ok(mail_core::query::parse_with(text, zone, &named))
 }
 
 /// Why `word`, whose field is `field`, is not a term.

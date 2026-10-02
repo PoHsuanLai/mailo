@@ -9,7 +9,11 @@
 //! automatic search is off, as it is until someone turns it on.
 
 use ds::prelude::{Point, ShortcutKey as Key};
-use ds_harness::{Driver, Harness, HarnessConfig, Query, Viewport};
+use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query, Viewport};
+
+#[path = "support/settle.rs"]
+mod settle;
+use settle::settle_until;
 
 #[path = "support/drive.rs"]
 mod drive;
@@ -175,7 +179,7 @@ fn open() -> Open {
 }
 
 /// The window, with `dirs` as its directories when a case needs a setting kept in them.
-fn open_with(dirs: Option<mail_app::appearance::WindowDirs>) -> Open {
+fn open_with(dirs: Option<mail_app::ui::appearance::WindowDirs>) -> Open {
     let dir = tempfile::tempdir().unwrap();
     let store = seeded(dir.path());
     let asked = Arc::new(Mutex::new(Vec::new()));
@@ -183,8 +187,8 @@ fn open_with(dirs: Option<mail_app::appearance::WindowDirs>) -> Open {
     let printer = mail_app::ui::native::Printer::with_dialog(|_, _| Ok(PrintOutcome::Cancelled));
     let contexts = mail_app::ui::native::contexts(
         Arc::clone(&store),
-        mail_app::view::Appearance::default(),
-        mail_app::space::Spaces::default(),
+        mail_app::ui::view::Appearance::default(),
+        mail_app::ui::space::Spaces::default(),
         dirs,
         mail_app::ui::Start::Inbox,
     )
@@ -192,9 +196,11 @@ fn open_with(dirs: Option<mail_app::appearance::WindowDirs>) -> Open {
     .with(server(asked.clone(), calls.clone()));
     let config = HarnessConfig::new(VIEW)
         .with_net(NetPolicy::Local)
+        .with_clock(Clock::Virtual)
         .with_contexts(contexts);
     let mut harness = Harness::new(mail_app::ui::native::root, config);
     harness.advance(ms(300));
+    settle_until(&mut harness, |h| h.count(".list .ds-thread") > 0);
     Open {
         harness,
         store,
@@ -349,11 +355,11 @@ fn a_search_that_finds_mail_here_still_ends_with_the_offer() {
 #[test]
 fn turned_on_the_server_is_asked_once_as_the_search_is_shown() {
     let config = tempfile::tempdir().unwrap();
-    let dirs = mail_app::appearance::WindowDirs {
+    let dirs = mail_app::ui::appearance::WindowDirs {
         config: config.path().join("config"),
         state: config.path().join("state"),
     };
-    mail_app::server_search::save(&dirs.config, mail_app::server_search::Automatic::On).unwrap();
+    mail_core::server_search::save(&dirs.config, mail_core::server_search::Automatic::On).unwrap();
     let Open {
         mut harness, asked, ..
     } = open_with(Some(dirs));

@@ -449,7 +449,7 @@ async fn escape_drops_nothing() {
 
 #[test]
 fn what_each_place_accepts() {
-    let places = crate::view::default_places();
+    let places = crate::ui::view::default_places();
     let label = LabelId::generate();
     let cases: Vec<(&str, Option<Op>)> = vec![
         ("Inbox", Some(Op::Restore)),
@@ -470,9 +470,9 @@ fn what_each_place_accepts() {
             .unwrap_or_else(|| panic!("no place {name}"));
         assert_eq!(drop_op(&view_kind(place)), want, "{name}");
     }
-    let labelled = crate::view::Place {
+    let labelled = crate::ui::view::Place {
         name: "spec".to_owned(),
-        source: crate::view::Source::Mail(Filter::HasLabel(label)),
+        source: crate::ui::view::Source::Mail(Filter::HasLabel(label)),
         unread: None,
     };
     assert_eq!(

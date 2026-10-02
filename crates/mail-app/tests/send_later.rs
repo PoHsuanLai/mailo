@@ -5,7 +5,9 @@
 //! `cli::parse` and `cli::run_with_clients` against a real store, as a user would reach them.
 
 use chrono::{DateTime, FixedOffset, TimeZone, Utc};
-use mail_app::{cli, compose, template};
+use mail_app::cli;
+use mail_core::compose;
+use mail_core::template;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 

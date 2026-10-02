@@ -4,13 +4,13 @@
 //! `notify.json`, beside `appearance.json`, which is where `mailo watch` reads it. The watch
 //! raises the notifications; this only says whether it should.
 
-use crate::appearance::WindowDirs;
-use crate::notify::{self, Setting};
+use crate::ui::appearance::WindowDirs;
 use dioxus::prelude::*;
 use ds::components::content::label::LabelRole;
 use ds::components::controls::segmented::Tracking;
 use ds::components::fields::field_row::FieldRow;
 use ds::prelude::{Choice, Label, SegmentedControl};
+use mail_core::notify::{self, Setting};
 
 const CHOICES: [(Setting, &str); 2] = [(Setting::On, "On"), (Setting::Off, "Off")];
 

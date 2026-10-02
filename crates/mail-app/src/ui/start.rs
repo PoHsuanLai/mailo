@@ -8,7 +8,7 @@
 //! [`mailto_of`] reads the link and [`start_mailto`] makes it a draft. Everything else on the
 //! command line is the CLI's, and [`start_of`] says so by answering `None`.
 
-use crate::view::Shell;
+use crate::ui::view::Shell;
 use mail_domain::{DraftId, ThreadId};
 use mail_mime::MailtoUri;
 use mail_store::SqliteStore;
@@ -60,11 +60,12 @@ pub fn start_mailto(
     link: &MailtoUri,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<Start, String> {
-    let account = match crate::compose::sending_accounts(store).first() {
+    let account = match mail_core::compose::sending_accounts(store).first() {
         Some((_, id)) => *id,
-        None => crate::compose::account_for(store, None)?,
+        None => mail_core::compose::account_for(store, None)?,
     };
-    crate::compose::draft_mailto(store, account, link, now).map(|draft| Start::Compose(draft.id))
+    mail_core::compose::draft_mailto(store, account, link, now)
+        .map(|draft| Start::Compose(draft.id))
 }
 
 /// Open `thread` in the reader, from the inbox.
@@ -76,7 +77,9 @@ pub fn start_mailto(
 pub fn open_thread(shell: &mut Shell, thread: ThreadId) {
     if let Some(inbox) = shell.places.iter().position(|place| {
         place.source
-            == crate::view::Source::Mail(crate::view::place_filter(mail_domain::MailboxRole::Inbox))
+            == crate::ui::view::Source::Mail(mail_core::place::place_filter(
+                mail_domain::MailboxRole::Inbox,
+            ))
     }) {
         shell.select(inbox);
     }

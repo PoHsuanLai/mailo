@@ -3657,6 +3657,9 @@ Found while building 10.1 and 10.2 and fixed there.
 The common shape: each layer classified its failure correctly and the next layer flattened it to
 a string. `Retry` survives only where it is passed along as a value.
 
+*Closed in F199:* a sync pass now returns a typed `PassEnd` per account, and the window moves
+each account's `Link` from it; the prose is the CLI's rendering, made last.
+
 ### F148 — Multi-byte charsets were never decoded, and a re-ingested sender kept its old name
 
 Found while building 10.5 and fixed there.
@@ -4603,3 +4606,44 @@ folders."); "The X stopped before it finished: e" then "X failed: e" or "Couldn'
 reader's "sandboxed frame" footnote, gone; the leave-a-list question, "Leave X? mailo sends the
 list's server a one-click request." then "Leave X?"; the snooze items, "Tomorrow 09:00  2026-10-02
 09:00" then "Tomorrow" with the hint "9:00 AM".
+
+### F199 — Fetching is a state machine per account, and every state has a place on screen
+
+The window had one `SyncState { Idle, Running, Done(String), Failed(String) }` for every account,
+every Sync button and every folder open, and it drew as one footnote. "Syncing…" had no spinner, a
+`Done` could carry failures and was styled as success, `NeedsReauth` had no place to appear, one
+rejected account stopped polling for all of them, the list said "Empty" while the first sync ran,
+a body not yet fetched could not be fetched, an attachment that failed to save said so in the
+success colour, and a queued send waited for the next poll.
+
+- **States are values.** `mail_core::fetch` holds pure machines: `Link` per account (`Fresh`,
+  `Syncing`, `Current`, `Waiting`, `NeedsSignIn`, `Broken`), `FolderFetch`, `Body`, `Download`,
+  each moved by `step(state, event, now) -> (state, effects)` and tested as tables. A sync pass
+  returns `PassEnd` per account with its `Retry` and the mailboxes that failed (F147), reports
+  progress, and takes a cancel. The window runs one async loop (`ui/fetching`) that applies `step`
+  and runs the effects; the `async` future is how a pass proceeds, the enum is what is shown.
+- **Push in the window.** Accounts with IMAP IDLE or JMAP push keep a watch open (`sync::live`);
+  the daemon keeps that job when it holds the lock. A failed pass that stored nothing no longer
+  re-reads the window, which had made a timing-sensitive macOS UI test flake.
+- **Drawn the way Mail draws it.** Sync is busy while a pass runs; the status line says checking,
+  downloading n of m, updated a while ago, offline until a time, or up to date. A problem is a
+  mark on the account's tile, and the mark opens Connection Doctor, which lists every account and
+  the one thing that fixes it. There is no banner over the list: Mail has none, and quire's spec
+  kept `InlineBanner` static (00 rule 10). A first sync draws skeleton rows that the mail fades in
+  over; a mailbox that cannot load says so with Retry. The reader fetches a missing body as it
+  opens; an attachment that fails is a danger banner.
+- **Add account says no command line.** Its failures are typed (`Miss`, `Refusal`) with their own
+  copy and one action; Enter Server Settings… is an IMAP, POP or JMAP form building the same
+  `Setup` the CLI flags do.
+- **The logic left the app.** `mail-core` holds it and may not depend on dioxus or quire;
+  `mail-app` is the binary with two front ends, `cli/` and `ui/`, which never name each other.
+  Files in mail-core that still return terminal prose are listed in `scripts/core-*-allowlist.txt`
+  and leave the list as they become typed.
+- **quire v0.2.3.** `Loadable`, `SkeletonRow`, row size tokens, a two-way busy fade and the
+  tiles' status corner went into quire first (CONSUMING Rule 3). The first try animated
+  `InlineBanner` and rewrote its spec row to match; an audit against the catalogue's rules and a
+  headless recording (which also showed a banner mounted hidden never animating in) put it back.
+
+Open: the status line sits in the toolbar's centre rather than its subtitle; Connection Doctor's
+tile mark is not reachable by Tab; the daemon does not watch push mail itself, so with it running
+push falls back to polling; JMAP and POP3 bodies still arrive only with a sync.

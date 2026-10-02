@@ -8,6 +8,12 @@ set -uo pipefail
 
 PURE=(mail-domain mail-mime mail-proto mail-pim)
 FORBIDDEN=(tokio rusqlite dioxus reqwest keyring-core)
+# `mail-core` is the I/O-capable core: it may use tokio, rusqlite and the network, which the PURE
+# crates may not. What it may never reach is anything that draws, the window's toolkit or the
+# renderer under it, so that `mail-app`'s two front-ends (`ui`, `cli`) sit over one core that
+# knows neither.
+CORE=(mail-core)
+FORBIDDEN_CORE=(dioxus ds ds-settings ds-blitz blitz-dom dioxus-native-dom)
 fail=0
 
 for crate in "${PURE[@]}"; do
@@ -23,6 +29,71 @@ done
 if [ "$fail" -eq 0 ]; then
   echo "sans-I/O boundary holds: ${PURE[*]} reach none of ${FORBIDDEN[*]}"
 fi
+
+core_fail=0
+for crate in "${CORE[@]}"; do
+  for dep in "${FORBIDDEN_CORE[@]}"; do
+    if cargo tree -p "$crate" -i "$dep" 2>/dev/null | grep -q .; then
+      echo "LEAK: $crate depends on $dep"
+      cargo tree -p "$crate" -i "$dep" 2>/dev/null | head -20
+      core_fail=1
+    fi
+  done
+done
+if [ "$core_fail" -eq 0 ]; then
+  echo "core boundary holds: ${CORE[*]} reach none of ${FORBIDDEN_CORE[*]}"
+fi
+fail=$((fail | core_fail))
+
+# The two front-ends sit side by side in `mail-app` and never name each other: what they share
+# is `mail-core`'s. A path through `crate::ui` from the terminal, or `crate::cli` from the
+# window, is a helper that belongs in `mail-core` (or, if it is truly neither's, nowhere yet).
+# `super::` and the crate's own name are caught too, as they reach the other side the same way.
+if grep -rnE "(crate|super|mail_app)::ui\b" crates/mail-app/src/cli/; then
+  echo "crates/mail-app/src/cli must not name the window (crate::ui): move the shared helper to mail-core"
+  fail=1
+fi
+if grep -rnE "(crate|super|mail_app)::cli\b" crates/mail-app/src/ui/; then
+  echo "crates/mail-app/src/ui must not name the command line (crate::cli): move the shared helper to mail-core"
+  fail=1
+fi
+
+# `mail-core` returns values for a front-end to word, not the words of a terminal. Two habits
+# still stand in the way, and each is held by an allowlist of the files that have not been
+# converted yet: a file is listed to be fixed, never to be excused, and a line comes off the
+# list when its file is converted. The check fails both ways: an unlisted file with the habit,
+# and a listed file without it.
+#
+#   scripts/core-prose-allowlist.txt          a string naming a `mailo <subcommand>` to run
+#   scripts/core-result-string-allowlist.txt  `Result<String, String>`: prose out, prose error
+#
+# Comment lines are not code and are not counted.
+ratchet() { # <list file> <extended regex> <what the pattern finds>
+  local list="$1" pattern="$2" what="$3" found listed bad=0
+  found=$(grep -rEn "$pattern" crates/mail-core/src --include='*.rs' \
+    | grep -vE '^[^:]+:[0-9]+:[[:space:]]*//' | cut -d: -f1 | sort -u)
+  listed=$(grep -vE '^[[:space:]]*(#|$)' "$list" | sort -u)
+  while IFS= read -r file; do
+    [ -z "$file" ] && continue
+    if ! grep -qxF "$file" <<<"$listed"; then
+      echo "$file: $what, and it is not in $list"
+      grep -nE "$pattern" "$file" | grep -vE '^[0-9]+:[[:space:]]*//' | head -3
+      bad=1
+    fi
+  done <<<"$found"
+  while IFS= read -r file; do
+    [ -z "$file" ] && continue
+    if ! grep -qxF "$file" <<<"$found"; then
+      echo "$file: listed in $list but it no longer has the habit: remove the line"
+      bad=1
+    fi
+  done <<<"$listed"
+  return "$bad"
+}
+ratchet scripts/core-prose-allowlist.txt 'mailo [a-z]' \
+  "mail-core code names a terminal command (mailo <subcommand>)" || fail=1
+ratchet scripts/core-result-string-allowlist.txt 'Result<String, String>' \
+  "mail-core returns Result<String, String>" || fail=1
 
 # The reader draws blocks. A raw HTML sink in the UI would put a sender's markup
 # in our document, which is what the block types exist to prevent.

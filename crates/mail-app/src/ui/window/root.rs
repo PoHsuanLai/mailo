@@ -7,13 +7,13 @@
 //! a composer desk for a reply.
 
 use super::note::left;
-use crate::space::Spaces;
 use crate::ui::app::Frame;
 use crate::ui::compose::{self, ComposerPage, PageKind, SendPill};
 use crate::ui::ops::{Composes, apply_op, start_composing};
 use crate::ui::reading::{Reader, ReaderIn};
+use crate::ui::space::Spaces;
 use crate::ui::style::STYLE;
-use crate::view::{Shell, Shortcut};
+use crate::ui::view::{Shell, Shortcut};
 use dioxus::prelude::*;
 use ds::base::spawner::Spawner;
 use ds_settings::{
@@ -50,19 +50,19 @@ pub fn message_root() -> Element {
 #[component]
 pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
     // The provider icons, as the first window holds them.
-    let loaded = try_consume_context::<crate::provider::icon::Loaded>().unwrap_or_default();
+    let loaded = try_consume_context::<mail_core::provider::icon::Loaded>().unwrap_or_default();
     let icons = use_signal(|| loaded);
     use_context_provider(|| icons);
     crate::ui::host::use_window_host();
     let mut shell = use_signal(|| {
         let store = consume_context::<Arc<SqliteStore>>();
         let mut shell = Shell {
-            appearance: try_consume_context::<crate::view::Appearance>().unwrap_or_default(),
-            keymap: try_consume_context::<crate::appearance::WindowDirs>()
-                .map(|dirs| crate::keymap::load(&dirs.config))
+            appearance: try_consume_context::<crate::ui::view::Appearance>().unwrap_or_default(),
+            keymap: try_consume_context::<crate::ui::appearance::WindowDirs>()
+                .map(|dirs| crate::ui::keymap::load(&dirs.config))
                 .unwrap_or_default(),
-            labels: crate::query::known_labels(&store),
-            accounts: crate::compose::sending_accounts(&store),
+            labels: mail_core::query::known_labels(&store),
+            accounts: mail_core::compose::sending_accounts(&store),
             ..Shell::default()
         };
         // Opened as a click opens it: nothing consented to, nothing found.
@@ -73,14 +73,14 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
     crate::ui::revisions::use_shared_revision(revision);
     // The Spaces, read and never written: the first window owns the file.
     let spaces = use_signal(|| {
-        try_consume_context::<crate::appearance::WindowDirs>()
-            .map(|dirs| crate::space::load(&dirs.config))
+        try_consume_context::<crate::ui::appearance::WindowDirs>()
+            .map(|dirs| crate::ui::space::load(&dirs.config))
             .or_else(try_consume_context::<Spaces>)
             .unwrap_or_default()
     });
     // A reply's desk. Handed no directories, so nothing here writes Today or the settings,
     // which are the first window's.
-    let today = use_signal(crate::today::Today::default);
+    let today = use_signal(crate::ui::today::Today::default);
     let side_hidden = use_signal(|| true);
     let desk = compose::use_desk(today, spaces, None, side_hidden);
     compose::use_test_dictionaries();
@@ -128,7 +128,7 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
             return;
         }
         let key = if event.modifiers().shift() {
-            crate::view::shifted(&key).to_owned()
+            crate::ui::view::shifted(&key).to_owned()
         } else {
             key
         };

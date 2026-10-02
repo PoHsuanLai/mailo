@@ -3,9 +3,9 @@
 use super::super::hover::{Hook, element, out, over, use_driver};
 use super::super::text::sender;
 use super::tagged;
-use crate::appearance::WindowDirs;
-use crate::today::{IDLE, Today};
-use crate::view::Shell;
+use crate::ui::appearance::WindowDirs;
+use crate::ui::today::{IDLE, Today};
+use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::base::time::clock;
 use ds::components::app::today_tabs::{TodayTab, TodayTabs};
@@ -135,7 +135,7 @@ fn today_face(initial: char, tone: AvatarTone) -> AvatarFace {
 
 fn save(dirs: &Option<WindowDirs>, today: &Today) {
     if let Some(dirs) = dirs {
-        let _ = crate::today::save(&dirs.state, today);
+        let _ = crate::ui::today::save(&dirs.state, today);
     }
 }
 

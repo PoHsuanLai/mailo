@@ -3,15 +3,15 @@
 //! Found off the thread that draws, once per message and body, like the checks line beside it
 //! (`checks.rs`): the switch, the believed `Authentication-Results` and the cache are read on a
 //! blocking thread, and only a domain the cache knows nothing about is looked up, on the async
-//! runtime (`crate::bimi`, `mail_runtime::bimi`). The window hands the cache's directory in as
+//! runtime (`mail_core::bimi`, `mail_runtime::bimi`). The window hands the cache's directory in as
 //! a [`BrandCache`]; without one, and without a config directory to read the switch from,
 //! nothing is looked up at all. The logo reaches the page as a PNG `data:` URL, drawn from the
 //! SVG beforehand; the SVG itself is never put in the page.
 
-use crate::appearance::WindowDirs;
-use crate::bimi::{Setting, domain_of};
+use crate::ui::appearance::WindowDirs;
 use base64::Engine as _;
 use dioxus::prelude::*;
+use mail_core::bimi::{Setting, domain_of};
 use mail_domain::{BlobId, MessageId};
 use mail_runtime::bimi::{Cached, Lookup, cached};
 use mail_store::SqliteStore;
@@ -43,7 +43,7 @@ fn local(
     raw: BlobId,
     from: &str,
 ) -> Local {
-    if crate::bimi::load(config) == Setting::Off {
+    if mail_core::bimi::load(config) == Setting::Off {
         return Local::Nothing;
     }
     let Some(domain) = domain_of(from) else {
@@ -58,7 +58,7 @@ fn local(
     match cached(cache, domain, chrono::Utc::now()) {
         Cached::Logo(png) => Local::Drawn(png),
         Cached::None => Local::Nothing,
-        Cached::Unknown => Local::Ask(crate::bimi::anchors(config), results),
+        Cached::Unknown => Local::Ask(mail_core::bimi::anchors(config), results),
     }
 }
 
@@ -114,7 +114,7 @@ async fn ask(
         anchors,
         now: chrono::Utc::now(),
     };
-    crate::bimi::brand_logo(Setting::On, Some(results), from, &lookup, dir).await
+    mail_core::bimi::brand_logo(Setting::On, Some(results), from, &lookup, dir).await
 }
 
 /// The reader head's avatar: the sender's logo when there is one, else their initial. Keyed by

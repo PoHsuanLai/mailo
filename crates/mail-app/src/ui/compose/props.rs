@@ -32,9 +32,9 @@ use super::protection::ProtectionRow;
 use super::receipt::{KEY as RECEIPT_KEY, ReceiptRow, item as receipt_item};
 use super::recipients::{commit_typed, people_items, pick_person, pop_last, remove, typed};
 use super::remind::RemindRow;
-use crate::provider::icon::{ChipPlace, ProvChip};
-use crate::provider::provider;
-use crate::view::Shell;
+use crate::ui::provider_chip::{ChipPlace, ProvChip};
+use crate::ui::view::Shell;
+use mail_core::provider::provider;
 
 #[component]
 pub(in crate::ui) fn Props(page: Signal<Page>, shell: Signal<Shell>) -> Element {
@@ -211,7 +211,7 @@ fn move_to(mut page: Signal<Page>, key: &str) {
         return;
     };
     let moved = super::life::save(&store, &mut write, now)
-        .and_then(|draft| crate::compose::move_draft_to(&store, draft.id, account, now));
+        .and_then(|draft| mail_core::compose::move_draft_to(&store, draft.id, account, now));
     match moved {
         Ok(draft) => write.from = draft.account,
         Err(why) => write.notice = Some(why),

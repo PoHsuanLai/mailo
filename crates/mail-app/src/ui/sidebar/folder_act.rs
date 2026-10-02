@@ -4,10 +4,10 @@
 use super::super::data::account_rows;
 use super::super::motion::{Follow, tell};
 use super::folder_tree::{AccountFolders, Mailboxes, placed};
-use crate::folder::{Refusal, change};
-use crate::undo::{Undo, reverse_folder};
-use crate::view::Shell;
+use crate::ui::view::Shell;
 use dioxus::prelude::*;
+use mail_core::folder::{Refusal, change};
+use mail_core::undo::{Undo, reverse_folder};
 use mail_domain::{
     AccountId, FolderError, FolderWork, Incoming, MailboxRef, NonEmpty, ServerLabels, Subscription,
 };
@@ -30,7 +30,7 @@ pub(in crate::ui) fn load(store: &SqliteStore, scope: &[AccountId]) -> Vec<Accou
                         folders: store.folders(row.id).unwrap_or_default(),
                         labels: store.labels(row.id).unwrap_or_default(),
                         // Before the first connection nothing is known, and nothing is assumed.
-                        server_labels: crate::sync::caps_of(store, row.id)
+                        server_labels: mail_core::sync::caps_of(store, row.id)
                             .map_or(ServerLabels::LocalOnly, |caps| caps.labels),
                     }
                 }

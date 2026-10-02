@@ -17,11 +17,11 @@ pub(super) use drag::Ghost;
 pub(super) use toast::Toast;
 
 use super::ops::{perform, resolve, take_back};
-use crate::undo::{Undo, UndoHandle};
-use crate::view::Shell;
+use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::prelude::Icon;
 use ds::stack::toast_hub::{ToastAction, ToastHub, UndoToken};
+use mail_core::undo::{Undo, UndoHandle};
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 
@@ -139,7 +139,7 @@ pub(super) fn act_all(
     let count = undos.len();
     let said = match done.as_slice() {
         [] => return 0,
-        [op, ..] if count > 1 => crate::undo::said_of(op, count, &chrono::Local),
+        [op, ..] if count > 1 => mail_core::undo::said_of(op, count, &chrono::Local),
         _ => undos[0].said.clone(),
     };
     let Some(handle) = shell.write().undo.push_all(undos) else {
@@ -169,7 +169,7 @@ pub(super) fn act_kind_all(
         .iter()
         .filter_map(|thread| {
             let loaded = store.thread(*thread).ok()?;
-            crate::view::offers(&loaded.summary, kind)
+            crate::ui::view::offers(&loaded.summary, kind)
                 .then(|| resolve(store, *thread, kind))
                 .flatten()
                 .map(|op| (*thread, op))
@@ -207,7 +207,7 @@ pub(in crate::ui) fn destroy_all(
     }
     revision += 1;
     if let Some(motion) = motion() {
-        motion.say(crate::destroy::said(gone.len()), Follow::Nothing);
+        motion.say(crate::ui::bin::said(gone.len()), Follow::Nothing);
     }
     gone.len()
 }

@@ -6,7 +6,8 @@
 //! into the outbox — was missing at every one of those three points.
 
 use chrono::{DateTime, TimeZone, Utc};
-use mail_app::{compose, view};
+use mail_app::ui::view;
+use mail_core::compose;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 

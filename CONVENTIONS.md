@@ -23,7 +23,8 @@ a clock or a global cannot.
 Push effects to the edges. The layering already encodes this: `mail-domain`, `mail-mime` and
 `mail-proto` are pure and mechanically kept that way by `scripts/check-boundary.sh`;
 `mail-store` may touch the disk; only `mail-runtime` may open a socket, spawn a task or read
-the clock. When a pure crate seems to need an effect, that is a sign the effect belongs to the
+the clock. `mail-core` drives them and may use tokio and rusqlite, but has no window and no
+terminal in it; `mail-app` draws the window (`ui`) and the terminal (`cli`) over it. When a pure crate seems to need an effect, that is a sign the effect belongs to the
 caller — `Op::apply` returns a `RemoteIntent` rather than performing one, and `Machine::feed`
 returns an `IoNeed` rather than satisfying it.
 
@@ -305,7 +306,13 @@ cargo test --workspace
 ```
 
 The last one is the sans-I/O boundary, mechanically enforced: `mail-domain`, `mail-mime` and
-`mail-proto` must not reach `tokio`, `rusqlite`, `dioxus`, `reqwest` or `keyring`.
+`mail-proto` must not reach `tokio`, `rusqlite`, `dioxus`, `reqwest` or `keyring`. The same
+script holds the two front-ends apart: `mail-core` must not reach `dioxus`, `ds`, `ds-settings`
+or `ds-blitz`; `mail-app/src/cli` and `mail-app/src/ui` must not name each other, so a helper
+both want belongs in `mail-core`; and `mail-core` code that names a `mailo <subcommand>` or
+returns `Result<String, String>` is listed in `scripts/core-prose-allowlist.txt` and
+`scripts/core-result-string-allowlist.txt` until it returns a typed outcome. Those lists only
+shrink.
 
 Note that `cargo tree -p <crate> -i <dep>` **exits 101 when the dependency is absent**, which
 is the condition we want. A CI step that checks the exit status alone therefore fails exactly

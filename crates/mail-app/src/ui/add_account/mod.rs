@@ -6,6 +6,7 @@
 //! credential leaves before that last press. [`flow`] is every decision, with the network and the
 //! keyring handed in as [`flow::Seams`]; the sheet only draws it.
 
+mod copy;
 pub(in crate::ui) mod flow;
 mod sheet;
 
@@ -13,7 +14,7 @@ pub(in crate::ui) use sheet::AddAccountSheet;
 
 use dioxus::prelude::*;
 
-use crate::view::Shell;
+use crate::ui::view::Shell;
 
 /// The seams the window was handed, or the real ones.
 pub(in crate::ui) fn seams() -> flow::Seams {
@@ -33,6 +34,8 @@ pub(in crate::ui) fn close(mut shell: Signal<Shell>) {
     crate::ui::host::Host::focus_app();
 }
 
+#[cfg(test)]
+mod copy_tests;
 #[cfg(test)]
 mod flow_tests;
 #[cfg(test)]

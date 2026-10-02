@@ -1,5 +1,5 @@
-//! The Add account sheet: an address, what was found for it — or a JMAP server typed in by hand
-//! — a password, a token or a browser sign-in, and the one press that uses them.
+//! The Add account sheet: an address, what was found for it — or an IMAP, POP or JMAP server typed
+//! in by hand — a password, a token or a browser sign-in, and the one press that uses them.
 
 use std::sync::Arc;
 
@@ -22,10 +22,14 @@ use mail_store::SqliteStore;
 
 use super::super::hover::copy;
 use super::super::press::{available, on_primary};
-use super::flow::{self, Client, Hand, Offer, Opened, SignIn, SigningIn, Stage};
-use crate::password::Password;
-use crate::space::Spaces;
-use crate::view::Shell;
+use super::copy::{self, Action, Notice};
+use super::flow::{
+    self, Client, Field, Hand, Hint, JmapHand, Kind, Miss, Offer, Opened, Refusal, Role,
+    ServerHand, SignIn, SigningIn, Stage,
+};
+use crate::ui::space::Spaces;
+use crate::ui::view::Shell;
+use mail_core::password::Password;
 
 /// Look up what is typed, off the thread that draws. Call it from an event handler (F140).
 fn look_up(shell: Signal<Shell>, mut stage: Signal<Stage>) {
@@ -39,7 +43,9 @@ fn look_up(shell: Signal<Shell>, mut stage: Signal<Stage>) {
         let done =
             tokio::task::spawn_blocking(move || flow::look(&typed, &seams, chrono::Utc::now()))
                 .await;
-        stage.set(done.unwrap_or_else(|error| Stage::Missed(format!("Lookup failed: {error}"))));
+        stage.set(done.unwrap_or_else(|error| {
+            Stage::Missed(Miss::Broken(format!("Lookup failed: {error}")))
+        }));
     });
 }
 
@@ -80,7 +86,10 @@ fn use_offer(
         })
         .await;
         let next = done.unwrap_or_else(|error| {
-            Stage::Refused(kept, format!("It stopped before it finished: {error}"))
+            Stage::Refused(
+                kept,
+                Refusal::Other(format!("It stopped before it finished: {error}")),
+            )
         });
         if let Stage::Added { account, .. } = &next {
             revision += 1;
@@ -138,8 +147,8 @@ pub(in crate::ui) fn AddAccountSheet(
             ),
         },
         Stage::ByHand(hand) => (
-            "Use these settings".to_owned(),
-            has_password && flow::by_hand(&typed, hand).is_ok(),
+            "Sign In".to_owned(),
+            has_password && flow::by_hand(&typed, hand, chrono::Utc::now()).is_ok(),
         ),
         Stage::Adding(offer) => match offer.sign_in {
             SignIn::Password => ("Adding…".to_owned(), false),
@@ -162,7 +171,7 @@ pub(in crate::ui) fn AddAccountSheet(
             }
             Stage::ByHand(hand) => {
                 let typed = shell.peek().adding.clone().unwrap_or_default();
-                if let Ok(offer) = flow::by_hand(&typed, &hand) {
+                if let Ok(offer) = flow::by_hand(&typed, &hand, chrono::Utc::now()) {
                     use_offer(offer, shell, stage, secret, revision, spaces, signing)
                 }
             }
@@ -210,7 +219,7 @@ pub(in crate::ui) fn AddAccountSheet(
                         oninput: on_address,
                     }
                 }
-                Below { shown: shown.clone(), typed: typed.clone(), signing: signing(), stage, secret, on_secret: move |value: String| {
+                Below { shown: shown.clone(), shell, typed: typed.clone(), signing: signing(), stage, secret, on_secret: move |value: String| {
                     secret.set(Password::new(value));
                 } }
                 div { class: "acct-foot",
@@ -263,6 +272,52 @@ impl NoteTone {
     }
 }
 
+/// What went wrong, in a sentence, with a line of detail and the one thing to do about it.
+#[component]
+fn Problem(
+    notice: Notice,
+    shell: Signal<Shell>,
+    stage: Signal<Stage>,
+    mut secret: Signal<Password>,
+) -> Element {
+    let Notice {
+        headline,
+        detail,
+        action,
+    } = notice;
+    rsx! {
+        Note { text: headline, tone: NoteTone::Refusal }
+        if let Some(detail) = detail {
+            Note { text: detail, tone: NoteTone::Help }
+        }
+        if let Some(action) = action {
+            div { class: "acct-alt",
+                Button {
+                    bezel: Bezel::Inline,
+                    label: action.label().to_owned(),
+                    common: Common { id: Some(action_id(action).to_owned()), ..Common::default() },
+                    onclick: move |_| match action {
+                        Action::EnterServerSettings => {
+                            let next = flow::alternate(&stage.peek());
+                            secret.set(Password::default());
+                            stage.set(next);
+                        }
+                        Action::TryAgain => look_up(shell, stage),
+                    },
+                }
+            }
+        }
+    }
+}
+
+/// The id a notice's button is found by.
+fn action_id(action: Action) -> &'static str {
+    match action {
+        Action::EnterServerSettings => "acct-server-settings",
+        Action::TryAgain => "acct-try-again",
+    }
+}
+
 /// Work in progress: quire's spinner beside what is being done, said as a status.
 #[component]
 fn Busy(text: String) -> Element {
@@ -284,6 +339,7 @@ fn Busy(text: String) -> Element {
 #[component]
 fn Below(
     shown: Stage,
+    shell: Signal<Shell>,
     typed: String,
     signing: Option<SigningIn>,
     stage: Signal<Stage>,
@@ -298,22 +354,32 @@ fn Below(
         Stage::Looking => rsx! {
             Busy { text: format!("Looking up the servers for {}\u{2026}", flow::domain_of(&typed).unwrap_or_default()) }
         },
-        Stage::Missed(why) => rsx! {
-            Note { text: why, tone: NoteTone::Refusal }
-            Alternate { stage, secret }
-        },
+        Stage::Missed(miss) => {
+            let notice = copy::missed(&miss);
+            let by_hand = notice.action == Some(Action::EnterServerSettings);
+            rsx! {
+                Problem { notice, shell, stage, secret }
+                if !by_hand {
+                    Alternate { stage, secret }
+                }
+            }
+        }
         Stage::Found(offer) => rsx! {
             Found { offer: offer.clone() }
             Ways { offer: offer.clone(), stage, secret }
-            Credential { offer, on_secret }
-            Alternate { stage, secret }
+            Credential { offer: offer.clone(), shell, stage, secret, on_secret }
+            if !offers_settings(&offer) {
+                Alternate { stage, secret }
+            }
         },
         Stage::Refused(offer, why) => rsx! {
             Found { offer: offer.clone() }
             Ways { offer: offer.clone(), stage, secret }
-            Credential { offer, on_secret }
-            Note { text: why, tone: NoteTone::Refusal }
-            Alternate { stage, secret }
+            Credential { offer: offer.clone(), shell, stage, secret, on_secret }
+            Problem { notice: copy::refused(&why), shell, stage, secret }
+            if !offers_settings(&offer) {
+                Alternate { stage, secret }
+            }
         },
         Stage::ByHand(hand) => rsx! {
             ByHand { hand, typed, stage, on_secret }
@@ -433,7 +499,39 @@ fn SignsInWith(auth: HttpAuth, stage: Signal<Stage>) -> Element {
     }
 }
 
-/// A JMAP server typed in: its session URL, how it signs in, and the secret.
+/// Whether the offer's own notice already has the Enter Server Settings button, so that the
+/// link under it would be the same thing said twice.
+fn offers_settings(offer: &Offer) -> bool {
+    matches!(
+        offer.sign_in,
+        SignIn::OAuth {
+            client: Client::Missing,
+            ..
+        }
+    )
+}
+
+/// The form with `typed` in `field`.
+fn edit(mut stage: Signal<Stage>, field: Field, typed: String) {
+    let next = match &*stage.peek() {
+        Stage::ByHand(now) => Stage::ByHand(now.clone().with(field, typed)),
+        _ => return,
+    };
+    stage.set(next);
+}
+
+/// What a hint says about `field`, as a refusal note under its row.
+#[component]
+fn Hints(hints: Vec<Hint>, field: Option<Field>) -> Element {
+    rsx! {
+        for hint in hints.into_iter().filter(|hint| hint.field == field) {
+            Note { text: hint.said, tone: NoteTone::Refusal }
+        }
+    }
+}
+
+/// Servers typed in, as Mail's Incoming and Outgoing Mail Server pane has them: which kind, the
+/// servers, who signs in, and the secret.
 #[component]
 fn ByHand(
     hand: Hand,
@@ -442,35 +540,145 @@ fn ByHand(
     on_secret: EventHandler<String>,
 ) -> Element {
     let address = typed.trim().to_lowercase();
-    // Said once there is something to say it about.
-    let why = flow::by_hand(&typed, &hand)
-        .err()
-        .filter(|_| !hand.session.trim().is_empty());
+    let hints = flow::hints(&typed, &hand);
+    let token = hand.jmap_auth() == Some(HttpAuth::Bearer);
+    let kind = hand.kind();
+    let choices: Vec<Choice<Kind>> = Kind::ALL
+        .into_iter()
+        .map(|kind| Choice::new(kind, kind.label()))
+        .collect();
     rsx! {
-        FieldRow {
-            label: "JMAP session URL",
-                        layout: RowLayout::Form,
-            TextField {
-                label: "Session URL",
-                value: hand.session.clone(),
-                placeholder: "https://jmap.example.com/.well-known/jmap".to_owned(),
-                oninput: move |value: String| {
-                    let next = match &*stage.peek() {
-                        Stage::ByHand(now) => Stage::ByHand(Hand {
-                            session: value,
-                            ..now.clone()
-                        }),
-                        _ => return,
-                    };
-                    stage.set(next);
+        FieldRow { label: "Account type", layout: RowLayout::Form,
+            SegmentedControl::<Kind> {
+                label: "Account type",
+                choices,
+                tracking: Tracking::SelectOne(kind),
+                onchange: move |want: Kind| {
+                    let next = flow::pick_kind(&stage.peek(), want);
+                    if let Some(next) = next {
+                        stage.set(next);
+                    }
                 },
             }
         }
-        if let Some(why) = why {
-            Note { text: why, tone: NoteTone::Refusal }
+        if !typed.trim().is_empty() {
+            Hints { hints: hints.clone(), field: None }
         }
-        SignsInWith { auth: hand.auth, stage }
-        Secret { address, token: hand.auth == HttpAuth::Bearer, on_secret }
+        match hand {
+            Hand::Jmap(jmap) => rsx! { JmapFields { jmap, hints: hints.clone(), stage } },
+            Hand::Imap(server) => rsx! {
+                ServerFields { server, incoming: Role::Imap, address: address.clone(), hints: hints.clone(), stage }
+            },
+            Hand::Pop3(server) => rsx! {
+                ServerFields { server, incoming: Role::Pop3, address: address.clone(), hints: hints.clone(), stage }
+            },
+        }
+        Secret { address, token, on_secret }
+    }
+}
+
+/// A JMAP server: its session URL, and how the secret travels.
+#[component]
+fn JmapFields(jmap: JmapHand, hints: Vec<Hint>, stage: Signal<Stage>) -> Element {
+    rsx! {
+        FieldRow { label: "JMAP session URL", layout: RowLayout::Form,
+            TextField {
+                label: "Session URL",
+                value: jmap.session.clone(),
+                placeholder: "https://jmap.example.com/.well-known/jmap".to_owned(),
+                oninput: move |value: String| edit(stage, Field::Session, value),
+            }
+        }
+        Hints { hints, field: Some(Field::Session) }
+        SignsInWith { auth: jmap.auth, stage }
+    }
+}
+
+/// One labelled text field in the form: a host, a port or a user name.
+#[component]
+fn Entry(
+    label: &'static str,
+    value: String,
+    placeholder: String,
+    field: Field,
+    hints: Vec<Hint>,
+    stage: Signal<Stage>,
+) -> Element {
+    rsx! {
+        FieldRow { label, layout: RowLayout::Form,
+            TextField {
+                label,
+                value,
+                placeholder,
+                oninput: move |typed: String| edit(stage, field, typed),
+            }
+        }
+        Hints { hints, field: Some(field) }
+    }
+}
+
+/// An IMAP or POP3 account's servers and user name. Ports are placeholders for the default,
+/// which is what a blank one means.
+#[component]
+fn ServerFields(
+    server: ServerHand,
+    incoming: Role,
+    address: String,
+    hints: Vec<Hint>,
+    stage: Signal<Stage>,
+) -> Element {
+    let ServerHand {
+        incoming: coming,
+        outgoing: going,
+        login,
+    } = server;
+    let default = |role: Role| role.default_port().get().to_string();
+    rsx! {
+        Entry {
+            label: "Incoming Mail Server",
+            value: coming.host,
+            placeholder: incoming.placeholder(&address),
+            field: Field::IncomingHost,
+            hints: hints.clone(),
+            stage,
+        }
+        Entry {
+            label: "Incoming Port",
+            value: coming.port,
+            placeholder: default(incoming),
+            field: Field::IncomingPort,
+            hints: hints.clone(),
+            stage,
+        }
+        Entry {
+            label: "Outgoing Mail Server",
+            value: going.host,
+            placeholder: Role::Smtp.placeholder(&address),
+            field: Field::OutgoingHost,
+            hints: hints.clone(),
+            stage,
+        }
+        Entry {
+            label: "Outgoing Port",
+            value: going.port,
+            placeholder: default(Role::Smtp),
+            field: Field::OutgoingPort,
+            hints: hints.clone(),
+            stage,
+        }
+        Entry {
+            label: "User Name",
+            value: login,
+            placeholder: if address.is_empty() { "Your address".to_owned() } else { address.clone() },
+            field: Field::Login,
+            hints,
+            stage,
+        }
+        Note {
+            text: "Mailo connects with TLS only, so the ports are the TLS ones; STARTTLS is not supported."
+                .to_owned(),
+            tone: NoteTone::Help,
+        }
     }
 }
 
@@ -480,7 +688,7 @@ fn Alternate(stage: Signal<Stage>, mut secret: Signal<Password>) -> Element {
     let (id, label) = if matches!(*stage.read(), Stage::ByHand(_)) {
         ("acct-look-instead", "Look the address up instead")
     } else {
-        ("acct-by-hand", "Enter a JMAP server by hand")
+        ("acct-by-hand", Action::EnterServerSettings.label())
     };
     rsx! {
         div { class: "acct-alt",
@@ -500,7 +708,13 @@ fn Alternate(stage: Signal<Stage>, mut secret: Signal<Password>) -> Element {
 
 /// The password or token field, or what a browser sign-in will do.
 #[component]
-fn Credential(offer: Offer, on_secret: EventHandler<String>) -> Element {
+fn Credential(
+    offer: Offer,
+    shell: Signal<Shell>,
+    stage: Signal<Stage>,
+    secret: Signal<Password>,
+    on_secret: EventHandler<String>,
+) -> Element {
     match offer.sign_in {
         SignIn::Password => rsx! {
             Secret { address: offer.address.clone(), token: offer.token(), on_secret }
@@ -518,7 +732,7 @@ fn Credential(offer: Offer, on_secret: EventHandler<String>) -> Element {
             issuer,
             client: Client::Missing,
         } => rsx! {
-            Note { text: flow::missing_client(issuer), tone: NoteTone::Refusal }
+            Problem { notice: copy::needs_client_id(issuer), shell, stage, secret }
         },
     }
 }

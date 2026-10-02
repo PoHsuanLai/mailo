@@ -3,7 +3,9 @@
 //! [`MapSecrets`] so the user's own is never touched.
 
 use chrono::{DateTime, TimeZone, Utc};
-use mail_app::{cli, compose, pgp};
+use mail_app::cli;
+use mail_core::compose;
+use mail_core::pgp;
 use mail_domain::*;
 use mail_mime::openpgp::{self, Keys, SecretCert, Unlocking};
 use mail_runtime::{Arrival, MapSecrets, Secrets};

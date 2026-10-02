@@ -5,9 +5,9 @@
 //! quire's root cross-fades the Space's colour.
 
 use super::frame::{keep, scope_ids};
-use crate::space::edit::Draft;
-use crate::space::{self, Recall, Space, Spaces};
-use crate::view::{PageMenu, Shell};
+use crate::ui::space::edit::Draft;
+use crate::ui::space::{self, Recall, Space, Spaces};
+use crate::ui::view::{PageMenu, Shell};
 use dioxus::prelude::*;
 
 /// The Space ⌘ and a digit ask for: `"1"` is the first. `None` for any other key.
@@ -49,7 +49,7 @@ fn restore(shell: &mut Shell, space: &Space, recall: &Recall) {
         .position(|place| place.name == recall.place)
         .unwrap_or(0);
     shell.open = recall.open;
-    shell.picked = crate::selection::Picked::none();
+    shell.picked = crate::ui::selection::Picked::none();
     shell.show_remote_images = false;
     shell.search.clear();
     shell.page_menu = PageMenu::Closed;

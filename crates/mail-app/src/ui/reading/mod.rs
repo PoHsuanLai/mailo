@@ -1,5 +1,6 @@
 mod attachments;
 mod blocks;
+mod fetch;
 mod find_bar;
 mod found;
 mod image;
@@ -12,7 +13,7 @@ mod viewer;
 
 use super::press::on_primary;
 use super::text::{address, attachment_rows, from_name, stamp};
-use crate::view::{Peek, Reading, Shell};
+use crate::ui::view::{Peek, Shell};
 use attachments::Attachments;
 use blocks::MessageView;
 use dioxus::prelude::*;
@@ -29,6 +30,7 @@ use ds::style::icon::render::Glyph;
 use ds::style::tokens::control_size::ControlSize;
 pub(super) use find_bar::open_find;
 use find_bar::{FindBar, marking};
+use mail_core::reader::Reading;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 use source::{Showing, Shown, SourceView, Sources};
@@ -223,12 +225,9 @@ pub(super) fn Reader(
     if let Some(revision) = revision {
         let _ = revision();
     }
-    // Where the last attachment went, or why it did not. Cleared by opening another
-    // conversation, because this component is rebuilt for each one.
+    // What the message source's Save said. Cleared by opening another conversation, because
+    // this component is rebuilt for each one.
     let mut saved = use_signal(|| None::<String>);
-    // Which attachment is being fetched, if one is. That part's button stays disabled until
-    // the fetch ends, so a second click cannot start a second download of it.
-    let downloading = use_signal(|| None::<(MessageId, usize)>);
     // Which messages are showing their Original frame or their source. Keyed by message, so
     // opening another one does not carry the choice over. The frame itself is not created and
     // destroyed with this choice.
@@ -287,7 +286,7 @@ pub(super) fn Reader(
             // and one not opened yet, shows what is stored.
             let render = |policy| {
                 super::pgp::reading(&message, policy)
-                    .unwrap_or_else(|| crate::reader::render(&store, &message, policy))
+                    .unwrap_or_else(|| mail_core::reader::render(&store, &message, policy))
             };
             let reading = render(policy);
             // Once the reader is allowed to fetch, the display pass blocks nothing, so it can
@@ -441,10 +440,10 @@ pub(super) fn Reader(
         }
         div { class: "reader-body",
             div { class: "banners",
-            if let Some(where_it_went) = saved() {
-                // Where it went, named. A file saved somewhere the user cannot point at is a file
-                // they have lost, and this pane's previous answer was to print a command to run.
-                InlineBanner { severity: Severity::Ok, text: where_it_went, onclose: move |()| saved.set(None) }
+            if let Some(refusal) = saved() {
+                // A refusal only: a saved file is said by a toast (`attachments.rs`), so this one is an
+                // error, never `Ok`.
+                InlineBanner { severity: Severity::Danger, text: refusal, onclose: move |()| saved.set(None) }
             }
             if let Some(host) = from_host {
                 if showing {
@@ -519,8 +518,6 @@ pub(super) fn Reader(
                             message: message.id,
                             body: message.body.raw(),
                             rows: attached,
-                            saved,
-                            downloading,
                             shell,
                         }
                     }
@@ -530,7 +527,12 @@ pub(super) fn Reader(
                     // or a frame that was not in the tree, re-runs the document, loses scroll,
                     // and re-fetches anything just consented to.
                     if matches!(reading, Reading::NotFetched) {
-                        p { class: "pending", "Not downloaded" }
+                        fetch::BodyPane {
+                            key: "{message.id}-pane",
+                            message: message.id,
+                            account: message.account,
+                            landed,
+                        }
                     } else {
                         MessageView {
                             holder: consent.as_ref().map(|(_, holder)| *holder),

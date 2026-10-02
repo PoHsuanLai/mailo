@@ -1,7 +1,7 @@
 //! What the Import and Export sheets do, as functions of a store and a path.
 //!
 //! The sheets only draw what these answer, and the tests drive these rather than a window. The
-//! work itself is `crate::import` and `crate::export`, the same functions `mailo import` and
+//! work itself is `mail_core::import` and `mail_core::export`, the same functions `mailo import` and
 //! `mailo export` run; this adds the words a person reads while choosing, and the one step the
 //! command line takes after an upload — sending it — is [`import_then_send`].
 
@@ -14,9 +14,9 @@ use chrono::{DateTime, Utc};
 use mail_domain::{AccountId, Filter, Incoming};
 use mail_store::{SqliteStore, Store};
 
-use crate::export::{self, Exported, Target};
-use crate::import::{self, Destination, Imported, Source};
-use crate::view::{Shell, Source as Listed};
+use crate::ui::view::{Shell, Source as Listed};
+use mail_core::export::{self, Exported, Target};
+use mail_core::import::{self, Destination, Imported, Source};
 
 /// A typed path, with a leading `~` meaning `home`. Surrounding space is not part of a name
 /// anybody types on purpose, so it is dropped.
@@ -275,7 +275,7 @@ pub(in crate::ui) fn import_then_send(
     let Some(account) = done.queued else {
         return Ok(done.said);
     };
-    let sent = match crate::sync::drain(store, account, now) {
+    let sent = match mail_core::sync::drain(store, account, now) {
         Ok(report) => {
             let mut out = format!("{}. {} uploaded", done.said, report.appended);
             if report.still_queued > 0 {
@@ -347,7 +347,8 @@ pub(in crate::ui) fn prefill(shell: &Shell) -> String {
         Listed::Mail(Filter::HasLabel(_)) => Some(place.name.clone()),
         // A saved view in the words it lists by, when there are words for it.
         Listed::Saved(view) => {
-            if let Some(words) = crate::saved::written(&view.filter, &shell.labels, &chrono::Local)
+            if let Some(words) =
+                crate::ui::saved::written(&view.filter, &shell.labels, &chrono::Local)
             {
                 return words;
             }
@@ -379,7 +380,7 @@ pub(in crate::ui) fn suggested(dir: &Path, query: &str, format: Format) -> PathB
         Format::Maildir => format!("mailo-{slug}"),
         Format::Eml => format!("mailo-{slug}-eml"),
     };
-    crate::attach::free_path(dir, &name)
+    mail_core::attach::free_path(dir, &name)
 }
 
 /// The query as a file name: letters and digits, the rest one dash, at most forty characters.

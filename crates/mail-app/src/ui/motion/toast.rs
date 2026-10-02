@@ -7,11 +7,11 @@
 //! makes them.
 
 use super::{Follow, Toasts, motion, undo_by};
-use crate::undo::UndoHandle;
-use crate::view::Shell;
+use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::prelude::*;
 use ds::stack::toast_hub::UndoToken;
+use mail_core::undo::UndoHandle;
 use mail_domain::RuleId;
 use mail_store::SqliteStore;
 use std::sync::Arc;
@@ -58,7 +58,7 @@ pub(in crate::ui) fn Toast(shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
 /// Take a block back: the rule it made is forgotten, and the toast says so.
 fn unblock(mut revision: Signal<u64>, rule: RuleId, sender: &str) {
     let store = consume_context::<Arc<SqliteStore>>();
-    let text = match crate::rules::block::unblock(&store, rule) {
+    let text = match mail_core::rules::block::unblock(&store, rule) {
         Ok(()) => format!("Unblocked {sender}"),
         Err(why) => format!("Could not unblock {sender}: {why}"),
     };

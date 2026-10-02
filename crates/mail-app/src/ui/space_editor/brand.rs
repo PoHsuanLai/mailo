@@ -6,9 +6,9 @@
 //! no logo can be verified and none will show.
 
 use super::parts::Seg;
-use crate::appearance::WindowDirs;
-use crate::bimi::{self, Setting};
+use crate::ui::appearance::WindowDirs;
 use dioxus::prelude::*;
+use mail_core::bimi::{self, Setting};
 
 const CHOICES: [(Setting, &str); 2] = [(Setting::On, "On"), (Setting::Off, "Off")];
 

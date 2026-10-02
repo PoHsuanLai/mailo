@@ -1,7 +1,7 @@
 //! The editor's own control around quire's: the provider marks.
 
-use crate::appearance::WindowDirs;
-use crate::view::{Appearance, Marks as MarksKind, Shell};
+use crate::ui::appearance::WindowDirs;
+use crate::ui::view::{Appearance, Marks as MarksKind, Shell};
 use dioxus::prelude::*;
 use ds::components::controls::button_model::Bezel;
 use ds::components::controls::segmented::Tracking;
@@ -47,7 +47,7 @@ pub(super) fn Marks(shell: Signal<Shell>) -> Element {
                     let look = Appearance { marks };
                     shell.write().appearance = look;
                     if let Some(dirs) = try_consume_context::<WindowDirs>() {
-                        let _ = crate::appearance::save(&dirs.config, look);
+                        let _ = crate::ui::appearance::save(&dirs.config, look);
                     }
                 },
             }
@@ -63,30 +63,30 @@ pub(super) fn Marks(shell: Signal<Shell>) -> Element {
 /// Fetch every provider's icon again, then show the new ones.
 fn refresh_icons() {
     let store = consume_context::<std::sync::Arc<mail_store::SqliteStore>>();
-    let icons = try_consume_context::<Signal<crate::provider::icon::Loaded>>();
+    let icons = try_consume_context::<Signal<mail_core::provider::icon::Loaded>>();
     spawn(async move {
-        let Some(root) = crate::appearance::cache_dir() else {
+        let Some(root) = mail_core::config::cache_dir() else {
             eprintln!("provider icon: no cache directory");
             return;
         };
         let dir = root.join("providers");
-        let providers = match crate::provider::icon::providers_of(&store) {
+        let providers = match mail_core::provider::icon::providers_of(&store) {
             Ok(providers) => providers,
             Err(err) => {
                 eprintln!("provider icon: {err}");
                 return;
             }
         };
-        let results = crate::provider::icon::refresh(&dir, &providers).await;
+        let results = mail_core::provider::icon::refresh(&dir, &providers).await;
         for (provider, result) in &results {
             if let Err(err) = result
-                && !matches!(err, crate::provider::icon::IconError::Unmapped)
+                && !matches!(err, mail_core::provider::icon::IconError::Unmapped)
             {
                 eprintln!("provider icon: {provider:?}: {err}");
             }
         }
         if let Some(mut icons) = icons {
-            icons.set(crate::provider::icon::Loaded::read(&dir));
+            icons.set(mail_core::provider::icon::Loaded::read(&dir));
         }
     });
 }

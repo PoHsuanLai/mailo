@@ -11,7 +11,7 @@ use mail_store::{SqliteStore, Store};
 use super::ContactsSheet;
 use super::tests::{ADDED, HEARD, NO_REPLY, the_book};
 use crate::ui::fixtures::{Seen, click, dispatching, drain_seen, rebuild_into, type_into};
-use crate::view::Shell;
+use crate::ui::view::Shell;
 
 /// The first render, then the ones after it, keeping every attribute they set: a quire sheet is
 /// drawn a frame after the one that asked for it, on quire's clock.

@@ -8,7 +8,7 @@
 //! head. A message whose body has not been fetched is [`ReceiptState::Unknown`] and shows
 //! nothing: fetching it to find out would be a POP3 `RETR`, which marks it read.
 //!
-//! What asking and answering mean is [`crate::receipt`]'s, the module `mailo receipt` uses, so the
+//! What asking and answering mean is [`mail_core::receipt`]'s, the module `mailo receipt` uses, so the
 //! window and the command cannot disagree about it. Opening a message never answers: RFC 8098
 //! §2.1 leaves that to the person reading, and this module has no path that answers without a
 //! press of Send receipt or Don't send.
@@ -17,8 +17,8 @@ mod bar;
 
 pub(super) use bar::Receipts;
 
-use crate::receipt::ReceiptState;
 use chrono::{DateTime, Utc};
+use mail_core::receipt::ReceiptState;
 use mail_domain::*;
 use mail_mime::ReturnPath;
 use mail_store::{SqliteStore, Store};
@@ -101,7 +101,7 @@ pub(in crate::ui) fn look(store: &SqliteStore, message: MessageId) -> Option<Sta
         .unwrap_or_else(|held| held.into_inner())
         .push(message);
     let stored = store.message(message).ok()?;
-    let state = crate::receipt::state(store, &stored).ok()?;
+    let state = mail_core::receipt::state(store, &stored).ok()?;
     let sender = stored
         .from
         .name
@@ -159,7 +159,7 @@ pub(in crate::ui) fn lookup(store: &SqliteStore, key: &Bodies) -> Vec<Standing> 
         .collect()
 }
 
-/// Answer `message`'s request through [`crate::receipt::answer`], and keep the answer as its
+/// Answer `message`'s request through [`mail_core::receipt::answer`], and keep the answer as its
 /// standing so the bar settles without reading the store again. Blocking: the window calls it
 /// on a blocking thread, and only from a button.
 ///
@@ -172,7 +172,7 @@ pub(in crate::ui) fn answer(
     answer: ReceiptAnswer,
     now: DateTime<Utc>,
 ) -> Result<String, String> {
-    let said = crate::receipt::answer(store, message, answer, now)?;
+    let said = mail_core::receipt::answer(store, message, answer, now)?;
     // Read back rather than assumed: the store's answer is the one the command will show too.
     if let Ok(stored) = store.message(message) {
         keep(message, stored.body.raw(), look(store, message));

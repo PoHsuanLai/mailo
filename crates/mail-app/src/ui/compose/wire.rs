@@ -4,7 +4,7 @@
 
 use super::float;
 use super::page::Page;
-use crate::editor::{InputEvent, Range};
+use crate::ui::editor::{InputEvent, Range};
 
 /// An editor event, as the surface hands it to the page.
 #[derive(Debug, Clone, PartialEq, Eq)]

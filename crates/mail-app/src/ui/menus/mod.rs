@@ -6,7 +6,7 @@
 use super::menu::{Floating, MenuItem, Right, Tile, anchor_for, palette_groups};
 use super::motion::{act, act_all};
 use super::picks::{label_all, with_selection};
-use crate::view::Shell;
+use crate::ui::view::Shell;
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
 use ds::components::content::avatar::AvatarSize;
@@ -90,7 +90,7 @@ where
     words
 }
 
-/// The snooze menu's rows. The hint is [`snooze_hint`] of [`crate::view::snooze_until`].
+/// The snooze menu's rows. The hint is [`snooze_hint`] of [`mail_core::snooze::snooze_until`].
 pub(super) fn snooze_items<Tz: TimeZone>(now: DateTime<Utc>, zone: &Tz) -> Vec<MenuItem>
 where
     Tz::Offset: std::fmt::Display,
@@ -98,7 +98,7 @@ where
     SNOOZE
         .iter()
         .filter_map(|(says, phrase)| {
-            let at = crate::view::snooze_until(phrase, now, zone).ok()?;
+            let at = mail_core::snooze::snooze_until(phrase, now, zone).ok()?;
             Some(MenuItem {
                 key: (*phrase).to_owned(),
                 tile: Tile::Icon(Icon::Clock),
@@ -120,7 +120,7 @@ pub(super) fn label_items(
     summary: &ThreadSummary,
     typed: &str,
 ) -> Vec<MenuItem> {
-    let mut items: Vec<MenuItem> = crate::view::label_menu(known, summary)
+    let mut items: Vec<MenuItem> = crate::ui::view::label_menu(known, summary)
         .into_iter()
         .map(|choice| MenuItem {
             key: choice.id.to_string(),
@@ -178,7 +178,7 @@ pub(super) fn SnoozeMenu(
                 let store = consume_context::<Arc<SqliteStore>>();
                 // The same time `mailo snooze` resolves, applied through the same op; only the
                 // undo, the curl and the toast are the window's.
-                match crate::view::snooze_until(&phrase, Utc::now(), &chrono::Local) {
+                match mail_core::snooze::snooze_until(&phrase, Utc::now(), &chrono::Local) {
                     Ok(at) => {
                         shell.write().snoozing = None;
                         // The whole selection when this row is picked, as one gesture.

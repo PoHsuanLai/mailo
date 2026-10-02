@@ -4,8 +4,8 @@
 //! method, nothing written. It is asked once per list revision and shared, never per hover, and
 //! the ⌘K menu ranks people from the same answer.
 
-use crate::search::{Affinity, SenderStats};
 use chrono::{DateTime, Utc};
+use mail_core::search::{Affinity, SenderStats};
 use mail_store::SqliteStore;
 use std::collections::{HashMap, HashSet};
 

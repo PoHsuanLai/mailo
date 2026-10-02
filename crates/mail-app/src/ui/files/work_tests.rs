@@ -13,8 +13,8 @@ use mail_store::{SqliteStore, Store};
 use super::work::{
     self, Counted, Dest, Format, Looked, expand, export_now, import_now, look, prefill, suggested,
 };
-use crate::import::Source;
-use crate::view::Shell;
+use crate::ui::view::Shell;
+use mail_core::import::Source;
 
 fn now() -> DateTime<Utc> {
     Utc.timestamp_opt(1_700_000_000, 0).unwrap()
@@ -97,7 +97,7 @@ fn subjects(store: &SqliteStore, account: AccountId) -> Vec<String> {
 }
 
 fn the_local_account(store: &SqliteStore) -> AccountId {
-    let local = crate::sync::local_accounts(store);
+    let local = mail_core::sync::local_accounts(store);
     assert_eq!(local.len(), 1, "one local account: {local:?}");
     local[0]
 }
@@ -121,7 +121,7 @@ fn a_maildir_is_counted_then_imported_into_local_folders() {
     let (source, count, said) = looked_mail(&root);
     assert_eq!(source, Source::Maildir(root.clone()));
     assert_eq!((count, said.as_str()), (3, "Maildir, 3 messages"));
-    assert!(crate::sync::local_accounts(&store).is_empty());
+    assert!(mail_core::sync::local_accounts(&store).is_empty());
 
     let mut seen = Vec::new();
     let done = import_now(&store, &source, &Dest::Local, now(), &mut |so_far| {
@@ -170,7 +170,7 @@ fn an_mbox_is_counted_then_imported_into_local_folders_once() {
 fn a_place_exports_in_each_format_and_reads_back_as_as_many_messages() {
     let built = crate::ui::fixtures::work();
     let out = tempfile::tempdir().unwrap();
-    let chosen = crate::export::select(&built.store, "inbox", now()).unwrap();
+    let chosen = mail_core::export::select(&built.store, "inbox", now()).unwrap();
     assert!(!chosen.is_empty(), "the fixture's inbox has mail");
     assert_eq!(
         work::counted(&built.store, "inbox", now()),
@@ -448,7 +448,7 @@ fn imported_mail_goes_to_local_folders_or_an_imap_accounts_folder() {
     let wanted = vec![Dest::Local, folder("Archive/2023"), folder("INBOX")];
     assert_eq!(work::destinations(&store), wanted);
     // Local folders are somewhere to import into, never an account to upload to.
-    crate::account::local(&store, now()).unwrap();
+    mail_core::account::local(&store, now()).unwrap();
     assert_eq!(work::destinations(&store), wanted);
     let labels: Vec<String> = wanted.iter().map(Dest::label).collect();
     assert_eq!(

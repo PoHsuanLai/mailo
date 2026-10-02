@@ -5,13 +5,13 @@
 //! against its hook with the same arithmetic the window uses (`cards.rs`), which is only in the
 //! file, never in the app.
 
-use crate::trust::destination;
 use crate::ui::app::App;
 use crate::ui::fixtures::{FakePointer, dispatching, pointer, rebuild_into, thread_like, work};
 use dioxus::prelude::*;
 use dioxus_core::{NoOpMutations, VirtualDom};
 use ds::prelude::*;
 use ds::style::tokens::delay::DelayToken;
+use mail_core::trust::destination;
 
 async fn wait(dom: &mut VirtualDom, span: std::time::Duration) {
     let until = tokio::time::Instant::now() + span;
@@ -52,7 +52,7 @@ fn placing(hook: &str, kind: &str) -> String {
 }
 
 fn write(name: &str, body: &str, extra_script: &str) {
-    let look = crate::space::Space::default().look;
+    let look = crate::ui::space::Space::default().look;
     for (suffix, scheme) in [("", Scheme::Light), ("-dark", Scheme::Dark)] {
         let framed = crate::ui::fixtures::framed(body, scheme, &look);
         let head = format!("<script>{extra_script}</script>");

@@ -20,7 +20,7 @@ use super::work::{self, Draft};
 use crate::ui::data::account_rows;
 use crate::ui::files::Phase;
 use crate::ui::fixtures::{ACCOUNT, Seen, click, dispatching, drain_seen, rebuild_into, type_into};
-use crate::view::Shell;
+use crate::ui::view::Shell;
 
 /// The first render, then the ones after it, keeping every attribute they set: a quire sheet is
 /// drawn a frame after the one that asked for it, on quire's clock.
@@ -43,7 +43,7 @@ async fn landed(dom: &mut VirtualDom) -> Seen {
 #[component]
 fn Sheet(account: Option<AccountId>) -> Element {
     let shell = use_signal(|| Shell {
-        rules: Some(crate::view::RulesSheet { account }),
+        rules: Some(crate::ui::view::RulesSheet { account }),
         ..Shell::default()
     });
     let revision = use_signal(|| 0u64);
@@ -258,7 +258,7 @@ fn Phases() -> Element {
 async fn every_state(store: &Arc<SqliteStore>) -> String {
     two_rules(store);
     let row = own_server(store);
-    let kept = crate::rules::server::vacation_for(
+    let kept = mail_core::rules::server::vacation_for(
         &super::server::configured(store, &row, Utc::now()),
         "Away until October",
         "Back on the 12th.",
@@ -369,7 +369,7 @@ async fn render_the_rules_sheet_to_files() {
         .unwrap()
         .rule;
     work::switch(&built.store, &last, RuleState::Disabled).unwrap();
-    let kept = crate::rules::server::vacation_for(
+    let kept = mail_core::rules::server::vacation_for(
         &super::server::configured(&built.store, &own, Utc::now()),
         "Away until 12 October",
         "I am away until the 12th and reading mail when I am back.\n\nFor the release, write to release@example.com.",

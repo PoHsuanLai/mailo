@@ -14,7 +14,7 @@ mod sheet;
 pub(in crate::ui) use card::ContactPart;
 pub(in crate::ui) use sheet::ContactsSheet;
 
-use crate::view::Shell;
+use crate::ui::view::Shell;
 use dioxus::prelude::*;
 
 /// Open the Contacts sheet with an empty filter, and put the cursor in it.

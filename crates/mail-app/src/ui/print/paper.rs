@@ -1,4 +1,4 @@
-//! The printout on paper, for the `native` frontend: [`crate::print`]'s document made into a PDF
+//! The printout on paper, for the `native` frontend: [`mail_core::print`]'s document made into a PDF
 //! by quire (`ds_blitz::pdf`), with no webview anywhere.
 //!
 //! Blitz lays the document out and quire cuts it into pages. Neither reads CSS fragmentation
@@ -28,8 +28,8 @@
 //! the caller through the reader's own fetcher (`native_print`); every other remote image is
 //! named, as the document's `<p class="missing">`.
 
-use crate::print::{Pictures, Printed};
 use ds_blitz::{Margins, PageSize, PageSpec};
+use mail_core::print::{Pictures, Printed};
 use mail_mime::{Options, Script};
 
 /// What the top of a printout says when it names a picture instead of drawing it.
@@ -317,7 +317,7 @@ where
         style: &style,
         missing_note: Some(PICTURES_NOTE),
     };
-    crate::print::document_with(store, *job.thread.as_uuid(), zone, now, &options, pictures)
+    mail_core::print::document_with(store, *job.thread.as_uuid(), zone, now, &options, pictures)
 }
 
 /// `printed` as a PDF on `paper`. Blocking, and slow next to a click (the layout, and the first

@@ -9,8 +9,11 @@
 use ds::file_drop::drag::{DropAcceptance, FileDragInput, Offer};
 use ds::prelude::Point;
 use ds_blitz::{FocusFallback, NetPolicy, PrintOutcome};
-use ds_harness::harness::settle_until;
-use ds_harness::{Driver, Harness, HarnessConfig, Query, Viewport};
+use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query, Viewport};
+
+#[path = "support/settle.rs"]
+mod settle;
+use settle::settle_until;
 
 #[path = "support/drive.rs"]
 mod drive;
@@ -89,8 +92,8 @@ fn composing() -> (Harness, tempfile::TempDir, Arc<SqliteStore>) {
     let printer = mail_app::ui::native::Printer::with_dialog(|_, _| Ok(PrintOutcome::Cancelled));
     let contexts = mail_app::ui::native::contexts(
         Arc::clone(&store),
-        mail_app::view::Appearance::default(),
-        mail_app::space::Spaces::default(),
+        mail_app::ui::view::Appearance::default(),
+        mail_app::ui::space::Spaces::default(),
         None,
         mail_app::ui::Start::Inbox,
     )
@@ -98,6 +101,7 @@ fn composing() -> (Harness, tempfile::TempDir, Arc<SqliteStore>) {
     let config = HarnessConfig::new(VIEW)
         .with_net(NetPolicy::Local)
         .with_focus_fallback(FocusFallback::Ancestor)
+        .with_clock(Clock::Virtual)
         .with_contexts(contexts);
     let mut harness = Harness::new(mail_app::ui::native::root, config);
     harness.advance(ms(300));

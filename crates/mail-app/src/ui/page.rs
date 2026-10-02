@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 
 use super::menu::{Floating, MenuItem, Right, Tile};
 use super::press::on_primary;
-use crate::view::{PageGroup, PageMenu, PageParts, Shell};
+use crate::ui::view::{PageGroup, PageMenu, PageParts, Shell};
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
 use ds::components::controls::button_model::Bezel;

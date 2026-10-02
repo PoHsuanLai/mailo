@@ -1,9 +1,9 @@
 //! The brand logo switch in the Space editor, against a temporary config directory only.
 
-use crate::bimi::{self, Setting};
 use crate::ui::app::App;
 use crate::ui::fixtures::{Seen, Work, click, dispatching, drain_seen, rebuild_into, work};
 use dioxus::dioxus_core::VirtualDom;
+use mail_core::bimi::{self, Setting};
 
 /// The window on the Work Space, with the editor open.
 fn opened(built: &Work) -> (VirtualDom, Seen) {

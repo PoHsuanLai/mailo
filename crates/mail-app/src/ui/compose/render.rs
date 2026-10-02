@@ -17,7 +17,7 @@ use ds::style::icon::render::Glyph;
 use super::super::menu::Floating;
 use super::float::{object_items, pick_object};
 use super::page::{Float, Fold, Page};
-use crate::editor::{Check, Mark, Node, Object, Op, ParaKind, Pos, Range, Run};
+use crate::ui::editor::{Check, Mark, Node, Object, Op, ParaKind, Pos, Range, Run};
 
 #[cfg(test)]
 thread_local! {

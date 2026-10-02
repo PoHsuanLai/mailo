@@ -4,10 +4,11 @@ use crate::ui::fixtures::{
     click, dispatching, held_and_remote, reader_markup, realistic, rebuild_into, seeded,
     thread_like,
 };
-use crate::view::{Reading, Shell};
+use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use dioxus_core::VirtualDom;
 use ds::prelude::*;
+use mail_core::reader::Reading;
 use mail_domain::*;
 use mail_mime::{RemoteImages, SanitizePolicy};
 use mail_store::{SqliteStore, Store};
@@ -739,7 +740,7 @@ async fn the_original_tab_does_not_remount_the_iframe() {
         let message = store
             .message(store.thread(thread).unwrap().messages[0])
             .unwrap();
-        crate::reader::render(&store, &message, SanitizePolicy::CURRENT)
+        mail_core::reader::render(&store, &message, SanitizePolicy::CURRENT)
             .document()
             .map(|document| format!("{:?}", document.shape))
             .unwrap_or_else(|| "none".to_owned())
@@ -813,7 +814,7 @@ const READER_ONLY: &str = ".app { grid-template-columns: minmax(0, 1fr); } \
     .app > .reader { background: var(--surface); color: var(--ink); border-radius: var(--r-card); }";
 
 pub(super) fn dump_page(name: &str, body: &str) {
-    let look = crate::space::Space::default().look;
+    let look = crate::ui::space::Space::default().look;
     let head = format!("<style>{READER_ONLY}</style>");
     for (suffix, scheme) in [("", Scheme::Light), ("-dark", Scheme::Dark)] {
         let column = format!("<div style=\"width: 760px; margin: 0 auto\">{body}</div>");

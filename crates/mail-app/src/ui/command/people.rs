@@ -12,7 +12,7 @@ use mail_store::Store;
 
 use super::super::contacts::book::suggest;
 use super::super::history::History;
-use crate::search::{PersonHit, Results, Top};
+use mail_core::search::{PersonHit, Results, Top};
 
 /// People rows under the top hit.
 const PEOPLE_CAP: usize = 3;
@@ -20,7 +20,7 @@ const PEOPLE_CAP: usize = 3;
 /// The words of a ⌘K query a person could be found by: its free words and phrases, without
 /// the operators. `from:dana spec` is `spec`.
 pub(in crate::ui) fn free_words(query: &str) -> String {
-    let parsed = crate::search::parse(query, &Utc, &|_| Vec::new());
+    let parsed = mail_core::search::parse(query, &Utc, &|_| Vec::new());
     let mut words = parsed.query_words();
     words.extend(parsed.phrases.iter().cloned());
     words.join(" ")

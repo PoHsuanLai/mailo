@@ -5,11 +5,11 @@
 use super::native_print::{BUSY, Printer, Sources, made, print_through, said};
 use super::paper::{self, Cjk, Families, PICTURES_NOTE, Paper};
 use super::{Job, build};
-use crate::print::Printed;
 use crate::ui::fixtures::{ACCOUNT, seeded};
 use crate::ui::original::{Consent, FetchImage, Got, ReaderNet};
 use chrono::TimeZone;
 use ds_blitz::{PageSize, PrintError, PrintOutcome};
+use mail_core::print::Printed;
 use mail_domain::*;
 use mail_mime::{Pages, Script};
 use mail_store::{SqliteStore, Store};

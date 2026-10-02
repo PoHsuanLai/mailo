@@ -8,10 +8,10 @@
 //! runs no script, so there is no keep-focus script, no "nothing mounted" note and no debug probe.
 
 use super::{Opening, Shell, ShellRoot};
-use crate::appearance::WindowDirs;
-use crate::space::Spaces;
+use crate::ui::appearance::WindowDirs;
 use crate::ui::original::Original;
-use crate::view::Appearance;
+use crate::ui::space::Spaces;
+use crate::ui::view::Appearance;
 use dioxus::prelude::*;
 use ds_blitz::{AppConfig, AppId, RootContexts};
 use mail_store::SqliteStore;
@@ -41,10 +41,10 @@ pub(super) fn run(opening: Opening) {
     } = opening;
     let notices = dirs
         .as_ref()
-        .filter(|dirs| crate::notify::load(&dirs.config) == crate::notify::Setting::On)
+        .filter(|dirs| mail_core::notify::load(&dirs.config) == mail_core::notify::Setting::On)
         .map(|_| {
             crate::ui::follow_up::Notices(std::sync::Arc::new(
-                crate::notify::desktop::Desktop::connect(),
+                mail_core::notify::desktop::Desktop::connect(),
             ))
         });
     let original = Original::window();
@@ -66,7 +66,7 @@ pub(super) fn run(opening: Opening) {
     };
     // The unread count on the dock or the Dash. Only the launched window has one; a test hands
     // its own recorder or none.
-    let config = match crate::launcher::platform() {
+    let config = match crate::ui::launcher::platform() {
         Some(launcher) => config.with_context(launcher),
         None => config,
     };

@@ -6,13 +6,14 @@ use super::super::app::App;
 use super::super::folder_open::Fetcher;
 use super::super::motion::belongs;
 use super::folder_tests::{IMAP, folder};
-use crate::sync::Ran;
 use crate::ui::fixtures::{Seen, click, dispatching, empty, rebuild_into};
-use crate::view::{Shell, folder_of, places_with};
+use crate::ui::view::{Shell, folder_of, places_with};
 use chrono::Utc;
 use dioxus::prelude::*;
 use dioxus_core::{NoOpMutations, VirtualDom};
 use ds::prelude::*;
+use mail_core::fetch::FolderFetch;
+use mail_core::sync::report::{AccountReport, Counts, PassEnd};
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
@@ -146,17 +147,20 @@ fn deliver(
 }
 
 /// A fetcher that counts what it is asked for and answers `answer`.
-fn counting(answer: Result<&'static str, &'static str>) -> (Fetcher, Arc<AtomicUsize>) {
+fn counting(answer: Result<(), &'static str>) -> (Fetcher, Arc<AtomicUsize>) {
     let calls = Arc::new(AtomicUsize::new(0));
     let seen = calls.clone();
-    let fetcher = Fetcher(Arc::new(move |_store, _account, path: &str, _now| {
+    let fetcher = Fetcher(Arc::new(move |_store, account, path: &str, _now| {
         assert!([PROJECTS, RECEIPTS, OLD].contains(&path), "{path}");
         seen.fetch_add(1, Ordering::SeqCst);
         answer
-            .map(|text| Ran {
-                text: format!("{text} {path}"),
-                rejected: false,
-                hold: None,
+            .map(|()| {
+                PassEnd::Finished(AccountReport {
+                    account,
+                    address: "me@nowhere.example".to_owned(),
+                    counts: Counts::default(),
+                    trouble: Vec::new(),
+                })
             })
             .map_err(str::to_owned)
     }));
@@ -183,6 +187,13 @@ async fn settle(dom: &mut VirtualDom) {
         }
         dom.render_immediate(&mut NoOpMutations);
     }
+}
+
+/// Where the on-demand fetch of `path` on the account stands, as the window's fetching has it.
+fn folder_state(dom: &mut VirtualDom, path: &str) -> FolderFetch {
+    dom.in_scope(ScopeId::APP, || {
+        consume_context::<super::super::fetching::Fetching>().folder(IMAP, path)
+    })
 }
 
 /// The folder row whose path is `path`: from the row that names it to the next row.
@@ -212,7 +223,7 @@ fn list(page: &str) -> &str {
 #[tokio::test]
 async fn choosing_a_folder_lists_what_the_server_holds_there_and_its_badge_counts_it() {
     let (store, _dir, _) = store();
-    let (fetcher, _) = counting(Ok("fetched"));
+    let (fetcher, _) = counting(Ok(()));
     let (mut dom, seen) = window(store, fetcher);
     let before = dioxus_ssr::render(&dom);
     assert!(
@@ -263,7 +274,7 @@ async fn choosing_a_folder_lists_what_the_server_holds_there_and_its_badge_count
 #[tokio::test]
 async fn opening_fetches_once_per_choice_and_not_again_within_the_minute() {
     let (store, _dir, _) = store();
-    let (fetcher, calls) = counting(Ok("fetched"));
+    let (fetcher, calls) = counting(Ok(()));
     let (mut dom, seen) = window(store, fetcher);
     settle(&mut dom).await;
     assert_eq!(
@@ -275,11 +286,15 @@ async fn opening_fetches_once_per_choice_and_not_again_within_the_minute() {
     click(&mut dom, seen.folder(PROJECTS));
     settle(&mut dom).await;
     assert_eq!(calls.load(Ordering::SeqCst), 1);
-    let page = dioxus_ssr::render(&dom);
+    // Where the folder stands is the fetching's, not a line in the list bar: opening it no
+    // longer writes the status every account shares.
     assert!(
-        list(&page).contains("fetched Projects/2026"),
-        "what the fetch said is not in the status line: {}",
-        list(&page)
+        matches!(
+            folder_state(&mut dom, PROJECTS),
+            FolderFetch::Fetched { .. }
+        ),
+        "{:?}",
+        folder_state(&mut dom, PROJECTS)
     );
 
     // Redrawing is not opening.
@@ -317,24 +332,32 @@ async fn opening_fetches_once_per_choice_and_not_again_within_the_minute() {
 }
 
 #[tokio::test]
-async fn a_fetch_that_fails_says_why_in_the_status_line() {
+async fn a_fetch_that_fails_is_the_folders_to_say() {
     let (store, _dir, _) = store();
     let (fetcher, calls) = counting(Err("the server has no such folder any more"));
     let (mut dom, seen) = window(store, fetcher);
     click(&mut dom, seen.folder(RECEIPTS));
     settle(&mut dom).await;
     assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        folder_state(&mut dom, RECEIPTS),
+        FolderFetch::Refused(format!(
+            "{RECEIPTS} was not fetched: the server has no such folder any more"
+        ))
+    );
+    // And it does not reach the list bar as a failure of every account's sync.
     let page = dioxus_ssr::render(&dom);
-    let bar = list(&page);
-    let status = &bar[bar
-        .find("class=\"ds-label status bad\"")
-        .expect("no failure line")..];
     assert!(
-        status.contains("收據 was not fetched: the server has no such folder any more"),
-        "{status}"
+        !list(&page).contains("class=\"ds-label status bad\""),
+        "{}",
+        list(&page)
     );
     // What was already held is still listed.
-    assert!(bar.contains("Your receipt for September"), "{bar}");
+    assert!(
+        list(&page).contains("Your receipt for September"),
+        "{}",
+        list(&page)
+    );
 }
 
 #[test]
@@ -431,8 +454,8 @@ async fn render_a_folder_place_to_a_file() {
         44,
         "Your receipt for September",
     );
-    let space = crate::space::load(&built.dirs.config).current_space();
-    let (fetcher, _) = counting(Ok("Up to date:"));
+    let space = crate::ui::space::load(&built.dirs.config).current_space();
+    let (fetcher, _) = counting(Ok(()));
     let mut dom = VirtualDom::new(App)
         .with_root_context(built.store.clone())
         .with_root_context(built.dirs)

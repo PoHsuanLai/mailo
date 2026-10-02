@@ -3,7 +3,7 @@
 //!
 //! Every suggestion goes through [`suggest`], so the To and Cc fields, `@` in the body and the
 //! ⌘K menu's People rank the same people in the same order. Import and export are
-//! `crate::contacts`' — the functions `mailo contacts import|export` run — so the window and the
+//! `mail_core::contacts`' — the functions `mailo contacts import|export` run — so the window and the
 //! command line cannot disagree about what a vCard holds.
 
 use std::path::{Path, PathBuf};
@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use mail_domain::filter::search_tokens;
 use mail_store::{Contact, Kind, Origin, Store};
 
-use crate::editor::Person;
+use crate::ui::editor::Person;
 
 /// How many people a suggestion menu offers.
 pub(in crate::ui) const SUGGESTED: usize = 8;
@@ -162,14 +162,14 @@ pub(in crate::ui) fn forget(store: &dyn Store, address: &str) -> Result<bool, St
 /// Read a vCard file's bytes into the book, as `mailo contacts import` does. The answer is a
 /// sentence for the sheet.
 pub(in crate::ui) fn import(store: &dyn Store, bytes: &[u8]) -> Result<String, String> {
-    crate::contacts::import(store, bytes).map(|said| said.trim().replace('\n', ". "))
+    mail_core::contacts::import(store, bytes).map(|said| said.trim().replace('\n', ". "))
 }
 
 /// Write the book as vCard 4.0 into `dir`, beside anything already there, as
 /// `mailo contacts export` writes it. Returns the file written.
 pub(in crate::ui) fn export(store: &dyn Store, dir: &Path) -> Result<PathBuf, String> {
-    let text = crate::contacts::export(store)?;
-    crate::attach::write_new(dir, EXPORT_NAME, text.as_bytes())
+    let text = mail_core::contacts::export(store)?;
+    mail_core::attach::write_new(dir, EXPORT_NAME, text.as_bytes())
 }
 
 /// The command that syncs a CardDAV address book. The window does not: it needs a URL and a

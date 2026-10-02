@@ -3,7 +3,7 @@
 
 use super::super::menu::{MenuItem, Right, Tile};
 use super::page::Page;
-use crate::editor::{Action, Item, ParaKind, Person, filter, turn_into};
+use crate::ui::editor::{Action, Item, ParaKind, Person, filter, turn_into};
 use ds::prelude::*;
 
 fn tile(item: &Item) -> Tile {
@@ -79,7 +79,7 @@ pub(in crate::ui) fn emoji_items(page: &Page) -> Vec<MenuItem> {
     let Some((_, query)) = super::float::emoji_typed(page) else {
         return Vec::new();
     };
-    crate::emoji::search(&query)
+    crate::ui::emoji::search(&query)
         .into_iter()
         .take(EMOJI_ROWS)
         .map(|emoji| MenuItem {

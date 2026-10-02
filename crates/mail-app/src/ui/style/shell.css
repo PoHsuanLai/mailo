@@ -58,6 +58,7 @@
   white-space: nowrap; overflow: hidden;
 }
 .list-head .status.bad { color: var(--danger); font-weight: 600; }
+.list-head .status.warn { color: var(--warn); }
 .pick-tools {
   display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center;
   gap: var(--s-8); flex: 1 1 0; min-width: 0;

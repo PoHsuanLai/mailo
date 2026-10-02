@@ -17,10 +17,10 @@ use mail_store::{SqliteStore, Store};
 use rand::SeedableRng;
 
 use super::{Said, Seams, Tone, looked_at, said};
-use crate::pgp::Protected;
 use crate::ui::fixtures::{ACCOUNT, Seen, click, dispatching, rebuild_into, seeded, type_into};
 use crate::ui::reading::Reader;
-use crate::view::Shell;
+use crate::ui::view::Shell;
+use mail_core::pgp::Protected;
 
 pub(super) const ME: &str = "me@example.test";
 const BEA: &str = "bea@example.test";
@@ -41,7 +41,7 @@ pub(in crate::ui) fn seams_with(secrets: Arc<MapSecrets>) -> Seams {
 
 /// A key of the user's own, made the way the sheet makes one.
 pub(super) fn own_key(store: &SqliteStore, secrets: &MapSecrets) -> PgpKey {
-    crate::pgp::keys::generate(store, secrets, ME, now()).unwrap()
+    mail_core::pgp::keys::generate(store, secrets, ME, now()).unwrap()
 }
 
 /// A correspondent's key, made outside this client.
@@ -604,7 +604,7 @@ fn locked(
             &mut rand::rngs::StdRng::seed_from_u64(seed + 1),
         )
         .unwrap();
-    crate::pgp::keys::import(store, secrets, key.armored().unwrap().as_bytes(), now()).unwrap();
+    mail_core::pgp::keys::import(store, secrets, key.armored().unwrap().as_bytes(), now()).unwrap();
     let raw = letter(word, &format!("the {word} sleeps at noon"));
     let message = arrive(
         store,

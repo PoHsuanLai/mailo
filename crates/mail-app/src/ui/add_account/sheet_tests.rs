@@ -12,11 +12,11 @@ use mail_store::SqliteStore;
 
 use super::AddAccountSheet;
 use super::flow::Seams;
-use super::flow_tests::{Fake, found, seams, with_jmap};
-use crate::space::{Scope, Space, Spaces};
+use super::flow_tests::{Fake, found, missing, seams, with_jmap};
 use crate::ui::fixtures::{Seen, dispatching, drain_seen, rebuild_into};
 use crate::ui::host::{Ask, Recorder};
-use crate::view::Shell;
+use crate::ui::space::{Scope, Space, Spaces};
+use crate::ui::view::Shell;
 
 /// A click, and the render after it: the sheet is quire's, drawn in its overlay, which follows
 /// the window by one render, so a button's state is the one before until then.
@@ -160,7 +160,7 @@ fn store() -> (Arc<SqliteStore>, tempfile::TempDir) {
     (Arc::new(SqliteStore::in_memory(dir.path()).unwrap()), dir)
 }
 
-fn ok(address: &str) -> Result<Found, String> {
+fn ok(address: &str) -> Result<Found, mail_core::discover::Failed> {
     Ok(found(address))
 }
 
@@ -241,25 +241,131 @@ async fn cancel_adds_nothing() {
 }
 
 #[tokio::test]
-async fn a_lookup_error_is_shown_in_the_sheet() {
+async fn a_lookup_that_finds_no_servers_offers_to_enter_them() {
     dispatching();
     let (store, _dir) = store();
     let fake = Arc::new(Fake::default());
-    let why = "could not find servers for ada@nowhere.test: nothing answered";
-    let mut open = open(&store, seams(&fake, Err(why.to_owned()), false), Vec::new());
-    look_up(&mut open, "ada@nowhere.test").await;
+    let mut open = open(&store, seams(&fake, Err(missing()), false), Vec::new());
+    let seen = look_up(&mut open, "ada@nowhere.test").await;
     let shown = page(&open);
-    assert!(shown.contains(why), "{shown}");
     assert!(
-        shown.contains("No JMAP server answered at https://nowhere.test/.well-known/jmap either"),
+        shown.contains("find the mail servers for nowhere.test."),
         "{shown}"
     );
     assert!(
         shown.contains("data-note=\"refusal\""),
         "a refusal is not marked as one: {shown}"
     );
-    assert!(shown.contains("Enter a JMAP server by hand"), "{shown}");
+    assert!(shown.contains("Enter Server Settings"), "{shown}");
+    assert!(!shown.contains("mailo account add"), "{shown}");
+    assert!(!shown.contains("erminal"), "{shown}");
+    // The one action leads to the form for a server typed in: IMAP, with the address carried
+    // over as the user name.
+    let settings = seen.one("id", "acct-server-settings");
+    let seen = seen.merge(click(&mut open.dom, settings));
+    settle(&mut open.dom).await;
+    let shown = page(&open);
+    for label in [
+        "Incoming Mail Server",
+        "Incoming Port",
+        "Outgoing Mail Server",
+        "Outgoing Port",
+        "User Name",
+    ] {
+        assert!(shown.contains(label), "{label}: {shown}");
+    }
+    assert!(!shown.contains("JMAP session URL"), "{shown}");
+    assert!(!shown.contains("data-note=\"refusal\""), "{shown}");
+    assert!(shown.contains("STARTTLS"), "{shown}");
+    assert!(!shown.contains("Enter a JMAP server by hand"), "{shown}");
     assert_eq!(fake.added(), 0);
+
+    // Hosts are guessed from the domain, as placeholders; the user name is the address.
+    let incoming = seen.one("aria-placeholder", "imap.nowhere.test");
+    let outgoing = seen.one("aria-placeholder", "smtp.nowhere.test");
+    seen.one("aria-placeholder", "ada@nowhere.test");
+    seen.one("aria-placeholder", "993");
+    seen.one("aria-placeholder", "465");
+    let sign_in = seen.one("aria-label", "Sign In");
+
+    // Nothing is valid yet, and a press adds nothing.
+    type_into(&mut open.dom, incoming, "imap.nowhere.test");
+    let seen = seen.merge(type_into(&mut open.dom, outgoing, "smtp.nowhere.test"));
+    type_into(
+        &mut open.dom,
+        seen.one("aria-placeholder", "Password for ada@nowhere.test"),
+        PASSWORD,
+    );
+    // A bad port is said under its field, and Sign In waits.
+    let port = seen.one("aria-placeholder", "993");
+    type_into(&mut open.dom, port, "imap");
+    let shown = page(&open);
+    assert!(
+        shown.contains("A port is a number from 1 to 65535."),
+        "{shown}"
+    );
+    click(&mut open.dom, sign_in);
+    settle(&mut open.dom).await;
+    assert_eq!(fake.added(), 0);
+
+    type_into(&mut open.dom, port, "");
+    assert!(!page(&open).contains("A port is a number"));
+    click(&mut open.dom, sign_in);
+    settle(&mut open.dom).await;
+    assert_eq!(
+        *fake.setups.lock().unwrap(),
+        [mail_core::account::Setup::Imap(
+            mail_domain::presets::Manual {
+                imap_host: "imap.nowhere.test".to_owned(),
+                imap_port: 993,
+                smtp_host: "smtp.nowhere.test".to_owned(),
+                smtp_port: 465,
+                login: None,
+            }
+        )]
+    );
+    let rows = crate::ui::data::account_rows(&store);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(fake.kept(rows[0].id).as_deref(), Some(PASSWORD));
+    let shown = page(&open);
+    assert!(shown.contains("Added ada@nowhere.test."), "{shown}");
+    assert!(!shown.contains(PASSWORD), "{shown}");
+    assert!(!open.snapshot.get().contains(PASSWORD));
+}
+
+#[tokio::test]
+async fn pop_and_jmap_are_one_press_away_in_the_form() {
+    dispatching();
+    let (store, _dir) = store();
+    let fake = Arc::new(Fake::default());
+    let mut open = open(&store, seams(&fake, Err(missing()), false), Vec::new());
+    type_into(
+        &mut open.dom,
+        open.seen.one("aria-placeholder", "you@example.com"),
+        "ada@example.test",
+    );
+    let seen = click(&mut open.dom, open.seen.one("id", "acct-by-hand"));
+    let kinds = kinds(&seen);
+    // POP asks for its own server and port.
+    let seen = seen.merge(click(&mut open.dom, kinds[1]));
+    seen.one("aria-placeholder", "pop.example.test");
+    seen.one("aria-placeholder", "995");
+    type_into(
+        &mut open.dom,
+        seen.one("aria-placeholder", "pop.example.test"),
+        "mail.example.test",
+    );
+    let smtp = seen.one("aria-placeholder", "smtp.example.test");
+    let seen = seen.merge(type_into(&mut open.dom, smtp, "mail.example.test"));
+    // Back to IMAP keeps what was typed.
+    click(&mut open.dom, kinds[0]);
+    assert!(page(&open).contains("mail.example.test"));
+    // JMAP asks for a session URL instead.
+    click(&mut open.dom, kinds[2]);
+    let shown = page(&open);
+    assert!(shown.contains("JMAP session URL"), "{shown}");
+    assert!(!shown.contains("Incoming Mail Server"), "{shown}");
+    let _ = seen;
 }
 
 const SESSION: &str = "https://jmap.example.test/session";
@@ -274,17 +380,19 @@ fn segments(seen: &Seen, group: &str) -> Vec<dioxus_core::ElementId> {
     all
 }
 
+/// The three segments of the account type control, IMAP, POP and JMAP.
+fn kinds(seen: &Seen) -> Vec<dioxus_core::ElementId> {
+    let mut all = seen.after("aria-label", "Account type", "aria-pressed");
+    all.truncate(3);
+    all
+}
+
 #[tokio::test]
 async fn jmap_found_by_discovery_is_shown_in_words_and_added_with_its_session() {
     dispatching();
     let (store, _dir) = store();
     let fake = Arc::new(Fake::default());
-    let seams = with_jmap(
-        &fake,
-        Err("no autoconfig".to_owned()),
-        Ok(SESSION.to_owned()),
-        false,
-    );
+    let seams = with_jmap(&fake, Err(missing()), Ok(SESSION.to_owned()), false);
     let mut open = open(&store, seams, Vec::new());
     let seen = look_up(&mut open, "ada@example.test").await;
     let shown = page(&open);
@@ -305,7 +413,7 @@ async fn jmap_found_by_discovery_is_shown_in_words_and_added_with_its_session() 
     settle(&mut open.dom).await;
     assert_eq!(
         *fake.setups.lock().unwrap(),
-        [crate::cli::Setup::Jmap {
+        [mail_core::account::Setup::Jmap {
             session: Some(SESSION.to_owned()),
             login: None,
             auth: mail_domain::HttpAuth::Basic,
@@ -360,7 +468,7 @@ async fn a_domain_with_imap_and_jmap_offers_imap_first_and_jmap_one_press_away()
     settle(&mut open.dom).await;
     assert_eq!(
         *fake.setups.lock().unwrap(),
-        [crate::cli::Setup::Jmap {
+        [mail_core::account::Setup::Jmap {
             session: Some(SESSION.to_owned()),
             login: None,
             auth: mail_domain::HttpAuth::Bearer,
@@ -420,17 +528,15 @@ async fn a_session_typed_by_hand_with_a_token_adds_with_bearer_and_keeps_the_tok
     dispatching();
     let (store, dir) = store();
     let fake = Arc::new(Fake::default());
-    let mut open = open(
-        &store,
-        seams(&fake, Err("unused".to_owned()), false),
-        Vec::new(),
-    );
+    let mut open = open(&store, seams(&fake, Err(missing()), false), Vec::new());
     type_into(
         &mut open.dom,
         open.seen.one("aria-placeholder", "you@example.com"),
         "ada@example.test",
     );
     let seen = click(&mut open.dom, open.seen.one("id", "acct-by-hand"));
+    let jmap = kinds(&seen)[2];
+    let seen = seen.merge(click(&mut open.dom, jmap));
     let url = seen.one("aria-label", "Session URL");
     let seen = seen.merge(type_into(
         &mut open.dom,
@@ -452,11 +558,11 @@ async fn a_session_typed_by_hand_with_a_token_adds_with_bearer_and_keeps_the_tok
     assert!(!shown.contains(TOKEN), "the page holds the token: {shown}");
     assert_eq!((fake.looked(), fake.added()), (0, 0));
 
-    click(&mut open.dom, seen.one("aria-label", "Use these settings"));
+    click(&mut open.dom, seen.one("aria-label", "Sign In"));
     settle(&mut open.dom).await;
     assert_eq!(
         *fake.setups.lock().unwrap(),
-        [crate::cli::Setup::Jmap {
+        [mail_core::account::Setup::Jmap {
             session: Some(SESSION.to_owned()),
             login: None,
             auth: mail_domain::HttpAuth::Bearer,
@@ -488,11 +594,7 @@ async fn an_oauth_account_offers_the_browser_sign_in_and_no_password_field() {
     dispatching();
     let (store, _dir) = store();
     let fake = Arc::new(Fake::default());
-    let mut open = open(
-        &store,
-        seams(&fake, Err("unused".to_owned()), true),
-        Vec::new(),
-    );
+    let mut open = open(&store, seams(&fake, Err(missing()), true), Vec::new());
     let seen = look_up(&mut open, "ada@gmail.com").await;
     let shown = page(&open);
     assert!(
@@ -544,7 +646,7 @@ const SIGN_IN: &str = "https://accounts.example.test/o/oauth2/auth?client_id=abc
 fn signing_in(fake: &Arc<Fake>) -> (Seams, std::sync::mpsc::Sender<()>) {
     let (give_up, given_up) = std::sync::mpsc::channel::<()>();
     let given_up = Mutex::new(given_up);
-    let mut seams = seams(fake, Err("unused".to_owned()), true);
+    let mut seams = seams(fake, Err(missing()), true);
     seams.add = Arc::new(move |_, _, on_url| {
         on_url(SIGN_IN);
         let _ = given_up.lock().unwrap().recv();
@@ -595,7 +697,8 @@ async fn a_browser_sign_in_shows_its_address_to_copy_and_opens_it_through_the_se
     settle(&mut open.dom).await;
     let shown = page(&open);
     assert!(
-        shown.contains("Not added: the sign-in was abandoned"),
+        shown.contains("Couldn\u{2019}t add the account.")
+            && shown.contains("the sign-in was abandoned"),
         "{shown}"
     );
     assert!(
@@ -662,14 +765,11 @@ async fn every_state() -> Vec<(&'static str, String)> {
     give_up.send(()).unwrap();
     settle(&mut waiting.dom).await;
 
-    let mut missing = open(&store, seams(&fake, ok("unused@x.test"), false), Vec::new());
-    look_up(&mut missing, "ada@gmail.com").await;
-    all.push(("oauth-missing", page(&missing)));
+    let mut no_client = open(&store, seams(&fake, ok("unused@x.test"), false), Vec::new());
+    look_up(&mut no_client, "ada@gmail.com").await;
+    all.push(("oauth-missing", page(&no_client)));
 
-    let why = "could not find servers for ada@nowhere.test: no autoconfig, no SRV record and \
-               no MX this client knows\n\nName the servers yourself:\n\n  mailo account add \
-               ada@nowhere.test --imap HOST[:993] --smtp HOST[:465] [--login NAME]";
-    let mut error = open(&store, seams(&fake, Err(why.to_owned()), false), Vec::new());
+    let mut error = open(&store, seams(&fake, Err(missing()), false), Vec::new());
     look_up(&mut error, "ada@nowhere.test").await;
     all.push(("error", page(&error)));
 
@@ -687,6 +787,11 @@ async fn every_state() -> Vec<(&'static str, String)> {
         "ada@example.test",
     );
     let seen = click(&mut typing.dom, typing.seen.one("id", "acct-by-hand"));
+    all.push(("by-hand-imap", page(&typing)));
+    type_into(&mut typing.dom, seen.one("aria-placeholder", "993"), "imap");
+    all.push(("by-hand-bad-port", page(&typing)));
+    let jmap = kinds(&seen)[2];
+    let seen = seen.merge(click(&mut typing.dom, jmap));
     type_into(
         &mut typing.dom,
         seen.one("aria-label", "Session URL"),
@@ -722,6 +827,11 @@ async fn every_class_the_add_account_sheet_draws_is_styled() {
     let offences = crate::ui::style::tests::markup_offences(&markup);
     assert!(offences.is_empty(), "the markup lint: {offences:#?}");
     assert!(!markup.contains(PASSWORD), "a state drew the password");
+    assert!(
+        !markup.contains("mailo account add"),
+        "a state told of the CLI"
+    );
+    assert!(!markup.contains("terminal"), "a state told of a terminal");
 }
 
 /// `extra` as the first child of `.app`, where the window mounts its overlays.

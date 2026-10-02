@@ -8,7 +8,11 @@
 
 use ds::prelude::{Point, ShortcutKey as Key};
 use ds_blitz::{NetPolicy, PrintOutcome};
-use ds_harness::{Driver, Harness, HarnessConfig, Query as Read, Viewport};
+use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query as Read, Viewport};
+
+#[path = "support/settle.rs"]
+mod settle;
+use settle::settle_until;
 
 #[path = "support/drive.rs"]
 mod drive;
@@ -115,17 +119,19 @@ fn open() -> (Harness, tempfile::TempDir, Arc<SqliteStore>) {
     let printer = mail_app::ui::native::Printer::with_dialog(|_, _| Ok(PrintOutcome::Cancelled));
     let contexts = mail_app::ui::native::contexts(
         Arc::clone(&store),
-        mail_app::view::Appearance::default(),
-        mail_app::space::Spaces::default(),
+        mail_app::ui::view::Appearance::default(),
+        mail_app::ui::space::Spaces::default(),
         None,
         mail_app::ui::Start::Inbox,
     )
     .with(printer);
     let config = HarnessConfig::new(VIEW)
         .with_net(NetPolicy::Local)
+        .with_clock(Clock::Virtual)
         .with_contexts(contexts);
     let mut harness = Harness::new(mail_app::ui::native::root, config);
     harness.advance(ms(300));
+    settle_until(&mut harness, |h| h.count(".list .ds-thread") > 0);
     (harness, dir, store)
 }
 

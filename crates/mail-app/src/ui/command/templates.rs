@@ -13,7 +13,7 @@ use mail_store::SqliteStore;
 use super::super::compose::{every_template, forget_template, template_rows};
 use super::super::menu::palette_groups;
 use super::super::motion::{Follow, tell};
-use crate::view::Shell;
+use crate::ui::view::Shell;
 use ds::components::content::avatar::AvatarSize;
 
 #[cfg(test)]
@@ -31,7 +31,7 @@ pub(in crate::ui) fn start(store: &SqliteStore, key: &str) -> Result<Draft, Stri
         .map(|(_, template)| template.id)
         .find(|id| id.to_string() == key)
         .ok_or_else(|| "that template is gone".to_owned())?;
-    crate::template::start(store, id, &[], Utc::now())
+    mail_core::template::start(store, id, &[], Utc::now())
 }
 
 /// The overlay, while ⌘K is listing templates: quire's palette again. The field narrows

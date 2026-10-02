@@ -73,7 +73,7 @@ where
             days: kept.days,
         },
         None => {
-            let fresh = crate::rules::server::vacation_for(
+            let fresh = mail_core::rules::server::vacation_for(
                 &configured(store, row, now),
                 "",
                 "",
@@ -107,8 +107,8 @@ where
     if text.is_empty() {
         return Ok(None);
     }
-    crate::rules::server::instant(text, zone)
-        .or_else(|_| crate::view::snooze_until(text, now, zone))
+    mail_core::rules::server::instant(text, zone)
+        .or_else(|_| mail_core::snooze::snooze_until(text, now, zone))
         .map(Some)
         .map_err(|_| {
             format!("“{text}” is not a time: write 2026-10-08, 2026-10-08 09:00, or tomorrow")
@@ -159,7 +159,7 @@ where
     let addresses = addresses(&away.addresses)?;
     let reply = Vacation {
         addresses,
-        ..crate::rules::server::vacation_for(
+        ..mail_core::rules::server::vacation_for(
             &configured(store, row, now),
             away.subject.trim(),
             &away.body,

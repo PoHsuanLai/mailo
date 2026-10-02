@@ -5,7 +5,8 @@ top. Built against two real accounts — a Gmail one and a university POP3 one �
 what it got wrong was invisible until it met a real mailbox.
 
 ```
-mail-app      → mail-runtime, mail-domain, mail-mime     the window and the command line
+mail-app      → mail-core                                the `mailo` binary: the window (ui) and the command line (cli)
+mail-core     → mail-runtime, mail-store, mail-domain    the logic: sync, fetching, accounts, compose, rules, search…
 mail-runtime  → mail-proto, mail-store, mail-mime        tokio; owns the I/O loop
 mail-store    → mail-domain                              SQLite, FTS5, the outbox
 mail-proto    → mail-mime, mail-domain                   sans-I/O protocol machines
@@ -23,8 +24,8 @@ project needed it and nothing on crates.io does it.
 ## How it is put together
 
 Obviously the thing does I/O: `mail-runtime` opens sockets and owns a tokio loop, `mail-store`
-writes SQLite, `mail-app` runs a window and a terminal. What the layout buys is *where* it
-happens.
+writes SQLite, `mail-core` is everything the application does with them, and `mail-app` draws a
+window and a terminal over that. What the layout buys is *where* it happens.
 
 **The bottom three crates do none of it.** `mail-domain`, `mail-mime` and `mail-proto` never open
 a socket, read a clock or spawn a task — that is the sans-I/O pattern, which has never meant "does
@@ -34,6 +35,14 @@ interruptible because the machine is a value someone else drives, and a recorded
 replays because nothing in it wanted a socket. It is enforced mechanically rather than by
 intention: `scripts/check-boundary.sh` fails if any of those three can reach tokio, rusqlite,
 dioxus, reqwest or keyring.
+
+**Two front-ends over one core.** `mail-core` has no window and no terminal in it: it never
+depends on dioxus, quire (`ds`, `ds-settings`, `ds-blitz`) or anything else that draws, and the
+same script fails if it does. `mail-app` holds the two front-ends side by side — `src/ui` is the
+window, `src/cli` the command line, `src/main.rs` the router between them — and neither names the
+other, so what they share has to live in `mail-core`. A few core modules still return terminal
+prose; `scripts/core-prose-allowlist.txt` and `scripts/core-result-string-allowlist.txt` list
+them, to be converted to typed outcomes.
 
 **Enums for mail vocabulary, traits only for real seams.** An account is a value — incoming
 protocol, outgoing protocol, auth — not a type. Adding Microsoft meant an enum variant, an

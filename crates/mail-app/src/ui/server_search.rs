@@ -1,7 +1,7 @@
 //! "Search … on the server", at the end of a search's list.
 //!
 //! A search lists what the store holds. Where the list ends, each account in view that has a
-//! server to search offers to search it (`crate::server_search`); pressed, the account's server
+//! server to search offers to search it (`mail_core::server_search`); pressed, the account's server
 //! is asked off the drawing thread, what it finds is kept as headers, and the conversations it
 //! named follow the list under "From the server", each with the chip that says so. What the
 //! server could not be asked is said instead of searched for.
@@ -12,7 +12,7 @@
 //! for a server.
 
 use super::press::on_primary;
-use crate::appearance::WindowDirs;
+use crate::ui::appearance::WindowDirs;
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
 use ds::prelude::*;
@@ -22,7 +22,7 @@ use mail_runtime::Searched;
 use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
 
-/// Search one account's server for a typed line: the signature of [`crate::server_search::search`].
+/// Search one account's server for a typed line: the signature of [`mail_core::server_search::search`].
 pub type Search = Arc<
     dyn Fn(Arc<SqliteStore>, AccountId, &str, DateTime<Utc>) -> Result<Searched, String>
         + Send
@@ -40,11 +40,11 @@ impl std::fmt::Debug for ServerSearcher {
 }
 
 impl ServerSearcher {
-    /// The server, through [`crate::server_search::search`].
+    /// The server, through [`mail_core::server_search::search`].
     #[cfg(not(test))]
     fn server() -> Self {
         Self(Arc::new(|store, account, input, now| {
-            crate::server_search::search(store, account, input, now)
+            mail_core::server_search::search(store, account, input, now)
         }))
     }
 
@@ -219,13 +219,13 @@ pub(super) fn ServerSearch(
     let dirs = try_consume_context::<WindowDirs>();
     let automatic = use_memo(move || {
         dirs.as_ref()
-            .map(|dirs| crate::server_search::load(&dirs.config))
+            .map(|dirs| mail_core::server_search::load(&dirs.config))
             .unwrap_or_default()
     });
     use_effect(use_reactive(
         (&input, &accounts),
         move |(wanted, everyone)| {
-            if automatic() != crate::server_search::Automatic::On {
+            if automatic() != mail_core::server_search::Automatic::On {
                 return;
             }
             for (account, _) in &everyone {

@@ -2,9 +2,9 @@
 //!
 //! How a Space is painted is `paint.rs`.
 
-use crate::appearance::WindowDirs;
-use crate::space::{self, Scope, Space, Spaces};
-use crate::today::{self, Today};
+use crate::ui::appearance::WindowDirs;
+use crate::ui::space::{self, Scope, Space, Spaces};
+use crate::ui::today::{self, Today};
 use mail_domain::AccountId;
 use mail_store::SqliteStore;
 use std::sync::Arc;
@@ -36,7 +36,7 @@ pub(super) fn load_boot() -> Boot {
         // run's Spaces start from.
         let look = dirs
             .as_ref()
-            .map(|dirs| crate::appearance::legacy(&dirs.config))
+            .map(|dirs| crate::ui::appearance::legacy(&dirs.config))
             .unwrap_or_default();
         space::inherit(&mut spaces, &look);
         if let Some(dirs) = &dirs {

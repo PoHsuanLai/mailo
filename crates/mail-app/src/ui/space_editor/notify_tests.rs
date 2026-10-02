@@ -1,10 +1,10 @@
 //! The notifications switch in the Space editor, against a temporary config directory only.
 
-use crate::notify::{self, Setting};
 use crate::ui::app::App;
 use crate::ui::fixtures::{Seen, Work, dispatching, drain_seen, rebuild_into, work};
 use crate::ui::sidebar::tests::buttons_in;
 use dioxus::dioxus_core::VirtualDom;
+use mail_core::notify::{self, Setting};
 
 /// A click, and the render after it: the sheet is drawn in quire's overlay, a render behind.
 fn click(dom: &mut VirtualDom, element: dioxus::dioxus_core::ElementId) -> Seen {

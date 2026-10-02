@@ -5,9 +5,9 @@
 //! with no config directory keeps the choice in memory until it closes.
 
 use super::parts::Seg;
-use crate::appearance::WindowDirs;
-use crate::spelling::{self, Setting};
+use crate::ui::appearance::WindowDirs;
 use crate::ui::compose::{Desk, dictionaries};
+use crate::ui::spelling::{self, Setting};
 use dioxus::prelude::*;
 
 const CHOICES: [(Setting, &str); 2] = [(Setting::On, "On"), (Setting::Off, "Off")];
