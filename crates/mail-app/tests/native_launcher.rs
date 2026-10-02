@@ -6,8 +6,11 @@
 //! it writes no file anywhere.
 
 use ds::prelude::{Point, ShortcutKey as Key};
-use ds_harness::harness::settle_until;
-use ds_harness::{Driver, Harness, HarnessConfig, Query, Viewport};
+use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query, Viewport};
+
+#[path = "support/settle.rs"]
+mod settle;
+use settle::settle_until;
 
 #[path = "support/drive.rs"]
 mod drive;
@@ -141,6 +144,7 @@ fn open() -> (Harness, tempfile::TempDir, Arc<Recorder>) {
     .with(Launcher(Arc::clone(&recorder) as Arc<dyn Badge>));
     let config = HarnessConfig::new(VIEW)
         .with_net(NetPolicy::Local)
+        .with_clock(Clock::Virtual)
         .with_contexts(contexts);
     let harness = Harness::new(mail_app::ui::native::root, config);
     (harness, dir, recorder)

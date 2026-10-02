@@ -6,8 +6,11 @@
 //! The recent emoji are kept in the window's state directory, here a `TempDir`.
 
 use ds::prelude::{Point, ShortcutKey as Key};
-use ds_harness::harness::settle_until;
-use ds_harness::{Driver, Harness, HarnessConfig, Query, Viewport};
+use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query, Viewport};
+
+#[path = "support/settle.rs"]
+mod settle;
+use settle::settle_until;
 
 #[path = "support/drive.rs"]
 mod drive;
@@ -77,6 +80,9 @@ fn composing_over(store: &Arc<SqliteStore>, dirs: &WindowDirs) -> Harness {
     let config = HarnessConfig::new(VIEW)
         .with_net(NetPolicy::Local)
         .with_focus_fallback(FocusFallback::Ancestor)
+        // Wall: on the virtual clock the picker opened a second time never takes the keyboard
+        // into its search field. Waits are `settle_until`, bounded by the machine's time.
+        .with_clock(Clock::Wall)
         .with_contexts(contexts);
     let mut harness = Harness::new(mail_app::ui::native::root, config);
     harness.advance(ms(300));
