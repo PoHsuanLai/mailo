@@ -19,8 +19,8 @@
 .server-search-one .status { color: var(--ink-soft); font-size: var(--fs-meta); text-align: center; }
 .server-search-one .status.bad { color: var(--danger); font-weight: 600; }
 /* What the accounts are doing: a small bar under the title's line while a download counts, the
-   banner above the rows, the placeholder rows before the first mail, and the sheet that lists
-   accounts needing attention. Layout only. */
+   placeholder rows before the first mail, the sheet that lists accounts needing attention, and
+   the mark beside an account's name. Layout only. */
 .list-progress { display: flex; flex: 0 1 calc(var(--s-36) * 2); min-width: 0; }
 .list-progress > * { width: 100%; }
 .first-sync { display: flex; flex-direction: column; gap: var(--s-2); }

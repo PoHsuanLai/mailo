@@ -14,7 +14,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc::UnboundedSender, watch};
 
-/// Run a pass over one account: the signature of [`mail_core::sync::due::run_due_typed`].
+/// Run a pass over one account: the signature of [`mail_core::sync::due::run_due`].
 pub(in crate::ui) type Pass = Arc<
     dyn Fn(Arc<SqliteStore>, DateTime<Utc>, AccountId, Hooks<'_>) -> Result<Vec<PassEnd>, String>
         + Send
@@ -26,11 +26,11 @@ pub(in crate::ui) type Pass = Arc<
 pub(in crate::ui) struct Passer(pub Pass);
 
 impl Passer {
-    /// The servers, through [`mail_core::sync::due::run_due_typed`].
+    /// The servers, through [`mail_core::sync::due::run_due`].
     #[cfg(not(test))]
     pub(in crate::ui) fn server() -> Self {
         Self(Arc::new(|store, now, account, hooks| {
-            mail_core::sync::due::run_due_typed(store, now, &[account], hooks)
+            mail_core::sync::due::run_due(store, now, &[account], hooks)
         }))
     }
 
@@ -102,7 +102,7 @@ const POLITE: Duration = Duration::from_millis(200);
 /// Run the pass, sending its progress and then its end to the runner.
 ///
 /// Waits for a folder of the same account that is being fetched, because the two write the same
-/// rows. Both used to be one global state's `Running`.
+/// rows.
 pub(super) async fn run(mut running: Running) {
     while folder_in_flight(&running.folders.peek(), running.account) {
         tokio::time::sleep(POLITE).await;
@@ -124,6 +124,7 @@ pub(super) async fn run(mut running: Running) {
             let hooks = Hooks {
                 progress: Some(&progress),
                 cancel: BTreeMap::from([(account, cancel)]),
+                ..Hooks::default()
             };
             (passer.0)(store, started, account, hooks)
         })

@@ -29,7 +29,5 @@ crates/mail-core/src/rules/mod.rs
 crates/mail-core/src/rules/server.rs
 crates/mail-core/src/smime/mod.rs
 crates/mail-core/src/smime/read.rs
-crates/mail-core/src/sync.rs
-crates/mail-core/src/sync/report/tests.rs
 crates/mail-core/src/template.rs
 crates/mail-core/src/unsubscribe.rs

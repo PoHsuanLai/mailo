@@ -5,8 +5,8 @@
 //! report each pass, stop on a refused credential, honour a rate limit, then wait the way the
 //! server prefers.
 
-use super::report::{Done, Emit, Failure, Progress};
-use super::{AfterPass, Announce, Configured, Mode, after_pass, say};
+use super::report::{Done, Emit, Failure, Progress, Told};
+use super::{AfterPass, Announce, Configured, Mode, after_pass, say, waited_in_vain};
 use mail_runtime::JmapEngine;
 use std::time::Duration;
 
@@ -18,6 +18,7 @@ const FLOOR_WITH_PUSH: Duration = Duration::from_secs(30);
 const POLL_WITHOUT_PUSH: Duration = Duration::from_secs(300);
 
 /// One pass, or passes until the process is stopped.
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn drive(
     engine: &mut JmapEngine,
     account: &Configured,
@@ -26,6 +27,7 @@ pub(super) async fn drive(
     mode: Mode,
     announce: Announce<'_>,
     emit: Emit<'_>,
+    told: Told<'_>,
 ) -> Result<Done, Failure> {
     // One request round covers the account, so there is nothing finer to say than that it began.
     say(emit, Progress::Connecting);
@@ -35,11 +37,7 @@ pub(super) async fn drive(
     loop {
         let at = chrono::Utc::now();
         let report = typed(engine.pass(cancel, at).await);
-        let said = report
-            .as_ref()
-            .map(Done::to_report)
-            .map_err(|failure| failure.why.clone());
-        match after_pass(account, &said, at, announce) {
+        match after_pass(account, &report, at, announce, told) {
             AfterPass::Stop => return report,
             AfterPass::Hold(wait) => {
                 tokio::time::sleep(wait).await;
@@ -53,8 +51,7 @@ pub(super) async fn drive(
             POLL_WITHOUT_PUSH
         };
         if let Err(e) = engine.wait(cancel, poll).await {
-            println!("{}: {e}", account.address);
-            tokio::time::sleep(super::AFTER_A_FAILURE).await;
+            waited_in_vain(account, &e, told).await;
         }
     }
 }

@@ -870,6 +870,21 @@ pub fn no_credential(address: &str, auth: &AuthPlan) -> String {
     }
 }
 
+/// What an OAuth account that has expired is told when this installation has no client id for
+/// its issuer, and so cannot renew it.
+///
+/// Beside [`no_credential`], which says the same kind of thing about an account that never
+/// signed in: the remedy is the same, and so is who needs to read it.
+pub fn no_client_id(issuer: OAuthIssuer, address: &str) -> String {
+    format!(
+        concat!(
+            "the sign-in has expired and no OAuth client id is configured ",
+            "for {:?}. Re-run: MAILO_OAUTH_CLIENT_ID=… mailo account add {}",
+        ),
+        issuer, address
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

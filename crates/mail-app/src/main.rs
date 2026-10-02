@@ -253,8 +253,8 @@ fn main() {
     // Sync needs an async runtime and the store by Arc, so it is dispatched here rather than
     // inside mail_app::cli::run, which is deliberately synchronous and testable.
     if matches!(command, Some(mail_app::cli::Command::Sync)) {
-        match mail_core::sync::run(store, chrono::Utc::now()) {
-            Ok(ran) => print!("{}", ran.text),
+        match mail_core::sync::run(store.clone(), chrono::Utc::now(), Default::default()) {
+            Ok(ends) => print!("{}", mail_app::cli::sync::run_text(&store, &ends)),
             Err(message) => {
                 eprintln!("{message}");
                 std::process::exit(1);
@@ -299,8 +299,12 @@ fn main() {
             match mail_core::ipc::daemon::serve(
                 store,
                 std::sync::Arc::new(|store| {
-                    match mail_core::sync::run(store, chrono::Utc::now()) {
-                        Ok(ran) => print!("{}", ran.text),
+                    match mail_core::sync::run(
+                        store.clone(),
+                        chrono::Utc::now(),
+                        Default::default(),
+                    ) {
+                        Ok(ends) => print!("{}", mail_app::cli::sync::run_text(&store, &ends)),
                         Err(why) => eprintln!("{why}"),
                     }
                 }),
@@ -448,11 +452,17 @@ fn main() {
                 .unwrap_or_default(),
         };
         println!("watching. Ctrl-C to stop.");
-        match mail_core::sync::watch(store, chrono::Utc::now(), notifications) {
+        // Said as it happens, and flushed: a watch is read by someone waiting on it.
+        let say = |watched: mail_core::sync::report::Watched| {
+            use std::io::Write as _;
+            print!("{}", mail_app::cli::sync::watched_text(&watched));
+            let _ = std::io::stdout().flush();
+        };
+        match mail_core::sync::watch(store.clone(), chrono::Utc::now(), notifications, &say) {
             // Only reached when every account has stopped for a reason worth stopping for — a
             // credential the server refused, which no amount of retrying fixes.
-            Ok(ran) => {
-                print!("{}", ran.text);
+            Ok(ends) => {
+                print!("{}", mail_app::cli::sync::run_text(&store, &ends));
                 eprintln!("stopped watching; nothing left to watch");
                 std::process::exit(1);
             }

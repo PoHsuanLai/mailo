@@ -7,14 +7,16 @@
 
 use crate::ui::view::{Shell, folder_of};
 use chrono::{DateTime, Utc};
-use mail_core::sync::Ran;
+use mail_core::sync::report::PassEnd;
 use mail_domain::AccountId;
 use mail_store::SqliteStore;
 use std::sync::Arc;
 
 /// Fetch one folder now: the signature of [`mail_core::sync::folder_now`].
 pub(in crate::ui) type Fetch = Arc<
-    dyn Fn(Arc<SqliteStore>, AccountId, &str, DateTime<Utc>) -> Result<Ran, String> + Send + Sync,
+    dyn Fn(Arc<SqliteStore>, AccountId, &str, DateTime<Utc>) -> Result<PassEnd, String>
+        + Send
+        + Sync,
 >;
 
 /// What fetches a folder. The real one unless a test provided its own.

@@ -8,6 +8,7 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_core::offline::Keep;
+use mail_core::sync::report::{AccountReport, PassEnd};
 use mail_core::sync::{self, Configured};
 use mail_domain::*;
 use mail_proto::{Backend, IoReady, Progress, ProtoOutcome};
@@ -230,7 +231,7 @@ fn caps() -> AccountCaps {
 }
 
 struct Passed {
-    report: mail_runtime::SyncReport,
+    report: AccountReport,
     parts: Vec<String>,
     store: Arc<SqliteStore>,
     _dir: tempfile::TempDir,
@@ -286,7 +287,7 @@ async fn one_pass(keep: Keep) -> Passed {
         keep,
     };
     let (_tx, mut cancel) = tokio::sync::watch::channel(false);
-    let report = sync::drive(
+    let report = match sync::drive(
         &mut engine,
         &account,
         &[inbox()],
@@ -294,9 +295,13 @@ async fn one_pass(keep: Keep) -> Passed {
         now(),
         sync::Mode::Once,
         sync::Announce::Quietly,
+        None,
     )
     .await
-    .unwrap();
+    {
+        PassEnd::Finished(report) => report,
+        other => panic!("the pass did not run to its end: {other:?}"),
+    };
     let parts = parts.lock().unwrap().clone();
     Passed {
         report,
@@ -329,16 +334,16 @@ async fn kept_offline_every_part_is_fetched_largest_last() {
     let passed = one_pass(Keep::Everything).await;
 
     assert_eq!(
-        passed.report.bodies_fetched, 2,
+        passed.report.counts.bodies_fetched, 2,
         "{:?}",
-        passed.report.needs_attention
+        passed.report.trouble
     );
     assert_eq!(
         passed.parts,
         ["7:3", "8:2", "7:2"],
         "every attachment, the 2 MB one first and the 9 MB one last"
     );
-    assert_eq!(passed.report.parts_fetched, 3);
+    assert_eq!(passed.report.counts.parts_fetched, 3);
     let offline = passed.store.offline(ACCOUNT).unwrap();
     assert_eq!(
         (offline.messages, offline.held, offline.parts_remote),
@@ -368,12 +373,12 @@ async fn not_kept_offline_no_large_part_is_fetched() {
     let passed = one_pass(Keep::Bodies).await;
 
     assert_eq!(
-        passed.report.bodies_fetched, 2,
+        passed.report.counts.bodies_fetched, 2,
         "{:?}",
-        passed.report.needs_attention
+        passed.report.trouble
     );
     assert_eq!(passed.parts, Vec::<String>::new());
-    assert_eq!(passed.report.parts_fetched, 0);
+    assert_eq!(passed.report.counts.parts_fetched, 0);
     let offline = passed.store.offline(ACCOUNT).unwrap();
     assert_eq!(
         (offline.messages, offline.held, offline.parts_remote),

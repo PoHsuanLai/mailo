@@ -4,19 +4,33 @@ use super::Fetching;
 use crate::ui::folder_open::Fetcher;
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
-use mail_core::fetch::{FolderEffect, FolderEvent, FolderFetch};
-use mail_domain::{AccountId, MailboxRef};
+use mail_core::fetch::{Event, FolderEffect, FolderEvent, FolderFetch};
+use mail_core::sync::report::PassEnd;
+use mail_domain::{AccountId, MailboxRef, Retry};
 use mail_store::SqliteStore;
 use std::sync::Arc;
 
 /// What a finished on-demand fetch says to its folder.
 ///
-/// A refused sign-in is a refusal: the folder was not fetched, and what it said is the reason.
-pub(super) fn ended(done: Result<mail_core::sync::Ran, String>, named: &str) -> FolderEvent {
+/// A refused sign-in is a refusal: the folder was not fetched, and what the server said is the
+/// reason. Trouble of any other kind leaves the folder as fetched as it got: the pass says what
+/// went wrong, and a folder that is only partly up to date is still one to read.
+pub(super) fn ended(done: Result<PassEnd, String>, named: &str) -> FolderEvent {
     match done {
-        Ok(ran) if ran.rejected => FolderEvent::Refused(ran.text.trim_end().to_owned()),
-        Ok(_) => FolderEvent::Done,
-        Err(why) => FolderEvent::Refused(format!("{named} was not fetched: {why}")),
+        Err(why) | Ok(PassEnd::Failed { why, .. }) => {
+            FolderEvent::Refused(format!("{named} was not fetched: {why}"))
+        }
+        Ok(PassEnd::Cancelled { .. }) => {
+            FolderEvent::Refused(format!("{named} was not fetched: it was cancelled"))
+        }
+        Ok(end @ PassEnd::Finished(_)) => match end.event() {
+            Event::Failed {
+                retry: Retry::NeedsReauth,
+                why,
+                ..
+            } => FolderEvent::Refused(why),
+            _ => FolderEvent::Done,
+        },
     }
 }
 
@@ -91,5 +105,71 @@ fn settle(
 pub(in crate::ui) fn opened(mailbox: MailboxRef, revision: Signal<u64>) {
     if let Some(fetching) = try_consume_context::<Fetching>() {
         fetching.open_folder(mailbox, revision);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mail_core::fetch::Pause;
+    use mail_core::sync::report::{AccountReport, Counts, Trouble};
+    use std::time::Duration;
+
+    const ACCOUNT: AccountId =
+        AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000c9"));
+
+    fn finished(trouble: Vec<Trouble>) -> Result<PassEnd, String> {
+        Ok(PassEnd::Finished(AccountReport {
+            account: ACCOUNT,
+            address: "me@nowhere.example".to_owned(),
+            counts: Counts::default(),
+            trouble,
+        }))
+    }
+
+    fn trouble(retry: Retry, why: Option<&str>) -> Trouble {
+        Trouble {
+            mailbox: None,
+            retry,
+            why: why.map(str::to_owned),
+        }
+    }
+
+    #[test]
+    fn a_fetch_that_ran_is_done_even_with_trouble_that_is_not_a_refusal() {
+        assert_eq!(ended(finished(Vec::new()), "Archive"), FolderEvent::Done);
+        let slow = trouble(Retry::After(Duration::from_secs(60)), None);
+        let odd = trouble(Retry::Now, Some("Archive: cannot select"));
+        assert_eq!(
+            ended(finished(vec![slow, odd]), "Archive"),
+            FolderEvent::Done
+        );
+    }
+
+    #[test]
+    fn a_refused_sign_in_is_the_folders_refusal_in_the_servers_words() {
+        let refused = trouble(Retry::NeedsReauth, Some("login failed"));
+        assert_eq!(
+            ended(finished(vec![refused]), "Archive"),
+            FolderEvent::Refused("login failed".to_owned())
+        );
+    }
+
+    #[test]
+    fn a_fetch_that_never_ran_says_which_folder_was_not_fetched() {
+        let failed = Ok(PassEnd::Failed {
+            account: ACCOUNT,
+            address: "me@nowhere.example".to_owned(),
+            retry: Retry::Now,
+            why: "cannot connect".to_owned(),
+            pause: Pause::Unreachable,
+        });
+        let said = FolderEvent::Refused("Archive was not fetched: cannot connect".to_owned());
+        assert_eq!(ended(failed, "Archive"), said);
+        assert_eq!(
+            ended(Err("cannot connect".to_owned()), "Archive"),
+            said,
+            "a request refused before it began reads the same"
+        );
     }
 }

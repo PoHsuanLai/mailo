@@ -23,9 +23,8 @@ use mail_runtime::{
     AccountEngine, Held, KeyringSecrets, OAuthRegistry, Renewal, Secrets, SyncReport, signin,
 };
 use mail_store::SqliteStore;
-use report::{Done, Emit, Failure, Hooks, PassEnd, Progress};
+use report::{Done, Emit, Failure, Hooks, PassEnd, Progress, Told, Watched};
 pub use search::{search_server, search_server_with};
-use std::fmt::Write as _;
 use std::sync::Arc;
 use tokio::sync::watch;
 
@@ -109,21 +108,6 @@ pub(crate) fn configured(store: &SqliteStore) -> Result<Vec<Configured>, String>
     Ok(out)
 }
 
-/// Sync every configured account that has a credential, reporting what happened.
-///
-/// Accounts without one are skipped with a reason rather than failing the run: having one
-/// account that needs attention should not stop the others from fetching mail.
-/// What a run reported: the lines a person reads, and the one fact a loop must act on.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Ran {
-    pub text: String,
-    /// Some account's credential was rejected. A poll loop must stop on this rather than back
-    /// off: see `fetch::step`.
-    pub rejected: bool,
-    /// The longest wait any server asked for. A poll loop must not knock again before it.
-    pub hold: Option<std::time::Duration>,
-}
-
 /// How each configured account signs in, by address.
 ///
 /// Beside `mailboxes_by_account` and for the same reason: `account list` should be able to say
@@ -183,11 +167,16 @@ pub fn poll_interval(store: &SqliteStore) -> std::time::Duration {
 ///
 /// `notifications` decides whether what each pass fetches is announced on the desktop
 /// (`plan.md` 10.6). With no session bus to announce on, it is as if they were off.
+///
+/// A watch has no end to return a report at, so each thing it would say is handed to `tell` as it
+/// happens ([`Watched`]) and the caller words it. It returns only once every account has stopped
+/// for a reason worth stopping for, with how each ended.
 pub fn watch(
     store: Arc<SqliteStore>,
     now: chrono::DateTime<chrono::Utc>,
     notifications: crate::notify::Setting,
-) -> Result<Ran, String> {
+    tell: &dyn Fn(Watched),
+) -> Result<Vec<PassEnd>, String> {
     let registry = OAuthRegistry::load_default().map_err(|e| e.to_string())?;
     let desktop;
     let announce = match notifications {
@@ -211,10 +200,24 @@ pub fn watch(
             due: &|_| true,
             kept: &crate::offline::load_default(),
         },
+        Hooks {
+            told: Some(tell),
+            ..Hooks::default()
+        },
     )
 }
 
-pub fn run(store: Arc<SqliteStore>, now: chrono::DateTime<chrono::Utc>) -> Result<Ran, String> {
+/// Sync every configured account that has a credential, how each ended kept as data.
+///
+/// Accounts without one end as [`PassEnd::Failed`] rather than failing the run: having one
+/// account that needs attention should not stop the others from fetching mail. An account with
+/// nothing to sync has no entry, so a run over no accounts is an empty list, and what to say of
+/// that is for the caller.
+pub fn run(
+    store: Arc<SqliteStore>,
+    now: chrono::DateTime<chrono::Utc>,
+    hooks: Hooks<'_>,
+) -> Result<Vec<PassEnd>, String> {
     // The registry is read once per run rather than once per account: it is deployment
     // configuration, and an edit halfway through a run producing two different client ids is
     // not a behaviour worth having.
@@ -230,6 +233,7 @@ pub fn run(store: Arc<SqliteStore>, now: chrono::DateTime<chrono::Utc>) -> Resul
             due: &|_| true,
             kept: &crate::offline::load_default(),
         },
+        hooks,
     )
 }
 
@@ -248,7 +252,8 @@ pub fn run_with(
     secrets: Arc<dyn Secrets>,
     registry: &OAuthRegistry,
     now: chrono::DateTime<chrono::Utc>,
-) -> Result<Ran, String> {
+    hooks: Hooks<'_>,
+) -> Result<Vec<PassEnd>, String> {
     run_all(
         store,
         secrets,
@@ -260,6 +265,7 @@ pub fn run_with(
             due: &|_| true,
             kept: &crate::offline::Kept::default(),
         },
+        hooks,
     )
 }
 
@@ -271,9 +277,8 @@ struct Scope<'a> {
     kept: &'a crate::offline::Kept,
 }
 
-/// The same, told whether to stop after one pass, and which accounts to sync and keep how.
-///
-/// The prose of [`run_typed_all`], for the commands that print it and the window's loop.
+/// A run over the accounts in `scope`, told whether to stop after one pass.
+#[allow(clippy::too_many_arguments)]
 fn run_all(
     store: Arc<SqliteStore>,
     secrets: Arc<dyn Secrets>,
@@ -282,132 +287,28 @@ fn run_all(
     mode: Mode,
     announce: Announce<'_>,
     scope: &Scope<'_>,
-) -> Result<Ran, String> {
-    match pick(&store, scope)? {
-        Pick::Nothing(text) => Ok(Ran {
-            text: text.to_owned(),
-            rejected: false,
-            hold: None,
-        }),
-        Pick::Accounts(accounts) => {
-            let ends = pass_over(
-                &store,
-                secrets,
-                registry,
-                now,
-                mode,
-                announce,
-                accounts,
-                Hooks::default(),
-            )?;
-            Ok(report::summarise(&ends, now))
-        }
-    }
-}
-
-/// The same pass as [`run`], with how each account ended kept as data rather than prose.
-///
-/// An account with nothing to sync has no entry, so a run over no accounts is an empty list:
-/// what [`run`] says about that is for a person, and a caller of this one has the list.
-pub fn run_typed(
-    store: Arc<SqliteStore>,
-    now: chrono::DateTime<chrono::Utc>,
     hooks: Hooks<'_>,
 ) -> Result<Vec<PassEnd>, String> {
-    let registry = OAuthRegistry::load_default().map_err(|e| e.to_string())?;
-    run_typed_all(
-        store,
-        Arc::new(KeyringSecrets),
-        &registry,
-        now,
-        &Scope {
-            due: &|_| true,
-            kept: &crate::offline::load_default(),
-        },
-        hooks,
+    let accounts = pick(&store, scope)?;
+    pass_over(
+        &store, secrets, registry, now, mode, announce, accounts, hooks,
     )
 }
 
-/// [`run_typed`] with the secret store named, as [`run_with`] is to [`run`].
-pub fn run_typed_with(
-    store: Arc<SqliteStore>,
-    secrets: Arc<dyn Secrets>,
-    registry: &OAuthRegistry,
-    now: chrono::DateTime<chrono::Utc>,
-    hooks: Hooks<'_>,
-) -> Result<Vec<PassEnd>, String> {
-    run_typed_all(
-        store,
-        secrets,
-        registry,
-        now,
-        &Scope {
-            due: &|_| true,
-            kept: &crate::offline::Kept::default(),
-        },
-        hooks,
-    )
-}
-
-fn run_typed_all(
-    store: Arc<SqliteStore>,
-    secrets: Arc<dyn Secrets>,
-    registry: &OAuthRegistry,
-    now: chrono::DateTime<chrono::Utc>,
-    scope: &Scope<'_>,
-    hooks: Hooks<'_>,
-) -> Result<Vec<PassEnd>, String> {
-    match pick(&store, scope)? {
-        Pick::Nothing(_) => Ok(Vec::new()),
-        Pick::Accounts(accounts) => pass_over(
-            &store,
-            secrets,
-            registry,
-            now,
-            Mode::Once,
-            Announce::Quietly,
-            accounts,
-            hooks,
-        ),
-    }
-}
-
-/// The accounts a run is to sync, or why there are none.
-enum Pick {
-    Nothing(&'static str),
-    Accounts(Vec<Configured>),
-}
-
-fn pick(store: &SqliteStore, scope: &Scope<'_>) -> Result<Pick, String> {
+/// The accounts a run is to sync.
+fn pick(store: &SqliteStore, scope: &Scope<'_>) -> Result<Vec<Configured>, String> {
     // An account that keeps its mail here has no server: nothing to fetch, nothing to drain,
     // and no credential to ask the keyring for. Left out rather than reported, because a line
     // saying so on every pass would be noise about something that is working as intended.
-    let all = configured(store)?;
-    let any = !all.is_empty();
-    let accounts: Vec<Configured> = all
+    Ok(configured(store)?
         .into_iter()
         .filter(|account| !matches!(account.plan.incoming, Incoming::Local))
-        .collect();
-    if accounts.is_empty() && any {
-        return Ok(Pick::Nothing(
-            "nothing to sync: the only mail here is kept on this computer\n",
-        ));
-    }
-    if accounts.is_empty() {
-        return Ok(Pick::Nothing(
-            "no accounts. Add one with: mailo account add <address>\n",
-        ));
-    }
-    Ok(Pick::Accounts(
-        accounts
-            .into_iter()
-            .filter(|a| (scope.due)(a.id))
-            .map(|a| Configured {
-                keep: scope.kept.of(a.id),
-                ..a
-            })
-            .collect(),
-    ))
+        .filter(|a| (scope.due)(a.id))
+        .map(|a| Configured {
+            keep: scope.kept.of(a.id),
+            ..a
+        })
+        .collect())
 }
 
 /// One pass over `accounts`, concurrently, each ended as a [`PassEnd`].
@@ -432,7 +333,7 @@ fn pass_over(
     // Accounts are independent by construction: `AccountId` partitions every table, and two
     // accounts are two conversations with two different servers. Run one after another, a pass
     // spends the *sum* of their waiting, and almost all of a pass is waiting — so a slow Gmail
-    // backfill used to hold up another account's poll that had nothing to do with it.
+    // backfill would hold up another account's poll that had nothing to do with it.
     //
     // Concurrent rather than parallel, and deliberately: these futures are joined, not spawned,
     // so they share one thread and interleave at their `await` points. What overlaps is the
@@ -467,6 +368,7 @@ fn pass_over(
                     announce,
                     cancel,
                     Some(&emit),
+                    hooks.told,
                 )
                 .await;
                 ended(account, result, cancelled)
@@ -543,12 +445,9 @@ async fn signed_in_typed(
         // thing entirely.
         //
         // The remedy is the user signing in again, so it is classified as one.
-        return Err(Failure::reauth(format!(
-            concat!(
-                "the sign-in has expired and no OAuth client id is configured ",
-                "for {:?}. Re-run: MAILO_OAUTH_CLIENT_ID=… mailo account add {}",
-            ),
-            issuer, account.address
+        return Err(Failure::reauth(crate::account::no_client_id(
+            *issuer,
+            &account.address,
         )));
     };
     let http = signin::http_client().map_err(|e| Failure::of("", &e))?;
@@ -615,6 +514,7 @@ async fn one(
     announce: Announce<'_>,
     cancel: Option<watch::Receiver<bool>>,
     emit: Emit<'_>,
+    told: Told<'_>,
 ) -> Result<Done, Failure> {
     say(emit, Progress::Connecting);
     let stored = secrets
@@ -656,7 +556,7 @@ async fn one(
     let mut cancel = cancel.unwrap_or(quiet);
 
     let report = match &account.plan.incoming {
-        // `run_all` leaves these out before asking for a credential; nothing to do if one
+        // `pick` leaves these out before asking for a credential; nothing to do if one
         // arrives here anyway.
         Incoming::Local => Ok(Done::default()),
         Incoming::Pop3 { .. } => {
@@ -689,7 +589,7 @@ async fn one(
             if let Some(renewal) = renewal {
                 engine = engine.with_renewal(renewal);
             }
-            drive_typed(
+            follow(
                 &mut engine,
                 account,
                 &mailboxes,
@@ -698,6 +598,7 @@ async fn one(
                 mode,
                 announce,
                 emit,
+                told,
             )
             .await
         }
@@ -706,7 +607,7 @@ async fn one(
             if let Some(renewal) = renewal {
                 engine = engine.with_renewal(renewal);
             }
-            drive_typed(
+            follow(
                 &mut engine,
                 account,
                 &mailboxes,
@@ -715,6 +616,7 @@ async fn one(
                 mode,
                 announce,
                 emit,
+                told,
             )
             .await
         }
@@ -723,7 +625,7 @@ async fn one(
             if let Some(renewal) = renewal {
                 engine = engine.with_renewal(renewal);
             }
-            drive_typed(
+            follow(
                 &mut engine,
                 account,
                 &mailboxes,
@@ -732,6 +634,7 @@ async fn one(
                 mode,
                 announce,
                 emit,
+                told,
             )
             .await
         }
@@ -744,7 +647,17 @@ async fn one(
                 secrets,
             )
             .map_err(|e| Failure::of("", &e))?;
-            jmap::drive(&mut engine, account, &mut cancel, now, mode, announce, emit).await
+            jmap::drive(
+                &mut engine,
+                account,
+                &mut cancel,
+                now,
+                mode,
+                announce,
+                emit,
+                told,
+            )
+            .await
         }
     };
     report.map(|mut done| {
@@ -996,48 +909,6 @@ pub fn drain_with(
     })
 }
 
-/// What one account's pass did, as the user reads it.
-///
-/// Shared by `sync` and `watch` rather than written twice: a watch that reported a pass
-/// differently from the command that runs one pass would be two vocabularies for one event.
-fn one_line(address: &str, report: &SyncReport, now: chrono::DateTime<chrono::Utc>) -> String {
-    let mut out = String::new();
-    let _ = writeln!(
-        out,
-        "{address}: {} headers, {} bodies, {} queued operations settled, {} sent",
-        report.headers_fetched, report.bodies_fetched, report.outbox_settled, report.submitted
-    );
-    if report.parts_fetched > 0 {
-        let _ = writeln!(out, "  {} attachment(s) kept offline", report.parts_fetched);
-    }
-    if !report.ruled.is_empty() {
-        let _ = writeln!(
-            out,
-            "  rules acted on {} new message(s)",
-            report.ruled.len()
-        );
-    }
-    // Said plainly, because the alternative is what this used to do: someone runs `send` and
-    // then `sync`, reads "0 sent", and has no reason to think their mail is still sitting here.
-    // It is not an error — it will be retried — but silence reads as success.
-    if report.still_queued > 0 {
-        let _ = writeln!(
-            out,
-            "  {} still queued; run sync again to retry, or `mailo drafts` to see why",
-            report.still_queued
-        );
-    }
-    for note in &report.needs_attention {
-        let _ = writeln!(out, "  needs attention: {note}");
-        // The server's words stay; this adds what they mean, where we know.
-        if let Some(why) = mail_proto::explain_text(note) {
-            let _ = writeln!(out, "    → {why}");
-        }
-    }
-    let _ = now;
-    out
-}
-
 /// One pass, or passes until the process is stopped.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Mode {
@@ -1061,6 +932,9 @@ const AFTER_A_FAILURE: std::time::Duration = std::time::Duration::from_secs(60);
 /// phase 3 — and every caller was a test, which F128 found and the window's poll loop was meant
 /// to answer. F140 then established that the window's loop never runs, so this is the first
 /// place IDLE is actually reachable by a user: a process whose whole job is to stay open.
+///
+/// How the pass ended is the return; what a watch does between passes goes to `told`.
+#[allow(clippy::too_many_arguments)]
 pub async fn drive<B: mail_proto::Backend>(
     engine: &mut AccountEngine<B>,
     account: &Configured,
@@ -1069,18 +943,18 @@ pub async fn drive<B: mail_proto::Backend>(
     now: chrono::DateTime<chrono::Utc>,
     mode: Mode,
     announce: Announce<'_>,
-) -> Result<SyncReport, String> {
-    drive_typed(
-        engine, account, mailboxes, cancel, now, mode, announce, None,
+    told: Told<'_>,
+) -> PassEnd {
+    let result = follow(
+        engine, account, mailboxes, cancel, now, mode, announce, None, told,
     )
-    .await
-    .map(|done| done.to_report())
-    .map_err(|failure| failure.why)
+    .await;
+    ended(account, result, None)
 }
 
 /// [`drive`], with a failure's classification kept and progress reported.
 #[allow(clippy::too_many_arguments)]
-async fn drive_typed<B: mail_proto::Backend>(
+async fn follow<B: mail_proto::Backend>(
     engine: &mut AccountEngine<B>,
     account: &Configured,
     mailboxes: &[MailboxRef],
@@ -1089,6 +963,7 @@ async fn drive_typed<B: mail_proto::Backend>(
     mode: Mode,
     announce: Announce<'_>,
     emit: Emit<'_>,
+    told: Told<'_>,
 ) -> Result<Done, Failure> {
     if mode == Mode::Once {
         return pass(engine, mailboxes, account.keep, cancel, now, emit).await;
@@ -1106,11 +981,7 @@ async fn drive_typed<B: mail_proto::Backend>(
     loop {
         let at = chrono::Utc::now();
         let report = pass(engine, mailboxes, account.keep, cancel, at, emit).await;
-        let said = report
-            .as_ref()
-            .map(Done::to_report)
-            .map_err(|failure| failure.why.clone());
-        match after_pass(account, &said, at, announce) {
+        match after_pass(account, &report, at, announce, told) {
             AfterPass::Stop => return report,
             AfterPass::Hold(wait) => {
                 tokio::time::sleep(wait).await;
@@ -1125,10 +996,7 @@ async fn drive_typed<B: mail_proto::Backend>(
         // server next has news.
         match engine.wait(&inbox, cancel, poll_every).await {
             Ok(_) => continue,
-            Err(e) => {
-                println!("{}: {e}", account.address);
-                tokio::time::sleep(AFTER_A_FAILURE).await;
-            }
+            Err(e) => waited_in_vain(account, &e, told).await,
         }
     }
 }
@@ -1155,31 +1023,43 @@ enum AfterPass {
     Wait,
 }
 
+/// Tell the watch's caller, if there is one, what it did.
+fn relay(told: Told<'_>, watched: Watched) {
+    if let Some(sink) = told {
+        sink(watched);
+    }
+}
+
 /// Report one pass of a watch, announce what it fetched, and say what to do next.
 ///
 /// Shared by every protocol's loop, so a JMAP watch stops on a refused password and honours a
 /// rate limit exactly as an IMAP one does.
 fn after_pass(
     account: &Configured,
-    report: &Result<SyncReport, String>,
+    report: &Result<Done, Failure>,
     at: chrono::DateTime<chrono::Utc>,
     announce: Announce<'_>,
+    told: Told<'_>,
 ) -> AfterPass {
+    relay(told, Watched::Pass(ended(account, report.clone(), None)));
     let done = match report {
         Ok(done) => done,
-        Err(why) => {
-            println!("{}: {why}", account.address);
-            return AfterPass::Hold(AFTER_A_FAILURE);
-        }
+        Err(_) => return AfterPass::Hold(AFTER_A_FAILURE),
     };
-    print!("{}", one_line(&account.address, done, at));
-    // After the line, so a notification never announces mail the terminal has not yet said was
-    // fetched. A failure here is said and does not stop the watch: mail that cannot be
+    // After the pass is told, so a notification never announces mail the caller has not yet
+    // heard was fetched. A failure here is told and does not stop the watch: mail that cannot be
     // announced is still mail worth fetching.
     if let Announce::To { store, notifier } = announce
-        && let Err(why) = crate::notify::announce(store, account.id, &done.arrived, notifier, at)
+        && let Err(why) =
+            crate::notify::announce(store, account.id, &done.counts.arrived, notifier, at)
     {
-        println!("{}: {why}", account.address);
+        relay(
+            told,
+            Watched::AnnounceFailed {
+                address: account.address.clone(),
+                why,
+            },
+        );
     }
     // Then the follow-up reminders (`crate::follow_up`): what this pass fetched may be the reply
     // one was waiting for, or the Sent copy a composer's reminder was waiting to join, and one
@@ -1188,21 +1068,31 @@ fn after_pass(
     if let Announce::To { store, notifier } = announce
         && let Err(why) = crate::follow_up::sweep_and_announce(store, Some(notifier), at)
     {
-        println!("reminders: {why}");
+        relay(told, Watched::RemindersFailed { why });
     }
-    use std::io::Write as _;
-    let _ = std::io::stdout().flush();
     // The rule F128 built its loop on, and the reason this one is not a bare sleep: a credential
     // the server has already refused must stop the loop rather than slow it. Sixty seconds of
     // wrong passwords is still a locked account by morning.
-    if done.needs_reauth {
+    if report::needs_reauth(&done.trouble) {
         return AfterPass::Stop;
     }
     // The server asked. Honour it before doing anything else (F130).
-    match done.hold {
+    match report::hold(&done.trouble) {
         Some(wait) => AfterPass::Hold(wait),
         None => AfterPass::Wait,
     }
+}
+
+/// A wait that failed is told, and the watch gives the server a minute before it passes again.
+async fn waited_in_vain(account: &Configured, e: &impl std::fmt::Display, told: Told<'_>) {
+    relay(
+        told,
+        Watched::WaitFailed {
+            address: account.address.clone(),
+            why: e.to_string(),
+        },
+    );
+    tokio::time::sleep(AFTER_A_FAILURE).await;
 }
 
 /// One whole sync pass, whatever the protocol underneath.
@@ -1436,14 +1326,17 @@ async fn remote_parts<B: mail_proto::Backend>(
 /// Blocking, with a runtime of its own, like [`run`] and [`fetch_part`]: its callers are a
 /// command and a click handler, which reach it through `spawn_blocking`.
 ///
-/// Refused for POP3, which has one mailbox and fetches it every pass, and for an account whose
-/// folders are labels, where a folder's mail is the mail with that label and arrives with it.
+/// How the fetch ended is the return, as one account's pass does ([`PassEnd`]); it is never
+/// `Cancelled`, because nothing holds a signal to cancel it with. An `Err` is a request there is
+/// nothing to fetch for: POP3, which has one mailbox and fetches it every pass, and an account
+/// whose folders are labels, where a folder's mail is the mail with that label and arrives with
+/// it.
 pub fn folder_now(
     store: Arc<SqliteStore>,
     account: AccountId,
     path: &str,
     now: chrono::DateTime<chrono::Utc>,
-) -> Result<Ran, String> {
+) -> Result<PassEnd, String> {
     let registry = OAuthRegistry::load_default().map_err(|e| e.to_string())?;
     folder_now_with(
         store,
@@ -1463,7 +1356,7 @@ pub fn folder_now_with(
     account: AccountId,
     path: &str,
     now: chrono::DateTime<chrono::Utc>,
-) -> Result<Ran, String> {
+) -> Result<PassEnd, String> {
     let account = configured(&store)?
         .into_iter()
         .find(|a| a.id == account)
@@ -1501,70 +1394,66 @@ pub fn folder_now_with(
         .enable_all()
         .build()
         .map_err(|e| format!("cannot start the async runtime: {e}"))?;
-    let report = runtime
-        .block_on(async {
-            let stored = secrets
-                .get(&SecretKey {
-                    account: account.id,
-                    purpose: SecretPurpose::IncomingPassword,
-                })
-                .map_err(|_| crate::account::no_credential(&account.address, &account.plan.auth))?;
-            let credential = signed_in(&account, stored, secrets.as_ref(), registry, now).await?;
-            let (_tx, mut cancel) = watch::channel(false);
-            let held = Held::new(credential);
-            let renewal = renewal_for(
-                &account,
-                &held,
-                secrets.clone(),
-                registry,
-                clock_for(Mode::Once, now),
-            );
-            let mut report = Done::default();
-            if account.plan.incoming == Incoming::Graph {
-                sending_token(&account, secrets.as_ref(), registry, now).await?;
-                let mut engine = graph_engine(&store, &account, secrets.clone())?;
-                if let Some(renewal) = renewal {
-                    engine = engine.with_renewal(renewal);
-                }
-                one_mailbox(
-                    &mut engine,
-                    &mailbox,
-                    account.keep,
-                    &mut cancel,
-                    now,
-                    &mut report,
-                    None,
-                )
-                .await;
-                return Ok::<_, String>(report);
-            }
-            let mut engine = imap_engine(&store, &account, held, secrets.clone());
+    let done = runtime.block_on(async {
+        let stored = secrets
+            .get(&SecretKey {
+                account: account.id,
+                purpose: SecretPurpose::IncomingPassword,
+            })
+            .map_err(|_| {
+                Failure::reauth(crate::account::no_credential(
+                    &account.address,
+                    &account.plan.auth,
+                ))
+            })?;
+        let credential = signed_in_typed(&account, stored, secrets.as_ref(), registry, now).await?;
+        let (_tx, mut cancel) = watch::channel(false);
+        let held = Held::new(credential);
+        let renewal = renewal_for(
+            &account,
+            &held,
+            secrets.clone(),
+            registry,
+            clock_for(Mode::Once, now),
+        );
+        let mut done = Done::default();
+        if account.plan.incoming == Incoming::Graph {
+            sending_token_typed(&account, secrets.as_ref(), registry, now).await?;
+            let mut engine =
+                graph_engine(&store, &account, secrets.clone()).map_err(Failure::fatal)?;
             if let Some(renewal) = renewal {
                 engine = engine.with_renewal(renewal);
             }
-            engine.reachable().await.map_err(|e| e.to_string())?;
             one_mailbox(
                 &mut engine,
                 &mailbox,
                 account.keep,
                 &mut cancel,
                 now,
-                &mut report,
+                &mut done,
                 None,
             )
             .await;
-            Ok::<_, String>(report)
-        })?
-        .to_report();
-    Ok(Ran {
-        text: one_line(
-            &format!("{} {}", account.address, mailbox.path),
-            &report,
+            return Ok(done);
+        }
+        let mut engine = imap_engine(&store, &account, held, secrets.clone());
+        if let Some(renewal) = renewal {
+            engine = engine.with_renewal(renewal);
+        }
+        engine.reachable().await.map_err(|e| Failure::of("", &e))?;
+        one_mailbox(
+            &mut engine,
+            &mailbox,
+            account.keep,
+            &mut cancel,
             now,
-        ),
-        rejected: report.needs_reauth,
-        hold: report.hold,
-    })
+            &mut done,
+            None,
+        )
+        .await;
+        Ok(done)
+    });
+    Ok(ended(&account, done, None))
 }
 
 /// The mailboxes the next pass would fetch, per account, by address.
@@ -1706,19 +1595,6 @@ fn sasl_for(plan: &AccountPlan) -> Vec<SaslMech> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn syncing_with_no_accounts_explains_how_to_add_one() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
-        let out = run(
-            store,
-            chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
-        )
-        .unwrap()
-        .text;
-        assert!(out.contains("mailo account add"), "{out}");
-    }
 
     #[test]
     fn the_auth_prelude_prefers_sasl_but_falls_back() {

@@ -1,5 +1,5 @@
 use super::*;
-use crate::sync::{one_line, run_typed_with};
+use crate::sync::run_with;
 use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::*;
 use mail_runtime::{MapSecrets, OAuthRegistry, Secrets};
@@ -85,106 +85,9 @@ fn with_password(secrets: &MapSecrets) {
 }
 
 #[test]
-fn a_finished_account_reads_as_the_line_it_always_did() {
-    let counts = Counts {
-        headers_fetched: 3,
-        bodies_fetched: 2,
-        outbox_settled: 1,
-        submitted: 1,
-        parts_fetched: 4,
-        still_queued: 2,
-        ..Counts::default()
-    };
-    let trouble = vec![
-        Trouble {
-            mailbox: Some("INBOX".to_owned()),
-            retry: Retry::Now,
-            why: Some("INBOX: cannot select".to_owned()),
-        },
-        // Classified and silent: the line above it already said what happened.
-        Trouble {
-            mailbox: None,
-            retry: Retry::NeedsReauth,
-            why: None,
-        },
-    ];
-    let end = PassEnd::Finished(AccountReport {
-        account: ACCOUNT,
-        address: "ada@example.test".to_owned(),
-        counts: counts.clone(),
-        trouble: trouble.clone(),
-    });
-    let old = SyncReport {
-        headers_fetched: 3,
-        bodies_fetched: 2,
-        outbox_settled: 1,
-        submitted: 1,
-        parts_fetched: 4,
-        still_queued: 2,
-        needs_attention: vec!["INBOX: cannot select".to_owned()],
-        needs_reauth: true,
-        ..SyncReport::default()
-    };
-    assert_eq!(
-        prose(&end, now()),
-        one_line("ada@example.test", &old, now())
-    );
-    assert_eq!(
-        prose(&end, now()),
-        "ada@example.test: 3 headers, 2 bodies, 1 queued operations settled, 1 sent\n  \
-         4 attachment(s) kept offline\n  \
-         2 still queued; run sync again to retry, or `mailo drafts` to see why\n  \
-         needs attention: INBOX: cannot select\n"
-    );
-}
-
-#[test]
-fn a_failed_account_reads_as_address_and_reason() {
-    let end = PassEnd::Failed {
-        account: ACCOUNT,
-        address: "ada@example.test".to_owned(),
-        retry: Retry::NeedsReauth,
-        why: "not signed in".to_owned(),
-        pause: Pause::ServerBusy,
-    };
-    assert_eq!(prose(&end, now()), "ada@example.test: not signed in\n");
-}
-
-#[test]
-fn what_a_loop_acts_on_comes_from_the_typed_results() {
-    let finished = |trouble| {
-        PassEnd::Finished(AccountReport {
-            account: ACCOUNT,
-            address: "a".to_owned(),
-            counts: Counts::default(),
-            trouble,
-        })
-    };
-    let wait = |secs| Trouble {
-        mailbox: None,
-        retry: Retry::After(std::time::Duration::from_secs(secs)),
-        why: None,
-    };
-    let ends = [
-        finished(vec![wait(60)]),
-        finished(vec![wait(3600)]),
-        PassEnd::Failed {
-            account: ACCOUNT,
-            address: "b".to_owned(),
-            retry: Retry::NeedsReauth,
-            why: "x".to_owned(),
-            pause: Pause::ServerBusy,
-        },
-    ];
-    let ran = summarise(&ends, now());
-    assert!(ran.rejected);
-    assert_eq!(ran.hold, Some(std::time::Duration::from_secs(3600)));
-}
-
-#[test]
 fn a_missing_credential_fails_the_account_as_needing_a_sign_in() {
     let (store, _dir) = store_at(1);
-    let ends = run_typed_with(
+    let ends = run_with(
         store,
         Arc::new(MapSecrets::default()),
         &OAuthRegistry::default(),
@@ -204,7 +107,7 @@ fn an_unreachable_server_fails_the_account_with_a_wait() {
     let (store, _dir) = store_at(1);
     let secrets = MapSecrets::default();
     with_password(&secrets);
-    let ends = run_typed_with(
+    let ends = run_with(
         store,
         Arc::new(secrets),
         &OAuthRegistry::default(),
@@ -245,7 +148,7 @@ fn a_mailbox_that_fails_lands_in_trouble_with_its_decision() {
     }
     let secrets = MapSecrets::default();
     with_password(&secrets);
-    let ends = run_typed_with(
+    let ends = run_with(
         store,
         Arc::new(secrets),
         &OAuthRegistry::default(),
@@ -297,13 +200,8 @@ fn the_trouble_a_pass_gathers_keeps_its_mailbox_and_decision() {
             },
         ]
     );
-    let old = done.to_report();
-    assert_eq!(
-        old.needs_attention,
-        ["Archive: slow down", "rules: refused"]
-    );
-    assert!(old.needs_reauth);
-    assert_eq!(old.hold, Some(std::time::Duration::from_secs(9)));
+    assert!(needs_reauth(&done.trouble));
+    assert_eq!(hold(&done.trouble), Some(std::time::Duration::from_secs(9)));
 }
 
 #[test]

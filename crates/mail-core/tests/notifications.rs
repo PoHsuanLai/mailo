@@ -414,6 +414,7 @@ async fn watching<F: std::future::Future<Output = ()>>(
         Utc::now(),
         sync::Mode::Watch,
         announce,
+        None,
     );
     let raced = tokio::time::timeout(std::time::Duration::from_secs(20), async {
         tokio::select! {
