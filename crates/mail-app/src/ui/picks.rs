@@ -1,14 +1,14 @@
 //! Several conversations picked at once, in the window: what an action on them means, and the
 //! bar that counts them and acts on them.
 //!
-//! Which conversations are picked is the shell's (`crate::selection`, pure). This is the part
+//! Which conversations are picked is the shell's (`crate::ui::selection`, pure). This is the part
 //! that needs the store and the window: every action here goes through `motion::act_all`, so
 //! whatever a gesture does to five conversations is one entry on the undo stack, one toast, and
 //! one Ctrl Z that puts all five back.
 
 use super::motion::{act_all, act_kind_all, motion};
 use super::press::on_primary;
-use crate::view::{Shell, Shortcut, mute_for_all, mute_label, op_for_selection};
+use crate::ui::view::{Shell, Shortcut, mute_for_all, mute_label, op_for_selection};
 use dioxus::prelude::*;
 use ds::components::controls::button_model::{Bezel, ImagePosition};
 use ds::prelude::*;
@@ -151,10 +151,10 @@ pub(super) fn PickBar(
     };
     let mute = mute_label(&summaries);
     // In Trash or Spam, and only there, the picked mail can be deleted forever, once asked.
-    let bin = crate::destroy::bin_shown(&shell.read());
+    let bin = crate::ui::bin::bin_shown(&shell.read());
     let destroyable = summaries
         .iter()
-        .any(|summary| crate::destroy::offered(bin, summary));
+        .any(|summary| crate::ui::bin::offered(bin, summary));
     let buttons: Vec<(Shortcut, Icon, &'static str)> = [
         (Shortcut::Archive, Icon::Archive, "Archive"),
         (Shortcut::Trash, Icon::Trash, "Move to Trash"),

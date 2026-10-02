@@ -21,7 +21,7 @@ use super::tests::{own_key, seams_with};
 use super::{Seams, cert_short, short};
 use crate::ui::fixtures::smime_support::pki;
 use crate::ui::fixtures::{ACCOUNT, Seen, click, dispatching, rebuild_into, seeded, type_into};
-use crate::view::Shell;
+use crate::ui::view::Shell;
 
 thread_local! {
     static SHELL: Cell<Option<Signal<Shell>>> = const { Cell::new(None) };
@@ -30,7 +30,7 @@ thread_local! {
 #[component]
 fn Sheet() -> Element {
     let shell = use_signal(|| Shell {
-        keys: Some(crate::view::KeysSheet),
+        keys: Some(crate::ui::view::KeysSheet),
         ..Shell::default()
     });
     SHELL.with(|slot| slot.set(Some(shell)));
@@ -165,7 +165,7 @@ async fn an_identity_files_password_is_asked_in_the_sheet_and_never_drawn() {
     assert!(!page.contains(prompt), "still asking: {page}");
     let debug = dom.in_runtime(|| format!("{:?}", shell.peek()));
     assert!(!debug.contains(PASSWORD), "the password is in the shell");
-    let own = crate::smime::own_cert(&store, "me@example.test", Utc::now())
+    let own = mail_core::smime::own_cert(&store, "me@example.test", Utc::now())
         .unwrap()
         .unwrap();
     assert!(holds(&secrets, &own));
@@ -203,7 +203,7 @@ async fn a_certificate_is_trusted_and_the_trust_taken_back() {
     let (store, _dir) = seeded();
     let secrets = Arc::new(MapSecrets::default());
     let root = pki().root.cert.fingerprint();
-    crate::smime::certs::import(
+    mail_core::smime::certs::import(
         &store,
         secrets.as_ref(),
         pki().root.cert.pem().as_bytes(),

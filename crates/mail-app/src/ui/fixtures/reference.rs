@@ -5,9 +5,9 @@
 //! institution or a real person's mailbox.
 
 use super::store::gmail_caps;
-use crate::appearance::WindowDirs;
-use crate::space::{self, Pinned, Scope, Space, Spaces};
-use crate::today::{self, Today};
+use crate::ui::appearance::WindowDirs;
+use crate::ui::space::{self, Pinned, Scope, Space, Spaces};
+use crate::ui::today::{self, Today};
 use chrono::Datelike;
 use ds::prelude::{SpaceLook, Theme};
 use ds::style::space::look::CardAccent;

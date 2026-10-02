@@ -1,18 +1,18 @@
 //! ⌘F: a small field in the reader head that finds in the open thread.
 //!
-//! What it finds is [`crate::search::find_highlight`]: plain words, or one `re:/…/`. Where it
+//! What it finds is [`mail_core::search::find_highlight`]: plain words, or one `re:/…/`. Where it
 //! finds it is `found.rs`, over the parsed blocks only. Enter and Shift+Enter move through the
 //! matches and scroll the current one into view; Esc closes the field and its marks go with it.
 
 use super::super::host::{Drawn, Host};
-use crate::search::{Find, Step};
-use crate::view::Shell;
+use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::components::controls::button_model::{Bezel, ImagePosition};
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::root::pass_through::ExtraClass;
 use ds::style::icon::render::Glyph;
+use mail_core::search::{Find, Step};
 
 /// The current match, which Enter and typing bring into the middle of the reader.
 const CURRENT: &str = "mark.hit.now";
@@ -109,15 +109,16 @@ pub(super) fn FindBar(shell: Signal<Shell>, total: usize, invalid: bool) -> Elem
 ///
 /// An invalid find pattern marks nothing and says why. The list's own invalid pattern is said
 /// in the list bar, so here it only marks nothing.
-pub(super) fn marking(shell: &Shell) -> (crate::search::Highlight, Option<String>) {
+pub(super) fn marking(shell: &Shell) -> (mail_core::search::Highlight, Option<String>) {
     match &shell.find {
-        Some(find) => match crate::search::find_highlight(&find.query) {
+        Some(find) => match mail_core::search::find_highlight(&find.query) {
             Ok(highlight) => (highlight, None),
-            Err(why) => (crate::search::Highlight::default(), Some(why)),
+            Err(why) => (mail_core::search::Highlight::default(), Some(why)),
         },
         None => {
-            let label = crate::query::named(&shell.labels);
-            let highlight = crate::search::list_highlight(&shell.search, &chrono::Local, &label);
+            let label = mail_core::query::named(&shell.labels);
+            let highlight =
+                mail_core::search::list_highlight(&shell.search, &chrono::Local, &label);
             (highlight.unwrap_or_default(), None)
         }
     }

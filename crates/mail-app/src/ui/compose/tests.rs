@@ -31,9 +31,9 @@ use super::desk::{Desk, use_desk};
 use super::page::Page;
 use super::wire::{Heard, hear};
 use super::{ComposerPage, SendPill, composing};
-use crate::appearance::WindowDirs;
-use crate::editor::{InputEvent, Node, Person, Pos, Range};
-use crate::view::Shell;
+use crate::ui::appearance::WindowDirs;
+use crate::ui::editor::{InputEvent, Node, Person, Pos, Range};
+use crate::ui::view::Shell;
 
 /// A fixed instant, so nothing here depends on the clock.
 fn at(minutes: i64) -> DateTime<Utc> {
@@ -167,7 +167,7 @@ fn body(page: &Page) -> String {
         .nodes
         .iter()
         .map(|node| match node {
-            Node::Para { runs, .. } => crate::editor::runs_text(runs),
+            Node::Para { runs, .. } => crate::ui::editor::runs_text(runs),
             Node::Object(_) => "[object]".to_owned(),
         })
         .collect::<Vec<_>>()
@@ -203,8 +203,8 @@ fn body_dom(page: Page) -> (VirtualDom, Signal<Page>) {
 fn PageHarness(draft: Draft) -> Element {
     let mut shell = use_signal(Shell::default);
     let revision = use_signal(|| 0u64);
-    let today = use_signal(crate::today::Today::default);
-    let spaces = use_signal(crate::space::Spaces::default);
+    let today = use_signal(crate::ui::today::Today::default);
+    let spaces = use_signal(crate::ui::space::Spaces::default);
     let side = use_signal(|| false);
     let dirs = try_consume_context::<WindowDirs>();
     let desk = use_desk(today, spaces, dirs, side);
@@ -290,13 +290,13 @@ fn when_a_scheduled_send_is_due() {
 
 #[test]
 fn a_reply_text_opens_as_paragraphs_a_signature_and_a_folded_original() {
-    use crate::editor::Object;
+    use crate::ui::editor::Object;
     let text = "Sounds good.\r\n\r\n-- \r\nDana\r\n\r\nOn Wed, 23 Sep 2026 at 09:02, Sam Okafor wrote:\r\n> first line\r\n> second line\r\n";
     let nodes = super::opening::doc_from_text(text);
     let shape: Vec<String> = nodes
         .iter()
         .map(|node| match node {
-            Node::Para { runs, .. } => format!("p:{}", crate::editor::runs_text(runs)),
+            Node::Para { runs, .. } => format!("p:{}", crate::ui::editor::runs_text(runs)),
             Node::Object(Object::Signature) => "sig".to_owned(),
             Node::Object(Object::QuotedMessage { who, when, body }) => {
                 format!("quoted:{who}/{when}/{}", body.len())

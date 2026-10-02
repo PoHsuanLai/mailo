@@ -10,9 +10,10 @@
 //! into, a label you can apply, or a saved search, which is read-only and refuses.
 
 use super::{Motion, act_all, motion};
-use crate::view::{Place, Shell, Source, place_filter};
+use crate::ui::view::{Place, Shell, Source};
 use dioxus::prelude::*;
 use ds::prelude::*;
+use mail_core::place::place_filter;
 use mail_domain::*;
 use mail_store::SqliteStore;
 use std::sync::Arc;

@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use super::said::{Said, Tone};
 use super::{Busy, Look, Unlock, cached, lookup, seams, short, unlock};
-use crate::password::Password;
+use mail_core::password::Password;
 
 /// One message's protection, once it is known.
 ///

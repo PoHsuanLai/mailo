@@ -2,7 +2,7 @@
 //! in each, and what can be done to each.
 //!
 //! ⌘K "Keys and certificates…" and the Space editor open it. Every change goes through
-//! [`crate::pgp::keys`] or [`crate::smime::certs`], the functions `mailo pgp` and `mailo smime`
+//! [`mail_core::pgp::keys`] or [`mail_core::smime::certs`], the functions `mailo pgp` and `mailo smime`
 //! use, and runs on a blocking thread: a key is made, imported, exported or forgotten in the
 //! keyring, and a file is read or written, none of which the thread that draws may wait on. The
 //! acts that cannot be taken back — writing a secret key to a file, and deleting one — are each
@@ -31,8 +31,8 @@ use super::super::press::{SheetClose, available, on_primary};
 use super::certs::{CertJob, CertPart};
 use super::key_row::{Confirm, KeyRow};
 use super::{Busy, Seams, seams, short, who};
-use crate::pgp::WithSecret;
-use crate::view::{KeysSheet as Showing, Shell};
+use crate::ui::view::{KeysSheet as Showing, Shell};
+use mail_core::pgp::WithSecret;
 
 /// What the sheet and its menu entry are called.
 pub(in crate::ui) const TITLE: &str = "Keys and certificates";
@@ -65,7 +65,7 @@ pub(in crate::ui) fn keyless(store: &SqliteStore) -> Vec<String> {
         .into_iter()
         .filter(|row| !row.is_local())
         .map(|row| row.address)
-        .filter(|address| matches!(crate::pgp::own_key(store, address), Ok(None)))
+        .filter(|address| matches!(mail_core::pgp::own_key(store, address), Ok(None)))
         .collect()
 }
 
@@ -107,7 +107,7 @@ pub(in crate::ui) fn work(store: &SqliteStore, seams: &Seams, job: Job) -> Resul
             let Some(path) = (seams.save)(&file_name(&key, "public")) else {
                 return Ok(Done::Said("Nothing was saved.".to_owned()));
             };
-            let armored = crate::pgp::keys::export_public(&key).map_err(|e| e.to_string())?;
+            let armored = mail_core::pgp::keys::export_public(&key).map_err(|e| e.to_string())?;
             write(&path, &armored)?;
             format!(
                 "Saved the public key of {} to {}",
@@ -119,8 +119,8 @@ pub(in crate::ui) fn work(store: &SqliteStore, seams: &Seams, job: Job) -> Resul
             let Some(path) = (seams.save)(&file_name(&key, "secret")) else {
                 return Ok(Done::Said("Nothing was saved.".to_owned()));
             };
-            let armored =
-                crate::pgp::keys::export_secret(store, secrets, &key).map_err(|e| e.to_string())?;
+            let armored = mail_core::pgp::keys::export_secret(store, secrets, &key)
+                .map_err(|e| e.to_string())?;
             write(&path, &armored)?;
             format!(
                 "Saved the secret key of {} to {}",
@@ -129,12 +129,12 @@ pub(in crate::ui) fn work(store: &SqliteStore, seams: &Seams, job: Job) -> Resul
             )
         }
         Job::Delete(key, with_secret) => {
-            crate::pgp::keys::delete(store, secrets, &key, with_secret)
+            mail_core::pgp::keys::delete(store, secrets, &key, with_secret)
                 .map_err(|e| e.to_string())?;
             format!("Deleted the key of {}", who(&key))
         }
         Job::Verify(fingerprint) => {
-            crate::pgp::keys::verify(store, fingerprint).map_err(|e| e.to_string())?;
+            mail_core::pgp::keys::verify(store, fingerprint).map_err(|e| e.to_string())?;
             format!("Marked {} as verified", short(fingerprint))
         }
     };
@@ -142,7 +142,7 @@ pub(in crate::ui) fn work(store: &SqliteStore, seams: &Seams, job: Job) -> Resul
 }
 
 fn generate(store: &SqliteStore, secrets: &dyn Secrets, address: &str) -> Result<String, String> {
-    let key = crate::pgp::keys::generate(store, secrets, address, Utc::now())
+    let key = mail_core::pgp::keys::generate(store, secrets, address, Utc::now())
         .map_err(|e| e.to_string())?;
     Ok(format!(
         "Made a key for {address}, {}",
@@ -152,8 +152,8 @@ fn generate(store: &SqliteStore, secrets: &dyn Secrets, address: &str) -> Result
 
 fn import(store: &SqliteStore, secrets: &dyn Secrets, path: &Path) -> Result<String, String> {
     let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    let imported =
-        crate::pgp::keys::import(store, secrets, &bytes, Utc::now()).map_err(|e| e.to_string())?;
+    let imported = mail_core::pgp::keys::import(store, secrets, &bytes, Utc::now())
+        .map_err(|e| e.to_string())?;
     let names: Vec<String> = imported.iter().map(|one| who(&one.key)).collect();
     let secret = imported.iter().filter(|one| one.secret.is_some()).count();
     Ok(match (names.len(), secret) {

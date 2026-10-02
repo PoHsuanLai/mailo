@@ -6,7 +6,8 @@
 //! whole of what snoozing means and the part a pure predicate test cannot show.
 
 use chrono::{DateTime, TimeDelta, TimeZone, Utc};
-use mail_app::{snooze, view};
+use mail_app::ui::view;
+use mail_core::snooze;
 use mail_domain::*;
 use mail_runtime::{Arrival, absorb};
 use mail_store::{SqliteStore, Store};
@@ -83,7 +84,7 @@ fn listed(store: &SqliteStore, filter: Filter, at: DateTime<Utc>) -> Vec<ThreadI
 /// so tested a filter the test had written: the CLI was still listing snoozed conversations and
 /// every one of these passed. Running `mailo list` found it in a second.
 fn inbox() -> Filter {
-    view::place_filter(MailboxRole::Inbox)
+    mail_core::place::place_filter(MailboxRole::Inbox)
 }
 
 #[test]
@@ -102,7 +103,10 @@ fn a_snoozed_conversation_leaves_the_inbox_and_returns_by_itself() {
         listed(&store, inbox(), now()).is_empty(),
         "still in the inbox"
     );
-    assert_eq!(listed(&store, view::pending_snooze(), now()), vec![thread]);
+    assert_eq!(
+        listed(&store, mail_core::place::pending_snooze(), now()),
+        vec![thread]
+    );
 
     // And back on its own. Nothing ran in between: `SnoozeDue` is resolved against `now` at
     // query time, so the conversation returns whether the client was awake or not.
@@ -113,7 +117,7 @@ fn a_snoozed_conversation_leaves_the_inbox_and_returns_by_itself() {
         "it did not come back"
     );
     assert!(
-        listed(&store, view::pending_snooze(), later).is_empty(),
+        listed(&store, mail_core::place::pending_snooze(), later).is_empty(),
         "a due conversation is still listed as snoozed"
     );
 }
@@ -127,7 +131,7 @@ fn waking_one_brings_it_back_before_its_hour() {
     snooze::wake(&store, thread, now()).unwrap();
 
     assert_eq!(listed(&store, inbox(), now()), vec![thread]);
-    assert!(listed(&store, view::pending_snooze(), now()).is_empty());
+    assert!(listed(&store, mail_core::place::pending_snooze(), now()).is_empty());
 }
 
 #[test]
@@ -179,7 +183,7 @@ mod one_definition {
             .source;
         assert_eq!(
             from_the_sidebar,
-            view::Source::Mail(view::place_filter(MailboxRole::Inbox))
+            view::Source::Mail(mail_core::place::place_filter(MailboxRole::Inbox))
         );
     }
 
@@ -193,7 +197,10 @@ mod one_definition {
             MailboxRole::Spam,
             MailboxRole::Trash,
         ] {
-            assert_eq!(view::place_filter(role), Filter::InMailbox(role));
+            assert_eq!(
+                mail_core::place::place_filter(role),
+                Filter::InMailbox(role)
+            );
         }
     }
 
@@ -203,7 +210,12 @@ mod one_definition {
         let (store, _dir, thread) = seeded();
         snooze::snooze(&store, thread, "tomorrow", now()).unwrap();
         assert!(
-            listed(&store, view::place_filter(MailboxRole::Inbox), now()).is_empty(),
+            listed(
+                &store,
+                mail_core::place::place_filter(MailboxRole::Inbox),
+                now()
+            )
+            .is_empty(),
             "`mailo list` would still show it"
         );
     }
@@ -252,7 +264,10 @@ mod pinning {
         snooze::snooze(&store, thread, "tomorrow", now()).unwrap();
 
         assert_eq!(listed(&store, Filter::Pinned, now()), vec![thread]);
-        assert_eq!(listed(&store, view::pending_snooze(), now()), vec![thread]);
+        assert_eq!(
+            listed(&store, mail_core::place::pending_snooze(), now()),
+            vec![thread]
+        );
         assert!(
             listed(&store, inbox(), now()).is_empty(),
             "pinning brought a snoozed conversation back"

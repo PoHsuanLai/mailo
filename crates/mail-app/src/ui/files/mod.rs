@@ -22,7 +22,7 @@ use ds::components::controls::progress::view::ProgressIndicator;
 use ds::prelude::*;
 
 use super::motion::{Follow, tell};
-use crate::view::{FileSheet, Shell};
+use crate::ui::view::{FileSheet, Shell};
 
 /// Where the sheets suggest and start: the downloads directory, unless the window was handed
 /// another one. Tests hand one, so nothing looks at the real downloads directory.
@@ -31,7 +31,7 @@ pub(in crate::ui) struct SaveDir(pub std::path::PathBuf);
 
 /// The directory [`SaveDir`] names.
 pub(in crate::ui) fn save_dir() -> std::path::PathBuf {
-    try_consume_context::<SaveDir>().map_or_else(crate::attach::downloads_dir, |dir| dir.0)
+    try_consume_context::<SaveDir>().map_or_else(mail_core::attach::downloads_dir, |dir| dir.0)
 }
 
 /// Open the Import sheet with an empty path, and put the cursor in it.

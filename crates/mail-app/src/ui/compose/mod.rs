@@ -2,7 +2,7 @@
 //!
 //! A new message is a page: the subject as its title, property rows, and the body at 66ch. A
 //! reply is the same page, compact, under the thread it answers. The body is one
-//! root, quire's `EditSurface`, whose every edit goes through `crate::editor`; the page never edits
+//! root, quire's `EditSurface`, whose every edit goes through `crate::ui::editor`; the page never edits
 //! text itself. `adapt` turns what the surface hands over into editor events, and [`wire`] applies
 //! them to the page.
 //!
@@ -68,8 +68,8 @@ pub(in crate::ui) use templates::{
 };
 
 use super::press::on_primary;
-use crate::password::Password;
-use crate::view::Shell;
+use crate::ui::view::Shell;
+use mail_core::password::Password;
 
 /// The fold after Send: quire's timer for the fade, and what happens once it has
 /// settled, which is that the page is taken away. Made by the page, so it belongs to it.
@@ -196,7 +196,7 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
     let scheduled = read.when != When::Now;
     let send_label = if scheduled { "Schedule" } else { "Send" };
     let anyway_label = "Send anyway";
-    let flowed = crate::editor::to_flowed(&read.session.doc);
+    let flowed = crate::ui::editor::to_flowed(&read.session.doc);
     drop(read);
 
     let send = move |anyway: Anyway| send_page(page, desk, revision, folding, anyway, None);
@@ -509,7 +509,7 @@ fn close(mut page: Signal<Page>, mut shell: Signal<Shell>, mut desk: Desk) {
 fn discard(mut page: Signal<Page>, mut shell: Signal<Shell>, desk: Desk) {
     let store = consume_context::<Arc<SqliteStore>>();
     let draft = page.peek().draft;
-    match crate::compose::discard(&store, draft) {
+    match mail_core::compose::discard(&store, draft) {
         Ok(_) => {
             page.write().phase = Phase::Closed;
             desk::unpark(desk, draft);

@@ -1,6 +1,6 @@
 //! The list box, run through the search pipeline.
 //!
-//! A search is [`crate::search::search_list`], the function `mailo search` calls, with the
+//! A search is [`mail_core::search::search_list`], the function `mailo search` calls, with the
 //! window's label index and local midnight, over the accounts the Space shows. So `from:`, a
 //! prefix, a phrase and `re:/…/` mean the same thing in the list, in ⌘K and in the terminal.
 //! The rows are the matches in date order, paginated like a place; above them, a strip of the
@@ -11,9 +11,9 @@
 //! mail that would look like a search and not be one.
 
 use super::data::list_for;
-use crate::search::{self, Highlight, Source, Term};
-use crate::view::{Listing, Shell};
+use crate::ui::view::{Listing, Shell};
 use chrono::{DateTime, Utc};
+use mail_core::search::{self, Highlight, Source, Term};
 use mail_domain::{Filter, LabelId, PageReq, Query, ThreadId, ThreadSummary};
 use mail_store::{SqliteStore, Store};
 use std::ops::Range;
@@ -122,7 +122,7 @@ pub(super) fn listed(store: &SqliteStore, request: Request, now: DateTime<Utc>) 
 }
 
 fn searched(store: &SqliteStore, search: &Search, now: DateTime<Utc>) -> Listed {
-    let label = crate::query::named(&search.labels);
+    let label = mail_core::query::named(&search.labels);
     let highlight = match search::list_highlight(&search.input, &chrono::Local, &label) {
         Ok(highlight) => highlight,
         Err(why) => return invalid(why),

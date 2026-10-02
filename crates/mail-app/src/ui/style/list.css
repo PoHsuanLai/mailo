@@ -18,3 +18,15 @@
 .server-search-one { display: flex; flex-direction: column; align-items: center; gap: var(--s-4); }
 .server-search-one .status { color: var(--ink-soft); font-size: var(--fs-meta); text-align: center; }
 .server-search-one .status.bad { color: var(--danger); font-weight: 600; }
+/* What the accounts are doing: a small bar under the title's line while a download counts, the
+   placeholder rows before the first mail, the sheet that lists accounts needing attention, and
+   the mark beside an account's name. Layout only. */
+.list-progress { display: flex; flex: 0 1 calc(var(--s-36) * 2); min-width: 0; }
+.list-progress > * { width: 100%; }
+.first-sync { display: flex; flex-direction: column; gap: var(--s-2); }
+.first-sync > :first-child { align-self: center; padding: var(--s-10) 0; }
+.doctor { display: flex; flex-direction: column; gap: var(--s-8); padding: var(--s-12); }
+.doctor-foot { display: flex; justify-content: flex-end; gap: var(--s-8); }
+.account-head { display: flex; align-items: center; min-width: 0; }
+.account-head > :first-child { flex: 1 1 auto; min-width: 0; }
+.fetch-mark { display: inline-flex; align-items: center; flex: none; padding: 0 var(--s-4); }

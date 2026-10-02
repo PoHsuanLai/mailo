@@ -1,9 +1,9 @@
 //! The link pill: where a link in the reader really goes, read from the parsed blocks.
 
 use super::hover;
-use crate::trust::Destination;
 use dioxus::prelude::*;
 use ds::components::app::link_pill::{LinkPill as Pill, LinkTarget};
+use mail_core::trust::Destination;
 
 /// Where the link under the pointer goes, like a browser's status bar, and loud when its text
 /// names somewhere else. Drawn in the reader; the link reports itself from the parsed blocks.
@@ -73,7 +73,7 @@ fn web(scheme: &str, sub: &str, registered: &str, path: &str) -> Element {
 /// `url` drawn the way the pill draws a link's target. Only the address is read: its text is
 /// the address itself, so there is nothing for it to claim.
 pub(in crate::ui) fn url_spans(url: &str) -> Element {
-    match crate::trust::destination(url, url) {
+    match mail_core::trust::destination(url, url) {
         Destination::Web {
             scheme,
             sub,
@@ -89,7 +89,9 @@ pub(in crate::ui) fn url_spans(url: &str) -> Element {
 /// A link in the reader was entered or left. Called from the parsed blocks.
 pub(in crate::ui) fn link_over(text: &str, href: &str) {
     if let Some(mut state) = hover() {
-        state.link.set(Some(crate::trust::destination(text, href)));
+        state
+            .link
+            .set(Some(mail_core::trust::destination(text, href)));
     }
 }
 

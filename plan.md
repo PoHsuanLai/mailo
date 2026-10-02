@@ -51,7 +51,10 @@ mailo/
     mail-proto/              # sans-I/O machines: sessions AND backends
     mail-store/              # Store trait + SQLite
     mail-runtime/            # tokio, owns the I/O loop, secrets, notify
-    mail-app/                # Dioxus 0.7 desktop binary
+    mail-core/               # the logic over runtime and store: sync, fetch machines, account,
+                             # compose, rules, search…; no window and no terminal in it
+    mail-app/                # the `mailo` binary: src/ui (Dioxus window), src/cli (terminal),
+                             # src/main.rs routes between them
 ```
 
 Six crates, not seven. `mail-profiles` is a lookup table over domain types — it becomes
@@ -63,7 +66,8 @@ sessions, and **`mail-app` needs sanitization without depending on `mail-proto`*
 ### Dependency graph
 
 ```
-mail-app      → mail-runtime, mail-domain, mail-mime
+mail-app      → mail-core (and the window's toolkit, quire)
+mail-core     → mail-runtime, mail-store, mail-domain, mail-mime, mail-proto, mail-pim
 mail-runtime  → mail-proto, mail-store, mail-mime, mail-domain
 mail-store    → mail-domain
 mail-proto    → mail-mime, mail-domain
@@ -73,7 +77,9 @@ mail-domain   → serde, uuid, chrono, thiserror
 
 `mail-domain`, `mail-mime`, and `mail-proto` must not depend on tokio, rusqlite, dioxus,
 keyring, or reqwest. Enforce it in CI with `cargo tree -p mail-domain -i tokio` returning
-nothing.
+nothing. `mail-core` may use tokio and rusqlite but must not depend on dioxus, `ds`,
+`ds-settings` or `ds-blitz`; `mail-app`'s `ui` and `cli` must not name each other
+(`scripts/check-boundary.sh` holds all of it).
 
 ### Root `Cargo.toml`
 
@@ -86,6 +92,7 @@ members = [
   "crates/mail-proto",
   "crates/mail-store",
   "crates/mail-runtime",
+  "crates/mail-core",
   "crates/mail-app",
 ]
 
@@ -114,7 +121,8 @@ thiserror   = { version = "2" }
 | `mail-proto` | `IoNeed`, `IoReady`, `Progress`, `Machine`, `ImapSession`, `Pop3Session`, `SmtpSession`, `OauthPkce`, `ImapBackend`, `Pop3Backend`, `FakeBackend` |
 | `mail-store` | `Store` trait, SQLite schema, migrations |
 | `mail-runtime` | `AccountEngine`, the tokio drive loop, `Secrets`, `Effect`, notifications |
-| `mail-app` | Dioxus UI. No protocol types. |
+| `mail-core` | The application's logic: sync, fetch state machines, accounts and discovery, compose, rules, contacts, search, offline, PGP/S-MIME flows. No UI. |
+| `mail-app` | The window (`ui`) and the command line (`cli`). No protocol types. |
 
 `RemoteRef` and `ProtoOp` live in **`mail-domain`**, not in an adapter crate. They must, because
 `mail-store` persists them (`remote_map`, `outbox`) and `mail-store` does not depend on

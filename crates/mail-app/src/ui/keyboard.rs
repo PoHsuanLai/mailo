@@ -4,16 +4,16 @@
 //! an action waits for the next key pressed, and gives it to the action or says, by name, which
 //! action holds it already. Each action can be put back as it ships, and so can all of them.
 //! Every change is kept at once in `keyboard.json`, like notifications and provider marks: what
-//! a key means is the window's, not a Space's. What a key may be given is [`crate::keymap`]'s;
+//! a key means is the window's, not a Space's. What a key may be given is [`crate::ui::keymap`]'s;
 //! this only draws the map and hands it the presses.
 //!
 //! While the sheet is open the keyboard is its own (`App`'s key handler sends every press here),
 //! so a key pressed to be bound does not also archive the open conversation.
 
 use super::press::{SheetClose, on_primary};
-use crate::appearance::WindowDirs;
-use crate::keymap::{self, DEFAULTS, Keymap, Refused};
-use crate::view::{KeyboardSheet as Showing, Shell, Shortcut};
+use crate::ui::appearance::WindowDirs;
+use crate::ui::keymap::{self, DEFAULTS, Keymap, Refused};
+use crate::ui::view::{KeyboardSheet as Showing, Shell, Shortcut};
 use dioxus::prelude::*;
 use ds::components::controls::key_equivalent::{KeyEquivalent, KeyStyle};
 use ds::prelude::{Button, Icon, Shortcut as Caps, ShortcutKey as Key};

@@ -9,16 +9,16 @@ use super::super::menu::{Floating, MenuItem, Right, Tile};
 use super::super::motion::{Follow, tell};
 use super::cards::{Card, letter, who};
 use super::dismiss;
-use crate::rules::block::Blocked;
-use crate::space::{Pinned, Spaces};
-use crate::trust::spoof;
-use crate::view::Shell;
+use crate::ui::space::{Pinned, Spaces};
+use crate::ui::view::Shell;
 use chrono::Local;
 use dioxus::prelude::*;
 use ds::components::content::avatar::AvatarTone;
 use ds::components::content::text_runs::{RunTone, TextRun};
 use ds::components::overlays::hover_card::parts::{FlagTone, HoverCardPart, HoverStat};
 use ds::prelude::*;
+use mail_core::rules::block::Blocked;
+use mail_core::trust::spoof;
 use mail_domain::{AccountId, Message, MessageId, ThreadId};
 use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
@@ -43,7 +43,7 @@ pub(super) fn sender_card(
     let threads = seen.as_ref().map_or(1, |sender| sender.threads);
     let last = seen
         .as_ref()
-        .map(|sender| crate::view::listed(sender.last, chrono::Utc::now(), &Local))
+        .map(|sender| mail_core::when::listed(sender.last, chrono::Utc::now(), &Local))
         .unwrap_or_default();
     let items = sender_actions();
     let given = from.name.clone().unwrap_or_default();
@@ -160,14 +160,14 @@ fn newest_from(store: &SqliteStore, messages: &[MessageId], email: &str) -> Opti
     Some(all.swap_remove(at))
 }
 
-/// "Block sender": a rule that sends their mail to Spam (`crate::rules::block`), said with the
+/// "Block sender": a rule that sends their mail to Spam (`mail_core::rules::block`), said with the
 /// way to take it back.
 fn block_sender(account: Option<AccountId>, email: &str) {
     let Some(account) = account else {
         return;
     };
     let store = consume_context::<Arc<SqliteStore>>();
-    let said = match crate::rules::block::block(&store, account, email) {
+    let said = match mail_core::rules::block::block(&store, account, email) {
         Ok(Blocked::Made(rule)) => {
             let text = format!("Blocked {email}: new mail from them goes to Spam");
             let follow = Follow::Unblock {

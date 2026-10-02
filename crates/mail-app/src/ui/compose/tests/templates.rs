@@ -10,7 +10,7 @@ use super::*;
 use crate::ui::fixtures::{ACCOUNT, seeded};
 
 fn fresh(store: &SqliteStore) -> Draft {
-    crate::compose::draft_new(store, ACCOUNT, &[], "", "", Utc::now())
+    mail_core::compose::draft_new(store, ACCOUNT, &[], "", "", Utc::now())
         .unwrap_or_else(|why| panic!("a new draft: {why}"))
 }
 

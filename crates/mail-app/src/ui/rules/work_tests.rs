@@ -55,7 +55,7 @@ fn a_rule_made_in_the_sheet_is_listed_moved_switched_and_deleted() {
     // What the CLI would make of the same words.
     assert_eq!(
         listed[0].rule.filter,
-        crate::query::parse_with("from:bank.example subject:statement", &Utc, &|_| Vec::new())
+        mail_core::query::parse_with("from:bank.example subject:statement", &Utc, &|_| Vec::new())
     );
 
     let news = work::save(

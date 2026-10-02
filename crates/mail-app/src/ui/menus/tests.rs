@@ -29,13 +29,13 @@ mod putting_it_off {
         // what `place_filter` is for, and asserting against the bare one would be asking
         // whether snoozing archives things, which it does not.
         let place = Query {
-            filter: crate::view::place_filter(MailboxRole::Inbox),
+            filter: mail_core::place::place_filter(MailboxRole::Inbox),
             ..inbox_query()
         };
         let before = store.threads(&place, chrono::Utc::now()).unwrap();
         let thread = before.items[0].id;
 
-        crate::snooze::snooze(&store, thread, "tomorrow", chrono::Utc::now())
+        mail_core::snooze::snooze(&store, thread, "tomorrow", chrono::Utc::now())
             .expect("tomorrow is a time");
 
         let after = store.threads(&place, chrono::Utc::now()).unwrap();
@@ -46,7 +46,7 @@ mod putting_it_off {
         let asleep = store
             .threads(
                 &Query {
-                    filter: crate::view::pending_snooze(),
+                    filter: mail_core::place::pending_snooze(),
                     ..inbox_query()
                 },
                 chrono::Utc::now(),
@@ -61,8 +61,8 @@ mod putting_it_off {
         // parser had never heard of would be a button that does nothing. Checked rather
         // than assumed, because the two lists are written in different files.
         let now = chrono::Utc::now();
-        for (says, phrase) in crate::view::snooze_choices() {
-            let at = crate::view::snooze_until(phrase, now, &chrono::Local)
+        for (says, phrase) in crate::ui::view::snooze_choices() {
+            let at = mail_core::snooze::snooze_until(phrase, now, &chrono::Local)
                 .unwrap_or_else(|why| panic!("{says:?} means {phrase:?}, which is not: {why}"));
             assert!(at > now, "{says:?} is not in the future");
         }
@@ -185,7 +185,7 @@ fn snooze_help_is_the_time_snooze_until_resolves() {
             .find(|item| item.key == phrase)
             .unwrap_or_else(|| panic!("{phrase} is not in the menu"));
         assert_eq!(item.name, name, "{phrase}");
-        let at = crate::view::snooze_until(phrase, now, &zone).expect(phrase);
+        let at = mail_core::snooze::snooze_until(phrase, now, &zone).expect(phrase);
         assert_eq!(
             item.right,
             Right::Hint(super::snooze_hint(at, now, &zone)),

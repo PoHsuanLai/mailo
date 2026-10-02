@@ -16,8 +16,8 @@ use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query as Read, Viewport}
 #[path = "support/drive.rs"]
 mod drive;
 use drive::Drive;
-use mail_app::notify::{Notification, Notifier, Opens};
 use mail_app::ui::native::WallClock;
+use mail_core::notify::{Notification, Notifier, Opens};
 use mail_domain::*;
 use mail_runtime::{Arrival, Destination, absorb, absorb_into};
 use mail_store::{SqliteStore, Store};
@@ -149,8 +149,8 @@ fn open() -> (
     let printer = mail_app::ui::native::Printer::with_dialog(|_, _| Ok(PrintOutcome::Cancelled));
     let contexts = mail_app::ui::native::contexts(
         Arc::clone(&store),
-        mail_app::view::Appearance::default(),
-        mail_app::space::Spaces::default(),
+        mail_app::ui::view::Appearance::default(),
+        mail_app::ui::space::Spaces::default(),
         None,
         mail_app::ui::Start::Inbox,
     )

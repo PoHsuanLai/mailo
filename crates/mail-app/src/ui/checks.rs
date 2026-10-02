@@ -1,16 +1,16 @@
 //! What the receiving server checked about a sender, as the reader's head and the sender card
 //! show it: one line under the name, "SPF pass · DKIM pass · DMARC pass — checked by …".
 //!
-//! The results are in the stored raw message ([`crate::auth`]), so finding them reads a blob.
+//! The results are in the stored raw message ([`mail_core::auth`]), so finding them reads a blob.
 //! That is done off the thread that draws, once per message and body, and remembered: the reader
 //! and the card ask for the same message and the second finds it already known. A message whose
 //! body is not here shows nothing — fetching it to find out would be a POP3 `RETR`, which marks
 //! it read.
 
-use crate::auth::{Standing, sentence, standing};
 use dioxus::prelude::*;
 use ds::prelude::*;
 use ds::style::icon::render::Glyph;
+use mail_core::auth::{Standing, sentence, standing};
 use mail_domain::{BlobId, MessageId};
 use mail_mime::AuthResults;
 use mail_store::{SqliteStore, Store};
@@ -46,7 +46,7 @@ pub(in crate::ui) fn lookup(
     let results = store
         .message(message)
         .ok()
-        .and_then(|message| crate::auth::results_of(store, &message));
+        .and_then(|message| mail_core::auth::results_of(store, &message));
     let mut cache = CACHE.lock().unwrap_or_else(|held| held.into_inner());
     cache.retain(|(id, _, _)| *id != message);
     cache.push((message, raw, results.clone()));

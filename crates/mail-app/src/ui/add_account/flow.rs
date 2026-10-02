@@ -12,14 +12,15 @@
 
 use std::sync::Arc;
 
-use mail_domain::presets::Preset;
-use mail_domain::{AccountId, AuthPlan, HttpAuth, Incoming, OAuthIssuer};
+use mail_domain::presets::{self, Manual, ManualPop3, Preset};
+use mail_domain::{AccountId, AuthPlan, HttpAuth, Incoming, OAuthIssuer, Retry};
 use mail_proto::discover::Found;
 use mail_store::SqliteStore;
 
-use crate::cli::Setup;
-use crate::password::Password;
-use crate::space::{Scope, Space};
+use crate::ui::space::{Scope, Space};
+use mail_core::account::Setup;
+use mail_core::discover::{Failed, Gap};
+use mail_core::password::Password;
 
 /// Where the sheet stands.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,8 +31,8 @@ pub(in crate::ui) enum Stage {
     Looking,
     /// What was found, shown, and not used yet.
     Found(Offer),
-    /// Nothing usable, or not an address; in words.
-    Missed(String),
+    /// Nothing usable, or not an address; and what to do about it.
+    Missed(Miss),
     /// Using the settings: saving the account, or waiting on a browser sign-in.
     Adding(Offer),
     /// Added: what that did, a sentence a line, and the account now in the store.
@@ -40,9 +41,68 @@ pub(in crate::ui) enum Stage {
         account: Option<AccountId>,
     },
     /// The add refused, and why. The offer stays, so it can be tried again on purpose.
-    Refused(Offer, String),
+    Refused(Offer, Refusal),
     /// A JMAP server typed in by hand: nothing is looked up.
     ByHand(Hand),
+}
+
+/// Why a lookup found nothing to offer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(in crate::ui) enum Miss {
+    /// What was typed is not an address.
+    NotAnAddress,
+    /// The domain answered, and named no servers this client can use.
+    NoServers { domain: String, gap: Gap },
+    /// Nothing could be reached to ask.
+    Unreachable {
+        domain: String,
+        retry: Retry,
+        why: String,
+    },
+    /// The lookup could not even start.
+    Broken(String),
+}
+
+impl Miss {
+    /// What a failed search for `address` means.
+    fn of(failed: Failed) -> Miss {
+        let domain = |address: &str| domain_of(address).unwrap_or_else(|| address.to_owned());
+        match failed {
+            Failed::NoServers { address, gap, .. } => Miss::NoServers {
+                domain: domain(&address),
+                gap,
+            },
+            Failed::Unreachable {
+                address,
+                retry,
+                why,
+            } => Miss::Unreachable {
+                domain: domain(&address),
+                retry,
+                why,
+            },
+            Failed::Broken(why) => Miss::Broken(why),
+        }
+    }
+}
+
+/// Which secret was left empty.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::ui) enum What {
+    Password,
+    Token,
+}
+
+/// Why an add did not go ahead.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(in crate::ui) enum Refusal {
+    /// The password or token was not typed yet.
+    Blank(What),
+    /// An OAuth sign-in with no client id to make it with.
+    NeedsClientId(OAuthIssuer),
+    /// The add said no, in its own words. Those are written for a terminal; see
+    /// [`super::copy::refused`] for what the sheet makes of them.
+    Other(String),
 }
 
 impl Stage {
@@ -72,7 +132,7 @@ pub(in crate::ui) struct Offer {
 impl Offer {
     /// Servers discovery or the built-in table found, as `describe` says them.
     fn discovered(address: &str, source: String, preset: Preset, seams: &Seams) -> Offer {
-        let shown = crate::discover::describe(address, &source, &preset);
+        let shown = mail_core::discover::describe(address, &source, &preset);
         let sign_in = match &preset.plan.auth {
             AuthPlan::Password { .. } => SignIn::Password,
             AuthPlan::OAuth { issuer, .. } => SignIn::OAuth {
@@ -187,20 +247,274 @@ fn jmap_rows(address: &str, session: &str, auth: HttpAuth) -> Vec<(String, Strin
     ]
 }
 
+/// Which kind of server is being typed in, as the segmented control names it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::ui) enum Kind {
+    Imap,
+    Pop3,
+    Jmap,
+}
+
+impl Kind {
+    /// The order the control shows them in.
+    pub(in crate::ui) const ALL: [Kind; 3] = [Kind::Imap, Kind::Pop3, Kind::Jmap];
+
+    pub(in crate::ui) fn label(self) -> &'static str {
+        match self {
+            Kind::Imap => "IMAP",
+            Kind::Pop3 => "POP",
+            Kind::Jmap => "JMAP",
+        }
+    }
+}
+
+/// Which server of an account a host and port belong to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::ui) enum Role {
+    Imap,
+    Pop3,
+    Smtp,
+}
+
+impl Role {
+    /// The port the server listens on for implicit TLS. The client refuses STARTTLS, so these
+    /// are the only ports on offer, and the one a blank Port field means.
+    pub(in crate::ui) fn default_port(self) -> Port {
+        Port(match self {
+            Role::Imap => 993,
+            Role::Pop3 => 995,
+            Role::Smtp => 465,
+        })
+    }
+
+    /// The first label of the host guessed for a domain: `imap` in `imap.example.com`.
+    fn guess(self) -> &'static str {
+        match self {
+            Role::Imap => "imap",
+            Role::Pop3 => "pop",
+            Role::Smtp => "smtp",
+        }
+    }
+
+    /// What the host field shows, greyed, before anything is typed: the guess for the domain
+    /// of `address`, or for example.com when it has none yet. Never a value.
+    pub(in crate::ui) fn placeholder(self, address: &str) -> String {
+        let domain = domain_of(address).unwrap_or_else(|| "example.com".to_owned());
+        format!("{}.{domain}", self.guess())
+    }
+}
+
+/// A TCP port, which is never 0.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::ui) struct Port(u16);
+
+impl Port {
+    /// A port as typed; a blank one is `default`.
+    fn parse(typed: &str, default: Port) -> Option<Port> {
+        match typed.trim() {
+            "" => Some(default),
+            text => text.parse::<u16>().ok().filter(|port| *port != 0).map(Port),
+        }
+    }
+
+    pub(in crate::ui) fn get(self) -> u16 {
+        self.0
+    }
+}
+
+/// A mail server as it is being typed in: the host and port fields, as typed. Nothing here can
+/// be sent anywhere until [`by_hand`] has made a [`Setup`] of it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(in crate::ui) struct Endpoint {
+    pub host: String,
+    /// Blank means the role's default port.
+    pub port: String,
+}
+
+/// An IMAP or POP3 account being typed in: where mail comes from, where it goes, and who signs in.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(in crate::ui) struct ServerHand {
+    pub incoming: Endpoint,
+    pub outgoing: Endpoint,
+    /// The user name, as typed. Blank means the whole address.
+    pub login: String,
+}
+
 /// A JMAP server as it is being typed in.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(in crate::ui) struct Hand {
+pub(in crate::ui) struct JmapHand {
     /// The session URL, as typed.
     pub session: String,
     pub auth: HttpAuth,
 }
 
+/// A server typed in by hand: what the Incoming and Outgoing Mail Server form holds.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(in crate::ui) enum Hand {
+    Imap(ServerHand),
+    Pop3(ServerHand),
+    Jmap(JmapHand),
+}
+
+/// A field of the form a hint can be about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::ui) enum Field {
+    Session,
+    IncomingHost,
+    IncomingPort,
+    OutgoingHost,
+    OutgoingPort,
+    Login,
+}
+
 impl Hand {
-    /// Nothing typed yet, signing in with a password.
+    /// Nothing typed yet, for IMAP, the commonest kind.
     pub(in crate::ui) fn blank() -> Hand {
-        Hand {
-            session: String::new(),
-            auth: HttpAuth::Basic,
+        Hand::Imap(ServerHand::default())
+    }
+
+    /// Nothing typed yet, for `kind`.
+    pub(in crate::ui) fn blank_of(kind: Kind) -> Hand {
+        match kind {
+            Kind::Imap => Hand::Imap(ServerHand::default()),
+            Kind::Pop3 => Hand::Pop3(ServerHand::default()),
+            Kind::Jmap => Hand::Jmap(JmapHand {
+                session: String::new(),
+                auth: HttpAuth::Basic,
+            }),
+        }
+    }
+
+    pub(in crate::ui) fn kind(&self) -> Kind {
+        match self {
+            Hand::Imap(_) => Kind::Imap,
+            Hand::Pop3(_) => Kind::Pop3,
+            Hand::Jmap(_) => Kind::Jmap,
+        }
+    }
+
+    /// How a JMAP secret travels; `None` for IMAP and POP.
+    pub(in crate::ui) fn jmap_auth(&self) -> Option<HttpAuth> {
+        match self {
+            Hand::Jmap(jmap) => Some(jmap.auth),
+            _ => None,
+        }
+    }
+
+    /// The form for servers already named by `setup`, to edit them. `None` for a setup that
+    /// names none the person could type: the table's, or a JMAP one with no session yet.
+    fn of(setup: &Setup) -> Option<Hand> {
+        let endpoint = |host: &str, port: u16| Endpoint {
+            host: host.to_owned(),
+            port: port.to_string(),
+        };
+        match setup {
+            Setup::Imap(m) => Some(Hand::Imap(ServerHand {
+                incoming: endpoint(&m.imap_host, m.imap_port),
+                outgoing: endpoint(&m.smtp_host, m.smtp_port),
+                login: m.login.clone().unwrap_or_default(),
+            })),
+            Setup::Pop3(m) => Some(Hand::Pop3(ServerHand {
+                incoming: endpoint(&m.pop3_host, m.pop3_port),
+                outgoing: endpoint(&m.smtp_host, m.smtp_port),
+                login: m.login.clone().unwrap_or_default(),
+            })),
+            Setup::Jmap {
+                session: Some(session),
+                auth,
+                ..
+            } => Some(Hand::Jmap(JmapHand {
+                session: session.clone(),
+                auth: *auth,
+            })),
+            Setup::Jmap { session: None, .. } | Setup::Discovered(_) => None,
+        }
+    }
+
+    /// The same form with `typed` in `field`; a field this kind has none of changes nothing.
+    pub(in crate::ui) fn with(self, field: Field, typed: String) -> Hand {
+        match (self, field) {
+            (Hand::Jmap(jmap), Field::Session) => Hand::Jmap(JmapHand {
+                session: typed,
+                ..jmap
+            }),
+            (Hand::Imap(mut s), field) => {
+                s.set(field, typed);
+                Hand::Imap(s)
+            }
+            (Hand::Pop3(mut s), field) => {
+                s.set(field, typed);
+                Hand::Pop3(s)
+            }
+            (hand, _) => hand,
+        }
+    }
+
+    /// The same form for another kind. IMAP and POP keep what was typed, as they ask the same
+    /// questions; JMAP asks different ones, so a switch to or from it starts blank.
+    pub(in crate::ui) fn into_kind(self, kind: Kind) -> Hand {
+        match (self, kind) {
+            (Hand::Imap(s) | Hand::Pop3(s), Kind::Imap) => Hand::Imap(s),
+            (Hand::Imap(s) | Hand::Pop3(s), Kind::Pop3) => Hand::Pop3(s),
+            (hand, kind) if hand.kind() == kind => hand,
+            (_, kind) => Hand::blank_of(kind),
+        }
+    }
+
+    /// Whether anything has been typed, which is when a missing field is worth saying.
+    fn started(&self) -> bool {
+        match self {
+            Hand::Jmap(jmap) => !jmap.session.trim().is_empty(),
+            Hand::Imap(s) | Hand::Pop3(s) => [
+                &s.incoming.host,
+                &s.incoming.port,
+                &s.outgoing.host,
+                &s.outgoing.port,
+                &s.login,
+            ]
+            .iter()
+            .any(|typed| !typed.trim().is_empty()),
+        }
+    }
+}
+
+impl ServerHand {
+    fn set(&mut self, field: Field, typed: String) {
+        match field {
+            Field::IncomingHost => self.incoming.host = typed,
+            Field::IncomingPort => self.incoming.port = typed,
+            Field::OutgoingHost => self.outgoing.host = typed,
+            Field::OutgoingPort => self.outgoing.port = typed,
+            Field::Login => self.login = typed,
+            Field::Session => {}
+        }
+    }
+}
+
+/// Why a field is not usable yet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::ui) enum Why {
+    /// Nothing there. Said only once something has been typed somewhere in the form.
+    Missing,
+    /// Typed, and not right.
+    Wrong,
+}
+
+/// What is wrong with one field, in a sentence.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(in crate::ui) struct Hint {
+    /// The field it is about; `None` for the address, which is the sheet's own field.
+    pub field: Option<Field>,
+    pub why: Why,
+    pub said: String,
+}
+
+impl Hint {
+    fn new(field: Option<Field>, why: Why, said: impl Into<String>) -> Hint {
+        Hint {
+            field,
+            why,
+            said: said.into(),
         }
     }
 }
@@ -230,7 +544,7 @@ pub(in crate::ui) struct Request {
 }
 
 /// Look an address up. Blocks: run it off the thread that draws.
-pub(in crate::ui) type Lookup = dyn Fn(&str) -> Result<Found, String> + Send + Sync;
+pub(in crate::ui) type Lookup = dyn Fn(&str) -> Result<Found, Failed> + Send + Sync;
 /// Follow a domain's `/.well-known/jmap` to its session URL, sending nothing but the request.
 /// Blocks.
 pub(in crate::ui) type FindJmap = dyn Fn(&str) -> Result<String, String> + Send + Sync;
@@ -259,7 +573,7 @@ impl Seams {
     pub(in crate::ui) fn real() -> Seams {
         if cfg!(test) {
             return Seams {
-                lookup: Arc::new(|_| Err("no lookups in tests".to_owned())),
+                lookup: Arc::new(|_| Err(Failed::Broken("no lookups in tests".to_owned()))),
                 jmap: Arc::new(|_| Err("no lookups in tests".to_owned())),
                 add: Arc::new(|_, _, _| Err("no accounts are added in tests".to_owned())),
                 client: Arc::new(|_| false),
@@ -267,24 +581,24 @@ impl Seams {
             };
         }
         Seams {
-            lookup: Arc::new(|address| crate::discover::lookup(address, chrono::Utc::now())),
-            jmap: Arc::new(crate::discover::find_jmap),
+            lookup: Arc::new(|address| mail_core::discover::search(address, chrono::Utc::now())),
+            jmap: Arc::new(mail_core::discover::find_jmap),
             add: Arc::new(|store, request, on_url| {
                 let Request {
                     address,
                     setup,
                     password,
                 } = request;
-                crate::account::add_with_password(
+                mail_core::account::add_with_password(
                     store,
                     &address,
                     Some(&setup),
                     false,
                     false,
                     chrono::Utc::now(),
-                    crate::account::Credentials {
+                    mail_core::account::Credentials {
                         password: password.as_ref(),
-                        saved: &crate::account::saved_clients(),
+                        saved: &mail_core::account::saved_clients(),
                         secrets: &mail_runtime::KeyringSecrets,
                         on_url,
                     },
@@ -292,7 +606,7 @@ impl Seams {
             }),
             client: Arc::new(|issuer| {
                 std::env::var("MAILO_OAUTH_CLIENT_ID").is_ok_and(|id| !id.is_empty())
-                    || crate::account::saved_clients().get(issuer).is_some()
+                    || mail_core::account::saved_clients().get(issuer).is_some()
             }),
             browse: Arc::new(|url| webbrowser::open(url).map_err(|e| e.to_string())),
         }
@@ -331,7 +645,7 @@ pub(in crate::ui) fn look(typed: &str, seams: &Seams, now: chrono::DateTime<chro
         domain_of(&address),
         mail_domain::presets::well_known(&address),
     ) else {
-        return Stage::Missed("Enter a full address, like ada@example.com.".to_owned());
+        return Stage::Missed(Miss::NotAnAddress);
     };
     if let Some(preset) = mail_domain::presets::preset_for(&address, now) {
         let known = "from the built-in table".to_owned();
@@ -358,10 +672,8 @@ pub(in crate::ui) fn look(typed: &str, seams: &Seams, now: chrono::DateTime<chro
         }),
         (Ok(found), Err(_)) => Stage::Found(discovered(found)),
         (Err(_), Ok(session)) => Stage::Found(jmap_offer(session)),
-        (Err(why), Err(no_jmap)) => Stage::Missed(format!(
-            "{why}\n\nNo JMAP server answered at {well_known} either: {no_jmap}\n\nIf the \
-             provider gives a JMAP session URL, enter it by hand."
-        )),
+        // What JMAP said is no help to the person: the domain has no JMAP server to name.
+        (Err(why), Err(_)) => Stage::Missed(Miss::of(why)),
     }
 }
 
@@ -423,57 +735,207 @@ pub(in crate::ui) fn pick_auth(stage: &Stage, auth: HttpAuth) -> Option<Stage> {
         {
             Some(Stage::Found(offer.clone().signing_with(auth)))
         }
-        Stage::ByHand(hand) if hand.auth != auth => Some(Stage::ByHand(Hand {
-            auth,
-            ..hand.clone()
-        })),
+        Stage::ByHand(Hand::Jmap(jmap)) if jmap.auth != auth => {
+            Some(Stage::ByHand(Hand::Jmap(JmapHand {
+                auth,
+                ..jmap.clone()
+            })))
+        }
         _ => None,
     }
 }
 
-/// From looking up to typing a JMAP server in, starting from any JMAP session that was found;
-/// and from typing one in back to looking up.
+/// The form with `kind` picked, when it is not the one shown.
+pub(in crate::ui) fn pick_kind(stage: &Stage, kind: Kind) -> Option<Stage> {
+    match stage {
+        Stage::ByHand(hand) if hand.kind() != kind => {
+            Some(Stage::ByHand(hand.clone().into_kind(kind)))
+        }
+        _ => None,
+    }
+}
+
+/// From looking up to typing servers in, and from typing them in back to looking up.
+///
+/// The form starts from what is at hand: a JMAP session that was found (the domain said JMAP is
+/// there, so JMAP is what is offered); else the servers of an offer that was typed in; else a
+/// blank IMAP form.
 pub(in crate::ui) fn alternate(stage: &Stage) -> Stage {
     let offer = match stage {
         Stage::ByHand(_) => return Stage::Blank,
         Stage::Found(offer) | Stage::Refused(offer, _) => offer,
         _ => return Stage::ByHand(Hand::blank()),
     };
-    let found = [Some(offer), offer.other.as_deref()]
-        .into_iter()
-        .flatten()
-        .find_map(|offer| match &offer.setup {
-            Setup::Jmap {
-                session: Some(session),
-                auth,
-                ..
-            } => Some(Hand {
-                session: session.clone(),
-                auth: *auth,
-            }),
-            _ => None,
-        });
+    let offers = || [Some(offer), offer.other.as_deref()].into_iter().flatten();
+    let found = offers()
+        .filter_map(|offer| Hand::of(&offer.setup))
+        .find(|hand| hand.kind() == Kind::Jmap)
+        .or_else(|| offers().find_map(|offer| Hand::of(&offer.setup)));
     Stage::ByHand(found.unwrap_or_else(Hand::blank))
 }
 
-/// A JMAP server typed in, as an offer, or why it is not one yet. Only `https://` is taken,
-/// since the password or token goes to that address.
-pub(in crate::ui) fn by_hand(typed: &str, hand: &Hand) -> Result<Offer, String> {
+/// Every hint for a form, whether or not it is time to say it.
+fn problems(typed: &str, hand: &Hand) -> Vec<Hint> {
+    let mut hints = Vec::new();
+    if domain_of(typed).is_none() {
+        hints.push(Hint::new(
+            None,
+            Why::Wrong,
+            "Enter a full address, like ada@example.com.",
+        ));
+    }
+    match hand {
+        Hand::Jmap(jmap) => {
+            let session = jmap.session.trim();
+            let usable = url::Url::parse(session).is_ok_and(|url| {
+                url.scheme() == "https" && url.host_str().is_some_and(|h| !h.is_empty())
+            });
+            if session.is_empty() {
+                hints.push(Hint::new(
+                    Some(Field::Session),
+                    Why::Missing,
+                    "Enter the JMAP session URL.",
+                ));
+            } else if !usable {
+                hints.push(Hint::new(
+                    Some(Field::Session),
+                    Why::Wrong,
+                    "The session URL must start with https://.",
+                ));
+            }
+        }
+        Hand::Imap(s) | Hand::Pop3(s) => {
+            let incoming = if matches!(hand, Hand::Imap(_)) {
+                Role::Imap
+            } else {
+                Role::Pop3
+            };
+            let (a, b) = (Field::IncomingHost, Field::IncomingPort);
+            endpoint_problems(&s.incoming, incoming, (a, b), &mut hints);
+            let (a, b) = (Field::OutgoingHost, Field::OutgoingPort);
+            endpoint_problems(&s.outgoing, Role::Smtp, (a, b), &mut hints);
+        }
+    }
+    hints
+}
+
+fn endpoint_problems(
+    endpoint: &Endpoint,
+    role: Role,
+    (host, port): (Field, Field),
+    hints: &mut Vec<Hint>,
+) {
+    let typed = endpoint.host.trim();
+    if typed.is_empty() {
+        let what = match role {
+            Role::Smtp => "outgoing",
+            Role::Imap | Role::Pop3 => "incoming",
+        };
+        hints.push(Hint::new(
+            Some(host),
+            Why::Missing,
+            format!("Enter the {what} mail server."),
+        ));
+    } else if typed.contains(|c: char| c.is_whitespace() || matches!(c, ':' | '/' | '@')) {
+        hints.push(Hint::new(
+            Some(host),
+            Why::Wrong,
+            format!(
+                "Enter just the server name, like {}. The port goes in Port.",
+                role.placeholder("")
+            ),
+        ));
+    }
+    if Port::parse(&endpoint.port, role.default_port()).is_none() {
+        hints.push(Hint::new(
+            Some(port),
+            Why::Wrong,
+            "A port is a number from 1 to 65535.",
+        ));
+    }
+}
+
+/// What the form has to say now: every wrong field, and a missing one once anything is typed.
+pub(in crate::ui) fn hints(typed: &str, hand: &Hand) -> Vec<Hint> {
+    let started = hand.started();
+    problems(typed, hand)
+        .into_iter()
+        .filter(|hint| hint.why == Why::Wrong || started)
+        .collect()
+}
+
+/// Servers typed in, as an offer, or what is wrong with them. The same [`Setup`] the
+/// command line's `--imap`, `--pop3`, `--smtp`, `--login` and `--jmap` make. Only an `https://`
+/// JMAP session is taken, since the password or token goes to that address; IMAP, POP3 and SMTP
+/// are all implicit TLS, which is why their ports default to 993, 995 and 465 and there is no
+/// choice of another.
+pub(in crate::ui) fn by_hand(
+    typed: &str,
+    hand: &Hand,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<Offer, Vec<Hint>> {
     let address = typed.trim().to_lowercase();
-    if domain_of(&address).is_none() {
-        return Err("Enter a full address, like ada@example.com.".to_owned());
+    let wrong = problems(&address, hand);
+    if !wrong.is_empty() {
+        return Err(wrong);
     }
-    let session = hand.session.trim();
-    let usable = url::Url::parse(session)
-        .is_ok_and(|url| url.scheme() == "https" && url.host_str().is_some_and(|h| !h.is_empty()));
-    if usable {
-        let source = "by hand".to_owned();
-        return Ok(Offer::jmap(&address, session.to_owned(), hand.auth, source));
-    }
-    if session.is_empty() {
-        return Err("Enter the JMAP session URL.".to_owned());
-    }
-    Err("The session URL must start with https://.".to_owned())
+    let source = "by hand".to_owned();
+    let (s, incoming) = match hand {
+        Hand::Jmap(jmap) => {
+            return Ok(Offer::jmap(
+                &address,
+                jmap.session.trim().to_owned(),
+                jmap.auth,
+                source,
+            ));
+        }
+        Hand::Imap(s) => (s, Role::Imap),
+        Hand::Pop3(s) => (s, Role::Pop3),
+    };
+    // Checked above: every host is there and every port parses.
+    let resolve = |e: &Endpoint, role: Role| {
+        let port = Port::parse(&e.port, role.default_port()).unwrap_or(role.default_port());
+        (e.host.trim().to_owned(), port.get())
+    };
+    let (incoming_host, incoming_port) = resolve(&s.incoming, incoming);
+    let (smtp_host, smtp_port) = resolve(&s.outgoing, Role::Smtp);
+    // `--login`: the whole address when none is given, or when what is given is that.
+    let login = Some(s.login.trim())
+        .filter(|name| !name.is_empty() && !name.eq_ignore_ascii_case(&address))
+        .map(str::to_owned);
+    let (setup, preset) = match incoming {
+        Role::Pop3 => {
+            let manual = ManualPop3 {
+                pop3_host: incoming_host,
+                pop3_port: incoming_port,
+                smtp_host,
+                smtp_port,
+                login,
+            };
+            let preset = presets::manual_pop3(&address, &manual, now);
+            (Setup::Pop3(manual), preset)
+        }
+        Role::Imap | Role::Smtp => {
+            let manual = Manual {
+                imap_host: incoming_host,
+                imap_port: incoming_port,
+                smtp_host,
+                smtp_port,
+                login,
+            };
+            let preset = presets::manual(&address, &manual, now);
+            (Setup::Imap(manual), preset)
+        }
+    };
+    let shown = mail_core::discover::describe(&address, &source, &preset);
+    Ok(Offer {
+        rows: rows(&shown),
+        address,
+        source,
+        setup,
+        sign_in: SignIn::Password,
+        other: None,
+    })
 }
 
 /// `describe`'s lines as `(what, how)`: "  incoming  IMAP …" is `("incoming", "IMAP …")`.
@@ -535,16 +997,19 @@ pub(in crate::ui) fn confirm(
 ) -> Stage {
     let password = match offer.sign_in {
         SignIn::Password if password.is_empty() => {
-            let what = if offer.token() { "token" } else { "password" };
-            return Stage::Refused(offer, format!("Type the {what} first."));
+            let what = if offer.token() {
+                What::Token
+            } else {
+                What::Password
+            };
+            return Stage::Refused(offer, Refusal::Blank(what));
         }
         SignIn::Password => Some(password),
         SignIn::OAuth {
             issuer,
             client: Client::Missing,
         } => {
-            let why = missing_client(issuer);
-            return Stage::Refused(offer, why);
+            return Stage::Refused(offer, Refusal::NeedsClientId(issuer));
         }
         // Nothing to hand over; dropped here, empty.
         SignIn::OAuth { .. } => None,
@@ -562,22 +1027,8 @@ pub(in crate::ui) fn confirm(
                 .find(|row| row.address == offer.address)
                 .map(|row| row.id),
         },
-        Err(why) => Stage::Refused(offer, format!("Not added: {why}")),
+        Err(why) => Stage::Refused(offer, Refusal::Other(why)),
     }
-}
-
-/// Why an OAuth account cannot be signed in from here yet.
-pub(in crate::ui) fn missing_client(issuer: OAuthIssuer) -> String {
-    let secret = match issuer {
-        OAuthIssuer::Google => " and MAILO_OAUTH_CLIENT_SECRET",
-        OAuthIssuer::Microsoft => "",
-    };
-    format!(
-        "Signing in with {} needs an OAuth client id, which mailo cannot ship. Start mailo with \
-         MAILO_OAUTH_CLIENT_ID{secret} set, or run mailo account add in a terminal, which says \
-         where to get one. Nothing has been added.",
-        provider(issuer)
-    )
 }
 
 /// What `account::add` printed, a sentence a line, in the sheet's words.

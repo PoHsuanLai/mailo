@@ -3,7 +3,11 @@
 //! account's absence from everything that talks to a server.
 
 use chrono::{DateTime, TimeZone, Utc};
-use mail_app::{cli, compose, export, import, sync};
+use mail_app::cli;
+use mail_core::compose;
+use mail_core::export;
+use mail_core::import;
+use mail_core::sync;
 use mail_domain::*;
 use mail_mime::archive::maildir::INFO;
 use mail_mime::archive::mbox;
@@ -483,11 +487,12 @@ fn sync_never_touches_the_local_account() {
     let before = every_message(&store, local_account(&store));
 
     let secrets = Arc::new(Counting::default());
-    let ran = sync::run_with(
+    let ends = sync::run_with(
         store.clone(),
         secrets.clone(),
         &OAuthRegistry::default(),
         now(),
+        Default::default(),
     )
     .unwrap();
     assert_eq!(
@@ -495,7 +500,9 @@ fn sync_never_touches_the_local_account() {
         0,
         "a credential was asked for"
     );
-    assert!(ran.text.contains("kept on this computer"), "{}", ran.text);
+    assert!(ends.is_empty(), "an account with no server was passed over");
+    let said = cli::sync::run_text(&store, &ends);
+    assert!(said.contains("kept on this computer"), "{said}");
     assert_eq!(every_message(&store, local_account(&store)), before);
 
     // No folder work, and no sending.

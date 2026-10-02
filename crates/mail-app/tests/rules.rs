@@ -6,7 +6,9 @@
 //! loopback server in `mail-runtime/tests/sieve.rs`.
 
 use chrono::{DateTime, TimeZone, Utc};
-use mail_app::{cli, sync};
+use mail_app::cli;
+use mail_core::sync;
+use mail_core::sync::report::{AccountReport, PassEnd};
 use mail_domain::*;
 use mail_proto::backend::{Authenticate, ImapBackend};
 use mail_proto::{ImapAuth, ImapCommand, ImapSession};
@@ -473,21 +475,21 @@ fn engine(port: u16, store: Arc<SqliteStore>) -> AccountEngine<ImapBackend> {
     )
 }
 
-async fn one_pass(port: u16, store: &Arc<SqliteStore>) -> mail_runtime::SyncReport {
+async fn one_pass(port: u16, store: &Arc<SqliteStore>) -> AccountReport {
     let mut engine = engine(port, store.clone());
     let account = sync::Configured {
         id: ACCOUNT,
         address: ME.to_owned(),
         plan: plan(port),
         caps: caps(),
-        keep: mail_app::offline::Keep::Bodies,
+        keep: mail_core::offline::Keep::Bodies,
     };
     let inbox = vec![MailboxRef {
         account: ACCOUNT,
         path: "INBOX".to_owned(),
     }];
     let (_tx, mut cancel) = tokio::sync::watch::channel(false);
-    sync::drive(
+    match sync::drive(
         &mut engine,
         &account,
         &inbox,
@@ -495,9 +497,13 @@ async fn one_pass(port: u16, store: &Arc<SqliteStore>) -> mail_runtime::SyncRepo
         Utc::now(),
         sync::Mode::Once,
         sync::Announce::Quietly,
+        None,
     )
     .await
-    .unwrap()
+    {
+        PassEnd::Finished(report) => report,
+        other => panic!("the pass did not run to its end: {other:?}"),
+    }
 }
 
 fn commands_like(heard: &Heard, what: &str) -> Vec<String> {
@@ -543,8 +549,8 @@ async fn a_rule_acts_on_mail_the_pass_it_arrives_and_the_server_hears_it_once() 
         (3, raw(3, "Ada <ada@example.test>", "lunch")),
     ]);
     let report = one_pass(port, &store).await;
-    assert_eq!(report.ruled.len(), 1, "{:?}", report.ruled);
-    assert_eq!(report.ruled[0].1, vec!["News".to_owned()]);
+    assert_eq!(report.counts.ruled.len(), 1, "{:?}", report.counts.ruled);
+    assert_eq!(report.counts.ruled[0].1, vec!["News".to_owned()]);
 
     // Told the server as a person archiving and reading it would have: in this same pass, and
     // about the new message only — never the one that was there before the rule.
@@ -559,7 +565,7 @@ async fn a_rule_acts_on_mail_the_pass_it_arrives_and_the_server_hears_it_once() 
 
     // A later pass finds nothing new and asks nothing more.
     let report = one_pass(port, &store).await;
-    assert!(report.ruled.is_empty());
+    assert!(report.counts.ruled.is_empty());
     assert_eq!(commands_like(&heard, "UID STORE").len(), 1);
     assert_eq!(commands_like(&heard, "UID MOVE").len(), 1);
 }

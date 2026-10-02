@@ -1,6 +1,6 @@
 //! Text with `<mark>` nodes in it, built from byte ranges.
 //!
-//! Never from strings: a range comes from [`crate::search::Highlight::ranges`] and is cut out of
+//! Never from strings: a range comes from [`mail_core::search::Highlight::ranges`] and is cut out of
 //! the text it was measured on, so a subject cannot smuggle markup into the page and a match
 //! cannot be marked somewhere it did not occur. A range that is not on a char boundary, runs
 //! past the end, or overlaps the one before is dropped rather than trusted.

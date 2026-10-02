@@ -14,11 +14,11 @@ use mail_store::{SqliteStore, Store};
 use super::super::motion::{Follow, tell};
 use super::life;
 use super::page::{Page, Phase, When};
-use crate::appearance::WindowDirs;
-use crate::space::Spaces;
-use crate::spelling;
-use crate::today::Today;
-use crate::view::Shell;
+use crate::ui::appearance::WindowDirs;
+use crate::ui::space::Spaces;
+use crate::ui::spelling;
+use crate::ui::today::Today;
+use crate::ui::view::Shell;
 
 /// A send that is queued and may still be taken back.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,7 +50,7 @@ pub(in crate::ui) struct Desk {
     /// Whether the body's spelling is checked: `spelling.json`, and changed from the settings.
     pub spelling: Signal<spelling::Setting>,
     /// The emoji picked last, newest first: `emoji.json` in the state directory.
-    pub emoji: Signal<Vec<&'static crate::emoji::Emoji>>,
+    pub emoji: Signal<Vec<&'static crate::ui::emoji::Emoji>>,
 }
 
 /// Provide the desk to everything under the app.
@@ -68,7 +68,7 @@ pub(in crate::ui) fn use_desk(
         ),
         emoji: Signal::new(
             dirs.as_ref()
-                .map(|dirs| crate::emoji::recent::load(&dirs.state))
+                .map(|dirs| crate::ui::emoji::recent::load(&dirs.state))
                 .unwrap_or_default(),
         ),
         current: Signal::new(None),
@@ -83,7 +83,7 @@ pub(in crate::ui) fn use_desk(
 
 fn save_today(desk: Desk) {
     if let Some(dirs) = desk.dirs.peek().as_ref() {
-        let _ = crate::today::save(&dirs.state, &desk.today.peek());
+        let _ = crate::ui::today::save(&dirs.state, &desk.today.peek());
     }
 }
 

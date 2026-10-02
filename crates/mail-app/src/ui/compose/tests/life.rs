@@ -6,7 +6,7 @@ use mail_store::Store;
 use super::super::desk::reopen;
 use super::super::page::{Guard, Phase};
 use super::*;
-use crate::editor::{to_flowed, to_html};
+use crate::ui::editor::{to_flowed, to_html};
 use crate::ui::fixtures::{ACCOUNT, click, press, seeded};
 use ds_harness::harness::SETTLE_BOUND;
 
@@ -15,7 +15,7 @@ fn far() -> DateTime<Utc> {
 }
 
 fn fresh_draft(store: &SqliteStore) -> Draft {
-    crate::compose::draft_new(store, ACCOUNT, &[], "", "", Utc::now())
+    mail_core::compose::draft_new(store, ACCOUNT, &[], "", "", Utc::now())
         .unwrap_or_else(|why| panic!("a new draft: {why}"))
 }
 
@@ -119,7 +119,7 @@ async fn attach_puts_the_files_the_dialog_chose_on_the_draft() {
     // Over the budget without writing it: a sparse file is only its length.
     let huge = files.path().join("huge.bin");
     std::fs::File::create(&huge)
-        .and_then(|file| file.set_len(crate::compose::ATTACHMENT_BUDGET + 1))
+        .and_then(|file| file.set_len(mail_core::compose::ATTACHMENT_BUDGET + 1))
         .unwrap_or_else(|why| panic!("{why}"));
     let (dialogs, asked) = Dialogs::answering(vec![agenda, huge]);
 
@@ -165,7 +165,7 @@ async fn autosave_writes_the_documents_two_bodies_once_typing_stops() {
     window.dom.in_runtime(|| {
         let mut write = page.write();
         type_text(&mut write, "Notes for Friday");
-        write.session.caret = crate::editor::Caret::at(0, 0);
+        write.session.caret = crate::ui::editor::Caret::at(0, 0);
         type_text(&mut write, "# ");
     });
     window.render();
@@ -219,7 +219,7 @@ async fn esc_parks_the_draft_in_today_and_the_entry_brings_it_back_exactly() {
         let mut write = page.write();
         write.subject = "Offsite".to_owned();
         type_text(&mut write, "Underlined ");
-        write.selection = Some(crate::editor::Range {
+        write.selection = Some(crate::ui::editor::Range {
             start: Pos::new(0, 0),
             end: Pos::new(0, 10),
         });
@@ -229,7 +229,7 @@ async fn esc_parks_the_draft_in_today_and_the_entry_brings_it_back_exactly() {
     });
     let before = window.dom.in_runtime(|| to_html(&page.peek().session.doc));
     assert!(before.contains("<u>"), "{before}");
-    assert!(crate::today::load(&dirs.state).drafts.is_empty());
+    assert!(crate::ui::today::load(&dirs.state).drafts.is_empty());
 
     let root_id = seen.one("class", "cpage");
     press(
@@ -243,7 +243,7 @@ async fn esc_parks_the_draft_in_today_and_the_entry_brings_it_back_exactly() {
         window.dom.in_runtime(|| shell.peek().composing.is_none()),
         "Esc left the page open"
     );
-    let today = crate::today::load(&dirs.state);
+    let today = crate::ui::today::load(&dirs.state);
     let parked: Vec<(DraftId, String)> = today
         .parked(0)
         .iter()
@@ -266,7 +266,7 @@ async fn esc_parks_the_draft_in_today_and_the_entry_brings_it_back_exactly() {
         "the reopened draft is not the one that was parked"
     );
     assert!(
-        crate::today::load(&dirs.state).parked(0).is_empty(),
+        crate::ui::today::load(&dirs.state).parked(0).is_empty(),
         "reopening left the entry in Today"
     );
 }

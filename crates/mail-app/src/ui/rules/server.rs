@@ -17,9 +17,9 @@ use std::sync::Arc;
 
 use super::super::data::AccountRow;
 use super::super::press::{available, on_primary};
-use crate::sync::Configured;
+use mail_core::sync::Configured;
 
-/// Install an account's script: the signature of [`crate::rules::server::pushed`], with the
+/// Install an account's script: the signature of [`mail_core::rules::server::pushed`], with the
 /// takeover and the saved sign-in clients decided.
 pub(in crate::ui) type Push =
     Arc<dyn Fn(&SqliteStore, &Configured, DateTime<Utc>) -> Result<Pushed, String> + Send + Sync>;
@@ -34,11 +34,11 @@ impl Pusher {
     #[cfg(not(test))]
     pub(in crate::ui) fn server() -> Self {
         Self(Arc::new(|store, account, now| {
-            crate::rules::server::pushed(
+            mail_core::rules::server::pushed(
                 store,
                 account,
                 mail_proto::sieve::Takeover::Refuse,
-                &crate::account::saved_clients(),
+                &mail_core::account::saved_clients(),
                 now,
             )
         }))
@@ -75,7 +75,7 @@ pub(in crate::ui) fn configured(
         address: row.address.clone(),
         plan: row.plan.clone(),
         caps: super::super::ops::caps_here(store, row.id, now),
-        keep: crate::offline::Keep::default(),
+        keep: mail_core::offline::Keep::default(),
     }
 }
 
@@ -89,7 +89,7 @@ pub(in crate::ui) fn put(
     reach(&row.plan)?;
     let account = configured(store, row, now);
     let pushed = push(store, &account, now)?;
-    Ok(crate::rules::server::said(&account.address, &pushed))
+    Ok(mail_core::rules::server::said(&account.address, &pushed))
 }
 
 /// Where a push stands.

@@ -5,13 +5,13 @@ use super::super::app::App;
 use super::folder_act::{load, perform, refused};
 use super::folder_tests::{IMAP, POP, folder, shape};
 use super::folder_tree::{Show, arrange};
-use crate::folder::Refusal;
 use crate::ui::fixtures::{chord, click, dispatching, empty, rebuild_into, right_click, type_into};
 use crate::ui::ops::take_back;
 use chrono::Utc;
 use dioxus::prelude::*;
 use dioxus_core::ElementId;
 use ds::prelude::*;
+use mail_core::folder::Refusal;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
@@ -63,6 +63,19 @@ fn imap_store() -> (Arc<SqliteStore>, tempfile::TempDir) {
                 folder("Projects/2026", Some('/')),
                 folder("收據", Some('/')),
                 old,
+            ],
+        )
+        .unwrap();
+    // Its folders were listed by a pass, so it has been fetched: the list is not waiting for a
+    // first mail, which would draw its placeholder rows beside the menus these tests open.
+    store
+        .connection()
+        .execute(
+            "INSERT INTO sync_state (account, mailbox, cursor, synced_at)
+             VALUES (?1, 'INBOX', ?2, datetime('now'))",
+            rusqlite::params![
+                IMAP.to_string(),
+                serde_json::to_string(&SyncCursor::Pop).unwrap()
             ],
         )
         .unwrap();
@@ -514,7 +527,7 @@ async fn render_the_folders_to_a_file() {
         old,
     ];
     built.store.put_folders(account, folders).unwrap();
-    let space = crate::space::load(&built.dirs.config).current_space();
+    let space = crate::ui::space::load(&built.dirs.config).current_space();
     let mut dom = VirtualDom::new(App)
         .with_root_context(built.store.clone())
         .with_root_context(built.dirs);

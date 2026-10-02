@@ -208,8 +208,8 @@ fn ms(n: u64) -> Duration {
 fn contexts(dir: &std::path::Path) -> RootContexts {
     mail_app::ui::native::contexts(
         seeded(dir),
-        mail_app::view::Appearance::default(),
-        mail_app::space::Spaces::default(),
+        mail_app::ui::view::Appearance::default(),
+        mail_app::ui::space::Spaces::default(),
         None,
         mail_app::ui::Start::Inbox,
     )

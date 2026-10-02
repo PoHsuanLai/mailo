@@ -4,7 +4,7 @@
 use mail_domain::Draft;
 use mail_mime::{Block, Dir, RemoteImages, SanitizePolicy, Span, from_html, sanitize};
 
-use crate::editor::{Doc, Node, Object, ParaKind, nodes_from_blocks, nodes_from_plain};
+use crate::ui::editor::{Doc, Node, Object, ParaKind, nodes_from_blocks, nodes_from_plain};
 
 /// The document a stored draft holds: its HTML when the composer wrote one, else its text.
 pub(in crate::ui) fn doc_of(draft: &Draft) -> Doc {

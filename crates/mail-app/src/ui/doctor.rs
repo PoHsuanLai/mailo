@@ -1,0 +1,199 @@
+//! The Connection Doctor: a sheet that lists every account that has a server, how it stands and
+//! the one thing to do about it, as macOS Mail's window of that name does.
+//!
+//! Mail marks an account with a problem in the sidebar and puts no banner over the messages;
+//! pressing the mark opens this. Here the marks are `sidebar::marks`, the status line under the
+//! list's title opens it too when it is a warning, and so does the command menu. The words of
+//! each line are [`crate::ui::fetching::account_line`]'s.
+//!
+//! Sign In and Settings borrow the Add account sheet, prefilled with the account. This sheet
+//! steps aside while it is open and comes back when it closes, and what the account was waiting
+//! for is told to its link once the Add account sheet has changed something.
+
+use crate::ui::common::in_card;
+use crate::ui::data::account_rows;
+use crate::ui::fetching::{AccountLine, Fetching, Remedy, Standing, account_line};
+use crate::ui::press::{SheetClose, on_primary};
+use crate::ui::view::{DoctorSheet, Shell};
+use dioxus::prelude::*;
+use ds::components::content::label::{Label, LabelStyle};
+use ds::components::lists::row::row::Outline;
+use ds::components::overlays::sheet_attach::Attach;
+use ds::prelude::*;
+use ds::root::common::Common;
+use ds::style::tokens::control_size::ControlSize;
+use mail_core::fetch::{Event, Link, Trigger};
+use mail_domain::AccountId;
+use mail_store::SqliteStore;
+use std::sync::Arc;
+
+/// What the sheet and its command are called.
+pub(in crate::ui) const TITLE: &str = "Connection Doctor";
+
+/// Open the sheet.
+pub(in crate::ui) fn open(mut shell: Signal<Shell>) {
+    shell.write().doctor = Some(DoctorSheet);
+}
+
+/// Close the sheet.
+pub(in crate::ui) fn close(mut shell: Signal<Shell>) {
+    shell.write().doctor = None;
+    crate::ui::host::Host::focus_app();
+}
+
+/// What closing the Add account sheet should do for an account, if it changed anything.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum After {
+    /// The password was replaced: tell the link, which then tries again.
+    SignedIn,
+    /// The settings were changed: try again now.
+    Retry,
+}
+
+/// The button's label.
+fn label_of(remedy: Remedy) -> &'static str {
+    match remedy {
+        Remedy::SignIn => "Sign In",
+        Remedy::TryAgain => "Try Again",
+        Remedy::Settings => "Settings\u{2026}",
+    }
+}
+
+fn glyph_of(standing: Standing) -> Icon {
+    match standing {
+        Standing::Fine => Icon::CircleCheck,
+        Standing::Working => Icon::Refresh,
+        Standing::Warn | Standing::Broken => Icon::TriangleAlert,
+        Standing::Offline => Icon::WifiOff,
+    }
+}
+
+/// An account with a server: its id, how the window names it, and its link.
+type Listed = (AccountId, String, Link);
+
+/// Every account that has a server, in the order the window lists accounts.
+fn listed(fetching: Fetching, store: &SqliteStore) -> Vec<Listed> {
+    let links = fetching.all_links();
+    account_rows(store)
+        .into_iter()
+        .filter_map(|row| {
+            let (_, link) = links.iter().find(|(id, _)| *id == row.id)?;
+            Some((row.id, row.shown(), link.clone()))
+        })
+        .collect()
+}
+
+/// The sheet. Mounted while `shell.doctor` is `Some`.
+#[component]
+pub(in crate::ui) fn DoctorView(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
+    let fetching = try_consume_context::<Fetching>();
+    let mut pending = use_signal(|| None::<(AccountId, u64, After)>);
+    // The Add account sheet that signed an account in, or changed its settings, has closed.
+    use_effect(move || {
+        if shell.read().adding.is_some() {
+            return;
+        }
+        let Some((account, at, after)) = *pending.peek() else {
+            return;
+        };
+        pending.set(None);
+        let Some(fetching) = fetching else { return };
+        if *revision.peek() == at {
+            return;
+        }
+        match after {
+            After::SignedIn => fetching.signed_in(account),
+            After::Retry => fetching.send(account, Event::Start(Trigger::Manual)),
+        }
+    });
+    let Some(fetching) = fetching else {
+        return rsx! {};
+    };
+    // The Add account sheet is in front while it is open.
+    if shell.read().adding.is_some() {
+        return rsx! {};
+    }
+    let accounts = listed(fetching, &consume_context::<Arc<SqliteStore>>());
+    let now = crate::ui::clock::now();
+    let busy = accounts.iter().any(|(_, _, link)| link.is_busy());
+    let act = Callback::new(
+        move |(account, name, remedy): (AccountId, String, Remedy)| {
+            let after = match remedy {
+                Remedy::TryAgain => {
+                    fetching.send(account, Event::Start(Trigger::Manual));
+                    return;
+                }
+                Remedy::SignIn => After::SignedIn,
+                Remedy::Settings => After::Retry,
+            };
+            pending.set(Some((account, *revision.peek(), after)));
+            shell.write().adding = Some(name);
+            crate::ui::host::Host::focus_next_frame(".acct-sheet input");
+        },
+    );
+    rsx! {
+        Sheet {
+            label: TITLE,
+            attach: Attach::Window,
+            common: in_card(),
+            onclose: move |()| close(shell),
+            div { class: "doctor",
+                Label { text: TITLE, style: LabelStyle::Title }
+                if accounts.is_empty() {
+                    Label { text: "No accounts to check." }
+                }
+                for (account, name, link) in accounts {
+                    AccountRowView {
+                        key: "{account}",
+                        name: name.clone(),
+                        line: account_line(&link, now, &chrono::Local),
+                        act: move |remedy| act.call((account, name.clone(), remedy)),
+                    }
+                }
+                div { class: "doctor-foot",
+                    Button {
+                        label: "Check All",
+                        availability: if busy { Availability::Busy } else { Availability::Enabled },
+                        onclick: on_primary(move || fetching.sync_all(Trigger::Manual)),
+                    }
+                    SheetClose { label: "Done", on_close: move |()| close(shell) }
+                }
+            }
+        }
+    }
+}
+
+/// One account: its address, a glyph and how it stands, and the button that fixes it.
+#[component]
+fn AccountRowView(name: String, line: AccountLine, act: EventHandler<Remedy>) -> Element {
+    let AccountLine {
+        standing,
+        text,
+        remedy,
+    } = line;
+    // Named for its account, so that several Try Agains are not one name to a screen reader.
+    let accessory = match (standing, remedy) {
+        (_, Some(remedy)) => Accessory::Slot(rsx! {
+            Button {
+                size: ControlSize::Small,
+                label: label_of(remedy),
+                common: Common {
+                    aria_label: Some(format!("{} for {name}", label_of(remedy))),
+                    ..Common::default()
+                },
+                onclick: on_primary(move || act.call(remedy)),
+            }
+        }),
+        (Standing::Working, None) => Accessory::Spinner,
+        _ => Accessory::None,
+    };
+    rsx! {
+        Row {
+            leading: RowLeading::Icon(glyph_of(standing)),
+            title: name,
+            detail: Some(text.into()),
+            outline: Outline::None,
+            accessory,
+        }
+    }
+}

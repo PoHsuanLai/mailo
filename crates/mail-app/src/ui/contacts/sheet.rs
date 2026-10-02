@@ -26,7 +26,7 @@ use super::super::pick::{Ask, choose, file_name};
 use super::super::press::{SheetClose, on_primary};
 use super::book::{self, Row, SYNC_COMMAND};
 use super::group_rows::GroupRows;
-use crate::view::Shell;
+use crate::ui::view::Shell;
 
 /// Rows drawn at once. A book of thousands is filtered, not scrolled through.
 const SHOWN: usize = 200;
@@ -131,7 +131,7 @@ pub(in crate::ui) fn ContactsSheet(shell: Signal<Shell>) -> Element {
                         icon: Icon::Forward,
                         onclick: on_primary(move || {
                             let store = consume_context::<Arc<SqliteStore>>();
-                            let dir = crate::attach::downloads_dir();
+                            let dir = mail_core::attach::downloads_dir();
                             said.set(Some(match book::export(store.as_ref(), &dir) {
                                 Ok(path) => format!("Saved to {}", path.display()),
                                 Err(why) => why,

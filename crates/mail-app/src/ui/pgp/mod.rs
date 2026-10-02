@@ -1,7 +1,7 @@
 //! OpenPGP and S/MIME in the window: a protected message opened in the reader and said in plain
 //! words, the passphrase asked for inline, and the keys and certificates sheet.
 //!
-//! What a message is — signed, encrypted, by whom — is [`crate::pgp`]'s and [`crate::smime`]'s,
+//! What a message is — signed, encrypted, by whom — is [`mail_core::pgp`]'s and [`mail_core::smime`]'s,
 //! the modules `mailo show`, `mailo pgp` and `mailo smime` use, so the window and the command
 //! cannot disagree. Opening decrypts, so it is slow and may need the keyring: it runs on a
 //! blocking thread, for a message the reader has open and nowhere else — [`look`] is reached
@@ -11,8 +11,8 @@
 //! the same blocks, and never written down.
 //!
 //! A passphrase typed to unlock a key, or a PKCS#12 file's password, is a
-//! [`Password`](crate::password::Password): moved from the field into the one call that needs
-//! it, and dropped with it. It is never in a signal, the [`Shell`](crate::view::Shell), the
+//! [`Password`](mail_core::password::Password): moved from the field into the one call that needs
+//! it, and dropped with it. It is never in a signal, the [`Shell`](crate::ui::view::Shell), the
 //! store, a file or a log.
 
 mod certs;
@@ -76,7 +76,8 @@ impl Seams {
         Seams {
             secrets: Arc::new(mail_runtime::KeyringSecrets),
             lookup: Arc::new(|store, address| {
-                crate::pgp::lookup_address(store, address, Utc::now()).map_err(|e| e.to_string())
+                mail_core::pgp::lookup_address(store, address, Utc::now())
+                    .map_err(|e| e.to_string())
             }),
             pick: Arc::new(|| rfd::FileDialog::new().pick_file()),
             save: Arc::new(|name| rfd::FileDialog::new().set_file_name(name).save_file()),

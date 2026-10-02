@@ -15,8 +15,11 @@ use ds::prelude::{Point, Px, ShortcutKey as Key};
 use ds::spell::lang::Lang;
 use ds_blitz::spell::SpellConfig;
 use ds_blitz::{FocusFallback, NetPolicy, PrintOutcome};
-use ds_harness::harness::settle_until;
-use ds_harness::{Driver, Harness, HarnessConfig, Query, Viewport};
+use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query, Viewport};
+
+#[path = "support/settle.rs"]
+mod settle;
+use settle::settle_until;
 
 #[path = "support/drive.rs"]
 mod drive;
@@ -132,8 +135,8 @@ fn composing_in(view: Viewport) -> (Harness, tempfile::TempDir) {
     let printer = mail_app::ui::native::Printer::with_dialog(|_, _| Ok(PrintOutcome::Cancelled));
     let contexts = mail_app::ui::native::contexts(
         Arc::clone(&store),
-        mail_app::view::Appearance::default(),
-        mail_app::space::Spaces::default(),
+        mail_app::ui::view::Appearance::default(),
+        mail_app::ui::space::Spaces::default(),
         None,
         mail_app::ui::Start::Inbox,
     )
@@ -142,9 +145,11 @@ fn composing_in(view: Viewport) -> (Harness, tempfile::TempDir) {
     let config = HarnessConfig::new(view)
         .with_net(NetPolicy::Local)
         .with_focus_fallback(FocusFallback::Ancestor)
+        .with_clock(Clock::Virtual)
         .with_contexts(contexts);
     let mut harness = Harness::new(mail_app::ui::native::root, config);
     harness.advance(ms(300));
+    settle_until(&mut harness, |h| h.count(".list-title") > 0);
     harness.key(Key::Char('c'));
     settle_until(&mut harness, |h| h.count(".cpage .c-body") == 1);
     let body = centre(&harness, ".c-body");

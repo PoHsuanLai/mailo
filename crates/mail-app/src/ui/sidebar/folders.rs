@@ -9,7 +9,7 @@ use super::super::menu::{Floating, MenuItem};
 use super::folder_parts::{Naming, Said, item};
 use super::folder_row::FolderRow;
 use super::folder_tree::{Section, Show};
-use crate::view::Shell;
+use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::components::lists::list::model::{ListItem, ListStyle};
 use ds::components::lists::row::row::Outline;
@@ -148,7 +148,12 @@ pub(super) fn FolderList(
         if several {
             items.push(ListItem::heading(
                 FolderKey::Account(tree.account),
-                rsx! { SectionHeader { title: tree.address.clone() } },
+                rsx! {
+                    div { class: "account-head",
+                        SectionHeader { title: tree.address.clone() }
+                        super::marks::LinkMark { shell, account: tree.account }
+                    }
+                },
             ));
         }
         for node in tree.nodes {

@@ -21,7 +21,7 @@ use ds::style::tokens::control_size::ControlSize;
 use mail_domain::{BlobId, MessageId};
 use mail_store::{SqliteStore, Store};
 
-use crate::view::Shell;
+use crate::ui::view::Shell;
 
 /// How one message is shown.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -114,7 +114,7 @@ fn read(store: &SqliteStore, message: MessageId, blob: BlobId) -> Result<Source,
         .get(&store.connection(), blob)
         .map_err(|e| format!("the stored message could not be read: {e}"))?;
     let mut notes = Vec::new();
-    if crate::compose::rebuilt(&message, &bytes) {
+    if mail_core::compose::rebuilt(&message, &bytes) {
         notes.push(
             "This message is large, so it was downloaded in parts. What is shown is rebuilt \
              from them: every header and text part as sent, and each attachment left on the \
@@ -126,8 +126,8 @@ fn read(store: &SqliteStore, message: MessageId, blob: BlobId) -> Result<Source,
     if bytes.len() > SHOWN_LIMIT {
         notes.push(format!(
             "Showing the first {} of {}.",
-            crate::attach::human_size(text.len() as u64),
-            crate::attach::human_size(bytes.len() as u64)
+            mail_core::attach::human_size(text.len() as u64),
+            mail_core::attach::human_size(bytes.len() as u64)
         ));
     }
     if unreadable > 0 {
@@ -214,7 +214,8 @@ fn hides_or_reorders(c: char) -> bool {
 ///
 /// A sibling after the message's body, never its parent, for the reason the reader gives: a new
 /// parent reloads the Original frame. Forward as attachment is offered here, beside the bytes it
-/// would send; a refusal is said in the reader's notice, `said`.
+/// would send; a refusal is said in the reader's notice, `said`, which carries refusals only (a save is
+/// said by a toast), so the notice is drawn as an error.
 #[component]
 pub(super) fn SourceView(
     message: MessageId,
@@ -292,7 +293,7 @@ fn forward_attached(
     let store = consume_context::<Arc<SqliteStore>>();
     spawn(async move {
         let made = tokio::task::spawn_blocking(move || {
-            crate::compose::draft_forward_attached(&store, message, &[], "", chrono::Utc::now())
+            mail_core::compose::draft_forward_attached(&store, message, &[], "", chrono::Utc::now())
         })
         .await;
         match made {

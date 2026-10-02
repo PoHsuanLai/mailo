@@ -1,12 +1,12 @@
 //! Keep all mail offline in the Space editor: the setting per account, and the count beside it,
 //! against a temporary config directory only.
 
-use crate::offline::{self, Keep};
 use crate::ui::app::App;
 use crate::ui::data::account_rows;
 use crate::ui::fixtures::{Seen, Work, click, dispatching, drain_seen, rebuild_into, work};
 use crate::ui::sidebar::tests::buttons_in;
 use dioxus::dioxus_core::VirtualDom;
+use mail_core::offline::{self, Keep};
 use mail_domain::*;
 use mail_store::Store as _;
 
@@ -152,7 +152,7 @@ async fn each_account_says_how_much_is_here_and_the_switch_keeps_the_setting() {
         counted.held,
         counted.messages,
         counted.parts_remote,
-        crate::attach::human_size(counted.remote_bytes)
+        mail_core::attach::human_size(counted.remote_bytes)
     );
     assert_eq!(said, offline::said(&counted));
     assert!(page.contains(&said), "no {said:?} in:\n{page}");

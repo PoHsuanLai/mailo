@@ -14,13 +14,13 @@ pub(in crate::ui) use items::avatar_color;
 use super::debounce::{Settled, use_debounced};
 use super::menu::{Right, palette_groups};
 use super::ops::{Composes, start_composing, start_new};
-use crate::search::Results;
-use crate::view::{PageMenu, Shell};
+use crate::ui::view::{PageMenu, Shell};
 use chrono::Utc;
 use dioxus::prelude::*;
 use ds::components::content::avatar::AvatarSize;
 use ds::prelude::*;
 use items::{Pick, interpret, rows_of, search_now, tokens};
+use mail_core::search::Results;
 use mail_store::SqliteStore;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -34,8 +34,7 @@ pub(super) fn CommandMenu(
     pages: Signal<u32>,
     revision: Signal<u64>,
     side_hidden: Signal<bool>,
-    sync_state: Signal<crate::view::SyncState>,
-    spaces: Signal<crate::space::Spaces>,
+    spaces: Signal<crate::ui::space::Spaces>,
 ) -> Element {
     let query = shell.read().command.clone().unwrap_or_default();
     let debounced = use_debounced(shell, |shell| shell.command.clone().unwrap_or_default());
@@ -63,10 +62,10 @@ pub(super) fn CommandMenu(
     let mut items = rows_of(&shown.results, &shown.names, &shown.settled.text);
     drop(shown);
     // Compose's key is the user's to change: the row says the one it has now.
-    let compose = shell.read().keymap.keys(crate::view::Shortcut::Compose);
+    let compose = shell.read().keymap.keys(crate::ui::view::Shortcut::Compose);
     for item in items.iter_mut().filter(|item| item.key == "action:Compose") {
         item.right = compose.first().map_or(Right::None, |key| {
-            Right::Shortcut(crate::keymap::spoken(key))
+            Right::Shortcut(crate::ui::keymap::spoken(key))
         });
     }
     let chips = tokens(&query);
@@ -78,15 +77,7 @@ pub(super) fn CommandMenu(
             listing.set(Listing::Templates);
             shell.write().command = Some(String::new());
         }
-        pick => act(
-            shell,
-            pages,
-            revision,
-            side_hidden,
-            sync_state,
-            spaces,
-            pick,
-        ),
+        pick => act(shell, pages, revision, side_hidden, spaces, pick),
     };
     if listing() == Listing::Templates {
         return rsx! { templates::TemplateMenu { shell, revision } };
@@ -168,8 +159,7 @@ fn act(
     mut pages: Signal<u32>,
     mut revision: Signal<u64>,
     mut side_hidden: Signal<bool>,
-    mut sync_state: Signal<crate::view::SyncState>,
-    spaces: Signal<crate::space::Spaces>,
+    spaces: Signal<crate::ui::space::Spaces>,
     pick: Option<Pick>,
 ) {
     let Some(pick) = pick else {
@@ -190,7 +180,6 @@ fn act(
             pages,
             &mut revision,
             &mut side_hidden,
-            &mut sync_state,
             spaces,
             &label,
         ),
@@ -202,8 +191,7 @@ fn run_action(
     mut pages: Signal<u32>,
     revision: &mut Signal<u64>,
     side_hidden: &mut Signal<bool>,
-    sync_state: &mut Signal<crate::view::SyncState>,
-    spaces: Signal<crate::space::Spaces>,
+    spaces: Signal<crate::ui::space::Spaces>,
     label: &str,
 ) {
     if let Some(place) = label.strip_prefix("Go to ") {
@@ -245,23 +233,7 @@ fn run_action(
             close(shell);
         }
         "Sync now" => {
-            if sync_state.read().may_start() {
-                sync_state.set(crate::view::SyncState::Running);
-                let store = consume_context::<Arc<SqliteStore>>();
-                let mut sync_state = *sync_state;
-                let mut revision = *revision;
-                spawn(async move {
-                    let done = tokio::task::spawn_blocking(move || {
-                        crate::sync::run(store, chrono::Utc::now())
-                    })
-                    .await;
-                    sync_state.set(match done {
-                        Ok(result) => crate::view::synced(result.map(|ran| ran.text)),
-                        Err(e) => crate::view::synced(Err(format!("the sync pass stopped: {e}"))),
-                    });
-                    revision += 1;
-                });
-            }
+            super::fetching::sync_now(&shell.read());
             close(shell);
         }
         "Forward as attachment" => {
@@ -330,6 +302,10 @@ fn run_action(
         "Keys and certificates…" => {
             close(shell);
             super::pgp::keys::open(shell);
+        }
+        "Connection Doctor" => {
+            close(shell);
+            super::doctor::open(shell);
         }
         "Keyboard shortcuts…" => {
             close(shell);

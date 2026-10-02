@@ -6,8 +6,8 @@
 use super::super::history::{History, history};
 use super::sender::sender_card;
 use super::{Hook, keep_driver, use_driver};
-use crate::space::{Pinned, Spaces};
-use crate::view::Shell;
+use crate::ui::space::{Pinned, Spaces};
+use crate::ui::view::Shell;
 use chrono::Local;
 use dioxus::prelude::*;
 use ds::components::content::avatar::AvatarTone;
@@ -225,7 +225,7 @@ fn pin_card(
         ),
         Pinned::Search { name, query } => (
             name.clone(),
-            crate::query::parse_with(query, &Local, &crate::query::named(&shell.labels)),
+            mail_core::query::parse_with(query, &Local, &mail_core::query::named(&shell.labels)),
         ),
     };
     let query = Query {

@@ -16,11 +16,10 @@ use super::move_to::MoveMenu;
 use super::ops::{composes, start_composing};
 use super::picks::{drawn_order, mute_all, with_selection};
 use super::text::{draft_state, label, sender};
-use crate::provider::Provider;
-use crate::provider::icon::{ChipPlace, ProvChip};
-use crate::selection::Click;
-use crate::view::Marks;
-use crate::view::{Shell, hover_in};
+use crate::ui::provider_chip::{ChipPlace, ProvChip};
+use crate::ui::selection::Click;
+use crate::ui::view::Marks;
+use crate::ui::view::{Shell, hover_in};
 use chrono::Local;
 use dioxus::prelude::*;
 use ds::base::press::Press;
@@ -37,6 +36,7 @@ use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::icon::render::Glyph;
 use ds::style::tokens::control_size::ControlSize;
+use mail_core::provider::Provider;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 use std::ops::Range;
@@ -51,14 +51,14 @@ pub(super) fn DraftRow(draft: Draft, shell: Signal<Shell>) -> Element {
     } else {
         draft.subject.clone()
     };
-    let who = crate::view::join_addresses(&draft.to);
+    let who = mail_core::compose::addresses::join_addresses(&draft.to);
     let who = if who.is_empty() {
         "(no recipient)".to_owned()
     } else {
         who
     };
     let state = draft_state(&draft.state);
-    let when = crate::view::listed(draft.updated, chrono::Utc::now(), &Local);
+    let when = mail_core::when::listed(draft.updated, chrono::Utc::now(), &Local);
     let parts = shell.read().parts;
     let snippet = parts.snippet.shown().then(|| TextLine::from(state));
     let time = if parts.time.shown() {
@@ -122,9 +122,9 @@ pub(super) fn MailRow(
     let starred = summary.star == Star::Starred;
     let muted = summary.mute == Mute::Muted;
     let follow_up = summary.follow_up;
-    let no_reply = crate::follow_up::row_words(&follow_up);
+    let no_reply = mail_core::follow_up::row_words(&follow_up);
     let who = sender(&summary);
-    let when = crate::view::listed(summary.last_date, chrono::Utc::now(), &Local);
+    let when = mail_core::when::listed(summary.last_date, chrono::Utc::now(), &Local);
     let subject = summary.subject.clone();
     // While a search is active the snippet is cut around its first match, and both lines mark.
     let (subject_marks, snippet, snippet_marks) = match hit {
@@ -141,7 +141,7 @@ pub(super) fn MailRow(
         .filter(|kind| !matches!(kind, OpKind::Star | OpKind::Unstar))
         .collect();
     // In Trash or Spam, and only there, a row can be deleted forever: once the sheet has asked.
-    if crate::destroy::offered(crate::destroy::bin_shown(&shell.read()), &summary) {
+    if crate::ui::bin::offered(crate::ui::bin::bin_shown(&shell.read()), &summary) {
         actions.push(OpKind::Destroy);
     }
     let move_label = "Move to…".to_owned();
@@ -516,7 +516,7 @@ fn press(mut shell: Signal<Shell>, mut revision: Signal<u64>, id: ThreadId, pres
         },
         // A press on a picked row acts on everything picked, as one gesture. An op that needs
         // more than the button (a pin's rank) stays with its own row.
-        None if crate::view::op_for(kind).is_some() => {
+        None if crate::ui::view::op_for(kind).is_some() => {
             act_kind_all(&store, shell, revision, &with_selection(shell, id), kind);
         }
         None => {
@@ -549,7 +549,7 @@ fn ViaChip(via: Provider, marks: Marks) -> Element {
     }
 }
 
-/// `tomorrow` in [`crate::view::snooze_until`] is 09:00 local, which is what this says.
+/// `tomorrow` in [`mail_core::snooze::snooze_until`] is 09:00 local, which is what this says.
 /// The mockup's card says 08:00; the menu and the command line both mean 09:00.
 fn fly(kind: OpKind, muted: bool) -> String {
     match kind {

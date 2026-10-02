@@ -4,8 +4,8 @@ use base64::Engine as _;
 
 use super::super::page::{CcRow, Float, Guard};
 use super::*;
-use crate::editor::{Check, Doc, ImageRef, Level, Object, ParaKind, Range, Table};
 use crate::ui::app::App;
+use crate::ui::editor::{Check, Doc, ImageRef, Level, Object, ParaKind, Range, Table};
 use crate::ui::fixtures::{key, work};
 
 /// A small picture, embedded the way an image in a draft is: never fetched.
@@ -55,7 +55,7 @@ fn composed(page: &mut Page) {
             ),
         ],
     };
-    page.session.caret = crate::editor::Caret::at(7, 1);
+    page.session.caret = crate::ui::editor::Caret::at(7, 1);
     page.float = Float::Slash {
         anchor: Pos::new(7, 0),
         active: 0,

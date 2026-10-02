@@ -15,8 +15,8 @@ use ds::style::icon::render::Glyph;
 use mail_domain::MessageId;
 use mail_store::SqliteStore;
 
-use crate::preview::{self, Kind, Picture, Unshown};
-use crate::view::{Shell, Viewing};
+use crate::ui::view::{Shell, Viewing};
+use mail_core::preview::{self, Kind, Picture, Unshown};
 
 /// The thumbnail's room, in logical pixels.
 const ROOM: f32 = 56.0;

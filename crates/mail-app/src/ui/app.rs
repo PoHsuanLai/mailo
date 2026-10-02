@@ -10,11 +10,11 @@ use super::reading::Reader;
 use super::sidebar::Places;
 use super::space_editor::SpaceEditor;
 use super::style::STYLE;
-use crate::selection::Toward;
-use crate::space::Spaces;
-use crate::view::{
-    Appearance, Listing, PageMenu, Peek, Shell, Shortcut, Source, SyncState, badge_filter,
-    folder_filter, nothing_to_show, places_with, synced,
+use crate::ui::selection::Toward;
+use crate::ui::space::Spaces;
+use crate::ui::view::{
+    Appearance, Listing, PageMenu, Peek, Shell, Shortcut, Source, badge_filter, folder_filter,
+    nothing_to_show, places_with,
 };
 use dioxus::prelude::*;
 use ds::components::chrome::split_view::model::{Collapsing, PaneSpec, SplitPane};
@@ -39,8 +39,8 @@ pub(super) fn App() -> Element {
         let mut shell = Shell {
             appearance: try_consume_context::<Appearance>().unwrap_or_default(),
             // The user's keys, read once. A window handed no directories reads no file.
-            keymap: try_consume_context::<crate::appearance::WindowDirs>()
-                .map(|dirs| crate::keymap::load(&dirs.config))
+            keymap: try_consume_context::<crate::ui::appearance::WindowDirs>()
+                .map(|dirs| crate::ui::keymap::load(&dirs.config))
                 .unwrap_or_default(),
             ..Shell::default()
         };
@@ -72,7 +72,7 @@ pub(super) fn App() -> Element {
     let dirs = boot.dirs.clone();
     let mut side_hidden = use_signal(|| false);
     // The Space editor's draft, while the sheet is open.
-    let editing = use_signal(|| None::<crate::space::edit::Draft>);
+    let editing = use_signal(|| None::<crate::ui::space::edit::Draft>);
     let desk = compose::use_desk(today_list, spaces, dirs.clone(), side_hidden);
     compose::use_test_dictionaries();
     let mut seen_open = use_signal(|| None::<mail_domain::ThreadId>);
@@ -89,7 +89,7 @@ pub(super) fn App() -> Element {
     // lookup against an empty list draws an empty chip.
     use_hook(|| {
         let store = consume_context::<Arc<SqliteStore>>();
-        let known = crate::query::known_labels(&store);
+        let known = mail_core::query::known_labels(&store);
         let ids: Vec<mail_domain::LabelId> = known.iter().map(|(_, id)| *id).collect();
         label_ids.set(ids);
         let folders = super::sidebar::folder_places(&store);
@@ -100,15 +100,15 @@ pub(super) fn App() -> Element {
         let mut write = shell.write();
         write.labels = known;
         write.places = places;
-        write.accounts = crate::compose::sending_accounts(&store);
+        write.accounts = mail_core::compose::sending_accounts(&store);
     });
 
     // How many pages of the list have been asked for. Reset whenever the list itself changes,
     // because "page 3" of the Inbox means nothing once the user is looking at Archive.
     let pages = use_signal(|| 1u32);
-    let mut sync_state = use_signal(|| SyncState::Idle);
-    // Opening a folder fetches it, and says so where a sync does.
-    super::folder_open::use_fetching(sync_state);
+    // Mail that only arrives when you press a button is mail you miss: every account's link, the
+    // timers that poll them and the loop that runs their passes (`fetching`).
+    super::fetching::use_fetching(revision);
     // The unread count on the dock or the Dash, when the window was launched with one.
     super::launcher_count::use_launcher_count(revision, shell);
 
@@ -138,7 +138,7 @@ pub(super) fn App() -> Element {
     // Mailbox badges are fixed. Label badges join them when the label list changes, which is
     // a signal of its own so a keystroke — a shell change — does not recount.
     let badge_filters = use_memo(move || {
-        let mut filters: Vec<Option<Filter>> = crate::view::default_places()
+        let mut filters: Vec<Option<Filter>> = crate::ui::view::default_places()
             .iter()
             .map(|place| badge_filter(&place.source))
             .collect();
@@ -192,7 +192,7 @@ pub(super) fn App() -> Element {
     use_effect(move || {
         let _ = revision();
         let store = consume_context::<Arc<SqliteStore>>();
-        let known = crate::query::known_labels(&store);
+        let known = mail_core::query::known_labels(&store);
         let ids: Vec<mail_domain::LabelId> = known.iter().map(|(_, id)| *id).collect();
         if label_ids.peek().as_slice() != ids.as_slice() {
             label_ids.set(ids);
@@ -202,7 +202,7 @@ pub(super) fn App() -> Element {
         }
         // The same shape for the same reason: the From row needs the list, and an account added
         // in a terminal should reach the open window without a restart.
-        let sending = crate::compose::sending_accounts(&store);
+        let sending = mail_core::compose::sending_accounts(&store);
         if shell.peek().accounts != sending {
             shell.write().accounts = sending;
         }
@@ -262,7 +262,7 @@ pub(super) fn App() -> Element {
         let index = spaces.peek().current;
         today_list.write().opened(index, id, chrono::Utc::now());
         if let Some(dirs) = today_dirs.clone() {
-            let _ = crate::today::save(&dirs.state, &today_list.read());
+            let _ = crate::ui::today::save(&dirs.state, &today_list.read());
         }
     });
 
@@ -272,6 +272,7 @@ pub(super) fn App() -> Element {
         threads,
         top,
         marking,
+        paging,
     } = use_list(shell, pages, revision);
 
     let drafts = use_memo(move || {
@@ -359,6 +360,14 @@ pub(super) fn App() -> Element {
             }
             return;
         }
+        // The Connection Doctor, behind the Add account sheet when that is open on top of it:
+        // Esc closes it, and no other key does what it would to the rows behind it.
+        if shell.read().doctor.is_some() {
+            if key == "Escape" {
+                super::doctor::close(shell);
+            }
+            return;
+        }
         // The Rules sheet likewise: its fields take letters, Esc closes it.
         if shell.read().rules.is_some() {
             if key == "Escape" {
@@ -386,7 +395,7 @@ pub(super) fn App() -> Element {
         if shell.read().keyboard.is_some() {
             let held = event.modifiers();
             let key = if held.shift() {
-                crate::view::shifted(&key).to_owned()
+                crate::ui::view::shifted(&key).to_owned()
             } else {
                 key
             };
@@ -520,13 +529,13 @@ pub(super) fn App() -> Element {
         // reading. No bare letter is a shortcut with ⌘ held — ⌘C is copy, and ⌘A was select-all
         // above — because the keymap does not own chords. Esc still closes.
         let action = if super::chord::command(modifiers) && key != "Escape" {
-            let Some(action) = crate::view::command_shortcut(&key, typing) else {
+            let Some(action) = crate::ui::view::command_shortcut(&key, typing) else {
                 return;
             };
             action
         } else {
             let key = if event.modifiers().shift() {
-                crate::view::shifted(&key).to_owned()
+                crate::ui::view::shifted(&key).to_owned()
             } else {
                 key
             };
@@ -540,7 +549,7 @@ pub(super) fn App() -> Element {
         match action {
             Shortcut::Next | Shortcut::Previous => {
                 let ids: Vec<ThreadId> = threads().iter().map(|t| t.id).collect();
-                if let Some(id) = crate::view::step(open, &ids, action == Shortcut::Next) {
+                if let Some(id) = crate::ui::view::step(open, &ids, action == Shortcut::Next) {
                     shell.write().open(id);
                 }
             }
@@ -611,90 +620,8 @@ pub(super) fn App() -> Element {
     };
 
     // Follow-up reminders: swept at launch, when the next comes due, and on every revision, so
-    // a conversation nobody answered comes back to the top of the inbox (`crate::follow_up`).
+    // a conversation nobody answered comes back to the top of the inbox (`mail_core::follow_up`).
     super::follow_up::use_reminders(revision);
-
-    // Mail that only arrives when you press a button is mail you miss. `AccountEngine::watch`
-    // has existed since phase 3 and nothing called it; this is the poll half of it, which is
-    // what every account's `WatchMode::Poll` already asks for.
-    //
-    // The decision of *when* is `view::next_sync`, not here — in particular the rule that a
-    // rejected credential stops the loop rather than slowing it. Five minutes is 288 attempts a
-    // day, and 288 failed logins a day against the user's own mail server is how an account gets
-    // locked.
-    let _poll = use_future(move || async move {
-        let mut failures = 0u32;
-        let interval = {
-            let store = consume_context::<Arc<SqliteStore>>();
-            crate::sync::poll_interval(&store)
-        };
-        // A beat before the first pass, so opening the window is not also a network round trip
-        // competing with the first paint.
-        let mut wait = std::time::Duration::from_secs(2);
-        // When each account's last timed pass started. The loop wakes at the shortest interval
-        // any account asks for, and an account is synced only once its own has passed.
-        let mut last = std::collections::HashMap::new();
-        loop {
-            tokio::time::sleep(wait).await;
-
-            // Never two at once: a pass the user started is the same request, and two passes on
-            // one account race each other's writes for the same rows.
-            if !sync_state.read().may_start() {
-                wait = interval;
-                continue;
-            }
-            let store = consume_context::<Arc<SqliteStore>>();
-            let intervals = crate::sync::due::intervals(&store);
-            let started = std::time::Instant::now();
-            let due = crate::sync::due::due(&intervals, &last, started);
-            // With no account to sync at all, the pass still runs, to say why there is none.
-            if due.is_empty() && !intervals.is_empty() {
-                wait = interval;
-                continue;
-            }
-            last.extend(due.iter().map(|account| (*account, started)));
-            sync_state.set(SyncState::Running);
-            let done = tokio::task::spawn_blocking(move || {
-                crate::sync::due::run_due(store, chrono::Utc::now(), &due)
-            })
-            .await;
-
-            // Order matters: a pass can both be refused and be told to slow down, and only one
-            // of the two is worth stopping the loop for.
-            let passed = match &done {
-                Ok(Ok(ran)) if ran.rejected => crate::view::Passed::Rejected,
-                Ok(Ok(ran)) => match ran.hold {
-                    Some(wait) => crate::view::Passed::Throttled { wait },
-                    None => crate::view::Passed::Fine,
-                },
-                // A pass that could not run at all, and a task that panicked, are both worth
-                // trying again: a laptop lid is the usual cause of the first.
-                Ok(Err(_)) | Err(_) => crate::view::Passed::Transient,
-            };
-            failures = match passed {
-                // Being asked to wait is not a failure, and counting it as one would double a
-                // wait the server had already named.
-                crate::view::Passed::Fine | crate::view::Passed::Throttled { .. } => 0,
-                _ => failures.saturating_add(1),
-            };
-            sync_state.set(match done {
-                Ok(result) => synced(result.map(|ran| ran.text)),
-                Err(e) => synced(Err(format!("the sync pass stopped: {e}"))),
-            });
-            revision += 1;
-
-            match crate::view::next_sync(passed, failures, interval) {
-                crate::view::NextSync::After(next) => wait = next,
-                crate::view::NextSync::Wait(why) => {
-                    // Said once and then nothing more. The Sync button still works, so a user
-                    // who has fixed the credential is one click from finding out.
-                    sync_state.set(SyncState::Failed(why));
-                    revision += 1;
-                    return;
-                }
-            }
-        }
-    });
 
     let peek = shell.read().peek;
     let frame_class = if side_hidden() { "app no-side" } else { "app" };
@@ -742,7 +669,7 @@ pub(super) fn App() -> Element {
                 panes: vec![SplitPane::new(LIST, rsx! {
                     ThreadList {
                         shell, pages, revision, in_a_field, threads, drafts, nothing, more,
-                        sync_state, marking, top,
+                        marking, top, paging,
                     }
                 })],
                 section { class: "reader",
@@ -800,7 +727,7 @@ pub(super) fn App() -> Element {
             SpaceEditor { spaces, editing, shell }
             super::hover::HoverLayer { shell, revision, spaces: Some(spaces) }
             if shell.read().command.is_some() {
-                CommandMenu { shell, pages, revision, side_hidden, sync_state, spaces }
+                CommandMenu { shell, pages, revision, side_hidden, spaces }
             }
             if shell.read().contacts.is_some() {
                 super::contacts::ContactsSheet { shell }
@@ -816,6 +743,9 @@ pub(super) fn App() -> Element {
             }
             if shell.read().keys.is_some() {
                 super::pgp::keys::KeysSheet { shell }
+            }
+            if shell.read().doctor.is_some() {
+                super::doctor::DoctorView { shell, revision }
             }
             if shell.read().view_editor.is_some() {
                 super::views::ViewSheet { shell, revision, pages }
@@ -928,30 +858,31 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_first_run_names_the_command_that_gets_you_out_of_it() {
+    async fn the_first_run_offers_a_way_to_add_an_account() {
         // A database with no account looked exactly like an empty mailbox: six folders, a Sync
-        // button and "Nothing here." The shell cannot add an account, so that was the end of the
-        // road rather than a state with a way out.
+        // button and "Nothing here." A new person needs a way out, and it is a button in the
+        // window, not a command to type in a terminal.
         let (store, _dir) = empty();
         let markup = markup(store);
 
         assert!(markup.contains("No account"), "{markup}");
-        // The angle brackets come back escaped, which is the renderer doing its job; asserting
-        // on one spelling of the escape would be asserting on dioxus rather than on the shell.
         assert!(
-            markup.contains("mailo account add"),
-            "the command is not on the page:\n{markup}"
+            markup.contains("Add Account\u{2026}"),
+            "no way to add an account:\n{markup}"
         );
-        // Set apart from the prose: it is the empty state's own body line, under its title.
         assert!(
-            markup.contains("ds-empty-state-body"),
-            "it is not set apart from the prose, so it reads as italic advice:\n{markup}"
+            !markup.contains("mailo account add"),
+            "a command line is not the way out of the window:\n{markup}"
         );
-        // The words on the page, not in the stylesheets it carries (quire's CSS has comments).
         let shown = without_styles(&markup);
         assert!(
             !shown.contains("Nothing here"),
             "it still says the thing that told a new user nothing:\n{shown}"
+        );
+        // No command text anywhere in the frame, whatever it is named in.
+        assert!(
+            !shown.to_lowercase().contains("mailo "),
+            "the first run tells of a command line:\n{shown}"
         );
     }
 
@@ -1479,7 +1410,7 @@ mod reactivity_tests {
         let revision = use_signal(|| 0u64);
 
         let filters: Vec<Option<Filter>> = use_hook(|| {
-            crate::view::default_places()
+            crate::ui::view::default_places()
                 .iter()
                 .map(|place| badge_filter(&place.source))
                 .collect()

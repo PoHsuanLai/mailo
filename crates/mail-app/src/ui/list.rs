@@ -11,24 +11,31 @@ use super::motion::{Ghost, Toast};
 use super::ops::start_new;
 use super::page::PageMenus;
 use super::picks::PickBar;
-use super::press::{available, on_primary};
+use super::press::on_primary;
 use super::row::{DraftRow, MailRow};
 use super::server_search::{Asked, ServerSearch, found_threads};
 use super::view_groups::group_list;
-use crate::provider::provider;
-use crate::view::{Nothing, Shell, SyncState, synced};
+use crate::ui::fetching::{CANNOT_LOAD, Fetching, HasRows, ListFace, list_face, sync_availability};
+use crate::ui::view::{Nothing, Shell};
 use dioxus::prelude::*;
 use ds::components::chrome::toolbar::view::Toolbar;
 use ds::components::content::label::{Label, LabelRole, LabelStyle};
-use ds::components::content::text_runs::RunTone;
 use ds::components::controls::button_model::{Bezel, ImagePosition};
 use ds::components::overlays::empty_state::EmptyForm;
 use ds::prelude::*;
 use ds::style::tokens::control_size::ControlSize;
+use mail_core::fetch::Link;
+use mail_core::provider::provider;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 use std::collections::BTreeMap;
 use std::sync::Arc;
+
+mod first_sync;
+mod status;
+
+use self::first_sync::FirstSyncRows;
+use self::status::ListStatus;
 
 /// What a list item is, by identity: the same key on every render, so quire's `List` keeps a
 /// row where it is, plays an exit for one that stops being listed and an entrance for a new one.
@@ -62,10 +69,11 @@ pub(super) fn ThreadList(
     drafts: Memo<Vec<Draft>>,
     nothing: Memo<Nothing>,
     more: Memo<bool>,
-    sync_state: Signal<SyncState>,
     marking: Memo<Marking>,
     /// A search's top results, drawn above the date-ordered rows.
     top: Memo<Vec<ThreadSummary>>,
+    /// Whether the next page has been asked for and is on its way.
+    paging: Memo<bool>,
 ) -> Element {
     let rows = use_memo(move || {
         let _ = revision();
@@ -137,14 +145,21 @@ pub(super) fn ThreadList(
         .collect();
     // Local folders are never synced: with only them in view there is no Sync, and no word of one.
     let quiet = syncs_nothing(&rows(), shell.read().account, &shell.read().scope);
-    let note = if quiet {
-        None
-    } else {
-        sync_state.read().message().map(|text| text.to_owned())
-    };
+    // Said by the links of the accounts in view, and said of nothing when they have none.
+    let fetching = try_consume_context::<Fetching>();
+    let links: Vec<Link> = fetching
+        .map(|fetching| {
+            fetching
+                .links_in_view(&shell.read())
+                .into_iter()
+                .map(|(_, link)| link)
+                .collect()
+        })
+        .unwrap_or_default();
+    let link_refs: Vec<&Link> = links.iter().collect();
+    let sync_state = sync_availability(&link_refs);
     let search_note = marking.read().note();
     let invalid = matches!(marking.read().scope, Scope::Invalid(_));
-    let bad = sync_state.read().is_failure();
     let accounts = rows();
     let highlight = marking.read().highlight.clone();
     let brought = from_server();
@@ -161,7 +176,7 @@ pub(super) fn ThreadList(
                 Some(id) => row.id == id,
                 None => shell.read().scope.is_empty() || shell.read().scope.contains(&row.id),
             })
-            .filter(|row| crate::server_search::searchable(&row.plan))
+            .filter(|row| mail_core::server_search::searchable(&row.plan))
             .map(|row| (row.id, row.shown()))
             .collect()
     };
@@ -264,16 +279,49 @@ pub(super) fn ThreadList(
     }
     let cursor = shell.read().open.map(Slot::Thread);
     let nothing_here = threads().is_empty() && drafts().is_empty() && found().is_empty();
+    let has_rows = if nothing_here {
+        HasRows::No
+    } else {
+        HasRows::Yes
+    };
+    let face = list_face(has_rows, &link_refs, &nothing());
+    let phase = match &face {
+        ListFace::FirstSync => Phase::Loading(
+            fetching
+                .map(|fetching| fetching.op_in_view(&shell.read()))
+                .unwrap_or_default(),
+        ),
+        ListFace::CannotLoad(problem) => Phase::Failed {
+            title: CANNOT_LOAD.to_owned(),
+            description: Some(problem.description().into()),
+        },
+        ListFace::Rows | ListFace::Empty | ListFace::NoMatch(_) | ListFace::NoAccount => {
+            Phase::Ready
+        }
+    };
+    // Beside Retry in the failure `Loadable` draws: a way into the Connection Doctor.
+    let doctor_action: Option<Element> = matches!(face, ListFace::CannotLoad(_)).then(|| {
+        rsx! {
+            Button {
+                label: "Connection Doctor\u{2026}",
+                onclick: on_primary(move || super::doctor::open(shell)),
+            }
+        }
+    });
     let empty_form = match nothing() {
         Nothing::NoMatch(_) => EmptyForm::NoResults,
         Nothing::NoAccount | Nothing::EmptyFolder => EmptyForm::Empty,
     };
-    let empty_description: Option<TextLine> = nothing().command().map(|command| {
-        TextLine::Runs(vec![
-            TextRun::new("Run ", RunTone::Plain),
-            TextRun::new(command, RunTone::Code),
-        ])
+    // With no account the way out is a button, not a command to type.
+    let empty_action: Option<Element> = matches!(nothing(), Nothing::NoAccount).then(|| {
+        rsx! {
+            Button {
+                label: "Add Account\u{2026}",
+                onclick: on_primary(move || super::add_account::open(shell)),
+            }
+        }
     });
+    let retry = EventHandler::new(move |()| super::fetching::sync_now(&shell.read()));
     rsx! {
         div { class: "list-col",
             // The list's header is quire's 52 px `Toolbar`. While anything listed is picked, the
@@ -291,15 +339,7 @@ pub(super) fn ThreadList(
                                     Label { text: address, role: LabelRole::Tertiary, style: LabelStyle::Caption }
                                 }
                             }
-                            if let Some(note) = note {
-                                // One line, cut short when it must be; the whole of it on hover.
-                                Label {
-                                    text: note.clone(),
-                                    role: LabelRole::Tertiary,
-                                    style: LabelStyle::Footnote,
-                                    common: classed(if bad { "status bad" } else { "status" }),
-                                }
-                            }
+                            ListStatus { shell }
                             if let Some(said) = search_note {
                                 Label {
                                     text: said,
@@ -341,29 +381,8 @@ pub(super) fn ThreadList(
                                         image: ImagePosition::Only,
                                         label: "Sync now",
                                         icon: Some(IconSource::Glyph(Icon::Refresh)),
-                                        availability: available(sync_state.read().may_start()),
-                                        onclick: on_primary(move || {
-                                            if !sync_state.read().may_start() {
-                                                return;
-                                            }
-                                            sync_state.set(SyncState::Running);
-                                            super::folder_open::forget();
-                                            let store = consume_context::<Arc<SqliteStore>>();
-                                            spawn(async move {
-                                                // `spawn_blocking`, not this task: sync::run opens sockets and
-                                                // builds its own runtime, and `Runtime::block_on` inside an async
-                                                // context panics.
-                                                let done = tokio::task::spawn_blocking(move || {
-                                                    crate::sync::run(store, chrono::Utc::now())
-                                                })
-                                                .await;
-                                                sync_state.set(match done {
-                                                    Ok(result) => synced(result.map(|ran| ran.text)),
-                                                    Err(e) => synced(Err(format!("the sync pass stopped: {e}"))),
-                                                });
-                                                revision += 1;
-                                            });
-                                        }),
+                                        availability: sync_state,
+                                        onclick: on_primary(move || super::fetching::sync_now(&shell.read())),
                                     }
                                 }
                                 Button {
@@ -402,23 +421,31 @@ pub(super) fn ThreadList(
                 common: classed("search"),
             }
             // quire's list in mailo's scroller: it keeps each row by its key, so a row that
-            // leaves plays its exit and the rows below close the gap.
+            // leaves plays its exit and the rows below close the gap. A `Loadable` decides what
+            // the pane holds: outline rows while the first mail comes, the failure when no
+            // account can be reached, else the rows, which fade in when they arrive.
             div { class: "list",
-                List::<Slot> {
-                    label: place.clone(),
-                    items,
-                    cursor,
-                    onselect: move |slot: Slot| {
-                        if let Slot::Thread(id) | Slot::Top(id) | Slot::Server(id) = slot {
-                            shell.write().open(id);
+                Loadable {
+                    phase,
+                    placeholder: rsx! { FirstSyncRows {} },
+                    onretry: retry,
+                    action: doctor_action,
+                    List::<Slot> {
+                        label: place.clone(),
+                        items,
+                        cursor,
+                        onselect: move |slot: Slot| {
+                            if let Slot::Thread(id) | Slot::Top(id) | Slot::Server(id) = slot {
+                                shell.write().open(id);
+                            }
+                        },
+                    }
+                    if nothing_here {
+                        EmptyState {
+                            form: empty_form,
+                            title: nothing().message(),
+                            action: empty_action,
                         }
-                    },
-                }
-                if nothing_here {
-                    EmptyState {
-                        form: empty_form,
-                        title: nothing().message(),
-                        description: empty_description,
                     }
                 }
             }
@@ -430,6 +457,7 @@ pub(super) fn ThreadList(
                     Button {
                         size: ControlSize::Small,
                         label: "Show more",
+                        availability: if paging() { Availability::Busy } else { Availability::Enabled },
                         onclick: on_primary(move || pages += 1),
                     }
                 }
@@ -442,7 +470,7 @@ pub(super) fn ThreadList(
 
 /// What a row shows beside its summary: the provider mark, the label chips, the search marks.
 struct Dress {
-    via: Option<crate::provider::Provider>,
+    via: Option<mail_core::provider::Provider>,
     chips: Vec<String>,
     hit: Option<RowHit>,
 }
@@ -454,7 +482,7 @@ fn dress(
     summary: &ThreadSummary,
     accounts: &[AccountRow],
     names: &BTreeMap<LabelId, String>,
-    highlight: &crate::search::Highlight,
+    highlight: &mail_core::search::Highlight,
     from_server: &[ThreadId],
 ) -> Dress {
     let mut chips: Vec<String> = summary

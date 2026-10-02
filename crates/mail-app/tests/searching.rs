@@ -6,7 +6,8 @@
 //! does not select is worse than no filter — what the store returns for it.
 
 use chrono::{DateTime, TimeZone, Utc};
-use mail_app::{query, view};
+use mail_app::ui::view;
+use mail_core::query;
 use mail_domain::*;
 use mail_runtime::{Arrival, absorb};
 use mail_store::{SqliteStore, Store};

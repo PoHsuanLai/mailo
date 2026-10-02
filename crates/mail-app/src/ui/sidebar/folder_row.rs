@@ -1,6 +1,6 @@
 //! One folder's row, the menu under it, and what its picks do.
 
-use super::super::folder_open;
+use super::super::fetching;
 use super::super::menu::{Floating, menu_items};
 use super::super::move_to;
 use super::folder_act::{act, messages_word, refused, renamed_path};
@@ -8,8 +8,7 @@ use super::folder_parts::{NameField, Naming, Said, actions};
 use super::folder_tree::{Kind, Node};
 use super::folders::{Note, Open, Spot, Wires};
 use super::tagged;
-use crate::folder::Refusal;
-use crate::view::{Source, folder_of};
+use crate::ui::view::{Source, folder_of};
 use dioxus::prelude::*;
 use ds::base::press::Press;
 use ds::base::vocab::RowState;
@@ -21,6 +20,7 @@ use ds::components::menus::pop_up_button::{PopUpButton, PopUpKind};
 use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::style::tokens::control_size::ControlSize;
+use mail_core::folder::Refusal;
 use mail_domain::{
     AccountId, Filter, FolderError, FolderWork, Holds, MailboxRef, NonEmpty, Subscription,
 };
@@ -143,7 +143,7 @@ pub(super) fn FolderRow(
         shell.write().select(index);
         pages.set(1);
         if let Some(mailbox) = fetched.clone() {
-            folder_open::opened(mailbox, revision);
+            fetching::opened(mailbox, revision);
         }
     });
     // A rename is written where the name is; taking `renaming` away, when `open` moves on,
@@ -238,7 +238,9 @@ pub(super) fn FolderRow(
     };
     let overflow_path = node.path.clone();
     let overflow_name = name.clone();
+    let mark_path = node.path.clone();
     let accessory = rsx! {
+        super::marks::FolderMark { shell: wires.shell, account, path: mark_path }
         if let Some(count) = count {
             Badge {
                 content: BadgeContent::Number(u32::try_from(count).unwrap_or(u32::MAX)),

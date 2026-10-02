@@ -1,4 +1,4 @@
-use crate::view::Listing;
+use crate::ui::view::Listing;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 
@@ -22,11 +22,11 @@ pub(super) fn list_for(
     };
     match listing {
         Listing::Threads(query) => rows(&query),
-        Listing::Inbox { query, scope } => crate::follow_up::on_top(
-            crate::follow_up::returned(store, scope.as_ref(), now),
+        Listing::Inbox { query, scope } => mail_core::follow_up::on_top(
+            mail_core::follow_up::returned(store, scope.as_ref(), now),
             rows(&query),
         ),
-        Listing::Waiting { scope } => crate::follow_up::waiting(store, scope.as_ref(), now),
+        Listing::Waiting { scope } => mail_core::follow_up::waiting(store, scope.as_ref(), now),
         Listing::Drafts => Vec::new(),
     }
 }
@@ -60,7 +60,7 @@ const WARM: u32 = 20;
 /// one the reader will report when it is opened, and failing to warm is only failing to be fast.
 pub(super) fn warm_the_first_screenful(store: &SqliteStore) -> usize {
     let query = Query {
-        filter: crate::view::place_filter(MailboxRole::Inbox),
+        filter: mail_core::place::place_filter(MailboxRole::Inbox),
         sort: Sort {
             property: Property::Date,
             dir: SortDir::Desc,
@@ -83,7 +83,7 @@ pub(super) fn warm_the_first_screenful(store: &SqliteStore) -> usize {
             .iter()
             .filter_map(|id| store.message(*id).ok())
             .collect();
-        warmed += crate::reader::prewarm(store, &messages, mail_mime::SanitizePolicy::CURRENT);
+        warmed += mail_core::reader::prewarm(store, &messages, mail_mime::SanitizePolicy::CURRENT);
     }
     warmed
 }
@@ -124,7 +124,7 @@ pub(super) fn account_rows(store: &SqliteStore) -> Vec<AccountRow> {
 
 impl AccountRow {
     /// Whether this is local folders: mail kept on this computer, never synced, never sent from.
-    /// The same test as [`crate::sync::local_accounts`].
+    /// The same test as [`mail_core::sync::local_accounts`].
     pub(in crate::ui) fn is_local(&self) -> bool {
         matches!(self.plan.incoming, Incoming::Local)
     }
