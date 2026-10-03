@@ -12,6 +12,7 @@
 //! terminal prose are named in `scripts/core-prose-allowlist.txt`, to be converted.
 
 pub mod account;
+pub mod act;
 pub mod attach;
 pub mod auth;
 pub mod bimi;
