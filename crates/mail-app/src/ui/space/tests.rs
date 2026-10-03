@@ -430,6 +430,7 @@ fn a_space_without_a_grain_key_takes_its_presets_grain() {
     )
     .unwrap_or_else(|e| panic!("{e}"));
     let grains: Vec<u8> = read.spaces.iter().map(|space| space.look.grain.0).collect();
-    // Dusk's 35, what was stored, and Harbour's (the default's 35) for a value that is not a number.
-    assert_eq!(grains, [35, 7, 35]);
+    // The preset's grain, which is none since quire's quiet Look (`Grain::default`); what was stored;
+    // and the default's for a value that is not a number.
+    assert_eq!(grains, [0, 7, 0]);
 }
