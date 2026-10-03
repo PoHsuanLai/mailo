@@ -66,8 +66,10 @@ pub(super) fn App() -> Element {
     super::revisions::use_shared_revision(revision);
     // The conversations opened in windows of their own, to raise one asked for again.
     super::window::use_opened();
-    // What a running window is asked from outside: a notification's click, `mailo open`.
-    super::handoff::use_handoff();
+    // What a running window is asked from outside: a notification's click, `mailo open`. A
+    // conversation opens here, where the person reads, and the window is raised with the click's
+    // token.
+    super::handoff::use_handoff(shell);
     let boot = use_hook(frame::load_boot);
     let spaces = use_signal(|| boot.spaces.clone());
     let mut today_list = use_signal(|| boot.today.clone());
