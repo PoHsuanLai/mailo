@@ -271,15 +271,17 @@ async fn a_307_to_https_is_followed_with_the_same_post() {
 
 #[tokio::test]
 async fn a_server_that_does_not_answer_is_unreachable() {
-    // A port nothing listens on: bind one, learn its number, and close it.
-    let closed = TcpListener::bind("127.0.0.1:0")
-        .await
-        .unwrap()
-        .local_addr()
-        .unwrap();
-    let err = unsubscribe::one_click(&client(closed, None), &url(closed, "/u"))
+    // A port nothing listens on, held for the length of the test: a socket that is bound and
+    // never listens refuses connections, and nobody else can bind the number meanwhile. (Binding
+    // a listener, noting its port and dropping it frees the number for any other test or process
+    // on the machine, which then answers this client; the 307 test once saw that stray request.)
+    let closed = tokio::net::TcpSocket::new_v4().unwrap();
+    closed.bind("127.0.0.1:0".parse().unwrap()).unwrap();
+    let closed_addr = closed.local_addr().unwrap();
+    let err = unsubscribe::one_click(&client(closed_addr, None), &url(closed_addr, "/u"))
         .await
         .expect_err("nothing is listening");
     assert!(matches!(err, UnsubscribeFailure::Unreachable(_)), "{err:?}");
     assert!(matches!(err.retry(), Retry::After(_)));
+    drop(closed);
 }
