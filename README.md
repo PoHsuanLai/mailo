@@ -75,6 +75,11 @@ link asks for (RFC 6068: `to`, `cc`, `bcc`, `subject` and `body`; every other fi
 Nothing is sent until you send it. With the desktop entry installed, mailo can be chosen as the
 system's mail handler, and a `mailto:` link clicked anywhere opens it this way.
 
+On a desktop that runs quire's intent router, `mailo intents` answers it for the session: an
+agent or `quire-do mail` can search, read, archive, star, label and snooze conversations, write a
+draft and send a message, each undoable and none needing the window (`docs/desktop-member.md`). The
+router starts it on demand; `dist/install.sh` and the packages install what it needs.
+
 ## Installing
 
 **From a package.** `./scripts/package.sh` builds a `.deb`, an `.rpm` and a Flatpak, each with

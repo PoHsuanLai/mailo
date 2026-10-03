@@ -132,6 +132,8 @@ pub enum Command {
     Attached { draft: DraftId },
     /// Keep fetching until stopped, announcing new mail unless told not to.
     Watch { notify: WatchNotify },
+    /// Answer the desktop's intent router for as long as the session lasts.
+    Intents,
     /// Turn new-mail notifications on or off, or say which they are.
     Notify {
         set: Option<mail_core::notify::Setting>,
@@ -503,6 +505,7 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
             Some(other) => Err(format!("unknown option {other:?}\n\n{}", usage())),
         },
         "ping" => Ok(Command::Ping),
+        "intents" => Ok(Command::Intents),
         "attach" => {
             let raw = args
                 .get(1)
@@ -1348,6 +1351,9 @@ usage: mailo <command>
                              server offers it, and polls where it does not.
                              New unread inbox mail raises a desktop notification
                              unless --no-notify or `notify off`
+  intents                    answer the desktop's intent router (org.quire.Mail on the
+                             session bus) until the session ends; the router starts it
+                             on demand, so it is rarely typed
   notify [on|off]            turn new-mail notifications on or off (default on)
   offline [<account> [on|off]]
                              keep every attachment of an account here too, fetched
@@ -1501,6 +1507,7 @@ pub fn run_with_clients(
             Err("import and export are dispatched before this point".to_owned())
         }
         Command::Watch { .. } => Err("watch is dispatched before this point".to_owned()),
+        Command::Intents => Err("intents is dispatched before this point".to_owned()),
         // Dispatched in main: it needs the network, an async runtime and a terminal to ask on.
         Command::AccountDiscover { .. } => {
             Err("account discover is dispatched before this point".to_owned())

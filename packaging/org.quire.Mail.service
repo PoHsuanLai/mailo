@@ -1,0 +1,7 @@
+# D-Bus activation for mailo's intents provider, as the .deb and the .rpm ship it (dist/install.sh
+# writes the same file for a source install, with the binary where it put it). The desktop's intent
+# router asks for the bus name org.quire.Mail; the bus starts `mailo intents`, which has no window
+# and answers for the name until the session ends.
+[D-BUS Service]
+Name=org.quire.Mail
+Exec=/usr/bin/mailo intents

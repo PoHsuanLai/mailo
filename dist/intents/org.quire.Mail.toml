@@ -1,0 +1,259 @@
+# mailo's intents manifest: what an agent, the launcher or `quire-do` can ask of mailo, in the
+# vocabulary the desktop's intent router reads. Installed as
+# `$XDG_DATA_DIRS/quire/intents/org.quire.Mail.toml` beside the D-Bus service file that starts
+# `mailo intents`, which answers `org.quire.IntentProvider1` for every action named here
+# (`crates/mail-app/src/intents`). Every field is written; names carry the app's prefix `mail.`.
+#
+# A conversation is `mail.thread`, keyed by its id; a draft is `mail.draft`. Subjects and bodies
+# are written by other people, so the kinds say `third_party` and the router labels what comes
+# back as untrusted. A write is `undoable_write` with an undo token, which mailo mints from the
+# same undo stack the window's Cmd+Z uses; sending is `outbound`, with its recipient declared as
+# the sink the router checks.
+vocab = 1
+app = "org.quire.Mail"
+
+[[entities]]
+kind = "mail.thread"
+label = "Conversation"
+plural = "Conversations"
+icon = "mail"
+class = "mail"
+index = "not_indexed"
+titles = { kind = "third_party", v = { kind = "mail" } }
+props = []
+
+[[entities]]
+kind = "mail.draft"
+label = "Draft"
+plural = "Drafts"
+icon = "mail"
+class = "mail"
+index = "not_indexed"
+titles = { kind = "third_party", v = { kind = "mail" } }
+props = []
+
+# Mailo's own search language: `from:ada`, `label:work`, a phrase. Local; nothing leaves the machine.
+[[actions]]
+name = "mail.thread.search"
+label = "Search"
+on = { kind = "nothing" }
+effect = "read"
+classes = ["mail"]
+undo = "not_undoable"
+reach = "offered"
+latency = "quick"
+result = { kind = "entities", v = "mail.thread" }
+keys = { kind = "none" }
+lasting = "no"
+dry_run = "none"
+
+[[actions.params]]
+name = "query"
+label = "Search for"
+ty = { kind = "text", v = { max = 500, lines = "one" } }
+need = { kind = "required" }
+sink = "inert"
+
+# The conversation's messages as text, oldest first. Encrypted mail is not opened for an agent.
+[[actions]]
+name = "mail.thread.read"
+label = "Read"
+on = { kind = "one", v = "mail.thread" }
+effect = "read"
+classes = ["mail"]
+undo = "not_undoable"
+reach = "offered"
+latency = "quick"
+result = { kind = "value", v = { ty = { kind = "text", v = { max = 20000, lines = "many" } }, trust = { kind = "third_party", v = { kind = "mail" } } } }
+keys = { kind = "none" }
+lasting = "no"
+dry_run = "none"
+params = []
+
+[[actions]]
+name = "mail.thread.archive"
+label = "Archive"
+on = { kind = "many", v = "mail.thread" }
+effect = "undoable_write"
+classes = ["mail"]
+undo = "token"
+reach = "offered"
+latency = "quick"
+result = { kind = "nothing" }
+keys = { kind = "none" }
+lasting = "no"
+dry_run = "none"
+params = []
+
+[[actions]]
+name = "mail.thread.star"
+label = "Star"
+on = { kind = "many", v = "mail.thread" }
+effect = "undoable_write"
+classes = ["mail"]
+undo = "token"
+reach = "offered"
+latency = "quick"
+result = { kind = "nothing" }
+keys = { kind = "none" }
+lasting = "no"
+dry_run = "none"
+params = []
+
+[[actions]]
+name = "mail.thread.unstar"
+label = "Remove star"
+on = { kind = "many", v = "mail.thread" }
+effect = "undoable_write"
+classes = ["mail"]
+undo = "token"
+reach = "offered"
+latency = "quick"
+result = { kind = "nothing" }
+keys = { kind = "none" }
+lasting = "no"
+dry_run = "none"
+params = []
+
+# The label must exist; mailo does not make one for an agent.
+[[actions]]
+name = "mail.thread.label"
+label = "Add label"
+on = { kind = "many", v = "mail.thread" }
+effect = "undoable_write"
+classes = ["mail"]
+undo = "token"
+reach = "offered"
+latency = "quick"
+result = { kind = "nothing" }
+keys = { kind = "none" }
+lasting = "no"
+dry_run = "none"
+
+[[actions.params]]
+name = "label"
+label = "Label"
+ty = { kind = "text", v = { max = 100, lines = "one" } }
+need = { kind = "required" }
+sink = "inert"
+
+[[actions]]
+name = "mail.thread.unlabel"
+label = "Remove label"
+on = { kind = "many", v = "mail.thread" }
+effect = "undoable_write"
+classes = ["mail"]
+undo = "token"
+reach = "offered"
+latency = "quick"
+result = { kind = "nothing" }
+keys = { kind = "none" }
+lasting = "no"
+dry_run = "none"
+
+[[actions.params]]
+name = "label"
+label = "Label"
+ty = { kind = "text", v = { max = 100, lines = "one" } }
+need = { kind = "required" }
+sink = "inert"
+
+[[actions]]
+name = "mail.thread.snooze"
+label = "Snooze"
+on = { kind = "many", v = "mail.thread" }
+effect = "undoable_write"
+classes = ["mail"]
+undo = "token"
+reach = "offered"
+latency = "quick"
+result = { kind = "nothing" }
+keys = { kind = "none" }
+lasting = "no"
+dry_run = "none"
+
+[[actions.params]]
+name = "until"
+label = "Until"
+ty = { kind = "date_time" }
+need = { kind = "required" }
+sink = "inert"
+
+# Saved in Drafts, sent by nobody. Undo discards it.
+[[actions]]
+name = "mail.draft.create"
+label = "Create draft"
+on = { kind = "nothing" }
+effect = "undoable_write"
+classes = ["mail"]
+undo = "token"
+reach = "offered"
+latency = "quick"
+result = { kind = "entities", v = "mail.draft" }
+keys = { kind = "none" }
+lasting = "no"
+dry_run = "none"
+
+[[actions.params]]
+name = "to"
+label = "To"
+ty = { kind = "text", v = { max = 500, lines = "one" } }
+need = { kind = "optional" }
+sink = "recipient"
+
+[[actions.params]]
+name = "subject"
+label = "Subject"
+ty = { kind = "text", v = { max = 500, lines = "one" } }
+need = { kind = "optional" }
+sink = "body"
+
+[[actions.params]]
+name = "body"
+label = "Message"
+ty = { kind = "text", v = { max = 20000, lines = "many" } }
+need = { kind = "optional" }
+sink = "body"
+
+# Queued for delivery, which mailo holds until the next sync pass: undo takes it back until then. `to` is a comma-separated list of addresses; `from` is the account's address, needed only with more than one account.
+[[actions]]
+name = "mail.message.send"
+label = "Send"
+on = { kind = "nothing" }
+effect = "outbound"
+classes = ["mail", "contacts"]
+undo = "token"
+reach = "offered"
+latency = "quick"
+result = { kind = "nothing" }
+keys = { kind = "none" }
+lasting = "no"
+dry_run = "preview"
+
+[[actions.params]]
+name = "to"
+label = "To"
+ty = { kind = "text", v = { max = 500, lines = "one" } }
+need = { kind = "required" }
+sink = "recipient"
+
+[[actions.params]]
+name = "subject"
+label = "Subject"
+ty = { kind = "text", v = { max = 500, lines = "one" } }
+need = { kind = "optional" }
+sink = "body"
+
+[[actions.params]]
+name = "body"
+label = "Message"
+ty = { kind = "text", v = { max = 20000, lines = "many" } }
+need = { kind = "required" }
+sink = "body"
+
+[[actions.params]]
+name = "from"
+label = "From account"
+ty = { kind = "text", v = { max = 320, lines = "one" } }
+need = { kind = "optional" }
+sink = "destination"
