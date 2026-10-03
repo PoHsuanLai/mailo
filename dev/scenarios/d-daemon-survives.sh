@@ -39,6 +39,7 @@ sleep 1
 check "2. the watch is still running" kill -0 "$WATCH_PID"
 check "2. the badge is still the watch's" test "$(badge_senders)" = 1
 
+watch_idling
 drop_mail "Sent while nobody was looking"
 check "3. a banner, with no window" wait_for 60 banner_up
 check "3. kept 1" wait_for 20 kept_is 1
