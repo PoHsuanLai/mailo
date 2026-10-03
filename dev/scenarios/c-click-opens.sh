@@ -61,9 +61,8 @@ wait_for 20 bash -c "! gdbus call --address '$BUS' --dest org.freedesktop.DBus -
 start_window
 check "the window owns the name" \
   wait_for 60 bash -c "gdbus call --address '$BUS' --dest org.freedesktop.DBus --object-path /org/freedesktop/DBus --method org.freedesktop.DBus.NameHasOwner io.github.PoHsuanLai.mailo | grep -q true"
-# The new window runs a sync pass of its own as it starts, beside the watch's: let it finish, or the two
-# writers meet in the database ("database is locked", a known overlap, see docs/desktop-member.md).
-sleep 15
+# The window leaves scheduled fetching to the running watch (docs/desktop-member.md), so there is no
+# pass of its own beside the watch's for the two to meet in the database over.
 watch_idling
 drop_mail "Dinner on Friday"
 check "banner drawn again" wait_for 60 banner_up
