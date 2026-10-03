@@ -66,9 +66,9 @@ one store — a separate CLI would drift from what the window does.
 
 Run `./target/release/mailo` with an unknown command to print the full list.
 
-Clicking a new-mail notification from `mailo watch` opens that conversation in a new window (a
-second one if a window is already open — a known gap). For the desktop to name and group the
-notifications, install the desktop entry (below).
+Clicking a new-mail notification from `mailo watch` opens that conversation in the window that is
+running and raises it with the click's activation token (or starts the window, if none is running).
+For the desktop to name and group the notifications, install the desktop entry (below).
 
 `mailo mailto:someone@example.org?subject=Hello` opens the window on a composer holding what the
 link asks for (RFC 6068: `to`, `cc`, `bcc`, `subject` and `body`; every other field is ignored).

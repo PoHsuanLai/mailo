@@ -447,10 +447,12 @@ fn an_archive_in_the_window_reaches_the_main_list_and_its_own_ctrl_z_takes_it_ba
 
 /// A banner's click, or `mailo open` from a terminal, reaches the running window over the session
 /// bus as a request (`ui/handoff`); here the bus is left out and the request is pushed straight
-/// into the window's queue, and the window opens that conversation in a window of its own.
+/// into the window's queue, and the window opens that conversation itself, where the person is
+/// reading, instead of in a window of its own. (The raise with the click's token is quire's
+/// event loop, which the harness has none of.)
 #[cfg(not(any(target_os = "macos", windows)))]
 #[test]
-fn a_request_from_outside_opens_the_conversation_in_a_window_of_its_own() {
+fn a_request_from_outside_opens_the_conversation_in_the_running_window() {
     let dir = tempfile::tempdir().unwrap();
     let store = seeded(dir.path());
     let (requests, queue) = mail_app::ui::native::Requests::local();
@@ -467,20 +469,36 @@ fn a_request_from_outside_opens_the_conversation_in_a_window_of_its_own() {
     let mut harness = Harness::new(mail_app::ui::native::root, config);
     harness.advance(ms(300));
     settle_until(&mut harness, |h| h.count(".list .ds-thread") == INBOX.len());
-    assert!(recorder.asked().is_empty(), "nothing asked yet");
+    assert_eq!(
+        harness.count(".reader-head h2"),
+        0,
+        "a reader opened unasked"
+    );
 
     let invoice = thread(&store, INBOX[1].1).id;
     queue
-        .send(mail_app::ui::native::Request::Thread(invoice))
+        .send(mail_app::ui::native::Request::Thread {
+            thread: invoice,
+            token: mail_app::ui::native::ActivationToken::new("xdg-activation-1"),
+        })
         .unwrap();
-    settle_until(&mut harness, |_| !recorder.asked().is_empty());
-    let asked = recorder.asked();
-    assert_eq!(asked.len(), 1, "{asked:?}");
-    assert_eq!(asked[0].thread, invoice);
-    assert!(asked[0].title.contains(INBOX[1].1), "{:?}", asked[0].title);
+    settle_until(&mut harness, |h| h.count(".reader-head h2") == 1);
+    let heading = harness.text_of(".reader-head h2").unwrap_or_default();
+    assert!(heading.contains(INBOX[1].1), "{heading:?}");
+    assert!(
+        recorder.asked().is_empty(),
+        "a window of its own was opened: {:?}",
+        recorder.asked()
+    );
 
-    // A request to show the window itself opens nothing.
-    queue.send(mail_app::ui::native::Request::Activate).unwrap();
+    // A request to raise the window itself changes nothing.
+    queue
+        .send(mail_app::ui::native::Request::Activate { token: None })
+        .unwrap();
     harness.advance(ms(300));
-    assert_eq!(recorder.asked().len(), 1);
+    assert_eq!(
+        harness.text_of(".reader-head h2").unwrap_or_default(),
+        heading
+    );
+    assert!(recorder.asked().is_empty());
 }

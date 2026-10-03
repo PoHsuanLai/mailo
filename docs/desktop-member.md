@@ -39,9 +39,14 @@ in the watch (`notify/click.rs`) hears both for the notifications it showed and 
 
 `mailo open <thread>` first asks a running window (`ui/handoff`): the window owns
 `io.github.PoHsuanLai.mailo` on the session bus and answers `org.freedesktop.Application`, and
-`Open(["mailo:thread/<id>"], {"activation-token": token})` opens the conversation in a window of its
-own (a conversation already open is raised). Only when no window answers does `mailo open` open
-one. The name has a dot because a D-Bus name needs one and the desktop entry's id (`mailo`, the
+`Open(["mailo:thread/<id>"], {"activation-token": token})` opens the conversation in that window, where
+the person is already reading, and raises the window: the request keeps the token
+(`handoff::ActivationToken`) and the window hands it to quire's
+`use_window_handle().focus_with_token(token)`, which on Wayland is xdg-activation's `activate` for the
+window's surface (the only way a compositor lets a window that exists take the keyboard; on X11, with
+no token, or without xdg-activation it is a plain focus). A token is good once, so of several URIs in
+one `Open` only the first request carries it. Only when no window answers does `mailo open` open one.
+The name has a dot because a D-Bus name needs one and the desktop entry's id (`mailo`, the
 window's `app_id`) has none; it is the Flatpak's app id too. There is no D-Bus activation file:
 nothing yet needs a closed mailo to be started by a method call, because the watch starts it.
 
@@ -101,7 +106,7 @@ seeds the desktop's file; nothing in mailo's directory is written or deleted.
 
 ## Building against quire master
 
-`crates/mail-app/Cargo.toml` still names quire by tag. To build against a checkout, put this in an
+`crates/mail-app/Cargo.toml` names quire by commit (a tag again once quire's next release is cut). To build against a checkout, put this in an
 uncommitted `.cargo/config.toml` (the file is in `.git/info/exclude` in the integration worktree):
 
 ```toml

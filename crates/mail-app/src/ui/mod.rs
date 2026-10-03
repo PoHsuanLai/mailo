@@ -91,7 +91,7 @@ pub mod native {
     pub use super::clock::WallClock;
     pub use super::compose::Dictionaries;
     pub use super::follow_up::Notices;
-    pub use super::handoff::{Request, Requests};
+    pub use super::handoff::{ActivationToken, Request, Requests};
     pub use super::launch::DesktopSettings;
     pub use super::launch::native::{contexts, live_root, root};
     pub use super::original::{Browse, Consent, Fetch, FetchImage, Got, Original};
