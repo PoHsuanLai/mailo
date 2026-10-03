@@ -84,3 +84,12 @@ keyring (`mail-runtime/src/secrets.rs`, compiled out of release builds).
 - `c-click-opens.sh`: the banner's click opens the message, with and without a window running.
 - `d-daemon-survives.sh`: the window closes; the daemon and the badge carry on.
 - `all.sh` runs them in turn.
+
+## Known overlap
+
+The window runs sync passes of its own beside the watch's. Two writers on one SQLite file usually
+wait for each other (`busy_timeout` is five seconds), but a scenario run once saw the watch's pass
+end with `database is locked` while a window started, and recover on the next. Where a watch runs
+the window should leave scheduled fetching to it (`mail_core::ipc::watching::running`) and keep
+only the manual refresh; that is a change to the window's fetching state machine
+(`ui/fetching`), not made here.
