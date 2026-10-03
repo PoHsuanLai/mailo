@@ -301,6 +301,20 @@ impl SqliteStore {
         self.db.lock()
     }
 
+    /// A number that differs from the last one it returned once another connection has
+    /// committed: another process's, such as `mailo watch` beside the window. Commits through
+    /// this store's own connection do not change it.
+    ///
+    /// SQLite's `PRAGMA data_version`, which counts per connection, so it is always asked of the
+    /// writer, the one connection every write of this store goes through. `None` when that
+    /// connection is busy on another thread: asked again, it answers, and nothing waits here.
+    pub fn data_version(&self) -> Option<i64> {
+        self.db
+            .try_lock()?
+            .query_row("PRAGMA data_version", [], |row| row.get(0))
+            .ok()
+    }
+
     /// A connection for reading, which is not the one that writes.
     ///
     /// The first free reader, or the writer when there are none — an in-memory database has

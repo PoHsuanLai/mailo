@@ -96,3 +96,32 @@ fn a_write_held_open_makes_the_other_wait_the_timeout_and_then_say_so() {
         "it gave up after {waited:?}, so the timeout is not what it says"
     );
 }
+
+#[test]
+fn a_commit_by_another_connection_changes_the_data_version() {
+    // How a window learns that a `mailo watch` stored mail it did not write.
+    let dir = tempfile::tempdir().unwrap();
+    let store = opened(dir.path());
+    let before = store.data_version().expect("a free connection answers");
+    store
+        .connection()
+        .execute(
+            "INSERT INTO accounts (id, address, plan, created_at)
+             VALUES ('own', 'one@example.test', '{}', datetime('now'))",
+            [],
+        )
+        .unwrap();
+    assert_eq!(store.data_version(), Some(before), "its own commit counted");
+
+    let other = rusqlite::Connection::open(dir.path().join("mail.db")).unwrap();
+    other
+        .execute(
+            "INSERT INTO accounts (id, address, plan, created_at)
+             VALUES ('other', 'two@example.test', '{}', datetime('now'))",
+            [],
+        )
+        .unwrap();
+    let after = store.data_version().expect("a free connection answers");
+    assert_ne!(after, before, "another connection's commit went unseen");
+    assert_eq!(store.data_version(), Some(after), "and it is seen once");
+}
