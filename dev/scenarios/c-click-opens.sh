@@ -36,6 +36,7 @@ start_watch
 wait_for 60 badge_is "0 false" || echo "(the first pass was slow)" >&2
 
 # ---- no window ----
+watch_idling
 drop_mail "Plans for the weekend"
 check "banner drawn" wait_for 60 banner_up
 THREAD=$(wait_for 20 test -n "$(thread_of 'Plans for the weekend')" && thread_of 'Plans for the weekend')
@@ -53,6 +54,14 @@ check "that window is the running one (it owns the name)" \
 sill notifications dismiss-all >/dev/null 2>&1
 
 # ---- with a window ----
+# The window the click started has its output sent nowhere; replace it with one this script
+# started, whose log can say what it was asked.
+[ -z "$OPEN_PID" ] || kill "$OPEN_PID" 2>/dev/null
+wait_for 20 bash -c "! gdbus call --address '$BUS' --dest org.freedesktop.DBus --object-path /org/freedesktop/DBus --method org.freedesktop.DBus.NameHasOwner io.github.PoHsuanLai.mailo | grep -q true"
+start_window
+check "the window owns the name" \
+  wait_for 60 bash -c "gdbus call --address '$BUS' --dest org.freedesktop.DBus --object-path /org/freedesktop/DBus --method org.freedesktop.DBus.NameHasOwner io.github.PoHsuanLai.mailo | grep -q true"
+watch_idling
 drop_mail "Dinner on Friday"
 check "banner drawn again" wait_for 60 banner_up
 THREAD2=$(wait_for 20 test -n "$(thread_of 'Dinner on Friday')" && thread_of 'Dinner on Friday')

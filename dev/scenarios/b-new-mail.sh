@@ -39,6 +39,7 @@ start_watch
 check "2. the first pass says the count: 0, hidden" wait_for 60 badge_is "0 false"
 check "2. from one connection" test "$(badge_senders)" = 1
 
+watch_idling
 drop_mail "Lunch on Thursday"
 check "3. the banner column draws" wait_for 60 banner_up
 check "3. sill counts it (kept 1)" wait_for 20 kept_is 1

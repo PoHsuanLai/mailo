@@ -210,6 +210,11 @@ start_window() {
   track "$WINDOW_PID"
 }
 
+# The watch has finished its pass and parked in IDLE. The fake server announces mail only to a
+# connection already idling (it has no UIDNEXT to tell a late one), so a message dropped before this
+# would wait for the five-minute poll.
+watch_idling() { sleep 6; }
+
 # ---- the bus, watched ----
 
 # Records the notification calls and launcher-entry updates on the private bus into $BUS_LOG.
@@ -313,7 +318,7 @@ def find(v):
             if r: return r
     return None
 r = find(json.loads(sys.stdin.read())) or {}
-print(r.get(sys.argv[1], ""))' "$1"
+print(r.get(sys.argv[1], ""))' "$1" 2>/dev/null
 }
 
 # Whether the banner column is mapped and has drawn something.

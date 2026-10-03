@@ -55,7 +55,8 @@ class Message:
             parsed = BytesParser().parsebytes(raw)
         self.parsed = parsed
     def getUID(self): return self.uid
-    def getFlags(self): return ["\\Seen"]
+    # Mail dropped into $MAILO_EXTRA_MAIL (UID 200 and up) is new and unread, as mail that arrives is.
+    def getFlags(self): return [] if self.uid >= 200 else ["\\Seen"]
     def getInternalDate(self): return b"14-Nov-2023 22:13:20 +0000"
     def getHeaders(self, negate, *names):
         out = {}
