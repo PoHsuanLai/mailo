@@ -1,0 +1,8 @@
+# D-Bus activation for mailo's intents provider. The desktop's intent router asks for the bus name
+# org.quire.Mail when something wants mailo to do an action (an agent archiving mail, a command
+# typed to `quire-do mail`); the bus starts `mailo intents`, which has no window and answers for
+# the name until the session ends. dist/install.sh writes this with @BIN@ replaced by where it put
+# the binary; the packages ship it with /usr/bin/mailo.
+[D-BUS Service]
+Name=org.quire.Mail
+Exec=@BIN@ intents

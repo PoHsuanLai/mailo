@@ -456,6 +456,30 @@ fn main() {
         }
         return;
     }
+    if let Some(mail_app::cli::Command::Intents) = &command {
+        // What the router starts by D-Bus activation: no window, the same store. A second one
+        // finds the name taken and ends quietly (exit 0), so a start that races another is not
+        // a failure.
+        #[cfg(not(any(target_os = "macos", windows)))]
+        {
+            let provider = mail_app::intents::Provider::new(
+                store.clone(),
+                std::sync::Arc::new(mail_runtime::KeyringSecrets),
+            );
+            match mail_app::intents::serve(provider) {
+                Ok(()) | Err(mail_app::intents::ServeError::Taken) => return,
+                Err(why) => {
+                    eprintln!("{why}");
+                    std::process::exit(1);
+                }
+            }
+        }
+        #[cfg(any(target_os = "macos", windows))]
+        {
+            eprintln!("mailo intents answers on the Linux session bus, which this system has not");
+            std::process::exit(1);
+        }
+    }
     if let Some(mail_app::cli::Command::Watch { notify }) = &command {
         let notifications = match notify {
             mail_app::cli::WatchNotify::Never => mail_core::notify::Setting::Off,

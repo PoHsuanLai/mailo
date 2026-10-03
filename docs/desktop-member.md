@@ -45,6 +45,51 @@ one. The name has a dot because a D-Bus name needs one and the desktop entry's i
 window's `app_id`) has none; it is the Flatpak's app id too. There is no D-Bus activation file:
 nothing yet needs a closed mailo to be started by a method call, because the watch starts it.
 
+## What it answers
+
+`mailo intents` is mailo as a provider for the desktop's intent router (docket's `intentd`), the
+way a companion, the launcher or `quire-do mail` ask it to do something without its window. It owns
+`org.quire.Mail` on the session bus and serves `org.quire.IntentProvider1` at
+`/org/quire/IntentProvider1` (`crates/mail-app/src/intents`). The router starts it by D-Bus
+activation (`dbus-1/services/org.quire.Mail.service`, installed by `dist/install.sh` and by the
+packages) and it stays until the bus goes away; a second one finds the name taken and exits 0.
+
+The manifest, `dist/intents/org.quire.Mail.toml`, installed under `$XDG_DATA_DIRS/quire/intents/`,
+declares two kinds, `mail.thread` and `mail.draft`, and these actions:
+
+| Action | Effect | Takes | Undo |
+| --- | --- | --- | --- |
+| `mail.thread.search` | read | `query`, in mailo's own search language | |
+| `mail.thread.read` | read | one conversation; the answer is its text, labelled untrusted mail | |
+| `mail.thread.archive`, `star`, `unstar` | undoable write | conversations | token |
+| `mail.thread.label`, `unlabel` | undoable write | conversations, `label` (must exist) | token |
+| `mail.thread.snooze` | undoable write | conversations, `until` | token |
+| `mail.draft.create` | undoable write | `to`, `subject`, `body`, `from`, any of them | token discards it |
+| `mail.message.send` | outbound | `to`, `body`, `subject`, `from`; `DryRun` shows the message | token takes it back to a draft |
+
+The conversation actions are `mail_core::act`, which the window acts with too: the same patch, the
+same work queued for the server, the same undo. An undo token names an entry of the provider's own
+`UndoStack`, or a draft to discard or unsend (`stack-7`, `discard-<id>`, `unsend-<id>`); the stack is
+in memory, so a token does not outlive the provider, and it is not the window's Cmd+Z stack, which is
+the window's process. A send is queued as the window queues one, so it can be taken back until the
+outbox has delivered it, which with a watch running is soon.
+
+Decisions:
+
+- **No dependency on docket.** The router's crates are in a repository that is not public and mailo
+  is. The wire is small, so `intents/wire` writes out the JSON forms the router uses (adjacently
+  tagged enums, ids and units as bare strings and numbers), `intents/serve.rs` serves the interface
+  with zbus, and tests hold both to the router: the served introspection equals
+  `IntentProvider1.xml`, which is the router's file; each form is pinned to the router's text; and the
+  manifest is checked by `docket-eval --check-app` where a docket checkout is at hand.
+- **A process of its own, not the window.** Activation has to work with no window, and a closed mailo
+  has to be able to archive mail. So `Context` answers a private window looking at nothing, and
+  `Summon` declines; a window that answers its own `Context` is a later step (the name is owned by
+  one process).
+- **Only the router calls.** Every member but `Summon` is refused for a caller that does not own
+  `org.quire.Intents1`, so a process that knows mailo's bus name gets no way round the gate.
+- **The window hears what the provider writes** through its look at the store's data version (above).
+
 ## What it reads
 
 The look is the desktop's: `$XDG_CONFIG_HOME/quire/appearance.toml` and `style.css`, read and
@@ -83,6 +128,8 @@ keyring (`mail-runtime/src/secrets.rs`, compiled out of release builds).
 - `b-new-mail.sh`: a message arrives; a banner and a badge.
 - `c-click-opens.sh`: the banner's click opens the message, with and without a window running.
 - `d-daemon-survives.sh`: the window closes; the daemon and the badge carry on.
+- `e-intents.sh`: the installed D-Bus service starts `mailo intents` on a bus of its own, and only the
+  router's name may call it. No window or mail server.
 - `all.sh` runs them in turn.
 
 ## Who fetches when a watch runs

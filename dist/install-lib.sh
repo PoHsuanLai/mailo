@@ -16,6 +16,10 @@ DESKTOP_DEST="$PREFIX/share/applications/mailo.desktop"
 ICON_DEST="$PREFIX/share/icons/hicolor/scalable/apps/mailo.svg"
 UNIT_NAME=mailo-watch.service
 UNIT_DEST="$UNIT_DIR/$UNIT_NAME"
+# The intents manifest the desktop's router reads, and the D-Bus service that starts the provider
+# of it on demand: both under $PREFIX/share, which is on XDG_DATA_DIRS for /usr and /usr/local.
+INTENTS_DEST="$PREFIX/share/quire/intents/org.quire.Mail.toml"
+SERVICE_DEST="$PREFIX/share/dbus-1/services/org.quire.Mail.service"
 # The binary to install: a release build unless MAILO_BIN says otherwise (the scenarios install a debug
 # build, which is what carries their test seams).
 BUILT="${MAILO_BIN:-${CARGO_TARGET_DIR:-$ROOT/target}/release/mailo}"
@@ -24,6 +28,9 @@ ICON_SRC="$ROOT/packaging/icons/hicolor/scalable/apps/mailo.svg"
 SUDO=
 
 DRY=0
+
+# service_text: the D-Bus service file, naming the binary where it was installed.
+service_text() { sed "s|@BIN@|$BIN_DEST|" "$DIST/org.quire.Mail.service.in"; }
 
 # parse_flags "$@": --dry-run, and the extra flags a script allows ($EXTRA_FLAGS, space-separated).
 parse_flags() {

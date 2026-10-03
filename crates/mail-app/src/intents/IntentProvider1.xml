@@ -1,0 +1,54 @@
+<!DOCTYPE node PUBLIC "-//freedesktop//DTD D-BUS Object Introspection 1.0//EN"
+ "http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd">
+<node>
+ <interface name="org.quire.IntentProvider1">
+   <method name="Perform">
+     <arg name="invocation" type="s" direction="in"/>
+     <arg name="options" type="a{sv}" direction="in"/>
+     <arg type="s" direction="out"/>
+   </method>
+   <method name="DryRun">
+     <arg name="invocation" type="s" direction="in"/>
+     <arg name="options" type="a{sv}" direction="in"/>
+     <arg type="s" direction="out"/>
+   </method>
+   <method name="Undo">
+     <arg name="token" type="s" direction="in"/>
+     <arg name="actor" type="s" direction="in"/>
+     <arg type="s" direction="out"/>
+   </method>
+   <method name="Context">
+     <arg name="scope" type="s" direction="in"/>
+     <arg type="s" direction="out"/>
+   </method>
+   <method name="Summon">
+     <arg name="serial" type="t" direction="in"/>
+     <arg name="origin" type="s" direction="in"/>
+     <arg type="s" direction="out"/>
+   </method>
+   <method name="Search">
+     <arg name="text" type="s" direction="in"/>
+     <arg name="generation" type="t" direction="in"/>
+     <arg type="s" direction="out"/>
+   </method>
+   <method name="Preview">
+     <arg name="entity" type="s" direction="in"/>
+     <arg type="s" direction="out"/>
+   </method>
+   <method name="Suggest">
+     <arg name="ask" type="s" direction="in"/>
+     <arg type="s" direction="out"/>
+   </method>
+   <method name="Resolve">
+     <arg name="keys" type="s" direction="in"/>
+     <arg type="s" direction="out"/>
+   </method>
+   <signal name="UndoChanged">
+     <arg name="token" type="s"/>
+     <arg name="state" type="s"/>
+   </signal>
+   <signal name="IndexStale">
+     <arg name="epoch" type="t"/>
+   </signal>
+ </interface>
+</node>

@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
 # Install mailo into the desktop from this checkout: build it in release, then put the binary, the
-# desktop entry, the icon and the user unit that starts the sync daemon at login where the session
-# reads them. Run as yourself; sudo asks once. Safe to run again.
+# desktop entry, the icon, the intents manifest with the D-Bus service that starts its provider,
+# and the user unit that starts the sync daemon at login where the session reads them. Run as
+# yourself; sudo asks once. Safe to run again.
 #
 #   dist/install.sh --dry-run    print every step, change nothing (not even a build)
 #   dist/install.sh              do it
 #
-# Installs to /usr/local (binary, desktop entry, icon) and /etc/systemd/user (the unit, enabled
-# for graphical-session.target, so it starts in any session: sill's, Plasma's, GNOME's). Not
-# touched: your mail, ~/.config, the keyring, any other session's files. dist/uninstall.sh undoes
-# it. Next: log in (or `systemctl --user start mailo-watch`), then add an account with
-# `mailo account add you@example.org`.
+# Installs to /usr/local (binary, desktop entry, icon, intents manifest and its D-Bus service) and
+# /etc/systemd/user (the unit, enabled for graphical-session.target, so it starts in any session:
+# sill's, Plasma's, GNOME's). Not touched: your mail, ~/.config, the keyring, any other session's
+# files. dist/uninstall.sh undoes it. Next: log in (or `systemctl --user start mailo-watch`), then
+# add an account with `mailo account add you@example.org`.
 #
 # MAILO_BIN names the binary to install instead of the release build. MAILO_PREFIX and
 # MAILO_UNIT_DIR redirect the destinations (the scenario scripts install into a scratch directory
@@ -19,7 +20,7 @@ set -euo pipefail
 # shellcheck source=install-lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/install-lib.sh"
 
-usage() { sed -n '2,17p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,18p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 EXTRA_FLAGS="--no-build"
 parse_flags "$@"
 [ "$DRY" = 0 ] || echo "dry run: nothing below is executed"
@@ -42,10 +43,16 @@ else
 fi
 [ "$DRY" = 1 ] || [ -x "$BUILT" ] || { echo "no binary at $BUILT" >&2; exit 1; }
 
-step "3/5 the binary, the desktop entry and the icon"
+step "3/5 the binary, the desktop entry, the icon and the intents"
 put 755 "$BUILT" "$BIN_DEST"
 put 644 "$DIST/mailo.desktop" "$DESKTOP_DEST"
 put 644 "$ICON_SRC" "$ICON_DEST"
+# What the desktop's intent router reads, and the activation that starts `mailo intents` for it.
+put 644 "$DIST/intents/org.quire.Mail.toml" "$INTENTS_DEST"
+SERVICE_TMP="$(mktemp)"
+service_text >"$SERVICE_TMP"
+put 644 "$SERVICE_TMP" "$SERVICE_DEST"
+rm -f "$SERVICE_TMP"
 
 step "4/5 the sync daemon's user unit"
 put 644 "$DIST/$UNIT_NAME" "$UNIT_DEST"
@@ -60,7 +67,7 @@ else
   note "no icon cache to refresh under $PREFIX/share/icons/hicolor"
 fi
 if command -v restorecon >/dev/null && [ -n "$SUDO" ]; then
-  run sudo restorecon -F "$BIN_DEST" "$DESKTOP_DEST" "$ICON_DEST" "$UNIT_DEST"
+  run sudo restorecon -F "$BIN_DEST" "$DESKTOP_DEST" "$ICON_DEST" "$UNIT_DEST" "$INTENTS_DEST" "$SERVICE_DEST"
 fi
 if manager_present; then
   # --global: every user's graphical-session.target wants the unit, whichever session starts it.

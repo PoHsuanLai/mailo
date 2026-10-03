@@ -1,0 +1,641 @@
+//! The provider over a store, with no bus: what an action does, what it hands back to undo it,
+//! and what it labels as somebody else's words.
+
+use super::*;
+use crate::intents::wire::{Invocation, Output, Target};
+use chrono::{TimeZone, Utc};
+use mail_domain::*;
+use mail_runtime::MapSecrets;
+use mail_store::Store;
+
+const ACCOUNT: AccountId =
+    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+
+fn thread_of(n: u128) -> ThreadId {
+    ThreadId::from_uuid(uuid::Uuid::from_u128(0x7000 + n))
+}
+
+fn message(store: &SqliteStore, n: u128, subject: &str, body: &str) -> Message {
+    let raw = store
+        .blobs()
+        .put(&store.connection(), body.as_bytes())
+        .expect("blob");
+    Message {
+        id: MessageId::from_uuid(uuid::Uuid::from_u128(0x9000 + n)),
+        thread: thread_of(n),
+        account: ACCOUNT,
+        key: MessageKey::Rfc(format!("m{n}@b.c")),
+        date: Utc
+            .timestamp_opt(1_700_000_000 + n as i64 * 60, 0)
+            .single()
+            .expect("time"),
+        from: Address {
+            name: Some("Ada".to_owned()),
+            email: "ada@b.c".to_owned(),
+        },
+        reply_to: vec![],
+        to: vec![],
+        cc: vec![],
+        bcc: vec![],
+        subject: subject.to_owned(),
+        in_reply_to: None,
+        references: vec![],
+        rfc_message_id: Some(format!("m{n}@b.c")),
+        read: ReadState::Unread,
+        star: Star::Unstarred,
+        mailbox: MailboxRole::Inbox,
+        labels: vec![],
+        body: Body::Present {
+            text: Some(body.to_owned()),
+            raw,
+        },
+        attachments: vec![],
+    }
+}
+
+fn caps() -> AccountCaps {
+    AccountCaps {
+        labels: ServerLabels::Supported,
+        threads: ServerThreads::Jwz,
+        watch: WatchMode::Idle,
+        archive: ArchiveMeans::DropInbox,
+        folders: FolderRoles::default(),
+        condstore: Condstore::Supported,
+        move_ext: MoveExt::Supported,
+        expunge: ExpungeMeans::Forbidden,
+        top: Supported::Absent,
+        pipelining: Supported::Yes,
+        connections: ConnectionBudget::default(),
+        observed_at: Utc::now(),
+    }
+}
+
+/// A store with one account that can send, and three conversations in its inbox.
+pub(crate) fn world() -> (Provider, Arc<SqliteStore>, tempfile::TempDir) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let store = Arc::new(SqliteStore::in_memory(dir.path()).expect("sqlite"));
+    let manual = presets::Manual {
+        imap_host: "imap.nowhere.example".to_owned(),
+        imap_port: 993,
+        smtp_host: "smtp.nowhere.example".to_owned(),
+        smtp_port: 465,
+        login: None,
+    };
+    let preset = presets::manual("me@example.test", &manual, Utc::now());
+    {
+        let db = store.connection();
+        db.execute(
+            "INSERT INTO accounts (id, address, plan, created_at) VALUES (?1, ?2, ?3, datetime('now'))",
+            [
+                ACCOUNT.to_string(),
+                preset.plan.address.clone(),
+                serde_json::to_string(&preset.plan).expect("plan"),
+            ],
+        )
+        .expect("account");
+        db.execute(
+            "INSERT INTO identities (id, account, from_name, from_email, is_default)
+             VALUES (?1, ?2, NULL, 'me@example.test', '\"default\"')",
+            [IdentityId::generate().to_string(), ACCOUNT.to_string()],
+        )
+        .expect("identity");
+        db.execute(
+            "INSERT INTO account_caps (account, caps, observed_at) VALUES (?1, ?2, datetime('now'))",
+            rusqlite::params![ACCOUNT.to_string(), serde_json::to_string(&caps()).expect("caps")],
+        )
+        .expect("caps");
+    }
+    for (n, subject, body) in [
+        (1, "Lunch on Friday", "Shall we eat at noon?"),
+        (2, "Quarterly report", "The numbers are attached."),
+        (3, "Lunch menu", "Soup and bread."),
+    ] {
+        let upsert = Change::MessageUpsert(Box::new(message(&store, n, subject, body)));
+        store
+            .apply(
+                ACCOUNT,
+                &Patch {
+                    id: ChangeId::generate(),
+                    changes: vec![upsert],
+                },
+            )
+            .expect("apply");
+        // Where the server keeps it, so that what is done here has a server half to queue.
+        store
+            .connection()
+            .execute(
+                "INSERT INTO remote_map (account, mailbox, uidvalidity, uid, message)
+                 VALUES (?1, 'INBOX', 1, ?2, ?3)",
+                rusqlite::params![
+                    ACCOUNT.to_string(),
+                    n as u32,
+                    MessageId::from_uuid(uuid::Uuid::from_u128(0x9000 + n)).to_string()
+                ],
+            )
+            .expect("remote");
+    }
+    let provider = Provider::new(store.clone(), Arc::new(MapSecrets::default()));
+    (provider, store, dir)
+}
+
+fn id(kind: &str, key: impl std::fmt::Display) -> EntityId {
+    EntityId {
+        app: APP.to_owned(),
+        kind: kind.to_owned(),
+        key: key.to_string(),
+    }
+}
+
+fn threads(ns: &[u128]) -> Target {
+    Target::Entities(
+        ns.iter()
+            .map(|n| id("mail.thread", thread_of(*n).as_uuid()))
+            .collect(),
+    )
+}
+
+/// An invocation as the router sends it: `args` are `(name, value as JSON)`.
+fn call(action: &str, target: Target, args: &[(&str, serde_json::Value)]) -> Invocation {
+    let args: serde_json::Map<String, serde_json::Value> = args
+        .iter()
+        .map(|(name, value)| {
+            (
+                (*name).to_owned(),
+                serde_json::json!({ "value": value, "label": {} }),
+            )
+        })
+        .collect();
+    let target = match target {
+        Target::Entities(ids) => {
+            serde_json::json!({ "kind": "entities", "v": ids.iter().map(|i| serde_json::json!({"app": i.app, "kind": i.kind, "key": i.key})).collect::<Vec<_>>() })
+        }
+        _ => serde_json::json!({ "kind": "nothing" }),
+    };
+    serde_json::from_value(serde_json::json!({
+        "call": 1, "action": action, "target": target, "args": args, "space": "work",
+    }))
+    .expect("an invocation")
+}
+
+fn text(value: &str) -> serde_json::Value {
+    serde_json::json!({ "kind": "text", "v": value })
+}
+
+fn token_of(outcome: &Outcome) -> String {
+    match &outcome.undo {
+        Undoable::Yes(token) => token.clone(),
+        Undoable::No => panic!("no undo token: {outcome:?}"),
+    }
+}
+
+fn summary(store: &SqliteStore, n: u128) -> ThreadSummary {
+    store.thread(thread_of(n)).expect("thread").summary
+}
+
+#[test]
+fn archiving_takes_the_conversation_out_of_the_inbox_and_the_token_puts_it_back() {
+    let (provider, store, _dir) = world();
+    let outcome = provider
+        .perform(&call("mail.thread.archive", threads(&[1]), &[]))
+        .expect("archived");
+    assert_eq!(outcome.said.as_deref(), Some("Archived"));
+    assert!(
+        !summary(&store, 1).mailboxes.contains(MailboxRole::Inbox),
+        "still in the inbox"
+    );
+    assert!(
+        summary(&store, 2).mailboxes.contains(MailboxRole::Inbox),
+        "only the named one moves"
+    );
+    // The server is told too, as a click tells it.
+    let queued = store
+        .outbox_due(ACCOUNT, Utc::now() + chrono::TimeDelta::days(1))
+        .expect("outbox");
+    assert!(
+        queued.iter().any(|entry| matches!(
+            entry.op,
+            ProtoOp::SetLabels { .. } | ProtoOp::SetMailbox { .. }
+        )),
+        "nothing was queued for the server: {:?}",
+        queued.iter().map(|entry| &entry.op).collect::<Vec<_>>()
+    );
+
+    let token = token_of(&outcome);
+    assert_eq!(provider.undo(&token), Ok(()));
+    assert!(
+        summary(&store, 1).mailboxes.contains(MailboxRole::Inbox),
+        "not put back"
+    );
+    assert_eq!(
+        provider.undo(&token),
+        Err(UndoFault::Gone),
+        "a token is used once"
+    );
+}
+
+#[test]
+fn one_gesture_on_several_conversations_is_one_undo() {
+    let (provider, store, _dir) = world();
+    let outcome = provider
+        .perform(&call("mail.thread.star", threads(&[1, 3]), &[]))
+        .expect("starred");
+    assert_eq!(
+        outcome.said.as_deref(),
+        Some("Starred \u{b7} 2 conversations")
+    );
+    assert_eq!(summary(&store, 1).star, Star::Starred);
+    assert_eq!(summary(&store, 3).star, Star::Starred);
+    assert_eq!(summary(&store, 2).star, Star::Unstarred);
+    assert_eq!(provider.undo(&token_of(&outcome)), Ok(()));
+    assert_eq!(summary(&store, 1).star, Star::Unstarred);
+    assert_eq!(summary(&store, 3).star, Star::Unstarred);
+}
+
+#[test]
+fn unstarring_is_the_other_way_and_is_undone_the_same() {
+    let (provider, store, _dir) = world();
+    provider
+        .perform(&call("mail.thread.star", threads(&[2]), &[]))
+        .expect("starred");
+    let outcome = provider
+        .perform(&call("mail.thread.unstar", threads(&[2]), &[]))
+        .expect("unstarred");
+    assert_eq!(summary(&store, 2).star, Star::Unstarred);
+    assert_eq!(provider.undo(&token_of(&outcome)), Ok(()));
+    assert_eq!(summary(&store, 2).star, Star::Starred);
+}
+
+#[test]
+fn a_conversation_that_is_gone_refuses_before_anything_changes() {
+    let (provider, store, _dir) = world();
+    let gone = Target::Entities(vec![
+        id("mail.thread", thread_of(1).as_uuid()),
+        id("mail.thread", uuid::Uuid::from_u128(0xdead)),
+    ]);
+    let refused = provider.perform(&call("mail.thread.archive", gone, &[]));
+    assert!(
+        matches!(refused, Err(AppRefusal::NotFound(_))),
+        "{refused:?}"
+    );
+    assert!(
+        summary(&store, 1).mailboxes.contains(MailboxRole::Inbox),
+        "the first was changed"
+    );
+
+    let not_a_thread = Target::Entities(vec![id("mail.draft", uuid::Uuid::from_u128(1))]);
+    let refused = provider.perform(&call("mail.thread.archive", not_a_thread, &[]));
+    assert!(
+        matches!(refused, Err(AppRefusal::NotFound(_))),
+        "{refused:?}"
+    );
+}
+
+#[test]
+fn a_label_is_put_on_and_taken_off_by_name_and_only_when_it_exists() {
+    let (provider, store, _dir) = world();
+    let label = mail_domain::Label {
+        id: LabelId::generate(),
+        account: ACCOUNT,
+        name: "Work".to_owned(),
+        color: None,
+        origin: LabelOrigin::User,
+    };
+    store
+        .apply(
+            ACCOUNT,
+            &Patch {
+                id: ChangeId::generate(),
+                changes: vec![Change::LabelUpsert(label.clone())],
+            },
+        )
+        .expect("label");
+    let outcome = provider
+        .perform(&call(
+            "mail.thread.label",
+            threads(&[2]),
+            &[("label", text("work"))],
+        ))
+        .expect("labelled");
+    assert!(summary(&store, 2).labels.contains(&label.id));
+    assert_eq!(provider.undo(&token_of(&outcome)), Ok(()));
+    assert!(!summary(&store, 2).labels.contains(&label.id));
+
+    provider
+        .perform(&call(
+            "mail.thread.label",
+            threads(&[2]),
+            &[("label", text("Work"))],
+        ))
+        .expect("labelled again");
+    provider
+        .perform(&call(
+            "mail.thread.unlabel",
+            threads(&[2]),
+            &[("label", text("Work"))],
+        ))
+        .expect("unlabelled");
+    assert!(!summary(&store, 2).labels.contains(&label.id));
+
+    let unknown = provider.perform(&call(
+        "mail.thread.label",
+        threads(&[2]),
+        &[("label", text("Nope"))],
+    ));
+    assert!(matches!(unknown, Err(AppRefusal::Failed(_))), "{unknown:?}");
+    let missing = provider.perform(&call("mail.thread.label", threads(&[2]), &[]));
+    assert!(
+        matches!(missing, Err(AppRefusal::NeedsParam { ref param, .. }) if param == "label"),
+        "{missing:?}"
+    );
+}
+
+#[test]
+fn snoozing_sets_the_time_and_undo_brings_the_conversation_back() {
+    let (provider, store, _dir) = world();
+    let until = Utc::now().timestamp() + 3600;
+    let outcome = provider
+        .perform(&call(
+            "mail.thread.snooze",
+            threads(&[1]),
+            &[(
+                "until",
+                serde_json::json!({ "kind": "date_time", "v": until }),
+            )],
+        ))
+        .expect("snoozed");
+    assert!(
+        matches!(summary(&store, 1).snooze, Snooze::Until(at) if at.timestamp() == until),
+        "{:?}",
+        summary(&store, 1).snooze
+    );
+    assert_eq!(provider.undo(&token_of(&outcome)), Ok(()));
+    assert_eq!(summary(&store, 1).snooze, Snooze::Inactive);
+}
+
+#[test]
+fn a_search_finds_conversations_by_mailos_own_language() {
+    let (provider, _store, _dir) = world();
+    let hits = provider.search("lunch");
+    let subjects: Vec<&str> = hits
+        .iter()
+        .map(|hit| hit.entity.title.value.as_str())
+        .collect();
+    assert_eq!(hits.len(), 2, "{subjects:?}");
+    assert!(subjects.contains(&"Lunch on Friday") && subjects.contains(&"Lunch menu"));
+    let hit = &hits[0].entity;
+    assert_eq!(hit.id.kind, "mail.thread");
+    assert!(hit.id.key.parse::<uuid::Uuid>().is_ok());
+    // A subject is somebody else's words, and says so.
+    let json = serde_json::to_value(&hit.title).expect("json");
+    assert_eq!(json["label"]["integrity"], "untrusted");
+    assert_eq!(json["label"]["sources"][0]["kind"], "mail");
+
+    assert!(provider.search("zebra").is_empty());
+
+    let found = provider
+        .perform(&call(
+            "mail.thread.search",
+            Target::Nothing,
+            &[("query", text("report"))],
+        ))
+        .expect("searched");
+    assert_eq!(found.said.as_deref(), Some("Found 1 conversation"));
+    match found.value.expect("a value").value {
+        Output::Entities(ids) => assert_eq!(ids, vec![id("mail.thread", thread_of(2).as_uuid())]),
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(found.undo, Undoable::No);
+}
+
+#[test]
+fn reading_gives_the_words_as_untrusted_mail_private_to_the_space() {
+    let (provider, _store, _dir) = world();
+    let outcome = provider
+        .perform(&call("mail.thread.read", threads(&[2]), &[]))
+        .expect("read");
+    let value = outcome.value.expect("a value");
+    match &value.value {
+        Output::Text(text) => {
+            assert!(
+                text.contains("Quarterly report") && text.contains("The numbers are attached."),
+                "{text}"
+            );
+            assert!(text.contains("ada@b.c"));
+        }
+        other => panic!("{other:?}"),
+    }
+    let label = serde_json::to_value(&value).expect("json")["label"].clone();
+    assert_eq!(label["integrity"], "untrusted");
+    assert_eq!(
+        label["confidentiality"],
+        serde_json::json!({ "kind": "private", "v": ["work"] })
+    );
+    assert_eq!(label["classes"], serde_json::json!(["mail"]));
+    assert_eq!(outcome.undo, Undoable::No);
+}
+
+#[test]
+fn a_preview_is_the_subject_and_the_newest_messages() {
+    let (provider, _store, _dir) = world();
+    match provider.preview(&id("mail.thread", thread_of(1).as_uuid())) {
+        Preview::Thread { subject, messages } => {
+            assert_eq!(subject.value, "Lunch on Friday");
+            assert_eq!(messages.len(), 1);
+            assert_eq!(messages[0].snippet.value, "Shall we eat at noon?");
+        }
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(
+        provider.preview(&id("mail.thread", uuid::Uuid::from_u128(9))),
+        Preview::None
+    );
+}
+
+#[test]
+fn a_draft_is_saved_and_discarded_by_its_token() {
+    let (provider, store, _dir) = world();
+    let outcome = provider
+        .perform(&call(
+            "mail.draft.create",
+            Target::Nothing,
+            &[
+                ("to", text("ada@b.c, Bob <bob@b.c>")),
+                ("subject", text("Hello")),
+                ("body", text("Hi there")),
+            ],
+        ))
+        .expect("drafted");
+    let draft = match outcome.value.as_ref().expect("a value").value.clone() {
+        Output::Entities(ids) => ids[0]
+            .key
+            .parse::<uuid::Uuid>()
+            .map(DraftId::from_uuid)
+            .expect("a draft id"),
+        other => panic!("{other:?}"),
+    };
+    let stored = store.draft(draft).expect("saved");
+    assert_eq!(stored.subject, "Hello");
+    assert_eq!(stored.to.len(), 2);
+    assert!(stored.text.contains("Hi there"));
+    assert_eq!(
+        stored.state,
+        SendState::Editing,
+        "a draft is sent by nobody"
+    );
+
+    assert_eq!(provider.undo(&token_of(&outcome)), Ok(()));
+    assert!(store.draft(draft).is_err(), "the draft is still there");
+    assert_eq!(provider.undo(&token_of(&outcome)), Err(UndoFault::Gone));
+}
+
+fn no_drafts(store: &SqliteStore) -> bool {
+    store
+        .connection()
+        .query_row("SELECT COUNT(*) FROM drafts", [], |row| {
+            row.get::<_, i64>(0)
+        })
+        .expect("count")
+        == 0
+}
+
+fn sent_args() -> Vec<(&'static str, serde_json::Value)> {
+    vec![
+        ("to", text("ada@b.c")),
+        ("subject", text("Lunch?")),
+        ("body", text("Noon on Friday.")),
+    ]
+}
+
+#[test]
+fn a_send_is_queued_and_can_be_taken_back_to_a_draft_until_it_is_delivered() {
+    let (provider, store, _dir) = world();
+    let outcome = provider
+        .perform(&call("mail.message.send", Target::Nothing, &sent_args()))
+        .expect("queued");
+    assert_eq!(outcome.said.as_deref(), Some("Queued for delivery"));
+    let token = token_of(&outcome);
+    let draft = match Token::parse(&token) {
+        Some(Token::Unsend(draft)) => draft,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(store.draft(draft).expect("kept").state, SendState::Queued);
+    assert!(
+        store
+            .outbox_due(ACCOUNT, Utc::now() + chrono::TimeDelta::days(1))
+            .expect("outbox")
+            .iter()
+            .any(|entry| matches!(entry.op, ProtoOp::Submit { .. })),
+        "nothing waits in the outbox"
+    );
+
+    assert_eq!(provider.undo(&token), Ok(()));
+    assert_eq!(store.draft(draft).expect("kept").state, SendState::Editing);
+}
+
+#[test]
+fn what_a_send_would_send_is_shown_before_it_is() {
+    let (provider, store, _dir) = world();
+    let preview = provider
+        .dry_run(&call("mail.message.send", Target::Nothing, &sent_args()))
+        .expect("a preview");
+    match preview {
+        Preview::Message { to, subject, body } => {
+            assert_eq!(
+                to.iter().map(|t| t.value.as_str()).collect::<Vec<_>>(),
+                ["ada@b.c"]
+            );
+            assert_eq!(subject.value, "Lunch?");
+            assert_eq!(body.value, "Noon on Friday.");
+        }
+        other => panic!("{other:?}"),
+    }
+    assert!(no_drafts(&store), "a preview made a draft");
+}
+
+#[test]
+fn a_send_without_a_recipient_or_a_body_asks_for_them_and_leaves_nothing() {
+    let (provider, store, _dir) = world();
+    for (args, wanted) in [
+        (vec![("body", text("Hi"))], "to"),
+        (vec![("to", text("ada@b.c"))], "body"),
+    ] {
+        let refused = provider.perform(&call("mail.message.send", Target::Nothing, &args));
+        assert!(
+            matches!(refused, Err(AppRefusal::NeedsParam { ref param, .. }) if param == wanted),
+            "{refused:?}"
+        );
+    }
+    let bad = provider.perform(&call(
+        "mail.message.send",
+        Target::Nothing,
+        &[("to", text("not an address")), ("body", text("Hi"))],
+    ));
+    assert!(matches!(bad, Err(AppRefusal::Failed(_))), "{bad:?}");
+    assert!(no_drafts(&store), "a refused send left a draft");
+}
+
+#[test]
+fn the_sending_account_is_asked_for_when_there_is_a_choice() {
+    let (provider, store, _dir) = world();
+    let other = AccountId::generate();
+    {
+        let db = store.connection();
+        db.execute(
+            "INSERT INTO accounts (id, address, plan, created_at) VALUES (?1, 'two@example.test', '{}', datetime('now'))",
+            [other.to_string()],
+        )
+        .expect("account");
+    }
+    let refused = provider.perform(&call("mail.message.send", Target::Nothing, &sent_args()));
+    assert!(
+        matches!(refused, Err(AppRefusal::NeedsParam { ref param, .. }) if param == "from"),
+        "{refused:?}"
+    );
+    let mut named = sent_args();
+    named.push(("from", text("nobody@example.test")));
+    let refused = provider.perform(&call("mail.message.send", Target::Nothing, &named));
+    assert!(matches!(refused, Err(AppRefusal::Failed(_))), "{refused:?}");
+}
+
+#[test]
+fn what_is_not_ours_is_refused_in_words_the_router_reads() {
+    let (provider, _store, _dir) = world();
+    let refused = provider.perform(&call("mail.thread.delete", threads(&[1]), &[]));
+    assert_eq!(refused, Err(AppRefusal::Unsupported));
+    for token in [
+        "",
+        "stack-x",
+        "stack-999",
+        "discard-nope",
+        "unsend-",
+        "other-1",
+        "stack",
+    ] {
+        assert_eq!(provider.undo(token), Err(UndoFault::Gone), "{token:?}");
+    }
+    assert_eq!(
+        provider.dry_run(&call("mail.thread.archive", threads(&[1]), &[])),
+        Ok(Preview::None)
+    );
+    assert!(
+        provider
+            .suggest(&SuggestAsk {
+                action: crate::intents::wire::ActionRef {
+                    app: APP.to_owned(),
+                    name: "mail.thread.label".to_owned()
+                },
+                param: "label".to_owned(),
+                typed: String::new(),
+            })
+            .is_empty()
+    );
+}
+
+#[test]
+fn a_window_less_provider_is_looking_at_nothing() {
+    let (provider, _store, _dir) = world();
+    let json = serde_json::to_value(provider.context()).expect("json");
+    assert_eq!(json["app"], APP);
+    assert_eq!(json["here"], serde_json::json!({ "kind": "nowhere" }));
+    assert_eq!(json["privacy"], "private");
+}
