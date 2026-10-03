@@ -12,11 +12,12 @@
 //! - **The watch does not hear its own pass as news.** Until a pass has stored what the wake was
 //!   about, waiting again would be told about it again; [`mail_core::sync::live::Hold`] is how
 //!   the runner says a pass has ended.
-//! - **Not both a daemon and a window.** When the background daemon holds the lock
-//!   ([`Daemon::Holding`]) the window does not watch: two connections to one server for one
-//!   account is what the lock exists to prevent. The window then polls on its timer as an
-//!   account without push does. Today's daemon only syncs on request and holds no `IDLE` of its
-//!   own, so this is a rule about who may watch rather than a promise that someone does.
+//! - **Not both a daemon and a window.** When the background daemon holds the lock, or a
+//!   `mailo watch` runs ([`Daemon::Holding`]), the window does not watch: two connections to one
+//!   server for one account is what the lock exists to prevent. With a `mailo watch` the window
+//!   leaves scheduled fetching to it altogether (`super::delegate`); with only the daemon, which
+//!   syncs on request and holds no `IDLE` of its own, it polls on its timer as an account
+//!   without push does.
 
 use super::Note;
 use mail_core::fetch::{self, BACKOFF_CEILING, Event, Link, Live, RETRY_NOW, Trigger};
@@ -85,6 +86,9 @@ impl Listener {
                 // moment later is noticed the next time a link rests or the accounts change.
                 match mail_core::ipc::agent() {
                     Ok(agent) if agent.is_running() => Daemon::Holding,
+                    // A `mailo watch` is the one that holds the connection, and the window
+                    // leaves scheduled fetching to it (`super::delegate`).
+                    _ if mail_core::ipc::watching::running() => Daemon::Holding,
                     _ => Daemon::Absent,
                 }
             }),

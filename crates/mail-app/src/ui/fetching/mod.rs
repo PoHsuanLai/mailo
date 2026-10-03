@@ -7,6 +7,8 @@
 //! [`mail_core::fetch::step`] and does what it asks (a pass, a cancel, a timer). What the screen
 //! says is derived from the links and not stored: see [`Fetching::status`].
 
+mod delegate;
+mod external;
 mod face;
 mod folder;
 mod line;
@@ -33,6 +35,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
+pub(in crate::ui) use delegate::Delegate;
 pub(in crate::ui) use face::{CANNOT_LOAD, FIRST_SYNC, HasRows, ListFace, list_face};
 pub(in crate::ui) use folder::opened;
 pub(in crate::ui) use line::{AccountLine, Remedy, Standing, account_line};
@@ -179,6 +182,8 @@ pub(in crate::ui) fn use_fetching(revision: Signal<u64>) -> Fetching {
         let store = store.clone();
         move || start::initial(&store, &accounts.peek(), Utc::now())
     });
+    let delegate = try_consume_context::<Delegate>().unwrap_or_else(Delegate::server);
+    external::use_external_changes(revision, store.clone());
     let ops = use_signal(BTreeMap::new);
     let folders = use_signal(BTreeMap::new);
     let channel = use_hook(|| {
@@ -207,6 +212,7 @@ pub(in crate::ui) fn use_fetching(revision: Signal<u64>) -> Fetching {
             tx: tx.peek().clone(),
             store: store.clone(),
             passer: try_consume_context::<Passer>().unwrap_or_else(Passer::server),
+            delegate: delegate.clone(),
             every: accounts.peek().iter().copied().collect(),
         };
         async move {

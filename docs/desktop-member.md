@@ -85,11 +85,27 @@ keyring (`mail-runtime/src/secrets.rs`, compiled out of release builds).
 - `d-daemon-survives.sh`: the window closes; the daemon and the badge carry on.
 - `all.sh` runs them in turn.
 
-## Known overlap
+## Who fetches when a watch runs
 
-The window runs sync passes of its own beside the watch's. Two writers on one SQLite file usually
-wait for each other (`busy_timeout` is five seconds), but a scenario run once saw the watch's pass
-end with `database is locked` while a window started, and recover on the next. Where a watch runs
-the window should leave scheduled fetching to it (`mail_core::ipc::watching::running`) and keep
-only the manual refresh; that is a change to the window's fetching state machine
-(`ui/fetching`), not made here.
+The window and the watch would be two writers on one SQLite file, and two writers sometimes end a
+pass with `database is locked` (`busy_timeout` is five seconds). So where a watch runs
+(`mail_core::ipc::watching::running`, asked each time, since a watch may start or stop while a window
+is open) the window leaves scheduled fetching to it and keeps only what a person asks for
+(`ui/fetching/delegate.rs`):
+
+| Event | With a watch | Without |
+| --- | --- | --- |
+| a poll or a timer's wake | not run; asked again one interval later | run |
+| a push from the server | dropped; the window holds no IDLE connection of its own | run |
+| Sync, a folder opened, a send that came due, signing in again | run | run |
+| an account that has never fetched anything | run | run |
+
+The last row is the watch's blind spot: it reads its accounts when it starts, so an account made
+since is the window's to fetch the first time. A watch that stops hands fetching back within one
+interval, because the deferred poll is asked again and then runs.
+
+The mail the watch stores is not the window's doing. The window looks every two seconds at whether
+another connection has committed to the store (`SqliteStore::data_version`, SQLite's
+`PRAGMA data_version`, which its own writes do not move) and moves its revision when one has, so a
+list redraws when the watchwrote.
+

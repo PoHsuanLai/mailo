@@ -6,6 +6,7 @@
 //! the state and this is the only thing that moves it, so there is no second place where
 //! "is it syncing" is decided.
 
+use super::delegate::{Verdict, verdict};
 use super::live::{Action, Listener, Lives, Rerun, Wiring};
 use super::pass::{Generations, Running, run as run_pass};
 use super::{Note, start};
@@ -43,6 +44,7 @@ pub(super) struct Runner {
     pub tx: UnboundedSender<Note>,
     pub store: Arc<SqliteStore>,
     pub passer: super::pass::Passer,
+    pub delegate: super::delegate::Delegate,
     pub every: BTreeMap<AccountId, Duration>,
 }
 
@@ -114,6 +116,19 @@ impl Runner {
         let Some(link) = self.links.peek().get(&account).cloned() else {
             return;
         };
+        // Where a `mailo watch` runs, the timers and the server's pushes are its to answer.
+        match verdict(self.delegate.schedule(), &link, &event) {
+            Verdict::Run => {}
+            Verdict::Defer => {
+                self.defer(held, account);
+                self.watch(held, account, &link);
+                return;
+            }
+            Verdict::Drop => {
+                self.watch(held, account, &link);
+                return;
+            }
+        }
         // What the live watch says about being connected is remembered whatever the link is
         // doing, because a link that is not current has nothing to apply it to yet.
         if let Event::Live(live) = &event
@@ -136,6 +151,21 @@ impl Runner {
             self.effect(held, account, effect, now);
         }
         self.after(held, account, &link, &next, &event);
+    }
+
+    /// A poll or wake that was left to a watch is asked again in an interval, when the watch may
+    /// be gone. One ask at a time: a later one replaces it.
+    fn defer(&mut self, held: &mut Held, account: AccountId) {
+        let generation = held.wakes.next(account);
+        let wakes = held.wakes.clone();
+        let tx = self.tx.clone();
+        let wait = self.every(account);
+        spawn(async move {
+            tokio::time::sleep(wait).await;
+            if wakes.current(account, generation) {
+                let _ = tx.send(Note::Event(account, Event::Start(Trigger::Poll)));
+            }
+        });
     }
 
     /// What a step sets going besides its effects: the live watch, and a start that was waiting.
