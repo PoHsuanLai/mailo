@@ -26,6 +26,7 @@
 
 pub mod client;
 pub mod daemon;
+pub mod watching;
 pub mod wire;
 
 /// This user's mailo daemon, wherever this platform puts such a thing.

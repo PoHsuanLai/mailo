@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Name=Mailo
+GenericName=Mail Client
+Comment=Read and send mail
+# The app id the window sets (`APP_ID` in `ui/launch/native.rs`) is `mailo`, the name of this file,
+# so a launcher, a dock and a banner match the window and the notifications to this entry.
+Exec=/usr/local/bin/mailo %u
+Icon=mailo
+Terminal=false
+Categories=Network;Email;
+MimeType=x-scheme-handler/mailto;
+Keywords=mail;email;imap;pop3;smtp;
+StartupNotify=true
+StartupWMClass=mailo

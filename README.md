@@ -92,6 +92,25 @@ The Flatpak (`packaging/flatpak/`) has the network, the display, the GPU, the ke
 notifications, and no files outside its own: attachments, import and export go through the
 desktop's file chooser.
 
+**On a desktop that runs the session (sill's, or any with a systemd user session),** from a checkout:
+
+```sh
+dist/install.sh --dry-run      # prints every step and changes nothing, not even the build
+dist/install.sh                # builds in release, installs to /usr/local and /etc/systemd/user
+dist/uninstall.sh              # takes it all out again; your mail and settings stay
+```
+
+That puts `mailo`, its desktop entry (`mailo.desktop`, whose id is the window's `app_id`) and icon
+under `/usr/local`, and `mailo-watch.service` into `/etc/systemd/user`, enabled for
+`graphical-session.target`. The unit runs `mailo watch` from login in any session, window or no
+window: it fetches mail for every account, raises a freedesktop notification for each arrival
+(app name `mailo`, icon `mailo`; a click opens that message, handing the window the activation
+token the notification server minted), and keeps the unread count on the launcher entry
+(`com.canonical.Unity.LauncherEntry`). Do Not Disturb is the notification server's: mailo posts
+ordinary notifications and the server withholds the banner and keeps the record. The look of the
+window is the desktop's, `quire/appearance.toml`, followed live; mailo keeps no appearance file.
+`docs/desktop-member.md` says how the pieces fit.
+
 **By hand**, into your home directory:
 
 ```sh
@@ -137,7 +156,8 @@ Print hands a PDF, made by quire, to the system's print dialog (the desktop port
 installs): the print tests check which regional face Chinese, Japanese and Korean mail is set in.
 
 The window draws with [quire](https://github.com/PoHsuanLai/quire), the shared design system,
-at tag v0.2.2. `crates/mail-app` depends on that tagged release from GitHub, so a plain clone of
+at tag v0.2.3 (and builds against quire master with a local `[patch]`, see `.cargo/config.toml` in
+`docs/desktop-member.md`). `crates/mail-app` depends on that tagged release from GitHub, so a plain clone of
 mailo builds on its own. `docs/quire-0.2-upgrade.md` says everything about the move.
 
 ## macOS and Windows

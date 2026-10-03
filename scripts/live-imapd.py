@@ -1,4 +1,5 @@
 """A real IMAP4rev1 server (Twisted), to check what this client puts on the wire."""
+import os
 import sys
 from io import BytesIO
 from zope.interface import implementer
@@ -109,6 +110,20 @@ def _extra():
     return out
 
 
+# Who is waiting in IDLE, so a message dropped into $MAILO_EXTRA_MAIL while they wait is pushed to
+# them as `* N EXISTS` instead of found on their next poll (`dev/scenarios` waits on that push).
+LISTENERS = []
+
+
+def _push_new_mail():
+    """Tell every IDLE listener about messages that have appeared since it last looked."""
+    count = len(MESSAGES) + len(_extra())
+    for mailbox, listener in list(LISTENERS):
+        if getattr(listener, "_mailo_seen", len(mailbox.messages)) != count:
+            listener._mailo_seen = count
+            listener.newMessages(count, None)
+
+
 @implementer(imap4.IMailbox)
 class Mailbox:
     def __init__(self):
@@ -124,8 +139,9 @@ class Mailbox:
     def destroy(self): pass
     def getHierarchicalDelimiter(self): return "/"
     def getFlags(self): return ["\\Seen", "\\Flagged", "\\Deleted", "\\Draft"]
-    def addListener(self, listener): pass
-    def removeListener(self, listener): pass
+    def addListener(self, listener): LISTENERS.append((self, listener))
+    def removeListener(self, listener):
+        LISTENERS[:] = [(m, l) for m, l in LISTENERS if l is not listener]
     def requestStatus(self, names): return imap4.statusRequestHelper(self, names)
     def fetch(self, msgset, uid):
         # Twisted hands the raw MessageSet through and expects the *mailbox* to say what `*`
@@ -176,5 +192,8 @@ checker.addUser(b"ada@example.test", b"s3cr3t-pass")
 p = portal.Portal(Realm())
 p.registerChecker(checker)
 reactor.listenTCP(int(sys.argv[1]), Factory(p), interface="127.0.0.1")
+if os.environ.get("MAILO_EXTRA_MAIL"):
+    from twisted.internet import task
+    task.LoopingCall(_push_new_mail).start(0.5, now=False)
 print("READY", flush=True)
 reactor.run()

@@ -444,3 +444,43 @@ fn an_archive_in_the_window_reaches_the_main_list_and_its_own_ctrl_z_takes_it_ba
     settle_until(&mut window, |h| h.count(".left-note") == 0);
     settle_until(&mut main, |h| h.count(".list .ds-thread") == INBOX.len());
 }
+
+/// A banner's click, or `mailo open` from a terminal, reaches the running window over the session
+/// bus as a request (`ui/handoff`); here the bus is left out and the request is pushed straight
+/// into the window's queue, and the window opens that conversation in a window of its own.
+#[cfg(not(any(target_os = "macos", windows)))]
+#[test]
+fn a_request_from_outside_opens_the_conversation_in_a_window_of_its_own() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = seeded(dir.path());
+    let (requests, queue) = mail_app::ui::native::Requests::local();
+    let recorder = Arc::new(Recorder::default());
+    let windows: Arc<dyn OpenWindow> = recorder.clone();
+    let config = HarnessConfig::new(VIEW)
+        .with_net(NetPolicy::Local)
+        .with_clock(Clock::Virtual)
+        .with_contexts(
+            window_contexts(&store, &Revisions::new())
+                .with(Windows(windows))
+                .with(requests),
+        );
+    let mut harness = Harness::new(mail_app::ui::native::root, config);
+    harness.advance(ms(300));
+    settle_until(&mut harness, |h| h.count(".list .ds-thread") == INBOX.len());
+    assert!(recorder.asked().is_empty(), "nothing asked yet");
+
+    let invoice = thread(&store, INBOX[1].1).id;
+    queue
+        .send(mail_app::ui::native::Request::Thread(invoice))
+        .unwrap();
+    settle_until(&mut harness, |_| !recorder.asked().is_empty());
+    let asked = recorder.asked();
+    assert_eq!(asked.len(), 1, "{asked:?}");
+    assert_eq!(asked[0].thread, invoice);
+    assert!(asked[0].title.contains(INBOX[1].1), "{:?}", asked[0].title);
+
+    // A request to show the window itself opens nothing.
+    queue.send(mail_app::ui::native::Request::Activate).unwrap();
+    harness.advance(ms(300));
+    assert_eq!(recorder.asked().len(), 1);
+}

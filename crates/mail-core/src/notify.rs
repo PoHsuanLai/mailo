@@ -10,6 +10,8 @@
 //! header, so "is this still unread, is it still in the inbox" is the store's current answer and
 //! not the one the header fetch built.
 
+#[cfg(all(unix, not(target_os = "macos")))]
+pub mod click;
 pub mod desktop;
 pub mod floor;
 

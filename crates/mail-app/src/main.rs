@@ -18,6 +18,19 @@ fn main() {
         }
         None => None,
     };
+    // `mailo open <thread>` while a window is running hands the conversation to it and ends: a
+    // banner's click, or the person at a terminal, opens it where they are already reading. The
+    // click's activation token travels with it. No window running (or no bus) is the ordinary
+    // start below.
+    if let Some(mail_app::ui::Start::Thread(thread)) = &start
+        && mailto.is_none()
+        && mail_app::ui::handoff::deliver(
+            *thread,
+            std::env::var("XDG_ACTIVATION_TOKEN").ok().as_deref(),
+        )
+    {
+        return;
+    }
     let command = if start.is_some() {
         None
     } else {
@@ -451,6 +464,29 @@ fn main() {
                 .map(mail_core::notify::load)
                 .unwrap_or_default(),
         };
+        // One watch per user: a second would announce every message twice. A unit that starts
+        // while one runs by hand ends quietly (exit 0), so systemd does not restart it in a loop.
+        let _watching = match mail_core::ipc::watching::claim() {
+            Ok(held) => held,
+            Err(mail_core::ipc::watching::Refused::AlreadyWatching) => {
+                println!("a mailo watch is already running; leaving it to it");
+                return;
+            }
+            Err(mail_core::ipc::watching::Refused::Failed(why)) => {
+                eprintln!("cannot tell whether a mailo watch is running: {why}");
+                std::process::exit(1);
+            }
+        };
+        // The unread count on the launcher, kept up whether or not a window is open.
+        if let Some(launcher) = mail_app::ui::launcher::platform()
+            && let Err(e) = mail_app::session::keep_the_badge(
+                store.clone(),
+                launcher.0,
+                mail_app::session::EVERY,
+            )
+        {
+            eprintln!("the launcher's unread count is off: {e}");
+        }
         println!("watching. Ctrl-C to stop.");
         // Said as it happens, and flushed: a watch is read by someone waiting on it.
         let say = |watched: mail_core::sync::report::Watched| {
@@ -493,12 +529,13 @@ fn main() {
                 .as_deref()
                 .map(mail_app::ui::appearance::legacy)
                 .unwrap_or_default();
-            // quire's `appearance.toml`, imported from `appearance.json` on the first run after
-            // the move. The window's `use_environment` reads and watches it from then on, and
-            // does not import by itself.
-            // quire keeps it by its own rule, which is `config` only on Linux.
-            if let Some(dir) = mail_app::ui::appearance::quire_dir() {
-                mail_app::ui::appearance::quire(&dir);
+            // The look is the desktop's (`quire/appearance.toml`), which the window follows live.
+            // What mailo kept for itself is brought over once, when the desktop has none, and
+            // never written again.
+            if let (Some(from), Some(to)) =
+                (config.as_deref(), mail_app::ui::appearance::desktop_dir())
+            {
+                mail_app::ui::appearance::adopt(from, &to);
             }
             let ids = account_ids(&store);
             let spaces = match &config {
