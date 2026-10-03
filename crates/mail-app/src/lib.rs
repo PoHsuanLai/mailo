@@ -6,4 +6,5 @@
 //! (`main.rs`) is the router between them.
 
 pub mod cli;
+pub mod session;
 pub mod ui;

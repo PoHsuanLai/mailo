@@ -56,23 +56,53 @@ pub fn run(
     native::run(opening);
 }
 
+/// Where the launched window reads the desktop's appearance from: the person's own
+/// (`ConfigRoot::Xdg`, the settings portal), or, in a test, a scratch directory and fixed
+/// preferences. A root context; a window without one reads the person's.
+#[derive(Debug, Clone)]
+pub struct DesktopSettings {
+    pub root: ConfigRoot,
+    pub prefs: SystemPrefsSource,
+}
+
+impl Default for DesktopSettings {
+    fn default() -> Self {
+        DesktopSettings {
+            root: ConfigRoot::Xdg,
+            prefs: SystemPrefsSource::Portal,
+        }
+    }
+}
+
+impl DesktopSettings {
+    /// The settings in force for this window: its context, else the person's.
+    pub(in crate::ui) fn current() -> Self {
+        try_consume_context::<DesktopSettings>().unwrap_or_default()
+    }
+
+    /// The desktop's one store, `quire/` in the config root, which the shell and detent read
+    /// and write too. mailo keeps no appearance file of its own.
+    pub(in crate::ui) fn store(&self) -> Store {
+        Store::new(self.root.clone(), AppName::QUIRE)
+    }
+}
+
 /// The launched window's root: the window's settings, then [`Shell`].
 ///
-/// The settings are quire's: `appearance.toml` and the desktop's preferences, both watched, as
-/// one signal `App`'s root reads (`ds_settings::use_environment`), and the person's own
-/// `style.css`, watched the same way and drawn after quire's and mailo's sheets (CONSUMING.md
-/// section 12). `main` imported `appearance.json` into the TOML file before the window opened.
-/// Only the launched window watches; a test renders `App` (or [`Shell`]) without this and never
-/// touches the real config directory.
+/// The settings are the desktop's, quire's (`quire/appearance.toml`, the same store the shell
+/// and detent use) and the desktop's preferences, both watched, as one signal `App`'s root
+/// reads (`ds_settings::use_environment`), so a theme, accent or motion change restyles this
+/// window while it runs; and the person's own `style.css`, watched the same way and drawn after
+/// quire's and mailo's sheets (CONSUMING.md section 12). `main` migrated mailo's old appearance
+/// file into the desktop's before the window opened (`appearance::adopt`). Only the launched
+/// window watches; a test renders `App` (or [`Shell`]) without this and never touches the real
+/// config directory.
 #[component]
-fn ShellRoot() -> Element {
-    let store = Store::new(ConfigRoot::Xdg, AppName::MAILO);
+pub(super) fn ShellRoot() -> Element {
+    let settings = DesktopSettings::current();
+    let store = settings.store();
     let spawner: Arc<dyn Spawner> = Arc::new(ds_blitz::TokioSpawner::current());
-    let environment = use_environment(
-        store.clone(),
-        SystemPrefsSource::Portal,
-        Arc::clone(&spawner),
-    );
+    let environment = use_environment(store.clone(), settings.prefs.clone(), Arc::clone(&spawner));
     use_context_provider(|| environment);
     let mut user_style = use_signal({
         let store = store.clone();

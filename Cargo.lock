@@ -4462,6 +4462,7 @@ dependencies = [
  "url",
  "uuid",
  "x509-cert",
+ "zbus",
  "zeroize",
 ]
 

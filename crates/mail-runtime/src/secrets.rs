@@ -84,6 +84,10 @@ impl Keyring {
 
 impl Slots for Keyring {
     fn read(&self, name: &str) -> Result<Option<String>, RuntimeError> {
+        #[cfg(debug_assertions)]
+        if let Some(dir) = scenario::dir() {
+            return scenario::read(&dir, name);
+        }
         match Keyring::entry(name)?.get_password() {
             Ok(value) => Ok(Some(value)),
             Err(keyring_core::Error::NoEntry) => Ok(None),
@@ -92,14 +96,67 @@ impl Slots for Keyring {
     }
 
     fn write(&self, name: &str, value: &str) -> Result<(), RuntimeError> {
+        #[cfg(debug_assertions)]
+        if let Some(dir) = scenario::dir() {
+            return scenario::write(&dir, name, value);
+        }
         Keyring::entry(name)?.set_password(value).map_err(refused)
     }
 
     fn delete(&self, name: &str) -> Result<(), RuntimeError> {
+        #[cfg(debug_assertions)]
+        if let Some(dir) = scenario::dir() {
+            return scenario::delete(&dir, name);
+        }
         match Keyring::entry(name)?.delete_credential() {
             // Already gone is the state we wanted.
             Ok(()) | Err(keyring_core::Error::NoEntry) => Ok(()),
             Err(e) => Err(refused(e)),
+        }
+    }
+}
+
+/// A directory of plain files standing in for the keyring, in debug builds only.
+///
+/// `dev/scenarios` runs the real `mailo watch` on a private bus with no Secret Service on it, and
+/// must never reach the person's keyring; `MAILO_TEST_SECRETS_DIR` names a scratch directory and
+/// each credential is a file in it. Compiled out of a release build, like sill's `--fake-ddc`: a
+/// binary a person installs has no way to keep a password in a file.
+#[cfg(debug_assertions)]
+mod scenario {
+    use crate::RuntimeError;
+    use std::path::{Path, PathBuf};
+
+    pub(super) fn dir() -> Option<PathBuf> {
+        std::env::var_os("MAILO_TEST_SECRETS_DIR").map(PathBuf::from)
+    }
+
+    fn file(dir: &Path, name: &str) -> PathBuf {
+        dir.join(name.replace([':', '#', '/'], "_"))
+    }
+
+    fn failed(e: std::io::Error) -> RuntimeError {
+        RuntimeError::Secrets(format!("the scenario secrets directory: {e}"))
+    }
+
+    pub(super) fn read(dir: &Path, name: &str) -> Result<Option<String>, RuntimeError> {
+        match std::fs::read_to_string(file(dir, name)) {
+            Ok(value) => Ok(Some(value)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(failed(e)),
+        }
+    }
+
+    pub(super) fn write(dir: &Path, name: &str, value: &str) -> Result<(), RuntimeError> {
+        std::fs::create_dir_all(dir).map_err(failed)?;
+        std::fs::write(file(dir, name), value).map_err(failed)
+    }
+
+    pub(super) fn delete(dir: &Path, name: &str) -> Result<(), RuntimeError> {
+        match std::fs::remove_file(file(dir, name)) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(failed(e)),
         }
     }
 }

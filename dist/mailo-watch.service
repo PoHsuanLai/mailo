@@ -1,0 +1,29 @@
+# mailo's sync daemon as a systemd user service: `mailo watch` fetches mail for every account for
+# as long as the session lasts, announces what arrives through the desktop's notification server
+# (org.freedesktop.Notifications) and keeps the unread count on the launcher entry
+# (com.canonical.Unity.LauncherEntry). It works in any session that reaches
+# graphical-session.target, with the window open or not, and needs no knowledge of mailo from the
+# shell. `mailo watch` takes a per-user lock and exits 0 when one is already running, so this unit
+# and a watch started by hand never announce twice.
+#
+# Installed by dist/install.sh into /etc/systemd/user and enabled globally; dist/uninstall.sh
+# disables it.
+[Unit]
+Description=mailo mail sync (new-mail banners and the unread count)
+Documentation=https://github.com/PoHsuanLai/mailo
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/mailo watch
+# A watch ends for good only when every account has stopped for a reason retrying cannot fix (a
+# refused sign-in). Anything else that ends it is worth a retry after a pause.
+Restart=on-failure
+RestartSec=10
+# A mail client's background half should not compete with the foreground.
+Nice=5
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=graphical-session.target

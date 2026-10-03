@@ -8,6 +8,7 @@ pub mod appearance;
 pub mod bin;
 pub mod editor;
 pub mod emoji;
+pub mod handoff;
 pub mod keymap;
 pub mod launcher;
 pub mod saved;
@@ -90,7 +91,9 @@ pub mod native {
     pub use super::clock::WallClock;
     pub use super::compose::Dictionaries;
     pub use super::follow_up::Notices;
-    pub use super::launch::native::{contexts, root};
+    pub use super::handoff::{Request, Requests};
+    pub use super::launch::DesktopSettings;
+    pub use super::launch::native::{contexts, live_root, root};
     pub use super::original::{Browse, Consent, Fetch, FetchImage, Got, Original};
     pub use super::print::Printer;
     pub use super::reading::OriginalFrame;

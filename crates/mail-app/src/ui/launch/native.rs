@@ -65,9 +65,16 @@ pub(super) fn run(opening: Opening) {
         None => config,
     };
     // The unread count on the dock or the Dash. Only the launched window has one; a test hands
-    // its own recorder or none.
+    // its own recorder or none. With a `mailo watch` running (the session's sync daemon) the
+    // watch is the one voice: it counts every account, and it keeps the count when this window
+    // closes, which a dock would otherwise forget along with this window's connection.
     let config = match crate::ui::launcher::platform() {
-        Some(launcher) => config.with_context(launcher),
+        Some(launcher) if !mail_core::ipc::watching::running() => config.with_context(launcher),
+        _ => config,
+    };
+    // Another program's ask to open a conversation here (a banner's click, `mailo open`).
+    let config = match crate::ui::handoff::serve() {
+        Some(requests) => config.with_context(requests),
         None => config,
     };
     // A reminder that comes back is said on the desktop too, while notifications are on: the
@@ -102,6 +109,13 @@ pub fn contexts(
         Some(dirs) => contexts.with(dirs),
         None => contexts,
     }
+}
+
+/// The launched window's root, with its watch on the desktop's settings, for a test that changes
+/// them: hand it a [`super::DesktopSettings`] naming a scratch directory and fixed preferences
+/// beside [`contexts`], so it never reads or watches the real `~/.config` or the session bus.
+pub fn live_root() -> Element {
+    rsx! { super::ShellRoot {} }
 }
 
 /// The window as a test drives it: everything the launched window draws, but not its watch on

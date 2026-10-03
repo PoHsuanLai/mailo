@@ -67,6 +67,13 @@ rand = "0.8"
 # names (`docs/workspace-deps.toml` at v0.2.2), so the tree holds one pdfrum.
 pdfrum = { git = "https://github.com/PoHsuanLai/pdfrum", rev = "8c7faadc3f858a005bbd03f564cdeb49fca63aeb", default-features = false, features = ["vello-cpu"] }
 
+# The notification server's `ActivationToken`, `ActionInvoked` and `NotificationClosed` signals
+# (`notify/click.rs`), which `notify-rust` does not surface. Blocking, on a thread of its own, and
+# without the `tokio` feature, as everywhere in this tree (CONSUMING.md section 1). Already in the
+# lock through notify-rust, at this version and with these (its default) features. MIT.
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+zbus = "5.19"
+
 # A passphrase asked on the Windows console with echo off (`pgp/mod.rs`, `ask_tty`), where there is
 # no `/dev/tty` and no `stty` to do it with. Apache-2.0.
 [target.'cfg(windows)'.dependencies]
