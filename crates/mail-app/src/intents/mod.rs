@@ -35,5 +35,5 @@ pub const ROUTER: &str = "org.quire.Intents1";
 /// The manifest, as installed under `$XDG_DATA_DIRS/quire/intents/`.
 pub const MANIFEST: &str = include_str!("../../../../dist/intents/org.quire.Mail.toml");
 
-#[cfg(test)]
+#[cfg(all(test, not(any(target_os = "macos", windows))))]
 mod tests;
