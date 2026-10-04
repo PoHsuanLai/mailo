@@ -6,12 +6,10 @@
 //! password — and the sheet says so, with the command.
 
 pub(in crate::ui) mod book;
-mod card;
 mod group_rows;
 pub(in crate::ui) mod groups;
 mod sheet;
 
-pub(in crate::ui) use card::ContactPart;
 pub(in crate::ui) use sheet::ContactsSheet;
 
 use crate::ui::view::Shell;

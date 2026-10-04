@@ -5,7 +5,7 @@
 use super::head::{Confirm, Phase};
 use super::{Ask, Offer, archive_from, ask, leave, looked_at, offer_of};
 use crate::ui::app::App;
-use crate::ui::fixtures::{ACCOUNT, FakePointer, dispatching, pointer, rebuild_into, seeded};
+use crate::ui::fixtures::{ACCOUNT, dispatching, rebuild_into, seeded};
 use crate::ui::reading::Reader;
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
@@ -358,35 +358,15 @@ fn archive_all_takes_the_senders_inbox_and_nothing_else() {
 }
 
 #[tokio::test]
-async fn neither_the_list_nor_a_hover_card_reads_a_list_header() {
-    // The lookup reads a stored blob. The list draws many rows and the hover card opens on any
-    // of them; neither may reach it. Only the open reader does.
+async fn the_list_does_not_read_a_list_header() {
+    // The lookup reads a stored blob. The list draws rows; it may not reach it. Only the open reader does.
     dispatching();
     let (store, _dir) = seeded();
     let thread = put(&store, "weekly@rust.test", MAILTO, Held::Body);
     let mut dom = VirtualDom::new(App).with_root_context(store.clone());
-    let seen = rebuild_into(&mut dom);
-    let row = seen.row_parts(&format!("thread:{thread}")).row;
-    let resting = || FakePointer {
-        client: (400.0, 120.0),
-        offset: (10.0, 10.0),
-        held: false,
-    };
-    pointer(&mut dom, "pointerenter", row, resting());
-    pointer(&mut dom, "pointerover", row, resting());
-    settle(
-        &mut dom,
-        ds::style::tokens::delay::DelayToken::CardOpen.delay() + Duration::from_millis(250),
-    )
-    .await;
-    assert!(
-        dioxus_ssr::render(&dom).contains("role=\"tooltip\""),
-        "no hover card opened"
-    );
-    assert!(
-        !looked_at(thread),
-        "the list or its hover card read a list header"
-    );
+    let _seen = rebuild_into(&mut dom);
+    settle(&mut dom, Duration::from_millis(50)).await;
+    assert!(!looked_at(thread), "the list read a list header");
 
     let (_, markup) = reader_on(store, thread).await;
     assert!(looked_at(thread) && markup.contains("aria-label=\"Unsubscribe\""));

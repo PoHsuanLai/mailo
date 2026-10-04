@@ -61,7 +61,7 @@ mod picks;
 mod press;
 mod print;
 mod provider_chip;
-mod reading;
+pub mod reading;
 mod receipt;
 mod revisions;
 mod row;

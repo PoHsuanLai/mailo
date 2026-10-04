@@ -19,7 +19,6 @@ pub(super) use toast::Toast;
 use super::ops::{perform, resolve, take_back};
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
-use ds::prelude::Icon;
 use ds::stack::toast_hub::{ToastAction, ToastHub, UndoToken};
 use mail_core::undo::{Undo, UndoHandle};
 use mail_domain::*;
@@ -40,9 +39,6 @@ pub(in crate::ui) enum Follow {
     Undo(UndoHandle),
     /// After leaving a list: archive what it already sent, by its sender's address.
     ArchiveFrom { sender: String, list: String },
-    /// After blocking a sender: take the block back, which forgets the rule it made. Not an
-    /// entry on the undo stack, whose entries are patches to messages; a rule is not one.
-    Unblock { rule: RuleId, sender: String },
     /// Nothing to take back: an unsubscribe, once made, is the list's.
     Nothing,
 }
@@ -56,9 +52,6 @@ pub(super) struct Toasts {
     /// What the "Archive All" button of a leave-a-list toast does: it reads the list it offered
     /// from [`Motion::toast`] when pressed.
     pub on_archive: EventHandler<()>,
-    /// What the "Undo" button of a block toast does: it reads the rule it offered from
-    /// [`Motion::toast`] when pressed.
-    pub on_unblock: EventHandler<()>,
 }
 
 /// The motion state the window shares.
@@ -308,7 +301,7 @@ pub(super) fn key(
         undo_last(&store, shell, revision);
         return true;
     }
-    super::hover::key(name, shell)
+    false
 }
 
 impl Motion {
@@ -338,19 +331,6 @@ impl Motion {
                 toasts
                     .hub
                     .push_action(text, ToastAction::new("Archive All"), toasts.on_archive);
-            }
-            (follow @ Follow::Unblock { .. }, Some(toasts)) => {
-                let serial = self.toast.peek().as_ref().map_or(0, |said| said.serial) + 1;
-                self.toast.set(Some(Said {
-                    text: text.clone(),
-                    serial,
-                    follow,
-                }));
-                toasts.hub.push_action(
-                    text,
-                    ToastAction::new("Undo").with_icon(Icon::Undo),
-                    toasts.on_unblock,
-                );
             }
             // No host yet (a window still mounting): the words are kept, as before.
             (follow, None) => {

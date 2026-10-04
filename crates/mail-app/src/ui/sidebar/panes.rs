@@ -1,7 +1,6 @@
 //! Account tiles, places, labels and pinned people.
 
 use super::super::data::account_rows;
-use super::super::hover::{Hook, element, out, over, use_driver};
 use super::super::motion::{drag, motion};
 use super::tagged;
 use crate::ui::fetching::{Fetching, Mark, account_mark_local};
@@ -15,8 +14,6 @@ use ds::components::app::pin_tiles::{PinAdd, PinItem, PinTiles};
 use ds::components::content::avatar::{AvatarFace, AvatarShape, AvatarSize, AvatarTone};
 use ds::components::content::provider_mark::{MarkProvider, MarkStyle};
 use ds::components::lists::list::model::{ListItem, ListStyle};
-use ds::components::lists::row::row::RowMounted;
-use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::style::tokens::hex::{Colour, Hex};
 use ds::style::tokens::person::PersonSwatch;
@@ -414,10 +411,6 @@ pub(super) fn PinnedList(
     space: Space,
     pins: Vec<u64>,
 ) -> Element {
-    let driver = use_driver();
-    // Each pin's row, as it mounts: its card is placed beside it. Not a signal: nothing
-    // redraws for it.
-    let boxes = use_hook(|| CopyValue::new(std::collections::HashMap::<usize, MountedRef>::new()));
     // No pins, no heading: a source list does not show an empty group.
     if space.pins.is_empty() {
         return rsx! {};
@@ -446,15 +439,6 @@ pub(super) fn PinnedList(
                 leading: RowLeading::Avatar(avatar),
                 title: name.clone(),
                 accessory: if n > 0 { Accessory::Badge(count_of(n)) } else { Accessory::None },
-                common: tagged("hc", format!("pin:{index}")),
-                onmounted: RowMounted::new(move |event: MountedEvent| {
-                    let mut boxes = boxes;
-                    boxes.write().insert(index, MountedRef(event.data()));
-                }),
-                onpointerenter: move |_| {
-                    over(driver, Hook::Pin(index), element(boxes.peek().get(&index).cloned()));
-                },
-                onpointerleave: move |_| out(driver),
                 onclick: move |_| {
                     shell.write().search = query.clone();
                     pages.set(1);

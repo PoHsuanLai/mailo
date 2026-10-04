@@ -5,7 +5,6 @@
 //! cannot be marked somewhere it did not occur. A range that is not on a char boundary, runs
 //! past the end, or overlaps the one before is dropped rather than trusted.
 
-use dioxus::prelude::*;
 use std::ops::Range;
 
 /// A run of text, marked or not.
@@ -13,15 +12,6 @@ use std::ops::Range;
 pub(super) enum Piece<'a> {
     Plain(&'a str),
     Marked(&'a str),
-}
-
-/// How the marks in one run of text are numbered across the thread, for ⌘F.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub(super) struct Numbering {
-    /// The number of this text's first mark.
-    pub first: usize,
-    /// The match Enter last moved to, when a find is open.
-    pub current: Option<usize>,
 }
 
 /// `text` cut at `marks`. Every piece is a slice of `text`.
@@ -46,41 +36,6 @@ pub(super) fn pieces<'a>(text: &'a str, marks: &[Range<usize>]) -> Vec<Piece<'a>
         out.push(Piece::Plain(&text[at..]));
     }
     out
-}
-
-/// `text`, with `marks` drawn as `<mark>`. No marks is the bare text node it always was.
-///
-/// Each mark carries `data-hit`, its number across the thread, and the current one is
-/// `mark.hit.now` — the element Enter scrolls into view.
-pub(super) fn marked(text: &str, marks: &[Range<usize>], numbering: Numbering) -> Element {
-    if marks.is_empty() {
-        return rsx! { "{text}" };
-    }
-    let mut number = numbering.first;
-    let drawn: Vec<(String, Option<(usize, bool)>)> = pieces(text, marks)
-        .into_iter()
-        .map(|piece| match piece {
-            Piece::Plain(plain) => (plain.to_owned(), None),
-            Piece::Marked(inside) => {
-                let this = number;
-                number += 1;
-                (
-                    inside.to_owned(),
-                    Some((this, numbering.current == Some(this))),
-                )
-            }
-        })
-        .collect();
-    rsx! {
-        for (text, mark) in drawn {
-            match mark {
-                None => rsx! { "{text}" },
-                Some((hit, now)) => rsx! {
-                    mark { class: if now { "hit now" } else { "hit" }, "data-hit": "{hit}", "{text}" }
-                },
-            }
-        }
-    }
 }
 
 #[cfg(test)]

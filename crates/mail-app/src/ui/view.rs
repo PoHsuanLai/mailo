@@ -591,11 +591,6 @@ pub struct Shell {
     pub keyboard: Option<KeyboardSheet>,
     /// The Delete forever / Empty Trash confirmation while it is open. `None` is closed.
     pub destroying: Option<crate::ui::bin::Destroying>,
-    /// ⌘F in the open thread. `None` is closed, and marks nothing.
-    ///
-    /// Belongs to the thread it was opened on: [`Self::open`] and [`Self::close`] drop it, so a
-    /// find never carries its count into a conversation it was not typed for.
-    pub find: Option<mail_core::search::Find>,
     /// What the undo toast and ⌘Z can take back, newest last.
     pub undo: mail_core::undo::UndoStack,
     /// The attachment viewer, over the window. `None` is closed. Belongs to the open thread:
@@ -717,7 +712,6 @@ impl Default for Shell {
             keyboard: None,
             doctor: None,
             destroying: None,
-            find: None,
             undo: mail_core::undo::UndoStack::default(),
             viewing: None,
         }
@@ -860,7 +854,6 @@ impl Shell {
         self.from_today = false;
         self.picked = Picked::clicked(thread);
         self.show_remote_images = false;
-        self.find = None;
         self.viewing = None;
     }
 
@@ -889,7 +882,6 @@ impl Shell {
         self.open = None;
         self.from_today = false;
         self.show_remote_images = false;
-        self.find = None;
         self.viewing = None;
     }
 

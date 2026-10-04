@@ -20,8 +20,3 @@
 .group-members { margin: 0; padding: 0; display: grid; gap: var(--s-3); }
 .group-member { display: flex; align-items: center; gap: var(--s-8); }
 .group-member .addr { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; }
-.hc .contact {
-  margin-top: var(--s-9); padding-top: var(--s-8); border-top: var(--hair) solid var(--line-soft); display: grid; gap: var(--s-5);
-}
-.hc .contact .standing { display: flex; align-items: center; gap: var(--s-6); flex-wrap: wrap; }
-.hc .contact .standing .origin { margin-right: auto; }

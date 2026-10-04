@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 
 use chrono::Utc;
 use mail_domain::*;
-use mail_mime::{Parsed, SanitizePolicy};
+use mail_mime::Parsed;
 use mail_runtime::Secrets;
 use mail_store::{SqliteStore, Store};
 
@@ -18,7 +18,6 @@ use super::super::text::{AttachmentRow, Kept as Where};
 use super::{Said, Scheme, Tried, said, said_smime};
 use mail_core::password::Password;
 use mail_core::pgp::Ask;
-use mail_core::reader::Reading;
 
 /// A message opened: what to say about it, and the body to show in place of the stored one.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,8 +28,6 @@ pub(in crate::ui) struct Opened {
     /// The decrypted or unwrapped message, parsed. `None` when there is nothing to show but
     /// what is stored: it could not be read.
     pub shown: Option<Box<Parsed>>,
-    /// `shown` drawn into blocks, per sanitizer policy, as the reader asked for them.
-    pub readings: Vec<(SanitizePolicy, Reading)>,
 }
 
 /// What opening a message found, as the reader keeps it.
@@ -113,24 +110,11 @@ fn look(
     }
 }
 
-/// What was found, as the reader keeps it, with its blocks drawn for the policy a thread opens
-/// with.
-fn opened(message: &Message, scheme: Scheme, said: Vec<Said>, shown: Option<Parsed>) -> Opened {
-    let policy = SanitizePolicy::CURRENT;
-    let readings = shown
-        .as_ref()
-        .map(|parsed| {
-            vec![(
-                policy,
-                mail_core::reader::reading(&message.body, Some(parsed), policy),
-            )]
-        })
-        .unwrap_or_default();
+fn opened(_message: &Message, scheme: Scheme, said: Vec<Said>, shown: Option<Parsed>) -> Opened {
     Opened {
         scheme,
         said,
         shown: shown.map(Box::new),
-        readings,
     }
 }
 
@@ -223,36 +207,10 @@ pub(in crate::ui) fn unlock(
     found
 }
 
-/// The blocks to show for `message` under `policy` when it was opened and has a body of its
-/// own, drawn on first asking and kept. `None` shows what is stored. No decryption here: only
-/// what [`lookup`] already found.
-pub(in crate::ui) fn reading(message: &Message, policy: SanitizePolicy) -> Option<Reading> {
-    let body = message.body.raw();
-    let parsed = {
-        let cache = held();
-        let kept = cache
-            .iter()
-            .find(|kept| kept.message == message.id && kept.body == body)?;
-        let Look::Opened(opened) = &kept.look else {
-            return None;
-        };
-        if let Some((_, had)) = opened.readings.iter().find(|(at, _)| *at == policy) {
-            return Some(had.clone());
-        }
-        opened.shown.clone()?
-    };
-    let drawn = mail_core::reader::reading(&message.body, Some(&parsed), policy);
-    let mut cache = held();
-    if let Some(Kept {
-        look: Look::Opened(opened),
-        ..
-    }) = cache
-        .iter_mut()
-        .find(|kept| kept.message == message.id && kept.body == body)
-    {
-        opened.readings.push((policy, drawn.clone()));
-    }
-    Some(drawn)
+/// The parsed body for `message` when it was opened and has a body of its own.
+/// `None` shows what is stored. No decryption here: only what [`lookup`] already found.
+pub(in crate::ui) fn parsed(message: &Message) -> Option<Parsed> {
+    shown(message).map(|p| *p)
 }
 
 /// The body `message` was opened to, when it has one of its own.

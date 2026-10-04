@@ -36,7 +36,6 @@ pub mod preview;
 pub mod print;
 pub mod provider;
 pub mod query;
-pub mod reader;
 pub mod receipt;
 pub mod rules;
 pub mod search;
