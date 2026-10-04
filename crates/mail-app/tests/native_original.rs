@@ -9,7 +9,7 @@
 
 use ds::prelude::*;
 use ds_blitz::{AppNet, NetDecision, NetPolicy, NetReply, NetRequest, RequestOrigin, RootContexts};
-use ds_harness::{ClassPresence, Driver, Harness, HarnessConfig, Query, Viewport};
+use ds_harness::{Driver, Harness, HarnessConfig, Query, Viewport};
 use mail_app::ui::native::{Browse, Fetch, Original};
 use mail_domain::*;
 use mail_runtime::{Arrival, absorb};
@@ -272,8 +272,6 @@ const LINK: &str = "a";
 /// The link beside it, whose text names one domain and whose target is another.
 const LIAR: &str = "a + a";
 
-/// The Original segment of the head's Reader / Original control (quire's `SegmentedControl`).
-const ORIGINAL: &str = ".view-switch .ds-segmented-segment:nth-child(2)";
 const SHOW_IMAGES: &str = ".ds-inline-banner .ds-button";
 const FRAME: &str = "article.frame iframe.html";
 
@@ -291,14 +289,9 @@ fn frame_width(harness: &Harness, selector: &str) -> f32 {
 fn newsletter_original() -> Window {
     let mut window = open();
     open_row(&mut window.harness, 1);
-    assert_eq!(
-        window.harness.text_of(ORIGINAL).as_deref(),
-        Some("Original")
-    );
-    click(&mut window.harness, ORIGINAL);
     assert!(
-        window.harness.has_class(FRAME, "is-hidden") == ClassPresence::Absent,
-        "the Original view did not show"
+        window.harness.count(FRAME) >= 1,
+        "the Original view did not mount"
     );
     window
 }
@@ -337,7 +330,6 @@ fn remote_images_are_fetched_only_while_consent_stands() {
 
     // Back to the newsletter: asked again, not remembered.
     open_row(&mut window.harness, 1);
-    click(&mut window.harness, ORIGINAL);
     assert_eq!(
         window.fetched.count(),
         n,
@@ -538,7 +530,6 @@ fn the_windows_own_document_asks_for_nothing_remote() {
     let mut harness = Harness::new(mail_app::ui::native::root, config);
     harness.advance(ms(300));
     open_row(&mut harness, 1);
-    click(&mut harness, ORIGINAL);
     let at = harness
         .centre(&format!("{} .ds-thread-from", row(2)))
         .unwrap();

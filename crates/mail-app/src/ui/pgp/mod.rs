@@ -24,7 +24,7 @@ mod seal;
 mod unlock;
 
 pub(in crate::ui) use look::{
-    Look, attachments, cached, lookup, reading, save_attachment, subject, unlock,
+    Look, attachments, cached, lookup, parsed, save_attachment, subject, unlock,
 };
 #[cfg(test)]
 pub(in crate::ui) use look::{looked_at, looks_at};

@@ -85,18 +85,3 @@ pub(in crate::ui) fn url_spans(url: &str) -> Element {
         }
     }
 }
-
-/// A link in the reader was entered or left. Called from the parsed blocks.
-pub(in crate::ui) fn link_over(text: &str, href: &str) {
-    if let Some(mut state) = hover() {
-        state
-            .link
-            .set(Some(mail_core::trust::destination(text, href)));
-    }
-}
-
-pub(in crate::ui) fn link_out() {
-    if let Some(mut state) = hover() {
-        state.link.set(None);
-    }
-}

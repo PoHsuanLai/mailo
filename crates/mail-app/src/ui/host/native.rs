@@ -79,7 +79,6 @@ impl Blitz {
                 }
             }
             Ask::Focus { selector, .. } => self.focus(selector, Select::None),
-            Ask::FocusAndSelect(field) => self.focus(field.selector(), Select::All),
             Ask::ScrollIntoView(selector) => self.scroll(selector),
             Ask::Copy(text) => {
                 // Best-effort, as the webview's `navigator.clipboard` was: a desktop with no
