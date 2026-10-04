@@ -165,6 +165,12 @@ async fn a_new_account_is_fetched_by_the_window_even_beside_a_watch() {
     let mut dom = window_beside(store, Arc::new(AtomicBool::new(true)), passer);
     assert_eq!(link(&dom), Link::Fresh);
     fetching(&dom).sync_all(Trigger::Poll);
-    settle(&mut dom).await;
+    // A slow runner can start the fetch after one quiet stretch: wait for the run, not for quiet.
+    for _ in 0..50 {
+        settle(&mut dom).await;
+        if script.runs.load(Ordering::SeqCst) > 0 {
+            break;
+        }
+    }
     assert_eq!(script.runs.load(Ordering::SeqCst), 1);
 }
