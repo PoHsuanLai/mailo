@@ -141,4 +141,3 @@ pub(in crate::ui) fn ReaderAvatar(
         },
     }
 }
-
