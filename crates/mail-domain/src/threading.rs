@@ -1,9 +1,5 @@
 //! JWZ conversation threading (RFC 5256).
 //!
-//! Written here rather than taken as a dependency: the only crate offering it has a few
-//! thousand lifetime downloads and one unknown author, which is the wrong trade for a core
-//! correctness algorithm we will want to tune against our own corpus.
-//!
 //! Runs for every account, including those whose server supplies thread ids
 //! ([`crate::ServerThreads::ProviderId`]), so POP3 and IMAP share one set of
 //! [`ThreadId`] rules and a provider id is only a hint.
