@@ -111,18 +111,10 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
         if crate::ui::motion::key(&key, ctrl, typing, shell, revision) {
             return;
         }
-        if ctrl && (key == "f" || key == "F") {
-            crate::ui::reading::open_find(shell);
-            return;
-        }
         if ctrl && (key == "p" || key == "P") {
             if let Some(job) = crate::ui::print::job_for(Some(thread)) {
                 crate::ui::print::print(job);
             }
-            return;
-        }
-        if key == "Escape" && shell.read().find.is_some() {
-            shell.write().find = None;
             return;
         }
         let key = if event.modifiers().shift() {

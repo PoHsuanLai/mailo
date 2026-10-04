@@ -329,8 +329,18 @@ fn clicking_a_row_opens_it_in_the_reader() {
     );
     let reader = harness.text_of(".reader").unwrap_or_default();
     assert!(
-        reader.contains("The body of The invoice for September."),
+        reader.contains("The invoice for September"),
         "the reader does not show the clicked thread: {reader}"
+    );
+    let frame = harness
+        .frame("article.frame iframe.html")
+        .expect("the frame has a document");
+    assert!(
+        frame
+            .html()
+            .contains("The body of The invoice for September."),
+        "the frame does not show the body: {}",
+        frame.html()
     );
     assert_eq!(
         harness
@@ -491,33 +501,14 @@ fn typing_in_the_search_box_filters_the_rows() {
 // Beyond the eight: the native host's own asks, and what is not on Blitz yet.
 
 #[test]
-fn ctrl_f_puts_the_keyboard_in_the_find_field_and_escape_gives_it_back() {
+fn ctrl_f_puts_the_keyboard_in_the_search_field() {
     let (mut harness, _dir) = open();
     open_row(&mut harness, 1);
     harness.chord(&[Key::Ctrl], Key::Char('f'));
     harness.advance(ms(300));
-    // Found by selector and focused in the document (`ui/host/native.rs`).
     assert!(
-        harness.is_focused(".find input"),
-        "⌘F left the keyboard elsewhere"
-    );
-    for key in "body".chars() {
-        harness.key(Key::Char(key));
-    }
-    harness.advance(ms(300));
-    assert_eq!(
-        harness.attr(".find input", "value").as_deref(),
-        Some("body")
-    );
-    assert_eq!(harness.count("mark.hit.now"), 1, "no current match");
-    // The letters stayed in the field: none of them was a shortcut.
-    assert_eq!(subjects(&harness).len(), INBOX.len());
-    harness.key(Key::Escape);
-    harness.advance(ms(300));
-    assert_eq!(harness.count(".find"), 0, "Escape left the find field open");
-    assert!(
-        harness.is_focused(".app"),
-        "Escape did not give the keyboard back"
+        harness.is_focused(".search input"),
+        "Ctrl+F left the keyboard elsewhere"
     );
 }
 

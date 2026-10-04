@@ -336,13 +336,13 @@ fn the_window_s_root_draws_the_reader_for_its_conversation_and_nothing_else() {
         harness.text_of(".reader-head h2").as_deref(),
         Some(INBOX[2].1)
     );
+    let frame = harness
+        .frame("article.frame iframe.html")
+        .expect("the frame has a document");
     assert!(
-        harness
-            .text_of(".reader-body")
-            .unwrap_or_default()
-            .contains("The body of Lunch on Thursday."),
+        frame.html().contains("The body of Lunch on Thursday."),
         "{}",
-        harness.html()
+        frame.html()
     );
     assert_eq!(harness.count(".ds-list"), 0, "the window drew a list");
     assert_eq!(harness.count(".side"), 0, "the window drew the sidebar");

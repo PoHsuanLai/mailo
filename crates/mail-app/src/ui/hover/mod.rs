@@ -2,7 +2,7 @@
 
 mod link;
 
-pub(super) use link::{LinkPill, link_out, link_over, url_spans};
+pub(super) use link::{LinkPill, url_spans};
 
 use dioxus::prelude::*;
 use mail_core::trust::Destination;

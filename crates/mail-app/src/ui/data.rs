@@ -47,47 +47,6 @@ pub(super) fn count_badges(store: &SqliteStore, filters: &[Option<Filter>]) -> V
         .collect()
 }
 
-/// How many conversations to render ahead of the user.
-///
-/// A screenful, near enough. Warming the whole mailbox would evict the conversations they are
-/// about to open in order to hold the ones they are not, which is the cache paying for itself in
-/// reverse.
-const WARM: u32 = 20;
-
-/// Render the newest conversations in the inbox into the cache.
-///
-/// Errors are dropped on purpose: nothing here is load-bearing. A message that cannot be read is
-/// one the reader will report when it is opened, and failing to warm is only failing to be fast.
-pub(super) fn warm_the_first_screenful(store: &SqliteStore) -> usize {
-    let query = Query {
-        filter: mail_core::place::place_filter(MailboxRole::Inbox),
-        sort: Sort {
-            property: Property::Date,
-            dir: SortDir::Desc,
-        },
-        page: PageReq {
-            after: None,
-            limit: WARM,
-        },
-    };
-    let Ok(page) = store.threads(&query, chrono::Utc::now()) else {
-        return 0;
-    };
-    let mut warmed = 0;
-    for summary in page.items {
-        let Ok(loaded) = store.thread(summary.id) else {
-            continue;
-        };
-        let messages: Vec<Message> = loaded
-            .messages
-            .iter()
-            .filter_map(|id| store.message(*id).ok())
-            .collect();
-        warmed += mail_core::reader::prewarm(store, &messages, mail_mime::SanitizePolicy::CURRENT);
-    }
-    warmed
-}
-
 /// One account as the sidebar draws it: the id, the address, and the plan the provider comes from.
 #[derive(Clone, PartialEq, Eq)]
 pub(super) struct AccountRow {
@@ -194,29 +153,4 @@ pub(super) fn accounts(store: &SqliteStore) -> Vec<AccountId> {
         .filter_map(|id| id.parse().ok())
         .map(AccountId::from_uuid)
         .collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::warm_the_first_screenful;
-    use crate::ui::fixtures::realistic;
-
-    #[test]
-    fn the_first_screenful_is_rendered_before_anyone_opens_it() {
-        // Phase 8e's caller. Asserted through the function the window mounts rather than through
-        // the window, because what is being checked is that the work happens on an ordinary
-        // thread with nothing polling it — which is the only reason this part of phase 8 works
-        // while F140 stands.
-        let (store, _dir) = realistic();
-
-        // Counted by the warming itself rather than by looking at the cache afterwards: the
-        // cache is process-wide and these tests share a process, so "something is in it" is a
-        // sentence another test can make true. What is asserted is what *this* call did.
-        let warming = store.clone();
-        let warmed = std::thread::spawn(move || warm_the_first_screenful(&warming))
-            .join()
-            .expect("warming did not panic");
-
-        assert!(warmed > 0, "the mailbox was not rendered ahead of the user");
-    }
 }
