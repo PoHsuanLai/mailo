@@ -372,27 +372,6 @@ fn a_menu_opens_on_click_and_closes_on_escape() {
 }
 
 #[test]
-fn a_hover_card_opens_after_its_delay_and_not_before() {
-    let (mut harness, _dir) = open();
-    let sender = format!("{} .ds-thread-name", row(1));
-    let open_after = delay(ds::style::tokens::delay::DelayToken::CardOpen);
-    let asked = harness.now();
-    harness.pointer_move(centre(&harness, &sender));
-    // The harness runs on the virtual clock, so `advance` moves hover intent's timer exactly:
-    // absent at half the delay, present once the whole delay has passed.
-    harness.advance(open_after / 2);
-    assert_eq!(harness.count(".ds-hovercard"), 0, "the card opened early");
-    let opened = settle_until(&mut harness, |harness| harness.count(".ds-hovercard") == 1);
-    assert!(
-        opened.duration_since(asked) >= open_after,
-        "the card opened {:?} after the pointer arrived, inside the {open_after:?} wait",
-        opened.duration_since(asked)
-    );
-    let card = harness.text_of(".ds-hovercard").unwrap_or_default();
-    assert!(card.contains("ada@example.test"), "{card}");
-}
-
-#[test]
 fn archiving_a_row_makes_it_leave_and_the_rows_below_heal() {
     let (mut harness, _dir) = open();
     let second = top(&harness, &row(2));

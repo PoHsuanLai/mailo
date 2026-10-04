@@ -229,20 +229,3 @@ fn with_the_switch_off_the_cached_logo_is_not_shown() {
         Some("A")
     );
 }
-
-#[test]
-fn the_sender_card_shows_the_logo() {
-    let Opened { mut harness, _dirs } = open(mail_core::bimi::Setting::On);
-    let sender = format!("{} .ds-thread-name", row(1));
-    let at = harness
-        .centre(&sender)
-        .unwrap_or_else(|| panic!("{sender} is not drawn:\n{}", harness.html()));
-    harness.pointer_move(at);
-    settle_until(&mut harness, |harness| {
-        harness.count(".ds-hovercard .card-brand img") == 1
-    });
-    let said = harness
-        .text_of(".ds-hovercard .card-brand")
-        .unwrap_or_default();
-    assert!(said.contains("brand.example"), "{said}");
-}

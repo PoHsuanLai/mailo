@@ -4,34 +4,11 @@
 use std::sync::Arc;
 
 use chrono::{DateTime, TimeZone, Utc};
-use dioxus::prelude::*;
-use dioxus_core::VirtualDom;
-use ds::prelude::*;
 use mail_domain::*;
 use mail_store::{Origin, SqliteStore, Store};
 
 use super::book;
-use super::card::ContactPart;
-use crate::ui::fixtures::{
-    ACCOUNT, Seen, chord, click, dispatching, drain_seen, rebuild_into, type_into,
-};
-
-/// The first render, then the ones after it, keeping every attribute they set: a quire sheet is
-/// drawn a frame after the one that asked for it, on quire's clock.
-async fn landed(dom: &mut VirtualDom) -> Seen {
-    let mut seen = rebuild_into(dom);
-    for _ in 0..40 {
-        let quiet = std::time::Duration::from_millis(150);
-        if tokio::time::timeout(quiet, dom.wait_for_work())
-            .await
-            .is_err()
-        {
-            break;
-        }
-        dom.render_immediate(&mut seen);
-    }
-    seen.merge(drain_seen(dom))
-}
+use crate::ui::fixtures::ACCOUNT;
 
 /// The user's own address. It is on every message they sent, so the book learns it as theirs.
 pub(in crate::ui) const ME: &str = "dave.me@example.test";
@@ -183,107 +160,11 @@ fn the_fixture_has_each_kind_of_entry_the_tests_rely_on() {
     assert!(!offered.contains(&NO_REPLY.to_owned()), "{offered:?}");
 }
 
-/// The sender card, alone, on `email`.
-#[component]
-fn Card(email: String, name: String) -> Element {
-    // Inside a quire root, as the hover card is in the window.
-    rsx! {
-        Ds {
-            appearance: Appearance::default(),
-            material: Material::Window,
-            stylesheet: ds::assembly::ds::Inject::Host,
-            ContactPart { email, name }
-        }
-    }
-}
-
-pub(super) fn card(store: &Arc<SqliteStore>, email: &str, name: &str) -> VirtualDom {
-    VirtualDom::new_with_props(
-        Card,
-        CardProps {
-            email: email.to_owned(),
-            name: name.to_owned(),
-        },
-    )
-    .with_root_context(store.clone())
-}
-
 fn named(store: &SqliteStore, address: &str) -> Option<(Option<String>, Origin)> {
     store
         .contact(address)
         .unwrap_or_else(|why| panic!("read {address}: {why}"))
         .map(|contact| (contact.name, contact.origin))
-}
-
-#[tokio::test]
-async fn the_sender_card_adds_renames_and_forgets() {
-    dispatching();
-    let (store, _dir) = the_book();
-    assert_eq!(
-        named(&store, HEARD),
-        Some((Some("Dana Okafor".to_owned()), Origin::History))
-    );
-    let mut dom = card(&store, HEARD, "Dana Okafor");
-    let seen = landed(&mut dom).await;
-
-    // Add: the field opens on the name the mail gave, and Enter keeps what was typed.
-    let seen = click(
-        &mut dom,
-        seen.one("aria-label", &format!("Add to contacts: {HEARD}")),
-    );
-    let field = seen.one("value", "Dana Okafor");
-    type_into(&mut dom, field, "Dana O.");
-    let seen = chord(&mut dom, "Enter", Modifiers::empty(), field);
-    assert_eq!(
-        named(&store, HEARD),
-        Some((Some("Dana O.".to_owned()), Origin::Manual))
-    );
-
-    // Edit: now the user's own entry, so the action says so, and Save keeps the new name.
-    let seen = click(
-        &mut dom,
-        seen.one("aria-label", &format!("Edit name: {HEARD}")),
-    );
-    let field = seen.one("value", "Dana O.");
-    type_into(&mut dom, field, "Dana Okafor-Reyes");
-    let seen = click(
-        &mut dom,
-        seen.one("aria-label", &format!("Save the name for {HEARD}")),
-    );
-    assert_eq!(
-        named(&store, HEARD),
-        Some((Some("Dana Okafor-Reyes".to_owned()), Origin::Manual))
-    );
-
-    // Forget: gone from the book, and the card offers to add it again.
-    click(&mut dom, seen.one("aria-label", &format!("Forget {HEARD}")));
-    assert_eq!(named(&store, HEARD), None);
-    let page = dioxus_ssr::render(&dom);
-    assert!(page.contains("Add to contacts"), "{page}");
-    assert!(!page.contains(">Forget<"), "{page}");
-}
-
-#[tokio::test]
-async fn the_sender_card_adds_an_address_the_book_has_never_seen() {
-    dispatching();
-    let (store, _dir) = the_book();
-    let stranger = "someone.new@example.test";
-    assert_eq!(named(&store, stranger), None);
-    let mut dom = card(&store, stranger, "");
-    let seen = landed(&mut dom).await;
-    let page = dioxus_ssr::render(&dom);
-    assert!(!page.contains(">Forget<"), "nothing to forget yet: {page}");
-    let seen = click(
-        &mut dom,
-        seen.one("aria-label", &format!("Add to contacts: {stranger}")),
-    );
-    let field = seen.one("value", "");
-    type_into(&mut dom, field, "Sam Novak");
-    chord(&mut dom, "Enter", Modifiers::empty(), field);
-    assert_eq!(
-        named(&store, stranger),
-        Some((Some("Sam Novak".to_owned()), Origin::Manual))
-    );
 }
 
 /// A card as another client exports it: vCard 3.0, folded, with a name in Chinese.

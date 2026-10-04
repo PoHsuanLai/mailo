@@ -186,7 +186,6 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
                 tabindex: "0",
                 onmounted: crate::ui::host::Host::app_mounted,
                 onkeydown: on_key,
-                crate::ui::hover::HoverLayer { shell, revision, spaces: None }
                 if shell.read().viewing.is_some() {
                     crate::ui::reading::AttachmentViewer { shell }
                 }

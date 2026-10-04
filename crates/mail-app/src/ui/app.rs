@@ -729,7 +729,6 @@ pub(super) fn App() -> Element {
                 }
             }
             SpaceEditor { spaces, editing, shell }
-            super::hover::HoverLayer { shell, revision, spaces: Some(spaces) }
             if shell.read().command.is_some() {
                 CommandMenu { shell, pages, revision, side_hidden, spaces }
             }
