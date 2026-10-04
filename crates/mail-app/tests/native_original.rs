@@ -545,7 +545,8 @@ fn the_windows_own_document_asks_for_nothing_remote() {
 
 /// (c) No script engine anywhere in the native program: not in the window, not in a frame. A
 /// `<script>` in a frame (`tests/native_frame.rs`) is inert because there is nothing to run
-/// it, and this keeps it so: no JS engine crate may enter `mail-app`'s native graph.
+/// it, and this keeps it so: no JS engine crate may enter `mail-app`'s native graph. Not
+/// `--offline`: `--target all` walks crates a runner never built, and `--locked` pins the graph.
 #[test]
 fn no_script_engine_is_built_into_the_native_window() {
     let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_owned());
@@ -565,7 +566,6 @@ fn no_script_engine_is_built_into_the_native_window() {
             "none",
             "--format",
             "{p}",
-            "--offline",
             "--locked",
         ])
         .output()
