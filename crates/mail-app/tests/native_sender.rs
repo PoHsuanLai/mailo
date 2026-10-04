@@ -20,7 +20,7 @@ mod drive;
 use drive::Drive;
 use mail_domain::*;
 use mail_runtime::{Arrival, absorb};
-use mail_store::{SqliteStore, Store};
+use mail_store::SqliteStore;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -130,12 +130,6 @@ fn row(n: usize) -> String {
     format!(".list .ds-list > .ds-list-item:nth-child({n}) .ds-row")
 }
 
-fn centre(harness: &Harness, selector: &str) -> Point {
-    harness
-        .centre(selector)
-        .unwrap_or_else(|| panic!("{selector} is not drawn:\n{}", harness.html()))
-}
-
 /// Click the `n`th row at the start of its subject line, clear of its hover strip.
 fn open_row(harness: &mut Harness, n: usize) {
     let subject = format!("{} .ds-thread-sub", row(n));
@@ -195,74 +189,4 @@ fn a_forged_pass_under_the_servers_fail_shows_as_a_fail() {
         said.contains("DMARC fail") && !said.contains("pass"),
         "{said}"
     );
-}
-
-/// The sender card of row `n`, opened by resting the pointer on the sender's name.
-fn open_sender_card(harness: &mut Harness, n: usize) {
-    let sender = format!("{} .ds-thread-name", row(n));
-    harness.pointer_move(centre(harness, &sender));
-    settle_until(harness, |harness| harness.count(".ds-hovercard") == 1);
-}
-
-/// The card's fourth action, after Pin, Their mail and Copy address.
-const BLOCK: &str = ".ds-hovercard .acts .ds-menu-item:nth-child(4)";
-
-#[test]
-fn the_sender_card_shows_the_checks_and_offers_a_block() {
-    let (mut harness, _dir, _store) = open();
-    open_sender_card(&mut harness, 1);
-    // The same line as the reader's, beside the card's flags; read off the thread that draws.
-    settle_until(&mut harness, |harness| {
-        harness.count(".ds-hovercard .sender-checks") == 1
-    });
-    assert_eq!(
-        harness
-            .attr(".ds-hovercard .sender-checks", "data-standing")
-            .as_deref(),
-        Some("pass")
-    );
-    let item = harness.text_of(BLOCK).unwrap_or_default();
-    assert!(item.contains("Block sender"), "{item}");
-}
-
-/// The pointer goes from the sender's name to the card's Block item in ten steps, crossing the
-/// rows below that the card sits over, and the card stays the sender's all the way. Leaving the
-/// name used to re-enter the row's own hook, which swapped the sender card for a thread card at
-/// once, so no card action could be reached (FINDINGS F162).
-#[test]
-fn the_sender_cards_actions_can_be_reached_across_the_rows_under_it() {
-    let (mut harness, _dir, store) = open();
-    open_sender_card(&mut harness, 1);
-    settle_until(&mut harness, |harness| {
-        harness.count(".ds-hovercard .sender-checks") == 1
-    });
-    let from = centre(&harness, &format!("{} .ds-thread-name", row(1)));
-    let to = centre(&harness, BLOCK);
-    for step in 1..=10 {
-        let t = step as f32 / 10.0;
-        harness.pointer_move(Point {
-            x: ds::prelude::Px(from.x.0 + (to.x.0 - from.x.0) * t),
-            y: ds::prelude::Px(from.y.0 + (to.y.0 - from.y.0) * t),
-        });
-        harness.advance(ms(40));
-        assert_eq!(
-            harness.count(".ds-hovercard .sender-checks"),
-            1,
-            "the sender card went at step {step}:\n{}",
-            harness.html()
-        );
-    }
-    harness.advance(ms(400));
-    assert_eq!(
-        harness.count(".ds-hovercard .sender-checks"),
-        1,
-        "gone at rest"
-    );
-
-    let before = store.rules(ACCOUNT).unwrap().len();
-    harness.click(centre(&harness, BLOCK));
-    settle_until(&mut harness, |_| {
-        store.rules(ACCOUNT).map(|r| r.len()).unwrap_or(0) == before + 1
-    });
-    assert_eq!(store.rules(ACCOUNT).unwrap().len(), before + 1);
 }

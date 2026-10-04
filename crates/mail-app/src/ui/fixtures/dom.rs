@@ -416,12 +416,6 @@ pub(in crate::ui) fn dispatching() {
     });
 }
 
-/// A conversation row's hooks, as [`Seen::row_parts`] finds them.
-pub(in crate::ui) struct RowParts {
-    pub row: dioxus_core::ElementId,
-    pub name: dioxus_core::ElementId,
-    pub time: dioxus_core::ElementId,
-}
 
 /// The name a listener is kept under among [`Seen`]'s attributes, its event as the value.
 const LISTENER: &str = "(listener)";
@@ -522,35 +516,6 @@ impl Seen {
         ids
     }
 
-    /// The conversation row whose box names the hook `thread` (`thread:{id}`): quire's
-    /// `ThreadRow`, its sender's name and its time, the elements the row's hover hooks hang
-    /// on. The name is the first class the row computes; the time is found among the rows by
-    /// the row's own place.
-    pub(in crate::ui) fn row_parts(&self, thread: &str) -> RowParts {
-        let row = self
-            .after("data-hc", thread, "aria-label")
-            .first()
-            .copied()
-            .unwrap_or_else(|| panic!("no row for {thread}"));
-        // The name's class is the one the row computes (`ds-thread-name`, faded when long).
-        let name = self
-            .attrs
-            .iter()
-            .skip_while(|(got_name, got_value, _)| !(got_name == "data-hc" && got_value == thread))
-            .find(|(got_name, got_value, _)| {
-                got_name == "class" && got_value.starts_with("ds-thread-name")
-            })
-            .map(|(_, _, id)| *id)
-            .unwrap_or_else(|| panic!("no name in the row for {thread}"));
-        // The time is the next static time cell after the name: one template per row.
-        let time = self
-            .fixed("class", "ds-thread-time")
-            .into_iter()
-            .filter(|id| id.0 > name.0)
-            .min_by_key(|id| id.0)
-            .unwrap_or_else(|| panic!("no time in the row for {thread}"));
-        RowParts { row, name, time }
-    }
 
     /// The element a click on the folder row whose path is `path` lands on: the row itself,
     /// which is quire's `Row` carrying `data-place="{path}"`.

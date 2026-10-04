@@ -2,7 +2,7 @@
 .app { position: relative; }
 
 /* ---- reader ---- */
-.reader { display: flex; flex-direction: column; height: 100%; min-width: 0; min-height: 0; background: var(--surface-2); }
+.reader { position: relative; display: flex; flex-direction: column; height: 100%; min-width: 0; min-height: 0; background: var(--surface-2); }
 .reader-head { padding: var(--s-16) var(--s-18) var(--s-12); border-bottom: var(--hair) solid var(--line-soft); }
 .reader-head h2 { margin: 0; }
 .reader-head .muted-note, .reader-head .follow-up-note {
