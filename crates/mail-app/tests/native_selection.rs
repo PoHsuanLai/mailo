@@ -247,10 +247,15 @@ fn ctrl_click_adds_and_takes_away_one_row_at_a_time() {
     );
     assert_eq!(said(&harness).as_deref(), Some("2 selected"));
     // The reader still shows what was opened: Ctrl-click picks, it does not open.
-    let reader = harness.text_of(".reader").unwrap_or_default();
+    let frame = harness
+        .frame("article.frame iframe.html")
+        .expect("the frame has a document");
     assert!(
-        reader.contains("The body of Flight to the conference."),
-        "{reader}"
+        frame
+            .html()
+            .contains("The body of Flight to the conference."),
+        "{}",
+        frame.html()
     );
 }
 
@@ -280,10 +285,15 @@ fn shift_j_and_shift_k_move_the_end_of_the_range() {
     harness.advance(ms(300));
     assert_eq!(selected(&harness), vec![2, 3]);
     // Nothing was opened on the way: the reader is on the row that was clicked.
-    let reader = harness.text_of(".reader").unwrap_or_default();
+    let frame = harness
+        .frame("article.frame iframe.html")
+        .expect("the frame has a document");
     assert!(
-        reader.contains("The body of The invoice for September."),
-        "{reader}"
+        frame
+            .html()
+            .contains("The body of The invoice for September."),
+        "{}",
+        frame.html()
     );
 }
 

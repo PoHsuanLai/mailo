@@ -1,7 +1,7 @@
 use super::chord::Chord;
 use super::command::CommandMenu;
 use super::compose::{self, ComposerPage, PageKind, SendPill};
-use super::data::{PAGE, accounts, count_badges, warm_the_first_screenful};
+use super::data::{PAGE, accounts, count_badges};
 use super::frame;
 use super::list::ThreadList;
 use super::list_query::{ListView, use_list};
@@ -127,18 +127,6 @@ pub(super) fn App() -> Element {
     // That is the whole reason this part of phase 8 works while F140 stands — every other way of
     // leaving the render thread has to find its way back onto one.
     //
-    // `use_hook` runs its closure at mount, which is established: the note above the keyboard
-    // says so, and it is `spawn` inside it that does not run.
-    //
-    // Opening a conversation then costs a hash lookup. Other clients parse, sanitize and embed
-    // when you click; this has already done it.
-    use_hook(|| {
-        let store = consume_context::<Arc<SqliteStore>>();
-        std::thread::spawn(move || {
-            warm_the_first_screenful(&store);
-        });
-    });
-
     // Mailbox badges are fixed. Label badges join them when the label list changes, which is
     // a signal of its own so a keystroke — a shell change — does not recount.
     let badge_filters = use_memo(move || {
@@ -444,7 +432,7 @@ pub(super) fn App() -> Element {
                 return;
             }
             Some(Chord::Find) => {
-                super::reading::open_find(shell);
+                super::host::Host::focus(".search input");
                 return;
             }
             Some(Chord::Print) => {
@@ -487,11 +475,6 @@ pub(super) fn App() -> Element {
                 write.filing = None;
                 super::host::Host::focus_app();
             }
-            return;
-        }
-        // Esc closes a find before it closes anything else, and clears its marks.
-        if key == "Escape" && shell.read().find.is_some() {
-            shell.write().find = None;
             return;
         }
         let typing = in_a_field() || shell.read().composing.is_some();
@@ -729,7 +712,6 @@ pub(super) fn App() -> Element {
                 }
             }
             SpaceEditor { spaces, editing, shell }
-            super::hover::HoverLayer { shell, revision, spaces: Some(spaces) }
             if shell.read().command.is_some() {
                 CommandMenu { shell, pages, revision, side_hidden, spaces }
             }

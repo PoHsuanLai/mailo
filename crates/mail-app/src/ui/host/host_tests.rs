@@ -1,7 +1,7 @@
 //! A test's recorder keeps the window's asks without running any, and a window with no host
 //! drops them.
 
-use super::{Ask, Drawn, Host, Recorder, When};
+use super::{Ask, Host, Recorder, When};
 use crate::ui::fixtures::Scripts;
 use dioxus::prelude::*;
 use dioxus_core::{ScopeId, VirtualDom};
@@ -17,8 +17,7 @@ fn every_ask() -> Vec<Ask> {
         focus(".files-main input", When::NextFrame),
         focus(".pick-field", When::AfterTask),
         focus(".tpl-name", When::AfterTask),
-        Ask::FocusAndSelect(Drawn::FindField),
-        Ask::ScrollIntoView("mark.hit.now"),
+        Ask::ScrollIntoView(".em-cells"),
         Ask::Copy("a\"b@example.org".to_owned()),
     ]
 }
@@ -36,8 +35,7 @@ fn ask_everything() {
     Host::focus_next_frame(".files-main input");
     Host::focus_after_task(".pick-field");
     Host::focus_after_task(".tpl-name");
-    Host::focus_and_select(Drawn::FindField);
-    Host::scroll_into_view("mark.hit.now");
+    Host::scroll_into_view(".em-cells");
     Host::copy("a\"b@example.org");
 }
 

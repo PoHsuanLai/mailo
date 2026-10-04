@@ -182,7 +182,7 @@ async fn without_a_dialog_of_its_own_a_test_opens_none() {
     assert_eq!(store.contacts().unwrap_or_default().len(), before);
 }
 
-/// The sheet with a name being edited, and the sender card showing and naming.
+/// The sheet with a name being edited.
 async fn every_state(store: &Arc<SqliteStore>) -> String {
     let mut dom = sheet(store, "");
     let seen = landed(&mut dom).await;
@@ -190,16 +190,8 @@ async fn every_state(store: &Arc<SqliteStore>) -> String {
         &mut dom,
         seen.one("aria-label", &format!("Edit name: {ADDED}")),
     );
-    let mut out = dioxus_ssr::render(&dom);
+    let out = dioxus_ssr::render(&dom);
     assert!(out.contains("book-name"), "no name field: {out}");
-    let mut card = super::tests::card(store, HEARD, "Dana Okafor");
-    let seen = landed(&mut card).await;
-    out += &dioxus_ssr::render(&card);
-    click(
-        &mut card,
-        seen.one("aria-label", &format!("Add to contacts: {HEARD}")),
-    );
-    out += &dioxus_ssr::render(&card);
     out
 }
 

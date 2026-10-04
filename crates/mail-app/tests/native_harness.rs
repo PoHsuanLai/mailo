@@ -329,8 +329,18 @@ fn clicking_a_row_opens_it_in_the_reader() {
     );
     let reader = harness.text_of(".reader").unwrap_or_default();
     assert!(
-        reader.contains("The body of The invoice for September."),
+        reader.contains("The invoice for September"),
         "the reader does not show the clicked thread: {reader}"
+    );
+    let frame = harness
+        .frame("article.frame iframe.html")
+        .expect("the frame has a document");
+    assert!(
+        frame
+            .html()
+            .contains("The body of The invoice for September."),
+        "the frame does not show the body: {}",
+        frame.html()
     );
     assert_eq!(
         harness
@@ -369,27 +379,6 @@ fn a_menu_opens_on_click_and_closes_on_escape() {
         harness.is_focused(group),
         "the keyboard did not come back to the opener"
     );
-}
-
-#[test]
-fn a_hover_card_opens_after_its_delay_and_not_before() {
-    let (mut harness, _dir) = open();
-    let sender = format!("{} .ds-thread-name", row(1));
-    let open_after = delay(ds::style::tokens::delay::DelayToken::CardOpen);
-    let asked = harness.now();
-    harness.pointer_move(centre(&harness, &sender));
-    // The harness runs on the virtual clock, so `advance` moves hover intent's timer exactly:
-    // absent at half the delay, present once the whole delay has passed.
-    harness.advance(open_after / 2);
-    assert_eq!(harness.count(".ds-hovercard"), 0, "the card opened early");
-    let opened = settle_until(&mut harness, |harness| harness.count(".ds-hovercard") == 1);
-    assert!(
-        opened.duration_since(asked) >= open_after,
-        "the card opened {:?} after the pointer arrived, inside the {open_after:?} wait",
-        opened.duration_since(asked)
-    );
-    let card = harness.text_of(".ds-hovercard").unwrap_or_default();
-    assert!(card.contains("ada@example.test"), "{card}");
 }
 
 #[test]
@@ -512,33 +501,14 @@ fn typing_in_the_search_box_filters_the_rows() {
 // Beyond the eight: the native host's own asks, and what is not on Blitz yet.
 
 #[test]
-fn ctrl_f_puts_the_keyboard_in_the_find_field_and_escape_gives_it_back() {
+fn ctrl_f_puts_the_keyboard_in_the_search_field() {
     let (mut harness, _dir) = open();
     open_row(&mut harness, 1);
     harness.chord(&[Key::Ctrl], Key::Char('f'));
     harness.advance(ms(300));
-    // Found by selector and focused in the document (`ui/host/native.rs`).
     assert!(
-        harness.is_focused(".find input"),
-        "⌘F left the keyboard elsewhere"
-    );
-    for key in "body".chars() {
-        harness.key(Key::Char(key));
-    }
-    harness.advance(ms(300));
-    assert_eq!(
-        harness.attr(".find input", "value").as_deref(),
-        Some("body")
-    );
-    assert_eq!(harness.count("mark.hit.now"), 1, "no current match");
-    // The letters stayed in the field: none of them was a shortcut.
-    assert_eq!(subjects(&harness).len(), INBOX.len());
-    harness.key(Key::Escape);
-    harness.advance(ms(300));
-    assert_eq!(harness.count(".find"), 0, "Escape left the find field open");
-    assert!(
-        harness.is_focused(".app"),
-        "Escape did not give the keyboard back"
+        harness.is_focused(".search input"),
+        "Ctrl+F left the keyboard elsewhere"
     );
 }
 

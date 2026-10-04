@@ -24,7 +24,6 @@
 use chrono::{DateTime, TimeZone, Utc};
 use mail_app::ui::view;
 use mail_core::query;
-use mail_core::reader;
 use mail_domain::*;
 use mail_mime::{RemoteImages, SanitizePolicy};
 use mail_store::{SqliteStore, Store};
@@ -290,7 +289,7 @@ fn what_one_frame_of_the_window_costs() {
         .collect();
     let reader = timed(5, || {
         for message in &messages {
-            let _ = reader::render(&store, message, policy());
+            let _ = mail_app::ui::reading::render_message(&store, message, policy());
         }
     });
 
@@ -366,11 +365,11 @@ fn rendering_the_same_message_twice_does_not_cost_twice() {
         .expect("the store has mail");
 
     let once = timed(5, || {
-        let _ = reader::render(&store, &message, policy());
+        let _ = mail_app::ui::reading::render_message(&store, &message, policy());
     });
     let twice = timed(5, || {
-        let _ = reader::render(&store, &message, policy());
-        let _ = reader::render(&store, &message, policy());
+        let _ = mail_app::ui::reading::render_message(&store, &message, policy());
+        let _ = mail_app::ui::reading::render_message(&store, &message, policy());
     });
     println!(
         "\n  one render {:.2} ms, two renders {:.2} ms\n",

@@ -1,13 +1,6 @@
 mod attachments;
-mod blocks;
+pub(super) mod blocks;
 mod fetch;
-mod find_bar;
-mod found;
-mod image;
-mod remote;
-mod source;
-mod spans;
-mod table;
 mod thumb;
 mod viewer;
 
@@ -15,25 +8,20 @@ use super::press::on_primary;
 use super::text::{address, attachment_rows, from_name, stamp};
 use crate::ui::view::{Peek, Shell};
 use attachments::Attachments;
-use blocks::MessageView;
 use dioxus::prelude::*;
 use ds::components::content::avatar::{
     AvatarFace, AvatarShape, AvatarSize, AvatarTone, person_hue,
 };
 use ds::components::content::label::{LabelRole, LabelStyle};
 use ds::components::controls::button_model::{Bezel, ImagePosition};
-use ds::components::controls::segmented::Tracking;
 use ds::components::overlays::inline_banner::InlineBanner;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::icon::render::Glyph;
 use ds::style::tokens::control_size::ControlSize;
-pub(super) use find_bar::open_find;
-use find_bar::{FindBar, marking};
-use mail_core::reader::Reading;
 use mail_domain::*;
+use mail_mime::SanitizePolicy;
 use mail_store::{SqliteStore, Store};
-use source::{Showing, Shown, SourceView, Sources};
 use std::sync::Arc;
 pub(super) use viewer::{AttachmentViewer, viewer_key};
 
@@ -45,42 +33,6 @@ fn initial(name: &str) -> char {
         .next()
         .and_then(|c| c.to_uppercase().next())
         .unwrap_or('?')
-}
-
-/// Reader, Original and Source: quire's segmented control, in a span so it can sit in the
-/// header without becoming the iframe's parent. Original is offered only where there is a
-/// frame; Source for every message, downloaded or not.
-#[component]
-fn ViewSwitch(
-    message_id: MessageId,
-    body: Option<BlobId>,
-    frame: bool,
-    mut showing: Signal<Showing>,
-    sources: Signal<Sources>,
-) -> Element {
-    let now = source::shown(&showing.read(), message_id);
-    let mut choices = vec![Choice::new(Shown::Reader, "Reader")];
-    if frame {
-        choices.push(Choice::new(Shown::Original, "Original"));
-    }
-    choices.push(Choice::new(Shown::Source, "Source"));
-    rsx! {
-        span { class: "view-switch",
-            SegmentedControl::<Shown> {
-                label: "How to show this message",
-                choices,
-                tracking: Tracking::SelectOne(now),
-                size: ControlSize::Small,
-                onchange: move |which: Shown| {
-                    if which == Shown::Source {
-                        source::open(message_id, body, showing, sources);
-                    } else {
-                        showing.write().insert(message_id, which);
-                    }
-                },
-            }
-        }
-    }
 }
 
 /// The sender's avatar: their first letter on the hue their address hashes to, as everywhere
@@ -115,15 +67,15 @@ fn peek_tool(peek: Peek, current: Peek, icon: Icon, mut shell: Signal<Shell>) ->
         Check::Off
     };
     rsx! {
-            Button {
-        bezel: Bezel::Toolbar,
-        image: ImagePosition::Only,
-        label: label.to_owned(),
-        icon: Some(IconSource::Glyph(icon)),
-        value: Some(pressed),
-        onclick: move |_| shell.write().peek = peek,
-    }
+        Button {
+            bezel: Bezel::Toolbar,
+            image: ImagePosition::Only,
+            label: label.to_owned(),
+            icon: Some(IconSource::Glyph(icon)),
+            value: Some(pressed),
+            onclick: move |_| shell.write().peek = peek,
         }
+    }
 }
 
 /// Mute, in the head's tools: pressed while the conversation is muted, and a press mutes or
@@ -209,6 +161,114 @@ fn ReaderMenu(thread: ThreadId) -> Element {
     }
 }
 
+/// What the reader displays for one message body in its sandboxed frame.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FrameBody {
+    /// Headers only so far. Normal mid-sync, and not an empty message.
+    NotFetched,
+    /// The body rendered as sanitized HTML.
+    Present {
+        html: String,
+        blocked_remote: bool,
+        fetches: Vec<String>,
+    },
+}
+
+impl FrameBody {
+    pub fn frame_html(&self) -> Option<&str> {
+        match self {
+            FrameBody::Present { html, .. } => Some(html),
+            FrameBody::NotFetched => None,
+        }
+    }
+
+    pub fn blocked_remote(&self) -> bool {
+        match self {
+            FrameBody::Present { blocked_remote, .. } => *blocked_remote,
+            FrameBody::NotFetched => false,
+        }
+    }
+
+    pub fn frame_fetches(&self) -> &[String] {
+        match self {
+            FrameBody::Present { fetches, .. } => fetches,
+            FrameBody::NotFetched => &[],
+        }
+    }
+}
+
+/// Render a message body into its sandboxed frame representation.
+pub fn render_message(store: &SqliteStore, message: &Message, policy: SanitizePolicy) -> FrameBody {
+    match &message.body {
+        Body::Absent => FrameBody::NotFetched,
+        Body::Present { text, .. } => {
+            let parsed = super::pgp::parsed(message).or_else(|| parse_body(store, message));
+            let Some(parsed) = parsed else {
+                return plain_frame(text.as_deref().unwrap_or(""));
+            };
+            if let Some(html) = parsed.html.as_deref() {
+                html_frame(html, &parsed, policy)
+            } else {
+                let source = parsed.text.as_deref().or(text.as_deref()).unwrap_or("");
+                plain_frame(source)
+            }
+        }
+    }
+}
+
+fn parse_body(store: &SqliteStore, message: &Message) -> Option<mail_mime::Parsed> {
+    let raw = message.body.raw()?;
+    let bytes = store.blobs().get(&store.connection(), raw).ok()?;
+    mail_mime::parse(&bytes).ok()
+}
+
+fn html_frame(html: &str, parsed: &mail_mime::Parsed, policy: SanitizePolicy) -> FrameBody {
+    let safe = mail_mime::sanitize(html, policy);
+    let blocked_remote = safe.blocked_remote() > 0;
+    let fetches = safe.remote_fetches().to_vec();
+    let embedded =
+        mail_mime::embed_inline(safe.as_str(), &parsed.attachments, mail_mime::INLINE_BUDGET);
+    FrameBody::Present {
+        html: embedded,
+        blocked_remote,
+        fetches,
+    }
+}
+
+fn plain_frame(text: &str) -> FrameBody {
+    let escaped = escape_html(text);
+    let html = format!(
+        "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><style>\
+         :root {{ color-scheme: light dark; }}\
+         body {{ margin: 16px; font-family: -apple-system, BlinkMacSystemFont, \
+         \"Segoe UI\", Roboto, Helvetica, Arial, sans-serif; font-size: 14px; \
+         line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }}\
+         </style></head><body>{escaped}</body></html>"
+    );
+    FrameBody::Present {
+        html,
+        blocked_remote: false,
+        fetches: Vec::new(),
+    }
+}
+
+fn escape_html(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for ch in text.chars() {
+        match ch {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            '\n' | '\t' => out.push(ch),
+            c if c.is_control() => {}
+            c => out.push(c),
+        }
+    }
+    out
+}
+
 /// `revision` is the window's, moved when leaving a list queues a message, and whenever any
 /// window moves the store (`ui/revisions`), which draws the reader again; a reader drawn on its
 /// own has none.
@@ -225,17 +285,6 @@ pub(super) fn Reader(
     if let Some(revision) = revision {
         let _ = revision();
     }
-    // What the message source's Save said. Cleared by opening another conversation, because
-    // this component is rebuilt for each one.
-    let mut saved = use_signal(|| None::<String>);
-    // Which messages are showing their Original frame or their source. Keyed by message, so
-    // opening another one does not carry the choice over. The frame itself is not created and
-    // destroyed with this choice.
-    let original = use_signal(Showing::new);
-    // The sources read so far, by blob, so switching back and forth reads each once.
-    let sources = use_signal(Sources::new);
-    // Quotes the reader has unfolded, keyed by message and path.
-    let quotes = use_signal(blocks::OpenQuotes::new);
     // Moved when an OpenPGP or S/MIME message has been opened and has a body of its own to show,
     // so the messages are drawn again with it. The opening itself happens in `pgp::Seal`, off
     // this thread; here it is only looked up.
@@ -257,12 +306,6 @@ pub(super) fn Reader(
             }
         });
     }
-    // The Reader view's remote images on Blitz, which mailo fetches itself: held to this
-    // render's thread and consent, and fetched by `remote::Fetcher`'s effect (`remote.rs`).
-    {
-        let pictures = use_context_provider(remote::Pictures::new);
-        pictures.hold(thread, shell.read().show_remote_images);
-    }
     let Ok(loaded) = store.thread(thread) else {
         return rsx! {
             div { class: "reader-empty",
@@ -273,33 +316,21 @@ pub(super) fn Reader(
     let policy = shell.read().policy();
     let showing = shell.read().show_remote_images;
     let peek = shell.read().peek;
-    // The HTML part is not a column: it lives inside the stored raw message, which is the only
-    // copy that is byte-for-byte what the server sent. Parsed here, once per render of a thread,
-    // rather than at ingest — storing the blocks would freeze today's limits into every row.
-    // Images resolve in that walk. The frame, when there is one, is the sanitized markup.
-    let shown: Vec<(Message, Reading, bool)> = loaded
+    let shown: Vec<(Message, FrameBody, bool)> = loaded
         .messages
         .iter()
         .filter_map(|id| store.message(*id).ok())
         .map(|message| {
-            // A protected message opened already shows what it was opened to; everything else,
-            // and one not opened yet, shows what is stored.
-            let render = |policy| {
-                super::pgp::reading(&message, policy)
-                    .unwrap_or_else(|| mail_core::reader::render(&store, &message, policy))
-            };
-            let reading = render(policy);
-            // Once the reader is allowed to fetch, the display pass blocks nothing, so it can
-            // no longer say whether this message had a remote image. The blocked policy can:
-            // that is the same question the offer was answered with.
-            let remote = if reading.blocked_remote() {
+            let body = render_message(&store, &message, policy);
+            let remote = if body.blocked_remote() {
                 true
-            } else if showing && reading.frame_html().is_some() {
-                render(mail_mime::SanitizePolicy::CURRENT).blocked_remote()
+            } else if showing && body.frame_html().is_some() {
+                render_message(&store, &message, mail_mime::SanitizePolicy::CURRENT)
+                    .blocked_remote()
             } else {
                 false
             };
-            (message, reading, remote)
+            (message, body, remote)
         })
         .collect();
 
@@ -311,7 +342,7 @@ pub(super) fn Reader(
         let allowed = showing.then(|| {
             shown
                 .iter()
-                .map(|(message, reading, _)| (message.id, reading.frame_fetches().to_vec()))
+                .map(|(message, body, _)| (message.id, body.frame_fetches().to_vec()))
                 .collect()
         });
         consent.hold(*holder, thread, allowed);
@@ -346,25 +377,6 @@ pub(super) fn Reader(
         .rev()
         .find(|(_, _, remote)| *remote)
         .map(|(message, _, _)| host_of(&message.from.email).to_owned());
-    // ⌘F's marks, or the list search's while no find is open. Blocks only: the frame is
-    // never read and never marked.
-    let (highlight, problem) = marking(&shell.read());
-    let finding = shell.read().find.clone();
-    let documents: Vec<_> = shown
-        .iter()
-        .map(|(_, reading, _)| reading.document())
-        .collect();
-    let (founds, total) = found::find_in(&documents, &highlight, finding.as_ref());
-    // On Blitz, what of this render mailo fetches itself: the consented remote images it draws.
-    let fetcher = {
-        let wanted = if showing {
-            remote::wanted(documents.iter().flatten().copied())
-        } else {
-            Vec::new()
-        };
-        rsx! { remote::Fetcher { thread, wanted } }
-    };
-    let invalid = problem.is_some();
     // A protected message opened to a body lists what is attached inside it; its stored parts
     // are its wrapping.
     let attached: Vec<_> = shown
@@ -375,14 +387,9 @@ pub(super) fn Reader(
         .collect();
 
     rsx! {
-        {fetcher}
         div { class: "reader-head",
             div { class: "head-row",
-                if finding.is_some() {
-                    FindBar { shell, total, invalid }
-                } else {
-                    span { class: "spacer" }
-                }
+                span { class: "spacer" }
                 div { class: "bar-tools",
                     if let Some(revision) = revision {
                         super::move_to::MoveTool { thread, shell, revision }
@@ -402,9 +409,6 @@ pub(super) fn Reader(
                         ReaderMenu { thread }
                     }
                 }
-            }
-            if let Some(why) = problem {
-                pre { class: "find-err mono", "{why}" }
             }
             h2 { Label { text: subject, style: LabelStyle::Title } }
             if loaded.summary.mute == Mute::Muted {
@@ -429,22 +433,13 @@ pub(super) fn Reader(
                         }
                         Label { text: when, role: LabelRole::Tertiary, style: LabelStyle::Footnote }
                     }
-                    // Its own template, so the key is that template's root key and a new one
-                    // remounts it: rsx reads a key only on a template's root node, and one on a
-                    // nested component is dropped, in a release build and a debug one alike.
                     {rsx! { super::unsubscribe::Leave { key: "{leave_key}", thread, bodies: bodies.clone(), revision } }}
                 }
             }
-            // Under the head, where a question about this message belongs. Keyed like Leave.
             {rsx! { super::receipt::Receipts { key: "{leave_key}", bodies } }}
         }
         div { class: "reader-body",
             div { class: "banners",
-            if let Some(refusal) = saved() {
-                // A refusal only: a saved file is said by a toast (`attachments.rs`), so this one is an
-                // error, never `Ok`.
-                InlineBanner { severity: Severity::Danger, text: refusal, onclose: move |()| saved.set(None) }
-            }
             if let Some(host) = from_host {
                 if showing {
                     InlineBanner {
@@ -462,9 +457,6 @@ pub(super) fn Reader(
                                 size: ControlSize::Small,
                                 label: show_images(),
                                 common: Common { aria_label: Some(show_images().to_owned()), ..Common::default() },
-                                // The press takes the button away, and on Blitz the keyboard with it
-                                // (quire focuses the pressed button a frame later, gone or not): it is
-                                // handed back to the window, as a closing panel hands it back.
                                 onclick: on_primary(move || {
                                     shell.write().show_remote_images = true;
                                     super::host::Host::focus_app();
@@ -475,43 +467,24 @@ pub(super) fn Reader(
                 }
             }
             }
-            for (((message, reading, _), found), attached) in shown.into_iter().zip(founds).zip(attached) {
+            for ((message, body, _), attached) in shown.into_iter().zip(attached) {
                 article { key: "{message.id}", class: "frame",
                     header {
                         Label { text: from_name(&message), style: LabelStyle::Headline }
                         Label { text: address(&message), role: LabelRole::Secondary, style: LabelStyle::Footnote }
                         time { Label { text: stamp(&message), role: LabelRole::Tertiary, style: LabelStyle::Footnote } }
-                        // Original wherever there is a frame; Source for every message. A span,
-                        // not a div: a div between the article and its iframe is a new parent,
-                        // and a new parent reloads the frame.
-                        ViewSwitch {
-                            message_id: message.id,
-                            body: message.body.raw(),
-                            frame: reading.frame_html().is_some(),
-                            showing: original,
-                            sources,
-                        }
                     }
-                    // What the message's OpenPGP or S/MIME says, and its passphrase field. A
-                    // sibling before the frame, like the invitation under it, for the same reason.
                     super::pgp::Seal {
                         key: "{message.id}-{message.body.raw():?}",
                         message: message.id,
                         body: message.body.raw(),
                         landed,
                     }
-                    // A calendar invitation, drawn by this window and never inside the sender's
-                    // HTML. A sibling before the frame, not its parent: it lands after the first
-                    // paint, and inserting a sibling does not move the iframe. Keyed on the
-                    // message and its body, so a body arriving asks again.
                     super::invite::Invitation {
                         key: "{message.id}-{message.body.raw():?}",
                         message: message.id,
                         body: message.body.raw(),
                     }
-                    // What is attached, if anything: what was sent, or what a protected
-                    // message was opened to holds. Keyed like the seal, so a body arriving asks
-                    // again.
                     if !attached.is_empty() {
                         Attachments {
                             key: "{message.id}-{message.body.raw():?}",
@@ -521,43 +494,25 @@ pub(super) fn Reader(
                             shell,
                         }
                     }
-                    // The iframe, when this message has one, is the first element MessageView
-                    // draws, and it is drawn on every render. Toggling Reader / Original changes
-                    // a class. Conditionally rendering the iframe would reload it: a new parent,
-                    // or a frame that was not in the tree, re-runs the document, loses scroll,
-                    // and re-fetches anything just consented to.
-                    if matches!(reading, Reading::NotFetched) {
-                        fetch::BodyPane {
-                            key: "{message.id}-pane",
-                            message: message.id,
-                            account: message.account,
-                            landed,
-                        }
-                    } else {
-                        MessageView {
-                            holder: consent.as_ref().map(|(_, holder)| *holder),
-                            message_id: message.id,
-                            reading: reading.clone(),
-                            original,
-                            quotes,
-                            shell,
-                            found,
-                        }
-                    }
-                    // The source, when it is how this message is shown: after the body, so the
-                    // frame keeps its parent.
-                    SourceView {
-                        message: message.id,
-                        body: message.body.raw(),
-                        showing: original,
-                        sources,
-                        shell,
-                        revision,
-                        said: saved,
+                    match body {
+                        FrameBody::NotFetched => rsx! {
+                            fetch::BodyPane {
+                                key: "{message.id}-pane",
+                                message: message.id,
+                                account: message.account,
+                                landed,
+                            }
+                        },
+                        FrameBody::Present { html, .. } => rsx! {
+                            blocks::MessageView {
+                                holder: consent.as_ref().map(|(_, holder)| *holder),
+                                message_id: message.id,
+                                html,
+                            }
+                        },
                     }
                 }
             }
-            // An inline reply, after every frame so no iframe gains a new parent.
             {children}
         }
     }
@@ -574,13 +529,11 @@ pub fn OriginalFrame(html: String) -> Element {
         style { {super::style::STYLE} }
         div { class: "reader-body",
             article { class: "frame",
-                blocks::Sandbox { html, concealed: false }
+                blocks::Sandbox { html }
             }
         }
     }
 }
 
-#[cfg(test)]
-mod find_tests;
 #[cfg(test)]
 mod tests;

@@ -7,7 +7,6 @@
 //! snooze float are placed against. Its strip is quire's `HoverStrip`, whose `on_press` hears a
 //! press before anything is measured, so a row's archive never waits on a layout read.
 
-use super::hover::{Hook, element, line_at, out, over, use_driver};
 use super::list_search::RowHit;
 use super::marked::{Piece, pieces};
 use super::menus::{LabelMenu, SnoozeMenu};
@@ -26,11 +25,9 @@ use ds::base::press::Press;
 use ds::base::vocab::RowState;
 use ds::components::app::hover_strip::{ActionId, HoverStrip, StripAction, Titles};
 use ds::components::app::thread_row::ThreadRow;
-use ds::components::app::thread_row_hooks::PartHooks;
 use ds::components::content::text_runs::{RunTone, TextRun};
 use ds::components::controls::badge::{Badge, BadgeContent, BadgeTone};
 use ds::components::controls::chip::{Chip, ChipVariant};
-use ds::components::overlays::hover_card::intent::HoverAnchor;
 use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::root::common::Common;
@@ -158,22 +155,6 @@ pub(super) fn MailRow(
     let mut row_menu = use_signal(|| None::<Rect>);
     // "Remind me if no reply", opened from the context menu at the same point.
     let mut reminding = use_signal(|| None::<Rect>);
-    // quire's hover hub, which the row, its name and its time report the pointer to.
-    let driver = use_driver();
-    let enter = move |hook: Hook, anchor: HoverAnchor| over(driver, hook, anchor);
-    // The name and the time open their own cards. Leaving either is not being back on the row:
-    // the pointer may be on its way to the card. Being back is `onpointerback`.
-    // The innermost hook wins: an entry that bubbles (a harness's does) stops at the part.
-    let part = move |hook: Hook| PartHooks {
-        onpointerenter: EventHandler::new(move |event: PointerEvent| {
-            event.stop_propagation();
-            enter(hook, line_at(&event));
-        }),
-        onpointerleave: EventHandler::new(move |event: PointerEvent| {
-            event.stop_propagation();
-            out(driver);
-        }),
-    };
     let parts = shell.read().parts;
     let snippet =
         (parts.snippet.shown() && !snippet.is_empty()).then(|| runs(&snippet, &snippet_marks));
@@ -341,29 +322,17 @@ pub(super) fn MailRow(
                 tags,
                 star: Some(star),
                 strip,
-                // The pointer came back from the name or the time and rested on the row.
-                onpointerback: EventHandler::new(move |_: PointerEvent| {
-                    enter(Hook::Thread(id), element(row_box()));
-                }),
                 onclick: move |press: Press| {
                     let click = click_of(press.modifiers);
                     shell.write().click(id, click, &drawn_order());
                 },
-                on_sender: part(Hook::Sender(id)),
-                on_time: part(Hook::Time(id)),
-                onpointerenter: EventHandler::new(move |_: PointerEvent| {
-                    enter(Hook::Thread(id), element(row_box()));
-                }),
-                onpointerleave: EventHandler::new(move |_| out(driver)),
                 onpointerdown: EventHandler::new(move |event: PointerEvent| {
-                    super::hover::press(driver);
                     let point = event.client_coordinates();
                     drag::press(id, (point.x, point.y));
                 }),
-                // The row names the hover hook it is, as every other hook's element does.
                 common: Common {
                     aria_label: Some(format!("Open {subject}")),
-                    ..super::sidebar::tagged("hc", format!("thread:{id}"))
+                    ..Common::default()
                 },
             }
             if let Some(at) = row_menu() {

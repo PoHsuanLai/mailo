@@ -141,20 +141,3 @@ pub(in crate::ui) fn ReaderAvatar(
         },
     }
 }
-
-/// The sender card's logo, above its checks line, when the sender has one. quire's card draws
-/// its own avatar from a letter, and has no place for a picture.
-#[component]
-pub(in crate::ui) fn CardLogo(message: MessageId, body: Option<BlobId>, from: String) -> Element {
-    let logo = use_brand_logo(message, body, from.clone());
-    let Some(src) = logo() else {
-        return rsx! {};
-    };
-    let domain = domain_of(&from).unwrap_or_default().to_owned();
-    rsx! {
-        div { class: "card-brand",
-            img { src: "{src}", alt: "Logo of {domain}" }
-            span { "{domain}'s logo, verified by its mark certificate" }
-        }
-    }
-}

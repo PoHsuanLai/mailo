@@ -22,24 +22,6 @@ pub(in crate::ui) enum When {
     AfterTask,
 }
 
-/// A field that is focused, with its text selected, once it is drawn. The host looks for it for
-/// up to twenty frames, because the keystroke that opened it is handled before the render that
-/// draws it reaches the page.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(in crate::ui) enum Drawn {
-    /// The reader's find field, `.find input` (⌘F).
-    FindField,
-}
-
-impl Drawn {
-    /// The field, as the selector the host looks for.
-    pub(in crate::ui) fn selector(self) -> &'static str {
-        match self {
-            Drawn::FindField => ".find input",
-        }
-    }
-}
-
 /// One thing the window asks of its host.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::ui) enum Ask {
@@ -47,8 +29,6 @@ pub(in crate::ui) enum Ask {
     FocusApp,
     /// Focus the first element `selector` matches, `when` it is there.
     Focus { selector: &'static str, when: When },
-    /// Focus a field once it is drawn, and select what is in it.
-    FocusAndSelect(Drawn),
     /// Bring the first element `selector` matches into the middle of its scroller, after the
     /// render that moved it.
     ScrollIntoView(&'static str),
@@ -130,11 +110,6 @@ impl Host {
             selector,
             when: When::AfterTask,
         });
-    }
-
-    /// Focus `field` once it is drawn, and select its text.
-    pub(in crate::ui) fn focus_and_select(field: Drawn) {
-        Host::ask(Ask::FocusAndSelect(field));
     }
 
     /// Scroll the element `selector` matches into the middle of its scroller.
