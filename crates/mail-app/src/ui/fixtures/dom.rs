@@ -416,7 +416,6 @@ pub(in crate::ui) fn dispatching() {
     });
 }
 
-
 /// The name a listener is kept under among [`Seen`]'s attributes, its event as the value.
 const LISTENER: &str = "(listener)";
 
@@ -515,7 +514,6 @@ impl Seen {
         }
         ids
     }
-
 
     /// The element a click on the folder row whose path is `path` lands on: the row itself,
     /// which is quire's `Row` carrying `data-place="{path}"`.

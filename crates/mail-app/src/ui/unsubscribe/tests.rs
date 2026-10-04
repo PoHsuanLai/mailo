@@ -366,10 +366,7 @@ async fn the_list_does_not_read_a_list_header() {
     let mut dom = VirtualDom::new(App).with_root_context(store.clone());
     let _seen = rebuild_into(&mut dom);
     settle(&mut dom, Duration::from_millis(50)).await;
-    assert!(
-        !looked_at(thread),
-        "the list read a list header"
-    );
+    assert!(!looked_at(thread), "the list read a list header");
 
     let (_, markup) = reader_on(store, thread).await;
     assert!(looked_at(thread) && markup.contains("aria-label=\"Unsubscribe\""));
