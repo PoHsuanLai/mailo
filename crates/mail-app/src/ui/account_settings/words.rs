@@ -162,11 +162,14 @@ pub(super) fn refused(error: &RemoveError) -> String {
             "The mail kept on this computer cannot be removed like an account.".to_owned()
         }
         RemoveError::Keyring(_) => {
-            "The keyring would not forget the saved sign-in, so nothing was removed. Unlock the \
-             keyring and try again."
+            "The keyring would not forget the saved sign-in, so the account and its mail were not \
+             removed. It may ask you to sign in again. Unlock the keyring and try again."
                 .to_owned()
         }
-        RemoveError::Store(why) => format!("Nothing was removed: {why}"),
+        RemoveError::Store(why) => format!(
+            "The account and its mail were not removed: {why}. Its saved sign-in was already \
+             forgotten, so it will ask you to sign in again."
+        ),
     }
 }
 

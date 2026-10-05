@@ -2,8 +2,9 @@
 //! on an account's tile.
 //!
 //! A Space over every account that loses one becomes a Space of all the others, so taking an
-//! account out never also takes the rest. Putting one into a Space over every account changes
-//! nothing: it is already there.
+//! account out never also takes the rest; putting it back, so that the Space holds every account
+//! again, makes it a Space over every account once more. Putting one into a Space over every
+//! account changes nothing: it is already there.
 
 use super::Scope;
 use mail_domain::AccountId;
@@ -25,7 +26,13 @@ pub fn with_member(scope: &Scope, account: AccountId, member: Member, all: &[Acc
         }
         (Scope::Accounts(ids), Member::In) if ids.contains(&account) => scope.clone(),
         (Scope::Accounts(ids), Member::In) => {
-            Scope::Accounts(ids.iter().copied().chain([account]).collect())
+            let ids: Vec<AccountId> = ids.iter().copied().chain([account]).collect();
+            // Every account again is a Space over every account, so one added later shows too.
+            if all.iter().all(|id| ids.contains(id)) {
+                Scope::All
+            } else {
+                Scope::Accounts(ids)
+            }
         }
         (Scope::Accounts(ids), Member::Out) => {
             Scope::Accounts(ids.iter().copied().filter(|id| *id != account).collect())
@@ -58,6 +65,8 @@ mod tests {
             (of(&[1]), 2, Member::In, of(&[1, 2])),
             (of(&[1, 2]), 2, Member::In, of(&[1, 2])),
             (of(&[1, 2]), 2, Member::Out, of(&[1])),
+            // Out and back in: every account again is every account, not a fixed list.
+            (of(&[1, 3]), 2, Member::In, Scope::All),
             (of(&[2]), 2, Member::Out, of(&[])),
             (of(&[]), 3, Member::In, of(&[3])),
             (of(&[1]), 3, Member::Out, of(&[1])),

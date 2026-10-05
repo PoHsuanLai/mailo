@@ -1,6 +1,8 @@
 /* The Add account sheet: quire's `Sheet` around form rows. What is left here is the sheet's
    column, the foot, a browser sign-in's address with its Copy beside it, and the spinner's line. */
 .acct-sheet { display: grid; gap: var(--s-10); padding: var(--s-14); min-width: 0; }
+/* An account's own sheet (`account_settings`): the same column, under a name of its own. */
+.acct-details { display: grid; gap: var(--s-10); padding: var(--s-14); min-width: 0; }
 .acct-foot { display: flex; justify-content: flex-end; gap: var(--s-8); padding-top: var(--s-4); }
 .acct-busy { display: flex; align-items: center; gap: var(--s-8); }
 .acct-url { display: flex; align-items: flex-start; gap: var(--s-8); min-width: 0; }

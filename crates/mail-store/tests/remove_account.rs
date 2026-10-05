@@ -203,3 +203,69 @@ fn a_blob_the_account_named_twice_goes_once() {
     assert_eq!(freed.blobs, 3);
     assert!(!is_blob(&store, twice));
 }
+
+/// The removed account's message and the kept account's draft hold the same bytes (`put` keeps
+/// one blob per content): the draft's attachment keeps them. `drafts` is read by the scan; a
+/// `LIKE '%_fts%'` filter, whose `_` is a wildcard, once skipped it as if it were search's.
+#[test]
+fn a_blob_a_kept_draft_attaches_stays() {
+    let (store, _dir) = store();
+    let identity = IdentityId::generate();
+    store
+        .connection()
+        .execute(
+            "INSERT INTO identities (id, account, from_name, from_email, is_default)
+             VALUES (?1, ?2, NULL, 'kept@example.test', '\"default\"')",
+            [identity.to_string(), KEPT.to_string()],
+        )
+        .unwrap();
+    let shared = put(&store, &vec![9u8; LARGE]);
+    store
+        .import(
+            GONE,
+            Import {
+                messages: vec![kept(GONE, "g1@x", shared, &[])],
+            },
+        )
+        .unwrap();
+    let draft = Draft {
+        id: DraftId::generate(),
+        account: KEPT,
+        identity,
+        to: vec![],
+        cc: vec![],
+        bcc: vec![],
+        subject: "with the same file".to_owned(),
+        in_reply_to: None,
+        forward_of: None,
+        text: String::new(),
+        html: None,
+        attachments: vec![PendingAttachment {
+            name: "report.pdf".to_owned(),
+            mime: "application/pdf".to_owned(),
+            blob: shared,
+        }],
+        receipt: ReceiptRequest::Unrequested,
+        openpgp: OpenPgp::None,
+        smime: Smime::None,
+        state: SendState::Editing,
+        updated: at(2),
+    };
+    store
+        .apply(
+            KEPT,
+            &Patch {
+                id: ChangeId::generate(),
+                changes: vec![Change::DraftUpsert(Box::new(draft))],
+            },
+        )
+        .unwrap();
+
+    let freed = store.remove_account(GONE).unwrap().unwrap();
+
+    assert_eq!(freed.blobs, 0, "{freed:?}");
+    assert!(
+        is_blob(&store, shared),
+        "the kept draft's attachment lost its bytes"
+    );
+}

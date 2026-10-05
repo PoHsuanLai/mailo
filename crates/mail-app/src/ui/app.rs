@@ -234,9 +234,15 @@ pub(super) fn App() -> Element {
         }
     });
 
-    // An account removed, here or from a terminal, leaves every Space, and the tile pressed.
+    // An account removed, here or from a terminal, leaves every Space, and the tile pressed. Not
+    // while the Space editor holds a draft: the Spaces are the draft then, and Escape must still
+    // put them back. Run again when the editor closes, which also takes the account out of a
+    // draft that Save kept.
     use_effect(move || {
         let _ = revision();
+        if editing.read().is_some() {
+            return;
+        }
         let store = consume_context::<Arc<SqliteStore>>();
         let Ok(known) = super::data::known_accounts(&store) else {
             return;
