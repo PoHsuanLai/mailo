@@ -3,7 +3,7 @@
 
 use ds::prelude::*;
 use ds_blitz::{FocusFallback, NetPolicy, PrintOutcome};
-use ds_harness::{Driver, Harness, HarnessConfig, Query, Viewport};
+use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query, Viewport};
 use ds_settings::Environment;
 use mail_domain::*;
 use mail_runtime::{Arrival, absorb};
@@ -171,6 +171,7 @@ fn open(dark: bool) -> (Harness, tempfile::TempDir) {
     }
     let printer = mail_app::ui::native::Printer::with_dialog(|_, _| Ok(PrintOutcome::Cancelled));
     let config = HarnessConfig::new(VIEW)
+        .with_clock(Clock::Wall)
         .with_net(NetPolicy::Local)
         .with_focus_fallback(FocusFallback::Ancestor)
         .with_contexts(contexts.with(printer))

@@ -9,7 +9,7 @@
 
 use ds::prelude::*;
 use ds_blitz::{AppNet, NetDecision, NetPolicy, NetReply, NetRequest, RequestOrigin, RootContexts};
-use ds_harness::{Driver, Harness, HarnessConfig, Query, Viewport};
+use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query, Viewport};
 use mail_app::ui::native::{Browse, Fetch, Original};
 use mail_domain::*;
 use mail_runtime::{Arrival, absorb};
@@ -222,6 +222,7 @@ fn open() -> Window {
     let opened = Arc::new(Opened::default());
     let original = Original::new(fetched.clone(), opened.clone());
     let config = HarnessConfig::new(VIEW)
+        .with_clock(Clock::Wall)
         .with_contexts(contexts(dir.path()))
         .with_net(original.net())
         .with_frame_links(original.links())
@@ -525,6 +526,7 @@ fn the_windows_own_document_asks_for_nothing_remote() {
     let dir = tempfile::tempdir().unwrap();
     let requests = Arc::new(Requests::default());
     let config = HarnessConfig::new(VIEW)
+        .with_clock(Clock::Wall)
         .with_contexts(contexts(dir.path()))
         .with_net(NetPolicy::Custom(requests.clone()));
     let mut harness = Harness::new(mail_app::ui::native::root, config);
