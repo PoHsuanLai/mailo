@@ -258,6 +258,7 @@ pub(super) fn App() -> Element {
         top,
         marking,
         paging,
+        asked,
     } = use_list(shell, pages, revision);
     // Render what the person is about to open before they open it — the top of the list, and
     // the neighbours of the open conversation — so that opening it is a lookup (phase 8e).
@@ -659,7 +660,7 @@ pub(super) fn App() -> Element {
                 panes: vec![SplitPane::new(LIST, rsx! {
                     ThreadList {
                         shell, pages, revision, in_a_field, threads, drafts, nothing, more,
-                        marking, top, paging, side_hidden,
+                        marking, top, paging, side_hidden, question: asked,
                     }
                 })],
                 section { class: "reader",

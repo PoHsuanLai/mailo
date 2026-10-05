@@ -76,6 +76,8 @@ pub(super) fn ThreadList(
     paging: Memo<bool>,
     /// Whether the sidebar is folded away; while it is, the header offers the way back.
     side_hidden: Signal<bool>,
+    /// Which question the rows answer (`list_query::ListView::asked`).
+    question: ReadSignal<u64>,
 ) -> Element {
     let rows = use_memo(move || {
         let _ = revision();
@@ -443,7 +445,10 @@ pub(super) fn ThreadList(
                     placeholder: rsx! { FirstSyncRows {} },
                     onretry: retry,
                     action: doctor_action,
-                    List::<Slot> {
+                    // Keyed by the question, so another place or another search is a new list,
+                        // not this one losing every row through its exit.
+                        List::<Slot> {
+                        key: "{question}",
                         label: place.clone(),
                         items,
                         cursor,
