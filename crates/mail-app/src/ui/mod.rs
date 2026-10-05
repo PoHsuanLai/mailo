@@ -69,7 +69,7 @@ mod revisions;
 mod row;
 mod rules;
 mod server_search;
-mod settings_sheet;
+mod settings_window;
 mod sidebar;
 mod space_editor;
 mod start;
@@ -102,6 +102,7 @@ pub mod native {
     pub use super::reading::OriginalFrame;
     pub use super::revisions::Revisions;
     pub use super::server_search::{Search, ServerSearcher};
+    pub use super::settings_window::{OpenSettings, SettingsWindows, settings_root};
     pub use super::window::{Ask, MessageOpen, OpenWindow, Windows, message_root};
 }
 

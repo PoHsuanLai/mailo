@@ -8,7 +8,7 @@
 //! What quire's editor does not draw stays mailo's, under it: which accounts the Space shows
 //! (`members`), and Cancel and Save. Everything that applies to every Space (notifications,
 //! spelling, the accounts themselves, contacts, rules, keys, the keyboard) is in Settings
-//! (`settings_sheet`).
+//! (`settings_window`).
 //!
 //! The drag preview, decided (quire's migration brief §5.1, which left it open): a drag in the
 //! colour field repaints the frame through `Ds`'s own cross-fade, each step like any other

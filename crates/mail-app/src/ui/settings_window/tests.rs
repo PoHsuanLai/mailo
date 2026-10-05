@@ -1,7 +1,8 @@
-//! Settings in the running window, over the reference fixture and a temporary config directory:
-//! ⌘, opens it, each schema key is a row whose control writes `settings.toml`, the Accounts page
-//! opens an account's own sheet, and Escape closes it.
+//! The Settings window, over the reference fixture and a temporary config directory: ⌘, and the
+//! gear ask for it, each schema key is a row whose control writes `settings.toml`, and the
+//! Accounts page opens an account's own sheet in the window.
 
+use super::{OpenSettings, SettingsWindows, settings_root};
 use crate::settings::{BrandLogos, MailSettings, ProviderMarks, Spelling};
 use crate::ui::app::App;
 use crate::ui::fixtures::{
@@ -10,21 +11,16 @@ use crate::ui::fixtures::{
 use crate::ui::view::SettingsPage;
 use dioxus::dioxus_core::{self, VirtualDom};
 use dioxus::prelude::Modifiers;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
-/// The window over `built`, Settings open on `page`.
+/// The Settings window over `built`, on `page`.
 pub(super) fn opened_on(built: &Work, page: SettingsPage) -> (VirtualDom, Seen) {
     dispatching();
-    let mut dom = VirtualDom::new(App)
+    let mut dom = VirtualDom::new(settings_root)
         .with_root_context(built.store.clone())
         .with_root_context(built.dirs.clone());
-    let _ = rebuild_into(&mut dom);
-    let seen = chord(
-        &mut dom,
-        ",",
-        Modifiers::CONTROL,
-        dioxus_core::ElementId(INSIDE_THE_SHELL as usize),
-    )
-    .merge(drain_seen(&mut dom));
+    let seen = rebuild_into(&mut dom).merge(drain_seen(&mut dom));
     match page {
         SettingsPage::General => (dom, seen),
         SettingsPage::Accounts => {
@@ -42,8 +38,54 @@ fn stored(built: &Work) -> MailSettings {
         .value
 }
 
+/// Counts the windows the main window asked for.
+#[derive(Default)]
+struct Asked(AtomicUsize);
+
+impl OpenSettings for Asked {
+    fn open(&self) {
+        self.0.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+/// The main window over `built`, its Settings window a recorder.
+fn main_window(built: &Work) -> (VirtualDom, Seen, Arc<Asked>) {
+    dispatching();
+    let asked = Arc::new(Asked::default());
+    let mut dom = VirtualDom::new(App)
+        .with_root_context(built.store.clone())
+        .with_root_context(built.dirs.clone())
+        .with_root_context(SettingsWindows(asked.clone()));
+    let seen = rebuild_into(&mut dom);
+    (dom, seen, asked)
+}
+
 #[tokio::test]
-async fn command_comma_opens_settings_with_a_row_per_key() {
+async fn command_comma_and_the_gear_ask_for_the_settings_window() {
+    let built = work();
+    let (mut dom, seen, asked) = main_window(&built);
+    let _ = chord(
+        &mut dom,
+        ",",
+        Modifiers::CONTROL,
+        dioxus_core::ElementId(INSIDE_THE_SHELL as usize),
+    );
+    assert_eq!(asked.0.load(Ordering::SeqCst), 1, "⌘, asked for nothing");
+    click(&mut dom, seen.one("aria-label", "Settings"));
+    assert_eq!(
+        asked.0.load(Ordering::SeqCst),
+        2,
+        "the gear asked for nothing"
+    );
+    let page = dioxus_ssr::render(&dom);
+    assert!(
+        !page.contains("data-page=\"General\""),
+        "Settings was drawn in the main window: {page}"
+    );
+}
+
+#[tokio::test]
+async fn the_window_has_a_row_per_key() {
     let built = work();
     let (dom, _seen) = opened_on(&built, SettingsPage::General);
     let page = dioxus_ssr::render(&dom);
@@ -62,11 +104,10 @@ async fn command_comma_opens_settings_with_a_row_per_key() {
 }
 
 #[tokio::test]
-async fn a_switch_writes_settings_toml_and_the_window_follows() {
+async fn a_switch_writes_settings_toml() {
     let built = work();
     let (mut dom, seen) = opened_on(&built, SettingsPage::General);
     assert_eq!(stored(&built).reading.brand_logos, BrandLogos::Off);
-
     // A row and its switch both carry the key's label: the switch is the checkable one in it.
     click(
         &mut dom,
@@ -81,7 +122,7 @@ async fn a_switch_writes_settings_toml_and_the_window_follows() {
 }
 
 #[tokio::test]
-async fn provider_marks_are_a_choice_and_the_chips_follow() {
+async fn provider_marks_are_a_choice() {
     let built = work();
     let (mut dom, seen) = opened_on(&built, SettingsPage::General);
     // Icons, then Letters: the segments after the control's group.
@@ -92,7 +133,7 @@ async fn provider_marks_are_a_choice_and_the_chips_follow() {
 }
 
 #[tokio::test]
-async fn the_accounts_page_opens_an_account_s_sheet_and_settings_steps_aside() {
+async fn the_accounts_page_opens_an_account_s_sheet_in_the_window() {
     let built = work();
     let (mut dom, seen) = opened_on(&built, SettingsPage::Accounts);
     let page = dioxus_ssr::render(&dom);
@@ -109,44 +150,13 @@ async fn the_accounts_page_opens_an_account_s_sheet_and_settings_steps_aside() {
         page.contains("Account Settings"),
         "no account sheet: {page}"
     );
-    assert!(
-        !page.contains("data-page=\"Accounts\""),
-        "Settings is still over it: {page}"
-    );
 
     press(&mut dom, "Escape", INSIDE_THE_SHELL);
     let _ = drain_seen(&mut dom);
     let page = dioxus_ssr::render(&dom);
     assert!(
-        page.contains("data-page=\"Accounts\""),
-        "Settings did not come back: {page}"
+        !page.contains("Account Settings"),
+        "Escape left the sheet open: {page}"
     );
-}
-
-#[tokio::test]
-async fn escape_closes_settings() {
-    let built = work();
-    let (mut dom, _seen) = opened_on(&built, SettingsPage::General);
-    press(&mut dom, "Escape", INSIDE_THE_SHELL);
-    let _ = drain_seen(&mut dom);
-    let page = dioxus_ssr::render(&dom);
-    assert!(!page.contains("data-page=\"General\""), "{page}");
-}
-
-#[tokio::test]
-async fn the_gear_in_the_sidebar_s_foot_opens_settings() {
-    let built = work();
-    dispatching();
-    let mut dom = VirtualDom::new(App)
-        .with_root_context(built.store.clone())
-        .with_root_context(built.dirs.clone());
-    let seen = rebuild_into(&mut dom);
-    click(&mut dom, seen.one("aria-label", "Settings"));
-    let _ = drain_seen(&mut dom);
-    let page = dioxus_ssr::render(&dom);
-    assert!(
-        page.contains("data-page=\"General\""),
-        "the gear opened something else: {page}"
-    );
-    assert!(!page.contains("aria-label=\"Space editor\""), "{page}");
+    assert!(page.contains("data-page=\"Accounts\""), "{page}");
 }

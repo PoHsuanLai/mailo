@@ -12,7 +12,7 @@ use mail_store::Store as _;
 const ADDRESS: &str = "poh@acme.example";
 
 fn opened(built: &Work) -> (VirtualDom, Seen) {
-    crate::ui::settings_sheet::tests::opened_on(built, crate::ui::view::SettingsPage::Accounts)
+    crate::ui::settings_window::tests::opened_on(built, crate::ui::view::SettingsPage::Accounts)
 }
 
 fn label() -> String {

@@ -322,7 +322,7 @@ fn run_action(
         }
         "Settings…" => {
             close(shell);
-            super::settings_sheet::open(shell);
+            super::settings_window::open();
         }
         "Theme light" | "Theme dark" | "Theme system" => {
             let theme: ds::prelude::Theme = match label {

@@ -176,12 +176,7 @@ pub(super) fn Places(
                     icon: Icon::Settings,
                     label: "Settings",
                     title: "Settings (\u{2318},)".to_owned(),
-                    shown: if shell.read().settings.is_some() { Shown::Visible } else { Shown::Hidden },
-                    onclick: move |_| {
-                        if editing.read().is_none() {
-                            crate::ui::settings_sheet::open(shell);
-                        }
-                    },
+                    onclick: move |_| crate::ui::settings_window::open(),
                 }
                 Button {
                     bezel: ds::components::controls::button_model::Bezel::Toolbar,

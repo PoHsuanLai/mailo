@@ -66,6 +66,7 @@ pub(super) fn App() -> Element {
     super::revisions::use_shared_revision(revision);
     // The conversations opened in windows of their own, to raise one asked for again.
     super::window::use_opened();
+    super::settings_window::use_settings_opened();
     // What a running window is asked from outside: a notification's click, `mailo open`. A
     // conversation opens here, where the person reads, and the window is raised with the click's
     // token.
@@ -244,6 +245,28 @@ pub(super) fn App() -> Element {
         }
     });
 
+    // Another window (Settings) may have changed a setting, a key binding or the Spaces' file when
+    // the revision moves: read them again. The Spaces are left alone while the editor holds a draft.
+    let reload_dirs = dirs.clone();
+    use_effect(move || {
+        let _ = revision();
+        super::prefs::reload();
+        let Some(dirs) = reload_dirs.clone() else {
+            return;
+        };
+        let keymap = super::keymap::load(&dirs.config);
+        if shell.peek().keymap != keymap {
+            shell.write().keymap = keymap;
+        }
+        if editing.peek().is_none() {
+            let stored = super::space::load(&dirs.config);
+            if !stored.spaces.is_empty() && *spaces.peek() != stored {
+                let mut spaces = spaces;
+                spaces.set(stored);
+            }
+        }
+    });
+
     // An account removed, here or from a terminal, leaves every Space, and the tile pressed. Not
     // while the Space editor holds a draft: the Spaces are the draft then, and Escape must still
     // put them back. Run again when the editor closes, which also takes the account out of a
@@ -388,18 +411,6 @@ pub(super) fn App() -> Element {
             }
             return;
         }
-        // Settings, behind any sheet it opened: Esc closes it, and no other key reaches the
-        // window behind it.
-        if shell.read().settings.is_some()
-            && shell.read().account_sheet.is_none()
-            && shell.read().rules.is_none()
-            && shell.read().keyboard.is_none()
-        {
-            if key == "Escape" {
-                super::settings_sheet::close(shell);
-            }
-            return;
-        }
         // The account sheet, over the Doctor it was opened from: Esc goes back from its
         // question, or closes it, and no other key reaches what is behind it.
         if shell.read().account_sheet.is_some() {
@@ -517,7 +528,7 @@ pub(super) fn App() -> Element {
                 return;
             }
             Some(Chord::Settings) => {
-                super::settings_sheet::open(shell);
+                super::settings_window::open();
                 return;
             }
             Some(Chord::Undo) | None => {}
@@ -796,9 +807,6 @@ pub(super) fn App() -> Element {
             }
             if shell.read().keys.is_some() {
                 super::pgp::keys::KeysSheet { shell }
-            }
-            if shell.read().settings.is_some() {
-                super::settings_sheet::SettingsSheet { shell, revision }
             }
             if shell.read().doctor.is_some() {
                 super::doctor::DoctorView { shell, revision }
