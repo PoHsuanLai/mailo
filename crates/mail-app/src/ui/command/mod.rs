@@ -19,7 +19,7 @@ use chrono::Utc;
 use dioxus::prelude::*;
 use ds::components::content::avatar::AvatarSize;
 use ds::prelude::*;
-use items::{Pick, interpret, rows_of, search_now, tokens};
+use items::{Pick, interpret, restate_sidebar, rows_of, search_now, tokens};
 use mail_core::search::Results;
 use mail_store::SqliteStore;
 use std::collections::HashMap;
@@ -68,6 +68,15 @@ pub(super) fn CommandMenu(
             Right::Shortcut(crate::ui::keymap::spoken(key))
         });
     }
+    let sidebar = if side_hidden() {
+        Shown::Hidden
+    } else {
+        Shown::Visible
+    };
+    let items: Vec<_> = items
+        .into_iter()
+        .map(|item| restate_sidebar(item, sidebar, &query))
+        .collect();
     let chips = tokens(&query);
     let placeholder = "Search mail, people, actions · try from:dana or has:attachment".to_owned();
     // "New from template" lists the templates in this same overlay rather than running anything.

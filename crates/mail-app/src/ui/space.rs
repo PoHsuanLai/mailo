@@ -21,6 +21,7 @@ pub mod edit;
 mod migrate;
 mod presets;
 mod recall;
+pub mod remove;
 
 pub use presets::{PRESET_NAMES, PRESETS};
 pub use recall::Recall;

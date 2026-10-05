@@ -236,6 +236,21 @@ fn person_item(
     }
 }
 
+/// The sidebar row, worded for the sidebar as it is: "Hide sidebar" while it is pinned, "Show
+/// sidebar" while it is hidden. The key (and so what a pick does) stays the same; the marks are
+/// the query's against the new wording, since the old ones indexed the old one.
+pub(in crate::ui) fn restate_sidebar(mut item: MenuItem, sidebar: Shown, query: &str) -> MenuItem {
+    if item.key != SIDEBAR_KEY || sidebar == Shown::Visible {
+        return item;
+    }
+    item.name = "Show sidebar".to_owned();
+    item.marks = query_marks(query, &item.name);
+    item
+}
+
+/// The key of the sidebar's row, which is the same whichever way it reads.
+pub(in crate::ui) const SIDEBAR_KEY: &str = "action:Hide sidebar";
+
 fn query_marks(query: &str, text: &str) -> Vec<u32> {
     search::match_list(query, &[text])
         .into_iter()

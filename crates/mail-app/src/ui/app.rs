@@ -402,6 +402,13 @@ pub(super) fn App() -> Element {
             }
             return;
         }
+        // The Delete Space sheet is over the editor: Esc closes it, and only it, first.
+        if shell.read().removing_space.is_some() {
+            if key == "Escape" {
+                super::space_editor::close_remove(shell);
+            }
+            return;
+        }
         // The Space editor owns the keyboard while it is open. Its name field takes letters,
         // its handles take the arrows, and Esc puts the Space back as the sheet found it.
         if editing.read().is_some() {
@@ -656,7 +663,7 @@ pub(super) fn App() -> Element {
                 panes: vec![SplitPane::new(LIST, rsx! {
                     ThreadList {
                         shell, pages, revision, in_a_field, threads, drafts, nothing, more,
-                        marking, top, paging,
+                        marking, top, paging, side_hidden,
                     }
                 })],
                 section { class: "reader",
@@ -711,7 +718,7 @@ pub(super) fn App() -> Element {
                     }
                 }
             }
-            SpaceEditor { spaces, editing, shell }
+            SpaceEditor { spaces, editing, shell, pages, today: today_list }
             if shell.read().command.is_some() {
                 CommandMenu { shell, pages, revision, side_hidden, spaces }
             }
