@@ -38,7 +38,7 @@ fn recall_of(shell: &Shell) -> Recall {
 /// A place that no longer exists is the first place, and an account tile outside the
 /// Space's scope is every account: a Space can lose a label or an account while you are
 /// elsewhere, and coming back must not show a list that cannot exist.
-fn restore(shell: &mut Shell, space: &Space, recall: &Recall) {
+pub(super) fn restore(shell: &mut Shell, space: &Space, recall: &Recall) {
     shell.scope = scope_ids(space);
     shell.account = recall
         .account
