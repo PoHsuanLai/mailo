@@ -167,7 +167,7 @@ fn centre(harness: &Harness, selector: &str) -> Point {
 }
 
 /// The first row of the list, as the element a click lands on.
-const ROW: &str = ".ds-list > .ds-list-item:nth-child(1)";
+const ROW: &str = ".list .ds-list-item[*|aria-posinset=\"1\"]";
 
 fn left(r: &Rect) -> f32 {
     r.origin.x.0
