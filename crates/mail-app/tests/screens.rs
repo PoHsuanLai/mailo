@@ -3,7 +3,7 @@
 
 use ds::prelude::*;
 use ds_blitz::{FocusFallback, NetPolicy, PrintOutcome};
-use ds_harness::{Driver, Harness, HarnessConfig, Query, Viewport};
+use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query, Viewport};
 use ds_settings::Environment;
 use mail_domain::*;
 use mail_runtime::{Arrival, absorb};
@@ -171,6 +171,7 @@ fn open(dark: bool) -> (Harness, tempfile::TempDir) {
     }
     let printer = mail_app::ui::native::Printer::with_dialog(|_, _| Ok(PrintOutcome::Cancelled));
     let config = HarnessConfig::new(VIEW)
+        .with_clock(Clock::Wall)
         .with_net(NetPolicy::Local)
         .with_focus_fallback(FocusFallback::Ancestor)
         .with_contexts(contexts.with(printer))
@@ -198,7 +199,7 @@ fn click(harness: &mut Harness, selector: &str) {
 fn open_row(h: &mut Harness, n: usize) {
     let sub = h
         .rect(&format!(
-            ".ds-list > .ds-list-item:nth-child({n}) .ds-thread-sub"
+            ".list .ds-list-item[*|aria-posinset=\"{n}\"] .ds-thread-sub"
         ))
         .expect("row");
     h.click(Point {
@@ -210,13 +211,13 @@ fn open_row(h: &mut Harness, n: usize) {
 
 /// The pointer over row `n`, so its strip shows, then the strip's button `op`.
 fn strip(h: &mut Harness, n: usize, op: &str) {
-    let sub = format!(".ds-list > .ds-list-item:nth-child({n}) .ds-thread-sub");
+    let sub = format!(".list .ds-list-item[*|aria-posinset=\"{n}\"] .ds-thread-sub");
     let at = h.centre(&sub).expect("row");
     h.pointer_move(at);
     h.advance(ms(300));
     click(
         h,
-        &format!(".ds-list > .ds-list-item:nth-child({n}) .ds-strip [*|data-op={op}]"),
+        &format!(".list .ds-list-item[*|aria-posinset=\"{n}\"] .ds-strip [*|data-op={op}]"),
     );
 }
 

@@ -280,7 +280,7 @@ fn archive_rebound_in_the_settings_archives_on_its_new_key_and_not_its_old_one()
     harness.advance(ms(300));
 
     // Open the newest conversation, then press the old key: nothing moves.
-    let first = ".list .ds-list > .ds-list-item:nth-child(1) .ds-thread-sub";
+    let first = ".list .ds-list-item[*|aria-posinset=\"1\"] .ds-thread-sub";
     let rect = harness
         .rect(first)
         .unwrap_or_else(|| panic!("{first} is not drawn:\n{}", harness.html()));

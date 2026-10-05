@@ -601,6 +601,50 @@ impl Store for SqliteStore {
         rows.map(|row| remote_from_columns(row?)).collect()
     }
 
+    fn unfetched_in_threads(
+        &self,
+        mailbox: &MailboxRef,
+        threads: &[ThreadId],
+        limit: u32,
+    ) -> Result<Vec<(ThreadId, RemoteRef)>, StoreError> {
+        if threads.is_empty() {
+            return Ok(Vec::new());
+        }
+        // `unfetched_in`'s query with the threads as one JSON parameter, as `search` passes a
+        // window: one prepared statement whatever the number of threads.
+        let ids: Vec<String> = threads.iter().map(ToString::to_string).collect();
+        let ids =
+            serde_json::to_string(&ids).map_err(|e| StoreError::Db(format!("threads: {e}")))?;
+        let db = self.connection();
+        let mut stmt = db.prepare_cached(
+            "SELECT r.mailbox, r.uidvalidity, r.uid, r.uidl, m.thread
+             FROM remote_map r
+             JOIN messages m ON m.id = r.message
+             WHERE r.account = ?1 AND r.mailbox = ?2 AND m.body_raw IS NULL
+               AND m.thread IN (SELECT value FROM json_each(?3))
+             GROUP BY m.id
+             ORDER BY m.date DESC, m.id DESC
+             LIMIT ?4",
+        )?;
+        let rows = stmt.query_map(
+            rusqlite::params![
+                mailbox.account.to_string(),
+                mailbox.path,
+                ids,
+                i64::from(limit)
+            ],
+            |r| Ok((remote_columns(r)?, r.get::<_, String>(4)?)),
+        )?;
+        rows.map(|row| {
+            let (columns, thread) = row?;
+            Ok((
+                ThreadId::from_uuid(row::uuid("ThreadId", &thread)?),
+                remote_from_columns(columns)?,
+            ))
+        })
+        .collect()
+    }
+
     fn cursor(&self, mailbox: &MailboxRef) -> Result<Option<SyncCursor>, StoreError> {
         // `sync_state` has been written by every ingest since the store was created. Nothing
         // had ever read it back, which is why the CONDSTORE path could never start.

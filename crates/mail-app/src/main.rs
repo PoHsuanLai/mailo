@@ -317,8 +317,17 @@ fn main() {
                         chrono::Utc::now(),
                         Default::default(),
                     ) {
-                        Ok(ends) => print!("{}", mail_app::cli::sync::run_text(&store, &ends)),
-                        Err(why) => eprintln!("{why}"),
+                        Ok(ends) => {
+                            print!("{}", mail_app::cli::sync::run_text(&store, &ends));
+                            ends.iter()
+                                .filter(|end| end.may_have_stored())
+                                .map(|end| end.account())
+                                .collect()
+                        }
+                        Err(why) => {
+                            eprintln!("{why}");
+                            Vec::new()
+                        }
                     }
                 }),
             ) {
@@ -490,7 +499,7 @@ fn main() {
         };
         // One watch per user: a second would announce every message twice. A unit that starts
         // while one runs by hand ends quietly (exit 0), so systemd does not restart it in a loop.
-        let _watching = match mail_core::ipc::watching::claim() {
+        let watching = match mail_core::ipc::watching::claim() {
             Ok(held) => held,
             Err(mail_core::ipc::watching::Refused::AlreadyWatching) => {
                 println!("a mailo watch is already running; leaving it to it");
@@ -501,6 +510,9 @@ fn main() {
                 std::process::exit(1);
             }
         };
+        if let Some(why) = watching.doorless() {
+            eprintln!("an open window will look for new mail rather than be told of it: {why}");
+        }
         // The unread count on the launcher, kept up whether or not a window is open.
         if let Some(launcher) = mail_app::ui::launcher::platform()
             && let Err(e) = mail_app::session::keep_the_badge(
@@ -512,9 +524,16 @@ fn main() {
             eprintln!("the launcher's unread count is off: {e}");
         }
         println!("watching. Ctrl-C to stop.");
-        // Said as it happens, and flushed: a watch is read by someone waiting on it.
+        // Said as it happens, and flushed: a watch is read by someone waiting on it. A window
+        // listening at the watch's door is told too, so it reads what was stored now rather than
+        // at its next look.
         let say = |watched: mail_core::sync::report::Watched| {
             use std::io::Write as _;
+            if let mail_core::sync::report::Watched::Pass(end) = &watched
+                && end.may_have_stored()
+            {
+                watching.changed(end.account());
+            }
             print!("{}", mail_app::cli::sync::watched_text(&watched));
             let _ = std::io::stdout().flush();
         };

@@ -377,3 +377,62 @@ fn rendering_the_same_message_twice_does_not_cost_twice() {
         twice.as_secs_f64() * 1000.0
     );
 }
+
+/// The reader's real path for the longest conversation in the store: `render_message` for every
+/// message, the way `Reader` draws them, cold and then warm.
+///
+/// Cold is the first open of a conversation, warm the second. Before the render cache the two are
+/// the same number; with it, warm is a lookup per message. The cold figure uses the uncached
+/// entry point so it stays cold however many times the loop runs.
+#[test]
+#[ignore = "a measurement, not a check; run with --ignored --nocapture"]
+fn opening_a_long_conversation() {
+    let (store, _dir, what) = subject();
+    let now = Utc::now();
+    let mut candidates = store.threads(&page(500, Filter::All), now).unwrap().items;
+    candidates.extend(
+        store
+            .threads(
+                &Query {
+                    sort: Sort {
+                        property: Property::Date,
+                        dir: SortDir::Asc,
+                    },
+                    ..page(500, Filter::All)
+                },
+                now,
+            )
+            .unwrap()
+            .items,
+    );
+    let longest = candidates
+        .into_iter()
+        .max_by_key(|t| t.message_count)
+        .expect("the store has mail");
+    let messages: Vec<Message> = store
+        .thread(longest.id)
+        .unwrap()
+        .messages
+        .iter()
+        .filter_map(|id| store.message(*id).ok())
+        .collect();
+
+    let cold = timed(5, || {
+        for message in &messages {
+            let _ = mail_app::ui::reading::render_message_uncached(&store, message, policy());
+        }
+    });
+    // Everything the cold run produced is in the cache by now, if there is one.
+    let warm = timed(5, || {
+        for message in &messages {
+            let _ = mail_app::ui::reading::render_message(&store, message, policy());
+        }
+    });
+    let ms = |d: Duration| d.as_secs_f64() * 1000.0;
+    println!(
+        "\n  against {what}\n  reader, {} messages: cold {:.2} ms, warm {:.2} ms\n",
+        messages.len(),
+        ms(cold),
+        ms(warm)
+    );
+}

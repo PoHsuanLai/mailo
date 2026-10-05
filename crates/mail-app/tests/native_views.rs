@@ -160,10 +160,9 @@ fn type_text(harness: &mut Harness, text: &str) {
 
 /// The message list as drawn, top to bottom: a group header as `# title`, a row as its subject.
 fn lines(harness: &Harness) -> Vec<String> {
-    let root = ".list .ds-list";
-    (1..=harness.count(&format!("{root} > *")))
+    (1..=harness.count(".list .ds-list-item[*|aria-posinset]"))
         .filter_map(|n| {
-            let at = format!("{root} > :nth-child({n})");
+            let at = format!(".list .ds-list-item[*|aria-posinset=\"{n}\"]");
             if harness.count(&format!("{at} .ds-section-header")) > 0 {
                 harness
                     .text_of(&format!("{at} .ds-section-header-title"))
@@ -177,10 +176,12 @@ fn lines(harness: &Harness) -> Vec<String> {
 
 /// The list child (1-based) that draws `subject`'s row.
 fn row_of(harness: &Harness, subject: &str) -> usize {
-    (1..=harness.count(".list .ds-list > *"))
+    (1..=harness.count(".list .ds-list-item[*|aria-posinset]"))
         .find(|n| {
             harness
-                .text_of(&format!(".list .ds-list > :nth-child({n}) .ds-thread-sub"))
+                .text_of(&format!(
+                    ".list .ds-list-item[*|aria-posinset=\"{n}\"] .ds-thread-sub"
+                ))
                 .as_deref()
                 == Some(subject)
         })
@@ -190,7 +191,9 @@ fn row_of(harness: &Harness, subject: &str) -> usize {
 fn click_subject(harness: &mut Harness, subject: &str, held: &[Key]) {
     let n = row_of(harness, subject);
     let rect = harness
-        .rect(&format!(".list .ds-list > :nth-child({n}) .ds-thread-sub"))
+        .rect(&format!(
+            ".list .ds-list-item[*|aria-posinset=\"{n}\"] .ds-thread-sub"
+        ))
         .expect("the subject line");
     let at = Point {
         x: ds::prelude::Px(rect.origin.x.0 + 24.0),
@@ -203,11 +206,11 @@ fn click_subject(harness: &mut Harness, subject: &str, held: &[Key]) {
 /// The ops a row's hover strip offers, in order, by their `data-op`.
 fn strip_of(harness: &Harness, subject: &str) -> Vec<String> {
     let n = row_of(harness, subject);
-    let strip = format!(".list .ds-list > :nth-child({n}) .ds-strip [*|data-op]");
+    let strip = format!(".list .ds-list-item[*|aria-posinset=\"{n}\"] .ds-strip [*|data-op]");
     (1..=harness.count(&strip))
         .filter_map(|k| {
             harness.attr(
-                &format!(".list .ds-list > :nth-child({n}) .ds-strip [*|data-op]:nth-of-type({k})"),
+                &format!(".list .ds-list-item[*|aria-posinset=\"{n}\"] .ds-strip [*|data-op]:nth-of-type({k})"),
                 "data-op",
             )
         })
@@ -328,11 +331,11 @@ fn several_rows_picked_in_a_view_are_archived_as_one_gesture() {
     let before = lines(&harness).len();
     click_subject(&mut harness, INBOX[1].1, &[]);
     click_subject(&mut harness, INBOX[3].1, &[Key::Ctrl]);
-    let picked: Vec<usize> = (1..=harness.count(".list .ds-list > *"))
+    let picked: Vec<usize> = (1..=harness.count(".list .ds-list-item[*|aria-posinset]"))
         .filter(|n| {
             harness
                 .attr(
-                    &format!(".list .ds-list > :nth-child({n}) .ds-row"),
+                    &format!(".list .ds-list-item[*|aria-posinset=\"{n}\"] .ds-row"),
                     "aria-selected",
                 )
                 .as_deref()

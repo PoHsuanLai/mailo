@@ -1184,7 +1184,9 @@ impl<B: Backend> AccountEngine<B> {
         if wanted.is_empty() {
             // A protocol that cannot enumerate up front: fall back to what we already hold,
             // which the store hands back newest first.
-            wanted = self.unfetched(mailbox, budget as u32)?;
+            let first;
+            (wanted, first) = self.unfetched(mailbox, budget as u32)?;
+            by_band(&mut wanted[first..]);
         } else {
             // Minus what is already mapped. The survey is *everything on the server*, which is
             // the right answer to "what exists" and the wrong one to "what should I fetch": it
@@ -1200,8 +1202,8 @@ impl<B: Backend> AccountEngine<B> {
             // The survey is in server order, oldest first: POP3 message numbers and IMAP UIDs
             // both count up as mail arrives. Nothing else is known before the headers are.
             wanted.reverse();
+            by_band(&mut wanted);
         }
-        by_band(&mut wanted);
 
         for band in BANDS {
             let batch: Vec<RemoteRef> = wanted
@@ -1402,48 +1404,70 @@ impl<B: Backend> AccountEngine<B> {
         budget: usize,
     ) -> Result<SyncReport, RuntimeError> {
         let mut report = SyncReport::default();
-        let mut wanted = self.unfetched(mailbox, budget as u32)?;
-        by_band(&mut wanted);
+        let (mut wanted, first) = self.unfetched(mailbox, budget as u32)?;
+        by_band(&mut wanted[first..]);
+        wanted.truncate(budget);
+        // What the window is showing, all of it, before the rest: within one group a large
+        // message is fetched by part ahead of the small ones, and a large one from the backlog
+        // must not keep a small one the window waits on waiting.
+        let rest = wanted.split_off(first.min(wanted.len()));
+        for group in [wanted, rest] {
+            if !group.is_empty()
+                && !self
+                    .fetch_group(group, mailbox, cancel, now, &mut report)
+                    .await?
+            {
+                break;
+            }
+        }
+        Ok(report)
+    }
 
+    /// Fetch the bodies of `wanted`: the large ones by part, then the rest whole. Whether to go
+    /// on with the next group.
+    async fn fetch_group(
+        &mut self,
+        wanted: Vec<(RemoteRef, u64)>,
+        mailbox: &MailboxRef,
+        cancel: &mut Cancel,
+        now: DateTime<Utc>,
+        report: &mut SyncReport,
+    ) -> Result<bool, RuntimeError> {
         // A size of `u64::MAX` is "unknown", not "enormous": no survey this session. Those are
         // fetched whole, as everything was before large messages were fetched by part.
-        let (parted, whole): (Vec<_>, Vec<_>) =
-            wanted.into_iter().take(budget).partition(|(remote, size)| {
-                matches!(remote, RemoteRef::Imap { .. })
-                    && *size != u64::MAX
-                    && *size > PARTED_ABOVE
-            });
+        let (parted, whole): (Vec<_>, Vec<_>) = wanted.into_iter().partition(|(remote, size)| {
+            matches!(remote, RemoteRef::Imap { .. }) && *size != u64::MAX && *size > PARTED_ABOVE
+        });
         let mut batch: Vec<RemoteRef> = whole.into_iter().map(|(remote, _)| remote).collect();
         if !parted.is_empty() {
             let parted = parted.into_iter().map(|(remote, _)| remote).collect();
             match self
-                .fetch_parted(parted, mailbox, cancel, now, &mut report)
+                .fetch_parted(parted, mailbox, cancel, now, report)
                 .await
             {
                 Ok(leftover) => batch.extend(leftover),
-                Err(RuntimeError::Cancelled) => return Ok(report),
+                Err(RuntimeError::Cancelled) => return Ok(false),
                 Err(e) => return Err(e),
             }
         }
         if batch.is_empty() {
-            return Ok(report);
+            return Ok(true);
         }
         // Graph fetches one body per request, so a batch is fetched a few at a time and a failure
         // loses only the few in hand; a session fetches its whole batch in one command.
         if self.graph.is_some() {
             for chunk in batch.chunks(GRAPH_BODIES) {
                 if !self
-                    .fetch_body_batch(chunk.to_vec(), mailbox, cancel, now, &mut report)
+                    .fetch_body_batch(chunk.to_vec(), mailbox, cancel, now, report)
                     .await?
                 {
-                    break;
+                    return Ok(false);
                 }
             }
-            return Ok(report);
+            return Ok(true);
         }
-        self.fetch_body_batch(batch, mailbox, cancel, now, &mut report)
-            .await?;
-        Ok(report)
+        self.fetch_body_batch(batch, mailbox, cancel, now, report)
+            .await
     }
 
     /// Fetch one batch of whole bodies and store them. Whether to go on with the next.
@@ -1918,24 +1942,29 @@ impl<B: Backend> AccountEngine<B> {
     ///
     /// Only this mailbox's. A fetch selects one mailbox and names UIDs in it, and the account's
     /// whole backlog put the inbox's body pass to asking `INBOX` for UIDs that belonged to Sent.
+    ///
+    /// The conversations the window is showing come first (`wanted`), and the count of those at
+    /// the front is returned beside the list: the caller bands only what follows them, since
+    /// what the person is looking at is wanted whatever its size. A message the window is
+    /// fetching for itself is left out, so the two do not fetch one body twice.
     fn unfetched(
         &self,
         mailbox: &MailboxRef,
         limit: u32,
-    ) -> Result<Vec<(RemoteRef, u64)>, RuntimeError> {
+    ) -> Result<(Vec<(RemoteRef, u64)>, usize), RuntimeError> {
         // Sizes from this session's survey. A message it did not cover — no survey yet, or a
         // protocol that cannot take one — is "size unknown" and sorts into the last band.
         let sizes: std::collections::HashMap<RemoteRef, u64> =
             self.surveyed().into_iter().collect();
-        Ok(self
-            .store
-            .unfetched_in(mailbox, limit)?
+        let (order, first) = crate::wanted::backlog(self.store.as_ref(), mailbox, limit)?;
+        let order = order
             .into_iter()
             .map(|remote| {
                 let size = sizes.get(&remote).copied().unwrap_or(u64::MAX);
                 (remote, size)
             })
-            .collect())
+            .collect();
+        Ok((order, first))
     }
 
     /// The account's stored credential, refreshed if it is close to expiring.
