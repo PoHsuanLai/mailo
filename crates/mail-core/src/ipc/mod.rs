@@ -14,7 +14,9 @@
 //! client where it is read by nobody looking for it.
 //!
 //! What is here is the conversation — [`wire`], and the two ends that speak it. That part *is*
-//! about mail, and is the part no library could have chosen for us.
+//! about mail, and is the part no library could have chosen for us. [`changes`] is the one
+//! conversation that does not end after an answer: a window that subscribes is told of each pass
+//! as it ends, instead of finding out by looking.
 //!
 //! # Why not a TCP port on loopback
 //!
@@ -24,6 +26,7 @@
 //! directory only this user can read needs no such argument — the filesystem is the
 //! authentication, which is why `latchkey` makes that directory `0700`.
 
+pub mod changes;
 pub mod client;
 pub mod daemon;
 pub mod watching;

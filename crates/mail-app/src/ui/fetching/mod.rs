@@ -183,7 +183,8 @@ pub(in crate::ui) fn use_fetching(revision: Signal<u64>) -> Fetching {
         move || start::initial(&store, &accounts.peek(), Utc::now())
     });
     let delegate = try_consume_context::<Delegate>().unwrap_or_else(Delegate::server);
-    external::use_external_changes(revision, store.clone());
+    let doors = try_consume_context::<external::Doors>().unwrap_or_else(external::Doors::server);
+    external::use_external_changes(revision, store.clone(), doors);
     let ops = use_signal(BTreeMap::new);
     let folders = use_signal(BTreeMap::new);
     let channel = use_hook(|| {
