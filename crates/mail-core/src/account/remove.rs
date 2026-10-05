@@ -1,0 +1,105 @@
+//! Removing an account from this computer: its saved sign-in, then everything the database keeps
+//! of it.
+//!
+//! The keyring goes first. A sign-in that cannot be forgotten stops the removal before the
+//! database is touched, so the account and its mail are still there to try again; the other
+//! order would leave a password in the keyring that no account names any more, which nothing
+//! would ever find to clean up. A keyring cannot forget several entries at once, so the ones
+//! forgotten before a refusal stay forgotten: the account then asks to sign in again, which is
+//! what [`RemoveError::Keyring`] says.
+//! The database goes last ([`SqliteStore::remove_account`]): every row that names the account,
+//! and the stored messages and attachment parts nothing else uses. Nothing on the server is
+//! touched, and keys and certificates stay: they are the user's, not the account's.
+
+use mail_domain::{AccountId, AccountPlan, Incoming, SecretKey, SecretPurpose};
+use mail_runtime::Secrets;
+use mail_store::{Freed, SqliteStore};
+use rusqlite::OptionalExtension as _;
+
+/// Every secret kept under an account's id. Keys and certificates are kept under their
+/// fingerprint, not the account, and are not among them.
+const PURPOSES: [SecretPurpose; 4] = [
+    SecretPurpose::IncomingPassword,
+    SecretPurpose::OutgoingPassword,
+    SecretPurpose::OAuthRefresh,
+    SecretPurpose::AddressBook,
+];
+
+/// An account that was removed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Removed {
+    /// The address it had, for the front-end to say what went.
+    pub address: String,
+    /// The stored messages and parts that went with it.
+    pub freed: Freed,
+}
+
+/// Why an account was not removed. In every case the account and its mail are still there; after
+/// [`RemoveError::Keyring`] or [`RemoveError::Store`], some of its saved sign-ins may already be
+/// forgotten (see the module's words), and it asks to sign in again.
+#[derive(Debug, thiserror::Error)]
+pub enum RemoveError {
+    /// No account has this id: removed already, or never added.
+    #[error("no such account")]
+    Unknown,
+    /// The mail kept on this computer and nowhere else. It holds imported mail, which removing
+    /// it would delete for good.
+    #[error("the account that keeps mail on this computer cannot be removed")]
+    Local,
+    /// The keyring would not forget a sign-in: the account and its mail stay, and a sign-in
+    /// forgotten before the refusal stays forgotten.
+    #[error(
+        "the keyring would not forget a saved sign-in, so the account was not removed \
+         (it may ask to sign in again): {0}"
+    )]
+    Keyring(String),
+    /// The database could not be read or written, after the sign-ins were forgotten: the account
+    /// and its mail stay, and it asks to sign in again.
+    #[error(
+        "the database refused, so the account was not removed (it will ask to sign in again): {0}"
+    )]
+    Store(String),
+}
+
+/// Remove `account` and everything kept of it here. See the module's words for the order.
+pub fn remove(
+    store: &SqliteStore,
+    secrets: &dyn Secrets,
+    account: AccountId,
+) -> Result<Removed, RemoveError> {
+    let id = account.to_string();
+    let (address, plan) = {
+        let db = store.connection();
+        db.query_row(
+            "SELECT address, plan FROM accounts WHERE id = ?1",
+            [&id],
+            |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
+        )
+        .optional()
+        .map_err(|e| RemoveError::Store(e.to_string()))?
+        .ok_or(RemoveError::Unknown)?
+    };
+    // A plan that no longer reads is still an account with a server: only a readable `Local`
+    // is refused.
+    if serde_json::from_str::<AccountPlan>(&plan)
+        .is_ok_and(|plan| matches!(plan.incoming, Incoming::Local))
+    {
+        return Err(RemoveError::Local);
+    }
+    for purpose in PURPOSES {
+        secrets
+            .forget(&SecretKey { account, purpose })
+            .map_err(|e| RemoveError::Keyring(e.to_string()))?;
+    }
+    match store
+        .remove_account(account)
+        .map_err(|e| RemoveError::Store(e.to_string()))?
+    {
+        None => Err(RemoveError::Unknown),
+        Some(freed) => Ok(Removed { address, freed }),
+    }
+}
+
+#[cfg(test)]
+#[path = "remove_tests.rs"]
+mod tests;

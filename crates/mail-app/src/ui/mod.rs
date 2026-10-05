@@ -18,6 +18,7 @@ pub mod spelling;
 pub mod today;
 pub mod view;
 
+mod account_settings;
 mod add_account;
 mod app;
 mod brand;

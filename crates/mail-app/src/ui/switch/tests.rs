@@ -83,7 +83,11 @@ fn each_space_gets_its_place_thread_and_tile_back() {
 
     assert_eq!(switch(&mut spaces, &mut shell, 1), Moved::Yes);
     assert_eq!(spaces.current, 1);
-    assert_eq!(shell.scope, vec![account(2)], "the list is not Home's");
+    assert_eq!(
+        shell.scope,
+        Scope::Accounts(vec![account(2)]),
+        "the list is not Home's"
+    );
     assert_eq!(
         place(&shell),
         "Inbox",
@@ -101,11 +105,7 @@ fn each_space_gets_its_place_thread_and_tile_back() {
     shell.account = Some(account(2));
 
     assert_eq!(switch(&mut spaces, &mut shell, 0), Moved::Yes);
-    assert_eq!(
-        shell.scope,
-        Vec::<AccountId>::new(),
-        "Work is every account"
-    );
+    assert_eq!(shell.scope, Scope::All, "Work is every account");
     assert_eq!(place(&shell), "Archive");
     assert_eq!(shell.open, Some(thread(7)));
     assert_eq!(shell.account, Some(account(1)));

@@ -4,7 +4,7 @@
 //! signals, plus the write to `spaces.json`; the frame repaints itself from the Spaces, and
 //! quire's root cross-fades the Space's colour.
 
-use super::frame::{keep, scope_ids};
+use super::frame::keep;
 use crate::ui::space::edit::Draft;
 use crate::ui::space::{self, Recall, Space, Spaces};
 use crate::ui::view::{PageMenu, Shell};
@@ -39,10 +39,8 @@ fn recall_of(shell: &Shell) -> Recall {
 /// Space's scope is every account: a Space can lose a label or an account while you are
 /// elsewhere, and coming back must not show a list that cannot exist.
 pub(super) fn restore(shell: &mut Shell, space: &Space, recall: &Recall) {
-    shell.scope = scope_ids(space);
-    shell.account = recall
-        .account
-        .filter(|id| shell.scope.is_empty() || shell.scope.contains(id));
+    shell.scope = space.scope.clone();
+    shell.account = recall.account.filter(|id| shell.scope.shows(*id));
     shell.selected = shell
         .places
         .iter()

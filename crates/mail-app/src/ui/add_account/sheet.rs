@@ -116,7 +116,7 @@ fn into_scope(
     };
     if widened {
         super::super::frame::keep(&spaces.read());
-        shell.write().scope = super::super::frame::scope_ids(&spaces.read().current_space());
+        shell.write().scope = spaces.read().current_space().scope;
     }
 }
 

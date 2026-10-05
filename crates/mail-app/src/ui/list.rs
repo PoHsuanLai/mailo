@@ -204,7 +204,7 @@ pub(super) fn ThreadList(
             .iter()
             .filter(|row| match shell.read().account {
                 Some(id) => row.id == id,
-                None => shell.read().scope.is_empty() || shell.read().scope.contains(&row.id),
+                None => shell.read().scope.shows(row.id),
             })
             .filter(|row| mail_core::server_search::searchable(&row.plan))
             .map(|row| (row.id, row.shown()))
