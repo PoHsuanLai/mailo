@@ -4,6 +4,7 @@
 use super::{RemoveError, remove};
 use crate::account::{Credentials, add_with_password};
 use crate::password::Password;
+use mail_domain::signing::{SigningKeyRef, SigningSecret};
 use mail_domain::{AccountId, Credential, SecretKey, SecretPurpose};
 use mail_runtime::{MapSecrets, OAuthRegistry, RuntimeError, Secrets};
 use mail_store::SqliteStore;
@@ -182,6 +183,18 @@ impl Secrets for Locked<'_> {
     }
 
     fn forget(&self, _: &SecretKey) -> Result<(), RuntimeError> {
+        Err(RuntimeError::Secrets("the keyring is locked".to_owned()))
+    }
+
+    fn get_signing(&self, key: &SigningKeyRef) -> Result<SigningSecret, RuntimeError> {
+        self.0.get_signing(key)
+    }
+
+    fn put_signing(&self, key: &SigningKeyRef, value: &SigningSecret) -> Result<(), RuntimeError> {
+        self.0.put_signing(key, value)
+    }
+
+    fn forget_signing(&self, _: &SigningKeyRef) -> Result<(), RuntimeError> {
         Err(RuntimeError::Secrets("the keyring is locked".to_owned()))
     }
 }

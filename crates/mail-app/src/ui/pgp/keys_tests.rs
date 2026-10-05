@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 
 use dioxus::prelude::*;
 use dioxus_core::{NoOpMutations, VirtualDom};
+use mail_domain::signing::{SigningKeyId, SigningKeyRef};
 use mail_domain::*;
 use mail_runtime::{MapSecrets, Secrets};
 use mail_store::{SqliteStore, Store};
@@ -120,9 +121,9 @@ fn two_keys() -> (
 
 fn held(secrets: &MapSecrets, key: &PgpKey) -> bool {
     secrets
-        .get(&SecretKey {
+        .get_signing(&SigningKeyRef {
             account: crate::ui::fixtures::ACCOUNT,
-            purpose: SecretPurpose::OpenPgp(key.fingerprint),
+            key: SigningKeyId::OpenPgp(key.fingerprint),
         })
         .is_ok()
 }

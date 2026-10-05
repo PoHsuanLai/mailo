@@ -1087,8 +1087,6 @@ fn credential_forbidden(credential: &Credential) -> bool {
         Credential::OAuth {
             access, refresh, ..
         } => forbidden(access) || forbidden(refresh),
-        // Not a sign-in credential at all: refused the same way as one that would break a line.
-        Credential::OpenPgp(_) | Credential::SmimeKey(_) => true,
     }
 }
 

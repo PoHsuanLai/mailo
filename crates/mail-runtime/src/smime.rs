@@ -8,18 +8,16 @@
 
 use crate::{RuntimeError, Secrets};
 use chrono::{DateTime, Utc};
-use mail_domain::{
-    AccountId, CertFingerprint, CertProblem, CertSource, Credential, SecretKey, SecretPurpose,
-    SmimeVerification,
-};
+use mail_domain::signing::{SigningKeyId, SigningKeyRef, SigningSecret};
+use mail_domain::{AccountId, CertFingerprint, CertProblem, CertSource, SmimeVerification};
 use mail_mime::smime::{self, Cert, Keys, PrivateKey};
 use mail_store::Store;
 use std::sync::OnceLock;
 
-fn entry(account: AccountId, fingerprint: CertFingerprint) -> SecretKey {
-    SecretKey {
+fn entry(account: AccountId, fingerprint: CertFingerprint) -> SigningKeyRef {
+    SigningKeyRef {
         account,
-        purpose: SecretPurpose::Smime(fingerprint),
+        key: SigningKeyId::Smime(fingerprint),
     }
 }
 
@@ -29,16 +27,14 @@ pub fn private_key(
     account: AccountId,
     fingerprint: CertFingerprint,
 ) -> Result<PrivateKey, RuntimeError> {
-    match secrets.get(&entry(account, fingerprint))? {
-        Credential::SmimeKey(pem) => {
+    match secrets.get_signing(&entry(account, fingerprint))? {
+        SigningSecret::SmimeKey(pem) => {
             let pem = zeroize::Zeroizing::new(pem);
             Ok(PrivateKey::from_pkcs8_pem(&pem)?)
         }
-        Credential::Password(_) | Credential::OAuth { .. } | Credential::OpenPgp(_) => {
-            Err(RuntimeError::Secrets(format!(
-                "the keyring entry for S/MIME certificate {fingerprint} holds something else"
-            )))
-        }
+        SigningSecret::OpenPgp(_) => Err(RuntimeError::Secrets(format!(
+            "the keyring entry for S/MIME certificate {fingerprint} holds something else"
+        ))),
     }
 }
 
@@ -50,9 +46,9 @@ pub fn keep_private_key(
     key: &PrivateKey,
 ) -> Result<(), RuntimeError> {
     let pem = key.to_pkcs8_pem()?;
-    secrets.put(
+    secrets.put_signing(
         &entry(account, fingerprint),
-        &Credential::SmimeKey(pem.as_str().to_owned()),
+        &SigningSecret::SmimeKey(pem.as_str().to_owned()),
     )
 }
 
@@ -62,7 +58,7 @@ pub fn forget_private_key(
     account: AccountId,
     fingerprint: CertFingerprint,
 ) -> Result<(), RuntimeError> {
-    secrets.forget(&entry(account, fingerprint))
+    secrets.forget_signing(&entry(account, fingerprint))
 }
 
 /// The operating system's certificate authorities, read once per process.

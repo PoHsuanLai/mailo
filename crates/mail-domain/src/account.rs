@@ -463,18 +463,6 @@ pub enum SecretPurpose {
     OAuthRefresh,
     /// The password of a CardDAV address book added under this account, where it has its own.
     AddressBook,
-    /// The secret half of the user's OpenPGP key with this fingerprint, as a
-    /// [`Credential::OpenPgp`].
-    ///
-    /// Keyed by the fingerprint, not by the account or identity: one key may serve identities on
-    /// several accounts, and a key replaced on an identity must still decrypt the mail that was
-    /// encrypted to it. The keyring entry is therefore named by the fingerprint alone, and
-    /// [`SecretKey::account`] records only which account it was kept for.
-    OpenPgp(crate::pgp::Fingerprint),
-    /// The private key of the user's S/MIME certificate with this fingerprint, as a
-    /// [`Credential::SmimeKey`]. Keyed by the certificate alone, for the reasons
-    /// [`SecretPurpose::OpenPgp`] gives.
-    Smime(crate::smime::CertFingerprint),
 }
 
 /// A secret. Lives in the platform keyring and never in SQLite.
@@ -489,14 +477,6 @@ pub enum Credential {
         /// When `access` stops working. The runtime refreshes ahead of this.
         expires_at: DateTime<Utc>,
     },
-    /// An OpenPGP transferable secret key, ASCII-armored. Protected by its own passphrase when
-    /// it was imported with one, and by the keyring alone when it was generated here.
-    #[serde(rename = "openpgp")]
-    OpenPgp(String),
-    /// An S/MIME private key, PKCS#8 PEM, unencrypted: the keyring is its protection. Taken out
-    /// of the PKCS#12 file it was imported from, whose password is not kept.
-    #[serde(rename = "smime_key")]
-    SmimeKey(String),
 }
 
 // Written by hand, not derived: a derived Debug puts the password in every log line, panic
@@ -505,8 +485,6 @@ impl fmt::Debug for Credential {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Credential::Password(_) => f.write_str("Credential::Password(<redacted>)"),
-            Credential::OpenPgp(_) => f.write_str("Credential::OpenPgp(<redacted>)"),
-            Credential::SmimeKey(_) => f.write_str("Credential::SmimeKey(<redacted>)"),
             Credential::OAuth { expires_at, .. } => f
                 .debug_struct("Credential::OAuth")
                 .field("access", &"<redacted>")

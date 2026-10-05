@@ -7,14 +7,15 @@
 use crate::{RuntimeError, Secrets};
 use chrono::{DateTime, Utc};
 use mail_domain::autocrypt::{self, Sighting, effective_date};
-use mail_domain::{AccountId, Credential, Fingerprint, KeySource, SecretKey, SecretPurpose};
+use mail_domain::signing::{SigningKeyId, SigningKeyRef, SigningSecret};
+use mail_domain::{AccountId, Fingerprint, KeySource};
 use mail_mime::openpgp::{AutocryptHeader, SecretCert, autocrypt_of};
 use mail_store::Store;
 
-fn entry(account: AccountId, fingerprint: Fingerprint) -> SecretKey {
-    SecretKey {
+fn entry(account: AccountId, fingerprint: Fingerprint) -> SigningKeyRef {
+    SigningKeyRef {
         account,
-        purpose: SecretPurpose::OpenPgp(fingerprint),
+        key: SigningKeyId::OpenPgp(fingerprint),
     }
 }
 
@@ -24,13 +25,11 @@ pub fn secret_key(
     account: AccountId,
     fingerprint: Fingerprint,
 ) -> Result<SecretCert, RuntimeError> {
-    match secrets.get(&entry(account, fingerprint))? {
-        Credential::OpenPgp(armored) => Ok(SecretCert::from_armored(&armored)?),
-        Credential::Password(_) | Credential::OAuth { .. } | Credential::SmimeKey(_) => {
-            Err(RuntimeError::Secrets(format!(
-                "the keyring entry for OpenPGP key {fingerprint} holds something else"
-            )))
-        }
+    match secrets.get_signing(&entry(account, fingerprint))? {
+        SigningSecret::OpenPgp(armored) => Ok(SecretCert::from_armored(&armored)?),
+        SigningSecret::SmimeKey(_) => Err(RuntimeError::Secrets(format!(
+            "the keyring entry for OpenPGP key {fingerprint} holds something else"
+        ))),
     }
 }
 
@@ -40,9 +39,9 @@ pub fn keep_secret_key(
     account: AccountId,
     key: &SecretCert,
 ) -> Result<(), RuntimeError> {
-    secrets.put(
+    secrets.put_signing(
         &entry(account, key.fingerprint()),
-        &Credential::OpenPgp(key.armored()?),
+        &SigningSecret::OpenPgp(key.armored()?),
     )
 }
 
@@ -52,7 +51,7 @@ pub fn forget_secret_key(
     account: AccountId,
     fingerprint: Fingerprint,
 ) -> Result<(), RuntimeError> {
-    secrets.forget(&entry(account, fingerprint))
+    secrets.forget_signing(&entry(account, fingerprint))
 }
 
 /// Update the Autocrypt state for `from` from one arriving message, and keep the key its

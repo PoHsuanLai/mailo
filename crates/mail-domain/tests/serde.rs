@@ -1616,13 +1616,6 @@ fixtures! {
         gossip_timestamp: None,
         gossip_key: None,
     },
-    "secret_key_openpgp.json" => SecretKey = SecretKey {
-        account: account(),
-        purpose: SecretPurpose::OpenPgp(fingerprint()),
-    },
-    "credentials_openpgp.json" => Vec<Credential> = vec![Credential::OpenPgp(
-        "-----BEGIN PGP PRIVATE KEY BLOCK-----".to_owned(),
-    )],
     "verifications.json" => Vec<Verification> = vec![
         Verification::NoSignature,
         Verification::Good {
@@ -1657,13 +1650,6 @@ fixtures! {
         expires: Some(at(30)),
         ..pgp_key()
     },
-    "secret_key_smime.json" => SecretKey = SecretKey {
-        account: account(),
-        purpose: SecretPurpose::Smime(cert_fingerprint()),
-    },
-    "credentials_smime.json" => Vec<Credential> = vec![Credential::SmimeKey(
-        "-----BEGIN PRIVATE KEY-----".to_owned(),
-    )],
     "smime_verifications.json" => Vec<SmimeVerification> = vec![
         SmimeVerification::NoSignature,
         SmimeVerification::Good { signer: cert_fingerprint(), coverage: Coverage::Whole },
@@ -1729,13 +1715,6 @@ fn smime_cert() -> SmimeCert {
 fn smime_values_round_trip_and_a_certificate_fingerprint_persists_as_its_hex() {
     round_trip("SmimeCert", smime_cert());
     round_trip_each(
-        "SecretPurpose",
-        vec![
-            SecretPurpose::Smime(cert_fingerprint()),
-            SecretPurpose::AddressBook,
-        ],
-    );
-    round_trip_each(
         "CertSource",
         vec![
             CertSource::Identity,
@@ -1747,11 +1726,6 @@ fn smime_values_round_trip_and_a_certificate_fingerprint_persists_as_its_hex() {
         serde_json::to_value(cert_fingerprint()).unwrap(),
         serde_json::json!("5A".repeat(32))
     );
-    let debug = format!(
-        "{:?}",
-        Credential::SmimeKey("PRIVATE-KEY-MATERIAL".to_owned())
-    );
-    assert!(!debug.contains("PRIVATE-KEY-MATERIAL"), "{debug}");
 }
 
 #[test]
@@ -1791,13 +1765,6 @@ fn pgp_key() -> PgpKey {
 fn openpgp_values_round_trip_and_a_fingerprint_persists_as_its_hex() {
     round_trip("PgpKey", pgp_key());
     round_trip_each(
-        "SecretPurpose",
-        vec![
-            SecretPurpose::OpenPgp(fingerprint()),
-            SecretPurpose::AddressBook,
-        ],
-    );
-    round_trip_each(
         "KeySource",
         vec![
             KeySource::Generated,
@@ -1812,12 +1779,6 @@ fn openpgp_values_round_trip_and_a_fingerprint_persists_as_its_hex() {
         serde_json::json!("0123456789ABCDEF0123456789ABCDEF01234567")
     );
     assert!(serde_json::from_value::<Fingerprint>(serde_json::json!("0123")).is_err());
-    // The secret never reaches a log line through `Debug`.
-    let debug = format!(
-        "{:?}",
-        Credential::OpenPgp("SECRET-KEY-MATERIAL".to_owned())
-    );
-    assert!(!debug.contains("SECRET-KEY-MATERIAL"), "{debug}");
 }
 
 #[test]

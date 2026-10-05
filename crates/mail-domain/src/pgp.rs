@@ -3,7 +3,7 @@
 //!
 //! No cryptography here. The keys themselves are parsed, made and used in `mail-mime`, where
 //! the OpenPGP implementation lives; the store keeps [`PgpKey`] rows, the OS keyring keeps the
-//! secret halves ([`crate::SecretPurpose::OpenPgp`]), and these types are what passes between
+//! secret halves ([`crate::signing::SigningKeyRef`]), and these types are what passes between
 //! them.
 
 use chrono::{DateTime, Utc};

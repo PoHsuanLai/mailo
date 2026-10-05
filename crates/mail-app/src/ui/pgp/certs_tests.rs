@@ -8,6 +8,7 @@ use std::sync::Arc;
 use chrono::{TimeDelta, Utc};
 use dioxus::prelude::*;
 use dioxus_core::VirtualDom;
+use mail_domain::signing::{SigningKeyId, SigningKeyRef};
 use mail_domain::*;
 use mail_runtime::{MapSecrets, Secrets};
 use mail_store::{SqliteStore, Store};
@@ -74,9 +75,9 @@ fn cert(fingerprint: u8, secret: SecretHeld) -> SmimeCert {
 
 fn holds(secrets: &MapSecrets, cert: &SmimeCert) -> bool {
     secrets
-        .get(&SecretKey {
+        .get_signing(&SigningKeyRef {
             account: ACCOUNT,
-            purpose: SecretPurpose::Smime(cert.fingerprint),
+            key: SigningKeyId::Smime(cert.fingerprint),
         })
         .is_ok()
 }
