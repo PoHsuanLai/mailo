@@ -167,6 +167,35 @@ impl BlobStore {
             .transpose()
     }
 
+    /// Move the file at `rel` aside, where nothing reads it, until [`BlobStore::drop_aside`]
+    /// deletes it or [`BlobStore::bring_back`] restores it. Already gone is the state wanted.
+    /// Refuses a path that is not hash-shaped, as reading does.
+    pub(crate) fn set_aside(&self, rel: &str) -> Result<(), StoreError> {
+        let path = self.resolve(rel)?;
+        match fs::rename(&path, path.with_extension("aside")) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(StoreError::Blob(rel.to_owned(), e.to_string())),
+        }
+    }
+
+    /// Delete the file [`BlobStore::set_aside`] moved aside.
+    pub(crate) fn drop_aside(&self, rel: &str) -> Result<(), StoreError> {
+        let aside = self.resolve(rel)?.with_extension("aside");
+        match fs::remove_file(&aside) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(StoreError::Blob(rel.to_owned(), e.to_string())),
+        }
+    }
+
+    /// Put the file [`BlobStore::set_aside`] moved aside back where it was.
+    pub(crate) fn bring_back(&self, rel: &str) -> Result<(), StoreError> {
+        let path = self.resolve(rel)?;
+        fs::rename(path.with_extension("aside"), &path)
+            .map_err(|e| StoreError::Blob(rel.to_owned(), e.to_string()))
+    }
+
     /// Join a stored relative path to the root, refusing anything that escapes it.
     ///
     /// Stored paths are hex we generated, so this should be unreachable — which is exactly why

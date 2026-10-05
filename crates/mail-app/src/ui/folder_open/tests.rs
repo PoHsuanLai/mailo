@@ -144,12 +144,12 @@ fn the_title_names_the_account_only_when_several_are_in_view() {
     );
     assert_eq!(title_address(&shell, &accounts[1..]), None, "only one");
     let single = Shell {
-        scope: vec![TWO],
+        scope: crate::ui::space::Scope::Accounts(vec![TWO]),
         ..shell.clone()
     };
     assert_eq!(title_address(&single, &accounts), None, "a Space of one");
     let pair = Shell {
-        scope: vec![ONE, TWO],
+        scope: crate::ui::space::Scope::Accounts(vec![ONE, TWO]),
         ..shell.clone()
     };
     assert_eq!(

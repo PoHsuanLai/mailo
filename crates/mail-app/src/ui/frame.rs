@@ -3,9 +3,8 @@
 //! How a Space is painted is `paint.rs`.
 
 use crate::ui::appearance::WindowDirs;
-use crate::ui::space::{self, Scope, Space, Spaces};
+use crate::ui::space::{self, Spaces};
 use crate::ui::today::{self, Today};
-use mail_domain::AccountId;
 use mail_store::SqliteStore;
 use std::sync::Arc;
 
@@ -79,13 +78,5 @@ fn try_consume_dirs() -> Option<WindowDirs> {
 pub(super) fn keep(spaces: &Spaces) {
     if let Some(dirs) = try_consume_dirs() {
         let _ = space::save(&dirs.config, spaces);
-    }
-}
-
-/// Accounts a Space limits the list to. Empty means every account.
-pub(super) fn scope_ids(space: &Space) -> Vec<AccountId> {
-    match &space.scope {
-        Scope::All => Vec::new(),
-        Scope::Accounts(ids) => ids.clone(),
     }
 }

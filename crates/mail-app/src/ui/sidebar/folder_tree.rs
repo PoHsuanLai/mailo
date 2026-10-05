@@ -84,12 +84,9 @@ pub(in crate::ui) struct Tree {
     pub nodes: Vec<Node>,
 }
 
-/// The accounts the section is for: the pressed tile, or the Space's, where empty means all.
-pub(in crate::ui) fn scope(shell: &Shell) -> Vec<AccountId> {
-    match shell.account {
-        Some(id) => vec![id],
-        None => shell.scope.clone(),
-    }
+/// The accounts the section is for: the pressed tile, or the Space's.
+pub(in crate::ui) fn scope(shell: &Shell) -> crate::ui::space::Scope {
+    shell.scope.narrowed(shell.account)
 }
 
 /// Lay out the section, or `None` when nothing in scope has folders to show.

@@ -80,7 +80,6 @@ pub(super) fn App() -> Element {
     let desk = compose::use_desk(today_list, spaces, dirs.clone(), side_hidden);
     compose::use_test_dictionaries();
     let mut seen_open = use_signal(|| None::<mail_domain::ThreadId>);
-    let mut scoped = use_signal(|| false);
     let mut label_ids = use_signal(Vec::<mail_domain::LabelId>::new);
     // The server folders that are places, after the labels, as `view::places_with` orders them.
     let mut folder_refs = use_signal(Vec::<(String, MailboxRef)>::new);
@@ -221,15 +220,45 @@ pub(super) fn App() -> Element {
         }
     });
 
-    // The Space's account list, once. A tile press is a shell change and must not reload it.
+    // The Space's account list, whenever the Spaces change: the Space editor's Accounts row and
+    // the tiles' menus edit it. Read through `peek`, so a tile press (a shell change) does not
+    // run this, and a pressed tile whose account left the Space goes back to every account.
     use_effect(move || {
-        if scoped() {
+        let scope = spaces.read().current_space().scope;
+        if shell.peek().scope != scope {
+            let mut write = shell.write();
+            if write.account.is_some_and(|id| !scope.shows(id)) {
+                write.account = None;
+            }
+            write.scope = scope;
+        }
+    });
+
+    // An account removed, here or from a terminal, leaves every Space, and the tile pressed. Not
+    // while the Space editor holds a draft: the Spaces are the draft then, and Escape must still
+    // put them back. Run again when the editor closes, which also takes the account out of a
+    // draft that Save kept.
+    use_effect(move || {
+        let _ = revision();
+        if editing.read().is_some() {
             return;
         }
-        scoped.set(true);
-        let scope = frame::scope_ids(&spaces.read().current_space());
-        if shell.peek().scope != scope {
+        let store = consume_context::<Arc<SqliteStore>>();
+        let Ok(known) = super::data::known_accounts(&store) else {
+            return;
+        };
+        let mut next = spaces.peek().clone();
+        if crate::ui::space::forget_unknown(&mut next, &known) == crate::ui::space::Forgot::Changed
+        {
+            frame::keep(&next);
+            let scope = next.current_space().scope;
+            let mut spaces = spaces;
+            spaces.set(next);
             shell.write().scope = scope;
+        }
+        let pressed = shell.peek().account;
+        if pressed.is_some_and(|id| !known.contains(&id)) {
+            shell.write().account = None;
         }
     });
 
@@ -346,6 +375,14 @@ pub(super) fn App() -> Element {
         if shell.read().adding.is_some() {
             if key == "Escape" {
                 super::add_account::close(shell);
+            }
+            return;
+        }
+        // The account sheet, over the Doctor it was opened from: Esc goes back from its
+        // question, or closes it, and no other key reaches what is behind it.
+        if shell.read().account_sheet.is_some() {
+            if key == "Escape" {
+                super::account_settings::escape(shell);
             }
             return;
         }
@@ -736,6 +773,9 @@ pub(super) fn App() -> Element {
             }
             if shell.read().doctor.is_some() {
                 super::doctor::DoctorView { shell, revision }
+            }
+            if shell.read().account_sheet.is_some() {
+                super::account_settings::AccountSettingsSheet { shell, revision }
             }
             if shell.read().view_editor.is_some() {
                 super::views::ViewSheet { shell, revision, pages }

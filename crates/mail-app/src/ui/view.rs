@@ -451,6 +451,27 @@ pub struct KeysSheet;
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DoctorSheet;
 
+/// The account sheet while it is open: which account, and how far a removal has got. It keeps
+/// nothing of the account itself, which it reads from the store.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AccountSheet {
+    pub account: AccountId,
+    pub step: AccountStep,
+}
+
+/// Where the account sheet is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AccountStep {
+    /// The account's settings, and Remove Account.
+    Showing,
+    /// Asking whether to remove it.
+    Asking,
+    /// Removing it: the keyring and the database are being written.
+    Removing,
+    /// It was not removed, and this is why.
+    Refused(String),
+}
+
 /// The keyboard shortcuts sheet while it is open.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct KeyboardSheet {
@@ -557,8 +578,8 @@ pub struct Shell {
     pub appearance: Appearance,
     /// The account tile that is pressed. `None` is every account in [`Self::scope`].
     pub account: Option<AccountId>,
-    /// Accounts the current Space shows. Empty means every account.
-    pub scope: Vec<AccountId>,
+    /// Accounts the current Space shows.
+    pub scope: crate::ui::space::Scope,
     /// How this page's rows are grouped. Not a store query.
     pub group: PageGroup,
     /// Which parts of a row this page draws.
@@ -582,6 +603,8 @@ pub struct Shell {
     pub keys: Option<KeysSheet>,
     /// The Connection Doctor sheet while it is open. `None` is closed.
     pub doctor: Option<DoctorSheet>,
+    /// The account sheet, opened from the Connection Doctor, while it is open. `None` is closed.
+    pub account_sheet: Option<AccountSheet>,
     /// The saved-view editor while it is open, with what its fields hold. `None` is closed.
     pub view_editor: Option<crate::ui::saved::ViewDraft>,
     /// Which key does what: the shipped keys with the user's own over them, read from
@@ -700,7 +723,7 @@ impl Default for Shell {
             labels: Vec::new(),
             appearance: Appearance::default(),
             account: None,
-            scope: Vec::new(),
+            scope: crate::ui::space::Scope::All,
             group: PageGroup::None,
             parts: PageParts::default(),
             page_menu: PageMenu::Closed,
@@ -714,6 +737,7 @@ impl Default for Shell {
             keymap: crate::ui::keymap::Keymap::default(),
             keyboard: None,
             doctor: None,
+            account_sheet: None,
             destroying: None,
             removing_space: None,
             undo: mail_core::undo::UndoStack::default(),
@@ -824,17 +848,7 @@ impl Shell {
     /// The search pipeline narrows its candidates with this, so a search inside a Space finds
     /// what [`Self::query`] would, and nothing from an account the Space leaves out.
     pub fn account_filter(&self) -> Option<Filter> {
-        if let Some(id) = self.account {
-            Some(Filter::Account(id))
-        } else {
-            match self.scope.as_slice() {
-                [] => None,
-                [id] => Some(Filter::Account(*id)),
-                ids => Some(Filter::Or(
-                    ids.iter().copied().map(Filter::Account).collect(),
-                )),
-            }
-        }
+        self.scope.narrowed(self.account).filter()
     }
 
     /// Select a place, and drop any open thread that no longer belongs to the new list.

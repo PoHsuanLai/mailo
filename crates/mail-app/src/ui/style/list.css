@@ -29,6 +29,7 @@
 .first-sync > :first-child { align-self: center; padding: var(--s-10) 0; }
 .doctor { display: flex; flex-direction: column; gap: var(--s-8); padding: var(--s-12); }
 .doctor-foot { display: flex; justify-content: flex-end; gap: var(--s-8); }
+.doctor-acts { display: flex; align-items: center; gap: var(--s-4); }
 .account-head { display: flex; align-items: center; min-width: 0; }
 .account-head > :first-child { flex: 1 1 auto; min-width: 0; }
 .fetch-mark { display: inline-flex; align-items: center; flex: none; padding: 0 var(--s-4); }

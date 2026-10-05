@@ -61,8 +61,11 @@ where
         .spawn(move || {
             let mut beat = Beat::default();
             loop {
-                if let Ok(count) = unread(store.as_ref(), &[], chrono::Utc::now())
-                    && beat.due(Instant::now(), count)
+                if let Ok(count) = unread(
+                    store.as_ref(),
+                    &crate::ui::space::Scope::All,
+                    chrono::Utc::now(),
+                ) && beat.due(Instant::now(), count)
                 {
                     badge.show(count);
                 }

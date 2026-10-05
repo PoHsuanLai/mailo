@@ -9,6 +9,10 @@ use mail_runtime::{KeyringSecrets, Loopback, OAuthRegistry, Registration, Secret
 use mail_store::SqliteStore;
 use std::fmt::Write as _;
 
+mod remove;
+
+pub use remove::{RemoveError, Removed, remove};
+
 /// Servers the user named, for an address the preset table does not cover.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Setup {
