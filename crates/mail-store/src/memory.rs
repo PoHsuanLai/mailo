@@ -243,6 +243,33 @@ impl Store for MemoryStore {
             .collect())
     }
 
+    fn unfetched_in_threads(
+        &self,
+        mailbox: &MailboxRef,
+        threads: &[ThreadId],
+        limit: u32,
+    ) -> Result<Vec<(ThreadId, RemoteRef)>, StoreError> {
+        let inner = self.inner.borrow();
+        let mut with_dates: Vec<(DateTime<Utc>, MessageId, ThreadId, RemoteRef)> = Vec::new();
+        for m in inner.messages.values() {
+            if !matches!(m.body, mail_domain::Body::Absent) || !threads.contains(&m.thread) {
+                continue;
+            }
+            let Some(row) = inner.remotes.iter().find(|row| {
+                row.message == m.id && row.account == mailbox.account && row.mailbox == mailbox.path
+            }) else {
+                continue;
+            };
+            with_dates.push((m.date, m.id, m.thread, row_to_remote(row)?));
+        }
+        with_dates.sort_by_key(|(date, id, _, _)| std::cmp::Reverse((*date, id.to_string())));
+        Ok(with_dates
+            .into_iter()
+            .map(|(_, _, thread, remote)| (thread, remote))
+            .take(limit as usize)
+            .collect())
+    }
+
     fn cursor(&self, mailbox: &MailboxRef) -> Result<Option<SyncCursor>, StoreError> {
         // `sync` has held this since the store was written; nothing had ever read it back.
         Ok(self

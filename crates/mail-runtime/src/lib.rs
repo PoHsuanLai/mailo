@@ -26,6 +26,7 @@ pub mod signin;
 pub mod smime;
 pub mod transport;
 pub mod unsubscribe;
+pub mod wanted;
 pub mod wkd;
 
 pub use assemble::{Arrival, Destination, absorb, absorb_into, assemble};

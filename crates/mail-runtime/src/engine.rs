@@ -1184,7 +1184,9 @@ impl<B: Backend> AccountEngine<B> {
         if wanted.is_empty() {
             // A protocol that cannot enumerate up front: fall back to what we already hold,
             // which the store hands back newest first.
-            wanted = self.unfetched(mailbox, budget as u32)?;
+            let first;
+            (wanted, first) = self.unfetched(mailbox, budget as u32)?;
+            by_band(&mut wanted[first..]);
         } else {
             // Minus what is already mapped. The survey is *everything on the server*, which is
             // the right answer to "what exists" and the wrong one to "what should I fetch": it
@@ -1200,8 +1202,8 @@ impl<B: Backend> AccountEngine<B> {
             // The survey is in server order, oldest first: POP3 message numbers and IMAP UIDs
             // both count up as mail arrives. Nothing else is known before the headers are.
             wanted.reverse();
+            by_band(&mut wanted);
         }
-        by_band(&mut wanted);
 
         for band in BANDS {
             let batch: Vec<RemoteRef> = wanted
@@ -1402,8 +1404,8 @@ impl<B: Backend> AccountEngine<B> {
         budget: usize,
     ) -> Result<SyncReport, RuntimeError> {
         let mut report = SyncReport::default();
-        let mut wanted = self.unfetched(mailbox, budget as u32)?;
-        by_band(&mut wanted);
+        let (mut wanted, first) = self.unfetched(mailbox, budget as u32)?;
+        by_band(&mut wanted[first..]);
 
         // A size of `u64::MAX` is "unknown", not "enormous": no survey this session. Those are
         // fetched whole, as everything was before large messages were fetched by part.
@@ -1918,24 +1920,48 @@ impl<B: Backend> AccountEngine<B> {
     ///
     /// Only this mailbox's. A fetch selects one mailbox and names UIDs in it, and the account's
     /// whole backlog put the inbox's body pass to asking `INBOX` for UIDs that belonged to Sent.
+    ///
+    /// The conversations the window is showing come first (`wanted`), and the count of those at
+    /// the front is returned beside the list: the caller bands only what follows them, since
+    /// what the person is looking at is wanted whatever its size. A message the window is
+    /// fetching for itself is left out, so the two do not fetch one body twice.
     fn unfetched(
         &self,
         mailbox: &MailboxRef,
         limit: u32,
-    ) -> Result<Vec<(RemoteRef, u64)>, RuntimeError> {
+    ) -> Result<(Vec<(RemoteRef, u64)>, usize), RuntimeError> {
         // Sizes from this session's survey. A message it did not cover — no survey yet, or a
         // protocol that cannot take one — is "size unknown" and sorts into the last band.
         let sizes: std::collections::HashMap<RemoteRef, u64> =
             self.surveyed().into_iter().collect();
-        Ok(self
-            .store
-            .unfetched_in(mailbox, limit)?
+        let asked = crate::wanted::first();
+        let hinted = self.store.unfetched_in_threads(mailbox, &asked, limit)?;
+        let rest = self.store.unfetched_in(mailbox, limit)?;
+        let (mut order, mut first) = crate::wanted::ahead(&asked, hinted, rest, limit as usize);
+        let claimed = crate::wanted::claimed();
+        if !claimed.is_empty() {
+            let mut taken = Vec::new();
+            for message in claimed {
+                // A claim is the window's, made in whatever store it reads: one this store does
+                // not hold — gone since, or never here — is not this pass's to leave out, and
+                // must not fail it.
+                match self.store.remotes_of(message) {
+                    Ok(remotes) => taken.extend(remotes),
+                    Err(mail_store::StoreError::NoMessage(_)) => {}
+                    Err(e) => return Err(e.into()),
+                }
+            }
+            first -= order[..first].iter().filter(|r| taken.contains(r)).count();
+            order.retain(|remote| !taken.contains(remote));
+        }
+        let order = order
             .into_iter()
             .map(|remote| {
                 let size = sizes.get(&remote).copied().unwrap_or(u64::MAX);
                 (remote, size)
             })
-            .collect())
+            .collect();
+        Ok((order, first))
     }
 
     /// The account's stored credential, refreshed if it is close to expiring.

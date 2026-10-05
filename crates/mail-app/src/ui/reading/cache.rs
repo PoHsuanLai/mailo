@@ -191,7 +191,8 @@ fn warm_now(
 }
 
 /// Keep what the person is about to open rendered: the top of the list once it is drawn, and
-/// the neighbours of the open conversation whenever it changes.
+/// the neighbours of the open conversation whenever it changes. Their bodies, where they are not
+/// here yet, are what the next body pass fetches first (`mail_runtime::wanted`).
 ///
 /// Warmed under the default policy, which is the one a conversation opens with: showing remote
 /// images is asked for per conversation, and opening another one clears it.
@@ -202,11 +203,12 @@ pub(in crate::ui) fn use_warming(shell: Signal<Shell>, threads: Memo<Vec<ThreadS
     let open = use_memo(move || shell.read().open);
     use_effect(move || {
         let list: Vec<ThreadId> = threads.read().iter().map(|thread| thread.id).collect();
-        warm(
-            store.clone(),
-            ahead(open(), &list, FIRST_SCREEN),
-            SanitizePolicy::CURRENT,
-        );
+        let order = ahead(open(), &list, FIRST_SCREEN);
+        // The same order is what a body pass fetches first, with the open conversation ahead of
+        // it: a message without its body yet cannot be rendered ahead, only fetched ahead.
+        let bodies: Vec<ThreadId> = open().into_iter().chain(order.iter().copied()).collect();
+        mail_runtime::wanted::ask_first(&bodies);
+        warm(store.clone(), order, SanitizePolicy::CURRENT);
     });
 }
 
