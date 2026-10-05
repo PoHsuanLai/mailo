@@ -80,7 +80,6 @@ pub(super) fn App() -> Element {
     let desk = compose::use_desk(today_list, spaces, dirs.clone(), side_hidden);
     compose::use_test_dictionaries();
     let mut seen_open = use_signal(|| None::<mail_domain::ThreadId>);
-    let mut scoped = use_signal(|| false);
     let mut label_ids = use_signal(Vec::<mail_domain::LabelId>::new);
     // The server folders that are places, after the labels, as `view::places_with` orders them.
     let mut folder_refs = use_signal(Vec::<(String, MailboxRef)>::new);
@@ -221,15 +220,17 @@ pub(super) fn App() -> Element {
         }
     });
 
-    // The Space's account list, once. A tile press is a shell change and must not reload it.
+    // The Space's account list, whenever the Spaces change: the Space editor's Accounts row and
+    // the tiles' menus edit it. Read through `peek`, so a tile press (a shell change) does not
+    // run this, and a pressed tile whose account left the Space goes back to every account.
     use_effect(move || {
-        if scoped() {
-            return;
-        }
-        scoped.set(true);
         let scope = spaces.read().current_space().scope;
         if shell.peek().scope != scope {
-            shell.write().scope = scope;
+            let mut write = shell.write();
+            if write.account.is_some_and(|id| !scope.shows(id)) {
+                write.account = None;
+            }
+            write.scope = scope;
         }
     });
 
