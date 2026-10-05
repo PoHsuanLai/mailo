@@ -12,7 +12,7 @@ use mail_mime::{
 pub fn policy(images: RemoteImages) -> SanitizePolicy {
     SanitizePolicy {
         remote_images: images,
-        version: SanitizePolicy::CURRENT.version,
+        ..SanitizePolicy::CURRENT
     }
 }
 

@@ -989,7 +989,7 @@ impl Shell {
             } else {
                 RemoteImages::Blocked
             },
-            version: SanitizePolicy::CURRENT.version,
+            ..SanitizePolicy::FRAME
         }
     }
 }
@@ -1543,6 +1543,8 @@ mod tests {
         shell.select(1);
         assert!(!shell.show_remote_images);
         assert_eq!(shell.policy().remote_images, RemoteImages::Blocked);
+        // What a conversation opens under is what the cache warms under.
+        assert_eq!(shell.policy(), SanitizePolicy::FRAME);
 
         shell.open(ThreadId::generate());
         shell.show_remote_images = true;

@@ -1,5 +1,7 @@
 //! Untrusted HTML to something safe to put in a WebView.
 
+mod css;
+
 use std::borrow::Cow;
 use std::collections::HashSet;
 
@@ -11,10 +13,25 @@ pub enum RemoteImages {
     Allowed,
 }
 
+/// Whether the sender's CSS survives: its `<style>` sheets, `style`, `class` and `id`
+/// attributes, and the old presentational attributes (`bgcolor`, `width`, `align`...) a
+/// newsletter's tables are laid out with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Styles {
+    /// Default: the markup is lowered to blocks (the composer, paste, print), which draw it in
+    /// mailo's own type and need none of it.
+    Dropped,
+    /// For the reader's sealed frame, which draws the message as the sender laid it out. Every
+    /// way CSS can reach the network is scrubbed out first (`css.rs`); the frame's network
+    /// refuses the rest.
+    Kept,
+}
+
 /// How aggressively to sanitize, and which revision of that policy this is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SanitizePolicy {
     pub remote_images: RemoteImages,
+    pub styles: Styles,
     /// Bumped whenever the policy or the `ammonia` major changes.
     ///
     /// Part of the render cache key. Sanitizer output is never persisted — an upgrade would
@@ -23,10 +40,18 @@ pub struct SanitizePolicy {
 }
 
 impl SanitizePolicy {
-    /// The current default: remote images blocked.
+    /// The current default: remote images blocked, the sender's CSS dropped.
     pub const CURRENT: SanitizePolicy = SanitizePolicy {
         remote_images: RemoteImages::Blocked,
-        version: 1,
+        styles: Styles::Dropped,
+        version: 2,
+    };
+
+    /// The reader's frame: remote images blocked until the reader asks, the sender's CSS kept.
+    /// What the frame is rendered, cached and warmed under.
+    pub const FRAME: SanitizePolicy = SanitizePolicy {
+        styles: Styles::Kept,
+        ..SanitizePolicy::CURRENT
     };
 }
 
@@ -87,8 +112,9 @@ pub fn sanitize(html: &str, policy: SanitizePolicy) -> SafeHtml {
     let remote = policy.remote_images;
     // Ammonia's defaults are an allowlist: script, style, iframe, object, embed, form,
     // input, button, base, meta, link, svg and every `on*` attribute are absent from it,
-    // so they never reach the serializer. `style` stays off the list on purpose — ammonia's
-    // CSS filter keeps `url()`, and a property allowlist would let a tracker through.
+    // so they never reach the serializer. `style` stays off the list unless the policy keeps
+    // the sender's CSS, and then every sheet and attribute is scrubbed of what fetches
+    // (`css.rs`): ammonia's own CSS filter keeps `url()`.
     // `url_schemes` is global, so it cannot express "cid always, http(s) only on images and
     // only when the reader opted in". The attribute filter applies that second rule to
     // attributes ammonia has already scheme-checked.
@@ -100,7 +126,14 @@ pub fn sanitize(html: &str, policy: SanitizePolicy) -> SafeHtml {
     // for the same reason: the filter is `Send + Sync`.
     let kept_remote = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
     let recorder = kept_remote.clone();
-    let cleaned = ammonia::Builder::new()
+    let mut builder = ammonia::Builder::new();
+    if policy.styles == Styles::Kept {
+        builder
+            .rm_clean_content_tags(&["style"])
+            .add_tags(&["style", "font", "center"])
+            .add_generic_attributes(&PRESENTATIONAL);
+    }
+    let cleaned = builder
         .url_schemes(HashSet::from(["http", "https", "mailto", "cid"]))
         .url_relative(ammonia::UrlRelative::Deny)
         .link_rel(Some("noopener noreferrer"))
@@ -111,6 +144,9 @@ pub fn sanitize(html: &str, policy: SanitizePolicy) -> SafeHtml {
         .rm_tag_attributes("ins", &["cite"])
         .rm_tag_attributes("q", &["cite"])
         .attribute_filter(move |element, attribute, value| {
+            if attribute == "style" {
+                return Some(Cow::Owned(css::scrub(value)));
+            }
             if fetches_on_render(element, attribute) {
                 let kept = keep_fetched_url(value, remote);
                 if is_remote(value) {
@@ -132,6 +168,10 @@ pub fn sanitize(html: &str, policy: SanitizePolicy) -> SafeHtml {
         })
         .clean(html)
         .to_string();
+    let cleaned = match policy.styles {
+        Styles::Kept => css::scrub_style_elements(&cleaned),
+        Styles::Dropped => cleaned,
+    };
     let remote_urls = std::mem::take(
         &mut *kept_remote
             .lock()
@@ -143,6 +183,25 @@ pub fn sanitize(html: &str, policy: SanitizePolicy) -> SafeHtml {
         remote_urls,
     )
 }
+
+/// The attributes a sender's layout is written in, kept with [`Styles::Kept`]. `background`
+/// is not among them: it is a fetch, and `fetches_on_render` drops it.
+const PRESENTATIONAL: [&str; 14] = [
+    "style",
+    "class",
+    "id",
+    "bgcolor",
+    "width",
+    "height",
+    "align",
+    "valign",
+    "border",
+    "cellpadding",
+    "cellspacing",
+    "color",
+    "face",
+    "size",
+];
 
 /// Whether a dropped URL was one the reader could choose to load.
 ///

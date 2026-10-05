@@ -26,18 +26,24 @@
 .sender-checks[*|data-standing="fail"] { color: var(--danger); }
 /* the message body is an opaque sandboxed frame: we animate the container,
    never its contents, because we cannot reach inside it and must not try. */
+/* Each message is its header, what is said about it (seal, invitation, attachments) inset as the
+   head is, then its frame edge to edge across the reader. The last message's frame takes the
+   height left under it, so a single message fills the pane; the frame scrolls its own document. */
+article.frame { display: flex; flex-direction: column; flex: none; }
+article.frame:last-of-type { flex: 1 0 auto; }
+article.frame > :not(.html) { margin-left: var(--s-18); margin-right: var(--s-18); }
 article.frame header {
-  display: flex; align-items: baseline; gap: var(--s-8); margin: 0 0 var(--s-10);
+  display: flex; align-items: baseline; gap: var(--s-8); margin-top: var(--s-12); margin-bottom: var(--s-10);
   font-size: var(--fs-control); color: var(--ink);
 }
 article.frame header time { margin-left: auto; }
-article.frame + article.frame { margin-top: var(--s-18); padding-top: var(--s-14); border-top: var(--hair) solid var(--line-soft); }
+article.frame + article.frame { border-top: var(--hair) solid var(--line-soft); }
 .img-ph {
   margin-top: var(--s-12); height: 86px; border-radius: var(--r-btn); background: var(--surface-2);
   border: var(--hair) solid var(--line); display: grid; place-items: center;
    font-size: var(--fs-note); color: var(--ink-faint);
 }
-.reader-body { padding: var(--s-16) var(--s-18); overflow-y: auto; flex: 1; font-size: var(--fs-reading); color: var(--ink-soft);
+.reader-body { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; flex: 1; font-size: var(--fs-reading); color: var(--ink-soft);
   line-height: 1.65; }
 .reader-body p + p { margin-top: var(--s-11); }
 .reader-body .quote {
@@ -52,7 +58,7 @@ article.frame + article.frame { margin-top: var(--s-18); padding-top: var(--s-14
 .reader-body .pending {
    font-weight: 700; font-size: var(--fs-title); font-style: normal; color: var(--ink-soft);
 }
-.html { width: 100%; min-height: 320px; border: 0; background: var(--foreign-ground); border-radius: var(--r-btn); display: block; }
+.html { width: 100%; min-height: 320px; flex: 1 0 320px; border: 0; background: var(--foreign-ground); display: block; }
 .attachments { margin: 0 0 var(--s-13); }
 .att-thumb {
   width: 56px; height: 56px; flex: none; display: grid; place-items: center; overflow: hidden;
@@ -83,7 +89,7 @@ article.frame + article.frame { margin-top: var(--s-18); padding-top: var(--s-14
 
 .bar-tools { display: flex; align-items: center; gap: var(--s-5); position: relative; }
 /* Banners in the reader's flow: one above another, a gap under the last. */
-.banners { display: grid; gap: var(--s-8); margin: var(--s-10) 0 var(--s-12); }
+.banners { display: grid; gap: var(--s-8); margin: var(--s-10) var(--s-18) 0; }
 .banners:empty { display: none; }
 /* The centre and full peeks are quire's `Peek`, drawn over the window: nothing here places them. */
 

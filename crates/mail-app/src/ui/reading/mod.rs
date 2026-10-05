@@ -264,10 +264,33 @@ fn html_frame(html: &str, parsed: &mail_mime::Parsed, policy: SanitizePolicy) ->
     let embedded =
         mail_mime::embed_inline(safe.as_str(), &parsed.attachments, mail_mime::INLINE_BUDGET);
     FrameBody::Present {
-        html: embedded,
+        html: in_document(&embedded),
         blocked_remote,
         fetches,
     }
+}
+
+/// What a frame's document starts from before the sender's own sheets: a browser's defaults,
+/// as a mail client's are, in the system's sans rather than Blitz's serif, with nothing wider
+/// than the frame where Blitz can say so (a table's own percentage `max-width` does not hold a
+/// fixed-width table nested in an auto-width one: a pane under 600 px still cuts a 600 px
+/// newsletter's right edge). The sender's `<style>` comes later in
+/// the document and wins, a `body { padding: 0 }` included, so a full-bleed design stays one.
+const FRAME_BASE: &str = ":root { color-scheme: light; } \
+     html, body { margin: 0; } \
+     body { padding: 16px; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \
+     Helvetica, Arial, sans-serif; font-size: 14px; line-height: 1.5; color: #1d1d1f; \
+     background: #fff; overflow-wrap: anywhere; } \
+     img { max-width: 100%; height: auto; } \
+     table { max-width: 100%; }";
+
+/// A sanitized fragment as the frame's whole document: [`FRAME_BASE`], then the fragment, its
+/// own sheets included.
+fn in_document(fragment: &str) -> String {
+    format!(
+        "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><style>{FRAME_BASE}</style></head>\
+         <body>{fragment}</body></html>"
+    )
 }
 
 fn plain_frame(text: &str) -> FrameBody {
@@ -382,7 +405,7 @@ pub(super) fn Reader(
             let remote = match &body {
                 Some(body) if body.blocked_remote() => true,
                 Some(body) if showing && body.frame_html().is_some() => {
-                    frame(mail_mime::SanitizePolicy::CURRENT).is_some_and(|it| it.blocked_remote())
+                    frame(mail_mime::SanitizePolicy::FRAME).is_some_and(|it| it.blocked_remote())
                 }
                 _ => false,
             };
