@@ -122,25 +122,7 @@ pub(super) fn ShellRoot() -> Element {
     use_context_provider(|| ReadSignal::new(user_style));
     // mailo's own settings (`mailo/settings.toml`), watched the same way: detent writes the same
     // file, and the window follows it.
-    let mail_root = settings.root.clone();
-    let mut mail = use_signal({
-        let root = mail_root.clone();
-        move || crate::settings::load(&root)
-    });
-    use_context_provider(|| super::prefs::PrefsRoot(Some(mail_root.clone())));
-    use_context_provider(|| mail);
-    use_future(move || {
-        let store = crate::settings::store(mail_root.clone());
-        let spawner: Arc<dyn Spawner> = Arc::new(ds_blitz::TokioSpawner::current());
-        async move {
-            let mut watch = store.watch::<crate::settings::MailSettings>(&*spawner);
-            while let Some(loaded) = watch.changed().await {
-                if *mail.peek() != loaded.value {
-                    mail.set(loaded.value);
-                }
-            }
-        }
-    });
+    super::prefs::use_watched_settings(settings.root.clone());
     rsx! { Shell {} }
 }
 

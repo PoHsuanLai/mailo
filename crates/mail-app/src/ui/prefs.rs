@@ -38,6 +38,45 @@ pub(in crate::ui) fn use_prefs(dirs: Option<&WindowDirs>) -> Signal<MailSettings
     use_context_provider(|| loaded)
 }
 
+/// Load the settings under `root`, provide them, and follow `settings.toml` as it changes: what
+/// a launched window's root does, so a change made in the desktop's Settings app reaches it.
+pub(in crate::ui) fn use_watched_settings(root: ConfigRoot) {
+    let mut values = use_signal({
+        let root = root.clone();
+        move || settings::load(&root)
+    });
+    use_context_provider(|| PrefsRoot(Some(root.clone())));
+    use_context_provider(|| values);
+    use_future(move || {
+        let store = settings::store(root.clone());
+        let spawner: std::sync::Arc<dyn ds::base::spawner::Spawner> =
+            std::sync::Arc::new(ds_blitz::TokioSpawner::current());
+        async move {
+            let mut watch = store.watch::<MailSettings>(&*spawner);
+            while let Some(loaded) = watch.changed().await {
+                if *values.peek() != loaded.value {
+                    values.set(loaded.value);
+                }
+            }
+        }
+    });
+}
+
+/// Read `settings.toml` again where the window has one: when another window of the app moved the
+/// shared revision, it may have changed a setting.
+pub(in crate::ui) fn reload() {
+    let (Some(mut values), Some(PrefsRoot(Some(root)))) = (
+        try_consume_context::<Signal<MailSettings>>(),
+        try_consume_context::<PrefsRoot>(),
+    ) else {
+        return;
+    };
+    let now = settings::load(&root);
+    if *values.peek() != now {
+        values.set(now);
+    }
+}
+
 /// The settings in force, or the defaults where nothing provided them.
 pub(in crate::ui) fn current() -> MailSettings {
     try_consume_context::<Signal<MailSettings>>()
@@ -67,7 +106,7 @@ pub(in crate::ui) fn change(edit: impl FnOnce(&mut MailSettings)) -> Result<(), 
 /// rows hand it back. A value the settings cannot hold changes nothing.
 pub(in crate::ui) fn change_key(path: &str, value: toml::Value) -> Result<(), String> {
     let values = toml::Value::try_from(current()).map_err(|e| e.to_string())?;
-    let next: MailSettings = crate::ui::settings_sheet::with_value(values, path, value)
+    let next: MailSettings = crate::ui::settings_window::with_value(values, path, value)
         .try_into()
         .map_err(|e: toml::de::Error| e.to_string())?;
     change(|settings| *settings = next)

@@ -14,7 +14,7 @@ use ds::base::press::PointerButton;
 use ds::prelude::{Point, Px, ShortcutKey as Key};
 use ds::spell::lang::Lang;
 use ds_blitz::spell::SpellConfig;
-use ds_blitz::{FocusFallback, NetPolicy, PrintOutcome};
+use ds_blitz::{FocusFallback, NetPolicy, PrintOutcome, RootContexts};
 use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query, Viewport};
 
 #[path = "support/settle.rs"]
@@ -24,7 +24,7 @@ use settle::settle_until;
 #[path = "support/drive.rs"]
 mod drive;
 use drive::Drive;
-use mail_app::ui::native::Dictionaries;
+use mail_app::ui::native::{Dictionaries, Revisions};
 use mail_domain::*;
 use mail_store::SqliteStore;
 use std::path::Path;
@@ -37,6 +37,13 @@ const ACCOUNT: AccountId =
 const VIEW: Viewport = Viewport {
     width: 1200,
     height: 800,
+    scale_percent: 100,
+};
+
+/// The Settings window at the size it opens at.
+const SETTINGS_VIEW: Viewport = Viewport {
+    width: 780,
+    height: 620,
     scale_percent: 100,
 };
 
@@ -128,25 +135,52 @@ fn composing() -> (Harness, tempfile::TempDir) {
 }
 
 /// [`composing`], in a window of `view`.
-fn composing_in(view: Viewport) -> (Harness, tempfile::TempDir) {
-    let dir = tempfile::tempdir().unwrap();
-    let store = seeded(dir.path());
+/// What a window here is given: the store, scratch directories, the test's dictionaries, and
+/// the revision every window of the app shares.
+fn contexts(
+    dir: &std::path::Path,
+    store: &Arc<SqliteStore>,
+    revisions: &Revisions,
+) -> RootContexts {
     // Every window here has a print dialog of its own: none may open the system's.
     let printer = mail_app::ui::native::Printer::with_dialog(|_, _| Ok(PrintOutcome::Cancelled));
-    let contexts = mail_app::ui::native::contexts(
-        Arc::clone(&store),
+    mail_app::ui::native::contexts(
+        Arc::clone(store),
         mail_app::ui::view::Appearance::default(),
         mail_app::ui::space::Spaces::default(),
-        None,
+        Some(mail_app::ui::appearance::WindowDirs {
+            config: dir.join("config"),
+            state: dir.join("state"),
+        }),
         mail_app::ui::Start::Inbox,
     )
     .with(printer)
-    .with(dictionaries(dir.path()));
+    .with(dictionaries(dir))
+    .with(revisions.clone())
+}
+
+/// The main window with a new message open and its body focused.
+struct Composing {
+    harness: Harness,
+    dir: tempfile::TempDir,
+    store: Arc<SqliteStore>,
+    revisions: Revisions,
+}
+
+fn composing_in(view: Viewport) -> (Harness, tempfile::TempDir) {
+    let open = composing_beside(view);
+    (open.harness, open.dir)
+}
+
+fn composing_beside(view: Viewport) -> Composing {
+    let dir = tempfile::tempdir().unwrap();
+    let store = seeded(dir.path());
+    let revisions = Revisions::new();
     let config = HarnessConfig::new(view)
         .with_net(NetPolicy::Local)
         .with_focus_fallback(FocusFallback::Ancestor)
         .with_clock(Clock::Virtual)
-        .with_contexts(contexts);
+        .with_contexts(contexts(dir.path(), &store, &revisions));
     let mut harness = Harness::new(mail_app::ui::native::root, config);
     harness.advance(ms(300));
     settle_until(&mut harness, |h| h.count(".list-title") > 0);
@@ -155,36 +189,29 @@ fn composing_in(view: Viewport) -> (Harness, tempfile::TempDir) {
     let body = centre(&harness, ".c-body");
     harness.click(body);
     harness.advance(ms(200));
-    (harness, dir)
+    Composing {
+        harness,
+        dir,
+        store,
+        revisions,
+    }
+}
+
+/// The Settings window beside `open`'s main window: the same store, directories and revision.
+fn settings_beside(open: &Composing) -> Harness {
+    let config = HarnessConfig::new(SETTINGS_VIEW)
+        .with_net(NetPolicy::Local)
+        .with_clock(Clock::Virtual)
+        .with_contexts(contexts(open.dir.path(), &open.store, &open.revisions));
+    let mut harness = Harness::new(mail_app::ui::native::settings_root, config);
+    settle_until(&mut harness, |h| h.count(".settings-page") == 1);
+    harness
 }
 
 fn centre(harness: &Harness, selector: &str) -> Point {
     harness
         .centre(selector)
         .unwrap_or_else(|| panic!("{selector} is not drawn:\n{}", harness.html()))
-}
-
-/// Wheel the settings list until `selector`'s centre is that element. The wheel goes through
-/// the scroller's padding, at its top corner: a wheel over the look editor is consumed by the
-/// editor and the list below it never moves.
-fn reveal_in_scroller(harness: &mut Harness, selector: &str) {
-    let scroll = harness
-        .rect(".settings-scroll")
-        .unwrap_or_else(|| panic!("the settings list is not drawn:\n{}", harness.html()));
-    let at = Point {
-        x: Px(scroll.origin.x.0 + 4.0),
-        y: Px(scroll.origin.y.0 + 4.0),
-    };
-    for _ in 0..60 {
-        if harness
-            .centre(selector)
-            .is_some_and(|found| harness.hits(found, selector))
-        {
-            return;
-        }
-        harness.wheel(at, Px(0.0), Px(-160.0));
-        harness.advance(ms(16));
-    }
 }
 
 fn type_text(harness: &mut Harness, text: &str) {
@@ -323,25 +350,27 @@ fn until(harness: &mut Harness, what: &str, done: impl Fn(&Harness) -> bool) {
 }
 
 fn off_removes_the_marks() {
-    let (mut harness, _dir) = composing_in(VIEW);
-    type_text(&mut harness, "teh cat");
-    settle_until(&mut harness, |h| marks(h) == 1);
-    // Settings (⌘,), over the open draft. Blitz's selectors name an attribute with a dash
-    // through the any-namespace form; the switch is the row's `role=switch`.
-    harness.chord(&[Key::Ctrl], Key::Char(','));
+    let mut open = composing_beside(VIEW);
+    type_text(&mut open.harness, "teh cat");
+    settle_until(&mut open.harness, |h| marks(h) == 1);
+    // Settings, a window of its own beside the draft. Blitz's selectors name an attribute with a
+    // dash through the any-namespace form; the switch is the row's `role=switch`.
+    let mut settings = settings_beside(&open);
     let off = "[*|role=switch][*|aria-label=\"Check spelling\"]";
-    until(&mut harness, "the switch is drawn, on", |h| {
+    until(&mut settings, "the switch is drawn, on", |h| {
         h.attr(off, "aria-checked").as_deref() == Some("true")
     });
-    reveal_in_scroller(&mut harness, off);
-    until(&mut harness, "Off can be pressed", |h| {
-        h.centre(off).is_some_and(|at| h.hits(at, off))
+    let at = centre(&settings, off);
+    settings.click(at);
+    until(&mut settings, "the switch is off", |h| {
+        h.attr(off, "aria-checked").as_deref() == Some("false")
     });
-    harness.click(centre(&harness, off));
-    until(&mut harness, "the marks leave", |h| marks(h) == 0);
+    // The main window hears the shared revision, reads the settings again, and the marks leave.
+    let harness = &mut open.harness;
+    until(harness, "the marks leave", |h| marks(h) == 0);
     harness.advance(debounce() * 3);
-    assert_eq!(marks(&harness), 0, "a mark came back with spelling off");
-    assert_eq!(body(&harness), "teh cat", "the draft changed");
+    assert_eq!(marks(harness), 0, "a mark came back with spelling off");
+    assert_eq!(body(harness), "teh cat", "the draft changed");
 }
 
 #[test]
