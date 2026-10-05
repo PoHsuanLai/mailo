@@ -79,6 +79,19 @@ impl Today {
         self.entries.retain(|entry| entry.space != space);
     }
 
+    /// The Space at `space` was deleted: forget its shortcuts and parked drafts, and renumber
+    /// the Spaces after it, so nothing attaches to the wrong Space. The mail is untouched.
+    pub fn drop_space(&mut self, space: usize) {
+        self.entries.retain(|entry| entry.space != space);
+        self.drafts.retain(|parked| parked.space != space);
+        for entry in &mut self.entries {
+            entry.space = shifted(entry.space, space);
+        }
+        for parked in &mut self.drafts {
+            parked.space = shifted(parked.space, space);
+        }
+    }
+
     /// Drop every shortcut that has been idle for more than [`IDLE`].
     pub fn prune(&mut self, now: DateTime<Utc>) {
         self.entries.retain(|entry| !idle(entry, now));
@@ -110,6 +123,11 @@ impl Today {
             .filter(|parked| parked.space == space)
             .collect()
     }
+}
+
+/// Where the Space at `at` is once the Space at `removed` is gone.
+fn shifted(at: usize, removed: usize) -> usize {
+    if at > removed { at - 1 } else { at }
 }
 
 fn idle(entry: &Entry, now: DateTime<Utc>) -> bool {
@@ -420,6 +438,72 @@ mod tests {
             assert_eq!(loaded.entries[0].space, 2, "{name}");
             assert_eq!(loaded.entries[0].thread, id, "{name}");
             assert_eq!(loaded.entries[0].last_opened, at(0), "{name}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod drop_tests {
+    use super::{Entry, Parked, Today};
+    use chrono::{DateTime, Utc};
+    use mail_domain::{DraftId, ThreadId};
+    use uuid::Uuid;
+
+    fn at() -> DateTime<Utc> {
+        DateTime::from_timestamp(1_700_000_000, 0).expect("a valid timestamp")
+    }
+
+    /// A Today with one entry and one parked draft in each of `spaces`; the thread and draft
+    /// ids are the Space's index, so what survives says which Space it was.
+    fn today(spaces: &[usize]) -> Today {
+        Today {
+            entries: spaces
+                .iter()
+                .map(|space| Entry {
+                    space: *space,
+                    thread: ThreadId::from_uuid(Uuid::from_u128(*space as u128)),
+                    last_opened: at(),
+                })
+                .collect(),
+            drafts: spaces
+                .iter()
+                .map(|space| Parked {
+                    space: *space,
+                    draft: DraftId::from_uuid(Uuid::from_u128(*space as u128)),
+                    title: String::new(),
+                    parked: at(),
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn dropping_a_space_forgets_its_shortcuts_and_renumbers_the_rest() {
+        // (spaces held, index dropped, (thread id, space) pairs left)
+        type Case = (&'static [usize], usize, &'static [(u128, usize)]);
+        const CASES: &[Case] = &[
+            (&[0, 1, 2], 0, &[(1, 0), (2, 1)]),
+            (&[0, 1, 2], 1, &[(0, 0), (2, 1)]),
+            (&[0, 1, 2], 2, &[(0, 0), (1, 1)]),
+            (&[0, 1, 2], 7, &[(0, 0), (1, 1), (2, 2)]),
+            (&[0, 0, 2], 0, &[(2, 1)]),
+            (&[], 0, &[]),
+        ];
+        for (held, index, left) in CASES {
+            let mut all = today(held);
+            all.drop_space(*index);
+            let entries: Vec<(u128, usize)> = all
+                .entries
+                .iter()
+                .map(|e| (e.thread.as_uuid().as_u128(), e.space))
+                .collect();
+            let drafts: Vec<(u128, usize)> = all
+                .drafts
+                .iter()
+                .map(|p| (p.draft.as_uuid().as_u128(), p.space))
+                .collect();
+            assert_eq!(entries, *left, "entries, dropping {index} of {held:?}");
+            assert_eq!(drafts, *left, "drafts, dropping {index} of {held:?}");
         }
     }
 }

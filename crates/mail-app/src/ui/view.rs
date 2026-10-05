@@ -591,6 +591,9 @@ pub struct Shell {
     pub keyboard: Option<KeyboardSheet>,
     /// The Delete forever / Empty Trash confirmation while it is open. `None` is closed.
     pub destroying: Option<crate::ui::bin::Destroying>,
+    /// The Delete Space confirmation while it is open, as the index of the Space it names.
+    /// `None` is closed.
+    pub removing_space: Option<usize>,
     /// What the undo toast and ⌘Z can take back, newest last.
     pub undo: mail_core::undo::UndoStack,
     /// The attachment viewer, over the window. `None` is closed. Belongs to the open thread:
@@ -712,6 +715,7 @@ impl Default for Shell {
             keyboard: None,
             doctor: None,
             destroying: None,
+            removing_space: None,
             undo: mail_core::undo::UndoStack::default(),
             viewing: None,
         }

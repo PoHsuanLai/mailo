@@ -74,6 +74,8 @@ pub(super) fn ThreadList(
     top: Memo<Vec<ThreadSummary>>,
     /// Whether the next page has been asked for and is on its way.
     paging: Memo<bool>,
+    /// Whether the sidebar is folded away; while it is, the header offers the way back.
+    side_hidden: Signal<bool>,
 ) -> Element {
     let rows = use_memo(move || {
         let _ = revision();
@@ -330,6 +332,17 @@ pub(super) fn ThreadList(
                 onpick: move |_| {},
                 center: rsx! {
                     div { class: if picking { "list-head picking" } else { "list-head" },
+                        // The sidebar's own toggle lives in its footer, which is gone with it.
+                        if side_hidden() {
+                            Button {
+                                bezel: Bezel::Toolbar,
+                                image: ImagePosition::Only,
+                                label: "Show sidebar",
+                                icon: Some(IconSource::Glyph(Icon::PanelLeft)),
+                                title: Some("Show the sidebar (\u{2303}\u{2318}S)".to_owned()),
+                                onclick: on_primary(move || side_hidden.set(false)),
+                            }
+                        }
                         if picking {
                             PickBar { shell, revision, threads }
                         } else {

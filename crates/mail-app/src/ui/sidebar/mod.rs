@@ -187,8 +187,12 @@ pub(super) fn Places(
                     image: ImagePosition::Only,
                     size: ControlSize::Small,
                     icon: Icon::PanelLeft,
-                    label: "Hide sidebar",
-                    title: "Hide the sidebar (\u{2303}\u{2318}S)".to_owned(),
+                    label: if side_hidden() { "Show sidebar" } else { "Hide sidebar" },
+                    title: if side_hidden() {
+                        "Show the sidebar (\u{2303}\u{2318}S)".to_owned()
+                    } else {
+                        "Hide the sidebar (\u{2303}\u{2318}S)".to_owned()
+                    },
                     onclick: move |_| side_hidden.set(!side_hidden()),
                 }
             }
