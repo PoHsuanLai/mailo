@@ -103,6 +103,23 @@ ty = { kind = "text", v = { max = 500, lines = "one" } }
 need = { kind = "required" }
 sink = "inert"
 
+# The conversation in mailo's window: what the launcher's Enter on a mail hit performs. Hidden
+# from agents, which have no business opening windows.
+[[actions]]
+name = "mail.thread.open"
+label = "Open"
+on = { kind = "one", v = "mail.thread" }
+effect = "read"
+classes = ["mail"]
+undo = "not_undoable"
+reach = "hidden"
+latency = "quick"
+result = { kind = "nothing" }
+keys = { kind = "none" }
+lasting = "no"
+dry_run = "none"
+params = []
+
 [[actions]]
 name = "mail.thread.archive"
 label = "Archive"
