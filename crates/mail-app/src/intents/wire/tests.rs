@@ -18,6 +18,69 @@ fn json_of<T: serde::Serialize>(value: &T) -> Json {
     serde_json::to_value(value).expect("json")
 }
 
+/// The router's label for what the person typed.
+fn user() -> Json {
+    json!({ "integrity": "trusted", "confidentiality": { "kind": "public" },
+            "classes": [], "sources": [{ "kind": "user" }] })
+}
+
+fn label_of(text: Json) -> Label {
+    serde_json::from_value(text).expect("a label")
+}
+
+/// A label mailo is given goes back out as it came, sources mailo has no name for included.
+#[test]
+fn a_label_from_the_router_is_read_and_written_unchanged() {
+    let text = json!({
+        "integrity": "untrusted",
+        "confidentiality": { "kind": "private", "v": ["work"] },
+        "classes": ["mail", "voice"],
+        "sources": [{ "kind": "model", "v": "planner" }, { "kind": "mcp", "v": "editor" }, { "kind": "mail" }],
+    });
+    assert_eq!(json_of(&label_of(text.clone())), text);
+    assert_eq!(
+        label_of(
+            json!({ "integrity": "trusted", "confidentiality": { "kind": "secret" },
+                                "classes": [], "sources": [] })
+        )
+        .integrity(),
+        Integrity::Trusted
+    );
+    assert!(
+        serde_json::from_value::<Label>(json!({})).is_err(),
+        "a label says what it is"
+    );
+}
+
+/// The router's join: integrity to the lower, confidentiality to the higher with the Spaces
+/// unioned and the desktop dropped beside a real one, sources and classes unioned.
+#[test]
+fn a_join_takes_the_worse_of_each_half() {
+    let chosen = label_of(user());
+    let book = Label::contacts("work");
+    let joined = chosen.join(&book);
+    assert_eq!(
+        json_of(&joined),
+        json!({ "integrity": "trusted", "confidentiality": { "kind": "private", "v": ["work"] },
+                "classes": ["contacts"], "sources": [{ "kind": "user" }, { "kind": "contacts" }] })
+    );
+    let lifted = Label::mail("desktop").join(&book);
+    assert_eq!(lifted.integrity(), Integrity::Untrusted);
+    assert_eq!(
+        json_of(&lifted)["confidentiality"],
+        json!({ "kind": "private", "v": ["work"] })
+    );
+    let secret = label_of(
+        json!({ "integrity": "trusted", "confidentiality": { "kind": "secret" },
+                                  "classes": [], "sources": [] }),
+    );
+    assert_eq!(
+        json_of(&book.join(&secret))["confidentiality"],
+        json!({ "kind": "secret" })
+    );
+    assert_eq!(chosen.join(&chosen), chosen);
+}
+
 /// Written by docket-core's own `Invocation` (a `quire-do` call: the actor and origin are the
 /// terminal's), serialized with its `serde_json`.
 const FROM_THE_ROUTER: &str = r#"{"call":41,"action":"mail.thread.label","target":{"kind":"entities","v":[{"app":"org.quire.Mail","kind":"mail.thread","key":"t-1"}]},"args":{"label":{"value":{"kind":"text","v":"Work"},"label":{"integrity":"trusted","confidentiality":{"kind":"public"},"classes":[],"sources":[{"kind":"user"}]}},"until":{"value":{"kind":"date_time","v":1700000000},"label":{"integrity":"trusted","confidentiality":{"kind":"public"},"classes":[],"sources":[{"kind":"user"}]}}},"actor":{"kind":"cli"},"origin":"cli","space":"work"}"#;
@@ -43,8 +106,8 @@ fn a_form_mailo_has_no_use_for_is_read_and_is_neither_text_nor_an_instant() {
     let text = json!({
         "call": 1, "action": "mail.thread.snooze", "target": { "kind": "nothing" },
         "args": {
-            "size": { "value": { "kind": "decimal", "v": { "units": 5, "scale": 1 } }, "label": {} },
-            "kinds": { "value": { "kind": "list", "v": [{ "kind": "text", "v": "a" }] }, "label": {} },
+            "size": { "value": { "kind": "decimal", "v": { "units": 5, "scale": 1 } }, "label": user() },
+            "kinds": { "value": { "kind": "list", "v": [{ "kind": "text", "v": "a" }] }, "label": user() },
         },
         "actor": { "kind": "companion", "v": { "session": "s-1", "role": { "kind": "planner" } } },
         "origin": "companion", "space": "work",
