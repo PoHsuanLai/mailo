@@ -20,6 +20,7 @@ mod brand;
 mod notify;
 mod offline;
 mod parts;
+mod remove;
 mod server;
 mod spelling;
 
@@ -33,9 +34,10 @@ use self::server::ServerSearch;
 use self::spelling::Spelling;
 use super::common::{classed, in_card};
 use super::frame::keep;
-use super::press::on_primary;
+use super::press::{available, on_primary};
 use crate::ui::space::Spaces;
 use crate::ui::space::edit::Draft;
+use crate::ui::today::Today;
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::components::app::space_editor::{DotIndex, SpaceEditor as LookEditor, rows::MeasuredIn};
@@ -88,6 +90,9 @@ fn save(mut editing: Signal<Option<Draft>>, spaces: Signal<Spaces>) {
     crate::ui::host::Host::focus_app();
 }
 
+/// What the Delete Space button says it does.
+const DELETE_TITLE: &str = "Delete this Space, not your mail";
+
 /// What the Save button says it does.
 const SAVE_TITLE: &str = "Save this Space and close";
 
@@ -97,6 +102,8 @@ pub(super) fn SpaceEditor(
     spaces: Signal<Spaces>,
     editing: Signal<Option<Draft>>,
     shell: Signal<Shell>,
+    pages: Signal<u32>,
+    today: Signal<Today>,
 ) -> Element {
     let scheme = use_scope().scheme;
     let Some(draft) = editing.read().clone() else {
@@ -108,7 +115,16 @@ pub(super) fn SpaceEditor(
             label: "Edit this Space",
             attach: Attach::Window,
             common: in_card(),
-            onclose: move |()| cancel(editing, spaces),
+            // Escape from inside the editor lands here and goes no further. While the Delete
+            // Space sheet is over the editor, it closes that sheet alone: the editor keeps its
+            // Space as it was and stays open.
+            onclose: move |()| {
+                if shell.read().removing_space.is_some() {
+                    remove::close(shell);
+                } else {
+                    cancel(editing, spaces);
+                }
+            },
             // The look scrolls; the foot under it stays put.
             div { class: "ed-scroll",
                 LookEditor {
@@ -171,20 +187,43 @@ pub(super) fn SpaceEditor(
             // look is scrolled. Cancel answers Escape, Save Return.
             div { class: "ed-foot",
                 Button {
+                    label: "Delete Space\u{2026}",
+                    title: DELETE_TITLE.to_owned(),
+                    common: Common {
+                        aria_label: Some("Delete Space\u{2026}".to_owned()),
+                        ..Common::default()
+                    },
+                    availability: available(remove::offered(spaces.read().spaces.len())),
+                    onclick: on_primary(move || remove::ask(shell, spaces, editing)),
+                }
+                Button {
                     label: "Cancel",
-                    answers: Answers::Escape,
+                    // The Delete Space sheet over the editor takes Escape; the editor under it
+                    // must not answer it too.
+                    answers: if shell.read().removing_space.is_some() {
+                        Answers::Nothing
+                    } else {
+                        Answers::Escape
+                    },
                     onclick: on_primary(move || cancel(editing, spaces)),
                 }
                 Button {
                     label: "Save",
-                    answers: Answers::Return,
+                    answers: if shell.read().removing_space.is_some() {
+                        Answers::Nothing
+                    } else {
+                        Answers::Return
+                    },
                     title: SAVE_TITLE.to_owned(),
                     onclick: on_primary(move || save(editing, spaces)),
                 }
             }
         }
+        remove::RemoveSheet { shell, spaces, editing, pages, today }
     }
 }
+
+pub(in crate::ui) use remove::close as close_remove;
 
 #[cfg(test)]
 mod brand_tests;
