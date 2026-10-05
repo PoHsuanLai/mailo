@@ -152,14 +152,14 @@ pub(in crate::ui) fn SettingsView(shell: Signal<Shell>, revision: Signal<u64>) -
         })
         .collect();
     rsx! {
-        div { class: "settings-scroll settings",
+        div { class: "settings",
             Sidebar::<SettingsPage> {
                 label: TITLE,
                 sections: vec![SidebarSection::List(items)],
                 cursor: Some(page),
                 onselect: move |next: SettingsPage| shell.write().settings = Some(next),
             }
-            div { class: "settings-page", "data-page": page.name(),
+            div { class: "settings-scroll settings-page", "data-page": page.name(),
                 match page {
                     SettingsPage::General => rsx! { general::General { shell } },
                     SettingsPage::Accounts => rsx! { accounts::Accounts { shell, revision } },
