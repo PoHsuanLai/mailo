@@ -349,6 +349,14 @@ pub(super) fn App() -> Element {
             }
             return;
         }
+        // The account sheet, over the Doctor it was opened from: Esc goes back from its
+        // question, or closes it, and no other key reaches what is behind it.
+        if shell.read().account_sheet.is_some() {
+            if key == "Escape" {
+                super::account_settings::escape(shell);
+            }
+            return;
+        }
         // The Connection Doctor, behind the Add account sheet when that is open on top of it:
         // Esc closes it, and no other key does what it would to the rows behind it.
         if shell.read().doctor.is_some() {
@@ -736,6 +744,9 @@ pub(super) fn App() -> Element {
             }
             if shell.read().doctor.is_some() {
                 super::doctor::DoctorView { shell, revision }
+            }
+            if shell.read().account_sheet.is_some() {
+                super::account_settings::AccountSettingsSheet { shell, spaces, revision }
             }
             if shell.read().view_editor.is_some() {
                 super::views::ViewSheet { shell, revision, pages }

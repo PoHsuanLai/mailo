@@ -5,7 +5,7 @@
 use super::tests::{
     Ending, Script, account, finished, link, passer, refused, settle, unreachable, window,
 };
-use crate::ui::fixtures::{Seen, click};
+use crate::ui::fixtures::{Seen, click, key};
 use dioxus::prelude::VirtualDom;
 use mail_core::fetch::{Link, Trigger};
 use std::sync::atomic::Ordering;
@@ -176,4 +176,88 @@ async fn the_sync_button_is_busy_while_a_pass_runs_and_not_after() {
         !tag_with(&page, button).contains(r#"aria-busy="true""#),
         "still busy after the pass ended"
     );
+}
+
+/// The Doctor's row opens the account's own sheet, which lists its servers; Remove asks, Escape
+/// goes back from the question, and confirming removes the account from the store, drops its link
+/// and brings the Doctor back without it.
+#[tokio::test]
+async fn an_account_removed_from_its_sheet_leaves_the_store_its_link_and_the_doctor() {
+    let (mut dom, seen, _script, _dir) = after_a_pass(refused).await;
+    let store = dom.in_scope(dioxus::prelude::ScopeId::APP, || {
+        dioxus::prelude::consume_context::<std::sync::Arc<mail_store::SqliteStore>>()
+    });
+    let mark = seen.one("aria-label", "Sign in again to keep receiving mail.");
+    let seen = click(&mut dom, mark).merge(settle_seen(&mut dom).await);
+
+    let open = seen.one("aria-label", "Account settings for me@nowhere.example");
+    let seen = click(&mut dom, open).merge(settle_seen(&mut dom).await);
+    let page = dioxus_ssr::render(&dom);
+    assert!(
+        page.contains("IMAP, imap.nowhere.example:993, TLS"),
+        "{page}"
+    );
+    assert!(
+        !page.contains("Check All"),
+        "the doctor is still over it: {page}"
+    );
+
+    let ask = seen.one("aria-label", "Remove me@nowhere.example");
+    let seen = click(&mut dom, ask).merge(settle_seen(&mut dom).await);
+    let page = dioxus_ssr::render(&dom);
+    assert!(page.contains("Remove me@nowhere.example?"), "{page}");
+    assert!(
+        page.contains("Mail on the server is not touched."),
+        "{page}"
+    );
+
+    let confirm = seen.one("aria-label", "Remove Account");
+    click(&mut dom, confirm);
+    settle_seen(&mut dom).await;
+    let accounts: i64 = store
+        .connection()
+        .query_row("SELECT count(*) FROM accounts", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(accounts, 0, "the account is still stored");
+    let links = dom.in_scope(dioxus::prelude::ScopeId::APP, || {
+        super::tests::fetching(&dom).all_links()
+    });
+    assert!(links.is_empty(), "its link is still running: {links:?}");
+    let page = dioxus_ssr::render(&dom);
+    assert!(page.contains("No accounts to check."), "{page}");
+    assert!(!page.contains("me@nowhere.example"), "{page}");
+}
+
+/// Escape on the question goes back to the settings, and on the settings closes the sheet and
+/// brings the Doctor back. Nothing is removed.
+#[tokio::test]
+async fn escape_steps_back_out_of_the_account_sheet_and_removes_nothing() {
+    let (mut dom, seen, _script, _dir) = after_a_pass(refused).await;
+    let mark = seen.one("aria-label", "Sign in again to keep receiving mail.");
+    let seen = click(&mut dom, mark).merge(settle_seen(&mut dom).await);
+    let open = seen.one("aria-label", "Account settings for me@nowhere.example");
+    let seen = click(&mut dom, open).merge(settle_seen(&mut dom).await);
+    click(
+        &mut dom,
+        seen.one("aria-label", "Remove me@nowhere.example"),
+    );
+    settle_seen(&mut dom).await;
+
+    key(&mut dom, "Escape");
+    settle_seen(&mut dom).await;
+    let page = dioxus_ssr::render(&dom);
+    assert!(!page.contains("Remove me@nowhere.example?"), "{page}");
+    assert!(
+        page.contains("IMAP, imap.nowhere.example:993, TLS"),
+        "{page}"
+    );
+
+    key(&mut dom, "Escape");
+    settle_seen(&mut dom).await;
+    let page = dioxus_ssr::render(&dom);
+    assert!(
+        page.contains("Check All"),
+        "the doctor did not come back: {page}"
+    );
+    assert!(page.contains("me@nowhere.example"), "{page}");
 }

@@ -18,11 +18,13 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 pub mod edit;
+mod forget;
 mod migrate;
 mod presets;
 mod recall;
 pub mod remove;
 
+pub use forget::{Forgot, forget_account};
 pub use presets::{PRESET_NAMES, PRESETS};
 pub use recall::Recall;
 

@@ -451,6 +451,27 @@ pub struct KeysSheet;
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DoctorSheet;
 
+/// The account sheet while it is open: which account, and how far a removal has got. It keeps
+/// nothing of the account itself, which it reads from the store.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AccountSheet {
+    pub account: AccountId,
+    pub step: AccountStep,
+}
+
+/// Where the account sheet is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AccountStep {
+    /// The account's settings, and Remove Account.
+    Showing,
+    /// Asking whether to remove it.
+    Asking,
+    /// Removing it: the keyring and the database are being written.
+    Removing,
+    /// It was not removed, and this is why.
+    Refused(String),
+}
+
 /// The keyboard shortcuts sheet while it is open.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct KeyboardSheet {
@@ -582,6 +603,8 @@ pub struct Shell {
     pub keys: Option<KeysSheet>,
     /// The Connection Doctor sheet while it is open. `None` is closed.
     pub doctor: Option<DoctorSheet>,
+    /// The account sheet, opened from the Connection Doctor, while it is open. `None` is closed.
+    pub account_sheet: Option<AccountSheet>,
     /// The saved-view editor while it is open, with what its fields hold. `None` is closed.
     pub view_editor: Option<crate::ui::saved::ViewDraft>,
     /// Which key does what: the shipped keys with the user's own over them, read from
@@ -714,6 +737,7 @@ impl Default for Shell {
             keymap: crate::ui::keymap::Keymap::default(),
             keyboard: None,
             doctor: None,
+            account_sheet: None,
             destroying: None,
             removing_space: None,
             undo: mail_core::undo::UndoStack::default(),
