@@ -84,8 +84,8 @@ impl Changes {
 /// `Ok(None)` means nothing is listening, which is the usual state of a session with no watch
 /// running; nothing is started, because a listener has no reason to want a daemon that would
 /// not otherwise run. An error is a daemon that is there and would not subscribe it, most often
-/// one from another build ([`Response::WrongVersion`], or a version-1 daemon's line that this
-/// build cannot read).
+/// one from another build: of another version ([`Response::WrongVersion`]), or from before
+/// subscriptions, which cannot read the request.
 pub fn subscribe(agent: &latchkey::Agent) -> Result<Option<Changes>, String> {
     let Some(mut stream) = agent.connect().map_err(|e| e.to_string())? else {
         return Ok(None);

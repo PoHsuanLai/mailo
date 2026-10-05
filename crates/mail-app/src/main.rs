@@ -510,6 +510,9 @@ fn main() {
                 std::process::exit(1);
             }
         };
+        if let Some(why) = watching.doorless() {
+            eprintln!("an open window will look for new mail rather than be told of it: {why}");
+        }
         // The unread count on the launcher, kept up whether or not a window is open.
         if let Some(launcher) = mail_app::ui::launcher::platform()
             && let Err(e) = mail_app::session::keep_the_badge(

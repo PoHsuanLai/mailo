@@ -69,7 +69,9 @@ fn scratch(dir: &Path, name: &str) -> latchkey::Agent {
 /// Knock on `agent`, as [`Doors::server`] knocks on the watch's.
 fn knocking(agent: latchkey::Agent) -> Doors {
     Doors(Arc::new(move || {
-        mail_core::ipc::client::subscribe(&agent).ok().flatten()
+        // As the watch's door is: told of each pass, so looking slows down.
+        let changes = mail_core::ipc::client::subscribe(&agent).ok().flatten()?;
+        Some((changes, TOLD))
     }))
 }
 
@@ -113,6 +115,59 @@ async fn what_another_connection_stores_moves_the_revision_and_what_the_window_s
     assert_eq!(revision(&dom), 1, "a write by another process went unseen");
     settle(&mut dom).await;
     assert_eq!(revision(&dom), 1, "and is seen once");
+}
+
+#[tokio::test]
+async fn told_while_the_writer_is_busy_it_looks_again_soon_and_not_at_the_next_told() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("mail.db");
+    let store = Arc::new(SqliteStore::open(&path, dir.path()).unwrap());
+    let agent = scratch(dir.path(), "mailo-watch-busy");
+    let watching = mail_core::ipc::watching::claim_at(&agent).unwrap();
+    dispatching();
+    let mut dom = VirtualDom::new(Looking)
+        .with_root_context(store.clone())
+        .with_root_context(knocking(agent));
+    dom.rebuild_in_place();
+    for _ in 0..100 {
+        if watching.listeners() == 1 {
+            break;
+        }
+        step(&mut dom).await;
+    }
+    assert_eq!(watching.listeners(), 1, "the window never subscribed");
+    settle(&mut dom).await;
+
+    // The writer held by another thread, as an ingest holds it, while the watch says it stored.
+    insert(&rusqlite::Connection::open(&path).unwrap(), "the-watch");
+    let (release, held) = std::sync::mpsc::channel::<()>();
+    let (taken, took) = std::sync::mpsc::channel::<()>();
+    let writer = {
+        let store = store.clone();
+        std::thread::spawn(move || {
+            let _writer = store.connection();
+            taken.send(()).unwrap();
+            let _ = held.recv();
+        })
+    };
+    took.recv().unwrap();
+    watching.changed(mail_domain::AccountId::generate());
+    step(&mut dom).await;
+    assert_eq!(
+        revision(&dom),
+        0,
+        "it read the data version past a held writer"
+    );
+
+    // Let go: the look it owes comes within a few looks, far inside a `TOLD`.
+    release.send(()).unwrap();
+    writer.join().unwrap();
+    settle(&mut dom).await;
+    assert_eq!(
+        revision(&dom),
+        1,
+        "what it was told about waited for the next TOLD"
+    );
 }
 
 #[tokio::test]
@@ -196,8 +251,12 @@ async fn a_daemon_from_another_build_leaves_the_window_looking() {
     let path = dir.path().join("mail.db");
     let store = Arc::new(SqliteStore::open(&path, dir.path()).unwrap());
     let agent = scratch(dir.path(), "mailo-watch-old");
-    // What a version-1 daemon says to a request it cannot read under its own version.
-    let old = r#"{"version":1,"body":{"wrong_version":{"daemon":1,"client":2}}}"#;
+    // What a daemon from before subscriptions says: its own version, and a request it cannot
+    // read.
+    let old = format!(
+        r#"{{"version":{},"body":{{"refused":"unreadable message: unknown variant `subscribe`"}}}}"#,
+        mail_core::ipc::wire::VERSION
+    );
     let _hang_up = door(&agent, format!("{old}\n"));
     dispatching();
     let mut dom = VirtualDom::new(Looking)

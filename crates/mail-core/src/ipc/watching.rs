@@ -27,11 +27,13 @@ const NAME: &str = "mailo-watch";
 
 /// Proof that this process is the one watching, and the listeners its passes tell.
 ///
-/// The lock is held by the door's thread, which serves for as long as the process runs: the
-/// process ending is what lets the next one in.
+/// The lock is held for as long as the process runs, whatever becomes of the door: the process
+/// ending is what lets the next one in.
 #[derive(Debug)]
 pub struct Watching {
     changes: Subscribers,
+    /// Why there is no door, when it could not be opened.
+    doorless: Option<String>,
 }
 
 impl Watching {
@@ -44,6 +46,12 @@ impl Watching {
     /// telling it anything.
     pub fn listeners(&self) -> usize {
         self.changes.count()
+    }
+
+    /// Why this watch has no door, if it has none: it watches all the same, and a window looks
+    /// at the store for what it stores rather than being told.
+    pub fn doorless(&self) -> Option<&str> {
+        self.doorless.as_deref()
     }
 }
 
@@ -68,17 +76,36 @@ pub fn claim() -> Result<Watching, Refused> {
 }
 
 /// Become the watch at `agent`'s address: [`claim`], for a test that keeps its own.
+///
+/// The door is a help to a window, not a condition of watching: one that cannot be opened (a
+/// socket refused, a pipe taken) leaves the watch holding its lock alone, with the reason in
+/// [`Watching::doorless`], rather than ending it — under its unit that would be a restart loop.
 pub fn claim_at(agent: &latchkey::Agent) -> Result<Watching, Refused> {
-    let listening = agent.listen().map_err(|e| match e {
-        latchkey::Error::AlreadyRunning => Refused::AlreadyWatching,
-        other => Refused::Failed(other.to_string()),
-    })?;
     let changes = Subscribers::default();
+    let listening = match agent.listen() {
+        Ok(listening) => listening,
+        Err(latchkey::Error::AlreadyRunning) => return Err(Refused::AlreadyWatching),
+        Err(door) => {
+            let held = latchkey::lock::take(&agent.address().lock).map_err(|e| match e {
+                latchkey::Error::AlreadyRunning => Refused::AlreadyWatching,
+                other => Refused::Failed(other.to_string()),
+            })?;
+            // Held until the process ends, as a door's would be.
+            Box::leak(Box::new(held));
+            return Ok(Watching {
+                changes,
+                doorless: Some(door.to_string()),
+            });
+        }
+    };
+    // Leaked, so that the lock inside it lives as long as the process even if the thread serving
+    // the door ends early: a door that stopped answering must not let a second watch in.
+    let listening: &'static latchkey::Listening = Box::leak(Box::new(listening));
     let serving = changes.clone();
     std::thread::Builder::new()
         .name("mailo-watch-door".to_owned())
         .spawn(move || {
-            changes::door(&listening, &serving, |request| match request {
+            changes::door(listening, &serving, |request| match request {
                 Request::Ping => Answer::Say(changes::pong()),
                 Request::Subscribe => Answer::Subscribe,
                 Request::SyncNow => Answer::Say(Response::Refused(
@@ -90,7 +117,10 @@ pub fn claim_at(agent: &latchkey::Agent) -> Result<Watching, Refused> {
             });
         })
         .map_err(|e| Refused::Failed(e.to_string()))?;
-    Ok(Watching { changes })
+    Ok(Watching {
+        changes,
+        doorless: None,
+    })
 }
 
 /// Whether a watch is running now, for this user.
