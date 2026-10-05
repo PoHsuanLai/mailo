@@ -15,7 +15,7 @@ fn blocked() -> SanitizePolicy {
 fn allowed() -> SanitizePolicy {
     SanitizePolicy {
         remote_images: RemoteImages::Allowed,
-        version: SanitizePolicy::CURRENT.version,
+        ..SanitizePolicy::CURRENT
     }
 }
 

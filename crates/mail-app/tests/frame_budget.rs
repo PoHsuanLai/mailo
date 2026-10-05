@@ -49,7 +49,7 @@ fn at(n: i64) -> DateTime<Utc> {
 fn policy() -> SanitizePolicy {
     SanitizePolicy {
         remote_images: RemoteImages::Blocked,
-        version: SanitizePolicy::CURRENT.version,
+        ..SanitizePolicy::CURRENT
     }
 }
 
