@@ -125,9 +125,12 @@ async fn later(dom: &mut VirtualDom) -> crate::ui::fixtures::Seen {
 }
 
 fn drawn(store: &SqliteStore) -> String {
-    arrange(&load(store, &[IMAP]), Show::Followed)
-        .map(|section| shape(&section.trees[0].nodes))
-        .unwrap_or_default()
+    arrange(
+        &load(store, &crate::ui::space::Scope::Accounts(vec![IMAP])),
+        Show::Followed,
+    )
+    .map(|section| shape(&section.trees[0].nodes))
+    .unwrap_or_default()
 }
 
 #[test]

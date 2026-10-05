@@ -5,18 +5,16 @@
 //! Doctor's Settings… already opens. Remove asks first, in the same sheet, naming how much mail
 //! goes and whether the server still has it. Only the confirming button removes; Escape and
 //! Cancel go back to the settings. A removal runs off the thread that draws (the keyring
-//! blocks), and when it is done the account leaves every Space, the offline setting and the
-//! tile pressed, the revision moves so the links and lists follow, and the Doctor comes back
-//! without it. What the sheet says is [`words`]'s.
+//! blocks). When it is done the offline setting forgets the account and the revision moves: the
+//! links, the lists, the Spaces and the pressed tile follow it, as they do for an account removed
+//! with `mailo account remove`, and the Doctor comes back without it. What the sheet says is [`words`]'s.
 
 mod words;
 
 use crate::ui::appearance::WindowDirs;
 use crate::ui::common::in_card;
 use crate::ui::data::account_rows;
-use crate::ui::frame::{keep, scope_ids};
 use crate::ui::press::{SheetClose, available, on_primary};
-use crate::ui::space::{Forgot, Spaces, forget_account};
 use crate::ui::view::{AccountSheet, AccountStep, Shell};
 use dioxus::prelude::*;
 use ds::components::content::label::{Label, LabelStyle};
@@ -98,7 +96,7 @@ pub(in crate::ui) fn escape(shell: Signal<Shell>) {
 }
 
 /// The confirming button: remove the account, then tidy what the window kept of it.
-fn confirm(shell: Signal<Shell>, spaces: Signal<Spaces>, mut revision: Signal<u64>) {
+fn confirm(shell: Signal<Shell>, mut revision: Signal<u64>) {
     let Some(AccountSheet {
         account,
         step: AccountStep::Asking,
@@ -117,7 +115,7 @@ fn confirm(shell: Signal<Shell>, spaces: Signal<Spaces>, mut revision: Signal<u6
         .await;
         match done {
             Ok(Ok(_)) => {
-                forgotten(shell, spaces, dirs.as_ref(), account);
+                forgotten(dirs.as_ref(), account);
                 revision += 1;
                 close(shell);
             }
@@ -130,25 +128,10 @@ fn confirm(shell: Signal<Shell>, spaces: Signal<Spaces>, mut revision: Signal<u6
     });
 }
 
-/// What the window kept of a removed account goes: from the Spaces, which are written, from
-/// the tile pressed, and from the offline setting.
-fn forgotten(
-    mut shell: Signal<Shell>,
-    mut spaces: Signal<Spaces>,
-    dirs: Option<&WindowDirs>,
-    account: AccountId,
-) {
-    let forgot = forget_account(&mut spaces.write(), account);
-    if forgot == Forgot::Changed {
-        keep(&spaces.read());
-    }
-    let scope = scope_ids(&spaces.read().current_space());
-    let mut write = shell.write();
-    write.scope = scope;
-    if write.account == Some(account) {
-        write.account = None;
-    }
-    drop(write);
+/// What the window kept of a removed account that the Spaces do not hold: the offline setting.
+/// The Spaces and the pressed tile follow the revision (`app`'s effect), as they do for an
+/// account removed from a terminal.
+fn forgotten(dirs: Option<&WindowDirs>, account: AccountId) {
     if let Some(dirs) = dirs {
         let _ = mail_core::offline::save(&dirs.config, account, mail_core::offline::Keep::Bodies);
     }
@@ -156,11 +139,7 @@ fn forgotten(
 
 /// The sheet. Mounted while `shell.account_sheet` is `Some`.
 #[component]
-pub(in crate::ui) fn AccountSettingsSheet(
-    shell: Signal<Shell>,
-    spaces: Signal<Spaces>,
-    revision: Signal<u64>,
-) -> Element {
+pub(in crate::ui) fn AccountSettingsSheet(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
     let Some(sheet) = shell.read().account_sheet.clone() else {
         return rsx! {};
     };
@@ -212,7 +191,7 @@ pub(in crate::ui) fn AccountSettingsSheet(
                         role: ButtonRole::Destructive,
                         common: Common { aria_label: Some(asked.confirm.to_owned()), ..Common::default() },
                         availability: if removing { Availability::Busy } else { Availability::Enabled },
-                        onclick: on_primary(move || confirm(shell, spaces, revision)),
+                        onclick: on_primary(move || confirm(shell, revision)),
                     }
                 }
             }

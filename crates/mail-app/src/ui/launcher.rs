@@ -34,7 +34,7 @@ mod dock;
 use super::view::{Source, badge_filter};
 use chrono::{DateTime, Utc};
 use mail_core::place::place_filter;
-use mail_domain::{AccountId, Filter, MailboxRole};
+use mail_domain::{Filter, MailboxRole};
 use mail_store::Store;
 use std::sync::Arc;
 
@@ -42,30 +42,25 @@ use std::sync::Arc;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Unread(pub u64);
 
-/// The conversations the launcher counts, in the accounts of `scope` (empty meaning every
-/// account).
+/// The conversations the launcher counts, in the accounts of `scope`.
 ///
 /// The inbox's own badge filter (`view::badge_filter` of the inbox place), so the launcher and the
 /// sidebar's Inbox badge cannot disagree about what "unread in the inbox" means: snoozed
 /// conversations are away, and read ones are read.
-pub fn filter(scope: &[AccountId]) -> Filter {
+pub fn filter(scope: &crate::ui::space::Scope) -> Filter {
     let inbox = Source::Mail(place_filter(MailboxRole::Inbox));
     // `badge_filter` answers `None` only for Drafts, which the inbox is not.
     let unread = badge_filter(&inbox).unwrap_or(Filter::Nothing);
-    match scope {
-        [] => unread,
-        [one] => Filter::And(vec![Filter::Account(*one), unread]),
-        many => Filter::And(vec![
-            Filter::Or(many.iter().copied().map(Filter::Account).collect()),
-            unread,
-        ]),
+    match scope.filter() {
+        None => unread,
+        Some(accounts) => Filter::And(vec![accounts, unread]),
     }
 }
 
 /// Count them. One indexed query (`Store::count`), made off the thread that draws.
 pub fn unread<S: Store + ?Sized>(
     store: &S,
-    scope: &[AccountId],
+    scope: &crate::ui::space::Scope,
     now: DateTime<Utc>,
 ) -> Result<Unread, mail_store::StoreError> {
     store.count(&filter(scope), now).map(Unread)

@@ -172,6 +172,16 @@ impl BlobStore {
     /// Stored paths are hex we generated, so this should be unreachable — which is exactly why
     /// it is checked. A path that escapes the blob root would turn a corrupted row into an
     /// arbitrary file read.
+    /// Delete the file at `rel`, once no blob row names it. Already gone is the state wanted.
+    /// Refuses a path that is not hash-shaped, as reading does.
+    pub(crate) fn forget_file(&self, rel: &str) -> Result<(), StoreError> {
+        match fs::remove_file(self.resolve(rel)?) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(StoreError::Blob(rel.to_owned(), e.to_string())),
+        }
+    }
+
     fn resolve(&self, rel: &str) -> Result<PathBuf, StoreError> {
         let path = Path::new(rel);
         let safe = path.components().all(|c| {

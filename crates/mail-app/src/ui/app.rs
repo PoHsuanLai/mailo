@@ -227,9 +227,31 @@ pub(super) fn App() -> Element {
             return;
         }
         scoped.set(true);
-        let scope = frame::scope_ids(&spaces.read().current_space());
+        let scope = spaces.read().current_space().scope;
         if shell.peek().scope != scope {
             shell.write().scope = scope;
+        }
+    });
+
+    // An account removed, here or from a terminal, leaves every Space, and the tile pressed.
+    use_effect(move || {
+        let _ = revision();
+        let store = consume_context::<Arc<SqliteStore>>();
+        let Ok(known) = super::data::known_accounts(&store) else {
+            return;
+        };
+        let mut next = spaces.peek().clone();
+        if crate::ui::space::forget_unknown(&mut next, &known) == crate::ui::space::Forgot::Changed
+        {
+            frame::keep(&next);
+            let scope = next.current_space().scope;
+            let mut spaces = spaces;
+            spaces.set(next);
+            shell.write().scope = scope;
+        }
+        let pressed = shell.peek().account;
+        if pressed.is_some_and(|id| !known.contains(&id)) {
+            shell.write().account = None;
         }
     });
 
@@ -746,7 +768,7 @@ pub(super) fn App() -> Element {
                 super::doctor::DoctorView { shell, revision }
             }
             if shell.read().account_sheet.is_some() {
-                super::account_settings::AccountSettingsSheet { shell, spaces, revision }
+                super::account_settings::AccountSettingsSheet { shell, revision }
             }
             if shell.read().view_editor.is_some() {
                 super::views::ViewSheet { shell, revision, pages }

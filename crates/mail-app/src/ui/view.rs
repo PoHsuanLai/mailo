@@ -578,8 +578,8 @@ pub struct Shell {
     pub appearance: Appearance,
     /// The account tile that is pressed. `None` is every account in [`Self::scope`].
     pub account: Option<AccountId>,
-    /// Accounts the current Space shows. Empty means every account.
-    pub scope: Vec<AccountId>,
+    /// Accounts the current Space shows.
+    pub scope: crate::ui::space::Scope,
     /// How this page's rows are grouped. Not a store query.
     pub group: PageGroup,
     /// Which parts of a row this page draws.
@@ -723,7 +723,7 @@ impl Default for Shell {
             labels: Vec::new(),
             appearance: Appearance::default(),
             account: None,
-            scope: Vec::new(),
+            scope: crate::ui::space::Scope::All,
             group: PageGroup::None,
             parts: PageParts::default(),
             page_menu: PageMenu::Closed,
@@ -848,17 +848,7 @@ impl Shell {
     /// The search pipeline narrows its candidates with this, so a search inside a Space finds
     /// what [`Self::query`] would, and nothing from an account the Space leaves out.
     pub fn account_filter(&self) -> Option<Filter> {
-        if let Some(id) = self.account {
-            Some(Filter::Account(id))
-        } else {
-            match self.scope.as_slice() {
-                [] => None,
-                [id] => Some(Filter::Account(*id)),
-                ids => Some(Filter::Or(
-                    ids.iter().copied().map(Filter::Account).collect(),
-                )),
-            }
-        }
+        self.scope.narrowed(self.account).filter()
     }
 
     /// Select a place, and drop any open thread that no longer belongs to the new list.

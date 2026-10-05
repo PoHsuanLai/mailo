@@ -4,6 +4,8 @@ mod contacts;
 mod destroyed;
 mod draft;
 mod folders;
+mod forget;
+pub use forget::Freed;
 mod found;
 mod groups;
 mod invite;

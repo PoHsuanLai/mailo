@@ -17,10 +17,13 @@ use mail_store::{SqliteStore, Store};
 ///
 /// Read with [`account_rows`], which tolerates a plan it cannot parse, so one odd account does
 /// not take the section away from the others.
-pub(in crate::ui) fn load(store: &SqliteStore, scope: &[AccountId]) -> Vec<AccountFolders> {
+pub(in crate::ui) fn load(
+    store: &SqliteStore,
+    scope: &crate::ui::space::Scope,
+) -> Vec<AccountFolders> {
     account_rows(store)
         .into_iter()
-        .filter(|row| scope.is_empty() || scope.contains(&row.id))
+        .filter(|row| scope.shows(row.id))
         .map(|row| {
             let mailboxes = match row.plan.incoming {
                 // Local mail has no server folders to make either; its places are labels.
@@ -49,7 +52,7 @@ pub(in crate::ui) fn load(store: &SqliteStore, scope: &[AccountId]) -> Vec<Accou
 /// Every account and not the Space's: the places are the window's, and a Space narrows which
 /// of them the sidebar draws.
 pub(in crate::ui) fn folder_places(store: &SqliteStore) -> Vec<(String, MailboxRef)> {
-    placed(&load(store, &[]))
+    placed(&load(store, &crate::ui::space::Scope::All))
 }
 
 /// A change that happened: what the toast says, and how to take it back, when it can be.

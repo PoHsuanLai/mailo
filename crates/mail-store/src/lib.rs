@@ -28,6 +28,7 @@ pub use dispatch::{PASSES_TO_FIND, SYNCS_TO_FIND};
 pub use memory::MemoryStore;
 pub use offline::{Offline, RemotePart};
 pub use sql::{SqlFilter, SqlValue, compile};
+pub use sqlite::Freed;
 pub use sqlite::SqliteStore;
 pub use term::Term;
 

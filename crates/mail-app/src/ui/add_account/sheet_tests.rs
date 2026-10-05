@@ -632,7 +632,7 @@ async fn a_new_account_joins_a_scoped_space() {
         "{state}"
     );
     assert!(
-        state.contains(&format!("scope: [{other:?}, {added:?}]")),
+        state.contains(&format!("scope: Accounts([{other:?}, {added:?}])")),
         "the shell's scope did not follow: {state}"
     );
 }

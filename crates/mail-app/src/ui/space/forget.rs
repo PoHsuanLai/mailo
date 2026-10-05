@@ -1,10 +1,9 @@
 //! An account removed from this computer leaves every Space: their scopes, their colours and
 //! where each was left.
 //!
-//! A Space limited to that account alone is limited to nothing afterwards, and nothing is not a
-//! scope the window can show (the list reads an empty scope as every account, the sidebar as
-//! none), so it becomes a Space over every account: still a look and pins of its own, and the
-//! Space editor can narrow it again. The other accounts' colours stay as they were stored.
+//! A Space limited to that account alone is limited to no account afterwards, and shows nothing
+//! until one is added to it: accounts belong to Spaces, so the Space does not widen itself to
+//! everyone else's mail. The other accounts' colours stay as they were stored.
 
 use super::{Scope, Spaces};
 use mail_domain::AccountId;
@@ -26,9 +25,6 @@ pub fn forget_account(spaces: &mut Spaces, account: AccountId) -> Forgot {
             && ids.contains(&account)
         {
             ids.retain(|id| *id != account);
-            if ids.is_empty() {
-                space.scope = Scope::All;
-            }
             forgot = Forgot::Changed;
         }
         if space.colors.remove(&account).is_some() {
@@ -44,9 +40,33 @@ pub fn forget_account(spaces: &mut Spaces, account: AccountId) -> Forgot {
     forgot
 }
 
+/// Take every account not in `known` out of every Space: what [`forget_account`] does for one,
+/// for each the Spaces name that the store no longer has, removed here or from a terminal.
+pub fn forget_unknown(spaces: &mut Spaces, known: &[AccountId]) -> Forgot {
+    let mut named: Vec<AccountId> = Vec::new();
+    for space in &spaces.spaces {
+        if let Scope::Accounts(ids) = &space.scope {
+            named.extend(ids);
+        }
+        named.extend(space.colors.keys());
+    }
+    named.extend(spaces.recall.values().filter_map(|recall| recall.account));
+    named.sort();
+    named.dedup();
+    named
+        .into_iter()
+        .filter(|id| !known.contains(id))
+        .fold(Forgot::Nothing, |forgot, id| {
+            match (forgot, forget_account(spaces, id)) {
+                (Forgot::Nothing, Forgot::Nothing) => Forgot::Nothing,
+                _ => Forgot::Changed,
+            }
+        })
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Forgot, forget_account};
+    use super::{Forgot, forget_account, forget_unknown};
     use crate::ui::space::{Recall, Scope, Space, Spaces};
     use mail_domain::AccountId;
     use std::collections::BTreeMap;
@@ -76,15 +96,8 @@ mod tests {
                 scoped(&[2], &[2]),
                 Forgot::Changed,
             ),
-            // Limited to nothing is no scope: the Space shows every account.
-            (
-                scoped(&[1], &[1]),
-                Space {
-                    scope: Scope::All,
-                    ..scoped(&[], &[])
-                },
-                Forgot::Changed,
-            ),
+            // Its only account gone, the Space is of no account, not of every account.
+            (scoped(&[1], &[1]), scoped(&[], &[]), Forgot::Changed),
             // Over every account, only its colour goes.
             (
                 Space {
@@ -135,5 +148,18 @@ mod tests {
             spaces.recall,
             BTreeMap::from([(0, recall(None)), (1, recall(Some(2)))])
         );
+    }
+
+    #[test]
+    fn accounts_the_store_no_longer_has_leave_and_known_ones_stay() {
+        let mut spaces = Spaces {
+            spaces: vec![scoped(&[1, 2], &[1, 2, 3]), scoped(&[3], &[3])],
+            current: 0,
+            recall: BTreeMap::new(),
+        };
+        let known = [account(1)];
+        assert_eq!(forget_unknown(&mut spaces, &known), Forgot::Changed);
+        assert_eq!(spaces.spaces, vec![scoped(&[1], &[1]), scoped(&[], &[])]);
+        assert_eq!(forget_unknown(&mut spaces, &known), Forgot::Nothing);
     }
 }
