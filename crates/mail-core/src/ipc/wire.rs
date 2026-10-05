@@ -11,10 +11,16 @@
 //! it to install a new binary — so the first thing a new client meets is an old daemon. It has
 //! to be told, not left to misparse a field.
 
+use mail_domain::AccountId;
 use serde::{Deserialize, Serialize};
 
 /// The version of everything below. Bump it when a variant changes meaning; adding a variant
 /// with `#[serde(other)]` handling on the far side does not need one.
+///
+/// [`Request::Subscribe`] and the [`Response::Subscribed`] and [`Response::Changed`] it is
+/// answered with came without a bump. A daemon from before them calls the request unreadable,
+/// which the window takes as a refusal and goes on looking; a bump would have cost more, since a
+/// client of another version cannot so much as ask a daemon to stop.
 pub const VERSION: u32 = 1;
 
 /// One message, with the version it was written by.
@@ -44,6 +50,13 @@ pub enum Request {
     SyncNow,
     /// Stop. Used by tests and by an upgrade that wants the old daemon gone.
     Shutdown,
+    /// Keep this connection open and say [`Response::Changed`] on it after every pass that may
+    /// have stored something.
+    ///
+    /// For the window, which otherwise learns of mail another process stored only by looking at
+    /// the database every couple of seconds. Answered once with [`Response::Subscribed`]; after
+    /// that the daemon only talks and the client only listens, until either hangs up.
+    Subscribe,
 }
 
 /// What the daemon answers.
@@ -63,6 +76,15 @@ pub enum Response {
     Started,
     Stopping,
     Refused(String),
+    /// A [`Request::Subscribe`] was heard: what follows on this connection is
+    /// [`Response::Changed`], one line per pass.
+    Subscribed,
+    /// A pass on `account` has ended and may have stored something. Not what it stored: the
+    /// listener reads the store, which already says, and a description here would be a second
+    /// copy of it to keep right.
+    Changed {
+        account: AccountId,
+    },
     /// The daemon speaks a different version. Both are named so the client can say which way
     /// round the mismatch is, which decides whether the answer is "restart the daemon" or
     /// "upgrade this client".
@@ -115,7 +137,7 @@ impl std::fmt::Display for Mismatch {
             Mismatch::Version { theirs, ours } => write!(
                 f,
                 "the daemon speaks version {theirs} and this build speaks {ours}; \
-                 restart it with `mailo daemon --replace`"
+                 stop it with the build that started it, then start it again"
             ),
             Mismatch::Unreadable(why) => write!(f, "unreadable message: {why}"),
         }

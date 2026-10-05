@@ -235,7 +235,12 @@ pub(super) fn BodyPane(message: MessageId, account: AccountId, mut landed: Signa
         let fetch = fetchers().body;
         spawn(async move {
             // `spawn_blocking`: the fetch opens sockets and builds its own runtime.
-            let done = tokio::task::spawn_blocking(move || fetch(store, message)).await;
+            // Claimed for as long as it runs, so a body pass that starts meanwhile leaves it to us.
+            let done = tokio::task::spawn_blocking(move || {
+                let _claim = mail_runtime::wanted::claim(message);
+                fetch(store, message)
+            })
+            .await;
             let event = match done {
                 Ok(Ok(())) => BodyEvent::Arrived,
                 Ok(Err((retry, why))) => BodyEvent::Failed { retry, why },

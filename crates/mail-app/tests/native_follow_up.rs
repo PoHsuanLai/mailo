@@ -220,7 +220,7 @@ fn press_menu_row(harness: &mut Harness, name: &str) {
 
 /// The `n`th row of the list (1-based).
 fn row(n: usize) -> String {
-    format!(".list .ds-list > .ds-list-item:nth-child({n})")
+    format!(".list .ds-list-item[*|aria-posinset=\"{n}\"]")
 }
 
 /// The reminder on the conversation that holds the message sent from `draft`, if it is here.

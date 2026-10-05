@@ -27,7 +27,7 @@
 
 use dioxus::prelude::*;
 use ds_blitz::{FrameLinks, NetPolicy};
-use ds_harness::{Driver, Harness, HarnessConfig, Query, Viewport};
+use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query, Viewport};
 #[path = "support/drive.rs"]
 mod drive;
 use drive::Drive;
@@ -150,7 +150,9 @@ impl Held {
     }
 
     fn config(&self, page: Page) -> HarnessConfig {
-        let config = HarnessConfig::new(VIEW).with_context(page);
+        let config = HarnessConfig::new(VIEW)
+            .with_clock(Clock::Wall)
+            .with_context(page);
         match self {
             Held::Mailo(original, ..) => config
                 .with_net(original.net())

@@ -323,6 +323,20 @@ pub trait Store {
         limit: u32,
     ) -> Result<Vec<mail_domain::RemoteRef>, StoreError>;
 
+    /// The same, for the messages of `threads` only, each address beside its thread.
+    ///
+    /// What a body pass fetches ahead of the rest: the conversations the person is looking at.
+    /// [`Store::unfetched_in`] alone cannot answer it, because its `limit` cuts newest first, and
+    /// a conversation scrolled to from last year is below any cut a pass can afford. Newest first
+    /// within, ties broken by message id, like `unfetched_in`; the order of `threads` is the
+    /// caller's to apply.
+    fn unfetched_in_threads(
+        &self,
+        mailbox: &MailboxRef,
+        threads: &[ThreadId],
+        limit: u32,
+    ) -> Result<Vec<(ThreadId, mail_domain::RemoteRef)>, StoreError>;
+
     /// Where the last sync of this mailbox got to, if one has finished.
     ///
     /// Written by every [`Store::ingest`]; nothing read it back until CONDSTORE needed the

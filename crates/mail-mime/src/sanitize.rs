@@ -4,7 +4,7 @@ use std::borrow::Cow;
 use std::collections::HashSet;
 
 /// Whether to let the message reach the network when it renders.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RemoteImages {
     /// Default. A remote image is a read receipt the sender did not ask permission for.
     Blocked,
@@ -12,7 +12,7 @@ pub enum RemoteImages {
 }
 
 /// How aggressively to sanitize, and which revision of that policy this is.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SanitizePolicy {
     pub remote_images: RemoteImages,
     /// Bumped whenever the policy or the `ammonia` major changes.

@@ -1383,6 +1383,19 @@ The measurements, for whoever picks this up: on the real mailbox a keystroke cos
 sync landing 5.1 ms; at ten thousand messages, 15.3 ms and 13.4 ms. Nothing here is urgent at
 today's size, which is worth saying plainly after a phase that began by assuming otherwise.
 
+**8d and 8e regressed, and are back.** When the reader's blocks gave way to the sandboxed
+iframe (8aefc0f), `render_message` replaced `reader::render` and neither the cache nor the warming
+came with it: the reader parsed, sanitized and embedded every message of the open conversation
+on every render — twice when remote images were shown — and the 8e comment in `App` described
+code that was no longer there. `ui/reading/cache.rs` restores both on the new path: the same
+`(BlobId, SanitizePolicy)` key, bounded at 32 MB of html, and a warming thread that renders the
+top twenty conversations and the open one's neighbours (two after, one before), each warming
+superseding the last. Measured in release against ten thousand generated messages
+(`frame_budget::opening_a_long_conversation`): forty messages cost 0.60 ms cold and nothing
+warm. The same run put a keystroke at 7.91 ms and a sync landing at 6.37 ms, the badge counts
+(6.14 ms) still the largest single cost. What none of this measures is what Blitz does with the
+iframe it is handed, which is where an open now spends its time.
+
 ---
 
 ### 9 — What the data layer still owes

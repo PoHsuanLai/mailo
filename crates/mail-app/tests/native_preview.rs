@@ -245,7 +245,7 @@ fn open() -> Window {
 }
 
 fn open_row(harness: &mut Harness, n: usize) {
-    let subject = format!(".list .ds-list > .ds-list-item:nth-child({n}) .ds-row .ds-thread-sub");
+    let subject = format!(".list .ds-list-item[*|aria-posinset=\"{n}\"] .ds-row .ds-thread-sub");
     let rect = harness
         .rect(&subject)
         .unwrap_or_else(|| panic!("{subject} is not drawn:\n{}", harness.html()));

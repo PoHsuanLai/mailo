@@ -281,6 +281,42 @@ fn a_body_pass_over_one_mailbox_is_given_only_that_mailboxs_addresses() {
 }
 
 #[test]
+fn the_backlog_of_named_threads_reaches_below_any_cut_of_the_whole() {
+    // Each `message(n)` is its own thread, `n + 1000`.
+    let thread = |n: u128| ThreadId::from_uuid(uuid::Uuid::from_u128(n + 1000));
+    let (sqlite, memory) = both(|store| {
+        deliver(store, &message(1, MailboxRole::Inbox), imap("INBOX", 1));
+        deliver(store, &message(2, MailboxRole::Inbox), imap("INBOX", 2));
+        deliver(store, &message(3, MailboxRole::Inbox), imap("INBOX", 3));
+        deliver(store, &message(4, MailboxRole::Archive), imap(PROJECTS, 4));
+        (
+            // The oldest is the one the whole backlog cut at one leaves out.
+            store.unfetched_in(&mailbox("INBOX"), 1).unwrap(),
+            store
+                .unfetched_in_threads(&mailbox("INBOX"), &[thread(1), thread(3)], 10)
+                .unwrap(),
+            // A thread held only elsewhere has nothing to fetch from this mailbox.
+            store
+                .unfetched_in_threads(&mailbox("INBOX"), &[thread(4)], 10)
+                .unwrap(),
+            store
+                .unfetched_in_threads(&mailbox("INBOX"), &[], 10)
+                .unwrap(),
+        )
+    });
+    assert_eq!(sqlite, memory);
+    let (cut, named, elsewhere, none) = sqlite;
+    assert_eq!(cut, vec![imap("INBOX", 3)]);
+    // Newest first, each beside its thread, and the oldest is there although the cut missed it.
+    assert_eq!(
+        named,
+        vec![(thread(3), imap("INBOX", 3)), (thread(1), imap("INBOX", 1))]
+    );
+    assert!(elsewhere.is_empty());
+    assert!(none.is_empty());
+}
+
+#[test]
 fn a_copy_in_the_inbox_brings_a_message_first_found_in_a_folder_into_the_inbox() {
     // A large inbox's first sync can reach a folder's copy before the inbox's own.
     let (sqlite, memory) = both(|store| {

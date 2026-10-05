@@ -120,13 +120,6 @@ pub(super) fn App() -> Element {
     // indexed query, which is why the sidebar can afford to ask on every revision.
     // Resolved once. The sidebar's places are fixed after construction, so what each badge
     // counts never changes — only the answer does.
-    // Render the first screenful before anybody asks for it — phase 8e.
-    //
-    // An ordinary `std::thread`, not a task: it writes into the render cache, which is a `Mutex`
-    // and not a signal, so it needs nothing to poll it and nothing to notice when it finishes.
-    // That is the whole reason this part of phase 8 works while F140 stands — every other way of
-    // leaving the render thread has to find its way back onto one.
-    //
     // Mailbox badges are fixed. Label badges join them when the label list changes, which is
     // a signal of its own so a keystroke — a shell change — does not recount.
     let badge_filters = use_memo(move || {
@@ -265,7 +258,11 @@ pub(super) fn App() -> Element {
         top,
         marking,
         paging,
+        asked,
     } = use_list(shell, pages, revision);
+    // Render what the person is about to open before they open it — the top of the list, and
+    // the neighbours of the open conversation — so that opening it is a lookup (phase 8e).
+    super::reading::use_warming(shell, threads);
 
     let drafts = use_memo(move || {
         let _ = revision();
@@ -663,7 +660,7 @@ pub(super) fn App() -> Element {
                 panes: vec![SplitPane::new(LIST, rsx! {
                     ThreadList {
                         shell, pages, revision, in_a_field, threads, drafts, nothing, more,
-                        marking, top, paging, side_hidden,
+                        marking, top, paging, side_hidden, question: asked,
                     }
                 })],
                 section { class: "reader",

@@ -367,7 +367,10 @@ impl JmapEngine {
         budget: usize,
         report: &mut SyncReport,
     ) -> Result<(), RuntimeError> {
-        let wanted = email_ids(&self.store.unfetched_in(&self.mailbox(), budget as u32)?);
+        // What the window is showing first, and nothing it is fetching for itself.
+        let (backlog, _) =
+            crate::wanted::backlog(self.store.as_ref(), &self.mailbox(), budget as u32)?;
+        let wanted = email_ids(&backlog);
         if wanted.is_empty() {
             return Ok(());
         }

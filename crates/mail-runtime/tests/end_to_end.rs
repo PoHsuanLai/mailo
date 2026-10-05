@@ -697,3 +697,109 @@ async fn the_first_sync_fetches_the_newest_mail_first_within_each_band() {
     assert_eq!(fetched("TOP "), ["3", "2", "1", "4"], "{heard:?}");
     assert_eq!(fetched("RETR "), ["3", "2", "1", "4"], "{heard:?}");
 }
+
+/// A conversation the window asks for is fetched ahead of the backlog, whatever its age, and a
+/// message the window is fetching for itself is left to it (`mail_runtime::wanted`).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_body_pass_fetches_what_the_window_is_showing_first() {
+    let (port, _, heard) = serve_maildrop(vec![
+        ("uidl-2020", dated(2020, "oldest", 1_000)),
+        ("uidl-2021", dated(2021, "older", 1_000)),
+        ("uidl-2022", dated(2022, "newer", 1_000)),
+        ("uidl-2023", dated(2023, "newest-and-large", 200 * 1024)),
+    ])
+    .await;
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
+    store
+        .connection()
+        .execute(
+            "INSERT INTO accounts (id, address, plan, created_at)
+             VALUES (?1, 'me@example.test', '{}', datetime('now'))",
+            [ACCOUNT.to_string()],
+        )
+        .unwrap();
+    let secrets = MapSecrets::default();
+    secrets
+        .put(
+            &SecretKey {
+                account: ACCOUNT,
+                purpose: SecretPurpose::IncomingPassword,
+            },
+            &Credential::Password(PASSWORD.to_owned()),
+        )
+        .unwrap();
+    let backend = Pop3Backend::new(
+        ACCOUNT,
+        caps(),
+        Box::new(|auth, commands| {
+            let mut all = Vec::new();
+            if auth == Authenticate::First {
+                all.push(Pop3Command::AuthPlain);
+            }
+            all.extend(commands);
+            Pop3Session::new("me", PASSWORD, all)
+        }),
+    );
+    let mut engine = AccountEngine::new(
+        ACCOUNT,
+        plan(port),
+        backend,
+        store.clone(),
+        Arc::new(secrets),
+    );
+    let mailbox = MailboxRef {
+        account: ACCOUNT,
+        path: "INBOX".to_owned(),
+    };
+    let (_tx, mut cancel) = watch::channel(false);
+
+    let headers = engine.sync(&mailbox, &mut cancel, now(), 50).await.unwrap();
+    assert_eq!(headers.headers_fetched, 4, "{:?}", headers.needs_attention);
+
+    let listed = store
+        .threads(
+            &Query {
+                filter: Filter::All,
+                sort: Sort {
+                    property: Property::Date,
+                    dir: SortDir::Desc,
+                },
+                page: PageReq {
+                    after: None,
+                    limit: 10,
+                },
+            },
+            now(),
+        )
+        .unwrap()
+        .items;
+    let thread = |subject: &str| {
+        listed
+            .iter()
+            .find(|t| t.subject == subject)
+            .unwrap_or_else(|| panic!("no {subject:?}"))
+            .id
+    };
+    let older = store.thread(thread("older")).unwrap().messages[0];
+
+    // The oldest conversation is on the screen; the window is fetching `older` itself.
+    mail_runtime::wanted::ask_first(&[thread("oldest")]);
+    let claim = mail_runtime::wanted::claim(older);
+    let bodies = engine
+        .fetch_bodies(&mailbox, &mut cancel, now(), 50)
+        .await
+        .unwrap();
+    drop(claim);
+    mail_runtime::wanted::ask_first(&[]);
+    assert_eq!(bodies.bodies_fetched, 3, "{:?}", bodies.needs_attention);
+
+    let heard = heard.lock().unwrap().clone();
+    let retr: Vec<&str> = heard
+        .iter()
+        .filter_map(|line| line.strip_prefix("RETR "))
+        .collect();
+    // Asked for first, the claimed one not at all, then the backlog by band as before.
+    assert_eq!(retr, ["1", "3", "4"], "{heard:?}");
+}

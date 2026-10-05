@@ -138,7 +138,7 @@ fn open() -> (Harness, tempfile::TempDir, Arc<SqliteStore>) {
 
 /// The `n`th row of the list (1-based).
 fn row(n: usize) -> String {
-    format!(".list .ds-list > .ds-list-item:nth-child({n})")
+    format!(".list .ds-list-item[*|aria-posinset=\"{n}\"]")
 }
 
 fn centre(harness: &Harness, selector: &str) -> Point {

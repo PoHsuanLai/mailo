@@ -48,7 +48,7 @@ pub(super) fn run(opening: Opening) {
             ))
         });
     let original = Original::window();
-    let config = AppConfig::new("mailo", 1200, 800)
+    let config = AppConfig::new("mailo", ds_blitz::WindowSize::new(1200, 800))
         .with_app_id(AppId(APP_ID.to_owned()))
         .with_net(original.net())
         .with_frame_links(original.links())

@@ -1,5 +1,6 @@
 mod attachments;
 pub(super) mod blocks;
+mod cache;
 mod fetch;
 mod thumb;
 mod viewer;
@@ -8,6 +9,8 @@ use super::press::on_primary;
 use super::text::{address, attachment_rows, from_name, stamp};
 use crate::ui::view::{Peek, Shell};
 use attachments::Attachments;
+pub(in crate::ui) use cache::use_warming;
+pub use cache::{rendered as render_message, warm};
 use dioxus::prelude::*;
 use ds::components::content::avatar::{
     AvatarFace, AvatarShape, AvatarSize, AvatarTone, person_hue,
@@ -197,28 +200,60 @@ impl FrameBody {
     }
 }
 
-/// Render a message body into its sandboxed frame representation.
-pub fn render_message(store: &SqliteStore, message: &Message, policy: SanitizePolicy) -> FrameBody {
+/// Render a message body into its sandboxed frame representation, every time.
+///
+/// The reader goes through [`render_message`], which remembers the answer (`cache`); this is the
+/// work itself, for the cache to call and for a measurement that must not hit it.
+pub fn render_message_uncached(
+    store: &SqliteStore,
+    message: &Message,
+    policy: SanitizePolicy,
+) -> FrameBody {
+    render(store, message, policy).0
+}
+
+/// What a rendering was made from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Source {
+    /// The stored body: the blob, or the text beside it.
+    Stored,
+    /// A body OpenPGP or S/MIME opened. A function of more than the blob, and of a key that may
+    /// be locked again, so nothing keyed by the blob may keep it.
+    Opened,
+}
+
+/// [`render_message_uncached`], saying what it rendered from — asked once, here, so a seal
+/// opened while it renders cannot leave a cache believing the plaintext is the blob's.
+pub(super) fn render(
+    store: &SqliteStore,
+    message: &Message,
+    policy: SanitizePolicy,
+) -> (FrameBody, Source) {
     match &message.body {
-        Body::Absent => FrameBody::NotFetched,
+        Body::Absent => (FrameBody::NotFetched, Source::Stored),
         Body::Present { text, .. } => {
-            let parsed = super::pgp::parsed(message).or_else(|| parse_body(store, message));
-            let Some(parsed) = parsed else {
-                return plain_frame(text.as_deref().unwrap_or(""));
+            let (parsed, source) = match super::pgp::parsed(message) {
+                Some(opened) => (Some(opened), Source::Opened),
+                None => (parse_body(store, message), Source::Stored),
             };
-            if let Some(html) = parsed.html.as_deref() {
+            let Some(parsed) = parsed else {
+                return (plain_frame(text.as_deref().unwrap_or("")), source);
+            };
+            let body = if let Some(html) = parsed.html.as_deref() {
                 html_frame(html, &parsed, policy)
             } else {
-                let source = parsed.text.as_deref().or(text.as_deref()).unwrap_or("");
-                plain_frame(source)
-            }
+                let shown = parsed.text.as_deref().or(text.as_deref()).unwrap_or("");
+                plain_frame(shown)
+            };
+            (body, source)
         }
     }
 }
 
 fn parse_body(store: &SqliteStore, message: &Message) -> Option<mail_mime::Parsed> {
     let raw = message.body.raw()?;
-    let bytes = store.blobs().get(&store.connection(), raw).ok()?;
+    // A reader, not the writer: a sync's ingest holds the writer for a whole batch.
+    let bytes = store.blobs().get(&store.reader(), raw).ok()?;
     mail_mime::parse(&bytes).ok()
 }
 
@@ -316,23 +351,48 @@ pub(super) fn Reader(
     let policy = shell.read().policy();
     let showing = shell.read().show_remote_images;
     let peek = shell.read().peek;
-    let shown: Vec<(Message, FrameBody, bool)> = loaded
+    // What this reader sent to be rendered off the thread, and the count that moves when some of
+    // it lands (`cache::render_later`).
+    let sent = use_hook(|| std::rc::Rc::new(std::cell::RefCell::new(cache::Sent::default())));
+    let rendered_later = use_signal(|| 0u64);
+    let _ = rendered_later();
+    let mut room = cache::ON_THE_FRAME;
+    let mut later = Vec::new();
+    // Newest first, so the message the conversation opens on is the one the frame's room goes
+    // to; drawn oldest first as before.
+    let mut shown: Vec<(Message, Option<FrameBody>, bool)> = loaded
         .messages
         .iter()
+        .rev()
         .filter_map(|id| store.message(*id).ok())
         .map(|message| {
-            let body = render_message(&store, &message, policy);
-            let remote = if body.blocked_remote() {
-                true
-            } else if showing && body.frame_html().is_some() {
-                render_message(&store, &message, mail_mime::SanitizePolicy::CURRENT)
-                    .blocked_remote()
-            } else {
-                false
+            let mut frame = |policy| {
+                cache::on_the_frame(
+                    &store,
+                    &message,
+                    policy,
+                    &mut room,
+                    &sent.borrow(),
+                    &mut later,
+                )
+            };
+            // Both renderings are remembered (`cache`), under their own policies, so a message
+            // whose banner needs the blocked count while the images are shown parses once, ever.
+            let body = frame(policy);
+            let remote = match &body {
+                Some(body) if body.blocked_remote() => true,
+                Some(body) if showing && body.frame_html().is_some() => {
+                    frame(mail_mime::SanitizePolicy::CURRENT).is_some_and(|it| it.blocked_remote())
+                }
+                _ => false,
             };
             (message, body, remote)
         })
         .collect();
+    shown.reverse();
+    if !later.is_empty() {
+        cache::render_later(store.clone(), later, sent.clone(), rendered_later);
+    }
 
     // The consent, as the Original frames' network reads it (`ui/original`): written here, in the
     // render, so a frame that reloads with the consented markup finds it already granted, and
@@ -342,7 +402,10 @@ pub(super) fn Reader(
         let allowed = showing.then(|| {
             shown
                 .iter()
-                .map(|(message, body, _)| (message.id, body.frame_fetches().to_vec()))
+                .map(|(message, body, _)| {
+                    let fetches = body.as_ref().map(FrameBody::frame_fetches);
+                    (message.id, fetches.unwrap_or_default().to_vec())
+                })
                 .collect()
         });
         consent.hold(*holder, thread, allowed);
@@ -495,7 +558,12 @@ pub(super) fn Reader(
                         }
                     }
                     match body {
-                        FrameBody::NotFetched => rsx! {
+                        // Being rendered off the thread: the frame's own box, so nothing moves
+                        // when it lands.
+                        None => rsx! {
+                            div { key: "{message.id}-rendering", class: "html", aria_busy: "true" }
+                        },
+                        Some(FrameBody::NotFetched) => rsx! {
                             fetch::BodyPane {
                                 key: "{message.id}-pane",
                                 message: message.id,
@@ -503,7 +571,7 @@ pub(super) fn Reader(
                                 landed,
                             }
                         },
-                        FrameBody::Present { html, .. } => rsx! {
+                        Some(FrameBody::Present { html, .. }) => rsx! {
                             blocks::MessageView {
                                 holder: consent.as_ref().map(|(_, holder)| *holder),
                                 message_id: message.id,

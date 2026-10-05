@@ -103,7 +103,7 @@ fn quire(ask: Ask) {
         handle.focus();
         return;
     }
-    let spec = WindowSpec::new(ask.title, SIZE.0, SIZE.1);
+    let spec = WindowSpec::new(ask.title, ds_blitz::WindowSize::new(SIZE.0, SIZE.1));
     match ds_blitz::open_window_with(
         spec,
         root::MessageWindow,
