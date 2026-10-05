@@ -17,7 +17,8 @@
 //! of conversations, the one or two messages being opened) and replaced or released whole, so a
 //! lock held for the length of a copy is all they need.
 
-use mail_domain::{MessageId, ThreadId};
+use mail_domain::{MailboxRef, MessageId, RemoteRef, ThreadId};
+use mail_store::{Store, StoreError};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 /// How many conversations the window may ask for. More than a screen and its neighbours is a
@@ -77,6 +78,38 @@ impl Drop for Claim {
             wanted.claimed.remove(at);
         }
     }
+}
+
+/// What a body pass over `mailbox` fetches, in order, at most `limit`: [`ahead`] over the store's
+/// backlog, less what the window is fetching for itself. Beside it, how many at the front are
+/// the wanted conversations', which the caller keeps in front. Every protocol's body pass asks
+/// this, so none of them fetches a claimed body a second time.
+pub fn backlog(
+    store: &dyn Store,
+    mailbox: &MailboxRef,
+    limit: u32,
+) -> Result<(Vec<RemoteRef>, usize), StoreError> {
+    let asked = first();
+    let hinted = store.unfetched_in_threads(mailbox, &asked, limit)?;
+    let rest = store.unfetched_in(mailbox, limit)?;
+    let (mut order, mut first) = ahead(&asked, hinted, rest, limit as usize);
+    let claimed = claimed();
+    if !claimed.is_empty() {
+        let mut taken = Vec::new();
+        for message in claimed {
+            // A claim is the window's, made in whatever store it reads: one this store does not
+            // hold — gone since, or never here — is not this pass's to leave out, and must not
+            // fail it.
+            match store.remotes_of(message) {
+                Ok(remotes) => taken.extend(remotes),
+                Err(StoreError::NoMessage(_)) => {}
+                Err(e) => return Err(e),
+            }
+        }
+        first -= order[..first].iter().filter(|r| taken.contains(r)).count();
+        order.retain(|remote| !taken.contains(remote));
+    }
+    Ok((order, first))
 }
 
 /// The order a body pass fetches in: the wanted conversations' messages first, in the order the
