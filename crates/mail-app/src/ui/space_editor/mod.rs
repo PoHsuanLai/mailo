@@ -5,7 +5,8 @@
 //! it (cross-fading, as a switch does), Save writes `spaces.json`, and Esc puts the Space back
 //! exactly as the sheet found it. The Space's own look is quire's `SpaceEditor`: its name, the
 //! colour field and its stops, theme, the card's accent, the presets and the measured contrast.
-//! What quire's editor does not draw stays mailo's, in form rows under it: provider marks,
+//! What quire's editor does not draw stays mailo's, in form rows under it: which accounts the
+//! Space shows (`members`), provider marks,
 //! notifications, which accounts are kept offline, spelling, brand logos, searching the server,
 //! the accounts, contacts, rules, keys and the keyboard, and Cancel and Save.
 //!
@@ -17,6 +18,7 @@
 //! renderer, so the decision stands on Blitz as it does on the webview.
 
 mod brand;
+mod members;
 mod notify;
 mod offline;
 mod parts;
@@ -27,6 +29,7 @@ mod spelling;
 pub(in crate::ui) use parts::Seg;
 
 use self::brand::BrandLogos;
+use self::members::Members;
 use self::notify::Notifications;
 use self::offline::OfflineCopy;
 use self::parts::Marks as MarksChoice;
@@ -138,6 +141,7 @@ pub(super) fn SpaceEditor(
                     on_rename: move |name: String| change(editing, spaces, |draft| draft.space.name = name),
                     measured: MeasuredIn::EachScheme,
                 }
+                Members { editing, spaces }
                 FieldGroup { title: "Mail",
                     MarksChoice { shell }
                     Notifications {}

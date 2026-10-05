@@ -19,12 +19,14 @@ use std::path::Path;
 
 pub mod edit;
 mod forget;
+mod member;
 mod migrate;
 mod presets;
 mod recall;
 pub mod remove;
 
 pub use forget::{Forgot, forget_account, forget_unknown};
+pub use member::{Member, with_member};
 pub use presets::{PRESET_NAMES, PRESETS};
 pub use recall::Recall;
 

@@ -297,3 +297,69 @@ async fn the_frame_is_always_the_system_typeface() {
         );
     }
 }
+
+/// Whether the sidebar draws an account tile for `address`: a pin tile, not the editor's row of
+/// the same name.
+fn has_tile(page: &str, address: &str) -> bool {
+    let label = format!("aria-label=\"{address}\"");
+    page.match_indices("class=\"ds-pin-tile\"").any(|(at, _)| {
+        let tag = &page[at..];
+        tag[..tag.find('>').unwrap_or(tag.len())].contains(&label)
+    })
+}
+
+const FASTMAIL: &str = "lists@fastmail.example";
+
+/// The Accounts row: each account's switch is on in a Space over every account; switching one off
+/// takes it out of the Space at once, and Save keeps the others.
+#[tokio::test]
+async fn an_account_switched_off_leaves_the_space_and_save_keeps_the_rest() {
+    let (mut dom, seen, built, _scripts) = opened();
+    assert!(
+        has_tile(&dioxus_ssr::render(&dom), FASTMAIL),
+        "no Fastmail tile to begin with"
+    );
+
+    let _ = click(
+        &mut dom,
+        seen.one("aria-label", "Show lists@fastmail.example in this Space"),
+    );
+    assert!(
+        !has_tile(&dioxus_ssr::render(&dom), FASTMAIL),
+        "switching Fastmail off did not take its tile away at once"
+    );
+    let _ = click(&mut dom, seen.one("title", "Save this Space and close"));
+
+    let saved = space::load(&built.dirs.config).current_space();
+    let ids = match &saved.scope {
+        space::Scope::Accounts(ids) => ids.clone(),
+        space::Scope::All => panic!("the Space is still over every account"),
+    };
+    assert_eq!(ids.len(), 2, "{ids:?}");
+    assert!(
+        !has_tile(&dioxus_ssr::render(&dom), FASTMAIL),
+        "Save put Fastmail back"
+    );
+}
+
+#[tokio::test]
+async fn escape_puts_an_account_switched_off_back() {
+    let (mut dom, seen, built, _scripts) = opened();
+    let _ = click(
+        &mut dom,
+        seen.one("aria-label", "Show lists@fastmail.example in this Space"),
+    );
+    assert!(
+        !has_tile(&dioxus_ssr::render(&dom), FASTMAIL),
+        "the switch changed nothing"
+    );
+    press(&mut dom, "Escape", INSIDE_THE_SHELL);
+    assert!(
+        has_tile(&dioxus_ssr::render(&dom), FASTMAIL),
+        "Escape did not put Fastmail back"
+    );
+    assert_eq!(
+        space::load(&built.dirs.config).current_space().scope,
+        space::Scope::All
+    );
+}
