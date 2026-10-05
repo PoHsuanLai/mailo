@@ -386,6 +386,46 @@ pub(super) fn iframe_srcdoc(page: &str) -> String {
 }
 
 #[tokio::test]
+async fn a_message_past_the_frames_room_is_rendered_off_the_thread_and_then_drawn() {
+    // The newest message is small and is drawn on the frame that opens the conversation; the
+    // older one is larger than all the room that frame has, so it is drawn as its frame's empty
+    // box first and filled once its rendering lands.
+    let long = format!(
+        "<p>the long one</p>{}",
+        "<p>quarterly widgets</p>".repeat(super::cache::ON_THE_FRAME as usize / 16)
+    );
+    let (store, thread, _dir) = thread_of(&[
+        ("short", html_message("short", "<p>the short one</p>")),
+        ("long", html_message("long", &long)),
+    ]);
+    let mut dom = VirtualDom::new_with_props(Open, OpenProps { thread }).with_root_context(store);
+    dom.rebuild_in_place();
+    let first = dioxus_ssr::render(&dom);
+    assert_eq!(first.matches("<iframe").count(), 1, "{first}");
+    assert!(iframe_srcdoc(&first).contains("the short one"), "{first}");
+    assert!(
+        first.contains("aria-busy=\"true\""),
+        "no placeholder:\n{first}"
+    );
+
+    let give_up = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+    let mut page = first;
+    while page.contains("aria-busy=\"true\"") && tokio::time::Instant::now() < give_up {
+        let more = tokio::time::timeout(std::time::Duration::from_millis(200), dom.wait_for_work());
+        if more.await.is_ok() {
+            dom.render_immediate(&mut dioxus_core::NoOpMutations);
+        }
+        page = dioxus_ssr::render(&dom);
+    }
+    assert_eq!(page.matches("<iframe").count(), 2, "{page}");
+    assert!(
+        page.contains("the long one"),
+        "the long one never landed:\n{page}"
+    );
+    assert!(!page.contains("aria-busy=\"true\""), "{page}");
+}
+
+#[tokio::test]
 async fn the_frame_renders_html_body_in_sandboxed_iframe() {
     let html = "<p>Hello <b>world</b></p><script>alert('xss')</script>";
     let (store, thread, _dir) = thread_of(&[("html test", html_message("html test", html))]);
