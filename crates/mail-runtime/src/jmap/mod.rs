@@ -139,13 +139,6 @@ impl JmapEngine {
             },
             (Credential::Password(token), HttpAuth::Bearer) => Auth::Bearer(token),
             (Credential::OAuth { access, .. }, _) => Auth::Bearer(access),
-            // A key kept for signing or decrypting is not a sign-in, and is never sent.
-            (Credential::OpenPgp(_) | Credential::SmimeKey(_), _) => {
-                return Err(RuntimeError::Secrets(
-                    "the credential kept for this account is a key, not a password or token"
-                        .to_owned(),
-                ));
-            }
         })
     }
 

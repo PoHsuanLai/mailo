@@ -6,6 +6,7 @@ use chrono::{DateTime, TimeZone, Utc};
 use mail_app::cli;
 use mail_core::compose;
 use mail_core::pgp;
+use mail_domain::signing::{SigningKeyId, SigningKeyRef, SigningSecret};
 use mail_domain::*;
 use mail_mime::openpgp::{self, Keys, SecretCert, Unlocking};
 use mail_runtime::{Arrival, MapSecrets, Secrets};
@@ -157,12 +158,12 @@ mod keys {
         assert_eq!(key.user_ids, vec!["Me <me@example.test>"]);
         assert_eq!(store.pgp_keys().unwrap(), vec![key.clone()]);
         let held = secrets
-            .get(&SecretKey {
+            .get_signing(&SigningKeyRef {
                 account: ACCOUNT,
-                purpose: SecretPurpose::OpenPgp(key.fingerprint),
+                key: SigningKeyId::OpenPgp(key.fingerprint),
             })
             .unwrap();
-        assert!(matches!(held, Credential::OpenPgp(armored) if armored.contains("PRIVATE KEY")));
+        assert!(matches!(held, SigningSecret::OpenPgp(armored) if armored.contains("PRIVATE KEY")));
         assert_eq!(pgp::own_key(&store, ME).unwrap(), Some(key));
     }
 

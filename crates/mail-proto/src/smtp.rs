@@ -1296,9 +1296,6 @@ fn password(cred: &Credential) -> Result<&str, ProtoError> {
         Credential::OAuth { .. } => Err(ProtoError::Unsupported(
             "a password mechanism with an OAuth credential".into(),
         )),
-        Credential::OpenPgp(_) | Credential::SmimeKey(_) => Err(ProtoError::Unsupported(
-            "a private key is not a sign-in credential".into(),
-        )),
     }
 }
 
@@ -1307,9 +1304,6 @@ fn access_token(cred: &Credential) -> Result<&str, ProtoError> {
         Credential::OAuth { access, .. } => Ok(access.as_str()),
         Credential::Password(_) => Err(ProtoError::Unsupported(
             "XOAUTH2 with a password credential".into(),
-        )),
-        Credential::OpenPgp(_) | Credential::SmimeKey(_) => Err(ProtoError::Unsupported(
-            "a private key is not a sign-in credential".into(),
         )),
     }
 }
@@ -1562,7 +1556,6 @@ fn secret_strings(sub: &Submission) -> Vec<String> {
                 out.push(b64(refresh.as_bytes()));
             }
         }
-        Credential::OpenPgp(key) | Credential::SmimeKey(key) => push_secret(&mut out, key),
     }
     out
 }

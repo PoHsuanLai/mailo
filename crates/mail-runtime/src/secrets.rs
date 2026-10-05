@@ -1,13 +1,16 @@
 //! Where passwords and tokens live: the platform keyring, never SQLite.
 
 mod chunks;
+mod stored;
 
 use crate::RuntimeError;
 use chunks::{Limit, Slots};
 use keyring_core::CredentialStore;
+use mail_domain::signing::{SigningKeyId, SigningKeyRef, SigningSecret};
 use mail_domain::{Credential, SecretKey, SecretPurpose};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use stored::Stored;
 
 /// A store of credentials.
 ///
@@ -17,6 +20,10 @@ pub trait Secrets: Send + Sync {
     fn get(&self, key: &SecretKey) -> Result<Credential, RuntimeError>;
     fn put(&self, key: &SecretKey, value: &Credential) -> Result<(), RuntimeError>;
     fn forget(&self, key: &SecretKey) -> Result<(), RuntimeError>;
+    /// The secret half of a signing key.
+    fn get_signing(&self, key: &SigningKeyRef) -> Result<SigningSecret, RuntimeError>;
+    fn put_signing(&self, key: &SigningKeyRef, value: &SigningSecret) -> Result<(), RuntimeError>;
+    fn forget_signing(&self, key: &SigningKeyRef) -> Result<(), RuntimeError>;
 }
 
 const SERVICE: &str = "mailo";
@@ -27,12 +34,67 @@ fn entry_name(key: &SecretKey) -> String {
         SecretPurpose::OutgoingPassword => "outgoing",
         SecretPurpose::OAuthRefresh => "oauth",
         SecretPurpose::AddressBook => "carddav",
-        // Named by the key alone: see `SecretPurpose::OpenPgp` for why the account is not part
-        // of it. The prefix cannot collide with an account's entries, which begin with a UUID.
-        SecretPurpose::OpenPgp(fingerprint) => return format!("openpgp:{fingerprint}"),
-        SecretPurpose::Smime(fingerprint) => return format!("smime:{fingerprint}"),
     };
     format!("{}:{}", key.account, purpose)
+}
+
+/// Named by the key alone: see [`SigningKeyId`] for why the account is not part of it. The
+/// prefix cannot collide with an account's entries, which begin with a UUID.
+fn signing_entry_name(key: &SigningKeyRef) -> String {
+    match key.key {
+        SigningKeyId::OpenPgp(fingerprint) => format!("openpgp:{fingerprint}"),
+        SigningKeyId::Smime(fingerprint) => format!("smime:{fingerprint}"),
+    }
+}
+
+fn account_secret(stored: Stored) -> Result<Credential, RuntimeError> {
+    match stored {
+        Stored::Password(password) => Ok(Credential::Password(password)),
+        Stored::OAuth {
+            access,
+            refresh,
+            expires_at,
+        } => Ok(Credential::OAuth {
+            access,
+            refresh,
+            expires_at,
+        }),
+        Stored::OpenPgp(_) | Stored::SmimeKey(_) => Err(RuntimeError::Secrets(
+            "the keyring entry holds a signing key, not an account's credential".to_owned(),
+        )),
+    }
+}
+
+fn signing_secret(stored: Stored) -> Result<SigningSecret, RuntimeError> {
+    match stored {
+        Stored::OpenPgp(armored) => Ok(SigningSecret::OpenPgp(armored)),
+        Stored::SmimeKey(pem) => Ok(SigningSecret::SmimeKey(pem)),
+        Stored::Password(_) | Stored::OAuth { .. } => Err(RuntimeError::Secrets(
+            "the keyring entry holds an account's credential, not a signing key".to_owned(),
+        )),
+    }
+}
+
+fn stored_credential(value: &Credential) -> Stored {
+    match value {
+        Credential::Password(password) => Stored::Password(password.clone()),
+        Credential::OAuth {
+            access,
+            refresh,
+            expires_at,
+        } => Stored::OAuth {
+            access: access.clone(),
+            refresh: refresh.clone(),
+            expires_at: *expires_at,
+        },
+    }
+}
+
+fn stored_signing(value: &SigningSecret) -> Stored {
+    match value {
+        SigningSecret::OpenPgp(armored) => Stored::OpenPgp(armored.clone()),
+        SigningSecret::SmimeKey(pem) => Stored::SmimeKey(pem.clone()),
+    }
 }
 
 /// The platform keyring: the Secret Service on Linux and the BSDs, the login keychain on macOS,
@@ -41,9 +103,8 @@ fn entry_name(key: &SecretKey) -> String {
 #[derive(Debug, Default)]
 pub struct KeyringSecrets;
 
-impl Secrets for KeyringSecrets {
-    fn get(&self, key: &SecretKey) -> Result<Credential, RuntimeError> {
-        let name = entry_name(key);
+impl KeyringSecrets {
+    fn read(name: String) -> Result<Stored, RuntimeError> {
         let stored = off_runtime(move || chunks::get(&Keyring, &name))?
             .ok_or_else(|| RuntimeError::Secrets("no such credential".to_owned()))?;
         // JSON rather than a bare string so an OAuth credential keeps its expiry and refresh
@@ -52,16 +113,40 @@ impl Secrets for KeyringSecrets {
             .map_err(|e| RuntimeError::Secrets(format!("stored credential is unreadable: {e}")))
     }
 
-    fn put(&self, key: &SecretKey, value: &Credential) -> Result<(), RuntimeError> {
-        let name = entry_name(key);
+    fn write(name: String, value: &Stored) -> Result<(), RuntimeError> {
         let encoded = serde_json::to_string(value)
             .map_err(|e| RuntimeError::Secrets(format!("cannot encode credential: {e}")))?;
         off_runtime(move || chunks::put(&Keyring, &name, &encoded, LIMIT))
     }
 
-    fn forget(&self, key: &SecretKey) -> Result<(), RuntimeError> {
-        let name = entry_name(key);
+    fn remove(name: String) -> Result<(), RuntimeError> {
         off_runtime(move || chunks::forget(&Keyring, &name))
+    }
+}
+
+impl Secrets for KeyringSecrets {
+    fn get(&self, key: &SecretKey) -> Result<Credential, RuntimeError> {
+        account_secret(Self::read(entry_name(key))?)
+    }
+
+    fn put(&self, key: &SecretKey, value: &Credential) -> Result<(), RuntimeError> {
+        Self::write(entry_name(key), &stored_credential(value))
+    }
+
+    fn forget(&self, key: &SecretKey) -> Result<(), RuntimeError> {
+        Self::remove(entry_name(key))
+    }
+
+    fn get_signing(&self, key: &SigningKeyRef) -> Result<SigningSecret, RuntimeError> {
+        signing_secret(Self::read(signing_entry_name(key))?)
+    }
+
+    fn put_signing(&self, key: &SigningKeyRef, value: &SigningSecret) -> Result<(), RuntimeError> {
+        Self::write(signing_entry_name(key), &stored_signing(value))
+    }
+
+    fn forget_signing(&self, key: &SigningKeyRef) -> Result<(), RuntimeError> {
+        Self::remove(signing_entry_name(key))
     }
 }
 
@@ -233,32 +318,60 @@ pub fn off_runtime<T: Send>(work: impl FnOnce() -> T + Send) -> T {
 /// An in-memory store. Tests only — it never reaches the user's keyring and never persists.
 #[derive(Debug, Default)]
 pub struct MapSecrets {
-    entries: Mutex<HashMap<String, Credential>>,
+    entries: Mutex<HashMap<String, Stored>>,
 }
 
-impl Secrets for MapSecrets {
-    fn get(&self, key: &SecretKey) -> Result<Credential, RuntimeError> {
+impl MapSecrets {
+    fn lookup(&self, name: &str) -> Result<Stored, RuntimeError> {
         self.entries
             .lock()
             .expect("MapSecrets mutex poisoned")
-            .get(&entry_name(key))
+            .get(name)
             .cloned()
             .ok_or_else(|| RuntimeError::Secrets("no such credential".to_owned()))
     }
 
-    fn put(&self, key: &SecretKey, value: &Credential) -> Result<(), RuntimeError> {
+    fn keep(&self, name: String, value: Stored) {
         self.entries
             .lock()
             .expect("MapSecrets mutex poisoned")
-            .insert(entry_name(key), value.clone());
+            .insert(name, value);
+    }
+
+    fn remove(&self, name: &str) {
+        self.entries
+            .lock()
+            .expect("MapSecrets mutex poisoned")
+            .remove(name);
+    }
+}
+
+impl Secrets for MapSecrets {
+    fn get(&self, key: &SecretKey) -> Result<Credential, RuntimeError> {
+        account_secret(self.lookup(&entry_name(key))?)
+    }
+
+    fn put(&self, key: &SecretKey, value: &Credential) -> Result<(), RuntimeError> {
+        self.keep(entry_name(key), stored_credential(value));
         Ok(())
     }
 
     fn forget(&self, key: &SecretKey) -> Result<(), RuntimeError> {
-        self.entries
-            .lock()
-            .expect("MapSecrets mutex poisoned")
-            .remove(&entry_name(key));
+        self.remove(&entry_name(key));
+        Ok(())
+    }
+
+    fn get_signing(&self, key: &SigningKeyRef) -> Result<SigningSecret, RuntimeError> {
+        signing_secret(self.lookup(&signing_entry_name(key))?)
+    }
+
+    fn put_signing(&self, key: &SigningKeyRef, value: &SigningSecret) -> Result<(), RuntimeError> {
+        self.keep(signing_entry_name(key), stored_signing(value));
+        Ok(())
+    }
+
+    fn forget_signing(&self, key: &SigningKeyRef) -> Result<(), RuntimeError> {
+        self.remove(&signing_entry_name(key));
         Ok(())
     }
 }

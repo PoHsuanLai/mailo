@@ -10,6 +10,7 @@ use mail_app::cli;
 use mail_core::compose;
 use mail_core::pgp::WithSecret;
 use mail_core::smime;
+use mail_domain::signing::{SigningKeyId, SigningKeyRef, SigningSecret};
 use mail_domain::*;
 use mail_mime::smime::{self as cms_smime, Cert, Sealing};
 use mail_runtime::{Arrival, MapSecrets, Secrets};
@@ -226,12 +227,12 @@ mod identities {
             Some(mine.fingerprint)
         );
         let held = secrets
-            .get(&SecretKey {
+            .get_signing(&SigningKeyRef {
                 account: ACCOUNT,
-                purpose: SecretPurpose::Smime(mine.fingerprint),
+                key: SigningKeyId::Smime(mine.fingerprint),
             })
             .unwrap();
-        let Credential::SmimeKey(pem) = held else {
+        let SigningSecret::SmimeKey(pem) = held else {
             panic!("{held:?}");
         };
         assert_eq!(
@@ -297,17 +298,17 @@ mod identities {
         let _serial = serial();
         let (store, _dir, secrets) = with_identity();
         let mine = smime::certs::find(&store, ME).unwrap();
-        let entry = SecretKey {
+        let entry = SigningKeyRef {
             account: ACCOUNT,
-            purpose: SecretPurpose::Smime(mine.fingerprint),
+            key: SigningKeyId::Smime(mine.fingerprint),
         };
         let refused =
             smime::certs::delete(&store, &secrets, &mine, WithSecret::Refuse).unwrap_err();
         assert!(matches!(refused, smime::SmimeError::SecretWouldBeLost(_)));
-        assert!(secrets.get(&entry).is_ok());
+        assert!(secrets.get_signing(&entry).is_ok());
         smime::certs::delete(&store, &secrets, &mine, WithSecret::Confirmed).unwrap();
         assert!(
-            secrets.get(&entry).is_err(),
+            secrets.get_signing(&entry).is_err(),
             "the key is gone from the keyring"
         );
         assert_eq!(store.smime_cert(mine.fingerprint).unwrap(), None);

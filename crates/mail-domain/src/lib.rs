@@ -25,6 +25,7 @@ pub mod receipt;
 pub mod remote;
 pub mod retry;
 pub mod rule;
+pub mod signing;
 pub mod smime;
 pub mod state;
 pub mod template;

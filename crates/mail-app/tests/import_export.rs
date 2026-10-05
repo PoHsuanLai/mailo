@@ -8,6 +8,7 @@ use mail_core::compose;
 use mail_core::export;
 use mail_core::import;
 use mail_core::sync;
+use mail_domain::signing::{SigningKeyRef, SigningSecret};
 use mail_domain::*;
 use mail_mime::archive::maildir::INFO;
 use mail_mime::archive::mbox;
@@ -475,6 +476,15 @@ impl Secrets for Counting {
         Ok(())
     }
     fn forget(&self, _: &SecretKey) -> Result<(), RuntimeError> {
+        Ok(())
+    }
+    fn get_signing(&self, _: &SigningKeyRef) -> Result<SigningSecret, RuntimeError> {
+        Err(RuntimeError::Secrets("none".to_owned()))
+    }
+    fn put_signing(&self, _: &SigningKeyRef, _: &SigningSecret) -> Result<(), RuntimeError> {
+        Ok(())
+    }
+    fn forget_signing(&self, _: &SigningKeyRef) -> Result<(), RuntimeError> {
         Ok(())
     }
 }
