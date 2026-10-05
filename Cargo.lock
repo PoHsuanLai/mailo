@@ -4405,6 +4405,7 @@ dependencies = [
  "ds-settings",
  "futures-util",
  "image",
+ "latchkey",
  "mail-core",
  "mail-domain",
  "mail-mime",

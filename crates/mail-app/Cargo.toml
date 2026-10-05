@@ -156,6 +156,8 @@ p256 = { version = "0.13", features = ["ecdsa"] }
 # A paused clock, so a test drives the search box's debounce instead of sleeping through it.
 tokio = { version = "1", features = ["test-util"] }
 dioxus-ssr = "0.7"
+# A watch's door in a scratch directory (`ui::fetching::external`'s tests), never the person's.
+latchkey.workspace = true
 uuid = { workspace = true }
 proptest = "1"
 # The linter (`lint::assert_clean`, the markup lint) and the test driver (`Harness`, `Driver`,
