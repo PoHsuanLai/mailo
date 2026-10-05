@@ -289,10 +289,15 @@ fn screens() {
         h.advance(ms(200));
         h.key(Key::Enter);
         shot(&mut h, &out, "add-account-sheet", dark);
-        // The Space editor, through the gear beside the Space's name.
+        // Settings, through the gear in the sidebar's foot.
         h.key(Key::Escape);
         h.advance(ms(400));
-        click(&mut h, "[*|aria-label=\"Space settings\"]");
+        click(&mut h, "[*|aria-label=\"Settings\"][*|title]");
+        shot(&mut h, &out, "settings-sheet", dark);
+        // The Space editor, through the Space's name.
+        h.key(Key::Escape);
+        h.advance(ms(400));
+        click(&mut h, ".space-name");
         shot(&mut h, &out, "space-editor-sheet", dark);
     }
 }

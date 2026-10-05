@@ -132,3 +132,21 @@ async fn escape_closes_settings() {
     let page = dioxus_ssr::render(&dom);
     assert!(!page.contains("data-page=\"General\""), "{page}");
 }
+
+#[tokio::test]
+async fn the_gear_in_the_sidebar_s_foot_opens_settings() {
+    let built = work();
+    dispatching();
+    let mut dom = VirtualDom::new(App)
+        .with_root_context(built.store.clone())
+        .with_root_context(built.dirs.clone());
+    let seen = rebuild_into(&mut dom);
+    click(&mut dom, seen.one("aria-label", "Settings"));
+    let _ = drain_seen(&mut dom);
+    let page = dioxus_ssr::render(&dom);
+    assert!(
+        page.contains("data-page=\"General\""),
+        "the gear opened something else: {page}"
+    );
+    assert!(!page.contains("aria-label=\"Space editor\""), "{page}");
+}

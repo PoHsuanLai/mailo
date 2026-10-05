@@ -174,12 +174,12 @@ pub(super) fn Places(
                     image: ImagePosition::Only,
                     size: ControlSize::Small,
                     icon: Icon::Settings,
-                    label: "Space settings",
-                    title: "Space settings".to_owned(),
-                    shown: if editing.read().is_some() { Shown::Visible } else { Shown::Hidden },
+                    label: "Settings",
+                    title: "Settings (\u{2318},)".to_owned(),
+                    shown: if shell.read().settings.is_some() { Shown::Visible } else { Shown::Hidden },
                     onclick: move |_| {
                         if editing.read().is_none() {
-                            switch::edit(spaces, editing);
+                            crate::ui::settings_sheet::open(shell);
                         }
                     },
                 }
