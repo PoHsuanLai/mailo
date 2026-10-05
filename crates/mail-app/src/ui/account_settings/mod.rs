@@ -155,7 +155,7 @@ pub(in crate::ui) fn AccountSettingsSheet(shell: Signal<Shell>, revision: Signal
                 attach: Attach::Window,
                 common: in_card(),
                 onclose: move |()| close(shell),
-                div { class: "acct-sheet",
+                div { class: "acct-details",
                     Label { text: words::refused(&mail_core::account::RemoveError::Unknown) }
                     div { class: "acct-foot",
                         SheetClose { label: "Done", on_close: move |()| close(shell) }
@@ -230,7 +230,7 @@ pub(in crate::ui) fn AccountSettingsSheet(shell: Signal<Shell>, revision: Signal
             attach: Attach::Window,
             common: in_card(),
             onclose: move |()| escape(shell),
-            div { class: "acct-sheet",
+            div { class: "acct-details",
                 Label { text: name.clone(), style: LabelStyle::Title }
                 {body}
             }

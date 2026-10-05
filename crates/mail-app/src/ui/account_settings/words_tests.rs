@@ -188,17 +188,17 @@ fn the_confirmation_counts_the_mail_and_says_when_it_is_the_only_copy() {
 }
 
 #[test]
-fn a_refusal_says_that_nothing_was_removed_or_that_it_already_was() {
+fn a_refusal_says_the_account_was_not_removed_or_already_was() {
     let cases = [
         (RemoveError::Unknown, "already removed"),
         (RemoveError::Local, "cannot be removed"),
         (
             RemoveError::Keyring("locked".to_owned()),
-            "nothing was removed",
+            "were not removed",
         ),
         (
             RemoveError::Store("disk full".to_owned()),
-            "Nothing was removed: disk full",
+            "were not removed: disk full",
         ),
     ];
     for (error, has) in cases {

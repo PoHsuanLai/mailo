@@ -1,9 +1,12 @@
 //! Removing an account from this computer: its saved sign-in, then everything the database keeps
 //! of it.
 //!
-//! The keyring goes first. A sign-in that cannot be forgotten stops the removal with nothing
-//! deleted, so the account is still there to try again; the other order would leave a password
-//! in the keyring that no account names any more, which nothing would ever find to clean up.
+//! The keyring goes first. A sign-in that cannot be forgotten stops the removal before the
+//! database is touched, so the account and its mail are still there to try again; the other
+//! order would leave a password in the keyring that no account names any more, which nothing
+//! would ever find to clean up. A keyring cannot forget several entries at once, so the ones
+//! forgotten before a refusal stay forgotten: the account then asks to sign in again, which is
+//! what [`RemoveError::Keyring`] says.
 //! The database goes last ([`SqliteStore::remove_account`]): every row that names the account,
 //! and the stored messages and attachment parts nothing else uses. Nothing on the server is
 //! touched, and keys and certificates stay: they are the user's, not the account's.
@@ -31,7 +34,9 @@ pub struct Removed {
     pub freed: Freed,
 }
 
-/// Why an account was not removed. Nothing was deleted in any of these cases.
+/// Why an account was not removed. In every case the account and its mail are still there; after
+/// [`RemoveError::Keyring`] or [`RemoveError::Store`], some of its saved sign-ins may already be
+/// forgotten (see the module's words), and it asks to sign in again.
 #[derive(Debug, thiserror::Error)]
 pub enum RemoveError {
     /// No account has this id: removed already, or never added.
@@ -41,11 +46,18 @@ pub enum RemoveError {
     /// it would delete for good.
     #[error("the account that keeps mail on this computer cannot be removed")]
     Local,
-    /// The keyring would not forget a sign-in, so the account stays as it was.
-    #[error("the keyring would not forget the sign-in: {0}")]
+    /// The keyring would not forget a sign-in: the account and its mail stay, and a sign-in
+    /// forgotten before the refusal stays forgotten.
+    #[error(
+        "the keyring would not forget a saved sign-in, so the account was not removed \
+         (it may ask to sign in again): {0}"
+    )]
     Keyring(String),
-    /// The database could not be read or written.
-    #[error("the database refused: {0}")]
+    /// The database could not be read or written, after the sign-ins were forgotten: the account
+    /// and its mail stay, and it asks to sign in again.
+    #[error(
+        "the database refused, so the account was not removed (it will ask to sign in again): {0}"
+    )]
     Store(String),
 }
 

@@ -215,10 +215,17 @@ pub(super) fn AccountTiles(
             Floating {
                 anchor: row_at(),
                 title: "Add to this Space".to_owned(),
-                items: join::items(&outside, |id| {
-                    let index = colors.colors.len();
-                    space::avatar_color(&colors, id, index)
-                }),
+                items: {
+                    // The swatch an account takes is by its place among every account, as its
+                    // tile's is: two uncoloured accounts do not share one.
+                    let store = consume_context::<std::sync::Arc<SqliteStore>>();
+                    let all: Vec<AccountId> =
+                        account_rows(&store).into_iter().map(|row| row.id).collect();
+                    join::items(&outside, |id| {
+                        let index = all.iter().position(|each| *each == id).unwrap_or(0);
+                        space::avatar_color(&colors, id, index)
+                    })
+                },
                 on_pick: move |key: String| {
                     joining.set(None);
                     match join::picked(&key, &outside) {
