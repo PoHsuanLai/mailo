@@ -239,7 +239,7 @@ fn open() -> Window {
 }
 
 fn row(n: usize) -> String {
-    format!(".ds-list > .ds-list-item:nth-child({n}) .ds-thread")
+    format!(".list .ds-list-item[*|aria-posinset=\"{n}\"] .ds-thread")
 }
 
 fn open_row(harness: &mut Harness, n: usize) {

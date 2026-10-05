@@ -12,8 +12,10 @@
 //! its own. A search includes the box's quiet period (`debounce::QUIET`, 150 ms), which runs on
 //! real time.
 //!
-//! Ignored by default, and it prints rather than asserts, for the reason `frame_budget` gives.
-//! Run it with
+//! The measurements are ignored by default, and print rather than assert, for the reason
+//! `frame_budget` gives. One check over the same inbox always runs: that the list is windowed,
+//! mounting only the rows near the viewport and asking for the next page as its end comes near.
+//! Run the measurements with
 //!
 //! ```text
 //! cargo test -p mail-app --test native_latency -- --ignored --nocapture
@@ -201,7 +203,7 @@ fn ms(d: Duration) -> f64 {
 
 /// The `n`th item of the list (1-based).
 fn item(n: usize) -> String {
-    format!(".list .ds-list > .ds-list-item:nth-child({n})")
+    format!(".list .ds-list-item[*|aria-posinset=\"{n}\"]")
 }
 
 /// The `n`th row of the list (1-based).
@@ -345,4 +347,47 @@ fn from_launch_to_the_first_painted_list() {
         })
         .collect();
     report("launch to the first list", starts);
+}
+
+/// How many rows the list says it holds: every mounted item carries the set's size.
+fn set_size(harness: &Harness) -> Option<usize> {
+    harness
+        .attr(".list .ds-list-item[*|aria-setsize]", "aria-setsize")
+        .and_then(|size| size.parse().ok())
+}
+
+#[test]
+fn a_long_inbox_mounts_the_rows_near_the_viewport_and_pages_as_its_end_comes_near() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = seeded(dir.path());
+    let mut harness = Harness::new(mail_app::ui::native::root, config(&store, dir.path()));
+    settle_until(&mut harness, listed);
+    // A page of a hundred is listed; only a window of it is drawn: what an 800 px window shows of
+    // 66 px rows, and a few more on each side.
+    settle_until(&mut harness, |h| set_size(h) == Some(100));
+    let mounted = harness.count(".list .ds-thread");
+    assert!(
+        (8..=30).contains(&mounted),
+        "{mounted} of 100 rows are mounted"
+    );
+    // Scrolled down towards the end of the page, the next page is asked for and drawn: there is
+    // no "Show more" to press.
+    let over = harness.centre(".list").expect("the list is drawn");
+    let deadline = Instant::now() + WAIT_BOUND;
+    while set_size(&harness) != Some(200) {
+        assert!(
+            Instant::now() < deadline,
+            "the next page never came: {:?} rows listed",
+            set_size(&harness)
+        );
+        // A negative delta scrolls down, as a wheel turned towards the person does.
+        harness.wheel(over, Px(0.0), Px(-120.0));
+        harness.advance(Duration::from_millis(20));
+        std::thread::yield_now();
+    }
+    let mounted = harness.count(".list .ds-thread");
+    assert!(
+        (8..=30).contains(&mounted),
+        "{mounted} of 200 rows are mounted"
+    );
 }

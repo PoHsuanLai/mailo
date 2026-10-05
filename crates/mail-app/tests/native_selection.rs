@@ -140,7 +140,7 @@ fn open() -> (Harness, tempfile::TempDir, Arc<SqliteStore>) {
 
 /// The `n`th row of the list (1-based).
 fn row(n: usize) -> String {
-    format!(".list .ds-list > .ds-list-item:nth-child({n}) .ds-row")
+    format!(".list .ds-list-item[*|aria-posinset=\"{n}\"] .ds-row")
 }
 
 /// Where a person clicks the `n`th row: the start of its subject line, clear of the hover strip.

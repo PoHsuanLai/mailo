@@ -227,7 +227,7 @@ fn message_window_on(
 
 /// The `n`th row of the list (1-based).
 fn row(n: usize) -> String {
-    format!(".list .ds-list > .ds-list-item:nth-child({n})")
+    format!(".list .ds-list-item[*|aria-posinset=\"{n}\"]")
 }
 
 fn centre(harness: &Harness, selector: &str) -> Point {
@@ -344,7 +344,11 @@ fn the_window_s_root_draws_the_reader_for_its_conversation_and_nothing_else() {
         "{}",
         frame.html()
     );
-    assert_eq!(harness.count(".ds-list"), 0, "the window drew a list");
+    assert_eq!(
+        harness.count(".ds-list, .ds-virtual-list"),
+        0,
+        "the window drew a list"
+    );
     assert_eq!(harness.count(".side"), 0, "the window drew the sidebar");
     // The window is the page: no peek, and no second "Open in new window" from inside it.
     for tool in ["Side peek", "Centre peek", "Full page", "More"] {

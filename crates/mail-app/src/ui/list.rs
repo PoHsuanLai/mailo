@@ -21,9 +21,9 @@ use dioxus::prelude::*;
 use ds::components::chrome::toolbar::view::Toolbar;
 use ds::components::content::label::{Label, LabelRole, LabelStyle};
 use ds::components::controls::button_model::{Bezel, ImagePosition};
+use ds::components::lists::virtual_list::{RowHeight, VirtualList};
 use ds::components::overlays::empty_state::EmptyForm;
 use ds::prelude::*;
-use ds::style::tokens::control_size::ControlSize;
 use mail_core::fetch::Link;
 use mail_core::provider::provider;
 use mail_domain::*;
@@ -37,7 +37,33 @@ mod status;
 use self::first_sync::FirstSyncRows;
 use self::status::ListStatus;
 
-/// What a list item is, by identity: the same key on every render, so quire's `List` keeps a
+/// How far apart the list's rows are, their gap included: quire's card-density `ThreadRow` (three
+/// lines and their padding, 61 px) and the 5 px under it.
+const ROW_PITCH: f32 = 66.0;
+
+/// A `SectionHeader`'s height: its eyebrow line and its padding (27.05 px drawn).
+const HEADING_PITCH: f32 = 27.0;
+
+/// How tall `slot`'s item is. Each is held to its height (`style/list.css`), so a font that sets a
+/// line a fraction taller cannot push the rows off the offsets the window is computed from.
+fn pitch(slot: &Slot) -> f32 {
+    match slot {
+        Slot::Draft(_) | Slot::Top(_) | Slot::Thread(_) | Slot::Server(_) => ROW_PITCH,
+        Slot::Band(_) | Slot::TopHeading | Slot::NewestHeading | Slot::ServerHeading => {
+            HEADING_PITCH
+        }
+    }
+}
+
+/// The rows the list mounts beyond the viewport, on each side. The `VirtualDom` fixtures
+/// have no layout, so a viewport there is never measured and would show the overscan alone: they
+/// mount every row, and the windowing itself is tested on Blitz.
+#[cfg(not(test))]
+const OVERSCAN: usize = 4;
+#[cfg(test)]
+const OVERSCAN: usize = usize::MAX / 2;
+
+/// What a list item is, by identity: the same key on every render, so quire's `VirtualList` keeps a
 /// row where it is, plays an exit for one that stops being listed and an entrance for a new one.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum Slot {
@@ -221,7 +247,7 @@ pub(super) fn ThreadList(
     if !strip.is_empty() {
         items.push(ListItem::heading(
             Slot::TopHeading,
-            rsx! { SectionHeader { title: "Top results".to_owned() } },
+            rsx! { div { class: "band", SectionHeader { title: "Top results".to_owned() } } },
         ));
         for summary in strip {
             let Dress { via, chips, hit } = dress_row(&summary);
@@ -236,7 +262,7 @@ pub(super) fn ThreadList(
         }
         items.push(ListItem::heading(
             Slot::NewestHeading,
-            rsx! { SectionHeader { title: "Newest first".to_owned() } },
+            rsx! { div { class: "band", SectionHeader { title: "Newest first".to_owned() } } },
         ));
     }
     for band in group_list(
@@ -249,7 +275,7 @@ pub(super) fn ThreadList(
         if let Some(title) = band.title {
             items.push(ListItem::heading(
                 Slot::Band(title.clone()),
-                rsx! { SectionHeader { title } },
+                rsx! { div { class: "band", SectionHeader { title } } },
             ));
         }
         for summary in band.threads {
@@ -267,7 +293,7 @@ pub(super) fn ThreadList(
     if !server_rows.is_empty() {
         items.push(ListItem::heading(
             Slot::ServerHeading,
-            rsx! { SectionHeader { title: "From the server".to_owned() } },
+            rsx! { div { class: "band", SectionHeader { title: "From the server".to_owned() } } },
         ));
         for summary in server_rows {
             let Dress { via, chips, hit } = dress_row(&summary);
@@ -282,6 +308,21 @@ pub(super) fn ThreadList(
         }
     }
     let cursor = shell.read().open.map(Slot::Thread);
+    let open_slot = move |slot: Slot| {
+        if let Slot::Thread(id) | Slot::Top(id) | Slot::Server(id) = slot {
+            shell.write().open(id);
+        }
+    };
+    // Windowed: only the rows near the viewport are mounted, so a folder of ten thousand draws as
+    // cheaply as one of twenty. Each item's height is known before it is drawn — a mail or draft
+    // row, or a heading — and each is held to it (`style/list.css`).
+    let keys: Vec<Slot> = items.iter().map(|item| item.key.clone()).collect();
+    let drawn: std::collections::HashMap<Slot, Element> = items
+        .into_iter()
+        .map(|item| (item.key, item.content))
+        .collect();
+    let row = Callback::new(move |slot: Slot| drawn.get(&slot).cloned().unwrap_or_else(|| rsx! {}));
+    let height = RowHeight::PerKey(Callback::new(|slot: Slot| Px(pitch(&slot))));
     let nothing_here = threads().is_empty() && drafts().is_empty() && found().is_empty();
     let has_rows = if nothing_here {
         HasRows::No
@@ -435,26 +476,31 @@ pub(super) fn ThreadList(
                 onblur: move |()| in_a_field.set(false),
                 common: classed("search"),
             }
-            // quire's list in mailo's scroller: it keeps each row by its key, so a row that
-            // leaves plays its exit and the rows below close the gap. A `Loadable` decides what
-            // the pane holds: outline rows while the first mail comes, the failure when no
-            // account can be reached, else the rows, which fade in when they arrive.
+            // quire's list: it keeps each row by its key, so a row that leaves plays its exit and
+            // the rows below close the gap. A `Loadable` decides what the pane holds: outline rows
+            // while the first mail comes, the failure when no account can be reached, else the
+            // rows, which fade in when they arrive. Keyed by the question, so another place or
+            // another search is a new list, from its top, not this one losing every row through
+            // its exit.
             div { class: "list",
                 Loadable {
                     phase,
                     placeholder: rsx! { FirstSyncRows {} },
                     onretry: retry,
                     action: doctor_action,
-                    // Keyed by the question, so another place or another search is a new list,
-                        // not this one losing every row through its exit.
-                        List::<Slot> {
+                    VirtualList::<Slot> {
                         key: "{question}",
                         label: place.clone(),
-                        items,
+                        keys,
+                        row,
+                        height,
+                        overscan: OVERSCAN,
                         cursor,
-                        onselect: move |slot: Slot| {
-                            if let Slot::Thread(id) | Slot::Top(id) | Slot::Server(id) = slot {
-                                shell.write().open(id);
+                        onselect: open_slot,
+                        // The next page is asked for as the end of the list comes near.
+                        near_end: move |()| {
+                            if more() && !paging() {
+                                pages += 1;
                             }
                         },
                     }
@@ -469,16 +515,6 @@ pub(super) fn ThreadList(
             }
             if !servers.is_empty() {
                 ServerSearch { input: line.clone(), accounts: servers, asked, revision }
-            }
-            if more() {
-                div { class: "more",
-                    Button {
-                        size: ControlSize::Small,
-                        label: "Show more",
-                        availability: if paging() { Availability::Busy } else { Availability::Enabled },
-                        onclick: on_primary(move || pages += 1),
-                    }
-                }
             }
             Toast { shell, revision }
             Ghost {}
