@@ -6,21 +6,18 @@ use std::collections::BTreeSet;
 
 /// The accounts in view that have something to fetch, from the pressed tile or the Space.
 ///
-/// A pressed tile is that one account; otherwise the Space's `scope`, empty meaning every
-/// account. Only accounts in `with_links` can be fetched, which leaves out the one that keeps
+/// A pressed tile is that one account; otherwise the Space's `scope`. Only accounts in `with_links` can be fetched, which leaves out the one that keeps
 /// its mail on this computer.
 pub(super) fn in_scope(
     with_links: &BTreeSet<AccountId>,
     pressed: Option<AccountId>,
-    scope: &[AccountId],
+    scope: &crate::ui::space::Scope,
 ) -> Vec<AccountId> {
+    let scope = scope.narrowed(pressed);
     with_links
         .iter()
         .copied()
-        .filter(|id| match pressed {
-            Some(one) => *id == one,
-            None => scope.is_empty() || scope.contains(id),
-        })
+        .filter(|id| scope.shows(*id))
         .collect()
 }
 

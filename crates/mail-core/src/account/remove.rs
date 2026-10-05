@@ -4,13 +4,13 @@
 //! The keyring goes first. A sign-in that cannot be forgotten stops the removal with nothing
 //! deleted, so the account is still there to try again; the other order would leave a password
 //! in the keyring that no account names any more, which nothing would ever find to clean up.
-//! The database row goes last, in one statement, and every table that names the account follows
-//! it by `ON DELETE CASCADE` (contacts keep themselves: theirs is `SET NULL`). Nothing on the
-//! server is touched, and keys and certificates stay: they are the user's, not the account's.
+//! The database goes last ([`SqliteStore::remove_account`]): every row that names the account,
+//! and the stored messages and attachment parts nothing else uses. Nothing on the server is
+//! touched, and keys and certificates stay: they are the user's, not the account's.
 
 use mail_domain::{AccountId, AccountPlan, Incoming, SecretKey, SecretPurpose};
 use mail_runtime::Secrets;
-use mail_store::SqliteStore;
+use mail_store::{Freed, SqliteStore};
 use rusqlite::OptionalExtension as _;
 
 /// Every secret kept under an account's id. Keys and certificates are kept under their
@@ -27,6 +27,8 @@ const PURPOSES: [SecretPurpose; 4] = [
 pub struct Removed {
     /// The address it had, for the front-end to say what went.
     pub address: String,
+    /// The stored messages and parts that went with it.
+    pub freed: Freed,
 }
 
 /// Why an account was not removed. Nothing was deleted in any of these cases.
@@ -77,13 +79,12 @@ pub fn remove(
             .forget(&SecretKey { account, purpose })
             .map_err(|e| RemoveError::Keyring(e.to_string()))?;
     }
-    let gone = store
-        .connection()
-        .execute("DELETE FROM accounts WHERE id = ?1", [&id])
-        .map_err(|e| RemoveError::Store(e.to_string()))?;
-    match gone {
-        0 => Err(RemoveError::Unknown),
-        _ => Ok(Removed { address }),
+    match store
+        .remove_account(account)
+        .map_err(|e| RemoveError::Store(e.to_string()))?
+    {
+        None => Err(RemoveError::Unknown),
+        Some(freed) => Ok(Removed { address, freed }),
     }
 }
 

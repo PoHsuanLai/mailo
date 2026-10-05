@@ -104,14 +104,11 @@ impl AccountRow {
 pub(super) fn syncs_nothing(
     rows: &[AccountRow],
     pressed: Option<AccountId>,
-    scope: &[AccountId],
+    scope: &crate::ui::space::Scope,
 ) -> bool {
     let in_view: Vec<&AccountRow> = rows
         .iter()
-        .filter(|row| match pressed {
-            Some(id) => row.id == id,
-            None => scope.is_empty() || scope.contains(&row.id),
-        })
+        .filter(|row| scope.narrowed(pressed).shows(row.id))
         .collect();
     !in_view.is_empty() && in_view.iter().all(|row| row.is_local())
 }
@@ -138,6 +135,21 @@ fn fallback_plan(address: &str) -> AccountPlan {
         },
         identities: Vec::new(),
     }
+}
+
+/// Every configured account, or why the store could not say. Where an empty answer would be
+/// acted on (taking accounts out of the Spaces), a failed read must not look like no accounts.
+pub(super) fn known_accounts(store: &SqliteStore) -> Result<Vec<AccountId>, rusqlite::Error> {
+    let db = store.connection();
+    let mut stmt = db.prepare("SELECT id FROM accounts ORDER BY created_at")?;
+    let ids = stmt
+        .query_map([], |r| r.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(ids
+        .into_iter()
+        .filter_map(|id| id.parse().ok())
+        .map(AccountId::from_uuid)
+        .collect())
 }
 
 /// Every configured account, for the places that are not scoped to one.

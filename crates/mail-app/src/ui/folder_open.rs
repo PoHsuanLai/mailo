@@ -54,10 +54,9 @@ pub(in crate::ui) fn title_address(
         return None;
     }
     let mailbox = folder_of(shell.places.get(shell.selected)?)?;
-    let several = match shell.scope.as_slice() {
-        [] => accounts.len() > 1,
-        [_] => false,
-        _ => true,
+    let several = match &shell.scope {
+        crate::ui::space::Scope::All => accounts.len() > 1,
+        crate::ui::space::Scope::Accounts(ids) => ids.len() > 1,
     };
     several
         .then(|| accounts.iter().find(|(id, _)| *id == mailbox.account))

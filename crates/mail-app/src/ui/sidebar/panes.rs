@@ -5,7 +5,7 @@ use super::super::motion::{drag, motion};
 use super::tagged;
 use crate::ui::fetching::{Fetching, Mark, account_mark_local};
 use crate::ui::provider_chip::{mark_of, mark_style};
-use crate::ui::space::{self, Pinned, Scope, Space};
+use crate::ui::space::{self, Pinned, Space};
 use crate::ui::view::{Shell, Source, folder_of, is_label_place, saved_of};
 use dioxus::prelude::*;
 use ds::base::vocab::RowState;
@@ -35,10 +35,7 @@ pub(super) fn counts(store: &SqliteStore, space: &Space) -> Counts {
     let rows = account_rows(store);
     let shown: Vec<_> = rows
         .into_iter()
-        .filter(|row| match &space.scope {
-            Scope::All => true,
-            Scope::Accounts(ids) => ids.contains(&row.id),
-        })
+        .filter(|row| space.scope.shows(row.id))
         .collect();
     let labels = query::known_labels(store);
     let scope = scope_filter(space);
@@ -86,14 +83,7 @@ pub(super) fn counts(store: &SqliteStore, space: &Space) -> Counts {
 }
 
 fn scope_filter(space: &Space) -> Option<Filter> {
-    match &space.scope {
-        Scope::All => None,
-        Scope::Accounts(ids) if ids.len() == 1 => Some(Filter::Account(ids[0])),
-        Scope::Accounts(ids) if ids.is_empty() => Some(Filter::Nothing),
-        Scope::Accounts(ids) => Some(Filter::Or(
-            ids.iter().copied().map(Filter::Account).collect(),
-        )),
-    }
+    space.scope.filter()
 }
 
 fn pin_filter(pin: &Pinned, labels: &[(String, LabelId)]) -> Filter {

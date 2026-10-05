@@ -11,6 +11,7 @@ use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 use std::fmt::Write as _;
 
+mod account;
 pub mod discover;
 mod invite;
 mod rules;
@@ -48,6 +49,9 @@ pub enum Command {
     },
     /// What discovery finds for an address, printed and not acted on.
     AccountDiscover { address: String },
+    /// Remove an account and everything kept of it here; without `--yes`, only say what that
+    /// would take.
+    AccountRemove { address: String, consent: Consent },
     /// Configured accounts, and what each still needs.
     AccountList,
     /// Folders on every account, or on the one named.
@@ -886,6 +890,22 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                 }),
                 _ => Err(format!("account discover takes one address\n\n{}", usage())),
             },
+            Some("remove") => match &args[2..] {
+                [address] if address != "--yes" => Ok(Command::AccountRemove {
+                    address: address.clone(),
+                    consent: Consent::Ask,
+                }),
+                [address, yes] | [yes, address] if yes == "--yes" && address != "--yes" => {
+                    Ok(Command::AccountRemove {
+                        address: address.clone(),
+                        consent: Consent::Given,
+                    })
+                }
+                _ => Err(format!(
+                    "account remove takes one address, and --yes to remove it\n\n{}",
+                    usage()
+                )),
+            },
             None | Some("list") => Ok(Command::AccountList),
             Some(other) => Err(format!("unknown account command {other:?}\n\n{}", usage())),
         },
@@ -1053,7 +1073,7 @@ fn parse_folder(args: &[String]) -> Result<Command, String> {
     })
 }
 
-/// Whether the user has already agreed to use what discovery finds.
+/// Whether the user has already agreed: to use what discovery finds, or to remove an account.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Consent {
     /// `--yes`.
@@ -1315,6 +1335,9 @@ usage: mailo <command>
                              the preset table does not know, the servers are looked up
                              and shown for confirmation first; --yes accepts them
   account discover <address> what that lookup finds, without adding anything
+  account remove <address> [--yes]
+                             what removing it takes from this computer; --yes removes
+                             it, its mail here and its saved sign-in
   account add <address> --imap HOST[:PORT] --smtp HOST[:PORT] [--login NAME]
                              for a server the preset table does not know
   account add <address> --pop3 HOST[:PORT] --smtp HOST[:PORT] [--login NAME]
@@ -1698,6 +1721,13 @@ pub fn run_with_clients(
             now,
         ),
         Command::AccountList => mail_core::account::list(store),
+        Command::AccountRemove { address, consent } => account::remove(
+            store,
+            &mail_runtime::KeyringSecrets,
+            mail_core::config::config_dir().as_deref(),
+            address,
+            *consent,
+        ),
         Command::FolderList { account } => {
             let id = account
                 .as_deref()
@@ -1926,6 +1956,39 @@ mod tests {
             assert!(said.contains("sync [--folder <account> <path>]"), "{said}");
         }
         assert!(usage().contains("sync --folder <account> <path>"));
+    }
+
+    #[test]
+    fn account_remove_asks_unless_told_yes() {
+        let remove = |consent| Command::AccountRemove {
+            address: "me@example.test".to_owned(),
+            consent,
+        };
+        let cases: Vec<(&[&str], Command)> = vec![
+            (
+                &["account", "remove", "me@example.test"],
+                remove(Consent::Ask),
+            ),
+            (
+                &["account", "remove", "me@example.test", "--yes"],
+                remove(Consent::Given),
+            ),
+            (
+                &["account", "remove", "--yes", "me@example.test"],
+                remove(Consent::Given),
+            ),
+        ];
+        for (words, expect) in cases {
+            assert_eq!(parse(&args(words)).unwrap(), expect, "{words:?}");
+        }
+        for wrong in [
+            &["account", "remove"][..],
+            &["account", "remove", "a@example.test", "b@example.test"],
+            &["account", "remove", "--yes"],
+        ] {
+            let said = parse(&args(wrong)).unwrap_err();
+            assert!(said.contains("account remove takes one address"), "{said}");
+        }
     }
 
     #[test]
