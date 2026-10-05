@@ -47,16 +47,23 @@ fn insert(connection: &rusqlite::Connection, id: &str) {
         .unwrap();
 }
 
-/// A door in `dir`, never the person's runtime directory.
+/// A door in `dir`, never the person's, as this platform makes one: a socket in `dir`, or on
+/// Windows a named pipe with its lock in `dir`.
 fn scratch(dir: &Path, name: &str) -> latchkey::Agent {
+    // The test directory's own name keeps two runs' pipes apart: a pipe's namespace is the
+    // machine's, not the directory's.
+    let unique = dir
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("test");
     let environment = latchkey::Environment {
         runtime_dir: Some(dir.as_os_str()),
-        tmpdir: None,
+        tmpdir: Some(dir.as_os_str()),
         home: None,
-        local_app_data: None,
-        user: None,
+        local_app_data: Some(dir.as_os_str()),
+        user: Some(unique),
     };
-    latchkey::Agent::in_environment(name, latchkey::Host::Linux, &environment).unwrap()
+    latchkey::Agent::in_environment(name, latchkey::here(), &environment).unwrap()
 }
 
 /// Knock on `agent`, as [`Doors::server`] knocks on the watch's.
