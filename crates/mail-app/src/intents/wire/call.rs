@@ -1,5 +1,6 @@
 //! What the router sends: an invocation, the thing it names, the arguments it carries.
 
+use super::Label;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -82,12 +83,15 @@ impl std::fmt::Debug for Value {
     }
 }
 
-/// An argument and where it came from. Mailo does not read the label: the router has gated the
-/// call on it already.
+/// An argument and where it came from. The router has gated the call on the label already;
+/// mailo carries it on to what it shows back of the argument, so that a recipient an agent lifted
+/// from a message is drawn as one.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct Arg {
     /// The value.
     pub value: Value,
+    /// Where it came from.
+    pub label: Label,
 }
 
 /// What `Perform` and `DryRun` are given.
@@ -110,6 +114,19 @@ impl Invocation {
     pub fn text(&self, name: &str) -> Option<&str> {
         match &self.args.get(name)?.value {
             Value::Text(text) => Some(text),
+            _ => None,
+        }
+    }
+
+    /// The label of argument `name`, when it was given.
+    pub fn label(&self, name: &str) -> Option<&Label> {
+        self.args.get(name).map(|arg| &arg.label)
+    }
+
+    /// The entity argument `name`, when it was given as one.
+    pub fn entity(&self, name: &str) -> Option<&EntityId> {
+        match &self.args.get(name)?.value {
+            Value::Entity(id) => Some(id),
             _ => None,
         }
     }

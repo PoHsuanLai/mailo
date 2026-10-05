@@ -5,6 +5,7 @@
 //! runs in a test against a store and nothing else.
 
 mod act;
+mod contacts;
 mod drafts;
 mod find;
 mod threads;
@@ -71,17 +72,20 @@ impl Provider {
         match Act::named(&invocation.action).ok_or(AppRefusal::Unsupported)? {
             Act::Search => self.search_action(invocation),
             Act::Read => self.read(invocation),
+            Act::Contacts => self.contacts(invocation),
             Act::Thread(kind) => self.on_threads(kind, invocation),
             Act::CreateDraft => self.create_draft(invocation),
             Act::Send => self.send(invocation),
+            Act::Forward => self.forward(invocation),
         }
     }
 
-    /// `DryRun`: what the action would do, for the person to read first. Only a send has anything
-    /// to show.
+    /// `DryRun`: what the action would do, for the person to read first. Only what sends mail has
+    /// anything to show.
     pub fn dry_run(&self, invocation: &Invocation) -> Result<Preview, AppRefusal> {
         match Act::named(&invocation.action).ok_or(AppRefusal::Unsupported)? {
             Act::Send => self.preview_send(invocation),
+            Act::Forward => self.preview_forward(invocation),
             _ => Ok(Preview::None),
         }
     }
@@ -92,7 +96,7 @@ impl Provider {
         match Token::parse(token).ok_or(UndoFault::Gone)? {
             Token::Stack(handle) => self.take_back_stack(handle),
             Token::Discard(draft) => self.discard(draft),
-            Token::Unsend(draft) => self.unsend(draft),
+            Token::Unsend(drafts) => self.unsend(&drafts),
         }
     }
 

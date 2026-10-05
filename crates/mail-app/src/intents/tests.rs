@@ -98,6 +98,12 @@ async fn ask(proxy: &zbus::Proxy<'_>, member: &str, argument: &str) -> zbus::Res
     }
 }
 
+/// The router's label for what the person typed.
+fn user_label() -> serde_json::Value {
+    serde_json::json!({ "integrity": "trusted", "confidentiality": { "kind": "public" },
+                        "classes": [], "sources": [{ "kind": "user" }] })
+}
+
 fn invocation(action: &str, keys: &[String], args: serde_json::Value) -> String {
     serde_json::json!({
         "call": 7,
@@ -197,8 +203,8 @@ fn the_router_reaches_mailo_over_a_bus_and_nobody_else_does() {
 
         let preview = ask(&calls, "DryRun", &invocation(
             "mail.message.send", &[],
-            serde_json::json!({ "to": { "value": { "kind": "text", "v": "ada@b.c" }, "label": {} },
-                                "body": { "value": { "kind": "text", "v": "Hi" }, "label": {} } }),
+            serde_json::json!({ "to": { "value": { "kind": "text", "v": "ada@b.c" }, "label": user_label() },
+                                "body": { "value": { "kind": "text", "v": "Hi" }, "label": user_label() } }),
         )).await.expect("a preview");
         assert!(
             preview.contains(r#""kind":"message""#) && preview.contains("ada@b.c"),
@@ -319,8 +325,8 @@ fn the_manifest_declares_what_the_provider_answers_and_obeys_the_routers_rules()
         }
         assert_eq!(
             action["dry_run"].as_str() == Some("preview"),
-            name == "mail.message.send",
-            "{name}: only a send has a preview"
+            effect == "outbound",
+            "{name}: what sends mail has a preview, and nothing else does"
         );
         for kind in [
             action["on"].get("v"),

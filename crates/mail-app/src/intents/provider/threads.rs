@@ -13,7 +13,7 @@ use mail_domain::{LabelId, Membership, Op, Snooze, Star, ThreadId};
 use mail_store::{SqliteStore, Store};
 
 /// The conversations an action names, each as the thread it is, or the first that is not one.
-fn threads_of(invocation: &Invocation) -> Result<Vec<(EntityId, ThreadId)>, AppRefusal> {
+pub(super) fn threads_of(invocation: &Invocation) -> Result<Vec<(EntityId, ThreadId)>, AppRefusal> {
     let Target::Entities(named) = &invocation.target else {
         return Err(AppRefusal::Unsupported);
     };
