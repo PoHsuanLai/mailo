@@ -206,7 +206,7 @@ fn place(name: &str) -> String {
 }
 
 fn row(n: usize) -> String {
-    format!(".list .ds-list > .ds-list-item:nth-child({n})")
+    format!(".list .ds-list-item[*|aria-posinset=\"{n}\"]")
 }
 
 fn rows(harness: &Harness) -> usize {

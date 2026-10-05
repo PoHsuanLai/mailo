@@ -222,7 +222,7 @@ fn text(html: &str) -> String {
 
 /// The `n`th row of the list (1-based), as the element a click lands on.
 fn row(n: usize) -> String {
-    format!(".ds-list > .ds-list-item:nth-child({n}) .ds-thread")
+    format!(".list .ds-list-item[*|aria-posinset=\"{n}\"] .ds-thread")
 }
 
 /// Click the `n`th row where a person reads it: the start of its subject line. The row's hover
@@ -345,7 +345,7 @@ fn clicking_a_row_opens_it_in_the_reader() {
     assert_eq!(
         harness
             .attr(
-                ".ds-list > .ds-list-item:nth-child(2) .ds-row",
+                ".list .ds-list-item[*|aria-posinset=\"2\"] .ds-row",
                 "aria-selected"
             )
             .as_deref(),

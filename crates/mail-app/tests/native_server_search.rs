@@ -232,9 +232,9 @@ fn type_text(harness: &mut Harness, text: &str) {
 /// The rows' subjects, top to bottom. A row quire's list is still sliding out is the previous
 /// answer, so it is not one of these.
 fn subjects(harness: &Harness) -> Vec<String> {
-    (1..=harness.count(".list .ds-list > *"))
+    (1..=harness.count(".list .ds-list-item[*|aria-posinset]"))
         .filter_map(|n| {
-            let item = format!(".list .ds-list > .ds-list-item:nth-child({n})");
+            let item = format!(".list .ds-list-item[*|aria-posinset=\"{n}\"]");
             if harness.attr(&item, "data-exit").is_some() {
                 return None;
             }
