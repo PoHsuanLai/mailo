@@ -85,6 +85,15 @@ fn a_join_takes_the_worse_of_each_half() {
 /// terminal's), serialized with its `serde_json`.
 const FROM_THE_ROUTER: &str = r#"{"call":41,"action":"mail.thread.label","target":{"kind":"entities","v":[{"app":"org.quire.Mail","kind":"mail.thread","key":"t-1"}]},"args":{"label":{"value":{"kind":"text","v":"Work"},"label":{"integrity":"trusted","confidentiality":{"kind":"public"},"classes":[],"sources":[{"kind":"user"}]}},"until":{"value":{"kind":"date_time","v":1700000000},"label":{"integrity":"trusted","confidentiality":{"kind":"public"},"classes":[],"sources":[{"kind":"user"}]}}},"actor":{"kind":"cli"},"origin":"cli","space":"work"}"#;
 
+/// A launcher's call carries the activation token it minted, at the invocation's top level.
+#[test]
+fn a_launchers_activation_token_is_read() {
+    let mut text: Json = serde_json::from_str(FROM_THE_ROUTER).expect("json");
+    text["activation"] = json!("tok-7");
+    let invocation: Invocation = serde_json::from_value(text).expect("an invocation");
+    assert_eq!(invocation.activation.as_deref(), Some("tok-7"));
+}
+
 #[test]
 fn an_invocation_as_the_router_writes_it_is_read() {
     let invocation: Invocation = serde_json::from_str(FROM_THE_ROUTER).expect("an invocation");
@@ -98,6 +107,10 @@ fn an_invocation_as_the_router_writes_it_is_read() {
     assert_eq!(invocation.instant("until"), Some(1_700_000_000));
     assert_eq!(invocation.text("until"), None, "an instant is not text");
     assert_eq!(invocation.instant("label"), None, "text is not an instant");
+    assert_eq!(
+        invocation.activation, None,
+        "only a launcher's call carries a token"
+    );
     assert_eq!(invocation.space, "work");
 }
 
