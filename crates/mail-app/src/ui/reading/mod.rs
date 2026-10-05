@@ -209,26 +209,51 @@ pub fn render_message_uncached(
     message: &Message,
     policy: SanitizePolicy,
 ) -> FrameBody {
+    render(store, message, policy).0
+}
+
+/// What a rendering was made from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Source {
+    /// The stored body: the blob, or the text beside it.
+    Stored,
+    /// A body OpenPGP or S/MIME opened. A function of more than the blob, and of a key that may
+    /// be locked again, so nothing keyed by the blob may keep it.
+    Opened,
+}
+
+/// [`render_message_uncached`], saying what it rendered from — asked once, here, so a seal
+/// opened while it renders cannot leave a cache believing the plaintext is the blob's.
+pub(super) fn render(
+    store: &SqliteStore,
+    message: &Message,
+    policy: SanitizePolicy,
+) -> (FrameBody, Source) {
     match &message.body {
-        Body::Absent => FrameBody::NotFetched,
+        Body::Absent => (FrameBody::NotFetched, Source::Stored),
         Body::Present { text, .. } => {
-            let parsed = super::pgp::parsed(message).or_else(|| parse_body(store, message));
-            let Some(parsed) = parsed else {
-                return plain_frame(text.as_deref().unwrap_or(""));
+            let (parsed, source) = match super::pgp::parsed(message) {
+                Some(opened) => (Some(opened), Source::Opened),
+                None => (parse_body(store, message), Source::Stored),
             };
-            if let Some(html) = parsed.html.as_deref() {
+            let Some(parsed) = parsed else {
+                return (plain_frame(text.as_deref().unwrap_or("")), source);
+            };
+            let body = if let Some(html) = parsed.html.as_deref() {
                 html_frame(html, &parsed, policy)
             } else {
-                let source = parsed.text.as_deref().or(text.as_deref()).unwrap_or("");
-                plain_frame(source)
-            }
+                let shown = parsed.text.as_deref().or(text.as_deref()).unwrap_or("");
+                plain_frame(shown)
+            };
+            (body, source)
         }
     }
 }
 
 fn parse_body(store: &SqliteStore, message: &Message) -> Option<mail_mime::Parsed> {
     let raw = message.body.raw()?;
-    let bytes = store.blobs().get(&store.connection(), raw).ok()?;
+    // A reader, not the writer: a sync's ingest holds the writer for a whole batch.
+    let bytes = store.blobs().get(&store.reader(), raw).ok()?;
     mail_mime::parse(&bytes).ok()
 }
 
