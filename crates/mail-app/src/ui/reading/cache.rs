@@ -9,6 +9,7 @@
 //! Bounded by the size of the html it holds, least recently used out first. It is a `Mutex`, not
 //! a signal, so [`warm`] can fill it from an ordinary thread that nothing has to poll (F140).
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -17,7 +18,7 @@ use mail_domain::{BlobId, Message, ThreadId, ThreadSummary};
 use mail_mime::SanitizePolicy;
 use mail_store::{SqliteStore, Store};
 
-use super::{FrameBody, render_message_uncached};
+use super::{FrameBody, Source, render, render_message_uncached};
 use crate::ui::view::Shell;
 
 /// How much rendered html to keep, in bytes. A long newsletter is a few hundred kilobytes.
@@ -26,39 +27,53 @@ const BUDGET: usize = 32 * 1024 * 1024;
 pub(super) type Key = (BlobId, SanitizePolicy);
 
 struct Entry {
-    key: Key,
     body: FrameBody,
     bytes: usize,
+    /// When it was last put or read, by [`Cache::tick`]: the smallest goes first.
+    used: u64,
 }
 
-/// Oldest first: a hit moves its entry to the back, and eviction takes from the front. A `Vec`
-/// scanned linearly, because a policy is not `Hash` and a window holds a few hundred of these.
+/// Hashed, so a lookup on the thread that draws costs the same with ten thousand small bodies in
+/// it as with ten. Eviction is the one walk over it, and only when a put goes over the budget.
 struct Cache {
-    entries: Vec<Entry>,
+    entries: Option<HashMap<Key, Entry>>,
     held: usize,
     budget: usize,
+    tick: u64,
 }
 
 impl Cache {
     const fn new(budget: usize) -> Self {
         Cache {
-            entries: Vec::new(),
+            entries: None,
             held: 0,
             budget,
+            tick: 0,
         }
     }
 
+    fn entries(&mut self) -> &mut HashMap<Key, Entry> {
+        self.entries.get_or_insert_with(HashMap::new)
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.entries.as_ref().map_or(0, HashMap::len)
+    }
+
     fn get(&mut self, key: Key) -> Option<FrameBody> {
-        let at = self.entries.iter().position(|entry| entry.key == key)?;
-        let entry = self.entries.remove(at);
-        let body = entry.body.clone();
-        self.entries.push(entry);
-        Some(body)
+        self.tick += 1;
+        let tick = self.tick;
+        let entry = self.entries().get_mut(&key)?;
+        entry.used = tick;
+        Some(entry.body.clone())
     }
 
     fn put(&mut self, key: Key, body: FrameBody) {
-        if let Some(at) = self.entries.iter().position(|entry| entry.key == key) {
-            self.held -= self.entries.remove(at).bytes;
+        self.tick += 1;
+        let used = self.tick;
+        if let Some(gone) = self.entries().remove(&key) {
+            self.held -= gone.bytes;
         }
         let bytes = size(&body);
         // One body larger than the whole budget is not worth evicting everything for.
@@ -66,9 +81,17 @@ impl Cache {
             return;
         }
         self.held += bytes;
-        self.entries.push(Entry { key, body, bytes });
-        while self.held > self.budget && !self.entries.is_empty() {
-            self.held -= self.entries.remove(0).bytes;
+        self.entries().insert(key, Entry { body, bytes, used });
+        while self.held > self.budget {
+            let oldest = self
+                .entries()
+                .iter()
+                .min_by_key(|(_, entry)| entry.used)
+                .map(|(key, _)| *key);
+            let Some(gone) = oldest.and_then(|key| self.entries().remove(&key)) else {
+                break;
+            };
+            self.held -= gone.bytes;
         }
     }
 }
@@ -99,9 +122,13 @@ pub fn rendered(store: &SqliteStore, message: &Message, policy: SanitizePolicy) 
     if let Some(had) = lock().get(key) {
         return had;
     }
-    // Rendered outside the lock: a parse and a sanitize must not hold up a lookup.
-    let body = render_message_uncached(store, message, policy);
-    lock().put(key, body.clone());
+    // Rendered outside the lock: a parse and a sanitize must not hold up a lookup. Kept only
+    // when it was rendered from the blob: a seal opened since `keyed` looked would otherwise
+    // leave plaintext under the blob's key, served once the key is locked again.
+    let (body, source) = render(store, message, policy);
+    if source == Source::Stored {
+        lock().put(key, body.clone());
+    }
     body
 }
 
@@ -146,7 +173,7 @@ pub(super) fn on_the_frame(
     if sent.going.contains(&key) {
         return None;
     }
-    let size = store.blobs().size(&store.connection(), key.0).unwrap_or(0);
+    let size = store.blobs().size(&store.reader(), key.0).unwrap_or(0);
     if size <= *room || sent.landed.contains(&key) {
         *room = room.saturating_sub(size);
         return Some(rendered(store, message, policy));
@@ -355,7 +382,7 @@ mod tests {
         cache.put(small, html(10));
         cache.put(key(2, RemoteImages::Blocked, 1), html(500));
         assert!(cache.get(small).is_some());
-        assert_eq!(cache.entries.len(), 1);
+        assert_eq!(cache.len(), 1);
     }
 
     fn ids(n: u128) -> Vec<ThreadId> {
@@ -430,6 +457,6 @@ mod tests {
         cache.put(k, html(60));
         cache.put(k, html(60));
         assert_eq!(cache.held, 60);
-        assert_eq!(cache.entries.len(), 1);
+        assert_eq!(cache.len(), 1);
     }
 }
