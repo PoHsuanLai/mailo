@@ -168,6 +168,68 @@ fn an_empty_query_shows_actions_and_recent_threads() {
     );
 }
 
+/// The sidebar's row reads as what picking it does: "Hide sidebar" while it is pinned, "Show
+/// sidebar" while it is hidden, under one key either way, and no other row is touched.
+#[test]
+fn the_sidebar_row_names_what_a_pick_does() {
+    use super::items::{SIDEBAR_KEY, restate_sidebar};
+    let built = work();
+    let (results, names) = search_now(&built.store, "", Utc::now());
+    let items = rows_of(&results, &names, "");
+    let wording = |sidebar: Shown, query: &str| -> Vec<(String, String)> {
+        items
+            .iter()
+            .cloned()
+            .map(|item| restate_sidebar(item, sidebar, query))
+            .map(|item| (item.key, item.name))
+            .collect()
+    };
+    let at = |rows: &[(String, String)], key: &str| {
+        rows.iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, name)| name.clone())
+    };
+    const CASES: &[(&str, Shown, &str)] = &[
+        ("pinned", Shown::Visible, "Hide sidebar"),
+        ("hidden", Shown::Hidden, "Show sidebar"),
+    ];
+    for (name, sidebar, want) in CASES {
+        let rows = wording(*sidebar, "");
+        assert_eq!(at(&rows, SIDEBAR_KEY).as_deref(), Some(*want), "{name}");
+    }
+    // Every other row keeps its name.
+    let (pinned, hidden) = (wording(Shown::Visible, ""), wording(Shown::Hidden, ""));
+    let others = |rows: &[(String, String)]| -> Vec<(String, String)> {
+        rows.iter()
+            .filter(|(k, _)| k != SIDEBAR_KEY)
+            .cloned()
+            .collect()
+    };
+    assert_eq!(others(&pinned), others(&hidden));
+}
+
+#[test]
+fn the_renamed_sidebar_row_is_marked_for_its_own_wording() {
+    use super::items::{SIDEBAR_KEY, restate_sidebar};
+    let built = work();
+    let (results, names) = search_now(&built.store, "sidebar", Utc::now());
+    let items = rows_of(&results, &names, "sidebar");
+    let row = items
+        .into_iter()
+        .find(|item| item.key == SIDEBAR_KEY)
+        .expect("the sidebar row matches");
+    let renamed = restate_sidebar(row, Shown::Hidden, "sidebar");
+    assert_eq!(renamed.name, "Show sidebar");
+    let marked: String = renamed
+        .name
+        .chars()
+        .enumerate()
+        .filter(|(index, _)| renamed.marks.contains(&(*index as u32)))
+        .map(|(_, c)| c)
+        .collect();
+    assert_eq!(marked, "sidebar");
+}
+
 #[test]
 fn from_dana_is_a_chip() {
     assert_eq!(tokens("from:dana spec"), vec!["from:dana".to_owned()]);

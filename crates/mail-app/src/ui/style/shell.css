@@ -35,7 +35,10 @@
   display: flex; align-items: center; gap: var(--s-6); padding-top: var(--s-6); min-width: 0;
 }
 /* The Space's name: quire's inline button, given the foot's free width. */
-.space-name { overflow: hidden; min-width: 0; margin-right: auto; }
+.space-name {
+  flex: 0 1 auto; overflow: hidden; min-width: 0; margin-right: auto;
+}
+.side-foot > :not(.space-name) { flex: none; }
 .space-dots { display: flex; gap: var(--s-5); align-items: center; flex: none; }
 .card {
   height: 100%; box-sizing: border-box;
