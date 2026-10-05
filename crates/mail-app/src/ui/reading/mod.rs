@@ -326,25 +326,48 @@ pub(super) fn Reader(
     let policy = shell.read().policy();
     let showing = shell.read().show_remote_images;
     let peek = shell.read().peek;
-    let shown: Vec<(Message, FrameBody, bool)> = loaded
+    // What this reader sent to be rendered off the thread, and the count that moves when some of
+    // it lands (`cache::render_later`).
+    let sent = use_hook(|| std::rc::Rc::new(std::cell::RefCell::new(cache::Sent::default())));
+    let rendered_later = use_signal(|| 0u64);
+    let _ = rendered_later();
+    let mut room = cache::ON_THE_FRAME;
+    let mut later = Vec::new();
+    // Newest first, so the message the conversation opens on is the one the frame's room goes
+    // to; drawn oldest first as before.
+    let mut shown: Vec<(Message, Option<FrameBody>, bool)> = loaded
         .messages
         .iter()
+        .rev()
         .filter_map(|id| store.message(*id).ok())
         .map(|message| {
+            let mut frame = |policy| {
+                cache::on_the_frame(
+                    &store,
+                    &message,
+                    policy,
+                    &mut room,
+                    &sent.borrow(),
+                    &mut later,
+                )
+            };
             // Both renderings are remembered (`cache`), under their own policies, so a message
             // whose banner needs the blocked count while the images are shown parses once, ever.
-            let body = render_message(&store, &message, policy);
-            let remote = if body.blocked_remote() {
-                true
-            } else if showing && body.frame_html().is_some() {
-                render_message(&store, &message, mail_mime::SanitizePolicy::CURRENT)
-                    .blocked_remote()
-            } else {
-                false
+            let body = frame(policy);
+            let remote = match &body {
+                Some(body) if body.blocked_remote() => true,
+                Some(body) if showing && body.frame_html().is_some() => {
+                    frame(mail_mime::SanitizePolicy::CURRENT).is_some_and(|it| it.blocked_remote())
+                }
+                _ => false,
             };
             (message, body, remote)
         })
         .collect();
+    shown.reverse();
+    if !later.is_empty() {
+        cache::render_later(store.clone(), later, sent.clone(), rendered_later);
+    }
 
     // The consent, as the Original frames' network reads it (`ui/original`): written here, in the
     // render, so a frame that reloads with the consented markup finds it already granted, and
@@ -354,7 +377,10 @@ pub(super) fn Reader(
         let allowed = showing.then(|| {
             shown
                 .iter()
-                .map(|(message, body, _)| (message.id, body.frame_fetches().to_vec()))
+                .map(|(message, body, _)| {
+                    let fetches = body.as_ref().map(FrameBody::frame_fetches);
+                    (message.id, fetches.unwrap_or_default().to_vec())
+                })
                 .collect()
         });
         consent.hold(*holder, thread, allowed);
@@ -507,7 +533,12 @@ pub(super) fn Reader(
                         }
                     }
                     match body {
-                        FrameBody::NotFetched => rsx! {
+                        // Being rendered off the thread: the frame's own box, so nothing moves
+                        // when it lands.
+                        None => rsx! {
+                            div { key: "{message.id}-rendering", class: "html", aria_busy: "true" }
+                        },
+                        Some(FrameBody::NotFetched) => rsx! {
                             fetch::BodyPane {
                                 key: "{message.id}-pane",
                                 message: message.id,
@@ -515,7 +546,7 @@ pub(super) fn Reader(
                                 landed,
                             }
                         },
-                        FrameBody::Present { html, .. } => rsx! {
+                        Some(FrameBody::Present { html, .. }) => rsx! {
                             blocks::MessageView {
                                 holder: consent.as_ref().map(|(_, holder)| *holder),
                                 message_id: message.id,

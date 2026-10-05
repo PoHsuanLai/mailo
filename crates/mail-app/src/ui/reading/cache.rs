@@ -23,7 +23,7 @@ use crate::ui::view::Shell;
 /// How much rendered html to keep, in bytes. A long newsletter is a few hundred kilobytes.
 const BUDGET: usize = 32 * 1024 * 1024;
 
-type Key = (BlobId, SanitizePolicy);
+pub(super) type Key = (BlobId, SanitizePolicy);
 
 struct Entry {
     key: Key,
@@ -108,6 +108,84 @@ pub fn rendered(store: &SqliteStore, message: &Message, policy: SanitizePolicy) 
 /// The cached rendering, if there is one. Never renders.
 pub(super) fn peek(message: &Message, policy: SanitizePolicy) -> Option<FrameBody> {
     lock().get(keyed(message, policy)?)
+}
+
+/// Raw mail, in bytes, that the reader renders on the frame that draws it. A conversation nobody
+/// rendered ahead (one opened from a search, far down the list) would otherwise hold that frame
+/// for every parse and sanitize in it; what is past this renders on a blocking thread instead,
+/// and is drawn when it lands. A plain reply is a few kilobytes, a newsletter a few hundred.
+pub(super) const ON_THE_FRAME: u64 = 128 * 1024;
+
+/// Where each rendering one reader sent off the thread has got to.
+#[derive(Default)]
+pub(super) struct Sent {
+    /// Being rendered: drawn as a placeholder until it lands.
+    going: Vec<Key>,
+    /// Rendered, and still not in the cache — it was larger than the whole budget, or evicted
+    /// since. Rendered on the frame from then on, or it would be sent for ever.
+    landed: Vec<Key>,
+}
+
+/// What `message` renders to under `policy`, if it can be had on this frame: from the cache, or
+/// rendered here while `room` still holds its raw size. `None` when it is to be rendered off the
+/// thread; it is then in `later`, unless it is already being rendered.
+pub(super) fn on_the_frame(
+    store: &SqliteStore,
+    message: &Message,
+    policy: SanitizePolicy,
+    room: &mut u64,
+    sent: &Sent,
+    later: &mut Vec<(Message, SanitizePolicy)>,
+) -> Option<FrameBody> {
+    let Some(key) = keyed(message, policy) else {
+        return Some(rendered(store, message, policy));
+    };
+    if let Some(had) = lock().get(key) {
+        return Some(had);
+    }
+    if sent.going.contains(&key) {
+        return None;
+    }
+    let size = store.blobs().size(&store.connection(), key.0).unwrap_or(0);
+    if size <= *room || sent.landed.contains(&key) {
+        *room = room.saturating_sub(size);
+        return Some(rendered(store, message, policy));
+    }
+    if !later
+        .iter()
+        .any(|(m, p)| m.id == message.id && *p == policy)
+    {
+        later.push((message.clone(), policy));
+    }
+    None
+}
+
+/// Render `later` on a blocking thread, then move `landed` so the reader draws them.
+pub(super) fn render_later(
+    store: Arc<SqliteStore>,
+    later: Vec<(Message, SanitizePolicy)>,
+    sent: std::rc::Rc<std::cell::RefCell<Sent>>,
+    mut landed: Signal<u64>,
+) {
+    let keys: Vec<Key> = later
+        .iter()
+        .filter_map(|(message, policy)| keyed(message, *policy))
+        .collect();
+    sent.borrow_mut().going.extend(keys.iter().copied());
+    spawn(async move {
+        let _ = tokio::task::spawn_blocking(move || {
+            for (message, policy) in &later {
+                let _ = rendered(&store, message, *policy);
+            }
+        })
+        .await;
+        {
+            let mut sent = sent.borrow_mut();
+            sent.going.retain(|key| !keys.contains(key));
+            sent.landed.extend(keys);
+        }
+        landed += 1;
+    });
 }
 
 fn keyed(message: &Message, policy: SanitizePolicy) -> Option<Key> {
