@@ -8,7 +8,9 @@
 //!
 //! Sign In and Settings borrow the Add account sheet, prefilled with the account. This sheet
 //! steps aside while it is open and comes back when it closes, and what the account was waiting
-//! for is told to its link once the Add account sheet has changed something.
+//! for is told to its link once the Add account sheet has changed something. Each row's gear
+//! opens the account's own sheet (`account_settings`), which steps this one aside
+//! the same way.
 
 use crate::ui::common::in_card;
 use crate::ui::data::account_rows;
@@ -17,8 +19,12 @@ use crate::ui::press::{SheetClose, on_primary};
 use crate::ui::view::{DoctorSheet, Shell};
 use dioxus::prelude::*;
 use ds::components::content::label::{Label, LabelStyle};
+use ds::components::controls::button_model::{Bezel, ImagePosition};
+use ds::components::controls::progress::model::{Progress, ProgressStyle};
+use ds::components::controls::progress::view::ProgressIndicator;
 use ds::components::lists::row::row::Outline;
 use ds::components::overlays::sheet_attach::Attach;
+use ds::motion::detail::operation::{Operation, PendingToken};
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
@@ -109,8 +115,8 @@ pub(in crate::ui) fn DoctorView(shell: Signal<Shell>, revision: Signal<u64>) -> 
     let Some(fetching) = fetching else {
         return rsx! {};
     };
-    // The Add account sheet is in front while it is open.
-    if shell.read().adding.is_some() {
+    // The Add account sheet is in front while it is open, and so is an account's own sheet.
+    if shell.read().adding.is_some() || shell.read().account_sheet.is_some() {
         return rsx! {};
     }
     let accounts = listed(fetching, &consume_context::<Arc<SqliteStore>>());
@@ -148,6 +154,7 @@ pub(in crate::ui) fn DoctorView(shell: Signal<Shell>, revision: Signal<u64>) -> 
                         name: name.clone(),
                         line: account_line(&link, now, &chrono::Local),
                         act: move |remedy| act.call((account, name.clone(), remedy)),
+                        open: move |()| crate::ui::account_settings::open(shell, account),
                     }
                 }
                 div { class: "doctor-foot",
@@ -163,30 +170,47 @@ pub(in crate::ui) fn DoctorView(shell: Signal<Shell>, revision: Signal<u64>) -> 
     }
 }
 
-/// One account: its address, a glyph and how it stands, and the button that fixes it.
+/// One account: its address, a glyph and how it stands, the button that fixes it, and the one
+/// that opens its own sheet.
 #[component]
-fn AccountRowView(name: String, line: AccountLine, act: EventHandler<Remedy>) -> Element {
+fn AccountRowView(
+    name: String,
+    line: AccountLine,
+    act: EventHandler<Remedy>,
+    open: EventHandler<()>,
+) -> Element {
     let AccountLine {
         standing,
         text,
         remedy,
     } = line;
-    // Named for its account, so that several Try Agains are not one name to a screen reader.
-    let accessory = match (standing, remedy) {
-        (_, Some(remedy)) => Accessory::Slot(rsx! {
+    // Each named for its account, so that several Try Agains are not one name to a screen reader.
+    let accessory = Accessory::Slot(rsx! {
+        div { class: "doctor-acts",
+            if let Some(remedy) = remedy {
+                Button {
+                    size: ControlSize::Small,
+                    label: label_of(remedy),
+                    common: Common {
+                        aria_label: Some(format!("{} for {name}", label_of(remedy))),
+                        ..Common::default()
+                    },
+                    onclick: on_primary(move || act.call(remedy)),
+                }
+            }
+            if remedy.is_none() && standing == Standing::Working {
+                Checking {}
+            }
             Button {
                 size: ControlSize::Small,
-                label: label_of(remedy),
-                common: Common {
-                    aria_label: Some(format!("{} for {name}", label_of(remedy))),
-                    ..Common::default()
-                },
-                onclick: on_primary(move || act.call(remedy)),
+                bezel: Bezel::Toolbar,
+                image: ImagePosition::Only,
+                icon: Icon::Settings,
+                label: format!("Account settings for {name}"),
+                onclick: on_primary(move || open.call(())),
             }
-        }),
-        (Standing::Working, None) => Accessory::Spinner,
-        _ => Accessory::None,
-    };
+        }
+    });
     rsx! {
         Row {
             leading: RowLeading::Icon(glyph_of(standing)),
@@ -194,6 +218,19 @@ fn AccountRowView(name: String, line: AccountLine, act: EventHandler<Remedy>) ->
             detail: Some(text.into()),
             outline: Outline::None,
             accessory,
+        }
+    }
+}
+
+/// quire's small spinner, for an account being checked: one operation for as long as it shows.
+#[component]
+fn Checking() -> Element {
+    let token = use_hook(PendingToken::start);
+    rsx! {
+        ProgressIndicator {
+            style: ProgressStyle::Spinner,
+            progress: Progress::Unknown(Operation::Running(token)),
+            size: ControlSize::Small,
         }
     }
 }
