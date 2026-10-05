@@ -1,5 +1,6 @@
 mod attachments;
 pub(super) mod blocks;
+mod cache;
 mod fetch;
 mod thumb;
 mod viewer;
@@ -8,6 +9,7 @@ use super::press::on_primary;
 use super::text::{address, attachment_rows, from_name, stamp};
 use crate::ui::view::{Peek, Shell};
 use attachments::Attachments;
+pub use cache::{rendered as render_message, warm};
 use dioxus::prelude::*;
 use ds::components::content::avatar::{
     AvatarFace, AvatarShape, AvatarSize, AvatarTone, person_hue,
@@ -197,8 +199,15 @@ impl FrameBody {
     }
 }
 
-/// Render a message body into its sandboxed frame representation.
-pub fn render_message(store: &SqliteStore, message: &Message, policy: SanitizePolicy) -> FrameBody {
+/// Render a message body into its sandboxed frame representation, every time.
+///
+/// The reader goes through [`render_message`], which remembers the answer (`cache`); this is the
+/// work itself, for the cache to call and for a measurement that must not hit it.
+pub fn render_message_uncached(
+    store: &SqliteStore,
+    message: &Message,
+    policy: SanitizePolicy,
+) -> FrameBody {
     match &message.body {
         Body::Absent => FrameBody::NotFetched,
         Body::Present { text, .. } => {
@@ -321,6 +330,8 @@ pub(super) fn Reader(
         .iter()
         .filter_map(|id| store.message(*id).ok())
         .map(|message| {
+            // Both renderings are remembered (`cache`), under their own policies, so a message
+            // whose banner needs the blocked count while the images are shown parses once, ever.
             let body = render_message(&store, &message, policy);
             let remote = if body.blocked_remote() {
                 true
