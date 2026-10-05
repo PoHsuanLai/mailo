@@ -77,6 +77,7 @@ pub(super) fn App() -> Element {
     let mut side_hidden = use_signal(|| false);
     // The Space editor's draft, while the sheet is open.
     let editing = use_signal(|| None::<crate::ui::space::edit::Draft>);
+    let prefs = super::prefs::use_prefs(dirs.as_ref());
     let desk = compose::use_desk(today_list, spaces, dirs.clone(), side_hidden);
     compose::use_test_dictionaries();
     let mut seen_open = use_signal(|| None::<mail_domain::ThreadId>);
@@ -234,6 +235,15 @@ pub(super) fn App() -> Element {
         }
     });
 
+    // Provider marks are a setting (`window.provider_marks`), which detent may change while the
+    // window is open.
+    use_effect(move || {
+        let marks = crate::ui::view::Marks::from(prefs.read().window.provider_marks);
+        if shell.peek().appearance.marks != marks {
+            shell.write().appearance.marks = marks;
+        }
+    });
+
     // An account removed, here or from a terminal, leaves every Space, and the tile pressed. Not
     // while the Space editor holds a draft: the Spaces are the draft then, and Escape must still
     // put them back. Run again when the editor closes, which also takes the account out of a
@@ -378,6 +388,18 @@ pub(super) fn App() -> Element {
             }
             return;
         }
+        // Settings, behind any sheet it opened: Esc closes it, and no other key reaches the
+        // window behind it.
+        if shell.read().settings.is_some()
+            && shell.read().account_sheet.is_none()
+            && shell.read().rules.is_none()
+            && shell.read().keyboard.is_none()
+        {
+            if key == "Escape" {
+                super::settings_sheet::close(shell);
+            }
+            return;
+        }
         // The account sheet, over the Doctor it was opened from: Esc goes back from its
         // question, or closes it, and no other key reaches what is behind it.
         if shell.read().account_sheet.is_some() {
@@ -492,6 +514,10 @@ pub(super) fn App() -> Element {
                 } else {
                     shell.write().command = Some(String::new());
                 }
+                return;
+            }
+            Some(Chord::Settings) => {
+                super::settings_sheet::open(shell);
                 return;
             }
             Some(Chord::Undo) | None => {}
@@ -770,6 +796,9 @@ pub(super) fn App() -> Element {
             }
             if shell.read().keys.is_some() {
                 super::pgp::keys::KeysSheet { shell }
+            }
+            if shell.read().settings.is_some() {
+                super::settings_sheet::SettingsSheet { shell, revision }
             }
             if shell.read().doctor.is_some() {
                 super::doctor::DoctorView { shell, revision }

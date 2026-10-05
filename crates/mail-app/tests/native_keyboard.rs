@@ -178,8 +178,8 @@ fn in_inbox(store: &SqliteStore) -> usize {
 const SHEET: &str = "[*|aria-label=\"Keyboard shortcuts\"][*|role=dialog]";
 const CHANGE_ARCHIVE: &str = "[*|aria-label=\"Change the key for Archive\"]";
 
-const EDITOR: &str = "[*|aria-label=\"Edit this Space\"]";
-const SCROLLER: &str = ".ed-scroll";
+const SETTINGS: &str = "[*|aria-label=\"Settings\"][*|role=dialog]";
+const SCROLLER: &str = ".settings-scroll";
 const LAST_CARD: &str = "[*|aria-label=\"Keyboard shortcuts\"]";
 const KEYBOARD: &str = "button[*|aria-label=\"Keyboard shortcuts\"]";
 
@@ -196,8 +196,8 @@ fn rect(harness: &Harness, selector: &str) -> ds::prelude::Rect {
 /// has scrolled, although it is drawn where it was.
 fn settings_view(harness: &Harness) -> (f32, f32) {
     (
-        rect(harness, EDITOR).origin.y.0,
-        rect(harness, ".ed-foot").origin.y.0,
+        rect(harness, SETTINGS).origin.y.0,
+        rect(harness, ".settings-foot").origin.y.0,
     )
 }
 
@@ -211,7 +211,13 @@ fn in_view(harness: &Harness, selector: &str) -> bool {
 /// Wheel the settings down, as a person would, until `selector` is in view, or the scroller
 /// stops moving. Whether it got there is the caller's to assert.
 fn wheel_to(harness: &mut Harness, selector: &str) {
-    let at = centre(harness, SCROLLER);
+    // The scroller's own padding, top left: a wheel over one of its controls may be that
+    // control's, and the list is what has to move.
+    let scroller = rect(harness, SCROLLER);
+    let at = Point {
+        x: ds::prelude::Px(scroller.origin.x.0 + 4.0),
+        y: ds::prelude::Px(scroller.origin.y.0 + 4.0),
+    };
     let mut last = rect(harness, selector).origin.y.0;
     for _ in 0..50 {
         if in_view(harness, selector) {
@@ -227,9 +233,18 @@ fn wheel_to(harness: &mut Harness, selector: &str) {
     }
 }
 
-/// Open the settings, then their Keyboard section's sheet.
+/// Open Settings (⌘,), as a person would.
+fn open_settings(harness: &mut Harness) {
+    harness.chord(&[Key::Ctrl], Key::Char(','));
+    settle_until(harness, |harness| harness.count(SETTINGS) == 1);
+    // The sheet slides in by a transform, which the hit test applies and a rect leaves out: let
+    // it land before anything is measured or pressed.
+    harness.advance(ms(1000));
+}
+
+/// Open Settings, then the Keyboard shortcuts sheet from it.
 fn open_sheet(harness: &mut Harness) {
-    click(harness, "[*|aria-label=\"Space settings\"]");
+    open_settings(harness);
     settle_until(harness, |harness| harness.count(KEYBOARD) == 1);
     wheel_to(harness, KEYBOARD);
     click(harness, KEYBOARD);
@@ -355,7 +370,7 @@ fn a_keymap_kept_earlier_is_the_one_a_new_window_answers_to_and_reset_puts_it_ba
 #[test]
 fn the_settings_scroll_to_their_last_card_in_an_800_px_window() {
     let (mut harness, _dir, _store, _dirs) = open();
-    click(&mut harness, "[*|aria-label=\"Space settings\"]");
+    open_settings(&mut harness);
     settle_until(&mut harness, |harness| harness.count(LAST_CARD) == 1);
     // Unscrolled, the scroller's own rect is the view `settings_view` reads from the sheet and
     // its foot, and the last card is below it.

@@ -114,7 +114,10 @@ fn open(on: mail_core::bimi::Setting) -> Opened {
     let config = tempfile::tempdir().unwrap();
     let cache = tempfile::tempdir().unwrap();
     let store = seeded(mail.path());
-    mail_core::bimi::save(config.path(), on).unwrap();
+    mail_app::settings::change(&mail_app::settings::root_for(config.path()), |settings| {
+        settings.reading.brand_logos = on.into();
+    })
+    .unwrap();
     let png = mail_runtime::bimi::draw(LOGO.as_bytes()).unwrap();
     mail_runtime::bimi::remember(
         cache.path(),

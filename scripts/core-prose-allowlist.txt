@@ -19,7 +19,6 @@ crates/mail-core/src/folder.rs
 crates/mail-core/src/import.rs
 crates/mail-core/src/invite.rs
 crates/mail-core/src/ipc/daemon.rs
-crates/mail-core/src/notify.rs
 crates/mail-core/src/offline.rs
 crates/mail-core/src/pgp/mod.rs
 crates/mail-core/src/pgp/read.rs

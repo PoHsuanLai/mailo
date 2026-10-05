@@ -39,9 +39,14 @@ pub(super) fn run(opening: Opening) {
         icons,
         brand,
     } = opening;
+    // Read once, as the window opens, like the watch reads it.
     let notices = dirs
         .as_ref()
-        .filter(|dirs| mail_core::notify::load(&dirs.config) == mail_core::notify::Setting::On)
+        .filter(|dirs| {
+            crate::ui::prefs::root_of(dirs)
+                .map(|root| crate::settings::load(&root).notifications.new_mail)
+                == Some(crate::settings::NewMail::On)
+        })
         .map(|_| {
             crate::ui::follow_up::Notices(std::sync::Arc::new(
                 mail_core::notify::desktop::Desktop::connect(),

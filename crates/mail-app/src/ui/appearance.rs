@@ -8,18 +8,17 @@
 //! The look of the window is the desktop's, not mailo's: theme, accent, motion and typeface are
 //! `quire/appearance.toml`, the one file the shell and detent read and write too, and the
 //! window follows it live (`launch::DesktopSettings`). mailo keeps no appearance file of its own
-//! and writes none. Three files remain in mailo's own directory:
+//! and writes none. Three older files are still read from mailo's own directory:
 //!
-//! - `mailo.toml` is mailo's own ([`Appearance`]): what has no place in any quire type, today
-//!   whether a provider chip shows its icon. On the first run after the move it starts from
-//!   the `marks` in `appearance.json`.
+//! - `mailo.toml` held mailo's own choice of provider marks. That is a key of
+//!   `mailo/settings.toml` now (`crate::settings`), which read it once; nothing writes it.
 //! - `appearance.toml` is what mailo kept for quire between v0.2.0 and the desktop's own store.
 //!   [`adopt`] copies it into the desktop's directory once, when the desktop has none, and never
 //!   writes or deletes it, so going back to an older build loses nothing.
 //! - `appearance.json` is what mailo wrote before quire. Read, never written or deleted
 //!   ([`legacy`]); its theme seeds the desktop's file when nothing else does.
 
-use super::view::{Appearance, Marks};
+use super::view::Marks;
 use ds::prelude::*;
 use ds_settings::{AppName, AppearanceFile, ConfigRoot};
 use mail_core::config::{read_json, write_text};
@@ -30,42 +29,9 @@ use std::path::{Path, PathBuf};
 /// What mailo wrote before quire: theme, motion and marks in one JSON file.
 pub const LEGACY_FILE_NAME: &str = "appearance.json";
 
-/// mailo's own window preferences file, beside quire's `appearance.toml`.
-const PREFS_FILE_NAME: &str = "mailo.toml";
-
 /// The desktop's appearance file, and the person's stylesheet beside it.
 const QUIRE_FILE_NAME: &str = "appearance.toml";
 const STYLE_FILE_NAME: &str = "style.css";
-
-/// The stored preferences, or the first-run value when there are none or they cannot be read.
-///
-/// Before `mailo.toml` exists, the marks are the ones `appearance.json` holds, so the first run
-/// after the move shows the chips as the last run did. Not an error the user needs to see: a
-/// missing or damaged file means the window looks as it did on first run.
-pub fn load(dir: &Path) -> Appearance {
-    let path = dir.join(PREFS_FILE_NAME);
-    if path.exists() {
-        return std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|text| toml::from_str(&text).ok())
-            .unwrap_or_default();
-    }
-    Appearance {
-        marks: legacy(dir).marks,
-    }
-}
-
-/// Write `look` to `dir/mailo.toml`, creating the directory if needed.
-///
-/// The bytes land in a temporary file in `dir` and are renamed into place, so a crash
-/// mid-write cannot leave a half-written file for the next launch.
-pub fn save(dir: &Path, look: Appearance) -> Result<(), String> {
-    write_text(
-        dir,
-        PREFS_FILE_NAME,
-        &toml::to_string(&look).map_err(|e| e.to_string())?,
-    )
-}
 
 /// What [`adopt`] did, for the one line `main` may say about it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -190,8 +156,8 @@ pub struct WindowDirs {
 
 #[cfg(test)]
 mod tests {
-    use super::{Adopted, Legacy, adopt, legacy, load, save};
-    use crate::ui::view::{Appearance, Marks, Theme};
+    use super::{Adopted, Legacy, adopt, legacy};
+    use crate::ui::view::{Marks, Theme};
     use ds::prelude::{Accent, Motion};
     use std::path::Path;
 
@@ -208,48 +174,6 @@ mod tests {
             .collect::<Vec<_>>();
         names.sort();
         names
-    }
-
-    #[test]
-    fn a_look_round_trips() {
-        let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
-        let fresh = dir.path().join("mailo");
-        for marks in Marks::ALL {
-            let look = Appearance { marks };
-            save(&fresh, look).unwrap_or_else(|e| panic!("{look:?}: {e}"));
-            assert_eq!(load(&fresh), look, "{look:?}");
-            // The rename is the whole of the write: a temp file left beside the real one
-            // is a crash that did not finish, and this directory had no other files.
-            assert_eq!(entries(&fresh), ["mailo.toml"], "{look:?}");
-        }
-    }
-
-    #[test]
-    fn a_missing_file_is_the_first_run() {
-        let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
-        assert_eq!(load(dir.path()), Appearance::default());
-        assert_eq!(legacy(dir.path()), Legacy::default());
-    }
-
-    #[test]
-    fn garbage_bytes_are_the_first_run() {
-        let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
-        const CASES: &[(&str, &[u8])] = &[
-            ("empty", b""),
-            ("prose", b"not json {{{"),
-            ("binary", &[0xff, 0xfe, b'{']),
-        ];
-        for &(name, bytes) in CASES {
-            std::fs::write(dir.path().join("appearance.json"), bytes)
-                .unwrap_or_else(|e| panic!("{name}: {e}"));
-            assert_eq!(legacy(dir.path()), Legacy::default(), "{name}");
-            assert_eq!(load(dir.path()), Appearance::default(), "{name}");
-            std::fs::write(dir.path().join("mailo.toml"), bytes)
-                .unwrap_or_else(|e| panic!("{name}: {e}"));
-            assert_eq!(load(dir.path()), Appearance::default(), "{name}");
-            std::fs::remove_file(dir.path().join("mailo.toml"))
-                .unwrap_or_else(|e| panic!("{name}: {e}"));
-        }
     }
 
     #[test]
@@ -343,63 +267,9 @@ mod tests {
         for &(name, bytes, look) in cases {
             std::fs::write(&path, bytes).unwrap_or_else(|e| panic!("{name}: {e}"));
             assert_eq!(legacy(dir.path()), look, "{name}: {bytes}");
-            // The window's own file never carries the retired word, and saving it leaves the
-            // JSON exactly as it was.
-            save(dir.path(), load(dir.path())).unwrap_or_else(|e| panic!("{name}: {e}"));
-            let prefs = std::fs::read_to_string(dir.path().join("mailo.toml"))
-                .unwrap_or_else(|e| panic!("{name}: {e}"));
-            assert!(!prefs.contains("accent"), "{name}: {prefs}");
             let raw = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{name}: {e}"));
             assert_eq!(raw, bytes, "{name}: the JSON was rewritten");
-            std::fs::remove_file(dir.path().join("mailo.toml"))
-                .unwrap_or_else(|e| panic!("{name}: {e}"));
         }
-    }
-
-    #[test]
-    fn letters_are_written_and_a_file_without_marks_stays_icons() {
-        // Saving Icons and reading Icons would pass even if the field were dropped on
-        // the floor: the missing word is the default. Letters is the value that proves
-        // the field survived, and the old file proves a missing word is Icons rather
-        // than a failure of the whole look.
-        let dir = tempfile::tempdir().unwrap_or_else(|err| panic!("{err}"));
-        let look = Appearance {
-            marks: Marks::Letters,
-        };
-        save(dir.path(), look).unwrap_or_else(|err| panic!("{err}"));
-        let raw = std::fs::read_to_string(dir.path().join("mailo.toml"))
-            .unwrap_or_else(|err| panic!("{err}"));
-        assert!(raw.contains("\"letters\""), "{raw}");
-        assert_eq!(load(dir.path()), look);
-
-        let old = tempfile::tempdir().unwrap_or_else(|err| panic!("{err}"));
-        std::fs::write(
-            old.path().join("appearance.json"),
-            r#"{"theme":"light","motion":"extra"}"#,
-        )
-        .unwrap_or_else(|err| panic!("{err}"));
-        assert_eq!(load(old.path()).marks, Marks::Icons);
-    }
-
-    #[test]
-    fn the_first_run_after_the_move_takes_the_marks_from_the_json() {
-        // Before `mailo.toml` exists the JSON's choice stands; once it exists it is the
-        // window's, and the JSON no longer decides.
-        let dir = tempfile::tempdir().unwrap_or_else(|err| panic!("{err}"));
-        std::fs::write(
-            dir.path().join("appearance.json"),
-            r#"{"theme":"dark","motion":"calm","marks":"letters"}"#,
-        )
-        .unwrap_or_else(|err| panic!("{err}"));
-        assert_eq!(load(dir.path()).marks, Marks::Letters);
-        save(
-            dir.path(),
-            Appearance {
-                marks: Marks::Icons,
-            },
-        )
-        .unwrap_or_else(|err| panic!("{err}"));
-        assert_eq!(load(dir.path()).marks, Marks::Icons);
     }
 
     fn write(dir: &Path, name: &str, text: &str) {

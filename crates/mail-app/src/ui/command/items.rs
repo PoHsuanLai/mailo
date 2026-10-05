@@ -40,6 +40,7 @@ pub(in crate::ui) fn commands() -> Vec<Command> {
         "New view…",
         "Keys and certificates…",
         "Keyboard shortcuts…",
+        "Settings…",
         "Theme light",
         "Theme dark",
         "Theme system",
@@ -309,7 +310,8 @@ fn action_icon(label: &str) -> Icon {
         "Rules…" => Icon::FolderInput,
         "New view…" => Icon::Search,
         "Keys and certificates…" => Icon::Key,
-        "Keyboard shortcuts…" => Icon::Settings,
+        "Keyboard shortcuts…" => Icon::Keyboard,
+        "Settings…" => Icon::Settings,
         _ => Icon::Command,
     }
 }

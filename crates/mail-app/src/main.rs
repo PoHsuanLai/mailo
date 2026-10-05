@@ -43,6 +43,18 @@ fn main() {
         }
     };
 
+    // The schema needs nothing but somewhere to write it: no store, no config directory.
+    if let Some(mail_app::cli::Command::WriteSchema { dir }) = &command {
+        match mail_app::settings::write_schema(dir) {
+            Ok(said) => print!("{said}"),
+            Err(message) => {
+                eprintln!("{message}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+
     // Discovery needs the network and, unless `--yes` was given, a person at a terminal to say
     // yes to what it found; both are here rather than in `cli::run`, which is synchronous and
     // tested without either. Nothing is stored and nothing is sent to a found server before
@@ -439,7 +451,7 @@ fn main() {
     // `watch` is `sync` that does not stop. It prints as it goes rather than at the end, because
     // "at the end" is when the user presses Ctrl-C.
     if let Some(mail_app::cli::Command::Notify { set }) = &command {
-        match mail_core::notify::command(mail_core::config::config_dir().as_deref(), *set) {
+        match mail_app::cli::settings::notify(&ds_settings::ConfigRoot::Xdg, *set) {
             Ok(said) => print!("{said}"),
             Err(message) => {
                 eprintln!("{message}");
@@ -492,10 +504,11 @@ fn main() {
     if let Some(mail_app::cli::Command::Watch { notify }) = &command {
         let notifications = match notify {
             mail_app::cli::WatchNotify::Never => mail_core::notify::Setting::Off,
-            mail_app::cli::WatchNotify::AsSet => mail_core::config::config_dir()
-                .as_deref()
-                .map(mail_core::notify::load)
-                .unwrap_or_default(),
+            mail_app::cli::WatchNotify::AsSet => mail_core::notify::Setting::from(
+                mail_app::settings::load(&ds_settings::ConfigRoot::Xdg)
+                    .notifications
+                    .new_mail,
+            ),
         };
         // One watch per user: a second would announce every message twice. A unit that starts
         // while one runs by hand ends quietly (exit 0), so systemd does not restart it in a loop.
@@ -562,10 +575,12 @@ fn main() {
         },
         None => {
             let config = mail_core::config::config_dir();
-            let look = config
-                .as_deref()
-                .map(mail_app::ui::appearance::load)
-                .unwrap_or_default();
+            let look = mail_app::ui::view::Appearance {
+                marks: mail_app::settings::load(&ds_settings::ConfigRoot::Xdg)
+                    .window
+                    .provider_marks
+                    .into(),
+            };
             // What mailo wrote before quire: read only, for Spaces made before theme and motion
             // were theirs.
             let legacy = config

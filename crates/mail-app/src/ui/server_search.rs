@@ -12,7 +12,6 @@
 //! for a server.
 
 use super::press::on_primary;
-use crate::ui::appearance::WindowDirs;
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
 use ds::prelude::*;
@@ -216,11 +215,12 @@ pub(super) fn ServerSearch(
     revision: Signal<u64>,
 ) -> Element {
     // Automatically, where the user turned it on: once per line and account.
-    let dirs = try_consume_context::<WindowDirs>();
+    let settings = use_hook(|| {
+        try_consume_context::<Signal<crate::settings::MailSettings>>()
+            .unwrap_or_else(|| Signal::new(crate::settings::MailSettings::default()))
+    });
     let automatic = use_memo(move || {
-        dirs.as_ref()
-            .map(|dirs| mail_core::server_search::load(&dirs.config))
-            .unwrap_or_default()
+        mail_core::server_search::Automatic::from(settings.read().search.server_automatically)
     });
     use_effect(use_reactive(
         (&input, &accounts),

@@ -3,39 +3,14 @@
 //!
 //! quire checks, marks and offers suggestions (`ds::EditSurface`'s `spell`, the `spellcheck`
 //! feature of `ds-native`), against the system's Hunspell dictionaries; mailo bundles none. What
-//! is mailo's is the user's choice to have it at all, kept like the notifications switch in the
-//! config directory (`spelling.json`), and saying plainly when no dictionary was found, which is
-//! the usual case on macOS and Windows, where there are no system Hunspell directories.
+//! is mailo's is the user's choice to have it at all (`compose.spelling` in `mailo/settings.toml`,
+//! `crate::settings`), and saying plainly when no dictionary was found, which is the usual case on
+//! macOS and Windows, where there are no system Hunspell directories.
 
 use ds::spell::lang::Lang;
-use std::path::Path;
 
 /// Whether the composer marks misspelt words. On unless someone turned it off.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Setting {
-    #[default]
-    On,
-    Off,
-}
-
-const FILE_NAME: &str = "spelling.json";
-
-#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
-struct Stored {
-    #[serde(default)]
-    spelling: Setting,
-}
-
-/// The stored setting, or on when there is none or it cannot be read.
-pub fn load(dir: &Path) -> Setting {
-    mail_core::config::read_json::<Stored>(dir, FILE_NAME).spelling
-}
-
-/// Remember `setting` in `dir`.
-pub fn save(dir: &Path, setting: Setting) -> Result<(), String> {
-    mail_core::config::write_json(dir, FILE_NAME, &Stored { spelling: setting })
-}
+pub use crate::settings::Spelling as Setting;
 
 /// What the checker has to work with, for the language drafts are checked in.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -104,7 +79,7 @@ impl Dictionaries {
 
 #[cfg(test)]
 mod tests {
-    use super::{Dictionaries, Setting, dictionaries, load, save};
+    use super::{Dictionaries, dictionaries};
     use ds::spell::lang::Lang;
 
     fn langs(names: &[&str]) -> Vec<Lang> {
@@ -142,18 +117,5 @@ mod tests {
                 "{found:?} says why nothing is marked exactly when nothing can be"
             );
         }
-    }
-
-    #[test]
-    fn the_setting_is_on_until_turned_off_and_kept() {
-        let dir = tempfile::tempdir().unwrap_or_else(|why| panic!("{why}"));
-        assert_eq!(load(dir.path()), Setting::On, "on unless turned off");
-        save(dir.path(), Setting::Off).unwrap_or_else(|why| panic!("{why}"));
-        assert_eq!(load(dir.path()), Setting::Off);
-        save(dir.path(), Setting::On).unwrap_or_else(|why| panic!("{why}"));
-        assert_eq!(load(dir.path()), Setting::On);
-        std::fs::write(dir.path().join("spelling.json"), b"not json")
-            .unwrap_or_else(|why| panic!("{why}"));
-        assert_eq!(load(dir.path()), Setting::On, "an unreadable file is on");
     }
 }

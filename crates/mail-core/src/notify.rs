@@ -23,8 +23,9 @@ use std::path::Path;
 
 /// Whether `mailo watch` raises notifications. On unless someone turned it off.
 ///
-/// A preference, so it lives with the window's other preferences in the config directory
-/// (`notify.json`), not in the mail database.
+/// mail-app keeps the choice (`notifications.new_mail` in `mailo/settings.toml`) and hands it to
+/// the watch as this. `notify.json` is where it was kept before; [`load`] reads it once, for
+/// that file to start from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Setting {
@@ -35,48 +36,15 @@ pub enum Setting {
 
 const FILE_NAME: &str = "notify.json";
 
-#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Default, serde::Deserialize)]
 struct Stored {
     #[serde(default)]
     notifications: Setting,
 }
 
-/// The stored setting, or on when there is none or it cannot be read.
+/// What `notify.json` said, or on when there is none or it cannot be read. Never written.
 pub fn load(dir: &Path) -> Setting {
     crate::config::read_json::<Stored>(dir, FILE_NAME).notifications
-}
-
-/// Remember `setting` in `dir`.
-pub fn save(dir: &Path, setting: Setting) -> Result<(), String> {
-    crate::config::write_json(
-        dir,
-        FILE_NAME,
-        &Stored {
-            notifications: setting,
-        },
-    )
-}
-
-/// `mailo notify [on|off]`: change the setting, or say what it is.
-///
-/// `dir` is `None` when there is no home directory to keep it in, and then there is nothing to
-/// change — saying so beats pretending the change took.
-pub fn command(dir: Option<&Path>, set: Option<Setting>) -> Result<String, String> {
-    let Some(dir) = dir else {
-        return Err(
-            "no config directory for this user (on Linux, neither XDG_CONFIG_HOME nor HOME is set)"
-                .to_owned(),
-        );
-    };
-    if let Some(setting) = set {
-        save(dir, setting)?;
-    }
-    Ok(match load(dir) {
-        Setting::On => "notifications are on\n".to_owned(),
-        Setting::Off => {
-            "notifications are off; `mailo notify on` to have `watch` raise them again\n".to_owned()
-        }
-    })
 }
 
 /// Why an arrival is not announced.
@@ -534,15 +502,12 @@ mod tests {
     }
 
     #[test]
-    fn the_setting_is_on_until_turned_off_and_survives_a_restart() {
+    fn the_old_file_is_read_leniently_and_is_on_without_it() {
         let dir = tempfile::tempdir().unwrap();
         assert_eq!(load(dir.path()), Setting::On, "on by default");
-        let said = command(Some(dir.path()), Some(Setting::Off)).unwrap();
-        assert!(said.contains("off"), "{said}");
+        std::fs::write(dir.path().join(FILE_NAME), r#"{"notifications":"off"}"#).unwrap();
         assert_eq!(load(dir.path()), Setting::Off);
-        assert!(command(Some(dir.path()), None).unwrap().contains("off"));
-        command(Some(dir.path()), Some(Setting::On)).unwrap();
-        assert_eq!(load(dir.path()), Setting::On);
-        assert!(command(None, Some(Setting::Off)).is_err());
+        std::fs::write(dir.path().join(FILE_NAME), b"not json").unwrap();
+        assert_eq!(load(dir.path()), Setting::On, "an unreadable file is on");
     }
 }
