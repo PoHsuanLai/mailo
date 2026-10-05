@@ -65,6 +65,12 @@ todo = "allow"
 # has addresses but no names: build with `--config profile.release.strip=false` to read one.
 # `panic` stays `unwind`: a panicking Tokio task or `spawn_blocking` must fail alone, not take the
 # window with it (`panic = "abort"` would save another ~11 MB).
+#
+# opt-level 3 on the hot crates (mail-mime/-store/-core/-app, rusqlite, html5ever, ammonia, blitz,
+# stylo, parley, taffy, vello, dioxus-core) was measured against this with `native_latency` and
+# `frame_budget`, alternating the two on a loaded machine: 124 MB against 76 MB, and j, k, e,
+# opening and search within the run-to-run noise of each other (j p50 21-32 ms against 24 ms).
+# Not worth 48 MB until a measurement on a quiet machine says otherwise.
 [profile.release]
 strip = "symbols"
 lto = "thin"
