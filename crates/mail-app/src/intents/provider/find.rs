@@ -138,6 +138,20 @@ impl Provider {
         Ok(outcome(None, None, Some(read)))
     }
 
+    /// `mail.thread.open`: show the conversation in mailo's window. The launcher's Enter on a
+    /// mail hit; it answers nothing, the window is the answer.
+    pub(super) fn open(&self, invocation: &Invocation) -> Result<Outcome, AppRefusal> {
+        let Target::Entities(named) = &invocation.target else {
+            return Err(AppRefusal::Unsupported);
+        };
+        let [id] = named.as_slice() else {
+            return Err(AppRefusal::Unsupported);
+        };
+        let (_, thread) = self.loaded(id)?;
+        (self.opener.0)(thread, invocation.activation.as_deref()).map_err(AppRefusal::Failed)?;
+        Ok(outcome(None, None, None))
+    }
+
     /// The thread an entity names, with its messages, or why not.
     fn loaded(&self, id: &EntityId) -> Result<(mail_domain::Thread, ThreadId), AppRefusal> {
         let thread = match (id.kind.as_str(), id.key.parse()) {

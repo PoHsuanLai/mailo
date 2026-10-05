@@ -474,6 +474,7 @@ fn main() {
             let provider = mail_app::intents::Provider::new(
                 store.clone(),
                 std::sync::Arc::new(mail_runtime::KeyringSecrets),
+                mail_app::intents::Opener::window(),
             );
             match mail_app::intents::serve(provider) {
                 Ok(()) | Err(mail_app::intents::ServeError::Taken) => return,

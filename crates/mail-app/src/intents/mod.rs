@@ -19,7 +19,7 @@ pub mod wire;
 #[cfg(not(any(target_os = "macos", windows)))]
 mod serve;
 
-pub use provider::Provider;
+pub use provider::{Opener, Provider};
 #[cfg(not(any(target_os = "macos", windows)))]
 pub use serve::{ServeError, serve, serve_on};
 
