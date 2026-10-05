@@ -169,7 +169,7 @@ fn centre(harness: &Harness, selector: &str) -> Point {
 /// editor and the list below it never moves.
 fn reveal_in_scroller(harness: &mut Harness, selector: &str) {
     let scroll = harness
-        .rect(".ed-scroll")
+        .rect(".settings-scroll")
         .unwrap_or_else(|| panic!("the settings list is not drawn:\n{}", harness.html()));
     let at = Point {
         x: Px(scroll.origin.x.0 + 4.0),
@@ -326,16 +326,13 @@ fn off_removes_the_marks() {
     let (mut harness, _dir) = composing_in(VIEW);
     type_text(&mut harness, "teh cat");
     settle_until(&mut harness, |h| marks(h) == 1);
-    // The settings, from the Space's name in the sidebar, beside the open draft.
-    harness.click(centre(&harness, ".space-name"));
-    // Blitz's selectors name an attribute with a dash through the any-namespace form. Off is the
-    // second segment; the thumb is the control's last child, so it is not `button:last-child`.
-    let off = "[*|aria-label=\"Check spelling\"] .ds-segmented-segment:nth-child(2)";
-    until(&mut harness, "Off is drawn", |h| {
-        h.text_of(off).is_some_and(|text| text.trim() == "Off")
+    // Settings (⌘,), over the open draft. Blitz's selectors name an attribute with a dash
+    // through the any-namespace form; the switch is the row's `role=switch`.
+    harness.chord(&[Key::Ctrl], Key::Char(','));
+    let off = "[*|role=switch][*|aria-label=\"Check spelling\"]";
+    until(&mut harness, "the switch is drawn, on", |h| {
+        h.attr(off, "aria-checked").as_deref() == Some("true")
     });
-    // A wheel over the look editor is consumed there. The scroller's own padding is the
-    // settings list, and that is what has to move for Off to come into reach.
     reveal_in_scroller(&mut harness, off);
     until(&mut harness, "Off can be pressed", |h| {
         h.centre(off).is_some_and(|at| h.hits(at, off))

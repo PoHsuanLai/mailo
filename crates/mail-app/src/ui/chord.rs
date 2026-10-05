@@ -13,6 +13,7 @@
 //! | Ctrl F   | ⌘F  | find in the open message     |
 //! | Ctrl P   | ⌘P  | print the open message       |
 //! | Ctrl Z   | ⌘Z  | undo                         |
+//! |          | ⌘,  | Settings                     |
 //! | c        | ⌘N (and c) | a new message         |
 //! | Ctrl Enter | ⌘Return | send                   |
 
@@ -33,6 +34,8 @@ pub(in crate::ui) enum Chord {
     Print,
     /// ⌘Z: undo.
     Undo,
+    /// ⌘,: Settings, where every Mac app keeps its settings.
+    Settings,
 }
 
 /// Whether ⌘ is held, and only ⌘: Ctrl or Meta alone, no Option.
@@ -59,6 +62,7 @@ pub(in crate::ui) fn chord(key: &str, modifiers: Modifiers) -> Option<Chord> {
         "f" => Some(Chord::Find),
         "p" => Some(Chord::Print),
         "z" => Some(Chord::Undo),
+        "," => Some(Chord::Settings),
         digit => super::switch::space_key(digit).map(Chord::SwitchSpace),
     }
 }
@@ -88,6 +92,7 @@ mod tests {
                 ("f", Chord::Find),
                 ("p", Chord::Print),
                 ("z", Chord::Undo),
+                (",", Chord::Settings),
                 ("1", Chord::SwitchSpace(0)),
                 ("9", Chord::SwitchSpace(8)),
             ] {

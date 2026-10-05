@@ -1,9 +1,8 @@
-//! Keep all mail offline in the Space editor: the setting per account, and the count beside it,
+//! Keep all mail offline on Settings' Accounts page: the setting per account, and the count beside it,
 //! against a temporary config directory only.
 
-use crate::ui::app::App;
 use crate::ui::data::account_rows;
-use crate::ui::fixtures::{Seen, Work, click, dispatching, drain_seen, rebuild_into, work};
+use crate::ui::fixtures::{Seen, Work, click, work};
 use crate::ui::sidebar::tests::buttons_in;
 use dioxus::dioxus_core::VirtualDom;
 use mail_core::offline::{self, Keep};
@@ -13,15 +12,7 @@ use mail_store::Store as _;
 const ADDRESS: &str = "poh@acme.example";
 
 fn opened(built: &Work) -> (VirtualDom, Seen) {
-    dispatching();
-    let mut dom = VirtualDom::new(App)
-        .with_root_context(built.store.clone())
-        .with_root_context(built.dirs.clone());
-    let seen = rebuild_into(&mut dom);
-    // The sheet is drawn by the render after the click that asked for it.
-    let seen =
-        click(&mut dom, seen.one("aria-label", "Edit the Work Space")).merge(drain_seen(&mut dom));
-    (dom, seen)
+    crate::ui::settings_sheet::tests::opened_on(built, crate::ui::view::SettingsPage::Accounts)
 }
 
 fn label() -> String {

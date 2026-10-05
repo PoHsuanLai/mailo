@@ -1,0 +1,13 @@
+/* Settings: the sidebar of pages beside the page, laid out as the desktop's Settings app lays out a
+   program's page. Like the Space editor, the sheet holds a scroller (both columns) and, under it,
+   the foot with Done, which stays in reach however far it scrolls. Layout only. */
+.settings-scroll { max-height: 70vh; overflow-y: auto; scrollbar-width: none; }
+.settings { display: grid; grid-template-columns: 11rem minmax(0, 1fr); align-items: start; }
+.settings-page {
+  display: grid; gap: var(--s-14); min-width: 0;
+  padding: var(--s-14) var(--s-22) var(--s-14);
+}
+.settings-foot {
+  display: flex; justify-content: flex-end; gap: var(--s-8);
+  padding: var(--s-10) var(--s-14);
+}

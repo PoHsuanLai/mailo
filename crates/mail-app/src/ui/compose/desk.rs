@@ -47,8 +47,8 @@ pub(in crate::ui) struct Desk {
     pub dirs: Signal<Option<WindowDirs>>,
     /// The sidebar, which focus mode hides.
     pub side_hidden: Signal<bool>,
-    /// Whether the body's spelling is checked: `spelling.json`, and changed from the settings.
-    pub spelling: Signal<spelling::Setting>,
+    /// Whether the body's spelling is checked: `compose.spelling`, followed as it changes.
+    pub spelling: Memo<spelling::Setting>,
     /// The emoji picked last, newest first: `emoji.json` in the state directory.
     pub emoji: Signal<Vec<&'static crate::ui::emoji::Emoji>>,
 }
@@ -60,12 +60,13 @@ pub(in crate::ui) fn use_desk(
     dirs: Option<WindowDirs>,
     side_hidden: Signal<bool>,
 ) -> Desk {
+    let settings = use_hook(|| {
+        try_consume_context::<Signal<crate::settings::MailSettings>>()
+            .unwrap_or_else(|| Signal::new(crate::settings::MailSettings::default()))
+    });
+    let spelling = use_memo(move || settings.read().compose.spelling);
     use_context_provider(|| Desk {
-        spelling: Signal::new(
-            dirs.as_ref()
-                .map(|dirs| spelling::load(&dirs.config))
-                .unwrap_or_default(),
-        ),
+        spelling,
         emoji: Signal::new(
             dirs.as_ref()
                 .map(|dirs| crate::ui::emoji::recent::load(&dirs.state))

@@ -1,13 +1,13 @@
 //! Keep all mail offline: the window's half of `mailo offline <account> on|off`, per account,
 //! with how much of each account is here.
 //!
-//! The window's, not the Space's, like notifications, so a choice is kept at once — in
-//! `offline.json`, where every sync reads it. The sync does the fetching; this only says whether
+//! Every Space's, so it is on Settings' Accounts page, and a choice is kept at once — in
+//! `offline.json`, where every sync reads it (a key per account, so not a schema key). The sync does the fetching; this only says whether
 //! it should. The counts are read once, when the sheet opens.
 
-use super::parts::Seg;
 use crate::ui::appearance::WindowDirs;
 use crate::ui::data::{AccountRow, account_rows};
+use crate::ui::space_editor::Seg;
 use dioxus::prelude::*;
 use mail_core::offline::{self, Keep, Kept};
 use mail_domain::Incoming;
@@ -120,3 +120,7 @@ fn OneAccount(line: Line, kept: Kept, on_keep: EventHandler<Keep>) -> Element {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "offline_tests.rs"]
+mod tests;
