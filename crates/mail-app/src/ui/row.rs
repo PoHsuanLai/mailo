@@ -7,6 +7,8 @@
 //! snooze float are placed against. Its strip is quire's `HoverStrip`, whose `on_press` hears a
 //! press before anything is measured, so a row's archive never waits on a layout read.
 
+mod reveal;
+
 use super::list_search::RowHit;
 use super::marked::{Piece, pieces};
 use super::menus::{LabelMenu, SnoozeMenu};
@@ -151,6 +153,10 @@ pub(super) fn MailRow(
     let mut row_box = use_signal(|| None::<MountedRef>);
     // The focus inside the row shows its strip, as the pointer over it does.
     let mut focused = use_signal(|| false);
+    // The strip is pressable only once the pointer has dwelled on the row (`reveal`); `visit`
+    // numbers each arrival so a dwell timer from an earlier one cannot arm a later one.
+    let mut armed = use_signal(reveal::Reveal::default);
+    let mut visit = use_signal(|| 0_u64);
     // The context menu, open at the point the row was right-clicked.
     let mut row_menu = use_signal(|| None::<Rect>);
     // "Remind me if no reply", opened from the context menu at the same point.
@@ -263,7 +269,10 @@ pub(super) fn MailRow(
     let strip = rsx! {
         HoverStrip {
             actions: strip_actions,
-            shown: focused().then_some(Shown::Visible),
+            shown: Some(reveal::shown(
+                armed(),
+                if focused() { reveal::Focus::Within } else { reveal::Focus::Outside },
+            )),
             titles: Titles::FromLabel,
             expanded: open_menus,
             on_press: move |pressed: ActionId| {
@@ -326,6 +335,21 @@ pub(super) fn MailRow(
                     let click = click_of(press.modifiers);
                     shell.write().click(id, click, &drawn_order());
                 },
+                onpointerenter: EventHandler::new(move |_: PointerEvent| {
+                    armed.set(reveal::next(armed(), reveal::Pointer::Entered));
+                    let here = visit() + 1;
+                    visit.set(here);
+                    spawn(async move {
+                        ds::base::time::clock::sleep(reveal::DWELL).await;
+                        if visit() == here {
+                            armed.set(reveal::next(armed(), reveal::Pointer::Dwelled));
+                        }
+                    });
+                }),
+                onpointerleave: EventHandler::new(move |_: PointerEvent| {
+                    visit.set(visit() + 1);
+                    armed.set(reveal::next(armed(), reveal::Pointer::Left));
+                }),
                 onpointerdown: EventHandler::new(move |event: PointerEvent| {
                     let point = event.client_coordinates();
                     drag::press(id, (point.x, point.y));

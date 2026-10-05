@@ -656,7 +656,7 @@ pub(super) fn App() -> Element {
                 panes: vec![SplitPane::new(LIST, rsx! {
                     ThreadList {
                         shell, pages, revision, in_a_field, threads, drafts, nothing, more,
-                        marking, top, paging,
+                        marking, top, paging, side_hidden,
                     }
                 })],
                 section { class: "reader",
