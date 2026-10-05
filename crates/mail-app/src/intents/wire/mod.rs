@@ -20,7 +20,7 @@ pub use answer::{
     Selection, Snip, TextTarget, UndoFault, Undoable, Visible, answer_of,
 };
 pub use call::{ActionRef, EntityId, Invocation, SuggestAsk, Target, Value};
-pub use label::{Label, Labelled};
+pub use label::{Integrity, Label, Labelled};
 
 #[cfg(test)]
 mod tests;

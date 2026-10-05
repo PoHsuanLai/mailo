@@ -2,7 +2,7 @@
 //! and what it labels as somebody else's words.
 
 use super::*;
-use crate::intents::wire::{Invocation, Output, Target};
+use crate::intents::wire::{Integrity, Invocation, Label, Output, Target};
 use chrono::{TimeZone, Utc};
 use mail_domain::*;
 use mail_runtime::MapSecrets;
@@ -154,14 +154,40 @@ fn threads(ns: &[u128]) -> Target {
     )
 }
 
-/// An invocation as the router sends it: `args` are `(name, value as JSON)`.
+/// The router's label for what the person typed.
+fn typed() -> serde_json::Value {
+    serde_json::json!({ "integrity": "trusted", "confidentiality": { "kind": "public" },
+                        "classes": [], "sources": [{ "kind": "user" }] })
+}
+
+/// The router's label for what an agent took from a message.
+fn lifted() -> serde_json::Value {
+    serde_json::json!({ "integrity": "untrusted", "confidentiality": { "kind": "private", "v": ["work"] },
+                        "classes": ["mail"], "sources": [{ "kind": "mail" }, { "kind": "model", "v": "planner" }] })
+}
+
+/// An invocation as the router sends it: `args` are `(name, value as JSON)`, each typed by the
+/// person.
 fn call(action: &str, target: Target, args: &[(&str, serde_json::Value)]) -> Invocation {
+    let labelled: Vec<_> = args
+        .iter()
+        .map(|(name, value)| (*name, value.clone(), typed()))
+        .collect();
+    call_labelled(action, target, &labelled)
+}
+
+/// The same, each argument with the label given.
+fn call_labelled(
+    action: &str,
+    target: Target,
+    args: &[(&str, serde_json::Value, serde_json::Value)],
+) -> Invocation {
     let args: serde_json::Map<String, serde_json::Value> = args
         .iter()
-        .map(|(name, value)| {
+        .map(|(name, value, label)| {
             (
                 (*name).to_owned(),
-                serde_json::json!({ "value": value, "label": {} }),
+                serde_json::json!({ "value": value, "label": label }),
             )
         })
         .collect();
@@ -515,7 +541,10 @@ fn a_send_is_queued_and_can_be_taken_back_to_a_draft_until_it_is_delivered() {
     assert_eq!(outcome.said.as_deref(), Some("Queued for delivery"));
     let token = token_of(&outcome);
     let draft = match Token::parse(&token) {
-        Some(Token::Unsend(draft)) => draft,
+        Some(Token::Unsend(drafts)) => match drafts.as_slice() {
+            [draft] => *draft,
+            more => panic!("{more:?}"),
+        },
         other => panic!("{other:?}"),
     };
     assert_eq!(store.draft(draft).expect("kept").state, SendState::Queued);
@@ -550,6 +579,201 @@ fn what_a_send_would_send_is_shown_before_it_is() {
         other => panic!("{other:?}"),
     }
     assert!(no_drafts(&store), "a preview made a draft");
+}
+
+/// Flow (c): a recipient an agent lifted from a message is shown on the confirmation sheet as
+/// somebody else's words, and what the person typed as theirs.
+#[test]
+fn a_preview_carries_each_arguments_label_on() {
+    let (provider, _store, _dir) = world();
+    let preview = provider
+        .dry_run(&call_labelled(
+            "mail.message.send",
+            Target::Nothing,
+            &[
+                ("to", text("ada@b.c, eve@evil.example"), lifted()),
+                ("body", text("Noon on Friday."), typed()),
+            ],
+        ))
+        .expect("a preview");
+    let Preview::Message { to, subject, body } = preview else {
+        panic!("{preview:?}");
+    };
+    assert_eq!(to.len(), 2);
+    for recipient in &to {
+        assert_eq!(
+            serde_json::to_value(&recipient.label).expect("json"),
+            lifted()
+        );
+    }
+    assert_eq!(serde_json::to_value(&body.label).expect("json"), typed());
+    assert_eq!(
+        subject.label,
+        Label::own(APP),
+        "no subject was given: mailo's empty one"
+    );
+}
+
+fn befriend(store: &SqliteStore) {
+    store
+        .put_contact(
+            "accounting@example.test",
+            Some("Accounting"),
+            &mail_store::Origin::Manual,
+        )
+        .expect("contact");
+}
+
+#[test]
+fn a_contact_search_finds_people_in_the_book_and_labels_them_the_persons_own() {
+    let (provider, store, _dir) = world();
+    befriend(&store);
+    let outcome = provider
+        .perform(&call(
+            "mail.contact.search",
+            Target::Nothing,
+            &[("query", text("account"))],
+        ))
+        .expect("searched");
+    assert_eq!(outcome.said.as_deref(), Some("Found 1 contact"));
+    let found = outcome.value.expect("a value");
+    assert_eq!(
+        found.value,
+        Output::Entities(vec![id("mail.contact", "accounting@example.test")])
+    );
+    assert_eq!(found.label, Label::contacts("work"));
+    assert_eq!(found.label.integrity(), Integrity::Trusted);
+    let none = provider
+        .perform(&call(
+            "mail.contact.search",
+            Target::Nothing,
+            &[("query", text("zebra"))],
+        ))
+        .expect("searched");
+    assert_eq!(none.value.map(|v| v.value), Some(Output::Entities(vec![])));
+}
+
+fn forward_to(contact: &str, label: serde_json::Value, ns: &[u128]) -> Invocation {
+    call_labelled(
+        "mail.message.forward",
+        threads(ns),
+        &[(
+            "to",
+            serde_json::json!({ "kind": "entity", "v": { "app": APP, "kind": "mail.contact", "key": contact } }),
+            label,
+        )],
+    )
+}
+
+/// Flow (a): forward two conversations to a contact, and take both back with one token.
+#[test]
+fn a_forward_queues_one_message_a_conversation_and_one_token_takes_them_all_back() {
+    let (provider, store, _dir) = world();
+    befriend(&store);
+    let outcome = provider
+        .perform(&forward_to("accounting@example.test", typed(), &[1, 2]))
+        .expect("queued");
+    assert_eq!(
+        outcome.said.as_deref(),
+        Some("2 forwards queued for delivery")
+    );
+    let token = token_of(&outcome);
+    let Some(Token::Unsend(drafts)) = Token::parse(&token) else {
+        panic!("{token}");
+    };
+    assert_eq!(drafts.len(), 2);
+    let subjects: Vec<String> = drafts
+        .iter()
+        .map(|draft| {
+            let draft = store.draft(*draft).expect("kept");
+            assert_eq!(draft.state, SendState::Queued);
+            assert_eq!(
+                draft
+                    .to
+                    .iter()
+                    .map(|a| a.email.as_str())
+                    .collect::<Vec<_>>(),
+                ["accounting@example.test"]
+            );
+            draft.subject
+        })
+        .collect();
+    assert_eq!(subjects, ["Fwd: Lunch on Friday", "Fwd: Quarterly report"]);
+
+    assert_eq!(provider.undo(&token), Ok(()));
+    for draft in &drafts {
+        assert_eq!(store.draft(*draft).expect("kept").state, SendState::Editing);
+    }
+    assert_eq!(
+        provider.undo(&token),
+        Err(UndoFault::Gone),
+        "taken back once"
+    );
+}
+
+#[test]
+fn what_a_forward_would_send_is_shown_with_the_mail_labelled_as_mail() {
+    let (provider, store, _dir) = world();
+    befriend(&store);
+    let preview = provider
+        .dry_run(&forward_to("accounting@example.test", lifted(), &[2]))
+        .expect("a preview");
+    let Preview::Message { to, subject, body } = preview else {
+        panic!("{preview:?}");
+    };
+    assert_eq!(
+        to.iter().map(|t| t.value.as_str()).collect::<Vec<_>>(),
+        ["Accounting <accounting@example.test>"]
+    );
+    // The book's address, chosen by words lifted from mail: the worse of the two.
+    assert_eq!(to[0].label.integrity(), Integrity::Untrusted);
+    let to_label = serde_json::to_value(&to[0].label).expect("json");
+    assert!(
+        to_label["sources"]
+            .as_array()
+            .expect("sources")
+            .contains(&serde_json::json!({ "kind": "contacts" }))
+    );
+    assert_eq!(subject.value, "Fwd: Quarterly report");
+    assert_eq!(subject.label, Label::mail("work"));
+    assert!(
+        body.value.contains("The numbers are attached."),
+        "the forwarded words are shown"
+    );
+    assert_eq!(body.label, Label::mail("work"));
+    assert!(no_drafts(&store), "a preview made a draft");
+}
+
+#[test]
+fn a_forward_to_someone_not_in_the_book_or_of_nothing_refuses_and_leaves_nothing() {
+    let (provider, store, _dir) = world();
+    befriend(&store);
+    let stranger = provider.perform(&forward_to("eve@evil.example", typed(), &[1]));
+    assert!(
+        matches!(stranger, Err(AppRefusal::NotFound(ref id)) if id.key == "eve@evil.example"),
+        "{stranger:?}"
+    );
+    let gone = provider.perform(&forward_to("accounting@example.test", typed(), &[1, 99]));
+    assert!(matches!(gone, Err(AppRefusal::NotFound(_))), "{gone:?}");
+    let typed_address = provider.perform(&call(
+        "mail.message.forward",
+        threads(&[1]),
+        &[("to", text("accounting@example.test"))],
+    ));
+    assert!(
+        matches!(typed_address, Err(AppRefusal::NeedsParam { ref param, .. }) if param == "to"),
+        "{typed_address:?}"
+    );
+    assert!(no_drafts(&store), "a refused forward left a draft");
+}
+
+#[test]
+fn a_token_for_several_messages_reads_back_as_itself() {
+    let drafts = vec![DraftId::generate(), DraftId::generate()];
+    let token = Token::Unsend(drafts.clone()).to_string();
+    assert_eq!(Token::parse(&token), Some(Token::Unsend(drafts)));
+    assert_eq!(Token::parse("unsend-"), None);
+    assert_eq!(Token::parse("unsend-x.y"), None);
 }
 
 #[test]
