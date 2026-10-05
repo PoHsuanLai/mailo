@@ -165,13 +165,30 @@ pub fn draft_forward_in<Tz: chrono::TimeZone>(
 where
     Tz::Offset: std::fmt::Display,
 {
+    let draft = forward_unsaved_in(store, message, to, body, now, zone)?;
+    save(store, &draft)?;
+    Ok(draft)
+}
+
+/// The forward [`draft_forward_in`] makes, not saved: what a preview shows of one before it
+/// exists.
+pub fn forward_unsaved_in<Tz: chrono::TimeZone>(
+    store: &SqliteStore,
+    message: MessageId,
+    to: &[Address],
+    body: &str,
+    now: DateTime<Utc>,
+    zone: &Tz,
+) -> Result<Draft, String>
+where
+    Tz::Offset: std::fmt::Display,
+{
     let original = store.message(message).map_err(|e| e.to_string())?;
     let identity = identity_of(store, original.account, None)?;
 
     let mut draft = Draft::forward_of(&original, &identity, now);
     draft.to = to.to_vec();
     draft.text = forwarded(&signed(body, &identity), &original, zone);
-    save(store, &draft)?;
     Ok(draft)
 }
 
