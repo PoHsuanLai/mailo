@@ -9,13 +9,16 @@
 //! Bounded by the size of the html it holds, least recently used out first. It is a `Mutex`, not
 //! a signal, so [`warm`] can fill it from an ordinary thread that nothing has to poll (F140).
 
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 
-use mail_domain::{BlobId, Message};
+use dioxus::prelude::*;
+use mail_domain::{BlobId, Message, ThreadId, ThreadSummary};
 use mail_mime::SanitizePolicy;
-use mail_store::SqliteStore;
+use mail_store::{SqliteStore, Store};
 
 use super::{FrameBody, render_message_uncached};
+use crate::ui::view::Shell;
 
 /// How much rendered html to keep, in bytes. A long newsletter is a few hundred kilobytes.
 const BUDGET: usize = 32 * 1024 * 1024;
@@ -114,31 +117,97 @@ fn keyed(message: &Message, policy: SanitizePolicy) -> Option<Key> {
     Some((message.body.raw()?, policy))
 }
 
-/// Render `messages` into the cache on a thread of its own, so that opening any of them is a
-/// lookup.
+/// How many conversations from the top of the list are rendered before anyone opens one.
+pub(in crate::ui) const FIRST_SCREEN: usize = 20;
+
+/// Which conversations to render ahead, most wanted first: the two after the open one and the
+/// one before it — where `j` and `k` go next — then the top of the list. Never the open one,
+/// which the reader is rendering already, and never one twice.
+pub(in crate::ui) fn ahead(
+    open: Option<ThreadId>,
+    list: &[ThreadId],
+    screen: usize,
+) -> Vec<ThreadId> {
+    let mut order = Vec::new();
+    if let Some(here) = open.and_then(|id| list.iter().position(|it| *it == id)) {
+        let neighbours = [
+            here.checked_add(1),
+            here.checked_add(2),
+            here.checked_sub(1),
+        ];
+        order.extend(neighbours.into_iter().flatten().filter_map(|i| list.get(i)));
+    }
+    for id in list.iter().take(screen) {
+        if !order.contains(id) {
+            order.push(*id);
+        }
+    }
+    order.retain(|id| Some(*id) != open);
+    order
+}
+
+/// Bumped by every [`warm`], so that only the newest one keeps going.
+static WARMING: AtomicU64 = AtomicU64::new(0);
+
+/// Render the messages of `threads` into the cache on a thread of its own, in order, so that
+/// opening any of them is a lookup.
 ///
 /// A plain `std::thread`, not a task: it writes into a `Mutex` and needs nothing to poll it and
 /// nothing to notice when it finishes, which is why it works whatever the window's event loop is
-/// doing. `still_wanted` is asked between messages, so a selection that has moved on abandons
-/// what it was warming rather than finishing it.
-pub fn warm(
-    store: std::sync::Arc<SqliteStore>,
-    messages: Vec<Message>,
-    policy: SanitizePolicy,
-    still_wanted: impl Fn() -> bool + Send + 'static,
-) {
+/// doing. Each call supersedes the one before: a selection that has moved on abandons what it
+/// was warming between messages rather than finishing it. The store is read on that thread too,
+/// so asking costs the caller nothing.
+pub fn warm(store: Arc<SqliteStore>, threads: Vec<ThreadId>, policy: SanitizePolicy) {
+    let generation = WARMING.fetch_add(1, Ordering::Relaxed) + 1;
+    let current = move || WARMING.load(Ordering::Relaxed) == generation;
     let _ = std::thread::Builder::new()
         .name("reader-warm".to_owned())
-        .spawn(move || {
-            for message in &messages {
-                if !still_wanted() {
-                    return;
-                }
-                if peek(message, policy).is_none() {
-                    let _ = rendered(&store, message, policy);
-                }
+        .spawn(move || warm_now(&store, &threads, policy, current));
+}
+
+/// [`warm`]'s work, on the calling thread. `still_wanted` is asked before each message.
+fn warm_now(
+    store: &SqliteStore,
+    threads: &[ThreadId],
+    policy: SanitizePolicy,
+    still_wanted: impl Fn() -> bool,
+) {
+    for thread in threads {
+        let Ok(loaded) = store.thread(*thread) else {
+            continue;
+        };
+        for id in &loaded.messages {
+            if !still_wanted() {
+                return;
             }
-        });
+            let Ok(message) = store.message(*id) else {
+                continue;
+            };
+            if peek(&message, policy).is_none() {
+                let _ = rendered(store, &message, policy);
+            }
+        }
+    }
+}
+
+/// Keep what the person is about to open rendered: the top of the list once it is drawn, and
+/// the neighbours of the open conversation whenever it changes.
+///
+/// Warmed under the default policy, which is the one a conversation opens with: showing remote
+/// images is asked for per conversation, and opening another one clears it.
+pub(in crate::ui) fn use_warming(shell: Signal<Shell>, threads: Memo<Vec<ThreadSummary>>) {
+    let store = use_context::<Arc<SqliteStore>>();
+    // A memo, so that only a change of the open conversation counts, not every keystroke the
+    // shell sees.
+    let open = use_memo(move || shell.read().open);
+    use_effect(move || {
+        let list: Vec<ThreadId> = threads.read().iter().map(|thread| thread.id).collect();
+        warm(
+            store.clone(),
+            ahead(open(), &list, FIRST_SCREEN),
+            SanitizePolicy::CURRENT,
+        );
+    });
 }
 
 #[cfg(test)]
@@ -207,6 +276,71 @@ mod tests {
         cache.put(key(2, RemoteImages::Blocked, 1), html(500));
         assert!(cache.get(small).is_some());
         assert_eq!(cache.entries.len(), 1);
+    }
+
+    fn ids(n: u128) -> Vec<ThreadId> {
+        (1..=n)
+            .map(|i| ThreadId::from_uuid(uuid::Uuid::from_u128(i)))
+            .collect()
+    }
+
+    #[test]
+    fn ahead_is_the_neighbours_first_then_the_top_and_never_the_open_one() {
+        let list = ids(6);
+        let order = ahead(Some(list[2]), &list, 3);
+        assert_eq!(order, vec![list[3], list[4], list[1], list[0]]);
+    }
+
+    #[test]
+    fn ahead_with_nothing_open_is_the_top_of_the_list() {
+        let list = ids(6);
+        assert_eq!(ahead(None, &list, 3), list[..3].to_vec());
+    }
+
+    #[test]
+    fn ahead_at_either_end_does_not_reach_past_it() {
+        let list = ids(3);
+        assert_eq!(ahead(Some(list[2]), &list, 0), vec![list[1]]);
+        assert_eq!(ahead(Some(list[0]), &list, 0), vec![list[1], list[2]]);
+    }
+
+    #[test]
+    fn warming_a_conversation_makes_opening_it_a_lookup() {
+        let (store, _dir) = crate::ui::fixtures::realistic();
+        let thread = crate::ui::fixtures::thread_like(&store, "rust-lang/rust");
+        let messages: Vec<Message> = store
+            .thread(thread)
+            .unwrap()
+            .messages
+            .iter()
+            .map(|id| store.message(*id).unwrap())
+            .collect();
+        let policy = SanitizePolicy::CURRENT;
+        assert!(
+            messages.iter().any(|m| m.body.raw().is_some()),
+            "the fixture has bodies"
+        );
+        warm_now(&store, &[thread], policy, || true);
+        for message in messages.iter().filter(|m| m.body.raw().is_some()) {
+            let had = peek(message, policy).expect("warmed");
+            assert_eq!(had, render_message_uncached(&store, message, policy));
+        }
+    }
+
+    #[test]
+    fn warming_that_is_no_longer_wanted_stops() {
+        let (store, _dir) = crate::ui::fixtures::realistic();
+        let thread = crate::ui::fixtures::thread_like(&store, "rust-lang/rust");
+        let message = store
+            .message(store.thread(thread).unwrap().messages[0])
+            .unwrap();
+        // A policy no other test warms with, so the shared cache cannot already hold it.
+        let policy = SanitizePolicy {
+            remote_images: RemoteImages::Allowed,
+            version: u32::MAX,
+        };
+        warm_now(&store, &[thread], policy, || false);
+        assert_eq!(peek(&message, policy), None);
     }
 
     #[test]

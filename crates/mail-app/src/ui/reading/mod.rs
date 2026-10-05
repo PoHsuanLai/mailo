@@ -9,6 +9,7 @@ use super::press::on_primary;
 use super::text::{address, attachment_rows, from_name, stamp};
 use crate::ui::view::{Peek, Shell};
 use attachments::Attachments;
+pub(in crate::ui) use cache::use_warming;
 pub use cache::{rendered as render_message, warm};
 use dioxus::prelude::*;
 use ds::components::content::avatar::{
