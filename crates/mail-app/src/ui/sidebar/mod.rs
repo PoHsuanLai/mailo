@@ -3,6 +3,7 @@ mod folder_parts;
 mod folder_row;
 mod folder_tree;
 mod folders;
+mod join;
 mod marks;
 mod panes;
 mod today;
@@ -111,7 +112,7 @@ pub(super) fn Places(
                 },
             }
             div { class: "slide",
-                AccountTiles { shell, pages, space: space.clone(), counted: tiles.clone() }
+                AccountTiles { shell, pages, spaces, space: space.clone(), counted: tiles.clone() }
                 PlaceList { shell, pages, badges, folded }
                 if let Some(section) = folders() {
                     FolderList { shell, pages, badges, revision, section, show }

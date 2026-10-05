@@ -2,10 +2,12 @@
 
 use super::super::data::account_rows;
 use super::super::motion::{drag, motion};
+use super::join::{self, Plus};
 use super::tagged;
 use crate::ui::fetching::{Fetching, Mark, account_mark_local};
+use crate::ui::menu::Floating;
 use crate::ui::provider_chip::{mark_of, mark_style};
-use crate::ui::space::{self, Pinned, Space};
+use crate::ui::space::{self, Pinned, Space, Spaces};
 use crate::ui::view::{Shell, Source, folder_of, is_label_place, saved_of};
 use dioxus::prelude::*;
 use ds::base::vocab::RowState;
@@ -14,7 +16,9 @@ use ds::components::app::pin_tiles::{PinAdd, PinItem, PinTiles};
 use ds::components::content::avatar::{AvatarFace, AvatarShape, AvatarSize, AvatarTone};
 use ds::components::content::provider_mark::{MarkProvider, MarkStyle};
 use ds::components::lists::list::model::{ListItem, ListStyle};
+use ds::host::measure::MountedRef;
 use ds::prelude::*;
+use ds::root::common::Common;
 use ds::style::tokens::hex::{Colour, Hex};
 use ds::style::tokens::person::PersonSwatch;
 use mail_core::provider::{Provider, provider};
@@ -125,9 +129,14 @@ fn place_icon(name: &str) -> Icon {
 pub(super) fn AccountTiles(
     shell: Signal<Shell>,
     pages: Signal<u32>,
+    spaces: Signal<Spaces>,
     space: Space,
     counted: Counts,
 ) -> Element {
+    // The "+" menu while it is open: the accounts it offers, hung from the row of tiles.
+    let mut joining = use_signal(|| None::<Vec<(AccountId, String)>>);
+    let mut row_at = use_signal(|| None::<MountedRef>);
+    let colors = space.clone();
     let several = counted.rows.len() > 1;
     let marks = shell.read().appearance.marks;
     // One tile per account (and "All" before them when there are several), each with its own
@@ -177,7 +186,23 @@ pub(super) fn AccountTiles(
             add: PinAdd {
                 label: "Add account".to_owned(),
                 hint: Some("Add account\u{2026}".to_owned()),
-                onadd: EventHandler::new(move |()| super::super::add_account::open(shell)),
+                onadd: EventHandler::new(move |()| {
+                    let store = consume_context::<std::sync::Arc<SqliteStore>>();
+                    let all: Vec<(AccountId, String)> = account_rows(&store)
+                        .into_iter()
+                        .map(|row| (row.id, row.shown()))
+                        .collect();
+                    match join::plus(&spaces.peek().current_space(), &all) {
+                        Plus::AddNew => super::super::add_account::open(shell),
+                        Plus::Offer(outside) => joining.set(Some(outside)),
+                    }
+                }),
+            },
+            common: Common {
+                mounted: Some(EventHandler::new(move |event: MountedEvent| {
+                    row_at.set(Some(MountedRef(event.data())));
+                })),
+                ..Common::default()
             },
             onpick: move |account: Option<AccountId>| {
                 shell.write().account = account;
@@ -186,6 +211,39 @@ pub(super) fn AccountTiles(
             // The mark is a button: it opens the Connection Doctor, which lists every account.
             onstatus: move |_: Option<AccountId>| super::super::doctor::open(shell),
         }
+        if let Some(outside) = joining() {
+            Floating {
+                anchor: row_at(),
+                title: "Add to this Space".to_owned(),
+                items: join::items(&outside, |id| {
+                    let index = colors.colors.len();
+                    space::avatar_color(&colors, id, index)
+                }),
+                on_pick: move |key: String| {
+                    joining.set(None);
+                    match join::picked(&key, &outside) {
+                        Some(account) => bring_in(shell, spaces, account),
+                        None => super::super::add_account::open(shell),
+                    }
+                },
+                on_close: move |_| joining.set(None),
+            }
+        }
+    }
+}
+
+/// Put `account` in the current Space's scope, write the Spaces, and show it.
+fn bring_in(mut shell: Signal<Shell>, mut spaces: Signal<Spaces>, account: AccountId) {
+    let widened = {
+        let mut all = spaces.write();
+        let current = all.current;
+        all.spaces
+            .get_mut(current)
+            .is_some_and(|space| super::super::add_account::flow::widen(space, account))
+    };
+    if widened {
+        super::super::frame::keep(&spaces.read());
+        shell.write().scope = spaces.read().current_space().scope;
     }
 }
 
