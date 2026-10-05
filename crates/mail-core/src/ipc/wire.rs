@@ -17,10 +17,11 @@ use serde::{Deserialize, Serialize};
 /// The version of everything below. Bump it when a variant changes meaning; adding a variant
 /// with `#[serde(other)]` handling on the far side does not need one.
 ///
-/// 2: [`Request::Subscribe`], and the [`Response::Subscribed`] and [`Response::Changed`] it is
-/// answered with. A version-1 daemon would call the request unreadable, which reads as a broken
-/// daemon rather than an old one; bumped so it says which it is.
-pub const VERSION: u32 = 2;
+/// [`Request::Subscribe`] and the [`Response::Subscribed`] and [`Response::Changed`] it is
+/// answered with came without a bump. A daemon from before them calls the request unreadable,
+/// which the window takes as a refusal and goes on looking; a bump would have cost more, since a
+/// client of another version cannot so much as ask a daemon to stop.
+pub const VERSION: u32 = 1;
 
 /// One message, with the version it was written by.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -136,7 +137,7 @@ impl std::fmt::Display for Mismatch {
             Mismatch::Version { theirs, ours } => write!(
                 f,
                 "the daemon speaks version {theirs} and this build speaks {ours}; \
-                 restart it with `mailo daemon --replace`"
+                 stop it with the build that started it, then start it again"
             ),
             Mismatch::Unreadable(why) => write!(f, "unreadable message: {why}"),
         }

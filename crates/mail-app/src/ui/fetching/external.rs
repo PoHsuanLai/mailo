@@ -14,11 +14,16 @@
 //! moved, so a pass that stored nothing moves nothing and being told and looking never count one
 //! commit twice.
 //!
-//! The looking goes on while subscribed, every [`TOLD`] rather than every [`LOOK`], for
-//! what no pass says: `mailo` on the command line, or a daemon that stored something and then
-//! failed to write the line. When the subscription ends — the watch stopped, or was restarted
-//! into a new build — the window is back to looking every [`LOOK`] at once, and knocks again
-//! every [`KNOCK`] until something answers.
+//! The looking goes on while subscribed to the watch, every [`TOLD`] rather than every
+//! [`LOOK`], for what no pass says: `mailo` on the command line, or a daemon that stored
+//! something and then failed to write the line. Subscribed to the daemon it stays at [`LOOK`]:
+//! the daemon is not what stores pushed mail, and a watch started after it would otherwise go
+//! unheard for a [`TOLD`]. When the subscription ends — the watch stopped, or was restarted into
+//! a new build — the window is back to looking every [`LOOK`] at once, and knocks again every
+//! [`KNOCK`] until something answers.
+//!
+//! Told while the writer is busy, the look cannot read the data version; it looks again every
+//! [`OWED`] until it can, rather than leaving what it was told about to the next [`TOLD`].
 
 use dioxus::prelude::*;
 use mail_core::ipc::client::Changes;
@@ -40,16 +45,20 @@ const TOLD: Duration = Duration::from_secs(15);
 #[cfg(test)]
 pub(super) const TOLD: Duration = Duration::from_secs(60);
 
+/// How soon to look again after being told while the writer was busy.
+const OWED: Duration = Duration::from_millis(50);
+
 /// How long after finding no door, or losing one, the window knocks again.
 #[cfg(not(test))]
 const KNOCK: Duration = Duration::from_secs(10);
 #[cfg(test)]
 pub(super) const KNOCK: Duration = Duration::from_millis(30);
 
-/// Where the window subscribes: the doors to knock on, in order, the first that answers kept.
-/// The real ones unless a test provided its own, as [`super::Passer`] is.
+/// Where the window subscribes: the doors to knock on, in order, the first that answers kept,
+/// with how often to look while subscribed there. The real ones unless a test provided its own,
+/// as [`super::Passer`] is.
 #[derive(Clone)]
-pub(in crate::ui) struct Doors(pub Arc<dyn Fn() -> Option<Changes> + Send + Sync>);
+pub(in crate::ui) struct Doors(pub Arc<dyn Fn() -> Option<(Changes, Duration)> + Send + Sync>);
 
 impl Doors {
     /// The watch's door, then the daemon's. The watch is the one that holds the connections and
@@ -57,12 +66,18 @@ impl Doors {
     #[cfg(not(test))]
     pub(in crate::ui) fn server() -> Self {
         Self(Arc::new(|| {
-            [mail_core::ipc::watching::agent(), mail_core::ipc::agent()]
-                .into_iter()
-                .flatten()
-                // A daemon from another build answers with an error. Not said: the window cannot
-                // fix it and looks instead, and `mailo ping` says it to whoever can.
-                .find_map(|agent| mail_core::ipc::client::subscribe(&agent).ok().flatten())
+            [
+                (mail_core::ipc::watching::agent(), TOLD),
+                (mail_core::ipc::agent(), LOOK),
+            ]
+            .into_iter()
+            .filter_map(|(agent, every)| Some((agent.ok()?, every)))
+            // A daemon from another build answers with an error. Not said: the window cannot
+            // fix it and looks instead, and `mailo ping` says it to whoever can.
+            .find_map(|(agent, every)| {
+                let changes = mail_core::ipc::client::subscribe(&agent).ok().flatten()?;
+                Some((changes, every))
+            })
         }))
     }
 
@@ -77,8 +92,8 @@ impl Doors {
 /// What the subscribing thread tells the looking loop.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Heard {
-    /// A door answered: the passes will be told, so looking can slow down.
-    Subscribed,
+    /// A door answered: the passes will be told, so looking can slow down to this.
+    Subscribed(Duration),
     /// A pass ended that may have stored something.
     Changed,
     /// The subscription ended: back to looking often.
@@ -99,14 +114,19 @@ pub(super) fn use_external_changes(
             let mut heard = subscribe(doors);
             let mut seen = store.data_version();
             let mut every = LOOK;
+            let mut owed = false;
             loop {
-                match next(&mut heard, every).await {
-                    Some(Heard::Subscribed) => every = TOLD,
+                let wait = if owed { OWED } else { every };
+                let said = next(&mut heard, wait).await;
+                match said {
+                    Some(Heard::Subscribed(pace)) => every = pace,
                     Some(Heard::Dropped) => every = LOOK,
                     Some(Heard::Changed) | None => {}
                 }
                 let now = store.data_version();
-                // A busy writer answers nothing this time; the next look will.
+                // A busy writer answers nothing this time. Told of a pass, look again soon
+                // rather than at the next look; otherwise the next look will do.
+                owed = now.is_none() && (owed || said == Some(Heard::Changed));
                 if now.is_some() && now != seen {
                     seen = now;
                     revision += 1;
@@ -150,8 +170,8 @@ fn subscribe(doors: Doors) -> Option<UnboundedReceiver<Heard>> {
 /// Subscribe, listen until the subscription ends, and again, until the window stops listening.
 fn knock(doors: &Doors, tx: &UnboundedSender<Heard>) {
     while !tx.is_closed() {
-        if let Some(mut changes) = (doors.0)() {
-            if tx.send(Heard::Subscribed).is_err() {
+        if let Some((mut changes, every)) = (doors.0)() {
+            if tx.send(Heard::Subscribed(every)).is_err() {
                 return;
             }
             while changes.wait().is_ok() {

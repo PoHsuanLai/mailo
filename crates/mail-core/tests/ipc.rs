@@ -49,7 +49,7 @@ fn the_mismatch_says_which_way_round_it_is() {
     // so both numbers have to reach the person reading it.
     let said = Mismatch::Version { theirs: 2, ours: 1 }.to_string();
     assert!(said.contains('2') && said.contains('1'), "{said}");
-    assert!(said.contains("restart"), "{said}");
+    assert!(said.contains("start it again"), "{said}");
 }
 
 #[test]
@@ -184,10 +184,11 @@ fn a_subscription_from_another_build_is_told_which_way_round_it_is() {
     let dir = tempfile::tempdir().unwrap();
     let agent = scratch(dir.path(), "mailo-watch-test-old-client");
     let watching = watching::claim_at(&agent).unwrap();
-    // A client one version behind, asking under its own version.
+    // A client of another version, asking under its own.
+    let theirs = wire::VERSION + 1;
     let mut stream = agent.connect().unwrap().unwrap();
     stream
-        .write_all(b"{\"version\":1,\"body\":\"subscribe\"}\n")
+        .write_all(format!("{{\"version\":{theirs},\"body\":\"subscribe\"}}\n").as_bytes())
         .unwrap();
     let mut reply = String::new();
     BufReader::new(&mut stream).read_line(&mut reply).unwrap();
@@ -195,7 +196,7 @@ fn a_subscription_from_another_build_is_told_which_way_round_it_is() {
         wire::parse::<Response>(&reply).unwrap(),
         Response::WrongVersion {
             daemon: wire::VERSION,
-            client: 1
+            client: theirs
         }
     );
     assert_eq!(
@@ -215,16 +216,16 @@ fn subscribing_to_a_daemon_from_another_build_is_an_error_that_names_the_remedy(
         let mut stream = listening.accept().unwrap();
         let mut line = String::new();
         BufReader::new(&mut stream).read_line(&mut line).unwrap();
-        // What a version-1 daemon says to a request it cannot read under its own version.
-        stream
-            .write_all(
-                b"{\"version\":1,\"body\":{\"wrong_version\":{\"daemon\":1,\"client\":2}}}\n",
-            )
-            .unwrap();
+        // What a daemon of another version says to a request under this one.
+        let (theirs, ours) = (wire::VERSION + 1, wire::VERSION);
+        let said = format!(
+            "{{\"version\":{theirs},\"body\":{{\"wrong_version\":{{\"daemon\":{theirs},\"client\":{ours}}}}}}}\n"
+        );
+        stream.write_all(said.as_bytes()).unwrap();
         stream.flush().unwrap();
         listening
     });
     let why = mail_core::ipc::client::subscribe(&agent).unwrap_err();
-    assert!(why.contains("restart"), "{why}");
+    assert!(why.contains("start it again"), "{why}");
     drop(old.join().unwrap());
 }
