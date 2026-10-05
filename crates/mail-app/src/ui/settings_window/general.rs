@@ -51,12 +51,12 @@ pub(super) fn General(shell: Signal<Shell>) -> Element {
                     },
                     "Writing" => rsx! {
                         if let Some(missing) = missing.clone() {
-                            p { class: "capnote", "{missing}" }
+                            p { class: "capnote settings-note", "{missing}" }
                         }
                     },
                     "Reading" => rsx! {
                         if settings.reading.brand_logos == BrandLogos::On && roots == 0 {
-                            p { class: "capnote",
+                            p { class: "capnote settings-note",
                                 "No mark verifying authority's root is installed, so no logo can be verified yet. Roots can be added to {mail_core::bimi::USER_ROOTS} in the config directory."
                             }
                         }

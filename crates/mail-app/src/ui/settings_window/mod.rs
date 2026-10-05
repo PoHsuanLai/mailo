@@ -108,7 +108,7 @@ fn quire() {
         return;
     }
     match ds_blitz::open_window(
-        WindowSpec::new(TITLE, SIZE.0, SIZE.1),
+        WindowSpec::new(TITLE, ds_blitz::WindowSize::new(SIZE.0, SIZE.1)),
         root::settings_window,
     ) {
         Ok(handle) => {
