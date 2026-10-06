@@ -6366,7 +6366,7 @@ dependencies = [
 [[package]]
 name = "porter-core"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=7e4d56c6293119af93f706c80985fc2353a72a56#7e4d56c6293119af93f706c80985fc2353a72a56"
+source = "git+https://github.com/PoHsuanLai/porter?rev=aca6210f42cb404569e4c659f5cf15875e2889ee#aca6210f42cb404569e4c659f5cf15875e2889ee"
 dependencies = [
  "serde",
  "serde_json",
@@ -6376,7 +6376,7 @@ dependencies = [
 [[package]]
 name = "porter-discover"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=7e4d56c6293119af93f706c80985fc2353a72a56#7e4d56c6293119af93f706c80985fc2353a72a56"
+source = "git+https://github.com/PoHsuanLai/porter?rev=aca6210f42cb404569e4c659f5cf15875e2889ee#aca6210f42cb404569e4c659f5cf15875e2889ee"
 dependencies = [
  "porter-core",
  "porter-http",
@@ -6390,7 +6390,7 @@ dependencies = [
 [[package]]
 name = "porter-http"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=7e4d56c6293119af93f706c80985fc2353a72a56#7e4d56c6293119af93f706c80985fc2353a72a56"
+source = "git+https://github.com/PoHsuanLai/porter?rev=aca6210f42cb404569e4c659f5cf15875e2889ee#aca6210f42cb404569e4c659f5cf15875e2889ee"
 dependencies = [
  "porter-core",
  "thiserror 2.0.21",
@@ -6399,7 +6399,7 @@ dependencies = [
 [[package]]
 name = "porter-provider"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=7e4d56c6293119af93f706c80985fc2353a72a56#7e4d56c6293119af93f706c80985fc2353a72a56"
+source = "git+https://github.com/PoHsuanLai/porter?rev=aca6210f42cb404569e4c659f5cf15875e2889ee#aca6210f42cb404569e4c659f5cf15875e2889ee"
 dependencies = [
  "porter-core",
  "serde",
@@ -6410,7 +6410,7 @@ dependencies = [
 [[package]]
 name = "porter-secrets"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=7e4d56c6293119af93f706c80985fc2353a72a56#7e4d56c6293119af93f706c80985fc2353a72a56"
+source = "git+https://github.com/PoHsuanLai/porter?rev=aca6210f42cb404569e4c659f5cf15875e2889ee#aca6210f42cb404569e4c659f5cf15875e2889ee"
 dependencies = [
  "apple-native-keyring-store",
  "keyring-core",

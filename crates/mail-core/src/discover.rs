@@ -19,10 +19,14 @@ mod jmap;
 pub mod providers;
 use chrono::{DateTime, Utc};
 pub use jmap::find as find_jmap;
-use mail_domain::presets::{self, Manual, Preset};
+use mail_domain::presets::{self, Manual, ManualPop3, Preset};
 use mail_domain::{AuthPlan, Incoming, Outgoing, Retry, SaslMech, Tls, Username};
 use porter_core::{Family, ServiceEndpoint, Tls as Wire, UrlScheme};
-use porter_discover::{Found as Servers, NotFound, Outcome, ProviderLead, Source as Via};
+use porter_discover::{
+    Dns, Found as Servers, NotFound, OAuthOnly, Outcome, Pop3, ProviderLead, SearchOptions,
+    Source as Via, StartTlsOnly,
+};
+use porter_http::Http;
 use porter_provider::{DomainMatch, DomainName, Issuer, ProviderSpec};
 use std::fmt::Write as _;
 
@@ -355,60 +359,144 @@ fn from_file(spec: &ProviderSpec, address: &str, now: DateTime<Utc>) -> Result<P
 /// is a cleartext password. A server that does not offer it is declined, and the result says that
 /// is what happened, so the user can configure the account by hand.
 ///
-/// OAuth is taken where the IMAP or SMTP host is one of an issuer mailo reads mail through
-/// (`issuer_for_server`): the issuer's own preset is used whole, because its scopes and
-/// capabilities were measured and a document's were not. Otherwise the account signs in with a
-/// password.
+/// OAuth comes first, as it did: where the document names an issuer mailo reads mail through
+/// (`issuer_named`) or one of its OAuth2 servers is such an issuer's host (`issuer_for_server`),
+/// the issuer's own preset is used whole, because its scopes and capabilities were measured and a
+/// document's were not. Otherwise the account signs in with a password, on the IMAP server, or
+/// on the first POP3 server when the document names no IMAP one.
 fn from_servers(servers: &Servers, address: &str, now: DateTime<Utc>) -> Result<Found, Failed> {
-    let by = |family: Family| servers.endpoints.iter().find(|e| e.family == family);
-    let (Some(imap), Some(smtp)) = (by(Family::Imap), by(Family::Smtp)) else {
-        return Err(no_servers(
-            address,
-            Gap::Nothing,
-            "no IMAP and SMTP servers are named",
-        ));
-    };
-    if [imap, smtp].iter().any(|e| e.tls != Wire::Implicit) {
-        let offered = [imap, smtp].map(offer).join(", ");
-        return Err(no_servers(
-            address,
-            Gap::StartTlsOnly,
-            &format!("the servers offered use only STARTTLS or no TLS: {offered}"),
-        ));
-    }
-    let (incoming, outgoing) = (imap.url.origin(), smtp.url.origin());
-    let issuer = presets::issuer_for_server(&incoming.host)
-        .or_else(|| presets::issuer_for_server(&outgoing.host));
-    let preset = match issuer.and_then(|issuer| presets::preset_for_issuer(issuer, address, now)) {
-        Some(preset) => preset,
-        None => {
-            let mut preset = presets::manual(
-                address,
-                &Manual {
-                    imap_host: incoming.host,
-                    imap_port: incoming.port,
-                    smtp_host: outgoing.host,
-                    smtp_port: outgoing.port,
-                    login: None,
-                },
-                now,
-            );
-            // One login for both directions, which is what `AuthPlan` holds: the incoming
-            // server's, since that is the one used first and the one a wrong name shows up on.
-            preset.plan.auth = AuthPlan::Password {
-                username: username(&imap.login.0, address),
-                sasl: vec![SaslMech::Plain],
-            };
-            preset
-        }
-    };
     let source = match servers.source {
         Via::Srv => Source::Srv,
         Via::Mx => Source::MxAutoconfig,
         // `discover_mail` returns the others as `Outcome::Provider` or never.
         _ => Source::Autoconfig,
     };
+    if let Some(issuer) = oauth_issuer(servers)
+        && let Some(preset) = presets::preset_for_issuer(issuer, address, now)
+    {
+        return Ok(Found {
+            source,
+            preset: guard(address, preset)?,
+        });
+    }
+    let by = |family: Family| servers.endpoints.iter().find(|e| e.family == family);
+    let Some(smtp) = by(Family::Smtp) else {
+        return Err(no_servers(
+            address,
+            Gap::Nothing,
+            "no IMAP and SMTP servers are named",
+        ));
+    };
+    let smtp_origin = smtp.url.origin();
+    let (mut preset, login) = match (by(Family::Imap), servers.pop3.first()) {
+        (Some(imap), _) => {
+            if [imap, smtp].iter().any(|e| e.tls != Wire::Implicit) {
+                let offered = [imap, smtp].map(offer).join(", ");
+                return Err(no_servers(
+                    address,
+                    Gap::StartTlsOnly,
+                    &format!("the servers offered use only STARTTLS or no TLS: {offered}"),
+                ));
+            }
+            let incoming = imap.url.origin();
+            let preset = presets::manual(
+                address,
+                &Manual {
+                    imap_host: incoming.host,
+                    imap_port: incoming.port,
+                    smtp_host: smtp_origin.host,
+                    smtp_port: smtp_origin.port,
+                    login: None,
+                },
+                now,
+            );
+            (preset, &imap.login.0)
+        }
+        (None, Some(pop3)) => {
+            if pop3.tls != Wire::Implicit || smtp.tls != Wire::Implicit {
+                let offered = format!(
+                    "POP3 {}:{} ({}), {}",
+                    pop3.host,
+                    pop3.port,
+                    socket_said(pop3.tls),
+                    offer(smtp)
+                );
+                return Err(no_servers(
+                    address,
+                    Gap::StartTlsOnly,
+                    &format!("the servers offered use only STARTTLS or no TLS: {offered}"),
+                ));
+            }
+            let preset = presets::manual_pop3(
+                address,
+                &ManualPop3 {
+                    pop3_host: pop3.host.clone(),
+                    pop3_port: pop3.port,
+                    smtp_host: smtp_origin.host,
+                    smtp_port: smtp_origin.port,
+                    login: None,
+                },
+                now,
+            );
+            (preset, &pop3.login.0)
+        }
+        (None, None) => {
+            return Err(no_servers(
+                address,
+                Gap::Nothing,
+                "no IMAP and SMTP servers are named",
+            ));
+        }
+    };
+    // One login for both directions, which is what `AuthPlan` holds: the incoming server's,
+    // since that is the one used first and the one a wrong name shows up on.
+    preset.plan.auth = AuthPlan::Password {
+        username: username(login, address),
+        sasl: vec![SaslMech::Plain],
+    };
     Ok(Found { source, preset })
+}
+
+/// The issuer a document's OAuth2 offer leads to: the one its `<oAuth2><issuer>` names, else the
+/// one whose tokens an OAuth2 server's host takes. `None` for a document that offers none, or
+/// only on somebody else's servers.
+fn oauth_issuer(servers: &Servers) -> Option<Issuer> {
+    let offer = servers.oauth.as_ref()?;
+    offer
+        .issuer
+        .as_deref()
+        .and_then(presets::issuer_named)
+        .or_else(|| {
+            offer
+                .servers
+                .iter()
+                .find_map(|server| presets::issuer_for_server(&server.host))
+        })
+}
+
+/// Refuse the managed-tenant preset for a personal Microsoft address, however it was reached.
+fn guard(address: &str, preset: Preset) -> Result<Preset, Failed> {
+    let tenant = matches!(
+        preset.plan.auth,
+        AuthPlan::OAuth {
+            issuer: Issuer::Microsoft,
+            ..
+        }
+    );
+    let personal = domain_of(address).is_some_and(|domain| {
+        providers::set()
+            .claiming(&domain, &[])
+            .into_iter()
+            .any(|(spec, via)| via == DomainMatch::Domain && personal_microsoft(spec, &domain))
+    });
+    match tenant && personal {
+        true => Err(no_servers(
+            address,
+            Gap::PersonalMicrosoft,
+            PERSONAL_MICROSOFT,
+        )),
+        false => Ok(preset),
+    }
 }
 
 /// A server declined, as the user is shown it: `IMAP host:port (STARTTLS)`.
@@ -419,12 +507,20 @@ fn offer(endpoint: &ServiceEndpoint) -> String {
         Family::Smtp => "SMTP",
         _ => "server",
     };
-    let socket = match endpoint.tls {
+    format!(
+        "{protocol} {}:{} ({})",
+        origin.host,
+        origin.port,
+        socket_said(endpoint.tls)
+    )
+}
+
+fn socket_said(tls: Wire) -> &'static str {
+    match tls {
         Wire::Implicit => "SSL",
         Wire::StartTls => "STARTTLS",
         Wire::Plain => "no TLS",
-    };
-    format!("{protocol} {}:{} ({socket})", origin.host, origin.port)
+    }
 }
 
 /// A login as a [`Username`]: the whole address, the part before the `@`, or a name of its own.
@@ -476,10 +572,10 @@ pub fn search(address: &str, now: DateTime<Utc>) -> Result<Found, Failed> {
             .map_err(|e| Failed::Broken(format!("cannot build an HTTP client: {e}")))?;
         let dns =
             mail_runtime::lookup::SystemDns::new().map_err(|e| Failed::Broken(e.to_string()))?;
-        let search = porter_discover::discover_mail(&http, &dns, providers::set(), address);
-        match tokio::time::timeout(mail_runtime::lookup::TOTAL, search).await {
-            Ok(Ok(outcome)) => map(outcome, address, now),
-            Ok(Err(why)) => Err(classify(address, &why)),
+        match tokio::time::timeout(mail_runtime::lookup::TOTAL, run(&http, &dns, address, now))
+            .await
+        {
+            Ok(found) => found,
             Err(_) => Err(Failed::Unreachable {
                 address: address.to_owned(),
                 retry: Retry::Now,
@@ -492,12 +588,92 @@ pub fn search(address: &str, now: DateTime<Utc>) -> Result<Found, Failed> {
     })
 }
 
+/// The search as mailo runs it: every source, a document that is usable only in part decided the
+/// way mailo always did ([`SearchOptions`]), the answer mapped onto a plan. Over the two seams, so
+/// a test runs it against tables.
+///
+/// - A server that needs STARTTLS is a miss and the next source is tried; a domain whose every
+///   source ends so is told how to configure the account by hand ([`Gap::StartTlsOnly`]).
+/// - A document that offers OAuth2 only, on a host that is no issuer's, is dropped as a miss and
+///   the search goes on, never a password plan.
+/// - A document's POP3 server serves when it names no IMAP one.
+pub async fn run<H: Http, D: Dns>(
+    http: &H,
+    dns: &D,
+    address: &str,
+    now: DateTime<Utc>,
+) -> Result<Found, Failed> {
+    const TRY_NEXT: SearchOptions = SearchOptions {
+        starttls_only: StartTlsOnly::TryNext,
+        pop3: Pop3::Report,
+        oauth_only: OAuthOnly::Offer,
+    };
+    match find(http, dns, address, &TRY_NEXT).await {
+        Ok(outcome) => map(outcome, address, now),
+        Err(why) => {
+            let failed = classify(address, &why);
+            if why.offline() {
+                return Err(failed);
+            }
+            // Nothing usable: was a STARTTLS-only document the reason? Asked again with the rule
+            // off, only to say so (and to take an OAuth preset a STARTTLS document leads to).
+            let accepting = SearchOptions {
+                starttls_only: StartTlsOnly::Accept,
+                ..TRY_NEXT
+            };
+            match find(http, dns, address, &accepting).await {
+                Ok(outcome) => match map(outcome, address, now) {
+                    Ok(found) => Ok(found),
+                    Err(Failed::NoServers {
+                        gap: Gap::StartTlsOnly,
+                        address,
+                        tried,
+                    }) => Err(Failed::NoServers {
+                        address,
+                        gap: Gap::StartTlsOnly,
+                        tried,
+                    }),
+                    Err(_) => Err(failed),
+                },
+                Err(_) => Err(failed),
+            }
+        }
+    }
+}
+
+/// `discover_mail_with`, dropping a finding that is OAuth2 only on a host that is no issuer's:
+/// the search is made again with those servers a miss, which is the document skipped and every
+/// later source tried.
+async fn find<H: Http, D: Dns>(
+    http: &H,
+    dns: &D,
+    address: &str,
+    options: &SearchOptions,
+) -> Result<Outcome, NotFound> {
+    let providers = providers::set();
+    let outcome = porter_discover::discover_mail_with(http, dns, providers, address, options).await;
+    match outcome {
+        Ok(Outcome::Servers(servers))
+            if options.oauth_only == OAuthOnly::Offer
+                && servers.oauth.is_some()
+                && oauth_issuer(&servers).is_none() =>
+        {
+            let without = SearchOptions {
+                oauth_only: OAuthOnly::Miss,
+                ..*options
+            };
+            porter_discover::discover_mail_with(http, dns, providers, address, &without).await
+        }
+        other => other,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use porter_core::{EndpointUrl, LoginName};
     use porter_discover::{
-        Dns, DnsFault, Miss, MxRecord, SrvRecord, Tried, discover_mail, parse_autoconfig,
+        DnsFault, Miss, MxRecord, SrvRecord, Tried, parse_autoconfig, parse_autoconfig_with,
     };
     use porter_http::{Http, HttpError, HttpRequest, HttpResponse, Status};
     use std::collections::HashMap;
@@ -566,10 +742,7 @@ mod tests {
 
         /// The discovery search for `address`, mapped as `search` maps it.
         async fn found(&self, address: &str) -> Result<Found, Failed> {
-            match discover_mail(self, self, providers::set(), address).await {
-                Ok(outcome) => map(outcome, address, now()),
-                Err(why) => Err(classify(address, &why)),
-            }
+            run(self, self, address, now()).await
         }
     }
 
@@ -612,6 +785,17 @@ mod tests {
 
     fn found_in(xml: &str, address: &str) -> Result<Found, Failed> {
         let servers = parse_autoconfig(xml, address).expect("a readable document");
+        map(Outcome::Servers(servers), address, now())
+    }
+
+    /// A document read under the options mailo's search uses (`run`), then mapped.
+    fn found_under_mailo(xml: &str, address: &str) -> Result<Found, Failed> {
+        let options = SearchOptions {
+            starttls_only: StartTlsOnly::TryNext,
+            pop3: Pop3::Report,
+            oauth_only: OAuthOnly::Offer,
+        };
+        let servers = parse_autoconfig_with(xml, address, &options).expect("a usable document");
         map(Outcome::Servers(servers), address, now())
     }
 
@@ -1002,6 +1186,8 @@ mod tests {
                 ..
             }
         ));
+        // Microsoft's document offers submission with STARTTLS, which a found server may not use,
+        // but OAuth is taken first and the issuer's preset used whole, as before E3.
         let microsoft = found_in(
             &imap_smtp(
                 ("outlook.office365.com", 993, "SSL"),
@@ -1010,15 +1196,14 @@ mod tests {
                 &both,
             ),
             "me@firm.example",
-        );
-        // Microsoft's document offers submission with STARTTLS, which a found server may not use; the
-        // preset for its address comes from the provider file instead (`an_address_at_...`).
+        )
+        .expect("microsoft");
         assert!(matches!(
-            microsoft,
-            Err(Failed::NoServers {
-                gap: Gap::StartTlsOnly,
+            microsoft.preset.plan.auth,
+            AuthPlan::OAuth {
+                issuer: Issuer::Microsoft,
                 ..
-            })
+            }
         ));
         let lookalike = found_in(
             &imap_smtp(
@@ -1077,6 +1262,8 @@ mod tests {
             ],
             claims: Vec::new(),
             source: Via::Srv,
+            oauth: None,
+            pop3: Vec::new(),
         };
         let found = map(Outcome::Servers(servers), "me@example.test", now()).expect("found");
         assert_eq!(found.source, Source::Srv);
@@ -1106,6 +1293,397 @@ mod tests {
         ] {
             assert_eq!(source.to_string(), want);
         }
+    }
+
+    // ---- behaviour restored to what it was before E3 (F201 diffs 1-3) ---------------------------
+    //
+    // The cases below are mailo's own from before E3, with the same documents and the same
+    // expectations, moved over the porter-discover seams: `crates/mail-proto/tests/discover.rs`
+    // (`selection`: the OAuth2 tests, `pop3_is_used_only_when_no_imap_server_will_do`,
+    // `a_personal_microsoft_address_is_not_given_the_tenant_preset`, `starttls_only_is_skipped_and_said`)
+    // and `crates/mail-runtime/tests/discover.rs`
+    // (`a_starttls_only_document_is_skipped_and_the_search_goes_on`), at mailo commit 2ea6bbe7.
+
+    const ADDRESS: &str = "someone@example.test";
+
+    /// An old-style document: servers inside one provider, optionally with an `<oAuth2>` issuer.
+    fn doc_with_issuer(servers: String, issuer: Option<&str>) -> String {
+        let xml = document(&servers);
+        match issuer {
+            Some(issuer) => xml.replace(
+                "</clientConfig>",
+                &format!("<oAuth2><issuer>{issuer}</issuer></oAuth2></clientConfig>"),
+            ),
+            None => xml,
+        }
+    }
+
+    /// F201 diff 2: an issuer the document names, or an OAuth2 server at an issuer's host, gives
+    /// that issuer's preset whole.
+    #[test]
+    fn oauth2_through_a_known_issuer_uses_that_providers_preset() {
+        let named = doc_with_issuer(
+            [
+                server(
+                    "incoming",
+                    "imap",
+                    ("imap.example.test", 993, "SSL"),
+                    "",
+                    &["OAuth2"],
+                ),
+                server(
+                    "outgoing",
+                    "smtp",
+                    ("smtp.example.test", 465, "SSL"),
+                    "",
+                    &["OAuth2"],
+                ),
+            ]
+            .concat(),
+            Some("login.microsoftonline.com"),
+        );
+        let found = found_under_mailo(&named, ADDRESS).expect("named");
+        assert!(matches!(
+            found.preset.plan.auth,
+            AuthPlan::OAuth {
+                issuer: Issuer::Microsoft,
+                ..
+            }
+        ));
+        // No issuer element, but the server is one whose tokens come from a known issuer.
+        let both = ["OAuth2", "password-cleartext"];
+        let implied = imap_smtp(
+            ("imap.gmail.com", 993, "SSL"),
+            ("smtp.gmail.com", 465, "SSL"),
+            "",
+            &both,
+        );
+        let found = found_under_mailo(&implied, ADDRESS).expect("implied");
+        assert!(matches!(
+            found.preset.plan.auth,
+            AuthPlan::OAuth {
+                issuer: Issuer::Google,
+                ..
+            }
+        ));
+        assert_eq!(found.preset.plan.address, ADDRESS);
+    }
+
+    /// F201 diff 2: OAuth2 through an issuer nobody here reads mail through, with a password also
+    /// offered, is a password plan.
+    #[test]
+    fn oauth2_through_an_unknown_issuer_falls_back_to_a_password() {
+        let both = ["OAuth2", "password-cleartext"];
+        let xml = doc_with_issuer(
+            [
+                server(
+                    "incoming",
+                    "imap",
+                    ("imap.example.test", 993, "SSL"),
+                    "",
+                    &both,
+                ),
+                server(
+                    "outgoing",
+                    "smtp",
+                    ("smtp.example.test", 465, "SSL"),
+                    "",
+                    &both,
+                ),
+            ]
+            .concat(),
+            Some("auth.example.test"),
+        );
+        let found = found_under_mailo(&xml, ADDRESS).expect("password");
+        assert!(matches!(found.preset.plan.auth, AuthPlan::Password { .. }));
+        assert_eq!(imap_host(&found), "imap.example.test");
+    }
+
+    /// F201 diff 2: a document whose servers take OAuth2 and no password, at no issuer's host, is
+    /// dropped and the search goes on: here to the ISPDB's document for the domain, which has a
+    /// password. It is never a password plan at the OAuth-only servers.
+    #[tokio::test]
+    async fn an_oauth_only_document_at_no_issuer_is_dropped_and_the_search_goes_on() {
+        let oauth_only = imap_smtp(
+            ("imap.example.test", 993, "SSL"),
+            ("smtp.example.test", 465, "SSL"),
+            "",
+            &["OAuth2"],
+        );
+        let mut net = Net::default();
+        net.documents.insert(
+            "https://autoconfig.example.test/mail/config-v1.1.xml?emailaddress=me%40example.test"
+                .to_owned(),
+            oauth_only.clone(),
+        );
+        let failed = net.found("me@example.test").await.unwrap_err();
+        assert!(
+            matches!(
+                failed,
+                Failed::NoServers {
+                    gap: Gap::Nothing,
+                    ..
+                }
+            ),
+            "{failed:?}"
+        );
+
+        net.documents.insert(
+            "https://autoconfig.thunderbird.net/v1.1/example.test".to_owned(),
+            imap_smtp(
+                ("imap.isp.example.test", 993, "SSL"),
+                ("smtp.isp.example.test", 465, "SSL"),
+                "%EMAILADDRESS%",
+                &["password-cleartext"],
+            ),
+        );
+        let found = net.found("me@example.test").await.expect("the ISPDB's");
+        assert_eq!(imap_host(&found), "imap.isp.example.test");
+        assert!(matches!(found.preset.plan.auth, AuthPlan::Password { .. }));
+    }
+
+    /// F201 diff 2: OAuth2 through the issuer a document names is taken even when that is the only
+    /// sign-in it lists, through the whole search.
+    #[tokio::test]
+    async fn an_oauth_only_document_at_a_known_issuer_is_an_oauth_plan() {
+        let mut net = Net::default();
+        net.documents.insert(
+            "https://autoconfig.example.test/mail/config-v1.1.xml?emailaddress=me%40example.test"
+                .to_owned(),
+            imap_smtp(
+                ("imap.gmail.com", 993, "SSL"),
+                ("smtp.gmail.com", 465, "SSL"),
+                "",
+                &["OAuth2"],
+            ),
+        );
+        let found = net.found("me@example.test").await.expect("found");
+        assert!(matches!(
+            found.preset.plan.auth,
+            AuthPlan::OAuth {
+                issuer: Issuer::Google,
+                ..
+            }
+        ));
+        assert_eq!(found.source, Source::Autoconfig);
+    }
+
+    #[test]
+    fn a_personal_microsoft_address_is_not_given_the_tenant_preset() {
+        let xml = imap_smtp(
+            ("outlook.office365.com", 993, "SSL"),
+            ("smtp.office365.com", 465, "SSL"),
+            "",
+            &["OAuth2"],
+        );
+        let failed = found_under_mailo(&xml, "someone@hotmail.com").unwrap_err();
+        assert!(
+            matches!(
+                failed,
+                Failed::NoServers {
+                    gap: Gap::PersonalMicrosoft,
+                    ..
+                }
+            ),
+            "{failed:?}"
+        );
+        assert!(found_under_mailo(&xml, "me@firm.example").is_ok());
+    }
+
+    /// F201 diff 3, and diff 2 with it: a document that offers OAuth2 at an issuer's host with
+    /// submission on STARTTLS (Microsoft's own) is a miss under the rule, and is taken after the
+    /// later sources fail, as the issuer's preset whole, as it was before.
+    #[tokio::test]
+    async fn a_starttls_document_that_leads_to_an_issuer_is_still_that_issuers_preset() {
+        let mut net = Net::default();
+        net.documents.insert(
+            "https://autoconfig.example.test/mail/config-v1.1.xml?emailaddress=me%40example.test"
+                .to_owned(),
+            imap_smtp(
+                ("outlook.office365.com", 993, "SSL"),
+                ("smtp.office365.com", 587, "STARTTLS"),
+                "",
+                &["OAuth2"],
+            ),
+        );
+        let found = net.found("me@example.test").await.expect("found");
+        assert!(matches!(
+            found.preset.plan.auth,
+            AuthPlan::OAuth {
+                issuer: Issuer::Microsoft,
+                ..
+            }
+        ));
+    }
+
+    /// F201 diff 1: POP3 serves only when no IMAP server will do, with its own login.
+    #[test]
+    fn pop3_is_used_only_when_no_imap_server_will_do() {
+        let pop3_first = document(
+            &[
+                server(
+                    "incoming",
+                    "pop3",
+                    ("pop.example.test", 995, "SSL"),
+                    "%EMAILLOCALPART%",
+                    &["password-cleartext"],
+                ),
+                server(
+                    "incoming",
+                    "imap",
+                    ("imap.example.test", 143, "STARTTLS"),
+                    "",
+                    &[],
+                ),
+                server(
+                    "outgoing",
+                    "smtp",
+                    ("smtp.example.test", 465, "SSL"),
+                    "",
+                    &[],
+                ),
+            ]
+            .concat(),
+        );
+        let found = found_under_mailo(&pop3_first, ADDRESS).expect("pop3");
+        assert!(matches!(
+            found.preset.plan.incoming,
+            Incoming::Pop3 { ref host, port: 995, tls: Tls::Implicit, .. } if host == "pop.example.test"
+        ));
+        assert!(matches!(
+            found.preset.plan.auth,
+            AuthPlan::Password {
+                username: Username::LocalPart,
+                ..
+            }
+        ));
+        assert!(matches!(
+            found.preset.plan.outgoing,
+            Outgoing::Smtp { ref host, port: 465, .. } if host == "smtp.example.test"
+        ));
+
+        // An IMAP server that will do wins over a POP3 one listed before it.
+        let both = document(
+            &[
+                server(
+                    "incoming",
+                    "pop3",
+                    ("pop.example.test", 995, "SSL"),
+                    "",
+                    &[],
+                ),
+                server(
+                    "incoming",
+                    "imap",
+                    ("imap.example.test", 993, "SSL"),
+                    "",
+                    &[],
+                ),
+                server(
+                    "outgoing",
+                    "smtp",
+                    ("smtp.example.test", 465, "SSL"),
+                    "",
+                    &[],
+                ),
+            ]
+            .concat(),
+        );
+        let found = found_under_mailo(&both, ADDRESS).expect("imap");
+        assert_eq!(imap_host(&found), "imap.example.test");
+    }
+
+    /// F201 diff 1, through the whole search: a POP3-only domain is found by its document.
+    #[tokio::test]
+    async fn a_pop3_only_domain_is_found_through_the_search() {
+        let mut net = Net::default();
+        net.documents.insert(
+            "https://autoconfig.example.test/mail/config-v1.1.xml?emailaddress=me%40example.test"
+                .to_owned(),
+            document(
+                &[
+                    server(
+                        "incoming",
+                        "pop3",
+                        ("pop.example.test", 995, "SSL"),
+                        "",
+                        &[],
+                    ),
+                    server(
+                        "outgoing",
+                        "smtp",
+                        ("smtp.example.test", 465, "SSL"),
+                        "",
+                        &[],
+                    ),
+                ]
+                .concat(),
+            ),
+        );
+        let found = net.found("me@example.test").await.expect("found");
+        assert!(matches!(
+            found.preset.plan.incoming,
+            Incoming::Pop3 { port: 995, .. }
+        ));
+        let text = describe("me@example.test", &found.source.to_string(), &found.preset);
+        assert!(text.contains("POP3 pop.example.test:995"), "{text}");
+    }
+
+    /// F201 diff 3: a STARTTLS-only document is a miss, the later sources are still asked, and a
+    /// domain with nothing else is told why and how to configure it by hand.
+    #[tokio::test]
+    async fn a_starttls_only_document_is_skipped_and_the_search_goes_on() {
+        let starttls = imap_smtp(
+            ("imap.example.test", 143, "STARTTLS"),
+            ("smtp.example.test", 587, "STARTTLS"),
+            "%EMAILADDRESS%",
+            &["password-cleartext"],
+        );
+        let mut net = Net::with_mx("example.test", "mx.isp.example.net");
+        net.documents.insert(
+            "https://autoconfig.example.test/mail/config-v1.1.xml?emailaddress=me%40example.test"
+                .to_owned(),
+            starttls,
+        );
+        let failed = net.found("me@example.test").await.unwrap_err();
+        let Failed::NoServers { gap, tried, .. } = &failed else {
+            panic!("{failed:?}")
+        };
+        assert_eq!(*gap, Gap::StartTlsOnly);
+        assert!(tried.contains("STARTTLS"), "{tried}");
+        assert!(
+            failed.said().contains("--imap HOST[:993]"),
+            "{}",
+            failed.said()
+        );
+        let asked = net.asked.lock().unwrap().clone();
+        // The ISPDB, and the MX's operator, were still asked.
+        assert!(
+            asked
+                .iter()
+                .any(|url| url.contains("autoconfig.thunderbird.net/v1.1/example.test")),
+            "{asked:?}"
+        );
+        assert!(
+            asked.iter().any(
+                |url| url.contains("autoconfig.thunderbird.net/v1.1/isp.example.net")
+                    || url.contains("autoconfig.thunderbird.net/v1.1/example.net")
+            ),
+            "{asked:?}"
+        );
+
+        // A later source with implicit TLS is the one used.
+        net.documents.insert(
+            "https://autoconfig.thunderbird.net/v1.1/example.test".to_owned(),
+            imap_smtp(
+                ("imap.isp.example.test", 993, "SSL"),
+                ("smtp.isp.example.test", 465, "SSL"),
+                "%EMAILADDRESS%",
+                &["password-cleartext"],
+            ),
+        );
+        let found = net.found("me@example.test").await.expect("the ISPDB's");
+        assert_eq!(imap_host(&found), "imap.isp.example.test");
     }
 
     // ---- a miss ----------------------------------------------------------------------------------

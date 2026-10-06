@@ -41,14 +41,14 @@ mail-store  = { path = "crates/mail-store" }
 # target in mail-runtime's own Cargo.toml: `oo7` on Linux, `keyring` on macOS and Windows. It
 # enters mail-runtime, the I/O crate, and no pure crate: mail-domain, -mime, -proto and -pim
 # stay free of zbus and tokio (`scripts/check-boundary.sh`).
-porter-core = { git = "https://github.com/PoHsuanLai/porter", rev = "7e4d56c6293119af93f706c80985fc2353a72a56" }
-porter-provider = { git = "https://github.com/PoHsuanLai/porter", rev = "7e4d56c6293119af93f706c80985fc2353a72a56" }
-porter-secrets = { git = "https://github.com/PoHsuanLai/porter", rev = "7e4d56c6293119af93f706c80985fc2353a72a56", default-features = false }
+porter-core = { git = "https://github.com/PoHsuanLai/porter", rev = "aca6210f42cb404569e4c659f5cf15875e2889ee" }
+porter-provider = { git = "https://github.com/PoHsuanLai/porter", rev = "aca6210f42cb404569e4c659f5cf15875e2889ee" }
+porter-secrets = { git = "https://github.com/PoHsuanLai/porter", rev = "aca6210f42cb404569e4c659f5cf15875e2889ee", default-features = false }
 # Step E3: discovery. porter-discover without its `io` feature is pure parsers and two seams (no
 # tokio, no hickory); mail-runtime implements `porter_discover::Dns` and `porter_http::Http` over
 # the resolver and the HTTP client mailo already has, so neither dependency is added for them.
-porter-discover = { git = "https://github.com/PoHsuanLai/porter", rev = "7e4d56c6293119af93f706c80985fc2353a72a56", default-features = false }
-porter-http = { git = "https://github.com/PoHsuanLai/porter", rev = "7e4d56c6293119af93f706c80985fc2353a72a56", default-features = false }
+porter-discover = { git = "https://github.com/PoHsuanLai/porter", rev = "aca6210f42cb404569e4c659f5cf15875e2889ee", default-features = false }
+porter-http = { git = "https://github.com/PoHsuanLai/porter", rev = "aca6210f42cb404569e4c659f5cf15875e2889ee", default-features = false }
 serde       = { version = "1", features = ["derive"] }
 chrono      = { version = "0.4", features = ["serde"] }
 uuid        = { version = "1", features = ["v4", "serde"] }

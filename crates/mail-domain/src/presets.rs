@@ -150,6 +150,17 @@ pub fn preset_for_issuer(issuer: Issuer, address: &str, now: DateTime<Utc>) -> O
     }
 }
 
+/// The issuer an autoconfig document's `<oAuth2><issuer>` names, when it is one we have a
+/// registration for. Any other issuer is somebody else's authorization server, and a client id
+/// for it cannot be guessed.
+pub fn issuer_named(issuer_host: &str) -> Option<Issuer> {
+    match issuer_host.trim().to_ascii_lowercase().as_str() {
+        "accounts.google.com" => Some(Issuer::Google),
+        "login.microsoftonline.com" => Some(Issuer::Microsoft),
+        _ => None,
+    }
+}
+
 /// The issuer whose tokens a mail server at `host` takes, for a document that offers OAuth2 on a
 /// server without naming the issuer.
 pub fn issuer_for_server(host: &str) -> Option<Issuer> {
@@ -668,6 +679,12 @@ mod tests {
     /// The server names a mail host signs in with an issuer by, and no lookalike does.
     #[test]
     fn a_server_names_the_issuer_whose_tokens_it_takes() {
+        assert_eq!(issuer_named("accounts.google.com"), Some(Issuer::Google));
+        assert_eq!(
+            issuer_named("login.microsoftonline.com"),
+            Some(Issuer::Microsoft)
+        );
+        assert_eq!(issuer_named("auth.example.net"), None);
         assert_eq!(issuer_for_server("imap.gmail.com"), Some(Issuer::Google));
         assert_eq!(
             issuer_for_server("outlook.office365.com"),
