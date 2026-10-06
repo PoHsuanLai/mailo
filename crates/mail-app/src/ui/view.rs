@@ -658,10 +658,6 @@ pub struct Shell {
     /// The Import or Export sheet while it is open, with the text its field holds. `None` is
     /// closed.
     pub files: Option<FileSheet>,
-    /// The Add account sheet's address while it is open. `None` is closed.
-    ///
-    /// Only the address: a password typed into the sheet lives in the sheet and goes with it.
-    pub adding: Option<String>,
     /// Which account the Rules page of Settings shows.
     pub rules: RulesPage,
     /// The Connection Doctor sheet while it is open. `None` is closed.
@@ -795,7 +791,6 @@ impl Default for Shell {
             command: None,
             contacts: String::new(),
             files: None,
-            adding: None,
             rules: RulesPage::default(),
             view_editor: None,
             keymap: crate::ui::keymap::Keymap::default(),

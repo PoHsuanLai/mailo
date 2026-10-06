@@ -299,7 +299,7 @@ fn run_action(
         }
         "Add account…" => {
             close(shell);
-            super::add_account::open(shell);
+            super::add_account::open();
         }
         "Import mail…" => {
             close(shell);

@@ -121,8 +121,6 @@ fn SettingsShell() -> Element {
         let open = shell.read().clone();
         if open.account_sheet.is_some() {
             crate::ui::account_settings::escape(shell);
-        } else if open.adding.is_some() {
-            crate::ui::add_account::close(shell);
         }
     };
 
@@ -134,9 +132,6 @@ fn SettingsShell() -> Element {
                 onmounted: crate::ui::host::Host::app_mounted,
                 onkeydown: on_key,
                 SettingsView { shell, revision }
-                if shell.read().adding.is_some() {
-                    crate::ui::add_account::AddAccountSheet { shell, revision, spaces }
-                }
                 if shell.read().account_sheet.is_some() {
                     crate::ui::account_settings::AccountSettingsSheet { shell, revision }
                 }

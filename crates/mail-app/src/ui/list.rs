@@ -365,7 +365,7 @@ pub(super) fn ThreadList(
         rsx! {
             Button {
                 label: "Add Account\u{2026}",
-                onclick: on_primary(move || super::add_account::open(shell)),
+                onclick: on_primary(super::add_account::open),
             }
         }
     });

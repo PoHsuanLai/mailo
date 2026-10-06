@@ -69,7 +69,7 @@ fn store(dir: &std::path::Path) -> Arc<SqliteStore> {
 }
 
 /// The window over both accounts, in one Space that shows only Work.
-fn open() -> (Harness, tempfile::TempDir) {
+fn open() -> (Harness, tempfile::TempDir, Opened) {
     let dir = tempfile::tempdir().unwrap();
     let spaces = Spaces {
         spaces: vec![Space {
@@ -86,14 +86,29 @@ fn open() -> (Harness, tempfile::TempDir) {
         None,
         mail_app::ui::Start::Inbox,
     );
+    let opened = Opened::default();
     let config = HarnessConfig::new(VIEW)
         .with_net(NetPolicy::Local)
         .with_clock(Clock::Virtual)
-        .with_contexts(contexts);
+        .with_contexts(contexts)
+        .with_context(mail_app::ui::native::AddAccountWindows(Arc::new(
+            opened.clone(),
+        )));
     let mut harness = Harness::new(mail_app::ui::native::root, config);
     harness.advance(Duration::from_millis(300));
     settle_until(&mut harness, |h| h.count(PLUS) > 0);
-    (harness, dir)
+    (harness, dir, opened)
+}
+
+/// What asked for the Add Account window: a window of its own, so the test sees the request and
+/// no sheet drawn on this one.
+#[derive(Clone, Default)]
+struct Opened(Arc<std::sync::Mutex<Vec<mail_app::ui::native::AddAccountAsk>>>);
+
+impl mail_app::ui::native::OpenAddAccount for Opened {
+    fn open(&self, ask: mail_app::ui::native::AddAccountAsk) {
+        self.0.lock().unwrap().push(ask);
+    }
 }
 
 fn centre(harness: &Harness, selector: &str) -> Point {
@@ -104,7 +119,7 @@ fn centre(harness: &Harness, selector: &str) -> Point {
 
 #[test]
 fn plus_offers_the_account_the_space_does_not_show_and_picking_it_brings_it_in() {
-    let (mut harness, _dir) = open();
+    let (mut harness, _dir, opened) = open();
     assert!(
         !harness.html().contains("me@home.example"),
         "Home is already shown"
@@ -122,23 +137,27 @@ fn plus_offers_the_account_the_space_does_not_show_and_picking_it_brings_it_in()
     harness.click(centre(&harness, ".ds-menu .ds-menu-item"));
     settle_until(&mut harness, |h| h.count(".ds-menu") == 0);
     settle_until(&mut harness, |h| h.html().contains("me@home.example"));
-    assert_eq!(
-        harness.count(".acct-sheet"),
-        0,
+    assert!(
+        opened.0.lock().unwrap().is_empty(),
         "it opened Add account instead"
     );
 }
 
 #[test]
 fn when_every_account_is_shown_plus_goes_straight_to_add_account() {
-    let (mut harness, _dir) = open();
+    let (mut harness, _dir, opened) = open();
     harness.click(centre(&harness, PLUS));
     settle_until(&mut harness, |h| h.count(".ds-menu") == 1);
     harness.click(centre(&harness, ".ds-menu .ds-menu-item"));
     settle_until(&mut harness, |h| h.count(".ds-menu") == 0);
 
     harness.click(centre(&harness, PLUS));
-    settle_until(&mut harness, |h| h.count(".acct-sheet") == 1);
+    settle_until(&mut harness, |_| opened.0.lock().unwrap().len() == 1);
+    assert_eq!(
+        harness.count(".acct-sheet"),
+        0,
+        "Add Account is a window of its own, not a sheet on this one"
+    );
     assert_eq!(
         harness.count(".ds-menu"),
         0,
