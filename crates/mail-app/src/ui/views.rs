@@ -8,7 +8,7 @@
 
 use super::menu::{Floating, MenuItem, Right, Tile};
 use super::press::{SheetClose, on_primary};
-use super::space_editor::Seg;
+use super::space_menu::Seg;
 use crate::ui::saved::{self, HOVER_CHOICES, ViewDraft, group_choices, group_name, hover_name};
 use crate::ui::view::Shell;
 use dioxus::prelude::*;

@@ -168,7 +168,10 @@ pub(super) fn link(dom: &VirtualDom) -> Link {
 
 fn is_running(dom: &VirtualDom) -> bool {
     dom.in_scope(ScopeId::APP, || {
-        matches!(fetching(dom).op(acct_account()), Operation::Running(_))
+        matches!(
+            fetching(dom).ops.read().get(&acct_account()),
+            Some(Operation::Running(_))
+        )
     })
 }
 

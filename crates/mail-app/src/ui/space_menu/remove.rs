@@ -1,14 +1,14 @@
-//! Delete Space in the editor: the button's rule, the sheet that asks, and what confirming does.
+//! Delete Space…, from the Space's menu: the popover that asks, where the menu stood, and what
+//! confirming does.
 //!
-//! A Space is a look, some pins and an account scope; deleting one never touches mail. The sheet
-//! says so, names the Space, and only its button deletes. Confirming puts the draft back first
-//! (so nothing half-edited is kept), removes the Space, renumbers Today to match, shows the Space
-//! that is now current as a switch would, and writes `spaces.json`.
+//! A Space is a look, some pins and an account scope; deleting one never touches mail. The
+//! popover says so, names the Space, and only its button deletes; Escape or a click outside
+//! deletes nothing. Confirming removes the Space, renumbers Today to match, shows the Space that
+//! is now current as a switch would, and writes `spaces.json`.
 
-use super::cancel;
 use crate::ui::appearance::WindowDirs;
 use crate::ui::frame::keep;
-use crate::ui::press::{SheetClose, available, on_primary};
+use crate::ui::press::on_primary;
 use crate::ui::space::Spaces;
 use crate::ui::space::edit::Draft;
 use crate::ui::space::remove::{Showing, remove};
@@ -16,14 +16,17 @@ use crate::ui::switch::restore;
 use crate::ui::today::{self, Today};
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
+use ds::base::geometry::placement::{Align, Side};
+use ds::components::overlays::popover::Arrow;
+use ds::host::measure::Anchor;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
 
-/// What the sheet says, for the Space it names.
+/// What the popover says, for the Space it names.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Words {
-    /// The sheet's heading and accessible name.
+    /// The popover's heading and accessible name.
     pub title: String,
     /// What goes and what stays.
     pub body: String,
@@ -31,7 +34,7 @@ pub(super) struct Words {
     pub confirm: String,
 }
 
-/// The sheet's words for the Space called `name`. A Space with no name is "this Space".
+/// The popover's words for the Space called `name`. A Space with no name is "this Space".
 pub(super) fn words(name: &str) -> Words {
     let named = if name.trim().is_empty() {
         "this Space".to_owned()
@@ -48,44 +51,29 @@ pub(super) fn words(name: &str) -> Words {
     }
 }
 
-/// Whether Delete Space can be pressed with `count` Spaces: not for the last one.
+/// Whether a Space can be deleted with `count` Spaces: not the last one.
 pub(super) fn offered(count: usize) -> bool {
     count > 1
 }
 
-/// Ask about the Space the editor is on. Nothing opens for the last Space.
-pub(super) fn ask(
-    mut shell: Signal<Shell>,
-    spaces: Signal<Spaces>,
-    editing: Signal<Option<Draft>>,
-) {
-    let Some(index) = editing.read().as_ref().map(|draft| draft.index) else {
-        return;
-    };
-    if offered(spaces.read().spaces.len()) {
-        shell.write().removing_space = Some(index);
-    }
-}
-
-/// Close the sheet, deleting nothing, and give the keyboard back to the window.
-pub(in crate::ui) fn close(mut shell: Signal<Shell>) {
-    shell.write().removing_space = None;
+/// Leave the Space as it is and give the keyboard back to the window.
+fn dismiss(mut shell: Signal<Shell>, mut editing: Signal<Option<Draft>>) {
+    editing.set(None);
+    shell.write().space_menu = None;
     crate::ui::host::Host::focus_app();
 }
 
-/// The sheet's own button: put the draft back, delete the Space, close the editor.
+/// The popover's own button: delete Space `index`.
 fn confirm(
+    index: usize,
     mut shell: Signal<Shell>,
     mut spaces: Signal<Spaces>,
-    editing: Signal<Option<Draft>>,
+    mut editing: Signal<Option<Draft>>,
     pages: Signal<u32>,
     mut today_list: Signal<Today>,
 ) {
-    let Some(index) = shell.peek().removing_space else {
-        return;
-    };
-    shell.write().removing_space = None;
-    cancel(editing, spaces);
+    editing.set(None);
+    shell.write().space_menu = None;
     let removed = {
         let mut all = spaces.write();
         match remove(&mut all, index) {
@@ -113,20 +101,24 @@ fn confirm(
         pages.set(1);
     }
     keep(&spaces.read());
+    crate::ui::host::Host::focus_app();
 }
 
-/// The confirmation, over the editor while it is open.
+/// The question, where the Space's menu stood. Nothing is offered for the last Space, whose menu
+/// has no Delete row.
 #[component]
-pub(super) fn RemoveSheet(
-    shell: Signal<Shell>,
+pub(super) fn DeletePopover(
+    at: Point,
+    index: usize,
     spaces: Signal<Spaces>,
     editing: Signal<Option<Draft>>,
+    shell: Signal<Shell>,
     pages: Signal<u32>,
     today: Signal<Today>,
 ) -> Element {
-    let Some(index) = shell.read().removing_space else {
+    if !offered(spaces.read().spaces.len()) {
         return rsx! {};
-    };
+    }
     let name = spaces
         .read()
         .spaces
@@ -135,32 +127,28 @@ pub(super) fn RemoveSheet(
         .unwrap_or_default();
     let said = words(&name);
     rsx! {
-        div {
-            class: "rules-wrap",
-            onclick: move |_| close(shell),
-            div {
-                class: "rules destroy-sheet",
-                role: "alertdialog",
-                aria_label: "{said.title}",
-                onclick: move |event| event.stop_propagation(),
-                div { class: "rules-head",
-                    h3 { "{said.title}" }
-                    SheetClose { label: "Cancel", on_close: move |()| close(shell) }
-                }
-                div { class: "rules-part",
-                    p { class: "destroy-body", "{said.body}" }
-                    div { class: "rules-acts",
-                        Button {
-                            size: ControlSize::Small,
-                            label: said.confirm.clone(),
-                            icon: Icon::Trash,
-                            availability: available(offered(spaces.read().spaces.len())),
-                            common: Common {
-                                aria_label: Some(said.confirm.clone()),
-                                ..Common::default()
-                            },
-                            onclick: on_primary(move || confirm(shell, spaces, editing, pages, today)),
-                        }
+        Popover {
+            anchor: Anchor::Point(at),
+            placement: Placement::new(Side::Bottom, Align::Start),
+            gap: Px(2.0),
+            arrow: Arrow::None,
+            common: Common { aria_label: Some(said.title.clone()), ..Common::default() },
+            onclose: move |()| dismiss(shell, editing),
+            div { class: "space-part space-delete", role: "alertdialog",
+                h3 { "{said.title}" }
+                p { class: "destroy-body", "{said.body}" }
+                div { class: "space-part-acts",
+                    Button {
+                        size: ControlSize::Small,
+                        label: "Cancel",
+                        onclick: on_primary(move || dismiss(shell, editing)),
+                    }
+                    Button {
+                        size: ControlSize::Small,
+                        label: said.confirm.clone(),
+                        icon: Icon::Trash,
+                        common: Common { aria_label: Some(said.confirm.clone()), ..Common::default() },
+                        onclick: on_primary(move || confirm(index, shell, spaces, editing, pages, today)),
                     }
                 }
             }

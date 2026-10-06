@@ -1,7 +1,7 @@
 //! Accounts: each account on this computer, with the sheet that shows its servers and removes it;
 //! which accounts keep all their mail here; and Add Account….
 //!
-//! Which Space shows which account is the Space editor's; this page is every account at once.
+//! Which Space shows which account is the Space's menu's; this page is every account at once.
 
 use super::offline::OfflineCopy;
 use crate::ui::data::account_rows;

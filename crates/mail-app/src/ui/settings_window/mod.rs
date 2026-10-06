@@ -7,7 +7,7 @@
 //! keys detent draws on mailo's page and writes to the same `mailo/settings.toml`; under them,
 //! the sheets for contacts, rules, keys and the keyboard. Accounts lists each account, with its
 //! own sheet (`account_settings`), which accounts keep all their mail here, and Add Account….
-//! What belongs to one Space (its name, look and accounts) is the Space editor's.
+//! What belongs to one Space (its name, look and accounts) is the Space's menu's, a right click on the Space.
 //!
 //! The window is quire's (`ds_blitz::open_window`), with the root contexts every window of the
 //! app is given. It keeps its own `Shell` for the sheets it opens, and tells the other windows
