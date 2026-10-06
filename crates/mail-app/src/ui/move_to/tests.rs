@@ -15,7 +15,8 @@ use porter_core::AccountId;
 
 use super::{destinations, folder_label, items};
 use crate::ui::fixtures::{
-    FakePointer, INSIDE_THE_SHELL, Seen, chord, click, dispatching, empty, pointer, rebuild_into,
+    FakePointer, INSIDE_THE_SHELL, Seen, chord, click, dispatching, empty, listed_subjects,
+    menu_names, open_row_menu, pick_named, pointer, rebuild_into, row_named,
 };
 use crate::ui::folder_open::Fetcher;
 use crate::ui::view::folder_filter;
@@ -261,12 +262,17 @@ async fn moving_to_a_folder_files_it_there_and_undo_brings_it_back() {
     let (from_before, to_before) = (in_folder(&store, FROM), filed_in(&store, TO));
     assert_eq!((from_before, to_before), (2, 0));
 
-    let rows = listed.all("aria-label", "Move to…");
-    assert_eq!(rows.len(), 2, "each row offers Move to…");
-    let clicked = click(&mut dom, rows[0]);
-    let menu = floated(&mut dom, clicked).await;
+    let subjects = listed_subjects(&dioxus_ssr::render(&dom));
+    assert_eq!(subjects.len(), 2, "the folder lists both conversations");
+    let opened = open_row_menu(&mut dom, &listed, &subjects[0]);
+    assert!(
+        menu_names(&dioxus_ssr::render(&dom)).contains(&"Move to…".to_owned()),
+        "the row's menu offers no Move to…"
+    );
+    let picked = pick_named(&mut dom, &opened, "Move to…").await;
+    let menu = floated(&mut dom, picked).await;
     let page = dioxus_ssr::render(&dom);
-    // quire's pick list floats under the row's button, in the root's overlay, not inside the row.
+    // quire's pick list floats where the row's menu stood, in the root's overlay, not in the row.
     let drawn = &page[page
         .find("class=\"ds-pick-list")
         .expect("the picker did not open")..];
@@ -422,7 +428,7 @@ async fn a_row_dropped_on_a_folder_is_filed_there() {
         offset: (4.0, 4.0),
         held,
     };
-    let row = listed.all("aria-label", "Move to…")[0];
+    let row = row_named(&listed, &listed_subjects(&dioxus_ssr::render(&dom))[0]);
     let target = seen.folder("收據");
     pointer(&mut dom, "pointerdown", row, at(420.0, 120.0, true));
     pointer(&mut dom, "pointermove", row, at(300.0, 160.0, true));
@@ -460,6 +466,8 @@ async fn render_the_move_to_menu_to_a_file() {
     let (store, _dir, _) = store();
     let (mut dom, seen) = window(store);
     let listed = open_the_folder(&mut dom, &seen).await;
-    click(&mut dom, listed.all("aria-label", "Move to…")[0]);
+    let subjects = listed_subjects(&dioxus_ssr::render(&dom));
+    let opened = open_row_menu(&mut dom, &listed, &subjects[0]);
+    pick_named(&mut dom, &opened, "Move to…").await;
     crate::ui::fixtures::dump("move-to", &dioxus_ssr::render(&dom));
 }

@@ -149,13 +149,15 @@ fn the_work_rows_carry_the_read_state_the_chip_and_the_archive_strip() {
         "Dana is unread:\n{dana}"
     );
     assert!(dana.contains(">spec<"), "Dana's chip is spec:\n{dana}");
+    // The row's hover strip is the ⋯ alone: its actions are in the menu it opens.
     assert!(
-        !dana.contains("data-op=\"star\""),
-        "the strip still has a star:\n{dana}"
+        dana.contains("data-op=\"more\"") && dana.contains("aria-label=\"More actions\""),
+        "the strip has no ⋯:\n{dana}"
     );
-    assert!(
-        dana.contains("aria-label=\"Archive\""),
-        "the strip has no archive:\n{dana}"
+    assert_eq!(
+        dana.matches("ds-strip-action").count(),
+        1,
+        "the strip has more than the ⋯:\n{dana}"
     );
 }
 

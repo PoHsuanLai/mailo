@@ -9,6 +9,7 @@
 mod dom;
 mod events;
 mod reference;
+mod row_menu;
 mod store;
 
 /// The words the tests drive quire's `Harness` with (`Drive`, `Key`): the one file
@@ -28,6 +29,9 @@ pub(in crate::ui) use dom::{
 };
 pub(in crate::ui) use events::{FakePointer, Scripts, chord, pointer, type_into};
 pub(in crate::ui) use reference::{Work, work};
+pub(in crate::ui) use row_menu::{
+    listed_subjects, menu_names, open_row_menu, pick_named, pick_until, row_action, row_named,
+};
 pub(in crate::ui) use store::{
     acct_account, empty, gmail_caps, held_and_remote, inbox_query, realistic, seeded,
 };

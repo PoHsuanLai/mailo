@@ -15,6 +15,8 @@ use settle::settle_until;
 
 #[path = "support/drive.rs"]
 mod drive;
+#[path = "support/row_menu.rs"]
+mod row_menu;
 use drive::Drive;
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
@@ -208,17 +210,13 @@ fn toast(harness: &Harness) -> String {
 }
 
 #[test]
-fn the_row_s_mute_button_mutes_it_marks_it_and_ctrl_z_unmutes_it() {
+fn the_row_s_mute_mutes_it_marks_it_and_ctrl_z_unmutes_it() {
     let (mut harness, _dir, store) = open();
     assert_eq!(muted(&store), Vec::<String>::new());
     assert_eq!(marked(&harness), Vec::<usize>::new());
 
     click_row(&mut harness, 1, &[]);
-    let second = format!("{} .ds-thread-sub", row(2));
-    harness.pointer_move(centre(&harness, &second));
-    harness.advance(ms(300));
-    let mute = format!("{} .ds-strip [*|data-op=mute]", row(2));
-    harness.click(centre(&harness, &mute));
+    row_menu::row_action(&mut harness, &row(2), "Mute");
     harness.advance(ms(600));
 
     assert_eq!(muted(&store), vec![INBOX[1].1.to_owned()]);

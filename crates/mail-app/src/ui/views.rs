@@ -213,12 +213,12 @@ pub(in crate::ui) fn ViewSheet(
                         }
                     }
                     div { class: "rules-part",
-                        h4 { "On hover" }
+                        h4 { "Row actions" }
                         p { class: "rules-faint",
                             if draft.hover.is_empty() {
-                                "None chosen: each row offers the usual buttons."
+                                "None chosen: each row's menu offers the usual actions."
                             } else {
-                                "Each row offers these, where the conversation can take them."
+                                "Each row's menu offers these, where the conversation can take them."
                             }
                         }
                         ul { class: "rules-actions",
