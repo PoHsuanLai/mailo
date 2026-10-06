@@ -303,6 +303,21 @@ pub(super) fn add_thread(store: &SqliteStore, tag: &str, parts: &[(&str, Vec<u8>
 
 /// `parts` arriving in `thread`, keyed `{tag}{index}@example.test`: a tag no other call used.
 pub(super) fn add_to(store: &SqliteStore, thread: ThreadId, tag: &str, parts: &[(&str, Vec<u8>)]) {
+    let ada = Address {
+        name: Some("Ada".to_owned()),
+        email: "ada@example.test".to_owned(),
+    };
+    add_from(store, thread, tag, &ada, parts);
+}
+
+/// [`add_to`], each message stored as from `from`.
+pub(super) fn add_from(
+    store: &SqliteStore,
+    thread: ThreadId,
+    tag: &str,
+    from: &Address,
+    parts: &[(&str, Vec<u8>)],
+) {
     // `body{index}`, not `m{index}`: the seeded store already holds `m1@example.test`,
     // and a second message under that key is the same message to the store.
     let mut fetched = Vec::new();
@@ -314,10 +329,7 @@ pub(super) fn add_to(store: &SqliteStore, thread: ThreadId, tag: &str, parts: &[
             account: crate::ui::fixtures::acct_account(),
             key: MessageKey::Rfc(format!("{tag}{index}@example.test")),
             date: chrono::Utc::now() - chrono::TimeDelta::try_hours(index as i64).unwrap(),
-            from: Address {
-                name: Some("Ada".to_owned()),
-                email: "ada@example.test".to_owned(),
-            },
+            from: from.clone(),
             reply_to: vec![],
             to: vec![],
             cc: vec![],
@@ -499,6 +511,207 @@ async fn blocked_remote_images_trigger_consent_banner() {
         !srcdoc.contains("remote.example/pixel.png"),
         "remote image was not blocked in srcdoc:\n{srcdoc}"
     );
+}
+
+/// A pixel from `remote.example`, from Ada at `example.test`, whose receiving server says DMARC
+/// passed for her domain when `dmarc` holds and says nothing otherwise.
+fn pixel_from_ada(dmarc: bool) -> Vec<u8> {
+    let checked = if dmarc {
+        "Authentication-Results: mx.example.test; spf=pass smtp.mailfrom=example.test;\r\n \
+         dkim=pass header.d=example.test; dmarc=pass header.from=example.test\r\n"
+    } else {
+        ""
+    };
+    let mut raw = checked.as_bytes().to_vec();
+    raw.extend(html_message(
+        "pixel",
+        "<p>Look at this:</p><img src=\"https://remote.example/pixel.png\">",
+    ));
+    raw
+}
+
+/// A config directory whose `settings.toml` says `edit`, and the window directories over it.
+fn configured(
+    edit: impl FnOnce(&mut crate::settings::MailSettings),
+) -> (tempfile::TempDir, crate::ui::appearance::WindowDirs) {
+    let dir = tempfile::tempdir().unwrap();
+    let dirs = crate::ui::appearance::WindowDirs {
+        config: dir.path().join("config"),
+        state: dir.path().join("state"),
+    };
+    crate::settings::change(&crate::settings::root_for(&dirs.config), edit).unwrap();
+    (dir, dirs)
+}
+
+/// What `settings.toml` under `dirs` says now.
+fn stored(dirs: &crate::ui::appearance::WindowDirs) -> crate::settings::MailSettings {
+    crate::settings::load(&crate::settings::root_for(&dirs.config))
+}
+
+/// The reader over `thread`, under the settings in the `WindowDirs` it is handed, as a window
+/// provides them (`prefs::use_prefs`), so "Always load from" has somewhere to write.
+#[component]
+fn OpenConfigured(thread: ThreadId) -> Element {
+    let dirs = try_consume_context::<crate::ui::appearance::WindowDirs>();
+    let _ = crate::ui::prefs::use_prefs(dirs.as_ref());
+    let shell = use_signal(Shell::default);
+    rsx! { ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window, Reader { thread, shell } } }
+}
+
+/// One message from `from` in a thread of its own, opened under `dirs`' settings.
+fn open_configured(
+    dirs: &crate::ui::appearance::WindowDirs,
+    from: &Address,
+    raw: Vec<u8>,
+) -> (VirtualDom, crate::ui::fixtures::Seen, tempfile::TempDir) {
+    dispatching();
+    let (store, dir) = seeded();
+    let thread = ThreadId::generate();
+    add_from(&store, thread, "images", from, &[("pixel", raw)]);
+    let mut dom = VirtualDom::new_with_props(OpenConfigured, OpenConfiguredProps { thread })
+        .with_root_context(store)
+        .with_root_context(dirs.clone());
+    let seen = rebuild_into(&mut dom);
+    (dom, seen, dir)
+}
+
+fn ada() -> Address {
+    Address {
+        name: Some("Ada".to_owned()),
+        email: "ada@example.test".to_owned(),
+    }
+}
+
+/// Whether the reader drew the pixel: in the frame, not blocked, with nothing asking about it.
+fn loaded_pixel(markup: &str) -> bool {
+    iframe_srcdoc(markup).contains("remote.example/pixel.png")
+        && !markup.contains("Remote images blocked")
+}
+
+#[tokio::test]
+async fn always_opens_with_images_and_no_blocked_banner() {
+    // No checks at all: Always does not ask who the sender is, only where the message is filed.
+    let (_config, dirs) = configured(|settings| {
+        settings.reading.remote_images = crate::settings::LoadRemoteImages::Always;
+    });
+    let (dom, _seen, _dir) = open_configured(&dirs, &ada(), pixel_from_ada(false));
+    let markup = dioxus_ssr::render(&dom);
+    assert!(loaded_pixel(&markup), "Always still blocked:\n{markup}");
+    assert!(
+        markup.contains("Showing remote images from example.test"),
+        "the bar did not say whose images are loading:\n{markup}"
+    );
+    assert!(
+        !markup.contains("Always load from"),
+        "offered to trust a sender under Always:\n{markup}"
+    );
+}
+
+#[tokio::test]
+async fn a_trusted_sender_opens_with_images() {
+    let (_config, dirs) = configured(|settings| {
+        settings.reading.remote_images = crate::settings::LoadRemoteImages::Trusted;
+        settings.reading.trusted_image_senders = vec!["ada@example.test".to_owned()];
+    });
+    let (dom, _seen, _dir) = open_configured(&dirs, &ada(), pixel_from_ada(true));
+    let markup = dioxus_ssr::render(&dom);
+    assert!(
+        loaded_pixel(&markup),
+        "a trusted sender's images were blocked:\n{markup}"
+    );
+}
+
+#[tokio::test]
+async fn an_untrusted_sender_still_asks_and_is_offered_trust() {
+    let (_config, dirs) = configured(|settings| {
+        settings.reading.remote_images = crate::settings::LoadRemoteImages::Trusted;
+        settings.reading.trusted_image_senders = vec!["someone@else.example".to_owned()];
+    });
+    let (dom, _seen, _dir) = open_configured(&dirs, &ada(), pixel_from_ada(true));
+    let markup = dioxus_ssr::render(&dom);
+    assert!(
+        markup.contains("Remote images blocked"),
+        "a stranger's images loaded:\n{markup}"
+    );
+    assert!(
+        !iframe_srcdoc(&markup).contains("remote.example/pixel.png"),
+        "the blocked URL reached the frame:\n{markup}"
+    );
+    assert!(
+        markup.contains("Always load from ada@example.test"),
+        "a sender DMARC vouches for was not offered trust:\n{markup}"
+    );
+}
+
+#[tokio::test]
+async fn a_trusted_address_that_cannot_be_believed_still_asks() {
+    // On the list, but the name claims a brand the address is not, or nothing says DMARC passed:
+    // either way the address could be anyone's, so neither loads nor is offered trust.
+    let (_config, dirs) = configured(|settings| {
+        settings.reading.remote_images = crate::settings::LoadRemoteImages::Trusted;
+        settings.reading.trusted_image_senders = vec!["ada@example.test".to_owned()];
+    });
+    let spoofed = Address {
+        name: Some("PayPal".to_owned()),
+        email: "ada@example.test".to_owned(),
+    };
+    for (from, raw, why) in [
+        (spoofed, pixel_from_ada(true), "a spoofed display name"),
+        (ada(), pixel_from_ada(false), "no DMARC pass"),
+    ] {
+        let (dom, _seen, _dir) = open_configured(&dirs, &from, raw);
+        let markup = dioxus_ssr::render(&dom);
+        assert!(
+            markup.contains("Remote images blocked"),
+            "{why}: images loaded on the list's word:\n{markup}"
+        );
+        assert!(
+            !iframe_srcdoc(&markup).contains("remote.example/pixel.png"),
+            "{why}: the blocked URL reached the frame:\n{markup}"
+        );
+        assert!(
+            markup.contains("Show images"),
+            "{why}: the press for this thread is gone:\n{markup}"
+        );
+        assert!(
+            !markup.contains("Always load from"),
+            "{why}: offered to trust a sender who could be anyone:\n{markup}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn always_load_from_trusts_the_sender_and_shows_the_images() {
+    // Under the default, Ask: the press trusts Ada and moves the setting to Trusted, so it means
+    // something for her next message too.
+    let (_config, dirs) = configured(|_| {});
+    let (mut dom, seen, _dir) = open_configured(&dirs, &ada(), pixel_from_ada(true));
+    let before = dioxus_ssr::render(&dom);
+    assert!(before.contains("Remote images blocked"), "{before}");
+    click(
+        &mut dom,
+        seen.one("aria-label", "Always load from ada@example.test"),
+    );
+    let settings = stored(&dirs);
+    assert_eq!(
+        settings.reading.trusted_image_senders,
+        ["ada@example.test"],
+        "the sender was not written to settings.toml"
+    );
+    assert_eq!(
+        settings.reading.remote_images,
+        crate::settings::LoadRemoteImages::Trusted
+    );
+    let after = dioxus_ssr::render(&dom);
+    assert!(
+        loaded_pixel(&after),
+        "the images did not load on the press:\n{after}"
+    );
+
+    // And the next message from her opens with them, without a press.
+    let (dom, _seen, _dir) = open_configured(&dirs, &ada(), pixel_from_ada(true));
+    let next = dioxus_ssr::render(&dom);
+    assert!(loaded_pixel(&next), "her next message still asked:\n{next}");
 }
 
 /// The sender's `<body>` colours reach the frame's own body, after the base sheet, so they win
