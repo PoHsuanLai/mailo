@@ -6,6 +6,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+porter-core.workspace = true
 mail-domain.workspace = true
 chrono.workspace = true
 thiserror.workspace = true
