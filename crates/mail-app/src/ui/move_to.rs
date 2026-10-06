@@ -1,6 +1,6 @@
 //! "Move to…": a conversation filed into one of its account's own folders.
 //!
-//! The row's strip and the reader's tools open the one menu on the account's folders; a
+//! The row's menu and the reader's tools open the one menu on the account's folders; a
 //! folder row in the sidebar takes a dropped row. All three file through [`Op::File`], the op a
 //! rule's "move to folder" performs, applied by `motion::act`, so the undo and the toast are the
 //! ones every other op has.

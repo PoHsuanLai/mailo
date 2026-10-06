@@ -15,6 +15,10 @@ use std::time::Duration;
 
 #[path = "support/drive.rs"]
 mod drive;
+#[path = "support/row_menu.rs"]
+mod row_menu;
+#[path = "support/settle.rs"]
+mod settle;
 use drive::{Drive, Key};
 
 fn acct_account() -> AccountId {
@@ -216,16 +220,9 @@ fn open_row(h: &mut Harness, n: usize) {
     h.advance(ms(500));
 }
 
-/// The pointer over row `n`, so its strip shows, then the strip's button `op`.
-fn strip(h: &mut Harness, n: usize, op: &str) {
-    let sub = format!(".list .ds-list-item[*|aria-posinset=\"{n}\"] .ds-thread-sub");
-    let at = h.centre(&sub).expect("row");
-    h.pointer_move(at);
-    h.advance(ms(300));
-    click(
-        h,
-        &format!(".list .ds-list-item[*|aria-posinset=\"{n}\"] .ds-strip [*|data-op={op}]"),
-    );
+/// Row `n` of the list.
+fn row(n: usize) -> String {
+    format!(".list .ds-list-item[*|aria-posinset=\"{n}\"]")
 }
 
 #[test]
@@ -252,18 +249,23 @@ fn screens() {
         open_row(&mut h, 2);
         shot(&mut h, &out, "reader-banners", dark);
 
-        // The row's menus: labels, snooze.
+        // The row's menus: its actions, then labels and snooze picked from them.
         let (mut h, _d) = open(dark);
-        strip(&mut h, 1, "add-label");
+        row_menu::open_row_menu(&mut h, &row(1));
+        h.advance(ms(300));
+        shot(&mut h, &out, "row-menu", dark);
+        h.key(Key::Escape);
+        h.advance(ms(400));
+        row_menu::row_action(&mut h, &row(1), "Label…");
         shot(&mut h, &out, "label-picker", dark);
         h.key(Key::Escape);
         h.advance(ms(400));
-        strip(&mut h, 1, "snooze");
+        row_menu::row_action(&mut h, &row(1), "Snooze…");
         shot(&mut h, &out, "snooze-menu", dark);
 
         // A toast with its action: Archive, then Undo on the toast.
         let (mut h, _d) = open(dark);
-        strip(&mut h, 1, "archive");
+        row_menu::row_action(&mut h, &row(1), "Archive");
         h.advance(ms(500));
         shot(&mut h, &out, "toast-action", dark);
 

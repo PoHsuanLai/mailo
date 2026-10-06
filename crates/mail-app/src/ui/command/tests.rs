@@ -262,7 +262,7 @@ async fn dana_is_marked_in_the_persons_name() {
 #[tokio::test]
 #[ignore]
 async fn render_the_menus_to_a_file() {
-    use crate::ui::fixtures::{click, dispatching, rebuild_into};
+    use crate::ui::fixtures::{dispatching, rebuild_into};
 
     use crate::ui::fixtures::in_scheme;
 
@@ -302,19 +302,15 @@ async fn render_the_menus_to_a_file() {
             .with_root_context(built.dirs)
             .with_root_context(in_scheme(scheme));
         let seen = rebuild_into(&mut dom);
-        let buttons = seen.all("aria-label", "Label");
-        let second = *buttons.get(1).expect("a second row with a Label button");
-        click(&mut dom, second);
+        let second = crate::ui::fixtures::listed_subjects(&dioxus_ssr::render(&dom))
+            .get(1)
+            .cloned()
+            .expect("a second row");
+        crate::ui::fixtures::row_action(&mut dom, &seen, &second, "Label…").await;
         settle(&mut dom).await;
         let label = dioxus_ssr::render(&dom);
-        // Each row is quire's `ListRow` in mailo's `.row` box; the label menu is quire's, floating
-        // in the root's overlay against the second row's Label button, which says it is open.
-        let rows: Vec<&str> = label.split("<div class=\"row\"").collect();
-        assert!(
-            rows.get(2)
-                .is_some_and(|row| row.contains("aria-expanded=\"true\"")),
-            "the label menu is not the second row's"
-        );
+        // The label menu is quire's, floating in the root's overlay where the second row's menu
+        // stood.
         assert!(
             label.contains("role=\"listbox\" aria-label=\"Labels\""),
             "the label menu did not open"

@@ -1,7 +1,7 @@
 //! Saved views, as the editor holds one and as the store keeps it.
 //!
-//! A view is a search that stays: its filter, how its list is grouped, and which buttons its
-//! rows' hover strip offers. It is a sidebar place ([`crate::ui::view::saved_place`]) and a row in
+//! A view is a search that stays: its filter, how its list is grouped, and which actions its
+//! rows' menu offers beside the ones every row's menu has. It is a sidebar place ([`crate::ui::view::saved_place`]) and a row in
 //! the store ([`mail_store::Store::views`]). Free of Dioxus, like [`crate::ui::view`]: turning what
 //! was typed into a [`View`] can be wrong without a window.
 
@@ -27,7 +27,9 @@ pub struct ViewDraft {
     /// what it lists.
     pub kept: Option<Filter>,
     pub group: Option<GroupKey>,
-    /// The hover strip's buttons, in the order they were chosen. Empty is the usual strip.
+    /// The actions a row's menu offers, in the order they were chosen (the menu keeps its own
+    /// order). Empty is the usual set. Named `hover` for the strip that once drew them, as the
+    /// store keeps it.
     pub hover: Vec<OpKind>,
     pub dir: SortDir,
     /// What Save or Delete last refused, in words.
@@ -179,7 +181,7 @@ pub fn written<Tz: TimeZone>(
     (again == *filter).then_some(words)
 }
 
-/// The buttons a view's hover strip can be given, in the order the editor offers them.
+/// The actions a view's rows can be given, in the order the editor offers them.
 ///
 /// Star is not here: every row draws its own star. Mark read stands for the pair, and is drawn
 /// as whichever the conversation needs ([`crate::ui::view::hover_in`]).
