@@ -361,3 +361,21 @@ fn the_list_s_title_gives_way_to_its_tools_in_a_narrow_list() {
         "the tools {tools:?} are clipped by the list {column:?}"
     );
 }
+
+#[test]
+fn a_row_s_lines_fit_inside_its_slot() {
+    // The list places rows a fixed pitch apart (`ROW_PITCH`) and holds each to its slot, so a
+    // row whose lines run taller than the slot draws its last line under its own selection ring.
+    let (harness, _dir) = open(1200, spaces(1));
+    let slot = rect(&harness, ROW);
+    let row = rect(&harness, &format!("{ROW} .ds-thread"));
+    let lines = rect(&harness, &format!("{ROW} .ds-thread-main"));
+    assert!(
+        within(&row, &slot),
+        "the row {row:?} runs out of its slot {slot:?}"
+    );
+    assert!(
+        bottom(&lines) <= bottom(&row) + 0.5,
+        "the row's lines {lines:?} run past the row {row:?} (slot {slot:?})"
+    );
+}

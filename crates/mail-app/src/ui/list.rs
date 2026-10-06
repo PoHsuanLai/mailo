@@ -39,8 +39,10 @@ use self::first_sync::FirstSyncRows;
 use self::status::ListStatus;
 
 /// How far apart the list's rows are, their gap included: quire's card-density `ThreadRow` (three
-/// lines and their padding, 61 px) and the 5 px under it.
-const ROW_PITCH: f32 = 66.0;
+/// lines, 58.5 px on quire v0.2.15's type scale, and 10 px of padding above and below) and the
+/// 7 px of inset and gap around it. `native_layout`'s `a_row_s_lines_fit_inside_its_slot` fails
+/// when quire's type grows past it.
+const ROW_PITCH: f32 = 86.0;
 
 /// A `SectionHeader`'s height: its eyebrow line and its padding (27.05 px drawn).
 const HEADING_PITCH: f32 = 27.0;
