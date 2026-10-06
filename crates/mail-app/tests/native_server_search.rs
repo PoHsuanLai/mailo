@@ -365,7 +365,10 @@ fn turned_on_the_server_is_asked_once_as_the_search_is_shown() {
         config: config.path().join("config"),
         state: config.path().join("state"),
     };
-    mail_core::server_search::save(&dirs.config, mail_core::server_search::Automatic::On).unwrap();
+    mail_app::settings::change(&mail_app::settings::root_for(&dirs.config), |settings| {
+        settings.search.server_automatically = mail_app::settings::ServerSearch::On;
+    })
+    .unwrap();
     let Open {
         mut harness, asked, ..
     } = open_with(Some(dirs));

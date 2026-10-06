@@ -34,6 +34,7 @@ pub(super) fn MessageWindow(thread: ThreadId) -> Element {
     let spawner: Arc<dyn Spawner> = Arc::new(ds_blitz::TokioSpawner::current());
     let environment = use_environment(desktop.store(), desktop.prefs.clone(), spawner);
     use_context_provider(|| environment);
+    crate::ui::prefs::use_window_settings();
     rsx! { MessageShell { thread } }
 }
 
@@ -52,6 +53,11 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
     let icons = use_signal(|| loaded);
     use_context_provider(|| icons);
     crate::ui::host::use_window_host();
+    // The settings its root watches (brand logos, spelling, server search), or, drawn by a test,
+    // read from its config directory.
+    let _ = crate::ui::prefs::use_prefs(
+        try_consume_context::<crate::ui::appearance::WindowDirs>().as_ref(),
+    );
     let mut shell = use_signal(|| {
         let store = consume_context::<Arc<SqliteStore>>();
         let mut shell = Shell {
@@ -76,6 +82,7 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
             .or_else(try_consume_context::<Spaces>)
             .unwrap_or_default()
     });
+    crate::ui::frame::use_followed_configuration(shell, spaces, None);
     // A reply's desk. Handed no directories, so nothing here writes Today or the settings,
     // which are the first window's.
     let today = use_signal(crate::ui::today::Today::default);

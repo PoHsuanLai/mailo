@@ -174,14 +174,9 @@ pub(super) fn Places(
                     image: ImagePosition::Only,
                     size: ControlSize::Small,
                     icon: Icon::Settings,
-                    label: "Space settings",
-                    title: "Space settings".to_owned(),
-                    shown: if editing.read().is_some() { Shown::Visible } else { Shown::Hidden },
-                    onclick: move |_| {
-                        if editing.read().is_none() {
-                            switch::edit(spaces, editing);
-                        }
-                    },
+                    label: "Settings",
+                    title: "Settings (\u{2318},)".to_owned(),
+                    onclick: move |_| crate::ui::settings_window::open(),
                 }
                 Button {
                     bezel: ds::components::controls::button_model::Bezel::Toolbar,

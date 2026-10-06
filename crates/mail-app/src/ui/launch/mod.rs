@@ -92,8 +92,9 @@ impl DesktopSettings {
 /// The settings are the desktop's, quire's (`quire/appearance.toml`, the same store the shell
 /// and detent use) and the desktop's preferences, both watched, as one signal `App`'s root
 /// reads (`ds_settings::use_environment`), so a theme, accent or motion change restyles this
-/// window while it runs; and the person's own `style.css`, watched the same way and drawn after
-/// quire's and mailo's sheets (CONSUMING.md section 12). `main` migrated mailo's old appearance
+/// window while it runs; the person's own `style.css`, watched the same way and drawn after
+/// quire's and mailo's sheets (CONSUMING.md section 12); and mailo's own settings
+/// (`crate::settings`), watched so a change made in the desktop's Settings app reaches the window. `main` migrated mailo's old appearance
 /// file into the desktop's before the window opened (`appearance::adopt`). Only the launched
 /// window watches; a test renders `App` (or [`Shell`]) without this and never touches the real
 /// config directory.
@@ -119,6 +120,9 @@ pub(super) fn ShellRoot() -> Element {
         }
     });
     use_context_provider(|| ReadSignal::new(user_style));
+    // mailo's own settings (`mailo/settings.toml`), watched the same way: detent writes the same
+    // file, and the window follows it.
+    super::prefs::use_window_settings();
     rsx! { Shell {} }
 }
 

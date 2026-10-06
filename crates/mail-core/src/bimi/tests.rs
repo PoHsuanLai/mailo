@@ -27,13 +27,11 @@ fn results(verdict: Verdict, domain: &str) -> AuthResults {
 }
 
 #[test]
-fn the_setting_is_off_until_turned_on_and_kept() {
+fn the_old_file_is_off_unless_it_says_on() {
     let dir = tempfile::tempdir().unwrap();
     assert_eq!(load(dir.path()), Setting::Off, "off unless turned on");
-    save(dir.path(), Setting::On).unwrap();
+    std::fs::write(dir.path().join(FILE_NAME), r#"{"bimi":"on"}"#).unwrap();
     assert_eq!(load(dir.path()), Setting::On);
-    save(dir.path(), Setting::Off).unwrap();
-    assert_eq!(load(dir.path()), Setting::Off);
     std::fs::write(dir.path().join(FILE_NAME), b"not json").unwrap();
     assert_eq!(load(dir.path()), Setting::Off, "an unreadable file is off");
 }

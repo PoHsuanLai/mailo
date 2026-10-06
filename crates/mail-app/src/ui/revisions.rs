@@ -140,9 +140,46 @@ impl Bridge {
 /// Tie this window's `revision` to the app's [`Revisions`], when the window was given one: its
 /// own moves are published, and every other window's move moves it by one. A window with none (a
 /// test's single window) is left as it was.
-pub(in crate::ui) fn use_shared_revision(mut revision: Signal<u64>) {
+pub(in crate::ui) fn use_shared_revision(revision: Signal<u64>) {
+    use_shared(try_consume_context::<Revisions>, revision);
+}
+
+/// The app's second shared counter, as a root context of every window: moved when a window
+/// writes `settings.toml`, `keyboard.json` or `spaces.json`, which the others then read again.
+/// It is not the store's [`Revisions`], so a window's mail queries do not run again for a
+/// setting or a key binding, and a sync does not make every window read its configuration
+/// files. Every window also watches `settings.toml` (`prefs::use_window_settings`), for edits
+/// made outside the app.
+#[derive(Clone, Debug, Default)]
+pub struct Configured(pub Revisions);
+
+/// This window's own count of [`Configured`] moves, as a context, for [`told_configuration`].
+#[derive(Clone, Copy)]
+struct ConfiguredHere(Signal<u64>);
+
+/// Follow and publish [`Configured`] through `configured`, this window's own count: it moves by
+/// one when another window wrote a configuration file. Provides it for [`told_configuration`].
+pub(in crate::ui) fn use_shared_configuration(configured: Signal<u64>) {
+    use_context_provider(|| ConfiguredHere(configured));
+    use_shared(
+        || try_consume_context::<Configured>().map(|configured| configured.0),
+        configured,
+    );
+}
+
+/// This window wrote `settings.toml`, `keyboard.json` or `spaces.json`: the other windows read
+/// theirs again. A
+/// window drawn without [`use_shared_configuration`] tells no one.
+pub(in crate::ui) fn told_configuration() {
+    if let Some(ConfiguredHere(mut here)) = try_consume_context::<ConfiguredHere>() {
+        here += 1;
+    }
+}
+
+/// Join the counter `shared` finds, publishing `revision`'s moves and following everyone else's.
+fn use_shared(shared: impl FnOnce() -> Option<Revisions>, mut revision: Signal<u64>) {
     let joined = use_hook(|| {
-        try_consume_context::<Revisions>().map(|shared| {
+        shared().map(|shared| {
             let (bridge, heard) = shared.join(*revision.peek());
             (shared, CopyValue::new(bridge), heard)
         })

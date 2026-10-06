@@ -10,4 +10,5 @@ pub mod adoption;
 pub mod cli;
 pub mod intents;
 pub mod session;
+pub mod settings;
 pub mod ui;

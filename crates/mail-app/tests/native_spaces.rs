@@ -163,7 +163,7 @@ fn open(width: u32, spaces: Spaces) -> (Harness, tempfile::TempDir) {
 }
 
 const DOTS: &str = ".space-dots > *";
-const GEAR: &str = "[*|aria-label=\"Space settings\"]";
+const GEAR: &str = ".space-name";
 const EDITOR: &str = "[*|aria-label=\"Edit this Space\"]";
 const DELETE: &str = ".ed-foot [*|aria-label=\"Delete Space\u{2026}\"]";
 const SHEET: &str = ".destroy-sheet";
@@ -182,7 +182,11 @@ fn deleting_a_space_asks_first_and_then_removes_it_and_closes_the_editor() {
     let (mut harness, _dir) = open(1200, spaces(2));
     assert_eq!(harness.count(DOTS), 2, "the fixture is not two Spaces");
     press(&mut harness, GEAR);
-    assert_eq!(harness.count(EDITOR), 1, "the gear did not open the editor");
+    assert_eq!(
+        harness.count(EDITOR),
+        1,
+        "the Space's name did not open the editor"
+    );
     press(&mut harness, DELETE);
     assert_eq!(harness.count(SHEET), 1, "Delete Space did not ask");
     assert_eq!(
@@ -221,7 +225,11 @@ fn closing_the_sheet_keeps_the_space() {
 fn the_only_space_cannot_be_deleted() {
     let (mut harness, _dir) = open(1200, spaces(1));
     press(&mut harness, GEAR);
-    assert_eq!(harness.count(EDITOR), 1, "the gear did not open the editor");
+    assert_eq!(
+        harness.count(EDITOR),
+        1,
+        "the Space's name did not open the editor"
+    );
     assert_eq!(
         harness.count(SHEET),
         0,

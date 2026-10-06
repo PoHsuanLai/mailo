@@ -17,6 +17,7 @@ pub mod discover;
 mod invite;
 mod rules;
 mod search;
+pub mod settings;
 pub mod sync;
 
 /// What the user asked for.
@@ -139,6 +140,9 @@ pub enum Command {
     Watch { notify: WatchNotify },
     /// Answer the desktop's intent router for as long as the session lasts.
     Intents,
+    /// `--write-schema <dir>`: write `mailo.settings.toml`, the schema the desktop's Settings
+    /// app draws mailo's page from (quire design/22 section 9.2).
+    WriteSchema { dir: std::path::PathBuf },
     /// Turn new-mail notifications on or off, or say which they are.
     Notify {
         set: Option<mail_core::notify::Setting>,
@@ -511,6 +515,10 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
         },
         "ping" => Ok(Command::Ping),
         "intents" => Ok(Command::Intents),
+        "--write-schema" => match &args[1..] {
+            [dir] => Ok(Command::WriteSchema { dir: dir.into() }),
+            _ => Err(format!("--write-schema takes one directory\n\n{}", usage())),
+        },
         "attach" => {
             let raw = args
                 .get(1)
@@ -1379,6 +1387,8 @@ usage: mailo <command>
                              session bus) until the session ends; the router starts it
                              on demand, so it is rarely typed
   notify [on|off]            turn new-mail notifications on or off (default on)
+  --write-schema <dir>       write mailo.settings.toml, the schema the desktop's
+                             Settings app draws mailo's page from
   offline [<account> [on|off]]
                              keep every attachment of an account here too, fetched
                              a few each sync, largest last (default off); alone,
@@ -1538,6 +1548,10 @@ pub fn run_with_clients(
         }
         // Dispatched in main, which owns the environment the config directory comes from.
         Command::Notify { .. } => Err("notify is dispatched before this point".to_owned()),
+        // Dispatched in main before the store opens: the schema needs nowhere but `dir`.
+        Command::WriteSchema { .. } => {
+            Err("--write-schema is dispatched before this point".to_owned())
+        }
         Command::Offline { .. } => Err("offline is dispatched before this point".to_owned()),
         Command::Daemon { .. } | Command::Ping => {
             Err("the daemon commands are dispatched before this point".to_owned())

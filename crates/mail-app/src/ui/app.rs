@@ -66,6 +66,7 @@ pub(super) fn App() -> Element {
     super::revisions::use_shared_revision(revision);
     // The conversations opened in windows of their own, to raise one asked for again.
     super::window::use_opened();
+    super::settings_window::use_settings_opened();
     // What a running window is asked from outside: a notification's click, `mailo open`. A
     // conversation opens here, where the person reads, and the window is raised with the click's
     // token.
@@ -77,6 +78,7 @@ pub(super) fn App() -> Element {
     let mut side_hidden = use_signal(|| false);
     // The Space editor's draft, while the sheet is open.
     let editing = use_signal(|| None::<crate::ui::space::edit::Draft>);
+    let prefs = super::prefs::use_prefs(dirs.as_ref());
     let desk = compose::use_desk(today_list, spaces, dirs.clone(), side_hidden);
     compose::use_test_dictionaries();
     let mut seen_open = use_signal(|| None::<mail_domain::ThreadId>);
@@ -237,6 +239,19 @@ pub(super) fn App() -> Element {
             write.scope = scope;
         }
     });
+
+    // Provider marks are a setting (`window.provider_marks`), which detent may change while the
+    // window is open.
+    use_effect(move || {
+        let marks = crate::ui::view::Marks::from(prefs.read().window.provider_marks);
+        if shell.peek().appearance.marks != marks {
+            shell.write().appearance.marks = marks;
+        }
+    });
+
+    // Another window (Settings) may have written a key binding or the Spaces: read them again.
+    // `settings.toml` needs nothing here: the window's root watches it.
+    super::frame::use_followed_configuration(shell, spaces, Some(editing));
 
     // An account removed, here or from a terminal, leaves every Space, and the tile pressed. Not
     // while the Space editor holds a draft: the Spaces are the draft then, and Escape must still
@@ -496,6 +511,10 @@ pub(super) fn App() -> Element {
                 } else {
                     shell.write().command = Some(String::new());
                 }
+                return;
+            }
+            Some(Chord::Settings) => {
+                super::settings_window::open();
                 return;
             }
             Some(Chord::Undo) | None => {}

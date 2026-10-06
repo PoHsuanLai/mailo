@@ -1,7 +1,7 @@
 //! Brand logos (BIMI): the user's switch, and whether a message may ask for its sender's logo.
 //!
-//! Off unless turned on, and kept like the other window-wide switches in the config directory
-//! (`bimi.json`). While it is off nothing about logos is looked up, fetched or read from the
+//! Off unless turned on: the window's switch (`reading.brand_logos` in mail-app's
+//! `mailo/settings.toml`; `bimi.json` before it). While it is off nothing about logos is looked up, fetched or read from the
 //! cache: [`brand_logo`] returns before anything else, and the window checks it before it even
 //! makes a resolver.
 //!
@@ -40,14 +40,10 @@ struct Stored {
     bimi: Setting,
 }
 
-/// The stored setting, or off when there is none or it cannot be read.
+/// What `bimi.json` said, or off when there is none or it cannot be read. Never written:
+/// mail-app keeps the switch (`reading.brand_logos`) and read this once to start from it.
 pub fn load(dir: &Path) -> Setting {
     crate::config::read_json::<Stored>(dir, FILE_NAME).bimi
-}
-
-/// Remember `setting` in `dir`.
-pub fn save(dir: &Path, setting: Setting) -> Result<(), String> {
-    crate::config::write_json(dir, FILE_NAME, &Stored { bimi: setting })
 }
 
 /// The mark verifying authorities' roots: the shipped ones and those in `dir`'s
