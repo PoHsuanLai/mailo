@@ -14,9 +14,9 @@
 //! The client id is not a secret. An installed application cannot keep one, which is the entire
 //! reason for PKCE, so this is an ordinary config file and not a keyring entry.
 
+use crate::AccountSecrets;
 use crate::RuntimeError;
 use crate::oauth::{self, Endpoints, Freshness};
-use crate::secrets::Secrets;
 use chrono::{DateTime, Utc};
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
 use porter_provider::Issuer;
@@ -194,7 +194,7 @@ pub async fn renew(
     registration: &Registration,
     scopes: &[String],
     credential: Credential,
-    secrets: &dyn Secrets,
+    secrets: &dyn AccountSecrets,
     http: &reqwest::Client,
     now: DateTime<Utc>,
 ) -> Result<Credential, RuntimeError> {
@@ -224,7 +224,7 @@ pub(crate) async fn renew_incoming(
     registration: &Registration,
     scopes: &[String],
     refresh_token: &str,
-    secrets: &dyn Secrets,
+    secrets: &dyn AccountSecrets,
     http: &reqwest::Client,
     now: DateTime<Utc>,
 ) -> Result<Credential, RuntimeError> {
@@ -244,13 +244,15 @@ pub(crate) async fn renew_incoming(
     // account failing an hour later, just via a different key. A refresh token the issuer
     // rotated is in `renewed`, so it is saved here too.
     for purpose in [SecretPurpose::IncomingPassword, SecretPurpose::OAuthRefresh] {
-        secrets.put(
-            &SecretKey {
-                account: account.clone(),
-                purpose,
-            },
-            &renewed,
-        )?;
+        secrets
+            .put(
+                &SecretKey {
+                    account: account.clone(),
+                    purpose,
+                },
+                &renewed,
+            )
+            .await?;
     }
     Ok(renewed)
 }
@@ -298,7 +300,7 @@ pub async fn graph_token(
     account: AccountId,
     registration: &Registration,
     reach: GraphReach,
-    secrets: &dyn Secrets,
+    secrets: &dyn AccountSecrets,
     http: &reqwest::Client,
     now: DateTime<Utc>,
 ) -> Result<Credential, RuntimeError> {
@@ -306,17 +308,20 @@ pub async fn graph_token(
         account: account.clone(),
         purpose,
     };
-    let held = secrets.get(&key(SecretPurpose::OutgoingPassword)).ok();
+    let held = secrets
+        .get(&key(SecretPurpose::OutgoingPassword))
+        .await
+        .ok();
     let refresh_token = match held.as_ref().map(|c| oauth::assess(c, now)) {
         Some(Freshness::Ready) => {
             if let Some(held @ Credential::OAuth { .. }) = held {
                 return Ok(held);
             }
             // A password here is left over from an SMTP setup; the sign-in's token replaces it.
-            sign_in_refresh(secrets, account.clone())?
+            sign_in_refresh(secrets, account.clone()).await?
         }
         Some(Freshness::Expired { refresh_token }) => refresh_token.to_owned(),
-        None => sign_in_refresh(secrets, account.clone())?,
+        None => sign_in_refresh(secrets, account.clone()).await?,
     };
     mint_graph(
         account,
@@ -331,16 +336,19 @@ pub async fn graph_token(
 }
 
 /// The refresh token a new Graph token is minted from: the Graph token's own, or the sign-in's.
-pub(crate) fn graph_refresh(
-    secrets: &dyn Secrets,
+pub(crate) async fn graph_refresh(
+    secrets: &dyn AccountSecrets,
     account: AccountId,
 ) -> Result<String, RuntimeError> {
-    match secrets.get(&SecretKey {
-        account: account.clone(),
-        purpose: SecretPurpose::OutgoingPassword,
-    }) {
+    match secrets
+        .get(&SecretKey {
+            account: account.clone(),
+            purpose: SecretPurpose::OutgoingPassword,
+        })
+        .await
+    {
         Ok(Credential::OAuth { refresh, .. }) => Ok(refresh.expose().to_owned()),
-        _ => sign_in_refresh(secrets, account),
+        _ => sign_in_refresh(secrets, account).await,
     }
 }
 
@@ -358,7 +366,7 @@ pub(crate) async fn mint_graph(
     registration: &Registration,
     reach: GraphReach,
     refresh_token: &str,
-    secrets: &dyn Secrets,
+    secrets: &dyn AccountSecrets,
     http: &reqwest::Client,
     now: DateTime<Utc>,
 ) -> Result<Credential, RuntimeError> {
@@ -372,22 +380,30 @@ pub(crate) async fn mint_graph(
         now,
     )
     .await?;
-    secrets.put(
-        &SecretKey {
-            account,
-            purpose: SecretPurpose::OutgoingPassword,
-        },
-        &minted,
-    )?;
+    secrets
+        .put(
+            &SecretKey {
+                account,
+                purpose: SecretPurpose::OutgoingPassword,
+            },
+            &minted,
+        )
+        .await?;
     Ok(minted)
 }
 
 /// The refresh token the browser sign-in stored.
-fn sign_in_refresh(secrets: &dyn Secrets, account: AccountId) -> Result<String, RuntimeError> {
-    match secrets.get(&SecretKey {
-        account,
-        purpose: SecretPurpose::OAuthRefresh,
-    })? {
+async fn sign_in_refresh(
+    secrets: &dyn AccountSecrets,
+    account: AccountId,
+) -> Result<String, RuntimeError> {
+    match secrets
+        .get(&SecretKey {
+            account,
+            purpose: SecretPurpose::OAuthRefresh,
+        })
+        .await?
+    {
         Credential::OAuth { refresh, .. } => Ok(refresh.expose().to_owned()),
         Credential::Password(_) | Credential::ApiKey(_) | Credential::KeyPair { .. } => Err(
             RuntimeError::Secrets("sending through Graph needs a Microsoft sign-in".to_owned()),

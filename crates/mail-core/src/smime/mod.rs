@@ -22,7 +22,7 @@ use crate::pgp::WithSecret;
 use chrono::{DateTime, Utc};
 use mail_domain::{CertFingerprint, CertSource, KeyTrust, MessageId, SecretHeld, SmimeCert};
 use mail_mime::MimeError;
-use mail_runtime::{RuntimeError, Secrets};
+use mail_runtime::{RuntimeError, SigningStore};
 use mail_store::{SqliteStore, Store, StoreError};
 use std::fmt::Write as _;
 
@@ -221,7 +221,7 @@ pub fn parse(args: &[String]) -> Result<SmimeCommand, String> {
 /// file.
 pub fn run(
     store: &SqliteStore,
-    secrets: &dyn Secrets,
+    secrets: &dyn SigningStore,
     password: &dyn Fn() -> Option<String>,
     command: &SmimeCommand,
     now: DateTime<Utc>,
@@ -231,7 +231,7 @@ pub fn run(
 
 fn run_typed(
     store: &SqliteStore,
-    secrets: &dyn Secrets,
+    secrets: &dyn SigningStore,
     password: &dyn Fn() -> Option<String>,
     command: &SmimeCommand,
     now: DateTime<Utc>,

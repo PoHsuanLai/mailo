@@ -374,6 +374,13 @@ fn turned_on_the_server_is_asked_once_as_the_search_is_shown() {
     until(&mut harness, "the server's hit being listed unasked", |h| {
         subjects(h) == vec![HIT.to_owned()]
     });
+    // The server answers any line with the hit, so it can be listed from a prefix asked while the
+    // line was typed, before the ask for the whole line has run on its blocking thread (which the
+    // virtual clock does not wait for). Wait for that ask itself.
+    let recorded = asked.clone();
+    until(&mut harness, "the whole line being asked", |_| {
+        recorded.lock().unwrap().iter().any(|l| l == "spreadsheet")
+    });
     // Drawing it again, and the revision the search itself moved, ask nothing more. A line the
     // box settled on while it was typed may have been asked too; none is asked twice.
     harness.advance(ms(1500));

@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use mail_domain::*;
 use mail_mime::openpgp::Cert;
-use mail_runtime::MapSecrets;
+use mail_runtime::MapSigningStore;
 
 use super::tests::{ME, arrive, own_key, reader, sealed, someone_elses, until};
 use super::{Look, looks_at, lookup, save_attachment};
@@ -28,7 +28,7 @@ fn letter(word: &str, text: &str) -> String {
 #[tokio::test]
 async fn an_openpgp_message_opened_lists_what_is_attached_inside_and_saves_it_whole() {
     let (store, dir) = seeded();
-    let secrets = Arc::new(MapSecrets::default());
+    let secrets = Arc::new(MapSigningStore::default());
     let key = own_key(&store, &secrets);
     let bea = someone_elses("bea@example.test", 111);
     let raw = letter("otter", "the otter map is attached");
@@ -57,7 +57,7 @@ async fn an_openpgp_message_opened_lists_what_is_attached_inside_and_saves_it_wh
 #[test]
 fn a_key_arriving_by_any_road_opens_a_message_again_without_the_sheet() {
     let (store, _dir) = seeded();
-    let secrets = MapSecrets::default();
+    let secrets = MapSigningStore::default();
     // A key of mine, made elsewhere and not yet here.
     let key = someone_elses(ME, 121);
     let raw = letter("marten", "the marten waits");

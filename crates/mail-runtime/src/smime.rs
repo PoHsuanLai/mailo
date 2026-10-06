@@ -6,7 +6,7 @@
 //! arriving mail taught. Nothing here decrypts anything — mail is decrypted when the reader opens
 //! it, never as it arrives.
 
-use crate::{RuntimeError, Secrets};
+use crate::{RuntimeError, SigningStore};
 use chrono::{DateTime, Utc};
 use mail_domain::signing::{SigningKeyId, SigningKeyRef, SigningSecret};
 use mail_domain::{CertFingerprint, CertProblem, CertSource, SmimeVerification};
@@ -24,11 +24,11 @@ fn entry(account: AccountId, fingerprint: CertFingerprint) -> SigningKeyRef {
 
 /// The private key of the certificate with `fingerprint`, from the keyring.
 pub fn private_key(
-    secrets: &dyn Secrets,
+    secrets: &dyn SigningStore,
     account: AccountId,
     fingerprint: CertFingerprint,
 ) -> Result<PrivateKey, RuntimeError> {
-    match secrets.get_signing(&entry(account, fingerprint))? {
+    match secrets.get(&entry(account, fingerprint))? {
         SigningSecret::SmimeKey(pem) => {
             let pem = zeroize::Zeroizing::new(pem);
             Ok(PrivateKey::from_pkcs8_pem(&pem)?)
@@ -41,13 +41,13 @@ pub fn private_key(
 
 /// Keep the private key of the certificate with `fingerprint` in the keyring.
 pub fn keep_private_key(
-    secrets: &dyn Secrets,
+    secrets: &dyn SigningStore,
     account: AccountId,
     fingerprint: CertFingerprint,
     key: &PrivateKey,
 ) -> Result<(), RuntimeError> {
     let pem = key.to_pkcs8_pem()?;
-    secrets.put_signing(
+    secrets.put(
         &entry(account, fingerprint),
         &SigningSecret::SmimeKey(pem.as_str().to_owned()),
     )
@@ -55,11 +55,11 @@ pub fn keep_private_key(
 
 /// Remove the private key of `fingerprint` from the keyring. Already gone is success.
 pub fn forget_private_key(
-    secrets: &dyn Secrets,
+    secrets: &dyn SigningStore,
     account: AccountId,
     fingerprint: CertFingerprint,
 ) -> Result<(), RuntimeError> {
-    secrets.forget_signing(&entry(account, fingerprint))
+    secrets.forget(&entry(account, fingerprint))
 }
 
 /// The operating system's certificate authorities, read once per process.

@@ -4,7 +4,7 @@
 //! do: read and write the keyring, and write what arriving mail taught to the store. Nothing
 //! here decrypts anything — mail is decrypted when the reader opens it, never as it arrives.
 
-use crate::{RuntimeError, Secrets};
+use crate::{RuntimeError, SigningStore};
 use chrono::{DateTime, Utc};
 use mail_domain::autocrypt::{self, Sighting, effective_date};
 use mail_domain::signing::{SigningKeyId, SigningKeyRef, SigningSecret};
@@ -22,11 +22,11 @@ fn entry(account: AccountId, fingerprint: Fingerprint) -> SigningKeyRef {
 
 /// The secret key with `fingerprint`, from the keyring.
 pub fn secret_key(
-    secrets: &dyn Secrets,
+    secrets: &dyn SigningStore,
     account: AccountId,
     fingerprint: Fingerprint,
 ) -> Result<SecretCert, RuntimeError> {
-    match secrets.get_signing(&entry(account, fingerprint))? {
+    match secrets.get(&entry(account, fingerprint))? {
         SigningSecret::OpenPgp(armored) => Ok(SecretCert::from_armored(&armored)?),
         SigningSecret::SmimeKey(_) => Err(RuntimeError::Secrets(format!(
             "the keyring entry for OpenPGP key {fingerprint} holds something else"
@@ -36,11 +36,11 @@ pub fn secret_key(
 
 /// Keep `key`'s secret half in the keyring, as it is — passphrase-protected if it was.
 pub fn keep_secret_key(
-    secrets: &dyn Secrets,
+    secrets: &dyn SigningStore,
     account: AccountId,
     key: &SecretCert,
 ) -> Result<(), RuntimeError> {
-    secrets.put_signing(
+    secrets.put(
         &entry(account, key.fingerprint()),
         &SigningSecret::OpenPgp(key.armored()?),
     )
@@ -48,11 +48,11 @@ pub fn keep_secret_key(
 
 /// Remove the secret half of `fingerprint` from the keyring. Already gone is success.
 pub fn forget_secret_key(
-    secrets: &dyn Secrets,
+    secrets: &dyn SigningStore,
     account: AccountId,
     fingerprint: Fingerprint,
 ) -> Result<(), RuntimeError> {
-    secrets.forget_signing(&entry(account, fingerprint))
+    secrets.forget(&entry(account, fingerprint))
 }
 
 /// Update the Autocrypt state for `from` from one arriving message, and keep the key its

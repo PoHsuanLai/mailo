@@ -18,7 +18,7 @@ use super::certs::{cert_for, identity_of, own_cert};
 use chrono::{DateTime, Utc};
 use mail_domain::*;
 use mail_mime::smime::{self, Cert, Sealing};
-use mail_runtime::Secrets;
+use mail_runtime::SigningStore;
 use mail_store::SqliteStore;
 
 /// What stands between `draft` and sending it as it asks, without touching the keyring: the
@@ -64,7 +64,7 @@ pub fn check(
 /// `frozen` — the bytes built for the wire — signed and encrypted as the draft asks.
 pub fn outgoing(
     store: &SqliteStore,
-    secrets: &dyn Secrets,
+    secrets: &dyn SigningStore,
     draft: &Draft,
     identity: &Identity,
     frozen: Vec<u8>,

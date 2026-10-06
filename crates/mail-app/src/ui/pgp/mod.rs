@@ -39,7 +39,7 @@ use std::sync::Arc;
 
 use chrono::Utc;
 use mail_domain::*;
-use mail_runtime::Secrets;
+use mail_runtime::SigningStore;
 use mail_store::SqliteStore;
 
 /// Look a key up by its address's domain. Blocks on the network: run it off the thread that draws.
@@ -54,7 +54,7 @@ pub(in crate::ui) type SaveFile = dyn Fn(&str) -> Option<PathBuf> + Send + Sync;
 /// Directory and the file dialogs, handed in as a context so tests reach none of them.
 #[derive(Clone)]
 pub(in crate::ui) struct Seams {
-    pub secrets: Arc<dyn Secrets>,
+    pub secrets: Arc<dyn SigningStore>,
     pub lookup: Arc<Lookup>,
     pub pick: Arc<PickFile>,
     pub save: Arc<SaveFile>,
@@ -67,14 +67,14 @@ impl Seams {
     pub(in crate::ui) fn real() -> Seams {
         if cfg!(test) {
             return Seams {
-                secrets: Arc::new(mail_runtime::MapSecrets::default()),
+                secrets: Arc::new(mail_runtime::MapSigningStore::default()),
                 lookup: Arc::new(|_, _| Err("no lookups in tests".to_owned())),
                 pick: Arc::new(|| None),
                 save: Arc::new(|_| None),
             };
         }
         Seams {
-            secrets: Arc::new(mail_runtime::KeyringSecrets),
+            secrets: Arc::new(mail_runtime::KeyringSigningStore::default()),
             lookup: Arc::new(|store, address| {
                 mail_core::pgp::lookup_address(store, address, Utc::now())
                     .map_err(|e| e.to_string())

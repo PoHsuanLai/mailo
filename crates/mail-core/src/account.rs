@@ -6,7 +6,7 @@
 
 use mail_domain::id::{account_id_from_uuid, new_account_id};
 use mail_domain::*;
-use mail_runtime::{KeyringSecrets, Loopback, OAuthRegistry, Registration, Secrets, signin};
+use mail_runtime::{AccountSecrets, Loopback, OAuthRegistry, Registration, signin};
 use mail_store::SqliteStore;
 use porter_core::SecretText;
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
@@ -97,7 +97,7 @@ pub fn add(
         Credentials {
             password: password.as_ref(),
             saved,
-            secrets: &KeyringSecrets,
+            secrets: mail_runtime::platform_secrets().as_ref(),
             on_url: &|url| {
                 // As `println!` would, but a closed stdout is not worth a panic mid-sign-in.
                 let _ = print_signin(url, &mut std::io::stdout().lock());
@@ -120,7 +120,7 @@ pub struct Credentials<'a> {
     /// The OAuth clients earlier sign-ins recorded.
     pub saved: &'a OAuthRegistry,
     /// Where the password or the sign-in's token is put.
-    pub secrets: &'a dyn Secrets,
+    pub secrets: &'a dyn AccountSecrets,
     /// Handed the address to open when the account signs in in a browser, before the sign-in
     /// waits for it. The command line prints it; the window shows it and opens a browser.
     /// Called on the thread the add runs on.
@@ -372,24 +372,19 @@ pub fn add_receiving(
             let login = username.resolve(&address);
             match password {
                 Some(password) if !password.is_empty() => {
-                    secrets
-                        .put(
-                            &SecretKey {
-                                account: account.clone(),
-                                purpose: SecretPurpose::IncomingPassword,
-                            },
-                            &Credential::Password(SecretText::new(password.expose().to_owned())),
-                        )
-                        .map_err(|e| format!("cannot save the password: {e}"))?;
-                    secrets
-                        .put(
-                            &SecretKey {
-                                account,
-                                purpose: SecretPurpose::OutgoingPassword,
-                            },
-                            &Credential::Password(SecretText::new(password.expose().to_owned())),
-                        )
-                        .map_err(|e| format!("cannot save the password: {e}"))?;
+                    for purpose in [
+                        SecretPurpose::IncomingPassword,
+                        SecretPurpose::OutgoingPassword,
+                    ] {
+                        let key = SecretKey {
+                            account: account.clone(),
+                            purpose,
+                        };
+                        let value =
+                            Credential::Password(SecretText::new(password.expose().to_owned()));
+                        mail_runtime::block_on(secrets.put(&key, &value))
+                            .map_err(|e| format!("cannot save the password: {e}"))?;
+                    }
                     if bearer {
                         let _ = writeln!(out, "token stored in the keyring");
                     } else {
@@ -432,26 +427,24 @@ pub fn add_receiving(
                     on_url,
                     now,
                 )?;
-                secrets
-                    .put(
-                        &SecretKey {
-                            account: account.clone(),
-                            purpose: SecretPurpose::OAuthRefresh,
-                        },
-                        &credential,
-                    )
-                    .map_err(|e| format!("cannot save the token: {e}"))?;
+                mail_runtime::block_on(secrets.put(
+                    &SecretKey {
+                        account: account.clone(),
+                        purpose: SecretPurpose::OAuthRefresh,
+                    },
+                    &credential,
+                ))
+                .map_err(|e| format!("cannot save the token: {e}"))?;
                 // Incoming and outgoing share one OAuth credential: the scopes cover IMAP and
                 // SMTP together, and storing it twice would mean refreshing it twice.
-                secrets
-                    .put(
-                        &SecretKey {
-                            account: account.clone(),
-                            purpose: SecretPurpose::IncomingPassword,
-                        },
-                        &credential,
-                    )
-                    .map_err(|e| format!("cannot save the token: {e}"))?;
+                mail_runtime::block_on(secrets.put(
+                    &SecretKey {
+                        account: account.clone(),
+                        purpose: SecretPurpose::IncomingPassword,
+                    },
+                    &credential,
+                ))
+                .map_err(|e| format!("cannot save the token: {e}"))?;
                 // Minted now rather than at the first send, so a permission the tenant withheld
                 // is reported while the user is still at the setup command — not hours later as
                 // a draft that will not leave.
@@ -629,10 +622,17 @@ fn graph_token(
         .map_err(|e| format!("cannot start the async runtime: {e}"))?;
     runtime.block_on(async {
         let http = signin::http_client().map_err(|e| e.to_string())?;
-        signin::graph_token(account, registration, reach, &KeyringSecrets, &http, now)
-            .await
-            .map(|_| ())
-            .map_err(|e| e.to_string())
+        signin::graph_token(
+            account,
+            registration,
+            reach,
+            mail_runtime::platform_secrets().as_ref(),
+            &http,
+            now,
+        )
+        .await
+        .map(|_| ())
+        .map_err(|e| e.to_string())
     })
 }
 
@@ -720,6 +720,7 @@ pub fn list(store: &SqliteStore) -> Result<String, String> {
     let plans = crate::sync::auth_by_account(store).unwrap_or_default();
     let local = crate::sync::local_accounts(store);
 
+    let secrets = mail_runtime::platform_secrets();
     let mut out = String::new();
     for row in rows {
         let (id, address) = row.map_err(|e| e.to_string())?;
@@ -730,12 +731,11 @@ pub fn list(store: &SqliteStore) -> Result<String, String> {
             let _ = writeln!(out, "{address:<28} kept on this computer; nothing to sync");
             continue;
         }
-        let has_password = KeyringSecrets
-            .get(&SecretKey {
-                account,
-                purpose: SecretPurpose::IncomingPassword,
-            })
-            .is_ok();
+        let has_password = mail_runtime::block_on(secrets.get(&SecretKey {
+            account,
+            purpose: SecretPurpose::IncomingPassword,
+        }))
+        .is_ok();
         // What is missing depends on how the account signs in, and `sync` says so at length.
         // Saying "no credential stored" for an OAuth account reads as "find a password", which
         // is the one thing that will not work — the same contradiction, one line shorter.

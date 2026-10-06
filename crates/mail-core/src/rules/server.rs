@@ -12,7 +12,7 @@ use mail_proto::sieve::{
     Active, Deleted, Places, SieveJob, SieveOutcome, Takeover, VacationPlaced, compile, endpoint,
 };
 use mail_runtime::sieve::{Pushed, SieveAuth};
-use mail_runtime::{KeyringSecrets, OAuthRegistry, Secrets};
+use mail_runtime::{OAuthRegistry, platform_secrets};
 use mail_store::{SqliteStore, Store};
 use porter_core::{Credential, SecretKey, SecretPurpose};
 use std::fmt::Write as _;
@@ -233,14 +233,15 @@ async fn auth(
     saved: &OAuthRegistry,
     now: DateTime<Utc>,
 ) -> Result<SieveAuth, String> {
-    let secrets = KeyringSecrets;
+    let secrets = platform_secrets();
     let stored: Credential = secrets
         .get(&SecretKey {
             account: account.id.clone(),
             purpose: SecretPurpose::IncomingPassword,
         })
+        .await
         .map_err(|_| crate::account::no_credential(&account.address, &account.plan.auth))?;
-    let credential = crate::sync::signed_in(account, stored, &secrets, saved, now).await?;
+    let credential = crate::sync::signed_in(account, stored, secrets.as_ref(), saved, now).await?;
     Ok(SieveAuth {
         username: account.plan.username(),
         credential,

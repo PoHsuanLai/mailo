@@ -1,13 +1,13 @@
 //! Keys learnt from arriving mail, and secret keys in and out of the keyring.
 //!
 //! Autocrypt headers are read as mail is assembled, from the header alone: a sync never
-//! decrypts. The keyring here is [`MapSecrets`], never the user's.
+//! decrypts. The keyring here is [`MapSigningStore`], never the user's.
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::id::{account_id_from_uuid, new_account_id};
 use mail_domain::*;
 use mail_mime::openpgp::{self, SecretCert};
-use mail_runtime::{Arrival, MapSecrets, assemble, pgp};
+use mail_runtime::{Arrival, MapSigningStore, assemble, pgp};
 use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 use rand::SeedableRng;
@@ -236,7 +236,7 @@ fn gossip_is_kept_only_for_the_messages_own_recipients() {
 
 #[test]
 fn a_secret_key_goes_into_the_keyring_whole_and_comes_back_out() {
-    let secrets = MapSecrets::default();
+    let secrets = MapSigningStore::default();
     let mine = key_for("me@example.test", 8);
     pgp::keep_secret_key(&secrets, acct_account(), &mine).unwrap();
     assert_eq!(

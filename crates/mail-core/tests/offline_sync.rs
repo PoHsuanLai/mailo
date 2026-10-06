@@ -13,9 +13,10 @@ use mail_core::sync::{self, Configured};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_proto::{Backend, IoReady, Progress, ProtoOutcome};
-use mail_runtime::{AccountEngine, MapSecrets};
+use mail_runtime::AccountEngine;
 use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
+use porter_secrets::MemorySecrets;
 use std::sync::{Arc, Mutex};
 
 fn acct_account() -> AccountId {
@@ -280,7 +281,7 @@ async fn one_pass(keep: Keep) -> Passed {
             parts: parts.clone(),
         },
         store.clone(),
-        Arc::new(MapSecrets::default()),
+        Arc::new(MemorySecrets::default()),
     );
     let account = Configured {
         id: acct_account(),

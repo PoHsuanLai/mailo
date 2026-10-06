@@ -10,7 +10,7 @@ use dioxus::prelude::*;
 use dioxus_core::VirtualDom;
 use mail_domain::signing::{SigningKeyId, SigningKeyRef};
 use mail_domain::*;
-use mail_runtime::{MapSecrets, Secrets};
+use mail_runtime::{MapSigningStore, SigningStore};
 use mail_store::{SqliteStore, Store};
 
 use super::certs::ordered;
@@ -75,9 +75,9 @@ fn cert(fingerprint: u8, secret: SecretHeld) -> SmimeCert {
     }
 }
 
-fn holds(secrets: &MapSecrets, cert: &SmimeCert) -> bool {
+fn holds(secrets: &MapSigningStore, cert: &SmimeCert) -> bool {
     secrets
-        .get_signing(&SigningKeyRef {
+        .get(&SigningKeyRef {
             account: acct_account(),
             key: SigningKeyId::Smime(cert.fingerprint),
         })
@@ -99,7 +99,7 @@ fn the_users_own_certificates_come_first() {
 #[tokio::test]
 async fn the_sheet_lists_keys_then_certificates_own_first_with_what_is_known_of_each() {
     let (store, _dir) = seeded();
-    let secrets = Arc::new(MapSecrets::default());
+    let secrets = Arc::new(MapSigningStore::default());
     trust_root(&store, &secrets);
     let mine = with_identity(&store, &secrets);
     let (dom, _) = sheet(&store, seams_with(secrets));
@@ -131,7 +131,7 @@ async fn the_sheet_lists_keys_then_certificates_own_first_with_what_is_known_of_
 #[tokio::test]
 async fn an_identity_files_password_is_asked_in_the_sheet_and_never_drawn() {
     let (store, dir) = seeded();
-    let secrets = Arc::new(MapSecrets::default());
+    let secrets = Arc::new(MapSigningStore::default());
     let file = dir.path().join("me.p12");
     std::fs::write(&file, identity_file()).unwrap();
     let mut seams = seams_with(secrets.clone());
@@ -177,7 +177,7 @@ async fn an_identity_files_password_is_asked_in_the_sheet_and_never_drawn() {
 #[tokio::test]
 async fn deleting_a_certificate_with_its_private_key_is_asked_again_first() {
     let (store, _dir) = seeded();
-    let secrets = Arc::new(MapSecrets::default());
+    let secrets = Arc::new(MapSigningStore::default());
     let mine = with_identity(&store, &secrets);
     let (mut dom, seen) = sheet(&store, seams_with(secrets.clone()));
     let id = cert_short(mine.fingerprint);
@@ -204,7 +204,7 @@ async fn deleting_a_certificate_with_its_private_key_is_asked_again_first() {
 #[tokio::test]
 async fn a_certificate_is_trusted_and_the_trust_taken_back() {
     let (store, _dir) = seeded();
-    let secrets = Arc::new(MapSecrets::default());
+    let secrets = Arc::new(MapSigningStore::default());
     let root = pki().root.cert.fingerprint();
     mail_core::smime::certs::import(
         &store,
@@ -288,7 +288,7 @@ fn a_keys_dates_are_said_as_far_as_they_are_known() {
 #[tokio::test]
 async fn the_sheet_says_when_a_key_was_made_and_until_when_it_holds() {
     let (store, _dir) = seeded();
-    let secrets = Arc::new(MapSecrets::default());
+    let secrets = Arc::new(MapSigningStore::default());
     let key = own_key(&store, &secrets);
     let stored = store.pgp_key(key.fingerprint).unwrap().unwrap();
     assert!(stored.created.is_some(), "a key made here knows when");
@@ -303,7 +303,7 @@ async fn the_sheet_says_when_a_key_was_made_and_until_when_it_holds() {
 #[tokio::test]
 async fn every_class_of_the_certificates_half_is_styled() {
     let (store, dir) = seeded();
-    let secrets = Arc::new(MapSecrets::default());
+    let secrets = Arc::new(MapSigningStore::default());
     let mine = with_identity(&store, &secrets);
     trust_root(&store, &secrets);
     let file = dir.path().join("me.p12");

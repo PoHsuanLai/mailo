@@ -16,10 +16,11 @@ use mail_domain::*;
 use mail_mime::posting;
 use mail_proto::backend::{Authenticate, Pop3Backend};
 use mail_proto::{Pop3Command, Pop3Session};
-use mail_runtime::{AccountEngine, MapSecrets, Secrets};
+use mail_runtime::{AccountEngine, AccountSecrets};
 use mail_store::{SqliteStore, Store};
 use porter_core::SecretText;
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
+use porter_secrets::MemorySecrets;
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
@@ -265,16 +266,15 @@ fn compose(smtp_port: u16) -> Sending {
         .unwrap();
     }
 
-    let secrets = MapSecrets::default();
-    secrets
-        .put(
-            &SecretKey {
-                account: acct_account(),
-                purpose: SecretPurpose::IncomingPassword,
-            },
-            &Credential::Password(SecretText::new(PASSWORD.to_owned())),
-        )
-        .unwrap();
+    let secrets = MemorySecrets::default();
+    mail_runtime::block_on(secrets.put(
+        &SecretKey {
+            account: acct_account(),
+            purpose: SecretPurpose::IncomingPassword,
+        },
+        &Credential::Password(SecretText::new(PASSWORD.to_owned())),
+    ))
+    .unwrap();
 
     let draft = draft();
     store

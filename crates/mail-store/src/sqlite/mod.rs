@@ -1,5 +1,6 @@
 //! The real [`Store`]: SQLite in WAL mode, with FTS5.
 
+mod adopted;
 mod contacts;
 mod destroyed;
 mod draft;

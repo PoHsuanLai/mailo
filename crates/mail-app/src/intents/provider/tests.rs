@@ -6,7 +6,7 @@ use crate::intents::wire::{Integrity, Invocation, Label, Output, Target};
 use chrono::{TimeZone, Utc};
 use mail_domain::id::{account_id_from_uuid, new_account_id};
 use mail_domain::*;
-use mail_runtime::MapSecrets;
+use mail_runtime::MapSigningStore;
 use mail_store::Store;
 use porter_core::AccountId;
 
@@ -145,7 +145,7 @@ fn world_opening(opener: Opener) -> (Provider, Arc<SqliteStore>, tempfile::TempD
             )
             .expect("remote");
     }
-    let provider = Provider::new(store.clone(), Arc::new(MapSecrets::default()), opener);
+    let provider = Provider::new(store.clone(), Arc::new(MapSigningStore::default()), opener);
     (provider, store, dir)
 }
 
@@ -926,4 +926,15 @@ fn a_window_less_provider_is_looking_at_nothing() {
     assert_eq!(json["app"], APP);
     assert_eq!(json["here"], serde_json::json!({ "kind": "nowhere" }));
     assert_eq!(json["privacy"], "private");
+}
+
+/// The window's opener hands the conversation over from inside the provider's executor, which is
+/// a tokio runtime under zbus's `tokio` feature: the blocking handoff must not panic there. No
+/// window is running in a test, so whether it was taken does not matter: that it answers does.
+/// zbus is a dependency only where the session bus is (not macOS or Windows), as is the handoff.
+#[cfg(not(any(target_os = "macos", windows)))]
+#[test]
+fn the_window_handoff_answers_from_inside_zbus_executor() {
+    let _taken: bool =
+        zbus::block_on(async { super::handed_to_window(thread_of(1), Some("token")) });
 }

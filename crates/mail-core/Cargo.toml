@@ -82,6 +82,7 @@ zbus = "5.19"
 rpassword = "7"
 
 [dev-dependencies]
+porter-secrets = { workspace = true, features = ["testing"] }
 tempfile = "3"
 # The throwaway certificate authority `tests/smime.rs` builds its fixtures with
 # (`mail-mime/tests/smime_support`). All already in the tree through `mail-mime`.

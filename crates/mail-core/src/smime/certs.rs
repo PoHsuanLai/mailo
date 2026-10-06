@@ -12,7 +12,7 @@ use chrono::{DateTime, Utc};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_mime::smime::{self, Cert, Identity};
-use mail_runtime::Secrets;
+use mail_runtime::SigningStore;
 use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 
@@ -61,7 +61,7 @@ pub struct Imported {
 /// kept: there is no identity it could sign for.
 pub fn import(
     store: &SqliteStore,
-    secrets: &dyn Secrets,
+    secrets: &dyn SigningStore,
     bytes: &[u8],
     password: &dyn Fn() -> Option<String>,
     now: DateTime<Utc>,
@@ -85,7 +85,7 @@ pub fn import(
 /// Keep `identity`: its private key in the keyring, its certificate and chain in the store.
 pub fn import_identity(
     store: &SqliteStore,
-    secrets: &dyn Secrets,
+    secrets: &dyn SigningStore,
     identity: &Identity,
     now: DateTime<Utc>,
 ) -> Result<Imported, SmimeError> {
@@ -146,7 +146,7 @@ pub fn trust(
 /// Forget a certificate: its row, and — when confirmed — its private key in the keyring.
 pub fn delete(
     store: &SqliteStore,
-    secrets: &dyn Secrets,
+    secrets: &dyn SigningStore,
     cert: &SmimeCert,
     with_secret: WithSecret,
 ) -> Result<(), SmimeError> {
@@ -178,7 +178,7 @@ fn account_of(store: &SqliteStore, cert: &SmimeCert) -> AccountId {
 /// chain.
 pub(crate) fn identity_of(
     store: &SqliteStore,
-    secrets: &dyn Secrets,
+    secrets: &dyn SigningStore,
     record: &SmimeCert,
 ) -> Result<Identity, SmimeError> {
     let key =
