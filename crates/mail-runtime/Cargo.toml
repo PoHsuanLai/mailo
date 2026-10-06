@@ -6,6 +6,8 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+porter-core.workspace = true
+porter-provider.workspace = true
 mail-domain.workspace = true
 mail-proto.workspace = true
 mail-store.workspace = true
