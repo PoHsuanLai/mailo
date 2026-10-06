@@ -299,7 +299,7 @@ fn warm_now(
 /// the neighbours of the open conversation whenever it changes. Their bodies, where they are not
 /// here yet, are what the next body pass fetches first (`mail_runtime::wanted`).
 ///
-/// Warmed under the default policy, which is the one a conversation opens with: showing remote
+/// Warmed under the frame's policy, which is the one a conversation opens with: showing remote
 /// images is asked for per conversation, and opening another one clears it.
 pub(in crate::ui) fn use_warming(shell: Signal<Shell>, threads: Memo<Vec<ThreadSummary>>) {
     let store = use_context::<Arc<SqliteStore>>();
@@ -313,7 +313,7 @@ pub(in crate::ui) fn use_warming(shell: Signal<Shell>, threads: Memo<Vec<ThreadS
         // it: a message without its body yet cannot be rendered ahead, only fetched ahead.
         let bodies: Vec<ThreadId> = open().into_iter().chain(order.iter().copied()).collect();
         mail_runtime::wanted::ask_first(&bodies);
-        warm(store.clone(), order, SanitizePolicy::CURRENT);
+        warm(store.clone(), order, SanitizePolicy::FRAME);
     });
 }
 
@@ -336,6 +336,7 @@ mod tests {
             SanitizePolicy {
                 remote_images,
                 version,
+                ..SanitizePolicy::FRAME
             },
         )
     }
@@ -422,7 +423,7 @@ mod tests {
             .iter()
             .map(|id| store.message(*id).unwrap())
             .collect();
-        let policy = SanitizePolicy::CURRENT;
+        let policy = SanitizePolicy::FRAME;
         assert!(
             messages.iter().any(|m| m.body.raw().is_some()),
             "the fixture has bodies"
@@ -445,6 +446,7 @@ mod tests {
         let policy = SanitizePolicy {
             remote_images: RemoteImages::Allowed,
             version: u32::MAX,
+            ..SanitizePolicy::FRAME
         };
         warm_now(&store, &[thread], policy, || false);
         assert_eq!(peek(&message, policy), None);
