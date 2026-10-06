@@ -815,6 +815,78 @@ mod tests {
         assert!(platform.get(&key_of("incoming")).await.is_err());
     }
 
+    /// `Mem`, holding every run at its first read until both have made it: neither has put or
+    /// deleted anything when each has read the whole old entry, the worst interleaving.
+    struct Gate {
+        inner: Arc<Mem>,
+        barrier: std::sync::Barrier,
+    }
+
+    impl Slots for Gate {
+        fn read(&self, name: &str) -> Result<Option<String>, RuntimeError> {
+            let read = self.inner.read(name);
+            if name.ends_with(":incoming") {
+                self.barrier.wait();
+            }
+            read
+        }
+        fn write(&self, name: &str, value: &str) -> Result<(), RuntimeError> {
+            self.inner.write(name, value)
+        }
+        fn delete(&self, name: &str) -> Result<(), RuntimeError> {
+            self.inner.delete(name)
+        }
+    }
+
+    /// Two processes starting together (the window and `watch`) both run adoption over the same
+    /// store, the same old entries and the same porter store. No secret is lost, every account
+    /// is recorded, and where porter already held a value it is the one that stays.
+    #[test]
+    fn two_runs_at_once_over_one_store_converge_and_lose_nothing() {
+        for round in 0..20 {
+            let (mem, want) = legacy_entries();
+            let gate = Arc::new(Gate {
+                inner: mem.clone(),
+                barrier: std::sync::Barrier::new(2),
+            });
+            let legacy: Legacy = gate.clone();
+            let (store, _dir) = store_with_account();
+            let secrets = MemorySecrets::default();
+            let newer = Credential::Password(SecretText::new("rotated"));
+            crate::block_on(secrets.put(&key_of("carddav"), &newer)).unwrap();
+            let (drained_a, drained_b) = (Drained::default(), Drained::default());
+
+            let (a, b) = std::thread::scope(|scope| {
+                let a = scope.spawn(|| {
+                    crate::block_on(run_over(&store, &legacy, &drained_a, &secrets, now()))
+                });
+                let b = scope.spawn(|| {
+                    crate::block_on(run_over(&store, &legacy, &drained_b, &secrets, now()))
+                });
+                (a.join().unwrap().unwrap(), b.join().unwrap().unwrap())
+            });
+
+            assert!(
+                a.unfinished.is_empty() && b.unfinished.is_empty(),
+                "round {round}: {a:?} {b:?}"
+            );
+            assert!(drained_a.get() && drained_b.get(), "round {round}");
+            assert!(mem.entries.lock().unwrap().is_empty(), "{:?}", mem.entries);
+            assert!(store.secrets_adopted(&account()).unwrap());
+            assert!(store.unadopted_accounts().unwrap().is_empty());
+            for (word, credential) in want.iter().filter(|(w, _)| *w != "carddav") {
+                let held = crate::block_on(secrets.get(&key_of(word))).unwrap();
+                assert_eq!(&held, credential, "round {round}: {word}");
+            }
+            // Porter's was there first and stays, whichever run looked.
+            assert_eq!(
+                crate::block_on(secrets.get(&key_of("carddav"))).unwrap(),
+                newer,
+                "round {round}"
+            );
+        }
+    }
+
     /// The old reader still reads what every earlier build wrote.
     #[test]
     fn the_frozen_account_fixture_reads_as_porter_credentials() {
