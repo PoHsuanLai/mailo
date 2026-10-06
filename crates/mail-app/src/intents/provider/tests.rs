@@ -931,6 +931,8 @@ fn a_window_less_provider_is_looking_at_nothing() {
 /// The window's opener hands the conversation over from inside the provider's executor, which is
 /// a tokio runtime under zbus's `tokio` feature: the blocking handoff must not panic there. No
 /// window is running in a test, so whether it was taken does not matter: that it answers does.
+/// zbus is a dependency only where the session bus is (not macOS or Windows), as is the handoff.
+#[cfg(not(any(target_os = "macos", windows)))]
 #[test]
 fn the_window_handoff_answers_from_inside_zbus_executor() {
     let _taken: bool =
