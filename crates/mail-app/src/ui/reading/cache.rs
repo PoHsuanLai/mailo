@@ -423,7 +423,7 @@ mod tests {
             .iter()
             .map(|id| store.message(*id).unwrap())
             .collect();
-        let policy = SanitizePolicy::CURRENT;
+        let policy = SanitizePolicy::FRAME;
         assert!(
             messages.iter().any(|m| m.body.raw().is_some()),
             "the fixture has bodies"

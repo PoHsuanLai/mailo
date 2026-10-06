@@ -38,6 +38,8 @@ article.frame header {
 }
 article.frame header time { margin-left: auto; }
 article.frame + article.frame { border-top: var(--hair) solid var(--line-soft); }
+/* Whatever else the reader puts under the messages (the inline reply) is inset as their heads are. */
+.reader-body > :not(.frame):not(.banners) { margin-left: var(--s-18); margin-right: var(--s-18); margin-bottom: var(--s-18); }
 .img-ph {
   margin-top: var(--s-12); height: 86px; border-radius: var(--r-btn); background: var(--surface-2);
   border: var(--hair) solid var(--line); display: grid; place-items: center;

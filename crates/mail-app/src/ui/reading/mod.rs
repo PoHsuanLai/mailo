@@ -264,47 +264,57 @@ fn html_frame(html: &str, parsed: &mail_mime::Parsed, policy: SanitizePolicy) ->
     let embedded =
         mail_mime::embed_inline(safe.as_str(), &parsed.attachments, mail_mime::INLINE_BUDGET);
     FrameBody::Present {
-        html: in_document(&embedded),
+        html: frame_document(&html_sheet(), safe.body_style(), &embedded),
         blocked_remote,
         fetches,
     }
 }
 
-/// What a frame's document starts from before the sender's own sheets: a browser's defaults,
-/// as a mail client's are, in the system's sans rather than Blitz's serif, with nothing wider
-/// than the frame where Blitz can say so (a table's own percentage `max-width` does not hold a
-/// fixed-width table nested in an auto-width one: a pane under 600 px still cuts a 600 px
-/// newsletter's right edge). The sender's `<style>` comes later in
-/// the document and wins, a `body { padding: 0 }` included, so a full-bleed design stays one.
-const FRAME_BASE: &str = ":root { color-scheme: light; } \
-     html, body { margin: 0; } \
-     body { padding: 16px; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \
-     Helvetica, Arial, sans-serif; font-size: 14px; line-height: 1.5; color: #1d1d1f; \
-     background: #fff; overflow-wrap: anywhere; } \
-     img { max-width: 100%; height: auto; } \
-     table { max-width: 100%; }";
+/// The type a frame's document is set in, a mail client's own: the system's sans rather than
+/// Blitz's serif.
+const FRAME_FONT: &str =
+    "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, Helvetica, Arial, sans-serif";
 
-/// A sanitized fragment as the frame's whole document: [`FRAME_BASE`], then the fragment, its
-/// own sheets included.
-fn in_document(fragment: &str) -> String {
+/// What an HTML message's document starts from before the sender's own sheets: a browser's
+/// defaults, as a mail client's are, with nothing wider than the frame where Blitz can say so
+/// (a table's own percentage `max-width` does not hold a fixed-width table nested in an
+/// auto-width one: a pane under 600 px still cuts a 600 px newsletter's right edge). An image
+/// keeps the size its attributes give it, so a blocked one still holds its place. The sender's
+/// `<style>` comes later in the document and its `<body>` colours and style sit on the body
+/// itself, so either wins, a `padding: 0` included, and a full-bleed design stays one.
+fn html_sheet() -> String {
     format!(
-        "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><style>{FRAME_BASE}</style></head>\
-         <body>{fragment}</body></html>"
+        ":root {{ color-scheme: light; }} html, body {{ margin: 0; }} \
+         body {{ padding: 16px; font-family: {FRAME_FONT}; font-size: 14px; line-height: 1.5; \
+         color: #1d1d1f; background: #fff; overflow-wrap: anywhere; }} \
+         img {{ max-width: 100%; }} table {{ max-width: 100%; }}"
+    )
+}
+
+/// A plain-text message's sheet: its lines as written, in the scheme the desktop is in.
+fn plain_sheet() -> String {
+    format!(
+        ":root {{ color-scheme: light dark; }} \
+         body {{ margin: 16px; font-family: {FRAME_FONT}; font-size: 14px; line-height: 1.6; \
+         white-space: pre-wrap; overflow-wrap: anywhere; }}"
+    )
+}
+
+/// A frame's whole document: `sheet`, then `body` (markup already safe to show) in a `<body>`
+/// carrying `body_style`, the sender's own body colours and style, when there are any.
+fn frame_document(sheet: &str, body_style: Option<&str>, body: &str) -> String {
+    let styled = body_style
+        .map(|style| format!(" style=\"{}\"", escape_html(style)))
+        .unwrap_or_default();
+    format!(
+        "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><style>{sheet}</style></head>\
+         <body{styled}>{body}</body></html>"
     )
 }
 
 fn plain_frame(text: &str) -> FrameBody {
-    let escaped = escape_html(text);
-    let html = format!(
-        "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><style>\
-         :root {{ color-scheme: light dark; }}\
-         body {{ margin: 16px; font-family: -apple-system, BlinkMacSystemFont, \
-         \"Segoe UI\", Roboto, Helvetica, Arial, sans-serif; font-size: 14px; \
-         line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }}\
-         </style></head><body>{escaped}</body></html>"
-    );
     FrameBody::Present {
-        html,
+        html: frame_document(&plain_sheet(), None, &escape_html(text)),
         blocked_remote: false,
         fetches: Vec::new(),
     }
