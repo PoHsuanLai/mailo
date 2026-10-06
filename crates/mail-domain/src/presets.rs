@@ -1,9 +1,12 @@
-//! Domain-to-configuration presets. Data, not types.
+//! What a preset fills an [`AccountPlan`] with, and the capabilities we *expect*. Data, not types.
 //!
-//! Nothing here is a domain concept. A preset fills an [`AccountPlan`] and supplies the
-//! capabilities we *expect*; the runtime replaces those with what the server actually
-//! advertises. This is the only place in the workspace that may mention a specific provider,
-//! and even then only as a table key.
+//! Nothing here is a domain concept. The runtime replaces the expected capabilities with what
+//! the server actually advertises. Which provider an address belongs to is not decided here:
+//! that is porter's provider files (`porter_provider`, claimed by `matching`) and its discovery
+//! (`porter_discover`), and `mail_core::discover` maps what they answer onto these builders.
+//! What stays here is what a provider file has no place for: the capabilities we expect of a
+//! server, the OAuth presets of the two issuers mailo reads mail through, the Graph policy, and
+//! the plans for servers named by hand.
 
 use crate::account::{
     AccountCaps, AccountPlan, ArchiveMeans, AuthPlan, Condstore, ConnectionBudget, ExpungeMeans,
@@ -37,12 +40,12 @@ pub struct Preset {
 // persisted lie — `AccountPlan` (configured) and `AccountCaps` (discovered) are separate
 // types for exactly this reason.
 //
-// This module is also the ONLY place in the workspace that may name a provider. Domain types
-// stay vendor-neutral (`ArchiveMeans::DropInbox`, not `GmailStyle`); the single exception is
-// `Issuer::Google`, which names an authorization server rather than a mail provider.
+// This module is also the ONLY place in the workspace that may name a provider's mail settings.
+// Domain types stay vendor-neutral (`ArchiveMeans::DropInbox`, not `GmailStyle`); the single
+// exception is `Issuer::Google`, which names an authorization server rather than a mail provider.
 //
 // `identities` is always empty here. An `Identity` needs an `IdentityId` and an `AccountId`,
-// and a preset has neither: minting one would make `preset_for` impure (a fresh UUID per
+// and a preset has neither: minting one would make a preset impure (a fresh UUID per
 // call, so two calls with the same arguments differ) and would invent an account id that no
 // store row matches. The account-creation flow mints the `AccountId`, builds the default
 // `Identity` from the address the user typed, and pushes it onto this empty vector.
@@ -90,44 +93,6 @@ fn gmail_folders() -> FolderRoles {
 /// rare enough not to look like abuse to a small institution's server.
 const POLL_EVERY: Duration = Duration::from_secs(5 * 60);
 
-/// Look up configuration for an address.
-///
-/// Returns `None` for an unknown domain, which the UI turns into a manual setup form.
-///
-/// The domain is matched case-insensitively (ASCII: mail domains are IDNA-encoded by the
-/// time they reach us). An address with no `@`, or with an empty local part or domain, has no
-/// preset and returns `None` rather than panicking — this string comes from a text field.
-pub fn preset_for(address: &str, now: DateTime<Utc>) -> Option<Preset> {
-    // Split at the LAST `@`: a quoted local part may legally contain one.
-    let (local, domain) = address.rsplit_once('@')?;
-    if local.is_empty() || domain.is_empty() {
-        return None;
-    }
-    let domain = domain.to_ascii_lowercase();
-    // `contoso.onmicrosoft.com` — matched as a domain rather than a suffix, so that
-    // `notonmicrosoft.com` is not treated as a tenant.
-    if under(&domain, "onmicrosoft.com") {
-        return Some(microsoft(address, now));
-    }
-
-    match domain.as_str() {
-        "gmail.com" | "googlemail.com" => Some(gmail(address, now)),
-        // The tenant fallback domain, which is the only Microsoft 365 address that can be
-        // recognised from the address alone. A work or school mailbox almost always uses its
-        // organisation's own domain — `you@yourcompany.com` — and nothing about that string
-        // says Microsoft. Those are configured with `--microsoft`, or found by discovery
-        // (`mail_proto::discover`) through the domain's MX record. Discovery never acts on what
-        // it found until the user has seen it and said yes, because guessing wrong sends a
-        // password to a host the user never named; this table, which needs no confirmation,
-        // stays limited to what the address itself proves.
-        //
-        // Personal outlook.com and hotmail.com are deliberately absent: `Issuer::Microsoft` is
-        // here for managed tenants only (see `is_personal_microsoft`).
-        "onmicrosoft.com" => Some(microsoft(address, now)),
-        _ => None,
-    }
-}
-
 fn gmail(address: &str, now: DateTime<Utc>) -> Preset {
     Preset {
         plan: AccountPlan {
@@ -170,35 +135,6 @@ fn gmail(address: &str, now: DateTime<Utc>) -> Preset {
     }
 }
 
-/// The preset for a provider recognised by the registered domain of an address's mail
-/// exchanger.
-///
-/// This is how a mailbox on its organisation's own domain is recognised: nothing about
-/// `you@yourcompany.example` says who hosts it, but its MX record does, and a hosted domain's MX
-/// points into the provider's own domain. Answering with the preset rather than with whatever a
-/// database lists for that domain is what makes such an account sign in with OAuth, which is the
-/// only thing either provider still accepts, instead of a password it will refuse.
-///
-/// `registered` is the registrable domain of the MX host (`google.com` for
-/// `aspmx.l.google.com`), already lowercased by the caller's public-suffix lookup.
-pub fn preset_for_mail_exchanger(
-    registered: &str,
-    address: &str,
-    now: DateTime<Utc>,
-) -> Option<Preset> {
-    preset_for_issuer(issuer_of_exchanger(registered)?, address, now)
-}
-
-/// The OAuth issuer that hosts mail whose exchanger is in `registered`.
-fn issuer_of_exchanger(registered: &str) -> Option<Issuer> {
-    match registered.to_ascii_lowercase().as_str() {
-        "google.com" | "googlemail.com" | "gmail.com" => Some(Issuer::Google),
-        // Microsoft 365's inbound hosts are `<tenant>.mail.protection.outlook.com`.
-        "outlook.com" => Some(Issuer::Microsoft),
-        _ => None,
-    }
-}
-
 /// The preset that signs in with `issuer`.
 ///
 /// Each issuer mailo has a mail provider for serves exactly one, so naming the issuer names the
@@ -236,21 +172,6 @@ pub fn issuer_for_server(host: &str) -> Option<Issuer> {
         return Some(Issuer::Microsoft);
     }
     None
-}
-
-/// Whether an address's domain is one of Microsoft's personal (consumer) mail domains.
-///
-/// mailo signs in with [`Issuer::Microsoft`] for managed Microsoft 365 tenants only, and
-/// [`preset_for`] leaves these out on purpose. Basic authentication was retired on personal
-/// Outlook.com on 2024-09-16, and recently created personal mailboxes are reported to have SMTP
-/// client authentication permanently off, failing even under OAuth. Discovery finds them anyway — their MX is Microsoft's and databases list them —
-/// so it asks this before handing out the tenant preset, and says why it will not rather than
-/// configuring an account that cannot send.
-pub fn is_personal_microsoft(domain: &str) -> bool {
-    matches!(
-        domain.trim().to_ascii_lowercase().as_str(),
-        "outlook.com" | "hotmail.com" | "live.com" | "msn.com"
-    )
 }
 
 /// Hosts where a password will not authenticate, whatever the user types.
@@ -631,15 +552,17 @@ mod tests {
             .with_timezone(&Utc)
     }
 
+    /// Google's preset keeps the address exactly as typed, whatever its case, and starts the
+    /// first sync from Gmail's folder paths.
     #[test]
-    fn gmail_domains_and_case() {
+    fn the_google_preset_keeps_the_address_as_typed() {
         for address in [
             "someone@gmail.com",
             "someone@GMAIL.com",
-            "someone@googlemail.com",
             "Someone@GoogleMail.COM",
+            "me@firm.example",
         ] {
-            let preset = preset_for(address, at()).unwrap_or_else(|| panic!("{address}"));
+            let preset = preset_for_issuer(Issuer::Google, address, at()).expect(address);
             assert_eq!(
                 preset.plan.incoming,
                 Incoming::Imap {
@@ -649,7 +572,6 @@ mod tests {
                 },
                 "{address}"
             );
-            // The address is kept exactly as typed; only the lookup folds case.
             assert_eq!(preset.plan.address, address, "{address}");
             assert_eq!(preset.expected_caps.observed_at, at(), "{address}");
             assert_eq!(
@@ -754,65 +676,9 @@ mod tests {
         );
     }
 
+    /// The server names a mail host signs in with an issuer by, and no lookalike does.
     #[test]
-    fn unknown_and_malformed() {
-        const CASES: &[&str] = &[
-            "someone@example.com",
-            "someone@sub.gmail.com",
-            "someone@gmail.com.evil.test",
-            "not-an-address",
-            "",
-            "@gmail.com",
-            "someone@",
-            "@",
-        ];
-        for address in CASES {
-            assert!(
-                preset_for(address, at()).is_none(),
-                "{address} should have no preset"
-            );
-        }
-    }
-
-    /// A custom domain whose mail exchanger is in Google's or Microsoft's own domain is that
-    /// provider's, and signs in the way the provider's preset does.
-    #[test]
-    fn a_mail_exchanger_in_a_providers_domain_gives_that_providers_preset() {
-        let google = preset_for_mail_exchanger("google.com", "me@firm.example", at())
-            .expect("google.com is known");
-        assert!(matches!(
-            google.plan.auth,
-            AuthPlan::OAuth {
-                issuer: Issuer::Google,
-                ..
-            }
-        ));
-        assert_eq!(google.plan.address, "me@firm.example");
-        let microsoft = preset_for_mail_exchanger("OUTLOOK.com", "me@firm.example", at())
-            .expect("outlook.com is known");
-        assert!(matches!(
-            microsoft.plan.auth,
-            AuthPlan::OAuth {
-                issuer: Issuer::Microsoft,
-                ..
-            }
-        ));
-        for other in [
-            "example.net",
-            "notgoogle.com",
-            "google.com.example.test",
-            "",
-        ] {
-            assert_eq!(
-                preset_for_mail_exchanger(other, "me@firm.example", at()),
-                None,
-                "{other}"
-            );
-        }
-    }
-
-    #[test]
-    fn only_the_two_known_issuers_are_recognised() {
+    fn a_server_names_the_issuer_whose_tokens_it_takes() {
         assert_eq!(issuer_named("accounts.google.com"), Some(Issuer::Google));
         assert_eq!(
             issuer_named("login.microsoftonline.com"),
@@ -825,15 +691,15 @@ mod tests {
             Some(Issuer::Microsoft)
         );
         assert_eq!(issuer_for_server("imap.evil-gmail.com"), None);
-        assert!(is_personal_microsoft("Hotmail.com"));
-        assert!(!is_personal_microsoft("firm.example"));
+        assert_eq!(issuer_for_server("imap.example.net"), None);
     }
 
+    /// Only the issuers mailo reads mail through have a preset.
     #[test]
-    fn last_at_wins() {
-        // A quoted local part may contain `@`; the domain is what follows the last one.
-        let preset = preset_for("\"odd@name\"@gmail.com", at());
-        assert!(preset.is_some());
+    fn an_issuer_with_no_mail_has_no_preset() {
+        assert!(preset_for_issuer(Issuer::Google, "me@firm.example", at()).is_some());
+        assert!(preset_for_issuer(Issuer::Microsoft, "me@firm.example", at()).is_some());
+        assert!(preset_for_issuer(Issuer::Dropbox, "me@firm.example", at()).is_none());
     }
 }
 
