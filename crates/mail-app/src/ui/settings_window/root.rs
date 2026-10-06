@@ -29,7 +29,7 @@ fn Watched() -> Element {
     let spawner: Arc<dyn Spawner> = Arc::new(ds_blitz::TokioSpawner::current());
     let environment = use_environment(desktop.store(), desktop.prefs.clone(), spawner);
     use_context_provider(|| environment);
-    crate::ui::prefs::use_watched_settings(desktop.root.clone());
+    crate::ui::prefs::use_window_settings();
     rsx! { SettingsShell {} }
 }
 
@@ -64,7 +64,7 @@ fn SettingsShell() -> Element {
             }
         }
     });
-    let mut revision = use_signal(|| 0u64);
+    let revision = use_signal(|| 0u64);
     crate::ui::revisions::use_shared_revision(revision);
     // The Spaces, read so the frame wears the Space on screen; the first window owns the file.
     let spaces = use_signal({
@@ -76,18 +76,12 @@ fn SettingsShell() -> Element {
                 .unwrap_or_default()
         }
     });
-    let prefs = crate::ui::prefs::use_prefs(dirs.as_ref());
+    let _ = crate::ui::prefs::use_prefs(dirs.as_ref());
     crate::ui::hover::use_hover();
     crate::ui::motion::use_motion();
-    // A setting or a key binding changed here: the other windows read theirs again.
-    let mut told = use_signal(|| (prefs.peek().clone(), shell.peek().keymap.clone()));
-    use_effect(move || {
-        let now = (prefs.read().clone(), shell.read().keymap.clone());
-        if *told.peek() != now {
-            told.set(now);
-            revision += 1;
-        }
-    });
+    // Key bindings and Spaces another window writes; this one tells them its own through
+    // `frame::keep` and the keyboard sheet. Settings are watched by the root.
+    crate::ui::frame::use_followed_configuration(shell, spaces, None);
 
     let on_key = move |event: Event<KeyboardData>| {
         let key = event.key().to_string();

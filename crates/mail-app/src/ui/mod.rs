@@ -100,7 +100,7 @@ pub mod native {
     pub use super::original::{Browse, Consent, Fetch, FetchImage, Got, Original};
     pub use super::print::Printer;
     pub use super::reading::OriginalFrame;
-    pub use super::revisions::Revisions;
+    pub use super::revisions::{Configured, Revisions};
     pub use super::server_search::{Search, ServerSearcher};
     pub use super::settings_window::{OpenSettings, SettingsWindows, settings_root};
     pub use super::window::{Ask, MessageOpen, OpenWindow, Windows, message_root};

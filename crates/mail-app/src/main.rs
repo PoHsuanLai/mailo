@@ -451,7 +451,7 @@ fn main() {
     // `watch` is `sync` that does not stop. It prints as it goes rather than at the end, because
     // "at the end" is when the user presses Ctrl-C.
     if let Some(mail_app::cli::Command::Notify { set }) = &command {
-        match mail_app::cli::settings::notify(&ds_settings::ConfigRoot::Xdg, *set) {
+        match mail_app::cli::settings::notify(mail_app::settings::person_root().as_ref(), *set) {
             Ok(said) => print!("{said}"),
             Err(message) => {
                 eprintln!("{message}");
@@ -505,7 +505,9 @@ fn main() {
         let notifications = match notify {
             mail_app::cli::WatchNotify::Never => mail_core::notify::Setting::Off,
             mail_app::cli::WatchNotify::AsSet => mail_core::notify::Setting::from(
-                mail_app::settings::load(&ds_settings::ConfigRoot::Xdg)
+                mail_app::settings::person_root()
+                    .map(|root| mail_app::settings::load(&root))
+                    .unwrap_or_default()
                     .notifications
                     .new_mail,
             ),
@@ -576,7 +578,9 @@ fn main() {
         None => {
             let config = mail_core::config::config_dir();
             let look = mail_app::ui::view::Appearance {
-                marks: mail_app::settings::load(&ds_settings::ConfigRoot::Xdg)
+                marks: mail_app::settings::person_root()
+                    .map(|root| mail_app::settings::load(&root))
+                    .unwrap_or_default()
                     .window
                     .provider_marks
                     .into(),

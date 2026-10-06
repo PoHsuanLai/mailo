@@ -122,7 +122,7 @@ pub(super) fn ShellRoot() -> Element {
     use_context_provider(|| ReadSignal::new(user_style));
     // mailo's own settings (`mailo/settings.toml`), watched the same way: detent writes the same
     // file, and the window follows it.
-    super::prefs::use_watched_settings(settings.root.clone());
+    super::prefs::use_window_settings();
     rsx! { Shell {} }
 }
 

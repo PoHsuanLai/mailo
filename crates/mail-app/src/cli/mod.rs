@@ -1547,7 +1547,10 @@ pub fn run_with_clients(
         }
         // Dispatched in main, which owns the environment the config directory comes from.
         Command::Notify { .. } => Err("notify is dispatched before this point".to_owned()),
-        Command::WriteSchema { dir } => crate::settings::write_schema(dir),
+        // Dispatched in main before the store opens: the schema needs nowhere but `dir`.
+        Command::WriteSchema { .. } => {
+            Err("--write-schema is dispatched before this point".to_owned())
+        }
         Command::Offline { .. } => Err("offline is dispatched before this point".to_owned()),
         Command::Daemon { .. } | Command::Ping => {
             Err("the daemon commands are dispatched before this point".to_owned())
