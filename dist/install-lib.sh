@@ -20,6 +20,8 @@ UNIT_DEST="$UNIT_DIR/$UNIT_NAME"
 # of it on demand: both under $PREFIX/share, which is on XDG_DATA_DIRS for /usr and /usr/local.
 INTENTS_DEST="$PREFIX/share/quire/intents/org.quire.Mail.toml"
 SERVICE_DEST="$PREFIX/share/dbus-1/services/org.quire.Mail.service"
+# The skill that teaches the desktop's companion to use those actions: SKILL.md and skill.toml.
+SKILL_DIR="$PREFIX/share/quire/skills/mail"
 # The binary to install: a release build unless MAILO_BIN says otherwise (the scenarios install a debug
 # build, which is what carries their test seams).
 BUILT="${MAILO_BIN:-${CARGO_TARGET_DIR:-$ROOT/target}/release/mailo}"
