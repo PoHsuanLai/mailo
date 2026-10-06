@@ -4689,6 +4689,26 @@ through `porter_secrets::Secrets` (pinned at the same porter rev as `porter-core
   empty store, and forgets it with the account. When porter already holds the key (a run cut after
   its put) porter's credential wins and the old entry is only deleted: it is at least as new, and a
   rotated refresh token must not be put back as the stale one.
+- **Started once per process, off the UI thread, and safe beside another process.**
+  `mail_app::adoption::for_command` (called from `main` once the store is open) starts
+  `adopt::run` for the window and for `mailo watch`, not for the short commands, on a plain thread
+  driven by `mail_runtime::block_on` (no runtime started or blocked; the old entries' keyring
+  calls keep `on_thread`'s own threads). It reads the store's `unadopted_accounts`, so a second
+  process finds only what the first has not recorded. A failure or a panic ends that thread and
+  is logged; the app starts regardless and the next start tries again, `PlatformSecrets` reading
+  the old entries meanwhile. `platform` runs only once per process. Two runs at once (the window
+  beside a watch) are safe because of the order inside an entry: put, read back, then delete, so
+  a run that finds the old entry gone or half-deleted (it fails to read) has seen a run that had
+  already put, and its `get` then finds porter's key and only deletes what is left (deleting is
+  idempotent). Two runs that both read the old entry put the same value. Where porter holds a
+  value, `get` finds it and neither run puts: porter's wins. `mark_secrets_adopted` is an
+  idempotent upsert. The test holds both runs at their first read and checks every secret, the
+  record and the empty old keyring, twenty times. The one window left is a value porter's store
+  gains between a run's `get` (missing) and its `put`, from something that is not adoption: a
+  token refresh in the other process, through `PlatformSecrets`, which writes under porter's
+  attributes whether or not the account is adopted. Porter's trait has no put-if-absent, so that
+  run would put the old value over the fresh one. It is two calls apart (microseconds, and the
+  refresh must land in them); a lost refresh token is re-authorised, not a lost password.
 - **Where this meets accountd's `Adopt` (E6).** Both land on the same Secret Service items under
   porter's attributes (`{service: porter, account, purpose}`). Mailo files an account's incoming,
   outgoing, OAuth and contacts secrets under those four purposes as they were, not merged into
