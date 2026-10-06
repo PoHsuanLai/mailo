@@ -12,7 +12,7 @@ use mail_domain::id::new_account_id;
 use mail_domain::*;
 use mail_mime::archive::maildir::INFO;
 use mail_mime::archive::mbox;
-use mail_runtime::OAuthRegistry;
+use mail_runtime::ClientRegistry;
 use mail_store::{SqliteStore, Store};
 use porter_core::{AccountId, Credential, SecretKey};
 use std::sync::Arc;
@@ -495,7 +495,7 @@ fn sync_never_touches_the_local_account() {
     let ends = sync::run_with(
         store.clone(),
         secrets.clone(),
-        &OAuthRegistry::default(),
+        &ClientRegistry::default(),
         now(),
         Default::default(),
     )

@@ -121,7 +121,7 @@ impl Reader {
     pub fn new(account: AccountId, caps: AccountCaps) -> Result<Self, RuntimeError> {
         Ok(Self {
             me: ME.to_owned(),
-            http: crate::signin::http_client()?,
+            http: crate::http::http_client()?,
             account,
             caps,
             folders: HashMap::new(),

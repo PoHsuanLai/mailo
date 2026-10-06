@@ -8,7 +8,7 @@ use mail_core::discover::{Found, Source};
 use mail_domain::Retry;
 use mail_domain::id::new_account_id;
 use mail_domain::presets::{Manual, ManualPop3, manual};
-use mail_runtime::{AccountSecrets, OAuthRegistry};
+use mail_runtime::{AccountSecrets, ClientRegistry};
 use mail_store::SqliteStore;
 use porter_core::{AccountId, SecretKey, SecretPurpose};
 use porter_provider::Issuer;
@@ -143,7 +143,7 @@ pub(super) fn with_jmap(
                 now(),
                 mail_core::account::Credentials {
                     password: request.password.as_ref(),
-                    saved: &OAuthRegistry::default(),
+                    saved: &ClientRegistry::default(),
                     secrets: &adding.secrets,
                     on_url,
                 },

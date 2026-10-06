@@ -101,7 +101,7 @@ impl JmapEngine {
             plan,
             store,
             secrets,
-            http: crate::signin::http_client()?,
+            http: crate::http::http_client()?,
             client: None,
             mailboxes: None,
             identities: None,

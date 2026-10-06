@@ -12,7 +12,7 @@ use mail_proto::sieve::{
     Active, Deleted, Places, SieveJob, SieveOutcome, Takeover, VacationPlaced, compile, endpoint,
 };
 use mail_runtime::sieve::{Pushed, SieveAuth};
-use mail_runtime::{OAuthRegistry, platform_secrets};
+use mail_runtime::{ClientRegistry, platform_secrets};
 use mail_store::{SqliteStore, Store};
 use porter_core::{Credential, SecretKey, SecretPurpose};
 use std::fmt::Write as _;
@@ -102,7 +102,7 @@ pub fn vacation_for(
 pub fn run_vacation(
     store: &SqliteStore,
     command: &VacationCmd,
-    saved: &OAuthRegistry,
+    saved: &ClientRegistry,
     now: DateTime<Utc>,
 ) -> Result<String, String> {
     let failed = |e: mail_store::StoreError| e.to_string();
@@ -170,7 +170,7 @@ fn push_now(
     store: &SqliteStore,
     account: &crate::sync::Configured,
     takeover: Takeover,
-    saved: &OAuthRegistry,
+    saved: &ClientRegistry,
     now: DateTime<Utc>,
 ) -> String {
     match push(store, account, takeover, saved, now) {
@@ -205,7 +205,7 @@ fn shown(address: &str, v: &Vacation, now: DateTime<Utc>) -> String {
 pub fn run_sieve(
     store: &SqliteStore,
     command: &SieveCmd,
-    saved: &OAuthRegistry,
+    saved: &ClientRegistry,
     now: DateTime<Utc>,
 ) -> Result<String, String> {
     match command {
@@ -230,7 +230,7 @@ fn runtime() -> Result<tokio::runtime::Runtime, String> {
 /// The account's own sign-in: the server's ManageSieve takes the same credential as its mail.
 async fn auth(
     account: &crate::sync::Configured,
-    saved: &OAuthRegistry,
+    saved: &ClientRegistry,
     now: DateTime<Utc>,
 ) -> Result<SieveAuth, String> {
     let secrets = platform_secrets();
@@ -252,7 +252,7 @@ fn push(
     store: &SqliteStore,
     account: &crate::sync::Configured,
     takeover: Takeover,
-    saved: &OAuthRegistry,
+    saved: &ClientRegistry,
     now: DateTime<Utc>,
 ) -> Result<String, String> {
     pushed(store, account, takeover, saved, now).map(|pushed| said(&account.address, &pushed))
@@ -265,7 +265,7 @@ pub fn pushed(
     store: &SqliteStore,
     account: &crate::sync::Configured,
     takeover: Takeover,
-    saved: &OAuthRegistry,
+    saved: &ClientRegistry,
     now: DateTime<Utc>,
 ) -> Result<Pushed, String> {
     let at = endpoint(&account.plan).map_err(|why| format!("{}: {why}", account.address))?;
@@ -356,7 +356,7 @@ pub fn said(address: &str, pushed: &Pushed) -> String {
 fn status(
     store: &SqliteStore,
     account: &crate::sync::Configured,
-    saved: &OAuthRegistry,
+    saved: &ClientRegistry,
     now: DateTime<Utc>,
 ) -> Result<String, String> {
     let at = endpoint(&account.plan).map_err(|why| format!("{}: {why}", account.address))?;

@@ -24,7 +24,7 @@ use super::report::Failure;
 use super::{Configured, Mode, clock_for, configured, imap_engine, poll_floor, renewal_for};
 use super::{signed_in_typed, to_sync};
 use mail_domain::*;
-use mail_runtime::{AccountEngine, AccountSecrets, Cancel, Held, JmapEngine, OAuthRegistry, Woke};
+use mail_runtime::{AccountEngine, AccountSecrets, Cancel, ClientRegistry, Held, JmapEngine, Woke};
 use mail_runtime::{RuntimeError, platform_secrets};
 use mail_store::SqliteStore;
 use porter_core::{AccountId, SecretKey, SecretPurpose};
@@ -124,7 +124,8 @@ pub fn listen(
     grace: Duration,
     heard: &dyn Fn(Heard),
 ) -> Result<(), Lost> {
-    let registry = OAuthRegistry::load_default().map_err(|e| Lost::unsupported(&e.to_string()))?;
+    let registry =
+        mail_runtime::clients::load_default().map_err(|e| Lost::unsupported(&e.to_string()))?;
     listen_with(
         store,
         platform_secrets(),
@@ -142,7 +143,7 @@ pub fn listen(
 pub fn listen_with(
     store: Arc<SqliteStore>,
     secrets: Arc<dyn AccountSecrets>,
-    registry: &OAuthRegistry,
+    registry: &ClientRegistry,
     account: AccountId,
     cancel: watch::Receiver<bool>,
     hold: Option<Hold>,
@@ -184,7 +185,7 @@ impl Waiter {
         store: &Arc<SqliteStore>,
         account: &Configured,
         secrets: Arc<dyn AccountSecrets>,
-        registry: &OAuthRegistry,
+        registry: &ClientRegistry,
     ) -> Result<Self, Lost> {
         if !pushes(account) {
             return Err(Lost::unsupported("this account has no push to wait on"));
@@ -217,7 +218,7 @@ impl Waiter {
                 );
                 let mut engine = imap_engine(store, account, held, secrets);
                 if let Some(renewal) = renewal {
-                    engine = engine.with_renewal(renewal);
+                    engine = engine.with_tokens(renewal);
                 }
                 let inbox = to_sync(account, &[])
                     .into_iter()

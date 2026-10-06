@@ -8,7 +8,7 @@ use chrono::{DateTime, TimeZone, Utc};
 use mail_core::sync;
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use mail_runtime::{AccountSecrets, OAuthRegistry};
+use mail_runtime::{AccountSecrets, ClientRegistry};
 use mail_store::SqliteStore;
 use porter_core::SecretText;
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
@@ -188,7 +188,7 @@ fn a_body_fetched_on_demand_is_stored_for_the_reader() {
     sync::fetch_body_with(
         store.clone(),
         Arc::new(secrets),
-        &OAuthRegistry::default(),
+        &ClientRegistry::default(),
         id,
         now(),
     )
@@ -204,7 +204,7 @@ fn a_missing_credential_asks_for_a_new_sign_in() {
     let (retry, why) = sync::fetch_body_with(
         store,
         Arc::new(MemorySecrets::default()),
-        &OAuthRegistry::default(),
+        &ClientRegistry::default(),
         id,
         now(),
     )
@@ -222,7 +222,7 @@ fn an_unreachable_server_can_be_tried_again_later() {
     let (retry, why) = sync::fetch_body_with(
         store.clone(),
         Arc::new(secrets),
-        &OAuthRegistry::default(),
+        &ClientRegistry::default(),
         id,
         now(),
     )

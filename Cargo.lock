@@ -4164,9 +4164,9 @@ dependencies = [
 [[package]]
 name = "latchkey"
 version = "0.1.0"
+source = "git+https://github.com/PoHsuanLai/latchkey?rev=7b250b9e3b17bccd2a20126c6106461bc2050313#7b250b9e3b17bccd2a20126c6106461bc2050313"
 dependencies = [
  "interprocess",
- "tempfile",
 ]
 
 [[package]]
@@ -4638,11 +4638,11 @@ dependencies = [
  "mail-pim",
  "mail-proto",
  "mail-store",
- "oauth2",
  "p256",
  "porter-core",
  "porter-discover",
  "porter-http",
+ "porter-oauth",
  "porter-provider",
  "porter-secrets",
  "psl",
@@ -5208,25 +5208,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
-]
-
-[[package]]
-name = "oauth2"
-version = "5.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "51e219e79014df21a225b1860a479e2dcd7cbd9130f4defd4bd0e191ea31d67d"
-dependencies = [
- "base64 0.22.1",
- "chrono",
- "getrandom 0.2.17",
- "http",
- "rand 0.8.8",
- "serde",
- "serde_json",
- "serde_path_to_error",
- "sha2 0.10.9",
- "thiserror 1.0.69",
- "url",
 ]
 
 [[package]]
@@ -6366,7 +6347,7 @@ dependencies = [
 [[package]]
 name = "porter-core"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=6571a0c08336b9b59120bc8a19a168f57cda483c#6571a0c08336b9b59120bc8a19a168f57cda483c"
+source = "git+https://github.com/PoHsuanLai/porter?rev=63add389bfcb12ded87ce2b92ef7022e3f8f5655#63add389bfcb12ded87ce2b92ef7022e3f8f5655"
 dependencies = [
  "serde",
  "serde_json",
@@ -6376,7 +6357,7 @@ dependencies = [
 [[package]]
 name = "porter-discover"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=6571a0c08336b9b59120bc8a19a168f57cda483c#6571a0c08336b9b59120bc8a19a168f57cda483c"
+source = "git+https://github.com/PoHsuanLai/porter?rev=63add389bfcb12ded87ce2b92ef7022e3f8f5655#63add389bfcb12ded87ce2b92ef7022e3f8f5655"
 dependencies = [
  "porter-core",
  "porter-http",
@@ -6390,16 +6371,33 @@ dependencies = [
 [[package]]
 name = "porter-http"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=6571a0c08336b9b59120bc8a19a168f57cda483c#6571a0c08336b9b59120bc8a19a168f57cda483c"
+source = "git+https://github.com/PoHsuanLai/porter?rev=63add389bfcb12ded87ce2b92ef7022e3f8f5655#63add389bfcb12ded87ce2b92ef7022e3f8f5655"
 dependencies = [
  "porter-core",
  "thiserror 2.0.21",
 ]
 
 [[package]]
+name = "porter-oauth"
+version = "0.1.0"
+source = "git+https://github.com/PoHsuanLai/porter?rev=63add389bfcb12ded87ce2b92ef7022e3f8f5655#63add389bfcb12ded87ce2b92ef7022e3f8f5655"
+dependencies = [
+ "base64 0.22.1",
+ "porter-core",
+ "porter-http",
+ "porter-provider",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 2.0.21",
+ "tokio",
+ "toml",
+]
+
+[[package]]
 name = "porter-provider"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=6571a0c08336b9b59120bc8a19a168f57cda483c#6571a0c08336b9b59120bc8a19a168f57cda483c"
+source = "git+https://github.com/PoHsuanLai/porter?rev=63add389bfcb12ded87ce2b92ef7022e3f8f5655#63add389bfcb12ded87ce2b92ef7022e3f8f5655"
 dependencies = [
  "porter-core",
  "serde",
@@ -6410,7 +6408,7 @@ dependencies = [
 [[package]]
 name = "porter-secrets"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=6571a0c08336b9b59120bc8a19a168f57cda483c#6571a0c08336b9b59120bc8a19a168f57cda483c"
+source = "git+https://github.com/PoHsuanLai/porter?rev=63add389bfcb12ded87ce2b92ef7022e3f8f5655#63add389bfcb12ded87ce2b92ef7022e3f8f5655"
 dependencies = [
  "apple-native-keyring-store",
  "keyring-core",
@@ -7459,17 +7457,6 @@ dependencies = [
  "serde",
  "serde_core",
  "zmij",
-]
-
-[[package]]
-name = "serde_path_to_error"
-version = "0.1.20"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "10a9ff822e371bb5403e391ecd83e182e0e77ba7f6fe0160b795797109d1b457"
-dependencies = [
- "itoa",
- "serde",
- "serde_core",
 ]
 
 [[package]]

@@ -17,14 +17,14 @@ use mail_domain::*;
 use mail_mime::posting;
 use mail_proto::backend::{Authenticate, ImapBackend, Pop3Backend};
 use mail_proto::{ImapAuth, ImapCommand, ImapSession, Pop3Command, Pop3Session};
-use mail_runtime::oauth::Endpoints;
-use mail_runtime::renewal::Now;
+use mail_runtime::tokens::Now;
 use mail_runtime::{
-    AccountEngine, AccountSecrets, Held, Registration, Renewal, RuntimeError, Token,
+    AccountEngine, AccountSecrets, Held, OAuthTokens, RuntimeError, Token, TokenSource,
 };
 use mail_store::{SqliteStore, Store};
+use porter_core::EndpointUrl;
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose, SecretText, UnixSeconds};
-use porter_provider::Issuer;
+use porter_provider::{ClientEntry, Issuer, IssuerEndpoints};
 use porter_secrets::MemorySecrets;
 use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicI64, Ordering};
@@ -186,12 +186,17 @@ fn revoked() -> (&'static str, String) {
     )
 }
 
-async fn token_endpoint(script: Vec<(&'static str, String)>) -> (Registration, Seen) {
+async fn token_endpoint(script: Vec<(&'static str, String)>) -> (ClientEntry, Seen) {
     let (port, seen) = http(script).await;
-    let registration = Registration::new(Issuer::Microsoft, "client-id").at(Endpoints {
-        auth: format!("http://127.0.0.1:{port}/authorize"),
-        token: format!("http://127.0.0.1:{port}/token"),
-    });
+    let registration = ClientEntry {
+        endpoints: Some(IssuerEndpoints {
+            authorize: EndpointUrl::parse(&format!("http://127.0.0.1:{port}/authorize")).unwrap(),
+            token: EndpointUrl::parse(&format!("http://127.0.0.1:{port}/token")).unwrap(),
+            revoke: None,
+            device: None,
+        }),
+        ..mail_runtime::clients::entry(Issuer::Microsoft, "client-id", None)
+    };
     (registration, seen)
 }
 
@@ -386,20 +391,19 @@ struct Reading {
 /// One engine for the account, built once, as `mailo watch` builds it.
 ///
 /// The session factory reads its credential from the renewal's cell on every connection, which
-/// is the other half of the contract [`AccountEngine::with_renewal`] states.
-fn reading(imap_port: u16, registration: Registration, incoming: Credential) -> Reading {
+/// is the other half of the contract [`AccountEngine::with_tokens`] states.
+fn reading(imap_port: u16, registration: ClientEntry, incoming: Credential) -> Reading {
     let (store, dir) = store();
     let secrets = secrets(&incoming);
     let clock = Clock::at(t0());
     let held = Held::new(incoming);
-    let renewal = Renewal::new(
+    let renewal = OAuthTokens::new(
         acct_account(),
         &plan(imap_port),
         registration,
         secrets.clone(),
         held.clone(),
     )
-    .unwrap()
     .with_clock(clock.now());
     let backend = ImapBackend::new(
         acct_account(),
@@ -427,7 +431,7 @@ fn reading(imap_port: u16, registration: Registration, incoming: Credential) -> 
         store,
         secrets.clone(),
     )
-    .with_renewal(renewal);
+    .with_tokens(Arc::new(renewal));
     Reading {
         engine,
         secrets,
@@ -459,8 +463,9 @@ async fn an_engine_that_outlives_its_token_renews_it_without_restarting() {
     ask(&mut it).await.expect("the first token is good");
     assert!(asked.lock().unwrap().is_empty(), "renewed a good token");
 
-    // Two minutes from expiry: inside the margin, so renewed before anything presents it.
-    it.clock.set(t0() + minutes(58));
+    // Thirty seconds from expiry: inside porter's margin, so renewed before anything presents it.
+    it.clock
+        .set(t0() + minutes(60) - TimeDelta::try_seconds(30).unwrap());
     ask(&mut it).await.expect("renewed in place");
     assert_eq!(
         asked.lock().unwrap().len(),
@@ -572,8 +577,12 @@ async fn a_refused_renewal_asks_the_user_to_sign_in_and_is_not_repeated() {
         assert!(matches!(e.retry(), Retry::NeedsReauth), "{e}");
         let said = e.to_string();
         assert!(
-            said.contains("invalid_grant"),
-            "the issuer's reason was lost: {said}"
+            said.contains("the issuer refused it"),
+            "that the issuer refused was lost: {said}"
+        );
+        assert!(
+            said.contains("The refresh token has been revoked."),
+            "the issuer's own words were lost: {said}"
         );
         assert!(said.contains("mailo account add me@example.test"), "{said}");
     }
@@ -599,10 +608,15 @@ async fn an_unreachable_issuer_is_waited_out_rather_than_called_a_refusal() {
         .local_addr()
         .unwrap()
         .port();
-    let registration = Registration::new(Issuer::Microsoft, "client-id").at(Endpoints {
-        auth: format!("http://127.0.0.1:{closed}/authorize"),
-        token: format!("http://127.0.0.1:{closed}/token"),
-    });
+    let registration = ClientEntry {
+        endpoints: Some(IssuerEndpoints {
+            authorize: EndpointUrl::parse(&format!("http://127.0.0.1:{closed}/authorize")).unwrap(),
+            token: EndpointUrl::parse(&format!("http://127.0.0.1:{closed}/token")).unwrap(),
+            revoke: None,
+            device: None,
+        }),
+        ..mail_runtime::clients::entry(Issuer::Microsoft, "client-id", None)
+    };
     let mut it = reading(
         imap_port,
         registration,
@@ -625,14 +639,13 @@ async fn microsoft_renews_each_resource_with_its_own_scopes() {
     ))
     .unwrap();
     let held = Held::new(token("imap-old", "r1", t0() - minutes(1)));
-    let renewal = Renewal::new(
+    let renewal = OAuthTokens::new(
         acct_account(),
         &plan(1),
         registration,
         secrets.clone(),
         held.clone(),
     )
-    .unwrap()
     .with_clock(Clock::at(t0()).now());
 
     renewal.ahead(Token::Incoming).await.unwrap();
@@ -680,14 +693,13 @@ async fn a_rotated_refresh_token_is_saved_and_spent_next_time() {
     .await;
     let secrets = secrets(&token("first", "r1", t0() - minutes(1)));
     let clock = Clock::at(t0());
-    let renewal = Renewal::new(
+    let renewal = OAuthTokens::new(
         acct_account(),
         &plan(1),
         registration,
         secrets.clone(),
         Held::new(token("first", "r1", t0() - minutes(1))),
     )
-    .unwrap()
     .with_clock(clock.now());
 
     renewal.ahead(Token::Incoming).await.unwrap();
@@ -721,7 +733,7 @@ struct Sending {
 
 /// A message queued for an account that sends through Graph at `graph_port`, holding `graph`
 /// as its Graph token.
-fn queued(graph_port: u16, registration: Registration, graph: Credential) -> Sending {
+fn queued(graph_port: u16, registration: ClientEntry, graph: Credential) -> Sending {
     let (store, dir) = store();
     let secrets = secrets(&token("imap-token", "r1", t0() + minutes(60)));
     mail_runtime::block_on(secrets.put(&key(SecretPurpose::OutgoingPassword), &graph)).unwrap();
@@ -793,14 +805,13 @@ fn queued(graph_port: u16, registration: Registration, graph: Credential) -> Sen
             Pop3Session::new(ADDRESS, "unused", all)
         }),
     );
-    let renewal = Renewal::new(
+    let renewal = OAuthTokens::new(
         acct_account(),
         &plan(1),
         registration,
         secrets.clone(),
         Held::new(token("imap-token", "r1", t0() + minutes(60))),
     )
-    .unwrap()
     .with_clock(Clock::at(t0()).now());
     let engine = AccountEngine::new(
         acct_account(),
@@ -810,7 +821,7 @@ fn queued(graph_port: u16, registration: Registration, graph: Credential) -> Sen
         secrets.clone(),
     )
     .with_graph_url(format!("http://127.0.0.1:{graph_port}/v1.0/me/sendMail"))
-    .with_renewal(renewal);
+    .with_tokens(Arc::new(renewal));
     Sending {
         engine,
         secrets,
@@ -826,7 +837,11 @@ async fn a_graph_token_near_expiry_is_renewed_before_sending() {
     let mut it = queued(
         graph_port,
         registration,
-        token("graph-old", "r1", t0() + minutes(2)),
+        token(
+            "graph-old",
+            "r1",
+            t0() + TimeDelta::try_seconds(30).unwrap(),
+        ),
     );
     let (_tx, mut cancel) = watch::channel(false);
 
