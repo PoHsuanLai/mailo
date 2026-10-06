@@ -9,7 +9,6 @@ members = [
   "crates/mail-runtime",
   "crates/mail-core",
   "crates/mail-app",
-  "crates/latchkey",
 ]
 
 [workspace.package]
@@ -23,7 +22,8 @@ license = "MIT OR Apache-2.0"
 rust-version = "1.92"
 
 [workspace.dependencies]
-latchkey    = { path = "crates/latchkey" }
+# The per-user agent lifecycle, its own repo since 2026-10-07 (split from crates/latchkey here).
+latchkey    = { git = "https://github.com/PoHsuanLai/latchkey", rev = "7b250b9e3b17bccd2a20126c6106461bc2050313" }
 mail-core   = { path = "crates/mail-core" }
 mail-domain = { path = "crates/mail-domain" }
 mail-mime   = { path = "crates/mail-mime" }
